@@ -182,6 +182,7 @@ impl crate::capabilities::HasWDR for PtzOpticsG2 {}
 impl crate::capabilities::HasOnePushWhiteBalance for PtzOpticsG2 {}
 impl crate::capabilities::HasAutoFocus for PtzOpticsG2 {}
 impl crate::capabilities::HasOnePushFocus for PtzOpticsG2 {}
+impl crate::capabilities::HasFocusLock for PtzOpticsG2 {}
 
 /// Generic VISCA camera profile.
 ///
@@ -387,6 +388,7 @@ impl crate::capabilities::HasColorTemperature for SonyFR7 {}
 impl crate::capabilities::HasRGBGain for SonyFR7 {}
 impl crate::capabilities::HasAutoFocus for SonyFR7 {}
 impl crate::capabilities::HasOnePushFocus for SonyFR7 {}
+impl crate::capabilities::HasPushAutoFocus for SonyFR7 {}
 impl crate::capabilities::HasHue for SonyFR7 {}
 impl crate::capabilities::menu_control::HasDirectMenuControl for SonyFR7 {}
 impl crate::capabilities::Tally for SonyFR7 {
@@ -800,6 +802,7 @@ impl Power for PtzOpticsG3 {
 }
 impl MenuCapability for PtzOpticsG3 {}
 impl crate::capabilities::Tally for PtzOpticsG3 {}
+impl crate::capabilities::HasFocusLock for PtzOpticsG3 {}
 
 impl MotionSync for PtzOpticsG3 {
     const SUPPORTS_MOTION_SYNC: bool = true;

@@ -171,10 +171,14 @@ where
 }
 
 // Single unified implementation for DirectMenuControl
+// Only available for profiles that implement HasDirectMenuControl marker trait
 impl<M, P, Tr, Exec> DirectMenuControl for crate::camera::Camera<M, P, Tr, Exec>
 where
     M: Mode,
-    P: crate::capabilities::Profile + crate::capabilities::MenuCapability + Default,
+    P: crate::capabilities::Profile
+        + crate::capabilities::MenuCapability
+        + crate::capabilities::HasDirectMenuControl
+        + Default,
     Self: ViscaClient<M>,
     Exec: crate::executor::Executor,
 {

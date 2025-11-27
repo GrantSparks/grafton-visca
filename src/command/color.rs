@@ -353,8 +353,7 @@ impl ViscaCommand for BlueGain {
 mod tests {
     use super::*;
     use crate::{
-        command::bytes::VISCA_TERMINATOR, constants::CameraVariant, macros::test_utils::visca_test,
-        timeout::CommandTimeout,
+        command::bytes::VISCA_TERMINATOR, macros::test_utils::visca_test, timeout::CommandTimeout,
     };
 
     visca_test!(
@@ -389,18 +388,6 @@ mod tests {
     }
 
     #[test]
-    fn test_red_tuning_g2_validation() {
-        // Test valid G2 values
-        for level in -10..=10 {
-            let tuning = RedTuning::new(level).unwrap();
-            let cmd = RedTuningCommand::new(tuning);
-            assert!(cmd.validate_for_model(CameraVariant::PtzOpticsG2).is_ok());
-        }
-
-        // Invalid values can't be created with RedTuning type
-    }
-
-    #[test]
     fn test_blue_tuning_command() {
         // Test valid range
         for level in -10..=10 {
@@ -422,18 +409,6 @@ mod tests {
         // Test invalid values - can't create invalid BlueTuning
         assert!(BlueTuning::new(-11).is_err());
         assert!(BlueTuning::new(11).is_err());
-    }
-
-    #[test]
-    fn test_blue_tuning_g2_validation() {
-        // Test valid G2 values
-        for level in -10..=10 {
-            let tuning = BlueTuning::new(level).unwrap();
-            let cmd = BlueTuningCommand::new(tuning);
-            assert!(cmd.validate_for_model(CameraVariant::PtzOpticsG2).is_ok());
-        }
-
-        // Invalid values can't be created with BlueTuning type
     }
 
     #[test]
@@ -469,18 +444,6 @@ mod tests {
     }
 
     #[test]
-    fn test_saturation_g2_validation() {
-        // Test valid G2 values
-        for level in 0x00..=0x0E {
-            let sat_level = SaturationLevel::new(level).unwrap();
-            let cmd = SaturationCommand::new(sat_level);
-            assert!(cmd.validate_for_model(CameraVariant::PtzOpticsG2).is_ok());
-        }
-
-        // Invalid values can't be created with SaturationLevel type
-    }
-
-    #[test]
     fn test_hue_command() {
         // Test valid range
         for level in 0x00..=0x0E {
@@ -510,18 +473,6 @@ mod tests {
 
         // Test invalid value - can't create invalid HueLevel
         assert!(HueLevel::new(0x0F).is_err());
-    }
-
-    #[test]
-    fn test_hue_g2_validation() {
-        // Test valid G2 values
-        for level in 0x00..=0x0E {
-            let hue_level = HueLevel::new(level).unwrap();
-            let cmd = HueCommand::new(hue_level);
-            assert!(cmd.validate_for_model(CameraVariant::PtzOpticsG2).is_ok());
-        }
-
-        // Invalid values can't be created with HueLevel type
     }
 
     #[test]

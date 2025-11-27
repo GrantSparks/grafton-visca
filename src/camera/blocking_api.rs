@@ -11,7 +11,7 @@ use crate::{
         controls::{
             color::ColorControl,
             exposure::{ExposureCompensationControl, ExposureControl},
-            focus::FocusControl,
+            focus::{FocusControl, FocusLockControl, PushAFControl},
             image_processing::ImageProcessingControl,
             inquiry::{InquiryControl, PanTiltInquiryControl},
             menu::{DirectMenuControl, MenuControl},
@@ -375,18 +375,6 @@ where
         /// Set focus to infinity.
         fn focus_infinity() -> ();
 
-        /// Enable focus lock.
-        fn enable_focus_lock() -> ();
-
-        /// Disable focus lock.
-        fn disable_focus_lock() -> ();
-
-        /// Push AF press.
-        fn push_af_press() -> ();
-
-        /// Push AF release.
-        fn push_af_release() -> ();
-
         /// Set focus zone.
         fn set_focus_zone(zone: crate::command::focus::FocusZone) -> ();
 
@@ -395,6 +383,53 @@ where
 
         /// Set focus near limit.
         fn set_focus_near_limit(position: crate::types::FocusPosition) -> ();
+    }
+}
+
+// ============================================================================
+// FocusLockControl implementation (PtzOptics vendor-specific)
+// ============================================================================
+
+impl<P, Tr> BlockingClient<P, Tr>
+where
+    Camera<Blocking, P, Tr, ()>: FocusLockControl<Mode = Blocking>,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasFocusLock,
+{
+    impl_blocking_methods! {
+        /// Enable focus lock.
+        ///
+        /// Focus lock prevents any focus changes while enabled, useful for
+        /// maintaining consistent focus during recording. This is a vendor-specific
+        /// feature primarily supported by PtzOptics cameras.
+        fn enable_focus_lock() -> ();
+
+        /// Disable focus lock.
+        ///
+        /// Disables focus lock, allowing focus changes again.
+        fn disable_focus_lock() -> ();
+    }
+}
+
+// ============================================================================
+// PushAFControl implementation (Sony vendor-specific)
+// ============================================================================
+
+impl<P, Tr> BlockingClient<P, Tr>
+where
+    Camera<Blocking, P, Tr, ()>: PushAFControl<Mode = Blocking>,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasPushAutoFocus,
+{
+    impl_blocking_methods! {
+        /// Push AF press.
+        ///
+        /// Temporarily activates auto focus while the button is pressed.
+        /// This is a vendor-specific feature primarily supported by Sony cameras.
+        fn push_af_press() -> ();
+
+        /// Push AF release.
+        ///
+        /// Releases the push AF button, returning to the previous focus mode.
+        fn push_af_release() -> ();
     }
 }
 

@@ -162,14 +162,17 @@
 //! camera.pan_tilt_absolute(1000, 500, 10, 10)?;  // Validated against G2 limits
 //! ```
 //!
-//! ### Command-Level Validation
-//! Extended commands validate model support before encoding:
+//! ### Compile-Time Capability Gating
+//! Vendor-specific commands are gated by marker traits, ensuring compile-time safety:
 //! ```ignore
-//! use grafton_visca::command::focus::FocusLock;
+//! use grafton_visca::{FocusLockControl, camera::profiles::PtzOpticsG2};
 //!
-//! // FocusLock validates it's only used with PTZOptics cameras
-//! let cmd = FocusLock::On;
-//! // validate_for_model() is called automatically during encoding
+//! // FocusLockControl is only available for profiles with HasFocusLock
+//! // PtzOpticsG2 implements HasFocusLock, so these methods are available
+//! camera.enable_focus_lock()?;  // Compiles with PtzOpticsG2
+//! camera.disable_focus_lock()?;
+//!
+//! // With a different profile that doesn't have HasFocusLock, this wouldn't compile
 //! ```
 //!
 //! This multi-layered approach ensures:
@@ -716,7 +719,7 @@ pub use crate::runtime::{Runtime, TransportHandle};
 pub use crate::camera::controls::{
     color::ColorControl,
     exposure::ExposureControl,
-    focus::FocusControl,
+    focus::{FocusControl, FocusLockControl, PushAFControl},
     image_processing::ImageProcessingControl,
     inquiry::{InquiryControl, PanTiltInquiryControl},
     menu::{DirectMenuControl, MenuControl},

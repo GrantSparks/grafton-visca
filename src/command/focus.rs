@@ -12,8 +12,6 @@
 
 use grafton_visca_macros::ViscaEnum;
 
-use std::borrow::Cow;
-
 use crate::{
     command::{encode::ViscaCommand, InquiryKind},
     error::Error,
@@ -361,19 +359,6 @@ impl ViscaCommand for FocusLock {
     fn response_kind(&self) -> Option<InquiryKind> {
         None
     }
-
-    fn validate_for_model(&self, model: crate::constants::CameraVariant) -> Result<(), Error> {
-        use crate::constants::CameraVariant;
-
-        match model {
-            CameraVariant::PtzOpticsG2 | CameraVariant::PtzOpticsG3 => Ok(()),
-            _ => Err(Error::ModelValidation {
-                model,
-                command: Cow::Borrowed("FocusLock"),
-                reason: Cow::Borrowed("FocusLock is only supported on PtzOptics cameras"),
-            }),
-        }
-    }
 }
 
 /// Push AF command.
@@ -419,19 +404,6 @@ impl ViscaCommand for PushAF {
 
     fn response_kind(&self) -> Option<InquiryKind> {
         None
-    }
-
-    fn validate_for_model(&self, model: crate::constants::CameraVariant) -> Result<(), Error> {
-        use crate::constants::CameraVariant;
-
-        match model {
-            CameraVariant::SonyFR7 => Ok(()),
-            _ => Err(Error::ModelValidation {
-                model,
-                command: Cow::Borrowed("PushAF"),
-                reason: Cow::Borrowed("PushAF is only supported on Sony FR7 cameras"),
-            }),
-        }
     }
 }
 

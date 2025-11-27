@@ -53,23 +53,6 @@ impl ViscaCommand for SetMotionSyncMode {
     fn response_kind(&self) -> Option<InquiryKind> {
         None // Command response, not inquiry
     }
-
-    // Override validate_for_model to restrict to PTZOptics cameras
-    fn validate_for_model(&self, model: crate::constants::CameraVariant) -> Result<(), Error> {
-        use crate::constants::CameraVariant;
-        use std::borrow::Cow;
-
-        match model {
-            CameraVariant::PtzOpticsG2 | CameraVariant::PtzOpticsG3 => Ok(()),
-            _ => Err(Error::ModelValidation {
-                model,
-                command: Cow::Borrowed("MotionSyncMode"),
-                reason: Cow::Borrowed(
-                    "Motion Sync is only supported on PTZOptics cameras with firmware 1.1.6+",
-                ),
-            }),
-        }
-    }
 }
 
 /// Command to set Motion Sync speed.
@@ -135,23 +118,6 @@ impl ViscaCommand for SetMotionSyncPreset {
 
     fn response_kind(&self) -> Option<InquiryKind> {
         None // Command response, not inquiry
-    }
-
-    // Override validate_for_model to restrict to PTZOptics cameras
-    fn validate_for_model(&self, model: crate::constants::CameraVariant) -> Result<(), Error> {
-        use crate::constants::CameraVariant;
-        use std::borrow::Cow;
-
-        match model {
-            CameraVariant::PtzOpticsG2 | CameraVariant::PtzOpticsG3 => Ok(()),
-            _ => Err(Error::ModelValidation {
-                model,
-                command: Cow::Borrowed("MotionSyncPreset"),
-                reason: Cow::Borrowed(
-                    "Motion Sync is only supported on PTZOptics cameras with firmware 1.1.6+",
-                ),
-            }),
-        }
     }
 }
 

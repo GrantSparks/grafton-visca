@@ -102,7 +102,6 @@ mod tests {
 
     use crate::{
         command::{bytes::VISCA_TERMINATOR, encode::ViscaCommand},
-        constants::CameraVariant,
         macros::test_utils::visca_test,
         timeout::CommandTimeout,
     };
@@ -157,26 +156,12 @@ mod tests {
     }
 
     #[test]
-    fn test_gain_command_g2_validation() {
+    fn test_gain_valid_values() {
         for value in 0x00..=0x07 {
             let gain =
                 GainLevel::new(value).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-            let cmd = Gain::SetValue(gain);
-            assert!(cmd.validate_for_model(CameraVariant::PtzOpticsG2).is_ok());
+            let _cmd = Gain::SetValue(gain);
         }
-
-        // Gain itself is limited to 0x00-0x07, which are all valid for G2
-        // So all valid Gain instances should pass G2 validation
-
-        assert!(Gain::Reset
-            .validate_for_model(CameraVariant::PtzOpticsG2)
-            .is_ok());
-        assert!(Gain::Up
-            .validate_for_model(CameraVariant::PtzOpticsG2)
-            .is_ok());
-        assert!(Gain::Down
-            .validate_for_model(CameraVariant::PtzOpticsG2)
-            .is_ok());
     }
 
     #[test]

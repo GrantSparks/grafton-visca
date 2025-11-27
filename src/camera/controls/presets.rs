@@ -13,9 +13,16 @@
 //!
 //! The implementation uses the Mode trait to provide both blocking and async APIs
 //! from a single unified codebase.
+//!
+//! # Compile-Time Validation
+//!
+//! Preset numbers are validated at runtime against the camera profile's
+//! `MAX_PRESETS` constant. This ensures that preset operations are only
+//! performed with valid preset numbers for the specific camera model.
 
 use crate::{
     camera::ViscaClient,
+    capabilities::presets::Presets,
     command::preset::{PresetAction, PresetCommand, PresetNumber},
     mode::Mode,
     Error,
@@ -117,6 +124,20 @@ pub trait PresetsControl {
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 }
 
+/// Helper function to validate a preset number against the camera's MAX_PRESETS.
+fn validate_preset<P: Presets>(preset: PresetNumber) -> Result<(), Error> {
+    let max_presets = P::MAX_PRESETS;
+    if preset.value() > max_presets {
+        return Err(Error::ParameterOutOfRange {
+            parameter: "preset_number",
+            value: i32::from(preset.value()),
+            min: 0,
+            max: i32::from(max_presets),
+        });
+    }
+    Ok(())
+}
+
 // Single unified implementation for all Camera types!
 impl<M, P, Tr, Exec> PresetsControl for crate::camera::Camera<M, P, Tr, Exec>
 where
@@ -128,6 +149,9 @@ where
     type Mode = M;
 
     fn preset_recall(&self, preset: PresetNumber) -> M::Fut<'_, Result<(), Error>> {
+        if let Err(e) = validate_preset::<P>(preset) {
+            return self.error(e);
+        }
         let cmd = PresetCommand {
             action: PresetAction::Recall,
             preset_number: preset,
@@ -136,6 +160,9 @@ where
     }
 
     fn preset_set(&self, preset: PresetNumber) -> M::Fut<'_, Result<(), Error>> {
+        if let Err(e) = validate_preset::<P>(preset) {
+            return self.error(e);
+        }
         let cmd = PresetCommand {
             action: PresetAction::Set,
             preset_number: preset,
@@ -144,6 +171,9 @@ where
     }
 
     fn preset_reset(&self, preset: PresetNumber) -> M::Fut<'_, Result<(), Error>> {
+        if let Err(e) = validate_preset::<P>(preset) {
+            return self.error(e);
+        }
         let cmd = PresetCommand {
             action: PresetAction::Reset,
             preset_number: preset,
@@ -166,6 +196,9 @@ where
         preset: PresetNumber,
     ) -> Result<crate::camera::inflight::InFlight<'_, crate::camera::inflight::Preset, Self>, Error>
     {
+        // Validate preset number against camera's MAX_PRESETS
+        validate_preset::<P>(preset)?;
+
         let cmd = PresetCommand {
             action: PresetAction::Recall,
             preset_number: preset,

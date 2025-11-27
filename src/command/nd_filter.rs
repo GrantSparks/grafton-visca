@@ -10,15 +10,12 @@
 //! - All ND filter commands - Sony FR7 specific
 //! - The FR7 supports variable ND filter (2 to 7 stops, continuously variable)
 
-use std::borrow::Cow;
-
 use crate::{
     command::{
         bytes::{constants, ConstCommandBuilder},
         encode::ViscaCommand,
         InquiryKind,
     },
-    constants::CameraVariant,
     error::Error,
     timeout::CommandCategory,
 };
@@ -76,17 +73,6 @@ impl ViscaCommand for NdFilterModeCommand {
     fn response_kind(&self) -> Option<InquiryKind> {
         None
     }
-
-    fn validate_for_model(&self, model: CameraVariant) -> Result<(), Error> {
-        match model {
-            CameraVariant::SonyFR7 => Ok(()),
-            _ => Err(Error::ModelValidation {
-                model,
-                command: Cow::Borrowed("NdFilterModeCommand"),
-                reason: Cow::Borrowed("ND filter commands are only supported on Sony FR7 cameras"),
-            }),
-        }
-    }
 }
 
 impl NdFilterModeCommand {
@@ -128,17 +114,6 @@ impl ViscaCommand for NdFilterValue {
 
     fn response_kind(&self) -> Option<InquiryKind> {
         None
-    }
-
-    fn validate_for_model(&self, model: CameraVariant) -> Result<(), Error> {
-        match model {
-            CameraVariant::SonyFR7 => Ok(()),
-            _ => Err(Error::ModelValidation {
-                model,
-                command: Cow::Borrowed("NdFilterValue"),
-                reason: Cow::Borrowed("ND filter commands are only supported on Sony FR7 cameras"),
-            }),
-        }
     }
 }
 
@@ -227,17 +202,6 @@ impl ViscaCommand for NdFilterStepCommand {
     fn response_kind(&self) -> Option<InquiryKind> {
         None
     }
-
-    fn validate_for_model(&self, model: CameraVariant) -> Result<(), Error> {
-        match model {
-            CameraVariant::SonyFR7 => Ok(()),
-            _ => Err(Error::ModelValidation {
-                model,
-                command: Cow::Borrowed("NdFilterStepCommand"),
-                reason: Cow::Borrowed("ND filter commands are only supported on Sony FR7 cameras"),
-            }),
-        }
-    }
 }
 
 impl NdFilterStepCommand {
@@ -287,17 +251,6 @@ impl ViscaCommand for AutoNdCommand {
 
     fn response_kind(&self) -> Option<InquiryKind> {
         None
-    }
-
-    fn validate_for_model(&self, model: CameraVariant) -> Result<(), Error> {
-        match model {
-            CameraVariant::SonyFR7 => Ok(()),
-            _ => Err(Error::ModelValidation {
-                model,
-                command: Cow::Borrowed("AutoNdCommand"),
-                reason: Cow::Borrowed("ND filter commands are only supported on Sony FR7 cameras"),
-            }),
-        }
     }
 }
 

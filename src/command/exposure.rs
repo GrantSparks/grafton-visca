@@ -449,7 +449,6 @@ mod tests {
     use super::*;
     use crate::command::bytes::VISCA_TERMINATOR;
     use crate::command::encode::ViscaCommand;
-    use crate::constants::CameraVariant;
     use crate::macros::test_utils::visca_test;
     use crate::timeout::CommandTimeout;
 
@@ -625,20 +624,12 @@ mod tests {
     );
 
     #[test]
-    fn test_exposure_compensation_g2_validation() {
+    fn test_exposure_compensation_valid_values() {
         for value in -7..=7 {
             let level = ExposureCompensationLevel::new(value)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-            let cmd = ExposureCompensation::SetLevel(level);
-            assert!(cmd.validate_for_model(CameraVariant::PtzOpticsG2).is_ok());
+            let _cmd = ExposureCompensation::SetLevel(level);
         }
-
-        assert!(ExposureCompensation::On
-            .validate_for_model(CameraVariant::PtzOpticsG2)
-            .is_ok());
-        assert!(ExposureCompensation::Off
-            .validate_for_model(CameraVariant::PtzOpticsG2)
-            .is_ok());
     }
 
     visca_test!(
@@ -693,12 +684,11 @@ mod tests {
     );
 
     #[test]
-    fn test_dynamic_range_g2_validation() {
+    fn test_dynamic_range_valid_values() {
         for value in 0..=8 {
             let level = DynamicRangeLevel::new(value)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-            let cmd = DynamicRange::new(level);
-            assert!(cmd.validate_for_model(CameraVariant::PtzOpticsG2).is_ok());
+            let _cmd = DynamicRange::new(level);
         }
     }
 
@@ -792,17 +782,12 @@ mod tests {
     );
 
     #[test]
-    fn test_iris_g2_validation() {
+    fn test_iris_valid_values() {
         for value in 0x00..=0x0C {
             let level =
                 IrisLevel::new(value).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-            let cmd = Iris::SetAperture(level);
-            assert!(cmd.validate_for_model(CameraVariant::PtzOpticsG2).is_ok());
+            let _cmd = Iris::SetAperture(level);
         }
-
-        assert!(Iris::Reset
-            .validate_for_model(CameraVariant::PtzOpticsG2)
-            .is_ok());
     }
 
     visca_test!(
@@ -895,17 +880,12 @@ mod tests {
     );
 
     #[test]
-    fn test_shutter_g2_validation() {
+    fn test_shutter_valid_values() {
         for value in 0x01..=0x11 {
             let speed =
                 ShutterSpeed::new(value).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-            let cmd = Shutter::SetSpeed(speed);
-            assert!(cmd.validate_for_model(CameraVariant::PtzOpticsG2).is_ok());
+            let _cmd = Shutter::SetSpeed(speed);
         }
-
-        assert!(Shutter::Reset
-            .validate_for_model(CameraVariant::PtzOpticsG2)
-            .is_ok());
     }
 
     visca_test!(
@@ -1066,17 +1046,12 @@ mod tests {
     );
 
     #[test]
-    fn test_bright_g2_validation() {
+    fn test_brightness_valid_values() {
         for value in 0x00..=0x11 {
             let level = BrightnessLevel::new(value)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-            let cmd = Brightness::SetLevel(level);
-            assert!(cmd.validate_for_model(CameraVariant::PtzOpticsG2).is_ok());
+            let _cmd = Brightness::SetLevel(level);
         }
-
-        assert!(Brightness::Reset
-            .validate_for_model(CameraVariant::PtzOpticsG2)
-            .is_ok());
     }
 
     #[test]

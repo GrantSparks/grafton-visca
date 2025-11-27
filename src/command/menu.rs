@@ -4,12 +4,7 @@
 //! allowing remote navigation and configuration. These commands are particularly useful
 //! for Sony FR7 and other cameras with comprehensive on-screen menus.
 
-use std::borrow::Cow;
-
-use crate::{
-    command::bytes::ConstCommandBuilder, constants::CameraVariant, timeout::CommandCategory,
-    visca_command,
-};
+use crate::{command::bytes::ConstCommandBuilder, timeout::CommandCategory, visca_command};
 
 visca_command! {
     /// Menu display control command.
@@ -170,17 +165,6 @@ impl crate::command::encode::ViscaCommand for DirectMenuControl {
 
     fn response_kind(&self) -> Option<crate::command::InquiryKind> {
         None
-    }
-
-    fn validate_for_model(&self, model: CameraVariant) -> Result<(), crate::Error> {
-        match model {
-            CameraVariant::SonyFR7 => Ok(()),
-            _ => Err(crate::Error::ModelValidation {
-                model,
-                command: Cow::Borrowed("DirectMenuControl"),
-                reason: Cow::Borrowed("Direct menu control is only supported on Sony FR7 cameras"),
-            }),
-        }
     }
 }
 

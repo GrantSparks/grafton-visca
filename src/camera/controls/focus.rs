@@ -4,15 +4,21 @@
 //! - Automatic and manual focus modes
 //! - Variable speed focus adjustment (near/far)
 //! - Absolute position control and infinity focus
-//! - Focus lock to prevent unwanted changes
+//! - Focus lock to prevent unwanted changes (vendor-specific: PtzOptics)
 //! - One-push auto focus for quick adjustment
-//! - Push AF for temporary auto focus
+//! - Push AF for temporary auto focus (vendor-specific: Sony FR7)
 //! - Focus zone configuration for area-specific focusing
 //! - Auto focus sensitivity adjustment
 //! - Near limit setting to prevent close-object focus
 //!
 //! The implementation uses the Mode trait to provide both blocking and async APIs
 //! from a single unified codebase.
+//!
+//! # Capability-Gated Traits
+//!
+//! Vendor-specific features are gated by marker traits to ensure compile-time safety:
+//! - `FocusLockControl` requires `HasFocusLock` (PtzOptics cameras)
+//! - `PushAFControl` requires `HasPushAutoFocus` (Sony FR7)
 
 use crate::{
     camera::ViscaClient,
@@ -166,42 +172,6 @@ pub trait FocusControl {
     /// Returns an error if the command fails to send or receive a response.
     fn focus_infinity(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
-    /// Enable focus lock.
-    ///
-    /// Locks the current focus position to prevent any changes from auto focus
-    /// or manual adjustments. Useful for maintaining consistent focus during recording.
-    ///
-    /// # Errors
-    /// Returns an error if the command fails to send or receive a response.
-    fn enable_focus_lock(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
-
-    /// Disable focus lock.
-    ///
-    /// Allows focus to be adjusted again after being locked.
-    /// Returns focus control to the previously selected mode.
-    ///
-    /// # Errors
-    /// Returns an error if the command fails to send or receive a response.
-    fn disable_focus_lock(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
-
-    /// Press Push AF button.
-    ///
-    /// Temporarily activates auto focus while the button is pressed.
-    /// This allows quick focus adjustment without changing the focus mode.
-    ///
-    /// # Errors
-    /// Returns an error if the command fails to send or receive a response.
-    fn push_af_press(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
-
-    /// Release Push AF button.
-    ///
-    /// Returns to the previous focus mode after temporary auto focus.
-    /// Must be called after push_af_press() to end the temporary auto focus.
-    ///
-    /// # Errors
-    /// Returns an error if the command fails to send or receive a response.
-    fn push_af_release(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
-
     /// Set the focus zone.
     ///
     /// Determines which area of the image the camera uses for auto focus detection.
@@ -320,22 +290,6 @@ where
         self.execute(Focus::Infinity)
     }
 
-    fn enable_focus_lock(&self) -> M::Fut<'_, Result<(), Error>> {
-        self.execute(FocusLock::On)
-    }
-
-    fn disable_focus_lock(&self) -> M::Fut<'_, Result<(), Error>> {
-        self.execute(FocusLock::Off)
-    }
-
-    fn push_af_press(&self) -> M::Fut<'_, Result<(), Error>> {
-        self.execute(PushAF::Press)
-    }
-
-    fn push_af_release(&self) -> M::Fut<'_, Result<(), Error>> {
-        self.execute(PushAF::Release)
-    }
-
     fn set_focus_zone(&self, zone: FocusZone) -> M::Fut<'_, Result<(), Error>> {
         self.execute(FocusZoneCommand { zone })
     }
@@ -414,5 +368,132 @@ where
 
         // Return InFlight handle
         Ok(crate::camera::inflight::InFlight::new(id, self))
+    }
+}
+
+/// Focus lock control for cameras that support focus locking.
+///
+/// This trait provides focus lock functionality which prevents any changes to
+/// focus position while enabled. This is a vendor-specific feature primarily
+/// supported by PtzOptics cameras.
+///
+/// # Capability Gating
+///
+/// This trait is only available for camera profiles that implement the
+/// `HasFocusLock` marker trait. Attempting to use these methods on unsupported
+/// cameras will result in a compile-time error.
+///
+/// # Examples
+///
+/// ```ignore
+/// // Only works with PtzOptics cameras that implement HasFocusLock
+/// camera.enable_focus_lock()?;
+/// // Focus is now locked at current position
+/// // ... later ...
+/// camera.disable_focus_lock()?;
+/// ```
+#[grafton_visca_macros::delegate_to_session]
+pub trait FocusLockControl {
+    /// The mode type for this camera (Async or Blocking).
+    type Mode: Mode;
+
+    /// Enable focus lock.
+    ///
+    /// Locks the current focus position to prevent any changes from auto focus
+    /// or manual adjustments. Useful for maintaining consistent focus during recording.
+    ///
+    /// # Errors
+    /// Returns an error if the command fails to send or receive a response.
+    fn enable_focus_lock(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+
+    /// Disable focus lock.
+    ///
+    /// Allows focus to be adjusted again after being locked.
+    /// Returns focus control to the previously selected mode.
+    ///
+    /// # Errors
+    /// Returns an error if the command fails to send or receive a response.
+    fn disable_focus_lock(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+}
+
+// Implementation of FocusLockControl for cameras with HasFocusLock capability
+impl<M, P, Tr, Exec> FocusLockControl for crate::camera::Camera<M, P, Tr, Exec>
+where
+    M: Mode,
+    P: crate::capabilities::Profile + crate::capabilities::HasFocusLock + Default,
+    Self: ViscaClient<M>,
+    Exec: crate::executor::Executor,
+{
+    type Mode = M;
+
+    fn enable_focus_lock(&self) -> M::Fut<'_, Result<(), Error>> {
+        self.execute(FocusLock::On)
+    }
+
+    fn disable_focus_lock(&self) -> M::Fut<'_, Result<(), Error>> {
+        self.execute(FocusLock::Off)
+    }
+}
+
+/// Push AF control for cameras that support temporary auto focus.
+///
+/// Push AF temporarily activates auto focus while the button is pressed,
+/// then returns to the previous focus mode. This is a vendor-specific feature
+/// primarily supported by Sony FR7 cameras.
+///
+/// # Capability Gating
+///
+/// This trait is only available for camera profiles that implement the
+/// `HasPushAutoFocus` marker trait. Attempting to use these methods on unsupported
+/// cameras will result in a compile-time error.
+///
+/// # Examples
+///
+/// ```ignore
+/// // Only works with Sony FR7 cameras that implement HasPushAutoFocus
+/// camera.push_af_press()?;  // Start temporary auto focus
+/// // ... focus is adjusting ...
+/// camera.push_af_release()?;  // Return to previous mode
+/// ```
+#[grafton_visca_macros::delegate_to_session]
+pub trait PushAFControl {
+    /// The mode type for this camera (Async or Blocking).
+    type Mode: Mode;
+
+    /// Press Push AF button.
+    ///
+    /// Temporarily activates auto focus while the button is pressed.
+    /// This allows quick focus adjustment without changing the focus mode.
+    ///
+    /// # Errors
+    /// Returns an error if the command fails to send or receive a response.
+    fn push_af_press(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+
+    /// Release Push AF button.
+    ///
+    /// Returns to the previous focus mode after temporary auto focus.
+    /// Must be called after push_af_press() to end the temporary auto focus.
+    ///
+    /// # Errors
+    /// Returns an error if the command fails to send or receive a response.
+    fn push_af_release(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+}
+
+// Implementation of PushAFControl for cameras with HasPushAutoFocus capability
+impl<M, P, Tr, Exec> PushAFControl for crate::camera::Camera<M, P, Tr, Exec>
+where
+    M: Mode,
+    P: crate::capabilities::Profile + crate::capabilities::HasPushAutoFocus + Default,
+    Self: ViscaClient<M>,
+    Exec: crate::executor::Executor,
+{
+    type Mode = M;
+
+    fn push_af_press(&self) -> M::Fut<'_, Result<(), Error>> {
+        self.execute(PushAF::Press)
+    }
+
+    fn push_af_release(&self) -> M::Fut<'_, Result<(), Error>> {
+        self.execute(PushAF::Release)
     }
 }

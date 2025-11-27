@@ -113,6 +113,20 @@ pub trait HasAutoFocus {}
 /// Marker trait indicating support for one push focus.
 pub trait HasOnePushFocus {}
 
+/// Marker trait indicating support for focus lock.
+///
+/// Focus lock prevents any focus changes while enabled, useful for
+/// maintaining consistent focus during recording. This is a vendor-specific
+/// feature primarily supported by PtzOptics cameras.
+pub trait HasFocusLock {}
+
+/// Marker trait indicating support for Push AF (Push Auto Focus).
+///
+/// Push AF temporarily activates auto focus while the button is pressed,
+/// then returns to the previous focus mode. This is a vendor-specific
+/// feature primarily supported by Sony cameras.
+pub trait HasPushAutoFocus {}
+
 /// Marker trait indicating support for one push white balance.
 pub trait HasOnePushWhiteBalance {}
 

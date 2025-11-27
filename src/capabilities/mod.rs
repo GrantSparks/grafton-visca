@@ -22,10 +22,10 @@ pub mod zoom;
 mod profile_metadata;
 pub use profile_metadata::{
     HasAutoExposure, HasAutoFocus, HasBacklightCompensation, HasColorTemperature, HasExposure,
-    HasExposureCompensation, HasFocus, HasHue, HasImageProcessing, HasLuminance, HasMenuControl,
-    HasMotionSync, HasNdFilter, HasOnePushFocus, HasOnePushWhiteBalance, HasPanTilt,
-    HasPictureEffect, HasPower, HasPresets, HasRGBGain, HasTally, HasVariableSpeed, HasWDR,
-    HasWhiteBalance, HasZoom, ProfileMetadata,
+    HasExposureCompensation, HasFocus, HasFocusLock, HasHue, HasImageProcessing, HasLuminance,
+    HasMenuControl, HasMotionSync, HasNdFilter, HasOnePushFocus, HasOnePushWhiteBalance,
+    HasPanTilt, HasPictureEffect, HasPower, HasPresets, HasPushAutoFocus, HasRGBGain, HasTally,
+    HasVariableSpeed, HasWDR, HasWhiteBalance, HasZoom, ProfileMetadata,
 };
 
 // Re-export all capability traits

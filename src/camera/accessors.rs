@@ -10,7 +10,7 @@ use crate::{
         controls::{
             color::ColorControl,
             exposure::ExposureControl,
-            focus::FocusControl,
+            focus::{FocusControl, FocusLockControl, PushAFControl},
             inquiry::{InquiryControl, PanTiltInquiryControl},
             menu::MenuControl,
             nd_filter::NdFilterControl,
@@ -491,33 +491,45 @@ where
     }
 
     /// Enable focus lock to prevent changes.
+    ///
+    /// This method is only available for cameras that support focus lock
+    /// (requires `HasFocusLock` marker trait, typically PtzOptics cameras).
     pub fn lock(&self) -> M::Fut<'_, Result<(), Error>>
     where
-        Camera<M, P, Tr, Exec>: FocusControl<Mode = M>,
+        Camera<M, P, Tr, Exec>: FocusLockControl<Mode = M>,
     {
         self.camera.enable_focus_lock()
     }
 
     /// Disable focus lock.
+    ///
+    /// This method is only available for cameras that support focus lock
+    /// (requires `HasFocusLock` marker trait, typically PtzOptics cameras).
     pub fn unlock(&self) -> M::Fut<'_, Result<(), Error>>
     where
-        Camera<M, P, Tr, Exec>: FocusControl<Mode = M>,
+        Camera<M, P, Tr, Exec>: FocusLockControl<Mode = M>,
     {
         self.camera.disable_focus_lock()
     }
 
     /// Press Push AF button (temporary auto focus).
+    ///
+    /// This method is only available for cameras that support Push AF
+    /// (requires `HasPushAutoFocus` marker trait, typically Sony FR7).
     pub fn push_af_press(&self) -> M::Fut<'_, Result<(), Error>>
     where
-        Camera<M, P, Tr, Exec>: FocusControl<Mode = M>,
+        Camera<M, P, Tr, Exec>: PushAFControl<Mode = M>,
     {
         self.camera.push_af_press()
     }
 
     /// Release Push AF button.
+    ///
+    /// This method is only available for cameras that support Push AF
+    /// (requires `HasPushAutoFocus` marker trait, typically Sony FR7).
     pub fn push_af_release(&self) -> M::Fut<'_, Result<(), Error>>
     where
-        Camera<M, P, Tr, Exec>: FocusControl<Mode = M>,
+        Camera<M, P, Tr, Exec>: PushAFControl<Mode = M>,
     {
         self.camera.push_af_release()
     }

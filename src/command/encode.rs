@@ -7,9 +7,7 @@
 use bytes::Bytes;
 use smallvec::SmallVec;
 
-use crate::{
-    camera_id::CameraId, constants::CameraVariant, error::Error, timeout::CommandCategory,
-};
+use crate::{camera_id::CameraId, error::Error, timeout::CommandCategory};
 
 use super::response::InquiryKind;
 
@@ -251,18 +249,6 @@ pub trait ViscaCommand: Send + Sync {
         } else {
             CommandKind::Command
         }
-    }
-
-    /// Validate this command for a specific camera model.
-    ///
-    /// The default implementation returns `Ok(())`.
-    /// Commands should override this method to implement model-specific validation.
-    ///
-    /// # Errors
-    ///
-    /// Returns `Error::ModelValidation` if the command is not valid for the specified model.
-    fn validate_for_model(&self, _model: CameraVariant) -> Result<(), Error> {
-        Ok(())
     }
 }
 

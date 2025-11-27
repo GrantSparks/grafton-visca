@@ -776,28 +776,18 @@ mod tests {
     );
 
     #[test]
-    fn test_sharpness_g2_validation() {
-        use crate::constants::CameraVariant;
+    fn test_sharpness_valid_values() {
         use crate::types::SharpnessLevel;
 
-        // Test valid G2 values
+        // Test valid values
         for value in 0..=11 {
-            let cmd = Sharpness::SetLevel { value };
-            assert!(cmd.validate_for_model(CameraVariant::PtzOpticsG2).is_ok());
+            let _cmd = Sharpness::SetLevel { value };
         }
 
-        // Test invalid G2 value
+        // Test invalid value
         // SharpnessLevel enforces valid range 0-11, so we can't create value 12
-        // The validation is done at the type level
         let result = SharpnessLevel::new(12);
         assert!(result.is_err());
-
-        // Test that non-SetLevel commands pass validation
-        let cmd = Sharpness::Reset;
-        assert!(cmd.validate_for_model(CameraVariant::PtzOpticsG2).is_ok());
-
-        let cmd = Sharpness::Mode(SharpnessMode::Auto);
-        assert!(cmd.validate_for_model(CameraVariant::PtzOpticsG2).is_ok());
     }
 
     visca_test!(
@@ -859,19 +849,13 @@ mod tests {
     }
 
     #[test]
-    fn test_luminance_g2_validation() {
-        use crate::constants::CameraVariant;
-
-        // Test valid G2 values
+    fn test_luminance_valid_values() {
+        // Test valid values
         for value in 0..=14 {
             let level = LuminanceLevel::new(value)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-            let cmd = Luminance::new(level);
-            assert!(cmd.validate_for_model(CameraVariant::PtzOpticsG2).is_ok());
+            let _cmd = Luminance::new(level);
         }
-
-        // G2 supports all values 0-14, so no invalid values to test
-        // The LuminanceLevel type itself enforces the valid range
     }
 
     visca_test!(
@@ -933,19 +917,13 @@ mod tests {
     }
 
     #[test]
-    fn test_contrast_g2_validation() {
-        use crate::constants::CameraVariant;
-
-        // Test valid G2 values
+    fn test_contrast_valid_values() {
+        // Test valid values
         for value in 0..=14 {
             let level = ContrastLevel::new(value)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-            let cmd = Contrast::new(level);
-            assert!(cmd.validate_for_model(CameraVariant::PtzOpticsG2).is_ok());
+            let _cmd = Contrast::new(level);
         }
-
-        // G2 supports all values 0-14, so no invalid values to test
-        // The ContrastLevel type itself enforces the valid range
     }
 
     #[test]

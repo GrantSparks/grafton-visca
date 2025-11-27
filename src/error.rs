@@ -322,17 +322,6 @@ pub enum Error {
     #[error("Transport is busy with another operation")]
     TransportBusy,
 
-    /// Command validation failed for the specified camera model.
-    #[error("Command '{command}' not valid for {model:?}: {reason}")]
-    ModelValidation {
-        /// The camera model that failed validation.
-        model: crate::constants::CameraVariant,
-        /// The command that failed validation.
-        command: Cow<'static, str>,
-        /// Reason for the validation failure.
-        reason: Cow<'static, str>,
-    },
-
     /// No response received from camera.
     #[error("No response received from camera")]
     NoResponse,
