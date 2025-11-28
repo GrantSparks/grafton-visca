@@ -48,6 +48,12 @@ pub trait Mode {
     ///
     /// This method accepts futures with non-'static lifetimes, allowing
     /// futures to borrow from the caller without requiring 'static promotion.
+    ///
+    /// # Behavior by mode
+    ///
+    /// - **Async mode**: Wraps the future in a boxed future, evaluated when awaited.
+    /// - **Blocking mode**: Executes the future eagerly/synchronously and returns
+    ///   an already-completed `Ready<T>`.
     fn from_future<'a, F, T>(future: F) -> Self::Fut<'a, T>
     where
         F: Future<Output = T> + Send + 'a,
@@ -124,13 +130,16 @@ impl Mode for Blocking {
         core::future::ready(result)
     }
 
-    fn from_future<'a, F, T>(_future: F) -> Self::Fut<'a, T>
+    fn from_future<'a, F, T>(future: F) -> Self::Fut<'a, T>
     where
         F: Future<Output = T> + Send + 'a,
         T: Send + 'a,
     {
-        // NOTE: For blocking mode, futures should be avoided.
-        unreachable!("Blocking mode should not use futures directly - use Mode::ready() instead")
+        // Execute the future synchronously using pollster and wrap in Ready<T>.
+        // This allows mode-generic code (like impl_diagnostics!) to work with both
+        // Async and Blocking modes without special-casing.
+        let value = pollster::block_on(future);
+        core::future::ready(value)
     }
 }
 
@@ -194,5 +203,57 @@ mod tests {
     async fn test_blocking_mode() {
         let result = Blocking::ready("test").await;
         assert_eq!(result, "test");
+    }
+
+    #[tokio::test]
+    async fn test_async_from_future() {
+        let fut = Async::from_future(async { 42 });
+        let result = fut.await;
+        assert_eq!(result, 42);
+    }
+
+    #[tokio::test]
+    async fn test_blocking_from_future() {
+        // Blocking::from_future executes the future synchronously and returns Ready<T>
+        let fut = Blocking::from_future(async { 42 });
+        let result = fut.await;
+        assert_eq!(result, 42);
+    }
+
+    #[tokio::test]
+    async fn test_blocking_from_future_with_computation() {
+        // Test that the async block is actually executed
+        let fut = Blocking::from_future(async {
+            let a = 10;
+            let b = 20;
+            a + b
+        });
+        let result = fut.await;
+        assert_eq!(result, 30);
+    }
+
+    #[test]
+    fn test_blocking_from_future_returns_ready() {
+        // Verify that Blocking::from_future returns a Ready<T> (already completed)
+        use core::task::{Context, Poll};
+        use std::pin::Pin;
+
+        let fut = Blocking::from_future(async { "test_value" });
+
+        // Create a dummy waker and context using futures-lite (dev dependency)
+        let waker = futures_lite::future::block_on(std::future::poll_fn(|cx| {
+            Poll::Ready(cx.waker().clone())
+        }));
+        let mut cx = Context::from_waker(&waker);
+
+        // Ready<T> should be immediately ready without needing to be polled multiple times
+        let mut fut = fut;
+        let pinned = Pin::new(&mut fut);
+        match pinned.poll(&mut cx) {
+            Poll::Ready(val) => assert_eq!(val, "test_value"),
+            Poll::Pending => {
+                unreachable!("Blocking::from_future should return Ready<T>, not Pending")
+            }
+        }
     }
 }
