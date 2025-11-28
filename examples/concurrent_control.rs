@@ -1,16 +1,18 @@
 //! Concurrent camera control demonstration.
 //!
-//! This example shows thread-safe concurrent operations:
-//! - Controlling multiple cameras simultaneously
-//! - Parallel command execution on single camera
-//! - Synchronization patterns
-//! - Resource sharing with Arc/Mutex
+//! This example shows thread-safe concurrent operations on a single camera:
+//! - Parallel command execution
+//! - Producer-consumer patterns
+//! - Resource sharing with Arc
 //! - Async task spawning
 //!
 //! **Context**: This example uses native async transports with the tokio runtime
-//! to demonstrate true concurrent operations across multiple cameras.
+//! to demonstrate concurrent operations.
 //!
-//! Run with: cargo run --example concurrent_control --features runtime-tokio
+//! Run with:
+//! ```sh
+//! cargo run --example concurrent_control --features runtime-tokio [camera_ip[:port]]
+//! ```
 
 #[cfg(not(feature = "runtime-tokio"))]
 fn main() {
@@ -20,7 +22,7 @@ fn main() {
 
 #[cfg(feature = "runtime-tokio")]
 use tokio::{
-    sync::{mpsc, Barrier},
+    sync::mpsc,
     time::{sleep, Duration},
 };
 
@@ -29,11 +31,7 @@ use std::sync::Arc;
 
 #[cfg(feature = "runtime-tokio")]
 use grafton_visca::{
-    camera::{
-        profiles::{PtzOpticsG2, PtzOpticsG3, SonyBRC300},
-        session::CameraSession,
-        Connect,
-    },
+    camera::{profiles::PtzOpticsG2, session::CameraSession, Connect},
     mode::Async,
     runtime::TransportHandle,
     types::SpeedLevel,
@@ -46,136 +44,47 @@ use grafton_visca::{
 async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
 
+    let camera_addr = std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| "192.168.0.110".to_string());
+
     println!("=== Concurrent Camera Control Demo ===\n");
+    println!("Camera address: {camera_addr}\n");
 
-    // Example 1: Control multiple cameras simultaneously
-    multi_camera_control().await?;
+    // Example 1: Parallel operations on single camera
+    parallel_operations(&camera_addr).await?;
 
-    // Example 2: Parallel operations on single camera
-    parallel_single_camera().await?;
+    // Example 2: Producer-consumer pattern
+    producer_consumer_pattern(&camera_addr).await?;
 
-    // Example 3: Producer-consumer pattern
-    producer_consumer_pattern().await?;
-
-    // Example 4: Synchronized multi-camera movements
-    synchronized_movement().await?;
+    println!("\n=== Demo completed ===");
 
     Ok(())
 }
 
 #[cfg(feature = "runtime-tokio")]
-async fn multi_camera_control() -> Result<()> {
-    println!("--- Example 1: Multiple Cameras Simultaneously ---");
+async fn parallel_operations(camera_addr: &str) -> Result<()> {
+    println!("--- Example 1: Parallel Operations ---");
 
-    // Create a Tokio runtime for all cameras
-    let runtime = TokioRuntime::from_current()?;
-
-    // Connect to cameras using the new session-centric API
-    // This returns a CameraSession with a cleaner lifecycle
-    let cam1: Arc<CameraSession<Async, SonyBRC300, TransportHandle<TokioRuntime>, TokioRuntime>> =
-        Arc::new(Connect::open_tcp_async::<SonyBRC300, _>("192.168.0.109", runtime.clone()).await?);
-
-    let cam2: Arc<CameraSession<Async, PtzOpticsG2, TransportHandle<TokioRuntime>, TokioRuntime>> =
-        Arc::new(Connect::open_tcp_async::<PtzOpticsG2, _>("192.168.0.110", runtime.clone()).await?);
-
-    let cam3: Arc<CameraSession<Async, PtzOpticsG3, TransportHandle<TokioRuntime>, TokioRuntime>> =
-        Arc::new(Connect::open_tcp_async::<PtzOpticsG3, _>("192.168.0.111", runtime.clone()).await?);
-
-    // Spawn concurrent tasks for each camera
-    let handle1 = {
-        let cam = cam1.clone();
-        tokio::spawn(async move {
-            println!("Camera 1: Starting preset tour");
-            for i in 1..=3 {
-                if let Ok(_preset) = PresetNumber::new(i) {
-                    cam.presets().recall(i).await?;
-                    // Movement detection methods now available directly on session
-                    cam.await_idle(Duration::from_secs(5)).await?;
-                }
-            }
-            Ok::<(), grafton_visca::Error>(())
-        })
-    };
-
-    let handle2 = {
-        let cam = cam2.clone();
-        tokio::spawn(async move {
-            println!("Camera 2: Performing pan sweep");
-            cam.pan_tilt().home().await?;
-            cam.await_pan_tilt_idle(Duration::from_secs(5)).await?;
-            cam.pan_tilt()
-                .move_direction(
-                    PanTiltDirection::Right,
-                    SpeedLevel::Medium.into(),
-                    SpeedLevel::Slowest.into(),
-                )
-                .await?;
-            sleep(Duration::from_millis(100)).await;
-            cam.pan_tilt().stop().await?;
-            cam.await_pan_tilt_idle(Duration::from_secs(5)).await?;
-            Ok::<(), grafton_visca::Error>(())
-        })
-    };
-
-    let handle3 = {
-        let cam = cam3.clone();
-        tokio::spawn(async move {
-            println!("Camera 3: Zoom demonstration");
-            cam.zoom().absolute(Normalized::new(0.0)).await?;
-            cam.await_zoom_idle(Duration::from_secs(3)).await?;
-            cam.zoom().absolute(Normalized::new(0.5)).await?;
-            cam.await_zoom_idle(Duration::from_secs(3)).await?;
-            cam.zoom().absolute(Normalized::new(1.0)).await?;
-            Ok::<(), grafton_visca::Error>(())
-        })
-    };
-
-    // Wait for all operations to complete
-    let (r1, r2, r3) = tokio::join!(handle1, handle2, handle3);
-
-    if r1.is_ok() && r2.is_ok() && r3.is_ok() {
-        println!("✓ All cameras operated successfully in parallel");
-    }
-
-    // Return cameras to home position
-    println!("Returning cameras to home position...");
-    let handle1 = {
-        let cam = cam1.clone();
-        tokio::spawn(async move { cam.pan_tilt().home().await })
-    };
-    let handle2 = {
-        let cam = cam2.clone();
-        tokio::spawn(async move { cam.pan_tilt().home().await })
-    };
-    let handle3 = {
-        let cam = cam3.clone();
-        tokio::spawn(async move { cam.pan_tilt().home().await })
-    };
-    let _ = tokio::join!(handle1, handle2, handle3);
-    println!("✓ All cameras returned to home\n");
-
-    Ok(())
-}
-
-#[cfg(feature = "runtime-tokio")]
-async fn parallel_single_camera() -> Result<()> {
-    println!("--- Example 2: Parallel Operations on Single Camera ---");
-
-    // Create a Tokio runtime and connect to a single camera
     let runtime = TokioRuntime::from_current()?;
     let camera: Arc<
         CameraSession<Async, PtzOpticsG2, TransportHandle<TokioRuntime>, TokioRuntime>,
-    > = Arc::new(Connect::open_tcp_async::<PtzOpticsG2, _>("192.168.0.110", runtime).await?);
+    > = Arc::new(Connect::open_tcp_async::<PtzOpticsG2, _>(camera_addr, runtime).await?);
 
     println!("Querying multiple states in parallel...");
 
-    // Access the underlying camera for inquiry operations
-    // The camera is always available in an Open session
+    // Query multiple camera states concurrently
+    // Note: accessors must be bound before passing to tokio::join!
+    let power_acc = camera.power();
+    let pan_tilt_acc = camera.pan_tilt();
+    let zoom_acc = camera.zoom();
+    let focus_acc = camera.focus();
+
     let (power, pan_tilt, zoom, focus) = tokio::join!(
-        async { camera.power().state().await },
-        async { camera.pan_tilt().position().await },
-        async { camera.zoom().position().await },
-        async { camera.focus().position().await }
+        power_acc.state(),
+        pan_tilt_acc.position(),
+        zoom_acc.position(),
+        focus_acc.position()
     );
 
     println!("Power: {power:?}");
@@ -185,6 +94,7 @@ async fn parallel_single_camera() -> Result<()> {
 
     println!("\nExecuting coordinated movements...");
 
+    // Launch concurrent movement commands
     let zoom_task = {
         let cam = camera.clone();
         tokio::spawn(async move { cam.zoom().tele().await })
@@ -203,15 +113,20 @@ async fn parallel_single_camera() -> Result<()> {
         })
     };
 
+    // Let movements run briefly
     sleep(Duration::from_millis(100)).await;
 
+    // Stop all movements
     camera.zoom().stop().await?;
     camera.pan_tilt().stop().await?;
+
+    // Wait for movements to settle
     let _ = tokio::join!(
         camera.await_zoom_idle(Duration::from_secs(5)),
         camera.await_pan_tilt_idle(Duration::from_secs(5))
     );
 
+    // Ensure spawned tasks complete
     let _ = tokio::join!(zoom_task, pan_task);
 
     println!("✓ Parallel operations completed");
@@ -226,36 +141,36 @@ async fn parallel_single_camera() -> Result<()> {
 }
 
 #[cfg(feature = "runtime-tokio")]
-async fn producer_consumer_pattern() -> Result<()> {
-    println!("--- Example 3: Producer-Consumer Pattern ---");
+async fn producer_consumer_pattern(camera_addr: &str) -> Result<()> {
+    println!("--- Example 2: Producer-Consumer Pattern ---");
 
     let runtime = TokioRuntime::from_current()?;
     let camera: Arc<
         CameraSession<Async, PtzOpticsG2, TransportHandle<TokioRuntime>, TokioRuntime>,
-    > = Arc::new(Connect::open_tcp_async::<PtzOpticsG2, _>("192.168.0.110", runtime).await?);
+    > = Arc::new(Connect::open_tcp_async::<PtzOpticsG2, _>(camera_addr, runtime).await?);
 
     let (tx, mut rx) = mpsc::channel(10);
 
-    // Consumer task - executes commands
+    // Consumer task - executes commands sequentially
     let consumer = {
         let cam = camera.clone();
         tokio::spawn(async move {
             while let Some(cmd) = rx.recv().await {
                 match cmd {
                     Command::Home => {
-                        println!("Executing: Home");
+                        println!("  Executing: Home");
                         let _ = cam.pan_tilt().home().await;
                         let _ = cam.await_pan_tilt_idle(Duration::from_secs(5)).await;
                     }
                     Command::Preset(n) => {
-                        println!("Executing: Preset {n}");
-                        if let Ok(_preset) = PresetNumber::new(n) {
+                        println!("  Executing: Preset {n}");
+                        if PresetNumber::new(n).is_ok() {
                             let _ = cam.presets().recall(n).await;
                             let _ = cam.await_idle(Duration::from_secs(5)).await;
                         }
                     }
                     Command::Zoom(level) => {
-                        println!("Executing: Zoom to {level}");
+                        println!("  Executing: Zoom to {:.0}%", level * 100.0);
                         let _ = cam.zoom().absolute(Normalized::new(level)).await;
                         let _ = cam.await_zoom_idle(Duration::from_secs(5)).await;
                     }
@@ -264,128 +179,34 @@ async fn producer_consumer_pattern() -> Result<()> {
         })
     };
 
-    // Producer tasks - generate commands
+    // Producer 1 - sends a sequence of commands
     let producer1 = {
         let tx = tx.clone();
         tokio::spawn(async move {
-            tx.send(Command::Home).await.unwrap();
-            tx.send(Command::Preset(1)).await.unwrap();
-            tx.send(Command::Zoom(0.5)).await.unwrap();
+            let _ = tx.send(Command::Home).await;
+            let _ = tx.send(Command::Preset(1)).await;
+            let _ = tx.send(Command::Zoom(0.5)).await;
         })
     };
 
+    // Producer 2 - sends another sequence
     let producer2 = {
         let tx = tx.clone();
         tokio::spawn(async move {
-            tx.send(Command::Preset(2)).await.unwrap();
-            tx.send(Command::Zoom(0.75)).await.unwrap();
-            tx.send(Command::Preset(3)).await.unwrap();
+            let _ = tx.send(Command::Preset(2)).await;
+            let _ = tx.send(Command::Zoom(0.75)).await;
+            let _ = tx.send(Command::Preset(3)).await;
         })
     };
 
-    // Wait for producers to finish
+    // Wait for producers to finish sending
     let _ = tokio::join!(producer1, producer2);
 
-    // Close channel and wait for consumer
+    // Close channel and wait for consumer to finish
     drop(tx);
     let _ = consumer.await;
 
-    println!("✓ Producer-consumer pattern completed");
-
-    // Restore initial state
-    println!("Restoring camera state...");
-    println!("✓ Camera restored to initial state");
-    println!();
-
-    Ok(())
-}
-
-#[cfg(feature = "runtime-tokio")]
-async fn synchronized_movement() -> Result<()> {
-    println!("--- Example 4: Synchronized Multi-Camera Movement ---");
-
-    // Create cameras
-    let camera_addrs = vec!["192.168.0.109", "192.168.0.110", "192.168.0.111"];
-    let mut cameras = vec![];
-    let mut initial_states = vec![];
-
-    let runtime = TokioRuntime::from_current()?;
-    for addr in camera_addrs {
-        let camera: Arc<
-            CameraSession<Async, PtzOpticsG2, TransportHandle<TokioRuntime>, TokioRuntime>,
-        > = Arc::new(
-            Connect::open_tcp_async::<PtzOpticsG2, _>(format!("{addr}:5678"), runtime.clone())
-                .await?,
-        );
-
-        let state = camera.pan_tilt().position().await.ok();
-        initial_states.push(state);
-        cameras.push(camera);
-    }
-
-    let barrier: Arc<Barrier> = Arc::new(Barrier::new(cameras.len()));
-
-    // Spawn synchronized tasks
-    let mut handles = vec![];
-
-    let cameras_for_movement = cameras.clone();
-    for (i, camera) in cameras_for_movement.into_iter().enumerate() {
-        let barrier = barrier.clone();
-
-        let camera_id = i + 1;
-        let handle = tokio::spawn(async move {
-            println!("Camera {camera_id}: Ready");
-
-            barrier.wait().await;
-            println!("Camera {camera_id}: Moving to home");
-            camera.pan_tilt().home().await?;
-
-            camera.await_pan_tilt_idle(Duration::from_secs(10)).await?;
-            println!("Camera {camera_id}: Home position reached");
-
-            barrier.wait().await;
-            println!("Camera {camera_id}: Recalling preset 1");
-            if let Ok(_preset) = PresetNumber::new(1) {
-                camera.presets().recall(1).await?;
-                camera.await_idle(Duration::from_secs(10)).await?;
-                println!("Camera {camera_id}: Preset 1 reached");
-            }
-
-            Ok::<(), grafton_visca::Error>(())
-        });
-
-        handles.push(handle);
-    }
-
-    // Wait for all tasks
-    for handle in handles {
-        if let Ok(result) = handle.await {
-            result?;
-        }
-    }
-
-    println!("✓ Synchronized movement completed");
-
-    // Restore all cameras to initial states
-    println!("Restoring all camera states...");
-    let mut restore_handles = vec![];
-    for (camera, state) in cameras.iter().zip(initial_states.iter()) {
-        let cam = camera.clone();
-        let state = *state;
-        let handle = tokio::spawn(async move {
-            if let Some(_position) = state {
-                cam.pan_tilt().home().await?;
-            }
-            Ok::<(), grafton_visca::Error>(())
-        });
-        restore_handles.push(handle);
-    }
-
-    // Wait for all restorations
-    for handle in restore_handles {
-        let _ = handle.await;
-    }
-    println!("✓ All cameras restored to initial states\n");
+    println!("✓ Producer-consumer pattern completed\n");
 
     Ok(())
 }

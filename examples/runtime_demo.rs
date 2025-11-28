@@ -3,12 +3,17 @@
 //! This example demonstrates runtime features like priority scheduling
 //! and metrics using the high-level accessor-based Camera API.
 //!
+//! Run with:
+//! ```sh
+//! cargo run --example runtime_demo --features runtime-tokio [camera_ip[:port]]
+//! ```
+//!
 //! For low-level runtime usage, see examples-advanced/runtime_demo_lowlevel.rs
 
 #[cfg(not(all(feature = "mode-async", feature = "runtime-tokio")))]
 fn main() {
     eprintln!("This example requires the 'async' and 'runtime-tokio' features to be enabled.");
-    eprintln!("Run with: cargo run --example runtime_demo --features async,runtime-tokio");
+    eprintln!("Run with: cargo run --example runtime_demo --features runtime-tokio");
 }
 
 #[cfg(all(feature = "mode-async", feature = "runtime-tokio"))]
@@ -24,8 +29,10 @@ async fn main() -> Result<(), Error> {
     // Initialize logging
     tracing_subscriber::fmt::init();
 
-    // Camera configuration
-    let camera_address = std::env::var("CAMERA_IP").unwrap_or_else(|_| "192.168.0.100".to_string());
+    // Camera configuration - default to cam4 at 192.168.0.110
+    let camera_address = std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| "192.168.0.110".to_string());
 
     println!("Connecting to camera at {camera_address}...");
 

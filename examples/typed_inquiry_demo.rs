@@ -5,7 +5,7 @@
 //!
 //! Run with:
 //! ```bash
-//! cargo run --example typed_inquiry_demo
+//! cargo run --example typed_inquiry_demo [camera_ip[:port]]
 //! ```
 
 #[cfg(not(feature = "mode-async"))]
@@ -18,7 +18,9 @@ use std::time::Duration;
 fn main() -> Result<(), Error> {
     let _ = tracing_subscriber::fmt::try_init();
 
-    let address = std::env::var("CAMERA_IP").unwrap_or_else(|_| "192.168.1.100".to_string());
+    let address = std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| "192.168.0.110".to_string());
     println!("Connecting to camera at {address}...");
 
     let camera = Connect::open_tcp_blocking::<GenericVisca>(&address)?;
