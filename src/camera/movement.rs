@@ -433,7 +433,7 @@ where
     /// This checks pan/tilt, zoom, and focus positions to detect movement.
     ///
     /// Note: This method uses default command timeouts. For movement detection
-    /// within a bounded time budget, use [`is_moving_with_deadline`] instead.
+    /// within a bounded time budget, use `is_moving_with_deadline` instead.
     pub fn is_moving(&mut self) -> Result<bool, Error> {
         // Use a generous 30 second deadline for unbounded is_moving
         let deadline = Deadline::from_timeout(Duration::from_secs(30));
