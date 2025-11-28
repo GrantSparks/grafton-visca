@@ -789,6 +789,50 @@ where
             Err(e) => std::future::ready(Err(e)),
         }
     }
+
+    /// Send a command with an external deadline constraint.
+    ///
+    /// This variant is used by movement detection to ensure individual
+    /// inquiries don't exceed the overall operation timeout budget.
+    ///
+    /// Returns `Error::Timeout` immediately if the deadline has already passed,
+    /// or if the deadline is exceeded while waiting for a response.
+    pub fn send_command_with_deadline<C>(
+        &self,
+        command: &C,
+        deadline: crate::timeout::Deadline,
+    ) -> <crate::mode::Blocking as Mode>::Fut<'_, Result<crate::command::response::Response, Error>>
+    where
+        C: ViscaCommand + Send + Sync + Clone + std::fmt::Debug + 'static,
+    {
+        let transport_cell = self.transport();
+        let mut transport = match transport_cell.try_borrow_mut() {
+            Ok(transport) => transport,
+            Err(_) => {
+                return std::future::ready(Err(Error::TransportBusy));
+            }
+        };
+
+        let mut runner = match self.blocking_runner.try_borrow_mut() {
+            Ok(runner) => runner,
+            Err(_) => {
+                return std::future::ready(Err(Error::TransportBusy));
+            }
+        };
+
+        let category = C::TIMEOUT_CATEGORY;
+
+        match runner.send_command_with_deadline(
+            &mut *transport,
+            command,
+            self.camera_id,
+            category,
+            Some(deadline),
+        ) {
+            Ok(response) => std::future::ready(Ok(response)),
+            Err(e) => std::future::ready(Err(e)),
+        }
+    }
 }
 
 // Close/shutdown methods for blocking mode

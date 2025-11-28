@@ -971,6 +971,116 @@ impl SchedulerCore {
         );
     }
 
+    /// Cancel a command, cleaning up all associated state.
+    ///
+    /// This is used when a command needs to be abandoned due to an external
+    /// deadline being exceeded. It cleans up:
+    /// - Sequence mappings
+    /// - Pending ACK state
+    /// - Command metadata
+    /// - Retry state
+    /// - Inquiry state
+    /// - Socket allocations
+    pub fn cancel_command(&mut self, cmd_id: u32) {
+        trace!("Cancelling command {cmd_id}");
+
+        // Free any allocated socket
+        for socket_idx in 0..2 {
+            if self.sockets[socket_idx].command_id == Some(cmd_id) {
+                let socket = if socket_idx == 0 {
+                    ViscaSocket::S1
+                } else {
+                    ViscaSocket::S2
+                };
+                self.free_socket(socket);
+            }
+        }
+
+        // Clean up sequence mappings
+        self.finish_sequence(cmd_id);
+
+        // Remove from pending ACK
+        self.pending_ack.remove(&cmd_id);
+
+        // Remove from inflight inquiries
+        self.inquiries_inflight.remove(&cmd_id);
+        self.inquiries_order.retain(|&id| id != cmd_id);
+
+        // Remove command metadata
+        self.command_metadata.remove(&cmd_id);
+        self.retry_attempts.remove(&cmd_id);
+        self.retry_trigger_transport_error.remove(&cmd_id);
+        self.inquiry_response_types.remove(&cmd_id);
+
+        // Remove from command/inquiry queues if still there
+        // Note: BinaryHeap doesn't support removal by value, so we drain and rebuild
+        let old_cmd_queue = std::mem::take(&mut self.command_queue);
+        for cmd in old_cmd_queue.into_iter() {
+            if cmd.id != cmd_id {
+                self.command_queue.push(cmd);
+            }
+        }
+
+        let old_inq_queue = std::mem::take(&mut self.inquiry_queue);
+        for cmd in old_inq_queue.into_iter() {
+            if cmd.id != cmd_id {
+                self.inquiry_queue.push(cmd);
+            }
+        }
+
+        // Remove from retry queue if present
+        let old_retries = std::mem::take(&mut self.retry_queue);
+        for retry_key in old_retries.into_iter() {
+            if retry_key.command.id != cmd_id {
+                self.retry_queue.push(retry_key);
+            }
+        }
+
+        trace!("Command {cmd_id} cancelled and all state cleaned up");
+    }
+
+    /// Complete an inquiry, cleaning up tracking state.
+    ///
+    /// This should be called when an inquiry response is received and the
+    /// caller is returning early (not going through `process_event`).
+    /// It removes the inquiry from inflight tracking to prevent stale
+    /// command IDs from causing response misrouting.
+    pub fn complete_inquiry(&mut self, cmd_id: u32) {
+        trace!("Completing inquiry {cmd_id}");
+
+        // Remove from inflight tracking
+        self.inquiries_inflight.remove(&cmd_id);
+        self.inquiries_order.retain(|&id| id != cmd_id);
+
+        // Clean up sequence mappings
+        self.finish_sequence(cmd_id);
+
+        // Clean up metadata
+        self.command_metadata.remove(&cmd_id);
+        self.retry_attempts.remove(&cmd_id);
+        self.retry_trigger_transport_error.remove(&cmd_id);
+        self.inquiry_response_types.remove(&cmd_id);
+        self.pending_ack.remove(&cmd_id);
+    }
+
+    /// Complete a command, cleaning up tracking state.
+    ///
+    /// This should be called when a command completion is received and the
+    /// caller is returning early (not going through `process_event`).
+    pub fn complete_command(&mut self, cmd_id: u32) {
+        trace!("Completing command {cmd_id}");
+
+        // Clean up sequence mappings
+        self.finish_sequence(cmd_id);
+
+        // Clean up metadata
+        self.command_metadata.remove(&cmd_id);
+        self.retry_attempts.remove(&cmd_id);
+        self.retry_trigger_transport_error.remove(&cmd_id);
+        self.inquiry_response_types.remove(&cmd_id);
+        self.pending_ack.remove(&cmd_id);
+    }
+
     /// Unregister a pending ACK without removing command metadata.
     /// This is used for rollback when a send operation fails.
     /// Returns true if the command was found and removed from pending_ack.

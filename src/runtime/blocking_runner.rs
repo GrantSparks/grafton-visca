@@ -29,7 +29,7 @@ use crate::{
         core::{PendingCommand, Priority, SchedulerAction, SchedulerCore, SchedulerEvent},
         driver::{scheduler::BlockingScheduler, send_one, SendResult},
     },
-    timeout::{CommandCategory, TimeoutConfig},
+    timeout::{CommandCategory, Deadline, TimeoutConfig},
     transport::{
         buffer::{BufferConfig, BufferManager},
         builder::AddressingMode,
@@ -110,6 +110,38 @@ impl<P: Profile> BlockingRunner<P> {
         camera_id: CameraId,
         category: CommandCategory,
     ) -> Result<Response> {
+        self.send_command_with_deadline(transport, command, camera_id, category, None)
+    }
+
+    /// Send a command with an optional deadline for the entire operation.
+    ///
+    /// When a deadline is provided, the operation will return `Error::Timeout`
+    /// if the deadline is exceeded, even if the command's category timeout
+    /// hasn't been reached. This is useful for movement detection where
+    /// individual inquiries must not exceed the overall operation budget.
+    ///
+    /// # Arguments
+    ///
+    /// * `transport` - The transport to send the command on
+    /// * `command` - The VISCA command to send
+    /// * `camera_id` - Target camera ID
+    /// * `category` - Command category for timeout calculation
+    /// * `deadline` - Optional deadline; if `Some`, operation fails if deadline is exceeded
+    pub fn send_command_with_deadline<T: BlockingTransport + HasTransportConfig>(
+        &mut self,
+        transport: &mut T,
+        command: &(impl ViscaCommand + std::fmt::Debug + Clone + 'static),
+        camera_id: CameraId,
+        category: CommandCategory,
+        deadline: Option<Deadline>,
+    ) -> Result<Response> {
+        // Check deadline before even starting
+        if let Some(ref d) = deadline {
+            if d.is_expired() {
+                return Err(Error::Timeout);
+            }
+        }
+
         let cmd_id = self.next_id.fetch_add(1, Ordering::SeqCst);
 
         let prepared_cmd = std::sync::Arc::new(
@@ -139,7 +171,7 @@ impl<P: Profile> BlockingRunner<P> {
 
         self.core.queue_command(pending_cmd);
 
-        self.run_until_complete(transport, cmd_id)
+        self.run_until_complete(transport, cmd_id, deadline)
     }
 
     /// Update the timeout configuration.
@@ -148,16 +180,34 @@ impl<P: Profile> BlockingRunner<P> {
     }
 
     /// Run the scheduler until a specific command completes.
+    ///
+    /// # Arguments
+    ///
+    /// * `transport` - The transport to communicate with
+    /// * `target_cmd_id` - The command ID we're waiting for
+    /// * `deadline` - Optional deadline; returns `Error::Timeout` if exceeded
     fn run_until_complete<T: BlockingTransport + HasTransportConfig>(
         &mut self,
         transport: &mut T,
         target_cmd_id: u32,
+        deadline: Option<Deadline>,
     ) -> Result<Response> {
         let mut read_buf = vec![0u8; self.buffer_manager.config().recv_buffer_size];
 
         let mut send_buf = BytesMut::with_capacity(self.buffer_manager.config().send_buffer_size);
 
         loop {
+            // Check external deadline first - this ensures movement detection
+            // respects the overall timeout budget
+            if let Some(ref d) = deadline {
+                if d.is_expired() {
+                    // Clean up the pending command before returning
+                    self.core.cancel_command(target_cmd_id);
+                    trace!("Command {target_cmd_id} cancelled due to deadline expiration");
+                    return Err(Error::Timeout);
+                }
+            }
+
             let now = Instant::now();
 
             if let Some(cmd) = self.core.next_item_to_send() {
@@ -327,6 +377,11 @@ impl<P: Profile> BlockingRunner<P> {
                                 if let Some(cmd_id) = cmd_id {
                                     if cmd_id == target_cmd_id {
                                         debug!("Command {cmd_id} completed successfully");
+                                        // Clean up command state before returning
+                                        if let Some(socket) = socket {
+                                            self.core.free_socket(socket);
+                                        }
+                                        self.core.complete_command(cmd_id);
                                         let response_type = self.core.get_inquiry_type(cmd_id);
                                         let response =
                                             lift_inquiry_for::<P>(&basic, response_type)?;
@@ -376,6 +431,8 @@ impl<P: Profile> BlockingRunner<P> {
                                 if let Some(cmd_id) = cmd_id {
                                     if cmd_id == target_cmd_id {
                                         debug!("Inquiry {cmd_id} completed successfully");
+                                        // Clean up inquiry state before returning
+                                        self.core.complete_inquiry(cmd_id);
                                         let response =
                                             lift_inquiry_for::<P>(&basic, response_type.as_ref())?;
                                         return Ok(response);
