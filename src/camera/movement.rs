@@ -1787,8 +1787,7 @@ where
             return Ok(());
         }
 
-        let start = std::time::Instant::now();
-        let deadline = start + config.timeout;
+        let start = self.runtime().executor().now();
 
         if config.debug {
             tracing::debug!(
@@ -1799,8 +1798,12 @@ where
         }
 
         loop {
-            let now = std::time::Instant::now();
-            if now >= deadline {
+            let elapsed = self
+                .runtime()
+                .executor()
+                .now()
+                .saturating_duration_since(start);
+            if elapsed >= config.timeout {
                 if config.debug {
                     tracing::debug!("Movement detection timed out");
                 }
@@ -1828,8 +1831,8 @@ where
                 }
             }
 
-            // Sleep between polls
-            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            // Sleep between polls, capped by remaining timeout
+            let remaining = config.timeout.saturating_sub(elapsed);
             let sleep_time = config.poll_interval.min(remaining);
             if sleep_time > Duration::ZERO {
                 self.sleep(sleep_time).await;
