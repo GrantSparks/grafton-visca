@@ -37,6 +37,13 @@ pub struct RuntimeLoopConfig<E: Envelope> {
     pub retry_config: RetryConfig,
     /// Write timeout from transport config
     pub write_timeout: std::time::Duration,
+    /// Maximum concurrent inquiries.
+    ///
+    /// For envelopes without sequence correlation (e.g., Raw VISCA), this should
+    /// be set to 1 to ensure responses can be reliably matched to requests.
+    /// For envelopes with sequence correlation (e.g., Sony Encapsulated), higher
+    /// values enable concurrent inquiry execution.
+    pub max_concurrent_inquiries: usize,
 }
 
 /// Main runtime loop with configurable tick interval.
@@ -68,6 +75,7 @@ pub async fn runtime_loop_with_config<
 ) -> Result<()> {
     let mut adapter =
         AsyncAdapter::<P, Ex>::new(config.timeout_config, config.retry_config, executor.clone());
+    adapter.set_max_inquiries_inflight(config.max_concurrent_inquiries);
     let mut protocol_framer = ProtocolFramer::new_with_config(config.buffer_manager.config());
     // Track cancel requests that arrived before the command was bound to a socket
     let mut pending_cancel_ids: HashSet<u32> = HashSet::new();

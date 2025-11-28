@@ -153,12 +153,22 @@ impl<P: Profile + 'static, E: Executor + Send + Sync + 'static> RuntimeHandle<P,
 
         let timeout_config = timeout_config.unwrap_or_default();
 
+        // Set max concurrent inquiries based on envelope's sequence correlation support.
+        // Envelopes without sequence correlation (Raw VISCA) must serialize inquiries
+        // to ensure responses can be reliably matched to requests.
+        let max_concurrent_inquiries = if P::Envelope::SUPPORTS_SEQUENCE_CORRELATION {
+            8 // Sony protocol: can handle multiple concurrent inquiries
+        } else {
+            1 // Raw VISCA: must serialize to ensure correct response matching
+        };
+
         let config = RuntimeLoopConfig {
             envelope,
             buffer_manager,
             timeout_config,
             retry_config,
             write_timeout: tcfg.write_timeout,
+            max_concurrent_inquiries,
         };
 
         let task_executor = Arc::clone(&executor);

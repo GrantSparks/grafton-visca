@@ -10,7 +10,17 @@
 //! - Image quality parameters
 //! - Noise reduction levels
 //!
-//! The async version demonstrates concurrent inquiries for much faster data collection.
+//! ## Concurrent Inquiry Behavior
+//!
+//! The async version fires inquiries via `tokio::join!`, but actual concurrency depends
+//! on the camera protocol:
+//!
+//! - **Sony cameras** (SonyFR7, SonyBRCH900): Use sequence-numbered protocol, allowing
+//!   true concurrent execution. All inquiries run in parallel for maximum speed.
+//!
+//! - **Raw VISCA cameras** (GenericVisca, PtzOpticsG2): No sequence numbers, so the
+//!   runtime automatically serializes inquiries to ensure reliable response matching.
+//!   `tokio::join!` still provides clean async semantics, but execution is sequential.
 //!
 //! Run with:
 //! - Blocking: cargo run --example inquiry_quickstart
@@ -157,7 +167,7 @@ fn main() -> grafton_visca::Result<()> {
     }
 
     println!("\n✓ Inquiry completed!");
-    println!("Tip: Run with --features runtime-tokio for faster concurrent queries!");
+    println!("Tip: Use Sony cameras (SonyFR7) for true concurrent async queries.");
 
     Ok(())
 }
@@ -169,8 +179,8 @@ async fn main() -> grafton_visca::Result<()> {
     use tokio::time::Instant;
 
     use grafton_visca::{
-        camera::profiles::GenericVisca, runtime::TokioRuntime,
-        runtime_adapters::tokio::TcpTransport as Tcp, CameraBuilder,
+        camera::{profiles::GenericVisca, Connect},
+        runtime::TokioRuntime,
     };
 
     tracing_subscriber::fmt::init();
@@ -181,13 +191,14 @@ async fn main() -> grafton_visca::Result<()> {
     let camera_addr = std::env::var("CAMERA_IP").unwrap_or_else(|_| "192.168.0.110".to_string());
 
     println!("Connecting to camera at {camera_addr}...");
-    let transport = Tcp::connect(&camera_addr).await?;
     let runtime = TokioRuntime::from_current()?;
-    let camera = CameraBuilder::with_executor(runtime)
-        .open_async::<GenericVisca, _>(transport)
-        .await?;
+    let camera = Connect::open_tcp_async::<GenericVisca, _>(&camera_addr, runtime).await?;
 
-    println!("\n⚡ Executing all inquiries concurrently...\n");
+    // Note: GenericVisca uses Raw VISCA protocol without sequence numbers,
+    // so inquiries are automatically serialized by the runtime for reliable
+    // response matching. For true concurrent execution, use a Sony camera
+    // profile (SonyFR7, SonyBRCH900) which supports sequence-based correlation.
+    println!("\n⚡ Executing inquiries (serialized for GenericVisca)...\n");
 
     let start = Instant::now();
 
@@ -334,7 +345,7 @@ async fn main() -> grafton_visca::Result<()> {
     }
 
     println!("\n✓ All inquiries completed in {:.2?}!", elapsed);
-    println!("🚀 Concurrent execution is much faster than sequential!");
+    println!("Note: GenericVisca serializes inquiries. Sony cameras run truly concurrent.");
 
     Ok(())
 }

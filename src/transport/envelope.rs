@@ -37,6 +37,24 @@ pub struct FrameMeta {
 /// Each envelope type provides compile-time protocol selection, eliminating runtime
 /// branches in the hot path.
 pub trait Envelope: private::Sealed + Send + Sync + 'static {
+    /// Whether this envelope supports sequence-based request/response correlation.
+    ///
+    /// When `true`, the runtime can send multiple concurrent inquiries because
+    /// each response carries a sequence number that identifies the original request.
+    ///
+    /// When `false`, the runtime must serialize inquiries because responses cannot
+    /// be reliably correlated to requests without sequence numbers.
+    ///
+    /// # Protocol Implications
+    ///
+    /// - **Raw VISCA** (`RawVisca`): Returns `false` - no sequence numbers, responses
+    ///   must be matched by content or FIFO ordering, which is unreliable for
+    ///   concurrent requests.
+    ///
+    /// - **Sony Encapsulated** (`SonyEncapsulated`): Returns `true` - 8-byte header
+    ///   includes sequence numbers for reliable concurrent operation.
+    const SUPPORTS_SEQUENCE_CORRELATION: bool;
+
     /// Create a new envelope instance with the given addressing mode.
     fn new(addressing: AddressingMode) -> Self;
 
@@ -89,6 +107,10 @@ pub struct SonyEncapsulated {
 }
 
 impl Envelope for RawVisca {
+    /// Raw VISCA does not support sequence correlation - responses cannot be
+    /// reliably matched to requests when multiple inquiries are in flight.
+    const SUPPORTS_SEQUENCE_CORRELATION: bool = false;
+
     fn new(addressing: AddressingMode) -> Self {
         Self { addressing }
     }
@@ -131,6 +153,10 @@ impl Envelope for RawVisca {
 }
 
 impl Envelope for SonyEncapsulated {
+    /// Sony encapsulated protocol supports sequence correlation via 8-byte header,
+    /// enabling reliable concurrent inquiry execution.
+    const SUPPORTS_SEQUENCE_CORRELATION: bool = true;
+
     fn new(addressing: AddressingMode) -> Self {
         Self {
             addressing,
@@ -283,6 +309,22 @@ impl SonyEncapsulated {
 mod tests {
     use super::*;
     use crate::command::bytes::VISCA_TERMINATOR;
+
+    // Sequence correlation capability tests
+    //
+    // These are compile-time constants, verified by the type system.
+    // The constants are tested implicitly through their usage in runtime configuration.
+
+    #[test]
+    fn test_envelope_sequence_correlation_constants_are_opposite() {
+        // Verify that the two envelope types have opposite sequence correlation support.
+        // This ensures one serializes and one allows concurrency.
+        assert_ne!(
+            RawVisca::SUPPORTS_SEQUENCE_CORRELATION,
+            SonyEncapsulated::SUPPORTS_SEQUENCE_CORRELATION,
+            "RawVisca and SonyEncapsulated must have different sequence correlation support"
+        );
+    }
 
     // RawVisca frame_into tests
 

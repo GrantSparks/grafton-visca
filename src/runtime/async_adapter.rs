@@ -190,6 +190,16 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
         }
     }
 
+    /// Set the maximum number of concurrent inquiries.
+    ///
+    /// For envelopes without sequence correlation (Raw VISCA), this should be 1
+    /// to ensure responses can be reliably matched to requests. For envelopes
+    /// with sequence correlation (Sony Encapsulated), higher values enable
+    /// concurrent inquiry execution.
+    pub fn set_max_inquiries_inflight(&mut self, max: usize) {
+        self.core.set_max_inquiries_inflight(max);
+    }
+
     /// Submit a command or inquiry to the scheduler.
     pub fn submit(&mut self, item: TxItem) -> u32 {
         match item {
