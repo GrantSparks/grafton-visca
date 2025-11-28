@@ -304,6 +304,39 @@ where
     pub async fn is_moving(&self) -> Result<bool, Error> {
         self.camera.is_moving_async().await
     }
+
+    /// Wait for movement completion with configurable options.
+    ///
+    /// This method provides fine-grained control over movement detection,
+    /// including which axes to monitor, timeout, and debug logging.
+    ///
+    /// # Arguments
+    /// * `config` - Configuration for the wait operation
+    ///
+    /// # Returns
+    /// * `Ok(())` - Movement completed successfully
+    /// * `Err(Error::Timeout)` - Movement did not complete within timeout
+    /// * `Err(Error::*)` - Other communication or camera errors
+    pub async fn await_with_config(&self, config: &super::AwaitConfig) -> Result<(), Error> {
+        self.camera.await_with_config(config).await
+    }
+
+    /// Wait for specific axes to become idle.
+    ///
+    /// This is a convenience method for selective axis monitoring. Use when
+    /// you know which axes were affected by your command.
+    ///
+    /// # Arguments
+    /// * `axes` - Which axes to monitor
+    /// * `timeout` - Maximum time to wait
+    ///
+    /// # Returns
+    /// * `Ok(())` - All monitored axes idle
+    /// * `Err(Error::Timeout)` - Movement did not complete within timeout
+    /// * `Err(Error::*)` - Communication error
+    pub async fn await_axes_idle(&self, axes: super::Axes, timeout: Duration) -> Result<(), Error> {
+        self.camera.await_axes_idle(axes, timeout).await
+    }
 }
 
 // Blocking-specific implementation for Open sessions (without transport bounds)
@@ -438,6 +471,39 @@ where
     /// * `Err(Error::*)` - Communication error
     pub fn is_moving(&mut self) -> Result<bool, Error> {
         self.camera.is_moving()
+    }
+
+    /// Wait for movement completion with configurable options.
+    ///
+    /// This method provides fine-grained control over movement detection,
+    /// including which axes to monitor, timeout, and debug logging.
+    ///
+    /// # Arguments
+    /// * `config` - Configuration for the wait operation
+    ///
+    /// # Returns
+    /// * `Ok(())` - Movement completed successfully
+    /// * `Err(Error::Timeout)` - Movement did not complete within timeout
+    /// * `Err(Error::*)` - Other communication or camera errors
+    pub fn await_with_config(&mut self, config: &super::AwaitConfig) -> Result<(), Error> {
+        self.camera.await_with_config(config)
+    }
+
+    /// Wait for specific axes to become idle.
+    ///
+    /// This is a convenience method for selective axis monitoring. Use when
+    /// you know which axes were affected by your command.
+    ///
+    /// # Arguments
+    /// * `axes` - Which axes to monitor
+    /// * `timeout` - Maximum time to wait
+    ///
+    /// # Returns
+    /// * `Ok(())` - All monitored axes idle
+    /// * `Err(Error::Timeout)` - Movement did not complete within timeout
+    /// * `Err(Error::*)` - Communication error
+    pub fn await_axes_idle(&mut self, axes: super::Axes, timeout: Duration) -> Result<(), Error> {
+        self.camera.await_axes_idle(axes, timeout)
     }
 
     /// Access power-related controls and inquiries.

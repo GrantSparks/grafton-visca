@@ -4,6 +4,30 @@
 //! VISCA completion messages when available and falls back to efficient state
 //! querying when needed. It includes utilities for position comparison,
 //! movement configuration, and both event-driven and state-based detection.
+//!
+//! # Axis-Specific Movement Detection
+//!
+//! The [`Axes`] flags allow selective monitoring of specific camera axes:
+//!
+//! ```ignore
+//! // Wait only for pan/tilt to complete (ignore zoom/focus)
+//! camera.await_axes_idle(Axes::PAN_TILT, Duration::from_secs(10))?;
+//!
+//! // Wait for all motion axes
+//! camera.await_axes_idle(Axes::ALL, Duration::from_secs(30))?;
+//! ```
+//!
+//! # Movement Configuration
+//!
+//! Use [`AwaitConfig`] for fine-grained control over movement detection:
+//!
+//! ```ignore
+//! let config = AwaitConfig::new(Duration::from_secs(30))
+//!     .with_axes(Axes::PAN_TILT | Axes::ZOOM)
+//!     .with_debug();
+//!
+//! camera.await_with_config(&config)?;
+//! ```
 
 use std::time::Duration;
 
@@ -19,6 +43,336 @@ use crate::{executor::Executor, transport::AsyncTransport};
 
 #[cfg(not(feature = "mode-async"))]
 use crate::{mode::BlockingFutureExt, timeout::Deadline, transport::BlockingTransport};
+
+// ============================================================================
+// Axes Bitflags
+// ============================================================================
+
+/// Bitflags for selecting which camera axes to monitor for movement.
+///
+/// This allows efficient, targeted movement detection by polling only the
+/// relevant axes rather than querying all positions.
+///
+/// # Examples
+///
+/// ```
+/// use grafton_visca::camera::Axes;
+///
+/// // Monitor only pan/tilt
+/// let axes = Axes::PAN_TILT;
+///
+/// // Monitor pan/tilt and zoom (skip focus)
+/// let axes = Axes::PAN_TILT | Axes::ZOOM;
+///
+/// // Monitor all axes
+/// let axes = Axes::ALL;
+///
+/// // Check what's included
+/// assert!(Axes::ALL.contains(Axes::PAN_TILT));
+/// assert!(Axes::ALL.contains(Axes::ZOOM));
+/// assert!(Axes::ALL.contains(Axes::FOCUS));
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Axes(u8);
+
+impl Axes {
+    /// Pan and tilt axes (typically move together).
+    pub const PAN_TILT: Self = Self(0b001);
+
+    /// Zoom axis.
+    pub const ZOOM: Self = Self(0b010);
+
+    /// Focus axis.
+    pub const FOCUS: Self = Self(0b100);
+
+    /// All movement axes (pan/tilt, zoom, and focus).
+    pub const ALL: Self = Self(0b111);
+
+    /// No axes (empty set).
+    pub const NONE: Self = Self(0b000);
+
+    /// Check if this set contains the specified axes.
+    #[inline]
+    #[must_use]
+    pub const fn contains(self, other: Self) -> bool {
+        (self.0 & other.0) == other.0
+    }
+
+    /// Check if this set is empty (no axes selected).
+    #[inline]
+    #[must_use]
+    pub const fn is_empty(self) -> bool {
+        self.0 == 0
+    }
+
+    /// Returns true if pan/tilt monitoring is enabled.
+    #[inline]
+    #[must_use]
+    pub const fn has_pan_tilt(self) -> bool {
+        (self.0 & Self::PAN_TILT.0) != 0
+    }
+
+    /// Returns true if zoom monitoring is enabled.
+    #[inline]
+    #[must_use]
+    pub const fn has_zoom(self) -> bool {
+        (self.0 & Self::ZOOM.0) != 0
+    }
+
+    /// Returns true if focus monitoring is enabled.
+    #[inline]
+    #[must_use]
+    pub const fn has_focus(self) -> bool {
+        (self.0 & Self::FOCUS.0) != 0
+    }
+
+    /// Count the number of axes in this set.
+    #[inline]
+    #[must_use]
+    pub const fn count(self) -> u32 {
+        self.0.count_ones()
+    }
+}
+
+impl std::ops::BitOr for Axes {
+    type Output = Self;
+
+    #[inline]
+    fn bitor(self, rhs: Self) -> Self::Output {
+        Self(self.0 | rhs.0)
+    }
+}
+
+impl std::ops::BitOrAssign for Axes {
+    #[inline]
+    fn bitor_assign(&mut self, rhs: Self) {
+        self.0 |= rhs.0;
+    }
+}
+
+impl std::ops::BitAnd for Axes {
+    type Output = Self;
+
+    #[inline]
+    fn bitand(self, rhs: Self) -> Self::Output {
+        Self(self.0 & rhs.0)
+    }
+}
+
+impl Default for Axes {
+    /// Default is all axes monitored.
+    fn default() -> Self {
+        Self::ALL
+    }
+}
+
+impl std::fmt::Display for Axes {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.is_empty() {
+            return write!(f, "none");
+        }
+
+        let mut parts = Vec::new();
+        if self.has_pan_tilt() {
+            parts.push("pan/tilt");
+        }
+        if self.has_zoom() {
+            parts.push("zoom");
+        }
+        if self.has_focus() {
+            parts.push("focus");
+        }
+
+        write!(f, "{}", parts.join(", "))
+    }
+}
+
+// ============================================================================
+// AwaitConfig Builder
+// ============================================================================
+
+/// Configuration for awaiting camera movement completion.
+///
+/// This builder provides fine-grained control over movement detection behavior,
+/// including axis selection, timeout configuration, and debug logging.
+///
+/// # Examples
+///
+/// ```
+/// use std::time::Duration;
+/// use grafton_visca::camera::{AwaitConfig, Axes};
+///
+/// // Basic configuration with timeout
+/// let config = AwaitConfig::new(Duration::from_secs(30));
+///
+/// // Wait for specific axes with debug logging
+/// let config = AwaitConfig::new(Duration::from_secs(10))
+///     .with_axes(Axes::PAN_TILT | Axes::ZOOM)
+///     .with_debug();
+///
+/// // Preset recall typically needs all axes and longer timeout
+/// let config = AwaitConfig::for_preset_recall();
+/// ```
+#[derive(Debug, Clone, Copy)]
+pub struct AwaitConfig {
+    /// Maximum time to wait for movement to complete.
+    pub timeout: Duration,
+
+    /// Which axes to monitor for movement.
+    pub axes: Axes,
+
+    /// Enable debug logging for movement detection.
+    pub debug: bool,
+
+    /// Polling interval between position samples.
+    /// Default: 100ms, adapts based on elapsed time.
+    pub poll_interval: Duration,
+
+    /// Position tolerance for considering movement stopped.
+    /// Higher values mean less sensitivity to micro-movements.
+    pub tolerance: MovementTolerance,
+}
+
+/// Tolerance values for movement detection.
+///
+/// These determine how much position change is considered "movement"
+/// versus noise or settling.
+#[derive(Debug, Clone, Copy)]
+pub struct MovementTolerance {
+    /// Pan/tilt position tolerance in raw VISCA units.
+    /// Default: 2 units (approximately 0.14° for most cameras).
+    pub pan_tilt: i16,
+
+    /// Zoom position tolerance in raw VISCA units.
+    /// Default: 10 units.
+    pub zoom: u16,
+
+    /// Focus position tolerance in raw VISCA units.
+    /// Default: 5 units.
+    pub focus: u16,
+}
+
+impl Default for MovementTolerance {
+    fn default() -> Self {
+        Self {
+            pan_tilt: 2,
+            zoom: 10,
+            focus: 5,
+        }
+    }
+}
+
+impl AwaitConfig {
+    /// Create a new configuration with the specified timeout.
+    ///
+    /// Defaults to monitoring all axes.
+    #[must_use]
+    pub const fn new(timeout: Duration) -> Self {
+        Self {
+            timeout,
+            axes: Axes::ALL,
+            debug: false,
+            poll_interval: Duration::from_millis(100),
+            tolerance: MovementTolerance {
+                pan_tilt: 2,
+                zoom: 10,
+                focus: 5,
+            },
+        }
+    }
+
+    /// Create configuration suitable for preset recall operations.
+    ///
+    /// Presets typically move all axes and may take longer to complete.
+    /// Uses a 60-second timeout and monitors all axes.
+    #[must_use]
+    pub const fn for_preset_recall() -> Self {
+        Self::new(Duration::from_secs(60)).with_axes(Axes::ALL)
+    }
+
+    /// Create configuration suitable for pan/tilt movements only.
+    ///
+    /// Uses a 30-second timeout and monitors only pan/tilt.
+    #[must_use]
+    pub const fn for_pan_tilt() -> Self {
+        Self::new(Duration::from_secs(30)).with_axes(Axes::PAN_TILT)
+    }
+
+    /// Create configuration suitable for zoom movements only.
+    ///
+    /// Uses a 15-second timeout and monitors only zoom.
+    #[must_use]
+    pub const fn for_zoom() -> Self {
+        Self::new(Duration::from_secs(15)).with_axes(Axes::ZOOM)
+    }
+
+    /// Create configuration suitable for focus movements only.
+    ///
+    /// Uses a 10-second timeout and monitors only focus.
+    #[must_use]
+    pub const fn for_focus() -> Self {
+        Self::new(Duration::from_secs(10)).with_axes(Axes::FOCUS)
+    }
+
+    /// Set which axes to monitor for movement.
+    #[must_use]
+    pub const fn with_axes(mut self, axes: Axes) -> Self {
+        self.axes = axes;
+        self
+    }
+
+    /// Enable debug logging for movement detection.
+    #[must_use]
+    pub const fn with_debug(mut self) -> Self {
+        self.debug = true;
+        self
+    }
+
+    /// Set the polling interval between position samples.
+    #[must_use]
+    pub const fn with_poll_interval(mut self, interval: Duration) -> Self {
+        self.poll_interval = interval;
+        self
+    }
+
+    /// Set movement tolerance values.
+    #[must_use]
+    pub const fn with_tolerance(mut self, tolerance: MovementTolerance) -> Self {
+        self.tolerance = tolerance;
+        self
+    }
+
+    /// Set pan/tilt tolerance specifically.
+    #[must_use]
+    pub const fn with_pan_tilt_tolerance(mut self, tolerance: i16) -> Self {
+        self.tolerance.pan_tilt = tolerance;
+        self
+    }
+
+    /// Set the timeout duration.
+    #[must_use]
+    pub const fn with_timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = timeout;
+        self
+    }
+}
+
+impl Default for AwaitConfig {
+    fn default() -> Self {
+        Self::new(Duration::from_secs(30))
+    }
+}
+
+impl From<Duration> for AwaitConfig {
+    /// Create a basic config from just a timeout duration.
+    fn from(timeout: Duration) -> Self {
+        Self::new(timeout)
+    }
+}
+
+// ============================================================================
+// Position Types
+// ============================================================================
 
 /// Position data for movement detection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -420,12 +774,11 @@ where
     /// Wait for all movements to complete.
     ///
     /// Convenience method that waits for all motors (pan/tilt, zoom, focus) to stop.
+    ///
+    /// For more control over which axes to monitor, use [`await_with_config`] or
+    /// [`await_axes_idle`].
     pub fn await_idle(&mut self, timeout: Duration) -> Result<(), Error> {
-        let config = MovementConfig {
-            timeout,
-            debug: false,
-        };
-        self.wait_for_movement(&config)
+        self.await_with_config(&AwaitConfig::new(timeout))
     }
 
     /// Check if the camera is currently moving.
@@ -574,6 +927,275 @@ where
         let focus_moving = (pos1_focus as i32 - pos2_focus as i32).abs() > 5;
 
         Ok(pt_moving || zoom_moving || focus_moving)
+    }
+
+    /// Check if specific camera axes are currently moving, respecting an external deadline.
+    ///
+    /// This is more efficient than `is_moving_with_deadline` when you only care about
+    /// specific axes (e.g., only pan/tilt after a pan_tilt_absolute command).
+    ///
+    /// # Arguments
+    ///
+    /// * `axes` - Which axes to check for movement
+    /// * `deadline` - The deadline by which all inquiries must complete
+    /// * `tolerance` - Movement tolerance values
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(true)` - At least one monitored axis is moving
+    /// * `Ok(false)` - All monitored axes are idle
+    /// * `Err(Error::Timeout)` - Deadline exceeded before completing check
+    /// * `Err(...)` - Communication or parse error
+    pub fn is_moving_axes_with_deadline(
+        &mut self,
+        axes: Axes,
+        deadline: Deadline,
+        tolerance: &MovementTolerance,
+    ) -> Result<bool, Error> {
+        if axes.is_empty() {
+            return Ok(false);
+        }
+
+        if deadline.is_expired() {
+            return Err(Error::Timeout);
+        }
+
+        let mut pt_moving = false;
+        let mut zoom_moving = false;
+        let mut focus_moving = false;
+
+        // First sample - only query the axes we care about
+        let pos1_pt = if axes.has_pan_tilt() {
+            let response = self
+                .send_command_with_deadline(&PanTiltPositionInquiry, deadline)
+                .block()?;
+            match response {
+                crate::command::Response::Inquiry(
+                    crate::command::InquiryData::PanTiltPosition { pan, tilt },
+                ) => Some((pan, tilt)),
+                _ => {
+                    return Err(Error::ParseError(
+                        "Expected PanTiltPosition response".into(),
+                    ))
+                }
+            }
+        } else {
+            None
+        };
+
+        if deadline.is_expired() {
+            return Err(Error::Timeout);
+        }
+
+        let pos1_zoom = if axes.has_zoom() {
+            let response = self
+                .send_command_with_deadline(&ZoomPositionInquiry, deadline)
+                .block()?;
+            match response {
+                crate::command::Response::Inquiry(crate::command::InquiryData::ZoomPosition {
+                    position,
+                }) => Some(position),
+                _ => return Err(Error::ParseError("Expected ZoomPosition response".into())),
+            }
+        } else {
+            None
+        };
+
+        if deadline.is_expired() {
+            return Err(Error::Timeout);
+        }
+
+        let pos1_focus = if axes.has_focus() {
+            let response = self
+                .send_command_with_deadline(&FocusPositionInquiry, deadline)
+                .block()?;
+            match response {
+                crate::command::Response::Inquiry(crate::command::InquiryData::FocusPosition {
+                    position,
+                }) => Some(position),
+                _ => return Err(Error::ParseError("Expected FocusPosition response".into())),
+            }
+        } else {
+            None
+        };
+
+        // Brief pause between samples
+        if deadline.remaining() > Duration::from_millis(10) {
+            std::thread::sleep(Duration::from_millis(5));
+        } else if deadline.is_expired() {
+            return Err(Error::Timeout);
+        }
+
+        // Second sample
+        if let Some((pos1_pan, pos1_tilt)) = pos1_pt {
+            let response = self
+                .send_command_with_deadline(&PanTiltPositionInquiry, deadline)
+                .block()?;
+            let (pos2_pan, pos2_tilt) = match response {
+                crate::command::Response::Inquiry(
+                    crate::command::InquiryData::PanTiltPosition { pan, tilt },
+                ) => (pan, tilt),
+                _ => {
+                    return Err(Error::ParseError(
+                        "Expected PanTiltPosition response".into(),
+                    ))
+                }
+            };
+            pt_moving = !positions_equal_within_tolerance(
+                PanTiltPosition {
+                    pan: pos1_pan,
+                    tilt: pos1_tilt,
+                },
+                PanTiltPosition {
+                    pan: pos2_pan,
+                    tilt: pos2_tilt,
+                },
+                tolerance.pan_tilt,
+            );
+        }
+
+        if deadline.is_expired() {
+            return Err(Error::Timeout);
+        }
+
+        if let Some(pos1_z) = pos1_zoom {
+            let response = self
+                .send_command_with_deadline(&ZoomPositionInquiry, deadline)
+                .block()?;
+            let pos2_z = match response {
+                crate::command::Response::Inquiry(crate::command::InquiryData::ZoomPosition {
+                    position,
+                }) => position,
+                _ => return Err(Error::ParseError("Expected ZoomPosition response".into())),
+            };
+            zoom_moving = !zoom_equal_within_tolerance(pos1_z, pos2_z, tolerance.zoom);
+        }
+
+        if deadline.is_expired() {
+            return Err(Error::Timeout);
+        }
+
+        if let Some(pos1_f) = pos1_focus {
+            let response = self
+                .send_command_with_deadline(&FocusPositionInquiry, deadline)
+                .block()?;
+            let pos2_f = match response {
+                crate::command::Response::Inquiry(crate::command::InquiryData::FocusPosition {
+                    position,
+                }) => position,
+                _ => return Err(Error::ParseError("Expected FocusPosition response".into())),
+            };
+            focus_moving = (pos1_f as i32 - pos2_f as i32).abs() > tolerance.focus as i32;
+        }
+
+        Ok(pt_moving || zoom_moving || focus_moving)
+    }
+
+    /// Wait for movement completion using an [`AwaitConfig`].
+    ///
+    /// This is the most flexible movement waiting API, allowing fine-grained
+    /// control over which axes to monitor, timeout, debug logging, and tolerances.
+    ///
+    /// # Arguments
+    ///
+    /// * `config` - Configuration for the wait operation
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` - All monitored axes have stopped moving
+    /// * `Err(Error::Timeout)` - Movement did not complete within timeout
+    /// * `Err(...)` - Communication or camera error
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// // Wait for preset recall with appropriate timeout
+    /// camera.await_with_config(&AwaitConfig::for_preset_recall())?;
+    ///
+    /// // Custom configuration
+    /// let config = AwaitConfig::new(Duration::from_secs(20))
+    ///     .with_axes(Axes::PAN_TILT | Axes::ZOOM)
+    ///     .with_debug();
+    /// camera.await_with_config(&config)?;
+    /// ```
+    pub fn await_with_config(&mut self, config: &AwaitConfig) -> Result<(), Error> {
+        if config.axes.is_empty() {
+            return Ok(());
+        }
+
+        let deadline = Deadline::from_timeout(config.timeout);
+
+        if config.debug {
+            tracing::debug!(
+                "Waiting for movement completion: axes={}, timeout={:?}",
+                config.axes,
+                config.timeout
+            );
+        }
+
+        loop {
+            if deadline.is_expired() {
+                if config.debug {
+                    tracing::debug!("Movement detection timed out");
+                }
+                return Err(Error::Timeout);
+            }
+
+            match self.is_moving_axes_with_deadline(config.axes, deadline, &config.tolerance) {
+                Ok(false) => {
+                    if config.debug {
+                        tracing::debug!("Movement completed (all monitored axes idle)");
+                    }
+                    return Ok(());
+                }
+                Ok(true) => {
+                    // Still moving, continue polling
+                    if config.debug {
+                        tracing::trace!("Still moving, continuing to poll...");
+                    }
+                }
+                Err(Error::Timeout) => {
+                    if config.debug {
+                        tracing::debug!("Movement detection timed out during polling");
+                    }
+                    return Err(Error::Timeout);
+                }
+                Err(e) => {
+                    return Err(e);
+                }
+            }
+
+            // Sleep between polls, capped by remaining time
+            let sleep_time = config.poll_interval.min(deadline.remaining());
+            if sleep_time > Duration::ZERO {
+                std::thread::sleep(sleep_time);
+            }
+        }
+    }
+
+    /// Wait for specific axes to become idle.
+    ///
+    /// This is a convenience method that creates an [`AwaitConfig`] with the
+    /// specified axes and timeout.
+    ///
+    /// # Arguments
+    ///
+    /// * `axes` - Which axes to monitor
+    /// * `timeout` - Maximum time to wait
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// // After pan/tilt command, wait only for pan/tilt
+    /// camera.pan_tilt_absolute(Degrees(45.0), Degrees(10.0), SpeedLevel::Fast)?;
+    /// camera.await_axes_idle(Axes::PAN_TILT, Duration::from_secs(20))?;
+    ///
+    /// // After preset recall, wait for all axes
+    /// camera.preset_recall(PresetNumber::new(1)?)?;
+    /// camera.await_axes_idle(Axes::ALL, Duration::from_secs(60))?;
+    /// ```
+    pub fn await_axes_idle(&mut self, axes: Axes, timeout: Duration) -> Result<(), Error> {
+        self.await_with_config(&AwaitConfig::new(timeout).with_axes(axes))
     }
 }
 
@@ -1042,5 +1664,185 @@ where
         let focus_moving = (pos1_focus as i32 - pos2_focus as i32).abs() > 5;
 
         Ok(pt_moving || zoom_moving || focus_moving)
+    }
+
+    /// Check if specific camera axes are currently moving (async version).
+    ///
+    /// This is more efficient than `is_moving_async` when you only care about
+    /// specific axes (e.g., only pan/tilt after a pan_tilt_absolute command).
+    pub async fn is_moving_axes_async(
+        &self,
+        axes: Axes,
+        tolerance: &MovementTolerance,
+    ) -> Result<bool, Error> {
+        if axes.is_empty() {
+            return Ok(false);
+        }
+
+        let mut pt_moving = false;
+        let mut zoom_moving = false;
+        let mut focus_moving = false;
+
+        // First sample - only query the axes we care about
+        let pos1_pt = if axes.has_pan_tilt() {
+            let response = self.send_command(&PanTiltPositionInquiry).await?;
+            match response {
+                crate::command::Response::Inquiry(
+                    crate::command::InquiryData::PanTiltPosition { pan, tilt },
+                ) => Some((pan, tilt)),
+                _ => {
+                    return Err(Error::ParseError(
+                        "Expected PanTiltPosition response".into(),
+                    ))
+                }
+            }
+        } else {
+            None
+        };
+
+        let pos1_zoom = if axes.has_zoom() {
+            let response = self.send_command(&ZoomPositionInquiry).await?;
+            match response {
+                crate::command::Response::Inquiry(crate::command::InquiryData::ZoomPosition {
+                    position,
+                }) => Some(position),
+                _ => return Err(Error::ParseError("Expected ZoomPosition response".into())),
+            }
+        } else {
+            None
+        };
+
+        let pos1_focus = if axes.has_focus() {
+            let response = self.send_command(&FocusPositionInquiry).await?;
+            match response {
+                crate::command::Response::Inquiry(crate::command::InquiryData::FocusPosition {
+                    position,
+                }) => Some(position),
+                _ => return Err(Error::ParseError("Expected FocusPosition response".into())),
+            }
+        } else {
+            None
+        };
+
+        // Brief pause between samples
+        self.sleep(Duration::from_millis(5)).await;
+
+        // Second sample
+        if let Some((pos1_pan, pos1_tilt)) = pos1_pt {
+            let response = self.send_command(&PanTiltPositionInquiry).await?;
+            let (pos2_pan, pos2_tilt) = match response {
+                crate::command::Response::Inquiry(
+                    crate::command::InquiryData::PanTiltPosition { pan, tilt },
+                ) => (pan, tilt),
+                _ => {
+                    return Err(Error::ParseError(
+                        "Expected PanTiltPosition response".into(),
+                    ))
+                }
+            };
+            pt_moving = !positions_equal_within_tolerance(
+                PanTiltPosition {
+                    pan: pos1_pan,
+                    tilt: pos1_tilt,
+                },
+                PanTiltPosition {
+                    pan: pos2_pan,
+                    tilt: pos2_tilt,
+                },
+                tolerance.pan_tilt,
+            );
+        }
+
+        if let Some(pos1_z) = pos1_zoom {
+            let response = self.send_command(&ZoomPositionInquiry).await?;
+            let pos2_z = match response {
+                crate::command::Response::Inquiry(crate::command::InquiryData::ZoomPosition {
+                    position,
+                }) => position,
+                _ => return Err(Error::ParseError("Expected ZoomPosition response".into())),
+            };
+            zoom_moving = !zoom_equal_within_tolerance(pos1_z, pos2_z, tolerance.zoom);
+        }
+
+        if let Some(pos1_f) = pos1_focus {
+            let response = self.send_command(&FocusPositionInquiry).await?;
+            let pos2_f = match response {
+                crate::command::Response::Inquiry(crate::command::InquiryData::FocusPosition {
+                    position,
+                }) => position,
+                _ => return Err(Error::ParseError("Expected FocusPosition response".into())),
+            };
+            focus_moving = (pos1_f as i32 - pos2_f as i32).abs() > tolerance.focus as i32;
+        }
+
+        Ok(pt_moving || zoom_moving || focus_moving)
+    }
+
+    /// Wait for movement completion using an [`AwaitConfig`] (async version).
+    ///
+    /// This is the most flexible movement waiting API, allowing fine-grained
+    /// control over which axes to monitor, timeout, debug logging, and tolerances.
+    pub async fn await_with_config(&self, config: &AwaitConfig) -> Result<(), Error> {
+        if config.axes.is_empty() {
+            return Ok(());
+        }
+
+        let start = std::time::Instant::now();
+        let deadline = start + config.timeout;
+
+        if config.debug {
+            tracing::debug!(
+                "Waiting for movement completion: axes={}, timeout={:?}",
+                config.axes,
+                config.timeout
+            );
+        }
+
+        loop {
+            let now = std::time::Instant::now();
+            if now >= deadline {
+                if config.debug {
+                    tracing::debug!("Movement detection timed out");
+                }
+                return Err(Error::Timeout);
+            }
+
+            match self
+                .is_moving_axes_async(config.axes, &config.tolerance)
+                .await
+            {
+                Ok(false) => {
+                    if config.debug {
+                        tracing::debug!("Movement completed (all monitored axes idle)");
+                    }
+                    return Ok(());
+                }
+                Ok(true) => {
+                    // Still moving, continue polling
+                    if config.debug {
+                        tracing::trace!("Still moving, continuing to poll...");
+                    }
+                }
+                Err(e) => {
+                    return Err(e);
+                }
+            }
+
+            // Sleep between polls
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            let sleep_time = config.poll_interval.min(remaining);
+            if sleep_time > Duration::ZERO {
+                self.sleep(sleep_time).await;
+            }
+        }
+    }
+
+    /// Wait for specific axes to become idle (async version).
+    ///
+    /// This is a convenience method that creates an [`AwaitConfig`] with the
+    /// specified axes and timeout.
+    pub async fn await_axes_idle(&self, axes: Axes, timeout: Duration) -> Result<(), Error> {
+        self.await_with_config(&AwaitConfig::new(timeout).with_axes(axes))
+            .await
     }
 }

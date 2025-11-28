@@ -158,6 +158,60 @@ where
         self.inner.await_idle(timeout)
     }
 
+    /// Wait for movement completion with configurable options.
+    ///
+    /// This method provides fine-grained control over movement detection,
+    /// including which axes to monitor, timeout, and debug logging.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use grafton_visca::{BlockingClient, camera::{profiles::PtzOpticsG2, AwaitConfig, Axes}};
+    /// use std::time::Duration;
+    ///
+    /// let camera = Camera::open_tcp_blocking::<PtzOpticsG2>("192.168.0.110:5678")?;
+    ///
+    /// // After preset recall, wait for all axes with generous timeout
+    /// camera.preset_recall(PresetNumber::new(1)?)?;
+    /// camera.await_with_config(&AwaitConfig::for_preset_recall())?;
+    /// ```
+    pub fn await_with_config(&mut self, config: &super::AwaitConfig) -> Result<(), Error>
+    where
+        P: crate::capabilities::ProfileMetadata + Default,
+        Tr: crate::transport::BlockingTransport + crate::transport::HasTransportConfig + 'static,
+    {
+        self.inner.await_with_config(config)
+    }
+
+    /// Wait for specific axes to become idle.
+    ///
+    /// This is a convenience method for selective axis monitoring. Use when
+    /// you know which axes were affected by your command.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use grafton_visca::{BlockingClient, camera::{profiles::PtzOpticsG2, Axes}};
+    /// use std::time::Duration;
+    ///
+    /// let camera = Camera::open_tcp_blocking::<PtzOpticsG2>("192.168.0.110:5678")?;
+    ///
+    /// // After pan/tilt command, only wait for pan/tilt (not zoom/focus)
+    /// camera.pan_tilt_absolute(Degrees(45.0), Degrees(10.0), SpeedLevel::Fast)?;
+    /// camera.await_axes_idle(Axes::PAN_TILT, Duration::from_secs(20))?;
+    /// ```
+    pub fn await_axes_idle(
+        &mut self,
+        axes: super::Axes,
+        timeout: std::time::Duration,
+    ) -> Result<(), Error>
+    where
+        P: crate::capabilities::ProfileMetadata + Default,
+        Tr: crate::transport::BlockingTransport + crate::transport::HasTransportConfig + 'static,
+    {
+        self.inner.await_axes_idle(axes, timeout)
+    }
+
     /// Close the camera connection gracefully.
     ///
     /// This method performs an orderly shutdown of the camera connection,

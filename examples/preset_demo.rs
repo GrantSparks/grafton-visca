@@ -3,7 +3,8 @@
 //! This example demonstrates preset functionality including:
 //! - Saving multiple preset positions with pan/tilt/zoom
 //! - Recalling presets to verify they work correctly
-//! - Showing position changes during recall
+//! - Using axis-specific movement detection for efficient waiting
+//! - Proper timeout configuration for different operation types
 //!
 //! **Context**: This is a blocking example that requires NO async features or runtime.
 //!
@@ -17,7 +18,7 @@ use std::{env, thread::sleep, time::Duration};
 
 #[cfg(not(feature = "mode-async"))]
 use grafton_visca::{
-    camera::{profiles::PtzOpticsG2, Connect},
+    camera::{profiles::PtzOpticsG2, AwaitConfig, Axes, Connect},
     command::preset::PresetNumber,
     types::SpeedLevel,
     units::{Degrees, Normalized},
@@ -47,7 +48,8 @@ fn main() -> Result<(), Error> {
     println!("Moving to home position...");
     camera.pan_tilt_home()?;
     camera.set_zoom(Normalized(0.0))?;
-    camera.await_idle(Duration::from_secs(10))?;
+    // Only wait for pan/tilt and zoom - we set both, no focus change
+    camera.await_axes_idle(Axes::PAN_TILT | Axes::ZOOM, Duration::from_secs(30))?;
     println!("✓ At home position\n");
 
     struct PresetTest {
@@ -95,9 +97,8 @@ fn main() -> Result<(), Error> {
         camera.pan_tilt_absolute(preset.pan, preset.tilt, SpeedLevel::Medium)?;
         camera.set_zoom(preset.zoom)?;
 
-        camera.await_idle(Duration::from_secs(10))?;
-        // Note: Position inquiry not implemented in this demo
-        // Position would be displayed here if inquiry was available
+        // Wait for pan/tilt and zoom to complete - 20s is generous for medium speed
+        camera.await_axes_idle(Axes::PAN_TILT | Axes::ZOOM, Duration::from_secs(20))?;
 
         camera.preset_set(PresetNumber::new(preset.number)?)?;
         println!("  ✓ Preset {} saved\n", preset.number);
@@ -109,24 +110,25 @@ fn main() -> Result<(), Error> {
     println!("Moving to test position (60°, -15°)...");
     camera.pan_tilt_absolute(Degrees(60.0), Degrees(-15.0), SpeedLevel::Fast)?;
     camera.set_zoom(Normalized(0.7))?;
-    camera.await_idle(Duration::from_secs(10))?;
-
-    // Note: Position inquiry not implemented in this demo
-    println!("Current position: (position inquiry not available)\n");
+    // Fast speed but still needs time for the full range of motion
+    camera.await_axes_idle(Axes::PAN_TILT | Axes::ZOOM, Duration::from_secs(15))?;
+    println!("At test position\n");
 
     for preset in &presets {
         println!("Recalling Preset {} - '{}'", preset.number, preset.name);
 
-        // Note: Position inquiry not implemented in this demo
-
         camera.preset_recall(PresetNumber::new(preset.number)?)?;
 
-        camera.await_idle(Duration::from_secs(10))?;
+        // Use the preset-specific config: 60s timeout, all axes monitored
+        // Presets can move pan/tilt, zoom, and focus simultaneously
+        camera.await_with_config(&AwaitConfig::for_preset_recall())?;
 
-        // Position inquiry not available - preset recall occurs but we can't verify position
-        println!("  Preset recalled (position verification not available)");
-
-        println!();
+        println!(
+            "  ✓ Recalled to Pan={:.1}°, Tilt={:.1}°, Zoom={:.0}%\n",
+            preset.pan.0,
+            preset.tilt.0,
+            preset.zoom.0 * 100.0
+        );
     }
 
     println!("✨ Preset demo complete!");
