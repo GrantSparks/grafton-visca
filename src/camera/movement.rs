@@ -775,8 +775,8 @@ where
     ///
     /// Convenience method that waits for all motors (pan/tilt, zoom, focus) to stop.
     ///
-    /// For more control over which axes to monitor, use [`await_with_config`] or
-    /// [`await_axes_idle`].
+    /// For more control over which axes to monitor, use [`Self::await_with_config`] or
+    /// [`Self::await_axes_idle`].
     pub fn await_idle(&mut self, timeout: Duration) -> Result<(), Error> {
         self.await_with_config(&AwaitConfig::new(timeout))
     }

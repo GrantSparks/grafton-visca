@@ -4,9 +4,7 @@
 
 pub(crate) mod connectors;
 
-use crate::declare_net_transport;
-
-declare_net_transport!(
+crate::declare_net_transport!(
     runtime = "smol",
     tcp_stream = crate::transport::smol::connectors::SmolTcpStream,
     udp_socket = smol::net::UdpSocket,

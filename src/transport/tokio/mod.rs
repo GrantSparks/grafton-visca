@@ -7,9 +7,7 @@ pub(crate) mod connectors;
 pub mod serial;
 
 // Use the macro to generate TCP and UDP transport implementations
-use crate::declare_net_transport;
-
-declare_net_transport!(
+crate::declare_net_transport!(
     runtime = "tokio",
     tcp_stream = crate::transport::tokio::connectors::TokioTcpStream,
     udp_socket = tokio::net::UdpSocket,

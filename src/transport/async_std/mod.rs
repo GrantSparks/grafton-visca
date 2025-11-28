@@ -6,9 +6,7 @@
 pub(crate) mod connectors;
 
 // Use the macro to generate TCP and UDP transport implementations
-use crate::declare_net_transport;
-
-declare_net_transport!(
+crate::declare_net_transport!(
     runtime = "async_std",
     tcp_stream = crate::transport::async_std::connectors::AsyncStdTcpStream,
     udp_socket = async_std::net::UdpSocket,
