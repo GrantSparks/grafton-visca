@@ -1,17 +1,26 @@
 //! Motion control utilities for PTZ cameras.
 //!
-//! This module provides convenience functions and RAII guards for controlling
+//! This module provides convenience functions and handles for controlling
 //! camera motion, including a unified `stop_all_motion()` function and a
-//! `MotionGuard` that automatically stops motion when dropped.
+//! `MotionGuard` for explicit motion stopping.
 
 use core::marker::PhantomData;
 
 use crate::{camera::ViscaClient, mode::Mode, Error};
 
+use super::{focus::FocusControl, pan_tilt::PanTiltControl, zoom::ZoomControl};
+
 /// Motion control operations for PTZ cameras.
 ///
 /// This trait provides convenience methods for controlling all camera motion,
 /// including unified stop operations.
+///
+/// # Motion Semantics
+///
+/// The `stop_all_motion` method issues stop commands for all motion axes:
+/// pan/tilt, zoom, and focus. This aligns with the crate's movement detection
+/// semantics (e.g., `await_idle`, `is_moving_async`) which consider the camera
+/// as moving if *any* axis is changing position.
 ///
 /// # Examples
 ///
@@ -23,20 +32,29 @@ use crate::{camera::ViscaClient, mode::Mode, Error};
 /// // Async
 /// camera.stop_all_motion().await?;
 /// ```
+///
+/// ## Stop and wait for idle
+/// ```ignore
+/// camera.stop_all_motion().await?;
+/// camera.await_idle(Duration::from_secs(5)).await?;
+/// ```
 pub trait MotionControl {
     /// The mode type for this camera (Async or Blocking).
     type Mode: Mode;
 
     /// Stop all camera motion (pan, tilt, zoom, and focus).
     ///
-    /// This is a convenience method that stops all types of motion in a single call.
-    /// It attempts to stop pan/tilt, zoom, and focus motion in sequence.
-    /// If multiple stop commands fail, the first error is returned, but all
-    /// stop commands are attempted for safety.
+    /// This method issues stop commands for pan/tilt, zoom, and focus axes
+    /// in sequence. All stop commands are attempted even if earlier ones fail,
+    /// and the first error encountered is returned.
+    ///
+    /// This method is only available for cameras that support all three motion
+    /// types (pan/tilt, zoom, and focus), as enforced by the capability bounds.
     ///
     /// # Errors
+    ///
     /// Returns the first error encountered while stopping motion.
-    /// All stop commands are attempted even if earlier ones fail.
+    /// All stop commands are attempted for safety even if earlier ones fail.
     ///
     /// # Example
     /// ```ignore
@@ -46,20 +64,20 @@ pub trait MotionControl {
     fn stop_all_motion(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 }
 
-/// RAII guard for camera motion that automatically stops motion when dropped.
+/// Handle for stopping camera motion on specific axes.
 ///
-/// This guard ensures that continuous motion operations (pan/tilt/zoom) are
-/// automatically stopped when the guard goes out of scope, providing safe
-/// motion control even in the presence of early returns or panics.
+/// This type provides an explicit, non-RAII interface for stopping camera motion.
+/// Unlike traditional RAII guards, dropping a `MotionGuard` does **not** stop motion.
+/// You must explicitly call `stop_now()` to issue stop commands.
 ///
-/// **Note on Drop Behavior**: Due to limitations of Rust's async model,
-/// the Drop implementation cannot execute async stop commands. Users should
-/// either:
-/// - Call `stop_now()` explicitly to handle errors
-/// - Use the guard in a limited scope where motion should naturally stop
-/// - Use `stop_all_motion()` for explicit cleanup
+/// This design aligns with the crate's async patterns (e.g., `InFlight` handles)
+/// where async operations require explicit handling rather than implicit Drop behavior.
 ///
-/// # Example
+/// # Usage
+///
+/// Create a guard for the motion type you want to control, then call `stop_now()`
+/// when you want to stop that motion:
+///
 /// ```ignore
 /// {
 ///     let guard = MotionGuard::new_pan_tilt(&camera);
@@ -67,17 +85,29 @@ pub trait MotionControl {
 ///         PanTiltDirection::Right,
 ///         PanSpeed::new(12)?,
 ///         TiltSpeed::new(0)?
-///     )?; // or .await? for async
+///     ).await?;
 ///
 ///     // Camera pans right...
-///     thread::sleep(Duration::from_secs(2));
+///     tokio::time::sleep(Duration::from_secs(2)).await;
 ///
-///     // Option 1: Explicit stop with error handling
-///     guard.stop_now()?; // or .await? for async
-///
-///     // Option 2: Let guard go out of scope (best-effort stop, no error handling)
+///     // Explicitly stop the motion
+///     guard.stop_now().await?;
 /// }
 /// ```
+///
+/// # Motion Types
+///
+/// - `new_pan_tilt()`: Creates a guard that stops pan/tilt motion
+/// - `new_zoom()`: Creates a guard that stops zoom motion
+/// - `new_focus()`: Creates a guard that stops focus motion
+/// - `new_all()`: Creates a guard that stops all motion axes (pan/tilt, zoom, and focus)
+///
+/// # Note on Drop
+///
+/// Dropping a `MotionGuard` without calling `stop_now()` is explicitly a no-op.
+/// This is intentional: async stop operations cannot be reliably executed in Drop,
+/// and hiding background work in destructors would conflict with the crate's
+/// explicit async patterns.
 #[derive(Debug)]
 pub struct MotionGuard<'cam, M, P, Tr, Exec>
 where
@@ -87,7 +117,6 @@ where
 {
     camera: &'cam crate::camera::Camera<M, P, Tr, Exec>,
     motion_type: MotionType,
-    should_stop: bool,
     _phantom: PhantomData<(M, P, Tr)>,
 }
 
@@ -107,144 +136,146 @@ where
     crate::camera::Camera<M, P, Tr, Exec>: ViscaClient<M>,
     Exec: crate::executor::Executor,
 {
-    /// Create a new guard for pan/tilt motion.
+    /// Create a new handle for pan/tilt motion.
     ///
-    /// After creating the guard, start the motion using the camera's
-    /// pan_tilt_move() method. The guard will stop the motion when dropped.
+    /// After creating the handle, start the motion using the camera's
+    /// `pan_tilt_move()` method. Call `stop_now()` to stop the motion.
     pub fn new_pan_tilt(camera: &'cam crate::camera::Camera<M, P, Tr, Exec>) -> Self {
         Self {
             camera,
             motion_type: MotionType::PanTilt,
-            should_stop: true,
             _phantom: PhantomData,
         }
     }
 
-    /// Create a new guard for zoom motion.
+    /// Create a new handle for zoom motion.
     ///
-    /// After creating the guard, start the zoom using the camera's
-    /// zoom_tele() or zoom_wide() methods. The guard will stop the zoom when dropped.
+    /// After creating the handle, start the zoom using the camera's
+    /// `zoom_tele()` or `zoom_wide()` methods. Call `stop_now()` to stop the zoom.
     pub fn new_zoom(camera: &'cam crate::camera::Camera<M, P, Tr, Exec>) -> Self {
         Self {
             camera,
             motion_type: MotionType::Zoom,
-            should_stop: true,
             _phantom: PhantomData,
         }
     }
 
-    /// Create a new guard for focus motion.
+    /// Create a new handle for focus motion.
     ///
-    /// After creating the guard, start the focus using the camera's
-    /// focus_near() or focus_far() methods. The guard will stop the focus when dropped.
+    /// After creating the handle, start the focus using the camera's
+    /// `focus_near()` or `focus_far()` methods. Call `stop_now()` to stop the focus.
     pub fn new_focus(camera: &'cam crate::camera::Camera<M, P, Tr, Exec>) -> Self {
         Self {
             camera,
             motion_type: MotionType::Focus,
-            should_stop: true,
             _phantom: PhantomData,
         }
     }
 
-    /// Create a guard that will stop all motion when dropped.
+    /// Create a handle that will stop all motion axes when `stop_now()` is called.
     ///
     /// This is useful when multiple motion types are active and you want
-    /// to ensure all are stopped together.
+    /// to stop all of them together. When `stop_now()` is called, this issues
+    /// stop commands for pan/tilt, zoom, and focus in sequence.
     pub fn new_all(camera: &'cam crate::camera::Camera<M, P, Tr, Exec>) -> Self {
         Self {
             camera,
             motion_type: MotionType::All,
-            should_stop: true,
             _phantom: PhantomData,
         }
     }
 
-    /// Disarm the guard so it won't stop motion when dropped.
+    /// Stop the motion associated with this handle.
     ///
-    /// This is useful if you want to keep the motion going after the guard
-    /// is dropped, for example when transferring control to another part of the code.
-    pub fn disarm(&mut self) {
-        self.should_stop = false;
-    }
-
-    /// Manually stop the motion and disarm the guard.
+    /// Issues the appropriate stop command(s) based on the motion type:
+    /// - `PanTilt`: Stops pan/tilt motion only
+    /// - `Zoom`: Stops zoom motion only
+    /// - `Focus`: Stops focus motion only
+    /// - `All`: Stops pan/tilt, zoom, and focus (all axes)
     ///
-    /// This allows you to stop the motion before the guard is dropped
-    /// and handle any errors that might occur.
+    /// For `MotionType::All`, all stop commands are attempted even if earlier
+    /// ones fail, and the first error encountered is returned.
     ///
     /// # Errors
-    /// Returns an error if the stop command fails.
-    /// For `MotionType::All`, returns the first error but attempts all stops.
-    pub fn stop_now(mut self) -> M::Fut<'cam, Result<(), Error>>
+    ///
+    /// Returns an error if any stop command fails to send or receive a response.
+    pub fn stop_now(self) -> M::Fut<'cam, Result<(), Error>>
     where
         P: crate::capabilities::PanTilt
             + crate::capabilities::zoom::Zoom
             + crate::capabilities::focus::Focus,
+        crate::camera::Camera<M, P, Tr, Exec>: MotionControl<Mode = M>,
     {
-        use crate::camera::controls::{
-            focus::FocusControl, pan_tilt::PanTiltControl, zoom::ZoomControl,
-        };
-
-        self.should_stop = false; // Prevent double-stop in Drop
-
         match self.motion_type {
             MotionType::PanTilt => self.camera.pan_tilt_stop(),
             MotionType::Zoom => self.camera.zoom_stop(),
             MotionType::Focus => self.camera.focus_stop(),
-            MotionType::All => {
-                // For MotionType::All, we simply stop pan/tilt
-                // (Full stop-all logic is in MotionControl trait)
-                self.camera.pan_tilt_stop()
-            }
+            MotionType::All => self.camera.stop_all_motion(),
         }
     }
 }
 
-impl<'cam, M, P, Tr, Exec> Drop for MotionGuard<'cam, M, P, Tr, Exec>
+// Note: No Drop implementation - dropping a MotionGuard without calling stop_now()
+// is explicitly a no-op. See the MotionGuard documentation for rationale.
+
+// Async implementation for cameras with all required capabilities
+#[cfg(feature = "mode-async")]
+impl<P, Tr, Exec> MotionControl for crate::camera::Camera<crate::mode::Async, P, Tr, Exec>
 where
-    M: Mode,
-    P: crate::capabilities::Profile,
-    Exec: crate::executor::Executor,
-{
-    fn drop(&mut self) {
-        // Best-effort stop on drop - we can't handle errors in Drop
-        // and we can't execute async operations
-
-        // Due to Rust's async model limitations, we cannot execute
-        // stop commands in Drop. Users should call stop_now() for
-        // explicit error handling or use the guard in a limited scope.
-
-        // In the future, this could be implemented with:
-        // - A channel to signal the runtime to stop
-        // - A fire-and-forget command queue
-        // - Mode-specific Drop implementations
-    }
-}
-
-// Implementation for cameras with all required capabilities
-impl<M, P, Tr, Exec> MotionControl for crate::camera::Camera<M, P, Tr, Exec>
-where
-    M: Mode,
     P: crate::capabilities::Profile
         + crate::capabilities::PanTilt
         + crate::capabilities::zoom::Zoom
         + crate::capabilities::focus::Focus
         + Default,
-    Self: ViscaClient<M>,
+    Self: ViscaClient<crate::mode::Async>,
     Exec: crate::executor::Executor,
 {
-    type Mode = M;
+    type Mode = crate::mode::Async;
 
-    fn stop_all_motion(&self) -> M::Fut<'_, Result<(), Error>> {
-        use crate::camera::controls::pan_tilt::PanTiltControl;
+    fn stop_all_motion(&self) -> <crate::mode::Async as Mode>::Fut<'_, Result<(), Error>> {
+        // Get all three stop futures before entering the async block.
+        // This ensures the async block captures the futures (which are Send)
+        // rather than &self (which may not be Sync).
+        let pt_fut = self.pan_tilt_stop();
+        let zoom_fut = self.zoom_stop();
+        let focus_fut = self.focus_stop();
 
-        // Simplified implementation that stops pan/tilt motion
-        // For complete motion stop, call pan_tilt_stop(), zoom_stop(), and focus_stop()
-        // individually to handle errors granularly
-        //
-        // Note: A full chained implementation would require Mode-aware combinators
-        // to sequence multiple async operations and collect errors
-        self.pan_tilt_stop()
+        crate::mode::Async::from_future(async move {
+            // Stop all three motion axes, collecting the first error if any.
+            // All stop commands are attempted even if earlier ones fail.
+            let pt_result = pt_fut.await;
+            let zoom_result = zoom_fut.await;
+            let focus_result = focus_fut.await;
+
+            // Return the first error encountered, or Ok(()) if all succeeded
+            pt_result.and(zoom_result).and(focus_result)
+        })
+    }
+}
+
+// Blocking implementation for cameras with all required capabilities
+#[cfg(not(feature = "mode-async"))]
+impl<P, Tr> MotionControl for crate::camera::Camera<crate::mode::Blocking, P, Tr, ()>
+where
+    P: crate::capabilities::Profile
+        + crate::capabilities::PanTilt
+        + crate::capabilities::zoom::Zoom
+        + crate::capabilities::focus::Focus
+        + Default,
+    Self: ViscaClient<crate::mode::Blocking>,
+{
+    type Mode = crate::mode::Blocking;
+
+    fn stop_all_motion(&self) -> <crate::mode::Blocking as Mode>::Fut<'_, Result<(), Error>> {
+        use crate::mode::BlockingFutureExt;
+
+        // In blocking mode, execute each stop command synchronously
+        let pt_result = self.pan_tilt_stop().block();
+        let zoom_result = self.zoom_stop().block();
+        let focus_result = self.focus_stop().block();
+
+        // Return the first error encountered, or Ok(()) if all succeeded
+        std::future::ready(pt_result.and(zoom_result).and(focus_result))
     }
 }
 
