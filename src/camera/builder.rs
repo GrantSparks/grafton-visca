@@ -499,6 +499,8 @@ impl CameraBuilder<()> {
     }
 
     /// Build a blocking camera with the specified profile and transport.
+    ///
+    /// Uses the builder's timeout configuration and the transport's retry configuration.
     #[cfg(not(feature = "mode-async"))]
     pub fn build_blocking<P, T>(
         self,
@@ -508,10 +510,16 @@ impl CameraBuilder<()> {
         P: Profile + Default,
         T: BlockingTransport + crate::transport::HasTransportConfig + Send + 'static,
     {
-        // Create camera using the profile's envelope type
-        let mut camera = crate::camera::Camera::new_blocking(transport)?;
+        // Get retry config from transport for consistency with default behavior
+        let retry_config = transport.transport_config().retry_config;
+
+        // Create camera using the profile's envelope type with explicit configs
+        let mut camera = crate::camera::Camera::new_blocking_with_config(
+            transport,
+            self.timeout_config,
+            retry_config,
+        )?;
         camera.set_camera_id(self.camera_id);
-        camera.set_timeout_config(self.timeout_config);
 
         Ok(camera)
     }

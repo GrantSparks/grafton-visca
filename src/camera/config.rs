@@ -514,12 +514,16 @@ where
             }
         };
 
-        // Create camera using profile's envelope type
+        // Create camera using profile's envelope type with explicit timeout and retry configs
+        // This ensures the blocking runner uses the same configs as configured in CameraConfig
         let mut camera =
-            crate::camera::Camera::<crate::mode::Blocking, P, _, ()>::new_blocking(transport)?;
+            crate::camera::Camera::<crate::mode::Blocking, P, _, ()>::new_blocking_with_config(
+                transport,
+                self.timeouts,
+                self.retries,
+            )?;
 
-        // Apply configuration
-        camera.set_timeout_config(self.timeouts);
+        // Apply camera ID if different from profile default
         if self.camera_id.id() != P::DEFAULT_CAMERA_ID {
             camera.set_camera_id(self.camera_id);
         }
@@ -566,14 +570,16 @@ where
                     crate::transport::serial_blocking::SerialTransport::new(serial_config)?;
                 let transport = crate::transport::BlockingTransportHandle::Serial(serial_transport);
 
-                // Create camera using profile's envelope type
+                // Create camera using profile's envelope type with explicit timeout and retry configs
+                // This ensures the blocking runner uses the same configs as configured in CameraConfig
                 let mut camera =
-                    crate::camera::Camera::<crate::mode::Blocking, P, _, _>::new_blocking(
+                    crate::camera::Camera::<crate::mode::Blocking, P, _, _>::new_blocking_with_config(
                         transport,
+                        self.timeouts,
+                        self.retries,
                     )?;
 
-                // Apply configuration
-                camera.set_timeout_config(self.timeouts);
+                // Apply camera ID if different from profile default
                 if self.camera_id.id() != P::DEFAULT_CAMERA_ID {
                     camera.set_camera_id(self.camera_id);
                 }

@@ -179,21 +179,64 @@ where
     Tr: BlockingTransport + crate::transport::HasTransportConfig + Send + 'static,
 {
     /// Create a new blocking camera instance using the profile's protocol style.
+    ///
+    /// This constructor uses default timeout and retry configurations from the transport.
+    /// For custom configurations, use [`new_blocking_with_config`](Self::new_blocking_with_config).
     pub fn new_blocking(transport: Tr) -> Result<Self, Error>
     where
         Tr: crate::transport::HasTransportConfig,
     {
-        let camera_id = CameraId::new(1)?;
         let timeout_config = TimeoutConfig::default();
+        let retry_config = transport.transport_config().retry_config;
+        Self::new_blocking_with_config(transport, timeout_config, retry_config)
+    }
 
-        // Get the transport's configuration
+    /// Create a new blocking camera instance with explicit timeout and retry configuration.
+    ///
+    /// This constructor ensures that the provided configurations are used by the blocking runner,
+    /// making them the single source of truth for command timeouts and retry behavior.
+    ///
+    /// # Arguments
+    ///
+    /// * `transport` - The transport to use for communication
+    /// * `timeout_config` - Configuration for command timeouts
+    /// * `retry_config` - Configuration for command retries
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use grafton_visca::{Camera, mode::Blocking, camera::profiles::PtzOpticsG2};
+    /// use grafton_visca::timeout::TimeoutConfig;
+    /// use grafton_visca::transport::RetryConfig;
+    ///
+    /// let timeout_config = TimeoutConfig::builder()
+    ///     .quick_timeout(Duration::from_secs(10))
+    ///     .build();
+    /// let retry_config = RetryConfig::default();
+    ///
+    /// let camera = Camera::<Blocking, PtzOpticsG2, _, _>::new_blocking_with_config(
+    ///     transport,
+    ///     timeout_config,
+    ///     retry_config,
+    /// )?;
+    /// ```
+    pub fn new_blocking_with_config(
+        transport: Tr,
+        timeout_config: TimeoutConfig,
+        retry_config: crate::transport::RetryConfig,
+    ) -> Result<Self, Error>
+    where
+        Tr: crate::transport::HasTransportConfig,
+    {
+        let camera_id = CameraId::new(1)?;
+
+        // Get the transport's configuration for buffer and addressing settings
         let transport_config = transport.transport_config();
         let buffer_config = transport_config.buffer_config;
-        let retry_config = transport_config.retry_config;
         let addressing = transport_config.addressing;
 
-        // Create BlockingRunner with transport's configuration including addressing mode
-        // The runner uses the profile's envelope type
+        // Create BlockingRunner with explicit timeout and retry configs,
+        // but use transport's buffer and addressing settings
         let blocking_runner = BlockingRunner::<P>::new_with_addressing(
             timeout_config,
             retry_config,
