@@ -83,7 +83,7 @@ async fn test_position_inquiries_integration() {
         .expect("focus inquiry should succeed");
     assert_eq!(
         focus_pos,
-        grafton_visca::types::FocusPosition::new(0x1000).unwrap(), // Default focus position
+        grafton_visca::types::FocusPosition::new(0x1000), // Default focus position
         "Focus should be at default position"
     );
 
@@ -95,7 +95,7 @@ async fn test_position_inquiries_integration() {
         .expect("focus near limit inquiry should succeed");
     assert_eq!(
         near_limit,
-        grafton_visca::types::FocusPosition::new(0x1000).unwrap(),
+        grafton_visca::types::FocusPosition::new(0x1000),
         "Focus near limit should be at default"
     );
 }

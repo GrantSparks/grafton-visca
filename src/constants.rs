@@ -64,11 +64,11 @@ pub mod zoom {
 /// Focus position constants
 pub mod focus {
     /// Minimum focus position (infinity)
-    pub const FOCUS_MIN: u16 = 0x1000;
+    pub const FOCUS_MIN: u16 = 0x0000;
     /// Maximum focus position (near)
-    pub const FOCUS_MAX: u16 = 0xF000;
+    pub const FOCUS_MAX: u16 = 0xFFFF;
     /// Focus near limit maximum value
-    pub const FOCUS_NEAR_LIMIT_MAX: u16 = 0xF000;
+    pub const FOCUS_NEAR_LIMIT_MAX: u16 = 0xFFFF;
 }
 
 /// Speed constants for camera movements
@@ -409,25 +409,6 @@ pub fn validate_zoom_position(pos: u16, model: CameraVariant) -> Result<u16, Err
     if pos < min || pos > max {
         Err(Error::ParameterOutOfRange {
             parameter: "zoom",
-            value: i32::from(pos),
-            min: i32::from(min),
-            max: i32::from(max),
-        })
-    } else {
-        Ok(pos)
-    }
-}
-
-/// Validate focus position is within camera limits
-///
-/// # Errors
-///
-/// Returns `Error::ParameterOutOfRange` if the focus position is outside the valid range for the camera model
-pub fn validate_focus_position(pos: u16, model: CameraVariant) -> Result<u16, Error> {
-    let (min, max) = model.focus_range();
-    if pos < min || pos > max {
-        Err(Error::ParameterOutOfRange {
-            parameter: "focus",
             value: i32::from(pos),
             min: i32::from(min),
             max: i32::from(max),

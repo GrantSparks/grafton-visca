@@ -424,7 +424,7 @@ fn generate_typed_impl(
                         match resp {
                             #crate_path::command::Response::Inquiry(
                                 #crate_path::command::InquiryData::FocusNearLimit { position }
-                            ) => #crate_path::types::FocusPosition::new(position),
+                            ) => Ok(#crate_path::types::FocusPosition::new(position)),
                             #crate_path::command::Response::Error(e) => Err(e),
                             _ => Err(#crate_path::Error::UnexpectedResponseType),
                         }
@@ -441,7 +441,7 @@ fn generate_typed_impl(
                         match resp {
                             #crate_path::command::Response::Inquiry(
                                 #crate_path::command::InquiryData::FocusPosition { position }
-                            ) => #crate_path::types::FocusPosition::new(position),
+                            ) => Ok(#crate_path::types::FocusPosition::new(position)),
                             #crate_path::command::Response::Error(e) => Err(e),
                             _ => Err(#crate_path::Error::UnexpectedResponseType),
                         }

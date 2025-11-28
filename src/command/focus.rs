@@ -484,9 +484,7 @@ mod tests {
 
     #[test]
     fn test_focus_command_position() {
-        let cmd = Focus::Position(
-            FocusPosition::new(0x1234).unwrap_or_else(|e| panic!("Valid focus position: {e:?}")),
-        );
+        let cmd = Focus::Position(FocusPosition::new(0x1234));
         assert_eq!(
             cmd.to_bytes(crate::camera_id::CameraId::CAMERA_1)
                 .map(|b| b.to_vec())
@@ -504,9 +502,7 @@ mod tests {
             ]
         );
 
-        let cmd = Focus::Position(
-            FocusPosition::new(0xF000).unwrap_or_else(|e| panic!("Valid focus position: {e:?}")),
-        );
+        let cmd = Focus::Position(FocusPosition::new(0xF000));
         assert_eq!(
             cmd.to_bytes(crate::camera_id::CameraId::CAMERA_1)
                 .map(|b| b.to_vec())
@@ -622,8 +618,7 @@ mod tests {
     #[test]
     fn test_focus_near_limit_command() {
         let cmd = FocusNearLimitCommand {
-            position: FocusPosition::new(0x1234)
-                .unwrap_or_else(|e| panic!("Valid focus position: {e:?}")),
+            position: FocusPosition::new(0x1234),
         };
         assert_eq!(
             cmd.to_bytes(crate::camera_id::CameraId::CAMERA_1)
@@ -643,8 +638,7 @@ mod tests {
         );
 
         let cmd = FocusNearLimitCommand {
-            position: FocusPosition::new(0x1000)
-                .unwrap_or_else(|e| panic!("Valid focus position: {e:?}")),
+            position: FocusPosition::new(0x1000),
         };
         assert_eq!(
             cmd.to_bytes(crate::camera_id::CameraId::CAMERA_1)
@@ -685,7 +679,6 @@ mod tests {
         assert_eq!(
             FocusNearLimitCommand {
                 position: FocusPosition::new(0x1000)
-                    .unwrap_or_else(|e| panic!("Valid focus position: {e:?}"))
             }
             .timeout_class(),
             CommandCategory::Quick

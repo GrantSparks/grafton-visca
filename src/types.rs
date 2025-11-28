@@ -602,31 +602,55 @@ impl ZoomPosition {
 }
 
 /// Focus position value for direct focus control.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
+///
+/// This is a simple newtype wrapper around the raw VISCA focus position value.
+/// The focus position range varies by camera model:
+/// - PTZOptics cameras: typically 0x0000-0xFFFF
+/// - Sony cameras: typically 0x1000-0xF000
+///
+/// For profile-specific validation and normalization, use the [`FocusExt`] trait
+/// methods which respect each camera profile's actual limits.
+///
+/// [`FocusExt`]: crate::capabilities::focus::FocusExt
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[visca_value(
-    min = "0x1000",
-    max = "0xF000",
-    display_format = "hex",
-    display_prefix = "Focus"
-)]
 pub struct FocusPosition(u16);
 
 impl FocusPosition {
-    /// Creates a focus position with model-specific validation.
+    /// Create a new focus position from a raw VISCA value.
     ///
-    /// This constructor validates the position against the specific camera model's
-    /// focus range limits.
+    /// This constructor accepts any u16 value without validation.
+    /// For profile-specific validation, use [`FocusExt::validate_focus_position`].
     ///
-    /// # Errors
-    /// Returns an error if the position is outside the model's focus range.
-    pub fn new_for_model(
-        value: u16,
-        model: crate::constants::CameraVariant,
-    ) -> Result<Self, Error> {
-        crate::constants::validate_focus_position(value, model)?;
+    /// [`FocusExt::validate_focus_position`]: crate::capabilities::focus::FocusExt::validate_focus_position
+    #[must_use]
+    pub const fn new(value: u16) -> Self {
+        Self(value)
+    }
+
+    /// Get the raw VISCA position value.
+    #[must_use]
+    pub const fn value(self) -> u16 {
+        self.0
+    }
+}
+
+impl From<u16> for FocusPosition {
+    fn from(value: u16) -> Self {
         Self::new(value)
+    }
+}
+
+impl From<FocusPosition> for u16 {
+    fn from(pos: FocusPosition) -> Self {
+        pos.value()
+    }
+}
+
+impl fmt::Display for FocusPosition {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Focus {:#06x}", self.0)
     }
 }
 
@@ -663,7 +687,6 @@ macro_rules! impl_normalized_conversion {
 }
 
 impl_normalized_conversion!(ZoomPosition, MIN, MAX_DIGITAL);
-impl_normalized_conversion!(FocusPosition, MIN, MAX);
 
 /// Color temperature value for white balance control.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
@@ -1570,16 +1593,13 @@ mod tests {
         let normalized: f32 = zoom_half.into();
         assert!((normalized - 0.5).abs() < 0.01);
 
-        let focus_quarter = FocusPosition::try_from(0.25f32).unwrap();
-        let normalized: f32 = focus_quarter.into();
-        assert!((normalized - 0.25).abs() < 0.01);
+        // FocusPosition normalized conversion has been removed.
+        // Use FocusExt::normalized_to_focus_units() for profile-aware conversion.
 
         let iris = IrisLevel::from(FStop::F2_8);
         assert_eq!(iris.value(), 0x09);
 
         assert!(ZoomPosition::try_from(-0.1f32).is_err());
         assert!(ZoomPosition::try_from(1.1f32).is_err());
-        assert!(FocusPosition::try_from(-0.1f32).is_err());
-        assert!(FocusPosition::try_from(1.1f32).is_err());
     }
 }

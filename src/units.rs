@@ -280,45 +280,9 @@ impl From<Raw<u16>> for ZoomPosition {
     }
 }
 
-impl TryFrom<Percentage<f32>> for FocusPosition {
-    type Error = Error;
-
-    fn try_from(percentage: Percentage<f32>) -> Result<Self, Self::Error> {
-        if percentage.0 < 0.0 || percentage.0 > 100.0 {
-            return Err(Error::ParameterOutOfRange {
-                parameter: "focus percentage",
-                value: percentage.0 as i32,
-                min: 0,
-                max: 100,
-            });
-        }
-        let range = 0xF000 - 0x1000;
-        let value = 0x1000 + (percentage.0 / 100.0 * range as f32) as u16;
-        FocusPosition::new(value)
-    }
-}
-
-impl TryFrom<Normalized<f32>> for FocusPosition {
-    type Error = Error;
-
-    fn try_from(normalized: Normalized<f32>) -> Result<Self, Self::Error> {
-        if normalized.0 < 0.0 || normalized.0 > 1.0 {
-            return Err(Error::ParameterOutOfRange {
-                parameter: "focus normalized",
-                value: (normalized.0 * 100.0) as i32,
-                min: 0,
-                max: 100,
-            });
-        }
-        let range = 0xF000 - 0x1000;
-        let value = 0x1000 + (normalized.0 * range as f32) as u16;
-        FocusPosition::new(value)
-    }
-}
-
 impl From<Raw<u16>> for FocusPosition {
     fn from(raw: Raw<u16>) -> Self {
-        FocusPosition::new(raw.0).unwrap_or(FocusPosition::MIN)
+        FocusPosition::new(raw.0)
     }
 }
 
