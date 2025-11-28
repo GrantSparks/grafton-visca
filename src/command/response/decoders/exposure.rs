@@ -16,7 +16,7 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
     match kind {
         InquiryKind::ExposureMode => {
             if payload.len() != 1 {
-                return Some(Err(Error::InvalidResponseLength));
+                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
             }
             let mode = match payload.as_slice()[0] {
                 0x00 => ExposureMode::Auto,
@@ -36,7 +36,7 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
         }
         InquiryKind::ExposureCompensationMode => {
             if payload.len() != 1 {
-                return Some(Err(Error::InvalidResponseLength));
+                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
             }
             Some(Ok(Response::Inquiry(
                 InquiryData::ExposureCompensationMode {
@@ -71,7 +71,7 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
         },
         InquiryKind::Iris => {
             if payload.len() != 4 {
-                return Some(Err(Error::InvalidResponseLength));
+                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
             }
             // Extract the iris position from the last nibble
             let position = payload.as_slice()[3];
@@ -86,7 +86,7 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
         },
         InquiryKind::Gain => {
             if payload.len() != 4 {
-                return Some(Err(Error::InvalidResponseLength));
+                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
             }
             // Extract the gain value from the last nibble
             let gain = payload.as_slice()[3];
@@ -94,7 +94,7 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
         }
         InquiryKind::GainLimit => {
             if payload.len() != 1 {
-                return Some(Err(Error::InvalidResponseLength));
+                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
             }
             Some(Ok(Response::Inquiry(InquiryData::GainLimit {
                 limit: payload.as_slice()[0],
@@ -102,7 +102,7 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
         }
         InquiryKind::IrisControl => {
             if payload.len() != 1 {
-                return Some(Err(Error::InvalidResponseLength));
+                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
             }
             let auto = match payload.as_slice()[0] {
                 0x02 => false,
@@ -121,7 +121,7 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
         }
         InquiryKind::IrisUp => {
             if payload.len() != 1 {
-                return Some(Err(Error::InvalidResponseLength));
+                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
             }
             let active = match payload.as_slice()[0] {
                 0x02 => false,
@@ -138,7 +138,7 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
         }
         InquiryKind::IrisDown => {
             if payload.len() != 1 {
-                return Some(Err(Error::InvalidResponseLength));
+                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
             }
             let active = match payload.as_slice()[0] {
                 0x02 => false,

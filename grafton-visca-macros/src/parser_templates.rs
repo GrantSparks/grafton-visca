@@ -136,7 +136,7 @@ pub fn generate_position_parser(response_variant: &Ident, crate_path: &TokenStre
     quote! {
         {
             if data.len() < 4 {
-                return Err(#crate_path::Error::InvalidResponseLength);
+                return Err(#crate_path::Error::invalid_response_length(4, data));
             }
             let position = ((data[0] & 0x0F) as u16) << 12
                 | ((data[1] & 0x0F) as u16) << 8
@@ -157,7 +157,7 @@ pub fn generate_extended_nibble_parser(
     quote! {
         {
             if data.len() < 2 {
-                return Err(#crate_path::Error::InvalidResponseLength);
+                return Err(#crate_path::Error::invalid_response_length(2, data));
             }
             let value = ((data[0] & 0x0F) << 4) | (data[1] & 0x0F);
             Ok(#crate_path::command::InquiryData::#response_variant {
@@ -228,7 +228,7 @@ pub fn generate_pan_tilt_parser(response_variant: &Ident, crate_path: &TokenStre
     quote! {
         {
             if data.len() < 8 {
-                return Err(#crate_path::Error::InvalidResponseLength);
+                return Err(#crate_path::Error::invalid_response_length(8, data));
             }
 
             // Pan position (bytes 0-3)

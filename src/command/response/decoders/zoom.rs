@@ -43,7 +43,7 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
         },
         InquiryKind::ZoomOut => {
             if payload.len() != 1 {
-                return Some(Err(Error::InvalidResponseLength));
+                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
             }
             let active = match payload.as_slice()[0] {
                 0x02 => false,
@@ -60,7 +60,7 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
         }
         InquiryKind::ZoomIn => {
             if payload.len() != 1 {
-                return Some(Err(Error::InvalidResponseLength));
+                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
             }
             let active = match payload.as_slice()[0] {
                 0x02 => false,
@@ -77,7 +77,7 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
         }
         InquiryKind::ZoomTeleWide => {
             if payload.len() != 1 {
-                return Some(Err(Error::InvalidResponseLength));
+                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
             }
             let tele = match payload.as_slice()[0] {
                 0x02 => false,

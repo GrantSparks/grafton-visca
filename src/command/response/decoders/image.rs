@@ -24,7 +24,7 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
         },
         InquiryKind::SharpnessMode => {
             if payload.len() != 1 {
-                return Some(Err(Error::InvalidResponseLength));
+                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
             }
             let mode = match payload.as_slice()[0] {
                 0x02 => SharpnessMode::Auto,
@@ -41,21 +41,21 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
         }
         InquiryKind::Saturation => {
             if payload.len() != 4 {
-                return Some(Err(Error::InvalidResponseLength));
+                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
             }
             let level = payload.as_slice()[3];
             Some(Ok(Response::Inquiry(InquiryData::Saturation { level })))
         }
         InquiryKind::Hue => {
             if payload.len() != 4 {
-                return Some(Err(Error::InvalidResponseLength));
+                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
             }
             let hue = payload.as_slice()[3];
             Some(Ok(Response::Inquiry(InquiryData::Hue { hue })))
         }
         InquiryKind::Contrast => {
             if payload.len() != 1 {
-                return Some(Err(Error::InvalidResponseLength));
+                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
             }
             Some(Ok(Response::Inquiry(InquiryData::Contrast(
                 payload.as_slice()[0],
@@ -63,7 +63,7 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
         }
         InquiryKind::PictureEffect => {
             if payload.len() != 1 {
-                return Some(Err(Error::InvalidResponseLength));
+                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
             }
             let effect =
                 crate::command::resolution::PictureEffectMode::from_byte(payload.as_slice()[0]);
@@ -71,7 +71,7 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
         }
         InquiryKind::BlackWhite => {
             if payload.len() != 1 {
-                return Some(Err(Error::InvalidResponseLength));
+                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
             }
             Some(Ok(Response::Inquiry(InquiryData::BlackWhite {
                 on: payload.as_slice()[0] == 0x04,
@@ -79,7 +79,7 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
         }
         InquiryKind::BlackWhiteMode => {
             if payload.len() != 1 {
-                return Some(Err(Error::InvalidResponseLength));
+                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
             }
             let mode = match BlackWhiteMode::try_from(payload.as_slice()[0]) {
                 Ok(mode) => mode,
@@ -89,7 +89,7 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
         }
         InquiryKind::NoiseReduction2D => {
             if payload.len() != 1 {
-                return Some(Err(Error::InvalidResponseLength));
+                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
             }
             let level = payload.as_slice()[0];
             Some(Ok(Response::Inquiry(InquiryData::NoiseReduction2D {
@@ -98,7 +98,7 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
         }
         InquiryKind::NoiseReduction3D => {
             if payload.len() != 1 {
-                return Some(Err(Error::InvalidResponseLength));
+                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
             }
             let level = payload.as_slice()[0];
             Some(Ok(Response::Inquiry(InquiryData::NoiseReduction3D {
@@ -107,7 +107,7 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
         }
         InquiryKind::NoiseReductionMode => {
             if payload.len() != 1 {
-                return Some(Err(Error::InvalidResponseLength));
+                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
             }
             let mode = match NoiseReductionMode::try_from(payload.as_slice()[0]) {
                 Ok(mode) => mode,
@@ -119,7 +119,7 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
         }
         InquiryKind::NoiseReductionSpeed => {
             if payload.len() != 1 {
-                return Some(Err(Error::InvalidResponseLength));
+                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
             }
             let speed = match NoiseReductionSpeed::try_from(payload.as_slice()[0]) {
                 Ok(speed) => speed,
@@ -131,7 +131,7 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
         }
         InquiryKind::FlipState => {
             if payload.len() != 1 {
-                return Some(Err(Error::InvalidResponseLength));
+                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
             }
             let value = payload.as_slice()[0];
             Some(Ok(Response::Inquiry(InquiryData::FlipState {
@@ -141,14 +141,14 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
         }
         InquiryKind::DynamicRange => {
             if payload.len() != 1 {
-                return Some(Err(Error::InvalidResponseLength));
+                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
             }
             let level = payload.as_slice()[0];
             Some(Ok(Response::Inquiry(InquiryData::DynamicRange { level })))
         }
         InquiryKind::Backlight => {
             if payload.len() != 1 {
-                return Some(Err(Error::InvalidResponseLength));
+                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
             }
             Some(Ok(Response::Inquiry(InquiryData::Backlight {
                 status: payload.as_slice()[0] == 0x02,
@@ -156,7 +156,7 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
         }
         InquiryKind::Luminance => {
             if payload.len() != 1 {
-                return Some(Err(Error::InvalidResponseLength));
+                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
             }
             Some(Ok(Response::Inquiry(InquiryData::Luminance(
                 payload.as_slice()[0],
@@ -164,7 +164,7 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
         }
         InquiryKind::NdFilter => {
             if payload.len() != 1 {
-                return Some(Err(Error::InvalidResponseLength));
+                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
             }
             let position =
                 crate::command::resolution::NdFilterPosition::from_byte(payload.as_slice()[0]);
@@ -172,7 +172,7 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
         }
         InquiryKind::Gamma => {
             if payload.len() != 1 {
-                return Some(Err(Error::InvalidResponseLength));
+                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
             }
             Some(Ok(Response::Inquiry(InquiryData::Gamma {
                 value: payload.as_slice()[0],
@@ -180,7 +180,7 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
         }
         InquiryKind::TwoToneMode => {
             if payload.len() != 1 {
-                return Some(Err(Error::InvalidResponseLength));
+                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
             }
             Some(Ok(Response::Inquiry(InquiryData::TwoToneMode {
                 on: payload.as_slice()[0] == 0x02,

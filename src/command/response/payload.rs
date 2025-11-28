@@ -128,7 +128,7 @@ impl<'a, const N: usize> TryFrom<Payload<'a>> for Nibbles<'a, N> {
         let array_ref: &[u8; N] = payload
             .0
             .try_into()
-            .map_err(|_| Error::InvalidResponseLength)?;
+            .map_err(|_| Error::invalid_response_length(N, payload.0))?;
 
         // Validate that all bytes are valid nibbles (≤ 0x0F) in release builds too
         for &byte in array_ref {
@@ -185,7 +185,27 @@ impl<'a> TryFrom<Payload<'a>> for Nibbles4Or8<'a> {
         match payload.len() {
             4 => Ok(Self::N4(Nibbles::<4>::try_from(payload)?)),
             8 => Ok(Self::N8(Nibbles::<8>::try_from(payload)?)),
-            _ => Err(Error::InvalidResponseLength),
+            // Expected either 4 or 8 bytes; report as "4 or 8" expectation
+            _ => Err(Error::InvalidResponseLength {
+                expected: 4, // Primary expected size (can't express "4 or 8" with single usize)
+                actual: payload.len(),
+                payload_hex: {
+                    // Use a descriptive message that captures the alternative expectation
+                    let hex = payload
+                        .0
+                        .iter()
+                        .take(32)
+                        .map(|b| format!("{b:02X}"))
+                        .collect::<Vec<_>>()
+                        .join(" ");
+                    if payload.len() > 32 {
+                        format!("{hex}... ({} bytes total, expected 4 or 8)", payload.len())
+                            .into_boxed_str()
+                    } else {
+                        format!("{hex} (expected 4 or 8 bytes)").into_boxed_str()
+                    }
+                },
+            }),
         }
     }
 }
@@ -232,7 +252,14 @@ mod tests {
         let data = vec![0x01, 0x02, 0x03];
         let payload = Payload::new(&data);
         let result = Nibbles::<4>::try_from(payload);
-        assert!(matches!(result, Err(Error::InvalidResponseLength)));
+        assert!(matches!(
+            result,
+            Err(Error::InvalidResponseLength {
+                expected: 4,
+                actual: 3,
+                ..
+            })
+        ));
     }
 
     #[test]
@@ -256,7 +283,14 @@ mod tests {
         let data_invalid = vec![0x01, 0x02];
         let payload_invalid = Payload::new(&data_invalid);
         let result = Nibbles4Or8::try_from(payload_invalid);
-        assert!(matches!(result, Err(Error::InvalidResponseLength)));
+        assert!(matches!(
+            result,
+            Err(Error::InvalidResponseLength {
+                expected: 4,
+                actual: 2,
+                ..
+            })
+        ));
     }
 
     #[test]

@@ -231,8 +231,22 @@ pub enum Error {
     InvalidResponseFormat,
 
     /// Response has an unexpected number of bytes.
-    #[error("Invalid response length")]
-    InvalidResponseLength,
+    ///
+    /// This error includes diagnostic context to help identify camera compatibility issues:
+    /// - Expected byte count for this inquiry type
+    /// - Actual byte count received
+    /// - Hex dump of the payload (truncated if too long)
+    #[error(
+        "Invalid response length: expected {expected} bytes, got {actual} (payload: {payload_hex})"
+    )]
+    InvalidResponseLength {
+        /// Expected number of bytes for this response type.
+        expected: usize,
+        /// Actual number of bytes received.
+        actual: usize,
+        /// Hex representation of the actual payload (truncated if >32 bytes).
+        payload_hex: Box<str>,
+    },
 
     /// Response type doesn't match what the command should return.
     #[error("Unexpected response type")]
@@ -436,7 +450,7 @@ impl Error {
             Self::ConnectionClosed { .. } | Self::NoResponse => ErrorKind::IoClosed,
             Self::ConnectionFailed { .. } => ErrorKind::IoRefused,
             Self::InvalidResponseFormat
-            | Self::InvalidResponseLength
+            | Self::InvalidResponseLength { .. }
             | Self::UnexpectedResponseType
             | Self::ParseError { .. }
             | Self::MessageLengthError => ErrorKind::Protocol,
@@ -624,6 +638,59 @@ impl Error {
     #[must_use]
     pub fn context<D: std::fmt::Display>(self, context: D) -> Self {
         self.with_context(context.to_string())
+    }
+
+    /// Create an `InvalidResponseLength` error with full diagnostic context.
+    ///
+    /// This constructor captures the expected length, actual length, and a hex dump
+    /// of the received payload to help diagnose camera compatibility issues.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use grafton_visca::Error;
+    ///
+    /// let payload = &[0x00, 0x52];
+    /// let error = Error::invalid_response_length(7, payload);
+    /// assert_eq!(
+    ///     error.to_string(),
+    ///     "Invalid response length: expected 7 bytes, got 2 (payload: 00 52)"
+    /// );
+    /// ```
+    #[must_use]
+    pub fn invalid_response_length(expected: usize, payload: &[u8]) -> Self {
+        Self::InvalidResponseLength {
+            expected,
+            actual: payload.len(),
+            payload_hex: format_payload_hex(payload),
+        }
+    }
+}
+
+/// Format a byte slice as a hex string, truncating if too long.
+///
+/// Payloads longer than 32 bytes are truncated with "..." and a byte count suffix.
+fn format_payload_hex(payload: &[u8]) -> Box<str> {
+    const MAX_DISPLAY_BYTES: usize = 32;
+
+    if payload.is_empty() {
+        return "(empty)".into();
+    }
+
+    if payload.len() <= MAX_DISPLAY_BYTES {
+        payload
+            .iter()
+            .map(|b| format!("{b:02X}"))
+            .collect::<Vec<_>>()
+            .join(" ")
+            .into_boxed_str()
+    } else {
+        let truncated: String = payload[..MAX_DISPLAY_BYTES]
+            .iter()
+            .map(|b| format!("{b:02X}"))
+            .collect::<Vec<_>>()
+            .join(" ");
+        format!("{truncated}... ({} bytes total)", payload.len()).into_boxed_str()
     }
 }
 

@@ -23,7 +23,7 @@ pub use self::{
 /// Parse the last nibble from a 4-byte payload for Gain
 pub fn parse_gain_last_nibble(data: &[u8]) -> Result<InquiryData, Error> {
     if data.len() < 4 {
-        return Err(Error::InvalidResponseLength);
+        return Err(Error::invalid_response_length(4, data));
     }
     Ok(InquiryData::GainLevel {
         gain: data[3] & 0x0F,
@@ -33,7 +33,7 @@ pub fn parse_gain_last_nibble(data: &[u8]) -> Result<InquiryData, Error> {
 /// Parse the last nibble from a 4-byte payload for Iris
 pub fn parse_iris_last_nibble(data: &[u8]) -> Result<InquiryData, Error> {
     if data.len() < 4 {
-        return Err(Error::InvalidResponseLength);
+        return Err(Error::invalid_response_length(4, data));
     }
     Ok(InquiryData::Iris {
         position: data[3] & 0x0F,
@@ -43,7 +43,7 @@ pub fn parse_iris_last_nibble(data: &[u8]) -> Result<InquiryData, Error> {
 /// Parse the last nibble from a 4-byte payload for Saturation
 pub fn parse_saturation_last_nibble(data: &[u8]) -> Result<InquiryData, Error> {
     if data.len() < 4 {
-        return Err(Error::InvalidResponseLength);
+        return Err(Error::invalid_response_length(4, data));
     }
     Ok(InquiryData::Saturation {
         level: data[3] & 0x0F,
@@ -53,7 +53,7 @@ pub fn parse_saturation_last_nibble(data: &[u8]) -> Result<InquiryData, Error> {
 /// Parse the last nibble from a 4-byte payload for Hue
 pub fn parse_hue_last_nibble(data: &[u8]) -> Result<InquiryData, Error> {
     if data.len() < 4 {
-        return Err(Error::InvalidResponseLength);
+        return Err(Error::invalid_response_length(4, data));
     }
     Ok(InquiryData::Hue {
         hue: data[3] & 0x0F,
@@ -63,7 +63,7 @@ pub fn parse_hue_last_nibble(data: &[u8]) -> Result<InquiryData, Error> {
 /// Parse sharpness mode (0x02 = Auto, 0x03 = Manual)
 pub fn parse_sharpness_mode(data: &[u8]) -> Result<InquiryData, Error> {
     if data.is_empty() {
-        return Err(Error::InvalidResponseLength);
+        return Err(Error::invalid_response_length(1, data));
     }
     match data[0] {
         0x02 => Ok(InquiryData::SharpnessMode {
@@ -82,7 +82,7 @@ pub fn parse_sharpness_mode(data: &[u8]) -> Result<InquiryData, Error> {
 /// Parse menu open/close status
 pub fn parse_menu_open_close(data: &[u8]) -> Result<InquiryData, Error> {
     if data.is_empty() {
-        return Err(Error::InvalidResponseLength);
+        return Err(Error::invalid_response_length(1, data));
     }
     let is_open = match data[0] {
         0x02 => false,
@@ -103,7 +103,7 @@ pub fn parse_menu_open_close(data: &[u8]) -> Result<InquiryData, Error> {
 /// Parse auto focus on/off status
 pub fn parse_auto_focus(data: &[u8]) -> Result<InquiryData, Error> {
     if data.is_empty() {
-        return Err(Error::InvalidResponseLength);
+        return Err(Error::invalid_response_length(1, data));
     }
     let enabled = match data[0] {
         0x02 => false,
@@ -124,7 +124,7 @@ pub fn parse_auto_focus(data: &[u8]) -> Result<InquiryData, Error> {
 /// Parse tally light status (red and green)
 pub fn parse_tally_status(data: &[u8]) -> Result<InquiryData, Error> {
     if data.len() < 2 {
-        return Err(Error::InvalidResponseLength);
+        return Err(Error::invalid_response_length(2, data));
     }
     let red_on = match data[0] {
         0x02 => false,
@@ -158,7 +158,7 @@ pub fn parse_tally_status(data: &[u8]) -> Result<InquiryData, Error> {
 /// Parse night/day mode status
 pub fn parse_night_day_mode(data: &[u8]) -> Result<InquiryData, Error> {
     if data.is_empty() {
-        return Err(Error::InvalidResponseLength);
+        return Err(Error::invalid_response_length(1, data));
     }
     let is_night = match data[0] {
         0x02 => false,
@@ -179,7 +179,7 @@ pub fn parse_night_day_mode(data: &[u8]) -> Result<InquiryData, Error> {
 /// Parse flip mode (combined horizontal/vertical)
 pub fn parse_flip_mode(data: &[u8]) -> Result<InquiryData, Error> {
     if data.is_empty() {
-        return Err(Error::InvalidResponseLength);
+        return Err(Error::invalid_response_length(1, data));
     }
     let mode = data[0];
     let horizontal = (mode & 0x01) != 0;
@@ -193,7 +193,7 @@ pub fn parse_flip_mode(data: &[u8]) -> Result<InquiryData, Error> {
 /// Parse standby mode status
 pub fn parse_standby(data: &[u8]) -> Result<InquiryData, Error> {
     if data.is_empty() {
-        return Err(Error::InvalidResponseLength);
+        return Err(Error::invalid_response_length(1, data));
     }
     let in_standby = match data[0] {
         0x02 => false,
@@ -214,7 +214,7 @@ pub fn parse_standby(data: &[u8]) -> Result<InquiryData, Error> {
 /// Parse green tally light status (FR7 only)
 pub fn parse_tally_green(data: &[u8]) -> Result<InquiryData, Error> {
     if data.is_empty() {
-        return Err(Error::InvalidResponseLength);
+        return Err(Error::invalid_response_length(1, data));
     }
     let on = match data[0] {
         0x02 => true,
@@ -235,7 +235,7 @@ pub fn parse_tally_green(data: &[u8]) -> Result<InquiryData, Error> {
 /// Parse ND filter position
 pub fn parse_nd_filter(data: &[u8]) -> Result<InquiryData, Error> {
     if data.is_empty() {
-        return Err(Error::InvalidResponseLength);
+        return Err(Error::invalid_response_length(1, data));
     }
     Ok(InquiryData::NdFilter {
         position: crate::command::resolution::NdFilterPosition::from_byte(data[0]),
@@ -245,7 +245,7 @@ pub fn parse_nd_filter(data: &[u8]) -> Result<InquiryData, Error> {
 /// Parse picture effect mode
 pub fn parse_picture_effect(data: &[u8]) -> Result<InquiryData, Error> {
     if data.is_empty() {
-        return Err(Error::InvalidResponseLength);
+        return Err(Error::invalid_response_length(1, data));
     }
     Ok(InquiryData::PictureEffect {
         effect: crate::command::resolution::PictureEffectMode::from_byte(data[0]),
@@ -255,7 +255,7 @@ pub fn parse_picture_effect(data: &[u8]) -> Result<InquiryData, Error> {
 /// Parse iris control mode
 pub fn parse_iris_control(data: &[u8]) -> Result<InquiryData, Error> {
     if data.is_empty() {
-        return Err(Error::InvalidResponseLength);
+        return Err(Error::invalid_response_length(1, data));
     }
     let auto = match data[0] {
         0x02 => false,
@@ -276,7 +276,7 @@ pub fn parse_iris_control(data: &[u8]) -> Result<InquiryData, Error> {
 /// Parse defog mode
 pub fn parse_defog_mode(data: &[u8]) -> Result<InquiryData, Error> {
     if data.is_empty() {
-        return Err(Error::InvalidResponseLength);
+        return Err(Error::invalid_response_length(1, data));
     }
     let enabled = match data[0] {
         0x02 => false,
@@ -295,7 +295,7 @@ pub fn parse_defog_mode(data: &[u8]) -> Result<InquiryData, Error> {
 /// Parse digital Ptz mode
 pub fn parse_digital_ptz(data: &[u8]) -> Result<InquiryData, Error> {
     if data.is_empty() {
-        return Err(Error::InvalidResponseLength);
+        return Err(Error::invalid_response_length(1, data));
     }
     let enabled = match data[0] {
         0x02 => false,
@@ -316,7 +316,7 @@ pub fn parse_digital_ptz(data: &[u8]) -> Result<InquiryData, Error> {
 /// Parse defog level
 pub fn parse_defog_level(data: &[u8]) -> Result<InquiryData, Error> {
     if data.is_empty() {
-        return Err(Error::InvalidResponseLength);
+        return Err(Error::invalid_response_length(1, data));
     }
     let level = crate::types::DefogLevel::new(data[0]).map_err(|_| Error::InvalidParameter {
         parameter: "defog_level",
@@ -329,7 +329,7 @@ pub fn parse_defog_level(data: &[u8]) -> Result<InquiryData, Error> {
 /// Parse auto white balance sensitivity
 pub fn parse_auto_wb_sensitivity(data: &[u8]) -> Result<InquiryData, Error> {
     if data.is_empty() {
-        return Err(Error::InvalidResponseLength);
+        return Err(Error::invalid_response_length(1, data));
     }
     let sensitivity = match data[0] {
         0x00 => AutoWhiteBalanceSensitivity::Low,
@@ -349,7 +349,7 @@ pub fn parse_auto_wb_sensitivity(data: &[u8]) -> Result<InquiryData, Error> {
 /// Parse red tuning level
 pub fn parse_red_tuning(data: &[u8]) -> Result<InquiryData, Error> {
     if data.is_empty() {
-        return Err(Error::InvalidResponseLength);
+        return Err(Error::invalid_response_length(1, data));
     }
     // Convert from wire format (0-20) to semantic value (-10 to +10)
     #[allow(clippy::cast_possible_wrap)]
@@ -360,7 +360,7 @@ pub fn parse_red_tuning(data: &[u8]) -> Result<InquiryData, Error> {
 /// Parse blue tuning level
 pub fn parse_blue_tuning(data: &[u8]) -> Result<InquiryData, Error> {
     if data.is_empty() {
-        return Err(Error::InvalidResponseLength);
+        return Err(Error::invalid_response_length(1, data));
     }
     // Convert from wire format (0-20) to semantic value (-10 to +10)
     #[allow(clippy::cast_possible_wrap)]
@@ -371,7 +371,7 @@ pub fn parse_blue_tuning(data: &[u8]) -> Result<InquiryData, Error> {
 /// Parse gamma curve setting
 pub fn parse_gamma(data: &[u8]) -> Result<InquiryData, Error> {
     if data.is_empty() {
-        return Err(Error::InvalidResponseLength);
+        return Err(Error::invalid_response_length(1, data));
     }
     Ok(InquiryData::Gamma { value: data[0] })
 }
@@ -379,7 +379,7 @@ pub fn parse_gamma(data: &[u8]) -> Result<InquiryData, Error> {
 /// Parse auto trace mode
 pub fn parse_auto_trace(data: &[u8]) -> Result<InquiryData, Error> {
     if data.is_empty() {
-        return Err(Error::InvalidResponseLength);
+        return Err(Error::invalid_response_length(1, data));
     }
     let enabled = match data[0] {
         0x02 => false,
@@ -398,7 +398,7 @@ pub fn parse_auto_trace(data: &[u8]) -> Result<InquiryData, Error> {
 /// Parse focus unlock state
 pub fn parse_focus_unlock(data: &[u8]) -> Result<InquiryData, Error> {
     if data.is_empty() {
-        return Err(Error::InvalidResponseLength);
+        return Err(Error::invalid_response_length(1, data));
     }
     let unlocked = match data[0] {
         0x02 => false,
@@ -421,7 +421,7 @@ pub fn parse_focus_range(data: &[u8]) -> Result<InquiryData, Error> {
     use crate::command::FocusRange;
 
     if data.is_empty() {
-        return Err(Error::InvalidResponseLength);
+        return Err(Error::invalid_response_length(1, data));
     }
     let range = FocusRange::try_from(data[0])?;
     Ok(InquiryData::FocusRange { range })
@@ -915,12 +915,12 @@ mod tests {
         // Sharpness with wrong length (should be 7 bytes)
         let invalid_sharpness = &[0x90, 0x50, 0x0B, VISCA_TERMINATOR];
         let response = Response::parse_with_type(invalid_sharpness, &InquiryKind::Sharpness);
-        assert!(matches!(response, Err(Error::InvalidResponseLength)));
+        assert!(matches!(response, Err(Error::InvalidResponseLength { .. })));
 
         // Exposure compensation with wrong length (should be 7 bytes)
         let invalid_exp_comp = &[0x90, 0x50, 0x07, VISCA_TERMINATOR];
         let response =
             Response::parse_with_type(invalid_exp_comp, &InquiryKind::ExposureCompensation);
-        assert!(matches!(response, Err(Error::InvalidResponseLength)));
+        assert!(matches!(response, Err(Error::InvalidResponseLength { .. })));
     }
 }

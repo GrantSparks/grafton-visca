@@ -16,7 +16,7 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
     match kind {
         InquiryKind::WhiteBalanceMode => {
             if payload.len() != 1 {
-                return Some(Err(Error::InvalidResponseLength));
+                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
             }
             let mode = match payload.as_slice()[0] {
                 0x00 => WhiteBalanceMode::Auto,
@@ -49,7 +49,7 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
         },
         InquiryKind::RedChannel => {
             if payload.len() != 1 {
-                return Some(Err(Error::InvalidResponseLength));
+                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
             }
             Some(Ok(Response::Inquiry(InquiryData::RedChannel {
                 gain: payload.as_slice()[0] as i8 - 10,
@@ -57,7 +57,7 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
         }
         InquiryKind::BlueChannel => {
             if payload.len() != 1 {
-                return Some(Err(Error::InvalidResponseLength));
+                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
             }
             Some(Ok(Response::Inquiry(InquiryData::BlueChannel {
                 gain: payload.as_slice()[0] as i8 - 10,
@@ -65,7 +65,7 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
         }
         InquiryKind::RedTuning => {
             if payload.len() != 1 {
-                return Some(Err(Error::InvalidResponseLength));
+                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
             }
             // Convert from wire format (0-20) to semantic value (-10 to +10)
             #[allow(clippy::cast_possible_wrap)]
@@ -74,7 +74,7 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
         }
         InquiryKind::BlueTuning => {
             if payload.len() != 1 {
-                return Some(Err(Error::InvalidResponseLength));
+                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
             }
             // Convert from wire format (0-20) to semantic value (-10 to +10)
             #[allow(clippy::cast_possible_wrap)]
@@ -83,7 +83,7 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
         }
         InquiryKind::AutoWhiteBalanceSensitivity => {
             if payload.len() != 1 {
-                return Some(Err(Error::InvalidResponseLength));
+                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
             }
             let sensitivity = match payload.as_slice()[0] {
                 0x00 => AutoWhiteBalanceSensitivity::High,

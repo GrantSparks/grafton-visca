@@ -16,7 +16,7 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
     match kind {
         InquiryKind::TallyRed => {
             if payload.len() != 1 {
-                return Some(Err(Error::InvalidResponseLength));
+                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
             }
             Some(Ok(Response::Inquiry(InquiryData::TallyRed {
                 on: payload.as_slice()[0] == 0x02,
@@ -24,7 +24,7 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
         }
         InquiryKind::TallyGreen => {
             if payload.len() != 1 {
-                return Some(Err(Error::InvalidResponseLength));
+                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
             }
             Some(Ok(Response::Inquiry(InquiryData::TallyGreen {
                 on: payload.as_slice()[0] == 0x02,
@@ -32,7 +32,7 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
         }
         InquiryKind::TallyStatus => {
             if payload.len() != 2 {
-                return Some(Err(Error::InvalidResponseLength));
+                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
             }
             let red_on = match payload.as_slice()[0] {
                 0x02 => false,
@@ -63,7 +63,7 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
         }
         InquiryKind::TallyAutoAdjust => {
             if payload.len() != 1 {
-                return Some(Err(Error::InvalidResponseLength));
+                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
             }
             let on = match payload.as_slice()[0] {
                 0x02 => false,

@@ -34,7 +34,7 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
         },
         InquiryKind::FocusZone => {
             if payload.len() != 1 {
-                return Some(Err(Error::InvalidResponseLength));
+                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
             }
             let zone = match payload.as_slice()[0] {
                 0x00 => FocusZone::Top,
@@ -52,7 +52,7 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
         }
         InquiryKind::AutoFocusSensitivity => {
             if payload.len() != 1 {
-                return Some(Err(Error::InvalidResponseLength));
+                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
             }
             let sensitivity = match payload.as_slice()[0] {
                 0x00 => AutoFocusSensitivity::Low,
@@ -72,7 +72,7 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
         }
         InquiryKind::FocusMode => {
             if payload.len() != 1 {
-                return Some(Err(Error::InvalidResponseLength));
+                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
             }
             let mode = match payload.as_slice()[0] {
                 0x02 => FocusMode::Auto,
@@ -89,7 +89,7 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
         }
         InquiryKind::FocusRange => {
             if payload.len() != 1 {
-                return Some(Err(Error::InvalidResponseLength));
+                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
             }
             match parse_focus_range(payload.as_slice()) {
                 Ok(response) => Some(Ok(Response::Inquiry(response))),
@@ -98,7 +98,7 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
         }
         InquiryKind::AutoFocus => {
             if payload.len() != 1 {
-                return Some(Err(Error::InvalidResponseLength));
+                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
             }
             let enabled = match payload.as_slice()[0] {
                 0x02 => false,
@@ -117,7 +117,7 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
         }
         InquiryKind::FocusUnlock => {
             if payload.len() != 1 {
-                return Some(Err(Error::InvalidResponseLength));
+                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
             }
             let unlocked =
                 match payload.as_slice()[0] {
@@ -135,7 +135,7 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
         }
         InquiryKind::FocusNearFar => {
             if payload.len() != 1 {
-                return Some(Err(Error::InvalidResponseLength));
+                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
             }
             let near = match payload.as_slice()[0] {
                 0x02 => false,
@@ -156,7 +156,7 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
 
 fn parse_focus_range(data: &[u8]) -> Result<InquiryData, Error> {
     if data.is_empty() {
-        return Err(Error::InvalidResponseLength);
+        return Err(Error::invalid_response_length(1, data));
     }
     let range = FocusRange::try_from(data[0])?;
     Ok(InquiryData::FocusRange { range })

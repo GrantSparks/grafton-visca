@@ -52,7 +52,7 @@ pub fn derive_visca_inquiry_impl(input: DeriveInput) -> TokenStream {
                         /// Parse the response data for this inquiry command
                         pub fn parse_response(&self, data: &[u8]) -> Result<#crate_path::command::InquiryData, #crate_path::Error> {
                             if data.is_empty() {
-                                return Err(#crate_path::Error::InvalidResponseLength);
+                                return Err(#crate_path::Error::invalid_response_length(1, data));
                             }
                             #parser_body
                         }

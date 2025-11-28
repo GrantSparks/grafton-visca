@@ -16,7 +16,7 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
     match kind {
         InquiryKind::Version => {
             if payload.len() != 7 {
-                return Some(Err(Error::InvalidResponseLength));
+                return Some(Err(Error::invalid_response_length(7, payload.as_slice())));
             }
             let vendor = ((payload.as_slice()[0] as u16) << 8) | (payload.as_slice()[1] as u16);
             let model = ((payload.as_slice()[2] as u16) << 8) | (payload.as_slice()[3] as u16);
@@ -32,7 +32,7 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
         }
         InquiryKind::Resolution => {
             if payload.len() != 1 {
-                return Some(Err(Error::InvalidResponseLength));
+                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
             }
             let resolution_mode =
                 crate::command::resolution::ResolutionMode::from_byte(payload.as_slice()[0]);
@@ -42,7 +42,7 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
         }
         InquiryKind::MenuOpenClose => {
             if payload.len() != 1 {
-                return Some(Err(Error::InvalidResponseLength));
+                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
             }
             let is_open = match payload.as_slice()[0] {
                 0x02 => false,
@@ -63,7 +63,7 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
         }
         InquiryKind::UsbAudio => {
             if payload.len() != 1 {
-                return Some(Err(Error::InvalidResponseLength));
+                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
             }
             let on = match payload.as_slice()[0] {
                 0x02 => false,
@@ -80,7 +80,7 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
         }
         InquiryKind::Rtmp => {
             if payload.len() != 1 {
-                return Some(Err(Error::InvalidResponseLength));
+                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
             }
             let on = match payload.as_slice()[0] {
                 0x02 => false,
@@ -97,7 +97,7 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
         }
         InquiryKind::NightDayMode => {
             if payload.len() != 1 {
-                return Some(Err(Error::InvalidResponseLength));
+                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
             }
             let is_night = match payload.as_slice()[0] {
                 0x02 => false,
@@ -118,7 +118,7 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
         }
         InquiryKind::Digital => {
             if payload.len() != 1 {
-                return Some(Err(Error::InvalidResponseLength));
+                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
             }
             let on = match payload.as_slice()[0] {
                 0x02 => false,
@@ -135,7 +135,7 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
         }
         InquiryKind::AutoTrace => {
             if payload.len() != 1 {
-                return Some(Err(Error::InvalidResponseLength));
+                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
             }
             let on = match payload.as_slice()[0] {
                 0x02 => false,
@@ -154,7 +154,7 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
         }
         InquiryKind::NdFilterPreset => {
             if payload.len() != 1 {
-                return Some(Err(Error::InvalidResponseLength));
+                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
             }
             let preset = match crate::types::NdFilterPreset::new(payload.as_slice()[0]) {
                 Ok(p) => p,
