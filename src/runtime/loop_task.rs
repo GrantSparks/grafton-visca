@@ -273,7 +273,9 @@ pub async fn runtime_loop_with_config<
             Operation::RecvOk(n) => {
                 // Handle received data
                 if n == 0 {
-                    error!("Connection closed by peer");
+                    // This branch handles transports that return Ok(0) on connection close
+                    // rather than returning a ConnectionClosed error
+                    debug!("Connection closed by peer; exiting runtime loop");
                     return Err(Error::ConnectionClosed {
                         reason: Some(std::borrow::Cow::Borrowed("peer closed connection")),
                     });
@@ -383,6 +385,12 @@ pub async fn runtime_loop_with_config<
                 runtime_trace!("Deadline fired with no data");
             }
             Operation::RecvErr(e) => {
+                // Check if this is a connection closed error - exit the loop gracefully
+                if matches!(e, Error::ConnectionClosed { .. }) {
+                    debug!("Connection closed by peer; exiting runtime loop");
+                    return Err(e);
+                }
+
                 error!("Error receiving from transport: {e}");
                 // Handle network error - all pending commands will be retried or failed
                 adapter.on_network_error(e).await?;
