@@ -1044,6 +1044,40 @@ fn generate_typed_impl(
         ("PictureEffect", _, _) => {
             quote! { impl #crate_path::command::typed::ResponseParser for #struct_name { type Response = #crate_path::command::resolution::PictureEffectMode; fn from_response(resp:#crate_path::command::Response)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::Response::Inquiry(#crate_path::command::InquiryData::PictureEffect{ effect })=>Ok(effect), #crate_path::command::Response::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
         }
+        ("SharpnessPosition", Some("position"), _) => {
+            quote! {
+                impl #crate_path::command::typed::ResponseParser for #struct_name {
+                    type Response = #crate_path::types::SharpnessLevel;
+
+                    fn from_response(resp: #crate_path::command::Response) -> Result<Self::Response, #crate_path::Error> {
+                        match resp {
+                            #crate_path::command::Response::Inquiry(
+                                #crate_path::command::InquiryData::SharpnessPosition { position }
+                            ) => #crate_path::types::SharpnessLevel::new(position as u8),
+                            #crate_path::command::Response::Error(e) => Err(e),
+                            _ => Err(#crate_path::Error::UnexpectedResponseType),
+                        }
+                    }
+                }
+            }
+        }
+        ("AutoFocusSensitivity", Some("mode"), Some("AutoFocusSensitivity")) => {
+            quote! {
+                impl #crate_path::command::typed::ResponseParser for #struct_name {
+                    type Response = #crate_path::command::AutoFocusSensitivity;
+
+                    fn from_response(resp: #crate_path::command::Response) -> Result<Self::Response, #crate_path::Error> {
+                        match resp {
+                            #crate_path::command::Response::Inquiry(
+                                #crate_path::command::InquiryData::AutoFocusSensitivity { sensitivity }
+                            ) => Ok(sensitivity),
+                            #crate_path::command::Response::Error(e) => Err(e),
+                            _ => Err(#crate_path::Error::UnexpectedResponseType),
+                        }
+                    }
+                }
+            }
+        }
         _ => quote! {},
     }
 }

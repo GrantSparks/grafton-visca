@@ -18,7 +18,8 @@
 use crate::{
     camera::ViscaClient,
     command::{
-        system::MotionSyncMode, ExposureMode, FocusMode, FocusZone, SharpnessMode, WhiteBalanceMode,
+        focus::AutoFocusSensitivity, system::MotionSyncMode, ExposureMode, FocusMode, FocusZone,
+        SharpnessMode, WhiteBalanceMode,
     },
     mode::Mode,
     Error,
@@ -263,6 +264,28 @@ pub trait InquiryControl {
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
     fn sharpness_mode(&self) -> <Self::Mode as Mode>::Fut<'_, Result<SharpnessMode, Error>>;
+
+    /// Get the sharpness level.
+    ///
+    /// Returns the current sharpness level setting.
+    /// Higher values increase edge enhancement/sharpening.
+    ///
+    /// # Errors
+    /// Returns an error if the inquiry fails or times out.
+    fn sharpness_level(
+        &self,
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::SharpnessLevel, Error>>;
+
+    /// Get the auto focus sensitivity.
+    ///
+    /// Returns the current auto focus sensitivity setting (High, Normal, or Low).
+    /// Higher sensitivity provides faster focus response but may be less stable.
+    ///
+    /// # Errors
+    /// Returns an error if the inquiry fails or times out.
+    fn auto_focus_sensitivity(
+        &self,
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<AutoFocusSensitivity, Error>>;
 
     /// Get the saturation level.
     ///
@@ -789,6 +812,16 @@ where
     fn sharpness_mode(&self) -> M::Fut<'_, Result<SharpnessMode, Error>> {
         use crate::command::inquiry_structs::SharpnessModeInquiry;
         self.query(SharpnessModeInquiry)
+    }
+
+    fn sharpness_level(&self) -> M::Fut<'_, Result<crate::types::SharpnessLevel, Error>> {
+        use crate::command::inquiry_structs::SharpnessPositionInquiry;
+        self.query(SharpnessPositionInquiry)
+    }
+
+    fn auto_focus_sensitivity(&self) -> M::Fut<'_, Result<AutoFocusSensitivity, Error>> {
+        use crate::command::inquiry_structs::AutoFocusSensitivityInquiry;
+        self.query(AutoFocusSensitivityInquiry)
     }
 
     fn saturation(&self) -> M::Fut<'_, Result<crate::types::SaturationLevel, Error>> {
