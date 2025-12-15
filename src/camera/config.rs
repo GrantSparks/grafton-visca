@@ -16,6 +16,7 @@ use crate::{camera_id::CameraId, error::Error, timeout::TimeoutConfig};
     serde(tag = "type")
 )]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 pub enum TransportOptions {
     /// TCP connection with address.
     #[cfg_attr(feature = "serde", serde(rename = "TCP"))]

@@ -983,6 +983,7 @@ pub enum G2Gain {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
 pub enum ProfileGroup {
     /// Generic VISCA-compatible cameras with basic features.
@@ -1044,6 +1045,7 @@ pub enum ProfileGroup {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
 pub enum ProfileId {
     /// PtzOptics G2 series cameras

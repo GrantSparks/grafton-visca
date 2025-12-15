@@ -48,7 +48,7 @@
 /// - `TryFrom<T>` for convenient conversions
 /// - `From<YourType> for T` to extract the inner value
 /// - Common derives: `Debug`, `Copy`, `Clone`, `PartialEq`, `Eq`, `PartialOrd`, `Ord`
-/// - When enabled: `serde::Serialize`, `serde::Deserialize`, `schemars::JsonSchema`
+/// - When enabled: `serde::Serialize`, `serde::Deserialize`, `schemars::JsonSchema`, `ts_rs::TS`
 #[macro_export]
 macro_rules! visca_range_type {
     (
@@ -62,6 +62,7 @@ macro_rules! visca_range_type {
         #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
         #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
         #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+        #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
         pub struct $name($inner);
 
         impl $name {

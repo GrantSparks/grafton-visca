@@ -296,7 +296,7 @@ where
                 Step::OnSend { matches, responses } => {
                     let should_respond = matches
                         .as_ref()
-                        .map_or(true, |pattern| bytes_vec.starts_with(pattern));
+                        .is_none_or(|pattern| bytes_vec.starts_with(pattern));
 
                     if should_respond {
                         for response in responses {
@@ -482,7 +482,7 @@ impl BlockingTransport for ScriptedBlockingTransport {
                 Step::OnSend { matches, responses } => {
                     let should_respond = matches
                         .as_ref()
-                        .map_or(true, |pattern| bytes.starts_with(pattern));
+                        .is_none_or(|pattern| bytes.starts_with(pattern));
 
                     if should_respond {
                         for response in responses {

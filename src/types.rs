@@ -8,6 +8,7 @@ use crate::{error::Error, units::Percentage, ViscaValue};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[visca_value(
     valid_values = "[0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07]",
     display_format = "hex",
@@ -20,6 +21,7 @@ pub struct GainLevel(u8);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[visca_value(
     valid_values = "[0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xA, 0xB, 0xC, 0xD, 0xE, 0xF]",
     display_format = "hex",
@@ -32,6 +34,7 @@ pub struct GainLimit(u8);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[visca_value(min = "1", max = "5", display_prefix = "2D NR Level")]
 pub struct NoiseReduction2DLevel(u8);
 
@@ -39,6 +42,7 @@ pub struct NoiseReduction2DLevel(u8);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[visca_value(min = "1", max = "8", display_prefix = "3D NR Level")]
 pub struct NoiseReduction3DLevel(u8);
 
@@ -46,6 +50,7 @@ pub struct NoiseReduction3DLevel(u8);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[visca_value(min = "0", max = "5", display_prefix = "NR Level")]
 pub struct NoiseReductionLevel(u8);
 
@@ -67,6 +72,7 @@ pub trait IntoIrisLevel {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[visca_value(
     valid_values = "[0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C]",
     display_format = "hex",
@@ -108,6 +114,7 @@ impl From<FStop> for IrisLevel {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[visca_value(
     valid_values = "[0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10, 0x11]",
     display_format = "hex",
@@ -120,6 +127,7 @@ pub struct ShutterSpeed(u16);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[visca_value(
     valid_values = "[0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10, 0x11]",
     display_format = "hex",
@@ -132,6 +140,7 @@ pub struct BrightnessLevel(u16);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[visca_value(
     valid_values = "[0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B]",
     display_prefix = "Sharpness",
@@ -143,6 +152,7 @@ pub struct SharpnessLevel(u8);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[visca_value(
     valid_values = "[0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xA, 0xB, 0xC, 0xD, 0xE]",
     display_prefix = "Luminance",
@@ -154,6 +164,7 @@ pub struct LuminanceLevel(u8);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[visca_value(
     valid_values = "[0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xA, 0xB, 0xC, 0xD, 0xE]",
     display_prefix = "Contrast",
@@ -165,6 +176,7 @@ pub struct ContrastLevel(u8);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[visca_value(
     valid_values = "[0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8]",
     display_prefix = "Dynamic Range",
@@ -178,6 +190,7 @@ pub struct DynamicRangeLevel(u8);
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 pub struct ExposureCompensationLevel(i8);
 
 impl ExposureCompensationLevel {
@@ -303,6 +316,7 @@ speed_enum! {
     /// The variants range from `Slowest` (most precise) to `Fastest` (maximum speed).
     #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
     #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+    #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
     #[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
     pub enum SpeedLevel {
         /// Slowest speed - most precise movements (pan: 1, tilt: 1, zoom: 0, focus: 0)
@@ -382,6 +396,7 @@ fstop_enum! {
     /// aperture (more light).
     #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
     #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+    #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
     pub enum FStop {
         /// Iris completely closed - no light passes through
         Closed => 0x00,
@@ -421,6 +436,7 @@ fstop_enum! {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 pub enum NoiseReductionStrength {
     /// Disable noise reduction (not supported by VISCA - use Minimal instead).
     Off,
@@ -503,6 +519,7 @@ impl TryFrom<NoiseReductionStrength> for NoiseReduction3DLevel {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 pub enum NdiQuality {
     /// High quality Ndi streaming (highest bandwidth)
     High,
@@ -518,6 +535,7 @@ pub enum NdiQuality {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[visca_value(
     min = "0x0000",
     max = "0x7000",
@@ -615,6 +633,7 @@ impl ZoomPosition {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 pub struct FocusPosition(u16);
 
 impl FocusPosition {
@@ -692,6 +711,7 @@ impl_normalized_conversion!(ZoomPosition, MIN, MAX_DIGITAL);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[visca_value(
     min = "0x00",
     max = "0x37",
@@ -730,6 +750,7 @@ impl ColorTemp {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[visca_value(
     min = "0x00",
     max = "0xFF",
@@ -742,6 +763,7 @@ pub struct RedChannel(u8);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[visca_value(
     min = "0x00",
     max = "0xFF",
@@ -754,6 +776,7 @@ pub struct BlueChannel(u8);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[visca_value(min = "0x00", max = "0x0E", display_prefix = "Saturation")]
 pub struct SaturationLevel(u8);
 
@@ -885,6 +908,7 @@ impl SharpnessLevel {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[visca_value(min = "0x00", max = "0x0E", display_prefix = "Hue")]
 pub struct HueLevel(u8);
 
@@ -892,6 +916,7 @@ pub struct HueLevel(u8);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[visca_value(min = "0", max = "4", display_prefix = "Gamma")]
 pub struct GammaLevel(u8);
 
@@ -899,6 +924,7 @@ pub struct GammaLevel(u8);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[visca_value(min = "-10", max = "10", display_prefix = "Red Tuning")]
 pub struct RedTuning(i8);
 
@@ -911,6 +937,7 @@ impl RedTuning {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[visca_value(min = "-10", max = "10", display_prefix = "Blue Tuning")]
 pub struct BlueTuning(i8);
 
@@ -923,6 +950,7 @@ impl BlueTuning {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[visca_value(min = "-2448", max = "2448", display_prefix = "Pan")]
 pub struct PanPosition(i16);
 
@@ -978,6 +1006,7 @@ impl TryFrom<f32> for PanPosition {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[visca_value(min = "-432", max = "1296", display_prefix = "Tilt")]
 pub struct TiltPosition(i16);
 
@@ -1044,6 +1073,7 @@ impl TryFrom<f32> for TiltPosition {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[visca_value(min = "0x00", max = "0x18", display_prefix = "Pan Speed")]
 pub struct PanSpeed(u8);
 
@@ -1102,6 +1132,7 @@ impl PanSpeed {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[visca_value(min = "0x00", max = "0x14", display_prefix = "Tilt Speed")]
 pub struct TiltSpeed(u8);
 
@@ -1163,6 +1194,7 @@ impl TiltSpeed {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[visca_value(min = "0x00", max = "0x07", display_prefix = "Zoom Speed")]
 pub struct ZoomSpeed(u8);
 
@@ -1258,6 +1290,7 @@ impl ZoomSpeed {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[visca_value(min = "0x00", max = "0x07", display_prefix = "Focus Speed")]
 pub struct FocusSpeed(u8);
 
@@ -1327,6 +1360,7 @@ impl FocusSpeed {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[visca_value(min = "0x01", max = "0x18", display_prefix = "Motion Sync Speed")]
 pub struct MotionSyncSpeed(u8);
 
@@ -1363,6 +1397,7 @@ impl From<crate::MotionSyncPreset> for MotionSyncSpeed {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[visca_value(min = "0x00", max = "0x05", display_prefix = "Defog Level")]
 pub struct DefogLevel(u8);
 
@@ -1376,6 +1411,7 @@ pub struct DefogLevel(u8);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 pub struct ExposureCompensationPosition(u16);
 
 impl ExposureCompensationPosition {
@@ -1403,6 +1439,7 @@ impl ExposureCompensationPosition {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[visca_value(min = "0x00", max = "0x03", display_prefix = "Broadcast Domain")]
 pub struct BroadcastDomain(u8);
 
@@ -1415,6 +1452,7 @@ pub struct BroadcastDomain(u8);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[visca_value(min = "0x00", max = "0x03", display_prefix = "ND Filter Preset")]
 pub struct NdFilterPreset(u8);
 

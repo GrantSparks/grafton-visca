@@ -8,7 +8,7 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/GrantSparks/grafton-visca"
 homepage = "https://www.grafton.ai"
 edition = "2021"
-rust-version = "1.80"
+rust-version = "1.88"
 
 [package]
 name = "grafton-visca"
@@ -43,6 +43,7 @@ transport-serial-tokio = ["dep:tokio-serial", "runtime-tokio"]
 # Serialization features
 serde = ["dep:serde", "dep:serde_json", "dep:serde_with"]
 schemars = ["serde", "dep:schemars"]
+ts-rs = ["serde", "dep:ts-rs"]
 
 # Internal features
 test-utils = ["dep:async-executor", "dep:futures-lite"]
@@ -60,6 +61,7 @@ nom = "8.0.0"
 serde = { version = "1.0", features = ["derive"], optional = true }
 serde_json = { version = "1.0.143", optional = true }
 schemars = { version = "1.1", optional = true }
+ts-rs = { version = "11", features = ["format"], optional = true }
 serde_with = { version = "3.16", features = ["macros"], optional = true }
 serialport = { version = "4.8", optional = true }
 tokio-serial = { version = "5.4", optional = true }
