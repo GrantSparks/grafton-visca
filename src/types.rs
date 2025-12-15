@@ -437,6 +437,7 @@ fstop_enum! {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
 pub enum NoiseReductionStrength {
     /// Disable noise reduction (not supported by VISCA - use Minimal instead).
     Off,
@@ -520,6 +521,7 @@ impl TryFrom<NoiseReductionStrength> for NoiseReduction3DLevel {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
 pub enum NdiQuality {
     /// High quality Ndi streaming (highest bandwidth)
     High,

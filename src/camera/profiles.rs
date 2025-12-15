@@ -944,6 +944,10 @@ impl TryFrom<u8> for G2PresetId {
 
 /// Gain values for PtzOptics G2 cameras.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, crate::ViscaEnum)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
 pub enum G2Gain {
     /// 0dB gain
     Gain0dB = 0,

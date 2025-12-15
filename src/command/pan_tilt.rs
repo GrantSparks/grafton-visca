@@ -38,6 +38,10 @@ use crate::{
 ///
 /// Specifies which corner of the movement range to set as a limit.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
 pub enum PanTiltLimitCorner {
     /// Lower-left corner (minimum pan, minimum tilt).
     DownLeft,

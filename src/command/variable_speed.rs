@@ -11,6 +11,10 @@ use crate::{
 
 /// Variable speed mode setting for Sony FR7.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
 pub enum VariableSpeedMode {
     /// Standard 24-step speed mode (1-24 speeds).
     Standard24,

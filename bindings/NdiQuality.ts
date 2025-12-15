@@ -6,4 +6,4 @@
  * Controls the bandwidth and quality of Ndi HX video streaming.
  * This is a vendor-specific feature for PtzOptics Ndi cameras.
  */
-export type NdiQuality = "High" | "Medium" | "Low" | "Off";
+export type NdiQuality = "high" | "medium" | "low" | "off";

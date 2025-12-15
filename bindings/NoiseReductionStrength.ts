@@ -9,9 +9,9 @@
  * requires a minimum level (level 1 = minimal).
  */
 export type NoiseReductionStrength =
-  | "Off"
-  | "Minimal"
-  | "Light"
-  | "Medium"
-  | "Strong"
-  | "Maximum";
+  | "off"
+  | "minimal"
+  | "light"
+  | "medium"
+  | "strong"
+  | "maximum";
