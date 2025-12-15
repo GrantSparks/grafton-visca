@@ -1061,6 +1061,23 @@ fn generate_typed_impl(
                 }
             }
         }
+        ("DynamicRange", Some("byte"), _) => {
+            quote! {
+                impl #crate_path::command::typed::ResponseParser for #struct_name {
+                    type Response = #crate_path::types::DynamicRangeLevel;
+
+                    fn from_response(resp: #crate_path::command::Response) -> Result<Self::Response, #crate_path::Error> {
+                        match resp {
+                            #crate_path::command::Response::Inquiry(
+                                #crate_path::command::InquiryData::DynamicRange { level }
+                            ) => #crate_path::types::DynamicRangeLevel::new(level),
+                            #crate_path::command::Response::Error(e) => Err(e),
+                            _ => Err(#crate_path::Error::UnexpectedResponseType),
+                        }
+                    }
+                }
+            }
+        }
         ("AutoFocusSensitivity", Some("mode"), Some("AutoFocusSensitivity")) => {
             quote! {
                 impl #crate_path::command::typed::ResponseParser for #struct_name {

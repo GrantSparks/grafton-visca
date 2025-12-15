@@ -318,7 +318,10 @@ pub mod inquiry {
 
     // Menu and UI inquiries
     /// Menu open/close status inquiry.
-    pub const MENU_OPEN_CLOSE: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x06];
+    ///
+    /// Uses category 0x06 (Pan/Tilt) to match the menu command bytes.
+    /// PTZOptics cameras require category 0x06 for menu operations.
+    pub const MENU_OPEN_CLOSE: &[u8] = visca_bytes![0x81, 0x09, 0x06, 0x06];
 
     // Tally inquiries
     /// Red tally light status inquiry (baseline VISCA).

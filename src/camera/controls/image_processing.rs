@@ -130,9 +130,8 @@ pub trait ImageProcessingControl {
     /// Higher values increase sharpness (more edge enhancement),
     /// lower values decrease sharpness (softer appearance).
     ///
-    /// **Note:** The sharpness level itself is write-only on most cameras. While you can
-    /// query the sharpness mode (auto/manual) via [`InquiryControl::sharpness_mode`],
-    /// there is no inquiry to read back the specific sharpness level value.
+    /// Use [`InquiryControl::sharpness_level`] to query the current value, and
+    /// [`InquiryControl::sharpness_mode`] to query whether sharpness is in auto or manual mode.
     ///
     /// # Parameters
     /// - `level`: The sharpness level to set
@@ -140,6 +139,7 @@ pub trait ImageProcessingControl {
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
     ///
+    /// [`InquiryControl::sharpness_level`]: crate::camera::controls::inquiry::InquiryControl::sharpness_level
     /// [`InquiryControl::sharpness_mode`]: crate::camera::controls::inquiry::InquiryControl::sharpness_mode
     fn set_sharpness(
         &self,

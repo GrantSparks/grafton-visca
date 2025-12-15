@@ -44,15 +44,16 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
             if payload.len() != 1 {
                 return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
             }
+            // Standard VISCA convention: 0x02 = On/Open, 0x03 = Off/Closed
             let is_open = match payload.as_slice()[0] {
-                0x02 => false,
-                0x03 => true,
+                0x02 => true,
+                0x03 => false,
                 _ => {
                     return Some(Err(Error::InvalidParameter {
                         parameter: "menu_status",
                         value: Cow::Owned(format!("{:02X}", payload.as_slice()[0])),
                         reason: Cow::Borrowed(
-                            "Invalid menu status value. Expected 0x02 (closed) or 0x03 (open)",
+                            "Invalid menu status value. Expected 0x02 (open) or 0x03 (closed)",
                         ),
                     }))
                 }

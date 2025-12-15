@@ -552,6 +552,7 @@ System,Menu Up,81 01 06 01 0E 0E 03 01 FF,10,Yes,Yes,Yes,
 System,Menu Down,81 01 06 01 0E 0E 03 02 FF,10,Yes,Yes,Yes,
 System,Menu Left,81 01 06 01 0E 0E 01 03 FF,10,Yes,Yes,Yes,
 System,Menu Right,81 01 06 01 0E 0E 02 03 FF,10,Yes,Yes,Yes,
+System,Menu Status Inq,81 09 06 06 FF,5,Yes,Yes,Yes,Reply 90 50 02/03 (Open/Closed). Uses category 06 not 04.
 System,Direct Menu Control (FR7),81 01 7E 04 72 pp qq FF,8,No,No,Yes,Complex menu control
 Streaming,Reboot (PTZOptics),81 0A 01 06 01 FF,6,No,Yes,No,Reboots camera
 Streaming,Multicast On (PTZOptics),81 0B 01 23 01 FF,6,No,Yes,No,
@@ -559,4 +560,39 @@ Streaming,Multicast Off (PTZOptics),81 0B 01 23 02 FF,6,No,Yes,No,
 Streaming,NDI Quality Set (PTZOptics),81 0B 01 01 0p FF,6,No,Yes,No,p=1–4 (Hi,Med,Low,Off)
 ```
 
-> *“Bytes” column indicates total bytes including the terminator `FF`. “Yes/No” in model columns denote whether that model/family supports the command (to the best of current knowledge).*
+> *"Bytes" column indicates total bytes including the terminator `FF`. "Yes/No" in model columns denote whether that model/family supports the command (to the best of current knowledge).*
+
+---
+
+## 12. Known Inquiry Limitations
+
+Some features that have setter commands do not have corresponding inquiry commands in the VISCA protocol. This section documents these limitations based on live camera testing.
+
+### 12.1 Auto Slow Shutter
+
+**Setter commands exist:**
+- Enable: `81 01 04 5A 02 FF`
+- Disable: `81 01 04 5A 03 FF`
+
+**No inquiry command exists.** There is no standard VISCA inquiry to determine if Auto Slow Shutter is currently enabled. PTZOptics specifically notes this feature is "only in HTTP API" for their cameras. Software implementations must either track state locally or use HTTP APIs where available.
+
+### 12.2 Digital Zoom Enable/Disable
+
+Some VISCA documentation references Digital Zoom enable/disable commands using opcode 0x06 under category 0x04:
+- Enable: `81 01 04 06 02 FF`
+- Disable: `81 01 04 06 03 FF`
+- Inquiry: `81 09 04 06 FF`
+
+**PTZOptics cameras do NOT support these commands.** Testing on PTZOptics G2 cameras confirms that all three commands return Syntax Error (0x02). On PTZOptics cameras, opcode 0x06 under category 0x04 is used for IR Receive control, not Digital Zoom. Sony cameras may support these commands.
+
+Note: Digital zoom *position* inquiry (as part of combined zoom position) works normally via `81 09 04 47 FF`.
+
+### 12.3 Menu Status Inquiry Category
+
+The Menu Status Inquiry uses category 0x06 (Pan/Tilt category), **not** category 0x04:
+- Correct: `81 09 06 06 FF` → Returns `90 50 02 FF` (Open) or `90 50 03 FF` (Closed)
+- Incorrect: `81 09 04 06 FF` → Returns Syntax Error on PTZOptics
+
+This aligns with the menu command bytes which also use category 0x06:
+- Menu Open: `81 01 06 06 02 FF`
+- Menu Close: `81 01 06 06 03 FF`

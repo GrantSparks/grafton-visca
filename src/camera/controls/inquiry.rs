@@ -287,6 +287,17 @@ pub trait InquiryControl {
         &self,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<AutoFocusSensitivity, Error>>;
 
+    /// Get the dynamic range level.
+    ///
+    /// Returns the current dynamic range (wide dynamic range/WDR) level.
+    /// Higher values provide better detail retention in high contrast scenes.
+    ///
+    /// # Errors
+    /// Returns an error if the inquiry fails or times out.
+    fn dynamic_range(
+        &self,
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::DynamicRangeLevel, Error>>;
+
     /// Get the saturation level.
     ///
     /// Returns the current color saturation level.
@@ -822,6 +833,11 @@ where
     fn auto_focus_sensitivity(&self) -> M::Fut<'_, Result<AutoFocusSensitivity, Error>> {
         use crate::command::inquiry_structs::AutoFocusSensitivityInquiry;
         self.query(AutoFocusSensitivityInquiry)
+    }
+
+    fn dynamic_range(&self) -> M::Fut<'_, Result<crate::types::DynamicRangeLevel, Error>> {
+        use crate::command::inquiry_structs::DynamicRangeInquiry;
+        self.query(DynamicRangeInquiry)
     }
 
     fn saturation(&self) -> M::Fut<'_, Result<crate::types::SaturationLevel, Error>> {
