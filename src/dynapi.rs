@@ -79,6 +79,71 @@
 //! pt.pan_tilt_home(Some(Duration::from_secs(30))).await?;
 //! ```
 //!
+//! # Drop and Cancellation Semantics
+//!
+//! Understanding how futures and operations behave when dropped is critical for
+//! reliable camera control:
+//!
+//! ## Future Drop Behavior
+//!
+//! When an async future is dropped (e.g., via `select!`, timeout, or early return),
+//! the underlying VISCA command **may still complete on the camera**. The library
+//! cannot unilaterally stop physical camera movement once a command has been sent.
+//!
+//! ```ignore
+//! // WARNING: Camera may still move even though we dropped the future
+//! tokio::select! {
+//!     _ = pt.pan_tilt_home(None) => {},
+//!     _ = tokio::time::sleep(Duration::from_millis(100)) => {
+//!         // Future dropped, but camera command may have been sent
+//!         // Camera will continue moving to home position!
+//!     }
+//! }
+//! ```
+//!
+//! ## Explicit Cancellation
+//!
+//! For controlled cancellation, use `InFlightDyn::cancel()` or
+//! `DynMotionControl::stop_all_motion()`:
+//!
+//! ```ignore
+//! // Method 1: Cancel a specific operation
+//! let handle = pt.pan_tilt_home_op().await?;
+//! // ... decide to cancel ...
+//! handle.cancel().await?;  // Sends VISCA CANCEL command
+//!
+//! // Method 2: Emergency stop all motion
+//! if let Some(motion) = camera.as_motion() {
+//!     motion.stop_all_motion().await?;
+//! }
+//! ```
+//!
+//! ## Timeout Layering
+//!
+//! The dyn-api provides per-call timeout parameters that override `TimeoutConfig`
+//! defaults. **Avoid adding external timeouts that race with library timeouts**:
+//!
+//! ```ignore
+//! // GOOD: Use the built-in timeout parameter
+//! pt.pan_tilt_home(Some(Duration::from_secs(30))).await?;
+//!
+//! // AVOID: External timeout racing with library timeout
+//! // This may drop the future while the library is still waiting
+//! tokio::time::timeout(
+//!     Duration::from_secs(30),
+//!     pt.pan_tilt_home(None)  // Uses TimeoutConfig default
+//! ).await??;
+//! ```
+//!
+//! ## Cancellation Patterns Summary
+//!
+//! | Scenario | Recommended Approach |
+//! |----------|---------------------|
+//! | Cancel specific command | `InFlightDyn::cancel()` |
+//! | Emergency stop all motion | `DynMotionControl::stop_all_motion()` |
+//! | Timeout on specific operation | Pass `timeout` parameter to method |
+//! | Graceful shutdown | `stop_all_motion()`, then drop camera |
+//!
 //! # Capability Detection
 //!
 //! The `DynCameraControl` trait provides capability accessors that return
@@ -105,6 +170,11 @@
 //!     if let Some(presets) = camera.as_presets() {
 //!         let preset = PresetNumber::new(1)?;
 //!         presets.preset_recall(preset, None).await?;
+//!     }
+//!
+//!     // Check if motion control is available (for stop_all_motion)
+//!     if let Some(motion) = camera.as_motion() {
+//!         motion.stop_all_motion().await?;
 //!     }
 //!
 //!     Ok(())
@@ -146,6 +216,7 @@
 //! - `DynZoomControl` - Zoom operations (tele, wide, absolute)
 //! - `DynFocusControl` - Focus operations (auto, manual, zones)
 //! - `DynPresetsControl` - Preset operations (recall, set, reset)
+//! - `DynMotionControl` - Unified motion control (stop all motion)
 
 use std::{sync::Arc, time::Duration};
 
@@ -355,6 +426,68 @@ pub trait DynCameraControl: Send + Sync {
 
     /// Returns preset control if available.
     fn as_presets(&self) -> Option<&dyn DynPresetsControl>;
+
+    /// Returns motion control if available.
+    ///
+    /// Motion control provides unified stop operations for all camera axes.
+    /// Use this for emergency stops or coordinated motion control.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// if let Some(motion) = camera.as_motion() {
+    ///     // Stop all camera motion (pan/tilt, zoom, focus)
+    ///     motion.stop_all_motion().await?;
+    /// }
+    /// ```
+    fn as_motion(&self) -> Option<&dyn DynMotionControl>;
+}
+
+/// Object-safe motion control trait.
+///
+/// This trait provides unified motion control operations, allowing you to stop
+/// all camera motion with a single method call. It mirrors the static
+/// [`MotionControl`](crate::MotionControl) trait but with object-safe signatures.
+///
+/// # Example
+///
+/// ```ignore
+/// use grafton_visca::dynapi::DynMotionControl;
+///
+/// async fn emergency_stop(motion: &dyn DynMotionControl) -> Result<(), Error> {
+///     // Stop all camera motion immediately
+///     motion.stop_all_motion().await?;
+///     Ok(())
+/// }
+/// ```
+///
+/// # Behavior
+///
+/// The `stop_all_motion` method issues stop commands for all motion axes:
+/// - Pan/tilt movement
+/// - Zoom movement
+/// - Focus movement
+///
+/// All stop commands are attempted even if earlier ones fail. The first error
+/// encountered is returned, but all axes will have received stop commands.
+pub trait DynMotionControl: Send + Sync {
+    /// Stop all camera motion (pan/tilt, zoom, and focus).
+    ///
+    /// Issues stop commands for all motion axes. All commands are attempted
+    /// even if earlier ones fail; returns the first error encountered.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Emergency stop all camera motion
+    /// motion.stop_all_motion().await?;
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns the first error encountered while stopping motion. All stop
+    /// commands are attempted for safety even if earlier ones fail.
+    fn stop_all_motion(&self) -> BoxFuture<'_, Result<(), Error>>;
 }
 
 /// Object-safe pan/tilt control trait.
@@ -751,6 +884,7 @@ where
         + crate::capabilities::ProfileMetadata
         + crate::capabilities::PanTilt
         + crate::capabilities::zoom::Zoom
+        + crate::capabilities::focus::Focus
         + Default,
     Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
     Exec: crate::executor::Executor,
@@ -768,6 +902,10 @@ where
     }
 
     fn as_presets(&self) -> Option<&dyn DynPresetsControl> {
+        Some(self)
+    }
+
+    fn as_motion(&self) -> Option<&dyn DynMotionControl> {
         Some(self)
     }
 }
@@ -1197,6 +1335,44 @@ where
     }
 }
 
+// Implement DynMotionControl for DynCamera
+#[cfg(feature = "dyn-api")]
+impl<P, Tr, Exec> DynMotionControl for DynCamera<P, Tr, Exec>
+where
+    P: crate::capabilities::Profile
+        + crate::capabilities::ProfileMetadata
+        + crate::capabilities::PanTilt
+        + crate::capabilities::zoom::Zoom
+        + crate::capabilities::focus::Focus
+        + Default,
+    Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
+    Exec: crate::executor::Executor,
+{
+    fn stop_all_motion(&self) -> BoxFuture<'_, Result<(), Error>> {
+        use crate::camera::controls::focus::FocusControl;
+        use crate::camera::controls::pan_tilt::PanTiltControl;
+        use crate::camera::controls::zoom::ZoomControl;
+
+        // Get all three stop futures before entering the async block.
+        // This ensures the async block captures the futures (which are Send)
+        // rather than &self (which may not be Sync).
+        let pt_fut = self.inner.camera.pan_tilt_stop();
+        let zoom_fut = self.inner.camera.zoom_stop();
+        let focus_fut = self.inner.camera.focus_stop();
+
+        Box::pin(async move {
+            // Stop all three motion axes, collecting the first error if any.
+            // All stop commands are attempted even if earlier ones fail.
+            let pt_result = pt_fut.await;
+            let zoom_result = zoom_fut.await;
+            let focus_result = focus_fut.await;
+
+            // Return the first error encountered, or Ok(()) if all succeeded
+            pt_result.and(zoom_result).and(focus_result)
+        })
+    }
+}
+
 /// Extension trait to convert an async camera into a dyn-compatible wrapper.
 #[cfg(feature = "dyn-api")]
 pub trait IntoDynCamera {
@@ -1244,6 +1420,7 @@ mod tests {
         _zoom: &dyn DynZoomControl,
         _focus: &dyn DynFocusControl,
         _presets: &dyn DynPresetsControl,
+        _motion: &dyn DynMotionControl,
     ) {
     }
 
