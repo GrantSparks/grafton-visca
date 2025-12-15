@@ -92,8 +92,11 @@ impl<P: Profile> BlockingRunner<P> {
         buffer_config: BufferConfig,
         addressing: AddressingMode,
     ) -> Self {
+        let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
+        // Apply profile-specific inquiry spacing
+        core.set_min_inquiry_spacing(P::MIN_INQUIRY_SPACING);
         Self {
-            core: SchedulerCore::with_retry_config(timeout_config, retry_config),
+            core,
             envelope: P::Envelope::new(addressing),
             buffer_manager: BufferManager::new(buffer_config),
             framer: ProtocolFramer::new_with_config(buffer_config),
@@ -210,7 +213,7 @@ impl<P: Profile> BlockingRunner<P> {
 
             let now = Instant::now();
 
-            if let Some(cmd) = self.core.next_item_to_send() {
+            if let Some(cmd) = self.core.next_item_to_send(now) {
                 let kind = cmd.kind;
 
                 let mut scheduler = BlockingScheduler {
@@ -559,7 +562,8 @@ mod tests {
 
         runner.core.queue_command(cmd);
 
-        let next = runner.core.next_item_to_send();
+        let now = Instant::now();
+        let next = runner.core.next_item_to_send(now);
         assert!(next.is_some(), "should have command");
         if let Some(cmd) = next {
             assert_eq!(cmd.id, 1);

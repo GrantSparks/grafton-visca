@@ -104,6 +104,9 @@ impl ProfileMetadata for PtzOpticsG2 {
     const SUPPORTS_OPERATION_COMPLETE: bool = true;
     const DEFAULT_TCP_PORT: u16 = 5678;
     const DEFAULT_UDP_PORT: u16 = 1259;
+    /// PTZOptics cameras cannot process inquiries faster than ~125-150ms apart.
+    /// Using 150ms as a safe value at the upper end of the observed range.
+    const MIN_INQUIRY_SPACING: Duration = Duration::from_millis(150);
 }
 
 impl PanTilt for PtzOpticsG2 {
@@ -293,6 +296,8 @@ impl ProfileMetadata for SonyFR7 {
     const BUSY_TIMEOUT: Duration = Duration::from_millis(240);
     const DEFAULT_TCP_PORT: u16 = 52381;
     const DEFAULT_UDP_PORT: u16 = 52381;
+    /// Sony cameras: 35ms per VISCA spec (~33ms = 2 video frames at 60fps).
+    const MIN_INQUIRY_SPACING: Duration = Duration::from_millis(35);
 }
 
 impl PanTilt for SonyFR7 {
@@ -410,6 +415,8 @@ impl ProfileMetadata for SonyBRCH900 {
     const COMPLETION_TIMEOUT: Duration = Duration::from_millis(6000);
     const DEFAULT_TCP_PORT: u16 = 52381;
     const DEFAULT_UDP_PORT: u16 = 52381;
+    /// Sony cameras: 35ms per VISCA spec (~33ms = 2 video frames at 60fps).
+    const MIN_INQUIRY_SPACING: Duration = Duration::from_millis(35);
 }
 
 impl PanTilt for SonyBRCH900 {
@@ -737,6 +744,9 @@ impl ProfileMetadata for PtzOpticsG3 {
     const COMPLETION_TIMEOUT: Duration = Duration::from_millis(5000);
     const DEFAULT_TCP_PORT: u16 = 5678;
     const DEFAULT_UDP_PORT: u16 = 1259;
+    /// PTZOptics cameras cannot process inquiries faster than ~125-150ms apart.
+    /// Using 150ms as a safe value at the upper end of the observed range.
+    const MIN_INQUIRY_SPACING: Duration = Duration::from_millis(150);
 }
 
 impl PanTilt for PtzOpticsG3 {
@@ -823,6 +833,9 @@ impl ProfileMetadata for PtzOptics30X {
     const COMPLETION_TIMEOUT: Duration = Duration::from_millis(5000);
     const DEFAULT_TCP_PORT: u16 = 5678;
     const DEFAULT_UDP_PORT: u16 = 1259;
+    /// PTZOptics cameras cannot process inquiries faster than ~125-150ms apart.
+    /// Using 150ms as a safe value at the upper end of the observed range.
+    const MIN_INQUIRY_SPACING: Duration = Duration::from_millis(150);
 }
 
 impl PanTilt for PtzOptics30X {

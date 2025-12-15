@@ -200,6 +200,14 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
         self.core.set_max_inquiries_inflight(max);
     }
 
+    /// Set the minimum spacing between consecutive inquiry sends.
+    ///
+    /// Some cameras (e.g., PTZOptics) cannot process inquiries faster than
+    /// ~125-150ms apart. Setting this enforces a minimum delay between sends.
+    pub fn set_min_inquiry_spacing(&mut self, spacing: std::time::Duration) {
+        self.core.set_min_inquiry_spacing(spacing);
+    }
+
     /// Submit a command or inquiry to the scheduler.
     pub fn submit(&mut self, item: TxItem) -> u32 {
         match item {
@@ -271,7 +279,8 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
 
     /// Get the next item to send (command or inquiry).
     pub fn next_item_to_send(&mut self) -> Option<PendingCommand> {
-        self.core.next_item_to_send()
+        let now = self.executor.now();
+        self.core.next_item_to_send(now)
     }
 
     /// Register that a command was sent and is pending ACK.

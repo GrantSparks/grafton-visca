@@ -66,6 +66,12 @@ pub struct RuntimeLoopConfig<E: Envelope> {
     /// For envelopes with sequence correlation (e.g., Sony Encapsulated), higher
     /// values enable concurrent inquiry execution.
     pub max_concurrent_inquiries: usize,
+    /// Minimum time spacing between consecutive inquiry sends.
+    ///
+    /// Some cameras (e.g., PTZOptics) cannot process inquiries faster than
+    /// ~125-150ms apart. Setting this enforces a minimum delay between sends.
+    /// Default: Duration::ZERO (no artificial spacing)
+    pub min_inquiry_spacing: std::time::Duration,
 }
 
 /// Main runtime loop with configurable tick interval.
@@ -98,6 +104,7 @@ pub async fn runtime_loop_with_config<
     let mut adapter =
         AsyncAdapter::<P, Ex>::new(config.timeout_config, config.retry_config, executor.clone());
     adapter.set_max_inquiries_inflight(config.max_concurrent_inquiries);
+    adapter.set_min_inquiry_spacing(config.min_inquiry_spacing);
     let mut protocol_framer = ProtocolFramer::new_with_config(config.buffer_manager.config());
     // Track cancel requests that arrived before the command was bound to a socket
     let mut pending_cancel_ids: HashSet<u32> = HashSet::new();

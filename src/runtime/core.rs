@@ -567,6 +567,10 @@ pub struct SchedulerCore {
     inquiries_order: VecDeque<u32>,
     /// Response types for inquiries (for parsing DataReply).
     inquiry_response_types: HashMap<u32, InquiryKind>,
+    /// Minimum time spacing between consecutive inquiry sends.
+    min_inquiry_spacing: Duration,
+    /// When the last inquiry was sent (for spacing enforcement).
+    last_inquiry_sent: Option<Instant>,
 }
 
 impl SchedulerCore {
@@ -605,6 +609,8 @@ impl SchedulerCore {
             inquiries_inflight: HashMap::new(),
             inquiries_order: VecDeque::new(),
             inquiry_response_types: HashMap::new(),
+            min_inquiry_spacing: Duration::ZERO,
+            last_inquiry_sent: None,
         }
     }
 
@@ -616,6 +622,19 @@ impl SchedulerCore {
     /// Set the maximum number of inquiries that can be in flight simultaneously.
     pub fn set_max_inquiries_inflight(&mut self, max: usize) {
         self.max_inquiries_inflight = max;
+    }
+
+    /// Set the minimum spacing between consecutive inquiry sends.
+    ///
+    /// Some cameras (e.g., PTZOptics) cannot process inquiries faster than
+    /// ~125-150ms apart. Setting this enforces a minimum delay between sends.
+    pub fn set_min_inquiry_spacing(&mut self, spacing: Duration) {
+        self.min_inquiry_spacing = spacing;
+    }
+
+    /// Get the minimum spacing between consecutive inquiry sends.
+    pub fn min_inquiry_spacing(&self) -> Duration {
+        self.min_inquiry_spacing
     }
 
     /// Queue a command for execution.
@@ -681,9 +700,25 @@ impl SchedulerCore {
         can_send
     }
 
-    /// Check if we can send an inquiry (not at max capacity).
-    pub fn can_send_inquiry(&self) -> bool {
-        self.inquiries_inflight.len() < self.max_inquiries_inflight
+    /// Check if we can send an inquiry (not at max capacity and spacing satisfied).
+    ///
+    /// Returns true if:
+    /// 1. The number of in-flight inquiries is below the maximum limit
+    /// 2. The minimum spacing requirement since the last inquiry has been satisfied
+    pub fn can_send_inquiry(&self, now: Instant) -> bool {
+        // Check concurrency limit
+        if self.inquiries_inflight.len() >= self.max_inquiries_inflight {
+            return false;
+        }
+
+        // Check spacing requirement
+        if let Some(last_sent) = self.last_inquiry_sent {
+            if now.duration_since(last_sent) < self.min_inquiry_spacing {
+                return false;
+            }
+        }
+
+        true
     }
 
     /// Get the next item to send (inquiry or command).
@@ -701,9 +736,13 @@ impl SchedulerCore {
     /// A High-priority command will be selected over a Normal-priority inquiry,
     /// ensuring user-initiated actions (preset save, etc.) aren't blocked by background
     /// polling inquiries.
-    pub fn next_item_to_send(&mut self) -> Option<PendingCommand> {
+    ///
+    /// # Arguments
+    ///
+    /// * `now` - Current instant, used to check inquiry spacing requirements
+    pub fn next_item_to_send(&mut self, now: Instant) -> Option<PendingCommand> {
         // Check what's available in each queue
-        let inquiry_available = !self.inquiry_queue.is_empty() && self.can_send_inquiry();
+        let inquiry_available = !self.inquiry_queue.is_empty() && self.can_send_inquiry(now);
         let command_available = self.can_send_command() && !self.command_queue.is_empty();
 
         match (inquiry_available, command_available) {
@@ -1773,6 +1812,18 @@ impl SchedulerCore {
             };
         }
 
+        // Check inquiry spacing deadline (when queued inquiries can be sent)
+        if !self.inquiry_queue.is_empty() && !self.min_inquiry_spacing.is_zero() {
+            if let Some(last_sent) = self.last_inquiry_sent {
+                let next_inquiry_eligible = last_sent + self.min_inquiry_spacing;
+                earliest = match earliest {
+                    None => Some(next_inquiry_eligible),
+                    Some(e) if next_inquiry_eligible < e => Some(next_inquiry_eligible),
+                    _ => earliest,
+                };
+            }
+        }
+
         earliest
     }
 
@@ -1911,6 +1962,9 @@ impl SchedulerCore {
 
         // Add to order queue for raw VISCA correlation
         self.inquiries_order.push_back(id);
+
+        // Update last inquiry sent time for spacing enforcement
+        self.last_inquiry_sent = Some(now);
 
         trace!("Started inquiry {id} (no socket allocation)");
     }
@@ -3971,7 +4025,7 @@ mod tests {
         });
 
         // Send and register both commands as pending ACK
-        let cmd1 = core.next_item_to_send().unwrap();
+        let cmd1 = core.next_item_to_send(now).unwrap();
         assert_eq!(cmd1.id, 1);
         core.register_pending_ack(
             1,
@@ -3983,7 +4037,7 @@ mod tests {
             now,
         );
 
-        let cmd2 = core.next_item_to_send().unwrap();
+        let cmd2 = core.next_item_to_send(now).unwrap();
         assert_eq!(cmd2.id, 2);
         core.register_pending_ack(
             2,
@@ -3997,7 +4051,7 @@ mod tests {
 
         // Now both commands are pending ACK - sockets are at capacity
         assert!(!core.can_send_command());
-        assert_eq!(core.next_item_to_send(), None); // No commands can be sent
+        assert_eq!(core.next_item_to_send(now), None); // No commands can be sent
 
         // Queue an inquiry
         core.queue_command(PendingCommand {
@@ -4011,7 +4065,7 @@ mod tests {
         });
 
         // The inquiry should be sendable even though command sockets are full
-        let inq = core.next_item_to_send();
+        let inq = core.next_item_to_send(now);
         assert!(inq.is_some());
         let inq = inq.unwrap();
         assert_eq!(inq.id, 3);
@@ -4040,7 +4094,7 @@ mod tests {
         });
 
         // No more commands should be sendable (sockets still full)
-        assert_eq!(core.next_item_to_send(), None);
+        assert_eq!(core.next_item_to_send(now), None);
 
         // Queue another inquiry - should be sendable
         core.queue_command(PendingCommand {
@@ -4053,7 +4107,7 @@ mod tests {
             kind: CommandKind::Inquiry,
         });
 
-        let inq2 = core.next_item_to_send();
+        let inq2 = core.next_item_to_send(now);
         assert!(inq2.is_some());
         assert_eq!(inq2.unwrap().id, 5);
     }
@@ -4086,7 +4140,7 @@ mod tests {
         }
 
         // First inquiry should be sendable
-        let inq1 = core.next_item_to_send();
+        let inq1 = core.next_item_to_send(now);
         assert!(inq1.is_some());
         assert_eq!(inq1.unwrap().id, 1);
         core.start_inquiry(
@@ -4100,7 +4154,7 @@ mod tests {
         );
 
         // Second inquiry should be sendable
-        let inq2 = core.next_item_to_send();
+        let inq2 = core.next_item_to_send(now);
         assert!(inq2.is_some());
         assert_eq!(inq2.unwrap().id, 2);
         core.start_inquiry(
@@ -4114,16 +4168,16 @@ mod tests {
         );
 
         // Third inquiry should NOT be sendable (limit reached)
-        assert!(!core.can_send_inquiry());
-        let inq3 = core.next_item_to_send();
+        assert!(!core.can_send_inquiry(now));
+        let inq3 = core.next_item_to_send(now);
         assert!(inq3.is_none());
 
         // Complete one inquiry by removing it from inflight
         core.inquiries_inflight.remove(&1);
 
         // Now the third inquiry should be sendable
-        assert!(core.can_send_inquiry());
-        let inq3 = core.next_item_to_send();
+        assert!(core.can_send_inquiry(now));
+        let inq3 = core.next_item_to_send(now);
         assert!(inq3.is_some());
         assert_eq!(inq3.unwrap().id, 3);
     }
@@ -4191,22 +4245,22 @@ mod tests {
         });
 
         // Critical priority command should come first (Critical > High > Normal > Low)
-        let item1 = core.next_item_to_send().unwrap();
+        let item1 = core.next_item_to_send(now).unwrap();
         assert_eq!(item1.id, 3);
         assert_eq!(item1.priority, Priority::Critical);
 
         // High priority inquiry second (preempts Normal priority inquiry)
-        let item2 = core.next_item_to_send().unwrap();
+        let item2 = core.next_item_to_send(now).unwrap();
         assert_eq!(item2.id, 2);
         assert_eq!(item2.priority, Priority::High);
 
         // Normal priority inquiry (no higher priority items remaining)
-        let item3 = core.next_item_to_send().unwrap();
+        let item3 = core.next_item_to_send(now).unwrap();
         assert_eq!(item3.id, 4);
         assert_eq!(item3.priority, Priority::Normal);
 
         // Low priority command last
-        let item4 = core.next_item_to_send().unwrap();
+        let item4 = core.next_item_to_send(now).unwrap();
         assert_eq!(item4.id, 1);
         assert_eq!(item4.priority, Priority::Low);
     }
@@ -4258,7 +4312,7 @@ mod tests {
 
         // The High-priority command should be returned BEFORE the Normal-priority inquiries
         // This prevents command starvation from background polling
-        let item = core.next_item_to_send().unwrap();
+        let item = core.next_item_to_send(now).unwrap();
         assert_eq!(
             item.id, 100,
             "High-priority command should not be starved by Normal-priority inquiries"
@@ -4267,7 +4321,7 @@ mod tests {
         assert_eq!(item.kind, CommandKind::Command);
 
         // Subsequent calls should return the Normal-priority inquiries
-        let item2 = core.next_item_to_send().unwrap();
+        let item2 = core.next_item_to_send(now).unwrap();
         assert_eq!(item2.priority, Priority::Normal);
         assert_eq!(item2.kind, CommandKind::Inquiry);
     }
@@ -4313,12 +4367,12 @@ mod tests {
         });
 
         // Inquiry should be preferred at equal priority
-        let item = core.next_item_to_send().unwrap();
+        let item = core.next_item_to_send(now).unwrap();
         assert_eq!(item.id, 2, "Inquiry should be preferred at equal priority");
         assert_eq!(item.kind, CommandKind::Inquiry);
 
         // Then the command
-        let item2 = core.next_item_to_send().unwrap();
+        let item2 = core.next_item_to_send(now).unwrap();
         assert_eq!(item2.id, 1);
         assert_eq!(item2.kind, CommandKind::Command);
     }
@@ -4860,5 +4914,198 @@ mod tests {
             core.should_retry_command(1, &error, start),
             "SchedulerCore should align with RetryConfig at start"
         );
+    }
+
+    #[test]
+    fn test_inquiry_spacing_blocks_too_fast_inquiries() {
+        // Test that inquiries respect min_inquiry_spacing
+        let mut core = SchedulerCore::new(TimeoutConfig::default());
+        core.set_min_inquiry_spacing(Duration::from_millis(100));
+        let now = Instant::now();
+
+        let inquiry = Arc::new(EncodedCommand {
+            payload: SmallVec::from_slice(&[0x01, 0x09, 0x04, 0x47, VISCA_TERMINATOR]),
+            kind: CommandKind::Inquiry,
+            category: CommandCategory::Quick,
+            response_type: Some(InquiryKind::ZoomPosition),
+        });
+
+        // Queue 2 inquiries
+        for id in 1..=2 {
+            core.queue_command(PendingCommand {
+                id,
+                command: inquiry.clone(),
+                priority: Priority::Normal,
+                category: CommandCategory::Quick,
+                camera_id: CameraId::CAMERA_1,
+                submitted_at: now,
+                kind: CommandKind::Inquiry,
+            });
+        }
+
+        // First inquiry should be sendable
+        let inq1 = core.next_item_to_send(now);
+        assert!(inq1.is_some(), "First inquiry should be sendable");
+        assert_eq!(inq1.unwrap().id, 1);
+        core.start_inquiry(
+            1,
+            inquiry.clone(),
+            Priority::Normal,
+            CommandCategory::Quick,
+            CameraId::CAMERA_1,
+            CommandKind::Inquiry,
+            now,
+        );
+
+        // Second inquiry should NOT be sendable immediately (spacing not satisfied)
+        assert!(
+            !core.can_send_inquiry(now),
+            "Second inquiry should be blocked by spacing"
+        );
+        let inq2 = core.next_item_to_send(now);
+        assert!(
+            inq2.is_none(),
+            "No inquiry should be returned when spacing not satisfied"
+        );
+
+        // After 50ms (less than spacing), still should not be sendable
+        let too_soon = now + Duration::from_millis(50);
+        assert!(
+            !core.can_send_inquiry(too_soon),
+            "Inquiry should still be blocked before spacing expires"
+        );
+
+        // After 100ms+ (spacing satisfied), should be sendable
+        let after_spacing = now + Duration::from_millis(100);
+        assert!(
+            core.can_send_inquiry(after_spacing),
+            "Inquiry should be sendable after spacing expires"
+        );
+        let inq2_delayed = core.next_item_to_send(after_spacing);
+        assert!(
+            inq2_delayed.is_some(),
+            "Second inquiry should be returned after spacing"
+        );
+        assert_eq!(inq2_delayed.unwrap().id, 2);
+    }
+
+    #[test]
+    fn test_inquiry_spacing_allows_commands_while_blocking() {
+        // Test that commands can still be sent even when inquiry spacing blocks inquiries
+        let mut core = SchedulerCore::new(TimeoutConfig::default());
+        core.set_min_inquiry_spacing(Duration::from_millis(150));
+        let now = Instant::now();
+
+        let inquiry = Arc::new(EncodedCommand {
+            payload: SmallVec::from_slice(&[0x01, 0x09, 0x04, 0x47, VISCA_TERMINATOR]),
+            kind: CommandKind::Inquiry,
+            category: CommandCategory::Quick,
+            response_type: Some(InquiryKind::ZoomPosition),
+        });
+
+        let command = Arc::new(EncodedCommand {
+            payload: SmallVec::from_slice(&[0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]),
+            kind: CommandKind::Command,
+            category: CommandCategory::Movement,
+            response_type: None,
+        });
+
+        // Send first inquiry
+        core.queue_command(PendingCommand {
+            id: 1,
+            command: inquiry.clone(),
+            priority: Priority::Normal,
+            category: CommandCategory::Quick,
+            camera_id: CameraId::CAMERA_1,
+            submitted_at: now,
+            kind: CommandKind::Inquiry,
+        });
+
+        let _inq1 = core.next_item_to_send(now).unwrap();
+        core.start_inquiry(
+            1,
+            inquiry.clone(),
+            Priority::Normal,
+            CommandCategory::Quick,
+            CameraId::CAMERA_1,
+            CommandKind::Inquiry,
+            now,
+        );
+
+        // Queue another inquiry and a command
+        core.queue_command(PendingCommand {
+            id: 2,
+            command: inquiry.clone(),
+            priority: Priority::Normal,
+            category: CommandCategory::Quick,
+            camera_id: CameraId::CAMERA_1,
+            submitted_at: now,
+            kind: CommandKind::Inquiry,
+        });
+
+        core.queue_command(PendingCommand {
+            id: 3,
+            command: command.clone(),
+            priority: Priority::Normal,
+            category: CommandCategory::Movement,
+            camera_id: CameraId::CAMERA_1,
+            submitted_at: now,
+            kind: CommandKind::Command,
+        });
+
+        // Inquiry should be blocked, but command should be sendable
+        let next = core.next_item_to_send(now);
+        assert!(next.is_some(), "Command should be sendable");
+        let cmd = next.unwrap();
+        assert_eq!(cmd.id, 3, "Command should be returned, not blocked inquiry");
+        assert_eq!(cmd.kind, CommandKind::Command);
+    }
+
+    #[test]
+    fn test_inquiry_spacing_zero_means_no_delay() {
+        // Test that spacing of zero (default) doesn't block inquiries
+        let mut core = SchedulerCore::new(TimeoutConfig::default());
+        // Default spacing is Duration::ZERO - no artificial delay
+        let now = Instant::now();
+
+        let inquiry = Arc::new(EncodedCommand {
+            payload: SmallVec::from_slice(&[0x01, 0x09, 0x04, 0x47, VISCA_TERMINATOR]),
+            kind: CommandKind::Inquiry,
+            category: CommandCategory::Quick,
+            response_type: Some(InquiryKind::ZoomPosition),
+        });
+
+        // Queue 3 inquiries
+        for id in 1..=3 {
+            core.queue_command(PendingCommand {
+                id,
+                command: inquiry.clone(),
+                priority: Priority::Normal,
+                category: CommandCategory::Quick,
+                camera_id: CameraId::CAMERA_1,
+                submitted_at: now,
+                kind: CommandKind::Inquiry,
+            });
+        }
+
+        // With default max_inquiries_inflight (8), all should be sendable immediately
+        for expected_id in 1..=3 {
+            let inq = core.next_item_to_send(now);
+            assert!(
+                inq.is_some(),
+                "Inquiry {expected_id} should be sendable with zero spacing"
+            );
+            let inq = inq.unwrap();
+            assert_eq!(inq.id, expected_id);
+            core.start_inquiry(
+                expected_id,
+                inquiry.clone(),
+                Priority::Normal,
+                CommandCategory::Quick,
+                CameraId::CAMERA_1,
+                CommandKind::Inquiry,
+                now,
+            );
+        }
     }
 }

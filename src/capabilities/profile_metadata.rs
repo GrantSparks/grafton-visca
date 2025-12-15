@@ -44,6 +44,19 @@ pub trait ProfileMetadata {
 
     /// Default UDP port for this camera profile.
     const DEFAULT_UDP_PORT: u16;
+
+    /// Minimum time spacing between consecutive inquiry sends.
+    ///
+    /// Some cameras (e.g., PTZOptics) cannot process inquiries faster than
+    /// ~125-150ms apart. Setting this enforces a minimum delay between sends.
+    ///
+    /// Camera-specific values:
+    /// - PTZOptics: 150ms (safe end of observed 125-150ms range)
+    /// - Sony: 35ms (per VISCA spec: ~33ms = 2 video frames at 60fps)
+    /// - Generic: 0ms (assume no limitation)
+    ///
+    /// Default: Duration::ZERO (no artificial spacing)
+    const MIN_INQUIRY_SPACING: Duration = Duration::from_millis(0);
 }
 
 // Marker traits for compile-time capability detection.

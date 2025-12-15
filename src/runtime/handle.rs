@@ -169,6 +169,7 @@ impl<P: Profile + 'static, E: Executor + Send + Sync + 'static> RuntimeHandle<P,
             retry_config,
             write_timeout: tcfg.write_timeout,
             max_concurrent_inquiries,
+            min_inquiry_spacing: P::MIN_INQUIRY_SPACING,
         };
 
         let task_executor = Arc::clone(&executor);
