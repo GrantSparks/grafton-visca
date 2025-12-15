@@ -45,6 +45,9 @@ serde = ["dep:serde", "dep:serde_json", "dep:serde_with"]
 schemars = ["serde", "dep:schemars"]
 ts-rs = ["serde", "dep:ts-rs"]
 
+# Dynamic trait object API with per-operation timeout support
+dyn-api = ["mode-async"]
+
 # Internal features
 test-utils = ["dep:async-executor", "dep:futures-lite"]
 DISABLED = []

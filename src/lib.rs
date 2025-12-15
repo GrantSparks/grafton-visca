@@ -816,6 +816,16 @@ pub mod units;
 /// Unified VISCA socket type
 pub mod visca_socket;
 
+/// Dynamic trait object API with per-operation timeout support.
+///
+/// This module provides object-safe trait definitions (`dyn DynCameraControl`)
+/// for runtime polymorphism. Use this when you need to work with cameras as
+/// trait objects rather than concrete generic types.
+///
+/// Enable with the `dyn-api` feature flag.
+#[cfg(feature = "dyn-api")]
+pub mod dynapi;
+
 /// Camera profiles with compositional capabilities
 pub mod profiles {
     pub use crate::camera::profiles::{
