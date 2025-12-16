@@ -546,22 +546,22 @@ where
 
     fn enable_spotlight(&self) -> M::Fut<'_, Result<(), Error>> {
         let cmd = crate::command::exposure::SpotlightOn::new();
-        self.execute(cmd)
+        self.execute_updating_cache(cmd, |cache| cache.set_spotlight(true))
     }
 
     fn disable_spotlight(&self) -> M::Fut<'_, Result<(), Error>> {
         let cmd = crate::command::exposure::SpotlightOff::new();
-        self.execute(cmd)
+        self.execute_updating_cache(cmd, |cache| cache.set_spotlight(false))
     }
 
     fn enable_auto_slow_shutter(&self) -> M::Fut<'_, Result<(), Error>> {
         let cmd = crate::command::exposure::AutoSlowShutterOn::new();
-        self.execute(cmd)
+        self.execute_updating_cache(cmd, |cache| cache.set_auto_slow_shutter(true))
     }
 
     fn disable_auto_slow_shutter(&self) -> M::Fut<'_, Result<(), Error>> {
         let cmd = crate::command::exposure::AutoSlowShutterOff::new();
-        self.execute(cmd)
+        self.execute_updating_cache(cmd, |cache| cache.set_auto_slow_shutter(false))
     }
 
     fn set_brightness_direct(

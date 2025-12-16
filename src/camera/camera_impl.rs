@@ -62,6 +62,9 @@ where
     // For async mode: stores runtime handle (transport and envelope managed by runtime)
     runtime: crate::runtime::RuntimeHandle<P, Exec>,
 
+    // State cache for write-only properties (auto slow shutter, spotlight, pan/tilt limits)
+    state_cache: crate::cache::StateCache,
+
     _phantom_mode: PhantomData<M>,
     _phantom_profile: PhantomData<P>,
     _phantom_transport: PhantomData<Tr>,
@@ -83,6 +86,9 @@ where
     // For blocking mode: stores transport directly with BlockingRunner for state management
     transport: M::Shared<Tr>,
     blocking_runner: std::cell::RefCell<BlockingRunner<P>>,
+
+    // State cache for write-only properties (auto slow shutter, spotlight, pan/tilt limits)
+    state_cache: crate::cache::StateCache,
 
     _phantom_mode: PhantomData<M>,
     _phantom_profile: PhantomData<P>,
@@ -165,6 +171,7 @@ where
             camera_id,
             timeout_config,
             runtime: runtime_handle,
+            state_cache: crate::cache::StateCache::new(),
             _phantom_mode: PhantomData,
             _phantom_profile: PhantomData,
             _phantom_transport: PhantomData,
@@ -251,6 +258,7 @@ where
             timeout_config,
             transport: shared_transport,
             blocking_runner: std::cell::RefCell::new(blocking_runner),
+            state_cache: crate::cache::StateCache::new(),
             _phantom_mode: PhantomData,
             _phantom_profile: PhantomData,
             _phantom_transport: PhantomData,
@@ -360,6 +368,32 @@ where
     /// Access tally light controls and inquiries.
     pub fn tally(&self) -> crate::camera::accessors::TallyAccessor<'_, M, P, Tr, Exec> {
         crate::camera::accessors::TallyAccessor::new(self)
+    }
+
+    /// Access the state cache for write-only properties.
+    ///
+    /// The state cache tracks values for properties that have setter commands
+    /// but no corresponding VISCA inquiry. Values are automatically updated
+    /// when setter commands succeed.
+    ///
+    /// # Tracked Properties
+    ///
+    /// - Auto slow shutter (on/off)
+    /// - Spotlight mode (on/off)
+    /// - Pan/tilt movement limits
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// camera.enable_auto_slow_shutter().await?;
+    /// assert_eq!(camera.state_cache().auto_slow_shutter(), Some(true));
+    ///
+    /// camera.pan_tilt_limit_set(PanTiltLimitCorner::UpRight, pan, tilt).await?;
+    /// let limits = camera.state_cache().pan_tilt_limits();
+    /// assert!(limits.up_right.is_some());
+    /// ```
+    pub fn state_cache(&self) -> &crate::cache::StateCache {
+        &self.state_cache
     }
 }
 
@@ -474,6 +508,32 @@ where
     /// Access image-related controls and inquiries.
     pub fn image(&self) -> crate::camera::accessors::ImageAccessor<'_, M, P, Tr, Exec> {
         crate::camera::accessors::ImageAccessor::new(self)
+    }
+
+    /// Access the state cache for write-only properties.
+    ///
+    /// The state cache tracks values for properties that have setter commands
+    /// but no corresponding VISCA inquiry. Values are automatically updated
+    /// when setter commands succeed.
+    ///
+    /// # Tracked Properties
+    ///
+    /// - Auto slow shutter (on/off)
+    /// - Spotlight mode (on/off)
+    /// - Pan/tilt movement limits
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// camera.enable_auto_slow_shutter()?;
+    /// assert_eq!(camera.state_cache().auto_slow_shutter(), Some(true));
+    ///
+    /// camera.pan_tilt_limit_set(PanTiltLimitCorner::UpRight, pan, tilt)?;
+    /// let limits = camera.state_cache().pan_tilt_limits();
+    /// assert!(limits.up_right.is_some());
+    /// ```
+    pub fn state_cache(&self) -> &crate::cache::StateCache {
+        &self.state_cache
     }
 }
 

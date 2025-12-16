@@ -817,4 +817,20 @@ where
     {
         self.camera.error(error)
     }
+
+    fn cache(&self) -> &crate::cache::StateCache {
+        self.camera.cache()
+    }
+
+    fn execute_updating_cache<C, F>(
+        &self,
+        command: C,
+        update_fn: F,
+    ) -> M::Fut<'_, Result<(), Error>>
+    where
+        C: ViscaCommand + Send + Sync + Clone + std::fmt::Debug + 'static,
+        F: FnOnce(&crate::cache::StateCache) + Send + 'static,
+    {
+        self.camera.execute_updating_cache(command, update_fn)
+    }
 }

@@ -92,6 +92,23 @@ where
     fn error<T>(&self, error: crate::Error) -> M::Fut<'_, Result<T, crate::Error>>
     where
         T: Send + 'static;
+
+    /// Get access to the state cache for write-only properties.
+    fn cache(&self) -> &crate::cache::StateCache;
+
+    /// Execute a command and update the cache on success.
+    ///
+    /// This method executes the command and, if successful, calls the provided
+    /// function to update the cache. This is used for write-only properties
+    /// that need to be tracked in the state cache.
+    fn execute_updating_cache<C, F>(
+        &self,
+        command: C,
+        update_fn: F,
+    ) -> M::Fut<'_, Result<(), crate::Error>>
+    where
+        C: crate::command::ViscaCommand + Send + Sync + Clone + std::fmt::Debug + 'static,
+        F: FnOnce(&crate::cache::StateCache) + Send + 'static;
 }
 
 // Async implementation of ViscaClient
@@ -150,6 +167,39 @@ where
     {
         use crate::mode::Mode;
         crate::mode::Async::ready(Err(error))
+    }
+
+    fn cache(&self) -> &crate::cache::StateCache {
+        self.state_cache()
+    }
+
+    fn execute_updating_cache<C, F>(
+        &self,
+        command: C,
+        update_fn: F,
+    ) -> <crate::mode::Async as crate::mode::Mode>::Fut<'_, Result<(), crate::Error>>
+    where
+        C: crate::command::ViscaCommand + Send + Sync + Clone + std::fmt::Debug + 'static,
+        F: FnOnce(&crate::cache::StateCache) + Send + 'static,
+    {
+        use crate::mode::Mode;
+        let future = self.send_command(&command);
+        // Clone the cache for the async block (Arc<Mutex<>> is Clone)
+        let cache = self.state_cache().clone();
+        crate::mode::Async::from_future(async move {
+            use crate::command::response::Response;
+            match future.await? {
+                Response::Completion { .. } => {
+                    update_fn(&cache);
+                    Ok(())
+                }
+                Response::Error(e) => Err(e),
+                _ => {
+                    update_fn(&cache);
+                    Ok(())
+                }
+            }
+        })
     }
 }
 
@@ -213,5 +263,37 @@ where
     {
         use crate::mode::Mode;
         crate::mode::Blocking::ready(Err(error))
+    }
+
+    fn cache(&self) -> &crate::cache::StateCache {
+        self.state_cache()
+    }
+
+    fn execute_updating_cache<C, F>(
+        &self,
+        command: C,
+        update_fn: F,
+    ) -> <crate::mode::Blocking as crate::mode::Mode>::Fut<'_, Result<(), crate::Error>>
+    where
+        C: crate::command::ViscaCommand + Send + Sync + Clone + std::fmt::Debug + 'static,
+        F: FnOnce(&crate::cache::StateCache) + Send + 'static,
+    {
+        use crate::mode::BlockingFutureExt;
+        let future = self.send_command(&command);
+        let result = future.block();
+        use crate::command::response::Response;
+        let cache = self.state_cache();
+        std::future::ready(match result {
+            Ok(Response::Completion { .. }) => {
+                update_fn(cache);
+                Ok(())
+            }
+            Ok(Response::Error(e)) => Err(e),
+            Ok(_) => {
+                update_fn(cache);
+                Ok(())
+            }
+            Err(e) => Err(e),
+        })
     }
 }

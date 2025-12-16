@@ -670,6 +670,7 @@
 pub use grafton_visca_macros::{ViscaEnum, ViscaInquiry, ViscaValue};
 
 pub use crate::{
+    cache::{PanTiltLimits, StateCache},
     camera::{Camera, CameraBuilder},
     camera_id::CameraId,
     command::{
@@ -751,6 +752,13 @@ pub(crate) mod executor {
     /// Unit type implements Executor for blocking mode
     impl Executor for () {}
 }
+
+/// State cache for write-only VISCA properties.
+///
+/// This module provides optional state tracking for write-only properties
+/// that have no corresponding VISCA inquiry command. Values are cached
+/// automatically when setter commands succeed.
+pub mod cache;
 
 /// Camera profile system for type-safe, model-specific control
 pub mod camera;

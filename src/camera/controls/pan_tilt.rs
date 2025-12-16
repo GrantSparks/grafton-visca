@@ -296,13 +296,19 @@ where
             pan_u16,
             tilt_u16,
         };
-        self.execute(cmd)
+        // Update the state cache after successful command
+        self.execute_updating_cache(cmd, move |cache| {
+            cache.set_pan_tilt_limit(corner, pan, tilt);
+        })
     }
 
     fn pan_tilt_limit_clear(&self, corner: PanTiltLimitCorner) -> M::Fut<'_, Result<(), Error>> {
         use crate::command::pan_tilt::PanTilt;
         let cmd = PanTilt::LimitClear { corner };
-        self.execute(cmd)
+        // Update the state cache after successful command
+        self.execute_updating_cache(cmd, move |cache| {
+            cache.clear_pan_tilt_limit(corner);
+        })
     }
 }
 

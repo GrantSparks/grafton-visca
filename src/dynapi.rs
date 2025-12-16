@@ -441,6 +441,34 @@ pub trait DynCameraControl: Send + Sync {
     /// }
     /// ```
     fn as_motion(&self) -> Option<&dyn DynMotionControl>;
+
+    /// Returns the state cache for write-only properties.
+    ///
+    /// The state cache tracks values for properties that have setter commands
+    /// but no corresponding VISCA inquiry command. Values are automatically
+    /// updated when setter commands succeed.
+    ///
+    /// # Tracked Properties
+    ///
+    /// - Auto slow shutter (on/off)
+    /// - Spotlight mode (on/off)
+    /// - Pan/tilt movement limits
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Check if auto slow shutter was enabled
+    /// if let Some(enabled) = camera.state_cache().auto_slow_shutter() {
+    ///     println!("Auto slow shutter: {}", if enabled { "on" } else { "off" });
+    /// }
+    ///
+    /// // Check pan/tilt limits
+    /// let limits = camera.state_cache().pan_tilt_limits();
+    /// if limits.is_set() {
+    ///     println!("Pan/tilt limits configured");
+    /// }
+    /// ```
+    fn state_cache(&self) -> &crate::cache::StateCache;
 }
 
 /// Object-safe motion control trait.
@@ -907,6 +935,10 @@ where
 
     fn as_motion(&self) -> Option<&dyn DynMotionControl> {
         Some(self)
+    }
+
+    fn state_cache(&self) -> &crate::cache::StateCache {
+        self.inner.camera.state_cache()
     }
 }
 
