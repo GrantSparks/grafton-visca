@@ -142,6 +142,10 @@ impl HueCommand {
 /// Controls the color temperature setting when white balance is in color temperature mode.
 /// Color temperature is measured in Kelvin (K) and affects the warmth/coolness of the image.
 #[derive(Debug, Copy, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 pub enum ColorTemperature {
     /// Reset color temperature to default value.
     Reset,
@@ -212,6 +216,10 @@ impl ViscaCommand for ColorTemperature {
 /// Controls the red channel gain in manual white balance mode.
 /// This provides direct control over the red color channel intensity.
 #[derive(Debug, Copy, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 pub enum RedGain {
     /// Reset red gain to default value.
     Reset,
@@ -279,6 +287,10 @@ impl ViscaCommand for RedGain {
 /// Controls the blue channel gain in manual white balance mode.
 /// This provides direct control over the blue color channel intensity.
 #[derive(Debug, Copy, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 pub enum BlueGain {
     /// Reset blue gain to default value.
     Reset,

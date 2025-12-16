@@ -106,6 +106,10 @@ impl ViscaCommand for InterfaceClearCommand {
 
 /// Motion sync modes for coordinated camera movement.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaEnum)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 pub enum MotionSyncMode {
     /// Motion sync enabled.
     On = 0x02,
@@ -115,6 +119,10 @@ pub enum MotionSyncMode {
 
 /// Motion sync preset speed settings for camera movement.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaEnum)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 pub enum MotionSyncPreset {
     /// Slow motion sync speed.
     Slow = 0x00,
