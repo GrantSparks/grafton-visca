@@ -6,7 +6,7 @@ use super::super::payload::{Nibbles, Payload};
 use crate::{
     command::{
         response::types::{InquiryKind, Response},
-        AutoFocusSensitivity, FocusMode, FocusRange, FocusZone, InquiryData,
+        AutoFocusSensitivity, FocusMode, FocusZone, InquiryData,
     },
     error::Error,
 };
@@ -88,50 +88,13 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
             Some(Ok(Response::Inquiry(InquiryData::FocusMode { mode })))
         }
         InquiryKind::FocusRange => {
-            if payload.len() != 1 {
-                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
-            }
-            match parse_focus_range(payload.as_slice()) {
-                Ok(response) => Some(Ok(Response::Inquiry(response))),
-                Err(e) => Some(Err(e)),
-            }
+            Some(super::super::parse_focus_range(payload.as_slice()).map(Response::Inquiry))
         }
         InquiryKind::AutoFocus => {
-            if payload.len() != 1 {
-                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
-            }
-            let enabled = match payload.as_slice()[0] {
-                0x02 => false,
-                0x03 => true,
-                _ => {
-                    return Some(Err(Error::InvalidParameter {
-                        parameter: "autofocus_status",
-                        value: Cow::Owned(format!("{:02X}", payload.as_slice()[0])),
-                        reason: Cow::Borrowed(
-                            "Invalid autofocus status value. Expected 0x02 (off) or 0x03 (on)",
-                        ),
-                    }))
-                }
-            };
-            Some(Ok(Response::Inquiry(InquiryData::AutoFocus { enabled })))
+            Some(super::super::parse_auto_focus(payload.as_slice()).map(Response::Inquiry))
         }
         InquiryKind::FocusUnlock => {
-            if payload.len() != 1 {
-                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
-            }
-            let unlocked =
-                match payload.as_slice()[0] {
-                    0x02 => false,
-                    0x03 => true,
-                    _ => return Some(Err(Error::InvalidParameter {
-                        parameter: "focus_unlock",
-                        value: Cow::Owned(format!("{:02X}", payload.as_slice()[0])),
-                        reason: Cow::Borrowed(
-                            "Invalid focus unlock value. Expected 0x02 (locked) or 0x03 (unlocked)",
-                        ),
-                    })),
-                };
-            Some(Ok(Response::Inquiry(InquiryData::FocusUnlock { unlocked })))
+            Some(super::super::parse_focus_unlock(payload.as_slice()).map(Response::Inquiry))
         }
         InquiryKind::FocusNearFar => {
             if payload.len() != 1 {
@@ -152,12 +115,4 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
         }
         _ => None,
     }
-}
-
-fn parse_focus_range(data: &[u8]) -> Result<InquiryData, Error> {
-    if data.is_empty() {
-        return Err(Error::invalid_response_length(1, data));
-    }
-    let range = FocusRange::try_from(data[0])?;
-    Ok(InquiryData::FocusRange { range })
 }

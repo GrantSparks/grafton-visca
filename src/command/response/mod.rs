@@ -84,15 +84,16 @@ pub fn parse_menu_open_close(data: &[u8]) -> Result<InquiryData, Error> {
     if data.is_empty() {
         return Err(Error::invalid_response_length(1, data));
     }
+    // Standard VISCA convention: 0x02 = On/Open, 0x03 = Off/Closed
     let is_open = match data[0] {
-        0x02 => false,
-        0x03 => true,
+        0x02 => true,
+        0x03 => false,
         _ => {
             return Err(Error::InvalidParameter {
                 parameter: "menu_status",
                 value: Cow::Owned(format!("{:02X}", data[0])),
                 reason: Cow::Borrowed(
-                    "Invalid menu status value. Expected 0x02 (closed) or 0x03 (open)",
+                    "Invalid menu status value. Expected 0x02 (open) or 0x03 (closed)",
                 ),
             })
         }
@@ -331,15 +332,16 @@ pub fn parse_auto_wb_sensitivity(data: &[u8]) -> Result<InquiryData, Error> {
     if data.is_empty() {
         return Err(Error::invalid_response_length(1, data));
     }
+    // VISCA byte representation: High=0x00, Normal=0x01, Low=0x02
     let sensitivity = match data[0] {
-        0x00 => AutoWhiteBalanceSensitivity::Low,
+        0x00 => AutoWhiteBalanceSensitivity::High,
         0x01 => AutoWhiteBalanceSensitivity::Normal,
-        0x02 => AutoWhiteBalanceSensitivity::High,
+        0x02 => AutoWhiteBalanceSensitivity::Low,
         _ => {
             return Err(Error::InvalidParameter {
                 parameter: "auto_wb_sensitivity",
                 value: Cow::Owned(format!("{:02X}", data[0])),
-                reason: Cow::Borrowed("Invalid auto white balance sensitivity. Expected 0x00 (Low), 0x01 (Normal), or 0x02 (High)"),
+                reason: Cow::Borrowed("Invalid auto white balance sensitivity. Expected 0x00 (High), 0x01 (Normal), or 0x02 (Low)"),
             })
         }
     };
@@ -723,6 +725,31 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_sharpness_position_response() {
+        // Test SharpnessPosition response with payload 00 00 00 03 (position = 0x0003)
+        let sharpness_pos_bytes = &[0x90, 0x50, 0x00, 0x00, 0x00, 0x03, VISCA_TERMINATOR];
+        let response =
+            Response::parse_with_type(sharpness_pos_bytes, &InquiryKind::SharpnessPosition);
+        match response {
+            Ok(Response::Inquiry(InquiryData::SharpnessPosition { position })) => {
+                assert_eq!(position, 0x0003);
+            }
+            _ => panic!("Expected SharpnessPosition inquiry response"),
+        }
+
+        // Test SharpnessPosition response with larger value (e.g., 0x1234)
+        let sharpness_pos_bytes = &[0x90, 0x50, 0x01, 0x02, 0x03, 0x04, VISCA_TERMINATOR];
+        let response =
+            Response::parse_with_type(sharpness_pos_bytes, &InquiryKind::SharpnessPosition);
+        match response {
+            Ok(Response::Inquiry(InquiryData::SharpnessPosition { position })) => {
+                assert_eq!(position, 0x1234);
+            }
+            _ => panic!("Expected SharpnessPosition inquiry response"),
+        }
+    }
+
+    #[test]
     fn test_parse_exposure_compensation_responses() {
         // Test Exposure Compensation value -7
         let exp_comp_bytes = &[0x90, 0x50, 0x00, 0x00, 0x00, 0x00, VISCA_TERMINATOR];
@@ -922,5 +949,224 @@ mod tests {
         let response =
             Response::parse_with_type(invalid_exp_comp, &InquiryKind::ExposureCompensation);
         assert!(matches!(response, Err(Error::InvalidResponseLength { .. })));
+    }
+
+    #[test]
+    fn test_parse_defog_mode_response() {
+        // Test DefogMode off (0x02)
+        let response_bytes = &[0x90, 0x50, 0x02, VISCA_TERMINATOR];
+        let response = Response::parse_with_type(response_bytes, &InquiryKind::DefogMode);
+        match response {
+            Ok(Response::Inquiry(InquiryData::DefogMode { enabled })) => {
+                assert!(!enabled);
+            }
+            _ => panic!("Expected DefogMode inquiry response"),
+        }
+
+        // Test DefogMode on (0x03)
+        let response_bytes = &[0x90, 0x50, 0x03, VISCA_TERMINATOR];
+        let response = Response::parse_with_type(response_bytes, &InquiryKind::DefogMode);
+        match response {
+            Ok(Response::Inquiry(InquiryData::DefogMode { enabled })) => {
+                assert!(enabled);
+            }
+            _ => panic!("Expected DefogMode inquiry response"),
+        }
+    }
+
+    #[test]
+    fn test_parse_defog_level_response() {
+        // Test DefogLevel 0
+        let response_bytes = &[0x90, 0x50, 0x00, VISCA_TERMINATOR];
+        let response = Response::parse_with_type(response_bytes, &InquiryKind::DefogLevel);
+        assert!(matches!(
+            response,
+            Ok(Response::Inquiry(InquiryData::DefogLevel { .. }))
+        ));
+
+        // Test DefogLevel 5 (max)
+        let response_bytes = &[0x90, 0x50, 0x05, VISCA_TERMINATOR];
+        let response = Response::parse_with_type(response_bytes, &InquiryKind::DefogLevel);
+        assert!(matches!(
+            response,
+            Ok(Response::Inquiry(InquiryData::DefogLevel { .. }))
+        ));
+
+        // Test DefogLevel out of range (6) - should fail
+        let response_bytes = &[0x90, 0x50, 0x06, VISCA_TERMINATOR];
+        let response = Response::parse_with_type(response_bytes, &InquiryKind::DefogLevel);
+        assert!(matches!(response, Err(Error::InvalidParameter { .. })));
+    }
+
+    #[test]
+    fn test_parse_digital_ptz_response() {
+        // Test DigitalPtz off (0x02)
+        let response_bytes = &[0x90, 0x50, 0x02, VISCA_TERMINATOR];
+        let response = Response::parse_with_type(response_bytes, &InquiryKind::DigitalPtz);
+        match response {
+            Ok(Response::Inquiry(InquiryData::DigitalPtz { enabled })) => {
+                assert!(!enabled);
+            }
+            _ => panic!("Expected DigitalPtz inquiry response"),
+        }
+
+        // Test DigitalPtz on (0x03)
+        let response_bytes = &[0x90, 0x50, 0x03, VISCA_TERMINATOR];
+        let response = Response::parse_with_type(response_bytes, &InquiryKind::DigitalPtz);
+        match response {
+            Ok(Response::Inquiry(InquiryData::DigitalPtz { enabled })) => {
+                assert!(enabled);
+            }
+            _ => panic!("Expected DigitalPtz inquiry response"),
+        }
+    }
+
+    #[test]
+    fn test_parse_broadcast_domain_response() {
+        // Test BroadcastDomain 0
+        let response_bytes = &[0x90, 0x50, 0x00, VISCA_TERMINATOR];
+        let response = Response::parse_with_type(response_bytes, &InquiryKind::BroadcastDomain);
+        assert!(matches!(
+            response,
+            Ok(Response::Inquiry(InquiryData::BroadcastDomain(_)))
+        ));
+
+        // Test BroadcastDomain 3 (max)
+        let response_bytes = &[0x90, 0x50, 0x03, VISCA_TERMINATOR];
+        let response = Response::parse_with_type(response_bytes, &InquiryKind::BroadcastDomain);
+        assert!(matches!(
+            response,
+            Ok(Response::Inquiry(InquiryData::BroadcastDomain(_)))
+        ));
+
+        // Test BroadcastDomain out of range (4) - should fail
+        let response_bytes = &[0x90, 0x50, 0x04, VISCA_TERMINATOR];
+        let response = Response::parse_with_type(response_bytes, &InquiryKind::BroadcastDomain);
+        assert!(matches!(response, Err(Error::InvalidParameter { .. })));
+    }
+
+    #[test]
+    fn test_parse_motion_sync_mode_response() {
+        // Test MotionSyncMode On (0x02)
+        let response_bytes = &[0x90, 0x50, 0x02, VISCA_TERMINATOR];
+        let response = Response::parse_with_type(response_bytes, &InquiryKind::MotionSyncMode);
+        match response {
+            Ok(Response::Inquiry(InquiryData::MotionSyncMode { mode })) => {
+                assert_eq!(mode, crate::command::system::MotionSyncMode::On);
+            }
+            _ => panic!("Expected MotionSyncMode inquiry response"),
+        }
+
+        // Test MotionSyncMode Off (0x03)
+        let response_bytes = &[0x90, 0x50, 0x03, VISCA_TERMINATOR];
+        let response = Response::parse_with_type(response_bytes, &InquiryKind::MotionSyncMode);
+        match response {
+            Ok(Response::Inquiry(InquiryData::MotionSyncMode { mode })) => {
+                assert_eq!(mode, crate::command::system::MotionSyncMode::Off);
+            }
+            _ => panic!("Expected MotionSyncMode inquiry response"),
+        }
+    }
+
+    #[test]
+    fn test_parse_motion_sync_preset_response() {
+        // Test MotionSyncPreset Slow (0x00)
+        let response_bytes = &[0x90, 0x50, 0x00, VISCA_TERMINATOR];
+        let response = Response::parse_with_type(response_bytes, &InquiryKind::MotionSyncPreset);
+        match response {
+            Ok(Response::Inquiry(InquiryData::MotionSyncPreset { speed })) => {
+                assert_eq!(speed, crate::command::system::MotionSyncPreset::Slow);
+            }
+            _ => panic!("Expected MotionSyncPreset inquiry response"),
+        }
+
+        // Test MotionSyncPreset Normal (0x01)
+        let response_bytes = &[0x90, 0x50, 0x01, VISCA_TERMINATOR];
+        let response = Response::parse_with_type(response_bytes, &InquiryKind::MotionSyncPreset);
+        match response {
+            Ok(Response::Inquiry(InquiryData::MotionSyncPreset { speed })) => {
+                assert_eq!(speed, crate::command::system::MotionSyncPreset::Normal);
+            }
+            _ => panic!("Expected MotionSyncPreset inquiry response"),
+        }
+
+        // Test MotionSyncPreset Fast (0x02)
+        let response_bytes = &[0x90, 0x50, 0x02, VISCA_TERMINATOR];
+        let response = Response::parse_with_type(response_bytes, &InquiryKind::MotionSyncPreset);
+        match response {
+            Ok(Response::Inquiry(InquiryData::MotionSyncPreset { speed })) => {
+                assert_eq!(speed, crate::command::system::MotionSyncPreset::Fast);
+            }
+            _ => panic!("Expected MotionSyncPreset inquiry response"),
+        }
+    }
+
+    #[test]
+    fn test_parse_noise_reduction_level_response() {
+        // Test NoiseReductionLevel 0
+        let response_bytes = &[0x90, 0x50, 0x00, VISCA_TERMINATOR];
+        let response = Response::parse_with_type(response_bytes, &InquiryKind::NoiseReductionLevel);
+        match response {
+            Ok(Response::Inquiry(InquiryData::NoiseReductionLevel(level))) => {
+                assert_eq!(level, 0x00);
+            }
+            _ => panic!("Expected NoiseReductionLevel inquiry response"),
+        }
+
+        // Test NoiseReductionLevel 5
+        let response_bytes = &[0x90, 0x50, 0x05, VISCA_TERMINATOR];
+        let response = Response::parse_with_type(response_bytes, &InquiryKind::NoiseReductionLevel);
+        match response {
+            Ok(Response::Inquiry(InquiryData::NoiseReductionLevel(level))) => {
+                assert_eq!(level, 0x05);
+            }
+            _ => panic!("Expected NoiseReductionLevel inquiry response"),
+        }
+    }
+
+    #[test]
+    fn test_parse_night_day_position_response() {
+        // Test NightDayPosition 0
+        let response_bytes = &[0x90, 0x50, 0x00, VISCA_TERMINATOR];
+        let response = Response::parse_with_type(response_bytes, &InquiryKind::NightDayPosition);
+        match response {
+            Ok(Response::Inquiry(InquiryData::NightDayPosition { position })) => {
+                assert_eq!(position, 0x00);
+            }
+            _ => panic!("Expected NightDayPosition inquiry response"),
+        }
+
+        // Test NightDayPosition 0x0F
+        let response_bytes = &[0x90, 0x50, 0x0F, VISCA_TERMINATOR];
+        let response = Response::parse_with_type(response_bytes, &InquiryKind::NightDayPosition);
+        match response {
+            Ok(Response::Inquiry(InquiryData::NightDayPosition { position })) => {
+                assert_eq!(position, 0x0F);
+            }
+            _ => panic!("Expected NightDayPosition inquiry response"),
+        }
+    }
+
+    #[test]
+    fn test_parse_night_day_switch_response() {
+        // Test NightDaySwitch off (0x02)
+        let response_bytes = &[0x90, 0x50, 0x02, VISCA_TERMINATOR];
+        let response = Response::parse_with_type(response_bytes, &InquiryKind::NightDaySwitch);
+        match response {
+            Ok(Response::Inquiry(InquiryData::NightDaySwitch { enabled })) => {
+                assert!(!enabled);
+            }
+            _ => panic!("Expected NightDaySwitch inquiry response"),
+        }
+
+        // Test NightDaySwitch on (0x03)
+        let response_bytes = &[0x90, 0x50, 0x03, VISCA_TERMINATOR];
+        let response = Response::parse_with_type(response_bytes, &InquiryKind::NightDaySwitch);
+        match response {
+            Ok(Response::Inquiry(InquiryData::NightDaySwitch { enabled })) => {
+                assert!(enabled);
+            }
+            _ => panic!("Expected NightDaySwitch inquiry response"),
+        }
     }
 }

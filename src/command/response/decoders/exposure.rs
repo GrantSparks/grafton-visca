@@ -70,12 +70,7 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
             Err(e) => Some(Err(e)),
         },
         InquiryKind::Iris => {
-            if payload.len() != 4 {
-                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
-            }
-            // Extract the iris position from the last nibble
-            let position = payload.as_slice()[3];
-            Some(Ok(Response::Inquiry(InquiryData::Iris { position })))
+            Some(super::super::parse_iris_last_nibble(payload.as_slice()).map(Response::Inquiry))
         }
         InquiryKind::Brightness => match Nibbles::<4>::try_from(payload) {
             Ok(nibbles) => {
@@ -85,12 +80,7 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
             Err(e) => Some(Err(e)),
         },
         InquiryKind::Gain => {
-            if payload.len() != 4 {
-                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
-            }
-            // Extract the gain value from the last nibble
-            let gain = payload.as_slice()[3];
-            Some(Ok(Response::Inquiry(InquiryData::GainLevel { gain })))
+            Some(super::super::parse_gain_last_nibble(payload.as_slice()).map(Response::Inquiry))
         }
         InquiryKind::GainLimit => {
             if payload.len() != 1 {
@@ -101,23 +91,7 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
             })))
         }
         InquiryKind::IrisControl => {
-            if payload.len() != 1 {
-                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
-            }
-            let auto = match payload.as_slice()[0] {
-                0x02 => false,
-                0x03 => true,
-                _ => {
-                    return Some(Err(Error::InvalidParameter {
-                        parameter: "iris_control",
-                        value: Cow::Owned(format!("{:02X}", payload.as_slice()[0])),
-                        reason: Cow::Borrowed(
-                            "Invalid iris control value. Expected 0x02 (manual) or 0x03 (auto)",
-                        ),
-                    }))
-                }
-            };
-            Some(Ok(Response::Inquiry(InquiryData::IrisControl { auto })))
+            Some(super::super::parse_iris_control(payload.as_slice()).map(Response::Inquiry))
         }
         InquiryKind::IrisUp => {
             if payload.len() != 1 {

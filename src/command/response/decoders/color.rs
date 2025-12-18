@@ -6,7 +6,7 @@ use super::super::payload::{Nibbles, Payload};
 use crate::{
     command::{
         response::types::{InquiryKind, Response},
-        AutoWhiteBalanceSensitivity, InquiryData, WhiteBalanceMode,
+        InquiryData, WhiteBalanceMode,
     },
     error::Error,
 };
@@ -64,42 +64,13 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
             })))
         }
         InquiryKind::RedTuning => {
-            if payload.len() != 1 {
-                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
-            }
-            // Convert from wire format (0-20) to semantic value (-10 to +10)
-            #[allow(clippy::cast_possible_wrap)]
-            let level = payload.as_slice()[0] as i8 - 10;
-            Some(Ok(Response::Inquiry(InquiryData::RedTuning { level })))
+            Some(super::super::parse_red_tuning(payload.as_slice()).map(Response::Inquiry))
         }
         InquiryKind::BlueTuning => {
-            if payload.len() != 1 {
-                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
-            }
-            // Convert from wire format (0-20) to semantic value (-10 to +10)
-            #[allow(clippy::cast_possible_wrap)]
-            let level = payload.as_slice()[0] as i8 - 10;
-            Some(Ok(Response::Inquiry(InquiryData::BlueTuning { level })))
+            Some(super::super::parse_blue_tuning(payload.as_slice()).map(Response::Inquiry))
         }
         InquiryKind::AutoWhiteBalanceSensitivity => {
-            if payload.len() != 1 {
-                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
-            }
-            let sensitivity = match payload.as_slice()[0] {
-                0x00 => AutoWhiteBalanceSensitivity::High,
-                0x01 => AutoWhiteBalanceSensitivity::Normal,
-                0x02 => AutoWhiteBalanceSensitivity::Low,
-                _ => {
-                    return Some(Err(Error::InvalidParameter {
-                        parameter: "auto_white_balance_sensitivity",
-                        value: Cow::Owned(format!("{:02X}", payload.as_slice()[0])),
-                        reason: Cow::Borrowed("Unknown auto white balance sensitivity value"),
-                    }))
-                }
-            };
-            Some(Ok(Response::Inquiry(
-                InquiryData::AutoWhiteBalanceSensitivity { sensitivity },
-            )))
+            Some(super::super::parse_auto_wb_sensitivity(payload.as_slice()).map(Response::Inquiry))
         }
         _ => None,
     }

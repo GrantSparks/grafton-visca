@@ -1,11 +1,9 @@
 //! Image-related response decoders.
 
-use std::borrow::Cow;
-
 use super::super::payload::{Nibbles, Payload};
 use crate::{
     command::{
-        image::{BlackWhiteMode, NoiseReductionMode, NoiseReductionSpeed, SharpnessMode},
+        image::{BlackWhiteMode, NoiseReductionMode, NoiseReductionSpeed},
         response::types::{InquiryKind, Response},
         InquiryData,
     },
@@ -22,36 +20,23 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
             }
             Err(e) => Some(Err(e)),
         },
+        InquiryKind::SharpnessPosition => match Nibbles::<4>::try_from(payload) {
+            Ok(nibbles) => {
+                let position = nibbles.u16_quad(0);
+                Some(Ok(Response::Inquiry(InquiryData::SharpnessPosition {
+                    position,
+                })))
+            }
+            Err(e) => Some(Err(e)),
+        },
         InquiryKind::SharpnessMode => {
-            if payload.len() != 1 {
-                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
-            }
-            let mode = match payload.as_slice()[0] {
-                0x02 => SharpnessMode::Auto,
-                0x03 => SharpnessMode::Manual,
-                _ => {
-                    return Some(Err(Error::InvalidParameter {
-                        parameter: "sharpness_mode",
-                        value: Cow::Owned(format!("{:02X}", payload.as_slice()[0])),
-                        reason: Cow::Borrowed("Unknown sharpness mode value"),
-                    }))
-                }
-            };
-            Some(Ok(Response::Inquiry(InquiryData::SharpnessMode { mode })))
+            Some(super::super::parse_sharpness_mode(payload.as_slice()).map(Response::Inquiry))
         }
-        InquiryKind::Saturation => {
-            if payload.len() != 4 {
-                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
-            }
-            let level = payload.as_slice()[3];
-            Some(Ok(Response::Inquiry(InquiryData::Saturation { level })))
-        }
+        InquiryKind::Saturation => Some(
+            super::super::parse_saturation_last_nibble(payload.as_slice()).map(Response::Inquiry),
+        ),
         InquiryKind::Hue => {
-            if payload.len() != 4 {
-                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
-            }
-            let hue = payload.as_slice()[3];
-            Some(Ok(Response::Inquiry(InquiryData::Hue { hue })))
+            Some(super::super::parse_hue_last_nibble(payload.as_slice()).map(Response::Inquiry))
         }
         InquiryKind::Contrast => {
             if payload.len() != 1 {
@@ -62,12 +47,7 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
             ))))
         }
         InquiryKind::PictureEffect => {
-            if payload.len() != 1 {
-                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
-            }
-            let effect =
-                crate::command::resolution::PictureEffectMode::from_byte(payload.as_slice()[0]);
-            Some(Ok(Response::Inquiry(InquiryData::PictureEffect { effect })))
+            Some(super::super::parse_picture_effect(payload.as_slice()).map(Response::Inquiry))
         }
         InquiryKind::BlackWhite => {
             if payload.len() != 1 {
@@ -130,14 +110,7 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
             })))
         }
         InquiryKind::FlipState => {
-            if payload.len() != 1 {
-                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
-            }
-            let value = payload.as_slice()[0];
-            Some(Ok(Response::Inquiry(InquiryData::FlipState {
-                horizontal: (value & 0x01) != 0,
-                vertical: (value & 0x02) != 0,
-            })))
+            Some(super::super::parse_flip_mode(payload.as_slice()).map(Response::Inquiry))
         }
         InquiryKind::DynamicRange => {
             if payload.len() != 1 {
@@ -163,20 +136,10 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
             ))))
         }
         InquiryKind::NdFilter => {
-            if payload.len() != 1 {
-                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
-            }
-            let position =
-                crate::command::resolution::NdFilterPosition::from_byte(payload.as_slice()[0]);
-            Some(Ok(Response::Inquiry(InquiryData::NdFilter { position })))
+            Some(super::super::parse_nd_filter(payload.as_slice()).map(Response::Inquiry))
         }
         InquiryKind::Gamma => {
-            if payload.len() != 1 {
-                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
-            }
-            Some(Ok(Response::Inquiry(InquiryData::Gamma {
-                value: payload.as_slice()[0],
-            })))
+            Some(super::super::parse_gamma(payload.as_slice()).map(Response::Inquiry))
         }
         InquiryKind::TwoToneMode => {
             if payload.len() != 1 {
@@ -185,6 +148,20 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
             Some(Ok(Response::Inquiry(InquiryData::TwoToneMode {
                 on: payload.as_slice()[0] == 0x02,
             })))
+        }
+        InquiryKind::DefogMode => {
+            Some(super::super::parse_defog_mode(payload.as_slice()).map(Response::Inquiry))
+        }
+        InquiryKind::DefogLevel => {
+            Some(super::super::parse_defog_level(payload.as_slice()).map(Response::Inquiry))
+        }
+        InquiryKind::NoiseReductionLevel => {
+            if payload.len() != 1 {
+                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
+            }
+            Some(Ok(Response::Inquiry(InquiryData::NoiseReductionLevel(
+                payload.as_slice()[0],
+            ))))
         }
         _ => None,
     }

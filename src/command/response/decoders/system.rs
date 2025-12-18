@@ -6,6 +6,7 @@ use super::super::payload::Payload;
 use crate::{
     command::{
         response::types::{InquiryKind, Response},
+        system::{MotionSyncMode, MotionSyncPreset},
         InquiryData,
     },
     error::Error,
@@ -41,26 +42,7 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
             ))))
         }
         InquiryKind::MenuOpenClose => {
-            if payload.len() != 1 {
-                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
-            }
-            // Standard VISCA convention: 0x02 = On/Open, 0x03 = Off/Closed
-            let is_open = match payload.as_slice()[0] {
-                0x02 => true,
-                0x03 => false,
-                _ => {
-                    return Some(Err(Error::InvalidParameter {
-                        parameter: "menu_status",
-                        value: Cow::Owned(format!("{:02X}", payload.as_slice()[0])),
-                        reason: Cow::Borrowed(
-                            "Invalid menu status value. Expected 0x02 (open) or 0x03 (closed)",
-                        ),
-                    }))
-                }
-            };
-            Some(Ok(Response::Inquiry(InquiryData::MenuOpenClose {
-                is_open,
-            })))
+            Some(super::super::parse_menu_open_close(payload.as_slice()).map(Response::Inquiry))
         }
         InquiryKind::UsbAudio => {
             if payload.len() != 1 {
@@ -97,25 +79,7 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
             Some(Ok(Response::Inquiry(InquiryData::Rtmp { on })))
         }
         InquiryKind::NightDayMode => {
-            if payload.len() != 1 {
-                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
-            }
-            let is_night = match payload.as_slice()[0] {
-                0x02 => false,
-                0x03 => true,
-                _ => {
-                    return Some(Err(Error::InvalidParameter {
-                        parameter: "night_day_mode",
-                        value: Cow::Owned(format!("{:02X}", payload.as_slice()[0])),
-                        reason: Cow::Borrowed(
-                            "Invalid night/day mode value. Expected 0x02 (day) or 0x03 (night)",
-                        ),
-                    }))
-                }
-            };
-            Some(Ok(Response::Inquiry(InquiryData::NightDayMode {
-                is_night,
-            })))
+            Some(super::super::parse_night_day_mode(payload.as_slice()).map(Response::Inquiry))
         }
         InquiryKind::Digital => {
             if payload.len() != 1 {
@@ -135,23 +99,7 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
             Some(Ok(Response::Inquiry(InquiryData::Digital { on })))
         }
         InquiryKind::AutoTrace => {
-            if payload.len() != 1 {
-                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
-            }
-            let on = match payload.as_slice()[0] {
-                0x02 => false,
-                0x03 => true,
-                _ => {
-                    return Some(Err(Error::InvalidParameter {
-                        parameter: "AutoTrace mode status",
-                        value: Cow::Owned(format!("0x{:02X}", payload.as_slice()[0])),
-                        reason: Cow::Borrowed("Expected 0x02 (off) or 0x03 (on)"),
-                    }))
-                }
-            };
-            Some(Ok(Response::Inquiry(InquiryData::AutoTrace {
-                enabled: on,
-            })))
+            Some(super::super::parse_auto_trace(payload.as_slice()).map(Response::Inquiry))
         }
         InquiryKind::NdFilterPreset => {
             if payload.len() != 1 {
@@ -169,6 +117,76 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
             };
             Some(Ok(Response::Inquiry(InquiryData::NdFilterPreset {
                 preset,
+            })))
+        }
+        InquiryKind::DigitalPtz => {
+            Some(super::super::parse_digital_ptz(payload.as_slice()).map(Response::Inquiry))
+        }
+        InquiryKind::BroadcastDomain => {
+            if payload.len() != 1 {
+                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
+            }
+            let domain = match crate::types::BroadcastDomain::new(payload.as_slice()[0]) {
+                Ok(d) => d,
+                Err(_) => {
+                    return Some(Err(Error::InvalidParameter {
+                        parameter: "broadcast_domain",
+                        value: Cow::Owned(payload.as_slice()[0].to_string()),
+                        reason: Cow::Borrowed("value out of range (0-3)"),
+                    }))
+                }
+            };
+            Some(Ok(Response::Inquiry(InquiryData::BroadcastDomain(domain))))
+        }
+        InquiryKind::MotionSyncMode => {
+            if payload.len() != 1 {
+                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
+            }
+            let mode = match MotionSyncMode::try_from(payload.as_slice()[0]) {
+                Ok(mode) => mode,
+                Err(e) => return Some(Err(e)),
+            };
+            Some(Ok(Response::Inquiry(InquiryData::MotionSyncMode { mode })))
+        }
+        InquiryKind::MotionSyncPreset => {
+            if payload.len() != 1 {
+                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
+            }
+            let speed = match MotionSyncPreset::try_from(payload.as_slice()[0]) {
+                Ok(speed) => speed,
+                Err(e) => return Some(Err(e)),
+            };
+            Some(Ok(Response::Inquiry(InquiryData::MotionSyncPreset {
+                speed,
+            })))
+        }
+        InquiryKind::NightDayPosition => {
+            if payload.len() != 1 {
+                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
+            }
+            Some(Ok(Response::Inquiry(InquiryData::NightDayPosition {
+                position: payload.as_slice()[0],
+            })))
+        }
+        InquiryKind::NightDaySwitch => {
+            if payload.len() != 1 {
+                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
+            }
+            let enabled = match payload.as_slice()[0] {
+                0x02 => false,
+                0x03 => true,
+                _ => {
+                    return Some(Err(Error::InvalidParameter {
+                        parameter: "night_day_switch",
+                        value: Cow::Owned(format!("{:02X}", payload.as_slice()[0])),
+                        reason: Cow::Borrowed(
+                            "Invalid night/day switch value. Expected 0x02 (off) or 0x03 (on)",
+                        ),
+                    }))
+                }
+            };
+            Some(Ok(Response::Inquiry(InquiryData::NightDaySwitch {
+                enabled,
             })))
         }
         _ => None,

@@ -23,12 +23,7 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
             })))
         }
         InquiryKind::Standby => {
-            if payload.len() != 1 {
-                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
-            }
-            Some(Ok(Response::Inquiry(InquiryData::Standby {
-                in_standby: payload.as_slice()[0] != 0x02,
-            })))
+            Some(super::super::parse_standby(payload.as_slice()).map(Response::Inquiry))
         }
         _ => None,
     }
