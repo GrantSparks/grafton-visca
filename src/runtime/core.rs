@@ -1488,7 +1488,13 @@ impl SchedulerCore {
         for (&cmd_id, &(started_at, category)) in &self.inquiries_inflight {
             let timeout = self.timeout_config.get_timeout(category);
             if now.duration_since(started_at) > timeout {
-                warn!("Inquiry {cmd_id} timed out after {timeout:?}");
+                let inquiry_type = self.inquiry_response_types.get(&cmd_id);
+                warn!(
+                    cmd_id,
+                    inquiry_type = ?inquiry_type,
+                    timeout = ?timeout,
+                    "Inquiry timed out"
+                );
                 timed_out_inquiries.push(cmd_id);
             }
         }

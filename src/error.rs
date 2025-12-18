@@ -361,6 +361,21 @@ pub enum Error {
         data: Vec<u8>,
     },
 
+    /// No decoder found for the specified inquiry kind.
+    ///
+    /// This error indicates that none of the domain-specific decoders
+    /// could handle the given `InquiryKind`. This typically means:
+    /// - A new `InquiryKind` was added but no decoder was implemented
+    /// - The camera returned an unexpected response format
+    /// - A decoder is missing for a specific profile's inquiry needs
+    #[error("No decoder found for {inquiry_kind:?} (payload: {payload_hex})")]
+    DecoderNotFound {
+        /// The inquiry kind that no decoder could handle.
+        inquiry_kind: crate::command::response::types::InquiryKind,
+        /// Hex representation of the payload for debugging.
+        payload_hex: Box<str>,
+    },
+
     /// Invalid camera ID provided.
     #[error("Invalid camera ID {id}: must be 1-7 for individual cameras or 8 for broadcast")]
     InvalidCameraId {
@@ -670,7 +685,7 @@ impl Error {
 /// Format a byte slice as a hex string, truncating if too long.
 ///
 /// Payloads longer than 32 bytes are truncated with "..." and a byte count suffix.
-fn format_payload_hex(payload: &[u8]) -> Box<str> {
+pub(crate) fn format_payload_hex(payload: &[u8]) -> Box<str> {
     const MAX_DISPLAY_BYTES: usize = 32;
 
     if payload.is_empty() {

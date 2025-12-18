@@ -10,7 +10,10 @@ mod system;
 mod tally;
 mod zoom;
 
-use crate::{capabilities::Profile, error::Error};
+use crate::{
+    capabilities::Profile,
+    error::{format_payload_hex, Error},
+};
 
 use super::{
     payload::Payload,
@@ -39,8 +42,11 @@ pub(crate) fn dispatch(kind: InquiryKind, payload: Payload<'_>) -> Result<Respon
         }
     }
 
-    // If no decoder handled this type, return an error
-    Err(Error::NotSupported)
+    // If no decoder handled this type, return an error with context
+    Err(Error::DecoderNotFound {
+        inquiry_kind: kind,
+        payload_hex: format_payload_hex(payload.as_slice()),
+    })
 }
 
 /// Profile-aware decoder dispatch for responses that need coordinate conversion.
@@ -53,7 +59,10 @@ pub(crate) fn dispatch_for<P: Profile>(
 ) -> Result<Response, Error> {
     // Special handling for PanTiltPosition which needs coordinate conversion
     if kind == InquiryKind::PanTiltPosition {
-        return pan_tilt::decode_for::<P>(kind, payload).ok_or(Error::NotSupported)?;
+        return pan_tilt::decode_for::<P>(kind, payload).ok_or_else(|| Error::DecoderNotFound {
+            inquiry_kind: kind,
+            payload_hex: format_payload_hex(payload.as_slice()),
+        })?;
     }
 
     // For all other response types, use the standard dispatch
