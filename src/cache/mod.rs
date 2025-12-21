@@ -52,15 +52,23 @@ use std::cell::RefCell;
 
 /// Limits for pan/tilt movement.
 ///
-/// Represents a rectangular bounding box for allowed pan/tilt positions.
-/// The limits are defined by two corners: upper-right and down-left.
+/// Represents a rectangular bounding box for allowed pan/tilt positions,
+/// defined by two diagonal corners: upper-right and lower-left.
+///
+/// These two corners fully specify the movement rectangle. Other corners
+/// (upper-left and lower-right) are implicitly derived from these two:
+/// - Upper-left: (down_left.pan, up_right.tilt)
+/// - Lower-right: (up_right.pan, down_left.tilt)
+///
+/// This design mirrors the VISCA protocol, which only supports setting
+/// two diagonal corners, not all four independently.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct PanTiltLimits {
     /// Upper-right corner limit (maximum pan, maximum tilt).
     pub up_right: Option<(PanPosition, TiltPosition)>,
-    /// Down-left corner limit (minimum pan, minimum tilt).
+    /// Lower-left corner limit (minimum pan, minimum tilt).
     pub down_left: Option<(PanPosition, TiltPosition)>,
 }
 
@@ -354,6 +362,8 @@ impl StateCache {
     /// Update a cached pan/tilt limit corner.
     ///
     /// This is called internally after a successful `pan_tilt_limit_set()` command.
+    /// Both corner variants (`UpRight` and `DownLeft`) update their corresponding
+    /// fields in the cache, ensuring complete coverage of all representable states.
     pub(crate) fn set_pan_tilt_limit(
         &self,
         corner: PanTiltLimitCorner,
@@ -364,19 +374,11 @@ impl StateCache {
         {
             if let Ok(mut guard) = self.inner.lock() {
                 match corner {
-                    PanTiltLimitCorner::UpRight | PanTiltLimitCorner::UpLeft => {
-                        // Both UpRight and UpLeft affect the up_right limit
-                        // (VISCA uses UpRight for the upper corner)
-                        if matches!(corner, PanTiltLimitCorner::UpRight) {
-                            guard.pan_tilt_limits.up_right = Some((pan, tilt));
-                        }
+                    PanTiltLimitCorner::UpRight => {
+                        guard.pan_tilt_limits.up_right = Some((pan, tilt));
                     }
-                    PanTiltLimitCorner::DownLeft | PanTiltLimitCorner::DownRight => {
-                        // Both DownLeft and DownRight affect the down_left limit
-                        // (VISCA uses DownLeft for the lower corner)
-                        if matches!(corner, PanTiltLimitCorner::DownLeft) {
-                            guard.pan_tilt_limits.down_left = Some((pan, tilt));
-                        }
+                    PanTiltLimitCorner::DownLeft => {
+                        guard.pan_tilt_limits.down_left = Some((pan, tilt));
                     }
                 }
             }
@@ -385,15 +387,11 @@ impl StateCache {
         {
             let mut inner = self.inner.borrow_mut();
             match corner {
-                PanTiltLimitCorner::UpRight | PanTiltLimitCorner::UpLeft => {
-                    if matches!(corner, PanTiltLimitCorner::UpRight) {
-                        inner.pan_tilt_limits.up_right = Some((pan, tilt));
-                    }
+                PanTiltLimitCorner::UpRight => {
+                    inner.pan_tilt_limits.up_right = Some((pan, tilt));
                 }
-                PanTiltLimitCorner::DownLeft | PanTiltLimitCorner::DownRight => {
-                    if matches!(corner, PanTiltLimitCorner::DownLeft) {
-                        inner.pan_tilt_limits.down_left = Some((pan, tilt));
-                    }
+                PanTiltLimitCorner::DownLeft => {
+                    inner.pan_tilt_limits.down_left = Some((pan, tilt));
                 }
             }
         }
@@ -402,20 +400,18 @@ impl StateCache {
     /// Clear a cached pan/tilt limit corner.
     ///
     /// This is called internally after a successful `pan_tilt_limit_clear()` command.
+    /// Both corner variants (`UpRight` and `DownLeft`) clear their corresponding
+    /// fields in the cache, ensuring complete coverage of all representable states.
     pub(crate) fn clear_pan_tilt_limit(&self, corner: PanTiltLimitCorner) {
         #[cfg(feature = "mode-async")]
         {
             if let Ok(mut guard) = self.inner.lock() {
                 match corner {
-                    PanTiltLimitCorner::UpRight | PanTiltLimitCorner::UpLeft => {
-                        if matches!(corner, PanTiltLimitCorner::UpRight) {
-                            guard.pan_tilt_limits.up_right = None;
-                        }
+                    PanTiltLimitCorner::UpRight => {
+                        guard.pan_tilt_limits.up_right = None;
                     }
-                    PanTiltLimitCorner::DownLeft | PanTiltLimitCorner::DownRight => {
-                        if matches!(corner, PanTiltLimitCorner::DownLeft) {
-                            guard.pan_tilt_limits.down_left = None;
-                        }
+                    PanTiltLimitCorner::DownLeft => {
+                        guard.pan_tilt_limits.down_left = None;
                     }
                 }
             }
@@ -424,15 +420,11 @@ impl StateCache {
         {
             let mut inner = self.inner.borrow_mut();
             match corner {
-                PanTiltLimitCorner::UpRight | PanTiltLimitCorner::UpLeft => {
-                    if matches!(corner, PanTiltLimitCorner::UpRight) {
-                        inner.pan_tilt_limits.up_right = None;
-                    }
+                PanTiltLimitCorner::UpRight => {
+                    inner.pan_tilt_limits.up_right = None;
                 }
-                PanTiltLimitCorner::DownLeft | PanTiltLimitCorner::DownRight => {
-                    if matches!(corner, PanTiltLimitCorner::DownLeft) {
-                        inner.pan_tilt_limits.down_left = None;
-                    }
+                PanTiltLimitCorner::DownLeft => {
+                    inner.pan_tilt_limits.down_left = None;
                 }
             }
         }
@@ -579,5 +571,99 @@ mod tests {
         };
         assert!(limits.is_complete());
         assert!(limits.is_set());
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn test_pan_tilt_limit_caching_both_corners() {
+        let cache = StateCache::new();
+
+        // Initially no limits are set
+        let limits = cache.pan_tilt_limits();
+        assert!(!limits.is_set());
+        assert!(!limits.is_complete());
+
+        // Set UpRight corner (upper-right has max pan/max tilt)
+        // PanPosition valid range: -2448 to 2448
+        // TiltPosition valid range: -432 to 1296
+        let ur_pan = PanPosition::new(1000).unwrap();
+        let ur_tilt = TiltPosition::new(500).unwrap();
+        cache.set_pan_tilt_limit(PanTiltLimitCorner::UpRight, ur_pan, ur_tilt);
+
+        let limits = cache.pan_tilt_limits();
+        assert!(limits.is_set());
+        assert!(!limits.is_complete());
+        assert_eq!(limits.up_right, Some((ur_pan, ur_tilt)));
+        assert_eq!(limits.down_left, None);
+
+        // Set DownLeft corner - should complete the bounding box
+        // (lower-left has min pan/min tilt)
+        let dl_pan = PanPosition::new(-1000).unwrap();
+        let dl_tilt = TiltPosition::new(-200).unwrap();
+        cache.set_pan_tilt_limit(PanTiltLimitCorner::DownLeft, dl_pan, dl_tilt);
+
+        let limits = cache.pan_tilt_limits();
+        assert!(limits.is_set());
+        assert!(limits.is_complete());
+        assert_eq!(limits.up_right, Some((ur_pan, ur_tilt)));
+        assert_eq!(limits.down_left, Some((dl_pan, dl_tilt)));
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn test_pan_tilt_limit_clear_individual_corners() {
+        let cache = StateCache::new();
+
+        // Set both corners
+        // PanPosition valid range: -2448 to 2448
+        // TiltPosition valid range: -432 to 1296
+        let ur_pan = PanPosition::new(1000).unwrap();
+        let ur_tilt = TiltPosition::new(500).unwrap();
+        let dl_pan = PanPosition::new(-1000).unwrap();
+        let dl_tilt = TiltPosition::new(-200).unwrap();
+        cache.set_pan_tilt_limit(PanTiltLimitCorner::UpRight, ur_pan, ur_tilt);
+        cache.set_pan_tilt_limit(PanTiltLimitCorner::DownLeft, dl_pan, dl_tilt);
+
+        let limits = cache.pan_tilt_limits();
+        assert!(limits.is_complete());
+
+        // Clear UpRight corner
+        cache.clear_pan_tilt_limit(PanTiltLimitCorner::UpRight);
+
+        let limits = cache.pan_tilt_limits();
+        assert!(limits.is_set()); // DownLeft still set
+        assert!(!limits.is_complete()); // Not complete without UpRight
+        assert_eq!(limits.up_right, None);
+        assert_eq!(limits.down_left, Some((dl_pan, dl_tilt)));
+
+        // Clear DownLeft corner
+        cache.clear_pan_tilt_limit(PanTiltLimitCorner::DownLeft);
+
+        let limits = cache.pan_tilt_limits();
+        assert!(!limits.is_set());
+        assert!(!limits.is_complete());
+        assert_eq!(limits.up_right, None);
+        assert_eq!(limits.down_left, None);
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn test_pan_tilt_limit_overwrite() {
+        let cache = StateCache::new();
+
+        // Set UpRight with initial values
+        let pan1 = PanPosition::new(100).unwrap();
+        let tilt1 = TiltPosition::new(50).unwrap();
+        cache.set_pan_tilt_limit(PanTiltLimitCorner::UpRight, pan1, tilt1);
+
+        assert_eq!(cache.pan_tilt_limits().up_right, Some((pan1, tilt1)));
+
+        // Overwrite with new values
+        let pan2 = PanPosition::new(200).unwrap();
+        let tilt2 = TiltPosition::new(100).unwrap();
+        cache.set_pan_tilt_limit(PanTiltLimitCorner::UpRight, pan2, tilt2);
+
+        // Should have the new values
+        assert_eq!(cache.pan_tilt_limits().up_right, Some((pan2, tilt2)));
     }
 }

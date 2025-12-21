@@ -36,7 +36,13 @@ use crate::{
 
 /// Corner position for pan/tilt limit setting.
 ///
-/// Specifies which corner of the movement range to set as a limit.
+/// Pan/tilt limits define a rectangular bounding box for allowed movement.
+/// The bounding box is specified by two diagonal corners: upper-right and
+/// lower-left. These two corners fully define the movement rectangle.
+///
+/// Other corners (upper-left and lower-right) are implicitly derived from
+/// the two diagonal corners and are not directly settable via VISCA commands
+/// in this implementation.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
@@ -45,10 +51,6 @@ use crate::{
 pub enum PanTiltLimitCorner {
     /// Lower-left corner (minimum pan, minimum tilt).
     DownLeft,
-    /// Lower-right corner (maximum pan, minimum tilt).
-    DownRight,
-    /// Upper-left corner (minimum pan, maximum tilt).
-    UpLeft,
     /// Upper-right corner (maximum pan, maximum tilt).
     UpRight,
 }
@@ -59,8 +61,6 @@ impl PanTiltLimitCorner {
     pub const fn to_byte(self) -> u8 {
         match self {
             Self::DownLeft => 0x00,
-            Self::DownRight => 0x01,
-            Self::UpLeft => 0x02,
             Self::UpRight => 0x03,
         }
     }
@@ -155,6 +155,33 @@ mod tests {
         },
         &[
             0x81, 0x01, 0x06, 0x07, 0x01, 0x00, 0x07, 0x0F, 0x0F, 0x0F, 0x07, 0x0F, 0x0F, 0x0F,
+            0xFF
+        ]
+    );
+
+    visca_test!(
+        PanTilt,
+        test_pan_tilt_limit_set_up_right,
+        PanTilt::LimitSet {
+            corner: PanTiltLimitCorner::UpRight,
+            pan: PanPosition::new(0x0789).expect("valid test pan position"),
+            // Use a valid TiltPosition value (range: -432 to 1296, i.e. 0xFE50 to 0x0510)
+            tilt: TiltPosition::new(0x0456).expect("valid test tilt position"),
+        },
+        &[
+            0x81, 0x01, 0x06, 0x07, 0x00, 0x03, 0x00, 0x07, 0x08, 0x09, 0x00, 0x04, 0x05, 0x06,
+            0xFF
+        ]
+    );
+
+    visca_test!(
+        PanTilt,
+        test_pan_tilt_limit_clear_up_right,
+        PanTilt::LimitClear {
+            corner: PanTiltLimitCorner::UpRight,
+        },
+        &[
+            0x81, 0x01, 0x06, 0x07, 0x01, 0x03, 0x07, 0x0F, 0x0F, 0x0F, 0x07, 0x0F, 0x0F, 0x0F,
             0xFF
         ]
     );
