@@ -333,16 +333,13 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
     }
 
     /// Handle a send failure - fails immediately with transport error.
+    ///
+    /// This routes the failure through the unified action handling path,
+    /// ensuring consistent metrics tracking and response notification.
     pub fn fail_after_send_error(&mut self, id: u32) {
-        if let Some(SchedulerAction::CommandFailed {
-            id: failed_id,
-            error,
-        }) = self.core.fail_after_send_error(id)
-        {
-            // Send failure to waiting future
-            if let Some(tx) = self.response_channels.remove(&failed_id) {
-                let _ = tx.send(Err(error));
-            }
+        if let Some(action) = self.core.fail_after_send_error(id) {
+            // Route through unified action handler for consistent metrics/notification
+            self.apply_action(action);
         }
     }
 
@@ -442,11 +439,20 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
         Ok(())
     }
 
-    /// Handle a scheduler action.
-    async fn handle_action(&mut self, action: SchedulerAction) -> Result<()> {
+    /// Apply a scheduler action synchronously.
+    ///
+    /// This is the unified path for all command completion/failure notifications.
+    /// It uses synchronous `send()` instead of `send_async()` because:
+    /// - Response channels are `flume::bounded(1)` one-shot channels
+    /// - They are removed from `response_channels` before sending
+    /// - Therefore the channel should never be full at the first send
+    ///
+    /// Using sync send allows this method to be called from non-async contexts
+    /// (like send-failure rollback paths) while maintaining consistent behavior.
+    fn apply_action(&mut self, action: SchedulerAction) {
         match action {
             SchedulerAction::SendCommand { .. } => {
-                warn!("Unexpected SendCommand action from process_event");
+                warn!("Unexpected SendCommand action from apply_action");
             }
             SchedulerAction::CommandComplete {
                 id,
@@ -458,7 +464,7 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
 
                 // Send response to the waiting command
                 if let Some(tx) = self.response_channels.remove(&id) {
-                    let _ = tx.send_async(Ok(response)).await;
+                    let _ = tx.send(Ok(response));
                 }
 
                 // Broadcast completion event to all subscribers
@@ -478,7 +484,7 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
                 self.metrics.commands_failed += 1;
 
                 if let Some(tx) = self.response_channels.remove(&id) {
-                    let _ = tx.send_async(Err(error)).await;
+                    let _ = tx.send(Err(error));
                 }
             }
             SchedulerAction::Timeout {
@@ -498,6 +504,14 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
                 debug!("Scheduling retry for command {id} after {delay:?}");
             }
         }
+    }
+
+    /// Handle a scheduler action asynchronously.
+    ///
+    /// This is a thin async wrapper around `apply_action` for compatibility
+    /// with the async event processing loop.
+    async fn handle_action(&mut self, action: SchedulerAction) -> Result<()> {
+        self.apply_action(action);
         Ok(())
     }
 
@@ -681,6 +695,126 @@ mod tests {
         assert_eq!(
             metrics.protocol_errors, 1,
             "Should have 1 protocol error tracked"
+        );
+    }
+
+    /// Test that send failures are routed through the unified action handling path.
+    ///
+    /// This test verifies the fix for issue #458: send failures should:
+    /// 1. Increment the `commands_failed` metric (was previously missing)
+    /// 2. Deliver the error to the waiting response channel
+    ///
+    /// Before this fix, `AsyncAdapter::fail_after_send_error` bypassed the
+    /// normal action handling path and didn't update metrics.
+    #[test]
+    fn test_send_failure_increments_commands_failed_metric() {
+        // Create deterministic executor for testing
+        let (executor, _clock) = DeterministicExecutor::new();
+        let timeout_config = TimeoutConfig::default();
+        let retry_config = RetryConfig::default();
+
+        let mut adapter =
+            AsyncAdapter::<PtzOpticsG2, _>::new(timeout_config, retry_config, executor.clone());
+
+        let camera_id = CameraId::CAMERA_1;
+
+        // Create a command
+        let cmd = Arc::new(EncodedCommand {
+            payload: SmallVec::from_slice(&[0x81, 0x01, 0x04, 0x07, 0x02, VISCA_TERMINATOR]), // Zoom Stop
+            kind: CommandKind::Command,
+            category: CommandCategory::Quick,
+            response_type: None,
+        });
+
+        // Register the command as pending ACK
+        adapter.core.register_pending_ack(
+            100,
+            cmd.clone(),
+            Priority::Normal,
+            CommandCategory::Quick,
+            camera_id,
+            CommandKind::Command,
+            executor.now(),
+        );
+
+        // Set up response channel
+        let (response_tx, response_rx) = flume::bounded(1);
+        adapter.response_channels.insert(100, response_tx);
+
+        // Verify initial metrics
+        let metrics_before = adapter.metrics_summary();
+        assert_eq!(
+            metrics_before.commands_failed, 0,
+            "Should start with 0 failed commands"
+        );
+
+        // Simulate a send failure
+        adapter.fail_after_send_error(100);
+
+        // Verify the response channel received the error
+        let response_result = response_rx.try_recv();
+        assert!(
+            response_result.is_ok(),
+            "Command should receive error notification"
+        );
+        match response_result.unwrap() {
+            Err(Error::TransportError(_)) => {} // Expected
+            other => panic!("Expected TransportError, got: {other:?}"),
+        }
+
+        // Verify metrics were incremented
+        let metrics_after = adapter.metrics_summary();
+        assert_eq!(
+            metrics_after.commands_failed, 1,
+            "Should have 1 failed command after send failure"
+        );
+    }
+
+    /// Test that multiple send failures all increment the failed counter correctly.
+    #[test]
+    fn test_multiple_send_failures_track_correctly() {
+        let (executor, _clock) = DeterministicExecutor::new();
+        let timeout_config = TimeoutConfig::default();
+        let retry_config = RetryConfig::default();
+
+        let mut adapter =
+            AsyncAdapter::<PtzOpticsG2, _>::new(timeout_config, retry_config, executor.clone());
+
+        let camera_id = CameraId::CAMERA_1;
+
+        // Create and register 3 commands with response channels
+        for id in [101, 102, 103] {
+            let cmd = Arc::new(EncodedCommand {
+                payload: SmallVec::from_slice(&[0x81, 0x01, 0x04, 0x07, 0x02, VISCA_TERMINATOR]),
+                kind: CommandKind::Command,
+                category: CommandCategory::Quick,
+                response_type: None,
+            });
+
+            adapter.core.register_pending_ack(
+                id,
+                cmd,
+                Priority::Normal,
+                CommandCategory::Quick,
+                camera_id,
+                CommandKind::Command,
+                executor.now(),
+            );
+
+            let (response_tx, _response_rx) = flume::bounded(1);
+            adapter.response_channels.insert(id, response_tx);
+        }
+
+        // Fail all 3 commands
+        adapter.fail_after_send_error(101);
+        adapter.fail_after_send_error(102);
+        adapter.fail_after_send_error(103);
+
+        // Verify all failures are tracked
+        let metrics = adapter.metrics_summary();
+        assert_eq!(
+            metrics.commands_failed, 3,
+            "Should have 3 failed commands after 3 send failures"
         );
     }
 }

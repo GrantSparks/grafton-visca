@@ -36,15 +36,15 @@ pub trait SchedulerLike {
     /// This method handles send failures by immediately failing the command
     /// with a TransportError, without any retry attempts.
     ///
-    /// Returns the `SchedulerAction::CommandFailed` action so that callers can
-    /// propagate the error immediately to waiting clients (async via channel,
-    /// blocking via return value).
-    ///
     /// # Implementation Notes
     ///
-    /// - Async: calls adapter's fail_after_send_error, notifies waiting future
-    /// - Blocking: calls core's fail_after_send_error, returns action for caller
-    #[must_use = "The returned SchedulerAction must be handled to propagate the send failure"]
+    /// - **Async**: The `AsyncAdapter` handles the action internally by routing
+    ///   it through the unified `apply_action` path, which updates metrics and
+    ///   notifies the waiting future via the response channel. Returns `None`
+    ///   since no further caller action is required.
+    ///
+    /// - **Blocking**: Returns `Some(SchedulerAction::CommandFailed)` for the
+    ///   caller to propagate the error to clients via the return value.
     fn fail_after_send_error(&mut self, id: u32) -> Option<crate::runtime::core::SchedulerAction>;
 
     /// Register Sony sequence number for a command.

@@ -70,9 +70,14 @@ impl SendGuard {
     /// This method automatically unregisters pending ACKs, frees reserved sockets,
     /// and fails the command immediately with a transport error.
     ///
-    /// Returns the `SchedulerAction::CommandFailed` action if a failure occurred,
-    /// allowing the caller to propagate the error to waiting clients.
-    #[must_use = "The returned action must be handled to propagate send failures to clients"]
+    /// # Return Value
+    ///
+    /// - **Async mode**: Returns `None` because `AsyncAdapter::fail_after_send_error`
+    ///   handles the action internally (updates metrics and notifies via response channel).
+    ///   The caller can safely ignore the return value.
+    ///
+    /// - **Blocking mode**: Returns `Some(SchedulerAction::CommandFailed)` for the
+    ///   caller to propagate the error to clients.
     pub fn rollback<S: SchedulerLike>(self, scheduler: &mut S) -> Option<SchedulerAction> {
         if !self.committed {
             // Rollback on failure
@@ -195,9 +200,10 @@ where
                 error = e
             );
 
-            // Rollback and discard the action - for async, the AsyncAdapter handles
-            // notification to the waiting future internally via response channels
-            let _action = guard.rollback(scheduler);
+            // Rollback: for async mode, AsyncAdapter::fail_after_send_error handles
+            // the action internally (updates metrics and notifies via response channel),
+            // so we can safely ignore the None return value
+            guard.rollback(scheduler);
 
             // Return error to caller
             Err(e)
