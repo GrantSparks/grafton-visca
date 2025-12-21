@@ -348,6 +348,21 @@ pub enum Error {
     #[error("Runtime has been shutdown")]
     RuntimeShutdown,
 
+    /// Runtime command queue is at capacity.
+    ///
+    /// This error indicates that the runtime's pending command queue has reached
+    /// its maximum configured depth and cannot accept new commands. This is a
+    /// retryable error - callers should back off and retry after a delay.
+    ///
+    /// The queue depth is configurable via [`TransportConfig::max_pending_queue_depth`].
+    ///
+    /// [`TransportConfig::max_pending_queue_depth`]: crate::transport::builder::TransportConfig::max_pending_queue_depth
+    #[error("Runtime queue full: at capacity ({capacity} pending commands)")]
+    RuntimeQueueFull {
+        /// The maximum queue capacity that was reached.
+        capacity: usize,
+    },
+
     /// Validation error from capability traits.
     #[error("Validation error: {0}")]
     ValidationError(#[from] crate::capabilities::ValidationError),
@@ -460,7 +475,7 @@ impl Error {
         match self {
             Self::Timeout | Self::CommandTimeout { .. } => ErrorKind::Timeout,
             Self::CommandCanceled => ErrorKind::Cancelled,
-            Self::CommandBufferFull => ErrorKind::BufferFull,
+            Self::CommandBufferFull | Self::RuntimeQueueFull { .. } => ErrorKind::BufferFull,
             Self::CommandNotExecutable => ErrorKind::NotExecutable,
             Self::ConnectionClosed { .. } | Self::NoResponse => ErrorKind::IoClosed,
             Self::ConnectionFailed { .. } => ErrorKind::IoRefused,
@@ -529,6 +544,7 @@ impl Error {
     /// Returns `true` for errors that represent temporary conditions
     /// that may succeed if the operation is retried. This includes:
     /// - Camera busy states (`CameraBusy`, `CommandBufferFull`)
+    /// - Queue capacity (`RuntimeQueueFull`)
     /// - Pending operations (`CommandPending`, `CameraMoving`)
     /// - Timeout conditions (`CommandTimeout`, `Timeout`)
     ///
@@ -588,7 +604,9 @@ impl Error {
             Self::CommandPending => Some(Duration::from_millis(50)),
             Self::CameraMoving { .. } => Some(Duration::from_millis(500)),
             Self::CommandTimeout { .. } => Some(Duration::from_secs(1)),
-            Self::CommandBufferFull => Some(Duration::from_millis(200)),
+            Self::CommandBufferFull | Self::RuntimeQueueFull { .. } => {
+                Some(Duration::from_millis(200))
+            }
             Self::Timeout => Some(Duration::from_secs(2)),
             Self::MaxRetriesExceeded => None,
             Self::WithContext { source, .. } => source.suggested_retry_delay(),
@@ -914,6 +932,7 @@ mod tests {
                 command: Cow::Borrowed("test"),
             },
             Error::CommandBufferFull,
+            Error::RuntimeQueueFull { capacity: 64 },
             Error::Timeout,
         ];
 
@@ -1092,5 +1111,38 @@ mod tests {
                 contextual
             );
         }
+    }
+
+    #[test]
+    fn test_runtime_queue_full_error() {
+        let error = Error::RuntimeQueueFull { capacity: 64 };
+
+        // Should have BufferFull kind
+        assert_eq!(error.kind(), ErrorKind::BufferFull);
+
+        // Should be retryable
+        assert!(error.is_retryable());
+
+        // Should have suggested retry delay (same as CommandBufferFull)
+        assert_eq!(
+            error.suggested_retry_delay(),
+            Some(Duration::from_millis(200))
+        );
+
+        // Error message should include capacity
+        let message = error.to_string();
+        assert!(
+            message.contains("64"),
+            "Error message should include capacity"
+        );
+        assert!(
+            message.contains("Runtime queue full"),
+            "Error message should indicate queue full"
+        );
+
+        // Context should preserve retry intelligence
+        let contextual = error.with_context("Failed to submit command");
+        assert!(contextual.is_retryable());
+        assert_eq!(contextual.kind(), ErrorKind::BufferFull);
     }
 }

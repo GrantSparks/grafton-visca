@@ -1772,6 +1772,20 @@ impl SchedulerCore {
         self.retry_queue.len()
     }
 
+    /// Get the total pending queue depth (commands + inquiries waiting to be sent).
+    ///
+    /// This is the primary metric for admission control and queue depth reporting.
+    /// It includes all items queued but not yet sent to the transport:
+    /// - Commands waiting in the command queue
+    /// - Inquiries waiting in the inquiry queue
+    ///
+    /// Note: This does NOT include commands that have been sent but are awaiting
+    /// response (pending_ack, inquiries_inflight), as those have already been
+    /// accepted and are tracked separately.
+    pub fn pending_queue_depth(&self) -> usize {
+        self.command_queue.len() + self.inquiry_queue.len()
+    }
+
     /// Get commands that are ready to retry.
     ///
     /// This method filters out stale retries by validating that:

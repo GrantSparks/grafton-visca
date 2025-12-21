@@ -132,7 +132,7 @@ pub enum TransportHandle<R: Runtime> {
     /// Note: This uses the concrete Tokio serial type directly to avoid requiring
     /// RuntimeSerial bound on all uses of TransportHandle.
     #[cfg(feature = "transport-serial-tokio")]
-    Serial(crate::transport::tokio::serial::Serial),
+    Serial(Box<crate::transport::tokio::serial::Serial>),
 }
 
 #[cfg(feature = "mode-async")]

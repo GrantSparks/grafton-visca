@@ -413,7 +413,7 @@ where
 
                 // Connect using RuntimeSerial trait
                 let serial = runtime.connect_serial(serial_config).await?;
-                let transport = TransportHandle::Serial(serial);
+                let transport = TransportHandle::Serial(Box::new(serial));
 
                 // Create camera using profile's envelope type with explicit timeout and retry configs
                 // This ensures the runtime uses the same configs as configured in CameraConfig

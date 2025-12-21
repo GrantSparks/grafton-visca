@@ -111,6 +111,7 @@ impl Serial {
             addressing: crate::transport::builder::AddressingMode::Serial, // Serial uses Serial addressing
             tcp_nodelay: None,
             ttl: None,
+            max_pending_queue_depth: TransportConfig::default().max_pending_queue_depth,
         };
 
         // Create executor for handshake operations

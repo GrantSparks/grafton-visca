@@ -171,6 +171,8 @@ pub(crate) struct AsyncAdapter<P: Profile, E: Executor> {
     metrics: Metrics,
     /// Completion event subscribers.
     completion_subscribers: Vec<Sender<CompletionEvent>>,
+    /// Maximum pending queue depth for admission control.
+    max_pending_queue_depth: usize,
     /// Profile marker (zero-sized type).
     _profile: std::marker::PhantomData<P>,
 }
@@ -189,13 +191,19 @@ struct Metrics {
 
 impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
     /// Create a new async adapter.
-    pub fn new(timeout_config: TimeoutConfig, retry_config: RetryConfig, executor: Arc<E>) -> Self {
+    pub fn new(
+        timeout_config: TimeoutConfig,
+        retry_config: RetryConfig,
+        executor: Arc<E>,
+        max_pending_queue_depth: usize,
+    ) -> Self {
         Self {
             core: SchedulerCore::with_retry_config(timeout_config, retry_config),
             executor,
             response_channels: HashMap::new(),
             metrics: Metrics::default(),
             completion_subscribers: Vec::new(),
+            max_pending_queue_depth,
             _profile: std::marker::PhantomData,
         }
     }
@@ -219,6 +227,13 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
     }
 
     /// Submit a command or inquiry to the scheduler.
+    ///
+    /// Returns the command ID on success. If the pending queue is at capacity,
+    /// the submission is rejected with a [`Error::RuntimeQueueFull`] error sent
+    /// to the response channel immediately.
+    ///
+    /// Note: Cancel and CancelById operations are never rejected by admission
+    /// control, as they help drain the queue rather than add to it.
     pub fn submit(&mut self, item: TxItem) -> u32 {
         match item {
             TxItem::Command {
@@ -229,6 +244,21 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
                 camera_id,
                 response_tx,
             } => {
+                // Admission control: reject if at capacity
+                if self.core.pending_queue_depth() >= self.max_pending_queue_depth {
+                    debug!(
+                        id,
+                        capacity = self.max_pending_queue_depth,
+                        "Rejecting command: queue at capacity"
+                    );
+                    // Send error directly to response channel (do not insert into response_channels)
+                    let _ = response_tx.send(Err(Error::RuntimeQueueFull {
+                        capacity: self.max_pending_queue_depth,
+                    }));
+                    self.metrics.commands_failed += 1;
+                    return id;
+                }
+
                 self.response_channels.insert(id, response_tx);
 
                 // Queue command in core
@@ -256,6 +286,21 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
                 response_type,
                 response_tx,
             } => {
+                // Admission control: reject if at capacity
+                if self.core.pending_queue_depth() >= self.max_pending_queue_depth {
+                    debug!(
+                        id,
+                        capacity = self.max_pending_queue_depth,
+                        "Rejecting inquiry: queue at capacity"
+                    );
+                    // Send error directly to response channel (do not insert into response_channels)
+                    let _ = response_tx.send(Err(Error::RuntimeQueueFull {
+                        capacity: self.max_pending_queue_depth,
+                    }));
+                    self.metrics.commands_failed += 1;
+                    return id;
+                }
+
                 self.response_channels.insert(id, response_tx);
 
                 // Store response type in core if present
@@ -601,7 +646,7 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
             network_errors: self.metrics.network_errors,
             protocol_errors: self.metrics.protocol_errors,
             timeouts: self.metrics.timeouts,
-            pending_queue_depth: 0,
+            pending_queue_depth: self.core.pending_queue_depth(),
             retry_queue_depth: self.core.retry_queue_depth(),
         }
     }
@@ -673,6 +718,7 @@ mod tests {
         camera::profiles::PtzOpticsG2,
         command::{bytes::VISCA_TERMINATOR, encode::EncodedCommand, CommandKind, Response},
         testing::testkit::deterministic_executor::DeterministicExecutor,
+        transport::builder::DEFAULT_MAX_PENDING_QUEUE_DEPTH,
     };
     use smallvec::SmallVec;
     use std::sync::Arc;
@@ -690,8 +736,12 @@ mod tests {
         let timeout_config = TimeoutConfig::default();
         let retry_config = RetryConfig::default();
 
-        let mut adapter =
-            AsyncAdapter::<PtzOpticsG2, _>::new(timeout_config, retry_config, executor.clone());
+        let mut adapter = AsyncAdapter::<PtzOpticsG2, _>::new(
+            timeout_config,
+            retry_config,
+            executor.clone(),
+            DEFAULT_MAX_PENDING_QUEUE_DEPTH,
+        );
 
         let camera_id = CameraId::CAMERA_1;
 
@@ -756,8 +806,12 @@ mod tests {
         let timeout_config = TimeoutConfig::default();
         let retry_config = RetryConfig::default();
 
-        let mut adapter =
-            AsyncAdapter::<PtzOpticsG2, _>::new(timeout_config, retry_config, executor.clone());
+        let mut adapter = AsyncAdapter::<PtzOpticsG2, _>::new(
+            timeout_config,
+            retry_config,
+            executor.clone(),
+            DEFAULT_MAX_PENDING_QUEUE_DEPTH,
+        );
 
         let camera_id = CameraId::CAMERA_1;
 
@@ -820,8 +874,12 @@ mod tests {
         let timeout_config = TimeoutConfig::default();
         let retry_config = RetryConfig::default();
 
-        let mut adapter =
-            AsyncAdapter::<PtzOpticsG2, _>::new(timeout_config, retry_config, executor.clone());
+        let mut adapter = AsyncAdapter::<PtzOpticsG2, _>::new(
+            timeout_config,
+            retry_config,
+            executor.clone(),
+            DEFAULT_MAX_PENDING_QUEUE_DEPTH,
+        );
 
         let camera_id = CameraId::CAMERA_1;
 
@@ -875,8 +933,12 @@ mod tests {
         let timeout_config = TimeoutConfig::default();
         let retry_config = RetryConfig::default();
 
-        let mut adapter =
-            AsyncAdapter::<PtzOpticsG2, _>::new(timeout_config, retry_config, executor.clone());
+        let mut adapter = AsyncAdapter::<PtzOpticsG2, _>::new(
+            timeout_config,
+            retry_config,
+            executor.clone(),
+            DEFAULT_MAX_PENDING_QUEUE_DEPTH,
+        );
 
         // Subscribe but don't drain
         let rx = adapter.subscribe_completions();
@@ -925,8 +987,12 @@ mod tests {
         let timeout_config = TimeoutConfig::default();
         let retry_config = RetryConfig::default();
 
-        let mut adapter =
-            AsyncAdapter::<PtzOpticsG2, _>::new(timeout_config, retry_config, executor.clone());
+        let mut adapter = AsyncAdapter::<PtzOpticsG2, _>::new(
+            timeout_config,
+            retry_config,
+            executor.clone(),
+            DEFAULT_MAX_PENDING_QUEUE_DEPTH,
+        );
 
         // Subscribe but don't drain
         let rx = adapter.subscribe_completions();
@@ -996,8 +1062,12 @@ mod tests {
         let timeout_config = TimeoutConfig::default();
         let retry_config = RetryConfig::default();
 
-        let mut adapter =
-            AsyncAdapter::<PtzOpticsG2, _>::new(timeout_config, retry_config, executor.clone());
+        let mut adapter = AsyncAdapter::<PtzOpticsG2, _>::new(
+            timeout_config,
+            retry_config,
+            executor.clone(),
+            DEFAULT_MAX_PENDING_QUEUE_DEPTH,
+        );
 
         // Subscribe and then immediately drop the receiver
         let rx = adapter.subscribe_completions();
@@ -1035,8 +1105,12 @@ mod tests {
         let timeout_config = TimeoutConfig::default();
         let retry_config = RetryConfig::default();
 
-        let mut adapter =
-            AsyncAdapter::<PtzOpticsG2, _>::new(timeout_config, retry_config, executor.clone());
+        let mut adapter = AsyncAdapter::<PtzOpticsG2, _>::new(
+            timeout_config,
+            retry_config,
+            executor.clone(),
+            DEFAULT_MAX_PENDING_QUEUE_DEPTH,
+        );
 
         // Create two subscribers
         let rx1 = adapter.subscribe_completions();
@@ -1074,5 +1148,384 @@ mod tests {
             rx2_count, COMPLETIONS_BUFFER,
             "Slow subscriber should receive at most COMPLETIONS_BUFFER events"
         );
+    }
+
+    // =========================================================================
+    // Admission Control Tests (Issue #464)
+    // =========================================================================
+
+    /// Test that queue depth is bounded by max_pending_queue_depth.
+    ///
+    /// This test verifies the core admission control mechanism: when the
+    /// pending queue reaches capacity, new submissions are rejected with
+    /// a RuntimeQueueFull error.
+    #[test]
+    fn test_admission_control_bounds_queue_depth() {
+        let (executor, _clock) = DeterministicExecutor::new();
+        let timeout_config = TimeoutConfig::default();
+        let retry_config = RetryConfig::default();
+        let max_depth = 5; // Small capacity for testing
+
+        let mut adapter = AsyncAdapter::<PtzOpticsG2, _>::new(
+            timeout_config,
+            retry_config,
+            executor.clone(),
+            max_depth,
+        );
+
+        let camera_id = CameraId::CAMERA_1;
+
+        // Submit commands up to capacity
+        for i in 0..max_depth {
+            let cmd = Arc::new(EncodedCommand {
+                payload: SmallVec::from_slice(&[0x81, 0x01, 0x04, 0x07, 0x02, VISCA_TERMINATOR]),
+                kind: CommandKind::Command,
+                category: CommandCategory::Quick,
+                response_type: None,
+            });
+
+            let (response_tx, response_rx) = flume::bounded(1);
+            adapter.submit(TxItem::Command {
+                id: i as u32,
+                command: cmd,
+                priority: Priority::Normal,
+                category: CommandCategory::Quick,
+                camera_id,
+                response_tx,
+            });
+
+            // Should not have received an error yet
+            assert!(
+                response_rx.try_recv().is_err(),
+                "Commands up to capacity should be accepted"
+            );
+        }
+
+        // Verify queue depth is at capacity
+        assert_eq!(
+            adapter.core.pending_queue_depth(),
+            max_depth,
+            "Queue should be at capacity"
+        );
+
+        // Try to submit one more - should be rejected
+        let cmd = Arc::new(EncodedCommand {
+            payload: SmallVec::from_slice(&[0x81, 0x01, 0x04, 0x07, 0x02, VISCA_TERMINATOR]),
+            kind: CommandKind::Command,
+            category: CommandCategory::Quick,
+            response_type: None,
+        });
+
+        let (response_tx, response_rx) = flume::bounded(1);
+        adapter.submit(TxItem::Command {
+            id: max_depth as u32,
+            command: cmd,
+            priority: Priority::Normal,
+            category: CommandCategory::Quick,
+            camera_id,
+            response_tx,
+        });
+
+        // Should receive RuntimeQueueFull error immediately
+        let result = response_rx.try_recv();
+        assert!(result.is_ok(), "Should receive error immediately");
+        match result.unwrap() {
+            Err(Error::RuntimeQueueFull { capacity }) => {
+                assert_eq!(capacity, max_depth, "Capacity should match configuration");
+            }
+            other => panic!("Expected RuntimeQueueFull error, got: {other:?}"),
+        }
+
+        // Queue depth should not have grown beyond capacity
+        assert_eq!(
+            adapter.core.pending_queue_depth(),
+            max_depth,
+            "Queue should still be at capacity (not grown)"
+        );
+    }
+
+    /// Test that rejected submissions don't grow response_channels.
+    #[test]
+    fn test_rejected_submission_does_not_grow_response_channels() {
+        let (executor, _clock) = DeterministicExecutor::new();
+        let timeout_config = TimeoutConfig::default();
+        let retry_config = RetryConfig::default();
+        let max_depth = 3;
+
+        let mut adapter = AsyncAdapter::<PtzOpticsG2, _>::new(
+            timeout_config,
+            retry_config,
+            executor.clone(),
+            max_depth,
+        );
+
+        let camera_id = CameraId::CAMERA_1;
+
+        // Fill the queue
+        for i in 0..max_depth {
+            let cmd = Arc::new(EncodedCommand {
+                payload: SmallVec::from_slice(&[0x81, 0x01, 0x04, 0x07, 0x02, VISCA_TERMINATOR]),
+                kind: CommandKind::Command,
+                category: CommandCategory::Quick,
+                response_type: None,
+            });
+
+            let (response_tx, _response_rx) = flume::bounded(1);
+            adapter.submit(TxItem::Command {
+                id: i as u32,
+                command: cmd,
+                priority: Priority::Normal,
+                category: CommandCategory::Quick,
+                camera_id,
+                response_tx,
+            });
+        }
+
+        let initial_channels = adapter.response_channels.len();
+        assert_eq!(
+            initial_channels, max_depth,
+            "Should have max_depth channels"
+        );
+
+        // Try to submit more - should be rejected
+        for i in 0..10 {
+            let cmd = Arc::new(EncodedCommand {
+                payload: SmallVec::from_slice(&[0x81, 0x01, 0x04, 0x07, 0x02, VISCA_TERMINATOR]),
+                kind: CommandKind::Command,
+                category: CommandCategory::Quick,
+                response_type: None,
+            });
+
+            let (response_tx, _response_rx) = flume::bounded(1);
+            adapter.submit(TxItem::Command {
+                id: (max_depth + i) as u32,
+                command: cmd,
+                priority: Priority::Normal,
+                category: CommandCategory::Quick,
+                camera_id,
+                response_tx,
+            });
+        }
+
+        // response_channels should NOT have grown
+        assert_eq!(
+            adapter.response_channels.len(),
+            max_depth,
+            "response_channels should not grow when submissions are rejected"
+        );
+    }
+
+    /// Test that metrics_summary reports actual pending_queue_depth.
+    #[test]
+    fn test_metrics_reports_actual_pending_queue_depth() {
+        let (executor, _clock) = DeterministicExecutor::new();
+        let timeout_config = TimeoutConfig::default();
+        let retry_config = RetryConfig::default();
+
+        let mut adapter = AsyncAdapter::<PtzOpticsG2, _>::new(
+            timeout_config,
+            retry_config,
+            executor.clone(),
+            DEFAULT_MAX_PENDING_QUEUE_DEPTH,
+        );
+
+        let camera_id = CameraId::CAMERA_1;
+
+        // Initially, queue depth should be 0
+        let metrics = adapter.metrics_summary();
+        assert_eq!(
+            metrics.pending_queue_depth, 0,
+            "Initial pending_queue_depth should be 0"
+        );
+
+        // Submit 5 commands
+        for i in 0..5 {
+            let cmd = Arc::new(EncodedCommand {
+                payload: SmallVec::from_slice(&[0x81, 0x01, 0x04, 0x07, 0x02, VISCA_TERMINATOR]),
+                kind: CommandKind::Command,
+                category: CommandCategory::Quick,
+                response_type: None,
+            });
+
+            let (response_tx, _response_rx) = flume::bounded(1);
+            adapter.submit(TxItem::Command {
+                id: i,
+                command: cmd,
+                priority: Priority::Normal,
+                category: CommandCategory::Quick,
+                camera_id,
+                response_tx,
+            });
+        }
+
+        // Queue depth should be 5
+        let metrics = adapter.metrics_summary();
+        assert_eq!(
+            metrics.pending_queue_depth, 5,
+            "pending_queue_depth should reflect actual queue depth"
+        );
+
+        // Submit 3 inquiries
+        for i in 5..8 {
+            let inq = Arc::new(EncodedCommand {
+                payload: SmallVec::from_slice(&[0x81, 0x09, 0x04, 0x47, VISCA_TERMINATOR]),
+                kind: CommandKind::Inquiry,
+                category: CommandCategory::Quick,
+                response_type: Some(InquiryKind::Power),
+            });
+
+            let (response_tx, _response_rx) = flume::bounded(1);
+            adapter.submit(TxItem::Inquiry {
+                id: i,
+                command: inq,
+                category: CommandCategory::Quick,
+                camera_id,
+                response_type: Some(InquiryKind::Power),
+                response_tx,
+            });
+        }
+
+        // Queue depth should be 8 (5 commands + 3 inquiries)
+        let metrics = adapter.metrics_summary();
+        assert_eq!(
+            metrics.pending_queue_depth, 8,
+            "pending_queue_depth should include both commands and inquiries"
+        );
+    }
+
+    /// Test that commands_failed is incremented when submissions are rejected.
+    #[test]
+    fn test_rejected_submissions_increment_commands_failed() {
+        let (executor, _clock) = DeterministicExecutor::new();
+        let timeout_config = TimeoutConfig::default();
+        let retry_config = RetryConfig::default();
+        let max_depth = 2;
+
+        let mut adapter = AsyncAdapter::<PtzOpticsG2, _>::new(
+            timeout_config,
+            retry_config,
+            executor.clone(),
+            max_depth,
+        );
+
+        let camera_id = CameraId::CAMERA_1;
+
+        // Fill the queue
+        for i in 0..max_depth {
+            let cmd = Arc::new(EncodedCommand {
+                payload: SmallVec::from_slice(&[0x81, 0x01, 0x04, 0x07, 0x02, VISCA_TERMINATOR]),
+                kind: CommandKind::Command,
+                category: CommandCategory::Quick,
+                response_type: None,
+            });
+
+            let (response_tx, _response_rx) = flume::bounded(1);
+            adapter.submit(TxItem::Command {
+                id: i as u32,
+                command: cmd,
+                priority: Priority::Normal,
+                category: CommandCategory::Quick,
+                camera_id,
+                response_tx,
+            });
+        }
+
+        let metrics_before = adapter.metrics_summary();
+        assert_eq!(
+            metrics_before.commands_failed, 0,
+            "Should start with 0 failed commands"
+        );
+
+        // Try to submit 5 more - all should be rejected
+        for i in 0..5 {
+            let cmd = Arc::new(EncodedCommand {
+                payload: SmallVec::from_slice(&[0x81, 0x01, 0x04, 0x07, 0x02, VISCA_TERMINATOR]),
+                kind: CommandKind::Command,
+                category: CommandCategory::Quick,
+                response_type: None,
+            });
+
+            let (response_tx, _response_rx) = flume::bounded(1);
+            adapter.submit(TxItem::Command {
+                id: (max_depth + i) as u32,
+                command: cmd,
+                priority: Priority::Normal,
+                category: CommandCategory::Quick,
+                camera_id,
+                response_tx,
+            });
+        }
+
+        let metrics_after = adapter.metrics_summary();
+        assert_eq!(
+            metrics_after.commands_failed, 5,
+            "Should have 5 failed commands after rejection"
+        );
+    }
+
+    /// Test that inquiry rejections also work correctly.
+    #[test]
+    fn test_inquiry_rejection_at_capacity() {
+        let (executor, _clock) = DeterministicExecutor::new();
+        let timeout_config = TimeoutConfig::default();
+        let retry_config = RetryConfig::default();
+        let max_depth = 2;
+
+        let mut adapter = AsyncAdapter::<PtzOpticsG2, _>::new(
+            timeout_config,
+            retry_config,
+            executor.clone(),
+            max_depth,
+        );
+
+        let camera_id = CameraId::CAMERA_1;
+
+        // Fill with inquiries
+        for i in 0..max_depth {
+            let inq = Arc::new(EncodedCommand {
+                payload: SmallVec::from_slice(&[0x81, 0x09, 0x04, 0x47, VISCA_TERMINATOR]),
+                kind: CommandKind::Inquiry,
+                category: CommandCategory::Quick,
+                response_type: Some(InquiryKind::Power),
+            });
+
+            let (response_tx, _response_rx) = flume::bounded(1);
+            adapter.submit(TxItem::Inquiry {
+                id: i as u32,
+                command: inq,
+                category: CommandCategory::Quick,
+                camera_id,
+                response_type: Some(InquiryKind::Power),
+                response_tx,
+            });
+        }
+
+        // Try to submit one more inquiry
+        let inq = Arc::new(EncodedCommand {
+            payload: SmallVec::from_slice(&[0x81, 0x09, 0x04, 0x47, VISCA_TERMINATOR]),
+            kind: CommandKind::Inquiry,
+            category: CommandCategory::Quick,
+            response_type: Some(InquiryKind::Power),
+        });
+
+        let (response_tx, response_rx) = flume::bounded(1);
+        adapter.submit(TxItem::Inquiry {
+            id: max_depth as u32,
+            command: inq,
+            category: CommandCategory::Quick,
+            camera_id,
+            response_type: Some(InquiryKind::Power),
+            response_tx,
+        });
+
+        // Should receive RuntimeQueueFull error
+        let result = response_rx.try_recv();
+        assert!(result.is_ok(), "Should receive error immediately");
+        match result.unwrap() {
+            Err(Error::RuntimeQueueFull { capacity }) => {
+                assert_eq!(capacity, max_depth, "Capacity should match configuration");
+            }
+            other => panic!("Expected RuntimeQueueFull error, got: {other:?}"),
+        }
     }
 }

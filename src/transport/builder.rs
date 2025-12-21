@@ -26,7 +26,7 @@
 //! # }
 //! ```
 
-use std::time::Duration;
+use std::{num::NonZeroUsize, time::Duration};
 
 use crate::{
     transport::{buffer::BufferConfig, RetryConfig},
@@ -47,6 +47,24 @@ pub enum AddressingMode {
     Ip,
 }
 
+/// Default maximum pending queue depth for runtime admission control.
+///
+/// This bounds the number of commands/inquiries that can be queued in the
+/// runtime scheduler before new submissions are rejected with a retryable
+/// `RuntimeQueueFull` error.
+///
+/// A depth of 64 provides reasonable headroom for bursty submission patterns
+/// (UI scrubbing, multi-camera fanout, polling loops) while preventing
+/// unbounded memory growth under sustained overload.
+pub const DEFAULT_MAX_PENDING_QUEUE_DEPTH: usize = 64;
+
+/// Default maximum pending queue depth as NonZeroUsize.
+///
+/// This is a compile-time constant for use in `TransportConfig::default()`.
+#[allow(clippy::unwrap_used)]
+pub const DEFAULT_MAX_PENDING_QUEUE_DEPTH_NONZERO: NonZeroUsize =
+    NonZeroUsize::new(DEFAULT_MAX_PENDING_QUEUE_DEPTH).unwrap();
+
 /// Common configuration options for all transport types.
 #[derive(Debug, Clone, Copy)]
 pub struct TransportConfig {
@@ -66,6 +84,14 @@ pub struct TransportConfig {
     pub tcp_nodelay: Option<bool>,
     /// TTL (Time To Live) for packets.
     pub ttl: Option<u32>,
+    /// Maximum pending queue depth for runtime admission control.
+    ///
+    /// This bounds the number of commands/inquiries that can be queued
+    /// in the runtime scheduler. When the queue is at capacity, new
+    /// submissions are rejected with a retryable `RuntimeQueueFull` error.
+    ///
+    /// Defaults to [`DEFAULT_MAX_PENDING_QUEUE_DEPTH`] (64).
+    pub max_pending_queue_depth: NonZeroUsize,
 }
 
 impl Default for TransportConfig {
@@ -79,6 +105,7 @@ impl Default for TransportConfig {
             addressing: AddressingMode::default(),
             tcp_nodelay: None,
             ttl: None,
+            max_pending_queue_depth: DEFAULT_MAX_PENDING_QUEUE_DEPTH_NONZERO,
         }
     }
 }
@@ -336,6 +363,25 @@ impl NetTransportBuilder {
     /// Set the TTL (Time To Live) for packets.
     pub fn ttl(mut self, ttl: u32) -> Self {
         self.config.ttl = Some(ttl);
+        self
+    }
+
+    /// Set the maximum pending queue depth for runtime admission control.
+    ///
+    /// This bounds the number of commands/inquiries that can be queued
+    /// in the runtime scheduler. When the queue is at capacity, new
+    /// submissions are rejected with a retryable `RuntimeQueueFull` error.
+    ///
+    /// # Arguments
+    ///
+    /// * `depth` - Maximum number of pending commands/inquiries
+    ///
+    /// # Returns
+    ///
+    /// Returns `self` for chaining. If `depth` is 0, the configuration is
+    /// unchanged (preserves current value).
+    pub fn max_pending_queue_depth(mut self, depth: NonZeroUsize) -> Self {
+        self.config.max_pending_queue_depth = depth;
         self
     }
 

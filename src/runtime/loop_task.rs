@@ -72,6 +72,12 @@ pub struct RuntimeLoopConfig<E: Envelope> {
     /// ~125-150ms apart. Setting this enforces a minimum delay between sends.
     /// Default: Duration::ZERO (no artificial spacing)
     pub min_inquiry_spacing: std::time::Duration,
+    /// Maximum pending queue depth for admission control.
+    ///
+    /// This bounds the number of commands/inquiries that can be queued
+    /// in the scheduler. When at capacity, new submissions are rejected
+    /// with a retryable `RuntimeQueueFull` error.
+    pub max_pending_queue_depth: usize,
 }
 
 /// Main runtime loop with configurable tick interval.
@@ -101,8 +107,12 @@ pub async fn runtime_loop_with_config<
     executor: Arc<Ex>,
     config: RuntimeLoopConfig<P::Envelope>,
 ) -> Result<()> {
-    let mut adapter =
-        AsyncAdapter::<P, Ex>::new(config.timeout_config, config.retry_config, executor.clone());
+    let mut adapter = AsyncAdapter::<P, Ex>::new(
+        config.timeout_config,
+        config.retry_config,
+        executor.clone(),
+        config.max_pending_queue_depth,
+    );
     adapter.set_max_inquiries_inflight(config.max_concurrent_inquiries);
     adapter.set_min_inquiry_spacing(config.min_inquiry_spacing);
     let mut protocol_framer = ProtocolFramer::new_with_config(config.buffer_manager.config());

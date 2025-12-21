@@ -170,6 +170,7 @@ impl<P: Profile + 'static, E: Executor + Send + Sync + 'static> RuntimeHandle<P,
             write_timeout: tcfg.write_timeout,
             max_concurrent_inquiries,
             min_inquiry_spacing: P::MIN_INQUIRY_SPACING,
+            max_pending_queue_depth: tcfg.max_pending_queue_depth.get(),
         };
 
         let task_executor = Arc::clone(&executor);
