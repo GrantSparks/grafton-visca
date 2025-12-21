@@ -16,7 +16,7 @@
 //! - Command delivery failures
 //! - Unpredictable response routing between connections
 //!
-//! The [`Camera`] type (and its underlying [`RuntimeHandle`]) is designed for
+//! The [`Camera`] type (and its underlying `RuntimeHandle`) is designed for
 //! concurrent access:
 //! - **Thread-safe**: Internal synchronization handles concurrent command submission
 //! - **Clone-friendly**: `Camera::clone()` creates a lightweight handle to the same
@@ -54,7 +54,6 @@
 //! ```
 //!
 //! [`Camera`]: crate::Camera
-//! [`RuntimeHandle`]: crate::runtime::RuntimeHandle
 //!
 //! ## Wire-Error Semantics
 //!
