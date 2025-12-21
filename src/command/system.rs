@@ -174,6 +174,65 @@ impl CommandCancelCommand {
     }
 }
 
+/// Command to save current camera settings to non-volatile memory.
+///
+/// This command persists the current camera configuration. PTZOptics cameras
+/// may require this after certain setting changes (like flip mode) to ensure
+/// the changes persist across power cycles.
+///
+/// # VISCA Command
+/// `81 01 04 A5 10 FF`
+///
+/// # Vendor Support
+/// - PTZOptics G2/G3/30X: Supported
+/// - Sony: Not applicable
+#[derive(Debug, Copy, Clone)]
+pub struct SettingsSaveCommand;
+
+impl SettingsSaveCommand {
+    /// Create a new settings save command.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self
+    }
+}
+
+impl Default for SettingsSaveCommand {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ViscaCommand for SettingsSaveCommand {
+    type Response = ();
+    const MAX_SIZE: usize = 6;
+    const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
+
+    fn write_into(
+        &self,
+        camera_id: crate::camera_id::CameraId,
+        buffer: &mut [u8],
+    ) -> Result<usize, Error> {
+        if buffer.len() < 6 {
+            return Err(Error::BufferTooSmall {
+                required: 6,
+                actual: buffer.len(),
+            });
+        }
+        buffer[0] = camera_id.to_address_byte();
+        buffer[1] = 0x01;
+        buffer[2] = 0x04;
+        buffer[3] = 0xA5;
+        buffer[4] = 0x10;
+        buffer[5] = VISCA_TERMINATOR;
+        Ok(6)
+    }
+
+    fn response_kind(&self) -> Option<InquiryKind> {
+        None
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
@@ -209,6 +268,13 @@ mod tests {
         &[0x81, 0x22, VISCA_TERMINATOR]
     );
 
+    visca_test!(
+        SettingsSaveCommand,
+        test_settings_save_command,
+        SettingsSaveCommand::new(),
+        &[0x81, 0x01, 0x04, 0xA5, 0x10, VISCA_TERMINATOR]
+    );
+
     #[test]
     fn test_response_type_and_timeout() {
         let cmd = AddressSetCommand::new();
@@ -222,6 +288,27 @@ mod tests {
         let cmd = CommandCancelCommand::new(ViscaSocket::S1);
         assert!(cmd.response_kind().is_none());
         assert_eq!(cmd.timeout_class(), CommandCategory::Quick);
+
+        let cmd = SettingsSaveCommand::new();
+        assert!(cmd.response_kind().is_none());
+        assert_eq!(cmd.timeout_class(), CommandCategory::Quick);
+    }
+
+    #[test]
+    fn test_settings_save_default() {
+        let cmd1 = SettingsSaveCommand::new();
+        let cmd2 = SettingsSaveCommand;
+        // Both should produce the same bytes
+        use crate::camera_id::CameraId;
+        use crate::command::encode::ViscaCommand;
+        assert_eq!(
+            cmd1.to_bytes(CameraId::CAMERA_1)
+                .map(|b| b.to_vec())
+                .unwrap(),
+            cmd2.to_bytes(CameraId::CAMERA_1)
+                .map(|b| b.to_vec())
+                .unwrap()
+        );
     }
 
     #[test]

@@ -51,6 +51,18 @@ pub trait ImageProcessing {
 
     /// Luminance range if supported.
     const LUMINANCE_RANGE: Option<Range<u8>> = None;
+
+    /// Whether camera uses the combined flip command (0xA4) instead of legacy commands (0x61/0x66).
+    ///
+    /// PTZOptics G2/G3/30X cameras use the combined command which sets both horizontal
+    /// and vertical flip in a single operation. Legacy Sony cameras use separate commands.
+    const USES_COMBINED_FLIP_COMMAND: bool = false;
+
+    /// Whether camera requires Settings Save (0xA5) after flip changes to persist them.
+    ///
+    /// PTZOptics cameras may require this command after changing flip settings to ensure
+    /// the changes persist across power cycles.
+    const REQUIRES_SETTINGS_SAVE_FOR_FLIP: bool = false;
 }
 
 /// Extension trait that adds validation methods to cameras with image processing support.
@@ -153,6 +165,16 @@ pub trait ImageProcessingExt: ImageProcessing {
     /// Check if mirror is supported.
     fn can_mirror(&self) -> bool {
         Self::SUPPORTS_MIRROR
+    }
+
+    /// Check if camera uses combined flip command (0xA4).
+    fn uses_combined_flip_command(&self) -> bool {
+        Self::USES_COMBINED_FLIP_COMMAND
+    }
+
+    /// Check if camera requires settings save after flip changes.
+    fn requires_settings_save_for_flip(&self) -> bool {
+        Self::REQUIRES_SETTINGS_SAVE_FOR_FLIP
     }
 }
 

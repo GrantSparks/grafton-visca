@@ -94,6 +94,36 @@ pub trait SystemControl {
         &self,
         socket: ViscaSocket,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+
+    /// Save current camera settings to non-volatile memory.
+    ///
+    /// Persists the current camera configuration to non-volatile memory,
+    /// ensuring settings survive power cycles. This is primarily used for
+    /// PTZOptics cameras after changing certain settings like image flip.
+    ///
+    /// # PTZOptics Flip Commands
+    ///
+    /// PTZOptics cameras may require calling this method after changing flip
+    /// settings to ensure the changes persist across power cycles. The library
+    /// tracks this requirement via the `REQUIRES_SETTINGS_SAVE_FOR_FLIP` profile
+    /// capability flag.
+    ///
+    /// ```ignore
+    /// // After changing flip settings on PTZOptics cameras:
+    /// camera.enable_flip()?;
+    /// camera.save_settings()?;  // Persist the flip change
+    /// ```
+    ///
+    /// # VISCA Command
+    /// `81 01 04 A5 10 FF`
+    ///
+    /// # Vendor Support
+    /// - PTZOptics G2/G3/30X: Supported
+    /// - Sony: Not applicable
+    ///
+    /// # Errors
+    /// Returns an error if the command fails to send or receive a response.
+    fn save_settings(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 }
 
 // Single unified implementation for all Camera types!
@@ -127,6 +157,12 @@ where
         // - NoSocket (0x05): No command was executing, nothing to cancel (OK)
         // - CommandCanceled (0x04): Command was successfully canceled (OK)
         // These are mapped to success in the runtime layer via to_public_error()
+        self.execute(cmd)
+    }
+
+    fn save_settings(&self) -> M::Fut<'_, Result<(), Error>> {
+        use crate::command::system::SettingsSaveCommand;
+        let cmd = SettingsSaveCommand::new();
         self.execute(cmd)
     }
 }

@@ -93,6 +93,18 @@ impl PanTiltLimits {
     }
 }
 
+/// Cached flip state for image orientation.
+///
+/// Tracks both horizontal (mirror) and vertical (upside-down) flip settings.
+/// Used for PTZOptics cameras that require the combined flip command (0xA4).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct CachedFlipState {
+    /// Whether horizontal flip (mirror) is enabled.
+    pub horizontal: bool,
+    /// Whether vertical flip (upside-down) is enabled.
+    pub vertical: bool,
+}
+
 /// Inner state storage for the cache.
 ///
 /// This struct holds the actual cached values and is wrapped in appropriate
@@ -109,6 +121,10 @@ struct StateCacheInner {
 
     /// Cached pan/tilt limits.
     pan_tilt_limits: PanTiltLimits,
+
+    /// Cached flip state (for PTZOptics combined flip command).
+    /// `None` if never queried or set through this camera instance.
+    flip_state: Option<CachedFlipState>,
 }
 
 impl StateCacheInner {
@@ -239,6 +255,26 @@ impl StateCache {
         }
     }
 
+    /// Query cached flip state.
+    ///
+    /// Returns `None` if never queried or set through this camera instance.
+    /// Used by PTZOptics cameras that need to track flip state for the
+    /// combined flip command (0xA4).
+    #[must_use]
+    pub fn flip_state(&self) -> Option<CachedFlipState> {
+        #[cfg(feature = "mode-async")]
+        {
+            self.inner
+                .lock()
+                .map(|guard| guard.flip_state)
+                .unwrap_or(None)
+        }
+        #[cfg(not(feature = "mode-async"))]
+        {
+            self.inner.borrow().flip_state
+        }
+    }
+
     /// Clear all cached state.
     ///
     /// Call this after a camera reset or reconnection to ensure
@@ -289,6 +325,29 @@ impl StateCache {
         #[cfg(not(feature = "mode-async"))]
         {
             self.inner.borrow_mut().spotlight = Some(enabled);
+        }
+    }
+
+    /// Update the cached flip state.
+    ///
+    /// This is called internally after a successful flip command or inquiry.
+    /// PTZOptics cameras use this to track state for the combined flip command.
+    pub(crate) fn set_flip_state(&self, horizontal: bool, vertical: bool) {
+        #[cfg(feature = "mode-async")]
+        {
+            if let Ok(mut guard) = self.inner.lock() {
+                guard.flip_state = Some(CachedFlipState {
+                    horizontal,
+                    vertical,
+                });
+            }
+        }
+        #[cfg(not(feature = "mode-async"))]
+        {
+            self.inner.borrow_mut().flip_state = Some(CachedFlipState {
+                horizontal,
+                vertical,
+            });
         }
     }
 
@@ -390,6 +449,7 @@ mod tests {
         assert_eq!(cache.auto_slow_shutter(), None);
         assert_eq!(cache.spotlight(), None);
         assert!(!cache.pan_tilt_limits().is_set());
+        assert_eq!(cache.flip_state(), None);
     }
 
     #[test]
@@ -412,6 +472,54 @@ mod tests {
 
         cache.set_spotlight(false);
         assert_eq!(cache.spotlight(), Some(false));
+    }
+
+    #[test]
+    fn test_flip_state_caching() {
+        let cache = StateCache::new();
+
+        // Initially None
+        assert_eq!(cache.flip_state(), None);
+
+        // Set both flips off
+        cache.set_flip_state(false, false);
+        assert_eq!(
+            cache.flip_state(),
+            Some(CachedFlipState {
+                horizontal: false,
+                vertical: false
+            })
+        );
+
+        // Set horizontal flip on
+        cache.set_flip_state(true, false);
+        assert_eq!(
+            cache.flip_state(),
+            Some(CachedFlipState {
+                horizontal: true,
+                vertical: false
+            })
+        );
+
+        // Set vertical flip on
+        cache.set_flip_state(false, true);
+        assert_eq!(
+            cache.flip_state(),
+            Some(CachedFlipState {
+                horizontal: false,
+                vertical: true
+            })
+        );
+
+        // Set both flips on
+        cache.set_flip_state(true, true);
+        assert_eq!(
+            cache.flip_state(),
+            Some(CachedFlipState {
+                horizontal: true,
+                vertical: true
+            })
+        );
     }
 
     #[test]
@@ -442,12 +550,14 @@ mod tests {
             PanPosition::CENTER,
             TiltPosition::CENTER,
         );
+        cache.set_flip_state(true, true);
 
         cache.clear();
 
         assert_eq!(cache.auto_slow_shutter(), None);
         assert_eq!(cache.spotlight(), None);
         assert!(!cache.pan_tilt_limits().is_set());
+        assert_eq!(cache.flip_state(), None);
     }
 
     #[test]

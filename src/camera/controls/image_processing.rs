@@ -17,6 +17,7 @@
 
 use crate::{
     camera::ViscaClient,
+    capabilities::ImageProcessing as ImageProcessingCap,
     command::{resolution::PictureEffectMode, ImageFlipMode},
     mode::Mode,
     types::{
@@ -356,34 +357,99 @@ pub trait ImageProcessingControl {
 impl<M, P, Tr, Exec> ImageProcessingControl for crate::camera::Camera<M, P, Tr, Exec>
 where
     M: Mode,
-    P: crate::capabilities::Profile + Default,
+    P: crate::capabilities::Profile + ImageProcessingCap + Default,
     Self: ViscaClient<M>,
     Exec: crate::executor::Executor,
 {
     type Mode = M;
 
     fn enable_flip(&self) -> M::Fut<'_, Result<(), Error>> {
-        let cmd = crate::command::flip::ImageFlip {
-            flip: crate::command::flip::Flip::On,
-        };
-        self.execute(cmd)
+        if P::USES_COMBINED_FLIP_COMMAND {
+            // PTZOptics: Use combined flip command
+            // Get current horizontal state from cache
+            let cached = self.cache().flip_state();
+            let h = cached.map(|s| s.horizontal).unwrap_or(false);
+            let mode = if h {
+                ImageFlipMode::Both
+            } else {
+                ImageFlipMode::Vertical
+            };
+            let cmd = crate::command::image::ImageFlipCombinedCommand::new(mode);
+            self.execute_updating_cache(cmd, move |cache| {
+                cache.set_flip_state(h, true);
+            })
+        } else {
+            // Legacy: Use separate 0x66 command
+            let cmd = crate::command::flip::ImageFlip {
+                flip: crate::command::flip::Flip::On,
+            };
+            self.execute(cmd)
+        }
     }
 
     fn disable_flip(&self) -> M::Fut<'_, Result<(), Error>> {
-        let cmd = crate::command::flip::ImageFlip {
-            flip: crate::command::flip::Flip::Off,
-        };
-        self.execute(cmd)
+        if P::USES_COMBINED_FLIP_COMMAND {
+            // PTZOptics: Use combined flip command
+            let cached = self.cache().flip_state();
+            let h = cached.map(|s| s.horizontal).unwrap_or(false);
+            let mode = if h {
+                ImageFlipMode::Horizontal
+            } else {
+                ImageFlipMode::Off
+            };
+            let cmd = crate::command::image::ImageFlipCombinedCommand::new(mode);
+            self.execute_updating_cache(cmd, move |cache| {
+                cache.set_flip_state(h, false);
+            })
+        } else {
+            // Legacy: Use separate 0x66 command
+            let cmd = crate::command::flip::ImageFlip {
+                flip: crate::command::flip::Flip::Off,
+            };
+            self.execute(cmd)
+        }
     }
 
     fn enable_horizontal_flip(&self) -> M::Fut<'_, Result<(), Error>> {
-        let cmd = crate::command::flip::HorizontalFlip { on: true };
-        self.execute(cmd)
+        if P::USES_COMBINED_FLIP_COMMAND {
+            // PTZOptics: Use combined flip command
+            let cached = self.cache().flip_state();
+            let v = cached.map(|s| s.vertical).unwrap_or(false);
+            let mode = if v {
+                ImageFlipMode::Both
+            } else {
+                ImageFlipMode::Horizontal
+            };
+            let cmd = crate::command::image::ImageFlipCombinedCommand::new(mode);
+            self.execute_updating_cache(cmd, move |cache| {
+                cache.set_flip_state(true, v);
+            })
+        } else {
+            // Legacy: Use separate 0x61 command
+            let cmd = crate::command::flip::HorizontalFlip { on: true };
+            self.execute(cmd)
+        }
     }
 
     fn disable_horizontal_flip(&self) -> M::Fut<'_, Result<(), Error>> {
-        let cmd = crate::command::flip::HorizontalFlip { on: false };
-        self.execute(cmd)
+        if P::USES_COMBINED_FLIP_COMMAND {
+            // PTZOptics: Use combined flip command
+            let cached = self.cache().flip_state();
+            let v = cached.map(|s| s.vertical).unwrap_or(false);
+            let mode = if v {
+                ImageFlipMode::Vertical
+            } else {
+                ImageFlipMode::Off
+            };
+            let cmd = crate::command::image::ImageFlipCombinedCommand::new(mode);
+            self.execute_updating_cache(cmd, move |cache| {
+                cache.set_flip_state(false, v);
+            })
+        } else {
+            // Legacy: Use separate 0x61 command
+            let cmd = crate::command::flip::HorizontalFlip { on: false };
+            self.execute(cmd)
+        }
     }
 
     fn set_contrast(&self, level: ContrastLevel) -> M::Fut<'_, Result<(), Error>> {
@@ -467,7 +533,15 @@ where
         // Use the combined flip command (PtzOptics A4 opcode)
         // This is more efficient than sending separate vertical and horizontal commands
         let cmd = crate::command::image::ImageFlipCombinedCommand::new(mode);
-        self.execute(cmd)
+        let (h, v) = match mode {
+            ImageFlipMode::Off => (false, false),
+            ImageFlipMode::Horizontal => (true, false),
+            ImageFlipMode::Vertical => (false, true),
+            ImageFlipMode::Both => (true, true),
+        };
+        self.execute_updating_cache(cmd, move |cache| {
+            cache.set_flip_state(h, v);
+        })
     }
 
     fn set_luminance(&self, level: LuminanceLevel) -> M::Fut<'_, Result<(), Error>> {

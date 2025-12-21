@@ -159,6 +159,8 @@ impl ImageProcessing for PtzOpticsG2 {
     const SUPPORTS_2D_NR: bool = true;
     const SUPPORTS_3D_NR: bool = true;
     const SUPPORTS_PICTURE_EFFECT: bool = false;
+    const USES_COMBINED_FLIP_COMMAND: bool = true;
+    const REQUIRES_SETTINGS_SAVE_FOR_FLIP: bool = true;
 }
 
 impl Presets for PtzOpticsG2 {
@@ -798,6 +800,8 @@ impl ImageProcessing for PtzOpticsG3 {
     const SUPPORTS_NOISE_REDUCTION: bool = true;
     const SUPPORTS_2D_NR: bool = true;
     const SUPPORTS_3D_NR: bool = true;
+    const USES_COMBINED_FLIP_COMMAND: bool = true;
+    const REQUIRES_SETTINGS_SAVE_FOR_FLIP: bool = true;
 }
 
 impl Presets for PtzOpticsG3 {
@@ -887,6 +891,8 @@ impl ImageProcessing for PtzOptics30X {
     const SUPPORTS_NOISE_REDUCTION: bool = true;
     const SUPPORTS_2D_NR: bool = true;
     const SUPPORTS_3D_NR: bool = true;
+    const USES_COMBINED_FLIP_COMMAND: bool = true;
+    const REQUIRES_SETTINGS_SAVE_FOR_FLIP: bool = true;
 }
 
 impl Presets for PtzOptics30X {

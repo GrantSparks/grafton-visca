@@ -49,7 +49,7 @@ pub use self::{
     power::*,
     preset::*,
     response::{InquiryKind, Response},
-    system::{MotionSyncMode, MotionSyncPreset},
+    system::{MotionSyncMode, MotionSyncPreset, SettingsSaveCommand},
     variable_speed::*,
     white_balance::*,
 };
