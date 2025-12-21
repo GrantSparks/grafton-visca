@@ -584,10 +584,43 @@ impl BlockingTransport for ScriptedBlockingTransport {
         }
     }
 
-    fn recv_into_with_timeout(&mut self, dst: &mut [u8], _timeout: Duration) -> Result<usize> {
-        // For the scripted transport, we just use the same logic as recv_into
-        // The timeout is handled by the script itself
-        self.recv_into(dst)
+    fn recv_into_with_timeout(&mut self, dst: &mut [u8], timeout: Duration) -> Result<usize> {
+        // Check for injected errors first
+        {
+            let mut steps = self
+                .steps
+                .lock()
+                .expect("ScriptedBlockingTransport mutex poisoned");
+            if let Some(Step::InjectError(_)) = steps.front() {
+                let error = match steps
+                    .pop_front()
+                    .expect("No error step available in scripted transport")
+                {
+                    Step::InjectError(e) => e,
+                    _ => unreachable!(),
+                };
+                return Err(error);
+            }
+        }
+
+        // Use the provided timeout for the receive operation
+        // If timeout is zero, check for data immediately without blocking
+        let actual_timeout = if timeout.is_zero() {
+            // Use a minimal timeout for zero-wait polling
+            Duration::from_micros(1)
+        } else {
+            timeout
+        };
+
+        match self.response_rx.recv_timeout(actual_timeout) {
+            Ok(Ok(response)) => {
+                let len = response.len().min(dst.len());
+                dst[..len].copy_from_slice(&response[..len]);
+                Ok(len)
+            }
+            Ok(Err(e)) => Err(e),
+            Err(_) => Err(Error::Timeout),
+        }
     }
 }
 

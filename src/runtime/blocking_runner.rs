@@ -182,6 +182,77 @@ impl<P: Profile> BlockingRunner<P> {
         self.core.set_timeout_config(timeout_config);
     }
 
+    /// Compute the effective receive timeout based on scheduler deadlines,
+    /// call-level deadline, and transport configuration.
+    ///
+    /// This method returns the minimum non-zero duration among:
+    /// - Time until the scheduler's next deadline (ACK timeout, socket timeout, retry, etc.)
+    /// - Time until the call-level deadline (if present)
+    /// - Transport's configured read timeout
+    ///
+    /// If the scheduler has no pending deadlines but a command is still inflight,
+    /// this falls back to the transport's read timeout.
+    fn compute_receive_timeout<T: HasTransportConfig>(
+        &self,
+        transport: &T,
+        now: Instant,
+        call_deadline: Option<&Deadline>,
+    ) -> Duration {
+        let transport_timeout = transport.transport_config().read_timeout;
+
+        // Get scheduler's next deadline
+        let core_wait = self
+            .core
+            .next_deadline(now)
+            .map(|deadline| deadline.saturating_duration_since(now));
+
+        // Get call-level deadline remaining time
+        let call_wait = call_deadline.map(|d| d.remaining_at(now));
+
+        // Select the minimum non-zero timeout
+        let recv_timeout = match (core_wait, call_wait) {
+            (Some(core), Some(call)) => {
+                // Both present: take the minimum
+                let min = core.min(call);
+                if min.is_zero() {
+                    // If we have a zero timeout, iterate immediately
+                    Duration::ZERO
+                } else {
+                    min.min(transport_timeout)
+                }
+            }
+            (Some(core), None) => {
+                if core.is_zero() {
+                    Duration::ZERO
+                } else {
+                    core.min(transport_timeout)
+                }
+            }
+            (None, Some(call)) => {
+                if call.is_zero() {
+                    Duration::ZERO
+                } else {
+                    call.min(transport_timeout)
+                }
+            }
+            (None, None) => {
+                // No scheduler deadline and no call deadline.
+                // This is an edge case (invariant: if a command is pending, there should be
+                // a scheduler deadline). Fall back to transport timeout.
+                if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
+                    eprintln!(
+                        "[BlockingRunner] No scheduler or call deadline while command pending; \
+                        falling back to transport_timeout={:?}",
+                        transport_timeout
+                    );
+                }
+                transport_timeout
+            }
+        };
+
+        recv_timeout
+    }
+
     /// Run the scheduler until a specific command completes.
     ///
     /// # Arguments
@@ -320,7 +391,11 @@ impl<P: Profile> BlockingRunner<P> {
                 }
             }
 
-            match transport.recv_into_with_timeout(&mut read_buf, Duration::from_millis(10)) {
+            // Refresh timestamp and compute deadline-driven receive timeout
+            let now = Instant::now();
+            let recv_timeout = self.compute_receive_timeout(transport, now, deadline.as_ref());
+
+            match transport.recv_into_with_timeout(&mut read_buf, recv_timeout) {
                 Ok(0) => {
                     warn!("Connection closed by peer");
                     return Err(Error::ConnectionClosed {
@@ -671,6 +746,175 @@ mod tests {
         assert!(
             elapsed.as_millis() < 100,
             "Error should be returned immediately, took {elapsed:?}"
+        );
+    }
+
+    /// Mock transport for testing compute_receive_timeout.
+    struct MockTransportConfig {
+        config: TransportConfig,
+    }
+
+    impl MockTransportConfig {
+        fn new(read_timeout: Duration) -> Self {
+            Self {
+                config: TransportConfig {
+                    read_timeout,
+                    ..TransportConfig::default()
+                },
+            }
+        }
+    }
+
+    impl HasTransportConfig for MockTransportConfig {
+        fn transport_config(&self) -> &TransportConfig {
+            &self.config
+        }
+    }
+
+    /// Test that compute_receive_timeout selects the minimum of available waits.
+    #[test]
+    fn test_compute_receive_timeout_selects_minimum() {
+        let timeout_config = TimeoutConfig::default();
+        let runner = BlockingRunner::<PtzOpticsG2>::new(timeout_config);
+
+        let now = Instant::now();
+        let transport = MockTransportConfig::new(Duration::from_secs(5));
+
+        // With no deadline and no scheduler state, should use transport timeout
+        let timeout = runner.compute_receive_timeout(&transport, now, None);
+        assert_eq!(timeout, Duration::from_secs(5));
+    }
+
+    /// Test that call-level deadline is respected.
+    #[test]
+    fn test_compute_receive_timeout_respects_call_deadline() {
+        let timeout_config = TimeoutConfig::default();
+        let runner = BlockingRunner::<PtzOpticsG2>::new(timeout_config);
+
+        let now = Instant::now();
+        let transport = MockTransportConfig::new(Duration::from_secs(5));
+
+        // Call deadline of 100ms should be used since it's smaller
+        let call_deadline = Deadline::from_timeout_at(now, Duration::from_millis(100));
+        let timeout = runner.compute_receive_timeout(&transport, now, Some(&call_deadline));
+        assert_eq!(timeout, Duration::from_millis(100));
+    }
+
+    /// Test that expired deadline returns zero.
+    #[test]
+    fn test_compute_receive_timeout_expired_deadline_returns_zero() {
+        let timeout_config = TimeoutConfig::default();
+        let runner = BlockingRunner::<PtzOpticsG2>::new(timeout_config);
+
+        let now = Instant::now();
+        let transport = MockTransportConfig::new(Duration::from_secs(5));
+
+        // Create a deadline that's already expired
+        let past = now - Duration::from_millis(100);
+        let expired_deadline = Deadline::from_instant(past, Duration::from_millis(50));
+        let timeout = runner.compute_receive_timeout(&transport, now, Some(&expired_deadline));
+        assert_eq!(timeout, Duration::ZERO);
+    }
+
+    /// Test that transport timeout caps the result.
+    #[test]
+    fn test_compute_receive_timeout_capped_by_transport() {
+        let timeout_config = TimeoutConfig::default();
+        let runner = BlockingRunner::<PtzOpticsG2>::new(timeout_config);
+
+        let now = Instant::now();
+        // Very short transport timeout
+        let transport = MockTransportConfig::new(Duration::from_millis(50));
+
+        // Call deadline is much longer, but transport caps it
+        let call_deadline = Deadline::from_timeout_at(now, Duration::from_secs(10));
+        let timeout = runner.compute_receive_timeout(&transport, now, Some(&call_deadline));
+        assert_eq!(timeout, Duration::from_millis(50));
+    }
+
+    /// Test timeout computation with scheduler state.
+    #[test]
+    fn test_compute_receive_timeout_with_scheduler_deadline() {
+        use crate::command::bytes::VISCA_TERMINATOR;
+
+        // Set a short ACK timeout for testing
+        let timeout_config = TimeoutConfig {
+            ack_timeout: Duration::from_millis(200),
+            ..TimeoutConfig::default()
+        };
+
+        let mut runner = BlockingRunner::<PtzOpticsG2>::new(timeout_config);
+
+        #[derive(Debug, Clone)]
+        struct TestCmd {
+            bytes: Vec<u8>,
+        }
+
+        impl ViscaCommand for TestCmd {
+            type Response = ();
+            const MAX_SIZE: usize = 6;
+            const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
+
+            fn write_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
+                let len = self.bytes.len();
+                buffer[..len].copy_from_slice(&self.bytes);
+                Ok(len)
+            }
+
+            fn response_kind(&self) -> Option<crate::command::response::InquiryKind> {
+                None
+            }
+        }
+
+        // Queue a command to create scheduler state
+        let camera_id = CameraId::CAMERA_1;
+        let test_cmd = TestCmd {
+            bytes: vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR],
+        };
+        let prepared_cmd = std::sync::Arc::new(
+            crate::command::encode::EncodedCommand::new(test_cmd, camera_id).unwrap(),
+        );
+
+        let now = Instant::now();
+        let cmd = PendingCommand {
+            id: 1,
+            command: prepared_cmd.clone(),
+            priority: Priority::Normal,
+            category: CommandCategory::Quick,
+            camera_id,
+            submitted_at: now,
+            kind: prepared_cmd.kind,
+        };
+
+        runner.core.queue_command(cmd);
+
+        // Simulate the command being sent (moves to pending_ack)
+        let sent_cmd = runner.core.next_item_to_send(now).unwrap();
+        runner.core.register_pending_ack(
+            sent_cmd.id,
+            sent_cmd.command,
+            sent_cmd.priority,
+            sent_cmd.category,
+            sent_cmd.camera_id,
+            sent_cmd.kind,
+            now,
+        );
+
+        let transport = MockTransportConfig::new(Duration::from_secs(5));
+
+        // Now the scheduler should have an ACK timeout deadline
+        let timeout = runner.compute_receive_timeout(&transport, now, None);
+
+        // The timeout should be approximately the ACK timeout (200ms), not the transport timeout (5s)
+        assert!(
+            timeout <= Duration::from_millis(250),
+            "Expected timeout around 200ms, got {:?}",
+            timeout
+        );
+        assert!(
+            timeout >= Duration::from_millis(150),
+            "Timeout too short: {:?}",
+            timeout
         );
     }
 }
