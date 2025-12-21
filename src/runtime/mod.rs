@@ -109,7 +109,7 @@ mod loop_task;
 pub use core::Priority;
 
 #[cfg(feature = "mode-async")]
-pub use async_adapter::MetricsSummary;
+pub use async_adapter::{CompletionEvent, MetricsSummary};
 
 #[cfg(feature = "mode-async")]
 #[doc(hidden)]
