@@ -9,6 +9,7 @@ Use the github mcp service to read the issue and all comments. Do not trust clai
 
 ## Phase 1: Requirements Extraction
 1. **Read Complete Context**:
+   - Use the `Bash(git remote -v)` command to fetch the repo details.
    - Use the github mcp service to get full issue history
    - Extract all requirements from the original issue
    - Identify any scope expansions or clarifications in comments

@@ -5,7 +5,8 @@ description: Implement the next logical step for a GitHub issue
 Read GitHub issue #$ARGUMENTS and implement the next logical step based on the issue description and all comments.
 
 ## Initial Analysis Phase
-Use the github mcp service to read the issue and all comments. Use all available tools to:
+- Use the `Bash(git remote -v)` command to fetch the repo details.
+- Use the github mcp service to read the issue and all comments. Use all available tools to:
 - Search for relevant code patterns mentioned in the issue
 - Read key files to understand code structure
 - Understand how components interact
