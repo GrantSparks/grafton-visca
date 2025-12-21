@@ -314,6 +314,94 @@ pub fn normalize_host_with_default_port(
     Ok(parsed.format_socket_addr(default_port))
 }
 
+/// Canonicalize a network endpoint address for TCP/UDP connections.
+///
+/// This function provides a single, centralized location for address canonicalization
+/// at connection boundaries. It ensures:
+///
+/// 1. The address is parsed and validated
+/// 2. IPv6 addresses are properly bracketed when a port is present
+/// 3. Default ports are applied when the parsed port is missing
+/// 4. The output is always a canonical `host:port` string suitable for `ToSocketAddrs`
+///
+/// This should be called at all TCP/UDP connection entry points to ensure consistent
+/// address handling across the entire API surface.
+///
+/// # Arguments
+///
+/// * `address` - The address string to canonicalize (may be IPv4, IPv6, or hostname)
+/// * `default_port` - Port to use if none is specified in the address
+///
+/// # Returns
+///
+/// A canonical socket address string where:
+/// - IPv6 addresses are bracketed: `[2001:db8::1]:5678`
+/// - IPv4 addresses are formatted: `192.168.1.1:5678`
+/// - Hostnames are formatted: `camera.local:5678`
+///
+/// # Errors
+///
+/// Returns `Error::InvalidAddress` if:
+/// - The address cannot be parsed
+/// - The address format is invalid
+///
+/// # Invariant
+///
+/// After canonicalization, all TCP/UDP connectors receive a canonical `host:port` string
+/// where IPv6 is always bracketed when a port is present.
+///
+/// # Examples
+///
+/// ```
+/// use grafton_visca::transport::address::canonicalize_endpoint;
+///
+/// // Unbracketed IPv6 with port is canonicalized to bracketed form
+/// assert_eq!(
+///     canonicalize_endpoint("2001:db8::1:5678", Some(1234)).unwrap(),
+///     "[2001:db8::1]:5678"
+/// );
+///
+/// // IPv6 without port gets default port added
+/// assert_eq!(
+///     canonicalize_endpoint("::1", Some(5678)).unwrap(),
+///     "[::1]:5678"
+/// );
+///
+/// // Already bracketed IPv6 is preserved
+/// assert_eq!(
+///     canonicalize_endpoint("[::1]:1234", Some(5678)).unwrap(),
+///     "[::1]:1234"
+/// );
+///
+/// // IPv4 with port is formatted correctly
+/// assert_eq!(
+///     canonicalize_endpoint("192.168.1.1:5678", Some(1234)).unwrap(),
+///     "192.168.1.1:5678"
+/// );
+///
+/// // IPv4 without port gets default port added
+/// assert_eq!(
+///     canonicalize_endpoint("192.168.1.1", Some(5678)).unwrap(),
+///     "192.168.1.1:5678"
+/// );
+///
+/// // Hostname with port is formatted correctly
+/// assert_eq!(
+///     canonicalize_endpoint("camera.local:5678", Some(1234)).unwrap(),
+///     "camera.local:5678"
+/// );
+///
+/// // Hostname without port gets default port added
+/// assert_eq!(
+///     canonicalize_endpoint("localhost", Some(5678)).unwrap(),
+///     "localhost:5678"
+/// );
+/// ```
+pub fn canonicalize_endpoint(address: &str, default_port: Option<u16>) -> Result<String, Error> {
+    let parsed = HostPort::parse(address)?;
+    Ok(parsed.format_socket_addr(default_port))
+}
+
 /// A utility for resolving network addresses.
 ///
 /// This struct provides common address resolution logic that can be used
@@ -754,5 +842,97 @@ mod tests {
         assert_eq!(parsed.host(), "2001:db8:85a3::8a2e:370:7334");
         assert_eq!(parsed.port(), Some(80));
         assert!(parsed.is_ipv6());
+    }
+
+    #[test]
+    fn test_canonicalize_endpoint_ipv6_unbracketed_with_port() {
+        // This is the key test case from the issue: unbracketed IPv6 with port
+        // should be canonicalized to bracketed form
+        assert_eq!(
+            canonicalize_endpoint("2001:db8::1:5678", Some(1234)).unwrap(),
+            "[2001:db8::1]:5678"
+        );
+    }
+
+    #[test]
+    fn test_canonicalize_endpoint_ipv6() {
+        // IPv6 without port gets default port added
+        assert_eq!(
+            canonicalize_endpoint("::1", Some(5678)).unwrap(),
+            "[::1]:5678"
+        );
+
+        // Already bracketed IPv6 is preserved
+        assert_eq!(
+            canonicalize_endpoint("[::1]:1234", Some(5678)).unwrap(),
+            "[::1]:1234"
+        );
+
+        // IPv6 without brackets and no port
+        assert_eq!(
+            canonicalize_endpoint("2001:db8::1", Some(5678)).unwrap(),
+            "[2001:db8::1]:5678"
+        );
+
+        // Already bracketed without port
+        assert_eq!(
+            canonicalize_endpoint("[::1]", Some(5678)).unwrap(),
+            "[::1]:5678"
+        );
+    }
+
+    #[test]
+    fn test_canonicalize_endpoint_ipv4() {
+        // IPv4 with port is formatted correctly
+        assert_eq!(
+            canonicalize_endpoint("192.168.1.1:5678", Some(1234)).unwrap(),
+            "192.168.1.1:5678"
+        );
+
+        // IPv4 without port gets default port added
+        assert_eq!(
+            canonicalize_endpoint("192.168.1.1", Some(5678)).unwrap(),
+            "192.168.1.1:5678"
+        );
+    }
+
+    #[test]
+    fn test_canonicalize_endpoint_hostname() {
+        // Hostname with port is formatted correctly
+        assert_eq!(
+            canonicalize_endpoint("camera.local:5678", Some(1234)).unwrap(),
+            "camera.local:5678"
+        );
+
+        // Hostname without port gets default port added
+        assert_eq!(
+            canonicalize_endpoint("localhost", Some(5678)).unwrap(),
+            "localhost:5678"
+        );
+    }
+
+    #[test]
+    fn test_canonicalize_endpoint_errors() {
+        // Empty address
+        assert!(canonicalize_endpoint("", Some(5678)).is_err());
+
+        // Invalid port
+        assert!(canonicalize_endpoint("localhost:", Some(5678)).is_err());
+
+        // Empty host
+        assert!(canonicalize_endpoint(":5678", Some(5678)).is_err());
+    }
+
+    #[test]
+    fn test_canonicalize_endpoint_no_default_port() {
+        // When no default port is provided and address has no port,
+        // the result should be just the host (for later error at resolution time)
+        assert_eq!(
+            canonicalize_endpoint("192.168.1.1", None).unwrap(),
+            "192.168.1.1"
+        );
+
+        // IPv6 without port and no default should return just the host
+        assert_eq!(canonicalize_endpoint("::1", None).unwrap(), "::1");
     }
 }

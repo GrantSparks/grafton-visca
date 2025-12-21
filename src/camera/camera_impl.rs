@@ -602,6 +602,9 @@ where
     /// This is the primary convenience method for creating a blocking camera via TCP.
     /// It internally creates the transport and connects to the camera.
     ///
+    /// If no port is specified in the address, the profile's DEFAULT_TCP_PORT will be used.
+    /// IPv6 addresses are properly canonicalized (e.g., `2001:db8::1:5678` becomes `[2001:db8::1]:5678`).
+    ///
     /// # Example
     ///
     /// ```rust,ignore
@@ -612,24 +615,18 @@ where
     /// let camera = Camera::open_tcp::<PtzOpticsG2>("192.168.0.110:5678")?;
     /// camera.power().on()?;  // Direct Result<(), Error> with BlockingClient
     /// camera.close()?;
+    ///
+    /// // IPv6 with explicit port (canonicalized automatically)
+    /// let camera = Camera::open_tcp::<PtzOpticsG2>("[::1]:5678")?;
     /// ```
     pub fn open_tcp(addr: impl Into<String>) -> Result<Self, Error> {
-        let addr = addr.into();
+        // Canonicalize the address (handles IPv6 bracketing and default port)
+        let canonical_addr = crate::transport::address::canonicalize_endpoint(
+            &addr.into(),
+            Some(P::DEFAULT_TCP_PORT),
+        )?;
 
-        // Parse the address to check if it has a port
-        let addr_with_port = if let Ok(parsed) = crate::transport::address::HostPort::parse(&addr) {
-            // If no port specified, use the profile's default TCP port
-            if parsed.port().is_none() {
-                parsed.format_socket_addr(Some(P::DEFAULT_TCP_PORT))
-            } else {
-                addr
-            }
-        } else {
-            // If parsing fails, just pass it through - let the connection fail with proper error
-            addr
-        };
-
-        let tcp = crate::transport::blocking::tcp::Tcp::connect(&addr_with_port)?;
+        let tcp = crate::transport::blocking::tcp::Tcp::connect(&canonical_addr)?;
         let transport = crate::transport::BlockingTransportHandle::Tcp(tcp);
         Self::new_blocking(transport)
     }
@@ -638,6 +635,9 @@ where
     ///
     /// This is the primary convenience method for creating a blocking camera via UDP.
     /// It internally creates the transport and connects to the camera.
+    ///
+    /// If no port is specified in the address, the profile's DEFAULT_UDP_PORT will be used.
+    /// IPv6 addresses are properly canonicalized (e.g., `2001:db8::1:1259` becomes `[2001:db8::1]:1259`).
     ///
     /// # Example
     ///
@@ -649,24 +649,18 @@ where
     /// let camera = Camera::open_udp::<GenericVisca>("192.168.0.110:1259")?;
     /// camera.power().on()?;  // Direct Result<(), Error> with BlockingClient
     /// camera.close()?;
+    ///
+    /// // IPv6 with explicit port (canonicalized automatically)
+    /// let camera = Camera::open_udp::<GenericVisca>("[::1]:1259")?;
     /// ```
     pub fn open_udp(addr: impl Into<String>) -> Result<Self, Error> {
-        let addr = addr.into();
+        // Canonicalize the address (handles IPv6 bracketing and default port)
+        let canonical_addr = crate::transport::address::canonicalize_endpoint(
+            &addr.into(),
+            Some(P::DEFAULT_UDP_PORT),
+        )?;
 
-        // Parse the address to check if it has a port
-        let addr_with_port = if let Ok(parsed) = crate::transport::address::HostPort::parse(&addr) {
-            // If no port specified, use the profile's default UDP port
-            if parsed.port().is_none() {
-                parsed.format_socket_addr(Some(P::DEFAULT_UDP_PORT))
-            } else {
-                addr
-            }
-        } else {
-            // If parsing fails, just pass it through - let the connection fail with proper error
-            addr
-        };
-
-        let udp = crate::transport::blocking::udp::Udp::connect(&addr_with_port)?;
+        let udp = crate::transport::blocking::udp::Udp::connect(&canonical_addr)?;
         let transport = crate::transport::BlockingTransportHandle::Udp(udp);
         Self::new_blocking(transport)
     }

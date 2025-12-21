@@ -146,44 +146,37 @@ where
     /// If no port is specified, the profile's default port will be used.
     ///
     /// This method properly handles IPv6 addresses with and without brackets.
+    /// Unbracketed IPv6 addresses with ports (e.g., `2001:db8::1:5678`) are automatically
+    /// canonicalized to the bracketed form (`[2001:db8::1]:5678`).
+    ///
     /// Examples:
     /// - IPv4: `"192.168.1.1"`, `"192.168.1.1:5678"`
-    /// - IPv6: `"::1"`, `"[::1]:5678"`, `"2001:db8::1"`
+    /// - IPv6: `"::1"`, `"[::1]:5678"`, `"2001:db8::1"`, `"2001:db8::1:5678"`
     /// - Hostnames: `"localhost"`, `"camera.local:5678"`
     pub fn address(mut self, address: impl Into<String>) -> Self {
         let addr = address.into();
 
-        // Parse address using IPv6-safe parsing and add default port if needed
-        let final_addr = match crate::transport::address::HostPort::parse(&addr) {
-            Ok(parsed) => {
-                if parsed.port().is_some() {
-                    // Port already specified, use as-is
-                    parsed.format_socket_addr(None)
-                } else {
-                    // No port specified, add default port based on transport type
-                    let default_port = match &self.transport {
-                        TransportOptions::Tcp { .. } => P::DEFAULT_TCP_PORT,
-                        TransportOptions::Udp { .. } => P::DEFAULT_UDP_PORT,
-                        _ => P::DEFAULT_TCP_PORT,
-                    };
-                    parsed.format_socket_addr(Some(default_port))
-                }
-            }
-            Err(_) => {
-                // If parsing fails, fall back to old behavior for compatibility
-                // This handles edge cases where the input might not be a standard address
-                if addr.contains(':') {
-                    addr
-                } else {
-                    let default_port = match &self.transport {
-                        TransportOptions::Tcp { .. } => P::DEFAULT_TCP_PORT,
-                        TransportOptions::Udp { .. } => P::DEFAULT_UDP_PORT,
-                        _ => P::DEFAULT_TCP_PORT,
-                    };
-                    format!("{addr}:{default_port}")
-                }
-            }
+        // Determine default port based on transport type
+        let default_port = match &self.transport {
+            TransportOptions::Tcp { .. } => P::DEFAULT_TCP_PORT,
+            TransportOptions::Udp { .. } => P::DEFAULT_UDP_PORT,
+            _ => P::DEFAULT_TCP_PORT,
         };
+
+        // Use centralized canonicalization (handles IPv6 bracketing and default port)
+        let final_addr =
+            match crate::transport::address::canonicalize_endpoint(&addr, Some(default_port)) {
+                Ok(canonical) => canonical,
+                Err(_) => {
+                    // If parsing fails, fall back to old behavior for compatibility
+                    // This handles edge cases where the input might not be a standard address
+                    if addr.contains(':') {
+                        addr
+                    } else {
+                        format!("{addr}:{default_port}")
+                    }
+                }
+            };
 
         // Update transport with new address, preserving transport type
         self.transport = match self.transport {
@@ -317,13 +310,25 @@ where
         // Create transport based on configuration
         let transport = match &self.transport {
             TransportOptions::Tcp { address } => {
-                // Parse address and create TCP transport using Runtime trait
-                let tcp = runtime.connect_tcp(address, transport_config).await?;
+                // Canonicalize address at the connection boundary (handles IPv6 bracketing)
+                let canonical_addr = crate::transport::address::canonicalize_endpoint(
+                    address,
+                    Some(P::DEFAULT_TCP_PORT),
+                )?;
+                let tcp = runtime
+                    .connect_tcp(&canonical_addr, transport_config)
+                    .await?;
                 TransportHandle::Tcp(tcp)
             }
             TransportOptions::Udp { address } => {
-                // Parse address and create UDP transport using Runtime trait
-                let udp = runtime.connect_udp(address, transport_config).await?;
+                // Canonicalize address at the connection boundary (handles IPv6 bracketing)
+                let canonical_addr = crate::transport::address::canonicalize_endpoint(
+                    address,
+                    Some(P::DEFAULT_UDP_PORT),
+                )?;
+                let udp = runtime
+                    .connect_udp(&canonical_addr, transport_config)
+                    .await?;
                 TransportHandle::Udp(udp)
             }
             TransportOptions::Serial { .. } => {
@@ -472,33 +477,21 @@ where
         // Create transport based on configuration
         let transport = match &self.transport {
             TransportOptions::Tcp { address } => {
-                // Parse address and add default port if needed
-                let addr_with_port =
-                    if let Ok(parsed) = crate::transport::address::HostPort::parse(address) {
-                        if parsed.port().is_none() {
-                            parsed.format_socket_addr(Some(P::DEFAULT_TCP_PORT))
-                        } else {
-                            address.clone()
-                        }
-                    } else {
-                        address.clone()
-                    };
-                let tcp = Tcp::connect(&addr_with_port)?;
+                // Canonicalize address at the connection boundary (handles IPv6 bracketing)
+                let canonical_addr = crate::transport::address::canonicalize_endpoint(
+                    address,
+                    Some(P::DEFAULT_TCP_PORT),
+                )?;
+                let tcp = Tcp::connect(&canonical_addr)?;
                 crate::transport::BlockingTransportHandle::Tcp(tcp)
             }
             TransportOptions::Udp { address } => {
-                // Parse address and add default port if needed
-                let addr_with_port =
-                    if let Ok(parsed) = crate::transport::address::HostPort::parse(address) {
-                        if parsed.port().is_none() {
-                            parsed.format_socket_addr(Some(P::DEFAULT_UDP_PORT))
-                        } else {
-                            address.clone()
-                        }
-                    } else {
-                        address.clone()
-                    };
-                let udp = Udp::connect(&addr_with_port)?;
+                // Canonicalize address at the connection boundary (handles IPv6 bracketing)
+                let canonical_addr = crate::transport::address::canonicalize_endpoint(
+                    address,
+                    Some(P::DEFAULT_UDP_PORT),
+                )?;
+                let udp = Udp::connect(&canonical_addr)?;
                 crate::transport::BlockingTransportHandle::Udp(udp)
             }
             TransportOptions::Serial { .. } => {
