@@ -1039,6 +1039,17 @@ impl SchedulerCore {
         );
     }
 
+    /// Check if a command is still active (tracked by the scheduler).
+    ///
+    /// A command is considered active if it exists in `command_metadata`
+    /// (for regular commands) or in `inquiries_inflight` (for inquiries).
+    /// This matches the staleness checks used in `get_command_by_sequence`.
+    ///
+    /// This is used to filter out stale retries in `get_ready_retries`.
+    fn is_command_active(&self, cmd_id: u32) -> bool {
+        self.command_metadata.contains_key(&cmd_id) || self.inquiries_inflight.contains_key(&cmd_id)
+    }
+
     /// Cancel a command, cleaning up all associated state.
     ///
     /// This is used when a command needs to be abandoned due to an external
@@ -1762,6 +1773,14 @@ impl SchedulerCore {
     }
 
     /// Get commands that are ready to retry.
+    ///
+    /// This method filters out stale retries by validating that:
+    /// 1. The command is still active (exists in `command_metadata` or `inquiries_inflight`)
+    /// 2. The retry attempt matches the current `retry_attempts` count
+    ///
+    /// This prevents re-sending commands that have already completed or failed,
+    /// and ensures that only the latest retry entry for a command is executed
+    /// (dropping any superseded entries from overlapping timeout/error paths).
     pub fn get_ready_retries(&mut self, now: Instant) -> Vec<RetryCommand> {
         let mut ready = Vec::new();
 
@@ -1770,6 +1789,32 @@ impl SchedulerCore {
             if retry_key.command.retry_at <= now {
                 // Pop the ready command - we know it exists because we just peeked
                 if let Some(retry_key) = self.retry_queue.pop() {
+                    let cmd_id = retry_key.command.id;
+                    let retry_attempt = retry_key.command.attempt;
+
+                    // Check if command is still active
+                    if !self.is_command_active(cmd_id) {
+                        trace!(
+                            cmd_id,
+                            attempt = retry_attempt,
+                            "Dropping stale retry: command no longer active"
+                        );
+                        continue;
+                    }
+
+                    // Check if this retry attempt is still current
+                    // (prevents executing superseded retries from overlapping timeout paths)
+                    let current_attempt = self.retry_attempts.get(&cmd_id).copied().unwrap_or(0);
+                    if retry_attempt != current_attempt {
+                        trace!(
+                            cmd_id,
+                            queued_attempt = retry_attempt,
+                            current_attempt,
+                            "Dropping stale retry: attempt count mismatch"
+                        );
+                        continue;
+                    }
+
                     ready.push(retry_key.command);
                 } else {
                     // This shouldn't happen since we just peeked, but handle gracefully
@@ -5398,5 +5443,345 @@ mod tests {
                 now,
             );
         }
+    }
+
+    // ==================== Stale Retry Filtering Tests ====================
+    // These tests verify that get_ready_retries correctly filters out stale
+    // retries for commands that have already completed or failed.
+
+    #[test]
+    fn test_stale_retry_dropped_after_command_completion() {
+        // Arrange: register a command, schedule a retry, then complete the command
+        // before retry_at. Verify the retry is dropped.
+        let mut core = SchedulerCore::with_retry_config(
+            TimeoutConfig::default(),
+            RetryConfig {
+                max_retries: 3,
+                base_retry_delay: Duration::from_millis(100),
+                max_retry_duration: Duration::from_secs(5),
+                exponential_backoff: false,
+            },
+        );
+
+        let cmd_id = 1;
+        let camera_id = CameraId::CAMERA_1;
+        let command = create_test_command(
+            vec![0x81, 0x01, 0x04, 0x00, 0x03, VISCA_TERMINATOR],
+            None,
+            CommandCategory::Movement,
+            camera_id,
+        );
+        let now = Instant::now();
+
+        // Register command
+        core.register_pending_ack(
+            cmd_id,
+            command.clone(),
+            Priority::Normal,
+            CommandCategory::Movement,
+            CameraId::CAMERA_1,
+            CommandKind::Command,
+            now,
+        );
+
+        // Queue a retry
+        let action = core.queue_retry_for_command(cmd_id, now);
+        assert!(matches!(action, Some(SchedulerAction::RetryCommand { .. })));
+
+        // Verify retry is queued
+        assert_eq!(core.retry_queue_depth(), 1);
+
+        // Complete the command (simulating successful response before retry_at)
+        core.complete_command(cmd_id);
+
+        // Advance time past retry_at and try to get retries
+        let retries = core.get_ready_retries(now + Duration::from_millis(200));
+
+        // Assert: no retries should be returned since command is no longer active
+        assert!(
+            retries.is_empty(),
+            "Stale retry should be dropped for completed command"
+        );
+
+        // The retry queue should now be empty (stale entry was popped and discarded)
+        assert_eq!(core.retry_queue_depth(), 0);
+    }
+
+    #[test]
+    fn test_stale_retry_dropped_after_inquiry_completion() {
+        // Same as above but for inquiries
+        let mut core = SchedulerCore::with_retry_config(
+            TimeoutConfig::default(),
+            RetryConfig {
+                max_retries: 3,
+                base_retry_delay: Duration::from_millis(100),
+                max_retry_duration: Duration::from_secs(5),
+                exponential_backoff: false,
+            },
+        );
+
+        let cmd_id = 1;
+        let camera_id = CameraId::CAMERA_1;
+        let command = create_test_command(
+            vec![0x81, 0x09, 0x04, 0x47, VISCA_TERMINATOR],
+            Some(InquiryKind::ZoomPosition),
+            CommandCategory::Quick,
+            camera_id,
+        );
+        let now = Instant::now();
+
+        // Start inquiry (this registers it in inquiries_inflight)
+        core.start_inquiry(
+            cmd_id,
+            command.clone(),
+            Priority::Normal,
+            CommandCategory::Quick,
+            CameraId::CAMERA_1,
+            CommandKind::Inquiry,
+            now,
+        );
+
+        // Queue a retry
+        let action = core.queue_retry_for_command(cmd_id, now);
+        assert!(matches!(action, Some(SchedulerAction::RetryCommand { .. })));
+
+        // Complete the inquiry
+        core.complete_inquiry(cmd_id);
+
+        // Advance time past retry_at and try to get retries
+        let retries = core.get_ready_retries(now + Duration::from_millis(200));
+
+        // Assert: no retries should be returned
+        assert!(
+            retries.is_empty(),
+            "Stale retry should be dropped for completed inquiry"
+        );
+    }
+
+    #[test]
+    fn test_stale_retry_dropped_after_command_failure() {
+        // Arrange: schedule retry, then simulate a failure that removes metadata
+        let mut core = SchedulerCore::with_retry_config(
+            TimeoutConfig::default(),
+            RetryConfig {
+                max_retries: 3,
+                base_retry_delay: Duration::from_millis(100),
+                max_retry_duration: Duration::from_secs(5),
+                exponential_backoff: false,
+            },
+        );
+
+        let cmd_id = 1;
+        let camera_id = CameraId::CAMERA_1;
+        let command = create_test_command(
+            vec![0x81, 0x01, 0x04, 0x00, 0x03, VISCA_TERMINATOR],
+            None,
+            CommandCategory::Movement,
+            camera_id,
+        );
+        let now = Instant::now();
+
+        // Register command
+        core.register_pending_ack(
+            cmd_id,
+            command.clone(),
+            Priority::Normal,
+            CommandCategory::Movement,
+            CameraId::CAMERA_1,
+            CommandKind::Command,
+            now,
+        );
+
+        // Queue a retry
+        let action = core.queue_retry_for_command(cmd_id, now);
+        assert!(matches!(action, Some(SchedulerAction::RetryCommand { .. })));
+
+        // Cancel the command (simulating failure cleanup)
+        core.cancel_command(cmd_id);
+
+        // Note: cancel_command already removes the retry from the queue,
+        // but if there were a race condition where a retry was added after
+        // cancel started, it would be filtered by get_ready_retries.
+
+        // Advance time and verify no retries
+        let retries = core.get_ready_retries(now + Duration::from_millis(200));
+        assert!(
+            retries.is_empty(),
+            "No retries should be returned after cancel"
+        );
+    }
+
+    #[test]
+    fn test_superseded_retry_entries_are_ignored() {
+        // Arrange: force two retries for the same cmd_id with different attempt values
+        // This simulates overlapping timeout/error paths that could schedule multiple retries
+        let mut core = SchedulerCore::with_retry_config(
+            TimeoutConfig::default(),
+            RetryConfig {
+                max_retries: 5,
+                base_retry_delay: Duration::from_millis(100),
+                max_retry_duration: Duration::from_secs(5),
+                exponential_backoff: false,
+            },
+        );
+
+        let cmd_id = 1;
+        let camera_id = CameraId::CAMERA_1;
+        let command = create_test_command(
+            vec![0x81, 0x01, 0x04, 0x00, 0x03, VISCA_TERMINATOR],
+            None,
+            CommandCategory::Movement,
+            camera_id,
+        );
+        let now = Instant::now();
+
+        // Register command
+        core.register_pending_ack(
+            cmd_id,
+            command.clone(),
+            Priority::Normal,
+            CommandCategory::Movement,
+            CameraId::CAMERA_1,
+            CommandKind::Command,
+            now,
+        );
+
+        // Queue first retry (attempt 1)
+        let action1 = core.queue_retry_for_command(cmd_id, now);
+        assert!(matches!(
+            action1,
+            Some(SchedulerAction::RetryCommand { .. })
+        ));
+
+        // Simulate another overlapping path queueing a second retry
+        // This increments retry_attempts to 2 and queues another retry
+        let action2 = core.queue_retry_for_command(cmd_id, now);
+        assert!(matches!(
+            action2,
+            Some(SchedulerAction::RetryCommand { .. })
+        ));
+
+        // Now retry_attempts[cmd_id] == 2, but we have two entries in queue:
+        // - One with attempt=1 (stale)
+        // - One with attempt=2 (current)
+
+        // Advance time past both retry_at values
+        let retries = core.get_ready_retries(now + Duration::from_millis(300));
+
+        // Assert: only one retry should be returned (the one with attempt=2)
+        assert_eq!(
+            retries.len(),
+            1,
+            "Only the current attempt should be returned, stale entry should be dropped"
+        );
+        assert_eq!(
+            retries[0].attempt, 2,
+            "The returned retry should be attempt 2"
+        );
+
+        // Both entries should have been popped from the queue
+        assert_eq!(core.retry_queue_depth(), 0);
+    }
+
+    #[test]
+    fn test_valid_retry_still_works() {
+        // Sanity test: ensure valid retries are still returned properly
+        let mut core = SchedulerCore::with_retry_config(
+            TimeoutConfig::default(),
+            RetryConfig {
+                max_retries: 3,
+                base_retry_delay: Duration::from_millis(100),
+                max_retry_duration: Duration::from_secs(5),
+                exponential_backoff: false,
+            },
+        );
+
+        let cmd_id = 1;
+        let camera_id = CameraId::CAMERA_1;
+        let command = create_test_command(
+            vec![0x81, 0x01, 0x04, 0x00, 0x03, VISCA_TERMINATOR],
+            None,
+            CommandCategory::Movement,
+            camera_id,
+        );
+        let now = Instant::now();
+
+        // Register command
+        core.register_pending_ack(
+            cmd_id,
+            command.clone(),
+            Priority::Normal,
+            CommandCategory::Movement,
+            CameraId::CAMERA_1,
+            CommandKind::Command,
+            now,
+        );
+
+        // Queue a retry
+        let action = core.queue_retry_for_command(cmd_id, now);
+        assert!(matches!(action, Some(SchedulerAction::RetryCommand { .. })));
+
+        // Command is still active (not completed/cancelled)
+        // Advance time past retry_at
+        let retries = core.get_ready_retries(now + Duration::from_millis(200));
+
+        // Assert: retry should be returned
+        assert_eq!(retries.len(), 1, "Valid retry should be returned");
+        assert_eq!(retries[0].id, cmd_id);
+        assert_eq!(retries[0].attempt, 1);
+    }
+
+    #[test]
+    fn test_multiple_commands_with_valid_and_stale_retries() {
+        // Test with multiple commands: some completed, some still active
+        let mut core = SchedulerCore::with_retry_config(
+            TimeoutConfig::default(),
+            RetryConfig {
+                max_retries: 3,
+                base_retry_delay: Duration::from_millis(100),
+                max_retry_duration: Duration::from_secs(5),
+                exponential_backoff: false,
+            },
+        );
+
+        let camera_id = CameraId::CAMERA_1;
+        let command = create_test_command(
+            vec![0x81, 0x01, 0x04, 0x00, 0x03, VISCA_TERMINATOR],
+            None,
+            CommandCategory::Movement,
+            camera_id,
+        );
+        let now = Instant::now();
+
+        // Register 3 commands
+        for cmd_id in 1..=3 {
+            core.register_pending_ack(
+                cmd_id,
+                command.clone(),
+                Priority::Normal,
+                CommandCategory::Movement,
+                CameraId::CAMERA_1,
+                CommandKind::Command,
+                now,
+            );
+            // Queue a retry for each
+            let action = core.queue_retry_for_command(cmd_id, now);
+            assert!(matches!(action, Some(SchedulerAction::RetryCommand { .. })));
+        }
+
+        // Complete command 1 and 3, leave 2 active
+        core.complete_command(1);
+        core.complete_command(3);
+
+        // Advance time and get retries
+        let retries = core.get_ready_retries(now + Duration::from_millis(200));
+
+        // Only command 2's retry should be returned
+        assert_eq!(
+            retries.len(),
+            1,
+            "Only active command's retry should return"
+        );
+        assert_eq!(retries[0].id, 2, "Command 2's retry should be returned");
     }
 }
