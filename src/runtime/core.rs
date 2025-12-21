@@ -1506,19 +1506,6 @@ impl SchedulerCore {
             self.inquiries_inflight.remove(&cmd_id);
             // Remove from order queue if present
             self.inquiries_order.retain(|&id| id != cmd_id);
-            // Clean up response type if retry fails
-            let _should_remove_type = !self
-                .command_metadata
-                .get(&cmd_id)
-                .map(|(_, _, category, _, _, submitted_at)| {
-                    let attempts = self.retry_attempts.get(&cmd_id).copied().unwrap_or(0);
-                    let max_retries = self.retry_budget.for_category(*category);
-                    let within_duration =
-                        now.duration_since(*submitted_at) < self.retry_config.max_retry_duration;
-                    attempts < max_retries && within_duration
-                })
-                .unwrap_or(false);
-
             // Check if we should retry (budget and duration checks)
             let should_retry = self
                 .command_metadata
@@ -1986,7 +1973,13 @@ impl SchedulerCore {
             );
         }
 
-        trace!(id, inquiry_type = ?inquiry_type, "Started inquiry (no socket allocation)");
+        let inflight_count = self.inquiries_inflight.len();
+        trace!(
+            id,
+            inquiry_type = ?inquiry_type,
+            inflight_count,
+            "Started inquiry (no socket allocation)"
+        );
     }
 
     /// Check if a command is pending (either awaiting ACK or has a socket).
