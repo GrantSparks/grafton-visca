@@ -307,8 +307,22 @@ impl<P: Profile + 'static, E: Executor + Send + Sync + 'static> RuntimeHandle<P,
 
     /// Subscribe to completion events from the runtime.
     ///
-    /// Returns a receiver that will receive CompletionEvent notifications whenever
+    /// Returns a receiver that will receive [`CompletionEvent`] notifications whenever
     /// a command completes. Used for event-driven movement detection.
+    ///
+    /// # Best-Effort Semantics
+    ///
+    /// Completion events are delivered on a **best-effort** basis. Each subscriber
+    /// has a bounded buffer; if a subscriber cannot keep up with the event rate
+    /// and its buffer becomes full, events will be dropped for that subscriber.
+    /// This design ensures:
+    ///
+    /// - The runtime loop never blocks waiting for slow consumers
+    /// - No unbounded memory growth from unread events
+    /// - Subscribers that drain promptly receive all events
+    ///
+    /// If you need lossless event processing, ensure your consumer drains the
+    /// receiver faster than events are produced.
     pub async fn subscribe_completions(&self) -> Result<Receiver<CompletionEvent>> {
         let (response_tx, response_rx) = flume::bounded(1);
         self.inner

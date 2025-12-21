@@ -3,8 +3,8 @@
 //! This module provides an async wrapper around SchedulerCore, delegating all
 //! state management to the core while handling async I/O and futures.
 
-use flume::Sender;
-use tracing::{debug, warn};
+use flume::{Sender, TrySendError};
+use tracing::{debug, trace, warn};
 
 use std::{collections::HashMap, sync::Arc, time::Instant};
 
@@ -148,6 +148,16 @@ pub struct CompletionEvent {
     /// When the completion occurred.
     pub when: Instant,
 }
+
+/// Buffer size for per-subscriber completion event channels.
+///
+/// This bounds the maximum number of events that can be buffered for each
+/// subscriber. When full, new events are dropped for that subscriber rather
+/// than causing unbounded memory growth or blocking the runtime loop.
+///
+/// A buffer of 256 events provides reasonable headroom for transient consumer
+/// lag while preventing memory issues from slow/forgotten subscribers.
+const COMPLETIONS_BUFFER: usize = 256;
 
 /// Async adapter wrapping the scheduler core.
 pub(crate) struct AsyncAdapter<P: Profile, E: Executor> {
@@ -475,9 +485,27 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
                         when: self.executor.now(),
                     };
 
-                    // Remove any disconnected subscribers while broadcasting
-                    self.completion_subscribers
-                        .retain(|tx| tx.try_send(event).is_ok());
+                    // Broadcast to all subscribers, handling overflow and disconnection separately:
+                    // - Disconnected: Remove the subscriber (receiver dropped)
+                    // - Full: Keep subscriber but drop this event (slow consumer, best-effort delivery)
+                    self.completion_subscribers.retain(|tx| {
+                        match tx.try_send(event) {
+                            Ok(()) => true, // Successfully sent, keep subscriber
+                            Err(TrySendError::Full(_)) => {
+                                // Buffer full - drop event but keep subscriber (best-effort semantics)
+                                trace!(
+                                    category = ?event.category,
+                                    camera_id = ?event.camera_id,
+                                    "Dropping completion event for slow subscriber (buffer full)"
+                                );
+                                true
+                            }
+                            Err(TrySendError::Disconnected(_)) => {
+                                // Receiver dropped - remove this subscriber
+                                false
+                            }
+                        }
+                    });
                 }
             }
             SchedulerAction::CommandFailed { id, error } => {
@@ -614,9 +642,24 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
 
     /// Add a completion event subscriber.
     ///
-    /// Returns the receiver end of the channel for receiving completion events.
+    /// Returns a receiver for completion events. The channel is bounded to
+    /// [`COMPLETIONS_BUFFER`] events per subscriber.
+    ///
+    /// # Best-Effort Semantics
+    ///
+    /// Completion events are delivered on a **best-effort** basis. If a subscriber
+    /// cannot keep up with the event rate and its buffer becomes full, events will
+    /// be dropped for that subscriber. This design ensures:
+    ///
+    /// - The runtime loop never blocks waiting for slow consumers
+    /// - No unbounded memory growth from unread events
+    /// - Subscribers that drain promptly receive all events
+    ///
+    /// Subscribers should drain the receiver regularly. If your consumer is
+    /// processing-intensive, consider buffering events in your own queue with
+    /// appropriate backpressure handling.
     pub fn subscribe_completions(&mut self) -> flume::Receiver<CompletionEvent> {
-        let (tx, rx) = flume::unbounded();
+        let (tx, rx) = flume::bounded(COMPLETIONS_BUFFER);
         self.completion_subscribers.push(tx);
         rx
     }
@@ -628,7 +671,7 @@ mod tests {
     use super::*;
     use crate::{
         camera::profiles::PtzOpticsG2,
-        command::{bytes::VISCA_TERMINATOR, encode::EncodedCommand, CommandKind},
+        command::{bytes::VISCA_TERMINATOR, encode::EncodedCommand, CommandKind, Response},
         testing::testkit::deterministic_executor::DeterministicExecutor,
     };
     use smallvec::SmallVec;
@@ -815,6 +858,221 @@ mod tests {
         assert_eq!(
             metrics.commands_failed, 3,
             "Should have 3 failed commands after 3 send failures"
+        );
+    }
+
+    // =========================================================================
+    // Bounded Completion Subscriber Tests (Issue #462)
+    // =========================================================================
+
+    /// Test that completion subscriber buffer is bounded.
+    ///
+    /// Verifies that the subscriber cannot hold more than COMPLETIONS_BUFFER events,
+    /// preventing unbounded memory growth from slow/unread consumers.
+    #[test]
+    fn test_completion_subscriber_buffer_is_bounded() {
+        let (executor, _clock) = DeterministicExecutor::new();
+        let timeout_config = TimeoutConfig::default();
+        let retry_config = RetryConfig::default();
+
+        let mut adapter =
+            AsyncAdapter::<PtzOpticsG2, _>::new(timeout_config, retry_config, executor.clone());
+
+        // Subscribe but don't drain
+        let rx = adapter.subscribe_completions();
+
+        // Emit more events than the buffer can hold
+        let events_to_emit = COMPLETIONS_BUFFER + 100;
+        for i in 0..events_to_emit {
+            let id = i as u32;
+
+            // Simulate a command completion by calling apply_action directly
+            adapter.apply_action(SchedulerAction::CommandComplete {
+                id,
+                category: CommandCategory::Quick,
+                camera_id: CameraId::CAMERA_1,
+                response: Response::Completion { socket: None },
+            });
+        }
+
+        // Count how many events we can drain - should be at most COMPLETIONS_BUFFER
+        let mut received = 0;
+        while rx.try_recv().is_ok() {
+            received += 1;
+        }
+
+        assert_eq!(
+            received, COMPLETIONS_BUFFER,
+            "Should receive at most COMPLETIONS_BUFFER events"
+        );
+
+        // Verify subscriber is still registered (wasn't removed due to overflow)
+        assert_eq!(
+            adapter.completion_subscribers.len(),
+            1,
+            "Subscriber should still be registered after overflow"
+        );
+    }
+
+    /// Test that overflow does not unsubscribe the consumer.
+    ///
+    /// When a subscriber's buffer is full, events should be dropped for that
+    /// subscriber, but the subscriber should remain active and receive new
+    /// events once buffer space is available.
+    #[test]
+    fn test_overflow_does_not_unsubscribe() {
+        let (executor, _clock) = DeterministicExecutor::new();
+        let timeout_config = TimeoutConfig::default();
+        let retry_config = RetryConfig::default();
+
+        let mut adapter =
+            AsyncAdapter::<PtzOpticsG2, _>::new(timeout_config, retry_config, executor.clone());
+
+        // Subscribe but don't drain
+        let rx = adapter.subscribe_completions();
+
+        // Fill the buffer completely
+        for i in 0..COMPLETIONS_BUFFER {
+            adapter.apply_action(SchedulerAction::CommandComplete {
+                id: i as u32,
+                category: CommandCategory::Quick,
+                camera_id: CameraId::CAMERA_1,
+                response: Response::Completion { socket: None },
+            });
+        }
+
+        // Try to send more events - these should be dropped
+        for i in 0..50 {
+            adapter.apply_action(SchedulerAction::CommandComplete {
+                id: (COMPLETIONS_BUFFER + i) as u32,
+                category: CommandCategory::Movement,
+                camera_id: CameraId::CAMERA_1,
+                response: Response::Completion { socket: None },
+            });
+        }
+
+        // Subscriber should still be registered
+        assert_eq!(
+            adapter.completion_subscribers.len(),
+            1,
+            "Subscriber should remain registered after overflow"
+        );
+
+        // Drain some events to make room
+        for _ in 0..10 {
+            let _ = rx.try_recv();
+        }
+
+        // Now send new events - they should be delivered
+        let new_event_id = 9999u32;
+        adapter.apply_action(SchedulerAction::CommandComplete {
+            id: new_event_id,
+            category: CommandCategory::Preset,
+            camera_id: CameraId::CAMERA_1,
+            response: Response::Completion { socket: None },
+        });
+
+        // Drain remaining events and check we receive the new one
+        let mut found_new_event = false;
+        while let Ok(event) = rx.try_recv() {
+            if event.category == CommandCategory::Preset {
+                found_new_event = true;
+            }
+        }
+
+        assert!(
+            found_new_event,
+            "Should receive new events after draining buffer"
+        );
+    }
+
+    /// Test that disconnected subscribers are removed.
+    ///
+    /// When a subscriber drops its receiver, subsequent completion events
+    /// should cause that subscriber to be removed from the list.
+    #[test]
+    fn test_disconnected_subscriber_is_removed() {
+        let (executor, _clock) = DeterministicExecutor::new();
+        let timeout_config = TimeoutConfig::default();
+        let retry_config = RetryConfig::default();
+
+        let mut adapter =
+            AsyncAdapter::<PtzOpticsG2, _>::new(timeout_config, retry_config, executor.clone());
+
+        // Subscribe and then immediately drop the receiver
+        let rx = adapter.subscribe_completions();
+        drop(rx);
+
+        assert_eq!(
+            adapter.completion_subscribers.len(),
+            1,
+            "Subscriber should exist before any events"
+        );
+
+        // Emit a completion event - this should trigger cleanup
+        adapter.apply_action(SchedulerAction::CommandComplete {
+            id: 1,
+            category: CommandCategory::Quick,
+            camera_id: CameraId::CAMERA_1,
+            response: Response::Completion { socket: None },
+        });
+
+        // The disconnected subscriber should now be removed
+        assert_eq!(
+            adapter.completion_subscribers.len(),
+            0,
+            "Disconnected subscriber should be removed after event emission"
+        );
+    }
+
+    /// Test that multiple subscribers work independently.
+    ///
+    /// Each subscriber has its own buffer and overflow behavior should
+    /// be independent per-subscriber.
+    #[test]
+    fn test_multiple_subscribers_independent_overflow() {
+        let (executor, _clock) = DeterministicExecutor::new();
+        let timeout_config = TimeoutConfig::default();
+        let retry_config = RetryConfig::default();
+
+        let mut adapter =
+            AsyncAdapter::<PtzOpticsG2, _>::new(timeout_config, retry_config, executor.clone());
+
+        // Create two subscribers
+        let rx1 = adapter.subscribe_completions();
+        let rx2 = adapter.subscribe_completions();
+
+        // Subscriber 1: drain regularly
+        // Subscriber 2: don't drain (will overflow)
+
+        // Send enough events to overflow subscriber 2's buffer
+        for i in 0..COMPLETIONS_BUFFER + 50 {
+            adapter.apply_action(SchedulerAction::CommandComplete {
+                id: i as u32,
+                category: CommandCategory::Quick,
+                camera_id: CameraId::CAMERA_1,
+                response: Response::Completion { socket: None },
+            });
+
+            // Subscriber 1 drains after each event
+            let _ = rx1.try_recv();
+        }
+
+        // Both subscribers should still be registered
+        assert_eq!(
+            adapter.completion_subscribers.len(),
+            2,
+            "Both subscribers should remain registered"
+        );
+
+        // Subscriber 2 should have at most COMPLETIONS_BUFFER events
+        let mut rx2_count = 0;
+        while rx2.try_recv().is_ok() {
+            rx2_count += 1;
+        }
+        assert_eq!(
+            rx2_count, COMPLETIONS_BUFFER,
+            "Slow subscriber should receive at most COMPLETIONS_BUFFER events"
         );
     }
 }
