@@ -5,7 +5,7 @@ description: Implement the next logical step for a GitHub issue
 Read GitHub issue #$ARGUMENTS and implement the next logical step based on the issue description and all comments.
 
 ## Initial Analysis Phase
-Use `gh issue view $ARGUMENTS` to read the issue then ` --comments` for all comments. Use all available tools to:
+Use the github mcp service to read the issue and all comments. Use all available tools to:
 - Search for relevant code patterns mentioned in the issue
 - Read key files to understand code structure
 - Understand how components interact
@@ -57,6 +57,6 @@ After implementation, create a detailed comment:
    - **Next Steps**: Remaining tasks as checkboxes
    - **Notes**: Important considerations, potential issues, dependencies
 
-2. Use 'gh issue comment $ARGUMENTS --body-file /tmp/gh-comment-$ARGUMENTS.md' to post the comment
+2. Use the github mcp service to post the comment
 
 Remember: Take time to understand the codebase structure before implementing. Use available tools effectively to navigate and modify code precisely.

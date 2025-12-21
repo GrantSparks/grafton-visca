@@ -5,11 +5,11 @@ description: Validate that all requirements for a GitHub issue have been fully i
 Read GitHub issue #$ARGUMENTS and validate that every requirement, including extended scope mentioned in comments, has been fully and completely implemented.
 
 ## Validation Process Overview
-Use `gh issue view $ARGUMENTS --comments` to read the issue and all comments. Do not trust claims made in the issue or comments - independently verify everything. Assess whether the implementation meets the highest quality standards and identify potential improvements.
+Use the github mcp service to read the issue and all comments. Do not trust claims made in the issue or comments - independently verify everything. Assess whether the implementation meets the highest quality standards and identify potential improvements.
 
 ## Phase 1: Requirements Extraction
 1. **Read Complete Context**:
-   - Use `gh issue view $ARGUMENTS --comments` to get full issue history
+   - Use the github mcp service to get full issue history
    - Extract all requirements from the original issue
    - Identify any scope expansions or clarifications in comments
    - Note any edge cases or special considerations mentioned
