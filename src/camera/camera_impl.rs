@@ -33,6 +33,29 @@ use crate::{runtime::blocking_runner::BlockingRunner, transport::BlockingTranspo
 /// * `Tr` - Transport implementing either `AsyncTransport` or `BlockingTransport`
 /// * `Exec` - Executor type (only used in async mode)
 ///
+/// # Multi-Client Usage
+///
+/// For applications serving multiple clients (e.g., web servers, MCP servers),
+/// **share a single `Camera` instance per physical camera**. The `Camera` type is
+/// `Clone` and handles concurrent command access internally through its runtime.
+///
+/// PTZ cameras typically cannot reliably handle multiple concurrent TCP/UDP
+/// connections, which causes inquiry timeouts and unpredictable behavior.
+///
+/// ```rust,ignore
+/// // BAD: Multiple connections to same camera
+/// let cam1 = Camera::open_tcp::<Profile>("192.168.0.10")?; // Client 1
+/// let cam2 = Camera::open_tcp::<Profile>("192.168.0.10")?; // Client 2 - AVOID!
+///
+/// // GOOD: Share a single camera instance
+/// let camera = Camera::open_tcp::<Profile>("192.168.0.10")?;
+/// let cam1 = camera.clone(); // Client 1 - lightweight handle
+/// let cam2 = camera.clone(); // Client 2 - same underlying connection
+/// ```
+///
+/// See the [`runtime`](crate::runtime) module documentation for connection pooling
+/// patterns.
+///
 /// # Examples
 ///
 /// ```rust,ignore
@@ -70,10 +93,41 @@ where
     _phantom_transport: PhantomData<Tr>,
 }
 
-/// Camera interface for VISCA protocol communication.
+/// Camera client that works in both blocking and async modes.
 ///
-/// This type provides a uniform API for both blocking and async modes,
-/// with runtime-agnostic execution through the Executor trait.
+/// This struct provides type-safe camera control that adapts to the chosen
+/// execution mode through the Mode trait system. All mode-specific behavior
+/// is resolved at compile time through the Mode type parameter.
+///
+/// # Type Parameters
+///
+/// * `M` - Mode type (`crate::mode::Async` or `crate::mode::Blocking`)
+/// * `P` - Camera profile implementing the `Profile` trait
+/// * `Tr` - Transport implementing either `AsyncTransport` or `BlockingTransport`
+/// * `Exec` - Executor type (only used in async mode, `()` for blocking)
+///
+/// # Multi-Client Usage
+///
+/// For applications serving multiple clients (e.g., web servers, MCP servers),
+/// **share a single `Camera` instance per physical camera**. The `Camera` type is
+/// `Clone` and handles concurrent command access internally through its runtime.
+///
+/// PTZ cameras typically cannot reliably handle multiple concurrent TCP/UDP
+/// connections, which causes inquiry timeouts and unpredictable behavior.
+///
+/// ```rust,ignore
+/// // BAD: Multiple connections to same camera
+/// let cam1 = Camera::open_tcp::<Profile>("192.168.0.10")?; // Client 1
+/// let cam2 = Camera::open_tcp::<Profile>("192.168.0.10")?; // Client 2 - AVOID!
+///
+/// // GOOD: Share a single camera instance
+/// let camera = Camera::open_tcp::<Profile>("192.168.0.10")?;
+/// let cam1 = camera.clone(); // Client 1 - lightweight handle
+/// let cam2 = camera.clone(); // Client 2 - same underlying connection
+/// ```
+///
+/// See the [`runtime`](crate::runtime) module documentation for connection pooling
+/// patterns.
 #[cfg(not(feature = "mode-async"))]
 pub struct Camera<M, P, Tr, Exec = ()>
 where

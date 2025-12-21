@@ -3,6 +3,59 @@
 //! This module provides the core runtime for VISCA communication,
 //! managing command scheduling, socket allocation, and protocol timing.
 //!
+//! ## Connection Sharing for Multi-Client Applications
+//!
+//! When building applications where multiple clients may control the same physical
+//! camera (e.g., web servers, MCP servers, multi-session applications), **share a
+//! single [`Camera`] instance across all clients** rather than creating separate
+//! connections.
+//!
+//! PTZ cameras typically cannot reliably handle multiple concurrent TCP/UDP
+//! connections to the same device, which may cause:
+//! - Inquiry response timeouts (5+ seconds)
+//! - Command delivery failures
+//! - Unpredictable response routing between connections
+//!
+//! The [`Camera`] type (and its underlying [`RuntimeHandle`]) is designed for
+//! concurrent access:
+//! - **Thread-safe**: Internal synchronization handles concurrent command submission
+//! - **Clone-friendly**: `Camera::clone()` creates a lightweight handle to the same
+//!   underlying connection
+//! - **Command sequencing**: The runtime automatically sequences commands per VISCA
+//!   protocol requirements
+//!
+//! ### Example: Connection Pooling Pattern
+//!
+//! ```ignore
+//! use std::sync::Arc;
+//! use std::collections::HashMap;
+//! use tokio::sync::RwLock;
+//!
+//! // Shared camera pool for multi-client access
+//! struct CameraPool<P, T, E> {
+//!     cameras: RwLock<HashMap<String, Camera<P, T, E>>>,
+//! }
+//!
+//! impl<P, T, E> CameraPool<P, T, E> {
+//!     /// Get or create a camera connection for the given address.
+//!     /// Returns a cloned handle - all clients share the same underlying connection.
+//!     async fn get_camera(&self, address: &str) -> Camera<P, T, E> {
+//!         // Check if camera already exists
+//!         if let Some(camera) = self.cameras.read().await.get(address) {
+//!             return camera.clone(); // Lightweight clone, same connection
+//!         }
+//!
+//!         // Create new connection (only happens once per physical camera)
+//!         let camera = Connect::open_tcp_async::<P, E>(address, runtime).await?;
+//!         self.cameras.write().await.insert(address.to_string(), camera.clone());
+//!         camera
+//!     }
+//! }
+//! ```
+//!
+//! [`Camera`]: crate::Camera
+//! [`RuntimeHandle`]: crate::runtime::RuntimeHandle
+//!
 //! ## Wire-Error Semantics
 //!
 //! The runtime handles transport errors with specific policies designed to
