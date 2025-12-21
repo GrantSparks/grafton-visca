@@ -1487,12 +1487,14 @@ impl SchedulerCore {
         let mut timed_out_inquiries = Vec::new();
         for (&cmd_id, &(started_at, category)) in &self.inquiries_inflight {
             let timeout = self.timeout_config.get_timeout(category);
-            if now.duration_since(started_at) > timeout {
+            let elapsed = now.duration_since(started_at);
+            if elapsed > timeout {
                 let inquiry_type = self.inquiry_response_types.get(&cmd_id);
                 warn!(
                     cmd_id,
                     inquiry_type = ?inquiry_type,
                     timeout = ?timeout,
+                    elapsed = ?elapsed,
                     "Inquiry timed out"
                 );
                 timed_out_inquiries.push(cmd_id);
@@ -1964,6 +1966,10 @@ impl SchedulerCore {
             .insert(id, (command, priority, category, camera_id, kind, now));
 
         // Track the inquiry as in-flight
+        // Note: The `now` timestamp becomes the `started_at` used for timeout calculation.
+        // If timeouts appear premature, check if this timestamp is being set earlier than expected.
+        let inquiry_type = self.inquiry_response_types.get(&id).copied();
+        let was_already_tracked = self.inquiries_inflight.contains_key(&id);
         self.inquiries_inflight.insert(id, (now, category));
 
         // Add to order queue for raw VISCA correlation
@@ -1972,7 +1978,15 @@ impl SchedulerCore {
         // Update last inquiry sent time for spacing enforcement
         self.last_inquiry_sent = Some(now);
 
-        trace!("Started inquiry {id} (no socket allocation)");
+        if was_already_tracked {
+            warn!(
+                id,
+                inquiry_type = ?inquiry_type,
+                "Inquiry started but was already in inquiries_inflight - timestamp overwritten"
+            );
+        }
+
+        trace!(id, inquiry_type = ?inquiry_type, "Started inquiry (no socket allocation)");
     }
 
     /// Check if a command is pending (either awaiting ACK or has a socket).
