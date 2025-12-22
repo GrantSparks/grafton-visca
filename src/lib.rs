@@ -626,28 +626,29 @@
 //! camera.cancel_socket(ViscaSocket::S1).await?;
 //! ```
 //!
-//! ## Async Completion Tracking
+//! ## Movement Completion Tracking
 //!
-//! Wait for camera movements to complete:
+//! Wait for camera movements to complete using [`AwaitConfig`](camera::AwaitConfig):
 //!
 //! ```ignore
+//! use std::time::Duration;
+//! use grafton_visca::camera::{AwaitConfig, Axes};
+//!
 //! // Start a pan/tilt movement
 //! camera.pan_tilt_absolute(45.0, 15.0, 10, 10).await?;
 //!
-//! // Wait for the movement to complete
-//! camera.wait_for_completion().await?;
+//! // Wait for all movements to complete (pan/tilt, zoom, focus)
+//! camera.await_idle(Duration::from_secs(30)).await?;
 //!
-//! // Or wait with a custom timeout
-//! use std::time::Duration;
-//! camera.wait_for_completion_with_timeout(Duration::from_secs(10)).await?;
+//! // Or wait for specific axes with custom configuration
+//! let config = AwaitConfig::new(Duration::from_secs(10))
+//!     .with_axes(Axes::PAN_TILT)
+//!     .with_debug();
+//! camera.await_with_config(&config).await?;
 //!
-//! // Check if the runtime is idle (no pending commands)
-//! if camera.is_idle().await? {
-//!     println!("All commands completed");
-//! }
-//!
-//! // Wait for all operations to complete (barrier synchronization)
-//! camera.wait_for_idle(Duration::from_secs(30)).await?;
+//! // Convenience methods for common scenarios
+//! camera.await_pan_tilt_idle(Duration::from_secs(20)).await?;
+//! camera.await_zoom_idle(Duration::from_secs(15)).await?;
 //! ```
 //!
 //! ## Error Handling

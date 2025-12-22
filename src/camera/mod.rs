@@ -61,7 +61,7 @@ pub type BlockingCamera<P, Tr> = Camera<crate::mode::Blocking, P, Tr, ()>;
 pub use builder::CameraBuilder;
 
 // Re-export movement detection types
-pub use movement::{AwaitConfig, Axes, MovementConfig, MovementTolerance, PanTiltPosition};
+pub use movement::{AwaitConfig, Axes, MovementTolerance, PanTiltPosition};
 
 /// Internal trait that provides mode-agnostic VISCA client capabilities.
 ///

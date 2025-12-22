@@ -440,46 +440,6 @@ impl PanTiltPosition {
     }
 }
 
-/// Configuration for movement detection.
-///
-/// This configuration is used for both event-driven detection (using VISCA
-/// completion messages) and fallback state-query detection.
-#[derive(Debug, Clone, Copy)]
-pub struct MovementConfig {
-    /// Maximum time to wait for movement to complete.
-    /// Default: 30 seconds.
-    pub timeout: Duration,
-
-    /// Enable debug logging for movement detection.
-    /// Default: false.
-    pub debug: bool,
-}
-
-impl Default for MovementConfig {
-    fn default() -> Self {
-        Self {
-            timeout: Duration::from_secs(30),
-            debug: false,
-        }
-    }
-}
-
-impl MovementConfig {
-    /// Create a new configuration with a specific timeout.
-    pub fn with_timeout(timeout: Duration) -> Self {
-        Self {
-            timeout,
-            ..Default::default()
-        }
-    }
-
-    /// Enable debug logging.
-    pub fn with_debug(mut self) -> Self {
-        self.debug = true;
-        self
-    }
-}
-
 /// Check if two positions are equal within tolerance.
 #[inline]
 pub fn positions_equal_within_tolerance(
@@ -514,99 +474,6 @@ where
     P: Profile + ProfileMetadata + Default,
     T: BlockingTransport + crate::transport::HasTransportConfig + 'static,
 {
-    /// Wait for a command completion message or idle state using the default timeout.
-    ///
-    /// Uses `TimeoutConfig::movement_timeout` as the default limit and falls back
-    /// to state-query detection in blocking mode.
-    pub fn wait_for_completion(&mut self) -> Result<(), Error> {
-        let timeout = self.timeout_config().movement_timeout;
-        self.wait_for_completion_with_timeout(timeout)
-    }
-
-    /// Wait for a command completion message or idle state with a custom timeout.
-    ///
-    /// This mirrors the async API and provides a convenient entry point for
-    /// movement waits in blocking mode.
-    pub fn wait_for_completion_with_timeout(&mut self, timeout: Duration) -> Result<(), Error> {
-        let config = MovementConfig {
-            timeout,
-            debug: false,
-        };
-        self.wait_for_movement(&config)
-    }
-
-    /// Wait for any movement operation to complete.
-    ///
-    /// This method uses VISCA completion messages (0x51) when supported by the camera
-    /// and async features are enabled, providing instant response when movement finishes.
-    /// Otherwise, it uses efficient state querying.
-    ///
-    /// # Arguments
-    /// * `config` - Movement detection configuration
-    ///
-    /// # Returns
-    /// * `Ok(())` - Movement completed successfully
-    /// * `Err(Error::Timeout)` - Movement did not complete within timeout
-    /// * `Err(Error::*)` - Other communication or camera errors
-    pub fn wait_for_movement(&mut self, config: &MovementConfig) -> Result<(), Error> {
-        // In blocking mode, we can't use event-driven detection with async channels
-        // Users should use the async wait_for_movement method for event-driven detection
-
-        if config.debug {
-            tracing::debug!("Using state-query movement detection");
-        }
-
-        self.wait_using_state_query(config)
-    }
-
-    /// Wait for movement using state querying (fallback method).
-    ///
-    /// This implementation uses deadline-based timeout management to ensure
-    /// the overall operation timeout is respected even when individual
-    /// inquiry commands are slow or timing out.
-    fn wait_using_state_query(&mut self, config: &MovementConfig) -> Result<(), Error> {
-        let deadline = Deadline::from_timeout(config.timeout);
-
-        loop {
-            if deadline.is_expired() {
-                if config.debug {
-                    tracing::debug!("Movement detection timed out");
-                }
-                return Err(Error::Timeout);
-            }
-
-            // Use deadline-aware is_moving to ensure individual inquiries
-            // don't exceed our timeout budget
-            match self.is_moving_with_deadline(deadline) {
-                Ok(false) => {
-                    if config.debug {
-                        tracing::debug!("Movement completed (camera is idle)");
-                    }
-                    return Ok(());
-                }
-                Ok(true) => {
-                    // Still moving, continue polling
-                }
-                Err(Error::Timeout) => {
-                    // Deadline exceeded while polling - this is expected, return timeout
-                    if config.debug {
-                        tracing::debug!("Movement detection timed out during polling");
-                    }
-                    return Err(Error::Timeout);
-                }
-                Err(e) => {
-                    // Other error during polling
-                    return Err(e);
-                }
-            }
-
-            // Brief sleep between polls, but check deadline first
-            if !deadline.is_expired() {
-                std::thread::sleep(Duration::from_millis(5));
-            }
-        }
-    }
-
     /// Wait for pan/tilt movement to complete.
     ///
     /// Convenience method that waits for pan and tilt motors to stop moving.
@@ -769,14 +636,8 @@ where
             None
         };
 
-        // Brief pause between samples
-        if deadline.remaining() > Duration::from_millis(10) {
-            std::thread::sleep(Duration::from_millis(5));
-        } else if deadline.is_expired() {
-            return Err(Error::Timeout);
-        }
-
-        // Second sample
+        // Second sample - the I/O latency from the first set of inquiries
+        // provides sufficient delay for motion detection
         if let Some((pos1_pan, pos1_tilt)) = pos1_pt {
             let response = self
                 .send_command_with_deadline(&PanTiltPositionInquiry, deadline)
@@ -956,78 +817,6 @@ where
     T: AsyncTransport + Send + Sync + 'static,
     E: Executor,
 {
-    /// Wait for any movement operation to complete (async version).
-    ///
-    /// This method uses VISCA completion messages (0x51) when supported by the camera,
-    /// providing instant response when movement finishes. For cameras without this
-    /// support, it falls back to efficient state querying.
-    pub async fn wait_for_movement_async(&self, config: &MovementConfig) -> Result<(), Error> {
-        if P::SUPPORTS_OPERATION_COMPLETE {
-            if config.debug {
-                tracing::debug!(
-                    "Using event-driven movement detection (camera supports completion messages)"
-                );
-            }
-
-            match self.wait_for_movement_internal(config).await {
-                Ok(()) => {
-                    if config.debug {
-                        tracing::debug!("Movement completed (received operation complete message)");
-                    }
-                    return Ok(());
-                }
-                Err(Error::NotSupported) => {
-                    if config.debug {
-                        tracing::debug!("Transport doesn't support event-driven detection, falling back to state query");
-                    }
-                }
-                Err(Error::Timeout) => {
-                    if config.debug {
-                        tracing::debug!(
-                            "No completion message received, falling back to state query"
-                        );
-                    }
-                }
-                Err(e) => return Err(e),
-            }
-        }
-
-        if config.debug {
-            tracing::debug!("Using state-query movement detection");
-        }
-
-        self.wait_using_state_query_async(config).await
-    }
-
-    /// Wait for movement using state querying (async fallback method).
-    async fn wait_using_state_query_async(&self, config: &MovementConfig) -> Result<(), Error> {
-        let start = self.runtime().executor().now();
-
-        loop {
-            if self
-                .runtime()
-                .executor()
-                .now()
-                .saturating_duration_since(start)
-                > config.timeout
-            {
-                if config.debug {
-                    tracing::debug!("Movement detection timed out");
-                }
-                return Err(Error::Timeout);
-            }
-
-            if !self.is_moving_async().await? {
-                if config.debug {
-                    tracing::debug!("Movement completed (camera is idle)");
-                }
-                return Ok(());
-            }
-
-            self.sleep(Duration::from_millis(5)).await;
-        }
-    }
-
     /// Wait for pan/tilt movement to complete (async version).
     ///
     /// Convenience method that waits for pan and tilt motors to stop moving.
@@ -1058,141 +847,15 @@ where
             .await
     }
 
-    /// Wait for a command completion message or idle state with a custom timeout (async version).
-    ///
-    /// This mirrors the blocking API and provides a convenient entry point for
-    /// movement waits in async mode.
-    pub async fn wait_for_completion_with_timeout(&self, timeout: Duration) -> Result<(), Error> {
-        let config = MovementConfig {
-            timeout,
-            debug: false,
-        };
-        self.wait_for_movement_internal(&config).await
-    }
-
-    /// Internal helper for movement detection that doesn't call public APIs.
-    async fn wait_for_movement_internal(&self, config: &MovementConfig) -> Result<(), Error> {
-        if P::SUPPORTS_OPERATION_COMPLETE {
-            if config.debug {
-                tracing::debug!(
-                    "Using event-driven movement detection (camera supports completion messages)"
-                );
-            }
-
-            match self.wait_for_movement_event_driven(config).await {
-                Ok(()) => return Ok(()),
-                Err(Error::NotSupported) => {
-                    if config.debug {
-                        tracing::debug!(
-                            "Event-driven approach unavailable, falling back to polling"
-                        );
-                    }
-                }
-                Err(e) => return Err(e),
-            }
-        }
-
-        if config.debug {
-            tracing::debug!("Using state-query movement detection (fallback mode)");
-        }
-
-        let start = self.runtime().executor().now();
-
-        while self
-            .runtime()
-            .executor()
-            .now()
-            .saturating_duration_since(start)
-            < config.timeout
-        {
-            let moving = self.is_moving_async().await?;
-            if !moving {
-                return Ok(());
-            }
-
-            self.sleep(Duration::from_millis(100)).await;
-        }
-
-        Err(Error::Timeout)
-    }
-
-    /// Event-driven movement detection using runtime completion events.
-    async fn wait_for_movement_event_driven(&self, config: &MovementConfig) -> Result<(), Error> {
-        use crate::timeout::CommandCategory;
-
-        let completion_rx = match self.runtime().subscribe_completions().await {
-            Ok(rx) => rx,
-            Err(_) => return Err(Error::NotSupported),
-        };
-
-        let start = self.runtime().executor().now();
-        let mut seen_movement_completion = false;
-        let mut seen_preset_completion = false;
-
-        while self
-            .runtime()
-            .executor()
-            .now()
-            .saturating_duration_since(start)
-            < config.timeout
-        {
-            match completion_rx.try_recv() {
-                Ok(event) => {
-                    if event.camera_id != self.camera_id() {
-                        continue;
-                    }
-
-                    match event.category {
-                        CommandCategory::Movement => {
-                            seen_movement_completion = true;
-                            if config.debug {
-                                tracing::debug!("Received movement completion event");
-                            }
-                        }
-                        CommandCategory::Preset => {
-                            seen_preset_completion = true;
-                            if config.debug {
-                                tracing::debug!("Received preset completion event");
-                            }
-                        }
-                        _ => continue,
-                    }
-
-                    if seen_movement_completion || seen_preset_completion {
-                        self.sleep(Duration::from_millis(50)).await;
-
-                        let is_moving = self.is_moving_async().await?;
-                        if !is_moving {
-                            if config.debug {
-                                tracing::debug!("Camera confirmed idle after completion event");
-                            }
-                            return Ok(());
-                        } else if config.debug {
-                            tracing::debug!(
-                                "Camera still moving after completion, waiting for more events"
-                            );
-                        }
-                    }
-                }
-                Err(flume::TryRecvError::Empty) => {
-                    self.sleep(Duration::from_millis(50)).await;
-                }
-                Err(flume::TryRecvError::Disconnected) => return Err(Error::NotSupported),
-            }
-        }
-
-        Err(Error::Timeout)
-    }
-
     /// Wait for all movements to complete (async version).
     ///
     /// Convenience method that waits for all motors (pan/tilt, zoom, focus) to stop.
+    /// This delegates to [`Self::await_with_config`] with all axes and the specified timeout.
+    ///
+    /// For more control over which axes to monitor, use [`Self::await_with_config`] or
+    /// [`Self::await_axes_idle`].
     pub async fn await_idle(&self, timeout: Duration) -> Result<(), Error> {
-        let config = MovementConfig {
-            timeout,
-            debug: false,
-        };
-        self.wait_for_movement_internal(&config).await
+        self.await_with_config(&AwaitConfig::new(timeout)).await
     }
 
     /// Check if the camera is currently moving (async version).
@@ -1207,6 +870,10 @@ where
     ///
     /// This is more efficient than `is_moving_async` when you only care about
     /// specific axes (e.g., only pan/tilt after a pan_tilt_absolute command).
+    ///
+    /// Movement is detected by taking two position samples and comparing them.
+    /// The time between samples is determined by the I/O latency of the position
+    /// inquiries themselves, which provides sufficient delay for detecting motion.
     pub async fn is_moving_axes_async(
         &self,
         axes: Axes,
@@ -1261,10 +928,8 @@ where
             None
         };
 
-        // Brief pause between samples
-        self.sleep(Duration::from_millis(5)).await;
-
-        // Second sample
+        // Second sample - the I/O latency from the first set of inquiries
+        // provides sufficient delay for motion detection
         if let Some((pos1_pan, pos1_tilt)) = pos1_pt {
             let response = self.send_command(&PanTiltPositionInquiry).await?;
             let (pos2_pan, pos2_tilt) = match response {
@@ -1317,22 +982,131 @@ where
 
     /// Wait for movement completion using an [`AwaitConfig`] (async version).
     ///
-    /// This is the most flexible movement waiting API, allowing fine-grained
-    /// control over which axes to monitor, timeout, debug logging, and tolerances.
+    /// This is the canonical movement waiting API, providing fine-grained control
+    /// over which axes to monitor, timeout, debug logging, and tolerances.
+    ///
+    /// When the camera supports VISCA completion messages, this method uses
+    /// event-driven detection for faster response. Otherwise, it falls back to
+    /// efficient state-query polling with configurable `poll_interval`.
     pub async fn await_with_config(&self, config: &AwaitConfig) -> Result<(), Error> {
         if config.axes.is_empty() {
             return Ok(());
         }
 
-        let start = self.runtime().executor().now();
-
         if config.debug {
             tracing::debug!(
-                "Waiting for movement completion: axes={}, timeout={:?}",
+                "Waiting for movement completion: axes={}, timeout={:?}, poll_interval={:?}",
                 config.axes,
-                config.timeout
+                config.timeout,
+                config.poll_interval
             );
         }
+
+        // Try event-driven detection if supported
+        if P::SUPPORTS_OPERATION_COMPLETE {
+            if config.debug {
+                tracing::debug!(
+                    "Using event-driven movement detection (camera supports completion messages)"
+                );
+            }
+
+            match self.await_with_config_event_driven(config).await {
+                Ok(()) => {
+                    if config.debug {
+                        tracing::debug!("Movement completed via completion event");
+                    }
+                    return Ok(());
+                }
+                Err(Error::NotSupported) => {
+                    if config.debug {
+                        tracing::debug!(
+                            "Event-driven detection unavailable, falling back to polling"
+                        );
+                    }
+                }
+                Err(e) => return Err(e),
+            }
+        }
+
+        // Fall back to state-query polling
+        if config.debug {
+            tracing::debug!(
+                "Using state-query polling with {}ms interval",
+                config.poll_interval.as_millis()
+            );
+        }
+
+        self.await_with_config_polling(config).await
+    }
+
+    /// Event-driven movement detection using runtime completion events.
+    async fn await_with_config_event_driven(&self, config: &AwaitConfig) -> Result<(), Error> {
+        use crate::timeout::CommandCategory;
+
+        let completion_rx = match self.runtime().subscribe_completions().await {
+            Ok(rx) => rx,
+            Err(_) => return Err(Error::NotSupported),
+        };
+
+        let start = self.runtime().executor().now();
+
+        while self
+            .runtime()
+            .executor()
+            .now()
+            .saturating_duration_since(start)
+            < config.timeout
+        {
+            match completion_rx.try_recv() {
+                Ok(event) => {
+                    if event.camera_id != self.camera_id() {
+                        continue;
+                    }
+
+                    // Check if this is a relevant completion event
+                    let is_relevant = matches!(
+                        event.category,
+                        CommandCategory::Movement | CommandCategory::Preset
+                    );
+
+                    if is_relevant {
+                        if config.debug {
+                            tracing::debug!("Received {:?} completion event", event.category);
+                        }
+
+                        // Small settling delay after completion message
+                        self.sleep(Duration::from_millis(50)).await;
+
+                        // Verify the monitored axes are actually idle
+                        let is_moving = self
+                            .is_moving_axes_async(config.axes, &config.tolerance)
+                            .await?;
+                        if !is_moving {
+                            if config.debug {
+                                tracing::debug!("Camera confirmed idle after completion event");
+                            }
+                            return Ok(());
+                        } else if config.debug {
+                            tracing::debug!(
+                                "Camera still moving after completion, waiting for more events"
+                            );
+                        }
+                    }
+                }
+                Err(flume::TryRecvError::Empty) => {
+                    // No events available, sleep briefly before checking again
+                    self.sleep(Duration::from_millis(50)).await;
+                }
+                Err(flume::TryRecvError::Disconnected) => return Err(Error::NotSupported),
+            }
+        }
+
+        Err(Error::Timeout)
+    }
+
+    /// Polling-based movement detection using configurable poll interval.
+    async fn await_with_config_polling(&self, config: &AwaitConfig) -> Result<(), Error> {
+        let start = self.runtime().executor().now();
 
         loop {
             let elapsed = self
@@ -1358,7 +1132,6 @@ where
                     return Ok(());
                 }
                 Ok(true) => {
-                    // Still moving, continue polling
                     if config.debug {
                         tracing::trace!("Still moving, continuing to poll...");
                     }

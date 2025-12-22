@@ -96,7 +96,7 @@ pub mod r#async {
         PanTiltDirection, PanTiltLimitCorner, PresetNumber, ResolutionMode, WhiteBalanceMode,
     };
     // High-level camera configuration
-    pub use crate::camera::MovementConfig;
+    pub use crate::camera::AwaitConfig;
     // Camera profiles - these are the primary way to configure camera behavior
     pub use crate::camera::profiles::{
         GenericVisca, NearusBRC300, PtzOptics30X, PtzOpticsG2, PtzOpticsG3, SonyBRC300,
@@ -135,7 +135,7 @@ pub mod blocking {
         PanTiltDirection, PanTiltLimitCorner, PresetNumber, ResolutionMode, WhiteBalanceMode,
     };
     // High-level camera types and configuration
-    pub use crate::camera::{BlockingCamera as Camera, MovementConfig};
+    pub use crate::camera::{AwaitConfig, BlockingCamera as Camera};
     // Camera profiles - these are the primary way to configure camera behavior
     pub use crate::camera::profiles::{
         GenericVisca, NearusBRC300, PtzOptics30X, PtzOpticsG2, PtzOpticsG3, SonyBRC300,
