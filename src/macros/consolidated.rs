@@ -152,7 +152,6 @@ mod tests {
         camera_id::CameraId,
         command::encode::{EncodedCommand, ViscaCommand},
         timeout::CommandCategory,
-        visca_command,
     };
     use std::cell::Cell;
 
