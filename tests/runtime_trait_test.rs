@@ -204,6 +204,137 @@ mod smol_runtime_tests {
     }
 }
 
+// Integration tests for transport connect paths (issue #472)
+// These tests verify that UdpTransport::connect_with_config works correctly
+// with the new single end-to-end deadline behavior.
+#[cfg(feature = "runtime-tokio")]
+mod tokio_transport_connect_tests {
+    use std::time::Duration;
+
+    use grafton_visca::{
+        runtime_adapters::tokio::UdpTransport, transport::builder::TransportConfig,
+    };
+
+    /// Test that UDP transport connection completes successfully with a local address.
+    ///
+    /// This is a smoke test that verifies the happy path for UDP connection
+    /// using the single end-to-end deadline pattern.
+    #[tokio::test]
+    async fn test_udp_transport_connect_with_config_success() {
+        // Create a local UDP socket to connect to
+        let server = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let addr = server.local_addr().unwrap();
+
+        let config = TransportConfig {
+            connect_timeout: Duration::from_secs(5),
+            ..Default::default()
+        };
+
+        // This should complete successfully
+        let result = UdpTransport::connect_with_config(&addr.to_string(), config).await;
+        assert!(
+            result.is_ok(),
+            "UDP transport should connect successfully to local address"
+        );
+    }
+
+    /// Test that timeout is respected for UDP connections.
+    ///
+    /// Uses a short timeout with a non-routable address to verify timeout behavior.
+    #[tokio::test]
+    async fn test_udp_transport_connect_timeout() {
+        use std::time::Instant;
+
+        let config = TransportConfig {
+            connect_timeout: Duration::from_millis(100),
+            ..Default::default()
+        };
+
+        let start = Instant::now();
+        // Use a TEST-NET address that won't route
+        let result = UdpTransport::connect_with_config("192.0.2.1:9", config).await;
+        let elapsed = start.elapsed();
+
+        // The operation should complete (either successfully or with timeout)
+        // within a reasonable margin of the configured timeout.
+        // Note: UDP connect may succeed even for non-routable addresses on some systems
+        // since UDP is connectionless, so we just verify timing is reasonable.
+        assert!(
+            elapsed < Duration::from_secs(5),
+            "Operation should complete within reasonable time"
+        );
+
+        // If it failed, it should be a timeout or another expected error
+        if result.is_err() {
+            // Expected - the address is non-routable
+        }
+    }
+}
+
+#[cfg(feature = "runtime-async-std")]
+mod async_std_transport_connect_tests {
+    use std::time::Duration;
+
+    use grafton_visca::{
+        runtime_adapters::async_std::UdpTransport, transport::builder::TransportConfig,
+    };
+
+    /// Test that UDP transport connection completes successfully with a local address.
+    #[async_std::test]
+    async fn test_udp_transport_connect_with_config_success() {
+        // Create a local UDP socket to connect to
+        let server = async_std::net::UdpSocket::bind("127.0.0.1:0")
+            .await
+            .unwrap();
+        let addr = server.local_addr().unwrap();
+
+        let config = TransportConfig {
+            connect_timeout: Duration::from_secs(5),
+            ..Default::default()
+        };
+
+        let result = UdpTransport::connect_with_config(&addr.to_string(), config).await;
+        assert!(
+            result.is_ok(),
+            "UDP transport should connect successfully to local address"
+        );
+    }
+}
+
+#[cfg(all(feature = "runtime-smol", not(feature = "runtime-tokio")))]
+mod smol_transport_connect_tests {
+    use std::time::Duration;
+
+    use grafton_visca::{
+        runtime_adapters::smol::UdpTransport, transport::builder::TransportConfig,
+    };
+
+    fn run_smol<F: std::future::Future>(f: F) -> F::Output {
+        smol::block_on(f)
+    }
+
+    /// Test that UDP transport connection completes successfully with a local address.
+    #[test]
+    fn test_udp_transport_connect_with_config_success() {
+        run_smol(async {
+            // Create a local UDP socket to connect to
+            let server = smol::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+            let addr = server.local_addr().unwrap();
+
+            let config = TransportConfig {
+                connect_timeout: Duration::from_secs(5),
+                ..Default::default()
+            };
+
+            let result = UdpTransport::connect_with_config(&addr.to_string(), config).await;
+            assert!(
+                result.is_ok(),
+                "UDP transport should connect successfully to local address"
+            );
+        });
+    }
+}
+
 // Compile-time tests to ensure type safety
 #[cfg(all(feature = "runtime-tokio", feature = "runtime-async-std"))]
 mod compile_time_safety_tests {

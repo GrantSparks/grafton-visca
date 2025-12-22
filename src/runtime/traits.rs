@@ -271,15 +271,8 @@ mod tokio_impl {
             addr: &str,
             cfg: TransportConfig,
         ) -> Result<Self::TcpTransport, Error> {
-            // Convert addr to owned String for 'static lifetime requirement
-            let addr = addr.to_string();
-            // Use executor-driven timeout instead of runtime-specific timeout
-            self.timeout_owned(cfg.connect_timeout, async move {
-                TcpTransport::connect_with_config(&addr, cfg).await
-            })
-            .await
-            // Flatten the nested Result: outer is timeout, inner is connect
-            .and_then(|inner| inner)
+            // Timeout is enforced at the connector layer (single source of truth)
+            TcpTransport::connect_with_config(addr, cfg).await
         }
 
         async fn connect_udp(
@@ -287,15 +280,8 @@ mod tokio_impl {
             addr: &str,
             cfg: TransportConfig,
         ) -> Result<Self::UdpTransport, Error> {
-            // Convert addr to owned String for 'static lifetime requirement
-            let addr = addr.to_string();
-            // Use executor-driven timeout instead of runtime-specific timeout
-            self.timeout_owned(cfg.connect_timeout, async move {
-                UdpTransport::connect_with_config(&addr, cfg).await
-            })
-            .await
-            // Flatten the nested Result: outer is timeout, inner is connect
-            .and_then(|inner| inner)
+            // Timeout is enforced at the connector layer (single source of truth)
+            UdpTransport::connect_with_config(addr, cfg).await
         }
     }
 
@@ -415,15 +401,8 @@ mod async_std_impl {
             addr: &str,
             cfg: TransportConfig,
         ) -> Result<Self::TcpTransport, Error> {
-            // Convert addr to owned String for 'static lifetime requirement
-            let addr = addr.to_string();
-            // Use executor-driven timeout instead of runtime-specific timeout
-            self.timeout_owned(cfg.connect_timeout, async move {
-                TcpTransport::connect_with_config(&addr, cfg).await
-            })
-            .await
-            // Flatten the nested Result: outer is timeout, inner is connect
-            .and_then(|inner| inner)
+            // Timeout is enforced at the connector layer (single source of truth)
+            TcpTransport::connect_with_config(addr, cfg).await
         }
 
         async fn connect_udp(
@@ -431,15 +410,8 @@ mod async_std_impl {
             addr: &str,
             cfg: TransportConfig,
         ) -> Result<Self::UdpTransport, Error> {
-            // Convert addr to owned String for 'static lifetime requirement
-            let addr = addr.to_string();
-            // Use executor-driven timeout instead of runtime-specific timeout
-            self.timeout_owned(cfg.connect_timeout, async move {
-                UdpTransport::connect_with_config(&addr, cfg).await
-            })
-            .await
-            // Flatten the nested Result: outer is timeout, inner is connect
-            .and_then(|inner| inner)
+            // Timeout is enforced at the connector layer (single source of truth)
+            UdpTransport::connect_with_config(addr, cfg).await
         }
     }
 }
@@ -545,15 +517,8 @@ mod smol_impl {
             addr: &str,
             cfg: TransportConfig,
         ) -> Result<Self::TcpTransport, Error> {
-            // Convert addr to owned String for 'static lifetime requirement
-            let addr = addr.to_string();
-            // Use executor-driven timeout instead of runtime-specific timeout
-            self.timeout_owned(cfg.connect_timeout, async move {
-                TcpTransport::connect_with_config(&addr, cfg).await
-            })
-            .await
-            // Flatten the nested Result: outer is timeout, inner is connect
-            .and_then(|inner| inner)
+            // Timeout is enforced at the connector layer (single source of truth)
+            TcpTransport::connect_with_config(addr, cfg).await
         }
 
         async fn connect_udp(
@@ -561,15 +526,8 @@ mod smol_impl {
             addr: &str,
             cfg: TransportConfig,
         ) -> Result<Self::UdpTransport, Error> {
-            // Convert addr to owned String for 'static lifetime requirement
-            let addr = addr.to_string();
-            // Use executor-driven timeout instead of runtime-specific timeout
-            self.timeout_owned(cfg.connect_timeout, async move {
-                UdpTransport::connect_with_config(&addr, cfg).await
-            })
-            .await
-            // Flatten the nested Result: outer is timeout, inner is connect
-            .and_then(|inner| inner)
+            // Timeout is enforced at the connector layer (single source of truth)
+            UdpTransport::connect_with_config(addr, cfg).await
         }
     }
 }
