@@ -488,6 +488,21 @@ mod smol_impl {
         }
     }
 
+    /// Race a future against a timer, returning `Err(Error::Timeout)` if the timer fires first.
+    ///
+    /// This is a waker-driven timeout implementation that avoids busy polling by using
+    /// `futures_lite::future::race` to efficiently wait for whichever completes first.
+    async fn race_timeout<T>(
+        duration: Duration,
+        fut: impl Future<Output = T> + Send,
+    ) -> Result<T, Error> {
+        futures_lite::future::race(async { Ok(fut.await) }, async {
+            smol::Timer::after(duration).await;
+            Err(Error::Timeout)
+        })
+        .await
+    }
+
     impl Executor for SmolExecutor {
         type Join<T>
             = SmolJoin<T>
@@ -530,24 +545,7 @@ mod smol_impl {
             F: Future<Output = T> + Send + 'a,
             T: Send + 'a,
         {
-            async move {
-                let timer = smol::Timer::after(duration);
-
-                futures_lite::pin!(fut);
-                futures_lite::pin!(timer);
-
-                loop {
-                    if let Some(value) = futures_lite::future::poll_once(&mut fut).await {
-                        return Ok(value);
-                    }
-
-                    if futures_lite::future::poll_once(&mut timer).await.is_some() {
-                        return Err(Error::Timeout);
-                    }
-
-                    futures_lite::future::yield_now().await;
-                }
-            }
+            race_timeout(duration, fut)
         }
 
         #[allow(clippy::manual_async_fn)]
@@ -559,27 +557,140 @@ mod smol_impl {
         where
             T: Send + 'static,
         {
-            async move {
-                let timer = smol::Timer::after(duration);
-
-                futures_lite::pin!(fut);
-                futures_lite::pin!(timer);
-
-                loop {
-                    if let Some(value) = futures_lite::future::poll_once(&mut fut).await {
-                        return Ok(value);
-                    }
-
-                    if futures_lite::future::poll_once(&mut timer).await.is_some() {
-                        return Err(Error::Timeout);
-                    }
-
-                    futures_lite::future::yield_now().await;
-                }
-            }
+            race_timeout(duration, fut)
         }
     }
 }
 
 #[cfg(feature = "runtime-smol")]
 pub use smol_impl::SmolExecutor;
+
+#[cfg(all(test, feature = "runtime-smol"))]
+mod smol_tests {
+    use super::*;
+    use std::{
+        sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc,
+        },
+        task::{Context, Poll},
+        time::Duration,
+    };
+
+    /// A future that never completes (always returns Pending) and tracks poll count.
+    struct NeverComplete {
+        poll_count: Arc<AtomicUsize>,
+    }
+
+    impl NeverComplete {
+        fn new() -> (Self, Arc<AtomicUsize>) {
+            let poll_count = Arc::new(AtomicUsize::new(0));
+            (
+                Self {
+                    poll_count: poll_count.clone(),
+                },
+                poll_count,
+            )
+        }
+    }
+
+    impl Future for NeverComplete {
+        type Output = ();
+
+        fn poll(self: std::pin::Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
+            self.poll_count.fetch_add(1, Ordering::SeqCst);
+            Poll::Pending
+        }
+    }
+
+    /// Test that a never-completing future times out correctly.
+    #[test]
+    fn timeout_returns_error_for_never_completing_future() {
+        let executor = SmolExecutor::new();
+        let (never_complete, _poll_count) = NeverComplete::new();
+        let result = executor.block_on(executor.timeout(Duration::from_millis(10), never_complete));
+        assert!(matches!(result, Err(Error::Timeout)));
+    }
+
+    /// Test that timeout_owned times out correctly.
+    #[test]
+    fn timeout_owned_returns_error_for_never_completing_future() {
+        let executor = SmolExecutor::new();
+        let (never_complete, _poll_count) = NeverComplete::new();
+        let result =
+            executor.block_on(executor.timeout_owned(Duration::from_millis(10), never_complete));
+        assert!(matches!(result, Err(Error::Timeout)));
+    }
+
+    /// Test that an immediately completing future returns success.
+    #[test]
+    fn timeout_returns_ok_for_immediate_completion() {
+        let executor = SmolExecutor::new();
+        let result = executor.block_on(executor.timeout(Duration::from_secs(10), async { 42 }));
+        assert!(matches!(result, Ok(42)));
+    }
+
+    /// Test that timeout_owned returns success for immediate completion.
+    #[test]
+    fn timeout_owned_returns_ok_for_immediate_completion() {
+        let executor = SmolExecutor::new();
+        let result =
+            executor.block_on(executor.timeout_owned(Duration::from_secs(10), async { 42 }));
+        assert!(matches!(result, Ok(42)));
+    }
+
+    /// Regression test: Verify the timeout implementation is waker-driven, not busy polling.
+    ///
+    /// A busy-polling loop would poll the inner future repeatedly while waiting for the timer.
+    /// A waker-driven implementation should only poll a small bounded number of times:
+    /// - Once initially when the timeout future is first polled
+    /// - Possibly once more when the timer fires (to complete the race)
+    ///
+    /// We use a generous bound (10 polls) to avoid flakiness while still catching busy loops.
+    #[test]
+    fn timeout_does_not_busy_poll() {
+        let executor = SmolExecutor::new();
+        let (never_complete, poll_count) = NeverComplete::new();
+
+        let result = executor.block_on(executor.timeout(Duration::from_millis(50), never_complete));
+        assert!(matches!(result, Err(Error::Timeout)));
+
+        let polls = poll_count.load(Ordering::SeqCst);
+        // A waker-driven implementation polls very few times (typically 1-2).
+        // A busy-polling loop would poll hundreds or thousands of times in 50ms.
+        assert!(
+            polls <= 10,
+            "Expected ≤10 polls for waker-driven implementation, got {polls}. \
+             This suggests a busy-polling regression."
+        );
+    }
+
+    /// Regression test for timeout_owned: Verify it is also waker-driven.
+    #[test]
+    fn timeout_owned_does_not_busy_poll() {
+        let executor = SmolExecutor::new();
+        let (never_complete, poll_count) = NeverComplete::new();
+
+        let result =
+            executor.block_on(executor.timeout_owned(Duration::from_millis(50), never_complete));
+        assert!(matches!(result, Err(Error::Timeout)));
+
+        let polls = poll_count.load(Ordering::SeqCst);
+        assert!(
+            polls <= 10,
+            "Expected ≤10 polls for waker-driven implementation, got {polls}. \
+             This suggests a busy-polling regression."
+        );
+    }
+
+    /// Test that a future completing just before the timeout succeeds.
+    #[test]
+    fn timeout_future_completing_before_deadline_succeeds() {
+        let executor = SmolExecutor::new();
+        let result = executor.block_on(executor.timeout(Duration::from_millis(100), async {
+            smol::Timer::after(Duration::from_millis(10)).await;
+            "completed"
+        }));
+        assert!(matches!(result, Ok("completed")));
+    }
+}
