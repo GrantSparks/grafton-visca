@@ -696,13 +696,15 @@ mod tests {
         }
     }
 
-    /// Test that blocking send failures immediately return TransportError (not NoResponse/Timeout).
+    /// Test that blocking send failures preserve the original error with context.
     ///
-    /// This test verifies the fix for issue #433: when a transport send fails in blocking mode,
-    /// the error should be propagated immediately as TransportError("Send failed"), not deferred
-    /// to timeout handling which would produce NoResponse.
+    /// This test verifies issue #469: when a transport send fails in blocking mode,
+    /// the error should be propagated immediately with:
+    /// 1. "Send failed" context wrapping the original error
+    /// 2. The original error message preserved (e.g., "Simulated send failure")
+    /// 3. The original error kind preserved (for timeout classification)
     #[test]
-    fn test_blocking_send_failure_returns_transport_error_immediately() {
+    fn test_blocking_send_failure_preserves_error_with_context() {
         use crate::command::bytes::VISCA_TERMINATOR;
 
         let timeout_config = TimeoutConfig::default();
@@ -743,16 +745,30 @@ mod tests {
 
         let elapsed = start.elapsed();
 
-        // Should return immediately with TransportError, not wait for timeout
+        // Should return immediately with error, not wait for timeout
         assert!(
             result.is_err(),
             "Expected error from failing transport, got Ok"
         );
 
         let error = result.unwrap_err();
+
+        // Verify the error preserves the original cause with "Send failed" context
+        let error_msg = error.to_string();
         assert!(
-            matches!(&error, Error::TransportError(msg) if msg.contains("Send failed")),
-            "Expected TransportError('Send failed'), got: {error:?}"
+            error_msg.contains("Send failed"),
+            "Error should contain 'Send failed' context, got: {error_msg}"
+        );
+        assert!(
+            error_msg.contains("Simulated send failure"),
+            "Error should contain original error message 'Simulated send failure', got: {error_msg}"
+        );
+
+        // Verify the error kind is preserved (TransportError -> Other)
+        assert_eq!(
+            error.kind(),
+            crate::ErrorKind::Other,
+            "Error kind should be preserved through context wrapping"
         );
 
         // Verify the error was returned promptly (not after timeout)
@@ -760,6 +776,104 @@ mod tests {
         assert!(
             elapsed.as_millis() < 100,
             "Error should be returned immediately, took {elapsed:?}"
+        );
+    }
+
+    /// Test that timeout errors preserve ErrorKind::Timeout through send failure context.
+    ///
+    /// This test verifies issue #469's key requirement: write timeouts should remain
+    /// as ErrorKind::Timeout even when wrapped with "Send failed" context.
+    #[test]
+    fn test_blocking_send_timeout_preserves_timeout_kind() {
+        use crate::command::bytes::VISCA_TERMINATOR;
+
+        let timeout_config = TimeoutConfig::default();
+        let mut runner = BlockingRunner::<PtzOpticsG2>::new(timeout_config);
+
+        #[derive(Debug, Clone)]
+        struct TestCmd {
+            bytes: Vec<u8>,
+        }
+
+        impl ViscaCommand for TestCmd {
+            type Response = ();
+            const MAX_SIZE: usize = 6;
+            const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
+
+            fn write_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
+                let len = self.bytes.len();
+                buffer[..len].copy_from_slice(&self.bytes);
+                Ok(len)
+            }
+
+            fn response_kind(&self) -> Option<crate::command::response::InquiryKind> {
+                None
+            }
+        }
+
+        /// Mock transport that returns Timeout on send
+        struct TimeoutSendTransport {
+            config: TransportConfig,
+        }
+
+        impl TimeoutSendTransport {
+            fn new() -> Self {
+                Self {
+                    config: TransportConfig::default(),
+                }
+            }
+        }
+
+        impl BlockingTransport for TimeoutSendTransport {
+            fn send_with_kind(&mut self, _bytes: &[u8], _kind: CommandKind) -> Result<(), Error> {
+                Err(Error::Timeout)
+            }
+
+            fn recv_into(&mut self, _dst: &mut [u8]) -> Result<usize, Error> {
+                Ok(0)
+            }
+
+            fn recv_into_with_timeout(
+                &mut self,
+                _dst: &mut [u8],
+                _timeout: Duration,
+            ) -> Result<usize, Error> {
+                Err(Error::Timeout)
+            }
+        }
+
+        impl HasTransportConfig for TimeoutSendTransport {
+            fn transport_config(&self) -> &TransportConfig {
+                &self.config
+            }
+        }
+
+        let mut transport = TimeoutSendTransport::new();
+        let camera_id = CameraId::CAMERA_1;
+        let test_cmd = TestCmd {
+            bytes: vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR],
+        };
+
+        let result =
+            runner.send_command(&mut transport, &test_cmd, camera_id, CommandCategory::Quick);
+
+        assert!(result.is_err(), "Expected timeout error, got Ok");
+
+        let error = result.unwrap_err();
+
+        // The critical assertion: timeout classification MUST be preserved
+        assert_eq!(
+            error.kind(),
+            crate::ErrorKind::Timeout,
+            "Timeout ErrorKind must be preserved through 'Send failed' context wrapping. Got: {:?}",
+            error
+        );
+
+        // Verify the error message still contains "Send failed" context
+        let error_msg = error.to_string();
+        assert!(
+            error_msg.contains("Send failed"),
+            "Error should contain 'Send failed' context, got: {error_msg}"
         );
     }
 

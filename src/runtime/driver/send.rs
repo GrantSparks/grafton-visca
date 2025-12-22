@@ -68,7 +68,10 @@ impl SendGuard {
     /// Rollback the send operation on failure.
     ///
     /// This method automatically unregisters pending ACKs, frees reserved sockets,
-    /// and fails the command immediately with a transport error.
+    /// and fails the command immediately with the provided error wrapped in context.
+    ///
+    /// The `cause` parameter preserves the original error (including timeout semantics)
+    /// while the scheduler adds "Send failed" context.
     ///
     /// # Return Value
     ///
@@ -78,7 +81,11 @@ impl SendGuard {
     ///
     /// - **Blocking mode**: Returns `Some(SchedulerAction::CommandFailed)` for the
     ///   caller to propagate the error to clients.
-    pub fn rollback<S: SchedulerLike>(self, scheduler: &mut S) -> Option<SchedulerAction> {
+    pub fn rollback<S: SchedulerLike>(
+        self,
+        scheduler: &mut S,
+        cause: crate::Error,
+    ) -> Option<SchedulerAction> {
         if !self.committed {
             // Rollback on failure
             if let Some(socket) = self.reserved_socket {
@@ -100,7 +107,7 @@ impl SendGuard {
                 "SendGuard: Failing command {id} after send failure (no retry)",
                 id = self.id
             );
-            scheduler.fail_after_send_error(self.id)
+            scheduler.fail_after_send_error(self.id, cause)
         } else {
             None
         }
@@ -182,7 +189,7 @@ where
             Ok(())
         }
         Err(e) => {
-            let error_type = if matches!(e, crate::Error::Timeout) {
+            let error_type = if e.kind() == crate::ErrorKind::Timeout {
                 "timeout"
             } else {
                 "failed"
@@ -200,10 +207,11 @@ where
                 error = e
             );
 
-            // Rollback: for async mode, AsyncAdapter::fail_after_send_error handles
+            // Rollback: pass the original error to preserve timeout semantics.
+            // For async mode, AsyncAdapter::fail_after_send_error handles
             // the action internally (updates metrics and notifies via response channel),
-            // so we can safely ignore the None return value
-            guard.rollback(scheduler);
+            // so we can safely ignore the None return value.
+            guard.rollback(scheduler, e.clone());
 
             // Return error to caller
             Err(e)
@@ -278,7 +286,7 @@ where
             SendResult::Ok
         }
         Err(e) => {
-            let error_type = if matches!(e, crate::Error::Timeout) {
+            let error_type = if e.kind() == crate::ErrorKind::Timeout {
                 "timeout"
             } else {
                 "failed"
@@ -296,8 +304,9 @@ where
                 error = e
             );
 
-            // Rollback and get the scheduler action for the caller to handle
-            let action = guard.rollback(scheduler);
+            // Rollback and get the scheduler action for the caller to handle.
+            // Pass the original error to preserve timeout semantics.
+            let action = guard.rollback(scheduler, e.clone());
 
             // Return error with action for caller to check
             SendResult::Err { error: e, action }

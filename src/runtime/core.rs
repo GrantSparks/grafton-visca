@@ -2152,20 +2152,25 @@ impl SchedulerCore {
     /// This method is called when a command fails to send over the transport.
     /// The command is immediately failed without retry since we cannot know if
     /// it reached the camera.
-    pub fn fail_after_send_error(&mut self, cmd_id: u32) -> Option<SchedulerAction> {
+    ///
+    /// The `cause` parameter preserves the original error (including timeout semantics)
+    /// while wrapping it with "Send failed" context.
+    pub fn fail_after_send_error(&mut self, cmd_id: u32, cause: Error) -> Option<SchedulerAction> {
         // If inquiry is in-flight, remove from inquiries_inflight and inquiries_order
         self.inquiries_inflight.remove(&cmd_id);
         self.inquiries_order.retain(|&x| x != cmd_id);
         self.inquiry_response_types.remove(&cmd_id);
 
-        // For send failures on first attempt, fail immediately with transport error
+        // For send failures on first attempt, fail immediately with the original error
+        // wrapped with "Send failed" context. This preserves the error kind (e.g., Timeout)
+        // while adding context about when the failure occurred.
         self.finish_sequence(cmd_id);
         self.command_metadata.remove(&cmd_id);
         self.retry_attempts.remove(&cmd_id);
         self.retry_trigger_transport_error.remove(&cmd_id);
         Some(SchedulerAction::CommandFailed {
             id: cmd_id,
-            error: Error::TransportError("Send failed".into()),
+            error: cause.with_context("Send failed"),
         })
     }
 

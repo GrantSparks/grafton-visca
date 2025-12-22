@@ -387,12 +387,15 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
         self.core.free_socket(socket);
     }
 
-    /// Handle a send failure - fails immediately with transport error.
+    /// Handle a send failure - fails immediately with the original error wrapped in context.
     ///
     /// This routes the failure through the unified action handling path,
     /// ensuring consistent metrics tracking and response notification.
-    pub fn fail_after_send_error(&mut self, id: u32) {
-        if let Some(action) = self.core.fail_after_send_error(id) {
+    ///
+    /// The `cause` parameter preserves the original error (including timeout semantics)
+    /// while adding "Send failed" context.
+    pub fn fail_after_send_error(&mut self, id: u32, cause: Error) {
+        if let Some(action) = self.core.fail_after_send_error(id, cause) {
             // Route through unified action handler for consistent metrics/notification
             self.apply_action(action);
         }
@@ -845,18 +848,21 @@ mod tests {
             "Should start with 0 failed commands"
         );
 
-        // Simulate a send failure
-        adapter.fail_after_send_error(100);
+        // Simulate a send failure with original transport error
+        let original_error = Error::TransportError("Simulated send failure".into());
+        adapter.fail_after_send_error(100, original_error);
 
-        // Verify the response channel received the error
+        // Verify the response channel received the error with context
         let response_result = response_rx.try_recv();
         assert!(
             response_result.is_ok(),
             "Command should receive error notification"
         );
         match response_result.unwrap() {
-            Err(Error::TransportError(_)) => {} // Expected
-            other => panic!("Expected TransportError, got: {other:?}"),
+            Err(Error::WithContext { ref context, .. }) if context.contains("Send failed") => {
+                // Expected: error should be wrapped with "Send failed" context
+            }
+            other => panic!("Expected WithContext error containing 'Send failed', got: {other:?}"),
         }
 
         // Verify metrics were incremented
@@ -906,10 +912,10 @@ mod tests {
             adapter.response_channels.insert(id, response_tx);
         }
 
-        // Fail all 3 commands
-        adapter.fail_after_send_error(101);
-        adapter.fail_after_send_error(102);
-        adapter.fail_after_send_error(103);
+        // Fail all 3 commands with original errors
+        adapter.fail_after_send_error(101, Error::TransportError("Simulated failure 1".into()));
+        adapter.fail_after_send_error(102, Error::TransportError("Simulated failure 2".into()));
+        adapter.fail_after_send_error(103, Error::TransportError("Simulated failure 3".into()));
 
         // Verify all failures are tracked
         let metrics = adapter.metrics_summary();

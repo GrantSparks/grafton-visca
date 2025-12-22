@@ -34,7 +34,10 @@ pub trait SchedulerLike {
     /// Fail a command immediately after send error.
     ///
     /// This method handles send failures by immediately failing the command
-    /// with a TransportError, without any retry attempts.
+    /// with the original error wrapped in "Send failed" context.
+    ///
+    /// The `cause` parameter preserves the original error (including timeout semantics)
+    /// while adding context about when the failure occurred.
     ///
     /// # Implementation Notes
     ///
@@ -45,7 +48,11 @@ pub trait SchedulerLike {
     ///
     /// - **Blocking**: Returns `Some(SchedulerAction::CommandFailed)` for the
     ///   caller to propagate the error to clients via the return value.
-    fn fail_after_send_error(&mut self, id: u32) -> Option<crate::runtime::core::SchedulerAction>;
+    fn fail_after_send_error(
+        &mut self,
+        id: u32,
+        cause: crate::Error,
+    ) -> Option<crate::runtime::core::SchedulerAction>;
 
     /// Register Sony sequence number for a command.
     ///
@@ -86,11 +93,12 @@ mod async_impl {
         fn fail_after_send_error(
             &mut self,
             id: u32,
+            cause: crate::Error,
         ) -> Option<crate::runtime::core::SchedulerAction> {
             // AsyncAdapter handles the action internally by sending to response channel,
             // so we call it for the side effect and return None to indicate no further
             // action needed by the caller
-            self.fail_after_send_error(id);
+            self.fail_after_send_error(id, cause);
             None
         }
 
@@ -159,9 +167,10 @@ mod blocking_impl {
         fn fail_after_send_error(
             &mut self,
             id: u32,
+            cause: crate::Error,
         ) -> Option<crate::runtime::core::SchedulerAction> {
             // Return the action from core so caller can propagate it
-            self.core.fail_after_send_error(id)
+            self.core.fail_after_send_error(id, cause)
         }
 
         fn register_sequence(&mut self, id: u32, seq: u32) {
