@@ -404,11 +404,25 @@ impl<P: Profile> BlockingRunner<P> {
                 }
                 Ok(n) => {
                     trace!("Received {n} bytes from transport");
-                    if let Err(e) = self.framer.push_slice(&read_buf[..n]) {
-                        warn!("Framer buffer exceeded limits: {e}");
-                        continue;
+
+                    // Use push_slice_with_resync to handle buffer overflow gracefully.
+                    // This clears the buffer and retries if overflow occurs, preventing
+                    // permanent runtime stalls from un-framable data accumulation.
+                    match self.framer.push_slice_with_resync(&read_buf[..n]) {
+                        Ok(normal_push) => {
+                            if !normal_push {
+                                debug!("Framer resynced after buffer overflow");
+                            }
+                        }
+                        Err(e) => {
+                            // Resync failed - chunk alone exceeds max_buffer_size.
+                            // This indicates a configuration issue but we continue
+                            // to allow processing and avoid permanent stall.
+                            warn!("Framer resync failed (chunk exceeds max_buffer_size): {e}");
+                        }
                     }
 
+                    // Always drain frames after push attempt (even after resync)
                     for frame_result in self.framer.drain_frames() {
                         let frame = match frame_result {
                             Ok(frame) => frame,

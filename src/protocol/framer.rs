@@ -198,6 +198,73 @@ impl ProtocolFramer {
     pub fn clear(&mut self) {
         self.buf.clear();
     }
+
+    /// Returns the maximum buffer size limit.
+    pub fn max_buffer_size(&self) -> usize {
+        self.max_buffer_size
+    }
+
+    /// Push a slice of bytes with automatic resync on max-buffer overflow.
+    ///
+    /// This method handles the case where the internal buffer has grown to its
+    /// limit without finding a complete frame boundary. When this occurs:
+    ///
+    /// 1. The buffer is cleared to discard the un-framable accumulated bytes
+    /// 2. The incoming chunk is retried (it may contain the start of a valid frame)
+    /// 3. If the retry also fails, the original error is returned
+    ///
+    /// This prevents permanent runtime stalls by ensuring the framer can always
+    /// recover from buffer overflow conditions and resume processing valid frames.
+    ///
+    /// # Arguments
+    ///
+    /// * `chunk` - The bytes to push into the framer buffer
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(true)` - Push succeeded normally
+    /// * `Ok(false)` - Push required resync (buffer was cleared and chunk re-pushed)
+    /// * `Err(Error::ResponseTooLarge)` - Resync failed (chunk alone exceeds max_buffer_size)
+    pub fn push_slice_with_resync(&mut self, chunk: &[u8]) -> Result<bool, Error> {
+        match self.push_slice(chunk) {
+            Ok(()) => Ok(true),
+            Err(Error::ResponseTooLarge { max_size }) => {
+                // Buffer overflow detected - attempt resync
+                let buffered_before = self.buf.len();
+                tracing::warn!(
+                    buffered_len = buffered_before,
+                    max_buffer_size = max_size,
+                    chunk_len = chunk.len(),
+                    "Framer buffer overflow detected, resyncing"
+                );
+
+                // Clear the buffer to recover
+                self.clear();
+
+                // Retry pushing the chunk - it may contain the start of a valid frame
+                match self.push_slice(chunk) {
+                    Ok(()) => {
+                        tracing::debug!(
+                            chunk_len = chunk.len(),
+                            "Resync successful, chunk pushed after clearing buffer"
+                        );
+                        Ok(false)
+                    }
+                    Err(e) => {
+                        // Chunk alone exceeds max_buffer_size - this is a configuration
+                        // issue (e.g., recv_buffer_size > max_buffer_size)
+                        tracing::error!(
+                            chunk_len = chunk.len(),
+                            max_buffer_size = max_size,
+                            "Resync failed: chunk alone exceeds max_buffer_size"
+                        );
+                        Err(e)
+                    }
+                }
+            }
+            Err(e) => Err(e),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -768,5 +835,219 @@ mod tests {
             }
             _ => panic!("Expected ResponseTooLarge error"),
         }
+    }
+
+    // Tests for push_slice_with_resync (Issue #465)
+
+    #[test]
+    fn test_push_slice_with_resync_normal_operation() {
+        // Normal push should return Ok(true)
+        let mut framer = ProtocolFramer::new_with_limits(256, 100, 100);
+
+        let chunk = vec![0x81, 0x01, 0x04, 0x07, VISCA_TERMINATOR];
+        let result = framer.push_slice_with_resync(&chunk);
+
+        assert!(
+            matches!(result, Ok(true)),
+            "Expected Ok(true) for normal push"
+        );
+        assert_eq!(framer.buffered_len(), 5);
+
+        // Should be able to drain the frame
+        let frames: Vec<_> = framer
+            .drain_frames()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(frames.len(), 1);
+        assert!(framer.is_empty());
+    }
+
+    #[test]
+    fn test_push_slice_with_resync_clears_buffer_on_overflow() {
+        // Create framer with small max buffer size
+        let mut framer = ProtocolFramer::new_with_limits(256, 100, 50);
+
+        // Fill buffer close to limit with data that has no frame terminator
+        let garbage = vec![0x81; 45]; // 45 bytes, no terminator
+        framer.push_slice(&garbage).unwrap();
+        assert_eq!(framer.buffered_len(), 45);
+
+        // This chunk would cause overflow (45 + 10 = 55 > 50)
+        // push_slice_with_resync should clear and retry
+        let new_chunk = vec![
+            0x90,
+            0x50,
+            VISCA_TERMINATOR,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+        ];
+        let result = framer.push_slice_with_resync(&new_chunk);
+
+        // Should succeed with resync (Ok(false) means resync occurred)
+        assert!(
+            matches!(result, Ok(false)),
+            "Expected Ok(false) indicating resync, got {:?}",
+            result
+        );
+
+        // Buffer should now contain only the new chunk
+        assert_eq!(framer.buffered_len(), 10);
+
+        // Should be able to extract the valid frame from the new chunk
+        let frames: Vec<_> = framer
+            .drain_frames()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(frames.len(), 1);
+        assert_eq!(frames[0], Bytes::from(vec![0x90, 0x50, VISCA_TERMINATOR]));
+
+        // Remaining bytes should be in buffer
+        assert_eq!(framer.buffered_len(), 7);
+    }
+
+    #[test]
+    fn test_push_slice_with_resync_fails_when_chunk_exceeds_max() {
+        // Create framer with very small max buffer size
+        let mut framer = ProtocolFramer::new_with_limits(256, 100, 20);
+
+        // Chunk alone exceeds max_buffer_size - resync cannot help
+        let large_chunk = vec![0x81; 30]; // 30 > 20
+        let result = framer.push_slice_with_resync(&large_chunk);
+
+        // Should return error even after resync attempt
+        assert!(
+            matches!(result, Err(Error::ResponseTooLarge { max_size: 20 })),
+            "Expected ResponseTooLarge error, got {:?}",
+            result
+        );
+
+        // Buffer should be empty after failed resync
+        assert!(framer.is_empty());
+    }
+
+    #[test]
+    fn test_push_slice_with_resync_recovery_then_valid_frame() {
+        // Test the full recovery scenario from Issue #465:
+        // 1. Buffer fills with garbage (no terminator)
+        // 2. Overflow occurs
+        // 3. Resync clears buffer
+        // 4. Subsequent valid frames are processed correctly
+
+        let mut framer = ProtocolFramer::new_with_limits(256, 100, 50);
+
+        // Step 1: Fill with garbage that has no terminator
+        let garbage = vec![0x81; 48];
+        framer.push_slice(&garbage).unwrap();
+        assert_eq!(framer.buffered_len(), 48);
+
+        // Step 2 & 3: Push chunk that triggers overflow and resync
+        let recovery_chunk = vec![0x90, 0x50, VISCA_TERMINATOR];
+        let result = framer.push_slice_with_resync(&recovery_chunk);
+        assert!(matches!(result, Ok(false)), "Expected resync to occur");
+
+        // Step 4: Verify valid frame can be extracted after recovery
+        let frames: Vec<_> = framer
+            .drain_frames()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(frames.len(), 1);
+        assert_eq!(frames[0], Bytes::from(vec![0x90, 0x50, VISCA_TERMINATOR]));
+        assert!(framer.is_empty());
+
+        // Additional verification: framer continues to work normally
+        let next_frame = vec![0x81, 0x01, 0x04, 0x07, VISCA_TERMINATOR];
+        let result = framer.push_slice_with_resync(&next_frame);
+        assert!(
+            matches!(result, Ok(true)),
+            "Normal push should return Ok(true)"
+        );
+
+        let frames: Vec<_> = framer
+            .drain_frames()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(frames.len(), 1);
+        assert_eq!(frames[0], Bytes::from(next_frame));
+    }
+
+    #[test]
+    fn test_push_slice_with_resync_multiple_overflows() {
+        // Test that multiple overflow/resync cycles work correctly
+        let mut framer = ProtocolFramer::new_with_limits(256, 100, 30);
+
+        for i in 0..3 {
+            // Fill close to limit
+            let garbage = vec![0x81; 28];
+            framer.push_slice(&garbage).unwrap();
+            assert_eq!(
+                framer.buffered_len(),
+                28,
+                "Iteration {i}: buffer should have 28 bytes"
+            );
+
+            // Trigger overflow and resync
+            let chunk = vec![0x90, 0x50, VISCA_TERMINATOR];
+            let result = framer.push_slice_with_resync(&chunk);
+            assert!(
+                matches!(result, Ok(false)),
+                "Iteration {i}: Expected resync"
+            );
+
+            // Drain the valid frame
+            let frames: Vec<_> = framer
+                .drain_frames()
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap();
+            assert_eq!(frames.len(), 1, "Iteration {i}: Should have one frame");
+            assert!(framer.is_empty(), "Iteration {i}: Buffer should be empty");
+        }
+    }
+
+    #[test]
+    fn test_push_slice_with_resync_preserves_valid_data() {
+        // When resync occurs, the new chunk may contain multiple frames
+        // or partial frame data - verify this is preserved correctly
+        let mut framer = ProtocolFramer::new_with_limits(256, 100, 50);
+
+        // Fill buffer with garbage
+        let garbage = vec![0x81; 48];
+        framer.push_slice(&garbage).unwrap();
+
+        // New chunk contains two complete frames
+        let two_frames = vec![
+            0x90,
+            0x50,
+            VISCA_TERMINATOR, // Frame 1
+            0x90,
+            0x41,
+            VISCA_TERMINATOR, // Frame 2
+        ];
+        let result = framer.push_slice_with_resync(&two_frames);
+        assert!(matches!(result, Ok(false)));
+
+        // Both frames should be extractable
+        let frames: Vec<_> = framer
+            .drain_frames()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(frames.len(), 2);
+        assert_eq!(frames[0], Bytes::from(vec![0x90, 0x50, VISCA_TERMINATOR]));
+        assert_eq!(frames[1], Bytes::from(vec![0x90, 0x41, VISCA_TERMINATOR]));
+        assert!(framer.is_empty());
+    }
+
+    #[test]
+    fn test_max_buffer_size_accessor() {
+        let framer = ProtocolFramer::new_with_limits(256, 100, 42);
+        assert_eq!(framer.max_buffer_size(), 42);
+
+        let config = BufferConfig::for_sony_ip();
+        let framer = ProtocolFramer::new_with_config(config);
+        assert_eq!(framer.max_buffer_size(), config.max_buffer_size);
     }
 }

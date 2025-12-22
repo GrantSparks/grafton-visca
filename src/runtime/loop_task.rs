@@ -343,87 +343,101 @@ pub async fn runtime_loop_with_config<
                 }
 
                 trace!("Received {n} bytes from transport");
-                if let Err(e) = protocol_framer.push_slice(&read_buf[..n]) {
-                    warn!("Framer buffer exceeded limits: {e}");
-                    // Still fall through to housekeeping
-                } else {
-                    // Drain complete frames
-                    for frame_result in protocol_framer.drain_frames() {
-                        let frame = match frame_result {
-                            Ok(frame) => frame,
-                            Err(e) => {
-                                warn!("Failed to extract frame: {e}");
-                                continue;
-                            }
-                        };
-                        let (payload, meta) = match config.envelope.extract_with_meta(frame) {
-                            Ok(result) => result,
-                            Err(e) => {
-                                warn!("Failed to extract response from frame: {e}");
-                                continue;
-                            }
-                        };
 
-                        if let Err(e) = adapter.process_response(&payload, meta.sequence).await {
-                            error!("Error processing response: {e}");
+                // Use push_slice_with_resync to handle buffer overflow gracefully.
+                // This clears the buffer and retries if overflow occurs, preventing
+                // permanent runtime stalls from un-framable data accumulation.
+                match protocol_framer.push_slice_with_resync(&read_buf[..n]) {
+                    Ok(normal_push) => {
+                        if !normal_push {
+                            debug!("Framer resynced after buffer overflow");
                         }
                     }
-
-                    // Try to send more items after processing responses
-                    while let Some(cmd) = adapter.next_item_to_send() {
-                        if let Err(e) = send_one(
-                            &mut transport,
-                            &executor,
-                            &mut adapter,
-                            cmd,
-                            &config.envelope,
-                            &mut send_buf,
-                            config.write_timeout,
-                        )
-                        .await
-                        {
-                            debug!("Send failed while draining pending: {e}");
-                        }
+                    Err(e) => {
+                        // Resync failed - chunk alone exceeds max_buffer_size.
+                        // This indicates a configuration issue but we continue
+                        // to allow housekeeping and future data processing.
+                        warn!("Framer resync failed (chunk exceeds max_buffer_size): {e}");
                     }
+                }
 
-                    // Flush queued cancels whose sockets are now known
-                    if !pending_cancel_ids.is_empty() {
-                        let ready: Vec<u32> = pending_cancel_ids
-                            .iter()
-                            .copied()
-                            .filter(|id| adapter.socket_for_command(*id).is_some())
-                            .collect();
+                // Always drain frames after push attempt (even after resync)
+                for frame_result in protocol_framer.drain_frames() {
+                    let frame = match frame_result {
+                        Ok(frame) => frame,
+                        Err(e) => {
+                            warn!("Failed to extract frame: {e}");
+                            continue;
+                        }
+                    };
+                    let (payload, meta) = match config.envelope.extract_with_meta(frame) {
+                        Ok(result) => result,
+                        Err(e) => {
+                            warn!("Failed to extract response from frame: {e}");
+                            continue;
+                        }
+                    };
 
-                        for id in ready {
-                            if let Some(socket) = adapter.socket_for_command(id) {
-                                let camera_id =
-                                    adapter.camera_id_for_command(id).unwrap_or_else(|| {
-                                        warn!("No camera ID found for queued cancel command {id}, using CAMERA_1");
-                                        crate::camera_id::CameraId::CAMERA_1
-                                    });
+                    if let Err(e) = adapter.process_response(&payload, meta.sequence).await {
+                        error!("Error processing response: {e}");
+                    }
+                }
 
-                                let cancel_cmd = CommandCancelCommand::new(socket);
-                                let mut temp_buf = [0u8; CommandCancelCommand::MAX_SIZE];
-                                let len = cancel_cmd.write_into(camera_id, &mut temp_buf).map_err(
-                                    |e| {
+                // Try to send more items after processing responses
+                while let Some(cmd) = adapter.next_item_to_send() {
+                    if let Err(e) = send_one(
+                        &mut transport,
+                        &executor,
+                        &mut adapter,
+                        cmd,
+                        &config.envelope,
+                        &mut send_buf,
+                        config.write_timeout,
+                    )
+                    .await
+                    {
+                        debug!("Send failed while draining pending: {e}");
+                    }
+                }
+
+                // Flush queued cancels whose sockets are now known
+                if !pending_cancel_ids.is_empty() {
+                    let ready: Vec<u32> = pending_cancel_ids
+                        .iter()
+                        .copied()
+                        .filter(|id| adapter.socket_for_command(*id).is_some())
+                        .collect();
+
+                    for id in ready {
+                        if let Some(socket) = adapter.socket_for_command(id) {
+                            let camera_id =
+                                adapter.camera_id_for_command(id).unwrap_or_else(|| {
+                                    warn!("No camera ID found for queued cancel command {id}, using CAMERA_1");
+                                    crate::camera_id::CameraId::CAMERA_1
+                                });
+
+                            let cancel_cmd = CommandCancelCommand::new(socket);
+                            let mut temp_buf = [0u8; CommandCancelCommand::MAX_SIZE];
+                            let len =
+                                cancel_cmd
+                                    .write_into(camera_id, &mut temp_buf)
+                                    .map_err(|e| {
                                         error!("Failed to encode queued cancel command: {e}");
                                         e
-                                    },
-                                )?;
+                                    })?;
 
-                                let kind = CommandKind::Command;
-                                config
-                                    .envelope
-                                    .frame_into(&temp_buf[..len], kind, &mut send_buf);
+                            let kind = CommandKind::Command;
+                            config
+                                .envelope
+                                .frame_into(&temp_buf[..len], kind, &mut send_buf);
 
-                                if let Err(e) = transport.send(&send_buf[..]).await {
-                                    debug!("Failed to send queued cancel for command {id}: {e}");
-                                } else {
-                                    debug!("Sent queued cancel for command {id} on socket {socket:?} with camera_id {camera_id:?}");
-                                }
-
-                                pending_cancel_ids.remove(&id);
+                            if let Err(e) = transport.send(&send_buf[..]).await {
+                                debug!("Failed to send queued cancel for command {id}: {e}");
+                            } else {
+                                debug!("Sent queued cancel for command {id} on socket {socket:?} with camera_id {camera_id:?}");
                             }
+
+                            pending_cancel_ids.remove(&id);
                         }
                     }
                 }
