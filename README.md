@@ -13,7 +13,7 @@ A pure Rust library for controlling PTZ cameras via the VISCA protocol. Supports
 
 > **This crate is in pre-release (< 1.0.0).** Breaking changes may occur until version 1.0.0.
 
-**Tested:** PTZOptics cameras (fully supported)
+**Tested:** PTZOptics cameras G2 and G3 series over TCP and UDP.
 
 **Experimental:** Other VISCA cameras, Sony encapsulation profiles, serial transport
 
@@ -86,21 +86,21 @@ For async-std or smol, enable the corresponding feature and use its runtime adap
 
 ```toml
 [dependencies]
-grafton-visca = "0.9"
+grafton-visca = "0.10"
 ```
 
 ### Common configurations
 
 ```toml
 # Async with Tokio
-grafton-visca = { version = "0.9", features = ["runtime-tokio"] }
+grafton-visca = { version = "0.10", features = ["runtime-tokio"] }
 tokio = { version = "1", features = ["full"] }
 
 # With serialization
-grafton-visca = { version = "0.9", features = ["serde"] }
+grafton-visca = { version = "0.10", features = ["serde"] }
 
 # Serial transport (blocking)
-grafton-visca = { version = "0.9", features = ["transport-serial"] }
+grafton-visca = { version = "0.10", features = ["transport-serial"] }
 ```
 
 ### Feature flags
@@ -114,6 +114,8 @@ grafton-visca = { version = "0.9", features = ["transport-serial"] }
 | `transport-serial-tokio` | Async serial (Tokio)                     |
 | `serde`                | Serialize/Deserialize for all types        |
 | `schemars`             | JSON Schema generation                     |
+| `ts-rs`                | TypeScript type generation                 |
+| `dyn-api`              | Object-safe camera traits                  |
 
 ---
 
@@ -153,7 +155,7 @@ Port can be omitted in connection strings; the profile default is used.
 
 ## Compatibility
 
-- **MSRV:** Rust 1.80.0
+- **MSRV:** Rust 1.88
 - **Platforms:** Linux, macOS, Windows
 
 ---

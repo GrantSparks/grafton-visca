@@ -5,8 +5,10 @@
 //!
 //! Run with: cargo run --example transport_builder_demo --features runtime-tokio
 
+#[cfg(not(feature = "mode-async"))]
 use std::time::Duration;
 
+#[cfg(not(feature = "mode-async"))]
 use grafton_visca::transport::{NetTransportBuilder, RetryConfig, Transport};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -108,44 +110,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("    - Exponential backoff: enabled\n");
     }
 
-    // Example 7: Runtime-based async transport API (requires runtime-tokio feature)
-    #[cfg(feature = "runtime-tokio")]
+    // Example 7: Async transport API information
+    #[cfg(feature = "mode-async")]
     {
-        println!("Example 7: Runtime-based async transport API (runtime-tokio feature)");
-
-        // Example 7a: TCP transport with Runtime
-        println!("  7a. TCP transport with Runtime:");
-        let _async_tcp = Transport::tcp()
-            .address("192.168.0.110:5678")
-            .connect_timeout(Duration::from_secs(10))
-            .tcp_nodelay(true);
-        println!("     Created TCP builder");
-        println!("     Would connect with: .build_async_with(runtime).await");
-        println!("     Where runtime = TokioRuntime::from_current()?");
-
-        // Example 7b: UDP transport with Runtime
-        println!("\n  7b. UDP transport with Runtime:");
-        let _async_udp = Transport::udp()
-            .address("192.168.0.110:5678")
-            .ttl(64)
-            .max_retries(5);
-        println!("     Created UDP builder");
-        println!("     Would connect with: .build_async_with(runtime).await");
-
-        // Example 7c: Type-safe runtime pairing
-        println!("\n  7c. Type-safe runtime pairing:");
-        println!("     The Runtime trait ensures executor and transport match:");
-        println!("     - TokioRuntime binds Tokio executor + Tokio transports");
-        println!("     - AsyncStdRuntime binds async-std executor + async-std transports");
-        println!("     - SmolRuntime binds smol executor + smol transports");
-        println!("     Mismatched combinations are impossible at compile time!");
+        println!("Example 7: Async Transport API");
+        println!("  In async mode, use runtime-specific transports directly:");
+        println!();
+        println!("  For Tokio:");
+        println!("    use grafton_visca::runtime_adapters::tokio::TcpTransport;");
+        println!("    let transport = TcpTransport::connect(\"192.168.0.110:5678\").await?;");
+        println!();
+        println!("  For async-std:");
+        println!("    use grafton_visca::runtime_adapters::async_std::TcpTransport;");
+        println!("    let transport = TcpTransport::connect(\"192.168.0.110:5678\").await?;");
+        println!();
+        println!("  For smol:");
+        println!("    use grafton_visca::runtime_adapters::smol::TcpTransport;");
+        println!("    let transport = TcpTransport::connect(\"192.168.0.110:5678\").await?;");
+        println!();
+        println!("  Type-safe runtime pairing:");
+        println!("    The Runtime trait ensures executor and transport match.");
+        println!("    Mismatched combinations are impossible at compile time!");
         println!();
     }
 
-    #[cfg(not(feature = "runtime-tokio"))]
+    #[cfg(not(feature = "mode-async"))]
     {
         println!("Example 7: Async transport builders");
-        println!("  (Skipped - requires 'runtime-tokio' feature)");
+        println!("  (Skipped - requires async mode)");
         println!(
             "  Run with: cargo run --example transport_builder_demo --features runtime-tokio\n"
         );

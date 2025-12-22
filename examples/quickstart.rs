@@ -75,7 +75,7 @@ fn main() -> Result<(), Error> {
     camera.await_zoom_idle(Duration::from_secs(2))?;
     println!("✓ Zoom complete");
 
-    println!("Testing pan/tilt with Coarse speed mapping (0.8.0)...");
+    println!("Testing pan/tilt with Coarse speed mapping...");
 
     println!("  Panning right briefly with Medium speed...");
     camera.pan_tilt_move(
@@ -227,9 +227,10 @@ fn main() -> Result<(), Error> {
     println!("  ✓ Image adjustments (flip)");
     println!("  ✓ Preset management (save, recall, clear)");
     println!();
-    println!("0.8.0 New features demonstrated:");
+    println!("Key API features demonstrated:");
     println!("  ✓ Coarse speed mapping (intuitive speed levels)");
     println!("  ✓ Direct f64 usage with Degrees (no casts needed)");
+    println!("  ✓ Await idle for movement completion");
     println!();
     println!("Next steps:");
     println!("  - Try quickstart_async for the async version");

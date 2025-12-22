@@ -26,7 +26,7 @@ fn test_no_hardcoded_terminator_test_exists() {
 #[test]
 fn test_type_safe_example_exists() {
     let example = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("examples-advanced")
+        .join("examples")
         .join("type_safe_commands.rs");
 
     assert!(

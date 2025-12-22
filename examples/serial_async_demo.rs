@@ -122,8 +122,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     feature = "transport-serial-tokio"
 )))]
 fn main() {
-    eprintln!("This example requires 'async', 'runtime-tokio', and 'tokio-serial' features.");
+    eprintln!("This example requires 'runtime-tokio' and 'transport-serial-tokio' features.");
     eprintln!(
-        "Run with: cargo run --example serial_async_demo --features 'async,runtime-tokio,tokio-serial'"
+        "Run with: cargo run --example serial_async_demo --features 'runtime-tokio,transport-serial-tokio'"
     );
 }

@@ -2,7 +2,7 @@
 members = [".", "grafton-visca-macros"]
 
 [workspace.package]
-version = "0.9.0"
+version = "0.10.0"
 authors = ["Grant Sparks <grant@grafton.ai>"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/GrantSparks/grafton-visca"
@@ -58,7 +58,7 @@ bytes = "1.5"
 chrono = { version = "0.4" }
 flume = "0.11"
 smallvec = "1.13"
-grafton-visca-macros = { path = "grafton-visca-macros", version = "0.9.0" }
+grafton-visca-macros = { path = "grafton-visca-macros", version = "0.10.0" }
 hex = "0.4"
 tracing = "0.1"
 nom = "8.0.0"
@@ -104,11 +104,9 @@ name = "quickstart_async"
 
 [[example]]
 name = "transports"
-path = "examples-advanced/transports.rs"
 
 [[example]]
 name = "builder_api"
-path = "examples-advanced/builder_api.rs"
 
 [[example]]
 name = "inquiry_quickstart"
@@ -119,7 +117,6 @@ required-features = ["runtime-tokio"]
 
 [[example]]
 name = "error_handling"
-path = "examples-advanced/error_handling.rs"
 required-features = ["runtime-tokio"]
 
 [[example]]
@@ -127,11 +124,9 @@ name = "preset_demo"
 
 [[example]]
 name = "type_safe_commands"
-path = "examples-advanced/type_safe_commands.rs"
 
 [[example]]
 name = "runtime_demo_lowlevel"
-path = "examples-advanced/runtime_demo_lowlevel.rs"
 required-features = ["mode-async", "runtime-tokio"]
 
 [[example]]
@@ -140,10 +135,22 @@ required-features = ["mode-async"]
 
 [[example]]
 name = "sony_encapsulation"
-path = "examples-advanced/sony_encapsulation.rs"
 required-features = ["runtime-tokio"]
 
 
 [[example]]
 name = "serial_async_demo"
 required-features = ["runtime-tokio", "transport-serial-tokio"]
+
+[[example]]
+name = "runtime_demo"
+required-features = ["runtime-tokio"]
+
+[[example]]
+name = "typed_inquiry_demo"
+
+[[example]]
+name = "transport_builder_demo"
+
+[[example]]
+name = "validate_inquiries"

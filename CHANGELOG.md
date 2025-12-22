@@ -5,6 +5,97 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0] - 2025-12-22
+
+### Breaking Changes
+
+#### Movement-Wait API Consolidation (#468)
+- `await_pan_tilt_idle`, `await_zoom_idle`, `await_focus_idle` consolidated into unified `AwaitConfig` pattern
+
+#### Type-Safe CommandId (#467)
+- Command IDs now use opaque `CommandId` newtype instead of raw `u8`
+
+#### PanTiltLimitCorner Narrowed (#463)
+- `PanTiltLimitCorner` now only represents the two valid corners (was previously over-general)
+
+### Added
+
+#### StateCache for Write-Only Properties (#451)
+- New `StateCache` type for tracking write-only VISCA properties that cannot be queried
+- Enables application-level state tracking without camera round-trips
+
+#### TypeScript Export Support (#444)
+- New `ts-rs` feature for generating TypeScript type definitions
+- Complete exports for all command enums
+
+#### Dynamic API Feature (#443)
+- New `dyn-api` feature with object-safe camera traits
+- Motion control trait with timeout/cancellation behavior documentation
+
+#### Inquiry Rate-Limiting (#449)
+- Optional inquiry rate-limiting with profile-aware spacing defaults
+- Prevents overwhelming cameras with rapid inquiry sequences
+
+#### Validated Inquiry Methods (#446)
+- Added validated inquiry methods for sharpness and AF sensitivity
+- Fixed MenuOpenClose and added dynamic_range inquiry
+
+#### Bounded Command Queues (#464)
+- Pending-command queue now bounded to prevent unbounded memory growth
+
+### Fixed
+
+#### Runtime Reliability
+- SmolExecutor: Replace busy-polling with waker-driven timeouts
+- BlockingRunner: Make deadline-driven to eliminate 10ms polling (#459)
+- Runtime loop: Wake on all control channels (#442)
+- Runtime loop: Exit gracefully on connection close
+
+#### Memory Safety
+- subscribe_completions() buffers now bounded (#462)
+- Retry queue made lifecycle-aware to prevent stale retries (#460)
+- 16-bit sequence correlation made collision-safe and allocation-free (#457)
+
+#### Protocol Correctness
+- ProtocolFramer: Resync on max-buffer overflow to prevent stalls (#465)
+- Transport send failures: Preserve root cause + timeout semantics (#469)
+- Transport send failures: Unify handling with SchedulerAction pipeline (#458)
+- TCP/UDP endpoint normalization canonicalized (#461)
+
+#### Camera-Specific Fixes
+- PTZOptics: Route flip commands through combined 0xA4 register (#440)
+- Decoders: Add missing SharpnessPosition decoder (#453)
+
+#### Serial Transport
+- Remove Arc<Mutex> to prevent self-deadlock in blocking transport
+
+#### Diagnostics
+- Add InquiryKind context to decoder errors and timeout warnings (#452)
+- Improve inquiry timeout logging with elapsed time and duplicate tracking
+- Remove dead code and add inflight count to inquiry tracing (#454)
+
+#### API/Compile-Time
+- Enforce compile-time mode selection
+- Remove broken intra-doc links from CommandId
+- Re-export CompletionEvent to fix rustdoc warnings
+- Remove conditional RuntimeHandle doc link that broke no-feature builds
+
+### Internal
+
+#### Refactoring
+- Eliminate panic-prone parameter encoding in visca_command! macro
+- Narrow PanTiltLimitCorner to only two representable corners (#463)
+
+#### Documentation
+- Document connection sharing patterns for multi-client applications (#455)
+
+#### Testing
+- Add regression tests for runtime loop liveness fix (#442)
+
+#### Chores
+- Remove bindings/ directory (ts-rs auto-export handles downstream)
+- Remove unused templates
+
 ## [0.9.0] - 2025-11-27
 
 ### Breaking Changes
