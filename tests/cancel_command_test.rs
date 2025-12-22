@@ -51,8 +51,8 @@ fn test_cancel_command_by_id() {
             .await
             .expect("Failed to send command");
 
-        // Verify we got a valid command ID
-        assert!(cmd_id > 0, "Should have valid command ID");
+        // CommandId is guaranteed non-zero by construction (NonZeroU32)
+        assert!(cmd_id.get() > 0, "Should have valid command ID");
 
         camera
             .cancel(cmd_id)

@@ -409,6 +409,13 @@ pub enum Error {
         max_size: usize,
     },
 
+    /// Inquiry not cancelable: `*_with_id` APIs are for commands only.
+    ///
+    /// Inquiries are not cancelable because they complete immediately without
+    /// occupying a VISCA socket. Use `send_inquiry` or `send_inquiry_typed` instead.
+    #[error("Inquiries cannot be canceled: use send_inquiry instead of *_with_id APIs")]
+    InquiryNotCancelable,
+
     /// Socket manager is unavailable or has been shut down.
     #[error("Socket manager unavailable")]
     SocketManagerUnavailable,

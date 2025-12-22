@@ -31,6 +31,9 @@ pub mod blocking_api;
 // Re-export the camera type (the actual implementation)
 pub use camera_impl::Camera;
 
+// Re-export CommandId for easy access
+pub use inflight::CommandId;
+
 // Re-export new API types
 pub use config::{CameraConfig, TransportOptions};
 pub use session::CameraSession;

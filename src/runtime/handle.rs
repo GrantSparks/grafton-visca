@@ -14,6 +14,7 @@ use std::{
 };
 
 use crate::{
+    camera::inflight::CommandId,
     camera_id::CameraId,
     capabilities::Profile,
     command::{encode::EncodedCommand, encode::ViscaCommand, response::Response},
@@ -243,12 +244,21 @@ impl<P: Profile + 'static, E: Executor + Send + Sync + 'static> RuntimeHandle<P,
     /// correct multi-camera behavior. Cancellation is socket-scoped per VISCA semantics.
     ///
     /// # Arguments
-    /// * `command_id` - The ID of the command to cancel (obtained from send_command_with_id)
+    /// * `command_id` - The ID of the command to cancel (obtained from `send_command_with_id`
+    ///   or `start_command_with_id`)
     ///
     /// # Returns
-    /// Ok(()) if the cancel request was processed (regardless of whether command was found)
-    pub async fn cancel(&self, command_id: u32) -> Result<()> {
-        let cancel_item = TxItem::CancelById { id: command_id };
+    /// `Ok(())` if the cancel request was processed (regardless of whether command was found)
+    ///
+    /// # Type Safety
+    ///
+    /// This method only accepts `CommandId` values returned by the library, preventing
+    /// the sentinel-value foot-gun where callers could pass invalid IDs (like `0`)
+    /// that would never match any command.
+    pub async fn cancel(&self, command_id: CommandId) -> Result<()> {
+        let cancel_item = TxItem::CancelById {
+            id: command_id.get(),
+        };
 
         self.inner
             .submit
@@ -390,7 +400,8 @@ impl<P: Profile + 'static, E: Executor + Send + Sync + 'static> RuntimeHandle<P,
 
     /// Send a VISCA command to the camera and return a command ID and response future.
     ///
-    /// This method allows canceling commands by their ID.
+    /// This method allows canceling commands by their ID. Use this when you need
+    /// to potentially cancel a command before it completes.
     ///
     /// # Arguments
     /// * `cmd` - A command implementing the ViscaCommand trait
@@ -398,13 +409,20 @@ impl<P: Profile + 'static, E: Executor + Send + Sync + 'static> RuntimeHandle<P,
     /// * `priority` - The priority level for the command (defaults to Normal)
     ///
     /// # Returns
-    /// A tuple of (command_id, response_future)
+    /// A tuple of (`CommandId`, response_future). The `CommandId` can be used with
+    /// [`cancel`](Self::cancel) to cancel the command.
+    ///
+    /// # Note
+    ///
+    /// This method is for **commands only**, not inquiries. Inquiries complete
+    /// immediately and cannot be canceled. Use [`send_inquiry`](Self::send_inquiry)
+    /// for inquiry operations.
     pub async fn send_command_with_id<C>(
         &self,
         cmd: &C,
         camera_id: CameraId,
         priority: Option<Priority>,
-    ) -> Result<(u32, impl Future<Output = Result<Response>>)>
+    ) -> Result<(CommandId, impl Future<Output = Result<Response>>)>
     where
         C: ViscaCommand + Clone + std::fmt::Debug + 'static,
     {
@@ -414,12 +432,12 @@ impl<P: Profile + 'static, E: Executor + Send + Sync + 'static> RuntimeHandle<P,
                 e
             })?);
 
-        let command_id = self.inner.next_command_id.fetch_add(1, Ordering::Relaxed);
+        let command_id = self.allocate_command_id();
 
         let (response_tx, response_rx) = flume::bounded(1);
 
         let item = TxItem::Command {
-            id: command_id,
+            id: command_id.get(),
             command: prepared_command,
             priority: priority.unwrap_or(Priority::Normal),
             category: C::TIMEOUT_CATEGORY,
@@ -440,6 +458,21 @@ impl<P: Profile + 'static, E: Executor + Send + Sync + 'static> RuntimeHandle<P,
         Ok((command_id, future))
     }
 
+    /// Allocate a new unique command ID.
+    ///
+    /// This method ensures the returned ID is always non-zero by skipping
+    /// zero on wraparound. IDs starting at 1 guarantees `NonZeroU32` invariant.
+    fn allocate_command_id(&self) -> CommandId {
+        loop {
+            let id = self.inner.next_command_id.fetch_add(1, Ordering::Relaxed);
+            // Skip zero on wraparound (when u32::MAX wraps to 0)
+            if let Some(cmd_id) = CommandId::from_raw(id) {
+                return cmd_id;
+            }
+            // id was 0, loop again to get the next value (1)
+        }
+    }
+
     /// Send a VISCA inquiry to the camera using the ViscaCommand trait.
     ///
     /// This method bridges the existing inquiry system with the new runtime.
@@ -450,6 +483,12 @@ impl<P: Profile + 'static, E: Executor + Send + Sync + 'static> RuntimeHandle<P,
     ///
     /// # Returns
     /// The response from the camera
+    ///
+    /// # Note
+    ///
+    /// Inquiries are not cancelable and do not return a `CommandId`. They complete
+    /// immediately without occupying a VISCA socket. For cancelable operations,
+    /// use [`send_command_with_id`](Self::send_command_with_id).
     pub async fn send_inquiry<I>(&self, inquiry: &I, camera_id: CameraId) -> Result<Response>
     where
         I: ViscaCommand + CommandTimeout + Clone + std::fmt::Debug + 'static,
@@ -461,12 +500,14 @@ impl<P: Profile + 'static, E: Executor + Send + Sync + 'static> RuntimeHandle<P,
             },
         )?);
 
-        let inquiry_id = self.inner.next_command_id.fetch_add(1, Ordering::Relaxed);
+        // Inquiries still need internal IDs for response correlation,
+        // but these are not exposed externally since inquiries cannot be canceled.
+        let inquiry_id = self.allocate_command_id();
 
         let (response_tx, response_rx) = flume::bounded(1);
 
         let item = TxItem::Inquiry {
-            id: inquiry_id,
+            id: inquiry_id.get(),
             command: prepared_command,
             category: inquiry.timeout_class(),
             camera_id,

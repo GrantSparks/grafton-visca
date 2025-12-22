@@ -138,7 +138,8 @@ fn test_command_cancellation_through_runtime() {
             .await
             .expect("Failed to start command");
 
-        assert!(cmd_id > 0, "Should have valid command ID");
+        // CommandId is guaranteed non-zero by construction (NonZeroU32)
+        assert!(cmd_id.get() > 0, "Should have valid command ID");
 
         camera
             .cancel(cmd_id)

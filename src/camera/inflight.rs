@@ -41,8 +41,80 @@ use core::{future::Future, marker::PhantomData, time::Duration};
 #[cfg(feature = "mode-async")]
 use crate::Result;
 
-/// Type alias for command IDs.
-pub type CommandId = u32;
+use core::num::NonZeroU32;
+
+/// Opaque, type-safe identifier for in-flight commands.
+///
+/// This newtype provides compile-time safety for command IDs:
+/// - Cannot be constructed directly by external callers (private field)
+/// - Only the library runtime can create valid `CommandId`s
+/// - Guaranteed to be non-zero by construction
+/// - Enables niche optimization for `Option<CommandId>` (zero-cost)
+///
+/// # Obtaining a CommandId
+///
+/// `CommandId`s are returned by:
+/// - [`Camera::send_command_with_id`](crate::camera::Camera::send_command_with_id)
+/// - [`Camera::start_command_with_id`](crate::camera::Camera::start_command_with_id)
+/// - [`InFlight::id`](InFlight::id)
+///
+/// # Cancellation
+///
+/// Use the returned `CommandId` with [`Camera::cancel`](crate::camera::Camera::cancel)
+/// to cancel a running command.
+///
+/// # Example
+///
+/// ```ignore
+/// // Start a command and get its ID
+/// let (id, future) = camera.start_command_with_id(&cmd).await?;
+///
+/// // Cancel the command by its ID
+/// camera.cancel(id).await?;
+///
+/// // The future will resolve with an error
+/// let result = future.await;
+/// assert!(result.is_err());
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct CommandId(NonZeroU32);
+
+impl CommandId {
+    /// Creates a new `CommandId` from a raw `u32`, returning `None` if the value is zero.
+    ///
+    /// This is only available within the crate for internal use during ID generation.
+    #[cfg(any(feature = "mode-async", test))]
+    #[inline]
+    pub(crate) fn from_raw(value: u32) -> Option<Self> {
+        NonZeroU32::new(value).map(Self)
+    }
+
+    /// Returns the underlying `u32` value.
+    ///
+    /// This is useful for logging, debugging, and protocol serialization.
+    /// The returned value is guaranteed to be non-zero.
+    #[inline]
+    #[must_use]
+    pub fn get(self) -> u32 {
+        self.0.get()
+    }
+
+    /// Returns the underlying `NonZeroU32` value.
+    ///
+    /// This provides direct access to the non-zero type for cases
+    /// that need to preserve the non-zero guarantee.
+    #[inline]
+    #[must_use]
+    pub fn as_nonzero(self) -> NonZeroU32 {
+        self.0
+    }
+}
+
+impl core::fmt::Display for CommandId {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
 
 /// Zero-sized marker for pan/tilt operations.
 #[derive(Debug, Clone, Copy, Default)]
@@ -303,5 +375,100 @@ where
 
     fn await_focus_idle(&self, timeout: Duration) -> impl Future<Output = Result<()>> + Send + '_ {
         self.await_focus_idle(timeout)
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
+mod tests {
+    use super::*;
+
+    /// Test that CommandId::from_raw returns None for zero.
+    #[test]
+    fn test_command_id_from_raw_zero_returns_none() {
+        assert!(CommandId::from_raw(0).is_none());
+    }
+
+    /// Test that CommandId::from_raw returns Some for non-zero values.
+    #[test]
+    fn test_command_id_from_raw_nonzero_returns_some() {
+        let id = CommandId::from_raw(1);
+        assert!(id.is_some());
+        assert_eq!(id.map(|i| i.get()), Some(1));
+
+        let id = CommandId::from_raw(42);
+        assert!(id.is_some());
+        assert_eq!(id.map(|i| i.get()), Some(42));
+
+        let id = CommandId::from_raw(u32::MAX);
+        assert!(id.is_some());
+        assert_eq!(id.map(|i| i.get()), Some(u32::MAX));
+    }
+
+    /// Test CommandId::get returns the correct value.
+    #[test]
+    fn test_command_id_get() {
+        let Some(id) = CommandId::from_raw(123) else {
+            panic!("non-zero should succeed");
+        };
+        assert_eq!(id.get(), 123);
+    }
+
+    /// Test CommandId::as_nonzero returns the underlying NonZeroU32.
+    #[test]
+    fn test_command_id_as_nonzero() {
+        let Some(id) = CommandId::from_raw(456) else {
+            panic!("non-zero should succeed");
+        };
+        assert_eq!(id.as_nonzero().get(), 456);
+    }
+
+    /// Test CommandId implements PartialEq correctly.
+    #[test]
+    fn test_command_id_equality() {
+        let Some(id1) = CommandId::from_raw(100) else {
+            panic!("non-zero should succeed");
+        };
+        let Some(id2) = CommandId::from_raw(100) else {
+            panic!("non-zero should succeed");
+        };
+        let Some(id3) = CommandId::from_raw(200) else {
+            panic!("non-zero should succeed");
+        };
+
+        assert_eq!(id1, id2);
+        assert_ne!(id1, id3);
+    }
+
+    /// Test CommandId Display implementation.
+    #[test]
+    fn test_command_id_display() {
+        let Some(id) = CommandId::from_raw(789) else {
+            panic!("non-zero should succeed");
+        };
+        assert_eq!(format!("{id}"), "789");
+    }
+
+    /// Test that CommandId is Copy (zero-cost copying).
+    #[test]
+    fn test_command_id_is_copy() {
+        let Some(id) = CommandId::from_raw(42) else {
+            panic!("non-zero should succeed");
+        };
+        let id_copy = id; // Copy
+        assert_eq!(id, id_copy);
+        // id is still valid after copy
+        assert_eq!(id.get(), 42);
+    }
+
+    /// Test Option<CommandId> has same size as CommandId (niche optimization).
+    #[test]
+    fn test_option_command_id_niche_optimization() {
+        use core::mem::size_of;
+        assert_eq!(
+            size_of::<Option<CommandId>>(),
+            size_of::<CommandId>(),
+            "Option<CommandId> should have same size as CommandId due to NonZeroU32 niche"
+        );
     }
 }

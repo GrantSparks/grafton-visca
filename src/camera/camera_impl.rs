@@ -738,16 +738,34 @@ where
         })
     }
 
-    /// Send a command and return a command ID and response future.
+    /// Send a command and return a command ID and response.
     ///
     /// This allows advanced users to track and potentially cancel commands.
     /// Most users should use the high-level trait methods instead.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InquiryNotCancelable`] if called with an inquiry command.
+    /// Inquiries cannot be canceled and should use [`send_inquiry`](Self::send_command)
+    /// instead.
+    ///
+    /// # Type Safety
+    ///
+    /// The returned [`CommandId`](crate::camera::inflight::CommandId) is guaranteed
+    /// to be valid and non-zero. It can be used with [`cancel`](Self::cancel) to
+    /// cancel the command.
     pub fn send_command_with_id<'a, C>(
         &'a self,
         command: &'a C,
     ) -> <crate::mode::Async as Mode>::Fut<
         'static,
-        Result<(u32, crate::command::response::Response), Error>,
+        Result<
+            (
+                crate::camera::inflight::CommandId,
+                crate::command::response::Response,
+            ),
+            Error,
+        >,
     >
     where
         C: ViscaCommand + Send + Sync + Clone + std::fmt::Debug + 'static,
@@ -761,17 +779,15 @@ where
 
         Box::pin(async move {
             if is_inquiry {
-                // Inquiries don't support command IDs in the current runtime
-                // Just send and return ID 0 with response
-                let response = runtime.send_inquiry(&command, camera_id).await?;
-                Ok((0, response))
-            } else {
-                let (id, future) = runtime
-                    .send_command_with_id(&command, camera_id, None)
-                    .await?;
-                let response = future.await?;
-                Ok((id, response))
+                // Inquiries cannot be canceled - reject with clear error
+                return Err(Error::InquiryNotCancelable);
             }
+
+            let (id, future) = runtime
+                .send_command_with_id(&command, camera_id, None)
+                .await?;
+            let response = future.await?;
+            Ok((id, response))
         })
     }
 
@@ -781,11 +797,19 @@ where
     /// immediately along with a future that can be awaited separately. This is useful
     /// for scenarios where you need to cancel a command while it's still in progress.
     ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InquiryNotCancelable`] if called with an inquiry command.
+    /// Inquiries cannot be canceled and should use [`send_inquiry`](Self::send_command)
+    /// instead.
+    ///
     /// # Example
     /// ```rust,ignore
+    /// use grafton_visca::camera::inflight::CommandId;
+    ///
     /// let (id, future) = camera.start_command_with_id(&cmd).await?;
     /// // Can cancel by ID here
-    /// runtime.cancel(id).await?;
+    /// camera.cancel(id).await?;
     /// // Future will resolve with Err(CommandCanceled)
     /// let result = future.await;
     /// ```
@@ -794,7 +818,7 @@ where
         command: &C,
     ) -> Result<
         (
-            u32,
+            crate::camera::inflight::CommandId,
             Pin<
                 Box<
                     dyn Future<Output = Result<crate::command::response::Response, Error>>
@@ -814,20 +838,17 @@ where
         let is_inquiry = matches!(command.command_kind(), crate::command::CommandKind::Inquiry);
 
         if is_inquiry {
-            // Inquiries don't support command IDs in the current runtime
-            // Return ID 0 with a future that immediately resolves
-            let response = self.runtime.send_inquiry(command, camera_id).await?;
-            let future = Box::pin(async move { Ok(response) });
-            Ok((0, future))
-        } else {
-            // Return the ID and future directly without awaiting
-            let (id, fut) = self
-                .runtime
-                .send_command_with_id(command, camera_id, None)
-                .await?;
-            let future = Box::pin(fut);
-            Ok((id, future))
+            // Inquiries cannot be canceled - reject with clear error
+            return Err(Error::InquiryNotCancelable);
         }
+
+        // Return the ID and future directly without awaiting
+        let (id, fut) = self
+            .runtime
+            .send_command_with_id(command, camera_id, None)
+            .await?;
+        let future = Box::pin(fut);
+        Ok((id, future))
     }
 
     /// Cancel all commands on a specific socket.
@@ -843,9 +864,16 @@ where
 
     /// Cancel a command by its ID.
     ///
-    /// This cancels a specific command that was submitted with send_command_with_id
-    /// or start_command_with_id. The command's future will resolve with CommandCanceled error.
-    pub async fn cancel(&self, command_id: u32) -> Result<(), Error>
+    /// This cancels a specific command that was submitted with `send_command_with_id`
+    /// or `start_command_with_id`. The command's future will resolve with
+    /// [`Error::CommandCanceled`].
+    ///
+    /// # Type Safety
+    ///
+    /// This method only accepts [`CommandId`](crate::camera::inflight::CommandId)
+    /// values returned by the library, preventing the sentinel-value foot-gun where
+    /// callers could pass invalid IDs that would never match any command.
+    pub async fn cancel(&self, command_id: crate::camera::inflight::CommandId) -> Result<(), Error>
     where
         Tr: AsyncTransport + Send + Sync,
         Exec: Executor + Send + Sync + Clone,
