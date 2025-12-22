@@ -227,13 +227,10 @@ visca_command! {
         zone: FocusZone,
     };
     prefix = [0x01, 0x04, 0xAA];
-    param = {
-        let zone_byte = match *zone {
-            FocusZone::Top => 0x00,
-            FocusZone::Center => 0x01,
-            FocusZone::Bottom => 0x02,
-        };
-        vec![zone_byte]
+    param = match *zone {
+        FocusZone::Top => 0x00u8,
+        FocusZone::Center => 0x01u8,
+        FocusZone::Bottom => 0x02u8,
     };
     max_param_size = 1;
     category = CommandCategory::Quick;
@@ -269,13 +266,10 @@ visca_command! {
         sensitivity: AutoFocusSensitivity,
     };
     prefix = [0x01, 0x04, 0x58];
-    param = {
-        let sens_byte = match *sensitivity {
-            AutoFocusSensitivity::High => 0x02,
-            AutoFocusSensitivity::Normal => 0x01,
-            AutoFocusSensitivity::Low => 0x00,
-        };
-        vec![sens_byte]
+    param = match *sensitivity {
+        AutoFocusSensitivity::High => 0x02u8,
+        AutoFocusSensitivity::Normal => 0x01u8,
+        AutoFocusSensitivity::Low => 0x00u8,
     };
     max_param_size = 1;
     category = CommandCategory::Quick;
@@ -299,7 +293,7 @@ visca_command! {
     prefix = [0x01, 0x04, 0x28];
     param = {
         let value = position.value();
-        vec![
+        [
             ((value >> 12) & 0x0F) as u8,
             ((value >> 8) & 0x0F) as u8,
             ((value >> 4) & 0x0F) as u8,

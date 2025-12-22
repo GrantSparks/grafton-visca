@@ -68,6 +68,16 @@ macro_rules! visca_command {
     };
 
     // Command with parameters and explicit max_param_size
+    //
+    // Note: This arm deliberately does NOT override `encoded_size()`. The default
+    // implementation returns `MAX_SIZE`, which is conservative but correct.
+    // This avoids:
+    // 1. Double evaluation of `$param_expr` (once in encoded_size, once in write_into)
+    // 2. Potential mismatches if $param_expr has side effects
+    //
+    // The encoding pipeline (`EncodedCommand::new`, `to_bytes`) calls `encoded_size()`
+    // before `write_into()`, so removing the custom implementation ensures the param
+    // expression is only evaluated once during `write_into()`.
     (
         $(#[$meta:meta])*
         pub struct $name:ident { $($field:ident : $ftype:ty),* $(,)? };
@@ -88,15 +98,8 @@ macro_rules! visca_command {
             const MAX_SIZE: usize = 1 + [$($byte),*].len() + $max_param_size + 1;
             const TIMEOUT_CATEGORY: $crate::timeout::CommandCategory = $category;
 
-            #[inline]
-            fn encoded_size(&self) -> usize {
-                // Destructure self for use in param expression
-                let Self { $($field),* } = self;
-                // Compute the actual param size at runtime
-                let param_buf: $crate::macros::param::ParamBuf<$max_param_size> =
-                    $crate::macros::param::IntoParamBuf::<$max_param_size>::encode_param($param_expr);
-                1 + [$($byte),*].len() + param_buf.len() + 1
-            }
+            // Use default encoded_size() which returns MAX_SIZE.
+            // This avoids double evaluation of $param_expr.
 
             fn write_into(&self, camera_id: $crate::camera_id::CameraId, buffer: &mut [u8]) -> Result<usize, $crate::Error> {
                 const PREFIX: &[u8] = &[$($byte),*];
@@ -140,4 +143,103 @@ macro_rules! visca_command {
     // Command with parameters (without explicit max_param_size) - DEPRECATED
     // This arm is removed to enforce explicit max_param_size for safety.
     // All commands with parameters MUST specify max_param_size.
+}
+
+#[cfg(test)]
+#[allow(clippy::expect_used)]
+mod tests {
+    use crate::{
+        camera_id::CameraId,
+        command::encode::{EncodedCommand, ViscaCommand},
+        timeout::CommandCategory,
+        visca_command,
+    };
+    use std::cell::Cell;
+
+    // Counter to track parameter evaluation - use thread-local to avoid interference
+    thread_local! {
+        static EVAL_COUNTER: Cell<usize> = const { Cell::new(0) };
+    }
+
+    fn get_param_with_side_effect(value: u8) -> u8 {
+        EVAL_COUNTER.with(|c| c.set(c.get() + 1));
+        value
+    }
+
+    fn reset_counter() {
+        EVAL_COUNTER.with(|c| c.set(0));
+    }
+
+    fn get_counter() -> usize {
+        EVAL_COUNTER.with(|c| c.get())
+    }
+
+    // Define a test command that uses a function with side effects
+    visca_command! {
+        /// Test command to verify parameter evaluation count
+        pub struct EvalCounterCommand { value: u8 };
+        prefix = [0x01, 0x04, 0x00];
+        param = get_param_with_side_effect(*value);
+        max_param_size = 1;
+        category = CommandCategory::Quick;
+    }
+
+    #[test]
+    fn test_param_expr_evaluated_once_in_encoding_pipeline() {
+        // Reset counter
+        reset_counter();
+
+        let cmd = EvalCounterCommand { value: 0x42 };
+
+        // Create an EncodedCommand which calls encoded_size() then write_into()
+        let _encoded = EncodedCommand::new(cmd, CameraId::CAMERA_1).expect("should encode command");
+
+        // The parameter expression should only be evaluated once (during write_into),
+        // not twice (once during encoded_size, once during write_into)
+        let eval_count = get_counter();
+        assert_eq!(
+            eval_count, 1,
+            "Parameter expression should be evaluated exactly once, but was evaluated {} times",
+            eval_count
+        );
+    }
+
+    #[test]
+    fn test_param_expr_evaluated_once_in_to_bytes() {
+        // Reset counter
+        reset_counter();
+
+        let cmd = EvalCounterCommand { value: 0x42 };
+
+        // Call to_bytes which also calls encoded_size() then write_into()
+        let _bytes = cmd.to_bytes(CameraId::CAMERA_1).expect("should encode");
+
+        // The parameter expression should only be evaluated once
+        let eval_count = get_counter();
+        assert_eq!(
+            eval_count, 1,
+            "Parameter expression should be evaluated exactly once, but was evaluated {} times",
+            eval_count
+        );
+    }
+
+    #[test]
+    fn test_encoded_bytes_correct() {
+        use crate::command::bytes::VISCA_TERMINATOR;
+
+        let cmd = EvalCounterCommand { value: 0x42 };
+        let mut buffer = [0u8; 16];
+        let len = cmd
+            .write_into(CameraId::CAMERA_1, &mut buffer)
+            .expect("should encode");
+
+        // Verify the encoded bytes are correct
+        // Format: camera_id (0x81) + prefix (0x01, 0x04, 0x00) + param (0x42) + terminator
+        assert_eq!(len, 6);
+        assert_eq!(
+            &buffer[..len],
+            &[0x81, 0x01, 0x04, 0x00, 0x42, VISCA_TERMINATOR],
+            "Encoded bytes should match expected format"
+        );
+    }
 }

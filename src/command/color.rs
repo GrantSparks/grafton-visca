@@ -45,13 +45,11 @@ visca_command! {
     prefix = [0x01, 0x04, 0x43, 0x00, 0x00];
     param = {
         // Convert -10..+10 to 0x00..0x14 (0x00 = -10, 0x0A = 0, 0x14 = +10)
-        let level_value = level.value();
-        let level_offset = level_value + 10;
-        assert!((0..=20).contains(&level_offset), "Color tuning level offset out of range: {}", level_offset);
-        // SAFETY: level_offset is guaranteed to be 0..=20 after validation
+        // RedTuning is already validated at construction via visca_range_type!,
+        // so level_offset is guaranteed to be in 0..=20.
         #[allow(clippy::cast_sign_loss)]
-        let encoded = level_offset as u8;
-        vec![0x00, encoded]
+        let encoded = (level.value() + 10) as u8;
+        [0x00, encoded]
     };
     max_param_size = 2;
     category = CommandCategory::Quick;
@@ -74,13 +72,11 @@ visca_command! {
     prefix = [0x01, 0x04, 0x44, 0x00, 0x00];
     param = {
         // Convert -10..+10 to 0x00..0x14 (0x00 = -10, 0x0A = 0, 0x14 = +10)
-        let level_value = level.value();
-        let level_offset = level_value + 10;
-        assert!((0..=20).contains(&level_offset), "Color tuning level offset out of range: {}", level_offset);
-        // SAFETY: level_offset is guaranteed to be 0..=20 after validation
+        // BlueTuning is already validated at construction via visca_range_type!,
+        // so level_offset is guaranteed to be in 0..=20.
         #[allow(clippy::cast_sign_loss)]
-        let encoded = level_offset as u8;
-        vec![0x00, encoded]
+        let encoded = (level.value() + 10) as u8;
+        [0x00, encoded]
     };
     max_param_size = 2;
     category = CommandCategory::Quick;
