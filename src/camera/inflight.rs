@@ -53,15 +53,13 @@ use core::num::NonZeroU32;
 ///
 /// # Obtaining a CommandId
 ///
-/// `CommandId`s are returned by:
-/// - [`Camera::send_command_with_id`](crate::camera::Camera::send_command_with_id)
-/// - [`Camera::start_command_with_id`](crate::camera::Camera::start_command_with_id)
-/// - [`InFlight::id`](InFlight::id)
+/// `CommandId`s are returned by async camera methods such as `Camera::start_command_with_id`
+/// and `InFlight::id` (requires `mode-async` feature).
 ///
 /// # Cancellation
 ///
-/// Use the returned `CommandId` with [`Camera::cancel`](crate::camera::Camera::cancel)
-/// to cancel a running command.
+/// Use the returned `CommandId` with `Camera::cancel` to cancel a running command
+/// (requires `mode-async` feature).
 ///
 /// # Example
 ///
