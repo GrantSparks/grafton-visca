@@ -111,6 +111,7 @@ pub use async_transport::AsyncTransport;
 #[cfg(not(feature = "mode-async"))]
 pub use blocking_transport::BlockingTransportHandle;
 pub use blocking_transport::{BlockingTransport, HasTransportConfig};
+#[cfg(not(feature = "mode-async"))]
 pub use builder::{NetTransportBuilder, Transport, TransportBuilderExt};
 
 /// Retry configuration for transport layer operations.

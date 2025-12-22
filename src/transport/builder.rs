@@ -28,10 +28,10 @@
 
 use std::{num::NonZeroUsize, time::Duration};
 
-use crate::{
-    transport::{buffer::BufferConfig, RetryConfig},
-    Error,
-};
+use crate::transport::{buffer::BufferConfig, RetryConfig};
+
+#[cfg(not(feature = "mode-async"))]
+use crate::Error;
 
 /// Addressing mode for VISCA communication.
 ///
@@ -110,13 +110,16 @@ impl Default for TransportConfig {
     }
 }
 
-/// Uniform transport API.
+/// Uniform transport API (blocking mode only).
 ///
 /// Provides a clean interface for creating transports without exposing runtime details.
-/// The runtime implementation is automatically selected based on enabled features.
+/// This type is only available in blocking mode. For async mode, use `CameraConfig`
+/// and `Connect` convenience methods instead.
+#[cfg(not(feature = "mode-async"))]
 #[derive(Debug, Copy, Clone)]
 pub struct Transport;
 
+#[cfg(not(feature = "mode-async"))]
 impl Transport {
     /// Create a TCP transport builder.
     ///
@@ -185,14 +188,16 @@ impl Transport {
     }
 }
 
-/// Unified transport builder that can create both blocking and async transports.
+/// Unified transport builder for blocking transports.
 ///
-/// This builder provides `.build_blocking()` and `.open_async()` methods on a single unified type.
+/// This builder provides `.build_blocking()` to create blocking transport instances.
+/// This type is only available in blocking mode. For async mode, use `CameraConfig`
+/// and `Connect` convenience methods instead.
 ///
 /// # Example
 ///
 /// ```rust,no_run
-/// # #[cfg(any(feature = "mode-async", not(feature = "mode-async")))]
+/// # #[cfg(not(feature = "mode-async"))]
 /// use grafton_visca::transport::NetTransportBuilder;
 /// # use std::time::Duration;
 ///
@@ -205,20 +210,8 @@ impl Transport {
 ///     .build_blocking()?;
 /// # Ok(())
 /// # }
-///
-/// # #[cfg(feature = "runtime-tokio")]
-/// # async fn async_example() -> Result<(), Box<dyn std::error::Error>> {
-/// // Building cameras with custom transport configuration
-/// use grafton_visca::{camera::{CameraConfig, profiles::GenericVisca}, runtime::TokioRuntime};
-/// let runtime = TokioRuntime::from_current()?;
-/// let session = CameraConfig::<GenericVisca>::new()
-///     .tcp()
-///     .address("192.168.0.110:5678")
-///     .open_async(runtime)
-///     .await?;
-/// # Ok(())
-/// # }
 /// ```
+#[cfg(not(feature = "mode-async"))]
 #[derive(Debug, Clone)]
 pub struct NetTransportBuilder {
     protocol: Protocol,
@@ -226,12 +219,14 @@ pub struct NetTransportBuilder {
     config: TransportConfig,
 }
 
+#[cfg(not(feature = "mode-async"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Protocol {
     Tcp,
     Udp,
 }
 
+#[cfg(not(feature = "mode-async"))]
 impl NetTransportBuilder {
     /// Create a new TCP transport builder.
     pub fn tcp() -> Self {
@@ -417,28 +412,12 @@ impl NetTransportBuilder {
             }
         }
     }
-
-    /// Build a blocking transport.
-    ///
-    /// This method returns an error when async features are enabled, since blocking
-    /// transport creation is not supported in async mode.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error indicating that blocking transport creation is not available in async mode.
-    #[cfg(feature = "mode-async")]
-    pub fn build_blocking(self) -> Result<(), Error> {
-        // Consume self to avoid dead code warning
-        let _ = self.protocol;
-        let _ = self.address;
-        let _ = self.config;
-        Err(Error::InvalidState(
-            "Blocking transport not available when async features are enabled".into(),
-        ))
-    }
 }
 
 /// Extension trait for creating transports with a builder pattern.
+///
+/// This trait is only available in blocking mode.
+#[cfg(not(feature = "mode-async"))]
 pub trait TransportBuilderExt: Sized {
     /// Create a builder for this transport type.
     fn builder() -> NetTransportBuilder;
@@ -458,7 +437,7 @@ impl TransportBuilderExt for crate::transport::blocking::Udp {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "mode-async")))]
 #[allow(clippy::expect_used)]
 mod tests {
     use super::*;
@@ -495,7 +474,6 @@ mod tests {
         assert_eq!(builder.config.write_timeout, Duration::from_secs(3));
     }
 
-    #[cfg(not(feature = "mode-async"))]
     #[test]
     fn test_net_builder_blocking_requires_address() {
         let builder = NetTransportBuilder::tcp();
@@ -514,20 +492,6 @@ mod tests {
         assert!(
             is_correct_error,
             "Expected InvalidParameter error with address parameter"
-        );
-    }
-
-    #[cfg(feature = "mode-async")]
-    #[test]
-    fn test_net_builder_blocking_not_available_in_async_mode() {
-        let builder = NetTransportBuilder::tcp().address("192.168.0.110:5678");
-        let result = builder.build_blocking();
-        assert!(result.is_err());
-
-        let is_correct_error = matches!(result, Err(Error::InvalidState(_)));
-        assert!(
-            is_correct_error,
-            "Expected InvalidState error when building blocking transport in async mode"
         );
     }
 

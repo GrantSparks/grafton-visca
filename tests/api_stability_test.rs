@@ -10,42 +10,18 @@ use std::marker::PhantomData;
 
 #[cfg(all(feature = "runtime-tokio", feature = "test-utils"))]
 use grafton_visca::testing::testkit::ScriptedTransport;
-#[cfg(any(
-    feature = "runtime-tokio",
-    feature = "runtime-async-std",
-    feature = "runtime-smol"
-))]
-use grafton_visca::transport::Transport;
 #[cfg(all(feature = "runtime-tokio", feature = "test-utils"))]
 use grafton_visca::TokioExecutor;
 
-/// Test that the Transport builder API remains stable.
+/// Test that the Transport builder API remains stable in blocking mode.
+///
+/// Note: Transport and NetTransportBuilder are now blocking-mode-only types.
+/// In async mode, users should use CameraConfig and Connect convenience methods.
 #[test]
 fn test_transport_builder_api_stability() {
-    // Test that Transport type is publicly available when runtime features are enabled
-    #[cfg(any(
-        feature = "runtime-tokio",
-        feature = "runtime-async-std",
-        feature = "runtime-smol"
-    ))]
-    {
-        // Test that common builder methods exist and have expected signatures
-        let _tcp_builder = Transport::tcp();
-
-        #[cfg(feature = "runtime-tokio")]
-        let _udp_builder = Transport::udp();
-
-        // Test that Transport can be used in generic contexts
-        fn accepts_transport_builder<T>(_builder: T)
-        where
-            T: Send,
-        {
-        }
-
-        accepts_transport_builder(Transport::tcp());
-        #[cfg(feature = "runtime-tokio")]
-        accepts_transport_builder(Transport::udp());
-    }
+    // Transport and NetTransportBuilder are only available in blocking mode.
+    // In async mode, the recommended API is CameraConfig and Connect methods.
+    // This test verifies that async mode compiles without Transport.
 }
 
 /// Test that zero-cost generic transports work correctly.

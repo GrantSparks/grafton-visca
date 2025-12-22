@@ -27,9 +27,10 @@ readme = "README.md"
 
 [features]
 default = []
-# Mode features (not mutually exclusive)
+# Mode features (mutually exclusive: enable mode-async for async API, omit for blocking API)
+# The blocking API is the default when mode-async is not enabled.
 mode-async = ["dep:futures-lite", "dep:async-lock"]
-mode-blocking = []  # Blocking mode is always available, this is for explicit feature detection
+mode-blocking = []  # Optional: for explicit feature detection in downstream code (cfg(feature = "mode-blocking"))
 
 # Runtime features (each implies mode-async)
 runtime-tokio = ["mode-async", "dep:tokio"]
