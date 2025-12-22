@@ -27,3 +27,4 @@ CLAUDE.md
 all_source.txt
 AGENTS.md
 bindings/
+.tidy-rust-cache
