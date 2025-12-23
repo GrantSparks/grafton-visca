@@ -9,8 +9,8 @@ Use the github mcp service to read the issue and all comments. Do not trust clai
 
 ## Phase 1: Requirements Extraction
 1. **Read Complete Context**:
-   - Use the `Bash(git remote -v)` command to fetch the repo details and take note of the repository name and owner.
-   - Use the github mcp service to get full issue history using the repository name, owner, and issue number provided.
+   - Use `gh repo view --json owner,name` to fetch the repo details and take note of the repository name and owner.
+   - Use the owner and repo name on the github mcp service to get full issue history for the issue number provided.
    - Extract all requirements from the original issue
    - Identify any scope expansions or clarifications in comments
    - Note any edge cases or special considerations mentioned

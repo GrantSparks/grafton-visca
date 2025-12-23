@@ -5,8 +5,8 @@ description: Implement the next logical step for a GitHub issue
 Read GitHub issue #$ARGUMENTS and implement the next logical step based on the issue description and all comments.
 
 ## Initial Analysis Phase
-- Use the `Bash(git remote -v)` command to fetch the repo details and take note of the repository name and owner.
-- Use the github mcp service to get full issue history using the repository name, owner, and issue number provided.
+- Use `gh repo view --json owner,name` to fetch the repo details and take note of the repository name and owner.
+- Use the owner and repo name on the github mcp service to get full issue history for the issue number provided.
 - Search for relevant code patterns mentioned in the issue
 - Read key files to understand code structure
 - Understand how components interact
