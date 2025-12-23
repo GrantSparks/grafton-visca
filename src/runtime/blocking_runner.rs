@@ -14,6 +14,7 @@ use std::{
 };
 
 use crate::{
+    camera::inflight::CommandId,
     camera_id::CameraId,
     capabilities::Profile,
     command::{
@@ -145,7 +146,15 @@ impl<P: Profile> BlockingRunner<P> {
             }
         }
 
-        let cmd_id = self.next_id.fetch_add(1, Ordering::SeqCst);
+        // Allocate a unique command ID, skipping zero on wraparound
+        let cmd_id = loop {
+            let id = self.next_id.fetch_add(1, Ordering::SeqCst);
+            // Skip zero on wraparound (when u32::MAX wraps to 0)
+            if let Some(cmd_id) = CommandId::from_raw(id) {
+                break cmd_id;
+            }
+            // id was 0, loop again to get the next value (1)
+        };
 
         let prepared_cmd = std::sync::Arc::new(
             crate::command::encode::EncodedCommand::new(command.clone(), camera_id).map_err(
@@ -263,7 +272,7 @@ impl<P: Profile> BlockingRunner<P> {
     fn run_until_complete<T: BlockingTransport + HasTransportConfig>(
         &mut self,
         transport: &mut T,
-        target_cmd_id: u32,
+        target_cmd_id: CommandId,
         deadline: Option<Deadline>,
     ) -> Result<Response> {
         let mut read_buf = vec![0u8; self.buffer_manager.config().recv_buffer_size];
@@ -580,12 +589,18 @@ impl<P: Profile> BlockingRunner<P> {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
     use crate::camera::profiles::PtzOpticsG2;
     use crate::command::encode::ViscaCommand;
     use crate::transport::builder::TransportConfig;
+
+    /// Helper function to create CommandId from u32 in tests.
+    /// Panics if value is 0 (invalid for CommandId).
+    fn cmd_id(value: u32) -> CommandId {
+        CommandId::from_raw(value).expect("test command ID must be non-zero")
+    }
 
     #[test]
     fn test_scheduler_core_creation() {
@@ -640,7 +655,7 @@ mod tests {
         );
 
         let cmd = PendingCommand {
-            id: 1,
+            id: cmd_id(1),
             command: prepared_cmd.clone(),
             priority: Priority::Normal,
             category: CommandCategory::Quick,
@@ -655,7 +670,7 @@ mod tests {
         let next = runner.core.next_item_to_send(now);
         assert!(next.is_some(), "should have command");
         if let Some(cmd) = next {
-            assert_eq!(cmd.id, 1);
+            assert_eq!(cmd.id, cmd_id(1));
         }
     }
 
@@ -1005,7 +1020,7 @@ mod tests {
 
         let now = Instant::now();
         let cmd = PendingCommand {
-            id: 1,
+            id: cmd_id(1),
             command: prepared_cmd.clone(),
             priority: Priority::Normal,
             category: CommandCategory::Quick,

@@ -4,7 +4,7 @@
 //! the async adapter and blocking scheduler core, providing a unified
 //! interface for command state management.
 
-use crate::runtime::core::PendingCommand;
+use crate::{camera::inflight::CommandId, runtime::core::PendingCommand};
 
 /// Runtime-neutral scheduler abstraction.
 ///
@@ -29,7 +29,7 @@ pub trait SchedulerLike {
     ///
     /// This method removes a command from the pending ACK tracking,
     /// typically called during rollback on send failure.
-    fn unregister_pending_ack(&mut self, id: u32);
+    fn unregister_pending_ack(&mut self, id: CommandId);
 
     /// Fail a command immediately after send error.
     ///
@@ -50,7 +50,7 @@ pub trait SchedulerLike {
     ///   caller to propagate the error to clients via the return value.
     fn fail_after_send_error(
         &mut self,
-        id: u32,
+        id: CommandId,
         cause: crate::Error,
     ) -> Option<crate::runtime::core::SchedulerAction>;
 
@@ -58,7 +58,8 @@ pub trait SchedulerLike {
     ///
     /// This method associates a Sony protocol sequence number with a command ID,
     /// enabling proper response routing in Sony-encapsulated mode.
-    fn register_sequence(&mut self, id: u32, seq: u32);
+    /// The `id` is type-safe (CommandId), while `seq` is a raw protocol u32.
+    fn register_sequence(&mut self, id: CommandId, seq: u32);
 
     /// Free a reserved socket.
     ///
@@ -86,13 +87,13 @@ mod async_impl {
             self.register_pending_ack(cmd);
         }
 
-        fn unregister_pending_ack(&mut self, id: u32) {
+        fn unregister_pending_ack(&mut self, id: CommandId) {
             self.unregister_pending_ack(id);
         }
 
         fn fail_after_send_error(
             &mut self,
-            id: u32,
+            id: CommandId,
             cause: crate::Error,
         ) -> Option<crate::runtime::core::SchedulerAction> {
             // AsyncAdapter handles the action internally by sending to response channel,
@@ -102,7 +103,7 @@ mod async_impl {
             None
         }
 
-        fn register_sequence(&mut self, id: u32, seq: u32) {
+        fn register_sequence(&mut self, id: CommandId, seq: u32) {
             self.register_sequence(id, seq);
         }
 
@@ -160,20 +161,20 @@ mod blocking_impl {
             );
         }
 
-        fn unregister_pending_ack(&mut self, id: u32) {
+        fn unregister_pending_ack(&mut self, id: CommandId) {
             self.core.unregister_pending_ack(id);
         }
 
         fn fail_after_send_error(
             &mut self,
-            id: u32,
+            id: CommandId,
             cause: crate::Error,
         ) -> Option<crate::runtime::core::SchedulerAction> {
             // Return the action from core so caller can propagate it
             self.core.fail_after_send_error(id, cause)
         }
 
-        fn register_sequence(&mut self, id: u32, seq: u32) {
+        fn register_sequence(&mut self, id: CommandId, seq: u32) {
             self.core.register_sequence(id, seq);
         }
 

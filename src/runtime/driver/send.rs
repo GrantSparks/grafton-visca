@@ -7,6 +7,7 @@ use tracing::{debug, error, trace};
 
 use super::SchedulerLike;
 use crate::{
+    camera::inflight::CommandId,
     command::CommandKind,
     runtime::core::{PendingCommand, SchedulerAction},
     transport::envelope::Envelope,
@@ -43,7 +44,7 @@ pub enum SendResult {
 #[derive(Debug)]
 #[allow(missing_copy_implementations)] // Can't copy due to ViscaSocket
 pub struct SendGuard {
-    id: u32,
+    id: CommandId,
     reserved_socket: Option<ViscaSocket>,
     ack_registered: bool,
     committed: bool,
@@ -51,7 +52,7 @@ pub struct SendGuard {
 
 impl SendGuard {
     /// Create a new send guard for the given command ID.
-    pub fn new(id: u32) -> Self {
+    pub fn new(id: CommandId) -> Self {
         Self {
             id,
             reserved_socket: None,

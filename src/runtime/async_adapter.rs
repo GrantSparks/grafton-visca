@@ -9,6 +9,7 @@ use tracing::{debug, trace, warn};
 use std::{collections::HashMap, sync::Arc, time::Instant};
 
 use crate::{
+    camera::inflight::CommandId,
     camera_id::CameraId,
     capabilities::Profile,
     command::response::{lift_inquiry_for, InquiryKind, Response},
@@ -30,7 +31,7 @@ pub(crate) enum TxItem {
     /// A command that requires a socket and expects ACK/Completion.
     Command {
         /// Unique identifier for this command.
-        id: u32,
+        id: CommandId,
         /// The pre-encoded command to send.
         command: Arc<crate::command::encode::EncodedCommand>,
         /// Priority level for scheduling.
@@ -45,7 +46,7 @@ pub(crate) enum TxItem {
     /// An inquiry that doesn't require a socket, expects DataReply.
     Inquiry {
         /// Unique identifier for this inquiry.
-        id: u32,
+        id: CommandId,
         /// The pre-encoded command to send.
         command: Arc<crate::command::encode::EncodedCommand>,
         /// Category for timeout calculation.
@@ -65,7 +66,7 @@ pub(crate) enum TxItem {
     /// Cancel a command by its ID.
     CancelById {
         /// Command ID to cancel.
-        id: u32,
+        id: CommandId,
     },
 }
 
@@ -165,8 +166,8 @@ pub(crate) struct AsyncAdapter<P: Profile, E: Executor> {
     core: SchedulerCore,
     /// Executor for time and async operations.
     executor: Arc<E>,
-    /// Response channels for commands.
-    response_channels: HashMap<u32, Sender<Result<Response>>>,
+    /// Response channels for commands, keyed by CommandId for type safety.
+    response_channels: HashMap<CommandId, Sender<Result<Response>>>,
     /// Metrics tracking.
     metrics: Metrics,
     /// Completion event subscribers.
@@ -228,13 +229,12 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
 
     /// Submit a command or inquiry to the scheduler.
     ///
-    /// Returns the command ID on success. If the pending queue is at capacity,
-    /// the submission is rejected with a [`Error::RuntimeQueueFull`] error sent
-    /// to the response channel immediately.
+    /// If the pending queue is at capacity, the submission is rejected with a
+    /// [`Error::RuntimeQueueFull`] error sent to the response channel immediately.
     ///
     /// Note: Cancel and CancelById operations are never rejected by admission
     /// control, as they help drain the queue rather than add to it.
-    pub fn submit(&mut self, item: TxItem) -> u32 {
+    pub fn submit(&mut self, item: TxItem) {
         match item {
             TxItem::Command {
                 id,
@@ -247,7 +247,7 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
                 // Admission control: reject if at capacity
                 if self.core.pending_queue_depth() >= self.max_pending_queue_depth {
                     debug!(
-                        id,
+                        %id,
                         capacity = self.max_pending_queue_depth,
                         "Rejecting command: queue at capacity"
                     );
@@ -256,7 +256,7 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
                         capacity: self.max_pending_queue_depth,
                     }));
                     self.metrics.commands_failed += 1;
-                    return id;
+                    return;
                 }
 
                 self.response_channels.insert(id, response_tx);
@@ -275,8 +275,6 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
                 self.core.queue_command(pending_cmd);
 
                 self.metrics.commands_sent += 1;
-
-                id
             }
             TxItem::Inquiry {
                 id,
@@ -289,7 +287,7 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
                 // Admission control: reject if at capacity
                 if self.core.pending_queue_depth() >= self.max_pending_queue_depth {
                     debug!(
-                        id,
+                        %id,
                         capacity = self.max_pending_queue_depth,
                         "Rejecting inquiry: queue at capacity"
                     );
@@ -298,7 +296,7 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
                         capacity: self.max_pending_queue_depth,
                     }));
                     self.metrics.commands_failed += 1;
-                    return id;
+                    return;
                 }
 
                 self.response_channels.insert(id, response_tx);
@@ -325,10 +323,10 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
                 self.core.queue_command(pending_cmd);
 
                 self.metrics.commands_sent += 1;
-
-                id
             }
-            TxItem::Cancel { .. } | TxItem::CancelById { .. } => 0,
+            TxItem::Cancel { .. } | TxItem::CancelById { .. } => {
+                // Cancel operations don't need tracking - they're transient
+            }
         }
     }
 
@@ -369,7 +367,7 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
     /// Register a Sony sequence number for a command.
     ///
     /// Should only be called after a successful send.
-    pub fn register_sequence(&mut self, cmd_id: u32, sequence: u32) {
+    pub fn register_sequence(&mut self, cmd_id: CommandId, sequence: u32) {
         debug_assert!(
             self.core.is_command_pending(cmd_id),
             "register_sequence called for non-pending command {cmd_id}"
@@ -378,7 +376,7 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
     }
 
     /// Unregister a pending ACK (used for rollback on send failure).
-    pub fn unregister_pending_ack(&mut self, id: u32) -> bool {
+    pub fn unregister_pending_ack(&mut self, id: CommandId) -> bool {
         self.core.unregister_pending_ack(id)
     }
 
@@ -394,7 +392,7 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
     ///
     /// The `cause` parameter preserves the original error (including timeout semantics)
     /// while adding "Send failed" context.
-    pub fn fail_after_send_error(&mut self, id: u32, cause: Error) {
+    pub fn fail_after_send_error(&mut self, id: CommandId, cause: Error) {
         if let Some(action) = self.core.fail_after_send_error(id, cause) {
             // Route through unified action handler for consistent metrics/notification
             self.apply_action(action);
@@ -466,7 +464,7 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
                     };
 
                     tracing::error!(
-                        cmd_id,
+                        ?cmd_id,
                         inquiry_type,
                         code = format!("0x{:02x}", code),
                         message
@@ -593,7 +591,7 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
 
     /// Notify a waiting future that its command has timed out.
     #[inline]
-    fn notify_timeout(&mut self, id: u32) {
+    fn notify_timeout(&mut self, id: CommandId) {
         if let Some(tx) = self.response_channels.remove(&id) {
             let _ = tx.try_send(Err(Error::Timeout));
         }
@@ -655,12 +653,12 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
     }
 
     /// Find the socket for a given command ID.
-    pub fn socket_for_command(&self, id: u32) -> Option<ViscaSocket> {
+    pub fn socket_for_command(&self, id: CommandId) -> Option<ViscaSocket> {
         self.core.find_socket_for_command(id)
     }
 
     /// Get the camera ID for a command by its ID.
-    pub fn camera_id_for_command(&self, id: u32) -> Option<CameraId> {
+    pub fn camera_id_for_command(&self, id: CommandId) -> Option<CameraId> {
         self.core.camera_id_for_command(id)
     }
 
@@ -726,6 +724,12 @@ mod tests {
     use smallvec::SmallVec;
     use std::sync::Arc;
 
+    /// Helper function to create CommandId from u32 in tests.
+    /// Panics if value is 0 (invalid for CommandId).
+    fn cmd_id(value: u32) -> CommandId {
+        CommandId::from_raw(value).expect("test command ID must be non-zero")
+    }
+
     /// Test that async adapter delegates unattributed errors to SchedulerCore for FIFO attribution.
     ///
     /// This test verifies the fix for issue #428: when an error frame arrives with no socket
@@ -756,7 +760,7 @@ mod tests {
         });
 
         adapter.core.start_inquiry(
-            42,
+            cmd_id(42),
             inq.clone(),
             Priority::Normal,
             CommandCategory::Quick,
@@ -766,7 +770,7 @@ mod tests {
         );
 
         let (response_tx, response_rx) = flume::unbounded();
-        adapter.response_channels.insert(42, response_tx);
+        adapter.response_channels.insert(cmd_id(42), response_tx);
 
         // Simulate an inquiry-style error without socket or sequence: 90 60 EE FF
         // This is the packet shape that was previously dropped by async_adapter
@@ -828,7 +832,7 @@ mod tests {
 
         // Register the command as pending ACK
         adapter.core.register_pending_ack(
-            100,
+            cmd_id(100),
             cmd.clone(),
             Priority::Normal,
             CommandCategory::Quick,
@@ -839,7 +843,7 @@ mod tests {
 
         // Set up response channel
         let (response_tx, response_rx) = flume::bounded(1);
-        adapter.response_channels.insert(100, response_tx);
+        adapter.response_channels.insert(cmd_id(100), response_tx);
 
         // Verify initial metrics
         let metrics_before = adapter.metrics_summary();
@@ -850,7 +854,7 @@ mod tests {
 
         // Simulate a send failure with original transport error
         let original_error = Error::TransportError("Simulated send failure".into());
-        adapter.fail_after_send_error(100, original_error);
+        adapter.fail_after_send_error(cmd_id(100), original_error);
 
         // Verify the response channel received the error with context
         let response_result = response_rx.try_recv();
@@ -890,7 +894,8 @@ mod tests {
         let camera_id = CameraId::CAMERA_1;
 
         // Create and register 3 commands with response channels
-        for id in [101, 102, 103] {
+        for raw_id in [101, 102, 103] {
+            let id = cmd_id(raw_id);
             let cmd = Arc::new(EncodedCommand {
                 payload: SmallVec::from_slice(&[0x81, 0x01, 0x04, 0x07, 0x02, VISCA_TERMINATOR]),
                 kind: CommandKind::Command,
@@ -913,9 +918,18 @@ mod tests {
         }
 
         // Fail all 3 commands with original errors
-        adapter.fail_after_send_error(101, Error::TransportError("Simulated failure 1".into()));
-        adapter.fail_after_send_error(102, Error::TransportError("Simulated failure 2".into()));
-        adapter.fail_after_send_error(103, Error::TransportError("Simulated failure 3".into()));
+        adapter.fail_after_send_error(
+            cmd_id(101),
+            Error::TransportError("Simulated failure 1".into()),
+        );
+        adapter.fail_after_send_error(
+            cmd_id(102),
+            Error::TransportError("Simulated failure 2".into()),
+        );
+        adapter.fail_after_send_error(
+            cmd_id(103),
+            Error::TransportError("Simulated failure 3".into()),
+        );
 
         // Verify all failures are tracked
         let metrics = adapter.metrics_summary();
@@ -951,12 +965,10 @@ mod tests {
 
         // Emit more events than the buffer can hold
         let events_to_emit = COMPLETIONS_BUFFER + 100;
-        for i in 0..events_to_emit {
-            let id = i as u32;
-
+        for i in 1..=events_to_emit {
             // Simulate a command completion by calling apply_action directly
             adapter.apply_action(SchedulerAction::CommandComplete {
-                id,
+                id: cmd_id(i as u32),
                 category: CommandCategory::Quick,
                 camera_id: CameraId::CAMERA_1,
                 response: Response::Completion { socket: None },
@@ -1004,9 +1016,9 @@ mod tests {
         let rx = adapter.subscribe_completions();
 
         // Fill the buffer completely
-        for i in 0..COMPLETIONS_BUFFER {
+        for i in 1..=COMPLETIONS_BUFFER {
             adapter.apply_action(SchedulerAction::CommandComplete {
-                id: i as u32,
+                id: cmd_id(i as u32),
                 category: CommandCategory::Quick,
                 camera_id: CameraId::CAMERA_1,
                 response: Response::Completion { socket: None },
@@ -1014,9 +1026,9 @@ mod tests {
         }
 
         // Try to send more events - these should be dropped
-        for i in 0..50 {
+        for i in 1..=50 {
             adapter.apply_action(SchedulerAction::CommandComplete {
-                id: (COMPLETIONS_BUFFER + i) as u32,
+                id: cmd_id((COMPLETIONS_BUFFER + i) as u32),
                 category: CommandCategory::Movement,
                 camera_id: CameraId::CAMERA_1,
                 response: Response::Completion { socket: None },
@@ -1036,9 +1048,8 @@ mod tests {
         }
 
         // Now send new events - they should be delivered
-        let new_event_id = 9999u32;
         adapter.apply_action(SchedulerAction::CommandComplete {
-            id: new_event_id,
+            id: cmd_id(9999),
             category: CommandCategory::Preset,
             camera_id: CameraId::CAMERA_1,
             response: Response::Completion { socket: None },
@@ -1087,7 +1098,7 @@ mod tests {
 
         // Emit a completion event - this should trigger cleanup
         adapter.apply_action(SchedulerAction::CommandComplete {
-            id: 1,
+            id: cmd_id(1),
             category: CommandCategory::Quick,
             camera_id: CameraId::CAMERA_1,
             response: Response::Completion { socket: None },
@@ -1126,9 +1137,9 @@ mod tests {
         // Subscriber 2: don't drain (will overflow)
 
         // Send enough events to overflow subscriber 2's buffer
-        for i in 0..COMPLETIONS_BUFFER + 50 {
+        for i in 1..=COMPLETIONS_BUFFER + 50 {
             adapter.apply_action(SchedulerAction::CommandComplete {
-                id: i as u32,
+                id: cmd_id(i as u32),
                 category: CommandCategory::Quick,
                 camera_id: CameraId::CAMERA_1,
                 response: Response::Completion { socket: None },
@@ -1182,7 +1193,7 @@ mod tests {
         let camera_id = CameraId::CAMERA_1;
 
         // Submit commands up to capacity
-        for i in 0..max_depth {
+        for i in 1..=max_depth {
             let cmd = Arc::new(EncodedCommand {
                 payload: SmallVec::from_slice(&[0x81, 0x01, 0x04, 0x07, 0x02, VISCA_TERMINATOR]),
                 kind: CommandKind::Command,
@@ -1192,7 +1203,7 @@ mod tests {
 
             let (response_tx, response_rx) = flume::bounded(1);
             adapter.submit(TxItem::Command {
-                id: i as u32,
+                id: cmd_id(i as u32),
                 command: cmd,
                 priority: Priority::Normal,
                 category: CommandCategory::Quick,
@@ -1224,7 +1235,7 @@ mod tests {
 
         let (response_tx, response_rx) = flume::bounded(1);
         adapter.submit(TxItem::Command {
-            id: max_depth as u32,
+            id: cmd_id((max_depth + 1) as u32),
             command: cmd,
             priority: Priority::Normal,
             category: CommandCategory::Quick,
@@ -1268,7 +1279,7 @@ mod tests {
         let camera_id = CameraId::CAMERA_1;
 
         // Fill the queue
-        for i in 0..max_depth {
+        for i in 1..=max_depth {
             let cmd = Arc::new(EncodedCommand {
                 payload: SmallVec::from_slice(&[0x81, 0x01, 0x04, 0x07, 0x02, VISCA_TERMINATOR]),
                 kind: CommandKind::Command,
@@ -1278,7 +1289,7 @@ mod tests {
 
             let (response_tx, _response_rx) = flume::bounded(1);
             adapter.submit(TxItem::Command {
-                id: i as u32,
+                id: cmd_id(i as u32),
                 command: cmd,
                 priority: Priority::Normal,
                 category: CommandCategory::Quick,
@@ -1294,7 +1305,7 @@ mod tests {
         );
 
         // Try to submit more - should be rejected
-        for i in 0..10 {
+        for i in 1..=10 {
             let cmd = Arc::new(EncodedCommand {
                 payload: SmallVec::from_slice(&[0x81, 0x01, 0x04, 0x07, 0x02, VISCA_TERMINATOR]),
                 kind: CommandKind::Command,
@@ -1304,7 +1315,7 @@ mod tests {
 
             let (response_tx, _response_rx) = flume::bounded(1);
             adapter.submit(TxItem::Command {
-                id: (max_depth + i) as u32,
+                id: cmd_id((max_depth + i) as u32),
                 command: cmd,
                 priority: Priority::Normal,
                 category: CommandCategory::Quick,
@@ -1345,7 +1356,7 @@ mod tests {
         );
 
         // Submit 5 commands
-        for i in 0..5 {
+        for i in 1..=5 {
             let cmd = Arc::new(EncodedCommand {
                 payload: SmallVec::from_slice(&[0x81, 0x01, 0x04, 0x07, 0x02, VISCA_TERMINATOR]),
                 kind: CommandKind::Command,
@@ -1355,7 +1366,7 @@ mod tests {
 
             let (response_tx, _response_rx) = flume::bounded(1);
             adapter.submit(TxItem::Command {
-                id: i,
+                id: cmd_id(i),
                 command: cmd,
                 priority: Priority::Normal,
                 category: CommandCategory::Quick,
@@ -1372,7 +1383,7 @@ mod tests {
         );
 
         // Submit 3 inquiries
-        for i in 5..8 {
+        for i in 6..=8 {
             let inq = Arc::new(EncodedCommand {
                 payload: SmallVec::from_slice(&[0x81, 0x09, 0x04, 0x47, VISCA_TERMINATOR]),
                 kind: CommandKind::Inquiry,
@@ -1382,7 +1393,7 @@ mod tests {
 
             let (response_tx, _response_rx) = flume::bounded(1);
             adapter.submit(TxItem::Inquiry {
-                id: i,
+                id: cmd_id(i),
                 command: inq,
                 category: CommandCategory::Quick,
                 camera_id,
@@ -1417,7 +1428,7 @@ mod tests {
         let camera_id = CameraId::CAMERA_1;
 
         // Fill the queue
-        for i in 0..max_depth {
+        for i in 1..=max_depth {
             let cmd = Arc::new(EncodedCommand {
                 payload: SmallVec::from_slice(&[0x81, 0x01, 0x04, 0x07, 0x02, VISCA_TERMINATOR]),
                 kind: CommandKind::Command,
@@ -1427,7 +1438,7 @@ mod tests {
 
             let (response_tx, _response_rx) = flume::bounded(1);
             adapter.submit(TxItem::Command {
-                id: i as u32,
+                id: cmd_id(i as u32),
                 command: cmd,
                 priority: Priority::Normal,
                 category: CommandCategory::Quick,
@@ -1443,7 +1454,7 @@ mod tests {
         );
 
         // Try to submit 5 more - all should be rejected
-        for i in 0..5 {
+        for i in 1..=5 {
             let cmd = Arc::new(EncodedCommand {
                 payload: SmallVec::from_slice(&[0x81, 0x01, 0x04, 0x07, 0x02, VISCA_TERMINATOR]),
                 kind: CommandKind::Command,
@@ -1453,7 +1464,7 @@ mod tests {
 
             let (response_tx, _response_rx) = flume::bounded(1);
             adapter.submit(TxItem::Command {
-                id: (max_depth + i) as u32,
+                id: cmd_id((max_depth + i) as u32),
                 command: cmd,
                 priority: Priority::Normal,
                 category: CommandCategory::Quick,
@@ -1487,7 +1498,7 @@ mod tests {
         let camera_id = CameraId::CAMERA_1;
 
         // Fill with inquiries
-        for i in 0..max_depth {
+        for i in 1..=max_depth {
             let inq = Arc::new(EncodedCommand {
                 payload: SmallVec::from_slice(&[0x81, 0x09, 0x04, 0x47, VISCA_TERMINATOR]),
                 kind: CommandKind::Inquiry,
@@ -1497,7 +1508,7 @@ mod tests {
 
             let (response_tx, _response_rx) = flume::bounded(1);
             adapter.submit(TxItem::Inquiry {
-                id: i as u32,
+                id: cmd_id(i as u32),
                 command: inq,
                 category: CommandCategory::Quick,
                 camera_id,
@@ -1516,7 +1527,7 @@ mod tests {
 
         let (response_tx, response_rx) = flume::bounded(1);
         adapter.submit(TxItem::Inquiry {
-            id: max_depth as u32,
+            id: cmd_id((max_depth + 1) as u32),
             command: inq,
             category: CommandCategory::Quick,
             camera_id,

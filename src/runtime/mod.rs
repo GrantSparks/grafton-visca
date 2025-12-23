@@ -108,6 +108,9 @@ mod loop_task;
 
 pub use core::Priority;
 
+// Re-export CommandId from camera::inflight for use in runtime modules
+pub use crate::camera::inflight::CommandId;
+
 #[cfg(feature = "mode-async")]
 pub use async_adapter::{CompletionEvent, MetricsSummary};
 

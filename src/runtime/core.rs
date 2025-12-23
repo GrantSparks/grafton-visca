@@ -15,6 +15,7 @@ use std::{
 };
 
 use crate::{
+    camera::inflight::CommandId,
     command::{
         encode::EncodedCommand,
         response::{parse_inquiry_payload, InquiryKind, Response},
@@ -169,8 +170,8 @@ impl ViscaError {
 /// Command waiting to be retried.
 #[derive(Clone)]
 pub struct RetryCommand {
-    /// Command ID.
-    pub id: u32,
+    /// Command ID (type-safe, non-zero).
+    pub id: CommandId,
     /// The pre-encoded command to retry.
     pub command: std::sync::Arc<EncodedCommand>,
     /// Command priority.
@@ -239,7 +240,7 @@ struct SocketState {
     /// Whether socket is free.
     free: bool,
     /// Current command ID if busy.
-    command_id: Option<u32>,
+    command_id: Option<CommandId>,
     /// When command started.
     started_at: Option<Instant>,
     /// Command category for timeout.
@@ -260,8 +261,8 @@ impl Default for SocketState {
 /// Priority queue item wrapper for commands.
 #[derive(Clone)]
 pub struct PendingCommand {
-    /// Unique identifier for this command.
-    pub id: u32,
+    /// Unique identifier for this command (type-safe, non-zero).
+    pub id: CommandId,
     /// The pre-encoded command to send.
     pub command: std::sync::Arc<EncodedCommand>,
     /// Priority level for scheduling.
@@ -323,13 +324,13 @@ pub enum SchedulerAction {
     /// Send a command.
     /// Note: This variant is currently unused but kept for potential future use.
     SendCommand {
-        /// Command ID.
-        id: u32,
+        /// Command ID (type-safe).
+        id: CommandId,
     },
     /// Command completed successfully.
     CommandComplete {
-        /// Command ID.
-        id: u32,
+        /// Command ID (type-safe).
+        id: CommandId,
         /// Command category.
         category: CommandCategory,
         /// Camera ID.
@@ -339,22 +340,22 @@ pub enum SchedulerAction {
     },
     /// Command failed with error.
     CommandFailed {
-        /// Command ID.
-        id: u32,
+        /// Command ID (type-safe).
+        id: CommandId,
         /// Error that occurred.
         error: Error,
     },
     /// Retry a command.
     RetryCommand {
-        /// Command ID.
-        id: u32,
+        /// Command ID (type-safe).
+        id: CommandId,
         /// Delay before retrying.
         delay: Duration,
     },
     /// A command exceeded one of the scheduler's timeouts.
     Timeout {
-        /// Command ID that timed out.
-        id: u32,
+        /// Command ID that timed out (type-safe).
+        id: CommandId,
         /// Kind of timeout that occurred.
         kind: TimeoutKind,
         /// 1-based attempt number that timed out.
@@ -379,22 +380,22 @@ pub enum SchedulerEvent {
     Ack {
         /// Socket that was acknowledged (None if no socket nibble in frame).
         socket: Option<ViscaSocket>,
-        /// Command ID (from sequence mapping when available).
-        cmd_id: Option<u32>,
+        /// Command ID (from sequence mapping when available, type-safe).
+        cmd_id: Option<CommandId>,
     },
     /// Command completed.
     Completion {
         /// Socket that completed (if known).
         socket: Option<ViscaSocket>,
-        /// Command ID (from sequence mapping when available).
-        cmd_id: Option<u32>,
+        /// Command ID (from sequence mapping when available, type-safe).
+        cmd_id: Option<CommandId>,
         /// Response from the camera.
         response: Response,
     },
     /// Inquiry data reply (no socket allocation).
     InquiryReply {
-        /// Command ID (from sequence mapping or order queue).
-        cmd_id: Option<u32>,
+        /// Command ID (from sequence mapping or order queue, type-safe).
+        cmd_id: Option<CommandId>,
         /// Response from the camera.
         response: Response,
     },
@@ -402,8 +403,8 @@ pub enum SchedulerEvent {
     Error {
         /// Socket that errored (if known).
         socket: Option<ViscaSocket>,
-        /// Command ID (from sequence mapping when available).
-        cmd_id: Option<u32>,
+        /// Command ID (from sequence mapping when available, type-safe).
+        cmd_id: Option<CommandId>,
         /// Error code from the camera.
         code: u8,
     },
@@ -471,17 +472,17 @@ define_seq_history!(SeqHistory16, u16);
 /// occur (two different 32-bit sequences with the same lower 16 bits). This type
 /// tracks all command IDs that own a particular 16-bit sequence.
 ///
-/// Uses `SmallVec<[u32; 2]>` since collisions are rare and typically involve only
+/// Uses `SmallVec<[CommandId; 2]>` since collisions are rare and typically involve only
 /// 2 commands when they do occur.
 #[derive(Debug, Clone)]
 struct Seq16Owners {
-    /// Command IDs that currently own this 16-bit sequence.
-    cmd_ids: SmallVec<[u32; 2]>,
+    /// Command IDs that currently own this 16-bit sequence (type-safe).
+    cmd_ids: SmallVec<[CommandId; 2]>,
 }
 
 impl Seq16Owners {
     /// Create a new Seq16Owners with a single owner.
-    fn new(cmd_id: u32) -> Self {
+    fn new(cmd_id: CommandId) -> Self {
         let mut cmd_ids = SmallVec::new();
         cmd_ids.push(cmd_id);
         Self { cmd_ids }
@@ -489,7 +490,7 @@ impl Seq16Owners {
 
     /// Add an owner to this sequence. Returns true if the owner was added
     /// (i.e., was not already present).
-    fn add_owner(&mut self, cmd_id: u32) -> bool {
+    fn add_owner(&mut self, cmd_id: CommandId) -> bool {
         if !self.cmd_ids.contains(&cmd_id) {
             self.cmd_ids.push(cmd_id);
             true
@@ -500,7 +501,7 @@ impl Seq16Owners {
 
     /// Remove an owner from this sequence. Returns true if the owner was present
     /// and removed.
-    fn remove_owner(&mut self, cmd_id: u32) -> bool {
+    fn remove_owner(&mut self, cmd_id: CommandId) -> bool {
         if let Some(pos) = self.cmd_ids.iter().position(|&id| id == cmd_id) {
             self.cmd_ids.remove(pos);
             true
@@ -520,7 +521,7 @@ impl Seq16Owners {
     }
 
     /// Iterate over all owners.
-    fn iter(&self) -> impl Iterator<Item = u32> + '_ {
+    fn iter(&self) -> impl Iterator<Item = CommandId> + '_ {
         self.cmd_ids.iter().copied()
     }
 }
@@ -541,7 +542,7 @@ pub struct SchedulerCore {
     /// Commands that have been sent but not yet acknowledged.
     /// Maps command ID to (command, priority, category, sent_time, camera_id).
     pending_ack: HashMap<
-        u32,
+        CommandId,
         (
             std::sync::Arc<EncodedCommand>,
             Priority,
@@ -555,11 +556,11 @@ pub struct SchedulerCore {
     retry_queue: BinaryHeap<RetryKey>,
     /// Store command metadata for potential retry.
     /// See [`CommandMetadata`] for field documentation.
-    command_metadata: HashMap<u32, CommandMetadata>,
+    command_metadata: HashMap<CommandId, CommandMetadata>,
     /// Track retry attempts for commands (command_id -> attempt_count).
-    retry_attempts: HashMap<u32, u32>,
+    retry_attempts: HashMap<CommandId, u32>,
     /// Track whether the retry was triggered by a transport error (command_id -> is_transport_error).
-    retry_trigger_transport_error: HashMap<u32, bool>,
+    retry_trigger_transport_error: HashMap<CommandId, bool>,
     /// Priority queue for pending commands.
     command_queue: BinaryHeap<PendingCommand>,
     /// Priority queue for pending inquiries (separate from commands to avoid socket gating).
@@ -568,10 +569,10 @@ pub struct SchedulerCore {
     max_inquiries_inflight: usize,
     /// Retry budget for command categories.
     retry_budget: RetryBudget,
-    /// Sony sequence tracking: sequence -> command_id.
-    seq_to_cmd: HashMap<u32, u32>,
+    /// Sony sequence tracking: sequence -> command_id (sequence stays u32, ID is type-safe).
+    seq_to_cmd: HashMap<u32, CommandId>,
     /// Sony sequence tracking: command_id -> sequences.
-    cmd_to_seqs: HashMap<u32, SeqHistory32>,
+    cmd_to_seqs: HashMap<CommandId, SeqHistory32>,
     /// Sony 16-bit sequence tracking: lower 16 bits -> owning command(s).
     ///
     /// Multi-owner: A 16-bit sequence can map to multiple active commands when
@@ -579,13 +580,13 @@ pub struct SchedulerCore {
     /// When one command finishes, the remaining command(s) become uniquely resolvable.
     seq16_to_cmds: HashMap<u16, Seq16Owners>,
     /// Sony 16-bit sequence tracking: command_id -> 16-bit sequences.
-    cmd_to_seq16s: HashMap<u32, SeqHistory16>,
+    cmd_to_seq16s: HashMap<CommandId, SeqHistory16>,
     /// Inquiries in flight: command_id -> (sent_time, category).
-    inquiries_inflight: HashMap<u32, (Instant, CommandCategory)>,
+    inquiries_inflight: HashMap<CommandId, (Instant, CommandCategory)>,
     /// Inquiry order tracking for raw VISCA (no sequence).
-    inquiries_order: VecDeque<u32>,
+    inquiries_order: VecDeque<CommandId>,
     /// Response types for inquiries (for parsing DataReply).
-    inquiry_response_types: HashMap<u32, InquiryKind>,
+    inquiry_response_types: HashMap<CommandId, InquiryKind>,
     /// Minimum time spacing between consecutive inquiry sends.
     min_inquiry_spacing: Duration,
     /// When the last inquiry was sent (for spacing enforcement).
@@ -797,7 +798,7 @@ impl SchedulerCore {
     #[allow(clippy::too_many_arguments)]
     pub fn register_pending_ack(
         &mut self,
-        id: u32,
+        id: CommandId,
         command: std::sync::Arc<EncodedCommand>,
         priority: Priority,
         category: CommandCategory,
@@ -810,11 +811,14 @@ impl SchedulerCore {
         // Use `now` as submitted_at since this is the first time the command is registered
         self.command_metadata
             .insert(id, (command, priority, category, camera_id, kind, now));
-        trace!("Registered command {id} as pending ACK");
+        trace!(%id, "Registered command as pending ACK");
     }
 
     /// Register a Sony sequence number for a command.
-    pub fn register_sequence(&mut self, cmd_id: u32, sequence: u32) {
+    ///
+    /// The `cmd_id` parameter is type-safe (CommandId), while `sequence` remains a raw
+    /// protocol u32 since it comes from the wire.
+    pub fn register_sequence(&mut self, cmd_id: CommandId, sequence: u32) {
         trace!(
             "Registering Sony sequence {} for command {}",
             sequence,
@@ -922,7 +926,7 @@ impl SchedulerCore {
     ///
     /// If the owner list becomes empty after removal, the entry is deleted from
     /// `seq16_to_cmds`. This ensures proper cleanup when commands finish or are evicted.
-    fn remove_seq16_owner(&mut self, seq16: u16, cmd_id: u32) {
+    fn remove_seq16_owner(&mut self, seq16: u16, cmd_id: CommandId) {
         if let Some(owners) = self.seq16_to_cmds.get_mut(&seq16) {
             owners.remove_owner(cmd_id);
             if owners.is_empty() {
@@ -938,7 +942,7 @@ impl SchedulerCore {
     /// - Returns `Some(cmd_id)` if exactly one active command owns the 16-bit sequence
     /// - Returns `None` if multiple active commands own it (ambiguous)
     /// - Returns `None` if no active commands own it
-    pub fn get_command_by_sequence(&self, sequence: u32) -> Option<u32> {
+    pub fn get_command_by_sequence(&self, sequence: u32) -> Option<CommandId> {
         // 1. Try exact 32-bit match first
         if let Some(cmd_id) = self.seq_to_cmd.get(&sequence).copied() {
             // Extra safety: verify the command is still active
@@ -964,7 +968,7 @@ impl SchedulerCore {
         let seq16 = (sequence & 0xFFFF) as u16;
         if let Some(owners) = self.seq16_to_cmds.get(&seq16) {
             // Filter to only active owners
-            let active_owners: SmallVec<[u32; 2]> = owners
+            let active_owners: SmallVec<[CommandId; 2]> = owners
                 .iter()
                 .filter(|&cmd_id| {
                     self.command_metadata.contains_key(&cmd_id)
@@ -1012,7 +1016,7 @@ impl SchedulerCore {
     /// - Removes 32-bit sequence -> cmd mappings
     /// - Removes cmd_id from 16-bit sequence owner lists (multi-owner safe)
     /// - Removes cmd -> sequences history entries
-    pub fn finish_sequence(&mut self, cmd_id: u32) {
+    pub fn finish_sequence(&mut self, cmd_id: CommandId) {
         // Remove all 32-bit sequences for this command
         let mut count32 = 0;
         if let Some(seq_history) = self.cmd_to_seqs.remove(&cmd_id) {
@@ -1046,7 +1050,7 @@ impl SchedulerCore {
     /// This matches the staleness checks used in `get_command_by_sequence`.
     ///
     /// This is used to filter out stale retries in `get_ready_retries`.
-    fn is_command_active(&self, cmd_id: u32) -> bool {
+    fn is_command_active(&self, cmd_id: CommandId) -> bool {
         self.command_metadata.contains_key(&cmd_id) || self.inquiries_inflight.contains_key(&cmd_id)
     }
 
@@ -1060,7 +1064,7 @@ impl SchedulerCore {
     /// - Retry state
     /// - Inquiry state
     /// - Socket allocations
-    pub fn cancel_command(&mut self, cmd_id: u32) {
+    pub fn cancel_command(&mut self, cmd_id: CommandId) {
         trace!("Cancelling command {cmd_id}");
 
         // Free any allocated socket
@@ -1124,7 +1128,7 @@ impl SchedulerCore {
     /// caller is returning early (not going through `process_event`).
     /// It removes the inquiry from inflight tracking to prevent stale
     /// command IDs from causing response misrouting.
-    pub fn complete_inquiry(&mut self, cmd_id: u32) {
+    pub fn complete_inquiry(&mut self, cmd_id: CommandId) {
         trace!("Completing inquiry {cmd_id}");
 
         // Remove from inflight tracking
@@ -1146,7 +1150,7 @@ impl SchedulerCore {
     ///
     /// This should be called when a command completion is received and the
     /// caller is returning early (not going through `process_event`).
-    pub fn complete_command(&mut self, cmd_id: u32) {
+    pub fn complete_command(&mut self, cmd_id: CommandId) {
         trace!("Completing command {cmd_id}");
 
         // Clean up sequence mappings
@@ -1163,22 +1167,22 @@ impl SchedulerCore {
     /// Unregister a pending ACK without removing command metadata.
     /// This is used for rollback when a send operation fails.
     /// Returns true if the command was found and removed from pending_ack.
-    pub fn unregister_pending_ack(&mut self, id: u32) -> bool {
+    pub fn unregister_pending_ack(&mut self, id: CommandId) -> bool {
         self.pending_ack.remove(&id).is_some()
     }
 
     /// Register the expected response type for an inquiry.
-    pub fn register_inquiry_type(&mut self, id: u32, ty: InquiryKind) {
+    pub fn register_inquiry_type(&mut self, id: CommandId, ty: InquiryKind) {
         self.inquiry_response_types.insert(id, ty);
     }
 
     /// Take the response type for an inquiry (removing it from storage).
-    pub fn take_inquiry_type(&mut self, id: u32) -> Option<InquiryKind> {
+    pub fn take_inquiry_type(&mut self, id: CommandId) -> Option<InquiryKind> {
         self.inquiry_response_types.remove(&id)
     }
 
     /// Get the response type for an inquiry (without removing it).
-    pub fn get_inquiry_type(&self, id: u32) -> Option<&InquiryKind> {
+    pub fn get_inquiry_type(&self, id: CommandId) -> Option<&InquiryKind> {
         self.inquiry_response_types.get(&id)
     }
 
@@ -1191,7 +1195,7 @@ impl SchedulerCore {
         &self,
         payload: crate::command::response::payload::Payload<'_>,
         sequence: Option<u32>,
-    ) -> Option<u32> {
+    ) -> Option<CommandId> {
         use tracing::{debug, trace};
 
         // Format payload as hex for debugging (lazy evaluation)
@@ -1209,13 +1213,13 @@ impl SchedulerCore {
             if let Some(cmd_id) = self.get_command_by_sequence(seq) {
                 // Verify it's an active inquiry
                 if self.inquiries_inflight.contains_key(&cmd_id) {
-                    trace!(cmd_id, sequence = seq, "Resolved inquiry via sequence");
+                    trace!(%cmd_id, sequence = seq, "Resolved inquiry via sequence");
                     return Some(cmd_id);
                 } else {
                     // This is unusual - sequence maps to a command but it's not active
                     debug!(
                         sequence = seq,
-                        cmd_id, "Sequence maps to inactive inquiry - will try content matching"
+                        %cmd_id, "Sequence maps to inactive inquiry - will try content matching"
                     );
                 }
             } else {
@@ -1225,7 +1229,7 @@ impl SchedulerCore {
 
         // Try content-based matching for raw VISCA
         // Build a map of active inquiries with their types
-        let active_inquiries: HashMap<u32, InquiryKind> = self
+        let active_inquiries: HashMap<CommandId, InquiryKind> = self
             .inquiries_inflight
             .keys()
             .filter_map(|&id| self.inquiry_response_types.get(&id).map(|ty| (id, *ty)))
@@ -1238,18 +1242,18 @@ impl SchedulerCore {
         );
 
         // Try parsing the payload against each expected response type
-        let mut matches: Vec<u32> = Vec::new();
+        let mut matches: Vec<CommandId> = Vec::new();
 
         for (id, response_type) in active_inquiries.iter() {
             // Use the existing zero-allocation parser
             // If parsing succeeds, this inquiry type matches the payload
             match parse_inquiry_payload(payload.as_slice(), response_type) {
                 Ok(_) => {
-                    trace!(cmd_id = id, inquiry_type = ?response_type, "Matched");
+                    trace!(cmd_id = %id, inquiry_type = ?response_type, "Matched");
                     matches.push(*id);
                 }
                 Err(_e) => {
-                    trace!(cmd_id = id, inquiry_type = ?response_type, "No match");
+                    trace!(cmd_id = %id, inquiry_type = ?response_type, "No match");
                 }
             }
         }
@@ -1282,7 +1286,7 @@ impl SchedulerCore {
             }
             1 => {
                 // Unique match found - this is the expected path, only log at TRACE
-                trace!(cmd_id = matches[0], "Content match successful");
+                trace!(cmd_id = %matches[0], "Content match successful");
                 Some(matches[0])
             }
             _ => {
@@ -1531,7 +1535,7 @@ impl SchedulerCore {
             if elapsed > timeout {
                 let inquiry_type = self.inquiry_response_types.get(&cmd_id);
                 warn!(
-                    cmd_id,
+                    %cmd_id,
                     inquiry_type = ?inquiry_type,
                     timeout = ?timeout,
                     elapsed = ?elapsed,
@@ -1809,7 +1813,7 @@ impl SchedulerCore {
                     // Check if command is still active
                     if !self.is_command_active(cmd_id) {
                         trace!(
-                            cmd_id,
+                            %cmd_id,
                             attempt = retry_attempt,
                             "Dropping stale retry: command no longer active"
                         );
@@ -1821,7 +1825,7 @@ impl SchedulerCore {
                     let current_attempt = self.retry_attempts.get(&cmd_id).copied().unwrap_or(0);
                     if retry_attempt != current_attempt {
                         trace!(
-                            cmd_id,
+                            %cmd_id,
                             queued_attempt = retry_attempt,
                             current_attempt,
                             "Dropping stale retry: attempt count mismatch"
@@ -1915,16 +1919,16 @@ impl SchedulerCore {
     fn handle_ack_with_id(
         &mut self,
         socket: Option<ViscaSocket>,
-        cmd_id: Option<u32>,
+        cmd_id: Option<CommandId>,
         now: Instant,
-    ) -> Option<u32> {
+    ) -> Option<CommandId> {
         // Prefer cmd_id from sequence mapping
         let target_id = if let Some(id) = cmd_id {
             // Verify it's actually pending
             if self.pending_ack.contains_key(&id) {
                 Some(id)
             } else {
-                debug!("ACK with sequence {id} not found in pending commands");
+                debug!("ACK with sequence {} not found in pending commands", id);
                 None
             }
         } else {
@@ -2028,7 +2032,7 @@ impl SchedulerCore {
     #[allow(clippy::too_many_arguments)]
     pub fn start_inquiry(
         &mut self,
-        id: u32,
+        id: CommandId,
         command: std::sync::Arc<EncodedCommand>,
         priority: Priority,
         category: CommandCategory,
@@ -2055,7 +2059,7 @@ impl SchedulerCore {
 
         if was_already_tracked {
             warn!(
-                id,
+                %id,
                 inquiry_type = ?inquiry_type,
                 "Inquiry started but was already in inquiries_inflight - timestamp overwritten"
             );
@@ -2063,7 +2067,7 @@ impl SchedulerCore {
 
         let inflight_count = self.inquiries_inflight.len();
         trace!(
-            id,
+            %id,
             inquiry_type = ?inquiry_type,
             inflight_count,
             "Started inquiry (no socket allocation)"
@@ -2071,7 +2075,7 @@ impl SchedulerCore {
     }
 
     /// Check if a command is pending (either awaiting ACK or has a socket).
-    pub fn is_command_pending(&self, cmd_id: u32) -> bool {
+    pub fn is_command_pending(&self, cmd_id: CommandId) -> bool {
         self.pending_ack.contains_key(&cmd_id)
             || self.sockets.iter().any(|s| s.command_id == Some(cmd_id))
     }
@@ -2097,18 +2101,18 @@ impl SchedulerCore {
     }
 
     /// Find the command ID currently assigned to a socket.
-    pub fn find_command_on_socket(&self, socket: ViscaSocket) -> Option<u32> {
+    pub fn find_command_on_socket(&self, socket: ViscaSocket) -> Option<CommandId> {
         self.sockets[socket.as_index()].command_id
     }
 
     /// Get the camera ID for a command by its ID.
-    pub fn camera_id_for_command(&self, id: u32) -> Option<crate::camera_id::CameraId> {
+    pub fn camera_id_for_command(&self, id: CommandId) -> Option<crate::camera_id::CameraId> {
         self.command_metadata
             .get(&id)
             .map(|(_, _, _, camera_id, _, _)| *camera_id)
     }
 
-    pub(crate) fn find_socket_for_command(&self, cmd_id: u32) -> Option<ViscaSocket> {
+    pub(crate) fn find_socket_for_command(&self, cmd_id: CommandId) -> Option<ViscaSocket> {
         for (idx, state) in self.sockets.iter().enumerate() {
             if state.command_id == Some(cmd_id) {
                 return Some(if idx == 0 {
@@ -2126,12 +2130,12 @@ impl SchedulerCore {
     pub fn socket_state(
         &self,
         socket: ViscaSocket,
-    ) -> (bool, Option<u32>, Option<CommandCategory>) {
+    ) -> (bool, Option<CommandId>, Option<CommandCategory>) {
         let state = &self.sockets[socket.as_index()];
         (state.free, state.command_id, state.category)
     }
 
-    fn should_retry_command(&self, cmd_id: u32, error: &ViscaError, now: Instant) -> bool {
+    fn should_retry_command(&self, cmd_id: CommandId, error: &ViscaError, now: Instant) -> bool {
         if let Some((_, _, category, _, _, submitted_at)) = self.command_metadata.get(&cmd_id) {
             if error.is_retryable(Some(*category)) {
                 let attempts = self.retry_attempts.get(&cmd_id).copied().unwrap_or(0);
@@ -2155,7 +2159,11 @@ impl SchedulerCore {
     ///
     /// The `cause` parameter preserves the original error (including timeout semantics)
     /// while wrapping it with "Send failed" context.
-    pub fn fail_after_send_error(&mut self, cmd_id: u32, cause: Error) -> Option<SchedulerAction> {
+    pub fn fail_after_send_error(
+        &mut self,
+        cmd_id: CommandId,
+        cause: Error,
+    ) -> Option<SchedulerAction> {
         // If inquiry is in-flight, remove from inquiries_inflight and inquiries_order
         self.inquiries_inflight.remove(&cmd_id);
         self.inquiries_order.retain(|&x| x != cmd_id);
@@ -2176,14 +2184,14 @@ impl SchedulerCore {
 
     /// Mark a retry as being triggered by a transport error.
     /// This affects the final error classification when retries are exhausted.
-    pub fn mark_retry_as_transport_error(&mut self, cmd_id: u32) {
+    pub fn mark_retry_as_transport_error(&mut self, cmd_id: CommandId) {
         self.retry_trigger_transport_error.insert(cmd_id, true);
     }
 
     /// Queue a command for retry based on the retry configuration.
     pub fn queue_retry_for_command(
         &mut self,
-        cmd_id: u32,
+        cmd_id: CommandId,
         now: Instant,
     ) -> Option<SchedulerAction> {
         if let Some((command, priority, category, camera_id, kind, submitted_at)) =
@@ -2262,6 +2270,12 @@ mod tests {
     use smallvec::SmallVec;
     use std::sync::Arc;
     use std::time::Duration;
+
+    /// Helper function to create CommandId from u32 in tests.
+    /// Panics if value is 0 (invalid for CommandId).
+    fn cmd_id(value: u32) -> CommandId {
+        CommandId::from_raw(value).expect("test command ID must be non-zero")
+    }
 
     // Helper structs for different test command categories
     #[derive(Debug, Clone)]
@@ -2534,7 +2548,7 @@ mod tests {
 
         // Register first command on socket 1
         core.register_pending_ack(
-            1,
+            cmd_id(1),
             cmd1.clone(),
             priority,
             CommandCategory::Movement,
@@ -2544,15 +2558,15 @@ mod tests {
         );
         // Manually allocate socket 1 (simulating ACK received)
         // When ACK is received, command is removed from pending_ack
-        core.pending_ack.remove(&1);
+        core.pending_ack.remove(&cmd_id(1));
         core.sockets[0].free = false;
-        core.sockets[0].command_id = Some(1);
+        core.sockets[0].command_id = Some(cmd_id(1));
         core.sockets[0].started_at = Some(now);
         core.sockets[0].category = Some(CommandCategory::Movement);
 
         // Register second command on socket 2
         core.register_pending_ack(
-            2,
+            cmd_id(2),
             cmd2.clone(),
             priority,
             CommandCategory::Movement,
@@ -2562,9 +2576,9 @@ mod tests {
         );
         // Manually allocate socket 2 (simulating ACK received)
         // When ACK is received, command is removed from pending_ack
-        core.pending_ack.remove(&2);
+        core.pending_ack.remove(&cmd_id(2));
         core.sockets[1].free = false;
-        core.sockets[1].command_id = Some(2);
+        core.sockets[1].command_id = Some(cmd_id(2));
         core.sockets[1].started_at = Some(now);
         core.sockets[1].category = Some(CommandCategory::Movement);
 
@@ -2573,7 +2587,7 @@ mod tests {
 
         // Start an inquiry - should not need a socket
         core.start_inquiry(
-            3,
+            cmd_id(3),
             inquiry_cmd.clone(),
             priority,
             category,
@@ -2583,17 +2597,17 @@ mod tests {
         );
 
         // Verify inquiry is tracked
-        assert!(core.inquiries_inflight.contains_key(&3));
-        assert!(core.inquiries_order.contains(&3));
+        assert!(core.inquiries_inflight.contains_key(&cmd_id(3)));
+        assert!(core.inquiries_order.contains(&cmd_id(3)));
 
         // Sockets should still be occupied by commands
         let state1 = core.socket_state(ViscaSocket::S1);
         assert!(!state1.0); // Socket 1 still occupied
-        assert_eq!(state1.1, Some(1)); // By command 1
+        assert_eq!(state1.1, Some(cmd_id(1))); // By command 1
 
         let state2 = core.socket_state(ViscaSocket::S2);
         assert!(!state2.0); // Socket 2 still occupied
-        assert_eq!(state2.1, Some(2)); // By command 2
+        assert_eq!(state2.1, Some(cmd_id(2))); // By command 2
     }
 
     #[test]
@@ -2631,7 +2645,7 @@ mod tests {
 
         // Start an inquiry
         core.start_inquiry(
-            1,
+            cmd_id(1),
             command.clone(),
             priority,
             category,
@@ -2641,13 +2655,13 @@ mod tests {
         );
 
         // Verify inquiry is tracked
-        assert!(core.inquiries_inflight.contains_key(&1));
-        assert!(core.inquiries_order.contains(&1));
+        assert!(core.inquiries_inflight.contains_key(&cmd_id(1)));
+        assert!(core.inquiries_order.contains(&cmd_id(1)));
 
         // Process InquiryReply event
         let response = Response::Inquiry(crate::command::InquiryData::Power { on: true });
         let event = SchedulerEvent::InquiryReply {
-            cmd_id: Some(1),
+            cmd_id: Some(cmd_id(1)),
             response,
         };
 
@@ -2659,7 +2673,7 @@ mod tests {
             SchedulerAction::CommandComplete {
                 id, response: resp, ..
             } => {
-                assert_eq!(*id, 1);
+                assert_eq!(*id, cmd_id(1));
                 match resp {
                     Response::Inquiry(crate::command::InquiryData::Power { on }) => {
                         assert!(*on);
@@ -2671,8 +2685,8 @@ mod tests {
         }
 
         // Inquiry should be removed from tracking
-        assert!(!core.inquiries_inflight.contains_key(&1));
-        assert!(!core.inquiries_order.contains(&1));
+        assert!(!core.inquiries_inflight.contains_key(&cmd_id(1)));
+        assert!(!core.inquiries_order.contains(&cmd_id(1)));
     }
 
     #[test]
@@ -2749,7 +2763,7 @@ mod tests {
         let cmd3 = Arc::new(EncodedCommand::new(TestInquiry3, camera_id).unwrap());
 
         core.start_inquiry(
-            1,
+            cmd_id(1),
             cmd1,
             priority,
             category,
@@ -2758,7 +2772,7 @@ mod tests {
             now,
         );
         core.start_inquiry(
-            2,
+            cmd_id(2),
             cmd2,
             priority,
             category,
@@ -2767,7 +2781,7 @@ mod tests {
             now,
         );
         core.start_inquiry(
-            3,
+            cmd_id(3),
             cmd3,
             priority,
             category,
@@ -2778,9 +2792,9 @@ mod tests {
 
         // Verify all inquiries are tracked in order
         assert_eq!(core.inquiries_order.len(), 3);
-        assert_eq!(core.inquiries_order[0], 1);
-        assert_eq!(core.inquiries_order[1], 2);
-        assert_eq!(core.inquiries_order[2], 3);
+        assert_eq!(core.inquiries_order[0], cmd_id(1));
+        assert_eq!(core.inquiries_order[1], cmd_id(2));
+        assert_eq!(core.inquiries_order[2], cmd_id(3));
 
         // Process InquiryReply events without cmd_id (raw VISCA)
         // First reply should match first inquiry
@@ -2794,15 +2808,15 @@ mod tests {
         assert_eq!(actions.len(), 1);
         match &actions[0] {
             SchedulerAction::CommandComplete { id, .. } => {
-                assert_eq!(*id, 1); // First inquiry completed
+                assert_eq!(*id, cmd_id(1)); // First inquiry completed
             }
             _ => panic!("Expected CommandComplete action"),
         }
 
         // Order should have inquiry 1 removed
         assert_eq!(core.inquiries_order.len(), 2);
-        assert_eq!(core.inquiries_order[0], 2);
-        assert_eq!(core.inquiries_order[1], 3);
+        assert_eq!(core.inquiries_order[0], cmd_id(2));
+        assert_eq!(core.inquiries_order[1], cmd_id(3));
     }
 
     #[test]
@@ -2860,7 +2874,7 @@ mod tests {
         let cmd2 = Arc::new(EncodedCommand::new(TestCmd2, camera_id).unwrap());
 
         core.register_pending_ack(
-            1,
+            cmd_id(1),
             cmd1,
             priority,
             CommandCategory::Movement,
@@ -2868,10 +2882,10 @@ mod tests {
             CommandKind::Command,
             now,
         );
-        core.register_sequence(1, 100); // Command 1 has sequence 100
+        core.register_sequence(cmd_id(1), 100); // Command 1 has sequence 100
 
         core.register_pending_ack(
-            2,
+            cmd_id(2),
             cmd2,
             priority,
             CommandCategory::Movement,
@@ -2879,7 +2893,7 @@ mod tests {
             CommandKind::Command,
             now,
         );
-        core.register_sequence(2, 101); // Command 2 has sequence 101
+        core.register_sequence(cmd_id(2), 101); // Command 2 has sequence 101
 
         // Process ACK for command 2 first (out of order)
         let cmd_id_2 = core.get_command_by_sequence(101);
@@ -2897,12 +2911,12 @@ mod tests {
         );
 
         // Verify command 2 got socket 2
-        let (free, cmd_id, _) = core.socket_state(ViscaSocket::S2);
+        let (free, socket_cmd_id, _) = core.socket_state(ViscaSocket::S2);
         assert!(!free); // Socket occupied
-        assert_eq!(cmd_id, Some(2)); // By command 2
+        assert_eq!(socket_cmd_id, Some(cmd_id(2))); // By command 2
 
         // Command 1 should still be pending
-        assert!(core.pending_ack.contains_key(&1));
+        assert!(core.pending_ack.contains_key(&cmd_id(1)));
 
         // Now process ACK for command 1
         let cmd_id_1 = core.get_command_by_sequence(100);
@@ -2914,9 +2928,9 @@ mod tests {
         core.process_event(event, now);
 
         // Verify command 1 got socket 1
-        let (free, cmd_id, _) = core.socket_state(ViscaSocket::S1);
+        let (free, socket_cmd_id, _) = core.socket_state(ViscaSocket::S1);
         assert!(!free); // Socket occupied
-        assert_eq!(cmd_id, Some(1)); // By command 1
+        assert_eq!(socket_cmd_id, Some(cmd_id(1))); // By command 1
     }
 
     #[test]
@@ -2941,7 +2955,7 @@ mod tests {
 
         // Start an inquiry
         core.start_inquiry(
-            1,
+            cmd_id(1),
             command.clone(),
             priority,
             category,
@@ -2949,7 +2963,7 @@ mod tests {
             CommandKind::Inquiry,
             now,
         );
-        assert!(core.inquiries_inflight.contains_key(&1));
+        assert!(core.inquiries_inflight.contains_key(&cmd_id(1)));
 
         // Check timeout immediately - should not timeout
         let actions = core.check_timeouts(now);
@@ -2969,22 +2983,22 @@ mod tests {
         );
         match &actions[0] {
             SchedulerAction::RetryCommand { id, .. } => {
-                assert_eq!(*id, 1);
+                assert_eq!(*id, cmd_id(1));
             }
             other => panic!("Expected RetryCommand action, got: {:?}", other),
         }
 
         // Inquiry should be removed from tracking after timeout
-        assert!(!core.inquiries_inflight.contains_key(&1));
+        assert!(!core.inquiries_inflight.contains_key(&cmd_id(1)));
 
         // Exhaust retries by timing out again (simulate max retries reached)
         // For Quick category, we get extra retries, so we need to exhaust them
         // Set retry attempts to max to force failure on next timeout
-        core.retry_attempts.insert(1, 10); // Force max retries exceeded
+        core.retry_attempts.insert(cmd_id(1), 10); // Force max retries exceeded
 
         // Start inquiry again for the retry
         core.start_inquiry(
-            1,
+            cmd_id(1),
             command.clone(),
             priority,
             category,
@@ -2992,7 +3006,7 @@ mod tests {
             CommandKind::Inquiry,
             later,
         );
-        assert!(core.inquiries_inflight.contains_key(&1));
+        assert!(core.inquiries_inflight.contains_key(&cmd_id(1)));
 
         // Now timeout should fail
         let later2 = later + Duration::from_millis(200);
@@ -3001,7 +3015,7 @@ mod tests {
         assert_eq!(actions2.len(), 1, "Expected exactly one action");
         match &actions2[0] {
             SchedulerAction::CommandFailed { id, error } => {
-                assert_eq!(*id, 1);
+                assert_eq!(*id, cmd_id(1));
                 assert!(matches!(error, Error::Timeout));
             }
             other => panic!(
@@ -3030,7 +3044,7 @@ mod tests {
 
         // Register command with initial sequence
         core.register_pending_ack(
-            1,
+            cmd_id(1),
             command.clone(),
             priority,
             category,
@@ -3038,34 +3052,34 @@ mod tests {
             CommandKind::Command,
             now,
         );
-        core.register_sequence(1, 100);
+        core.register_sequence(cmd_id(1), 100);
 
         // Verify initial sequence is tracked
-        assert_eq!(core.get_command_by_sequence(100), Some(1));
+        assert_eq!(core.get_command_by_sequence(100), Some(cmd_id(1)));
         assert_eq!(core.seq_to_cmd.len(), 1);
         assert_eq!(core.cmd_to_seqs.len(), 1);
 
         // Simulate retry - register new sequence for same command
-        core.register_sequence(1, 101);
+        core.register_sequence(cmd_id(1), 101);
 
         // Both sequences should now map to command 1
-        assert_eq!(core.get_command_by_sequence(100), Some(1));
-        assert_eq!(core.get_command_by_sequence(101), Some(1));
+        assert_eq!(core.get_command_by_sequence(100), Some(cmd_id(1)));
+        assert_eq!(core.get_command_by_sequence(101), Some(cmd_id(1)));
         assert_eq!(core.seq_to_cmd.len(), 2);
         assert_eq!(core.cmd_to_seqs.len(), 1); // Still one command
 
         // Simulate another retry
-        core.register_sequence(1, 102);
+        core.register_sequence(cmd_id(1), 102);
 
         // All three sequences should map to command 1
-        assert_eq!(core.get_command_by_sequence(100), Some(1));
-        assert_eq!(core.get_command_by_sequence(101), Some(1));
-        assert_eq!(core.get_command_by_sequence(102), Some(1));
+        assert_eq!(core.get_command_by_sequence(100), Some(cmd_id(1)));
+        assert_eq!(core.get_command_by_sequence(101), Some(cmd_id(1)));
+        assert_eq!(core.get_command_by_sequence(102), Some(cmd_id(1)));
         assert_eq!(core.seq_to_cmd.len(), 3);
 
         // Finish the command - all sequences should be cleaned up
-        core.finish_sequence(1);
-        core.command_metadata.remove(&1);
+        core.finish_sequence(cmd_id(1));
+        core.command_metadata.remove(&cmd_id(1));
 
         // No sequences should remain
         assert_eq!(core.get_command_by_sequence(100), None);
@@ -3094,7 +3108,7 @@ mod tests {
 
         // Register command with sequences from multiple retries
         core.register_pending_ack(
-            1,
+            cmd_id(1),
             command.clone(),
             priority,
             category,
@@ -3102,14 +3116,14 @@ mod tests {
             CommandKind::Command,
             now,
         );
-        core.register_sequence(1, 100);
-        core.register_sequence(1, 101); // Retry 1
-        core.register_sequence(1, 102); // Retry 2
+        core.register_sequence(cmd_id(1), 100);
+        core.register_sequence(cmd_id(1), 101); // Retry 1
+        core.register_sequence(cmd_id(1), 102); // Retry 2
 
         // Verify all sequences are active
-        assert_eq!(core.get_command_by_sequence(100), Some(1));
-        assert_eq!(core.get_command_by_sequence(101), Some(1));
-        assert_eq!(core.get_command_by_sequence(102), Some(1));
+        assert_eq!(core.get_command_by_sequence(100), Some(cmd_id(1)));
+        assert_eq!(core.get_command_by_sequence(101), Some(cmd_id(1)));
+        assert_eq!(core.get_command_by_sequence(102), Some(cmd_id(1)));
 
         // Complete the command (simulating success on the third attempt)
         let response = Response::Completion {
@@ -3117,7 +3131,7 @@ mod tests {
         };
         let event = SchedulerEvent::Completion {
             socket: Some(ViscaSocket::S1),
-            cmd_id: Some(1),
+            cmd_id: Some(cmd_id(1)),
             response,
         };
 
@@ -3125,7 +3139,7 @@ mod tests {
         assert_eq!(actions.len(), 1);
         match &actions[0] {
             SchedulerAction::CommandComplete { id, .. } => {
-                assert_eq!(*id, 1);
+                assert_eq!(*id, cmd_id(1));
             }
             _ => panic!("Expected CommandComplete"),
         }
@@ -3160,7 +3174,7 @@ mod tests {
 
         // Register command
         core.register_pending_ack(
-            1,
+            cmd_id(1),
             command.clone(),
             priority,
             category,
@@ -3171,7 +3185,7 @@ mod tests {
 
         // Register more than MAX_SEQUENCES_PER_CMD (8) sequences
         for seq in 100..110 {
-            core.register_sequence(1, seq);
+            core.register_sequence(cmd_id(1), seq);
         }
 
         // Only the last 8 sequences should be active (102-109)
@@ -3180,7 +3194,7 @@ mod tests {
         assert_eq!(core.get_command_by_sequence(101), None); // Dropped
 
         for seq in 102..110 {
-            assert_eq!(core.get_command_by_sequence(seq), Some(1));
+            assert_eq!(core.get_command_by_sequence(seq), Some(cmd_id(1)));
         }
 
         // Verify we have exactly 8 sequence mappings
@@ -3213,7 +3227,7 @@ mod tests {
         );
 
         core.register_pending_ack(
-            1,
+            cmd_id(1),
             cmd1.clone(),
             priority,
             category,
@@ -3222,7 +3236,7 @@ mod tests {
             now,
         );
         core.register_pending_ack(
-            2,
+            cmd_id(2),
             cmd2.clone(),
             priority,
             category,
@@ -3232,35 +3246,35 @@ mod tests {
         );
 
         // Command 1 has sequences 100, 101 (retry)
-        core.register_sequence(1, 100);
-        core.register_sequence(1, 101);
+        core.register_sequence(cmd_id(1), 100);
+        core.register_sequence(cmd_id(1), 101);
 
         // Command 2 has sequences 200, 201, 202 (two retries)
-        core.register_sequence(2, 200);
-        core.register_sequence(2, 201);
-        core.register_sequence(2, 202);
+        core.register_sequence(cmd_id(2), 200);
+        core.register_sequence(cmd_id(2), 201);
+        core.register_sequence(cmd_id(2), 202);
 
         // Verify all sequences map correctly
-        assert_eq!(core.get_command_by_sequence(100), Some(1));
-        assert_eq!(core.get_command_by_sequence(101), Some(1));
-        assert_eq!(core.get_command_by_sequence(200), Some(2));
-        assert_eq!(core.get_command_by_sequence(201), Some(2));
-        assert_eq!(core.get_command_by_sequence(202), Some(2));
+        assert_eq!(core.get_command_by_sequence(100), Some(cmd_id(1)));
+        assert_eq!(core.get_command_by_sequence(101), Some(cmd_id(1)));
+        assert_eq!(core.get_command_by_sequence(200), Some(cmd_id(2)));
+        assert_eq!(core.get_command_by_sequence(201), Some(cmd_id(2)));
+        assert_eq!(core.get_command_by_sequence(202), Some(cmd_id(2)));
 
         // Complete command 1
-        core.finish_sequence(1);
-        core.command_metadata.remove(&1);
+        core.finish_sequence(cmd_id(1));
+        core.command_metadata.remove(&cmd_id(1));
 
         // Command 1's sequences should be gone, command 2's should remain
         assert_eq!(core.get_command_by_sequence(100), None);
         assert_eq!(core.get_command_by_sequence(101), None);
-        assert_eq!(core.get_command_by_sequence(200), Some(2));
-        assert_eq!(core.get_command_by_sequence(201), Some(2));
-        assert_eq!(core.get_command_by_sequence(202), Some(2));
+        assert_eq!(core.get_command_by_sequence(200), Some(cmd_id(2)));
+        assert_eq!(core.get_command_by_sequence(201), Some(cmd_id(2)));
+        assert_eq!(core.get_command_by_sequence(202), Some(cmd_id(2)));
 
         // Complete command 2
-        core.finish_sequence(2);
-        core.command_metadata.remove(&2);
+        core.finish_sequence(cmd_id(2));
+        core.command_metadata.remove(&cmd_id(2));
 
         // All sequences should be cleaned up
         assert_eq!(core.get_command_by_sequence(200), None);
@@ -3290,7 +3304,7 @@ mod tests {
         // Register a command with a 32-bit sequence that has non-zero high 16 bits
         let full_sequence = 0x12345678u32; // High 16 bits: 0x1234, Low 16 bits: 0x5678
         core.register_pending_ack(
-            1,
+            cmd_id(1),
             command.clone(),
             priority,
             category,
@@ -3298,11 +3312,11 @@ mod tests {
             CommandKind::Command,
             now,
         );
-        core.register_sequence(1, full_sequence);
+        core.register_sequence(cmd_id(1), full_sequence);
 
         // Verify that both 32-bit and 16-bit lookups work
-        assert_eq!(core.get_command_by_sequence(full_sequence), Some(1));
-        assert_eq!(core.get_command_by_sequence(0x5678), Some(1)); // Should find by lower 16 bits
+        assert_eq!(core.get_command_by_sequence(full_sequence), Some(cmd_id(1)));
+        assert_eq!(core.get_command_by_sequence(0x5678), Some(cmd_id(1))); // Should find by lower 16 bits
 
         // Verify that a non-matching 16-bit value doesn't work
         assert_eq!(core.get_command_by_sequence(0x1234), None);
@@ -3337,7 +3351,7 @@ mod tests {
         );
 
         core.register_pending_ack(
-            1,
+            cmd_id(1),
             cmd1,
             priority,
             category,
@@ -3345,10 +3359,10 @@ mod tests {
             CommandKind::Command,
             now,
         );
-        core.register_sequence(1, seq1);
+        core.register_sequence(cmd_id(1), seq1);
 
         core.register_pending_ack(
-            2,
+            cmd_id(2),
             cmd2,
             priority,
             category,
@@ -3356,11 +3370,11 @@ mod tests {
             CommandKind::Command,
             now,
         );
-        core.register_sequence(2, seq2);
+        core.register_sequence(cmd_id(2), seq2);
 
         // Both 32-bit sequences should work
-        assert_eq!(core.get_command_by_sequence(seq1), Some(1));
-        assert_eq!(core.get_command_by_sequence(seq2), Some(2));
+        assert_eq!(core.get_command_by_sequence(seq1), Some(cmd_id(1)));
+        assert_eq!(core.get_command_by_sequence(seq2), Some(cmd_id(2)));
 
         // 16-bit lookup should be ambiguous and return None
         assert_eq!(core.get_command_by_sequence(0x5678), None);
@@ -3386,7 +3400,7 @@ mod tests {
         // Register a command with sequence
         let sequence = 0x12345678u32;
         core.register_pending_ack(
-            1,
+            cmd_id(1),
             command,
             priority,
             category,
@@ -3394,15 +3408,15 @@ mod tests {
             CommandKind::Command,
             now,
         );
-        core.register_sequence(1, sequence);
+        core.register_sequence(cmd_id(1), sequence);
 
         // Verify both mappings exist
-        assert_eq!(core.get_command_by_sequence(sequence), Some(1));
-        assert_eq!(core.get_command_by_sequence(0x5678), Some(1));
+        assert_eq!(core.get_command_by_sequence(sequence), Some(cmd_id(1)));
+        assert_eq!(core.get_command_by_sequence(0x5678), Some(cmd_id(1)));
 
         // Finish the sequence
-        core.finish_sequence(1);
-        core.command_metadata.remove(&1);
+        core.finish_sequence(cmd_id(1));
+        core.command_metadata.remove(&cmd_id(1));
 
         // Verify both mappings are cleaned up
         assert_eq!(core.get_command_by_sequence(sequence), None);
@@ -3445,7 +3459,7 @@ mod tests {
 
         // Register both commands
         core.register_pending_ack(
-            1,
+            cmd_id(1),
             cmd1,
             priority,
             category,
@@ -3453,10 +3467,10 @@ mod tests {
             CommandKind::Command,
             now,
         );
-        core.register_sequence(1, seq1);
+        core.register_sequence(cmd_id(1), seq1);
 
         core.register_pending_ack(
-            2,
+            cmd_id(2),
             cmd2,
             priority,
             category,
@@ -3464,11 +3478,11 @@ mod tests {
             CommandKind::Command,
             now,
         );
-        core.register_sequence(2, seq2);
+        core.register_sequence(cmd_id(2), seq2);
 
         // Both 32-bit sequences should work
-        assert_eq!(core.get_command_by_sequence(seq1), Some(1));
-        assert_eq!(core.get_command_by_sequence(seq2), Some(2));
+        assert_eq!(core.get_command_by_sequence(seq1), Some(cmd_id(1)));
+        assert_eq!(core.get_command_by_sequence(seq2), Some(cmd_id(2)));
 
         // 16-bit lookup should be ambiguous and return None (both commands active)
         assert_eq!(
@@ -3478,18 +3492,18 @@ mod tests {
         );
 
         // Now finish command 1
-        core.finish_sequence(1);
-        core.command_metadata.remove(&1);
+        core.finish_sequence(cmd_id(1));
+        core.command_metadata.remove(&cmd_id(1));
 
         // Command 2's 32-bit sequence should still work
-        assert_eq!(core.get_command_by_sequence(seq2), Some(2));
+        assert_eq!(core.get_command_by_sequence(seq2), Some(cmd_id(2)));
 
         // KEY FIX: 16-bit lookup should NOW return command 2 (no longer ambiguous!)
         // This works for both explicit 16-bit values and full 32-bit values that
         // share the same lower 16 bits
         assert_eq!(
             core.get_command_by_sequence(0x5678),
-            Some(2),
+            Some(cmd_id(2)),
             "After finishing command 1, 16-bit lookup should uniquely resolve to command 2"
         );
 
@@ -3498,7 +3512,7 @@ mod tests {
         // command 2. This is expected behavior for truncated sequence resolution.
         assert_eq!(
             core.get_command_by_sequence(seq1),
-            Some(2),
+            Some(cmd_id(2)),
             "seq1's lower 16 bits match seq2, so 16-bit fallback finds command 2"
         );
     }
@@ -3532,7 +3546,7 @@ mod tests {
         );
 
         core.register_pending_ack(
-            1,
+            cmd_id(1),
             cmd1,
             priority,
             category,
@@ -3540,10 +3554,10 @@ mod tests {
             CommandKind::Command,
             now,
         );
-        core.register_sequence(1, seq1);
+        core.register_sequence(cmd_id(1), seq1);
 
         core.register_pending_ack(
-            2,
+            cmd_id(2),
             cmd2,
             priority,
             category,
@@ -3551,22 +3565,22 @@ mod tests {
             CommandKind::Command,
             now,
         );
-        core.register_sequence(2, seq2);
+        core.register_sequence(cmd_id(2), seq2);
 
         // Both active: 16-bit should be ambiguous
         assert_eq!(core.get_command_by_sequence(0x5678), None);
 
         // Finish command 2 first (reversed order from previous test)
-        core.finish_sequence(2);
-        core.command_metadata.remove(&2);
+        core.finish_sequence(cmd_id(2));
+        core.command_metadata.remove(&cmd_id(2));
 
         // Command 1's sequence should still work
-        assert_eq!(core.get_command_by_sequence(seq1), Some(1));
+        assert_eq!(core.get_command_by_sequence(seq1), Some(cmd_id(1)));
 
         // 16-bit lookup should now return command 1
         assert_eq!(
             core.get_command_by_sequence(0x5678),
-            Some(1),
+            Some(cmd_id(1)),
             "After finishing command 2, 16-bit lookup should uniquely resolve to command 1"
         );
 
@@ -3574,7 +3588,7 @@ mod tests {
         // since its 32-bit exact match fails but 16-bit (0x5678) uniquely matches command 1
         assert_eq!(
             core.get_command_by_sequence(seq2),
-            Some(1),
+            Some(cmd_id(1)),
             "seq2's lower 16 bits match seq1, so 16-bit fallback finds command 1"
         );
     }
@@ -3613,7 +3627,7 @@ mod tests {
 
         // Register command 1 with its initial sequence
         core.register_pending_ack(
-            1,
+            cmd_id(1),
             cmd1,
             priority,
             category,
@@ -3621,11 +3635,11 @@ mod tests {
             CommandKind::Command,
             now,
         );
-        core.register_sequence(1, seq1_initial);
+        core.register_sequence(cmd_id(1), seq1_initial);
 
         // Register command 2 (collision on 0x5678)
         core.register_pending_ack(
-            2,
+            cmd_id(2),
             cmd2,
             priority,
             category,
@@ -3633,7 +3647,7 @@ mod tests {
             CommandKind::Command,
             now,
         );
-        core.register_sequence(2, seq2);
+        core.register_sequence(cmd_id(2), seq2);
 
         // Both commands own 0x5678 - ambiguous
         assert_eq!(core.get_command_by_sequence(0x5678), None);
@@ -3643,19 +3657,19 @@ mod tests {
         for i in 0u32..8 {
             // Generate sequences with different lower 16 bits
             let retry_seq = 0x1234_0000 + i + 1; // 0x12340001, 0x12340002, ..., 0x12340008
-            core.register_sequence(1, retry_seq);
+            core.register_sequence(cmd_id(1), retry_seq);
         }
 
         // Command 1's original 0x5678 should be evicted from its history
         // But command 2 should still own 0x5678!
         assert_eq!(
             core.get_command_by_sequence(0x5678),
-            Some(2),
+            Some(cmd_id(2)),
             "After command 1's 0x5678 is evicted, command 2 should uniquely own it"
         );
 
         // Command 2's full sequence should still work
-        assert_eq!(core.get_command_by_sequence(seq2), Some(2));
+        assert_eq!(core.get_command_by_sequence(seq2), Some(cmd_id(2)));
     }
 
     #[test]
@@ -3688,7 +3702,7 @@ mod tests {
         );
 
         core.start_inquiry(
-            1,
+            cmd_id(1),
             power_cmd,
             priority,
             category,
@@ -3697,7 +3711,7 @@ mod tests {
             now,
         );
         core.start_inquiry(
-            2,
+            cmd_id(2),
             zoom_cmd,
             priority,
             category,
@@ -3708,8 +3722,8 @@ mod tests {
 
         // Verify both are tracked
         assert_eq!(core.inquiries_order.len(), 2);
-        assert!(core.inquiries_inflight.contains_key(&1));
-        assert!(core.inquiries_inflight.contains_key(&2));
+        assert!(core.inquiries_inflight.contains_key(&cmd_id(1)));
+        assert!(core.inquiries_inflight.contains_key(&cmd_id(2)));
 
         // Process replies out of order
         // Second inquiry (zoom) reply arrives first - with explicit cmd_id
@@ -3717,7 +3731,7 @@ mod tests {
         let zoom_response =
             Response::Inquiry(crate::command::InquiryData::ZoomPosition { position: 0x1234 });
         let event2 = SchedulerEvent::InquiryReply {
-            cmd_id: Some(2), // Content-based matching identified this as inquiry 2
+            cmd_id: Some(cmd_id(2)), // Content-based matching identified this as inquiry 2
             response: zoom_response,
         };
 
@@ -3725,8 +3739,8 @@ mod tests {
         assert_eq!(actions.len(), 1);
         match &actions[0] {
             SchedulerAction::CommandComplete { id, response, .. } => {
-                assert_eq!(*id, 2); // Second inquiry completed
-                                    // Verify it's a zoom response
+                assert_eq!(*id, cmd_id(2)); // Second inquiry completed
+                                            // Verify it's a zoom response
                 match response {
                     Response::Inquiry(crate::command::InquiryData::ZoomPosition { position }) => {
                         assert_eq!(*position, 0x1234);
@@ -3740,7 +3754,7 @@ mod tests {
         // First inquiry (power) reply arrives second
         let power_response = Response::Inquiry(crate::command::InquiryData::Power { on: true });
         let event1 = SchedulerEvent::InquiryReply {
-            cmd_id: Some(1), // Content-based matching identified this as inquiry 1
+            cmd_id: Some(cmd_id(1)), // Content-based matching identified this as inquiry 1
             response: power_response,
         };
 
@@ -3748,8 +3762,8 @@ mod tests {
         assert_eq!(actions.len(), 1);
         match &actions[0] {
             SchedulerAction::CommandComplete { id, response, .. } => {
-                assert_eq!(*id, 1); // First inquiry completed
-                                    // Verify it's a power response
+                assert_eq!(*id, cmd_id(1)); // First inquiry completed
+                                            // Verify it's a power response
                 match response {
                     Response::Inquiry(crate::command::InquiryData::Power { on }) => {
                         assert!(*on);
@@ -3762,8 +3776,8 @@ mod tests {
 
         // All inquiries should be completed
         assert_eq!(core.inquiries_order.len(), 0);
-        assert!(!core.inquiries_inflight.contains_key(&1));
-        assert!(!core.inquiries_inflight.contains_key(&2));
+        assert!(!core.inquiries_inflight.contains_key(&cmd_id(1)));
+        assert!(!core.inquiries_inflight.contains_key(&cmd_id(2)));
     }
 
     // Tests for issue #362: send-failure retry behavior
@@ -3780,7 +3794,7 @@ mod tests {
             },
         );
 
-        let cmd_id = 1;
+        let cmd_id = cmd_id(1);
         let camera_id = CameraId::CAMERA_1;
         let command = create_test_command(
             vec![0x81, 0x01, 0x04, 0x00, 0x03, VISCA_TERMINATOR],
@@ -3835,7 +3849,7 @@ mod tests {
             },
         );
 
-        let cmd_id = 1;
+        let cmd_id = cmd_id(1);
         let camera_id = CameraId::CAMERA_1;
         let command = create_test_command(
             vec![0x81, 0x01, 0x04, 0x00, 0x03, VISCA_TERMINATOR],
@@ -3895,7 +3909,7 @@ mod tests {
             },
         );
 
-        let cmd_id = 1;
+        let cmd_id = cmd_id(1);
         let camera_id = CameraId::CAMERA_1;
         let command = create_test_command(
             vec![0x81, 0x01, 0x04, 0x00, 0x03, VISCA_TERMINATOR],
@@ -3953,7 +3967,7 @@ mod tests {
         let camera_id = CameraId::CAMERA_1;
 
         // Register multiple commands
-        for cmd_id in 1..=3 {
+        for i in 1..=3 {
             let command = create_test_command(
                 vec![0x81, 0x01, 0x04, 0x00, 0x03, VISCA_TERMINATOR],
                 None,
@@ -3961,7 +3975,7 @@ mod tests {
                 camera_id,
             );
             core.register_pending_ack(
-                cmd_id,
+                cmd_id(i),
                 command,
                 Priority::Normal,
                 CommandCategory::Movement,
@@ -3971,8 +3985,8 @@ mod tests {
             );
 
             // Mark as transport error and queue retry
-            core.mark_retry_as_transport_error(cmd_id);
-            let action = core.queue_retry_for_command(cmd_id, now);
+            core.mark_retry_as_transport_error(cmd_id(i));
+            let action = core.queue_retry_for_command(cmd_id(i), now);
             assert!(matches!(action, Some(SchedulerAction::RetryCommand { .. })));
         }
 
@@ -3983,7 +3997,7 @@ mod tests {
         // Verify all have attempt = 1
         for retry in retries {
             assert_eq!(retry.attempt, 1);
-            assert!(retry.id >= 1 && retry.id <= 3);
+            assert!([cmd_id(1), cmd_id(2), cmd_id(3)].contains(&retry.id));
         }
     }
 
@@ -4002,7 +4016,7 @@ mod tests {
             camera_id,
         );
         core.register_pending_ack(
-            1,
+            cmd_id(1),
             command,
             Priority::Normal,
             CommandCategory::Movement,
@@ -4014,14 +4028,14 @@ mod tests {
         // Send ACK without socket nibble
         let event = SchedulerEvent::Ack {
             socket: None,
-            cmd_id: Some(1),
+            cmd_id: Some(cmd_id(1)),
         };
         core.process_event(event, now);
 
         // Verify S1 was assigned
-        let (free, cmd_id, _) = core.socket_state(ViscaSocket::S1);
+        let (free, socket_cmd_id, _) = core.socket_state(ViscaSocket::S1);
         assert!(!free, "S1 should be occupied");
-        assert_eq!(cmd_id, Some(1), "Command 1 should be on S1");
+        assert_eq!(socket_cmd_id, Some(cmd_id(1)), "Command 1 should be on S1");
 
         // Verify S2 is still free
         let (free, _, _) = core.socket_state(ViscaSocket::S2);
@@ -4043,7 +4057,7 @@ mod tests {
             camera_id,
         );
         core.register_pending_ack(
-            1,
+            cmd_id(1),
             command.clone(),
             Priority::Normal,
             CommandCategory::Movement,
@@ -4052,7 +4066,7 @@ mod tests {
             now,
         );
         core.register_pending_ack(
-            2,
+            cmd_id(2),
             command,
             Priority::Normal,
             CommandCategory::Movement,
@@ -4064,26 +4078,26 @@ mod tests {
         // First ACK assigns S1
         let event = SchedulerEvent::Ack {
             socket: Some(ViscaSocket::S1),
-            cmd_id: Some(1),
+            cmd_id: Some(cmd_id(1)),
         };
         core.process_event(event, now);
 
         // Second ACK without socket nibble should get S2
         let event = SchedulerEvent::Ack {
             socket: None,
-            cmd_id: Some(2),
+            cmd_id: Some(cmd_id(2)),
         };
         core.process_event(event, now);
 
         // Verify S1 has command 1
-        let (free, cmd_id, _) = core.socket_state(ViscaSocket::S1);
+        let (free, socket_cmd_id, _) = core.socket_state(ViscaSocket::S1);
         assert!(!free, "S1 should be occupied");
-        assert_eq!(cmd_id, Some(1), "Command 1 should be on S1");
+        assert_eq!(socket_cmd_id, Some(cmd_id(1)), "Command 1 should be on S1");
 
         // Verify S2 has command 2
-        let (free, cmd_id, _) = core.socket_state(ViscaSocket::S2);
+        let (free, socket_cmd_id, _) = core.socket_state(ViscaSocket::S2);
         assert!(!free, "S2 should be occupied");
-        assert_eq!(cmd_id, Some(2), "Command 2 should be on S2");
+        assert_eq!(socket_cmd_id, Some(cmd_id(2)), "Command 2 should be on S2");
     }
 
     #[test]
@@ -4100,9 +4114,9 @@ mod tests {
             CommandCategory::Movement,
             camera_id,
         );
-        for cmd_id in 1..=3 {
+        for i in 1..=3 {
             core.register_pending_ack(
-                cmd_id,
+                cmd_id(i),
                 command.clone(),
                 Priority::Normal,
                 CommandCategory::Movement,
@@ -4115,37 +4129,37 @@ mod tests {
         // First two ACKs occupy both sockets
         let event = SchedulerEvent::Ack {
             socket: Some(ViscaSocket::S1),
-            cmd_id: Some(1),
+            cmd_id: Some(cmd_id(1)),
         };
         core.process_event(event, now);
 
         let event = SchedulerEvent::Ack {
             socket: Some(ViscaSocket::S2),
-            cmd_id: Some(2),
+            cmd_id: Some(cmd_id(2)),
         };
         core.process_event(event, now);
 
         // Third ACK without socket nibble should fail
         let event = SchedulerEvent::Ack {
             socket: None,
-            cmd_id: Some(3),
+            cmd_id: Some(cmd_id(3)),
         };
         core.process_event(event, now);
 
         // Verify command 3 is still pending
         assert!(
-            core.pending_ack.contains_key(&3),
+            core.pending_ack.contains_key(&cmd_id(3)),
             "Command 3 should still be pending"
         );
 
         // Verify sockets are still occupied by commands 1 and 2
-        let (free, cmd_id, _) = core.socket_state(ViscaSocket::S1);
+        let (free, socket_cmd_id, _) = core.socket_state(ViscaSocket::S1);
         assert!(!free, "S1 should be occupied");
-        assert_eq!(cmd_id, Some(1), "Command 1 should be on S1");
+        assert_eq!(socket_cmd_id, Some(cmd_id(1)), "Command 1 should be on S1");
 
-        let (free, cmd_id, _) = core.socket_state(ViscaSocket::S2);
+        let (free, socket_cmd_id, _) = core.socket_state(ViscaSocket::S2);
         assert!(!free, "S2 should be occupied");
-        assert_eq!(cmd_id, Some(2), "Command 2 should be on S2");
+        assert_eq!(socket_cmd_id, Some(cmd_id(2)), "Command 2 should be on S2");
     }
 
     #[test]
@@ -4163,7 +4177,7 @@ mod tests {
             camera_id,
         );
         core.register_pending_ack(
-            1,
+            cmd_id(1),
             command.clone(),
             Priority::Normal,
             CommandCategory::Movement,
@@ -4172,7 +4186,7 @@ mod tests {
             now,
         );
         core.register_pending_ack(
-            2,
+            cmd_id(2),
             command,
             Priority::Normal,
             CommandCategory::Movement,
@@ -4184,26 +4198,30 @@ mod tests {
         // First ACK assigns S1
         let event = SchedulerEvent::Ack {
             socket: Some(ViscaSocket::S1),
-            cmd_id: Some(1),
+            cmd_id: Some(cmd_id(1)),
         };
         core.process_event(event, now);
 
         // Second ACK requests S1 (busy), should fallback to S2
         let event = SchedulerEvent::Ack {
             socket: Some(ViscaSocket::S1), // Request S1 which is busy
-            cmd_id: Some(2),
+            cmd_id: Some(cmd_id(2)),
         };
         core.process_event(event, now);
 
         // Verify S1 still has command 1
-        let (free, cmd_id, _) = core.socket_state(ViscaSocket::S1);
+        let (free, socket_cmd_id, _) = core.socket_state(ViscaSocket::S1);
         assert!(!free, "S1 should be occupied");
-        assert_eq!(cmd_id, Some(1), "Command 1 should be on S1");
+        assert_eq!(socket_cmd_id, Some(cmd_id(1)), "Command 1 should be on S1");
 
         // Verify S2 has command 2 (fallback allocation)
-        let (free, cmd_id, _) = core.socket_state(ViscaSocket::S2);
+        let (free, socket_cmd_id, _) = core.socket_state(ViscaSocket::S2);
         assert!(!free, "S2 should be occupied");
-        assert_eq!(cmd_id, Some(2), "Command 2 should be on S2 (fallback)");
+        assert_eq!(
+            socket_cmd_id,
+            Some(cmd_id(2)),
+            "Command 2 should be on S2 (fallback)"
+        );
     }
 
     #[test]
@@ -4239,11 +4257,11 @@ mod tests {
         }
 
         let test_command = Arc::new(EncodedCommand::new(TestCommand, CameraId::CAMERA_1).unwrap());
-        let cmd_id = 1;
+        let test_cmd_id = cmd_id(1);
 
         // Register as Command explicitly
         core.register_pending_ack(
-            cmd_id,
+            test_cmd_id,
             test_command.clone(),
             Priority::Normal,
             CommandCategory::Movement,
@@ -4253,8 +4271,8 @@ mod tests {
         );
 
         // Mark as transport error and queue retry
-        core.mark_retry_as_transport_error(cmd_id);
-        let action = core.queue_retry_for_command(cmd_id, now);
+        core.mark_retry_as_transport_error(test_cmd_id);
+        let action = core.queue_retry_for_command(test_cmd_id, now);
 
         // Should get a retry action
         assert!(matches!(action, Some(SchedulerAction::RetryCommand { .. })));
@@ -4267,7 +4285,7 @@ mod tests {
         // The key assertion: kind should be Command, not Inquiry
         // This verifies that we no longer use the bytes[1] == 0x09 heuristic
         assert_eq!(retry.kind, CommandKind::Command);
-        assert_eq!(retry.id, cmd_id);
+        assert_eq!(retry.id, test_cmd_id);
         // Verify the command is preserved (same Arc)
         assert!(Arc::ptr_eq(&retry.command, &test_command));
 
@@ -4298,7 +4316,7 @@ mod tests {
         }
 
         let test_inquiry = Arc::new(EncodedCommand::new(TestInquiry, CameraId::CAMERA_1).unwrap());
-        let inquiry_id = 2;
+        let inquiry_id = cmd_id(2);
 
         // Start as inquiry
         core2.start_inquiry(
@@ -4361,7 +4379,7 @@ mod tests {
 
         // Queue both commands
         core.queue_command(PendingCommand {
-            id: 1,
+            id: cmd_id(1),
             command: command1.clone(),
             priority: Priority::Normal,
             category: CommandCategory::Movement,
@@ -4370,7 +4388,7 @@ mod tests {
             kind: CommandKind::Command,
         });
         core.queue_command(PendingCommand {
-            id: 2,
+            id: cmd_id(2),
             command: command2.clone(),
             priority: Priority::Normal,
             category: CommandCategory::Movement,
@@ -4381,9 +4399,9 @@ mod tests {
 
         // Send and register both commands as pending ACK
         let cmd1 = core.next_item_to_send(now).unwrap();
-        assert_eq!(cmd1.id, 1);
+        assert_eq!(cmd1.id, cmd_id(1));
         core.register_pending_ack(
-            1,
+            cmd_id(1),
             command1.clone(),
             Priority::Normal,
             CommandCategory::Movement,
@@ -4393,9 +4411,9 @@ mod tests {
         );
 
         let cmd2 = core.next_item_to_send(now).unwrap();
-        assert_eq!(cmd2.id, 2);
+        assert_eq!(cmd2.id, cmd_id(2));
         core.register_pending_ack(
-            2,
+            cmd_id(2),
             command2.clone(),
             Priority::Normal,
             CommandCategory::Movement,
@@ -4410,7 +4428,7 @@ mod tests {
 
         // Queue an inquiry
         core.queue_command(PendingCommand {
-            id: 3,
+            id: cmd_id(3),
             command: inquiry.clone(),
             priority: Priority::Normal,
             category: CommandCategory::Quick,
@@ -4423,12 +4441,12 @@ mod tests {
         let inq = core.next_item_to_send(now);
         assert!(inq.is_some());
         let inq = inq.unwrap();
-        assert_eq!(inq.id, 3);
+        assert_eq!(inq.id, cmd_id(3));
         assert_eq!(inq.kind, CommandKind::Inquiry);
 
         // Start the inquiry (track it in flight)
         core.start_inquiry(
-            3,
+            cmd_id(3),
             inquiry.clone(),
             Priority::Normal,
             CommandCategory::Quick,
@@ -4439,7 +4457,7 @@ mod tests {
 
         // Queue another command - should not be sendable
         core.queue_command(PendingCommand {
-            id: 4,
+            id: cmd_id(4),
             command: command1.clone(),
             priority: Priority::Normal,
             category: CommandCategory::Movement,
@@ -4453,7 +4471,7 @@ mod tests {
 
         // Queue another inquiry - should be sendable
         core.queue_command(PendingCommand {
-            id: 5,
+            id: cmd_id(5),
             command: inquiry.clone(),
             priority: Priority::Normal,
             category: CommandCategory::Quick,
@@ -4464,7 +4482,7 @@ mod tests {
 
         let inq2 = core.next_item_to_send(now);
         assert!(inq2.is_some());
-        assert_eq!(inq2.unwrap().id, 5);
+        assert_eq!(inq2.unwrap().id, cmd_id(5));
     }
 
     #[test]
@@ -4484,7 +4502,7 @@ mod tests {
         // Queue 3 inquiries
         for id in 1..=3 {
             core.queue_command(PendingCommand {
-                id,
+                id: cmd_id(id),
                 command: inquiry.clone(),
                 priority: Priority::Normal,
                 category: CommandCategory::Quick,
@@ -4497,9 +4515,9 @@ mod tests {
         // First inquiry should be sendable
         let inq1 = core.next_item_to_send(now);
         assert!(inq1.is_some());
-        assert_eq!(inq1.unwrap().id, 1);
+        assert_eq!(inq1.unwrap().id, cmd_id(1));
         core.start_inquiry(
-            1,
+            cmd_id(1),
             inquiry.clone(),
             Priority::Normal,
             CommandCategory::Quick,
@@ -4511,9 +4529,9 @@ mod tests {
         // Second inquiry should be sendable
         let inq2 = core.next_item_to_send(now);
         assert!(inq2.is_some());
-        assert_eq!(inq2.unwrap().id, 2);
+        assert_eq!(inq2.unwrap().id, cmd_id(2));
         core.start_inquiry(
-            2,
+            cmd_id(2),
             inquiry.clone(),
             Priority::Normal,
             CommandCategory::Quick,
@@ -4528,13 +4546,13 @@ mod tests {
         assert!(inq3.is_none());
 
         // Complete one inquiry by removing it from inflight
-        core.inquiries_inflight.remove(&1);
+        core.inquiries_inflight.remove(&cmd_id(1));
 
         // Now the third inquiry should be sendable
         assert!(core.can_send_inquiry(now));
         let inq3 = core.next_item_to_send(now);
         assert!(inq3.is_some());
-        assert_eq!(inq3.unwrap().id, 3);
+        assert_eq!(inq3.unwrap().id, cmd_id(3));
     }
 
     #[test]
@@ -4560,7 +4578,7 @@ mod tests {
 
         // Queue items with different priorities
         core.queue_command(PendingCommand {
-            id: 1,
+            id: cmd_id(1),
             command: command.clone(),
             priority: Priority::Low,
             category: CommandCategory::Movement,
@@ -4570,7 +4588,7 @@ mod tests {
         });
 
         core.queue_command(PendingCommand {
-            id: 2,
+            id: cmd_id(2),
             command: inquiry.clone(),
             priority: Priority::High,
             category: CommandCategory::Quick,
@@ -4580,7 +4598,7 @@ mod tests {
         });
 
         core.queue_command(PendingCommand {
-            id: 3,
+            id: cmd_id(3),
             command: command.clone(),
             priority: Priority::Critical,
             category: CommandCategory::Movement,
@@ -4590,7 +4608,7 @@ mod tests {
         });
 
         core.queue_command(PendingCommand {
-            id: 4,
+            id: cmd_id(4),
             command: inquiry.clone(),
             priority: Priority::Normal,
             category: CommandCategory::Quick,
@@ -4601,22 +4619,22 @@ mod tests {
 
         // Critical priority command should come first (Critical > High > Normal > Low)
         let item1 = core.next_item_to_send(now).unwrap();
-        assert_eq!(item1.id, 3);
+        assert_eq!(item1.id, cmd_id(3));
         assert_eq!(item1.priority, Priority::Critical);
 
         // High priority inquiry second (preempts Normal priority inquiry)
         let item2 = core.next_item_to_send(now).unwrap();
-        assert_eq!(item2.id, 2);
+        assert_eq!(item2.id, cmd_id(2));
         assert_eq!(item2.priority, Priority::High);
 
         // Normal priority inquiry (no higher priority items remaining)
         let item3 = core.next_item_to_send(now).unwrap();
-        assert_eq!(item3.id, 4);
+        assert_eq!(item3.id, cmd_id(4));
         assert_eq!(item3.priority, Priority::Normal);
 
         // Low priority command last
         let item4 = core.next_item_to_send(now).unwrap();
-        assert_eq!(item4.id, 1);
+        assert_eq!(item4.id, cmd_id(1));
         assert_eq!(item4.priority, Priority::Low);
     }
 
@@ -4644,7 +4662,7 @@ mod tests {
         // Simulate a burst of Normal-priority polling inquiries (typical background load)
         for i in 1..=10 {
             core.queue_command(PendingCommand {
-                id: i,
+                id: cmd_id(i),
                 command: inquiry.clone(),
                 priority: Priority::Normal,
                 category: CommandCategory::Quick,
@@ -4656,7 +4674,7 @@ mod tests {
 
         // High-priority preset save command arrives (user action)
         core.queue_command(PendingCommand {
-            id: 100,
+            id: cmd_id(100),
             command: command.clone(),
             priority: Priority::High,
             category: CommandCategory::Preset,
@@ -4669,7 +4687,8 @@ mod tests {
         // This prevents command starvation from background polling
         let item = core.next_item_to_send(now).unwrap();
         assert_eq!(
-            item.id, 100,
+            item.id,
+            cmd_id(100),
             "High-priority command should not be starved by Normal-priority inquiries"
         );
         assert_eq!(item.priority, Priority::High);
@@ -4703,7 +4722,7 @@ mod tests {
 
         // Queue command first, then inquiry (both Normal priority)
         core.queue_command(PendingCommand {
-            id: 1,
+            id: cmd_id(1),
             command: command.clone(),
             priority: Priority::Normal,
             category: CommandCategory::Movement,
@@ -4712,7 +4731,7 @@ mod tests {
             kind: CommandKind::Command,
         });
         core.queue_command(PendingCommand {
-            id: 2,
+            id: cmd_id(2),
             command: inquiry.clone(),
             priority: Priority::Normal,
             category: CommandCategory::Quick,
@@ -4723,12 +4742,16 @@ mod tests {
 
         // Inquiry should be preferred at equal priority
         let item = core.next_item_to_send(now).unwrap();
-        assert_eq!(item.id, 2, "Inquiry should be preferred at equal priority");
+        assert_eq!(
+            item.id,
+            cmd_id(2),
+            "Inquiry should be preferred at equal priority"
+        );
         assert_eq!(item.kind, CommandKind::Inquiry);
 
         // Then the command
         let item2 = core.next_item_to_send(now).unwrap();
-        assert_eq!(item2.id, 1);
+        assert_eq!(item2.id, cmd_id(1));
         assert_eq!(item2.kind, CommandKind::Command);
     }
 
@@ -4755,7 +4778,7 @@ mod tests {
         });
 
         core.register_pending_ack(
-            1,
+            cmd_id(1),
             cmd1,
             Priority::Normal,
             CommandCategory::Movement,
@@ -4764,7 +4787,7 @@ mod tests {
             now,
         );
         core.register_pending_ack(
-            2,
+            cmd_id(2),
             cmd2,
             Priority::Normal,
             CommandCategory::Quick,
@@ -4785,14 +4808,14 @@ mod tests {
         assert_eq!(actions.len(), 1);
         match &actions[0] {
             SchedulerAction::CommandFailed { id, error } => {
-                assert_eq!(*id, 2, "Newest pending command must be attributed");
+                assert_eq!(*id, cmd_id(2), "Newest pending command must be attributed");
                 assert!(matches!(error, Error::CommandNotExecutable));
             }
             _ => panic!("Expected CommandFailed for id=2"),
         }
         // And it must be removed from pending_ack
-        assert!(!core.is_command_pending(2));
-        assert!(core.is_command_pending(1));
+        assert!(!core.is_command_pending(cmd_id(2)));
+        assert!(core.is_command_pending(cmd_id(1)));
     }
 
     #[test]
@@ -4811,7 +4834,7 @@ mod tests {
             response_type: Some(InquiryKind::Power), // any kind
         });
         core.start_inquiry(
-            42,
+            cmd_id(42),
             inq,
             Priority::Normal,
             CommandCategory::Quick,
@@ -4828,7 +4851,7 @@ mod tests {
             response_type: None,
         });
         core.register_pending_ack(
-            99,
+            cmd_id(99),
             cmd,
             Priority::Normal,
             CommandCategory::Movement,
@@ -4849,13 +4872,13 @@ mod tests {
         assert_eq!(actions.len(), 1);
         match &actions[0] {
             SchedulerAction::CommandFailed { id, error } => {
-                assert_eq!(*id, 42);
+                assert_eq!(*id, cmd_id(42));
                 assert!(matches!(error, Error::CommandNotExecutable));
             }
             _ => panic!("Expected CommandFailed for inquiry id=42"),
         }
         // Confirm the command is still pending
-        assert!(core.is_command_pending(99));
+        assert!(core.is_command_pending(cmd_id(99)));
     }
 
     // =========================================================================
@@ -4890,7 +4913,7 @@ mod tests {
 
         // Register a command
         core.register_pending_ack(
-            1,
+            cmd_id(1),
             cmd,
             Priority::Normal,
             CommandCategory::Quick,
@@ -4906,14 +4929,14 @@ mod tests {
         assert!(
             actions
                 .iter()
-                .any(|a| matches!(a, SchedulerAction::RetryCommand { id: 1, .. })),
+                .any(|a| matches!(a, SchedulerAction::RetryCommand { id, .. } if *id == cmd_id(1))),
             "Expected retry within max_retry_duration"
         );
 
         // Re-register for next retry simulation with the original start time
         let cmd = make_duration_test_cmd(CommandCategory::Quick);
         core.register_pending_ack(
-            1,
+            cmd_id(1),
             cmd,
             Priority::Normal,
             CommandCategory::Quick,
@@ -4929,20 +4952,20 @@ mod tests {
         // Instead, should fail the command
         let has_retry = actions
             .iter()
-            .any(|a| matches!(a, SchedulerAction::RetryCommand { id: 1, .. }));
+            .any(|a| matches!(a, SchedulerAction::RetryCommand { id, .. } if *id == cmd_id(1)));
         let has_timeout_no_retry = actions.iter().any(|a| {
             matches!(
                 a,
                 SchedulerAction::Timeout {
-                    id: 1,
+                    id,
                     will_retry: false,
                     ..
-                }
+                } if *id == cmd_id(1)
             )
         });
         let has_failed = actions
             .iter()
-            .any(|a| matches!(a, SchedulerAction::CommandFailed { id: 1, .. }));
+            .any(|a| matches!(a, SchedulerAction::CommandFailed { id, .. } if *id == cmd_id(1)));
 
         assert!(
             !has_retry || has_timeout_no_retry || has_failed,
@@ -4969,7 +4992,7 @@ mod tests {
 
         // Start an inquiry
         core.start_inquiry(
-            1,
+            cmd_id(1),
             cmd,
             Priority::Normal,
             CommandCategory::Quick,
@@ -4984,7 +5007,7 @@ mod tests {
         // Should have retry action within duration
         let has_retry = actions
             .iter()
-            .any(|a| matches!(a, SchedulerAction::RetryCommand { id: 1, .. }));
+            .any(|a| matches!(a, SchedulerAction::RetryCommand { id, .. } if *id == cmd_id(1)));
         assert!(
             has_retry,
             "Expected retry within max_retry_duration for inquiry"
@@ -5008,7 +5031,7 @@ mod tests {
 
         // Register a command
         core.register_pending_ack(
-            1,
+            cmd_id(1),
             cmd,
             Priority::Normal,
             CommandCategory::Quick,
@@ -5018,24 +5041,24 @@ mod tests {
         );
 
         // Queue retry within duration - should succeed
-        let action = core.queue_retry_for_command(1, start + Duration::from_millis(50));
+        let action = core.queue_retry_for_command(cmd_id(1), start + Duration::from_millis(50));
         assert!(
-            matches!(action, Some(SchedulerAction::RetryCommand { id: 1, .. })),
+            matches!(action, Some(SchedulerAction::RetryCommand { id, .. }) if id == cmd_id(1)),
             "Expected retry command within duration"
         );
 
         // Clear retry state for next test
-        core.retry_attempts.remove(&1);
+        core.retry_attempts.remove(&cmd_id(1));
 
         // Queue retry after duration exceeded - should fail
-        let action = core.queue_retry_for_command(1, start + Duration::from_millis(150));
+        let action = core.queue_retry_for_command(cmd_id(1), start + Duration::from_millis(150));
         assert!(
             matches!(
                 action,
                 Some(SchedulerAction::CommandFailed {
-                    id: 1,
+                    id,
                     error: Error::Timeout
-                })
+                }) if id == cmd_id(1)
             ),
             "Expected failure after duration exceeded"
         );
@@ -5058,7 +5081,7 @@ mod tests {
 
         // Register a command
         core.register_pending_ack(
-            1,
+            cmd_id(1),
             cmd,
             Priority::Normal,
             CommandCategory::Movement,
@@ -5072,13 +5095,13 @@ mod tests {
 
         // Should retry within duration
         assert!(
-            core.should_retry_command(1, &error, start + Duration::from_millis(50)),
+            core.should_retry_command(cmd_id(1), &error, start + Duration::from_millis(50)),
             "Expected should_retry_command=true within duration"
         );
 
         // Should NOT retry after duration exceeded
         assert!(
-            !core.should_retry_command(1, &error, start + Duration::from_millis(150)),
+            !core.should_retry_command(cmd_id(1), &error, start + Duration::from_millis(150)),
             "Expected should_retry_command=false after duration exceeded"
         );
     }
@@ -5101,7 +5124,7 @@ mod tests {
 
         // Register and assign to socket
         core.register_pending_ack(
-            1,
+            cmd_id(1),
             cmd.clone(),
             Priority::Normal,
             CommandCategory::Quick,
@@ -5111,7 +5134,7 @@ mod tests {
         );
 
         // Simulate ACK received, assign to socket
-        core.handle_ack_with_id(Some(ViscaSocket::S1), Some(1), start);
+        core.handle_ack_with_id(Some(ViscaSocket::S1), Some(cmd_id(1)), start);
 
         // Check socket timeout at t+60ms (quick_timeout=50ms + 10ms margin, within duration 200ms)
         let actions = core.check_timeouts(start + Duration::from_millis(60));
@@ -5119,7 +5142,7 @@ mod tests {
         // Should have retry action
         let has_retry = actions
             .iter()
-            .any(|a| matches!(a, SchedulerAction::RetryCommand { id: 1, .. }));
+            .any(|a| matches!(a, SchedulerAction::RetryCommand { id, .. } if *id == cmd_id(1)));
         assert!(
             has_retry,
             "Expected retry for socket timeout within duration"
@@ -5143,7 +5166,7 @@ mod tests {
 
         // Register initial command
         core.register_pending_ack(
-            1,
+            cmd_id(1),
             cmd.clone(),
             Priority::Normal,
             CommandCategory::Quick,
@@ -5153,30 +5176,36 @@ mod tests {
         );
 
         // Get the initial submitted_at
-        let initial_submitted_at = core.command_metadata.get(&1).map(|(_, _, _, _, _, s)| *s);
+        let initial_submitted_at = core
+            .command_metadata
+            .get(&cmd_id(1))
+            .map(|(_, _, _, _, _, s)| *s);
         assert!(initial_submitted_at.is_some());
 
         // Simulate ACK received and socket assignment
         core.handle_ack_with_id(
             Some(ViscaSocket::S1),
-            Some(1),
+            Some(cmd_id(1)),
             start + Duration::from_millis(50),
         );
 
         // Verify submitted_at is preserved after socket assignment
-        let after_ack_submitted_at = core.command_metadata.get(&1).map(|(_, _, _, _, _, s)| *s);
+        let after_ack_submitted_at = core
+            .command_metadata
+            .get(&cmd_id(1))
+            .map(|(_, _, _, _, _, s)| *s);
         assert_eq!(
             initial_submitted_at, after_ack_submitted_at,
             "submitted_at should be preserved after ACK"
         );
 
         // Queue a retry
-        core.queue_retry_for_command(1, start + Duration::from_millis(100));
+        core.queue_retry_for_command(cmd_id(1), start + Duration::from_millis(100));
 
         // The command should still be trackable with original submitted_at
         // Note: After retry, the command may be in retry_queue not command_metadata
         // But if it's still in command_metadata, the timestamp should match
-        if let Some((_, _, _, _, _, submitted_at)) = core.command_metadata.get(&1) {
+        if let Some((_, _, _, _, _, submitted_at)) = core.command_metadata.get(&cmd_id(1)) {
             assert_eq!(
                 *submitted_at,
                 initial_submitted_at.unwrap(),
@@ -5201,7 +5230,7 @@ mod tests {
         let start = Instant::now();
 
         core.register_pending_ack(
-            1,
+            cmd_id(1),
             cmd,
             Priority::Normal,
             CommandCategory::Quick,
@@ -5211,15 +5240,15 @@ mod tests {
         );
 
         // Even with 100 max_retries, should fail after 50ms duration
-        let action = core.queue_retry_for_command(1, start + Duration::from_millis(60));
+        let action = core.queue_retry_for_command(cmd_id(1), start + Duration::from_millis(60));
 
         assert!(
             matches!(
                 action,
                 Some(SchedulerAction::CommandFailed {
-                    id: 1,
+                    id,
                     error: Error::Timeout
-                })
+                }) if id == cmd_id(1)
             ),
             "Duration limit should override high retry budget"
         );
@@ -5252,7 +5281,7 @@ mod tests {
 
         let cmd = make_duration_test_cmd(CommandCategory::Movement);
         core.register_pending_ack(
-            1,
+            cmd_id(1),
             cmd,
             Priority::Normal,
             CommandCategory::Movement,
@@ -5266,7 +5295,7 @@ mod tests {
         // Note: SchedulerCore uses category-based budgets which differ from raw max_retries
         // Movement category uses base max_retries (3), so behavior should align
         assert!(
-            core.should_retry_command(1, &error, start),
+            core.should_retry_command(cmd_id(1), &error, start),
             "SchedulerCore should align with RetryConfig at start"
         );
     }
@@ -5288,7 +5317,7 @@ mod tests {
         // Queue 2 inquiries
         for id in 1..=2 {
             core.queue_command(PendingCommand {
-                id,
+                id: cmd_id(id),
                 command: inquiry.clone(),
                 priority: Priority::Normal,
                 category: CommandCategory::Quick,
@@ -5301,9 +5330,9 @@ mod tests {
         // First inquiry should be sendable
         let inq1 = core.next_item_to_send(now);
         assert!(inq1.is_some(), "First inquiry should be sendable");
-        assert_eq!(inq1.unwrap().id, 1);
+        assert_eq!(inq1.unwrap().id, cmd_id(1));
         core.start_inquiry(
-            1,
+            cmd_id(1),
             inquiry.clone(),
             Priority::Normal,
             CommandCategory::Quick,
@@ -5341,7 +5370,7 @@ mod tests {
             inq2_delayed.is_some(),
             "Second inquiry should be returned after spacing"
         );
-        assert_eq!(inq2_delayed.unwrap().id, 2);
+        assert_eq!(inq2_delayed.unwrap().id, cmd_id(2));
     }
 
     #[test]
@@ -5367,7 +5396,7 @@ mod tests {
 
         // Send first inquiry
         core.queue_command(PendingCommand {
-            id: 1,
+            id: cmd_id(1),
             command: inquiry.clone(),
             priority: Priority::Normal,
             category: CommandCategory::Quick,
@@ -5378,7 +5407,7 @@ mod tests {
 
         let _inq1 = core.next_item_to_send(now).unwrap();
         core.start_inquiry(
-            1,
+            cmd_id(1),
             inquiry.clone(),
             Priority::Normal,
             CommandCategory::Quick,
@@ -5389,7 +5418,7 @@ mod tests {
 
         // Queue another inquiry and a command
         core.queue_command(PendingCommand {
-            id: 2,
+            id: cmd_id(2),
             command: inquiry.clone(),
             priority: Priority::Normal,
             category: CommandCategory::Quick,
@@ -5399,7 +5428,7 @@ mod tests {
         });
 
         core.queue_command(PendingCommand {
-            id: 3,
+            id: cmd_id(3),
             command: command.clone(),
             priority: Priority::Normal,
             category: CommandCategory::Movement,
@@ -5412,7 +5441,11 @@ mod tests {
         let next = core.next_item_to_send(now);
         assert!(next.is_some(), "Command should be sendable");
         let cmd = next.unwrap();
-        assert_eq!(cmd.id, 3, "Command should be returned, not blocked inquiry");
+        assert_eq!(
+            cmd.id,
+            cmd_id(3),
+            "Command should be returned, not blocked inquiry"
+        );
         assert_eq!(cmd.kind, CommandKind::Command);
     }
 
@@ -5433,7 +5466,7 @@ mod tests {
         // Queue 3 inquiries
         for id in 1..=3 {
             core.queue_command(PendingCommand {
-                id,
+                id: cmd_id(id),
                 command: inquiry.clone(),
                 priority: Priority::Normal,
                 category: CommandCategory::Quick,
@@ -5451,9 +5484,9 @@ mod tests {
                 "Inquiry {expected_id} should be sendable with zero spacing"
             );
             let inq = inq.unwrap();
-            assert_eq!(inq.id, expected_id);
+            assert_eq!(inq.id, cmd_id(expected_id));
             core.start_inquiry(
-                expected_id,
+                cmd_id(expected_id),
                 inquiry.clone(),
                 Priority::Normal,
                 CommandCategory::Quick,
@@ -5482,7 +5515,7 @@ mod tests {
             },
         );
 
-        let cmd_id = 1;
+        let cmd_id = cmd_id(1);
         let camera_id = CameraId::CAMERA_1;
         let command = create_test_command(
             vec![0x81, 0x01, 0x04, 0x00, 0x03, VISCA_TERMINATOR],
@@ -5539,7 +5572,7 @@ mod tests {
             },
         );
 
-        let cmd_id = 1;
+        let cmd_id = cmd_id(1);
         let camera_id = CameraId::CAMERA_1;
         let command = create_test_command(
             vec![0x81, 0x09, 0x04, 0x47, VISCA_TERMINATOR],
@@ -5590,7 +5623,7 @@ mod tests {
             },
         );
 
-        let cmd_id = 1;
+        let cmd_id = cmd_id(1);
         let camera_id = CameraId::CAMERA_1;
         let command = create_test_command(
             vec![0x81, 0x01, 0x04, 0x00, 0x03, VISCA_TERMINATOR],
@@ -5644,7 +5677,7 @@ mod tests {
             },
         );
 
-        let cmd_id = 1;
+        let cmd_id = cmd_id(1);
         let camera_id = CameraId::CAMERA_1;
         let command = create_test_command(
             vec![0x81, 0x01, 0x04, 0x00, 0x03, VISCA_TERMINATOR],
@@ -5715,7 +5748,7 @@ mod tests {
             },
         );
 
-        let cmd_id = 1;
+        let cmd_id = cmd_id(1);
         let camera_id = CameraId::CAMERA_1;
         let command = create_test_command(
             vec![0x81, 0x01, 0x04, 0x00, 0x03, VISCA_TERMINATOR],
@@ -5773,9 +5806,9 @@ mod tests {
         let now = Instant::now();
 
         // Register 3 commands
-        for cmd_id in 1..=3 {
+        for i in 1..=3 {
             core.register_pending_ack(
-                cmd_id,
+                cmd_id(i),
                 command.clone(),
                 Priority::Normal,
                 CommandCategory::Movement,
@@ -5784,13 +5817,13 @@ mod tests {
                 now,
             );
             // Queue a retry for each
-            let action = core.queue_retry_for_command(cmd_id, now);
+            let action = core.queue_retry_for_command(cmd_id(i), now);
             assert!(matches!(action, Some(SchedulerAction::RetryCommand { .. })));
         }
 
         // Complete command 1 and 3, leave 2 active
-        core.complete_command(1);
-        core.complete_command(3);
+        core.complete_command(cmd_id(1));
+        core.complete_command(cmd_id(3));
 
         // Advance time and get retries
         let retries = core.get_ready_retries(now + Duration::from_millis(200));
@@ -5801,6 +5834,10 @@ mod tests {
             1,
             "Only active command's retry should return"
         );
-        assert_eq!(retries[0].id, 2, "Command 2's retry should be returned");
+        assert_eq!(
+            retries[0].id,
+            cmd_id(2),
+            "Command 2's retry should be returned"
+        );
     }
 }

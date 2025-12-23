@@ -7,6 +7,7 @@ use tracing::{debug, error, instrument, trace, warn};
 use std::{collections::HashSet, sync::Arc};
 
 use crate::{
+    camera::inflight::CommandId,
     capabilities::Profile,
     command::{encode::ViscaCommand, system::CommandCancelCommand, CommandKind},
     error::{Error, Result},
@@ -117,7 +118,7 @@ pub async fn runtime_loop_with_config<
     adapter.set_min_inquiry_spacing(config.min_inquiry_spacing);
     let mut protocol_framer = ProtocolFramer::new_with_config(config.buffer_manager.config());
     // Track cancel requests that arrived before the command was bound to a socket
-    let mut pending_cancel_ids: HashSet<u32> = HashSet::new();
+    let mut pending_cancel_ids: HashSet<CommandId> = HashSet::new();
 
     // Allocate a single reusable buffer for receiving data
     let mut read_buf = vec![0u8; config.buffer_manager.config().recv_buffer_size];
@@ -402,7 +403,7 @@ pub async fn runtime_loop_with_config<
 
                 // Flush queued cancels whose sockets are now known
                 if !pending_cancel_ids.is_empty() {
-                    let ready: Vec<u32> = pending_cancel_ids
+                    let ready: Vec<CommandId> = pending_cancel_ids
                         .iter()
                         .copied()
                         .filter(|id| adapter.socket_for_command(*id).is_some())

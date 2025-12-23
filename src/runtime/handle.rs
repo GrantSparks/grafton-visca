@@ -256,9 +256,7 @@ impl<P: Profile + 'static, E: Executor + Send + Sync + 'static> RuntimeHandle<P,
     /// the sentinel-value foot-gun where callers could pass invalid IDs (like `0`)
     /// that would never match any command.
     pub async fn cancel(&self, command_id: CommandId) -> Result<()> {
-        let cancel_item = TxItem::CancelById {
-            id: command_id.get(),
-        };
+        let cancel_item = TxItem::CancelById { id: command_id };
 
         self.inner
             .submit
@@ -437,7 +435,7 @@ impl<P: Profile + 'static, E: Executor + Send + Sync + 'static> RuntimeHandle<P,
         let (response_tx, response_rx) = flume::bounded(1);
 
         let item = TxItem::Command {
-            id: command_id.get(),
+            id: command_id,
             command: prepared_command,
             priority: priority.unwrap_or(Priority::Normal),
             category: C::TIMEOUT_CATEGORY,
@@ -507,7 +505,7 @@ impl<P: Profile + 'static, E: Executor + Send + Sync + 'static> RuntimeHandle<P,
         let (response_tx, response_rx) = flume::bounded(1);
 
         let item = TxItem::Inquiry {
-            id: inquiry_id.get(),
+            id: inquiry_id,
             command: prepared_command,
             category: inquiry.timeout_class(),
             camera_id,
