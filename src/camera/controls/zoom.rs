@@ -306,7 +306,12 @@ where
         let zoom_pos = position.try_into().map_err(Into::into)?;
         let cmd = Zoom::Position(zoom_pos);
 
-        let (id, _response_fut) = self.send_command_with_id(&cmd).await?;
-        Ok(crate::camera::inflight::InFlight::new(id, self))
+        // Use start_command_with_id to get the response future without awaiting it
+        let (id, response_future) = self.start_command_with_id(&cmd).await?;
+        Ok(crate::camera::inflight::InFlight::new(
+            id,
+            self,
+            response_future,
+        ))
     }
 }

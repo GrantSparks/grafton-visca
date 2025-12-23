@@ -351,11 +351,15 @@ where
             tilt_speed,
         };
 
-        // Send command and get ID
-        let (id, _response_fut) = self.send_command_with_id(&cmd).await?;
+        // Use start_command_with_id to get the response future without awaiting it
+        let (id, response_future) = self.start_command_with_id(&cmd).await?;
 
-        // Return InFlight handle
-        Ok(crate::camera::inflight::InFlight::new(id, self))
+        // Return InFlight handle with the response future
+        Ok(crate::camera::inflight::InFlight::new(
+            id,
+            self,
+            response_future,
+        ))
     }
 
     /// Move relative to the current position and return an operation handle.
@@ -390,11 +394,15 @@ where
             tilt_speed,
         };
 
-        // Send command and get ID
-        let (id, _response_fut) = self.send_command_with_id(&cmd).await?;
+        // Use start_command_with_id to get the response future without awaiting it
+        let (id, response_future) = self.start_command_with_id(&cmd).await?;
 
-        // Return InFlight handle
-        Ok(crate::camera::inflight::InFlight::new(id, self))
+        // Return InFlight handle with the response future
+        Ok(crate::camera::inflight::InFlight::new(
+            id,
+            self,
+            response_future,
+        ))
     }
 
     /// Move to the home position and return an operation handle.
@@ -420,11 +428,15 @@ where
     {
         use crate::command::pan_tilt::PanTilt;
 
-        // Send command and get ID
-        let (id, _response_fut) = self.send_command_with_id(&PanTilt::Home).await?;
+        // Use start_command_with_id to get the response future without awaiting it
+        let (id, response_future) = self.start_command_with_id(&PanTilt::Home).await?;
 
-        // Return InFlight handle
-        Ok(crate::camera::inflight::InFlight::new(id, self))
+        // Return InFlight handle with the response future
+        Ok(crate::camera::inflight::InFlight::new(
+            id,
+            self,
+            response_future,
+        ))
     }
 
     /// Reset pan/tilt mechanism and return an operation handle.
@@ -450,10 +462,14 @@ where
     {
         use crate::command::pan_tilt::PanTilt;
 
-        // Send command and get ID
-        let (id, _response_fut) = self.send_command_with_id(&PanTilt::Reset).await?;
+        // Use start_command_with_id to get the response future without awaiting it
+        let (id, response_future) = self.start_command_with_id(&PanTilt::Reset).await?;
 
-        // Return InFlight handle
-        Ok(crate::camera::inflight::InFlight::new(id, self))
+        // Return InFlight handle with the response future
+        Ok(crate::camera::inflight::InFlight::new(
+            id,
+            self,
+            response_future,
+        ))
     }
 }

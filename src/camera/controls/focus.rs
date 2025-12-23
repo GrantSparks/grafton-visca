@@ -363,11 +363,15 @@ where
         let focus_pos = position.try_into().map_err(Into::into)?;
         let cmd = Focus::Position(focus_pos);
 
-        // Send command and get ID
-        let (id, _response_fut) = self.send_command_with_id(&cmd).await?;
+        // Use start_command_with_id to get the response future without awaiting it
+        let (id, response_future) = self.start_command_with_id(&cmd).await?;
 
-        // Return InFlight handle
-        Ok(crate::camera::inflight::InFlight::new(id, self))
+        // Return InFlight handle with the response future
+        Ok(crate::camera::inflight::InFlight::new(
+            id,
+            self,
+            response_future,
+        ))
     }
 }
 

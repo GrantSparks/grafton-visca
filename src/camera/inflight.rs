@@ -36,10 +36,13 @@
 //! ```
 
 #[cfg(feature = "mode-async")]
-use core::{future::Future, marker::PhantomData, time::Duration};
+use core::{future::Future, marker::PhantomData, pin::Pin, time::Duration};
 
 #[cfg(feature = "mode-async")]
-use crate::Result;
+use std::sync::Mutex;
+
+#[cfg(feature = "mode-async")]
+use crate::{command::response::Response, error::Error, Result};
 
 use core::num::NonZeroU32;
 
@@ -202,16 +205,20 @@ impl<T: CameraLike> WaitFor<Preset> for T {
     }
 }
 
+/// Type alias for boxed response futures returned by `start_command_with_id`.
+#[cfg(feature = "mode-async")]
+pub type ResponseFuture = Pin<Box<dyn Future<Output = Result<Response, Error>> + Send + 'static>>;
+
 /// A typed handle to an in-flight camera command.
 ///
 /// This handle provides:
 /// - **Command ID access** for debugging and telemetry
 /// - **Socket-safe cancellation** via the runtime's ID-based cancel path
-/// - **Type-directed completion waits** that automatically select the correct waiter
+/// - **Direct completion waiting** via the stored response future
 ///
-/// The handle is zero-cost: it contains only a command ID and a reference to the
-/// camera/session. The marker type `C` is zero-sized and used only at compile time
-/// for type-directed dispatch.
+/// The handle stores a response future that completes when the camera sends
+/// a VISCA completion message. This ensures the completion event is never
+/// missed, even if it arrives immediately after the command is sent.
 ///
 /// # Type Parameters
 ///
@@ -224,6 +231,9 @@ pub struct InFlight<'a, C, T: CameraLike + ?Sized> {
     id: CommandId,
     /// Reference to the camera or session.
     cam: &'a T,
+    /// The response future that completes when the camera reports completion.
+    /// Wrapped in Mutex to allow `await_completion` to take ownership.
+    response_future: Mutex<Option<ResponseFuture>>,
     /// Zero-sized marker for the category.
     _c: PhantomData<C>,
 }
@@ -233,14 +243,19 @@ impl<'a, C, T> InFlight<'a, C, T>
 where
     T: CameraLike + WaitFor<C> + ?Sized,
 {
-    /// Create a new in-flight handle.
+    /// Create a new in-flight handle with the response future.
+    ///
+    /// The response future completes when the camera sends a VISCA completion
+    /// message. This ensures the completion event is captured even if it arrives
+    /// immediately after the command is sent.
     ///
     /// This is public within the crate but not exposed to external users.
     #[inline]
-    pub(crate) fn new(id: CommandId, cam: &'a T) -> Self {
+    pub(crate) fn new(id: CommandId, cam: &'a T, response_future: ResponseFuture) -> Self {
         Self {
             id,
             cam,
+            response_future: Mutex::new(Some(response_future)),
             _c: PhantomData,
         }
     }
@@ -267,12 +282,9 @@ where
 
     /// Wait for this operation to complete.
     ///
-    /// The type of the category marker `C` determines which completion waiter
-    /// is used:
-    /// - `PanTilt` → `await_pan_tilt_idle`
-    /// - `Zoom` → `await_zoom_idle`
-    /// - `Focus` → `await_focus_idle`
-    /// - `Preset` → `await_idle`
+    /// This method awaits the response future stored in this handle, which
+    /// completes when the camera sends a VISCA completion message. The timeout
+    /// parameter controls how long to wait for the camera's response.
     ///
     /// # Arguments
     ///
@@ -286,9 +298,26 @@ where
     ///
     /// # Errors
     ///
-    /// Returns an error if the wait fails or times out.
+    /// Returns an error if:
+    /// - The wait times out (`Error::Timeout`)
+    /// - This method is called more than once (`Error::InvalidState`)
+    /// - The internal mutex is poisoned (`Error::LockPoisoned`)
+    /// - Other communication or camera errors occur
     pub async fn await_completion(&self, timeout: Duration) -> Result<()> {
-        <T as WaitFor<C>>::wait(self.cam, timeout).await
+        // Take the response future from the mutex (can only be awaited once)
+        let future = self
+            .response_future
+            .lock()
+            .ok()
+            .ok_or(Error::LockPoisoned("InFlight response_future"))?
+            .take()
+            .ok_or_else(|| Error::InvalidState("await_completion called more than once".into()))?;
+
+        // Use the executor's timeout mechanism to enforce the deadline
+        match self.cam.runtime().timeout(timeout, future).await {
+            Ok(_response) => Ok(()),
+            Err(e) => Err(e),
+        }
     }
 }
 
