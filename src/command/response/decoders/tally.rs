@@ -1,8 +1,6 @@
 //! Tally-related response decoders.
 
-use std::borrow::Cow;
-
-use super::super::payload::Payload;
+use super::super::payload::{BoolConvention, Payload};
 use crate::{
     command::{
         response::types::{InquiryKind, Response},
@@ -15,33 +13,46 @@ use crate::{
 pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<Response, Error>> {
     match kind {
         InquiryKind::TallyRed => {
-            if payload.len() != 1 {
-                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
-            }
-            Some(Ok(Response::Inquiry(InquiryData::TallyRed {
-                on: payload.as_slice()[0] == 0x02,
-            })))
+            // TallyRed uses inverted convention (0x02 = on)
+            let on = match payload.parse_bool("tally_red_status", BoolConvention::OnIs02) {
+                Ok(v) => v,
+                Err(e) => return Some(Err(e)),
+            };
+            Some(Ok(Response::Inquiry(InquiryData::TallyRed { on })))
         }
         InquiryKind::TallyGreen => {
-            Some(super::super::parse_tally_green(payload.as_slice()).map(Response::Inquiry))
+            // TallyGreen uses inverted convention (0x02 = on)
+            let on = match payload.parse_bool("tally_green_status", BoolConvention::OnIs02) {
+                Ok(v) => v,
+                Err(e) => return Some(Err(e)),
+            };
+            Some(Ok(Response::Inquiry(InquiryData::TallyGreen { on })))
         }
         InquiryKind::TallyStatus => {
-            Some(super::super::parse_tally_status(payload.as_slice()).map(Response::Inquiry))
+            // TallyStatus has 2 bytes: red then green, both use standard convention
+            if payload.len() < 2 {
+                return Some(Err(Error::invalid_response_length(2, payload.as_slice())));
+            }
+            let red_payload = Payload::new(&payload.as_slice()[0..1]);
+            let green_payload = Payload::new(&payload.as_slice()[1..2]);
+            let red_on = match red_payload.parse_bool("tally_red_status", BoolConvention::OnIs03) {
+                Ok(v) => v,
+                Err(e) => return Some(Err(e)),
+            };
+            let green_on =
+                match green_payload.parse_bool("tally_green_status", BoolConvention::OnIs03) {
+                    Ok(v) => v,
+                    Err(e) => return Some(Err(e)),
+                };
+            Some(Ok(Response::Inquiry(InquiryData::TallyStatus {
+                red_on,
+                green_on,
+            })))
         }
         InquiryKind::TallyAutoAdjust => {
-            if payload.len() != 1 {
-                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
-            }
-            let on = match payload.as_slice()[0] {
-                0x02 => false,
-                0x03 => true,
-                _ => {
-                    return Some(Err(Error::InvalidParameter {
-                        parameter: "TallyAutoAdjust status",
-                        value: Cow::Owned(format!("0x{:02X}", payload.as_slice()[0])),
-                        reason: Cow::Borrowed("Expected 0x02 (off) or 0x03 (on)"),
-                    }))
-                }
+            let on = match payload.parse_bool("tally_auto_adjust_status", BoolConvention::OnIs03) {
+                Ok(v) => v,
+                Err(e) => return Some(Err(e)),
             };
             Some(Ok(Response::Inquiry(InquiryData::TallyAutoAdjust { on })))
         }

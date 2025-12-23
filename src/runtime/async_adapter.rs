@@ -969,10 +969,11 @@ mod tests {
                     context.contains("Response decode failed"),
                     "Error should have decode context, got: {context}"
                 );
-                // The underlying error should be InvalidResponseLength
+                // The underlying error should be a decode error (InvalidParameter or InvalidResponseLength)
+                // The first byte 0x01 is now properly validated by parse_bool as an invalid parameter
                 assert!(
-                    matches!(**source, Error::InvalidResponseLength { .. }),
-                    "Source error should be InvalidResponseLength, got: {source:?}"
+                    matches!(**source, Error::InvalidParameter { .. } | Error::InvalidResponseLength { .. }),
+                    "Source error should be InvalidParameter or InvalidResponseLength, got: {source:?}"
                 );
             }
             other => {

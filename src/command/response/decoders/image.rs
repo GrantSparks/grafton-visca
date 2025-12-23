@@ -1,13 +1,15 @@
 //! Image-related response decoders.
 
-use super::super::payload::{Nibbles, Payload};
+use super::super::payload::{BoolConvention, Nibbles, Payload};
 use crate::{
     command::{
-        image::{BlackWhiteMode, NoiseReductionMode, NoiseReductionSpeed},
+        image::{BlackWhiteMode, NoiseReductionMode, NoiseReductionSpeed, SharpnessMode},
+        resolution::{NdFilterPosition, PictureEffectMode},
         response::types::{InquiryKind, Response},
         InquiryData,
     },
     error::Error,
+    types::DefogLevel,
 };
 
 /// Decode image-related inquiry responses.
@@ -30,14 +32,36 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
             Err(e) => Some(Err(e)),
         },
         InquiryKind::SharpnessMode => {
-            Some(super::super::parse_sharpness_mode(payload.as_slice()).map(Response::Inquiry))
+            // SharpnessMode uses: 0x02 = Auto, 0x03 = Manual
+            // We interpret this with OnIs03 where true means Manual
+            if payload.is_empty() {
+                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
+            }
+            let mode = match payload.as_slice()[0] {
+                0x02 => SharpnessMode::Auto,
+                0x03 => SharpnessMode::Manual,
+                _ => {
+                    return Some(Err(Error::InvalidParameter {
+                        parameter: "sharpness_mode",
+                        value: std::borrow::Cow::Owned(format!("0x{:02X}", payload.as_slice()[0])),
+                        reason: std::borrow::Cow::Borrowed("Expected 0x02 (Auto) or 0x03 (Manual)"),
+                    }))
+                }
+            };
+            Some(Ok(Response::Inquiry(InquiryData::SharpnessMode { mode })))
         }
-        InquiryKind::Saturation => Some(
-            super::super::parse_saturation_last_nibble(payload.as_slice()).map(Response::Inquiry),
-        ),
-        InquiryKind::Hue => {
-            Some(super::super::parse_hue_last_nibble(payload.as_slice()).map(Response::Inquiry))
-        }
+        InquiryKind::Saturation => match Nibbles::<4>::try_from(payload) {
+            Ok(nibbles) => Some(Ok(Response::Inquiry(InquiryData::Saturation {
+                level: nibbles.last_nibble(),
+            }))),
+            Err(e) => Some(Err(e)),
+        },
+        InquiryKind::Hue => match Nibbles::<4>::try_from(payload) {
+            Ok(nibbles) => Some(Ok(Response::Inquiry(InquiryData::Hue {
+                hue: nibbles.last_nibble(),
+            }))),
+            Err(e) => Some(Err(e)),
+        },
         InquiryKind::Contrast => {
             if payload.len() != 1 {
                 return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
@@ -47,7 +71,12 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
             ))))
         }
         InquiryKind::PictureEffect => {
-            Some(super::super::parse_picture_effect(payload.as_slice()).map(Response::Inquiry))
+            if payload.is_empty() {
+                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
+            }
+            Some(Ok(Response::Inquiry(InquiryData::PictureEffect {
+                effect: PictureEffectMode::from_byte(payload.as_slice()[0]),
+            })))
         }
         InquiryKind::BlackWhite => {
             if payload.len() != 1 {
@@ -110,7 +139,16 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
             })))
         }
         InquiryKind::FlipState => {
-            Some(super::super::parse_flip_mode(payload.as_slice()).map(Response::Inquiry))
+            if payload.is_empty() {
+                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
+            }
+            let mode = payload.as_slice()[0];
+            let horizontal = (mode & 0x01) != 0;
+            let vertical = (mode & 0x02) != 0;
+            Some(Ok(Response::Inquiry(InquiryData::FlipState {
+                horizontal,
+                vertical,
+            })))
         }
         InquiryKind::DynamicRange => {
             if payload.len() != 1 {
@@ -120,12 +158,12 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
             Some(Ok(Response::Inquiry(InquiryData::DynamicRange { level })))
         }
         InquiryKind::Backlight => {
-            if payload.len() != 1 {
-                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
-            }
-            Some(Ok(Response::Inquiry(InquiryData::Backlight {
-                status: payload.as_slice()[0] == 0x02,
-            })))
+            // Backlight uses inverted convention (0x02 = on/true)
+            let status = match payload.parse_bool("backlight_status", BoolConvention::OnIs02) {
+                Ok(v) => v,
+                Err(e) => return Some(Err(e)),
+            };
+            Some(Ok(Response::Inquiry(InquiryData::Backlight { status })))
         }
         InquiryKind::Luminance => {
             if payload.len() != 1 {
@@ -136,24 +174,51 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
             ))))
         }
         InquiryKind::NdFilter => {
-            Some(super::super::parse_nd_filter(payload.as_slice()).map(Response::Inquiry))
-        }
-        InquiryKind::Gamma => {
-            Some(super::super::parse_gamma(payload.as_slice()).map(Response::Inquiry))
-        }
-        InquiryKind::TwoToneMode => {
-            if payload.len() != 1 {
+            if payload.is_empty() {
                 return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
             }
-            Some(Ok(Response::Inquiry(InquiryData::TwoToneMode {
-                on: payload.as_slice()[0] == 0x02,
+            Some(Ok(Response::Inquiry(InquiryData::NdFilter {
+                position: NdFilterPosition::from_byte(payload.as_slice()[0]),
             })))
         }
+        InquiryKind::Gamma => {
+            if payload.is_empty() {
+                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
+            }
+            Some(Ok(Response::Inquiry(InquiryData::Gamma {
+                value: payload.as_slice()[0],
+            })))
+        }
+        InquiryKind::TwoToneMode => {
+            // TwoToneMode uses inverted convention (0x02 = on)
+            let on = match payload.parse_bool("two_tone_mode_status", BoolConvention::OnIs02) {
+                Ok(v) => v,
+                Err(e) => return Some(Err(e)),
+            };
+            Some(Ok(Response::Inquiry(InquiryData::TwoToneMode { on })))
+        }
         InquiryKind::DefogMode => {
-            Some(super::super::parse_defog_mode(payload.as_slice()).map(Response::Inquiry))
+            let enabled = match payload.parse_bool("defog_mode", BoolConvention::OnIs03) {
+                Ok(v) => v,
+                Err(e) => return Some(Err(e)),
+            };
+            Some(Ok(Response::Inquiry(InquiryData::DefogMode { enabled })))
         }
         InquiryKind::DefogLevel => {
-            Some(super::super::parse_defog_level(payload.as_slice()).map(Response::Inquiry))
+            if payload.is_empty() {
+                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
+            }
+            let level = match DefogLevel::new(payload.as_slice()[0]) {
+                Ok(l) => l,
+                Err(_) => {
+                    return Some(Err(Error::InvalidParameter {
+                        parameter: "defog_level",
+                        value: std::borrow::Cow::Owned(payload.as_slice()[0].to_string()),
+                        reason: std::borrow::Cow::Borrowed("value out of range (0-5)"),
+                    }))
+                }
+            };
+            Some(Ok(Response::Inquiry(InquiryData::DefogLevel { level })))
         }
         InquiryKind::NoiseReductionLevel => {
             if payload.len() != 1 {

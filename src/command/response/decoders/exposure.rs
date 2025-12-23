@@ -2,7 +2,7 @@
 
 use std::borrow::Cow;
 
-use super::super::payload::{Nibbles, Payload};
+use super::super::payload::{BoolConvention, Nibbles, Payload};
 use crate::{
     command::{
         response::types::{InquiryKind, Response},
@@ -35,13 +35,14 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
             Some(Ok(Response::Inquiry(InquiryData::ExposureMode { mode })))
         }
         InquiryKind::ExposureCompensationMode => {
-            if payload.len() != 1 {
-                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
-            }
+            // ExposureCompensationMode uses inverted convention (0x02 = on)
+            let on = match payload.parse_bool("exposure_compensation_mode", BoolConvention::OnIs02)
+            {
+                Ok(v) => v,
+                Err(e) => return Some(Err(e)),
+            };
             Some(Ok(Response::Inquiry(
-                InquiryData::ExposureCompensationMode {
-                    on: payload.as_slice()[0] == 0x02,
-                },
+                InquiryData::ExposureCompensationMode { on },
             )))
         }
         InquiryKind::ExposureCompensation => match Nibbles::<4>::try_from(payload) {
@@ -69,9 +70,12 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
             }
             Err(e) => Some(Err(e)),
         },
-        InquiryKind::Iris => {
-            Some(super::super::parse_iris_last_nibble(payload.as_slice()).map(Response::Inquiry))
-        }
+        InquiryKind::Iris => match Nibbles::<4>::try_from(payload) {
+            Ok(nibbles) => Some(Ok(Response::Inquiry(InquiryData::Iris {
+                position: nibbles.last_nibble(),
+            }))),
+            Err(e) => Some(Err(e)),
+        },
         InquiryKind::Brightness => match Nibbles::<4>::try_from(payload) {
             Ok(nibbles) => {
                 let position = nibbles.u16_quad(0);
@@ -79,9 +83,12 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
             }
             Err(e) => Some(Err(e)),
         },
-        InquiryKind::Gain => {
-            Some(super::super::parse_gain_last_nibble(payload.as_slice()).map(Response::Inquiry))
-        }
+        InquiryKind::Gain => match Nibbles::<4>::try_from(payload) {
+            Ok(nibbles) => Some(Ok(Response::Inquiry(InquiryData::GainLevel {
+                gain: nibbles.last_nibble(),
+            }))),
+            Err(e) => Some(Err(e)),
+        },
         InquiryKind::GainLimit => {
             if payload.len() != 1 {
                 return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
@@ -91,39 +98,23 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
             })))
         }
         InquiryKind::IrisControl => {
-            Some(super::super::parse_iris_control(payload.as_slice()).map(Response::Inquiry))
+            let auto = match payload.parse_bool("iris_control", BoolConvention::OnIs03) {
+                Ok(v) => v,
+                Err(e) => return Some(Err(e)),
+            };
+            Some(Ok(Response::Inquiry(InquiryData::IrisControl { auto })))
         }
         InquiryKind::IrisUp => {
-            if payload.len() != 1 {
-                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
-            }
-            let active = match payload.as_slice()[0] {
-                0x02 => false,
-                0x03 => true,
-                _ => {
-                    return Some(Err(Error::InvalidParameter {
-                        parameter: "IrisUp status",
-                        value: Cow::Owned(format!("0x{:02X}", payload.as_slice()[0])),
-                        reason: Cow::Borrowed("Expected 0x02 (inactive) or 0x03 (active)"),
-                    }))
-                }
+            let active = match payload.parse_bool("iris_up_status", BoolConvention::OnIs03) {
+                Ok(v) => v,
+                Err(e) => return Some(Err(e)),
             };
             Some(Ok(Response::Inquiry(InquiryData::IrisUp { active })))
         }
         InquiryKind::IrisDown => {
-            if payload.len() != 1 {
-                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
-            }
-            let active = match payload.as_slice()[0] {
-                0x02 => false,
-                0x03 => true,
-                _ => {
-                    return Some(Err(Error::InvalidParameter {
-                        parameter: "IrisDown status",
-                        value: Cow::Owned(format!("0x{:02X}", payload.as_slice()[0])),
-                        reason: Cow::Borrowed("Expected 0x02 (inactive) or 0x03 (active)"),
-                    }))
-                }
+            let active = match payload.parse_bool("iris_down_status", BoolConvention::OnIs03) {
+                Ok(v) => v,
+                Err(e) => return Some(Err(e)),
             };
             Some(Ok(Response::Inquiry(InquiryData::IrisDown { active })))
         }

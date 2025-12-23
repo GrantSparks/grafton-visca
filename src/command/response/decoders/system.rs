@@ -2,7 +2,7 @@
 
 use std::borrow::Cow;
 
-use super::super::payload::Payload;
+use super::super::payload::{BoolConvention, Payload};
 use crate::{
     command::{
         response::types::{InquiryKind, Response},
@@ -42,64 +42,50 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
             ))))
         }
         InquiryKind::MenuOpenClose => {
-            Some(super::super::parse_menu_open_close(payload.as_slice()).map(Response::Inquiry))
+            let is_open = match payload.parse_bool("menu_status", BoolConvention::OnIs02) {
+                Ok(v) => v,
+                Err(e) => return Some(Err(e)),
+            };
+            Some(Ok(Response::Inquiry(InquiryData::MenuOpenClose {
+                is_open,
+            })))
         }
         InquiryKind::UsbAudio => {
-            if payload.len() != 1 {
-                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
-            }
-            let on = match payload.as_slice()[0] {
-                0x02 => false,
-                0x03 => true,
-                _ => {
-                    return Some(Err(Error::InvalidParameter {
-                        parameter: "UsbAudio status",
-                        value: Cow::Owned(format!("0x{:02X}", payload.as_slice()[0])),
-                        reason: Cow::Borrowed("Expected 0x02 (off) or 0x03 (on)"),
-                    }))
-                }
+            let on = match payload.parse_bool("usb_audio_status", BoolConvention::OnIs03) {
+                Ok(v) => v,
+                Err(e) => return Some(Err(e)),
             };
             Some(Ok(Response::Inquiry(InquiryData::UsbAudio { on })))
         }
         InquiryKind::Rtmp => {
-            if payload.len() != 1 {
-                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
-            }
-            let on = match payload.as_slice()[0] {
-                0x02 => false,
-                0x03 => true,
-                _ => {
-                    return Some(Err(Error::InvalidParameter {
-                        parameter: "RTMP status",
-                        value: Cow::Owned(format!("0x{:02X}", payload.as_slice()[0])),
-                        reason: Cow::Borrowed("Expected 0x02 (off) or 0x03 (on)"),
-                    }))
-                }
+            let on = match payload.parse_bool("rtmp_status", BoolConvention::OnIs03) {
+                Ok(v) => v,
+                Err(e) => return Some(Err(e)),
             };
             Some(Ok(Response::Inquiry(InquiryData::Rtmp { on })))
         }
         InquiryKind::NightDayMode => {
-            Some(super::super::parse_night_day_mode(payload.as_slice()).map(Response::Inquiry))
+            let is_night = match payload.parse_bool("night_day_mode", BoolConvention::OnIs03) {
+                Ok(v) => v,
+                Err(e) => return Some(Err(e)),
+            };
+            Some(Ok(Response::Inquiry(InquiryData::NightDayMode {
+                is_night,
+            })))
         }
         InquiryKind::Digital => {
-            if payload.len() != 1 {
-                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
-            }
-            let on = match payload.as_slice()[0] {
-                0x02 => false,
-                0x03 => true,
-                _ => {
-                    return Some(Err(Error::InvalidParameter {
-                        parameter: "Digital mode status",
-                        value: Cow::Owned(format!("0x{:02X}", payload.as_slice()[0])),
-                        reason: Cow::Borrowed("Expected 0x02 (off) or 0x03 (on)"),
-                    }))
-                }
+            let on = match payload.parse_bool("digital_mode_status", BoolConvention::OnIs03) {
+                Ok(v) => v,
+                Err(e) => return Some(Err(e)),
             };
             Some(Ok(Response::Inquiry(InquiryData::Digital { on })))
         }
         InquiryKind::AutoTrace => {
-            Some(super::super::parse_auto_trace(payload.as_slice()).map(Response::Inquiry))
+            let enabled = match payload.parse_bool("auto_trace", BoolConvention::OnIs03) {
+                Ok(v) => v,
+                Err(e) => return Some(Err(e)),
+            };
+            Some(Ok(Response::Inquiry(InquiryData::AutoTrace { enabled })))
         }
         InquiryKind::NdFilterPreset => {
             if payload.len() != 1 {
@@ -120,7 +106,11 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
             })))
         }
         InquiryKind::DigitalPtz => {
-            Some(super::super::parse_digital_ptz(payload.as_slice()).map(Response::Inquiry))
+            let enabled = match payload.parse_bool("digital_ptz", BoolConvention::OnIs03) {
+                Ok(v) => v,
+                Err(e) => return Some(Err(e)),
+            };
+            Some(Ok(Response::Inquiry(InquiryData::DigitalPtz { enabled })))
         }
         InquiryKind::BroadcastDomain => {
             if payload.len() != 1 {
@@ -169,21 +159,9 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
             })))
         }
         InquiryKind::NightDaySwitch => {
-            if payload.len() != 1 {
-                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
-            }
-            let enabled = match payload.as_slice()[0] {
-                0x02 => false,
-                0x03 => true,
-                _ => {
-                    return Some(Err(Error::InvalidParameter {
-                        parameter: "night_day_switch",
-                        value: Cow::Owned(format!("{:02X}", payload.as_slice()[0])),
-                        reason: Cow::Borrowed(
-                            "Invalid night/day switch value. Expected 0x02 (off) or 0x03 (on)",
-                        ),
-                    }))
-                }
+            let enabled = match payload.parse_bool("night_day_switch", BoolConvention::OnIs03) {
+                Ok(v) => v,
+                Err(e) => return Some(Err(e)),
             };
             Some(Ok(Response::Inquiry(InquiryData::NightDaySwitch {
                 enabled,

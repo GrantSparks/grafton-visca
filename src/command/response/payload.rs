@@ -4,7 +4,57 @@
 //! to eliminate manual slicing errors and provide compile-time guarantees about
 //! payload shape and size.
 
+use std::borrow::Cow;
+
 use crate::error::Error;
+
+/// VISCA boolean encoding convention.
+///
+/// VISCA protocol uses `0x02` and `0x03` to encode boolean states, but the
+/// semantic meaning varies by command. This enum makes the convention
+/// explicit at each call site, preventing silent polarity bugs.
+///
+/// # Protocol Background
+///
+/// The VISCA protocol inherited an inconsistent boolean encoding from its
+/// origins in Sony broadcast equipment. Most commands use `0x03 = on`,
+/// but some legacy commands inverted this to `0x02 = on`.
+///
+/// # Examples
+///
+/// ```ignore
+/// use grafton_visca::command::response::payload::{BoolConvention, Payload};
+///
+/// let data = [0x02];
+/// let payload = Payload::new(&data);
+///
+/// // Standard convention: 0x02 = off
+/// let enabled = payload.parse_bool("autofocus", BoolConvention::OnIs03)?;
+/// assert!(!enabled);
+///
+/// // Inverted convention: 0x02 = on
+/// let is_open = payload.parse_bool("menu_status", BoolConvention::OnIs02)?;
+/// assert!(is_open);
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BoolConvention {
+    /// Standard: `0x02` = off/false, `0x03` = on/true.
+    ///
+    /// Used by the majority of VISCA commands including:
+    /// - AutoFocus, Standby, IrisControl, DefogMode, DigitalPtz
+    /// - NightDayMode, NightDaySwitch, AutoTrace, FocusUnlock
+    /// - UsbAudio, Rtmp, Digital, TallyAutoAdjust
+    /// - IrisUp, IrisDown, FocusNearFar
+    /// - ZoomOut, ZoomIn, ZoomTeleWide
+    OnIs03,
+    /// Inverted: `0x02` = on/true, `0x03` = off/false.
+    ///
+    /// Used by a small number of legacy commands:
+    /// - MenuOpenClose (0x02 = open)
+    /// - TallyGreen (0x02 = on)
+    /// - Power (0x02 = on)
+    OnIs02,
+}
 
 /// Zero-copy view into VISCA nibble payloads.
 ///
@@ -51,6 +101,55 @@ impl<'a> Payload<'a> {
             "Invalid nibble values in payload: {:?}",
             self.0
         );
+    }
+
+    /// Parse a single-byte boolean response with explicit convention.
+    ///
+    /// VISCA uses `0x02` and `0x03` for boolean states. The semantic meaning
+    /// depends on the command—most use `0x03=on` (standard), but some legacy
+    /// commands use `0x02=on` (inverted). This method requires the caller to
+    /// specify the convention, making the polarity explicit.
+    ///
+    /// # Arguments
+    ///
+    /// * `param_name` - Parameter name for error messages (e.g., "autofocus_status")
+    /// * `convention` - Which byte mapping to use (see [`BoolConvention`])
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The payload is empty (`InvalidResponseLength`)
+    /// - The first byte is not `0x02` or `0x03` (`InvalidParameter`)
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// // Standard convention (0x03 = on)
+    /// let enabled = payload.parse_bool("autofocus", BoolConvention::OnIs03)?;
+    ///
+    /// // Inverted convention (0x02 = on)
+    /// let is_open = payload.parse_bool("menu_status", BoolConvention::OnIs02)?;
+    /// ```
+    pub fn parse_bool(
+        &self,
+        param_name: &'static str,
+        convention: BoolConvention,
+    ) -> Result<bool, Error> {
+        if self.0.is_empty() {
+            return Err(Error::invalid_response_length(1, self.0));
+        }
+        let byte = self.0[0];
+        match (byte, convention) {
+            (0x02, BoolConvention::OnIs03) => Ok(false),
+            (0x03, BoolConvention::OnIs03) => Ok(true),
+            (0x02, BoolConvention::OnIs02) => Ok(true),
+            (0x03, BoolConvention::OnIs02) => Ok(false),
+            _ => Err(Error::InvalidParameter {
+                parameter: param_name,
+                value: Cow::Owned(format!("0x{byte:02X}")),
+                reason: Cow::Borrowed("Expected 0x02 or 0x03"),
+            }),
+        }
     }
 }
 
@@ -378,5 +477,109 @@ mod tests {
                 value
             );
         }
+    }
+
+    // =========================================================================
+    // BoolConvention and parse_bool tests
+    // =========================================================================
+
+    #[test]
+    fn test_parse_bool_standard_convention() {
+        // Standard convention: 0x02 = off, 0x03 = on
+        let data_off = vec![0x02];
+        let payload_off = Payload::new(&data_off);
+        assert!(!payload_off
+            .parse_bool("test_param", BoolConvention::OnIs03)
+            .unwrap());
+
+        let data_on = vec![0x03];
+        let payload_on = Payload::new(&data_on);
+        assert!(payload_on
+            .parse_bool("test_param", BoolConvention::OnIs03)
+            .unwrap());
+    }
+
+    #[test]
+    fn test_parse_bool_inverted_convention() {
+        // Inverted convention: 0x02 = on, 0x03 = off
+        let data_on = vec![0x02];
+        let payload_on = Payload::new(&data_on);
+        assert!(payload_on
+            .parse_bool("test_param", BoolConvention::OnIs02)
+            .unwrap());
+
+        let data_off = vec![0x03];
+        let payload_off = Payload::new(&data_off);
+        assert!(!payload_off
+            .parse_bool("test_param", BoolConvention::OnIs02)
+            .unwrap());
+    }
+
+    #[test]
+    fn test_parse_bool_invalid_byte() {
+        use crate::command::bytes::VISCA_TERMINATOR;
+
+        // Test invalid byte values (not 0x02 or 0x03)
+        for invalid_byte in [0x00, 0x01, 0x04, 0x05, VISCA_TERMINATOR] {
+            let data = vec![invalid_byte];
+            let payload = Payload::new(&data);
+
+            let result = payload.parse_bool("test_param", BoolConvention::OnIs03);
+            assert!(
+                matches!(result, Err(Error::InvalidParameter { .. })),
+                "Expected InvalidParameter for byte 0x{:02X}",
+                invalid_byte
+            );
+
+            let result = payload.parse_bool("test_param", BoolConvention::OnIs02);
+            assert!(
+                matches!(result, Err(Error::InvalidParameter { .. })),
+                "Expected InvalidParameter for byte 0x{:02X}",
+                invalid_byte
+            );
+        }
+    }
+
+    #[test]
+    fn test_parse_bool_empty_payload() {
+        let data: Vec<u8> = vec![];
+        let payload = Payload::new(&data);
+
+        let result = payload.parse_bool("test_param", BoolConvention::OnIs03);
+        assert!(matches!(
+            result,
+            Err(Error::InvalidResponseLength {
+                expected: 1,
+                actual: 0,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn test_parse_bool_error_message_contains_param_name() {
+        let data = vec![0x00]; // Invalid byte
+        let payload = Payload::new(&data);
+
+        let result = payload.parse_bool("autofocus_status", BoolConvention::OnIs03);
+        match result {
+            Err(Error::InvalidParameter { parameter, .. }) => {
+                assert_eq!(parameter, "autofocus_status");
+            }
+            _ => panic!("Expected InvalidParameter error"),
+        }
+    }
+
+    #[test]
+    fn test_bool_convention_equality() {
+        assert_eq!(BoolConvention::OnIs03, BoolConvention::OnIs03);
+        assert_eq!(BoolConvention::OnIs02, BoolConvention::OnIs02);
+        assert_ne!(BoolConvention::OnIs03, BoolConvention::OnIs02);
+    }
+
+    #[test]
+    fn test_bool_convention_debug() {
+        assert_eq!(format!("{:?}", BoolConvention::OnIs03), "OnIs03");
+        assert_eq!(format!("{:?}", BoolConvention::OnIs02), "OnIs02");
     }
 }

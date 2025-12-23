@@ -2,11 +2,11 @@
 
 use std::borrow::Cow;
 
-use super::super::payload::{Nibbles, Payload};
+use super::super::payload::{BoolConvention, Nibbles, Payload};
 use crate::{
     command::{
         response::types::{InquiryKind, Response},
-        AutoFocusSensitivity, FocusMode, FocusZone, InquiryData,
+        AutoFocusSensitivity, FocusMode, FocusRange, FocusZone, InquiryData,
     },
     error::Error,
 };
@@ -88,28 +88,33 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
             Some(Ok(Response::Inquiry(InquiryData::FocusMode { mode })))
         }
         InquiryKind::FocusRange => {
-            Some(super::super::parse_focus_range(payload.as_slice()).map(Response::Inquiry))
-        }
-        InquiryKind::AutoFocus => {
-            Some(super::super::parse_auto_focus(payload.as_slice()).map(Response::Inquiry))
-        }
-        InquiryKind::FocusUnlock => {
-            Some(super::super::parse_focus_unlock(payload.as_slice()).map(Response::Inquiry))
-        }
-        InquiryKind::FocusNearFar => {
-            if payload.len() != 1 {
+            if payload.is_empty() {
                 return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
             }
-            let near = match payload.as_slice()[0] {
-                0x02 => false,
-                0x03 => true,
-                _ => {
-                    return Some(Err(Error::InvalidParameter {
-                        parameter: "FocusNearFar status",
-                        value: Cow::Owned(format!("0x{:02X}", payload.as_slice()[0])),
-                        reason: Cow::Borrowed("Expected 0x02 (far) or 0x03 (near)"),
-                    }))
-                }
+            let range = match FocusRange::try_from(payload.as_slice()[0]) {
+                Ok(r) => r,
+                Err(e) => return Some(Err(e)),
+            };
+            Some(Ok(Response::Inquiry(InquiryData::FocusRange { range })))
+        }
+        InquiryKind::AutoFocus => {
+            let enabled = match payload.parse_bool("autofocus_status", BoolConvention::OnIs03) {
+                Ok(v) => v,
+                Err(e) => return Some(Err(e)),
+            };
+            Some(Ok(Response::Inquiry(InquiryData::AutoFocus { enabled })))
+        }
+        InquiryKind::FocusUnlock => {
+            let unlocked = match payload.parse_bool("focus_unlock", BoolConvention::OnIs03) {
+                Ok(v) => v,
+                Err(e) => return Some(Err(e)),
+            };
+            Some(Ok(Response::Inquiry(InquiryData::FocusUnlock { unlocked })))
+        }
+        InquiryKind::FocusNearFar => {
+            let near = match payload.parse_bool("focus_near_far_status", BoolConvention::OnIs03) {
+                Ok(v) => v,
+                Err(e) => return Some(Err(e)),
             };
             Some(Ok(Response::Inquiry(InquiryData::FocusNearFar { near })))
         }

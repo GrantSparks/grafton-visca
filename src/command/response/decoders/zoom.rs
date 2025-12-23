@@ -11,9 +11,7 @@
 //! Some vendor devices may send extended 8-nibble responses. When detected,
 //! this decoder logs a warning and uses only the first 16 bits per spec.
 
-use std::borrow::Cow;
-
-use super::super::payload::{Nibbles4Or8, Payload};
+use super::super::payload::{BoolConvention, Nibbles4Or8, Payload};
 use crate::{
     command::{
         response::types::{InquiryKind, Response},
@@ -42,53 +40,23 @@ pub(crate) fn decode(kind: InquiryKind, payload: Payload<'_>) -> Option<Result<R
             Err(e) => Some(Err(e)),
         },
         InquiryKind::ZoomOut => {
-            if payload.len() != 1 {
-                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
-            }
-            let active = match payload.as_slice()[0] {
-                0x02 => false,
-                0x03 => true,
-                _ => {
-                    return Some(Err(Error::InvalidParameter {
-                        parameter: "ZoomOut status",
-                        value: Cow::Owned(format!("0x{byte:02X}", byte = payload.as_slice()[0])),
-                        reason: Cow::Borrowed("Expected 0x02 (inactive) or 0x03 (active)"),
-                    }))
-                }
+            let active = match payload.parse_bool("zoom_out_status", BoolConvention::OnIs03) {
+                Ok(v) => v,
+                Err(e) => return Some(Err(e)),
             };
             Some(Ok(Response::Inquiry(InquiryData::ZoomOut { active })))
         }
         InquiryKind::ZoomIn => {
-            if payload.len() != 1 {
-                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
-            }
-            let active = match payload.as_slice()[0] {
-                0x02 => false,
-                0x03 => true,
-                _ => {
-                    return Some(Err(Error::InvalidParameter {
-                        parameter: "ZoomIn status",
-                        value: Cow::Owned(format!("0x{byte:02X}", byte = payload.as_slice()[0])),
-                        reason: Cow::Borrowed("Expected 0x02 (inactive) or 0x03 (active)"),
-                    }))
-                }
+            let active = match payload.parse_bool("zoom_in_status", BoolConvention::OnIs03) {
+                Ok(v) => v,
+                Err(e) => return Some(Err(e)),
             };
             Some(Ok(Response::Inquiry(InquiryData::ZoomIn { active })))
         }
         InquiryKind::ZoomTeleWide => {
-            if payload.len() != 1 {
-                return Some(Err(Error::invalid_response_length(1, payload.as_slice())));
-            }
-            let tele = match payload.as_slice()[0] {
-                0x02 => false,
-                0x03 => true,
-                _ => {
-                    return Some(Err(Error::InvalidParameter {
-                        parameter: "ZoomTeleWide status",
-                        value: Cow::Owned(format!("0x{byte:02X}", byte = payload.as_slice()[0])),
-                        reason: Cow::Borrowed("Expected 0x02 (wide) or 0x03 (tele)"),
-                    }))
-                }
+            let tele = match payload.parse_bool("zoom_tele_wide_status", BoolConvention::OnIs03) {
+                Ok(v) => v,
+                Err(e) => return Some(Err(e)),
             };
             Some(Ok(Response::Inquiry(InquiryData::ZoomTeleWide { tele })))
         }
