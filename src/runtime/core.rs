@@ -256,26 +256,41 @@ impl std::fmt::Debug for RetryCommand {
     }
 }
 
-/// Socket state tracking.
-#[derive(Debug, Clone)]
-struct SocketState {
-    /// Whether socket is free.
-    free: bool,
-    /// Current command ID if busy.
-    command_id: Option<CommandId>,
-    /// When command started.
-    started_at: Option<Instant>,
-    /// Command category for timeout.
-    category: Option<CommandCategory>,
+/// Socket state tracking using typestate pattern.
+///
+/// This enum encodes the socket state invariants at compile-time:
+/// - A socket is either `Free` or `Busy`
+/// - A `Busy` socket always has a command_id, started_at, and category
+/// - Invalid states (like free=true with command_id=Some) are unrepresentable
+#[derive(Debug, Clone, Default)]
+enum SocketState {
+    /// Socket is available for allocation.
+    #[default]
+    Free,
+    /// Socket is allocated to a command.
+    Busy {
+        /// The command ID currently using this socket.
+        command_id: CommandId,
+        /// When the command was assigned to this socket.
+        started_at: Instant,
+        /// Command category for timeout calculation.
+        category: CommandCategory,
+    },
 }
 
-impl Default for SocketState {
-    fn default() -> Self {
-        Self {
-            free: true,
-            command_id: None,
-            started_at: None,
-            category: None,
+impl SocketState {
+    /// Returns true if the socket is free.
+    #[inline]
+    fn is_free(&self) -> bool {
+        matches!(self, Self::Free)
+    }
+
+    /// Returns the command ID if the socket is busy, None if free.
+    #[inline]
+    fn command_id(&self) -> Option<CommandId> {
+        match self {
+            Self::Busy { command_id, .. } => Some(*command_id),
+            Self::Free => None,
         }
     }
 }
@@ -718,7 +733,7 @@ impl SchedulerCore {
     pub fn can_send_command(&self) -> bool {
         // Count commands that are either pending ACK or have a socket allocated
         let pending_count = self.pending_ack_ids.len();
-        let allocated_count = self.sockets.iter().filter(|s| !s.free).count();
+        let allocated_count = self.sockets.iter().filter(|s| !s.is_free()).count();
         let total_in_flight = pending_count + allocated_count;
 
         let can_send = total_in_flight < 2;
@@ -742,23 +757,6 @@ impl SchedulerCore {
         } else if !self.last_logged_idle.get() {
             trace!("Commands in flight: 0 pending ACK + 0 allocated = 0/2");
             self.last_logged_idle.set(true);
-        }
-
-        // Debug assertion to check invariants
-        #[cfg(debug_assertions)]
-        {
-            // Verify that no command appears in both pending_ack_ids and sockets
-            for &cmd_id in &self.pending_ack_ids {
-                for socket in &self.sockets {
-                    if socket.command_id == Some(cmd_id) {
-                        eprintln!(
-                            "ERROR: Invariant violation: command {} is both pending ACK and allocated to socket",
-                            cmd_id
-                        );
-                        debug_assert!(false, "Invariant violation detected");
-                    }
-                }
-            }
         }
 
         can_send
@@ -1131,7 +1129,7 @@ impl SchedulerCore {
 
         // Free any allocated socket
         for socket_idx in 0..2 {
-            if self.sockets[socket_idx].command_id == Some(cmd_id) {
+            if self.sockets[socket_idx].command_id() == Some(cmd_id) {
                 let socket = if socket_idx == 0 {
                     ViscaSocket::S1
                 } else {
@@ -1627,26 +1625,26 @@ impl SchedulerCore {
                 ViscaSocket::S2
             };
 
-            if let Some(cmd_id) = self.sockets[socket_idx].command_id {
-                if let Some(started_at) = self.sockets[socket_idx].started_at {
-                    let category = self.sockets[socket_idx]
-                        .category
-                        .unwrap_or(CommandCategory::Custom);
-                    let timeout = self.timeout_config.get_timeout(category);
+            if let SocketState::Busy {
+                command_id,
+                started_at,
+                category,
+            } = &self.sockets[socket_idx]
+            {
+                let timeout = self.timeout_config.get_timeout(*category);
 
-                    if now.duration_since(started_at) > timeout {
-                        warn!(
-                            "Command {} on socket {:?} timed out after {:?}",
-                            cmd_id, socket, timeout
+                if now.duration_since(*started_at) > timeout {
+                    warn!(
+                        "Command {} on socket {:?} timed out after {:?}",
+                        command_id, socket, timeout
+                    );
+                    if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
+                        eprintln!(
+                            "[SchedulerCore] Socket timeout: cmd_id={}, socket={:?}, category={:?}, duration={:?}",
+                            command_id, socket, category, now.duration_since(*started_at)
                         );
-                        if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
-                            eprintln!(
-                                "[SchedulerCore] Socket timeout: cmd_id={}, socket={:?}, category={:?}, duration={:?}",
-                                cmd_id, socket, category, now.duration_since(started_at)
-                            );
-                        }
-                        timed_out.push((socket, cmd_id));
                     }
+                    timed_out.push((socket, *command_id));
                 }
             }
         }
@@ -1743,7 +1741,7 @@ impl SchedulerCore {
                 #[cfg(debug_assertions)]
                 {
                     for socket in &self.sockets {
-                        if socket.command_id == Some(cmd_id) {
+                        if socket.command_id() == Some(cmd_id) {
                             eprintln!(
                                 "ERROR: Invariant violation: ACK-timed-out command {} still has socket allocated",
                                 cmd_id
@@ -1979,11 +1977,14 @@ impl SchedulerCore {
 
         // Check socket command timeouts
         for socket_state in &self.sockets {
-            if let (Some(started_at), Some(category)) =
-                (socket_state.started_at, socket_state.category)
+            if let SocketState::Busy {
+                started_at,
+                category,
+                ..
+            } = socket_state
             {
-                let timeout = self.timeout_config.get_timeout(category);
-                let deadline = started_at + timeout;
+                let timeout = self.timeout_config.get_timeout(*category);
+                let deadline = *started_at + timeout;
                 earliest = match earliest {
                     None => Some(deadline),
                     Some(e) if deadline < e => Some(deadline),
@@ -2073,7 +2074,7 @@ impl SchedulerCore {
             let assigned_socket = if let Some(s) = socket {
                 // Camera specified a socket - try to use it
                 let idx = s.as_index();
-                if self.sockets[idx].free {
+                if self.sockets[idx].is_free() {
                     // Requested socket is free, use it
                     s
                 } else {
@@ -2084,7 +2085,7 @@ impl SchedulerCore {
                         ViscaSocket::S1
                     };
 
-                    if self.sockets[other.as_index()].free {
+                    if self.sockets[other.as_index()].is_free() {
                         debug!(
                             "Camera requested {:?} but it's occupied, using {:?} instead",
                             s, other
@@ -2100,9 +2101,9 @@ impl SchedulerCore {
                 }
             } else {
                 // No socket specified - pick the first free one
-                if self.sockets[ViscaSocket::S1.as_index()].free {
+                if self.sockets[ViscaSocket::S1.as_index()].is_free() {
                     ViscaSocket::S1
-                } else if self.sockets[ViscaSocket::S2.as_index()].free {
+                } else if self.sockets[ViscaSocket::S2.as_index()].is_free() {
                     ViscaSocket::S2
                 } else {
                     // Both sockets are busy
@@ -2115,12 +2116,11 @@ impl SchedulerCore {
 
             // Allocate the chosen socket
             let idx = assigned_socket.as_index();
-            let socket_state = &mut self.sockets[idx];
-
-            socket_state.free = false;
-            socket_state.command_id = Some(target_id);
-            socket_state.started_at = Some(now);
-            socket_state.category = Some(cmd_state.category);
+            self.sockets[idx] = SocketState::Busy {
+                command_id: target_id,
+                started_at: now,
+                category: cmd_state.category,
+            };
 
             trace!(
                 "Assigned command {} to {:?} per camera ACK",
@@ -2198,7 +2198,7 @@ impl SchedulerCore {
     /// Check if a command is pending (either awaiting ACK or has a socket).
     pub fn is_command_pending(&self, cmd_id: CommandId) -> bool {
         self.pending_ack_ids.contains(&cmd_id)
-            || self.sockets.iter().any(|s| s.command_id == Some(cmd_id))
+            || self.sockets.iter().any(|s| s.command_id() == Some(cmd_id))
     }
 
     /// Get the count of commands waiting for ACK.
@@ -2219,21 +2219,17 @@ impl SchedulerCore {
     /// Free a previously reserved socket (used for rollback on inquiry send failure).
     pub fn free_socket(&mut self, socket: ViscaSocket) {
         let idx = socket.as_index();
-        let state = &mut self.sockets[idx];
 
-        if let Some(cmd_id) = state.command_id {
-            trace!("Freeing {socket:?} from command {cmd_id}");
+        if let SocketState::Busy { command_id, .. } = &self.sockets[idx] {
+            trace!("Freeing {socket:?} from command {command_id}");
         }
 
-        state.free = true;
-        state.command_id = None;
-        state.started_at = None;
-        state.category = None;
+        self.sockets[idx] = SocketState::Free;
     }
 
     /// Find the command ID currently assigned to a socket.
     pub fn find_command_on_socket(&self, socket: ViscaSocket) -> Option<CommandId> {
-        self.sockets[socket.as_index()].command_id
+        self.sockets[socket.as_index()].command_id()
     }
 
     /// Get the camera ID for a command by its ID.
@@ -2243,7 +2239,7 @@ impl SchedulerCore {
 
     pub(crate) fn find_socket_for_command(&self, cmd_id: CommandId) -> Option<ViscaSocket> {
         for (idx, state) in self.sockets.iter().enumerate() {
-            if state.command_id == Some(cmd_id) {
+            if state.command_id() == Some(cmd_id) {
                 return Some(if idx == 0 {
                     ViscaSocket::S1
                 } else {
@@ -2261,7 +2257,14 @@ impl SchedulerCore {
         socket: ViscaSocket,
     ) -> (bool, Option<CommandId>, Option<CommandCategory>) {
         let state = &self.sockets[socket.as_index()];
-        (state.free, state.command_id, state.category)
+        match state {
+            SocketState::Free => (true, None, None),
+            SocketState::Busy {
+                command_id,
+                category,
+                ..
+            } => (false, Some(*command_id), Some(*category)),
+        }
     }
 
     fn should_retry_command(&self, cmd_id: CommandId, error: &ViscaError, now: Instant) -> bool {
@@ -2742,10 +2745,11 @@ mod tests {
         // Manually allocate socket 1 (simulating ACK received)
         // When ACK is received, command is removed from pending_ack_ids
         core.pending_ack_ids.remove(&cmd_id(1));
-        core.sockets[0].free = false;
-        core.sockets[0].command_id = Some(cmd_id(1));
-        core.sockets[0].started_at = Some(now);
-        core.sockets[0].category = Some(CommandCategory::Movement);
+        core.sockets[0] = SocketState::Busy {
+            command_id: cmd_id(1),
+            started_at: now,
+            category: CommandCategory::Movement,
+        };
 
         // Register second command on socket 2
         core.register_pending_ack(
@@ -2760,10 +2764,11 @@ mod tests {
         // Manually allocate socket 2 (simulating ACK received)
         // When ACK is received, command is removed from pending_ack_ids
         core.pending_ack_ids.remove(&cmd_id(2));
-        core.sockets[1].free = false;
-        core.sockets[1].command_id = Some(cmd_id(2));
-        core.sockets[1].started_at = Some(now);
-        core.sockets[1].category = Some(CommandCategory::Movement);
+        core.sockets[1] = SocketState::Busy {
+            command_id: cmd_id(2),
+            started_at: now,
+            category: CommandCategory::Movement,
+        };
 
         // Both sockets are now occupied, but inquiry should still be sendable
         assert!(!core.can_send_command()); // Cannot send more commands
