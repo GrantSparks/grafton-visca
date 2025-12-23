@@ -5,7 +5,7 @@
 
 use std::future::Future;
 
-use crate::Error;
+use crate::{transport::SendSemantics, Error};
 
 /// Async transport for VISCA communication.
 ///
@@ -48,4 +48,24 @@ pub trait AsyncTransport: Send {
         &'a mut self,
         dst: &'a mut [u8],
     ) -> impl Future<Output = Result<usize, Error>> + Send;
+
+    /// Query the transport's send semantics.
+    ///
+    /// This method returns whether the transport uses stream or datagram semantics,
+    /// which determines how the runtime handles send failures:
+    ///
+    /// - [`SendSemantics::Stream`]: On send failure/timeout, the transport is
+    ///   "poisoned" and the runtime stops using it to prevent protocol desync.
+    ///
+    /// - [`SendSemantics::Datagram`]: On send failure, only the affected command
+    ///   fails; the transport continues operating for subsequent commands.
+    ///
+    /// # Default Implementation
+    ///
+    /// Returns [`SendSemantics::Stream`] by default, which is the safer choice
+    /// for unknown transport types. Datagram transports (UDP) should override
+    /// this to return [`SendSemantics::Datagram`].
+    fn send_semantics(&self) -> SendSemantics {
+        SendSemantics::Stream
+    }
 }

@@ -404,6 +404,44 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
         }
     }
 
+    /// Poison the transport and fail all pending commands.
+    ///
+    /// This is called when a stream transport (TCP, Serial) experiences a send
+    /// failure or timeout that leaves the byte stream in an unknown state. All
+    /// pending and queued commands are failed with `StreamPoisoned` error.
+    ///
+    /// # Arguments
+    ///
+    /// * `reason` - Description of why the transport is being poisoned
+    ///
+    /// # Returns
+    ///
+    /// The number of commands that were failed.
+    pub fn poison_transport(&mut self, reason: impl Into<std::borrow::Cow<'static, str>>) -> usize {
+        let reason = reason.into();
+        debug!(
+            pending_channels = self.response_channels.len(),
+            %reason,
+            "Poisoning transport: failing all pending commands"
+        );
+
+        let error = Error::StreamPoisoned {
+            reason: reason.clone(),
+        };
+
+        // Fail all commands that have response channels
+        let failed_count = self.response_channels.len();
+        for (_id, tx) in self.response_channels.drain() {
+            let _ = tx.send(Err(error.clone()));
+            self.metrics.commands_failed += 1;
+        }
+
+        // Clear the scheduler core state
+        self.core.clear_all();
+
+        failed_count
+    }
+
     /// Process a received VISCA response.
     pub async fn process_response(&mut self, payload: &[u8], sequence: Option<u32>) -> Result<()> {
         // Parse VISCA response type using decode_basic

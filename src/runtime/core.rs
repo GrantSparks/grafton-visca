@@ -2384,6 +2384,29 @@ impl SchedulerCore {
             None
         }
     }
+
+    /// Clear all scheduler state.
+    ///
+    /// This is used when the transport is poisoned and all commands must be failed.
+    /// It clears all internal state but does not send errors to response channels -
+    /// that is handled by the caller.
+    pub fn clear_all(&mut self) {
+        self.commands.clear();
+        self.pending_ack_ids.clear();
+        self.inflight_inquiry_ids.clear();
+        self.retry_queue.clear();
+        self.command_queue.clear();
+        self.inquiry_queue.clear();
+        self.seq_to_cmd.clear();
+        self.cmd_to_seqs.clear();
+        self.seq16_to_cmds.clear();
+        self.cmd_to_seq16s.clear();
+        self.inquiries_order.clear();
+        self.pending_inquiry_types.clear();
+        self.sockets = Default::default();
+        self.last_logged_idle.set(false);
+        self.last_inquiry_sent = None;
+    }
 }
 
 #[cfg(test)]

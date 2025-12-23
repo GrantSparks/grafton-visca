@@ -35,7 +35,7 @@ use crate::{
         buffer::{BufferConfig, BufferManager},
         builder::AddressingMode,
         envelope::Envelope,
-        BlockingTransport, HasTransportConfig, RetryConfig,
+        BlockingTransport, HasTransportConfig, RetryConfig, SendSemantics,
     },
 };
 
@@ -324,7 +324,20 @@ impl<P: Profile> BlockingRunner<P> {
                     SendResult::Ok => {}
                     SendResult::Err { error, action } => {
                         debug!("Send operation failed: {error:?}");
-                        // Check if this failure is for our target command - if so, return immediately
+                        // For stream transports, a send failure poisons the transport
+                        if transport.send_semantics() == SendSemantics::Stream {
+                            let reason = format!("Send failed: {error}");
+                            tracing::error!(
+                                send_semantics = ?transport.send_semantics(),
+                                reason = %reason,
+                                "Stream transport poisoned - failing command and exiting"
+                            );
+                            self.core.clear_all();
+                            return Err(Error::StreamPoisoned {
+                                reason: reason.into(),
+                            });
+                        }
+                        // For datagram transports, check if this failure is for our target command
                         if let Some(SchedulerAction::CommandFailed { id, error }) = action {
                             if id == target_cmd_id {
                                 return Err(error);
@@ -378,7 +391,20 @@ impl<P: Profile> BlockingRunner<P> {
                     }
                     SendResult::Err { error, action } => {
                         debug!("Send retry operation failed: {error:?}");
-                        // Check if this failure is for our target command - if so, return immediately
+                        // For stream transports, a send failure poisons the transport
+                        if transport.send_semantics() == SendSemantics::Stream {
+                            let reason = format!("Send failed during retry: {error}");
+                            tracing::error!(
+                                send_semantics = ?transport.send_semantics(),
+                                reason = %reason,
+                                "Stream transport poisoned - failing command and exiting"
+                            );
+                            self.core.clear_all();
+                            return Err(Error::StreamPoisoned {
+                                reason: reason.into(),
+                            });
+                        }
+                        // For datagram transports, check if this failure is for our target command
                         if let Some(SchedulerAction::CommandFailed { id, error }) = action {
                             if id == target_cmd_id {
                                 return Err(error);
@@ -716,6 +742,12 @@ mod tests {
         ) -> Result<usize, Error> {
             Err(Error::Timeout)
         }
+
+        // Use Datagram semantics to test send failure error propagation
+        // without triggering stream poisoning behavior
+        fn send_semantics(&self) -> SendSemantics {
+            SendSemantics::Datagram
+        }
     }
 
     impl HasTransportConfig for FailingSendTransport {
@@ -868,6 +900,12 @@ mod tests {
             ) -> Result<usize, Error> {
                 Err(Error::Timeout)
             }
+
+            // Use Datagram semantics to test timeout-kind preservation
+            // (Stream transports get StreamPoisoned instead - see separate test)
+            fn send_semantics(&self) -> SendSemantics {
+                SendSemantics::Datagram
+            }
         }
 
         impl HasTransportConfig for TimeoutSendTransport {
@@ -889,7 +927,7 @@ mod tests {
 
         let error = result.unwrap_err();
 
-        // The critical assertion: timeout classification MUST be preserved
+        // The critical assertion: timeout classification MUST be preserved for datagram transports
         assert_eq!(
             error.kind(),
             crate::ErrorKind::Timeout,
@@ -1071,6 +1109,336 @@ mod tests {
             timeout >= Duration::from_millis(150),
             "Timeout too short: {:?}",
             timeout
+        );
+    }
+
+    /// Mock stream transport that fails on send for testing stream poisoning behavior.
+    struct FailingStreamTransport {
+        config: TransportConfig,
+    }
+
+    impl FailingStreamTransport {
+        fn new() -> Self {
+            Self {
+                config: TransportConfig::default(),
+            }
+        }
+    }
+
+    impl BlockingTransport for FailingStreamTransport {
+        fn send_with_kind(&mut self, _bytes: &[u8], _kind: CommandKind) -> Result<(), Error> {
+            Err(Error::TransportError(
+                "Simulated stream send failure".into(),
+            ))
+        }
+
+        fn recv_into(&mut self, _dst: &mut [u8]) -> Result<usize, Error> {
+            Ok(0)
+        }
+
+        fn recv_into_with_timeout(
+            &mut self,
+            _dst: &mut [u8],
+            _timeout: Duration,
+        ) -> Result<usize, Error> {
+            Err(Error::Timeout)
+        }
+
+        // Stream semantics - send failures should poison the transport
+        fn send_semantics(&self) -> SendSemantics {
+            SendSemantics::Stream
+        }
+    }
+
+    impl HasTransportConfig for FailingStreamTransport {
+        fn transport_config(&self) -> &TransportConfig {
+            &self.config
+        }
+    }
+
+    /// Test that stream transport send failures result in StreamPoisoned error.
+    ///
+    /// This test verifies issue #476: when a stream transport (TCP, Serial) experiences
+    /// a send failure, it should return StreamPoisoned instead of the underlying error
+    /// because the byte stream may be in an unknown state.
+    #[test]
+    fn test_stream_transport_send_failure_returns_stream_poisoned() {
+        use crate::command::bytes::VISCA_TERMINATOR;
+
+        let timeout_config = TimeoutConfig::default();
+        let mut runner = BlockingRunner::<PtzOpticsG2>::new(timeout_config);
+
+        #[derive(Debug, Clone)]
+        struct TestCmd {
+            bytes: Vec<u8>,
+        }
+
+        impl ViscaCommand for TestCmd {
+            type Response = ();
+            const MAX_SIZE: usize = 6;
+            const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
+
+            fn write_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
+                let len = self.bytes.len();
+                buffer[..len].copy_from_slice(&self.bytes);
+                Ok(len)
+            }
+
+            fn response_kind(&self) -> Option<crate::command::response::InquiryKind> {
+                None
+            }
+        }
+
+        let mut transport = FailingStreamTransport::new();
+        let camera_id = CameraId::CAMERA_1;
+        let test_cmd = TestCmd {
+            bytes: vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR],
+        };
+
+        // Track start time to verify we return immediately (not after timeout)
+        let start = Instant::now();
+
+        let result =
+            runner.send_command(&mut transport, &test_cmd, camera_id, CommandCategory::Quick);
+
+        let elapsed = start.elapsed();
+
+        // Should return immediately with error
+        assert!(
+            result.is_err(),
+            "Expected error from failing stream transport, got Ok"
+        );
+
+        let error = result.unwrap_err();
+
+        // Verify the error is StreamPoisoned (not the underlying TransportError)
+        let error_msg = error.to_string();
+        assert!(
+            error_msg.contains("Stream transport poisoned"),
+            "Error should be StreamPoisoned, got: {error_msg}"
+        );
+
+        // Verify the error contains the original cause
+        assert!(
+            error_msg.contains("Simulated stream send failure"),
+            "Error should contain original error message, got: {error_msg}"
+        );
+
+        // Verify the error kind is Other (StreamPoisoned is a distinct error)
+        assert_eq!(
+            error.kind(),
+            crate::ErrorKind::Other,
+            "StreamPoisoned error should have ErrorKind::Other"
+        );
+
+        // Verify the error was returned promptly (not after timeout)
+        assert!(
+            elapsed.as_millis() < 100,
+            "Error should be returned immediately, took {elapsed:?}"
+        );
+    }
+
+    /// Test that stream transport timeout results in StreamPoisoned error.
+    ///
+    /// This test verifies issue #476: when a stream transport (TCP, Serial) experiences
+    /// a send timeout, it should return StreamPoisoned because a partial write may have
+    /// occurred, leaving the byte stream in an unknown state.
+    #[test]
+    fn test_stream_transport_timeout_returns_stream_poisoned() {
+        use crate::command::bytes::VISCA_TERMINATOR;
+
+        let timeout_config = TimeoutConfig::default();
+        let mut runner = BlockingRunner::<PtzOpticsG2>::new(timeout_config);
+
+        #[derive(Debug, Clone)]
+        struct TestCmd {
+            bytes: Vec<u8>,
+        }
+
+        impl ViscaCommand for TestCmd {
+            type Response = ();
+            const MAX_SIZE: usize = 6;
+            const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
+
+            fn write_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
+                let len = self.bytes.len();
+                buffer[..len].copy_from_slice(&self.bytes);
+                Ok(len)
+            }
+
+            fn response_kind(&self) -> Option<crate::command::response::InquiryKind> {
+                None
+            }
+        }
+
+        /// Mock stream transport that returns Timeout on send
+        struct TimeoutStreamTransport {
+            config: TransportConfig,
+        }
+
+        impl TimeoutStreamTransport {
+            fn new() -> Self {
+                Self {
+                    config: TransportConfig::default(),
+                }
+            }
+        }
+
+        impl BlockingTransport for TimeoutStreamTransport {
+            fn send_with_kind(&mut self, _bytes: &[u8], _kind: CommandKind) -> Result<(), Error> {
+                Err(Error::Timeout)
+            }
+
+            fn recv_into(&mut self, _dst: &mut [u8]) -> Result<usize, Error> {
+                Ok(0)
+            }
+
+            fn recv_into_with_timeout(
+                &mut self,
+                _dst: &mut [u8],
+                _timeout: Duration,
+            ) -> Result<usize, Error> {
+                Err(Error::Timeout)
+            }
+
+            // Stream semantics - timeouts should poison the transport
+            fn send_semantics(&self) -> SendSemantics {
+                SendSemantics::Stream
+            }
+        }
+
+        impl HasTransportConfig for TimeoutStreamTransport {
+            fn transport_config(&self) -> &TransportConfig {
+                &self.config
+            }
+        }
+
+        let mut transport = TimeoutStreamTransport::new();
+        let camera_id = CameraId::CAMERA_1;
+        let test_cmd = TestCmd {
+            bytes: vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR],
+        };
+
+        let result =
+            runner.send_command(&mut transport, &test_cmd, camera_id, CommandCategory::Quick);
+
+        assert!(result.is_err(), "Expected error, got Ok");
+
+        let error = result.unwrap_err();
+
+        // The critical assertion: stream transport timeout should return StreamPoisoned
+        let error_msg = error.to_string();
+        assert!(
+            error_msg.contains("Stream transport poisoned"),
+            "Stream transport timeout should return StreamPoisoned, got: {error_msg}"
+        );
+    }
+
+    /// Test that datagram transport send failures preserve the original error.
+    ///
+    /// This test verifies issue #476: when a datagram transport (UDP) experiences
+    /// a send failure, it should return the original error (not StreamPoisoned)
+    /// because datagram sends are atomic and don't affect subsequent sends.
+    #[test]
+    fn test_datagram_transport_send_failure_preserves_error() {
+        use crate::command::bytes::VISCA_TERMINATOR;
+
+        let timeout_config = TimeoutConfig::default();
+        let mut runner = BlockingRunner::<PtzOpticsG2>::new(timeout_config);
+
+        #[derive(Debug, Clone)]
+        struct TestCmd {
+            bytes: Vec<u8>,
+        }
+
+        impl ViscaCommand for TestCmd {
+            type Response = ();
+            const MAX_SIZE: usize = 6;
+            const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
+
+            fn write_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
+                let len = self.bytes.len();
+                buffer[..len].copy_from_slice(&self.bytes);
+                Ok(len)
+            }
+
+            fn response_kind(&self) -> Option<crate::command::response::InquiryKind> {
+                None
+            }
+        }
+
+        /// Mock datagram transport that fails on send
+        struct FailingDatagramTransport {
+            config: TransportConfig,
+        }
+
+        impl FailingDatagramTransport {
+            fn new() -> Self {
+                Self {
+                    config: TransportConfig::default(),
+                }
+            }
+        }
+
+        impl BlockingTransport for FailingDatagramTransport {
+            fn send_with_kind(&mut self, _bytes: &[u8], _kind: CommandKind) -> Result<(), Error> {
+                Err(Error::TransportError(
+                    "Simulated datagram send failure".into(),
+                ))
+            }
+
+            fn recv_into(&mut self, _dst: &mut [u8]) -> Result<usize, Error> {
+                Ok(0)
+            }
+
+            fn recv_into_with_timeout(
+                &mut self,
+                _dst: &mut [u8],
+                _timeout: Duration,
+            ) -> Result<usize, Error> {
+                Err(Error::Timeout)
+            }
+
+            // Datagram semantics - send failures should NOT poison the transport
+            fn send_semantics(&self) -> SendSemantics {
+                SendSemantics::Datagram
+            }
+        }
+
+        impl HasTransportConfig for FailingDatagramTransport {
+            fn transport_config(&self) -> &TransportConfig {
+                &self.config
+            }
+        }
+
+        let mut transport = FailingDatagramTransport::new();
+        let camera_id = CameraId::CAMERA_1;
+        let test_cmd = TestCmd {
+            bytes: vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR],
+        };
+
+        let result =
+            runner.send_command(&mut transport, &test_cmd, camera_id, CommandCategory::Quick);
+
+        assert!(result.is_err(), "Expected error, got Ok");
+
+        let error = result.unwrap_err();
+
+        // The critical assertion: datagram transport should NOT return StreamPoisoned
+        let error_msg = error.to_string();
+        assert!(
+            !error_msg.contains("Stream transport poisoned"),
+            "Datagram transport should NOT return StreamPoisoned, got: {error_msg}"
+        );
+
+        // Should preserve the original error with "Send failed" context
+        assert!(
+            error_msg.contains("Send failed"),
+            "Error should contain 'Send failed' context, got: {error_msg}"
+        );
+        assert!(
+            error_msg.contains("Simulated datagram send failure"),
+            "Error should contain original error message, got: {error_msg}"
         );
     }
 }

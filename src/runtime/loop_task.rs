@@ -18,7 +18,9 @@ use crate::{
         driver::send_one,
     },
     timeout::TimeoutConfig,
-    transport::{buffer::BufferManager, envelope::Envelope, AsyncTransport, RetryConfig},
+    transport::{
+        buffer::BufferManager, envelope::Envelope, AsyncTransport, RetryConfig, SendSemantics,
+    },
 };
 
 /// Event variants representing all possible wake sources for the runtime loop.
@@ -48,6 +50,43 @@ macro_rules! runtime_trace {
     ($($arg:tt)*) => {
         if std::env::var("RUNTIME_TRACE").is_ok() {
             eprintln!("[RUNTIME_TRACE] {}", format!($($arg)*));
+        }
+    };
+}
+
+/// Handle a send failure based on transport semantics.
+///
+/// For stream transports (TCP, Serial), a send failure can leave the byte stream
+/// in an unknown state (partial write). This macro poisons the transport and
+/// returns an error from the enclosing function.
+///
+/// For datagram transports (UDP), the individual command fails but the transport
+/// can continue operating.
+///
+/// # Usage
+/// ```ignore
+/// handle_send_failure!(transport, adapter, error, "context message");
+/// ```
+macro_rules! handle_send_failure {
+    ($transport:expr, $adapter:expr, $error:expr, $context:expr) => {
+        if $transport.send_semantics() == SendSemantics::Stream {
+            let reason = format!("{}: {}", $context, $error);
+            error!(
+                send_semantics = ?$transport.send_semantics(),
+                reason = %reason,
+                "Stream transport poisoned - failing all pending commands and exiting"
+            );
+            let failed_count = $adapter.poison_transport(reason.clone());
+            debug!(failed_count, "Poisoned transport and failed pending commands");
+            return Err(Error::StreamPoisoned {
+                reason: reason.into(),
+            });
+        } else {
+            debug!(
+                send_semantics = ?$transport.send_semantics(),
+                error = %$error,
+                "Datagram send failed - continuing with next command"
+            );
         }
     };
 }
@@ -254,7 +293,12 @@ pub async fn runtime_loop_with_config<
                             )
                             .await
                             {
-                                debug!("Send failed during submit: {e}");
+                                handle_send_failure!(
+                                    transport,
+                                    adapter,
+                                    e,
+                                    "Send failed during submit"
+                                );
                             }
                         }
                     }
@@ -279,7 +323,12 @@ pub async fn runtime_loop_with_config<
                             .frame_into(&temp_buf[..len], kind, &mut send_buf);
 
                         if let Err(e) = transport.send(&send_buf[..]).await {
-                            debug!("Failed to send cancel for socket {socket:?}: {e}");
+                            handle_send_failure!(
+                                transport,
+                                adapter,
+                                e,
+                                "Failed to send cancel for socket"
+                            );
                         } else {
                             debug!(
                                 "Sent cancel for socket {socket:?} with camera_id {camera_id:?}"
@@ -310,7 +359,12 @@ pub async fn runtime_loop_with_config<
                                 .frame_into(&temp_buf[..len], kind, &mut send_buf);
 
                             if let Err(e) = transport.send(&send_buf[..]).await {
-                                debug!("Failed to send cancel for command {id}: {e}");
+                                handle_send_failure!(
+                                    transport,
+                                    adapter,
+                                    e,
+                                    "Failed to send cancel for command"
+                                );
                             } else {
                                 debug!("Sent cancel for command {id} on socket {socket:?} with camera_id {camera_id:?}");
                             }
@@ -397,7 +451,12 @@ pub async fn runtime_loop_with_config<
                     )
                     .await
                     {
-                        debug!("Send failed while draining pending: {e}");
+                        handle_send_failure!(
+                            transport,
+                            adapter,
+                            e,
+                            "Send failed while draining pending"
+                        );
                     }
                 }
 
@@ -433,7 +492,12 @@ pub async fn runtime_loop_with_config<
                                 .frame_into(&temp_buf[..len], kind, &mut send_buf);
 
                             if let Err(e) = transport.send(&send_buf[..]).await {
-                                debug!("Failed to send queued cancel for command {id}: {e}");
+                                handle_send_failure!(
+                                    transport,
+                                    adapter,
+                                    e,
+                                    "Failed to send queued cancel for command"
+                                );
                             } else {
                                 debug!("Sent queued cancel for command {id} on socket {socket:?} with camera_id {camera_id:?}");
                             }
@@ -510,7 +574,7 @@ pub async fn runtime_loop_with_config<
             )
             .await
             {
-                debug!("Send failed during retry: {e}");
+                handle_send_failure!(transport, adapter, e, "Send failed during retry");
             }
         }
 
@@ -527,7 +591,12 @@ pub async fn runtime_loop_with_config<
             )
             .await
             {
-                debug!("Send failed while draining pending: {e}");
+                handle_send_failure!(
+                    transport,
+                    adapter,
+                    e,
+                    "Send failed while draining pending after tick"
+                );
             }
         }
     }

@@ -363,6 +363,26 @@ pub enum Error {
         capacity: usize,
     },
 
+    /// Stream transport was poisoned after a send failure.
+    ///
+    /// This error indicates that a stream-based transport (TCP, Serial) experienced
+    /// a send failure or timeout that left the byte stream in an unknown state.
+    /// A partial write may have occurred, making it unsafe to continue using the
+    /// transport since subsequent commands could be concatenated onto an incomplete
+    /// prior frame.
+    ///
+    /// This is a **non-retryable** error that requires establishing a new connection.
+    /// All pending commands will receive this error when the transport is poisoned.
+    ///
+    /// # Recovery
+    ///
+    /// Create a new transport connection and re-submit the failed commands.
+    #[error("Stream transport poisoned: {reason}")]
+    StreamPoisoned {
+        /// Description of why the transport was poisoned.
+        reason: Cow<'static, str>,
+    },
+
     /// Validation error from capability traits.
     #[error("Validation error: {0}")]
     ValidationError(#[from] crate::capabilities::ValidationError),

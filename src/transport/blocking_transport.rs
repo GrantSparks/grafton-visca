@@ -5,7 +5,11 @@
 
 use core::time::Duration;
 
-use crate::{command::CommandKind, transport::builder::TransportConfig, Error};
+use crate::{
+    command::CommandKind,
+    transport::{builder::TransportConfig, SendSemantics},
+    Error,
+};
 
 /// Transport handle for blocking VISCA communication.
 ///
@@ -72,6 +76,15 @@ impl BlockingTransport for BlockingTransportHandle {
             BlockingTransportHandle::Serial(transport) => {
                 transport.recv_into_with_timeout(dst, timeout)
             }
+        }
+    }
+
+    fn send_semantics(&self) -> SendSemantics {
+        match self {
+            BlockingTransportHandle::Tcp(transport) => transport.send_semantics(),
+            BlockingTransportHandle::Udp(transport) => transport.send_semantics(),
+            #[cfg(feature = "transport-serial")]
+            BlockingTransportHandle::Serial(transport) => transport.send_semantics(),
         }
     }
 }
@@ -168,6 +181,26 @@ pub trait BlockingTransport: Send {
     /// * `Err(_)` - For other transport errors
     fn recv_into_with_timeout(&mut self, dst: &mut [u8], timeout: Duration)
         -> Result<usize, Error>;
+
+    /// Query the transport's send semantics.
+    ///
+    /// This method returns whether the transport uses stream or datagram semantics,
+    /// which determines how the runtime handles send failures:
+    ///
+    /// - [`SendSemantics::Stream`]: On send failure/timeout, the transport is
+    ///   "poisoned" and the runtime stops using it to prevent protocol desync.
+    ///
+    /// - [`SendSemantics::Datagram`]: On send failure, only the affected command
+    ///   fails; the transport continues operating for subsequent commands.
+    ///
+    /// # Default Implementation
+    ///
+    /// Returns [`SendSemantics::Stream`] by default, which is the safer choice
+    /// for unknown transport types. Datagram transports (UDP) should override
+    /// this to return [`SendSemantics::Datagram`].
+    fn send_semantics(&self) -> SendSemantics {
+        SendSemantics::Stream
+    }
 }
 
 /// Trait for types that carry transport configuration.

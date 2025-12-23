@@ -8,7 +8,7 @@ use crate::{
         address::AddressResolver,
         buffer::BufferConfig,
         builder::{AddressingMode, TransportConfig},
-        BlockingTransport, HasTransportConfig,
+        BlockingTransport, HasTransportConfig, SendSemantics,
     },
     Error,
 };
@@ -115,5 +115,11 @@ impl BlockingTransport for Udp {
             }
             Err(e) => Err(e.into()),
         }
+    }
+
+    fn send_semantics(&self) -> SendSemantics {
+        // UDP sends are atomic at the datagram boundary - a failed send
+        // does not affect the state for subsequent sends
+        SendSemantics::Datagram
     }
 }

@@ -11,6 +11,18 @@
 //! - **BlockingTransport** - Blocking methods with OS-level timeout support
 //! - Implementations: TCP and UDP for both blocking and async
 //!
+//! ## Send Semantics
+//!
+//! Transports are classified by their send semantics, which determines how
+//! the runtime handles send failures:
+//!
+//! - **Stream** (TCP, Serial): A partial write can leave the byte stream in an
+//!   unknown state. On send failure/timeout, the transport is "poisoned" and
+//!   must be dropped to prevent protocol desynchronization.
+//!
+//! - **Datagram** (UDP): Each send is atomic at the datagram boundary. A failed
+//!   send does not affect subsequent sends, so the transport can continue operating.
+//!
 //! ## Usage
 //!
 //! For blocking transports (using camera-first API):
@@ -57,6 +69,40 @@
 //! ```
 
 use std::time::{Duration, Instant};
+
+/// Send semantics for transport classification.
+///
+/// This enum categorizes transports by how their send operations behave,
+/// which determines the runtime's failure handling strategy:
+///
+/// - **Stream transports** (TCP, Serial): Byte-oriented, where a partial write
+///   can leave the stream in an unknown state. On send failure or timeout,
+///   the transport must be poisoned to prevent protocol desynchronization.
+///
+/// - **Datagram transports** (UDP): Message-oriented, where each send is atomic.
+///   A failed send does not affect subsequent sends, so the transport can
+///   continue operating.
+///
+/// # Usage
+///
+/// The runtime queries this via `send_semantics()` on send errors to decide
+/// whether to poison the transport (Stream) or continue (Datagram).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SendSemantics {
+    /// Byte-stream transport (TCP, Serial).
+    ///
+    /// A send failure/timeout can leave the stream in an unknown state
+    /// (partial frame written). The transport must be poisoned on send
+    /// failure to prevent protocol desynchronization.
+    Stream,
+
+    /// Datagram transport (UDP).
+    ///
+    /// Each send is atomic at the datagram boundary. A failed send
+    /// does not affect subsequent sends, so the transport can continue
+    /// operating after a send failure.
+    Datagram,
+}
 
 pub mod address;
 #[cfg(any(

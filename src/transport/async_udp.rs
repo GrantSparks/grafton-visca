@@ -6,6 +6,7 @@
 use crate::{
     transport::{
         async_io::AsyncDatagram, builder::TransportConfig, AsyncTransport, HasTransportConfig,
+        SendSemantics,
     },
     Error,
 };
@@ -46,6 +47,12 @@ impl<S: AsyncDatagram> AsyncTransport for Udp<S> {
         // Receive data directly into the provided buffer
         let n = self.socket.recv(dst).await?;
         Ok(n)
+    }
+
+    fn send_semantics(&self) -> SendSemantics {
+        // UDP sends are atomic at the datagram boundary - a failed send
+        // does not affect the state for subsequent sends
+        SendSemantics::Datagram
     }
 }
 
