@@ -122,6 +122,8 @@ struct ParserInfo {
     offset: Option<i8>,
     mode_type: Option<String>,
     custom_fn: Option<String>,
+    convention: Option<String>, // "OnIs02" or "OnIs03" for bool_convention parser
+    data_variant: Option<String>, // InquiryData variant if different from response (InquiryKind)
 }
 
 fn parse_visca_attributes_from_struct(input: &DeriveInput) -> ViscaAttributes {
@@ -200,6 +202,8 @@ fn parse_visca_attributes_from_struct(input: &DeriveInput) -> ViscaAttributes {
                         offset: None,
                         mode_type: None,
                         custom_fn: None,
+                        convention: None,
+                        data_variant: None,
                     };
 
                     // Continue parsing for additional parser attributes
@@ -248,6 +252,26 @@ fn parse_visca_attributes_from_struct(input: &DeriveInput) -> ViscaAttributes {
                     if let Some(ref mut parser) = attrs.parser {
                         parser.custom_fn = Some(value.to_string());
                     }
+                } else if part.contains("convention") && attrs.parser.is_some() {
+                    let value = part
+                        .split('=')
+                        .nth(1)
+                        .expect("convention must have a value")
+                        .trim()
+                        .trim_matches('"');
+                    if let Some(ref mut parser) = attrs.parser {
+                        parser.convention = Some(value.to_string());
+                    }
+                } else if part.contains("data_variant") && attrs.parser.is_some() {
+                    let value = part
+                        .split('=')
+                        .nth(1)
+                        .expect("data_variant must have a value")
+                        .trim()
+                        .trim_matches('"');
+                    if let Some(ref mut parser) = attrs.parser {
+                        parser.data_variant = Some(value.to_string());
+                    }
                 } else if part.contains("constant") || part.contains("bytes_const") {
                     let value = part
                         .split('=')
@@ -269,6 +293,13 @@ fn generate_parser_body(
     parser_info: &ParserInfo,
     crate_path: &TokenStream,
 ) -> TokenStream {
+    // Use data_variant if specified, otherwise use response_variant
+    let actual_variant = parser_info
+        .data_variant
+        .as_deref()
+        .map(|s| format_ident!("{}", s))
+        .unwrap_or_else(|| response_variant.clone());
+
     match parser_info.parser_type.as_str() {
         "bool" => super::parser_templates::generate_bool_parser(response_variant, crate_path),
         "direct_byte" | "byte" => {
@@ -325,6 +356,86 @@ fn generate_parser_body(
         }
         "pan_tilt" => {
             super::parser_templates::generate_pan_tilt_parser(response_variant, crate_path)
+        }
+        "bool_convention" => {
+            let field_name = parser_info
+                .field_name
+                .as_deref()
+                .map(|s| format_ident!("{}", s))
+                .expect("bool_convention parser requires field attribute");
+            let convention = parser_info
+                .convention
+                .as_deref()
+                .map(|s| format_ident!("{}", s))
+                .expect("bool_convention parser requires convention attribute (OnIs02 or OnIs03)");
+            super::parser_templates::generate_bool_convention_parser(
+                &actual_variant,
+                &field_name,
+                &convention,
+                crate_path,
+            )
+        }
+        "last_nibble" => {
+            let field_name = parser_info
+                .field_name
+                .as_deref()
+                .map(|s| format_ident!("{}", s))
+                .expect("last_nibble parser requires field attribute");
+            super::parser_templates::generate_last_nibble_parser(
+                &actual_variant,
+                &field_name,
+                crate_path,
+            )
+        }
+        "tally_status" => super::parser_templates::generate_tally_status_parser(crate_path),
+        "sharpness_mode" => super::parser_templates::generate_sharpness_mode_parser(crate_path),
+        "gamma" => super::parser_templates::generate_gamma_parser(crate_path),
+        "auto_wb_sensitivity" => {
+            super::parser_templates::generate_auto_wb_sensitivity_parser(crate_path)
+        }
+        "nd_filter" => {
+            let field_name = format_ident!("position");
+            let converter_type = quote! { #crate_path::command::resolution::NdFilterPosition };
+            super::parser_templates::generate_byte_converter_parser(
+                &actual_variant,
+                &field_name,
+                &converter_type,
+                super::parser_templates::ConverterMethod::FromByte,
+                crate_path,
+            )
+        }
+        "picture_effect" => {
+            let field_name = format_ident!("effect");
+            let converter_type = quote! { #crate_path::command::resolution::PictureEffectMode };
+            super::parser_templates::generate_byte_converter_parser(
+                &actual_variant,
+                &field_name,
+                &converter_type,
+                super::parser_templates::ConverterMethod::FromByte,
+                crate_path,
+            )
+        }
+        "defog_level" => {
+            let field_name = format_ident!("level");
+            let converter_type = quote! { #crate_path::types::DefogLevel };
+            super::parser_templates::generate_byte_converter_parser(
+                &actual_variant,
+                &field_name,
+                &converter_type,
+                super::parser_templates::ConverterMethod::New,
+                crate_path,
+            )
+        }
+        "focus_range" => {
+            let field_name = format_ident!("range");
+            let converter_type = quote! { #crate_path::command::FocusRange };
+            super::parser_templates::generate_byte_converter_parser(
+                &actual_variant,
+                &field_name,
+                &converter_type,
+                super::parser_templates::ConverterMethod::TryFrom,
+                crate_path,
+            )
         }
         "custom" => {
             let custom_fn = parser_info

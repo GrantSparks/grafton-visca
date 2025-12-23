@@ -127,8 +127,8 @@ pub struct ExposureCompensationModeInquiry;
 #[visca(
     opcode = 0x4B,
     response = "Iris",
-    parser = "custom",
-    parse_with = "parse_iris_last_nibble",
+    parser = "last_nibble",
+    field = "position",
     bytes_const = "IRIS"
 )]
 pub struct IrisInquiry;
@@ -275,8 +275,7 @@ pub struct BlueGainInquiry;
 #[visca(
     opcode = 0x05,
     response = "SharpnessMode",
-    parser = "custom",
-    parse_with = "parse_sharpness_mode",
+    parser = "sharpness_mode",
     bytes_const = "SHARPNESS_MODE"
 )]
 pub struct SharpnessModeInquiry;
@@ -286,8 +285,8 @@ pub struct SharpnessModeInquiry;
 #[visca(
     opcode = 0x49,
     response = "Saturation",
-    parser = "custom",
-    parse_with = "parse_saturation_last_nibble",
+    parser = "last_nibble",
+    field = "level",
     bytes_const = "SATURATION"
 )]
 pub struct SaturationInquiry;
@@ -297,8 +296,8 @@ pub struct SaturationInquiry;
 #[visca(
     opcode = 0x4F,
     response = "Hue",
-    parser = "custom",
-    parse_with = "parse_hue_last_nibble",
+    parser = "last_nibble",
+    field = "hue",
     bytes_const = "HUE"
 )]
 pub struct HueInquiry;
@@ -308,8 +307,9 @@ pub struct HueInquiry;
 #[visca(
     opcode = 0x4C,
     response = "Gain",
-    parser = "custom",
-    parse_with = "parse_gain_last_nibble",
+    parser = "last_nibble",
+    field = "gain",
+    data_variant = "GainLevel",
     bytes_const = "GAIN"
 )]
 pub struct GainInquiry;
@@ -432,8 +432,9 @@ pub struct FocusModeInquiry;
 #[visca(
     opcode = 0x06,
     response = "MenuOpenClose",
-    parser = "custom",
-    parse_with = "parse_menu_open_close",
+    parser = "bool_convention",
+    convention = "OnIs02",
+    field = "is_open",
     bytes_const = "MENU_OPEN_CLOSE"
 )]
 pub struct MenuOpenCloseInquiry;
@@ -447,8 +448,7 @@ pub struct MenuOpenCloseInquiry;
 #[visca(
     opcode = 0xA8,
     response = "TallyStatus",
-    parser = "custom",
-    parse_with = "parse_tally_status",
+    parser = "tally_status",
     bytes_const = "TALLY_STATUS"
 )]
 pub struct TallyStatusInquiry;
@@ -468,8 +468,9 @@ pub struct ResolutionInquiry;
 #[visca(
     opcode = 0x60,
     response = "NightDayMode",
-    parser = "custom",
-    parse_with = "parse_night_day_mode",
+    parser = "bool_convention",
+    convention = "OnIs03",
+    field = "is_night",
     bytes_const = "NIGHT_DAY_MODE"
 )]
 pub struct NightDayModeInquiry;
@@ -479,8 +480,7 @@ pub struct NightDayModeInquiry;
 #[visca(
     opcode = 0x64,
     response = "NdFilter",
-    parser = "custom",
-    parse_with = "parse_nd_filter",
+    parser = "nd_filter",
     bytes_const = "ND_FILTER"
 )]
 pub struct NdFilterInquiry;
@@ -490,8 +490,7 @@ pub struct NdFilterInquiry;
 #[visca(
     opcode = 0x32,
     response = "PictureEffect",
-    parser = "custom",
-    parse_with = "parse_picture_effect",
+    parser = "picture_effect",
     bytes_const = "PICTURE_EFFECT"
 )]
 pub struct PictureEffectInquiry;
@@ -501,8 +500,7 @@ pub struct PictureEffectInquiry;
 #[visca(
     opcode = 0x65,
     response = "FlipState",
-    parser = "custom",
-    parse_with = "parse_flip_mode",
+    parser = "flags",
     bytes_const = "FLIP_MODE"
 )]
 pub struct FlipStateInquiry;
@@ -512,8 +510,9 @@ pub struct FlipStateInquiry;
 #[visca(
     opcode = 0x70,
     response = "Standby",
-    parser = "custom",
-    parse_with = "parse_standby",
+    parser = "bool_convention",
+    convention = "OnIs03",
+    field = "in_standby",
     bytes_const = "STANDBY"
 )]
 pub struct StandbyInquiry;
@@ -523,8 +522,7 @@ pub struct StandbyInquiry;
 #[visca(
     opcode = 0x2A,
     response = "FocusRange",
-    parser = "custom",
-    parse_with = "parse_focus_range",
+    parser = "focus_range",
     bytes_const = "FOCUS_RANGE"
 )]
 pub struct FocusRangeInquiry;
@@ -534,8 +532,9 @@ pub struct FocusRangeInquiry;
 #[visca(
     opcode = 0x2B,
     response = "IrisControl",
-    parser = "custom",
-    parse_with = "parse_iris_control",
+    parser = "bool_convention",
+    convention = "OnIs03",
+    field = "auto",
     bytes_const = "IRIS_CONTROL"
 )]
 pub struct IrisControlInquiry;
@@ -545,8 +544,9 @@ pub struct IrisControlInquiry;
 #[visca(
     opcode = 0x37,
     response = "DefogMode",
-    parser = "custom",
-    parse_with = "parse_defog_mode",
+    parser = "bool_convention",
+    convention = "OnIs03",
+    field = "enabled",
     bytes_const = "DEFOG_MODE"
 )]
 pub struct DefogModeInquiry;
@@ -556,8 +556,7 @@ pub struct DefogModeInquiry;
 #[visca(
     opcode = 0xA0,
     response = "DefogLevel",
-    parser = "custom",
-    parse_with = "parse_defog_level",
+    parser = "defog_level",
     bytes_const = "DEFOG_LEVEL"
 )]
 pub struct DefogLevelInquiry;
@@ -567,8 +566,9 @@ pub struct DefogLevelInquiry;
 #[visca(
     opcode = 0x6B,
     response = "DigitalPtz",
-    parser = "custom",
-    parse_with = "parse_digital_ptz",
+    parser = "bool_convention",
+    convention = "OnIs03",
+    field = "enabled",
     bytes_const = "DIGITAL_PTZ"
 )]
 pub struct DigitalPtzInquiry;
@@ -578,8 +578,7 @@ pub struct DigitalPtzInquiry;
 #[visca(
     opcode = 0x59,
     response = "AutoWhiteBalanceSensitivity",
-    parser = "custom",
-    parse_with = "parse_auto_wb_sensitivity",
+    parser = "auto_wb_sensitivity",
     bytes_const = "AUTO_WB_SENSITIVITY"
 )]
 pub struct AutoWhiteBalanceSensitivityInquiry;
@@ -724,8 +723,7 @@ impl crate::command::typed::ResponseParser for BlueTuningInquiry {
 #[visca(
     opcode = 0x5B,
     response = "Gamma",
-    parser = "custom",
-    parse_with = "parse_gamma",
+    parser = "gamma",
     bytes_const = "GAMMA"
 )]
 pub struct GammaInquiry;
@@ -736,8 +734,9 @@ pub struct GammaInquiry;
     opcode = 0x09,
     subcode = 0x50,
     response = "AutoTrace",
-    parser = "custom",
-    parse_with = "parse_auto_trace",
+    parser = "bool_convention",
+    convention = "OnIs03",
+    field = "enabled",
     bytes_const = "AUTO_TRACE"
 )]
 pub struct AutoTraceInquiry;
@@ -748,8 +747,9 @@ pub struct AutoTraceInquiry;
     opcode = 0x08,
     subcode = 0x54,
     response = "FocusUnlock",
-    parser = "custom",
-    parse_with = "parse_focus_unlock",
+    parser = "bool_convention",
+    convention = "OnIs03",
+    field = "unlocked",
     bytes_const = "FOCUS_UNLOCK"
 )]
 pub struct FocusUnlockInquiry;

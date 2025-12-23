@@ -249,3 +249,195 @@ pub fn generate_pan_tilt_parser(response_variant: &Ident, crate_path: &TokenStre
         }
     }
 }
+
+/// Generate a boolean parser using BoolConvention
+///
+/// Uses `Payload::parse_bool()` with explicit convention for type-safe parsing.
+pub fn generate_bool_convention_parser(
+    response_variant: &Ident,
+    field_name: &Ident,
+    convention: &Ident,
+    crate_path: &TokenStream,
+) -> TokenStream {
+    let param_name = field_name.to_string();
+    quote! {
+        {
+            let payload = #crate_path::command::response::Payload::new(data);
+            let #field_name = payload.parse_bool(
+                #param_name,
+                #crate_path::command::response::BoolConvention::#convention
+            )?;
+            Ok(#crate_path::command::InquiryData::#response_variant { #field_name })
+        }
+    }
+}
+
+/// Generate a last-nibble parser (extracts last nibble from 4-byte payload)
+///
+/// Uses `Nibbles::<4>::try_from()` for type-safe nibble extraction.
+pub fn generate_last_nibble_parser(
+    response_variant: &Ident,
+    field_name: &Ident,
+    crate_path: &TokenStream,
+) -> TokenStream {
+    quote! {
+        {
+            let payload = #crate_path::command::response::Payload::new(data);
+            let nibbles = #crate_path::command::response::payload::Nibbles::<4>::try_from(payload)?;
+            Ok(#crate_path::command::InquiryData::#response_variant {
+                #field_name: nibbles.last_nibble()
+            })
+        }
+    }
+}
+
+/// Generate a tally status parser (2-byte boolean response)
+///
+/// Parses red (byte 0) and green (byte 1) tally states using BoolConvention.
+pub fn generate_tally_status_parser(crate_path: &TokenStream) -> TokenStream {
+    quote! {
+        {
+            if data.len() < 2 {
+                return Err(#crate_path::Error::invalid_response_length(2, data));
+            }
+            let red_payload = #crate_path::command::response::Payload::new(&data[0..1]);
+            let green_payload = #crate_path::command::response::Payload::new(&data[1..2]);
+            let red_on = red_payload.parse_bool(
+                "tally_red_status",
+                #crate_path::command::response::BoolConvention::OnIs03
+            )?;
+            let green_on = green_payload.parse_bool(
+                "tally_green_status",
+                #crate_path::command::response::BoolConvention::OnIs03
+            )?;
+            Ok(#crate_path::command::InquiryData::TallyStatus { red_on, green_on })
+        }
+    }
+}
+
+/// Generate a sharpness mode parser (Auto=0x02, Manual=0x03)
+///
+/// Maps 0x02 to Auto and 0x03 to Manual (similar to bool convention but returns enum).
+pub fn generate_sharpness_mode_parser(crate_path: &TokenStream) -> TokenStream {
+    quote! {
+        {
+            if data.is_empty() {
+                return Err(#crate_path::Error::invalid_response_length(1, data));
+            }
+            let mode = match data[0] {
+                0x02 => #crate_path::command::image::SharpnessMode::Auto,
+                0x03 => #crate_path::command::image::SharpnessMode::Manual,
+                _ => return Err(#crate_path::Error::InvalidParameter {
+                    parameter: "sharpness_mode",
+                    value: ::std::borrow::Cow::Owned(format!("0x{:02X}", data[0])),
+                    reason: ::std::borrow::Cow::Borrowed("Expected 0x02 (Auto) or 0x03 (Manual)"),
+                }),
+            };
+            Ok(#crate_path::command::InquiryData::SharpnessMode { mode })
+        }
+    }
+}
+
+/// Converter method for byte-to-type parsing
+#[derive(Debug, Clone, Copy)]
+pub enum ConverterMethod {
+    /// Use `Type::from_byte(byte)` (infallible)
+    FromByte,
+    /// Use `Type::try_from(byte)?` (returns Result)
+    TryFrom,
+    /// Use `Type::new(byte).map_err(...)?` (returns Result with custom type)
+    New,
+}
+
+/// Generate a byte-to-type converter parser
+///
+/// Converts a single byte to a type using the specified converter method.
+pub fn generate_byte_converter_parser(
+    response_variant: &Ident,
+    field_name: &Ident,
+    converter_type: &TokenStream,
+    converter_method: ConverterMethod,
+    crate_path: &TokenStream,
+) -> TokenStream {
+    let param_name = field_name.to_string();
+
+    match converter_method {
+        ConverterMethod::FromByte => {
+            quote! {
+                {
+                    if data.is_empty() {
+                        return Err(#crate_path::Error::invalid_response_length(1, data));
+                    }
+                    let #field_name = #converter_type::from_byte(data[0]);
+                    Ok(#crate_path::command::InquiryData::#response_variant { #field_name })
+                }
+            }
+        }
+        ConverterMethod::TryFrom => {
+            quote! {
+                {
+                    if data.is_empty() {
+                        return Err(#crate_path::Error::invalid_response_length(1, data));
+                    }
+                    let #field_name = #converter_type::try_from(data[0])?;
+                    Ok(#crate_path::command::InquiryData::#response_variant { #field_name })
+                }
+            }
+        }
+        ConverterMethod::New => {
+            quote! {
+                {
+                    if data.is_empty() {
+                        return Err(#crate_path::Error::invalid_response_length(1, data));
+                    }
+                    let #field_name = #converter_type::new(data[0]).map_err(|_| {
+                        #crate_path::Error::InvalidParameter {
+                            parameter: #param_name,
+                            value: ::std::borrow::Cow::Owned(data[0].to_string()),
+                            reason: ::std::borrow::Cow::Borrowed("value out of range"),
+                        }
+                    })?;
+                    Ok(#crate_path::command::InquiryData::#response_variant { #field_name })
+                }
+            }
+        }
+    }
+}
+
+/// Generate a gamma parser (direct byte value)
+pub fn generate_gamma_parser(crate_path: &TokenStream) -> TokenStream {
+    quote! {
+        {
+            if data.is_empty() {
+                return Err(#crate_path::Error::invalid_response_length(1, data));
+            }
+            Ok(#crate_path::command::InquiryData::Gamma { value: data[0] })
+        }
+    }
+}
+
+/// Generate an auto white balance sensitivity parser
+///
+/// Maps 0x00=High, 0x01=Normal, 0x02=Low
+pub fn generate_auto_wb_sensitivity_parser(crate_path: &TokenStream) -> TokenStream {
+    quote! {
+        {
+            if data.is_empty() {
+                return Err(#crate_path::Error::invalid_response_length(1, data));
+            }
+            let sensitivity = match data[0] {
+                0x00 => #crate_path::command::AutoWhiteBalanceSensitivity::High,
+                0x01 => #crate_path::command::AutoWhiteBalanceSensitivity::Normal,
+                0x02 => #crate_path::command::AutoWhiteBalanceSensitivity::Low,
+                _ => return Err(#crate_path::Error::InvalidParameter {
+                    parameter: "auto_wb_sensitivity",
+                    value: ::std::borrow::Cow::Owned(format!("0x{:02X}", data[0])),
+                    reason: ::std::borrow::Cow::Borrowed(
+                        "Expected 0x00 (High), 0x01 (Normal), or 0x02 (Low)"
+                    ),
+                }),
+            };
+            Ok(#crate_path::command::InquiryData::AutoWhiteBalanceSensitivity { sensitivity })
+        }
+    }
+}
