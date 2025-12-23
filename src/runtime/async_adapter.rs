@@ -472,12 +472,38 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
             BasicKind::Completion => {
                 let cmd_id = sequence.and_then(|seq| self.core.get_command_by_sequence(seq));
                 let response_type = cmd_id.and_then(|id| self.core.get_inquiry_type(id));
-                let response = lift_inquiry_for::<P>(&basic, response_type.as_ref())?;
-                SchedulerEvent::Completion {
-                    socket: basic.socket,
-                    cmd_id,
-                    sequence,
-                    response,
+
+                // Handle decode errors inline to avoid timeouts on protocol errors.
+                // If decoding fails but we have a cmd_id, fail the command immediately
+                // instead of propagating the error and leaving the command in-flight.
+                match lift_inquiry_for::<P>(&basic, response_type.as_ref()) {
+                    Ok(response) => SchedulerEvent::Completion {
+                        socket: basic.socket,
+                        cmd_id,
+                        sequence,
+                        response,
+                    },
+                    Err(decode_error) => {
+                        if let Some(id) = cmd_id {
+                            // Decode error for an attributed command: fail immediately
+                            self.metrics.protocol_errors += 1;
+
+                            let error = decode_error.with_context("Response decode failed");
+                            if let Some(action) = self.core.fail_after_receive_error(id, error) {
+                                self.apply_action(action);
+                            }
+                        } else {
+                            // No cmd_id attribution: log and drop frame
+                            // (garbled/stale reply we cannot attribute)
+                            use tracing::warn;
+                            warn!(
+                                ?decode_error,
+                                ?sequence,
+                                "Decode error for unattributed Completion, dropping frame"
+                            );
+                        }
+                        return Ok(());
+                    }
                 }
             }
             BasicKind::Error(code) => {
@@ -528,11 +554,37 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
             BasicKind::DataReply => {
                 let cmd_id = self.core.resolve_inquiry_id(basic.payload, sequence);
                 let response_type = cmd_id.and_then(|id| self.core.get_inquiry_type(id));
-                let response = lift_inquiry_for::<P>(&basic, response_type.as_ref())?;
-                SchedulerEvent::InquiryReply {
-                    cmd_id,
-                    sequence,
-                    response,
+
+                // Handle decode errors inline to avoid timeouts on protocol errors.
+                // If decoding fails but we have a cmd_id, fail the command immediately
+                // instead of propagating the error and leaving the command in-flight.
+                match lift_inquiry_for::<P>(&basic, response_type.as_ref()) {
+                    Ok(response) => SchedulerEvent::InquiryReply {
+                        cmd_id,
+                        sequence,
+                        response,
+                    },
+                    Err(decode_error) => {
+                        if let Some(id) = cmd_id {
+                            // Decode error for an attributed command: fail immediately
+                            self.metrics.protocol_errors += 1;
+
+                            let error = decode_error.with_context("Response decode failed");
+                            if let Some(action) = self.core.fail_after_receive_error(id, error) {
+                                self.apply_action(action);
+                            }
+                        } else {
+                            // No cmd_id attribution: log and drop frame
+                            // (garbled/stale reply we cannot attribute)
+                            use tracing::warn;
+                            warn!(
+                                ?decode_error,
+                                ?sequence,
+                                "Decode error for unattributed DataReply, dropping frame"
+                            );
+                        }
+                        return Ok(());
+                    }
                 }
             }
             BasicKind::NetworkChange | BasicKind::Unknown => return Ok(()),
@@ -848,6 +900,155 @@ mod tests {
         assert_eq!(
             metrics.protocol_errors, 1,
             "Should have 1 protocol error tracked"
+        );
+    }
+
+    /// Test that decode errors in DataReply responses fail immediately instead of timing out.
+    ///
+    /// This test verifies issue #479: when a DataReply arrives with an invalid payload
+    /// (e.g., wrong length for the expected InquiryKind), the command should receive
+    /// an error immediately rather than waiting for a timeout.
+    ///
+    /// Before this fix, decode errors in `lift_inquiry_for` would propagate out of
+    /// `process_response`, leaving the command in-flight until timeout.
+    #[test]
+    fn test_decode_error_in_data_reply_fails_immediately() {
+        let (executor, _clock) = DeterministicExecutor::new();
+        let timeout_config = TimeoutConfig::default();
+        let retry_config = RetryConfig::default();
+
+        let mut adapter = AsyncAdapter::<PtzOpticsG2, _>::new(
+            timeout_config,
+            retry_config,
+            executor.clone(),
+            DEFAULT_MAX_PENDING_QUEUE_DEPTH,
+        );
+
+        let camera_id = CameraId::CAMERA_1;
+
+        // Create an inquiry expecting a Power response (which requires exactly 1 byte)
+        let inq = Arc::new(EncodedCommand {
+            payload: SmallVec::from_slice(&[0x81, 0x09, 0x04, 0x00, VISCA_TERMINATOR]),
+            kind: CommandKind::Inquiry,
+            category: CommandCategory::Quick,
+            response_type: Some(InquiryKind::Power),
+        });
+
+        // Register the expected inquiry type BEFORE starting the inquiry
+        // This ensures get_inquiry_type returns the type for decoding
+        adapter
+            .core
+            .register_inquiry_type(cmd_id(99), InquiryKind::Power);
+
+        // Start the inquiry in the scheduler
+        adapter.core.start_inquiry(
+            cmd_id(99),
+            inq.clone(),
+            Priority::Normal,
+            CommandCategory::Quick,
+            camera_id,
+            CommandKind::Inquiry,
+            executor.now(),
+        );
+
+        // Register the response channel
+        let (response_tx, response_rx) = flume::unbounded();
+        adapter.response_channels.insert(cmd_id(99), response_tx);
+
+        // Simulate a DataReply with WRONG length (3 bytes instead of 1)
+        // Power inquiry expects 1 byte, but we send 3 bytes: 90 50 01 02 03 FF
+        // This should trigger InvalidResponseLength error in the Power decoder
+        let malformed_data_reply = vec![0x90, 0x50, 0x01, 0x02, 0x03, VISCA_TERMINATOR];
+
+        // Process the malformed response - should NOT return Err
+        let result = executor.block_on(adapter.process_response(&malformed_data_reply, None));
+        assert!(
+            result.is_ok(),
+            "process_response should return Ok even on decode error: {result:?}"
+        );
+
+        // The inquiry should receive an error immediately (not timeout)
+        let response_result = response_rx.try_recv();
+        assert!(
+            response_result.is_ok(),
+            "Inquiry should receive error immediately, not timeout"
+        );
+
+        // Verify the error has the right context
+        match response_result.unwrap() {
+            Err(Error::WithContext {
+                ref context,
+                ref source,
+            }) => {
+                assert!(
+                    context.contains("Response decode failed"),
+                    "Error should have decode context, got: {context}"
+                );
+                // The underlying error should be InvalidResponseLength
+                assert!(
+                    matches!(**source, Error::InvalidResponseLength { .. }),
+                    "Source error should be InvalidResponseLength, got: {source:?}"
+                );
+            }
+            other => {
+                panic!("Expected WithContext error with 'Response decode failed', got: {other:?}")
+            }
+        }
+
+        // Verify metrics
+        let metrics = adapter.metrics_summary();
+        assert_eq!(metrics.commands_failed, 1, "Should have 1 failed command");
+        assert_eq!(
+            metrics.protocol_errors, 1,
+            "Should have 1 protocol error tracked"
+        );
+
+        // Verify command is no longer in-flight
+        assert!(
+            !adapter.core.is_command_pending(cmd_id(99)),
+            "Command should be removed from in-flight state"
+        );
+    }
+
+    /// Test that decode errors for unattributed DataReply frames are handled gracefully.
+    ///
+    /// When a DataReply cannot be attributed to any command (no sequence match, no FIFO match),
+    /// decode errors should be logged but not cause process_response to fail.
+    #[test]
+    fn test_decode_error_for_unattributed_reply_is_handled() {
+        let (executor, _clock) = DeterministicExecutor::new();
+        let timeout_config = TimeoutConfig::default();
+        let retry_config = RetryConfig::default();
+
+        let mut adapter = AsyncAdapter::<PtzOpticsG2, _>::new(
+            timeout_config,
+            retry_config,
+            executor.clone(),
+            DEFAULT_MAX_PENDING_QUEUE_DEPTH,
+        );
+
+        // NO inquiry in-flight - the reply will be unattributed
+
+        // Simulate a DataReply for a completely unknown/unmatched inquiry
+        // This could happen if a stale reply arrives after command timeout
+        let orphan_data_reply = vec![0x90, 0x50, 0x01, VISCA_TERMINATOR];
+
+        // Process the orphan reply - should NOT return Err
+        let result = executor.block_on(adapter.process_response(&orphan_data_reply, None));
+        assert!(
+            result.is_ok(),
+            "process_response should succeed for unattributed replies: {result:?}"
+        );
+
+        // Metrics should not change (no command to fail)
+        let metrics = adapter.metrics_summary();
+        assert_eq!(
+            metrics.commands_failed, 0,
+            "Should have 0 failed commands for unattributed reply"
+        );
+        assert_eq!(
+            metrics.protocol_errors, 0,
+            "Should have 0 protocol errors for unattributed reply"
         );
     }
 

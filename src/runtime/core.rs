@@ -2308,6 +2308,39 @@ impl SchedulerCore {
         })
     }
 
+    /// Fail a command due to a receive-side error (e.g., decode failure, protocol error).
+    ///
+    /// Similar to `fail_after_send_error`, this immediately fails a command without
+    /// retry since the response was received but contained an error. The error is
+    /// passed through without additional context wrapping.
+    ///
+    /// Unlike send errors, receive errors indicate the camera did receive and process
+    /// the command, but the response was malformed or indicated an error condition.
+    /// No "Send failed" context is added since the send succeeded.
+    pub fn fail_after_receive_error(
+        &mut self,
+        cmd_id: CommandId,
+        error: Error,
+    ) -> Option<SchedulerAction> {
+        // Remove from all tracking sets
+        self.inflight_inquiry_ids.remove(&cmd_id);
+        self.pending_ack_ids.remove(&cmd_id);
+        self.inquiries_order.retain(|&x| x != cmd_id);
+
+        // Free any socket allocated to this command.
+        // Commands (unlike inquiries) may have sockets; freeing them allows
+        // subsequent commands to proceed without waiting for a timeout.
+        if let Some(socket) = self.find_socket_for_command(cmd_id) {
+            self.free_socket(socket);
+        }
+
+        // Clean up sequence mappings and command state
+        self.finish_sequence(cmd_id);
+        self.commands.remove(&cmd_id);
+
+        Some(SchedulerAction::CommandFailed { id: cmd_id, error })
+    }
+
     /// Mark a retry as being triggered by a transport error.
     /// This affects the final error classification when retries are exhausted.
     pub fn mark_retry_as_transport_error(&mut self, cmd_id: CommandId) {
@@ -6496,6 +6529,92 @@ mod tests {
         assert!(
             core.is_command_pending(cmd_id(2)),
             "Command 2 should still be pending"
+        );
+    }
+
+    #[test]
+    fn test_fail_after_receive_error_frees_socket() {
+        // Test: fail_after_receive_error should free any socket allocated to the command.
+        //
+        // This ensures that receive-side errors (decode failures, protocol errors)
+        // immediately release socket resources so subsequent commands can proceed.
+        //
+        // Scenario:
+        // 1. Start a command and assign it a socket via ACK
+        // 2. Call fail_after_receive_error for that command
+        // 3. Verify the socket is freed
+
+        let mut core = SchedulerCore::new(TimeoutConfig::default());
+        let now = Instant::now();
+        let camera_id = CameraId::CAMERA_1;
+
+        let command = create_test_command(
+            vec![0x81, 0x01, 0x04, 0x00, 0x03, VISCA_TERMINATOR],
+            None,
+            CommandCategory::Movement,
+            camera_id,
+        );
+
+        // Register command and assign socket via ACK
+        core.register_pending_ack(
+            cmd_id(1),
+            command,
+            Priority::Normal,
+            CommandCategory::Movement,
+            camera_id,
+            CommandKind::Command,
+            now,
+        );
+
+        // Process ACK to assign socket
+        let ack = SchedulerEvent::Ack {
+            socket: Some(ViscaSocket::S1),
+            cmd_id: Some(cmd_id(1)),
+            sequence: None,
+        };
+        core.process_event(ack, now);
+
+        // Verify socket is occupied
+        let (free, socket_cmd_id, _) = core.socket_state(ViscaSocket::S1);
+        assert!(
+            !free,
+            "S1 should be occupied before fail_after_receive_error"
+        );
+        assert_eq!(
+            socket_cmd_id,
+            Some(cmd_id(1)),
+            "S1 should be assigned to command 1"
+        );
+
+        // Fail the command with a receive error (simulates decode failure)
+        let error = Error::invalid_response_length(1, &[0x01, 0x02, 0x03]);
+        let action = core.fail_after_receive_error(cmd_id(1), error);
+
+        // Verify action is CommandFailed
+        assert!(action.is_some(), "Should produce CommandFailed action");
+        match action.unwrap() {
+            SchedulerAction::CommandFailed { id, error } => {
+                assert_eq!(id, cmd_id(1));
+                assert!(
+                    matches!(error, Error::InvalidResponseLength { .. }),
+                    "Error should be InvalidResponseLength"
+                );
+            }
+            other => panic!("Expected CommandFailed, got {:?}", other),
+        }
+
+        // Verify socket is now free
+        let (free, socket_cmd_id, _) = core.socket_state(ViscaSocket::S1);
+        assert!(free, "S1 should be free after fail_after_receive_error");
+        assert_eq!(
+            socket_cmd_id, None,
+            "S1 should not be assigned to any command"
+        );
+
+        // Verify command is no longer pending
+        assert!(
+            !core.is_command_pending(cmd_id(1)),
+            "Command should be removed from pending"
         );
     }
 }
