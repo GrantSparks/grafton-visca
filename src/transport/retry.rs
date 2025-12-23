@@ -7,6 +7,8 @@
 use std::future::Future;
 use std::time::{Duration, Instant};
 
+#[cfg(test)]
+use super::BackoffStrategy;
 use super::RetryConfig;
 #[cfg(feature = "mode-async")]
 use crate::executor::Executor;
@@ -539,7 +541,7 @@ mod tests {
             max_retries: 3,
             base_retry_delay: Duration::from_millis(10),
             max_retry_duration: Duration::from_secs(1),
-            exponential_backoff: false,
+            backoff_strategy: BackoffStrategy::Constant,
         };
 
         let counter = Arc::new(AtomicUsize::new(0));
@@ -567,7 +569,7 @@ mod tests {
             max_retries: 2,
             base_retry_delay: Duration::from_millis(10),
             max_retry_duration: Duration::from_secs(10), // Increased to allow for Error::Timeout's 2-second suggested delay
-            exponential_backoff: false,
+            backoff_strategy: BackoffStrategy::Constant,
         };
 
         let mut calls = 0;
@@ -608,7 +610,7 @@ mod tests {
             max_retries: 3,
             base_retry_delay: Duration::from_millis(10),
             max_retry_duration: Duration::from_secs(1),
-            exponential_backoff: false,
+            backoff_strategy: BackoffStrategy::Constant,
         };
 
         let executor = TokioExecutor::from_current().expect("Failed to get Tokio executor");
@@ -641,7 +643,7 @@ mod tests {
             max_retries: 2,
             base_retry_delay: Duration::from_millis(10),
             max_retry_duration: Duration::from_secs(1),
-            exponential_backoff: false,
+            backoff_strategy: BackoffStrategy::Constant,
         };
 
         let executor = AsyncStdExecutor::new();
@@ -674,7 +676,7 @@ mod tests {
             max_retries: 2,
             base_retry_delay: Duration::from_millis(10),
             max_retry_duration: Duration::from_secs(1),
-            exponential_backoff: false,
+            backoff_strategy: BackoffStrategy::Constant,
         };
 
         let executor = SmolExecutor::new();
@@ -720,7 +722,7 @@ mod tests {
             max_retries: 3,
             base_retry_delay: Duration::from_millis(10),
             max_retry_duration: Duration::from_secs(1),
-            exponential_backoff: false,
+            backoff_strategy: BackoffStrategy::Constant,
         };
 
         // Create a deadline with a short timeout
@@ -772,7 +774,7 @@ mod tests {
             max_retries: 2,
             base_retry_delay: Duration::from_millis(10),
             max_retry_duration: Duration::from_secs(1),
-            exponential_backoff: false,
+            backoff_strategy: BackoffStrategy::Constant,
         };
 
         let result = execute_command_with_retry(&power_command, &timeout_policy, &config, || {
@@ -801,7 +803,7 @@ mod tests {
             max_retries: 10,
             base_retry_delay: Duration::from_millis(1),
             max_retry_duration: Duration::from_secs(1),
-            exponential_backoff: false,
+            backoff_strategy: BackoffStrategy::Constant,
         };
 
         // Test 1: Already expired deadline should return immediately without calling operation

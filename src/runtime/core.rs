@@ -2573,7 +2573,7 @@ mod tests {
     use super::*;
     use crate::command::bytes::VISCA_TERMINATOR;
     use crate::command::encode::EncodedCommand;
-    use crate::transport::RetryConfig;
+    use crate::transport::{BackoffStrategy, RetryConfig};
     use crate::CameraId;
     use smallvec::SmallVec;
     use std::sync::Arc;
@@ -2727,7 +2727,7 @@ mod tests {
             max_retries: 3,
             base_retry_delay: Duration::from_millis(100),
             max_retry_duration: Duration::from_secs(10),
-            exponential_backoff: true,
+            backoff_strategy: BackoffStrategy::Exponential,
         };
 
         // Legacy calculation: base_delay * 2^attempts.min(5)
@@ -4099,7 +4099,7 @@ mod tests {
                 max_retries: 2,
                 base_retry_delay: Duration::from_millis(100),
                 max_retry_duration: Duration::from_secs(5),
-                exponential_backoff: false,
+                backoff_strategy: BackoffStrategy::Constant,
             },
         );
 
@@ -4154,7 +4154,7 @@ mod tests {
                 max_retries: 1, // Only 1 retry allowed
                 base_retry_delay: Duration::from_millis(100),
                 max_retry_duration: Duration::from_secs(5),
-                exponential_backoff: false,
+                backoff_strategy: BackoffStrategy::Constant,
             },
         );
 
@@ -4214,7 +4214,7 @@ mod tests {
                 max_retries: 1,
                 base_retry_delay: Duration::from_millis(100),
                 max_retry_duration: Duration::from_secs(5),
-                exponential_backoff: false,
+                backoff_strategy: BackoffStrategy::Constant,
             },
         );
 
@@ -4268,7 +4268,7 @@ mod tests {
                 max_retries: 3,
                 base_retry_delay: Duration::from_millis(50),
                 max_retry_duration: Duration::from_secs(5),
-                exponential_backoff: true,
+                backoff_strategy: BackoffStrategy::Exponential,
             },
         );
 
@@ -5196,7 +5196,7 @@ mod tests {
             max_retries: 10, // High retry count to ensure duration is the limiting factor
             base_retry_delay: Duration::from_millis(10),
             max_retry_duration: Duration::from_millis(200), // Short duration for testing
-            exponential_backoff: false,
+            backoff_strategy: BackoffStrategy::Constant,
         };
         let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
 
@@ -5275,7 +5275,7 @@ mod tests {
             max_retries: 10,
             base_retry_delay: Duration::from_millis(10),
             max_retry_duration: Duration::from_millis(200),
-            exponential_backoff: false,
+            backoff_strategy: BackoffStrategy::Constant,
         };
         let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
 
@@ -5314,7 +5314,7 @@ mod tests {
             max_retries: 10,
             base_retry_delay: Duration::from_millis(10),
             max_retry_duration: Duration::from_millis(100),
-            exponential_backoff: false,
+            backoff_strategy: BackoffStrategy::Constant,
         };
         let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
 
@@ -5366,7 +5366,7 @@ mod tests {
             max_retries: 10,
             base_retry_delay: Duration::from_millis(10),
             max_retry_duration: Duration::from_millis(100),
-            exponential_backoff: false,
+            backoff_strategy: BackoffStrategy::Constant,
         };
         let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
 
@@ -5409,7 +5409,7 @@ mod tests {
             max_retries: 10,
             base_retry_delay: Duration::from_millis(10),
             max_retry_duration: Duration::from_millis(200),
-            exponential_backoff: false,
+            backoff_strategy: BackoffStrategy::Constant,
         };
         let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
 
@@ -5451,7 +5451,7 @@ mod tests {
             max_retries: 10,
             base_retry_delay: Duration::from_millis(10),
             max_retry_duration: Duration::from_millis(500),
-            exponential_backoff: false,
+            backoff_strategy: BackoffStrategy::Constant,
         };
         let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
 
@@ -5516,7 +5516,7 @@ mod tests {
             max_retries: 100, // Very high retry count
             base_retry_delay: Duration::from_millis(1),
             max_retry_duration: Duration::from_millis(50), // Very short duration
-            exponential_backoff: false,
+            backoff_strategy: BackoffStrategy::Constant,
         };
         let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
 
@@ -5555,7 +5555,7 @@ mod tests {
             max_retries: 3,
             base_retry_delay: Duration::from_millis(100),
             max_retry_duration: Duration::from_millis(500),
-            exponential_backoff: true,
+            backoff_strategy: BackoffStrategy::Exponential,
         };
 
         let start = Instant::now();
@@ -5805,7 +5805,7 @@ mod tests {
                 max_retries: 3,
                 base_retry_delay: Duration::from_millis(100),
                 max_retry_duration: Duration::from_secs(5),
-                exponential_backoff: false,
+                backoff_strategy: BackoffStrategy::Constant,
             },
         );
 
@@ -5862,7 +5862,7 @@ mod tests {
                 max_retries: 3,
                 base_retry_delay: Duration::from_millis(100),
                 max_retry_duration: Duration::from_secs(5),
-                exponential_backoff: false,
+                backoff_strategy: BackoffStrategy::Constant,
             },
         );
 
@@ -5913,7 +5913,7 @@ mod tests {
                 max_retries: 3,
                 base_retry_delay: Duration::from_millis(100),
                 max_retry_duration: Duration::from_secs(5),
-                exponential_backoff: false,
+                backoff_strategy: BackoffStrategy::Constant,
             },
         );
 
@@ -5967,7 +5967,7 @@ mod tests {
                 max_retries: 5,
                 base_retry_delay: Duration::from_millis(100),
                 max_retry_duration: Duration::from_secs(5),
-                exponential_backoff: false,
+                backoff_strategy: BackoffStrategy::Constant,
             },
         );
 
@@ -6038,7 +6038,7 @@ mod tests {
                 max_retries: 3,
                 base_retry_delay: Duration::from_millis(100),
                 max_retry_duration: Duration::from_secs(5),
-                exponential_backoff: false,
+                backoff_strategy: BackoffStrategy::Constant,
             },
         );
 
@@ -6086,7 +6086,7 @@ mod tests {
                 max_retries: 3,
                 base_retry_delay: Duration::from_millis(100),
                 max_retry_duration: Duration::from_secs(5),
-                exponential_backoff: false,
+                backoff_strategy: BackoffStrategy::Constant,
             },
         );
 

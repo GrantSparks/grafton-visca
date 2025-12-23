@@ -9,7 +9,7 @@
 use std::time::Duration;
 
 #[cfg(not(feature = "mode-async"))]
-use grafton_visca::transport::{NetTransportBuilder, RetryConfig, Transport};
+use grafton_visca::transport::{BackoffStrategy, NetTransportBuilder, RetryConfig, Transport};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Transport Builder Pattern Demo");
@@ -44,12 +44,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .max_retries(5)
             .retry_delay(Duration::from_millis(500))
             .max_retry_duration(Duration::from_secs(30))
-            .exponential_backoff(true);
+            .backoff_strategy(BackoffStrategy::Exponential);
         println!("  Created builder with:");
         println!("    - Max retries: 5");
         println!("    - Retry delay: 500ms");
         println!("    - Max retry duration: 30s");
-        println!("    - Exponential backoff: enabled\n");
+        println!("    - Backoff strategy: Exponential\n");
 
         // Example 4: TCP transport builder with all options
         println!("Example 4: TCP transport builder with all options");
@@ -74,7 +74,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             max_retries: 3,
             base_retry_delay: Duration::from_millis(100),
             max_retry_duration: Duration::from_secs(10),
-            exponential_backoff: false,
+            backoff_strategy: BackoffStrategy::Constant,
         };
         let _custom_retry = Transport::udp()
             .address("192.168.0.110:5678")
@@ -83,7 +83,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("    - Max retries: 3");
         println!("    - Base retry delay: 100ms");
         println!("    - Max retry duration: 10s");
-        println!("    - Exponential backoff: disabled\n");
+        println!("    - Backoff strategy: Constant\n");
     }
 
     // Example 6: Demonstrating the fluent API (blocking-only)
@@ -99,7 +99,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .ttl(64)
             .max_retries(5)
             .retry_delay(Duration::from_millis(200))
-            .exponential_backoff(true);
+            .backoff_strategy(BackoffStrategy::Exponential);
         println!("  Created builder with fluent API chaining:");
         println!("    - Connect timeout: 5s");
         println!("    - Read/Write timeout: 2s");
@@ -107,7 +107,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("    - TTL: 64");
         println!("    - Max retries: 5");
         println!("    - Retry delay: 200ms");
-        println!("    - Exponential backoff: enabled\n");
+        println!("    - Backoff strategy: Exponential\n");
     }
 
     // Example 7: Async transport API information

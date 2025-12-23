@@ -23,7 +23,7 @@ use grafton_visca::{
     testing::testkit::{DeterministicExecutor, ScriptedTransport, Step},
     transport::{
         protocol_detection::{DetectionResult, ProtocolDetector},
-        RetryConfig,
+        BackoffStrategy, RetryConfig,
     },
     Executor,
 };
@@ -106,7 +106,7 @@ fn test_async_detect_raw_visca_with_deterministic_executor() {
             max_retries: 0,
             base_retry_delay: Duration::from_millis(50),
             max_retry_duration: Duration::from_millis(100),
-            exponential_backoff: false,
+            backoff_strategy: BackoffStrategy::Constant,
         });
 
         // Start detection
@@ -146,7 +146,7 @@ fn test_async_detect_no_response_with_backoff() {
             max_retries: 1, // Allow one retry
             base_retry_delay: Duration::from_millis(100),
             max_retry_duration: Duration::from_millis(500),
-            exponential_backoff: true,
+            backoff_strategy: BackoffStrategy::Exponential,
         });
 
         let detect_future = detector.detect_protocol(&mut transport, &exec_clone);
@@ -228,7 +228,7 @@ fn test_async_detect_race_semantics() {
             max_retries: 0,
             base_retry_delay: Duration::from_millis(50),
             max_retry_duration: Duration::from_millis(100),
-            exponential_backoff: false,
+            backoff_strategy: BackoffStrategy::Constant,
         });
 
         let detect_future = detector.detect_protocol(&mut transport, &exec_clone3);

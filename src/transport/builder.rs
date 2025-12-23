@@ -28,6 +28,8 @@
 
 use std::{num::NonZeroUsize, time::Duration};
 
+#[cfg(not(feature = "mode-async"))]
+use crate::transport::BackoffStrategy;
 use crate::transport::{buffer::BufferConfig, RetryConfig};
 
 #[cfg(not(feature = "mode-async"))]
@@ -315,9 +317,13 @@ impl NetTransportBuilder {
         self
     }
 
-    /// Enable or disable exponential backoff for retries.
-    pub fn exponential_backoff(mut self, enabled: bool) -> Self {
-        self.config.retry_config.exponential_backoff = enabled;
+    /// Set the backoff strategy for retries.
+    ///
+    /// The backoff strategy determines how retry delays are calculated:
+    /// - [`BackoffStrategy::Constant`]: Same delay for all retries
+    /// - [`BackoffStrategy::Exponential`]: Delay doubles each attempt (default)
+    pub fn backoff_strategy(mut self, strategy: BackoffStrategy) -> Self {
+        self.config.retry_config.backoff_strategy = strategy;
         self
     }
 
@@ -507,11 +513,13 @@ mod tests {
 
     #[test]
     fn test_net_builder_retry_config() {
+        use crate::transport::BackoffStrategy;
+
         let builder = NetTransportBuilder::tcp()
             .max_retries(10)
             .retry_delay(Duration::from_millis(500))
             .max_retry_duration(Duration::from_secs(30))
-            .exponential_backoff(false);
+            .backoff_strategy(BackoffStrategy::Constant);
 
         assert_eq!(builder.config.retry_config.max_retries, 10);
         assert_eq!(
@@ -522,7 +530,10 @@ mod tests {
             builder.config.retry_config.max_retry_duration,
             Duration::from_secs(30)
         );
-        assert!(!builder.config.retry_config.exponential_backoff);
+        assert_eq!(
+            builder.config.retry_config.backoff_strategy,
+            BackoffStrategy::Constant
+        );
     }
 
     #[test]

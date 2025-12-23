@@ -160,6 +160,40 @@ pub use blocking_transport::{BlockingTransport, HasTransportConfig};
 #[cfg(not(feature = "mode-async"))]
 pub use builder::{NetTransportBuilder, Transport, TransportBuilderExt};
 
+/// Backoff strategy for retry delays.
+///
+/// Determines how the delay between retry attempts is calculated.
+/// Different strategies are appropriate for different failure scenarios:
+///
+/// - **Constant**: Best for transient failures with predictable recovery times.
+///   Each retry waits the same `base_retry_delay`.
+///
+/// - **Exponential**: Best for congestion or rate-limiting scenarios where
+///   giving the system more time to recover increases success probability.
+///   Delay doubles with each attempt: `base_retry_delay * 2^attempt`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub enum BackoffStrategy {
+    /// Constant delay between retries.
+    ///
+    /// Each retry uses the same `base_retry_delay` regardless of attempt number.
+    /// Simple and predictable, suitable for transient failures.
+    Constant,
+
+    /// Exponential backoff: delay doubles with each attempt.
+    ///
+    /// Delay = `base_retry_delay * 2^(attempt - 1)`
+    ///
+    /// - Attempt 1: `base_retry_delay`
+    /// - Attempt 2: `base_retry_delay * 2`
+    /// - Attempt 3: `base_retry_delay * 4`
+    ///
+    /// Reduces pressure on congested systems and improves recovery probability.
+    #[default]
+    Exponential,
+}
+
 /// Retry configuration for transport layer operations.
 ///
 /// Provides configurable retry logic for handling transient failures
@@ -191,8 +225,8 @@ pub struct RetryConfig {
         schemars(with = "u64", description = "Maximum retry duration in milliseconds")
     )]
     pub max_retry_duration: Duration,
-    /// Whether to use exponential backoff.
-    pub exponential_backoff: bool,
+    /// Strategy for calculating delay between retries.
+    pub backoff_strategy: BackoffStrategy,
 }
 
 impl Default for RetryConfig {
@@ -201,7 +235,7 @@ impl Default for RetryConfig {
             max_retries: 3,
             base_retry_delay: Duration::from_millis(100),
             max_retry_duration: Duration::from_secs(10),
-            exponential_backoff: true,
+            backoff_strategy: BackoffStrategy::Exponential,
         }
     }
 }
@@ -209,8 +243,9 @@ impl Default for RetryConfig {
 impl RetryConfig {
     /// Calculate the retry delay for a given attempt.
     ///
-    /// If exponential backoff is enabled, the delay doubles with each attempt.
-    /// The delay is capped by the maximum retry duration.
+    /// The delay calculation depends on the configured [`BackoffStrategy`]:
+    /// - [`BackoffStrategy::Constant`]: Returns `base_retry_delay` (or suggested delay)
+    /// - [`BackoffStrategy::Exponential`]: Returns `base * 2^(attempt-1)`
     pub fn calculate_delay(
         &self,
         attempt: u32,
@@ -218,11 +253,12 @@ impl RetryConfig {
     ) -> Duration {
         let base = error_suggested_delay.unwrap_or(self.base_retry_delay);
 
-        if self.exponential_backoff {
-            let multiplier = 2_u32.saturating_pow(attempt.saturating_sub(1));
-            base.saturating_mul(multiplier)
-        } else {
-            base
+        match self.backoff_strategy {
+            BackoffStrategy::Constant => base,
+            BackoffStrategy::Exponential => {
+                let multiplier = 2_u32.saturating_pow(attempt.saturating_sub(1));
+                base.saturating_mul(multiplier)
+            }
         }
     }
 
@@ -248,31 +284,31 @@ mod retry_tests {
         assert_eq!(config.max_retries, 3);
         assert_eq!(config.base_retry_delay, Duration::from_millis(100));
         assert_eq!(config.max_retry_duration, Duration::from_secs(10));
-        assert!(config.exponential_backoff);
+        assert_eq!(config.backoff_strategy, BackoffStrategy::Exponential);
     }
 
     #[test]
-    fn test_calculate_delay_without_backoff() {
+    fn test_calculate_delay_constant() {
         let config = RetryConfig {
             max_retries: 3,
             base_retry_delay: Duration::from_millis(100),
             max_retry_duration: Duration::from_secs(10),
-            exponential_backoff: false,
+            backoff_strategy: BackoffStrategy::Constant,
         };
 
-        // Without backoff, delay should be constant
+        // With constant backoff, delay should be the same for all attempts
         assert_eq!(config.calculate_delay(1, None), Duration::from_millis(100));
         assert_eq!(config.calculate_delay(2, None), Duration::from_millis(100));
         assert_eq!(config.calculate_delay(3, None), Duration::from_millis(100));
     }
 
     #[test]
-    fn test_calculate_delay_with_exponential_backoff() {
+    fn test_calculate_delay_exponential() {
         let config = RetryConfig {
             max_retries: 3,
             base_retry_delay: Duration::from_millis(100),
             max_retry_duration: Duration::from_secs(10),
-            exponential_backoff: true,
+            backoff_strategy: BackoffStrategy::Exponential,
         };
 
         // With exponential backoff, delay should double each time
@@ -303,7 +339,7 @@ mod retry_tests {
             max_retries: 3,
             base_retry_delay: Duration::from_millis(100),
             max_retry_duration: Duration::from_secs(10),
-            exponential_backoff: false,
+            backoff_strategy: BackoffStrategy::Constant,
         };
 
         let start = Instant::now();
@@ -320,7 +356,7 @@ mod retry_tests {
             max_retries: 10,
             base_retry_delay: Duration::from_millis(100),
             max_retry_duration: Duration::from_millis(50), // Very short for testing
-            exponential_backoff: false,
+            backoff_strategy: BackoffStrategy::Constant,
         };
 
         let start = Instant::now();
