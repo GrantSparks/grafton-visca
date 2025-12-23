@@ -428,7 +428,7 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
             BasicKind::Completion => {
                 let cmd_id = sequence.and_then(|seq| self.core.get_command_by_sequence(seq));
                 let response_type = cmd_id.and_then(|id| self.core.get_inquiry_type(id));
-                let response = lift_inquiry_for::<P>(&basic, response_type)?;
+                let response = lift_inquiry_for::<P>(&basic, response_type.as_ref())?;
                 SchedulerEvent::Completion {
                     socket: basic.socket,
                     cmd_id,
@@ -480,7 +480,7 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
             BasicKind::DataReply => {
                 let cmd_id = self.core.resolve_inquiry_id(basic.payload, sequence);
                 let response_type = cmd_id.and_then(|id| self.core.get_inquiry_type(id));
-                let response = lift_inquiry_for::<P>(&basic, response_type)?;
+                let response = lift_inquiry_for::<P>(&basic, response_type.as_ref())?;
                 SchedulerEvent::InquiryReply { cmd_id, response }
             }
             BasicKind::NetworkChange | BasicKind::Unknown => return Ok(()),

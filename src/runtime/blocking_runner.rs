@@ -485,7 +485,7 @@ impl<P: Profile> BlockingRunner<P> {
                                         self.core.complete_command(cmd_id);
                                         let response_type = self.core.get_inquiry_type(cmd_id);
                                         let response =
-                                            lift_inquiry_for::<P>(&basic, response_type)?;
+                                            lift_inquiry_for::<P>(&basic, response_type.as_ref())?;
                                         return Ok(response);
                                     }
                                 }
@@ -493,7 +493,8 @@ impl<P: Profile> BlockingRunner<P> {
                                 debug!("Received completion for socket {socket:?}");
                                 let response_type =
                                     cmd_id.and_then(|id| self.core.get_inquiry_type(id));
-                                let response = lift_inquiry_for::<P>(&basic, response_type)?;
+                                let response =
+                                    lift_inquiry_for::<P>(&basic, response_type.as_ref())?;
                                 SchedulerEvent::Completion {
                                     socket,
                                     cmd_id,
@@ -527,7 +528,7 @@ impl<P: Profile> BlockingRunner<P> {
                                     self.core.resolve_inquiry_id(basic.payload, meta.sequence);
 
                                 let response_type =
-                                    cmd_id.and_then(|id| self.core.get_inquiry_type(id).cloned());
+                                    cmd_id.and_then(|id| self.core.get_inquiry_type(id));
 
                                 if let Some(cmd_id) = cmd_id {
                                     if cmd_id == target_cmd_id {

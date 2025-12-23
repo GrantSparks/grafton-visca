@@ -10,7 +10,8 @@ use tracing::{debug, trace, warn};
 use std::{
     cell::Cell,
     cmp::Ordering as CmpOrdering,
-    collections::{BinaryHeap, HashMap, VecDeque},
+    collections::{BinaryHeap, HashMap, HashSet, VecDeque},
+    sync::Arc,
     time::{Duration, Instant},
 };
 
@@ -26,23 +27,44 @@ use crate::{
     Error,
 };
 
-/// Command metadata stored for potential retry.
+/// Complete lifecycle state for a single command.
 ///
-/// Contains all information needed to retry a command:
-/// - `command`: The pre-encoded VISCA command bytes
-/// - `priority`: Scheduling priority level
-/// - `category`: Timeout category for calculating timeouts
-/// - `camera_id`: Target camera ID for encoding
-/// - `kind`: Whether this is a Command or Inquiry
-/// - `submitted_at`: When the command was first submitted (for duration-based retry limits)
-type CommandMetadata = (
-    std::sync::Arc<EncodedCommand>,
-    Priority,
-    CommandCategory,
-    crate::camera_id::CameraId,
-    CommandKind,
-    Instant,
-);
+/// This struct consolidates all per-command state that was previously scattered
+/// across multiple HashMaps (pending_ack, command_metadata, retry_attempts,
+/// retry_trigger_transport_error, inquiries_inflight, inquiry_response_types).
+///
+/// # Fields
+/// - Core identity: `command`, `priority`, `category`, `camera_id`, `kind`
+/// - Timing: `submitted_at`, `sent_at`
+/// - Retry tracking: `attempt`, `transport_error`
+/// - Inquiry-specific: `response_type`
+#[derive(Debug, Clone)]
+pub struct CommandState {
+    /// Pre-encoded command bytes.
+    pub command: Arc<EncodedCommand>,
+    /// Scheduling priority.
+    pub priority: Priority,
+    /// Timeout category for calculating timeouts.
+    pub category: CommandCategory,
+    /// Target camera.
+    pub camera_id: crate::camera_id::CameraId,
+    /// Command vs Inquiry.
+    pub kind: CommandKind,
+    /// When first submitted to the scheduler.
+    pub submitted_at: Instant,
+
+    // --- Lifecycle tracking ---
+    /// When sent over the wire (None if not yet sent).
+    pub sent_at: Option<Instant>,
+    /// Current retry attempt (0 = first try).
+    pub attempt: u32,
+    /// Whether last failure was a transport error.
+    pub transport_error: bool,
+
+    // --- Inquiry-specific (if kind == Inquiry) ---
+    /// Expected response type for DataReply parsing.
+    pub response_type: Option<InquiryKind>,
+}
 
 /// Retry budget configuration for command categories.
 ///
@@ -173,7 +195,7 @@ pub struct RetryCommand {
     /// Command ID (type-safe, non-zero).
     pub id: CommandId,
     /// The pre-encoded command to retry.
-    pub command: std::sync::Arc<EncodedCommand>,
+    pub command: Arc<EncodedCommand>,
     /// Command priority.
     pub priority: Priority,
     /// Command category.
@@ -264,7 +286,7 @@ pub struct PendingCommand {
     /// Unique identifier for this command (type-safe, non-zero).
     pub id: CommandId,
     /// The pre-encoded command to send.
-    pub command: std::sync::Arc<EncodedCommand>,
+    pub command: Arc<EncodedCommand>,
     /// Priority level for scheduling.
     pub priority: Priority,
     /// Category for timeout calculation.
@@ -539,28 +561,21 @@ pub struct SchedulerCore {
     retry_config: crate::transport::RetryConfig,
     /// Tracks whether we've logged the idle state (zero commands in flight).
     last_logged_idle: Cell<bool>,
-    /// Commands that have been sent but not yet acknowledged.
-    /// Maps command ID to (command, priority, category, sent_time, camera_id).
-    pending_ack: HashMap<
-        CommandId,
-        (
-            std::sync::Arc<EncodedCommand>,
-            Priority,
-            CommandCategory,
-            Instant,
-            crate::camera_id::CameraId,
-        ),
-    >,
+
+    // === Unified command state ===
+    /// All active commands indexed by ID.
+    /// This consolidates what was previously scattered across multiple HashMaps.
+    commands: HashMap<CommandId, CommandState>,
+    /// Command IDs that have been sent but not yet acknowledged.
+    /// Lightweight index set for O(1) membership queries.
+    pending_ack_ids: HashSet<CommandId>,
+    /// Inquiry IDs that are currently in flight.
+    /// Lightweight index set for O(1) membership queries.
+    inflight_inquiry_ids: HashSet<CommandId>,
+
     /// Commands waiting to be retried (after busy response).
     /// Uses a min-heap ordered by retry_at for efficient deadline-driven scheduling.
     retry_queue: BinaryHeap<RetryKey>,
-    /// Store command metadata for potential retry.
-    /// See [`CommandMetadata`] for field documentation.
-    command_metadata: HashMap<CommandId, CommandMetadata>,
-    /// Track retry attempts for commands (command_id -> attempt_count).
-    retry_attempts: HashMap<CommandId, u32>,
-    /// Track whether the retry was triggered by a transport error (command_id -> is_transport_error).
-    retry_trigger_transport_error: HashMap<CommandId, bool>,
     /// Priority queue for pending commands.
     command_queue: BinaryHeap<PendingCommand>,
     /// Priority queue for pending inquiries (separate from commands to avoid socket gating).
@@ -581,16 +596,15 @@ pub struct SchedulerCore {
     seq16_to_cmds: HashMap<u16, Seq16Owners>,
     /// Sony 16-bit sequence tracking: command_id -> 16-bit sequences.
     cmd_to_seq16s: HashMap<CommandId, SeqHistory16>,
-    /// Inquiries in flight: command_id -> (sent_time, category).
-    inquiries_inflight: HashMap<CommandId, (Instant, CommandCategory)>,
     /// Inquiry order tracking for raw VISCA (no sequence).
     inquiries_order: VecDeque<CommandId>,
-    /// Response types for inquiries (for parsing DataReply).
-    inquiry_response_types: HashMap<CommandId, InquiryKind>,
     /// Minimum time spacing between consecutive inquiry sends.
     min_inquiry_spacing: Duration,
     /// When the last inquiry was sent (for spacing enforcement).
     last_inquiry_sent: Option<Instant>,
+    /// Pending inquiry response types for commands that haven't been started yet.
+    /// This is needed because response types are registered before the command state exists.
+    pending_inquiry_types: HashMap<CommandId, InquiryKind>,
 }
 
 impl SchedulerCore {
@@ -613,11 +627,10 @@ impl SchedulerCore {
             timeout_config,
             retry_config,
             last_logged_idle: Cell::new(false),
-            pending_ack: HashMap::new(),
+            commands: HashMap::new(),
+            pending_ack_ids: HashSet::new(),
+            inflight_inquiry_ids: HashSet::new(),
             retry_queue: BinaryHeap::new(),
-            command_metadata: HashMap::new(),
-            retry_attempts: HashMap::new(),
-            retry_trigger_transport_error: HashMap::new(),
             command_queue: BinaryHeap::new(),
             inquiry_queue: BinaryHeap::new(),
             max_inquiries_inflight: 8, // Conservative default to avoid overwhelming devices
@@ -626,11 +639,10 @@ impl SchedulerCore {
             cmd_to_seqs: HashMap::new(),
             seq16_to_cmds: HashMap::new(),
             cmd_to_seq16s: HashMap::new(),
-            inquiries_inflight: HashMap::new(),
             inquiries_order: VecDeque::new(),
-            inquiry_response_types: HashMap::new(),
             min_inquiry_spacing: Duration::ZERO,
             last_inquiry_sent: None,
+            pending_inquiry_types: HashMap::new(),
         }
     }
 
@@ -673,7 +685,7 @@ impl SchedulerCore {
     /// Check if we can send another command (have room for pending ACK).
     pub fn can_send_command(&self) -> bool {
         // Count commands that are either pending ACK or have a socket allocated
-        let pending_count = self.pending_ack.len();
+        let pending_count = self.pending_ack_ids.len();
         let allocated_count = self.sockets.iter().filter(|s| !s.free).count();
         let total_in_flight = pending_count + allocated_count;
 
@@ -703,8 +715,8 @@ impl SchedulerCore {
         // Debug assertion to check invariants
         #[cfg(debug_assertions)]
         {
-            // Verify that no command appears in both pending_ack and sockets
-            for &cmd_id in self.pending_ack.keys() {
+            // Verify that no command appears in both pending_ack_ids and sockets
+            for &cmd_id in &self.pending_ack_ids {
                 for socket in &self.sockets {
                     if socket.command_id == Some(cmd_id) {
                         eprintln!(
@@ -727,7 +739,7 @@ impl SchedulerCore {
     /// 2. The minimum spacing requirement since the last inquiry has been satisfied
     pub fn can_send_inquiry(&self, now: Instant) -> bool {
         // Check concurrency limit
-        if self.inquiries_inflight.len() >= self.max_inquiries_inflight {
+        if self.inflight_inquiry_ids.len() >= self.max_inquiries_inflight {
             return false;
         }
 
@@ -799,18 +811,41 @@ impl SchedulerCore {
     pub fn register_pending_ack(
         &mut self,
         id: CommandId,
-        command: std::sync::Arc<EncodedCommand>,
+        command: Arc<EncodedCommand>,
         priority: Priority,
         category: CommandCategory,
         camera_id: crate::camera_id::CameraId,
         kind: CommandKind,
         now: Instant,
     ) {
-        self.pending_ack
-            .insert(id, (command.clone(), priority, category, now, camera_id));
-        // Use `now` as submitted_at since this is the first time the command is registered
-        self.command_metadata
-            .insert(id, (command, priority, category, camera_id, kind, now));
+        // Update existing command state if it exists (preserves retry state),
+        // otherwise create a new state
+        if let Some(existing) = self.commands.get_mut(&id) {
+            // Update send-related fields, preserve retry tracking
+            existing.command = command;
+            existing.priority = priority;
+            existing.category = category;
+            existing.camera_id = camera_id;
+            existing.kind = kind;
+            existing.sent_at = Some(now);
+            // Note: preserve attempt, transport_error, response_type, and submitted_at
+        } else {
+            // New command - create fresh state
+            let state = CommandState {
+                command,
+                priority,
+                category,
+                camera_id,
+                kind,
+                submitted_at: now,
+                sent_at: Some(now),
+                attempt: 0,
+                transport_error: false,
+                response_type: None,
+            };
+            self.commands.insert(id, state);
+        }
+        self.pending_ack_ids.insert(id);
         trace!(%id, "Registered command as pending ACK");
     }
 
@@ -946,9 +981,7 @@ impl SchedulerCore {
         // 1. Try exact 32-bit match first
         if let Some(cmd_id) = self.seq_to_cmd.get(&sequence).copied() {
             // Extra safety: verify the command is still active
-            if self.command_metadata.contains_key(&cmd_id)
-                || self.inquiries_inflight.contains_key(&cmd_id)
-            {
+            if self.commands.contains_key(&cmd_id) {
                 trace!(
                     "Found exact 32-bit sequence match for {}: command {}",
                     sequence,
@@ -970,10 +1003,7 @@ impl SchedulerCore {
             // Filter to only active owners
             let active_owners: SmallVec<[CommandId; 2]> = owners
                 .iter()
-                .filter(|&cmd_id| {
-                    self.command_metadata.contains_key(&cmd_id)
-                        || self.inquiries_inflight.contains_key(&cmd_id)
-                })
+                .filter(|&cmd_id| self.commands.contains_key(&cmd_id))
                 .collect();
 
             match active_owners.len() {
@@ -1051,7 +1081,7 @@ impl SchedulerCore {
     ///
     /// This is used to filter out stale retries in `get_ready_retries`.
     fn is_command_active(&self, cmd_id: CommandId) -> bool {
-        self.command_metadata.contains_key(&cmd_id) || self.inquiries_inflight.contains_key(&cmd_id)
+        self.commands.contains_key(&cmd_id)
     }
 
     /// Cancel a command, cleaning up all associated state.
@@ -1082,18 +1112,13 @@ impl SchedulerCore {
         // Clean up sequence mappings
         self.finish_sequence(cmd_id);
 
-        // Remove from pending ACK
-        self.pending_ack.remove(&cmd_id);
-
-        // Remove from inflight inquiries
-        self.inquiries_inflight.remove(&cmd_id);
+        // Remove from index sets
+        self.pending_ack_ids.remove(&cmd_id);
+        self.inflight_inquiry_ids.remove(&cmd_id);
         self.inquiries_order.retain(|&id| id != cmd_id);
 
-        // Remove command metadata
-        self.command_metadata.remove(&cmd_id);
-        self.retry_attempts.remove(&cmd_id);
-        self.retry_trigger_transport_error.remove(&cmd_id);
-        self.inquiry_response_types.remove(&cmd_id);
+        // Remove unified command state
+        self.commands.remove(&cmd_id);
 
         // Remove from command/inquiry queues if still there
         // Note: BinaryHeap doesn't support removal by value, so we drain and rebuild
@@ -1131,19 +1156,16 @@ impl SchedulerCore {
     pub fn complete_inquiry(&mut self, cmd_id: CommandId) {
         trace!("Completing inquiry {cmd_id}");
 
-        // Remove from inflight tracking
-        self.inquiries_inflight.remove(&cmd_id);
+        // Remove from index sets
+        self.inflight_inquiry_ids.remove(&cmd_id);
+        self.pending_ack_ids.remove(&cmd_id);
         self.inquiries_order.retain(|&id| id != cmd_id);
 
         // Clean up sequence mappings
         self.finish_sequence(cmd_id);
 
-        // Clean up metadata
-        self.command_metadata.remove(&cmd_id);
-        self.retry_attempts.remove(&cmd_id);
-        self.retry_trigger_transport_error.remove(&cmd_id);
-        self.inquiry_response_types.remove(&cmd_id);
-        self.pending_ack.remove(&cmd_id);
+        // Remove unified command state
+        self.commands.remove(&cmd_id);
     }
 
     /// Complete a command, cleaning up tracking state.
@@ -1156,34 +1178,47 @@ impl SchedulerCore {
         // Clean up sequence mappings
         self.finish_sequence(cmd_id);
 
-        // Clean up metadata
-        self.command_metadata.remove(&cmd_id);
-        self.retry_attempts.remove(&cmd_id);
-        self.retry_trigger_transport_error.remove(&cmd_id);
-        self.inquiry_response_types.remove(&cmd_id);
-        self.pending_ack.remove(&cmd_id);
+        // Remove from index sets
+        self.pending_ack_ids.remove(&cmd_id);
+        self.inflight_inquiry_ids.remove(&cmd_id);
+
+        // Remove unified command state
+        self.commands.remove(&cmd_id);
     }
 
     /// Unregister a pending ACK without removing command metadata.
     /// This is used for rollback when a send operation fails.
-    /// Returns true if the command was found and removed from pending_ack.
+    /// Returns true if the command was found and removed from pending_ack_ids.
     pub fn unregister_pending_ack(&mut self, id: CommandId) -> bool {
-        self.pending_ack.remove(&id).is_some()
+        self.pending_ack_ids.remove(&id)
     }
 
     /// Register the expected response type for an inquiry.
     pub fn register_inquiry_type(&mut self, id: CommandId, ty: InquiryKind) {
-        self.inquiry_response_types.insert(id, ty);
+        // Update the response_type in the command state if it exists
+        if let Some(state) = self.commands.get_mut(&id) {
+            state.response_type = Some(ty);
+        } else {
+            // Command state doesn't exist yet - store in pending map
+            // This will be merged when the command is started
+            self.pending_inquiry_types.insert(id, ty);
+        }
     }
 
     /// Take the response type for an inquiry (removing it from storage).
     pub fn take_inquiry_type(&mut self, id: CommandId) -> Option<InquiryKind> {
-        self.inquiry_response_types.remove(&id)
+        self.commands
+            .get_mut(&id)
+            .and_then(|state| state.response_type.take())
+            .or_else(|| self.pending_inquiry_types.remove(&id))
     }
 
     /// Get the response type for an inquiry (without removing it).
-    pub fn get_inquiry_type(&self, id: CommandId) -> Option<&InquiryKind> {
-        self.inquiry_response_types.get(&id)
+    pub fn get_inquiry_type(&self, id: CommandId) -> Option<InquiryKind> {
+        self.commands
+            .get(&id)
+            .and_then(|state| state.response_type)
+            .or_else(|| self.pending_inquiry_types.get(&id).copied())
     }
 
     /// Resolve inquiry ID from a VISCA payload.
@@ -1212,7 +1247,7 @@ impl SchedulerCore {
         if let Some(seq) = sequence {
             if let Some(cmd_id) = self.get_command_by_sequence(seq) {
                 // Verify it's an active inquiry
-                if self.inquiries_inflight.contains_key(&cmd_id) {
+                if self.inflight_inquiry_ids.contains(&cmd_id) {
                     trace!(%cmd_id, sequence = seq, "Resolved inquiry via sequence");
                     return Some(cmd_id);
                 } else {
@@ -1230,9 +1265,14 @@ impl SchedulerCore {
         // Try content-based matching for raw VISCA
         // Build a map of active inquiries with their types
         let active_inquiries: HashMap<CommandId, InquiryKind> = self
-            .inquiries_inflight
-            .keys()
-            .filter_map(|&id| self.inquiry_response_types.get(&id).map(|ty| (id, *ty)))
+            .inflight_inquiry_ids
+            .iter()
+            .filter_map(|&id| {
+                self.commands
+                    .get(&id)
+                    .and_then(|state| state.response_type)
+                    .map(|ty| (id, ty))
+            })
             .collect();
 
         trace!(
@@ -1335,17 +1375,16 @@ impl SchedulerCore {
                     }
                     self.finish_sequence(cmd_id);
                     // Extract metadata before removing it
-                    let (category, camera_id) = if let Some((_, _, cat, cam_id, _, _)) =
-                        self.command_metadata.get(&cmd_id)
-                    {
-                        (*cat, *cam_id)
+                    let (category, camera_id) = if let Some(state) = self.commands.get(&cmd_id) {
+                        (state.category, state.camera_id)
                     } else {
                         // Fallback for commands without metadata (shouldn't happen)
                         (CommandCategory::Quick, crate::camera_id::CameraId::CAMERA_1)
                     };
-                    self.command_metadata.remove(&cmd_id);
-                    self.retry_attempts.remove(&cmd_id);
-                    self.retry_trigger_transport_error.remove(&cmd_id);
+                    // Remove from index sets and unified state
+                    self.pending_ack_ids.remove(&cmd_id);
+                    self.inflight_inquiry_ids.remove(&cmd_id);
+                    self.commands.remove(&cmd_id);
                     actions.push(SchedulerAction::CommandComplete {
                         id: cmd_id,
                         category,
@@ -1367,24 +1406,19 @@ impl SchedulerCore {
 
                 if let Some(cmd_id) = resolved_cmd_id {
                     // Remove from inflight tracking
-                    self.inquiries_inflight.remove(&cmd_id);
-                    // Clean up inquiry response type
-                    self.inquiry_response_types.remove(&cmd_id);
+                    self.inflight_inquiry_ids.remove(&cmd_id);
                     // Clean up sequence mappings
                     self.finish_sequence(cmd_id);
                     // Extract metadata before removing it
-                    let (category, camera_id) = if let Some((_, _, cat, cam_id, _, _)) =
-                        self.command_metadata.get(&cmd_id)
-                    {
-                        (*cat, *cam_id)
+                    let (category, camera_id) = if let Some(state) = self.commands.get(&cmd_id) {
+                        (state.category, state.camera_id)
                     } else {
                         // Fallback for inquiries without metadata
                         (CommandCategory::Quick, crate::camera_id::CameraId::CAMERA_1)
                     };
-                    // Remove metadata
-                    self.command_metadata.remove(&cmd_id);
-                    self.retry_attempts.remove(&cmd_id);
-                    self.retry_trigger_transport_error.remove(&cmd_id);
+                    // Remove unified state
+                    self.pending_ack_ids.remove(&cmd_id);
+                    self.commands.remove(&cmd_id);
                     // Complete the inquiry
                     actions.push(SchedulerAction::CommandComplete {
                         id: cmd_id,
@@ -1414,33 +1448,44 @@ impl SchedulerCore {
                     // Some cameras emit 90 6y EE without a prior ACK; the socket nibble may not be reliable.
                     self.find_command_on_socket(sock).or_else(|| {
                         // Fall back to most-recent pending ACK when no command is actually allocated to that socket.
-                        self.pending_ack
+                        self.pending_ack_ids
                             .iter()
-                            .max_by_key(|(_, (_, _, _, sent_time, _))| *sent_time)
-                            .map(|(id, _)| *id)
+                            .filter_map(|&id| {
+                                self.commands
+                                    .get(&id)
+                                    .and_then(|s| s.sent_at)
+                                    .map(|t| (id, t))
+                            })
+                            .max_by_key(|(_, sent_time)| *sent_time)
+                            .map(|(id, _)| id)
                     })
                 } else {
                     // y == 0 case (inquiry errors and some syntax errors). If an inquiry is in flight,
                     // attribute the error to the oldest inflight inquiry. Otherwise, use temporal correlation.
                     self.inquiries_order.front().copied().or_else(|| {
-                        self.pending_ack
+                        self.pending_ack_ids
                             .iter()
-                            .max_by_key(|(_, (_, _, _, sent_time, _))| *sent_time)
-                            .map(|(id, _)| *id)
+                            .filter_map(|&id| {
+                                self.commands
+                                    .get(&id)
+                                    .and_then(|s| s.sent_at)
+                                    .map(|t| (id, t))
+                            })
+                            .max_by_key(|(_, sent_time)| *sent_time)
+                            .map(|(id, _)| id)
                     })
                 };
 
                 if let Some(cmd_id) = resolved_cmd_id {
-                    // Remove from pending_ack if it's there (for immediate errors without ACK)
-                    self.pending_ack.remove(&cmd_id);
+                    // Remove from pending_ack_ids if it's there (for immediate errors without ACK)
+                    self.pending_ack_ids.remove(&cmd_id);
                     // Check if this is an inquiry
-                    let is_inquiry = self.inquiries_inflight.contains_key(&cmd_id);
+                    let is_inquiry = self.inflight_inquiry_ids.contains(&cmd_id);
 
                     if is_inquiry {
                         // Remove from inquiry tracking
-                        self.inquiries_inflight.remove(&cmd_id);
+                        self.inflight_inquiry_ids.remove(&cmd_id);
                         self.inquiries_order.retain(|&id| id != cmd_id);
-                        self.inquiry_response_types.remove(&cmd_id);
                     }
 
                     let should_retry = self.should_retry_command(cmd_id, &error, now);
@@ -1456,9 +1501,7 @@ impl SchedulerCore {
                             self.free_socket(socket);
                         }
                         self.finish_sequence(cmd_id);
-                        self.command_metadata.remove(&cmd_id);
-                        self.retry_attempts.remove(&cmd_id);
-                        self.retry_trigger_transport_error.remove(&cmd_id);
+                        self.commands.remove(&cmd_id);
                         actions.push(SchedulerAction::CommandFailed {
                             id: cmd_id,
                             error: Error::from_code(code),
@@ -1473,13 +1516,14 @@ impl SchedulerCore {
             }
             SchedulerEvent::NetworkError(error) => {
                 // Network error - retry all pending commands
-                let pending_cmds: Vec<_> = self.pending_ack.keys().cloned().collect();
+                let pending_cmds: Vec<_> = self.pending_ack_ids.iter().copied().collect();
                 // Check if this is a transport error
                 let is_transport_error = matches!(error, Error::TransportError(_));
                 for cmd_id in pending_cmds {
                     // Store whether this retry was triggered by a transport error
-                    self.retry_trigger_transport_error
-                        .insert(cmd_id, is_transport_error);
+                    if let Some(state) = self.commands.get_mut(&cmd_id) {
+                        state.transport_error = is_transport_error;
+                    }
                     if let Some(retry_action) = self.queue_retry_for_command(cmd_id, now) {
                         actions.push(retry_action);
                     }
@@ -1529,37 +1573,39 @@ impl SchedulerCore {
 
         // Check inquiry timeouts
         let mut timed_out_inquiries = Vec::new();
-        for (&cmd_id, &(started_at, category)) in &self.inquiries_inflight {
-            let timeout = self.timeout_config.get_timeout(category);
-            let elapsed = now.duration_since(started_at);
-            if elapsed > timeout {
-                let inquiry_type = self.inquiry_response_types.get(&cmd_id);
-                warn!(
-                    %cmd_id,
-                    inquiry_type = ?inquiry_type,
-                    timeout = ?timeout,
-                    elapsed = ?elapsed,
-                    "Inquiry timed out"
-                );
-                timed_out_inquiries.push(cmd_id);
+        for &cmd_id in &self.inflight_inquiry_ids {
+            if let Some(state) = self.commands.get(&cmd_id) {
+                if let Some(sent_at) = state.sent_at {
+                    let timeout = self.timeout_config.get_timeout(state.category);
+                    let elapsed = now.duration_since(sent_at);
+                    if elapsed > timeout {
+                        warn!(
+                            %cmd_id,
+                            inquiry_type = ?state.response_type,
+                            timeout = ?timeout,
+                            elapsed = ?elapsed,
+                            "Inquiry timed out"
+                        );
+                        timed_out_inquiries.push(cmd_id);
+                    }
+                }
             }
         }
 
         // Handle timed out inquiries
         for cmd_id in timed_out_inquiries {
-            self.inquiries_inflight.remove(&cmd_id);
+            self.inflight_inquiry_ids.remove(&cmd_id);
             // Remove from order queue if present
             self.inquiries_order.retain(|&id| id != cmd_id);
             // Check if we should retry (budget and duration checks)
             let should_retry = self
-                .command_metadata
+                .commands
                 .get(&cmd_id)
-                .map(|(_, _, category, _, _, submitted_at)| {
-                    let attempts = self.retry_attempts.get(&cmd_id).copied().unwrap_or(0);
-                    let max_retries = self.retry_budget.for_category(*category);
-                    let within_duration =
-                        now.duration_since(*submitted_at) < self.retry_config.max_retry_duration;
-                    attempts < max_retries && within_duration
+                .map(|state| {
+                    let max_retries = self.retry_budget.for_category(state.category);
+                    let within_duration = now.duration_since(state.submitted_at)
+                        < self.retry_config.max_retry_duration;
+                    state.attempt < max_retries && within_duration
                 })
                 .unwrap_or(false);
 
@@ -1569,10 +1615,7 @@ impl SchedulerCore {
                 }
             } else {
                 self.finish_sequence(cmd_id);
-                self.command_metadata.remove(&cmd_id);
-                self.retry_attempts.remove(&cmd_id);
-                self.retry_trigger_transport_error.remove(&cmd_id);
-                self.inquiry_response_types.remove(&cmd_id);
+                self.commands.remove(&cmd_id);
                 actions.push(SchedulerAction::CommandFailed {
                     id: cmd_id,
                     error: Error::Timeout,
@@ -1584,37 +1627,39 @@ impl SchedulerCore {
         let ack_timeout = self.timeout_config.ack_timeout;
         let mut ack_timed_out = Vec::new();
 
-        for (&cmd_id, &(_, _, _category, sent_at, _)) in &self.pending_ack {
-            if now.duration_since(sent_at) > ack_timeout {
-                warn!(
-                    "Command {} timed out waiting for ACK after {:?}",
-                    cmd_id, ack_timeout
-                );
-                ack_timed_out.push(cmd_id);
+        for &cmd_id in &self.pending_ack_ids {
+            if let Some(state) = self.commands.get(&cmd_id) {
+                if let Some(sent_at) = state.sent_at {
+                    let elapsed = now.duration_since(sent_at);
+                    if elapsed > ack_timeout {
+                        warn!(
+                            "Command {} timed out waiting for ACK after {:?}",
+                            cmd_id, ack_timeout
+                        );
+                        ack_timed_out.push(cmd_id);
+                    }
+                }
             }
         }
 
         // Process all timed-out ACK commands
         for cmd_id in ack_timed_out {
-            // Remove from pending_ack FIRST to free capacity
-            if let Some((command, priority, category, _, camera_id)) =
-                self.pending_ack.remove(&cmd_id)
-            {
-                // Get the kind and submitted_at from command_metadata
-                let (kind, submitted_at) = self
-                    .command_metadata
-                    .get(&cmd_id)
-                    .map(|(_, _, _, _, k, s)| (*k, *s))
-                    .unwrap_or((CommandKind::Command, now)); // Default to Command and now if not found
+            // Get state before modification
+            let state_copy = self.commands.get(&cmd_id).cloned();
+
+            if let Some(state) = state_copy {
+                // Remove from pending_ack_ids FIRST to free capacity
+                self.pending_ack_ids.remove(&cmd_id);
+
                 if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
                     eprintln!(
-                        "[SchedulerCore] ACK timeout: cmd_id={}, removed from pending_ack (count={})",
+                        "[SchedulerCore] ACK timeout: cmd_id={}, removed from pending_ack_ids (count={})",
                         cmd_id,
-                        self.pending_ack.len()
+                        self.pending_ack_ids.len()
                     );
                 }
 
-                // Debug assertion: command should not be in both pending_ack and have a socket
+                // Debug assertion: command should not be in both pending_ack_ids and have a socket
                 #[cfg(debug_assertions)]
                 {
                     for socket in &self.sockets {
@@ -1629,12 +1674,12 @@ impl SchedulerCore {
                 }
 
                 // Get retry count for this command
-                let attempts = self.retry_attempts.get(&cmd_id).copied().unwrap_or(0);
-                let max_retries = self.retry_budget.for_category(category);
+                let attempts = state.attempt;
+                let max_retries = self.retry_budget.for_category(state.category);
 
                 // Check if within max_retry_duration
                 let within_duration =
-                    now.duration_since(submitted_at) < self.retry_config.max_retry_duration;
+                    now.duration_since(state.submitted_at) < self.retry_config.max_retry_duration;
 
                 // Determine if we will retry (both budget and duration must allow it)
                 let will_retry = attempts < max_retries && within_duration;
@@ -1664,21 +1709,10 @@ impl SchedulerCore {
                         );
                     }
 
-                    // Update retry count
-                    self.retry_attempts.insert(cmd_id, attempts + 1);
-
-                    // Ensure command metadata is preserved for retry (keep original submitted_at)
-                    self.command_metadata.insert(
-                        cmd_id,
-                        (
-                            command.clone(),
-                            priority,
-                            category,
-                            camera_id,
-                            kind,
-                            submitted_at,
-                        ),
-                    );
+                    // Update retry count in command state
+                    if let Some(cmd_state) = self.commands.get_mut(&cmd_id) {
+                        cmd_state.attempt = attempts + 1;
+                    }
 
                     // Calculate retry delay using RetryConfig to maintain consistency
                     // For ACK timeouts, we preserve the legacy timing by using a special calculation:
@@ -1691,11 +1725,11 @@ impl SchedulerCore {
                     // Create and queue the retry command
                     let retry_cmd = RetryCommand {
                         id: cmd_id,
-                        command: command.clone(),
-                        priority,
-                        category,
-                        camera_id,
-                        kind,
+                        command: state.command.clone(),
+                        priority: state.priority,
+                        category: state.category,
+                        camera_id: state.camera_id,
+                        kind: state.kind,
                         attempt: attempts + 1,
                         max_retries,
                         retry_at: now + retry_delay,
@@ -1723,9 +1757,7 @@ impl SchedulerCore {
 
                     // Clean up all state for this command
                     self.finish_sequence(cmd_id);
-                    self.command_metadata.remove(&cmd_id);
-                    self.retry_attempts.remove(&cmd_id);
-                    self.retry_trigger_transport_error.remove(&cmd_id);
+                    self.commands.remove(&cmd_id);
 
                     actions.push(SchedulerAction::CommandFailed {
                         id: cmd_id,
@@ -1741,14 +1773,13 @@ impl SchedulerCore {
 
             // Check if we should retry (budget and duration checks)
             let should_retry = self
-                .command_metadata
+                .commands
                 .get(&cmd_id)
-                .map(|(_, _, category, _, _, submitted_at)| {
-                    let attempts = self.retry_attempts.get(&cmd_id).copied().unwrap_or(0);
-                    let max_retries = self.retry_budget.for_category(*category);
-                    let within_duration =
-                        now.duration_since(*submitted_at) < self.retry_config.max_retry_duration;
-                    attempts < max_retries && within_duration
+                .map(|state| {
+                    let max_retries = self.retry_budget.for_category(state.category);
+                    let within_duration = now.duration_since(state.submitted_at)
+                        < self.retry_config.max_retry_duration;
+                    state.attempt < max_retries && within_duration
                 })
                 .unwrap_or(false);
 
@@ -1758,9 +1789,7 @@ impl SchedulerCore {
                 }
             } else {
                 self.finish_sequence(cmd_id);
-                self.command_metadata.remove(&cmd_id);
-                self.retry_attempts.remove(&cmd_id);
-                self.retry_trigger_transport_error.remove(&cmd_id);
+                self.commands.remove(&cmd_id);
                 actions.push(SchedulerAction::CommandFailed {
                     id: cmd_id,
                     error: Error::Timeout,
@@ -1822,7 +1851,8 @@ impl SchedulerCore {
 
                     // Check if this retry attempt is still current
                     // (prevents executing superseded retries from overlapping timeout paths)
-                    let current_attempt = self.retry_attempts.get(&cmd_id).copied().unwrap_or(0);
+                    let current_attempt =
+                        self.commands.get(&cmd_id).map(|s| s.attempt).unwrap_or(0);
                     if retry_attempt != current_attempt {
                         trace!(
                             %cmd_id,
@@ -1854,13 +1884,17 @@ impl SchedulerCore {
         let mut earliest: Option<Instant> = None;
 
         // Check ACK timeouts
-        for (_, _, _, sent_at, _) in self.pending_ack.values() {
-            let deadline = *sent_at + self.timeout_config.ack_timeout;
-            earliest = match earliest {
-                None => Some(deadline),
-                Some(e) if deadline < e => Some(deadline),
-                _ => earliest,
-            };
+        for &cmd_id in &self.pending_ack_ids {
+            if let Some(state) = self.commands.get(&cmd_id) {
+                if let Some(sent_at) = state.sent_at {
+                    let deadline = sent_at + self.timeout_config.ack_timeout;
+                    earliest = match earliest {
+                        None => Some(deadline),
+                        Some(e) if deadline < e => Some(deadline),
+                        _ => earliest,
+                    };
+                }
+            }
         }
 
         // Check socket command timeouts
@@ -1879,14 +1913,18 @@ impl SchedulerCore {
         }
 
         // Check inquiry timeouts
-        for &(started_at, category) in self.inquiries_inflight.values() {
-            let timeout = self.timeout_config.get_timeout(category);
-            let deadline = started_at + timeout;
-            earliest = match earliest {
-                None => Some(deadline),
-                Some(e) if deadline < e => Some(deadline),
-                _ => earliest,
-            };
+        for &cmd_id in &self.inflight_inquiry_ids {
+            if let Some(state) = self.commands.get(&cmd_id) {
+                if let Some(sent_at) = state.sent_at {
+                    let timeout = self.timeout_config.get_timeout(state.category);
+                    let deadline = sent_at + timeout;
+                    earliest = match earliest {
+                        None => Some(deadline),
+                        Some(e) if deadline < e => Some(deadline),
+                        _ => earliest,
+                    };
+                }
+            }
         }
 
         // Check retry queue (peek at the earliest retry)
@@ -1925,7 +1963,7 @@ impl SchedulerCore {
         // Prefer cmd_id from sequence mapping
         let target_id = if let Some(id) = cmd_id {
             // Verify it's actually pending
-            if self.pending_ack.contains_key(&id) {
+            if self.pending_ack_ids.contains(&id) {
                 Some(id)
             } else {
                 debug!("ACK with sequence {} not found in pending commands", id);
@@ -1933,15 +1971,24 @@ impl SchedulerCore {
             }
         } else {
             // Fall back to oldest pending command (FIFO order for raw VISCA)
-            self.pending_ack
+            self.pending_ack_ids
                 .iter()
-                .min_by_key(|(_, (_, _, _, sent_time, _))| *sent_time)
-                .map(|(id, _)| *id)
+                .filter_map(|&id| {
+                    self.commands
+                        .get(&id)
+                        .and_then(|s| s.sent_at)
+                        .map(|t| (id, t))
+                })
+                .min_by_key(|(_, sent_time)| *sent_time)
+                .map(|(id, _)| id)
         }?;
 
-        // Remove from pending and assign to socket
-        if let Some((bytes, priority, category, _, camera_id)) = self.pending_ack.remove(&target_id)
-        {
+        // Get command state
+        let state_copy = self.commands.get(&target_id).cloned();
+        if let Some(cmd_state) = state_copy {
+            // Remove from pending_ack_ids
+            self.pending_ack_ids.remove(&target_id);
+
             // Determine which socket to use with fallback logic
             let assigned_socket = if let Some(s) = socket {
                 // Camera specified a socket - try to use it
@@ -1966,9 +2013,8 @@ impl SchedulerCore {
                     } else {
                         // Both sockets are busy
                         warn!("Camera assigned {:?} but both sockets are occupied", s);
-                        // Re-insert command into pending_ack since we couldn't assign it
-                        self.pending_ack
-                            .insert(target_id, (bytes, priority, category, now, camera_id));
+                        // Re-insert command into pending_ack_ids since we couldn't assign it
+                        self.pending_ack_ids.insert(target_id);
                         return None;
                     }
                 }
@@ -1981,40 +2027,20 @@ impl SchedulerCore {
                 } else {
                     // Both sockets are busy
                     warn!("ACK received without socket nibble but both sockets are occupied");
-                    // Re-insert command into pending_ack since we couldn't assign it
-                    self.pending_ack
-                        .insert(target_id, (bytes, priority, category, now, camera_id));
+                    // Re-insert command into pending_ack_ids since we couldn't assign it
+                    self.pending_ack_ids.insert(target_id);
                     return None;
                 }
             };
 
             // Allocate the chosen socket
             let idx = assigned_socket.as_index();
-            let state = &mut self.sockets[idx];
+            let socket_state = &mut self.sockets[idx];
 
-            state.free = false;
-            state.command_id = Some(target_id);
-            state.started_at = Some(now);
-            state.category = Some(category);
-
-            // Store metadata for potential retry, preserving original submitted_at
-            // If metadata already exists (from register_pending_ack), keep the original timestamp
-            let submitted_at = self
-                .command_metadata
-                .get(&target_id)
-                .map(|(_, _, _, _, _, s)| *s)
-                .unwrap_or(now);
-            self.command_metadata.insert(
-                target_id,
-                (
-                    bytes,
-                    priority,
-                    category,
-                    camera_id,
-                    CommandKind::Command,
-                    submitted_at,
-                ),
-            );
+            socket_state.free = false;
+            socket_state.command_id = Some(target_id);
+            socket_state.started_at = Some(now);
+            socket_state.category = Some(cmd_state.category);
 
             trace!(
                 "Assigned command {} to {:?} per camera ACK",
@@ -2023,7 +2049,7 @@ impl SchedulerCore {
             );
             Some(target_id)
         } else {
-            warn!("Failed to remove command {target_id} from pending ACK");
+            warn!("Failed to get command state for {target_id}");
             None
         }
     }
@@ -2033,23 +2059,38 @@ impl SchedulerCore {
     pub fn start_inquiry(
         &mut self,
         id: CommandId,
-        command: std::sync::Arc<EncodedCommand>,
+        command: Arc<EncodedCommand>,
         priority: Priority,
         category: CommandCategory,
         camera_id: crate::camera_id::CameraId,
         kind: CommandKind,
         now: Instant,
     ) {
-        // Store metadata for potential retry, using now as submitted_at
-        self.command_metadata
-            .insert(id, (command, priority, category, camera_id, kind, now));
+        // Get existing response_type - check both commands and pending_inquiry_types
+        let response_type = self
+            .commands
+            .get(&id)
+            .and_then(|s| s.response_type)
+            .or_else(|| self.pending_inquiry_types.remove(&id));
 
-        // Track the inquiry as in-flight
-        // Note: The `now` timestamp becomes the `started_at` used for timeout calculation.
-        // If timeouts appear premature, check if this timestamp is being set earlier than expected.
-        let inquiry_type = self.inquiry_response_types.get(&id).copied();
-        let was_already_tracked = self.inquiries_inflight.contains_key(&id);
-        self.inquiries_inflight.insert(id, (now, category));
+        // Track whether this was already in-flight
+        let was_already_tracked = self.inflight_inquiry_ids.contains(&id);
+
+        // Create or update command state
+        let state = CommandState {
+            command,
+            priority,
+            category,
+            camera_id,
+            kind,
+            submitted_at: now,
+            sent_at: Some(now),
+            attempt: 0,
+            transport_error: false,
+            response_type,
+        };
+        self.commands.insert(id, state);
+        self.inflight_inquiry_ids.insert(id);
 
         // Add to order queue for raw VISCA correlation
         self.inquiries_order.push_back(id);
@@ -2060,15 +2101,15 @@ impl SchedulerCore {
         if was_already_tracked {
             warn!(
                 %id,
-                inquiry_type = ?inquiry_type,
-                "Inquiry started but was already in inquiries_inflight - timestamp overwritten"
+                inquiry_type = ?response_type,
+                "Inquiry started but was already in inflight_inquiry_ids - timestamp overwritten"
             );
         }
 
-        let inflight_count = self.inquiries_inflight.len();
+        let inflight_count = self.inflight_inquiry_ids.len();
         trace!(
             %id,
-            inquiry_type = ?inquiry_type,
+            inquiry_type = ?response_type,
             inflight_count,
             "Started inquiry (no socket allocation)"
         );
@@ -2076,13 +2117,13 @@ impl SchedulerCore {
 
     /// Check if a command is pending (either awaiting ACK or has a socket).
     pub fn is_command_pending(&self, cmd_id: CommandId) -> bool {
-        self.pending_ack.contains_key(&cmd_id)
+        self.pending_ack_ids.contains(&cmd_id)
             || self.sockets.iter().any(|s| s.command_id == Some(cmd_id))
     }
 
     /// Get the count of commands waiting for ACK.
     pub fn pending_ack_count(&self) -> usize {
-        self.pending_ack.len()
+        self.pending_ack_ids.len()
     }
 
     /// Free a previously reserved socket (used for rollback on inquiry send failure).
@@ -2107,9 +2148,7 @@ impl SchedulerCore {
 
     /// Get the camera ID for a command by its ID.
     pub fn camera_id_for_command(&self, id: CommandId) -> Option<crate::camera_id::CameraId> {
-        self.command_metadata
-            .get(&id)
-            .map(|(_, _, _, camera_id, _, _)| *camera_id)
+        self.commands.get(&id).map(|state| state.camera_id)
     }
 
     pub(crate) fn find_socket_for_command(&self, cmd_id: CommandId) -> Option<ViscaSocket> {
@@ -2136,13 +2175,12 @@ impl SchedulerCore {
     }
 
     fn should_retry_command(&self, cmd_id: CommandId, error: &ViscaError, now: Instant) -> bool {
-        if let Some((_, _, category, _, _, submitted_at)) = self.command_metadata.get(&cmd_id) {
-            if error.is_retryable(Some(*category)) {
-                let attempts = self.retry_attempts.get(&cmd_id).copied().unwrap_or(0);
-                let max_retries = self.retry_budget.for_category(*category);
+        if let Some(state) = self.commands.get(&cmd_id) {
+            if error.is_retryable(Some(state.category)) {
+                let max_retries = self.retry_budget.for_category(state.category);
                 let within_duration =
-                    now.duration_since(*submitted_at) < self.retry_config.max_retry_duration;
-                attempts < max_retries && within_duration
+                    now.duration_since(state.submitted_at) < self.retry_config.max_retry_duration;
+                state.attempt < max_retries && within_duration
             } else {
                 false
             }
@@ -2164,18 +2202,16 @@ impl SchedulerCore {
         cmd_id: CommandId,
         cause: Error,
     ) -> Option<SchedulerAction> {
-        // If inquiry is in-flight, remove from inquiries_inflight and inquiries_order
-        self.inquiries_inflight.remove(&cmd_id);
+        // If inquiry is in-flight, remove from index sets and order
+        self.inflight_inquiry_ids.remove(&cmd_id);
+        self.pending_ack_ids.remove(&cmd_id);
         self.inquiries_order.retain(|&x| x != cmd_id);
-        self.inquiry_response_types.remove(&cmd_id);
 
         // For send failures on first attempt, fail immediately with the original error
         // wrapped with "Send failed" context. This preserves the error kind (e.g., Timeout)
         // while adding context about when the failure occurred.
         self.finish_sequence(cmd_id);
-        self.command_metadata.remove(&cmd_id);
-        self.retry_attempts.remove(&cmd_id);
-        self.retry_trigger_transport_error.remove(&cmd_id);
+        self.commands.remove(&cmd_id);
         Some(SchedulerAction::CommandFailed {
             id: cmd_id,
             error: cause.with_context("Send failed"),
@@ -2185,7 +2221,9 @@ impl SchedulerCore {
     /// Mark a retry as being triggered by a transport error.
     /// This affects the final error classification when retries are exhausted.
     pub fn mark_retry_as_transport_error(&mut self, cmd_id: CommandId) {
-        self.retry_trigger_transport_error.insert(cmd_id, true);
+        if let Some(state) = self.commands.get_mut(&cmd_id) {
+            state.transport_error = true;
+        }
     }
 
     /// Queue a command for retry based on the retry configuration.
@@ -2194,61 +2232,60 @@ impl SchedulerCore {
         cmd_id: CommandId,
         now: Instant,
     ) -> Option<SchedulerAction> {
-        if let Some((command, priority, category, camera_id, kind, submitted_at)) =
-            self.command_metadata.get(&cmd_id).cloned()
-        {
+        // Get current state
+        let state_copy = self.commands.get(&cmd_id).cloned();
+        if let Some(state) = state_copy {
             // Free the socket if allocated
             if let Some(socket) = self.find_socket_for_command(cmd_id) {
                 self.free_socket(socket);
             }
 
             // Increment retry count
-            let attempt = self.retry_attempts.entry(cmd_id).or_insert(0);
-            *attempt += 1;
+            let new_attempt = state.attempt + 1;
 
             // Check if we've exceeded max retries
-            let max_retries = self.retry_budget.for_category(category);
+            let max_retries = self.retry_budget.for_category(state.category);
 
             // Check if we've exceeded max_retry_duration
-            let elapsed = now.duration_since(submitted_at);
+            let elapsed = now.duration_since(state.submitted_at);
             let exceeded_duration = elapsed >= self.retry_config.max_retry_duration;
 
-            if *attempt > max_retries || exceeded_duration {
+            if new_attempt > max_retries || exceeded_duration {
                 // Command has exceeded retries or duration limit
                 self.finish_sequence(cmd_id);
-                self.command_metadata.remove(&cmd_id);
-                self.retry_attempts.remove(&cmd_id);
                 // Use TransportError if the retry was triggered by a transport error, otherwise Timeout
-                let error = if self
-                    .retry_trigger_transport_error
-                    .remove(&cmd_id)
-                    .unwrap_or(false)
-                {
+                let error = if state.transport_error {
                     Error::TransportError("Network error after max retries".into())
                 } else {
                     Error::Timeout
                 };
+                self.commands.remove(&cmd_id);
                 return Some(SchedulerAction::CommandFailed { id: cmd_id, error });
             }
 
+            // Update retry count in command state
+            if let Some(cmd_state) = self.commands.get_mut(&cmd_id) {
+                cmd_state.attempt = new_attempt;
+            }
+
             // Calculate backoff delay using RetryConfig
-            let delay = self.retry_config.calculate_delay(*attempt, None);
+            let delay = self.retry_config.calculate_delay(new_attempt, None);
 
             let retry_cmd = RetryCommand {
                 id: cmd_id,
-                command: command.clone(),
-                priority,
-                category,
-                camera_id,
-                kind,
-                attempt: *attempt,
+                command: state.command.clone(),
+                priority: state.priority,
+                category: state.category,
+                camera_id: state.camera_id,
+                kind: state.kind,
+                attempt: new_attempt,
                 max_retries,
                 retry_at: now + delay,
             };
 
             debug!(
                 "Queueing retry for command {} (attempt {} of {})",
-                cmd_id, attempt, max_retries
+                cmd_id, new_attempt, max_retries
             );
             self.retry_queue.push(RetryKey { command: retry_cmd });
 
@@ -2557,8 +2594,8 @@ mod tests {
             now,
         );
         // Manually allocate socket 1 (simulating ACK received)
-        // When ACK is received, command is removed from pending_ack
-        core.pending_ack.remove(&cmd_id(1));
+        // When ACK is received, command is removed from pending_ack_ids
+        core.pending_ack_ids.remove(&cmd_id(1));
         core.sockets[0].free = false;
         core.sockets[0].command_id = Some(cmd_id(1));
         core.sockets[0].started_at = Some(now);
@@ -2575,8 +2612,8 @@ mod tests {
             now,
         );
         // Manually allocate socket 2 (simulating ACK received)
-        // When ACK is received, command is removed from pending_ack
-        core.pending_ack.remove(&cmd_id(2));
+        // When ACK is received, command is removed from pending_ack_ids
+        core.pending_ack_ids.remove(&cmd_id(2));
         core.sockets[1].free = false;
         core.sockets[1].command_id = Some(cmd_id(2));
         core.sockets[1].started_at = Some(now);
@@ -2597,7 +2634,7 @@ mod tests {
         );
 
         // Verify inquiry is tracked
-        assert!(core.inquiries_inflight.contains_key(&cmd_id(3)));
+        assert!(core.inflight_inquiry_ids.contains(&cmd_id(3)));
         assert!(core.inquiries_order.contains(&cmd_id(3)));
 
         // Sockets should still be occupied by commands
@@ -2655,7 +2692,7 @@ mod tests {
         );
 
         // Verify inquiry is tracked
-        assert!(core.inquiries_inflight.contains_key(&cmd_id(1)));
+        assert!(core.inflight_inquiry_ids.contains(&cmd_id(1)));
         assert!(core.inquiries_order.contains(&cmd_id(1)));
 
         // Process InquiryReply event
@@ -2685,7 +2722,7 @@ mod tests {
         }
 
         // Inquiry should be removed from tracking
-        assert!(!core.inquiries_inflight.contains_key(&cmd_id(1)));
+        assert!(!core.inflight_inquiry_ids.contains(&cmd_id(1)));
         assert!(!core.inquiries_order.contains(&cmd_id(1)));
     }
 
@@ -2916,7 +2953,7 @@ mod tests {
         assert_eq!(socket_cmd_id, Some(cmd_id(2))); // By command 2
 
         // Command 1 should still be pending
-        assert!(core.pending_ack.contains_key(&cmd_id(1)));
+        assert!(core.pending_ack_ids.contains(&cmd_id(1)));
 
         // Now process ACK for command 1
         let cmd_id_1 = core.get_command_by_sequence(100);
@@ -2963,7 +3000,7 @@ mod tests {
             CommandKind::Inquiry,
             now,
         );
-        assert!(core.inquiries_inflight.contains_key(&cmd_id(1)));
+        assert!(core.inflight_inquiry_ids.contains(&cmd_id(1)));
 
         // Check timeout immediately - should not timeout
         let actions = core.check_timeouts(now);
@@ -2989,12 +3026,7 @@ mod tests {
         }
 
         // Inquiry should be removed from tracking after timeout
-        assert!(!core.inquiries_inflight.contains_key(&cmd_id(1)));
-
-        // Exhaust retries by timing out again (simulate max retries reached)
-        // For Quick category, we get extra retries, so we need to exhaust them
-        // Set retry attempts to max to force failure on next timeout
-        core.retry_attempts.insert(cmd_id(1), 10); // Force max retries exceeded
+        assert!(!core.inflight_inquiry_ids.contains(&cmd_id(1)));
 
         // Start inquiry again for the retry
         core.start_inquiry(
@@ -3006,7 +3038,15 @@ mod tests {
             CommandKind::Inquiry,
             later,
         );
-        assert!(core.inquiries_inflight.contains_key(&cmd_id(1)));
+        assert!(core.inflight_inquiry_ids.contains(&cmd_id(1)));
+
+        // Exhaust retries by timing out again (simulate max retries reached)
+        // For Quick category, we get extra retries, so we need to exhaust them
+        // Set retry attempts to max to force failure on next timeout
+        // Must be done AFTER start_inquiry since it creates a new CommandState
+        if let Some(state) = core.commands.get_mut(&cmd_id(1)) {
+            state.attempt = 10; // Force max retries exceeded
+        }
 
         // Now timeout should fail
         let later2 = later + Duration::from_millis(200);
@@ -3079,7 +3119,7 @@ mod tests {
 
         // Finish the command - all sequences should be cleaned up
         core.finish_sequence(cmd_id(1));
-        core.command_metadata.remove(&cmd_id(1));
+        core.commands.remove(&cmd_id(1));
 
         // No sequences should remain
         assert_eq!(core.get_command_by_sequence(100), None);
@@ -3263,7 +3303,7 @@ mod tests {
 
         // Complete command 1
         core.finish_sequence(cmd_id(1));
-        core.command_metadata.remove(&cmd_id(1));
+        core.commands.remove(&cmd_id(1));
 
         // Command 1's sequences should be gone, command 2's should remain
         assert_eq!(core.get_command_by_sequence(100), None);
@@ -3274,7 +3314,7 @@ mod tests {
 
         // Complete command 2
         core.finish_sequence(cmd_id(2));
-        core.command_metadata.remove(&cmd_id(2));
+        core.commands.remove(&cmd_id(2));
 
         // All sequences should be cleaned up
         assert_eq!(core.get_command_by_sequence(200), None);
@@ -3416,7 +3456,7 @@ mod tests {
 
         // Finish the sequence
         core.finish_sequence(cmd_id(1));
-        core.command_metadata.remove(&cmd_id(1));
+        core.commands.remove(&cmd_id(1));
 
         // Verify both mappings are cleaned up
         assert_eq!(core.get_command_by_sequence(sequence), None);
@@ -3493,7 +3533,7 @@ mod tests {
 
         // Now finish command 1
         core.finish_sequence(cmd_id(1));
-        core.command_metadata.remove(&cmd_id(1));
+        core.commands.remove(&cmd_id(1));
 
         // Command 2's 32-bit sequence should still work
         assert_eq!(core.get_command_by_sequence(seq2), Some(cmd_id(2)));
@@ -3572,7 +3612,7 @@ mod tests {
 
         // Finish command 2 first (reversed order from previous test)
         core.finish_sequence(cmd_id(2));
-        core.command_metadata.remove(&cmd_id(2));
+        core.commands.remove(&cmd_id(2));
 
         // Command 1's sequence should still work
         assert_eq!(core.get_command_by_sequence(seq1), Some(cmd_id(1)));
@@ -3722,8 +3762,8 @@ mod tests {
 
         // Verify both are tracked
         assert_eq!(core.inquiries_order.len(), 2);
-        assert!(core.inquiries_inflight.contains_key(&cmd_id(1)));
-        assert!(core.inquiries_inflight.contains_key(&cmd_id(2)));
+        assert!(core.inflight_inquiry_ids.contains(&cmd_id(1)));
+        assert!(core.inflight_inquiry_ids.contains(&cmd_id(2)));
 
         // Process replies out of order
         // Second inquiry (zoom) reply arrives first - with explicit cmd_id
@@ -3776,8 +3816,8 @@ mod tests {
 
         // All inquiries should be completed
         assert_eq!(core.inquiries_order.len(), 0);
-        assert!(!core.inquiries_inflight.contains_key(&cmd_id(1)));
-        assert!(!core.inquiries_inflight.contains_key(&cmd_id(2)));
+        assert!(!core.inflight_inquiry_ids.contains(&cmd_id(1)));
+        assert!(!core.inflight_inquiry_ids.contains(&cmd_id(2)));
     }
 
     // Tests for issue #362: send-failure retry behavior
@@ -4148,7 +4188,7 @@ mod tests {
 
         // Verify command 3 is still pending
         assert!(
-            core.pending_ack.contains_key(&cmd_id(3)),
+            core.pending_ack_ids.contains(&cmd_id(3)),
             "Command 3 should still be pending"
         );
 
@@ -4546,7 +4586,8 @@ mod tests {
         assert!(inq3.is_none());
 
         // Complete one inquiry by removing it from inflight
-        core.inquiries_inflight.remove(&cmd_id(1));
+        core.inflight_inquiry_ids.remove(&cmd_id(1));
+        core.commands.remove(&cmd_id(1));
 
         // Now the third inquiry should be sendable
         assert!(core.can_send_inquiry(now));
@@ -5048,7 +5089,9 @@ mod tests {
         );
 
         // Clear retry state for next test
-        core.retry_attempts.remove(&cmd_id(1));
+        if let Some(state) = core.commands.get_mut(&cmd_id(1)) {
+            state.attempt = 0;
+        }
 
         // Queue retry after duration exceeded - should fail
         let action = core.queue_retry_for_command(cmd_id(1), start + Duration::from_millis(150));
@@ -5177,9 +5220,9 @@ mod tests {
 
         // Get the initial submitted_at
         let initial_submitted_at = core
-            .command_metadata
+            .commands
             .get(&cmd_id(1))
-            .map(|(_, _, _, _, _, s)| *s);
+            .map(|state| state.submitted_at);
         assert!(initial_submitted_at.is_some());
 
         // Simulate ACK received and socket assignment
@@ -5191,9 +5234,9 @@ mod tests {
 
         // Verify submitted_at is preserved after socket assignment
         let after_ack_submitted_at = core
-            .command_metadata
+            .commands
             .get(&cmd_id(1))
-            .map(|(_, _, _, _, _, s)| *s);
+            .map(|state| state.submitted_at);
         assert_eq!(
             initial_submitted_at, after_ack_submitted_at,
             "submitted_at should be preserved after ACK"
@@ -5203,11 +5246,11 @@ mod tests {
         core.queue_retry_for_command(cmd_id(1), start + Duration::from_millis(100));
 
         // The command should still be trackable with original submitted_at
-        // Note: After retry, the command may be in retry_queue not command_metadata
-        // But if it's still in command_metadata, the timestamp should match
-        if let Some((_, _, _, _, _, submitted_at)) = core.command_metadata.get(&cmd_id(1)) {
+        // Note: After retry, the command may be in retry_queue not commands
+        // But if it's still in commands, the timestamp should match
+        if let Some(state) = core.commands.get(&cmd_id(1)) {
             assert_eq!(
-                *submitted_at,
+                state.submitted_at,
                 initial_submitted_at.unwrap(),
                 "submitted_at should be preserved across retries"
             );
