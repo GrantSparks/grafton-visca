@@ -444,7 +444,7 @@ where
     ///
     /// camera.pan_tilt_limit_set(PanTiltLimitCorner::UpRight, pan, tilt).await?;
     /// let limits = camera.state_cache().pan_tilt_limits();
-    /// assert!(limits.up_right.is_some());
+    /// assert!(limits.up_right().is_some());
     /// ```
     pub fn state_cache(&self) -> &crate::cache::StateCache {
         &self.state_cache
@@ -584,7 +584,7 @@ where
     ///
     /// camera.pan_tilt_limit_set(PanTiltLimitCorner::UpRight, pan, tilt)?;
     /// let limits = camera.state_cache().pan_tilt_limits();
-    /// assert!(limits.up_right.is_some());
+    /// assert!(limits.up_right().is_some());
     /// ```
     pub fn state_cache(&self) -> &crate::cache::StateCache {
         &self.state_cache

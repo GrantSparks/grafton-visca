@@ -62,42 +62,123 @@ use std::cell::RefCell;
 ///
 /// This design mirrors the VISCA protocol, which only supports setting
 /// two diagonal corners, not all four independently.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+///
+/// # Variants
+///
+/// The enum-based design makes invalid states unrepresentable:
+/// - `Unset`: No limits configured
+/// - `PartialUpRight`: Only upper-right corner is set
+/// - `PartialDownLeft`: Only lower-left corner is set
+/// - `Complete`: Both corners are set, forming a valid bounding box
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub struct PanTiltLimits {
-    /// Upper-right corner limit (maximum pan, maximum tilt).
-    pub up_right: Option<(PanPosition, TiltPosition)>,
-    /// Lower-left corner limit (minimum pan, minimum tilt).
-    pub down_left: Option<(PanPosition, TiltPosition)>,
-}
-
-impl Default for PanTiltLimits {
-    fn default() -> Self {
-        Self::new()
-    }
+pub enum PanTiltLimits {
+    /// No limits configured.
+    #[default]
+    Unset,
+    /// Only upper-right corner is set (maximum pan, maximum tilt).
+    PartialUpRight {
+        /// Upper-right corner limit.
+        up_right: (PanPosition, TiltPosition),
+    },
+    /// Only lower-left corner is set (minimum pan, minimum tilt).
+    PartialDownLeft {
+        /// Lower-left corner limit.
+        down_left: (PanPosition, TiltPosition),
+    },
+    /// Complete bounding box with both corners defined.
+    Complete {
+        /// Upper-right corner limit (maximum pan, maximum tilt).
+        up_right: (PanPosition, TiltPosition),
+        /// Lower-left corner limit (minimum pan, minimum tilt).
+        down_left: (PanPosition, TiltPosition),
+    },
 }
 
 impl PanTiltLimits {
     /// Create a new empty `PanTiltLimits` with no corners set.
     #[must_use]
     pub const fn new() -> Self {
-        Self {
-            up_right: None,
-            down_left: None,
-        }
+        Self::Unset
     }
 
     /// Check if any limits are set.
     #[must_use]
     pub const fn is_set(&self) -> bool {
-        self.up_right.is_some() || self.down_left.is_some()
+        !matches!(self, Self::Unset)
     }
 
     /// Check if both limits are set, forming a complete bounding box.
     #[must_use]
     pub const fn is_complete(&self) -> bool {
-        self.up_right.is_some() && self.down_left.is_some()
+        matches!(self, Self::Complete { .. })
+    }
+
+    /// Get the upper-right corner if set.
+    #[must_use]
+    pub const fn up_right(&self) -> Option<(PanPosition, TiltPosition)> {
+        match self {
+            Self::Unset | Self::PartialDownLeft { .. } => None,
+            Self::PartialUpRight { up_right } | Self::Complete { up_right, .. } => Some(*up_right),
+        }
+    }
+
+    /// Get the lower-left corner if set.
+    #[must_use]
+    pub const fn down_left(&self) -> Option<(PanPosition, TiltPosition)> {
+        match self {
+            Self::Unset | Self::PartialUpRight { .. } => None,
+            Self::PartialDownLeft { down_left } | Self::Complete { down_left, .. } => {
+                Some(*down_left)
+            }
+        }
+    }
+
+    /// Set the upper-right corner, preserving any existing lower-left corner.
+    #[must_use]
+    pub const fn with_up_right(self, up_right: (PanPosition, TiltPosition)) -> Self {
+        match self {
+            Self::Unset | Self::PartialUpRight { .. } => Self::PartialUpRight { up_right },
+            Self::PartialDownLeft { down_left } | Self::Complete { down_left, .. } => {
+                Self::Complete {
+                    up_right,
+                    down_left,
+                }
+            }
+        }
+    }
+
+    /// Set the lower-left corner, preserving any existing upper-right corner.
+    #[must_use]
+    pub const fn with_down_left(self, down_left: (PanPosition, TiltPosition)) -> Self {
+        match self {
+            Self::Unset | Self::PartialDownLeft { .. } => Self::PartialDownLeft { down_left },
+            Self::PartialUpRight { up_right } | Self::Complete { up_right, .. } => Self::Complete {
+                up_right,
+                down_left,
+            },
+        }
+    }
+
+    /// Clear the upper-right corner, preserving any existing lower-left corner.
+    #[must_use]
+    pub const fn without_up_right(self) -> Self {
+        match self {
+            Self::Unset | Self::PartialDownLeft { .. } => self,
+            Self::PartialUpRight { .. } => Self::Unset,
+            Self::Complete { down_left, .. } => Self::PartialDownLeft { down_left },
+        }
+    }
+
+    /// Clear the lower-left corner, preserving any existing upper-right corner.
+    #[must_use]
+    pub const fn without_down_left(self) -> Self {
+        match self {
+            Self::Unset | Self::PartialUpRight { .. } => self,
+            Self::PartialDownLeft { .. } => Self::Unset,
+            Self::Complete { up_right, .. } => Self::PartialUpRight { up_right },
+        }
     }
 }
 
@@ -373,27 +454,21 @@ impl StateCache {
         #[cfg(feature = "mode-async")]
         {
             if let Ok(mut guard) = self.inner.lock() {
-                match corner {
-                    PanTiltLimitCorner::UpRight => {
-                        guard.pan_tilt_limits.up_right = Some((pan, tilt));
-                    }
+                guard.pan_tilt_limits = match corner {
+                    PanTiltLimitCorner::UpRight => guard.pan_tilt_limits.with_up_right((pan, tilt)),
                     PanTiltLimitCorner::DownLeft => {
-                        guard.pan_tilt_limits.down_left = Some((pan, tilt));
+                        guard.pan_tilt_limits.with_down_left((pan, tilt))
                     }
-                }
+                };
             }
         }
         #[cfg(not(feature = "mode-async"))]
         {
             let mut inner = self.inner.borrow_mut();
-            match corner {
-                PanTiltLimitCorner::UpRight => {
-                    inner.pan_tilt_limits.up_right = Some((pan, tilt));
-                }
-                PanTiltLimitCorner::DownLeft => {
-                    inner.pan_tilt_limits.down_left = Some((pan, tilt));
-                }
-            }
+            inner.pan_tilt_limits = match corner {
+                PanTiltLimitCorner::UpRight => inner.pan_tilt_limits.with_up_right((pan, tilt)),
+                PanTiltLimitCorner::DownLeft => inner.pan_tilt_limits.with_down_left((pan, tilt)),
+            };
         }
     }
 
@@ -406,27 +481,19 @@ impl StateCache {
         #[cfg(feature = "mode-async")]
         {
             if let Ok(mut guard) = self.inner.lock() {
-                match corner {
-                    PanTiltLimitCorner::UpRight => {
-                        guard.pan_tilt_limits.up_right = None;
-                    }
-                    PanTiltLimitCorner::DownLeft => {
-                        guard.pan_tilt_limits.down_left = None;
-                    }
-                }
+                guard.pan_tilt_limits = match corner {
+                    PanTiltLimitCorner::UpRight => guard.pan_tilt_limits.without_up_right(),
+                    PanTiltLimitCorner::DownLeft => guard.pan_tilt_limits.without_down_left(),
+                };
             }
         }
         #[cfg(not(feature = "mode-async"))]
         {
             let mut inner = self.inner.borrow_mut();
-            match corner {
-                PanTiltLimitCorner::UpRight => {
-                    inner.pan_tilt_limits.up_right = None;
-                }
-                PanTiltLimitCorner::DownLeft => {
-                    inner.pan_tilt_limits.down_left = None;
-                }
-            }
+            inner.pan_tilt_limits = match corner {
+                PanTiltLimitCorner::UpRight => inner.pan_tilt_limits.without_up_right(),
+                PanTiltLimitCorner::DownLeft => inner.pan_tilt_limits.without_down_left(),
+            };
         }
     }
 }
@@ -523,8 +590,8 @@ mod tests {
 
         cache.set_pan_tilt_limit(PanTiltLimitCorner::UpRight, pan, tilt);
         let limits = cache.pan_tilt_limits();
-        assert_eq!(limits.up_right, Some((pan, tilt)));
-        assert_eq!(limits.down_left, None);
+        assert_eq!(limits.up_right(), Some((pan, tilt)));
+        assert_eq!(limits.down_left(), None);
 
         cache.set_pan_tilt_limit(PanTiltLimitCorner::DownLeft, pan, tilt);
         let limits = cache.pan_tilt_limits();
@@ -558,16 +625,15 @@ mod tests {
         assert!(!limits.is_complete());
         assert!(!limits.is_set());
 
-        let limits = PanTiltLimits {
-            up_right: Some((PanPosition::CENTER, TiltPosition::CENTER)),
-            down_left: None,
+        let limits = PanTiltLimits::PartialUpRight {
+            up_right: (PanPosition::CENTER, TiltPosition::CENTER),
         };
         assert!(!limits.is_complete());
         assert!(limits.is_set());
 
-        let limits = PanTiltLimits {
-            up_right: Some((PanPosition::CENTER, TiltPosition::CENTER)),
-            down_left: Some((PanPosition::CENTER, TiltPosition::CENTER)),
+        let limits = PanTiltLimits::Complete {
+            up_right: (PanPosition::CENTER, TiltPosition::CENTER),
+            down_left: (PanPosition::CENTER, TiltPosition::CENTER),
         };
         assert!(limits.is_complete());
         assert!(limits.is_set());
@@ -593,8 +659,8 @@ mod tests {
         let limits = cache.pan_tilt_limits();
         assert!(limits.is_set());
         assert!(!limits.is_complete());
-        assert_eq!(limits.up_right, Some((ur_pan, ur_tilt)));
-        assert_eq!(limits.down_left, None);
+        assert_eq!(limits.up_right(), Some((ur_pan, ur_tilt)));
+        assert_eq!(limits.down_left(), None);
 
         // Set DownLeft corner - should complete the bounding box
         // (lower-left has min pan/min tilt)
@@ -605,8 +671,8 @@ mod tests {
         let limits = cache.pan_tilt_limits();
         assert!(limits.is_set());
         assert!(limits.is_complete());
-        assert_eq!(limits.up_right, Some((ur_pan, ur_tilt)));
-        assert_eq!(limits.down_left, Some((dl_pan, dl_tilt)));
+        assert_eq!(limits.up_right(), Some((ur_pan, ur_tilt)));
+        assert_eq!(limits.down_left(), Some((dl_pan, dl_tilt)));
     }
 
     #[test]
@@ -633,8 +699,8 @@ mod tests {
         let limits = cache.pan_tilt_limits();
         assert!(limits.is_set()); // DownLeft still set
         assert!(!limits.is_complete()); // Not complete without UpRight
-        assert_eq!(limits.up_right, None);
-        assert_eq!(limits.down_left, Some((dl_pan, dl_tilt)));
+        assert_eq!(limits.up_right(), None);
+        assert_eq!(limits.down_left(), Some((dl_pan, dl_tilt)));
 
         // Clear DownLeft corner
         cache.clear_pan_tilt_limit(PanTiltLimitCorner::DownLeft);
@@ -642,8 +708,8 @@ mod tests {
         let limits = cache.pan_tilt_limits();
         assert!(!limits.is_set());
         assert!(!limits.is_complete());
-        assert_eq!(limits.up_right, None);
-        assert_eq!(limits.down_left, None);
+        assert_eq!(limits.up_right(), None);
+        assert_eq!(limits.down_left(), None);
     }
 
     #[test]
@@ -656,7 +722,7 @@ mod tests {
         let tilt1 = TiltPosition::new(50).unwrap();
         cache.set_pan_tilt_limit(PanTiltLimitCorner::UpRight, pan1, tilt1);
 
-        assert_eq!(cache.pan_tilt_limits().up_right, Some((pan1, tilt1)));
+        assert_eq!(cache.pan_tilt_limits().up_right(), Some((pan1, tilt1)));
 
         // Overwrite with new values
         let pan2 = PanPosition::new(200).unwrap();
@@ -664,6 +730,6 @@ mod tests {
         cache.set_pan_tilt_limit(PanTiltLimitCorner::UpRight, pan2, tilt2);
 
         // Should have the new values
-        assert_eq!(cache.pan_tilt_limits().up_right, Some((pan2, tilt2)));
+        assert_eq!(cache.pan_tilt_limits().up_right(), Some((pan2, tilt2)));
     }
 }
