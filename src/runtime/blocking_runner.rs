@@ -27,7 +27,9 @@ use crate::{
         response::{decode_basic, BasicKind},
     },
     runtime::{
-        core::{PendingCommand, Priority, SchedulerAction, SchedulerCore, SchedulerEvent},
+        core::{
+            PendingCommand, Priority, ReplySource, SchedulerAction, SchedulerCore, SchedulerEvent,
+        },
         driver::{scheduler::BlockingScheduler, send_one, SendResult},
     },
     timeout::{CommandCategory, Deadline, TimeoutConfig},
@@ -490,11 +492,9 @@ impl<P: Profile> BlockingRunner<P> {
                                     .sequence
                                     .and_then(|seq| self.core.get_command_by_sequence(seq));
                                 debug!("Received ACK for socket {socket:?}, cmd_id {cmd_id:?}");
-                                SchedulerEvent::Ack {
-                                    socket,
-                                    cmd_id,
-                                    sequence: meta.sequence,
-                                }
+                                let source =
+                                    ReplySource::from_fields(cmd_id, meta.sequence, socket);
+                                SchedulerEvent::Ack { source }
                             }
                             BasicKind::Completion => {
                                 let socket = basic.socket;
@@ -525,12 +525,9 @@ impl<P: Profile> BlockingRunner<P> {
                                     cmd_id.and_then(|id| self.core.get_inquiry_type(id));
                                 let response =
                                     lift_inquiry_for::<P>(&basic, response_type.as_ref())?;
-                                SchedulerEvent::Completion {
-                                    socket,
-                                    cmd_id,
-                                    sequence: meta.sequence,
-                                    response,
-                                }
+                                let source =
+                                    ReplySource::from_fields(cmd_id, meta.sequence, socket);
+                                SchedulerEvent::Completion { source, response }
                             }
                             BasicKind::Error(code) => {
                                 let socket = basic.socket;
@@ -550,12 +547,9 @@ impl<P: Profile> BlockingRunner<P> {
                                 debug!(
                                     "Received error 0x{code:02X} for socket {socket:?}, cmd_id {cmd_id:?}"
                                 );
-                                SchedulerEvent::Error {
-                                    socket,
-                                    cmd_id,
-                                    sequence: meta.sequence,
-                                    code,
-                                }
+                                let source =
+                                    ReplySource::from_fields(cmd_id, meta.sequence, socket);
+                                SchedulerEvent::Error { source, code }
                             }
                             BasicKind::DataReply => {
                                 let cmd_id =
@@ -578,11 +572,9 @@ impl<P: Profile> BlockingRunner<P> {
                                 debug!("Received data reply (inquiry response)");
                                 let response =
                                     lift_inquiry_for::<P>(&basic, response_type.as_ref())?;
-                                SchedulerEvent::InquiryReply {
-                                    cmd_id,
-                                    sequence: meta.sequence,
-                                    response,
-                                }
+                                // InquiryReply has no socket, so pass None
+                                let source = ReplySource::from_fields(cmd_id, meta.sequence, None);
+                                SchedulerEvent::InquiryReply { source, response }
                             }
                             BasicKind::NetworkChange | BasicKind::Unknown => {
                                 continue;

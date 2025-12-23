@@ -410,62 +410,166 @@ pub enum TimeoutKind {
     // Response, // Can be added later for post-ACK response timeouts
 }
 
+/// How a reply is correlated to its originating command.
+///
+/// This enum consolidates the reply identification triplet that was previously
+/// spread across `(socket: Option<ViscaSocket>, cmd_id: Option<CommandId>, sequence: Option<u32>)`
+/// into semantically meaningful variants that encode the protocol's correlation rules.
+///
+/// # Variants
+///
+/// - **Resolved**: The reply has already been matched to a specific command ID
+///   (via sequence lookup or other means). This is the authoritative case.
+///
+/// - **Sequenced**: The reply carries a Sony sequence number. If the corresponding
+///   command is still active, the caller should have resolved it to `Resolved`.
+///   An unresolved `Sequenced` variant indicates a stale/duplicate reply that
+///   must be ignored (no heuristic fallback allowed).
+///
+/// - **BySocket**: Raw VISCA mode - no sequence number, but a socket nibble is present.
+///   Correlation is done by socket assignment. Heuristic fallback is allowed.
+///
+/// - **Unknown**: No sequence, no socket nibble (e.g., inquiry errors with y=0).
+///   Requires FIFO or temporal heuristics for attribution.
+#[derive(Debug, Clone, Copy)]
+pub enum ReplySource {
+    /// Already resolved to a specific command.
+    ///
+    /// This variant is used when sequence-based or other correlation has
+    /// definitively identified the originating command.
+    Resolved {
+        /// The command this reply belongs to.
+        cmd_id: CommandId,
+        /// Socket nibble from frame (if present, for socket cleanup).
+        socket: Option<ViscaSocket>,
+    },
+    /// Sony-sequenced reply that did not resolve to an active command.
+    ///
+    /// When a sequenced reply's sequence number has no corresponding active
+    /// command, it's a stale or duplicate reply. These must be ignored without
+    /// falling back to socket or temporal heuristics.
+    Sequenced {
+        /// The 32-bit Sony sequence number from the reply.
+        sequence: u32,
+        /// Socket nibble from frame (for logging/debugging).
+        socket: Option<ViscaSocket>,
+    },
+    /// Raw VISCA mode - correlation by socket assignment.
+    ///
+    /// Used when no sequence number is present but a socket nibble (y in 90 4y)
+    /// identifies which socket slot the reply belongs to. Heuristic fallback
+    /// to pending commands is allowed if no command is currently assigned
+    /// to the socket.
+    BySocket {
+        /// Socket from the reply frame.
+        socket: ViscaSocket,
+    },
+    /// No sequence, no socket nibble - requires heuristic attribution.
+    ///
+    /// Used for inquiry errors (y=0) and other replies without explicit
+    /// correlation info. Resolution uses FIFO order queue for inquiries
+    /// or temporal correlation (most recent pending) for commands.
+    Unknown,
+}
+
+impl ReplySource {
+    /// Construct a `ReplySource` from raw protocol fields.
+    ///
+    /// This constructor encapsulates the logic of choosing the appropriate
+    /// variant based on what correlation information is available.
+    ///
+    /// # Arguments
+    /// - `cmd_id`: Pre-resolved command ID (from sequence lookup)
+    /// - `sequence`: Sony sequence number from frame metadata
+    /// - `socket`: Socket nibble from reply frame
+    #[inline]
+    pub fn from_fields(
+        cmd_id: Option<CommandId>,
+        sequence: Option<u32>,
+        socket: Option<ViscaSocket>,
+    ) -> Self {
+        if let Some(id) = cmd_id {
+            // Sequence lookup succeeded - we have authoritative attribution
+            ReplySource::Resolved { cmd_id: id, socket }
+        } else if let Some(seq) = sequence {
+            // Sequence present but no match - stale/duplicate
+            ReplySource::Sequenced {
+                sequence: seq,
+                socket,
+            }
+        } else if let Some(sock) = socket {
+            // Raw VISCA mode - use socket
+            ReplySource::BySocket { socket: sock }
+        } else {
+            // No correlation info
+            ReplySource::Unknown
+        }
+    }
+
+    /// Returns the pre-resolved command ID, if any.
+    #[inline]
+    pub fn cmd_id(&self) -> Option<CommandId> {
+        match self {
+            ReplySource::Resolved { cmd_id, .. } => Some(*cmd_id),
+            _ => None,
+        }
+    }
+
+    /// Returns the socket from the reply, if known.
+    #[inline]
+    pub fn socket(&self) -> Option<ViscaSocket> {
+        match self {
+            ReplySource::Resolved { socket, .. } => *socket,
+            ReplySource::Sequenced { socket, .. } => *socket,
+            ReplySource::BySocket { socket } => Some(*socket),
+            ReplySource::Unknown => None,
+        }
+    }
+
+    /// Returns true if this is an unmatched sequenced reply.
+    ///
+    /// Unmatched sequenced replies must be ignored without fallback heuristics.
+    #[inline]
+    pub fn is_unmatched_sequenced(&self) -> bool {
+        matches!(self, ReplySource::Sequenced { .. })
+    }
+
+    /// Returns true if heuristic fallback resolution is allowed.
+    ///
+    /// Only `BySocket` and `Unknown` variants allow fallback to pending-ACK
+    /// or FIFO-based resolution. Sequenced replies are authoritative.
+    #[inline]
+    pub fn allows_heuristic_fallback(&self) -> bool {
+        matches!(self, ReplySource::BySocket { .. } | ReplySource::Unknown)
+    }
+}
+
 /// Events that can be fed to the scheduler core.
 #[derive(Debug)]
 pub enum SchedulerEvent {
     /// ACK received for a socket.
     Ack {
-        /// Socket that was acknowledged (None if no socket nibble in frame).
-        socket: Option<ViscaSocket>,
-        /// Command ID (from sequence mapping when available, type-safe).
-        cmd_id: Option<CommandId>,
-        /// Sony sequence number from frame metadata (None for raw VISCA).
-        ///
-        /// When `Some(_)`, sequence correlation is authoritative: if `cmd_id` is `None`,
-        /// this is a stale/unmatched sequenced reply that must be ignored (not re-attributed
-        /// via socket or pending-ACK heuristics). When `None`, heuristic fallback is allowed.
-        sequence: Option<u32>,
+        /// How this reply is correlated to its command.
+        source: ReplySource,
     },
     /// Command completed.
     Completion {
-        /// Socket that completed (if known).
-        socket: Option<ViscaSocket>,
-        /// Command ID (from sequence mapping when available, type-safe).
-        cmd_id: Option<CommandId>,
-        /// Sony sequence number from frame metadata (None for raw VISCA).
-        ///
-        /// When `Some(_)`, sequence correlation is authoritative: if `cmd_id` is `None`,
-        /// this is a stale/unmatched sequenced reply that must be ignored (not re-attributed
-        /// via socket or pending-ACK heuristics). When `None`, heuristic fallback is allowed.
-        sequence: Option<u32>,
+        /// How this reply is correlated to its command.
+        source: ReplySource,
         /// Response from the camera.
         response: Response,
     },
     /// Inquiry data reply (no socket allocation).
     InquiryReply {
-        /// Command ID (from sequence mapping or order queue, type-safe).
-        cmd_id: Option<CommandId>,
-        /// Sony sequence number from frame metadata (None for raw VISCA).
-        ///
-        /// When `Some(_)`, sequence correlation is authoritative: if `cmd_id` is `None`,
-        /// this is a stale/unmatched sequenced reply that must be ignored (not re-attributed
-        /// via socket or FIFO heuristics). When `None`, heuristic fallback is allowed.
-        sequence: Option<u32>,
+        /// How this reply is correlated to its command.
+        source: ReplySource,
         /// Response from the camera.
         response: Response,
     },
     /// Error response.
     Error {
-        /// Socket that errored (if known).
-        socket: Option<ViscaSocket>,
-        /// Command ID (from sequence mapping when available, type-safe).
-        cmd_id: Option<CommandId>,
-        /// Sony sequence number from frame metadata (None for raw VISCA).
-        ///
-        /// When `Some(_)`, sequence correlation is authoritative: if `cmd_id` is `None`,
-        /// this is a stale/unmatched sequenced reply that must be ignored (not re-attributed
-        /// via socket or pending-ACK heuristics). When `None`, heuristic fallback is allowed.
-        sequence: Option<u32>,
+        /// How this reply is correlated to its command.
+        source: ReplySource,
         /// Error code from the camera.
         code: u8,
     },
@@ -1379,54 +1483,34 @@ impl SchedulerCore {
         let mut actions = Vec::new();
 
         match event {
-            SchedulerEvent::Ack {
-                socket,
-                cmd_id,
-                sequence,
-            } => {
-                // If sequence is present but cmd_id is None, this is an unmatched sequenced reply.
-                // For sequenced transports, sequence correlation is authoritative - ignore stale replies.
-                if sequence.is_some() && cmd_id.is_none() {
-                    debug!(
-                        "Ignoring unmatched sequenced ACK (sequence={:?}, socket={:?})",
-                        sequence, socket
-                    );
+            SchedulerEvent::Ack { source } => {
+                // Handle unmatched sequenced replies
+                if source.is_unmatched_sequenced() {
+                    if let ReplySource::Sequenced { sequence, socket } = source {
+                        debug!(
+                            "Ignoring unmatched sequenced ACK (sequence={}, socket={:?})",
+                            sequence, socket
+                        );
+                    }
                     self.ignored_unmatched_sequenced_replies += 1;
                     return actions;
                 }
 
+                let socket = source.socket();
+                let cmd_id = source.cmd_id();
                 if let Some(cmd_id) = self.handle_ack_with_id(socket, cmd_id, now) {
                     trace!("Command {cmd_id} assigned to socket {socket:?}");
                 }
             }
-            SchedulerEvent::Completion {
-                socket,
-                cmd_id,
-                sequence,
-                response,
-            } => {
-                // Resolve command ID: prefer sequence-based cmd_id, then socket fallback (raw VISCA only).
-                let resolved_cmd_id = if let Some(id) = cmd_id {
-                    Some(id)
-                } else if sequence.is_some() {
-                    // Sequenced reply with no cmd_id match: this is a stale/duplicate reply.
-                    // Do NOT fall back to socket-based heuristics - that would misattribute.
-                    debug!(
-                        "Ignoring unmatched sequenced Completion (sequence={:?}, socket={:?})",
-                        sequence, socket
-                    );
-                    self.ignored_unmatched_sequenced_replies += 1;
-                    None
-                } else if let Some(socket) = socket {
-                    // Raw VISCA (no sequence): fall back to socket-based correlation.
-                    self.find_command_on_socket(socket)
-                } else {
-                    // No sequence, no socket: cannot attribute.
-                    None
-                };
+            SchedulerEvent::Completion { source, response } => {
+                // Resolve command ID using ReplySource
+                let resolved_cmd_id = self.resolve_command_for_completion(&source);
 
                 if let Some(cmd_id) = resolved_cmd_id {
-                    if let Some(socket) = socket.or_else(|| self.find_socket_for_command(cmd_id)) {
+                    if let Some(socket) = source
+                        .socket()
+                        .or_else(|| self.find_socket_for_command(cmd_id))
+                    {
                         self.free_socket(socket);
                     }
                     self.finish_sequence(cmd_id);
@@ -1449,29 +1533,9 @@ impl SchedulerCore {
                     });
                 }
             }
-            SchedulerEvent::InquiryReply {
-                cmd_id,
-                sequence,
-                response,
-            } => {
-                // Resolve inquiry ID from sequence or order queue
-                let resolved_cmd_id = if let Some(id) = cmd_id {
-                    // Remove from order queue if present (for sequence-based reply)
-                    self.inquiries_order.retain(|&x| x != id);
-                    Some(id)
-                } else if sequence.is_some() {
-                    // Sequenced reply with no cmd_id match: stale/duplicate inquiry reply.
-                    // Do NOT fall back to FIFO order queue - that would misattribute.
-                    debug!(
-                        "Ignoring unmatched sequenced InquiryReply (sequence={:?})",
-                        sequence
-                    );
-                    self.ignored_unmatched_sequenced_replies += 1;
-                    None
-                } else {
-                    // Raw VISCA (no sequence): pop from order queue.
-                    self.inquiries_order.pop_front()
-                };
+            SchedulerEvent::InquiryReply { source, response } => {
+                // Resolve inquiry ID using ReplySource
+                let resolved_cmd_id = self.resolve_command_for_inquiry(&source);
 
                 if let Some(cmd_id) = resolved_cmd_id {
                     // Remove from inflight tracking
@@ -1498,60 +1562,11 @@ impl SchedulerCore {
                     trace!("Inquiry {cmd_id} completed with response");
                 }
             }
-            SchedulerEvent::Error {
-                socket,
-                cmd_id,
-                sequence,
-                code,
-            } => {
+            SchedulerEvent::Error { source, code } => {
                 let error = ViscaError::from_byte(code);
 
-                // Resolve which command this error belongs to.
-                // For sequenced transports: sequence correlation is authoritative.
-                // For raw VISCA: use socket/FIFO/temporal heuristics.
-                let resolved_cmd_id = if let Some(id) = cmd_id {
-                    Some(id)
-                } else if sequence.is_some() {
-                    // Sequenced reply with no cmd_id match: stale/duplicate error.
-                    // Do NOT fall back to socket or temporal heuristics - that would misattribute.
-                    debug!(
-                        "Ignoring unmatched sequenced Error (sequence={:?}, socket={:?}, code=0x{:02X})",
-                        sequence, socket, code
-                    );
-                    self.ignored_unmatched_sequenced_replies += 1;
-                    None
-                } else if let Some(sock) = socket {
-                    // Raw VISCA: socket nibble present. Try socket mapping, then temporal fallback.
-                    // Some cameras emit 90 6y EE without a prior ACK; the socket nibble may not be reliable.
-                    self.find_command_on_socket(sock).or_else(|| {
-                        // Fall back to most-recent pending ACK when no command is actually allocated to that socket.
-                        self.pending_ack_ids
-                            .iter()
-                            .filter_map(|&id| {
-                                self.commands
-                                    .get(&id)
-                                    .and_then(|s| s.sent_at)
-                                    .map(|t| (id, t))
-                            })
-                            .max_by_key(|(_, sent_time)| *sent_time)
-                            .map(|(id, _)| id)
-                    })
-                } else {
-                    // Raw VISCA: y == 0 case (inquiry errors and some syntax errors).
-                    // If an inquiry is in flight, attribute to the oldest. Otherwise, use temporal correlation.
-                    self.inquiries_order.front().copied().or_else(|| {
-                        self.pending_ack_ids
-                            .iter()
-                            .filter_map(|&id| {
-                                self.commands
-                                    .get(&id)
-                                    .and_then(|s| s.sent_at)
-                                    .map(|t| (id, t))
-                            })
-                            .max_by_key(|(_, sent_time)| *sent_time)
-                            .map(|(id, _)| id)
-                    })
-                };
+                // Resolve which command this error belongs to using ReplySource
+                let resolved_cmd_id = self.resolve_command_for_error(&source, code);
 
                 if let Some(cmd_id) = resolved_cmd_id {
                     // Remove from pending_ack_ids if it's there (for immediate errors without ACK)
@@ -1572,8 +1587,9 @@ impl SchedulerCore {
                             actions.push(retry_action);
                         }
                     } else {
-                        if let Some(socket) =
-                            socket.or_else(|| self.find_socket_for_command(cmd_id))
+                        if let Some(socket) = source
+                            .socket()
+                            .or_else(|| self.find_socket_for_command(cmd_id))
                         {
                             self.free_socket(socket);
                         }
@@ -1584,7 +1600,7 @@ impl SchedulerCore {
                             error: Error::from_code(code),
                         });
                     }
-                } else if sequence.is_none() {
+                } else if source.allows_heuristic_fallback() {
                     // Raw VISCA: as a last resort, never drop protocol errors on the floor.
                     // If nothing is pending, still surface the error for visibility.
                     // (No state to clean in this rare path.)
@@ -1610,6 +1626,112 @@ impl SchedulerCore {
         }
 
         actions
+    }
+
+    /// Resolve command ID for Completion events.
+    ///
+    /// Returns `Some(cmd_id)` if the command can be identified, `None` if the reply
+    /// should be ignored (e.g., unmatched sequenced reply) or cannot be attributed.
+    fn resolve_command_for_completion(&mut self, source: &ReplySource) -> Option<CommandId> {
+        match source {
+            ReplySource::Resolved { cmd_id, .. } => Some(*cmd_id),
+            ReplySource::Sequenced { sequence, socket } => {
+                // Sequenced reply with no cmd_id match: this is a stale/duplicate reply.
+                // Do NOT fall back to socket-based heuristics - that would misattribute.
+                debug!(
+                    "Ignoring unmatched sequenced Completion (sequence={}, socket={:?})",
+                    sequence, socket
+                );
+                self.ignored_unmatched_sequenced_replies += 1;
+                None
+            }
+            ReplySource::BySocket { socket } => {
+                // Raw VISCA (no sequence): fall back to socket-based correlation.
+                self.find_command_on_socket(*socket)
+            }
+            ReplySource::Unknown => {
+                // No sequence, no socket: cannot attribute.
+                None
+            }
+        }
+    }
+
+    /// Resolve command ID for InquiryReply events.
+    ///
+    /// Returns `Some(cmd_id)` if the inquiry can be identified, `None` if the reply
+    /// should be ignored (e.g., unmatched sequenced reply) or cannot be attributed.
+    fn resolve_command_for_inquiry(&mut self, source: &ReplySource) -> Option<CommandId> {
+        match source {
+            ReplySource::Resolved { cmd_id, .. } => {
+                // Remove from order queue if present (for sequence-based reply)
+                self.inquiries_order.retain(|&x| x != *cmd_id);
+                Some(*cmd_id)
+            }
+            ReplySource::Sequenced { sequence, .. } => {
+                // Sequenced reply with no cmd_id match: stale/duplicate inquiry reply.
+                // Do NOT fall back to FIFO order queue - that would misattribute.
+                debug!(
+                    "Ignoring unmatched sequenced InquiryReply (sequence={})",
+                    sequence
+                );
+                self.ignored_unmatched_sequenced_replies += 1;
+                None
+            }
+            ReplySource::BySocket { .. } | ReplySource::Unknown => {
+                // Raw VISCA (no sequence): pop from order queue.
+                self.inquiries_order.pop_front()
+            }
+        }
+    }
+
+    /// Resolve command ID for Error events.
+    ///
+    /// For errors, resolution is more complex due to the variety of fallback
+    /// heuristics needed for raw VISCA mode.
+    fn resolve_command_for_error(&mut self, source: &ReplySource, code: u8) -> Option<CommandId> {
+        match source {
+            ReplySource::Resolved { cmd_id, .. } => Some(*cmd_id),
+            ReplySource::Sequenced { sequence, socket } => {
+                // Sequenced reply with no cmd_id match: stale/duplicate error.
+                // Do NOT fall back to socket or temporal heuristics - that would misattribute.
+                debug!(
+                    "Ignoring unmatched sequenced Error (sequence={}, socket={:?}, code=0x{:02X})",
+                    sequence, socket, code
+                );
+                self.ignored_unmatched_sequenced_replies += 1;
+                None
+            }
+            ReplySource::BySocket { socket } => {
+                // Raw VISCA: socket nibble present. Try socket mapping, then temporal fallback.
+                // Some cameras emit 90 6y EE without a prior ACK; the socket nibble may not be reliable.
+                self.find_command_on_socket(*socket).or_else(|| {
+                    // Fall back to most-recent pending ACK when no command is actually allocated to that socket.
+                    self.find_most_recent_pending_command()
+                })
+            }
+            ReplySource::Unknown => {
+                // Raw VISCA: y == 0 case (inquiry errors and some syntax errors).
+                // If an inquiry is in flight, attribute to the oldest. Otherwise, use temporal correlation.
+                self.inquiries_order
+                    .front()
+                    .copied()
+                    .or_else(|| self.find_most_recent_pending_command())
+            }
+        }
+    }
+
+    /// Find the most recently sent pending command (temporal correlation fallback).
+    fn find_most_recent_pending_command(&self) -> Option<CommandId> {
+        self.pending_ack_ids
+            .iter()
+            .filter_map(|&id| {
+                self.commands
+                    .get(&id)
+                    .and_then(|s| s.sent_at)
+                    .map(|t| (id, t))
+            })
+            .max_by_key(|(_, sent_time)| *sent_time)
+            .map(|(id, _)| id)
     }
 
     /// Check for timeouts and return commands that need action.
@@ -2848,11 +2970,8 @@ mod tests {
 
         // Process InquiryReply event
         let response = Response::Inquiry(crate::command::InquiryData::Power { on: true });
-        let event = SchedulerEvent::InquiryReply {
-            cmd_id: Some(cmd_id(1)),
-            sequence: None,
-            response,
-        };
+        let source = ReplySource::from_fields(Some(cmd_id(1)), None, None);
+        let event = SchedulerEvent::InquiryReply { source, response };
 
         let actions = core.process_event(event, now);
 
@@ -2988,9 +3107,9 @@ mod tests {
         // Process InquiryReply events without cmd_id (raw VISCA)
         // First reply should match first inquiry
         let response1 = Response::Inquiry(crate::command::InquiryData::Power { on: true });
+        let source1 = ReplySource::Unknown; // No sequence in raw VISCA
         let event1 = SchedulerEvent::InquiryReply {
-            cmd_id: None, // No sequence in raw VISCA
-            sequence: None,
+            source: source1,
             response: response1,
         };
 
@@ -3087,11 +3206,8 @@ mod tests {
 
         // Process ACK for command 2 first (out of order)
         let cmd_id_2 = core.get_command_by_sequence(101);
-        let event = SchedulerEvent::Ack {
-            socket: Some(ViscaSocket::S2),
-            cmd_id: cmd_id_2, // Using sequence to identify
-            sequence: Some(101),
-        };
+        let source = ReplySource::from_fields(cmd_id_2, Some(101), Some(ViscaSocket::S2));
+        let event = SchedulerEvent::Ack { source };
 
         let actions = core.process_event(event, now);
 
@@ -3111,11 +3227,8 @@ mod tests {
 
         // Now process ACK for command 1
         let cmd_id_1 = core.get_command_by_sequence(100);
-        let event = SchedulerEvent::Ack {
-            socket: Some(ViscaSocket::S1),
-            cmd_id: cmd_id_1,
-            sequence: Some(100),
-        };
+        let source = ReplySource::from_fields(cmd_id_1, Some(100), Some(ViscaSocket::S1));
+        let event = SchedulerEvent::Ack { source };
 
         core.process_event(event, now);
 
@@ -3324,12 +3437,8 @@ mod tests {
         let response = Response::Completion {
             socket: Some(ViscaSocket::S1),
         };
-        let event = SchedulerEvent::Completion {
-            socket: Some(ViscaSocket::S1),
-            cmd_id: Some(cmd_id(1)),
-            sequence: Some(102), // Third retry sequence
-            response,
-        };
+        let source = ReplySource::from_fields(Some(cmd_id(1)), Some(102), Some(ViscaSocket::S1));
+        let event = SchedulerEvent::Completion { source, response };
 
         let actions = core.process_event(event, now);
         assert_eq!(actions.len(), 1);
@@ -3926,9 +4035,10 @@ mod tests {
         // (This simulates the adapter layer doing content-based matching)
         let zoom_response =
             Response::Inquiry(crate::command::InquiryData::ZoomPosition { position: 0x1234 });
+        // Content-based matching identified this as inquiry 2, raw VISCA (no sequence)
+        let source2 = ReplySource::from_fields(Some(cmd_id(2)), None, None);
         let event2 = SchedulerEvent::InquiryReply {
-            cmd_id: Some(cmd_id(2)), // Content-based matching identified this as inquiry 2
-            sequence: None,          // Raw VISCA, no sequence
+            source: source2,
             response: zoom_response,
         };
 
@@ -3950,9 +4060,10 @@ mod tests {
 
         // First inquiry (power) reply arrives second
         let power_response = Response::Inquiry(crate::command::InquiryData::Power { on: true });
+        // Content-based matching identified this as inquiry 1, raw VISCA (no sequence)
+        let source1 = ReplySource::from_fields(Some(cmd_id(1)), None, None);
         let event1 = SchedulerEvent::InquiryReply {
-            cmd_id: Some(cmd_id(1)), // Content-based matching identified this as inquiry 1
-            sequence: None,          // Raw VISCA, no sequence
+            source: source1,
             response: power_response,
         };
 
@@ -4224,11 +4335,8 @@ mod tests {
         );
 
         // Send ACK without socket nibble
-        let event = SchedulerEvent::Ack {
-            socket: None,
-            cmd_id: Some(cmd_id(1)),
-            sequence: None, // Raw VISCA
-        };
+        let source = ReplySource::from_fields(Some(cmd_id(1)), None, None);
+        let event = SchedulerEvent::Ack { source };
         core.process_event(event, now);
 
         // Verify S1 was assigned
@@ -4275,19 +4383,13 @@ mod tests {
         );
 
         // First ACK assigns S1
-        let event = SchedulerEvent::Ack {
-            socket: Some(ViscaSocket::S1),
-            cmd_id: Some(cmd_id(1)),
-            sequence: None, // Raw VISCA
-        };
+        let source = ReplySource::from_fields(Some(cmd_id(1)), None, Some(ViscaSocket::S1));
+        let event = SchedulerEvent::Ack { source };
         core.process_event(event, now);
 
         // Second ACK without socket nibble should get S2
-        let event = SchedulerEvent::Ack {
-            socket: None,
-            cmd_id: Some(cmd_id(2)),
-            sequence: None, // Raw VISCA
-        };
+        let source = ReplySource::from_fields(Some(cmd_id(2)), None, None);
+        let event = SchedulerEvent::Ack { source };
         core.process_event(event, now);
 
         // Verify S1 has command 1
@@ -4328,26 +4430,17 @@ mod tests {
         }
 
         // First two ACKs occupy both sockets
-        let event = SchedulerEvent::Ack {
-            socket: Some(ViscaSocket::S1),
-            cmd_id: Some(cmd_id(1)),
-            sequence: None, // Raw VISCA
-        };
+        let source = ReplySource::from_fields(Some(cmd_id(1)), None, Some(ViscaSocket::S1));
+        let event = SchedulerEvent::Ack { source };
         core.process_event(event, now);
 
-        let event = SchedulerEvent::Ack {
-            socket: Some(ViscaSocket::S2),
-            cmd_id: Some(cmd_id(2)),
-            sequence: None, // Raw VISCA
-        };
+        let source = ReplySource::from_fields(Some(cmd_id(2)), None, Some(ViscaSocket::S2));
+        let event = SchedulerEvent::Ack { source };
         core.process_event(event, now);
 
         // Third ACK without socket nibble should fail
-        let event = SchedulerEvent::Ack {
-            socket: None,
-            cmd_id: Some(cmd_id(3)),
-            sequence: None, // Raw VISCA
-        };
+        let source = ReplySource::from_fields(Some(cmd_id(3)), None, None);
+        let event = SchedulerEvent::Ack { source };
         core.process_event(event, now);
 
         // Verify command 3 is still pending
@@ -4400,19 +4493,13 @@ mod tests {
         );
 
         // First ACK assigns S1
-        let event = SchedulerEvent::Ack {
-            socket: Some(ViscaSocket::S1),
-            cmd_id: Some(cmd_id(1)),
-            sequence: None, // Raw VISCA
-        };
+        let source = ReplySource::from_fields(Some(cmd_id(1)), None, Some(ViscaSocket::S1));
+        let event = SchedulerEvent::Ack { source };
         core.process_event(event, now);
 
         // Second ACK requests S1 (busy), should fallback to S2
-        let event = SchedulerEvent::Ack {
-            socket: Some(ViscaSocket::S1), // Request S1 which is busy
-            cmd_id: Some(cmd_id(2)),
-            sequence: None, // Raw VISCA
-        };
+        let source = ReplySource::from_fields(Some(cmd_id(2)), None, Some(ViscaSocket::S1));
+        let event = SchedulerEvent::Ack { source };
         core.process_event(event, now);
 
         // Verify S1 still has command 1
@@ -5005,12 +5092,10 @@ mod tests {
 
         // Simulate: camera returns 90 6y 41 FF (Not Executable) without a prior ACK
         // Raw VISCA (no sequence), so heuristic fallback is allowed
-        let event = SchedulerEvent::Error {
-            socket: Some(ViscaSocket::S2),
-            cmd_id: None,
-            sequence: None, // Raw VISCA
-            code: 0x41,
+        let source = ReplySource::BySocket {
+            socket: ViscaSocket::S2,
         };
+        let event = SchedulerEvent::Error { source, code: 0x41 };
         let actions = core.process_event(event, now + Duration::from_millis(2));
 
         // The *most recent* pending command (id=2) should be failed immediately with 0x41
@@ -5071,12 +5156,8 @@ mod tests {
 
         // Simulate an inquiry-style error: 90 60 EE FF (y=0 -> no socket field)
         // Raw VISCA (no sequence), so heuristic fallback is allowed
-        let event = SchedulerEvent::Error {
-            socket: None,
-            cmd_id: None,
-            sequence: None, // Raw VISCA
-            code: 0x41,
-        };
+        let source = ReplySource::Unknown; // No sequence, no socket
+        let event = SchedulerEvent::Error { source, code: 0x41 };
         let actions = core.process_event(event, now + Duration::from_millis(1));
 
         // It must fail the inflight inquiry (id=42), not the command
@@ -6099,11 +6180,8 @@ mod tests {
         core.register_sequence(cmd_id(1), 100); // seqA = 100
 
         // ACK for command A
-        let ack_a = SchedulerEvent::Ack {
-            socket: Some(ViscaSocket::S1),
-            cmd_id: Some(cmd_id(1)),
-            sequence: Some(100),
-        };
+        let source_a = ReplySource::from_fields(Some(cmd_id(1)), Some(100), Some(ViscaSocket::S1));
+        let ack_a = SchedulerEvent::Ack { source: source_a };
         core.process_event(ack_a, now);
 
         // Verify A is on socket 1
@@ -6112,10 +6190,10 @@ mod tests {
         assert_eq!(socket_cmd_id, Some(cmd_id(1)));
 
         // Step 2: Complete command A
+        let source_complete_a =
+            ReplySource::from_fields(Some(cmd_id(1)), Some(100), Some(ViscaSocket::S1));
         let complete_a = SchedulerEvent::Completion {
-            socket: Some(ViscaSocket::S1),
-            cmd_id: Some(cmd_id(1)),
-            sequence: Some(100),
+            source: source_complete_a,
             response: Response::Completion {
                 socket: Some(ViscaSocket::S1),
             },
@@ -6144,11 +6222,8 @@ mod tests {
         core.register_sequence(cmd_id(2), 101); // seqB = 101
 
         // ACK for command B (gets socket 1)
-        let ack_b = SchedulerEvent::Ack {
-            socket: Some(ViscaSocket::S1),
-            cmd_id: Some(cmd_id(2)),
-            sequence: Some(101),
-        };
+        let source_b = ReplySource::from_fields(Some(cmd_id(2)), Some(101), Some(ViscaSocket::S1));
+        let ack_b = SchedulerEvent::Ack { source: source_b };
         core.process_event(ack_b, now);
 
         // Verify B is on socket 1
@@ -6161,10 +6236,13 @@ mod tests {
 
         // Step 4: Inject a late completion with sequence=100 (A's sequence)
         // The sequence won't resolve because A is already completed and finish_sequence was called
+        // Sequence lookup failed (A is gone), so this is Sequenced with no cmd_id
+        let late_source = ReplySource::Sequenced {
+            sequence: 100,
+            socket: Some(ViscaSocket::S1),
+        };
         let late_complete = SchedulerEvent::Completion {
-            socket: Some(ViscaSocket::S1), // Same socket as B
-            cmd_id: None,                  // Sequence lookup failed (A is gone)
-            sequence: Some(100),           // Sequenced reply for old command A
+            source: late_source,
             response: Response::Completion {
                 socket: Some(ViscaSocket::S1),
             },
@@ -6246,11 +6324,14 @@ mod tests {
         let counter_before = core.ignored_unmatched_sequenced_replies();
 
         // Inject error with unknown sequence (simulates stale packet)
+        // Sequence lookup failed, so this is Sequenced with no cmd_id
+        let stale_source = ReplySource::Sequenced {
+            sequence: 999,
+            socket: None,
+        };
         let stale_error = SchedulerEvent::Error {
-            socket: None,        // No socket nibble
-            cmd_id: None,        // Sequence lookup failed
-            sequence: Some(999), // Unknown sequence (stale/duplicate)
-            code: 0x41,          // Not Executable
+            source: stale_source,
+            code: 0x41,
         };
         let actions = core.process_event(stale_error, now);
 
@@ -6312,9 +6393,13 @@ mod tests {
         let counter_before = core.ignored_unmatched_sequenced_replies();
 
         // Inject a stale inquiry reply with unknown sequence
+        // Sequence lookup failed, so this is Sequenced with no cmd_id
+        let stale_source = ReplySource::Sequenced {
+            sequence: 9999,
+            socket: None,
+        };
         let stale_reply = SchedulerEvent::InquiryReply {
-            cmd_id: None,         // Sequence lookup failed
-            sequence: Some(9999), // Unknown sequence
+            source: stale_source,
             response: Response::Inquiry(crate::command::InquiryData::ZoomPosition {
                 position: 0x1234,
             }),
@@ -6374,18 +6459,17 @@ mod tests {
         );
 
         // ACK assigns socket (raw VISCA - no sequence)
-        let ack = SchedulerEvent::Ack {
-            socket: Some(ViscaSocket::S1),
-            cmd_id: Some(cmd_id(1)),
-            sequence: None, // Raw VISCA
-        };
+        let source = ReplySource::from_fields(Some(cmd_id(1)), None, Some(ViscaSocket::S1));
+        let ack = SchedulerEvent::Ack { source };
         core.process_event(ack, now);
 
         // Completion with no cmd_id but matching socket (raw VISCA)
+        // Raw VISCA - heuristic fallback allowed
+        let source = ReplySource::BySocket {
+            socket: ViscaSocket::S1,
+        };
         let complete = SchedulerEvent::Completion {
-            socket: Some(ViscaSocket::S1),
-            cmd_id: None,   // No sequence mapping
-            sequence: None, // Raw VISCA - heuristic fallback allowed
+            source,
             response: Response::Completion {
                 socket: Some(ViscaSocket::S1),
             },
@@ -6434,12 +6518,9 @@ mod tests {
         );
 
         // Error with no socket nibble (raw VISCA)
-        let error = SchedulerEvent::Error {
-            socket: None,
-            cmd_id: None,
-            sequence: None, // Raw VISCA - temporal fallback allowed
-            code: 0x41,     // Not Executable (not retryable for Quick category)
-        };
+        // Raw VISCA - temporal fallback allowed
+        let source = ReplySource::Unknown;
+        let error = SchedulerEvent::Error { source, code: 0x41 };
         let actions = core.process_event(error, now);
 
         // Assert: Error should be attributed via temporal fallback
@@ -6484,17 +6565,13 @@ mod tests {
         core.register_sequence(cmd_id(1), 100);
 
         // ACK and complete the command
-        let ack = SchedulerEvent::Ack {
-            socket: Some(ViscaSocket::S1),
-            cmd_id: Some(cmd_id(1)),
-            sequence: Some(100),
-        };
+        let source = ReplySource::from_fields(Some(cmd_id(1)), Some(100), Some(ViscaSocket::S1));
+        let ack = SchedulerEvent::Ack { source };
         core.process_event(ack, now);
 
+        let source = ReplySource::from_fields(Some(cmd_id(1)), Some(100), Some(ViscaSocket::S1));
         let complete = SchedulerEvent::Completion {
-            socket: Some(ViscaSocket::S1),
-            cmd_id: Some(cmd_id(1)),
-            sequence: Some(100),
+            source,
             response: Response::Completion {
                 socket: Some(ViscaSocket::S1),
             },
@@ -6514,11 +6591,13 @@ mod tests {
 
         let counter_before = core.ignored_unmatched_sequenced_replies();
 
-        // Late ACK for old sequence
-        let late_ack = SchedulerEvent::Ack {
+        // Late ACK for old sequence (sequence lookup failed)
+        let late_source = ReplySource::Sequenced {
+            sequence: 100,
             socket: Some(ViscaSocket::S1),
-            cmd_id: None,        // Sequence lookup failed
-            sequence: Some(100), // Old sequence
+        };
+        let late_ack = SchedulerEvent::Ack {
+            source: late_source,
         };
         let actions = core.process_event(late_ack, now);
 
@@ -6572,11 +6651,8 @@ mod tests {
         );
 
         // Process ACK to assign socket
-        let ack = SchedulerEvent::Ack {
-            socket: Some(ViscaSocket::S1),
-            cmd_id: Some(cmd_id(1)),
-            sequence: None,
-        };
+        let source = ReplySource::from_fields(Some(cmd_id(1)), None, Some(ViscaSocket::S1));
+        let ack = SchedulerEvent::Ack { source };
         core.process_event(ack, now);
 
         // Verify socket is occupied

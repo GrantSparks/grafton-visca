@@ -17,8 +17,8 @@ use crate::{
     executor::Executor,
     protocol::response::{decode_basic, BasicKind},
     runtime::core::{
-        PendingCommand, Priority, RetryCommand, SchedulerAction, SchedulerCore, SchedulerEvent,
-        TimeoutKind,
+        PendingCommand, Priority, ReplySource, RetryCommand, SchedulerAction, SchedulerCore,
+        SchedulerEvent, TimeoutKind,
     },
     timeout::{CommandCategory, TimeoutConfig},
     transport::RetryConfig,
@@ -469,11 +469,8 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
         let event = match basic.kind {
             BasicKind::Ack => {
                 let cmd_id = sequence.and_then(|seq| self.core.get_command_by_sequence(seq));
-                SchedulerEvent::Ack {
-                    socket: basic.socket,
-                    cmd_id,
-                    sequence,
-                }
+                let source = ReplySource::from_fields(cmd_id, sequence, basic.socket);
+                SchedulerEvent::Ack { source }
             }
             BasicKind::Completion => {
                 let cmd_id = sequence.and_then(|seq| self.core.get_command_by_sequence(seq));
@@ -483,12 +480,10 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
                 // If decoding fails but we have a cmd_id, fail the command immediately
                 // instead of propagating the error and leaving the command in-flight.
                 match lift_inquiry_for::<P>(&basic, response_type.as_ref()) {
-                    Ok(response) => SchedulerEvent::Completion {
-                        socket: basic.socket,
-                        cmd_id,
-                        sequence,
-                        response,
-                    },
+                    Ok(response) => {
+                        let source = ReplySource::from_fields(cmd_id, sequence, basic.socket);
+                        SchedulerEvent::Completion { source, response }
+                    }
                     Err(decode_error) => {
                         if let Some(id) = cmd_id {
                             // Decode error for an attributed command: fail immediately
@@ -550,12 +545,8 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
                     );
                 }
 
-                SchedulerEvent::Error {
-                    socket: basic.socket,
-                    cmd_id,
-                    sequence,
-                    code,
-                }
+                let source = ReplySource::from_fields(cmd_id, sequence, basic.socket);
+                SchedulerEvent::Error { source, code }
             }
             BasicKind::DataReply => {
                 let cmd_id = self.core.resolve_inquiry_id(basic.payload, sequence);
@@ -565,11 +556,11 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
                 // If decoding fails but we have a cmd_id, fail the command immediately
                 // instead of propagating the error and leaving the command in-flight.
                 match lift_inquiry_for::<P>(&basic, response_type.as_ref()) {
-                    Ok(response) => SchedulerEvent::InquiryReply {
-                        cmd_id,
-                        sequence,
-                        response,
-                    },
+                    Ok(response) => {
+                        // InquiryReply has no socket field, so pass None
+                        let source = ReplySource::from_fields(cmd_id, sequence, None);
+                        SchedulerEvent::InquiryReply { source, response }
+                    }
                     Err(decode_error) => {
                         if let Some(id) = cmd_id {
                             // Decode error for an attributed command: fail immediately
