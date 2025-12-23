@@ -130,6 +130,11 @@ pub struct MetricsSummary {
     pub protocol_errors: u64,
     /// Total number of timeouts.
     pub timeouts: u64,
+    /// Total number of ignored unmatched sequenced replies.
+    ///
+    /// Tracks replies with a Sony sequence number that did not resolve to an active
+    /// command. These are stale/duplicate packets that were correctly ignored.
+    pub ignored_unmatched_sequenced_replies: u64,
     /// Current depth of the pending command queue.
     pub pending_queue_depth: usize,
     /// Current depth of the retry queue.
@@ -423,6 +428,7 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
                 SchedulerEvent::Ack {
                     socket: basic.socket,
                     cmd_id,
+                    sequence,
                 }
             }
             BasicKind::Completion => {
@@ -432,6 +438,7 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
                 SchedulerEvent::Completion {
                     socket: basic.socket,
                     cmd_id,
+                    sequence,
                     response,
                 }
             }
@@ -443,8 +450,10 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
 
                 let mut cmd_id = sequence.and_then(|seq| self.core.get_command_by_sequence(seq));
 
-                // If no cmd_id and no socket, try to resolve inquiry via core (FIFO fallback)
-                if cmd_id.is_none() && basic.socket.is_none() {
+                // If no cmd_id and no socket, try to resolve inquiry via core (FIFO fallback).
+                // Note: For sequenced transports, this fallback will be blocked by process_event
+                // when sequence is Some but cmd_id is None - the reply will be ignored as stale.
+                if cmd_id.is_none() && basic.socket.is_none() && sequence.is_none() {
                     use crate::command::response::payload::Payload;
                     cmd_id = self.core.resolve_inquiry_id(Payload::new(&[]), sequence);
                 }
@@ -474,6 +483,7 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
                 SchedulerEvent::Error {
                     socket: basic.socket,
                     cmd_id,
+                    sequence,
                     code,
                 }
             }
@@ -481,7 +491,11 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
                 let cmd_id = self.core.resolve_inquiry_id(basic.payload, sequence);
                 let response_type = cmd_id.and_then(|id| self.core.get_inquiry_type(id));
                 let response = lift_inquiry_for::<P>(&basic, response_type.as_ref())?;
-                SchedulerEvent::InquiryReply { cmd_id, response }
+                SchedulerEvent::InquiryReply {
+                    cmd_id,
+                    sequence,
+                    response,
+                }
             }
             BasicKind::NetworkChange | BasicKind::Unknown => return Ok(()),
         };
@@ -647,6 +661,7 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
             network_errors: self.metrics.network_errors,
             protocol_errors: self.metrics.protocol_errors,
             timeouts: self.metrics.timeouts,
+            ignored_unmatched_sequenced_replies: self.core.ignored_unmatched_sequenced_replies(),
             pending_queue_depth: self.core.pending_queue_depth(),
             retry_queue_depth: self.core.retry_queue_depth(),
         }

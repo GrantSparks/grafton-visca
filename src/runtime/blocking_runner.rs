@@ -464,7 +464,11 @@ impl<P: Profile> BlockingRunner<P> {
                                     .sequence
                                     .and_then(|seq| self.core.get_command_by_sequence(seq));
                                 debug!("Received ACK for socket {socket:?}, cmd_id {cmd_id:?}");
-                                SchedulerEvent::Ack { socket, cmd_id }
+                                SchedulerEvent::Ack {
+                                    socket,
+                                    cmd_id,
+                                    sequence: meta.sequence,
+                                }
                             }
                             BasicKind::Completion => {
                                 let socket = basic.socket;
@@ -498,6 +502,7 @@ impl<P: Profile> BlockingRunner<P> {
                                 SchedulerEvent::Completion {
                                     socket,
                                     cmd_id,
+                                    sequence: meta.sequence,
                                     response,
                                 }
                             }
@@ -507,7 +512,9 @@ impl<P: Profile> BlockingRunner<P> {
                                     .sequence
                                     .and_then(|seq| self.core.get_command_by_sequence(seq));
 
-                                if cmd_id.is_none() && socket.is_none() {
+                                // Only use FIFO fallback for raw VISCA (no sequence).
+                                // For sequenced transports, process_event will gate the heuristic.
+                                if cmd_id.is_none() && socket.is_none() && meta.sequence.is_none() {
                                     use crate::command::response::payload::Payload;
                                     cmd_id = self
                                         .core
@@ -520,6 +527,7 @@ impl<P: Profile> BlockingRunner<P> {
                                 SchedulerEvent::Error {
                                     socket,
                                     cmd_id,
+                                    sequence: meta.sequence,
                                     code,
                                 }
                             }
@@ -544,7 +552,11 @@ impl<P: Profile> BlockingRunner<P> {
                                 debug!("Received data reply (inquiry response)");
                                 let response =
                                     lift_inquiry_for::<P>(&basic, response_type.as_ref())?;
-                                SchedulerEvent::InquiryReply { cmd_id, response }
+                                SchedulerEvent::InquiryReply {
+                                    cmd_id,
+                                    sequence: meta.sequence,
+                                    response,
+                                }
                             }
                             BasicKind::NetworkChange | BasicKind::Unknown => {
                                 continue;
