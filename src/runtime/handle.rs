@@ -141,13 +141,18 @@ impl<P: Profile + 'static, E: Executor + Send + Sync + 'static> RuntimeHandle<P,
     where
         for<'a> &'a T: HasTransportConfig,
     {
-        let (submit_tx, submit_rx) = flume::unbounded();
+        // This is done before spawn to avoid lifetime issues
+        let tcfg = *(&transport).transport_config();
+
+        // Bound the submission channel to enforce backpressure at the handle→loop boundary.
+        // This ensures `max_pending_queue_depth` is a real memory/backpressure guarantee,
+        // preventing unbounded buffering before the adapter's admission control.
+        let (submit_tx, submit_rx) = flume::bounded(tcfg.max_pending_queue_depth.get());
+
+        // Keep other low-volume channels unbounded - they don't carry command traffic
         let (metrics_tx, metrics_rx) = flume::unbounded();
         let (completions_tx, completions_rx) = flume::unbounded();
         let (shutdown_tx, shutdown_rx) = flume::unbounded();
-
-        // This is done before spawn to avoid lifetime issues
-        let tcfg = *(&transport).transport_config();
 
         let envelope = P::Envelope::new(tcfg.addressing);
         let buffer_manager = BufferManager::new(tcfg.buffer_config);

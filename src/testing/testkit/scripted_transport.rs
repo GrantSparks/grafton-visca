@@ -129,6 +129,9 @@ pub struct ScriptedTransport<E = ()> {
     response_rx: flume::Receiver<Result<Vec<u8>>>,
     executor: Option<Arc<E>>,
     shutdown_rx: Option<flume::Receiver<()>>,
+    /// Optional custom transport configuration.
+    /// When set, takes precedence over the default static config.
+    config: Option<TransportConfig>,
 }
 
 #[cfg(feature = "mode-async")]
@@ -141,6 +144,7 @@ impl<E> Clone for ScriptedTransport<E> {
             response_rx: self.response_rx.clone(),
             executor: self.executor.clone(),
             shutdown_rx: self.shutdown_rx.clone(),
+            config: self.config,
         }
     }
 }
@@ -157,6 +161,7 @@ impl<E> ScriptedTransport<E> {
             response_rx,
             executor: None,
             shutdown_rx: None,
+            config: None,
         }
     }
 
@@ -172,6 +177,15 @@ impl<E> ScriptedTransport<E> {
     /// Add a shutdown receiver to cleanly exit on shutdown signal.
     pub fn with_shutdown(mut self, shutdown_rx: flume::Receiver<()>) -> Self {
         self.shutdown_rx = Some(shutdown_rx);
+        self
+    }
+
+    /// Set a custom transport configuration.
+    ///
+    /// This allows tests to configure transport parameters like `max_pending_queue_depth`
+    /// for testing bounded channel backpressure behavior.
+    pub fn with_config(mut self, config: TransportConfig) -> Self {
+        self.config = Some(config);
         self
     }
 
@@ -907,10 +921,14 @@ pub mod helpers {
 #[cfg(feature = "mode-async")]
 impl<E> HasTransportConfig for ScriptedTransport<E> {
     fn transport_config(&self) -> &TransportConfig {
-        // Return a static default config for test transports
-        // This is safe because TransportConfig is Copy and we're returning a reference to a static
-        static DEFAULT_CONFIG: std::sync::OnceLock<TransportConfig> = std::sync::OnceLock::new();
-        DEFAULT_CONFIG.get_or_init(TransportConfig::default)
+        // Return custom config if set, otherwise fall back to static default
+        if let Some(ref config) = self.config {
+            config
+        } else {
+            static DEFAULT_CONFIG: std::sync::OnceLock<TransportConfig> =
+                std::sync::OnceLock::new();
+            DEFAULT_CONFIG.get_or_init(TransportConfig::default)
+        }
     }
 }
 

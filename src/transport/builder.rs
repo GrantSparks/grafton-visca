@@ -84,11 +84,21 @@ pub struct TransportConfig {
     pub tcp_nodelay: Option<bool>,
     /// TTL (Time To Live) for packets.
     pub ttl: Option<u32>,
-    /// Maximum pending queue depth for runtime admission control.
+    /// Maximum pending queue depth for runtime admission control and backpressure.
     ///
-    /// This bounds the number of commands/inquiries that can be queued
-    /// in the runtime scheduler. When the queue is at capacity, new
-    /// submissions are rejected with a retryable `RuntimeQueueFull` error.
+    /// This value provides a **hard memory/backpressure guarantee** by bounding:
+    ///
+    /// 1. **Submission channel capacity**: The channel from `RuntimeHandle` to the
+    ///    runtime loop is bounded to this depth. When full, `send_async` calls
+    ///    will await rather than buffer unboundedly, providing backpressure to
+    ///    bursty producers.
+    ///
+    /// 2. **Adapter admission control**: Commands/inquiries that exceed this depth
+    ///    after reaching the runtime loop are rejected with a retryable
+    ///    `RuntimeQueueFull` error.
+    ///
+    /// Together, these bounds ensure worst-case memory usage is O(max_pending_queue_depth)
+    /// rather than O(number of submitted commands), preventing OOM under sustained load.
     ///
     /// Defaults to [`DEFAULT_MAX_PENDING_QUEUE_DEPTH`] (64).
     pub max_pending_queue_depth: NonZeroUsize,
