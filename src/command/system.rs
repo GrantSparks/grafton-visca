@@ -317,4 +317,43 @@ mod tests {
         assert_eq!(ViscaSocket::S2, ViscaSocket::S2);
         assert_ne!(ViscaSocket::S1, ViscaSocket::S2);
     }
+
+    /// Test that cancel commands are correctly addressed for different camera IDs.
+    ///
+    /// This verifies the fix for issue #481: cancel operations must use the
+    /// explicitly provided camera ID rather than falling back to CAMERA_1.
+    #[test]
+    fn test_cancel_command_camera_addressing() {
+        use crate::camera_id::CameraId;
+        use crate::command::encode::ViscaCommand;
+
+        // Test CAMERA_1 addressing (0x81 = 0x80 + 1)
+        let cmd = CommandCancelCommand::new(ViscaSocket::S1);
+        let bytes = cmd.to_bytes(CameraId::CAMERA_1).unwrap();
+        assert_eq!(bytes[0], 0x81, "First byte should be 0x81 for CAMERA_1");
+
+        // Test CAMERA_2 addressing (0x82 = 0x80 + 2)
+        let cmd = CommandCancelCommand::new(ViscaSocket::S1);
+        let bytes = cmd.to_bytes(CameraId::CAMERA_2).unwrap();
+        assert_eq!(bytes[0], 0x82, "First byte should be 0x82 for CAMERA_2");
+
+        // Test CAMERA_3 addressing (0x83 = 0x80 + 3)
+        let cmd = CommandCancelCommand::new(ViscaSocket::S2);
+        let bytes = cmd.to_bytes(CameraId::CAMERA_3).unwrap();
+        assert_eq!(bytes[0], 0x83, "First byte should be 0x83 for CAMERA_3");
+
+        // Test BROADCAST addressing (0x88 = 0x80 + 8)
+        let cmd = CommandCancelCommand::new(ViscaSocket::S1);
+        let bytes = cmd.to_bytes(CameraId::BROADCAST).unwrap();
+        assert_eq!(bytes[0], 0x88, "First byte should be 0x88 for BROADCAST");
+
+        // Verify full command structure for CAMERA_2 with Socket S2
+        let cmd = CommandCancelCommand::new(ViscaSocket::S2);
+        let bytes = cmd.to_bytes(CameraId::CAMERA_2).unwrap();
+        assert_eq!(
+            bytes.as_ref(),
+            &[0x82, 0x22, VISCA_TERMINATOR],
+            "Full cancel command for CAMERA_2/S2 should be [0x82, 0x22, VISCA_TERMINATOR]"
+        );
+    }
 }

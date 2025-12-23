@@ -4,10 +4,11 @@ use flume::{Receiver, Sender};
 use futures_lite::future;
 use tracing::{debug, error, instrument, trace, warn};
 
-use std::{collections::HashSet, sync::Arc};
+use std::{collections::HashMap, sync::Arc};
 
 use crate::{
     camera::inflight::CommandId,
+    camera_id::CameraId,
     capabilities::Profile,
     command::{encode::ViscaCommand, system::CommandCancelCommand, CommandKind},
     error::{Error, Result},
@@ -156,8 +157,9 @@ pub async fn runtime_loop_with_config<
     adapter.set_max_inquiries_inflight(config.max_concurrent_inquiries);
     adapter.set_min_inquiry_spacing(config.min_inquiry_spacing);
     let mut protocol_framer = ProtocolFramer::new_with_config(config.buffer_manager.config());
-    // Track cancel requests that arrived before the command was bound to a socket
-    let mut pending_cancel_ids: HashSet<CommandId> = HashSet::new();
+    // Track cancel requests that arrived before the command was bound to a socket.
+    // Maps CommandId -> CameraId so queued cancels use the original camera address.
+    let mut pending_cancel_ids: HashMap<CommandId, CameraId> = HashMap::new();
 
     // Allocate a single reusable buffer for receiving data
     let mut read_buf = vec![0u8; config.buffer_manager.config().recv_buffer_size];
@@ -302,12 +304,7 @@ pub async fn runtime_loop_with_config<
                             }
                         }
                     }
-                    TxItem::Cancel { socket } => {
-                        let camera_id = adapter.camera_id_for_socket(socket).unwrap_or_else(|| {
-                            warn!("No camera ID found for socket {socket:?}, using CAMERA_1");
-                            crate::camera_id::CameraId::CAMERA_1
-                        });
-
+                    TxItem::Cancel { camera_id, socket } => {
                         let cancel_cmd = CommandCancelCommand::new(socket);
                         let mut temp_buf = [0u8; CommandCancelCommand::MAX_SIZE];
                         let len = cancel_cmd
@@ -335,14 +332,8 @@ pub async fn runtime_loop_with_config<
                             );
                         }
                     }
-                    TxItem::CancelById { id } => {
+                    TxItem::CancelById { camera_id, id } => {
                         if let Some(socket) = adapter.socket_for_command(id) {
-                            let camera_id =
-                                adapter.camera_id_for_command(id).unwrap_or_else(|| {
-                                    warn!("No camera ID found for command {id}, using CAMERA_1");
-                                    crate::camera_id::CameraId::CAMERA_1
-                                });
-
                             let cancel_cmd = CommandCancelCommand::new(socket);
                             let mut temp_buf = [0u8; CommandCancelCommand::MAX_SIZE];
                             let len =
@@ -369,8 +360,8 @@ pub async fn runtime_loop_with_config<
                                 debug!("Sent cancel for command {id} on socket {socket:?} with camera_id {camera_id:?}");
                             }
                         } else {
-                            debug!("No socket for command {id} yet; queuing cancel");
-                            pending_cancel_ids.insert(id);
+                            debug!("No socket for command {id} yet; queuing cancel with camera_id {camera_id:?}");
+                            pending_cancel_ids.insert(id, camera_id);
                         }
                     }
                 }
@@ -462,20 +453,15 @@ pub async fn runtime_loop_with_config<
 
                 // Flush queued cancels whose sockets are now known
                 if !pending_cancel_ids.is_empty() {
-                    let ready: Vec<CommandId> = pending_cancel_ids
+                    // Collect ready cancels: (id, camera_id) pairs where socket is now known
+                    let ready: Vec<(CommandId, CameraId)> = pending_cancel_ids
                         .iter()
-                        .copied()
-                        .filter(|id| adapter.socket_for_command(*id).is_some())
+                        .filter(|(id, _)| adapter.socket_for_command(**id).is_some())
+                        .map(|(id, camera_id)| (*id, *camera_id))
                         .collect();
 
-                    for id in ready {
+                    for (id, camera_id) in ready {
                         if let Some(socket) = adapter.socket_for_command(id) {
-                            let camera_id =
-                                adapter.camera_id_for_command(id).unwrap_or_else(|| {
-                                    warn!("No camera ID found for queued cancel command {id}, using CAMERA_1");
-                                    crate::camera_id::CameraId::CAMERA_1
-                                });
-
                             let cancel_cmd = CommandCancelCommand::new(socket);
                             let mut temp_buf = [0u8; CommandCancelCommand::MAX_SIZE];
                             let len =

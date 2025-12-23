@@ -60,11 +60,15 @@ pub(crate) enum TxItem {
     },
     /// Cancel a command on a specific socket.
     Cancel {
+        /// Camera ID for addressing the cancel message.
+        camera_id: CameraId,
         /// Socket to cancel (1 or 2).
         socket: ViscaSocket,
     },
     /// Cancel a command by its ID.
     CancelById {
+        /// Camera ID for addressing the cancel message.
+        camera_id: CameraId,
         /// Command ID to cancel.
         id: CommandId,
     },
@@ -99,12 +103,14 @@ impl std::fmt::Debug for TxItem {
                 .field("camera_id", camera_id)
                 .field("response_type", response_type)
                 .finish(),
-            TxItem::Cancel { socket } => f
+            TxItem::Cancel { camera_id, socket } => f
                 .debug_struct("TxItem::Cancel")
+                .field("camera_id", camera_id)
                 .field("socket", socket)
                 .finish(),
-            TxItem::CancelById { id } => f
+            TxItem::CancelById { camera_id, id } => f
                 .debug_struct("TxItem::CancelById")
+                .field("camera_id", camera_id)
                 .field("id", id)
                 .finish(),
         }
@@ -760,18 +766,6 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
     /// Find the socket for a given command ID.
     pub fn socket_for_command(&self, id: CommandId) -> Option<ViscaSocket> {
         self.core.find_socket_for_command(id)
-    }
-
-    /// Get the camera ID for a command by its ID.
-    pub fn camera_id_for_command(&self, id: CommandId) -> Option<CameraId> {
-        self.core.camera_id_for_command(id)
-    }
-
-    /// Get the camera ID for the command currently on a socket.
-    pub fn camera_id_for_socket(&self, socket: ViscaSocket) -> Option<CameraId> {
-        self.core
-            .find_command_on_socket(socket)
-            .and_then(|id| self.core.camera_id_for_command(id))
     }
 
     /// Handle a network error event.

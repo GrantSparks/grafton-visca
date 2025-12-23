@@ -42,7 +42,7 @@ use core::{future::Future, marker::PhantomData, pin::Pin, time::Duration};
 use std::sync::Mutex;
 
 #[cfg(feature = "mode-async")]
-use crate::{command::response::Response, error::Error, Result};
+use crate::{camera_id::CameraId, command::response::Response, error::Error, Result};
 
 use core::num::NonZeroU32;
 
@@ -229,6 +229,8 @@ pub type ResponseFuture = Pin<Box<dyn Future<Output = Result<Response, Error>> +
 pub struct InFlight<'a, C, T: CameraLike + ?Sized> {
     /// The command ID assigned by the runtime.
     id: CommandId,
+    /// Camera ID for addressing cancel messages.
+    camera_id: CameraId,
     /// Reference to the camera or session.
     cam: &'a T,
     /// The response future that completes when the camera reports completion.
@@ -251,9 +253,15 @@ where
     ///
     /// This is public within the crate but not exposed to external users.
     #[inline]
-    pub(crate) fn new(id: CommandId, cam: &'a T, response_future: ResponseFuture) -> Self {
+    pub(crate) fn new(
+        id: CommandId,
+        camera_id: CameraId,
+        cam: &'a T,
+        response_future: ResponseFuture,
+    ) -> Self {
         Self {
             id,
+            camera_id,
             cam,
             response_future: Mutex::new(Some(response_future)),
             _c: PhantomData,
@@ -270,14 +278,14 @@ where
 
     /// Cancel this command via the runtime's ID-based cancel path.
     ///
-    /// This is socket-agnostic: the runtime will determine which socket the
-    /// command is using and route the CANCEL message appropriately.
+    /// The cancel message is addressed to the camera ID that was used when
+    /// this command was originally sent, ensuring correct multi-camera behavior.
     ///
     /// # Errors
     ///
     /// Returns an error if the cancellation request cannot be sent to the runtime.
     pub async fn cancel(&self) -> Result<()> {
-        self.cam.runtime().cancel(self.id).await
+        self.cam.runtime().cancel(self.camera_id, self.id).await
     }
 
     /// Wait for this operation to complete.

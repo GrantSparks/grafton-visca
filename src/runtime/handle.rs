@@ -245,10 +245,11 @@ impl<P: Profile + 'static, E: Executor + Send + Sync + 'static> RuntimeHandle<P,
     /// - For active commands (ACK'd on a socket): Sends VISCA cancel with correct camera ID
     /// - For unknown commands: Returns success (command may have already completed)
     ///
-    /// The cancel command uses the same camera ID as the original command, ensuring
+    /// The cancel command is addressed using the provided `camera_id`, ensuring
     /// correct multi-camera behavior. Cancellation is socket-scoped per VISCA semantics.
     ///
     /// # Arguments
+    /// * `camera_id` - The camera address for the cancel message
     /// * `command_id` - The ID of the command to cancel (obtained from `send_command_with_id`
     ///   or `start_command_with_id`)
     ///
@@ -260,8 +261,11 @@ impl<P: Profile + 'static, E: Executor + Send + Sync + 'static> RuntimeHandle<P,
     /// This method only accepts `CommandId` values returned by the library, preventing
     /// the sentinel-value foot-gun where callers could pass invalid IDs (like `0`)
     /// that would never match any command.
-    pub async fn cancel(&self, command_id: CommandId) -> Result<()> {
-        let cancel_item = TxItem::CancelById { id: command_id };
+    pub async fn cancel(&self, camera_id: CameraId, command_id: CommandId) -> Result<()> {
+        let cancel_item = TxItem::CancelById {
+            camera_id,
+            id: command_id,
+        };
 
         self.inner
             .submit
@@ -273,19 +277,17 @@ impl<P: Profile + 'static, E: Executor + Send + Sync + 'static> RuntimeHandle<P,
 
     /// Cancel all commands on a specific socket.
     ///
-    /// This directly cancels the specified socket (S1 or S2) without needing to know the command ID.
-    /// Sends a VISCA cancel command using a hardcoded CAMERA_1 address since the socket-level
-    /// cancel doesn't track which camera's command is currently active on the socket.
-    ///
-    /// For camera-correct cancellation, use `cancel(command_id)` instead.
+    /// This directly cancels the specified socket (S1 or S2) using the provided camera ID.
+    /// The cancel command is addressed to the specified camera.
     ///
     /// # Arguments
+    /// * `camera_id` - The camera address for the cancel message
     /// * `socket` - The VISCA socket to cancel (S1 or S2)
     ///
     /// # Returns
     /// Ok(()) if the cancel request was processed
-    pub async fn cancel_socket(&self, socket: ViscaSocket) -> Result<()> {
-        let cancel_item = TxItem::Cancel { socket };
+    pub async fn cancel_socket(&self, camera_id: CameraId, socket: ViscaSocket) -> Result<()> {
+        let cancel_item = TxItem::Cancel { camera_id, socket };
 
         self.inner
             .submit

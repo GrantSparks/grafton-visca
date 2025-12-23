@@ -853,20 +853,22 @@ where
 
     /// Cancel all commands on a specific socket.
     ///
-    /// This method sends a cancel command to the specified VISCA socket.
+    /// This method sends a cancel command to the specified VISCA socket,
+    /// addressed to this camera's configured camera ID.
     pub async fn cancel_socket(&self, socket: crate::ViscaSocket) -> Result<(), Error>
     where
         Tr: AsyncTransport + Send + Sync,
         Exec: Executor + Send + Sync + Clone,
     {
-        self.runtime.cancel_socket(socket).await
+        self.runtime.cancel_socket(self.camera_id, socket).await
     }
 
     /// Cancel a command by its ID.
     ///
     /// This cancels a specific command that was submitted with `send_command_with_id`
     /// or `start_command_with_id`. The command's future will resolve with
-    /// [`Error::CommandCanceled`].
+    /// [`Error::CommandCanceled`]. The cancel command is addressed to this camera's
+    /// configured camera ID.
     ///
     /// # Type Safety
     ///
@@ -878,7 +880,7 @@ where
         Tr: AsyncTransport + Send + Sync,
         Exec: Executor + Send + Sync + Clone,
     {
-        self.runtime.cancel(command_id).await
+        self.runtime.cancel(self.camera_id, command_id).await
     }
 
     /// Sleep for a specified duration using the runtime.

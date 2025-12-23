@@ -310,6 +310,7 @@ where
         let (id, response_future) = self.start_command_with_id(&cmd).await?;
         Ok(crate::camera::inflight::InFlight::new(
             id,
+            self.camera_id(),
             self,
             response_future,
         ))

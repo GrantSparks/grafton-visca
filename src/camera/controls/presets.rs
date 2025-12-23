@@ -210,6 +210,7 @@ where
         // Return InFlight handle with the response future
         Ok(crate::camera::inflight::InFlight::new(
             id,
+            self.camera_id(),
             self,
             response_future,
         ))

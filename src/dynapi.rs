@@ -273,8 +273,12 @@ impl std::fmt::Display for OperationCategory {
 /// the `DynCamera` wrapper.
 #[cfg(feature = "dyn-api")]
 pub(crate) trait RuntimeDyn: Send + Sync {
-    /// Cancel a command by its ID.
-    fn cancel(&self, id: CommandId) -> BoxFuture<'_, Result<(), Error>>;
+    /// Cancel a command by its ID using the specified camera address.
+    fn cancel(
+        &self,
+        camera_id: crate::camera_id::CameraId,
+        id: CommandId,
+    ) -> BoxFuture<'_, Result<(), Error>>;
 
     /// Wait for operations of a specific category to become idle.
     fn await_category_idle(
@@ -312,6 +316,8 @@ pub(crate) trait RuntimeDyn: Send + Sync {
 pub struct InFlightDyn {
     /// The command ID assigned by the runtime.
     id: CommandId,
+    /// Camera ID for addressing cancel messages.
+    camera_id: crate::camera_id::CameraId,
     /// The operation category for this handle.
     category: OperationCategory,
     /// Reference to the runtime for cancellation and completion waiting.
@@ -323,11 +329,13 @@ impl InFlightDyn {
     /// Create a new type-erased in-flight handle.
     pub(crate) fn new(
         id: CommandId,
+        camera_id: crate::camera_id::CameraId,
         category: OperationCategory,
         runtime: Arc<dyn RuntimeDyn>,
     ) -> Self {
         Self {
             id,
+            camera_id,
             category,
             runtime,
         }
@@ -349,14 +357,14 @@ impl InFlightDyn {
 
     /// Cancel this command via the runtime's ID-based cancel path.
     ///
-    /// This is socket-agnostic: the runtime will determine which socket the
-    /// command is using and route the CANCEL message appropriately.
+    /// The cancel message is addressed to the camera ID that was used when
+    /// this command was originally sent, ensuring correct multi-camera behavior.
     ///
     /// # Errors
     ///
     /// Returns an error if the cancellation request cannot be sent to the runtime.
     pub fn cancel(&self) -> BoxFuture<'_, Result<(), Error>> {
-        self.runtime.cancel(self.id)
+        self.runtime.cancel(self.camera_id, self.id)
     }
 
     /// Wait for this operation to complete.
@@ -870,8 +878,12 @@ where
     Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
     Exec: crate::executor::Executor,
 {
-    fn cancel(&self, id: CommandId) -> BoxFuture<'_, Result<(), Error>> {
-        Box::pin(self.camera.runtime().cancel(id))
+    fn cancel(
+        &self,
+        camera_id: crate::camera_id::CameraId,
+        id: CommandId,
+    ) -> BoxFuture<'_, Result<(), Error>> {
+        Box::pin(self.camera.runtime().cancel(camera_id, id))
     }
 
     fn await_category_idle(
@@ -976,6 +988,7 @@ where
             let handle = self.inner.camera.pan_tilt_home_op().await?;
             Ok(InFlightDyn::new(
                 handle.id(),
+                self.inner.camera.camera_id(),
                 OperationCategory::PanTilt,
                 self.runtime_dyn(),
             ))
@@ -1021,6 +1034,7 @@ where
                 .await?;
             Ok(InFlightDyn::new(
                 handle.id(),
+                self.inner.camera.camera_id(),
                 OperationCategory::PanTilt,
                 self.runtime_dyn(),
             ))
@@ -1066,6 +1080,7 @@ where
                 .await?;
             Ok(InFlightDyn::new(
                 handle.id(),
+                self.inner.camera.camera_id(),
                 OperationCategory::PanTilt,
                 self.runtime_dyn(),
             ))
@@ -1103,6 +1118,7 @@ where
             let handle = self.inner.camera.pan_tilt_reset_op().await?;
             Ok(InFlightDyn::new(
                 handle.id(),
+                self.inner.camera.camera_id(),
                 OperationCategory::PanTilt,
                 self.runtime_dyn(),
             ))
@@ -1193,6 +1209,7 @@ where
             let handle = self.inner.camera.set_zoom_op(position).await?;
             Ok(InFlightDyn::new(
                 handle.id(),
+                self.inner.camera.camera_id(),
                 OperationCategory::Zoom,
                 self.runtime_dyn(),
             ))
@@ -1287,6 +1304,7 @@ where
             let handle = self.inner.camera.set_focus_op(position).await?;
             Ok(InFlightDyn::new(
                 handle.id(),
+                self.inner.camera.camera_id(),
                 OperationCategory::Focus,
                 self.runtime_dyn(),
             ))
@@ -1350,6 +1368,7 @@ where
             let handle = self.inner.camera.preset_recall_op(preset).await?;
             Ok(InFlightDyn::new(
                 handle.id(),
+                self.inner.camera.camera_id(),
                 OperationCategory::Preset,
                 self.runtime_dyn(),
             ))
