@@ -101,6 +101,35 @@ fn create_test_command(
     Arc::new(command)
 }
 
+// Helper struct for test inquiries
+#[derive(Debug, Clone)]
+struct TestInquiryHelper;
+
+impl crate::command::encode::ViscaCommand for TestInquiryHelper {
+    type Response = ();
+    const MAX_SIZE: usize = 5;
+    const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
+
+    fn write_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
+        // Standard inquiry bytes: 81 09 00 02 FF (Power inquiry)
+        buffer[0] = 0x81;
+        buffer[1] = 0x09;
+        buffer[2] = 0x00;
+        buffer[3] = 0x02;
+        buffer[4] = VISCA_TERMINATOR;
+        Ok(5)
+    }
+
+    fn response_kind(&self) -> Option<InquiryKind> {
+        Some(InquiryKind::Power)
+    }
+}
+
+/// Helper function to create test inquiries.
+fn create_test_inquiry(camera_id: CameraId) -> Arc<EncodedCommand> {
+    Arc::new(EncodedCommand::new(TestInquiryHelper, camera_id).unwrap())
+}
+
 #[test]
 fn test_retry_budget_from_base() {
     // Test with base of 3 (default)
@@ -4439,5 +4468,667 @@ fn test_multiple_cancel_requests_emit_once() {
     assert!(
         matches!(actions[0], SchedulerAction::SendCancel { .. }),
         "Action should be SendCancel"
+    );
+}
+
+// ============================================================================
+// Issue #490: Fix inquiry retry state to honor RetryConfig budgets
+// ============================================================================
+
+#[test]
+fn test_inquiry_retry_preserves_attempt_count() {
+    // Test: start_inquiry on resend should NOT reset attempt count.
+    // Configure max_retries = 1 (Quick budget = 1+2 = 3) to verify behavior.
+    let mut core = SchedulerCore::with_retry_config(
+        TimeoutConfig {
+            quick_timeout: Duration::from_millis(100), // Short timeout for testing
+            ..TimeoutConfig::default()
+        },
+        RetryConfig {
+            max_retries: 1,
+            base_retry_delay: Duration::from_millis(10),
+            max_retry_duration: Duration::from_secs(30),
+            backoff_strategy: BackoffStrategy::Constant,
+        },
+    );
+
+    let camera_id = CameraId::CAMERA_1;
+    let now = Instant::now();
+
+    // Create an inquiry
+    let inquiry = create_test_inquiry(camera_id);
+
+    // Start initial inquiry
+    core.start_inquiry(
+        cmd_id(1),
+        inquiry.clone(),
+        Priority::Normal,
+        CommandCategory::Quick,
+        camera_id,
+        CommandKind::Inquiry,
+        now,
+    );
+
+    // Verify initial state
+    {
+        let state = core.commands.get(&cmd_id(1)).expect("should exist");
+        assert_eq!(state.attempt, 0, "Initial attempt should be 0");
+        assert_eq!(state.submitted_at, now, "Initial submitted_at should match");
+    }
+
+    // Simulate timeout triggering a retry via check_timeouts
+    // Must exceed quick_timeout (100ms)
+    let timeout_time = now + Duration::from_millis(150);
+    let actions = core.check_timeouts(timeout_time);
+
+    // Should get a retry action
+    assert_eq!(actions.len(), 1);
+    match &actions[0] {
+        SchedulerAction::RetryCommand { id, .. } => {
+            assert_eq!(*id, cmd_id(1));
+        }
+        _ => panic!("Expected RetryCommand action, got: {:?}", actions[0]),
+    }
+
+    // Verify attempt was incremented to 1
+    {
+        let state = core.commands.get(&cmd_id(1)).expect("should exist");
+        assert_eq!(state.attempt, 1, "Attempt should be incremented to 1");
+    }
+
+    // Now simulate resending the inquiry (what happens in the runtime loop)
+    let resend_time = now + Duration::from_secs(3);
+    core.start_inquiry(
+        cmd_id(1),
+        inquiry.clone(),
+        Priority::Normal,
+        CommandCategory::Quick,
+        camera_id,
+        CommandKind::Inquiry,
+        resend_time,
+    );
+
+    // CRITICAL: attempt should still be 1 (not reset to 0)
+    {
+        let state = core.commands.get(&cmd_id(1)).expect("should exist");
+        assert_eq!(
+            state.attempt, 1,
+            "Attempt count should be PRESERVED (1), not reset to 0"
+        );
+        // submitted_at should be preserved from initial submission
+        assert_eq!(
+            state.submitted_at, now,
+            "submitted_at should be preserved from initial submission"
+        );
+        // sent_at should be updated to resend time
+        assert_eq!(
+            state.sent_at,
+            Some(resend_time),
+            "sent_at should be updated"
+        );
+    }
+}
+
+#[test]
+fn test_inquiry_retry_preserves_submitted_at() {
+    // Test: start_inquiry on resend should NOT reset submitted_at timestamp.
+    // This ensures max_retry_duration is measured from original submission.
+    let mut core = SchedulerCore::with_retry_config(
+        TimeoutConfig::default(),
+        RetryConfig {
+            max_retries: 5,
+            base_retry_delay: Duration::from_millis(50),
+            max_retry_duration: Duration::from_millis(500), // Short duration
+            backoff_strategy: BackoffStrategy::Constant,
+        },
+    );
+
+    let camera_id = CameraId::CAMERA_1;
+    let start_time = Instant::now();
+
+    let inquiry = create_test_inquiry(camera_id);
+
+    // Start initial inquiry
+    core.start_inquiry(
+        cmd_id(1),
+        inquiry.clone(),
+        Priority::Normal,
+        CommandCategory::Quick,
+        camera_id,
+        CommandKind::Inquiry,
+        start_time,
+    );
+
+    let original_submitted_at = core.commands.get(&cmd_id(1)).unwrap().submitted_at;
+
+    // Simulate multiple resends at different times
+    for i in 1..=3 {
+        let resend_time = start_time + Duration::from_millis(100 * i);
+        core.start_inquiry(
+            cmd_id(1),
+            inquiry.clone(),
+            Priority::Normal,
+            CommandCategory::Quick,
+            camera_id,
+            CommandKind::Inquiry,
+            resend_time,
+        );
+
+        let state = core.commands.get(&cmd_id(1)).expect("should exist");
+        assert_eq!(
+            state.submitted_at, original_submitted_at,
+            "submitted_at should be preserved across resends (iteration {})",
+            i
+        );
+        assert_eq!(
+            state.sent_at,
+            Some(resend_time),
+            "sent_at should be updated on resend"
+        );
+    }
+}
+
+#[test]
+fn test_inquiry_retry_preserves_transport_error_flag() {
+    // Test: start_inquiry on resend should NOT reset transport_error flag.
+    // When max retries exhausted, error should be TransportError (not Timeout).
+    let mut core = SchedulerCore::with_retry_config(
+        TimeoutConfig::default(),
+        RetryConfig {
+            max_retries: 1,
+            base_retry_delay: Duration::from_millis(100),
+            max_retry_duration: Duration::from_secs(5),
+            backoff_strategy: BackoffStrategy::Constant,
+        },
+    );
+
+    let camera_id = CameraId::CAMERA_1;
+    let now = Instant::now();
+
+    let inquiry = create_test_inquiry(camera_id);
+
+    // Start initial inquiry
+    core.start_inquiry(
+        cmd_id(1),
+        inquiry.clone(),
+        Priority::Normal,
+        CommandCategory::Quick,
+        camera_id,
+        CommandKind::Inquiry,
+        now,
+    );
+
+    // Mark as transport error (e.g., network failure)
+    core.mark_retry_as_transport_error(cmd_id(1));
+
+    // Verify flag is set
+    assert!(
+        core.commands.get(&cmd_id(1)).unwrap().transport_error,
+        "transport_error should be set"
+    );
+
+    // Simulate resend
+    let resend_time = now + Duration::from_millis(200);
+    core.start_inquiry(
+        cmd_id(1),
+        inquiry.clone(),
+        Priority::Normal,
+        CommandCategory::Quick,
+        camera_id,
+        CommandKind::Inquiry,
+        resend_time,
+    );
+
+    // CRITICAL: transport_error should still be true
+    assert!(
+        core.commands.get(&cmd_id(1)).unwrap().transport_error,
+        "transport_error flag should be PRESERVED after resend"
+    );
+}
+
+#[test]
+fn test_inquiry_retries_terminate_after_max_retries() {
+    // Test: Inquiry retries should terminate after max_retries with correct error.
+    // max_retries: 0 => Quick budget = 0 + 2 = 2, so allow 2 retries before failure.
+    // Timeline: attempt 0 (initial) -> timeout -> attempt 1 -> timeout -> attempt 2 -> timeout -> FAIL
+    let mut core = SchedulerCore::with_retry_config(
+        TimeoutConfig {
+            quick_timeout: Duration::from_millis(100),
+            ..TimeoutConfig::default()
+        },
+        RetryConfig {
+            max_retries: 0, // Quick budget = 0 + 2 = 2
+            base_retry_delay: Duration::from_millis(10),
+            max_retry_duration: Duration::from_secs(30),
+            backoff_strategy: BackoffStrategy::Constant,
+        },
+    );
+
+    let camera_id = CameraId::CAMERA_1;
+    let start = Instant::now();
+
+    let inquiry = create_test_inquiry(camera_id);
+
+    // Start initial inquiry (attempt = 0)
+    core.start_inquiry(
+        cmd_id(1),
+        inquiry.clone(),
+        Priority::Normal,
+        CommandCategory::Quick,
+        camera_id,
+        CommandKind::Inquiry,
+        start,
+    );
+
+    // First timeout (attempt 0 -> 1)
+    let t1 = start + Duration::from_millis(150);
+    let actions1 = core.check_timeouts(t1);
+    assert_eq!(actions1.len(), 1);
+    assert!(
+        matches!(actions1[0], SchedulerAction::RetryCommand { .. }),
+        "First timeout should trigger retry"
+    );
+    assert_eq!(
+        core.commands.get(&cmd_id(1)).unwrap().attempt,
+        1,
+        "Attempt should be 1"
+    );
+
+    // Simulate resend (runtime would call start_inquiry again)
+    core.start_inquiry(
+        cmd_id(1),
+        inquiry.clone(),
+        Priority::Normal,
+        CommandCategory::Quick,
+        camera_id,
+        CommandKind::Inquiry,
+        t1,
+    );
+    core.inflight_inquiry_ids.insert(cmd_id(1));
+
+    // Second timeout (attempt 1 -> 2)
+    let t2 = t1 + Duration::from_millis(150);
+    let actions2 = core.check_timeouts(t2);
+    assert_eq!(actions2.len(), 1);
+    assert!(
+        matches!(actions2[0], SchedulerAction::RetryCommand { .. }),
+        "Second timeout should trigger retry"
+    );
+    assert_eq!(
+        core.commands.get(&cmd_id(1)).unwrap().attempt,
+        2,
+        "Attempt should be 2"
+    );
+
+    // Simulate resend
+    core.start_inquiry(
+        cmd_id(1),
+        inquiry.clone(),
+        Priority::Normal,
+        CommandCategory::Quick,
+        camera_id,
+        CommandKind::Inquiry,
+        t2,
+    );
+    core.inflight_inquiry_ids.insert(cmd_id(1));
+
+    // Third timeout (attempt 2 >= max_retries=2) -> should FAIL, not retry
+    let t3 = t2 + Duration::from_millis(150);
+    let actions3 = core.check_timeouts(t3);
+    assert_eq!(actions3.len(), 1);
+    match &actions3[0] {
+        SchedulerAction::CommandFailed { id, error } => {
+            assert_eq!(*id, cmd_id(1));
+            assert!(
+                matches!(error, Error::Timeout),
+                "Should fail with Timeout error, got: {:?}",
+                error
+            );
+        }
+        _ => panic!("Expected CommandFailed, got: {:?}", actions3[0]),
+    }
+
+    // Command should be removed
+    assert!(
+        !core.commands.contains_key(&cmd_id(1)),
+        "Command should be removed after terminal failure"
+    );
+}
+
+#[test]
+fn test_inquiry_retries_terminate_after_max_duration() {
+    // Test: Inquiry retries should terminate after max_retry_duration.
+    let mut core = SchedulerCore::with_retry_config(
+        TimeoutConfig {
+            quick_timeout: Duration::from_millis(100),
+            ..TimeoutConfig::default()
+        },
+        RetryConfig {
+            max_retries: 100, // High value to ensure duration limit is hit first
+            base_retry_delay: Duration::from_millis(10),
+            max_retry_duration: Duration::from_millis(300), // Short duration
+            backoff_strategy: BackoffStrategy::Constant,
+        },
+    );
+
+    let camera_id = CameraId::CAMERA_1;
+    let start = Instant::now();
+
+    let inquiry = create_test_inquiry(camera_id);
+
+    // Start initial inquiry
+    core.start_inquiry(
+        cmd_id(1),
+        inquiry.clone(),
+        Priority::Normal,
+        CommandCategory::Quick,
+        camera_id,
+        CommandKind::Inquiry,
+        start,
+    );
+
+    // First timeout - well within duration
+    let t1 = start + Duration::from_millis(150);
+    let actions1 = core.check_timeouts(t1);
+    assert!(
+        matches!(actions1[0], SchedulerAction::RetryCommand { .. }),
+        "First timeout should retry"
+    );
+
+    // Resend
+    core.start_inquiry(
+        cmd_id(1),
+        inquiry.clone(),
+        Priority::Normal,
+        CommandCategory::Quick,
+        camera_id,
+        CommandKind::Inquiry,
+        t1,
+    );
+    core.inflight_inquiry_ids.insert(cmd_id(1));
+
+    // Second timeout - past max_retry_duration (start + 350ms > 300ms limit)
+    let t2 = start + Duration::from_millis(350);
+    let actions2 = core.check_timeouts(t2);
+    assert_eq!(actions2.len(), 1);
+    match &actions2[0] {
+        SchedulerAction::CommandFailed { id, error } => {
+            assert_eq!(*id, cmd_id(1));
+            assert!(
+                matches!(error, Error::Timeout),
+                "Should fail with Timeout due to duration exceeded"
+            );
+        }
+        _ => panic!(
+            "Expected CommandFailed due to duration exceeded, got: {:?}",
+            actions2[0]
+        ),
+    }
+}
+
+#[test]
+fn test_inquiry_transport_error_classification_after_retries() {
+    // Test: When transport_error is set, terminal failure should be TransportError.
+    // max_retries: 0 => Quick budget = 0 + 2 = 2
+    let mut core = SchedulerCore::with_retry_config(
+        TimeoutConfig {
+            quick_timeout: Duration::from_millis(100),
+            ..TimeoutConfig::default()
+        },
+        RetryConfig {
+            max_retries: 0, // Quick budget = 0 + 2 = 2
+            base_retry_delay: Duration::from_millis(10),
+            max_retry_duration: Duration::from_secs(30),
+            backoff_strategy: BackoffStrategy::Constant,
+        },
+    );
+
+    let camera_id = CameraId::CAMERA_1;
+    let start = Instant::now();
+
+    let inquiry = create_test_inquiry(camera_id);
+
+    // Start initial inquiry (attempt = 0)
+    core.start_inquiry(
+        cmd_id(1),
+        inquiry.clone(),
+        Priority::Normal,
+        CommandCategory::Quick,
+        camera_id,
+        CommandKind::Inquiry,
+        start,
+    );
+
+    // First timeout (attempt 0 -> 1) triggers retry
+    let t1 = start + Duration::from_millis(150);
+    let actions1 = core.check_timeouts(t1);
+    assert!(matches!(actions1[0], SchedulerAction::RetryCommand { .. }));
+
+    // Mark as transport error BEFORE resend
+    core.mark_retry_as_transport_error(cmd_id(1));
+
+    // Resend
+    core.start_inquiry(
+        cmd_id(1),
+        inquiry.clone(),
+        Priority::Normal,
+        CommandCategory::Quick,
+        camera_id,
+        CommandKind::Inquiry,
+        t1,
+    );
+    core.inflight_inquiry_ids.insert(cmd_id(1));
+
+    // Verify transport_error is still set after resend
+    assert!(
+        core.commands.get(&cmd_id(1)).unwrap().transport_error,
+        "transport_error should be preserved after resend"
+    );
+
+    // Second timeout (attempt 1 -> 2)
+    let t2 = t1 + Duration::from_millis(150);
+    let actions2 = core.check_timeouts(t2);
+    assert!(
+        matches!(actions2[0], SchedulerAction::RetryCommand { .. }),
+        "Second timeout should retry"
+    );
+
+    // Resend again (transport_error still set)
+    core.start_inquiry(
+        cmd_id(1),
+        inquiry.clone(),
+        Priority::Normal,
+        CommandCategory::Quick,
+        camera_id,
+        CommandKind::Inquiry,
+        t2,
+    );
+    core.inflight_inquiry_ids.insert(cmd_id(1));
+
+    // Verify transport_error is STILL preserved after second resend
+    assert!(
+        core.commands.get(&cmd_id(1)).unwrap().transport_error,
+        "transport_error should be preserved after second resend"
+    );
+
+    // Third timeout (attempt 2 >= Quick budget = 2) -> should FAIL with TransportError
+    let t3 = t2 + Duration::from_millis(150);
+    let actions3 = core.check_timeouts(t3);
+    assert_eq!(actions3.len(), 1);
+    match &actions3[0] {
+        SchedulerAction::CommandFailed { id, error } => {
+            assert_eq!(*id, cmd_id(1));
+            match error {
+                Error::TransportError(msg) => {
+                    assert!(
+                        msg.contains("Network error after max retries"),
+                        "Expected transport error message, got: {}",
+                        msg
+                    );
+                }
+                _ => panic!("Expected TransportError, got: {:?}", error),
+            }
+        }
+        _ => panic!(
+            "Expected CommandFailed with TransportError, got: {:?}",
+            actions3[0]
+        ),
+    }
+}
+
+#[test]
+fn test_inquiries_order_no_duplicates_on_resend() {
+    // Test: inquiries_order should not accumulate duplicates across resends.
+    let mut core = SchedulerCore::new(TimeoutConfig::default());
+    let camera_id = CameraId::CAMERA_1;
+    let now = Instant::now();
+
+    let inquiry = create_test_inquiry(camera_id);
+
+    // Start initial inquiry
+    core.start_inquiry(
+        cmd_id(1),
+        inquiry.clone(),
+        Priority::Normal,
+        CommandCategory::Quick,
+        camera_id,
+        CommandKind::Inquiry,
+        now,
+    );
+    assert_eq!(core.inquiries_order.len(), 1);
+
+    // Simulate multiple resends
+    for i in 1..=5 {
+        let resend_time = now + Duration::from_millis(100 * i);
+        core.start_inquiry(
+            cmd_id(1),
+            inquiry.clone(),
+            Priority::Normal,
+            CommandCategory::Quick,
+            camera_id,
+            CommandKind::Inquiry,
+            resend_time,
+        );
+
+        // Should still be exactly 1 entry
+        assert_eq!(
+            core.inquiries_order.len(),
+            1,
+            "inquiries_order should have at most 1 entry per id (iteration {})",
+            i
+        );
+        assert_eq!(
+            core.inquiries_order.back(),
+            Some(&cmd_id(1)),
+            "The single entry should be cmd_id(1)"
+        );
+    }
+}
+
+#[test]
+fn test_inquiry_preserves_cancel_requested_flag() {
+    // Test: start_inquiry on resend should NOT reset cancel_requested flag.
+    let mut core = SchedulerCore::new(TimeoutConfig::default());
+    let camera_id = CameraId::CAMERA_1;
+    let now = Instant::now();
+
+    let inquiry = create_test_inquiry(camera_id);
+
+    // Start initial inquiry
+    core.start_inquiry(
+        cmd_id(1),
+        inquiry.clone(),
+        Priority::Normal,
+        CommandCategory::Quick,
+        camera_id,
+        CommandKind::Inquiry,
+        now,
+    );
+
+    // Set cancel_requested (normally done by request_cancel_by_id)
+    if let Some(state) = core.commands.get_mut(&cmd_id(1)) {
+        state.cancel_requested = true;
+    }
+
+    // Verify flag is set
+    assert!(
+        core.commands.get(&cmd_id(1)).unwrap().cancel_requested,
+        "cancel_requested should be set"
+    );
+
+    // Simulate resend
+    let resend_time = now + Duration::from_millis(200);
+    core.start_inquiry(
+        cmd_id(1),
+        inquiry.clone(),
+        Priority::Normal,
+        CommandCategory::Quick,
+        camera_id,
+        CommandKind::Inquiry,
+        resend_time,
+    );
+
+    // CRITICAL: cancel_requested should still be true
+    assert!(
+        core.commands.get(&cmd_id(1)).unwrap().cancel_requested,
+        "cancel_requested flag should be PRESERVED after resend"
+    );
+}
+
+#[test]
+fn test_new_inquiry_starts_fresh() {
+    // Test: A genuinely new inquiry (not a resend) should start with fresh state.
+    let mut core = SchedulerCore::new(TimeoutConfig::default());
+    let camera_id = CameraId::CAMERA_1;
+    let now = Instant::now();
+
+    let inquiry = create_test_inquiry(camera_id);
+
+    // Start a new inquiry
+    core.start_inquiry(
+        cmd_id(1),
+        inquiry.clone(),
+        Priority::Normal,
+        CommandCategory::Quick,
+        camera_id,
+        CommandKind::Inquiry,
+        now,
+    );
+
+    let state = core.commands.get(&cmd_id(1)).expect("should exist");
+    assert_eq!(state.attempt, 0, "New inquiry should have attempt = 0");
+    assert_eq!(
+        state.submitted_at, now,
+        "New inquiry should have submitted_at = now"
+    );
+    assert!(
+        !state.transport_error,
+        "New inquiry should have transport_error = false"
+    );
+    assert!(
+        !state.cancel_requested,
+        "New inquiry should have cancel_requested = false"
+    );
+
+    // Start a different new inquiry
+    let later = now + Duration::from_millis(100);
+    core.start_inquiry(
+        cmd_id(2),
+        inquiry.clone(),
+        Priority::Normal,
+        CommandCategory::Quick,
+        camera_id,
+        CommandKind::Inquiry,
+        later,
+    );
+
+    let state2 = core.commands.get(&cmd_id(2)).expect("should exist");
+    assert_eq!(
+        state2.attempt, 0,
+        "Second new inquiry should have attempt = 0"
+    );
+    assert_eq!(
+        state2.submitted_at, later,
+        "Second new inquiry should have submitted_at = later"
     );
 }

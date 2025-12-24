@@ -1886,12 +1886,20 @@ impl SchedulerCore {
                     actions.push(retry_action);
                 }
             } else {
+                // Terminal failure - check transport_error for proper error classification
+                let transport_error = self
+                    .commands
+                    .get(&cmd_id)
+                    .map(|s| s.transport_error)
+                    .unwrap_or(false);
+                let error = if transport_error {
+                    Error::TransportError("Network error after max retries".into())
+                } else {
+                    Error::Timeout
+                };
                 self.finish_sequence(cmd_id);
                 self.commands.remove(&cmd_id);
-                actions.push(SchedulerAction::CommandFailed {
-                    id: cmd_id,
-                    error: Error::Timeout,
-                });
+                actions.push(SchedulerAction::CommandFailed { id: cmd_id, error });
             }
         }
 
@@ -2015,10 +2023,16 @@ impl SchedulerCore {
                         delay: retry_delay,
                     });
                 } else {
-                    // Max retries exceeded - fail the command
+                    // Max retries exceeded - fail the command with proper error classification
+                    let error = if state.transport_error {
+                        Error::TransportError("Network error after max retries".into())
+                    } else {
+                        Error::Timeout
+                    };
+
                     debug!(
-                        "Command {} exceeded max ACK retries, failing with Timeout",
-                        cmd_id
+                        "Command {} exceeded max ACK retries, failing with {:?}",
+                        cmd_id, error
                     );
 
                     if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
@@ -2032,15 +2046,12 @@ impl SchedulerCore {
                     self.finish_sequence(cmd_id);
                     self.commands.remove(&cmd_id);
 
-                    actions.push(SchedulerAction::CommandFailed {
-                        id: cmd_id,
-                        error: Error::Timeout,
-                    });
+                    actions.push(SchedulerAction::CommandFailed { id: cmd_id, error });
                 }
             }
         }
 
-        // Handle timed out commands
+        // Handle timed out commands (socket timeout)
         for (socket, cmd_id) in timed_out {
             self.free_socket(socket);
 
@@ -2061,12 +2072,20 @@ impl SchedulerCore {
                     actions.push(retry_action);
                 }
             } else {
+                // Terminal failure - check transport_error for proper error classification
+                let transport_error = self
+                    .commands
+                    .get(&cmd_id)
+                    .map(|s| s.transport_error)
+                    .unwrap_or(false);
+                let error = if transport_error {
+                    Error::TransportError("Network error after max retries".into())
+                } else {
+                    Error::Timeout
+                };
                 self.finish_sequence(cmd_id);
                 self.commands.remove(&cmd_id);
-                actions.push(SchedulerAction::CommandFailed {
-                    id: cmd_id,
-                    error: Error::Timeout,
-                });
+                actions.push(SchedulerAction::CommandFailed { id: cmd_id, error });
             }
         }
 
@@ -2362,6 +2381,17 @@ impl SchedulerCore {
     }
 
     /// Start tracking an inquiry (no socket allocation).
+    ///
+    /// This method uses upsert semantics to preserve retry state across resends:
+    /// - If the inquiry already exists in `commands`, update send-related fields
+    ///   (`command`, `priority`, `category`, `camera_id`, `kind`, `sent_at`) while
+    ///   preserving lifecycle tracking fields (`submitted_at`, `attempt`,
+    ///   `transport_error`, `cancel_requested`).
+    /// - If this is a new inquiry, create fresh state with `attempt = 0` and
+    ///   `submitted_at = now`.
+    ///
+    /// This mirrors the `register_pending_ack` pattern for commands and ensures
+    /// that retry budgets (`max_retries`, `max_retry_duration`) are honored.
     #[allow(clippy::too_many_arguments)]
     pub fn start_inquiry(
         &mut self,
@@ -2373,51 +2403,85 @@ impl SchedulerCore {
         kind: CommandKind,
         now: Instant,
     ) {
-        // Get existing response_type - check both commands and pending_inquiry_types
-        let response_type = self
-            .commands
-            .get(&id)
-            .and_then(|s| s.response_type)
-            .or_else(|| self.pending_inquiry_types.remove(&id));
+        debug_assert!(
+            kind == CommandKind::Inquiry,
+            "start_inquiry called with non-inquiry kind: {:?}",
+            kind
+        );
 
-        // Track whether this was already in-flight
-        let was_already_tracked = self.inflight_inquiry_ids.contains(&id);
+        // Get response_type from pending_inquiry_types if not already in commands.
+        // Only remove from pending_inquiry_types for new inquiries.
+        let pending_response_type = self.pending_inquiry_types.remove(&id);
 
-        // Create or update command state
-        let state = CommandState {
-            command,
-            priority,
-            category,
-            camera_id,
-            kind,
-            submitted_at: now,
-            sent_at: Some(now),
-            attempt: 0,
-            transport_error: false,
-            cancel_requested: false,
-            response_type,
-        };
-        self.commands.insert(id, state);
+        // Update existing state if it exists (preserves retry tracking),
+        // otherwise create a new state
+        if let Some(existing) = self.commands.get_mut(&id) {
+            // Update send-related fields, preserve retry tracking
+            existing.command = command;
+            existing.priority = priority;
+            existing.category = category;
+            existing.camera_id = camera_id;
+            existing.kind = kind;
+            existing.sent_at = Some(now);
+            // Note: preserve attempt, transport_error, cancel_requested, and submitted_at
+            // If response_type was None but we have a pending type, fill it in
+            if existing.response_type.is_none() {
+                existing.response_type = pending_response_type;
+            }
+
+            trace!(
+                %id,
+                inquiry_type = ?existing.response_type,
+                attempt = existing.attempt,
+                "Updated existing inquiry state for resend"
+            );
+        } else {
+            // New inquiry - create fresh state
+            let response_type = pending_response_type;
+            let state = CommandState {
+                command,
+                priority,
+                category,
+                camera_id,
+                kind,
+                submitted_at: now,
+                sent_at: Some(now),
+                attempt: 0,
+                transport_error: false,
+                cancel_requested: false,
+                response_type,
+            };
+            self.commands.insert(id, state);
+
+            trace!(
+                %id,
+                inquiry_type = ?response_type,
+                "Created new inquiry state"
+            );
+        }
+
         self.inflight_inquiry_ids.insert(id);
 
-        // Add to order queue for raw VISCA correlation
+        // Remove any existing occurrence to prevent duplicates, then add to back
+        // This maintains FIFO ordering while ensuring at most one entry per id
+        self.inquiries_order.retain(|&x| x != id);
         self.inquiries_order.push_back(id);
 
         // Update last inquiry sent time for spacing enforcement
         self.last_inquiry_sent = Some(now);
 
-        if was_already_tracked {
-            warn!(
-                %id,
-                inquiry_type = ?response_type,
-                "Inquiry started but was already in inflight_inquiry_ids - timestamp overwritten"
-            );
-        }
+        // Debug assertion: inquiries_order should not contain duplicates
+        debug_assert!(
+            {
+                let mut seen = HashSet::new();
+                self.inquiries_order.iter().all(|&x| seen.insert(x))
+            },
+            "inquiries_order contains duplicates after start_inquiry"
+        );
 
         let inflight_count = self.inflight_inquiry_ids.len();
         trace!(
             %id,
-            inquiry_type = ?response_type,
             inflight_count,
             "Started inquiry (no socket allocation)"
         );
