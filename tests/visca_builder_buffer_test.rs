@@ -99,10 +99,11 @@ fn test_luminance_encode_array_exact_size() {
     let result = cmd.to_fixed_bytes::<9>(CameraId::CAMERA_1);
     assert!(result.is_ok(), "encode_array should work with exact size");
 
-    let buffer = result.unwrap();
+    let fixed = result.unwrap();
     // The actual encoded size is 9 bytes
+    assert_eq!(fixed.len(), 9);
     assert_eq!(
-        &buffer[..9],
+        fixed.as_slice(),
         &[0x81, 0x01, 0x04, 0xA1, 0x00, 0x00, 0x00, 0x07, 0xFF]
     );
 }
@@ -116,10 +117,11 @@ fn test_contrast_encode_array_exact_size() {
     let result = cmd.to_fixed_bytes::<9>(CameraId::CAMERA_1);
     assert!(result.is_ok(), "encode_array should work with exact size");
 
-    let buffer = result.unwrap();
+    let fixed = result.unwrap();
     // The actual encoded size is 9 bytes
+    assert_eq!(fixed.len(), 9);
     assert_eq!(
-        &buffer[..9],
+        fixed.as_slice(),
         &[0x81, 0x01, 0x04, 0xA2, 0x00, 0x00, 0x00, 0x05, 0xFF]
     );
 }
@@ -154,12 +156,15 @@ fn test_encode_array_larger_than_needed() {
     let result = cmd.to_fixed_bytes::<16>(CameraId::CAMERA_1);
     assert!(result.is_ok(), "encode_array should work with extra space");
 
-    let buffer = result.unwrap();
-    // Should only use necessary bytes (9 bytes)
+    let fixed = result.unwrap();
+    // The length should be exactly 9 bytes even though the buffer is larger
+    assert_eq!(fixed.len(), 9);
     assert_eq!(
-        &buffer[..9],
+        fixed.as_slice(),
         &[0x81, 0x01, 0x04, 0xA1, 0x00, 0x00, 0x00, 0x07, 0xFF]
     );
+    // Verify the underlying array is larger
+    assert_eq!(fixed.as_array().len(), 16);
 }
 
 #[test]

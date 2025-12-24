@@ -37,6 +37,7 @@ pub mod encode;
 
 // Re-export command types
 pub use self::{
+    bytes::FixedCommandBytes,
     color::*,
     encode::{CommandKind, ViscaCommand},
     exposure::*,

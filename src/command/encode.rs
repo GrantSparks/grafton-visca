@@ -9,7 +9,7 @@ use smallvec::SmallVec;
 
 use crate::{camera_id::CameraId, error::Error, timeout::CommandCategory};
 
-use super::response::InquiryKind;
+use super::{bytes::FixedCommandBytes, response::InquiryKind};
 
 /// Command kind classification for VISCA protocol.
 ///
@@ -172,19 +172,29 @@ pub trait ViscaCommand: Send + Sync {
     /// * `Error::InvalidParameter` if the command contains invalid parameters
     fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error>;
 
-    /// Encodes the command to a fixed-size array.
+    /// Encodes the command to a fixed-size, length-aware buffer.
     ///
-    /// This method provides stack-allocated encoding for compile-time known sizes.
+    /// This method provides stack-allocated encoding for compile-time known sizes,
+    /// returning a [`FixedCommandBytes`] that carries both the bytes and the actual
+    /// encoded length. This prevents accidental transmission of trailing bytes.
     ///
     /// # Arguments
     ///
     /// * `camera_id` - The camera ID to address the command to
     ///
+    /// # Returns
+    ///
+    /// A [`FixedCommandBytes<N>`] containing the encoded command. Use [`as_slice()`](FixedCommandBytes::as_slice)
+    /// or [`AsRef<[u8]>`](AsRef) to access only the meaningful bytes.
+    ///
     /// # Errors
     ///
     /// * `Error::BufferTooSmall` if N is smaller than the encoded size
     /// * `Error::InvalidParameter` if the command contains invalid parameters
-    fn to_fixed_bytes<const N: usize>(&self, camera_id: CameraId) -> Result<[u8; N], Error> {
+    fn to_fixed_bytes<const N: usize>(
+        &self,
+        camera_id: CameraId,
+    ) -> Result<FixedCommandBytes<N>, Error> {
         let mut buffer = [0u8; N];
         let size = self.write_into(camera_id, &mut buffer)?;
         if size > N {
@@ -197,7 +207,7 @@ pub trait ViscaCommand: Send + Sync {
         // Validate command structure
         check_command_structure(&buffer, size)?;
 
-        Ok(buffer)
+        Ok(FixedCommandBytes::new(buffer, size))
     }
 
     /// Encodes the command to a `bytes::Bytes` buffer.
@@ -404,13 +414,65 @@ mod tests {
 
     #[test]
     fn to_fixed_bytes_validates_command_structure() {
+        use crate::command::bytes::FixedCommandBytes;
+
         let cmd = DummyInvalidAddr;
-        let result: Result<[u8; 2], Error> = cmd.to_fixed_bytes(CameraId::CAMERA_1);
+        let result: Result<FixedCommandBytes<2>, Error> = cmd.to_fixed_bytes(CameraId::CAMERA_1);
         assert!(result.is_err(), "Expected error for invalid address");
 
         let cmd2 = DummyMissingTerminator;
-        let result2: Result<[u8; 3], Error> = cmd2.to_fixed_bytes(CameraId::CAMERA_1);
+        let result2: Result<FixedCommandBytes<3>, Error> = cmd2.to_fixed_bytes(CameraId::CAMERA_1);
         assert!(result2.is_err(), "Expected error for missing terminator");
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn to_fixed_bytes_returns_correct_length() {
+        // Create a valid command for testing
+        struct DummyValid;
+
+        impl ViscaCommand for DummyValid {
+            type Response = ();
+            const MAX_SIZE: usize = 6;
+            const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
+
+            fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
+                buffer[0] = camera_id.to_address_byte();
+                buffer[1] = 0x01;
+                buffer[2] = 0x04;
+                buffer[3] = 0x00;
+                buffer[4] = crate::command::bytes::VISCA_TERMINATOR;
+                Ok(5)
+            }
+
+            fn response_kind(&self) -> Option<InquiryKind> {
+                None
+            }
+        }
+
+        let cmd = DummyValid;
+        let result = cmd.to_fixed_bytes::<8>(CameraId::CAMERA_1);
+        assert!(result.is_ok());
+
+        let fixed = result.unwrap();
+        assert_eq!(fixed.len(), 5);
+        assert_eq!(
+            fixed.as_slice(),
+            &[
+                0x81,
+                0x01,
+                0x04,
+                0x00,
+                crate::command::bytes::VISCA_TERMINATOR
+            ]
+        );
+        assert_eq!(
+            fixed.as_slice().last(),
+            Some(&crate::command::bytes::VISCA_TERMINATOR)
+        );
+
+        // Verify that the underlying array may be larger
+        assert_eq!(fixed.as_array().len(), 8);
     }
 
     #[test]

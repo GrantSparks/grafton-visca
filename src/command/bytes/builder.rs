@@ -2,7 +2,7 @@
 
 use core::marker::PhantomData;
 
-use crate::command::bytes::VISCA_TERMINATOR;
+use crate::command::bytes::{FixedCommandBytes, VISCA_TERMINATOR};
 
 /// Type state for an incomplete (unterminated) command
 #[derive(Debug, Clone, Copy)]
@@ -271,17 +271,10 @@ impl<const N: usize> ConstCommandBuilder<N, Terminated> {
     /// Get the command bytes as a slice.
     /// This is only available after the command has been terminated.
     ///
-    /// This method is part of the type-state API but not currently used.
-    /// It's retained for API completeness and will be used when migrating
-    /// commands to the type-safe pattern.
+    /// Returns only the meaningful bytes (up to and including the terminator),
+    /// not the full buffer capacity.
     pub fn as_bytes(&self) -> &[u8] {
         &self.buffer[..self.position]
-    }
-
-    /// Get the complete buffer as an array.
-    /// This is only available after the command has been terminated.
-    pub fn as_array(&self) -> [u8; N] {
-        self.buffer
     }
 
     /// Get the number of bytes in the terminated command.
@@ -294,23 +287,23 @@ impl<const N: usize> ConstCommandBuilder<N, Terminated> {
         self.position == 0
     }
 
-    /// Build the command, returning the complete array.
-    /// This is the standard builder pattern termination method.
+    /// Build the command, returning a length-aware buffer.
     ///
-    /// # Panics
+    /// This method returns a [`FixedCommandBytes`] that carries both the bytes
+    /// and the actual encoded length, preventing accidental transmission of
+    /// trailing bytes.
     ///
-    /// Panics if the command would overflow the buffer.
-    #[allow(clippy::panic)]
-    pub fn build(self) -> [u8; N] {
-        // Check for internal buffer overflow
+    /// # Errors
+    ///
+    /// Returns `Error::BufferTooSmall` if the command would overflow the buffer.
+    pub fn try_build(self) -> Result<FixedCommandBytes<N>, crate::Error> {
         if self.overflowed {
-            panic!(
-                "ConstCommandBuilder buffer overflow: required {} bytes, but only {} available",
-                self.required, N
-            );
+            return Err(crate::Error::BufferTooSmall {
+                required: self.required,
+                actual: N,
+            });
         }
-
-        self.buffer
+        Ok(FixedCommandBytes::new(self.buffer, self.position))
     }
 
     /// Build the terminated command into the provided buffer.
@@ -371,33 +364,42 @@ mod tests {
         let builder = ConstCommandBuilder::<10>::from_prefix(&[0x81, 0x01, 0x04, 0x47]);
         let terminated = builder.terminate();
 
-        // Can access bytes
+        // Can access bytes via as_bytes() - returns only meaningful bytes
         let bytes = terminated.as_bytes();
         assert_eq!(bytes[0..4], [0x81, 0x01, 0x04, 0x47]);
         assert_eq!(bytes[4], VISCA_TERMINATOR);
         assert_eq!(terminated.len(), 5);
 
-        // Can get full array
-        let array = terminated.as_array();
-        assert_eq!(array[0..4], [0x81, 0x01, 0x04, 0x47]);
+        // Verify as_bytes() returns exactly len() bytes
+        assert_eq!(bytes.len(), terminated.len());
     }
 
     #[test]
-    fn test_legacy_methods_still_work() {
-        // Test build() method
+    #[allow(clippy::unwrap_used)]
+    fn test_try_build_returns_fixed_command_bytes() {
+        // Test try_build() method
         let builder = ConstCommandBuilder::<10>::from_prefix(&[0x81, 0x01, 0x04, 0x47]);
-        let array = builder.terminate().build();
-        assert_eq!(array[4], VISCA_TERMINATOR);
+        let result = builder.terminate().try_build();
+        assert!(result.is_ok());
+        let fixed = result.unwrap();
+        assert_eq!(fixed.len(), 5);
+        assert_eq!(
+            fixed.as_slice(),
+            &[0x81, 0x01, 0x04, 0x47, VISCA_TERMINATOR]
+        );
 
-        // Test build() method with auto-termination
-        let command = ConstCommandBuilder::<10>::new()
+        // Test try_build() method with auto-termination
+        let result = ConstCommandBuilder::<10>::new()
             .push(0x81)
             .push(0x01)
             .push(0x04)
             .push(0x47)
             .terminate()
-            .build();
-        assert_eq!(command[4], VISCA_TERMINATOR);
+            .try_build();
+        assert!(result.is_ok());
+        let fixed = result.unwrap();
+        assert_eq!(fixed.len(), 5);
+        assert_eq!(fixed.as_slice().last(), Some(&VISCA_TERMINATOR));
     }
 
     #[test]
@@ -567,22 +569,27 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(
-        expected = "ConstCommandBuilder buffer overflow: required 5 bytes, but only 3 available"
-    )]
-    fn test_build_panics_on_overflow() {
-        // build() method should panic on overflow
-        let _command = ConstCommandBuilder::<3>::new()
+    fn test_try_build_returns_error_on_overflow() {
+        // try_build() method should return error on overflow instead of panicking
+        let result = ConstCommandBuilder::<3>::new()
             .push(0x81)
             .push(0x01)
             .push(0x04)
             .push(0x47) // Won't fit
             .terminate()
-            .build();
+            .try_build();
+
+        assert!(matches!(
+            result,
+            Err(crate::Error::BufferTooSmall {
+                required: 5,
+                actual: 3
+            })
+        ));
     }
 
     #[test]
-    #[allow(clippy::panic)]
+    #[allow(clippy::unwrap_used)]
     fn test_exact_fit_with_terminator() {
         // Exactly fits including terminator
         let builder = ConstCommandBuilder::<5>::new()
@@ -591,17 +598,24 @@ mod tests {
             .push(0x04)
             .push(0x47);
 
-        let mut buffer = [0u8; 10];
-        let result = builder.terminate().build_into(&mut buffer);
+        // Test with try_build()
+        let result = builder.terminate().try_build();
+        assert!(result.is_ok(), "try_build should succeed with exact fit");
+        let fixed = result.unwrap();
+        assert_eq!(fixed.len(), 5);
+        assert_eq!(fixed.as_slice().last(), Some(&VISCA_TERMINATOR));
 
-        // Should succeed with exactly 5 bytes
-        match result {
-            Ok(len) => {
-                assert_eq!(len, 5);
-                assert_eq!(buffer[4], VISCA_TERMINATOR);
-            }
-            Err(_) => panic!("build_into should have succeeded"),
-        }
+        // Also test with build_into()
+        let builder2 = ConstCommandBuilder::<5>::new()
+            .push(0x81)
+            .push(0x01)
+            .push(0x04)
+            .push(0x47);
+        let mut buffer = [0u8; 10];
+        let result = builder2.terminate().build_into(&mut buffer);
+        assert!(result.is_ok(), "build_into should succeed with exact fit");
+        assert_eq!(result.unwrap(), 5);
+        assert_eq!(buffer[4], VISCA_TERMINATOR);
     }
 
     #[test]
