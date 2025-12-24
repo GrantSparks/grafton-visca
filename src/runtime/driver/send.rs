@@ -133,14 +133,14 @@ where
     Env: Envelope,
 {
     // Frame the command directly into the reusable send buffer (zero allocation)
-    let meta = envelope.frame_into(cmd.command.as_slice(), cmd.kind, send_buf);
+    let meta = envelope.frame_into(cmd.command.as_slice(), cmd.kind(), send_buf);
 
     // Create guard for tracking rollback state
     let mut guard = SendGuard::new(cmd.id);
 
     // For inquiries, start tracking without socket allocation
     // For commands, register as pending ACK
-    if cmd.kind == CommandKind::Inquiry {
+    if cmd.kind() == CommandKind::Inquiry {
         scheduler.start_inquiry(&cmd);
         trace!("Started tracking inquiry {id}", id = cmd.id);
     } else {
@@ -167,7 +167,7 @@ where
         Ok(()) => {
             trace!(
                 "Successfully sent {kind} {id}",
-                kind = if cmd.kind == CommandKind::Inquiry {
+                kind = if cmd.kind() == CommandKind::Inquiry {
                     "inquiry"
                 } else {
                     "command"
@@ -199,7 +199,7 @@ where
             error!(
                 "Send {error_type} for {kind} {id}: {error:?}",
                 error_type = error_type,
-                kind = if cmd.kind == CommandKind::Inquiry {
+                kind = if cmd.kind() == CommandKind::Inquiry {
                     "inquiry"
                 } else {
                     "command"
@@ -240,14 +240,14 @@ where
     Env: Envelope,
 {
     // Frame the command directly into the reusable send buffer (zero allocation)
-    let meta = envelope.frame_into(cmd.command.as_slice(), cmd.kind, send_buf);
+    let meta = envelope.frame_into(cmd.command.as_slice(), cmd.kind(), send_buf);
 
     // Create guard for tracking rollback state
     let mut guard = SendGuard::new(cmd.id);
 
     // For inquiries, start tracking without socket allocation
     // For commands, register as pending ACK
-    if cmd.kind == CommandKind::Inquiry {
+    if cmd.kind() == CommandKind::Inquiry {
         scheduler.start_inquiry(&cmd);
         trace!("Started tracking inquiry {id}", id = cmd.id);
     } else {
@@ -258,13 +258,13 @@ where
 
     // Try to send the command with timeout
     // In blocking mode, we use the transport directly
-    let send_result = transport.send_with_kind(&send_buf[..], cmd.kind);
+    let send_result = transport.send_with_kind(&send_buf[..], cmd.kind());
 
     match send_result {
         Ok(()) => {
             trace!(
                 "Successfully sent {kind} {id}",
-                kind = if cmd.kind == CommandKind::Inquiry {
+                kind = if cmd.kind() == CommandKind::Inquiry {
                     "inquiry"
                 } else {
                     "command"
@@ -296,7 +296,7 @@ where
             error!(
                 "Send {error_type} for {kind} {id}: {error:?}",
                 error_type = error_type,
-                kind = if cmd.kind == CommandKind::Inquiry {
+                kind = if cmd.kind() == CommandKind::Inquiry {
                     "inquiry"
                 } else {
                     "command"

@@ -12,7 +12,7 @@ use crate::{
     camera::inflight::CommandId,
     camera_id::CameraId,
     capabilities::Profile,
-    command::response::{lift_inquiry_for, InquiryKind, Response},
+    command::response::{lift_inquiry_for, Response},
     error::{Error, Result},
     executor::Executor,
     protocol::response::{decode_basic, BasicKind},
@@ -26,18 +26,27 @@ use crate::{
 };
 
 /// Represents an item to be transmitted (command, inquiry, or cancel).
+///
+/// # Metadata Consolidation
+///
+/// The `command` field contains an `Arc<EncodedCommand>` which stores all
+/// metadata needed for scheduling and timeout handling:
+/// - `category`: Timeout category (via `command.category`)
+/// - `response_type`: Expected response type for inquiries (via `command.response_type`)
+/// - `kind`: Command vs Inquiry (via `command.kind`)
+///
+/// This eliminates redundant storage that previously existed in both `TxItem`
+/// and `EncodedCommand`, making `EncodedCommand` the single source of truth.
 #[derive(Clone)]
 pub(crate) enum TxItem {
     /// A command that requires a socket and expects ACK/Completion.
     Command {
         /// Unique identifier for this command.
         id: CommandId,
-        /// The pre-encoded command to send.
+        /// The pre-encoded command to send (contains category and kind).
         command: Arc<crate::command::encode::EncodedCommand>,
         /// Priority level for scheduling.
         priority: Priority,
-        /// Category for timeout calculation.
-        category: CommandCategory,
         /// Camera ID used to encode the command.
         camera_id: CameraId,
         /// Channel to send response back.
@@ -47,14 +56,10 @@ pub(crate) enum TxItem {
     Inquiry {
         /// Unique identifier for this inquiry.
         id: CommandId,
-        /// The pre-encoded command to send.
+        /// The pre-encoded command to send (contains category, response_type, and kind).
         command: Arc<crate::command::encode::EncodedCommand>,
-        /// Category for timeout calculation.
-        category: CommandCategory,
         /// Camera ID used to encode the inquiry.
         camera_id: CameraId,
-        /// Expected response type for parsing DataReply.
-        response_type: Option<InquiryKind>,
         /// Channel to send response back.
         response_tx: Sender<Result<Response>>,
     },
@@ -79,29 +84,28 @@ impl std::fmt::Debug for TxItem {
         match self {
             TxItem::Command {
                 id,
+                command,
                 priority,
-                category,
                 camera_id,
                 ..
             } => f
                 .debug_struct("TxItem::Command")
                 .field("id", id)
                 .field("priority", priority)
-                .field("category", category)
+                .field("category", &command.category)
                 .field("camera_id", camera_id)
                 .finish(),
             TxItem::Inquiry {
                 id,
-                category,
+                command,
                 camera_id,
-                response_type,
                 ..
             } => f
                 .debug_struct("TxItem::Inquiry")
                 .field("id", id)
-                .field("category", category)
+                .field("category", &command.category)
                 .field("camera_id", camera_id)
-                .field("response_type", response_type)
+                .field("response_type", &command.response_type)
                 .finish(),
             TxItem::Cancel { camera_id, socket } => f
                 .debug_struct("TxItem::Cancel")
@@ -257,7 +261,6 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
                 id,
                 command,
                 priority,
-                category,
                 camera_id,
                 response_tx,
             } => {
@@ -278,16 +281,14 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
 
                 self.response_channels.insert(id, response_tx);
 
-                // Queue command in core
+                // Queue command in core (category and kind are derived from EncodedCommand)
                 let now = self.executor.now();
                 let pending_cmd = PendingCommand {
                     id,
                     command,
                     priority,
-                    category,
                     camera_id,
                     submitted_at: now,
-                    kind: crate::command::CommandKind::Command,
                 };
                 self.core.queue_command(pending_cmd);
 
@@ -296,9 +297,7 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
             TxItem::Inquiry {
                 id,
                 command,
-                category,
                 camera_id,
-                response_type,
                 response_tx,
             } => {
                 // Admission control: reject if at capacity
@@ -318,24 +317,20 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
 
                 self.response_channels.insert(id, response_tx);
 
-                // Store response type in core if present
-                if let Some(rt) = response_type {
-                    self.core.register_inquiry_type(id, rt);
-                }
-
                 // Queue inquiry in core with Low priority.
+                // response_type is stored in EncodedCommand and accessed via
+                // CommandState.response_type() when the inquiry is started.
                 // Inquiries are typically used for polling/status checks, so they should
                 // not block user-initiated commands. This prevents command starvation when
                 // polling generates many inquiries that timeout/retry (GitHub issue #381).
+                // Category and kind are derived from EncodedCommand.
                 let now = self.executor.now();
                 let pending_cmd = PendingCommand {
                     id,
                     command,
                     priority: Priority::Low,
-                    category,
                     camera_id,
                     submitted_at: now,
-                    kind: crate::command::CommandKind::Inquiry,
                 };
                 self.core.queue_command(pending_cmd);
 
@@ -356,13 +351,12 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
     /// Register that a command was sent and is pending ACK.
     pub fn register_pending_ack(&mut self, cmd: &PendingCommand) {
         let now = self.executor.now();
+        // Category and kind are derived from EncodedCommand
         self.core.register_pending_ack(
             cmd.id,
             cmd.command.clone(),
             cmd.priority,
-            cmd.category,
             cmd.camera_id,
-            cmd.kind,
             now,
         );
     }
@@ -370,13 +364,12 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
     /// Start tracking an inquiry (no socket allocation).
     pub fn start_inquiry(&mut self, cmd: &PendingCommand) {
         let now = self.executor.now();
+        // Category and kind are derived from EncodedCommand
         self.core.start_inquiry(
             cmd.id,
             cmd.command.clone(),
             cmd.priority,
-            cmd.category,
             cmd.camera_id,
-            cmd.kind,
             now,
         );
     }
@@ -844,7 +837,10 @@ mod tests {
     use super::*;
     use crate::{
         camera::profiles::PtzOpticsG2,
-        command::{bytes::VISCA_TERMINATOR, encode::EncodedCommand, CommandKind, Response},
+        command::{
+            bytes::VISCA_TERMINATOR, encode::EncodedCommand, response::InquiryKind, CommandKind,
+            Response,
+        },
         testing::testkit::deterministic_executor::DeterministicExecutor,
         transport::builder::DEFAULT_MAX_PENDING_QUEUE_DEPTH,
     };
@@ -890,9 +886,7 @@ mod tests {
             cmd_id(42),
             inq.clone(),
             Priority::Normal,
-            CommandCategory::Quick,
             camera_id,
-            CommandKind::Inquiry,
             executor.now(),
         );
 
@@ -956,20 +950,13 @@ mod tests {
             response_type: Some(InquiryKind::Power),
         });
 
-        // Register the expected inquiry type BEFORE starting the inquiry
-        // This ensures get_inquiry_type returns the type for decoding
-        adapter
-            .core
-            .register_inquiry_type(cmd_id(99), InquiryKind::Power);
-
         // Start the inquiry in the scheduler
+        // The inquiry type comes from EncodedCommand.response_type (set above)
         adapter.core.start_inquiry(
             cmd_id(99),
             inq.clone(),
             Priority::Normal,
-            CommandCategory::Quick,
             camera_id,
-            CommandKind::Inquiry,
             executor.now(),
         );
 
@@ -1112,9 +1099,7 @@ mod tests {
             cmd_id(100),
             cmd.clone(),
             Priority::Normal,
-            CommandCategory::Quick,
             camera_id,
-            CommandKind::Command,
             executor.now(),
         );
 
@@ -1180,15 +1165,9 @@ mod tests {
                 response_type: None,
             });
 
-            adapter.core.register_pending_ack(
-                id,
-                cmd,
-                Priority::Normal,
-                CommandCategory::Quick,
-                camera_id,
-                CommandKind::Command,
-                executor.now(),
-            );
+            adapter
+                .core
+                .register_pending_ack(id, cmd, Priority::Normal, camera_id, executor.now());
 
             let (response_tx, _response_rx) = flume::bounded(1);
             adapter.response_channels.insert(id, response_tx);
@@ -1483,7 +1462,6 @@ mod tests {
                 id: cmd_id(i as u32),
                 command: cmd,
                 priority: Priority::Normal,
-                category: CommandCategory::Quick,
                 camera_id,
                 response_tx,
             });
@@ -1515,7 +1493,6 @@ mod tests {
             id: cmd_id((max_depth + 1) as u32),
             command: cmd,
             priority: Priority::Normal,
-            category: CommandCategory::Quick,
             camera_id,
             response_tx,
         });
@@ -1569,7 +1546,6 @@ mod tests {
                 id: cmd_id(i as u32),
                 command: cmd,
                 priority: Priority::Normal,
-                category: CommandCategory::Quick,
                 camera_id,
                 response_tx,
             });
@@ -1595,7 +1571,6 @@ mod tests {
                 id: cmd_id((max_depth + i) as u32),
                 command: cmd,
                 priority: Priority::Normal,
-                category: CommandCategory::Quick,
                 camera_id,
                 response_tx,
             });
@@ -1646,7 +1621,6 @@ mod tests {
                 id: cmd_id(i),
                 command: cmd,
                 priority: Priority::Normal,
-                category: CommandCategory::Quick,
                 camera_id,
                 response_tx,
             });
@@ -1672,9 +1646,7 @@ mod tests {
             adapter.submit(TxItem::Inquiry {
                 id: cmd_id(i),
                 command: inq,
-                category: CommandCategory::Quick,
                 camera_id,
-                response_type: Some(InquiryKind::Power),
                 response_tx,
             });
         }
@@ -1718,7 +1690,6 @@ mod tests {
                 id: cmd_id(i as u32),
                 command: cmd,
                 priority: Priority::Normal,
-                category: CommandCategory::Quick,
                 camera_id,
                 response_tx,
             });
@@ -1744,7 +1715,6 @@ mod tests {
                 id: cmd_id((max_depth + i) as u32),
                 command: cmd,
                 priority: Priority::Normal,
-                category: CommandCategory::Quick,
                 camera_id,
                 response_tx,
             });
@@ -1787,9 +1757,7 @@ mod tests {
             adapter.submit(TxItem::Inquiry {
                 id: cmd_id(i as u32),
                 command: inq,
-                category: CommandCategory::Quick,
                 camera_id,
-                response_type: Some(InquiryKind::Power),
                 response_tx,
             });
         }
@@ -1806,9 +1774,7 @@ mod tests {
         adapter.submit(TxItem::Inquiry {
             id: cmd_id((max_depth + 1) as u32),
             command: inq,
-            category: CommandCategory::Quick,
             camera_id,
-            response_type: Some(InquiryKind::Power),
             response_tx,
         });
 

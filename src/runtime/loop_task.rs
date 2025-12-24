@@ -527,15 +527,13 @@ pub async fn runtime_loop_with_config<
                 retry.id, retry.attempt
             );
 
-            let kind = retry.kind;
+            // Category and kind are derived from EncodedCommand
             let pending_cmd = PendingCommand {
                 id: retry.id,
                 command: retry.command,
                 priority: retry.priority,
-                category: retry.category,
                 camera_id: retry.camera_id,
                 submitted_at: executor.now(),
-                kind,
             };
 
             if let Err(e) = send_one(

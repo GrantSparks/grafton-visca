@@ -691,25 +691,41 @@ where
     ///
     /// This method delegates to the runtime handle for proper sequence tracking,
     /// socket management, and concurrency control.
+    ///
+    /// The command is encoded eagerly (before creating the async future), so
+    /// the returned future captures only `Arc<EncodedCommand>` and doesn't
+    /// require `Clone` on the command type.
     pub fn send_command<'a, C>(
         &'a self,
         command: &'a C,
     ) -> <crate::mode::Async as Mode>::Fut<'static, Result<crate::command::response::Response, Error>>
     where
-        C: ViscaCommand + Send + Sync + Clone + std::fmt::Debug + 'static,
+        C: ViscaCommand,
         Tr: AsyncTransport + Send + Sync,
         Exec: Executor + Send + Sync + Clone,
     {
+        use crate::command::encode::EncodedCommand;
+        use std::sync::Arc;
+
         let camera_id = self.camera_id;
-        let command = command.clone();
-        let runtime = self.runtime.clone();
         let is_inquiry = matches!(command.command_kind(), crate::command::CommandKind::Inquiry);
 
+        // Eager preparation: encode the command before creating the future.
+        // This eliminates the Clone requirement by capturing Arc<EncodedCommand>
+        // instead of the command itself.
+        let prepared = EncodedCommand::new(command, camera_id);
+        let runtime = self.runtime.clone();
+
         Box::pin(async move {
+            let prepared_command = Arc::new(prepared?);
             if is_inquiry {
-                runtime.send_inquiry(&command, camera_id).await
+                runtime
+                    .send_inquiry_prepared(prepared_command, camera_id)
+                    .await
             } else {
-                runtime.send_command(&command, camera_id, None).await
+                runtime
+                    .send_command_prepared(prepared_command, camera_id, None)
+                    .await
             }
         })
     }
@@ -720,12 +736,14 @@ where
     }
 
     /// Send a typed command and return the response.
+    ///
+    /// Like `send_command`, this method encodes eagerly and doesn't require `Clone`.
     pub fn send_command_typed<'a, C>(
         &'a self,
         command: &'a C,
     ) -> <crate::mode::Async as Mode>::Fut<'static, Result<<C as ResponseParser>::Response, Error>>
     where
-        C: ResponseParser + ViscaCommand + Send + Sync + Clone + std::fmt::Debug + 'static,
+        C: ResponseParser + ViscaCommand,
         <C as ResponseParser>::Response: Send + 'static,
         Tr: AsyncTransport + Send + Sync,
         Exec: Executor + Send + Sync + Clone,
@@ -767,14 +785,17 @@ where
         >,
     >
     where
-        C: ViscaCommand + Send + Sync + Clone + std::fmt::Debug + 'static,
+        C: ViscaCommand,
         Tr: AsyncTransport + Send + Sync,
         Exec: Executor + Send + Sync + Clone,
     {
+        use crate::command::encode::EncodedCommand;
+        use std::sync::Arc;
+
         let camera_id = self.camera_id;
-        let command = command.clone();
-        let runtime = self.runtime.clone();
         let is_inquiry = matches!(command.command_kind(), crate::command::CommandKind::Inquiry);
+        let prepared = EncodedCommand::new(command, camera_id);
+        let runtime = self.runtime.clone();
 
         Box::pin(async move {
             if is_inquiry {
@@ -782,8 +803,9 @@ where
                 return Err(Error::InquiryNotCancelable);
             }
 
+            let prepared_command = Arc::new(prepared?);
             let (id, future) = runtime
-                .send_command_with_id(&command, camera_id, None)
+                .send_command_with_id_prepared(prepared_command, camera_id, None)
                 .await?;
             let response = future.await?;
             Ok((id, response))
@@ -829,10 +851,13 @@ where
         Error,
     >
     where
-        C: ViscaCommand + Send + Sync + Clone + std::fmt::Debug + 'static,
+        C: ViscaCommand,
         Tr: AsyncTransport + Send + Sync,
         Exec: Executor + Send + Sync + Clone,
     {
+        use crate::command::encode::EncodedCommand;
+        use std::sync::Arc;
+
         let camera_id = self.camera_id;
         let is_inquiry = matches!(command.command_kind(), crate::command::CommandKind::Inquiry);
 
@@ -841,10 +866,13 @@ where
             return Err(Error::InquiryNotCancelable);
         }
 
+        // Eager preparation: encode before async operations
+        let prepared_command = Arc::new(EncodedCommand::new(command, camera_id)?);
+
         // Return the ID and future directly without awaiting
         let (id, fut) = self
             .runtime
-            .send_command_with_id(command, camera_id, None)
+            .send_command_with_id_prepared(prepared_command, camera_id, None)
             .await?;
         let future = Box::pin(fut);
         Ok((id, future))
@@ -901,12 +929,15 @@ where
     Tr: BlockingTransport + crate::transport::HasTransportConfig + Send + 'static,
 {
     /// Send a command using the mode-specific return type.
+    ///
+    /// The command is passed by reference and encoded once at the start.
+    /// No `Clone` is required on the command type.
     pub fn send_command<C>(
         &self,
         command: &C,
     ) -> <crate::mode::Blocking as Mode>::Fut<'_, Result<crate::command::response::Response, Error>>
     where
-        C: ViscaCommand + Send + Sync + Clone + std::fmt::Debug + 'static,
+        C: ViscaCommand,
     {
         // Always use BlockingRunner for both Sony and Raw VISCA protocols
         let transport_cell = self.transport();
@@ -924,23 +955,23 @@ where
             }
         };
 
-        // Determine command category
-        let category = C::TIMEOUT_CATEGORY;
-
         // Send command through BlockingRunner (works for both protocols)
-        match runner.send_command(&mut *transport, command, self.camera_id, category) {
+        // Category is derived from the command's TIMEOUT_CATEGORY constant via EncodedCommand
+        match runner.send_command(&mut *transport, command, self.camera_id) {
             Ok(response) => std::future::ready(Ok(response)),
             Err(e) => std::future::ready(Err(e)),
         }
     }
 
     /// Send a typed command and return the response.
+    ///
+    /// Like `send_command`, this method doesn't require `Clone`.
     pub fn send_command_typed<C>(
         &self,
         command: &C,
     ) -> <crate::mode::Blocking as Mode>::Fut<'_, Result<<C as ResponseParser>::Response, Error>>
     where
-        C: ResponseParser + ViscaCommand + Send + Sync + Clone + std::fmt::Debug + 'static,
+        C: ResponseParser + ViscaCommand,
         <C as ResponseParser>::Response: Send + 'static,
     {
         // In blocking mode, send_command executes synchronously and returns a Ready future.
@@ -960,11 +991,9 @@ where
             }
         };
 
-        // Determine command category
-        let category = C::TIMEOUT_CATEGORY;
-
         // Send command through BlockingRunner (works for both protocols)
-        match runner.send_command(&mut *transport, command, self.camera_id, category) {
+        // Category is derived from the command's TIMEOUT_CATEGORY constant via EncodedCommand
+        match runner.send_command(&mut *transport, command, self.camera_id) {
             Ok(response) => std::future::ready(C::from_response(response)),
             Err(e) => std::future::ready(Err(e)),
         }
@@ -983,7 +1012,7 @@ where
         deadline: crate::timeout::Deadline,
     ) -> <crate::mode::Blocking as Mode>::Fut<'_, Result<crate::command::response::Response, Error>>
     where
-        C: ViscaCommand + Send + Sync + Clone + std::fmt::Debug + 'static,
+        C: ViscaCommand,
     {
         let transport_cell = self.transport();
         let mut transport = match transport_cell.try_borrow_mut() {
@@ -1000,13 +1029,11 @@ where
             }
         };
 
-        let category = C::TIMEOUT_CATEGORY;
-
+        // Category is derived from the command's TIMEOUT_CATEGORY constant via EncodedCommand
         match runner.send_command_with_deadline(
             &mut *transport,
             command,
             self.camera_id,
-            category,
             Some(deadline),
         ) {
             Ok(response) => std::future::ready(Ok(response)),

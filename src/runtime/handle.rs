@@ -25,7 +25,7 @@ use crate::{
         core::Priority,
         loop_task::{runtime_loop_with_config, RuntimeLoopConfig},
     },
-    timeout::{CommandTimeout, TimeoutConfig},
+    timeout::TimeoutConfig,
     transport::{
         buffer::BufferManager, envelope::Envelope, AsyncTransport, HasTransportConfig, RetryConfig,
     },
@@ -397,7 +397,7 @@ impl<P: Profile + 'static, E: Executor + Send + Sync + 'static> RuntimeHandle<P,
         priority: Option<Priority>,
     ) -> Result<Response>
     where
-        C: ViscaCommand + Clone + std::fmt::Debug + 'static,
+        C: ViscaCommand,
     {
         let (_, response) = self.send_command_with_id(cmd, camera_id, priority).await?;
         response.await
@@ -429,13 +429,12 @@ impl<P: Profile + 'static, E: Executor + Send + Sync + 'static> RuntimeHandle<P,
         priority: Option<Priority>,
     ) -> Result<(CommandId, impl Future<Output = Result<Response>>)>
     where
-        C: ViscaCommand + Clone + std::fmt::Debug + 'static,
+        C: ViscaCommand,
     {
-        let prepared_command =
-            Arc::new(EncodedCommand::new(cmd.clone(), camera_id).map_err(|e| {
-                tracing::error!("Failed to prepare command: {e:?}");
-                e
-            })?);
+        let prepared_command = Arc::new(EncodedCommand::new(cmd, camera_id).map_err(|e| {
+            tracing::error!("Failed to prepare command: {e:?}");
+            e
+        })?);
 
         let command_id = self.allocate_command_id();
 
@@ -443,9 +442,8 @@ impl<P: Profile + 'static, E: Executor + Send + Sync + 'static> RuntimeHandle<P,
 
         let item = TxItem::Command {
             id: command_id,
-            command: prepared_command,
+            command: prepared_command.clone(),
             priority: priority.unwrap_or(Priority::Normal),
-            category: C::TIMEOUT_CATEGORY,
             camera_id,
             response_tx,
         };
@@ -496,14 +494,12 @@ impl<P: Profile + 'static, E: Executor + Send + Sync + 'static> RuntimeHandle<P,
     /// use [`send_command_with_id`](Self::send_command_with_id).
     pub async fn send_inquiry<I>(&self, inquiry: &I, camera_id: CameraId) -> Result<Response>
     where
-        I: ViscaCommand + CommandTimeout + Clone + std::fmt::Debug + 'static,
+        I: ViscaCommand,
     {
-        let prepared_command = Arc::new(EncodedCommand::new(inquiry.clone(), camera_id).map_err(
-            |e| {
-                tracing::error!("Failed to prepare inquiry: {e:?}");
-                e
-            },
-        )?);
+        let prepared_command = Arc::new(EncodedCommand::new(inquiry, camera_id).map_err(|e| {
+            tracing::error!("Failed to prepare inquiry: {e:?}");
+            e
+        })?);
 
         // Inquiries still need internal IDs for response correlation,
         // but these are not exposed externally since inquiries cannot be canceled.
@@ -513,10 +509,8 @@ impl<P: Profile + 'static, E: Executor + Send + Sync + 'static> RuntimeHandle<P,
 
         let item = TxItem::Inquiry {
             id: inquiry_id,
-            command: prepared_command,
-            category: inquiry.timeout_class(),
+            command: prepared_command.clone(),
             camera_id,
-            response_type: inquiry.response_kind(),
             response_tx,
         };
 
@@ -527,6 +521,111 @@ impl<P: Profile + 'static, E: Executor + Send + Sync + 'static> RuntimeHandle<P,
             .await
             .map_err(|_| Error::ChannelClosed)
             .map_err(Error::to_public_error)?
+    }
+
+    /// Send a pre-encoded command to the camera.
+    ///
+    /// This is an internal method used by Camera to submit already-encoded commands.
+    /// The command is passed as an `Arc<EncodedCommand>` to avoid cloning.
+    ///
+    /// # Arguments
+    /// * `prepared` - The pre-encoded command
+    /// * `camera_id` - The camera ID to send the command to
+    /// * `priority` - The priority level for the command (defaults to Normal)
+    ///
+    /// # Returns
+    /// The response from the camera
+    pub(crate) async fn send_command_prepared(
+        &self,
+        prepared: Arc<EncodedCommand>,
+        camera_id: CameraId,
+        priority: Option<Priority>,
+    ) -> Result<Response> {
+        let (_, response) = self
+            .send_command_with_id_prepared(prepared, camera_id, priority)
+            .await?;
+        response.await
+    }
+
+    /// Send a pre-encoded inquiry to the camera.
+    ///
+    /// This is an internal method used by Camera to submit already-encoded inquiries.
+    /// The inquiry is passed as an `Arc<EncodedCommand>` to avoid cloning.
+    ///
+    /// # Arguments
+    /// * `prepared` - The pre-encoded inquiry command
+    /// * `camera_id` - The camera ID to send the inquiry to
+    ///
+    /// # Returns
+    /// The response from the camera
+    pub(crate) async fn send_inquiry_prepared(
+        &self,
+        prepared: Arc<EncodedCommand>,
+        camera_id: CameraId,
+    ) -> Result<Response> {
+        // Inquiries still need internal IDs for response correlation,
+        // but these are not exposed externally since inquiries cannot be canceled.
+        let inquiry_id = self.allocate_command_id();
+
+        let (response_tx, response_rx) = flume::bounded(1);
+
+        let item = TxItem::Inquiry {
+            id: inquiry_id,
+            command: prepared,
+            camera_id,
+            response_tx,
+        };
+
+        self.command(item).await?;
+
+        response_rx
+            .recv_async()
+            .await
+            .map_err(|_| Error::ChannelClosed)
+            .map_err(Error::to_public_error)?
+    }
+
+    /// Send a pre-encoded command and return a command ID and response future.
+    ///
+    /// This is an internal method used by Camera to submit already-encoded commands
+    /// while also returning the command ID for potential cancellation.
+    ///
+    /// # Arguments
+    /// * `prepared` - The pre-encoded command
+    /// * `camera_id` - The camera ID to send the command to
+    /// * `priority` - The priority level for the command (defaults to Normal)
+    ///
+    /// # Returns
+    /// A tuple of (`CommandId`, response_future)
+    pub(crate) async fn send_command_with_id_prepared(
+        &self,
+        prepared: Arc<EncodedCommand>,
+        camera_id: CameraId,
+        priority: Option<Priority>,
+    ) -> Result<(CommandId, impl Future<Output = Result<Response>>)> {
+        let command_id = self.allocate_command_id();
+
+        let (response_tx, response_rx) = flume::bounded(1);
+
+        let item = TxItem::Command {
+            id: command_id,
+            command: prepared,
+            priority: priority.unwrap_or(Priority::Normal),
+            camera_id,
+            response_tx,
+        };
+
+        self.command(item).await?;
+
+        let future = async move {
+            response_rx
+                .recv_async()
+                .await
+                .map_err(|_| Error::ChannelClosed)
+                .map_err(Error::to_public_error)?
+        };
+
+        Ok((command_id, future))
     }
 }
 

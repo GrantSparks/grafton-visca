@@ -32,7 +32,7 @@ use crate::{
         },
         driver::{scheduler::BlockingScheduler, send_one, SendResult},
     },
-    timeout::{CommandCategory, Deadline, TimeoutConfig},
+    timeout::{Deadline, TimeoutConfig},
     transport::{
         buffer::{BufferConfig, BufferManager},
         builder::AddressingMode,
@@ -162,14 +162,16 @@ impl<P: Profile> BlockingRunner<P> {
     }
 
     /// Send a command and wait for the response.
+    ///
+    /// The timeout category is derived from the command's `TIMEOUT_CATEGORY` constant,
+    /// ensuring consistency between the command type and its timeout handling.
     pub fn send_command<T: BlockingTransport + HasTransportConfig>(
         &mut self,
         transport: &mut T,
-        command: &(impl ViscaCommand + std::fmt::Debug + Clone + 'static),
+        command: &impl ViscaCommand,
         camera_id: CameraId,
-        category: CommandCategory,
     ) -> Result<Response> {
-        self.send_command_with_deadline(transport, command, camera_id, category, None)
+        self.send_command_with_deadline(transport, command, camera_id, None)
     }
 
     /// Send a command with an optional deadline for the entire operation.
@@ -179,19 +181,20 @@ impl<P: Profile> BlockingRunner<P> {
     /// hasn't been reached. This is useful for movement detection where
     /// individual inquiries must not exceed the overall operation budget.
     ///
+    /// The timeout category is derived from the command's `TIMEOUT_CATEGORY` constant,
+    /// ensuring consistency between the command type and its timeout handling.
+    ///
     /// # Arguments
     ///
     /// * `transport` - The transport to send the command on
     /// * `command` - The VISCA command to send
     /// * `camera_id` - Target camera ID
-    /// * `category` - Command category for timeout calculation
     /// * `deadline` - Optional deadline; if `Some`, operation fails if deadline is exceeded
     pub fn send_command_with_deadline<T: BlockingTransport + HasTransportConfig>(
         &mut self,
         transport: &mut T,
-        command: &(impl ViscaCommand + std::fmt::Debug + Clone + 'static),
+        command: &impl ViscaCommand,
         camera_id: CameraId,
-        category: CommandCategory,
         deadline: Option<Deadline>,
     ) -> Result<Response> {
         // Check deadline before even starting
@@ -212,28 +215,19 @@ impl<P: Profile> BlockingRunner<P> {
         };
 
         let prepared_cmd = std::sync::Arc::new(
-            crate::command::encode::EncodedCommand::new(command.clone(), camera_id).map_err(
-                |e| {
-                    tracing::error!("Failed to prepare command: {e:?}");
-                    e
-                },
-            )?,
+            crate::command::encode::EncodedCommand::new(command, camera_id).map_err(|e| {
+                tracing::error!("Failed to prepare command: {e:?}");
+                e
+            })?,
         );
 
-        if let Some(rt) = prepared_cmd.response_type {
-            self.core.register_inquiry_type(cmd_id, rt);
-        }
-
         let now = Instant::now();
-        let kind = prepared_cmd.kind;
         let pending_cmd = PendingCommand {
             id: cmd_id,
-            command: prepared_cmd,
+            command: prepared_cmd.clone(),
             priority: Priority::Normal,
-            category,
             camera_id,
             submitted_at: now,
-            kind,
         };
 
         self.core.queue_command(pending_cmd);
@@ -349,8 +343,6 @@ impl<P: Profile> BlockingRunner<P> {
             let now = Instant::now();
 
             if let Some(cmd) = self.core.next_item_to_send(now) {
-                let kind = cmd.kind;
-
                 let mut scheduler = BlockingScheduler {
                     core: &mut self.core,
                     now,
@@ -362,10 +354,8 @@ impl<P: Profile> BlockingRunner<P> {
                     id: cmd.id,
                     command: cmd.command.clone(),
                     priority: cmd.priority,
-                    category: cmd.category,
                     camera_id: cmd.camera_id,
                     submitted_at: now,
-                    kind,
                 };
 
                 match send_one(
@@ -405,7 +395,7 @@ impl<P: Profile> BlockingRunner<P> {
 
             let ready_retries = self.core.get_ready_retries(now);
             for retry in ready_retries {
-                let kind = retry.kind;
+                let kind = retry.kind();
 
                 let mut scheduler = BlockingScheduler {
                     core: &mut self.core,
@@ -418,10 +408,8 @@ impl<P: Profile> BlockingRunner<P> {
                     id: retry.id,
                     command: retry.command.clone(),
                     priority: retry.priority,
-                    category: retry.category,
                     camera_id: retry.camera_id,
                     submitted_at: now,
-                    kind,
                 };
 
                 match send_one(
@@ -678,6 +666,7 @@ mod tests {
     use super::*;
     use crate::camera::profiles::PtzOpticsG2;
     use crate::command::encode::ViscaCommand;
+    use crate::timeout::CommandCategory;
     use crate::transport::builder::TransportConfig;
 
     /// Helper function to create CommandId from u32 in tests.
@@ -735,17 +724,15 @@ mod tests {
             bytes: vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR],
         };
         let prepared_cmd = std::sync::Arc::new(
-            crate::command::encode::EncodedCommand::new(test_cmd, camera_id).unwrap(),
+            crate::command::encode::EncodedCommand::new(&test_cmd, camera_id).unwrap(),
         );
 
         let cmd = PendingCommand {
             id: cmd_id(1),
             command: prepared_cmd.clone(),
             priority: Priority::Normal,
-            category: CommandCategory::Quick,
             camera_id,
             submitted_at: Instant::now(),
-            kind: prepared_cmd.kind,
         };
 
         runner.core.queue_command(cmd);
@@ -845,8 +832,7 @@ mod tests {
         // Track start time to verify we return immediately (not after timeout)
         let start = Instant::now();
 
-        let result =
-            runner.send_command(&mut transport, &test_cmd, camera_id, CommandCategory::Quick);
+        let result = runner.send_command(&mut transport, &test_cmd, camera_id);
 
         let elapsed = start.elapsed();
 
@@ -965,8 +951,7 @@ mod tests {
             bytes: vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR],
         };
 
-        let result =
-            runner.send_command(&mut transport, &test_cmd, camera_id, CommandCategory::Quick);
+        let result = runner.send_command(&mut transport, &test_cmd, camera_id);
 
         assert!(result.is_err(), "Expected timeout error, got Ok");
 
@@ -1111,7 +1096,7 @@ mod tests {
             bytes: vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR],
         };
         let prepared_cmd = std::sync::Arc::new(
-            crate::command::encode::EncodedCommand::new(test_cmd, camera_id).unwrap(),
+            crate::command::encode::EncodedCommand::new(&test_cmd, camera_id).unwrap(),
         );
 
         let now = Instant::now();
@@ -1119,10 +1104,8 @@ mod tests {
             id: cmd_id(1),
             command: prepared_cmd.clone(),
             priority: Priority::Normal,
-            category: CommandCategory::Quick,
             camera_id,
             submitted_at: now,
-            kind: prepared_cmd.kind,
         };
 
         runner.core.queue_command(cmd);
@@ -1133,9 +1116,7 @@ mod tests {
             sent_cmd.id,
             sent_cmd.command,
             sent_cmd.priority,
-            sent_cmd.category,
             sent_cmd.camera_id,
-            sent_cmd.kind,
             now,
         );
 
@@ -1243,8 +1224,7 @@ mod tests {
         // Track start time to verify we return immediately (not after timeout)
         let start = Instant::now();
 
-        let result =
-            runner.send_command(&mut transport, &test_cmd, camera_id, CommandCategory::Quick);
+        let result = runner.send_command(&mut transport, &test_cmd, camera_id);
 
         let elapsed = start.elapsed();
 
@@ -1364,8 +1344,7 @@ mod tests {
             bytes: vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR],
         };
 
-        let result =
-            runner.send_command(&mut transport, &test_cmd, camera_id, CommandCategory::Quick);
+        let result = runner.send_command(&mut transport, &test_cmd, camera_id);
 
         assert!(result.is_err(), "Expected error, got Ok");
 
@@ -1462,8 +1441,7 @@ mod tests {
             bytes: vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR],
         };
 
-        let result =
-            runner.send_command(&mut transport, &test_cmd, camera_id, CommandCategory::Quick);
+        let result = runner.send_command(&mut transport, &test_cmd, camera_id);
 
         assert!(result.is_err(), "Expected error, got Ok");
 

@@ -35,20 +35,23 @@ pub enum Closed {}
 #[derive(Debug, Copy, Clone)]
 pub struct ClosedSession;
 
-/// A wrapper for raw VISCA command bytes.
-#[derive(Clone, Debug)]
-struct RawCommand {
-    bytes: Vec<u8>,
+/// A borrowed wrapper for raw VISCA command bytes.
+///
+/// Unlike `RawCommand`, this type borrows the bytes without allocation,
+/// allowing zero-copy encoding directly from user-provided byte slices.
+#[derive(Debug)]
+struct RawBytesRef<'a> {
+    bytes: &'a [u8],
     kind: CommandKind,
 }
 
-impl RawCommand {
-    fn new(bytes: Vec<u8>, kind: CommandKind) -> Self {
+impl<'a> RawBytesRef<'a> {
+    fn new(bytes: &'a [u8], kind: CommandKind) -> Self {
         Self { bytes, kind }
     }
 }
 
-impl ViscaCommand for RawCommand {
+impl ViscaCommand for RawBytesRef<'_> {
     type Response = ();
     const MAX_SIZE: usize = 256; // Allow reasonably sized raw commands
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Custom;
@@ -61,7 +64,7 @@ impl ViscaCommand for RawCommand {
                 actual: buffer.len(),
             });
         }
-        buffer[..len].copy_from_slice(&self.bytes);
+        buffer[..len].copy_from_slice(self.bytes);
         Ok(len)
     }
 
@@ -648,8 +651,11 @@ where
     Exec: Executor + Send + Sync + Clone + 'static,
 {
     /// Send raw bytes as a VISCA command.
+    ///
+    /// This method encodes the bytes directly without intermediate allocation,
+    /// copying them once into the encoded command payload.
     pub async fn send_bytes(&self, bytes: &[u8]) -> Result<(), Error> {
-        let command = RawCommand::new(bytes.to_vec(), CommandKind::Command);
+        let command = RawBytesRef::new(bytes, CommandKind::Command);
         let response = self.camera.send_command(&command).await?;
 
         use crate::command::response::Response;
@@ -680,10 +686,13 @@ where
     Tr: crate::transport::BlockingTransport + crate::transport::HasTransportConfig + Send + 'static,
 {
     /// Send raw bytes as a VISCA command.
+    ///
+    /// This method encodes the bytes directly without intermediate allocation,
+    /// copying them once into the encoded command payload.
     pub fn send_bytes(&self, bytes: &[u8]) -> Result<(), Error> {
         use crate::mode::BlockingFutureExt;
 
-        let command = RawCommand::new(bytes.to_vec(), CommandKind::Command);
+        let command = RawBytesRef::new(bytes, CommandKind::Command);
         let response = self.camera.send_command(&command).block()?;
 
         use crate::command::response::Response;

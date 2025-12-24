@@ -71,32 +71,27 @@ fn create_test_command(
     camera_id: CameraId,
 ) -> Arc<EncodedCommand> {
     let command = match category {
-        CommandCategory::Quick => EncodedCommand::new(
-            TestCommandQuick {
+        CommandCategory::Quick => {
+            let cmd = TestCommandQuick {
                 bytes,
                 response_type,
-            },
-            camera_id,
-        )
-        .unwrap(),
-        CommandCategory::Movement => EncodedCommand::new(
-            TestCommandMovement {
+            };
+            EncodedCommand::new(&cmd, camera_id).unwrap()
+        }
+        CommandCategory::Movement => {
+            let cmd = TestCommandMovement {
                 bytes,
                 response_type,
-            },
-            camera_id,
-        )
-        .unwrap(),
+            };
+            EncodedCommand::new(&cmd, camera_id).unwrap()
+        }
         _ => {
             // Default to Quick for other categories in tests
-            EncodedCommand::new(
-                TestCommandQuick {
-                    bytes,
-                    response_type,
-                },
-                camera_id,
-            )
-            .unwrap()
+            let cmd = TestCommandQuick {
+                bytes,
+                response_type,
+            };
+            EncodedCommand::new(&cmd, camera_id).unwrap()
         }
     };
     Arc::new(command)
@@ -128,7 +123,7 @@ impl crate::command::encode::ViscaCommand for TestInquiryHelper {
 
 /// Helper function to create test inquiries.
 fn create_test_inquiry(camera_id: CameraId) -> Arc<EncodedCommand> {
-    Arc::new(EncodedCommand::new(TestInquiryHelper, camera_id).unwrap())
+    Arc::new(EncodedCommand::new(&TestInquiryHelper, camera_id).unwrap())
 }
 
 #[test]
@@ -232,7 +227,7 @@ fn test_inquiry_does_not_consume_sockets() {
 
     let now = Instant::now();
     let priority = Priority::Normal;
-    let category = CommandCategory::Quick;
+    let _category = CommandCategory::Quick;
     let camera_id = CameraId::CAMERA_1;
 
     // Create a test inquiry
@@ -260,7 +255,7 @@ fn test_inquiry_does_not_consume_sockets() {
         }
     }
 
-    let inquiry_cmd = Arc::new(EncodedCommand::new(TestInquiry, camera_id).unwrap());
+    let inquiry_cmd = Arc::new(EncodedCommand::new(&TestInquiry, camera_id).unwrap());
 
     // Helper to create test commands
     #[derive(Clone)]
@@ -314,19 +309,11 @@ fn test_inquiry_does_not_consume_sockets() {
     }
 
     // Start two commands to occupy both sockets
-    let cmd1 = Arc::new(EncodedCommand::new(TestCmd1, camera_id).unwrap());
-    let cmd2 = Arc::new(EncodedCommand::new(TestCmd2, camera_id).unwrap());
+    let cmd1 = Arc::new(EncodedCommand::new(&TestCmd1, camera_id).unwrap());
+    let cmd2 = Arc::new(EncodedCommand::new(&TestCmd2, camera_id).unwrap());
 
     // Register first command on socket 1
-    core.register_pending_ack(
-        cmd_id(1),
-        cmd1.clone(),
-        priority,
-        CommandCategory::Movement,
-        camera_id,
-        CommandKind::Command,
-        now,
-    );
+    core.register_pending_ack(cmd_id(1), cmd1.clone(), priority, camera_id, now);
     // Manually allocate socket 1 (simulating ACK received)
     // When ACK is received, command is removed from pending_ack_ids
     core.pending_ack_ids.remove(&cmd_id(1));
@@ -337,15 +324,7 @@ fn test_inquiry_does_not_consume_sockets() {
     };
 
     // Register second command on socket 2
-    core.register_pending_ack(
-        cmd_id(2),
-        cmd2.clone(),
-        priority,
-        CommandCategory::Movement,
-        camera_id,
-        CommandKind::Command,
-        now,
-    );
+    core.register_pending_ack(cmd_id(2), cmd2.clone(), priority, camera_id, now);
     // Manually allocate socket 2 (simulating ACK received)
     // When ACK is received, command is removed from pending_ack_ids
     core.pending_ack_ids.remove(&cmd_id(2));
@@ -359,15 +338,7 @@ fn test_inquiry_does_not_consume_sockets() {
     assert!(!core.can_send_command()); // Cannot send more commands
 
     // Start an inquiry - should not need a socket
-    core.start_inquiry(
-        cmd_id(3),
-        inquiry_cmd.clone(),
-        priority,
-        category,
-        camera_id,
-        CommandKind::Inquiry,
-        now,
-    );
+    core.start_inquiry(cmd_id(3), inquiry_cmd.clone(), priority, camera_id, now);
 
     // Verify inquiry is tracked
     assert!(core.inflight_inquiry_ids.contains(&cmd_id(3)));
@@ -412,20 +383,12 @@ fn test_inquiry_reply_handling() {
     }
 
     let priority = Priority::Normal;
-    let category = CommandCategory::Quick;
+    let _category = CommandCategory::Quick;
     let camera_id = CameraId::CAMERA_1;
-    let command = Arc::new(EncodedCommand::new(TestInquiryCmd, camera_id).unwrap());
+    let command = Arc::new(EncodedCommand::new(&TestInquiryCmd, camera_id).unwrap());
 
     // Start an inquiry
-    core.start_inquiry(
-        cmd_id(1),
-        command.clone(),
-        priority,
-        category,
-        camera_id,
-        CommandKind::Inquiry,
-        now,
-    );
+    core.start_inquiry(cmd_id(1), command.clone(), priority, camera_id, now);
 
     // Verify inquiry is tracked
     assert!(core.inflight_inquiry_ids.contains(&cmd_id(1)));
@@ -468,7 +431,7 @@ fn test_raw_visca_inquiry_ordering() {
 
     let now = Instant::now();
     let priority = Priority::Normal;
-    let category = CommandCategory::Quick;
+    let _category = CommandCategory::Quick;
     let camera_id = CameraId::CAMERA_1;
 
     // Create test inquiry commands
@@ -529,37 +492,13 @@ fn test_raw_visca_inquiry_ordering() {
         }
     }
 
-    let cmd1 = Arc::new(EncodedCommand::new(TestInquiry1, camera_id).unwrap());
-    let cmd2 = Arc::new(EncodedCommand::new(TestInquiry2, camera_id).unwrap());
-    let cmd3 = Arc::new(EncodedCommand::new(TestInquiry3, camera_id).unwrap());
+    let cmd1 = Arc::new(EncodedCommand::new(&TestInquiry1, camera_id).unwrap());
+    let cmd2 = Arc::new(EncodedCommand::new(&TestInquiry2, camera_id).unwrap());
+    let cmd3 = Arc::new(EncodedCommand::new(&TestInquiry3, camera_id).unwrap());
 
-    core.start_inquiry(
-        cmd_id(1),
-        cmd1,
-        priority,
-        category,
-        camera_id,
-        CommandKind::Inquiry,
-        now,
-    );
-    core.start_inquiry(
-        cmd_id(2),
-        cmd2,
-        priority,
-        category,
-        camera_id,
-        CommandKind::Inquiry,
-        now,
-    );
-    core.start_inquiry(
-        cmd_id(3),
-        cmd3,
-        priority,
-        category,
-        camera_id,
-        CommandKind::Inquiry,
-        now,
-    );
+    core.start_inquiry(cmd_id(1), cmd1, priority, camera_id, now);
+    core.start_inquiry(cmd_id(2), cmd2, priority, camera_id, now);
+    core.start_inquiry(cmd_id(3), cmd3, priority, camera_id, now);
 
     // Verify all inquiries are tracked in order
     assert_eq!(core.inquiries_order.len(), 3);
@@ -642,29 +581,13 @@ fn test_sony_sequence_attribution() {
         }
     }
 
-    let cmd1 = Arc::new(EncodedCommand::new(TestCmd1, camera_id).unwrap());
-    let cmd2 = Arc::new(EncodedCommand::new(TestCmd2, camera_id).unwrap());
+    let cmd1 = Arc::new(EncodedCommand::new(&TestCmd1, camera_id).unwrap());
+    let cmd2 = Arc::new(EncodedCommand::new(&TestCmd2, camera_id).unwrap());
 
-    core.register_pending_ack(
-        cmd_id(1),
-        cmd1,
-        priority,
-        CommandCategory::Movement,
-        camera_id,
-        CommandKind::Command,
-        now,
-    );
+    core.register_pending_ack(cmd_id(1), cmd1, priority, camera_id, now);
     core.register_sequence(cmd_id(1), 100); // Command 1 has sequence 100
 
-    core.register_pending_ack(
-        cmd_id(2),
-        cmd2,
-        priority,
-        CommandCategory::Movement,
-        camera_id,
-        CommandKind::Command,
-        now,
-    );
+    core.register_pending_ack(cmd_id(2), cmd2, priority, camera_id, now);
     core.register_sequence(cmd_id(2), 101); // Command 2 has sequence 101
 
     // Process ACK for command 2 first (out of order)
@@ -712,7 +635,7 @@ fn test_inquiry_timeout_handling() {
 
     let now = Instant::now();
     let priority = Priority::Normal;
-    let category = CommandCategory::Quick;
+    let _category = CommandCategory::Quick;
     let camera_id = CameraId::CAMERA_1;
     let command = create_test_command(
         vec![0x81, 0x09, 0x00, 0x02, VISCA_TERMINATOR],
@@ -722,15 +645,7 @@ fn test_inquiry_timeout_handling() {
     );
 
     // Start an inquiry
-    core.start_inquiry(
-        cmd_id(1),
-        command.clone(),
-        priority,
-        category,
-        camera_id,
-        CommandKind::Inquiry,
-        now,
-    );
+    core.start_inquiry(cmd_id(1), command.clone(), priority, camera_id, now);
     assert!(core.inflight_inquiry_ids.contains(&cmd_id(1)));
 
     // Check timeout immediately - should not timeout
@@ -760,15 +675,7 @@ fn test_inquiry_timeout_handling() {
     assert!(!core.inflight_inquiry_ids.contains(&cmd_id(1)));
 
     // Start inquiry again for the retry
-    core.start_inquiry(
-        cmd_id(1),
-        command.clone(),
-        priority,
-        category,
-        camera_id,
-        CommandKind::Inquiry,
-        later,
-    );
+    core.start_inquiry(cmd_id(1), command.clone(), priority, camera_id, later);
     assert!(core.inflight_inquiry_ids.contains(&cmd_id(1)));
 
     // Exhaust retries by timing out again (simulate max retries reached)
@@ -804,7 +711,7 @@ fn test_sequence_tracking_with_retries() {
 
     let now = Instant::now();
     let priority = Priority::Normal;
-    let category = CommandCategory::Movement;
+    let _category = CommandCategory::Movement;
     let camera_id = CameraId::CAMERA_1;
     let command = create_test_command(
         vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR],
@@ -814,15 +721,7 @@ fn test_sequence_tracking_with_retries() {
     );
 
     // Register command with initial sequence
-    core.register_pending_ack(
-        cmd_id(1),
-        command.clone(),
-        priority,
-        category,
-        camera_id,
-        CommandKind::Command,
-        now,
-    );
+    core.register_pending_ack(cmd_id(1), command.clone(), priority, camera_id, now);
     core.register_sequence(cmd_id(1), 100);
 
     // Verify initial sequence is tracked
@@ -868,7 +767,7 @@ fn test_late_reply_after_completion_ignored() {
 
     let now = Instant::now();
     let priority = Priority::Normal;
-    let category = CommandCategory::Movement;
+    let _category = CommandCategory::Movement;
     let camera_id = CameraId::CAMERA_1;
     let command = create_test_command(
         vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR],
@@ -878,15 +777,7 @@ fn test_late_reply_after_completion_ignored() {
     );
 
     // Register command with sequences from multiple retries
-    core.register_pending_ack(
-        cmd_id(1),
-        command.clone(),
-        priority,
-        category,
-        camera_id,
-        CommandKind::Command,
-        now,
-    );
+    core.register_pending_ack(cmd_id(1), command.clone(), priority, camera_id, now);
     core.register_sequence(cmd_id(1), 100);
     core.register_sequence(cmd_id(1), 101); // Retry 1
     core.register_sequence(cmd_id(1), 102); // Retry 2
@@ -931,7 +822,7 @@ fn test_sequence_cap_at_max() {
 
     let now = Instant::now();
     let priority = Priority::Normal;
-    let category = CommandCategory::Movement;
+    let _category = CommandCategory::Movement;
     let camera_id = CameraId::CAMERA_1;
     let command = create_test_command(
         vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR],
@@ -941,15 +832,7 @@ fn test_sequence_cap_at_max() {
     );
 
     // Register command
-    core.register_pending_ack(
-        cmd_id(1),
-        command.clone(),
-        priority,
-        category,
-        camera_id,
-        CommandKind::Command,
-        now,
-    );
+    core.register_pending_ack(cmd_id(1), command.clone(), priority, camera_id, now);
 
     // Register more than MAX_SEQUENCES_PER_CMD (8) sequences
     for seq in 100..110 {
@@ -977,7 +860,7 @@ fn test_multiple_commands_with_sequences() {
 
     let now = Instant::now();
     let priority = Priority::Normal;
-    let category = CommandCategory::Movement;
+    let _category = CommandCategory::Movement;
     let camera_id = CameraId::CAMERA_1;
 
     // Register two different commands
@@ -994,24 +877,8 @@ fn test_multiple_commands_with_sequences() {
         camera_id,
     );
 
-    core.register_pending_ack(
-        cmd_id(1),
-        cmd1.clone(),
-        priority,
-        category,
-        camera_id,
-        CommandKind::Command,
-        now,
-    );
-    core.register_pending_ack(
-        cmd_id(2),
-        cmd2.clone(),
-        priority,
-        category,
-        camera_id,
-        CommandKind::Command,
-        now,
-    );
+    core.register_pending_ack(cmd_id(1), cmd1.clone(), priority, camera_id, now);
+    core.register_pending_ack(cmd_id(2), cmd2.clone(), priority, camera_id, now);
 
     // Command 1 has sequences 100, 101 (retry)
     core.register_sequence(cmd_id(1), 100);
@@ -1060,7 +927,7 @@ fn test_16_bit_sequence_fallback() {
 
     let now = Instant::now();
     let priority = Priority::Normal;
-    let category = CommandCategory::Movement;
+    let _category = CommandCategory::Movement;
     let camera_id = CameraId::CAMERA_1;
     let command = create_test_command(
         vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR],
@@ -1071,15 +938,7 @@ fn test_16_bit_sequence_fallback() {
 
     // Register a command with a 32-bit sequence that has non-zero high 16 bits
     let full_sequence = 0x12345678u32; // High 16 bits: 0x1234, Low 16 bits: 0x5678
-    core.register_pending_ack(
-        cmd_id(1),
-        command.clone(),
-        priority,
-        category,
-        camera_id,
-        CommandKind::Command,
-        now,
-    );
+    core.register_pending_ack(cmd_id(1), command.clone(), priority, camera_id, now);
     core.register_sequence(cmd_id(1), full_sequence);
 
     // Verify that both 32-bit and 16-bit lookups work
@@ -1098,7 +957,7 @@ fn test_16_bit_sequence_ambiguity() {
 
     let now = Instant::now();
     let priority = Priority::Normal;
-    let category = CommandCategory::Movement;
+    let _category = CommandCategory::Movement;
     let camera_id = CameraId::CAMERA_1;
 
     // Register two commands with different 32-bit sequences but same lower 16 bits
@@ -1118,26 +977,10 @@ fn test_16_bit_sequence_ambiguity() {
         camera_id,
     );
 
-    core.register_pending_ack(
-        cmd_id(1),
-        cmd1,
-        priority,
-        category,
-        camera_id,
-        CommandKind::Command,
-        now,
-    );
+    core.register_pending_ack(cmd_id(1), cmd1, priority, camera_id, now);
     core.register_sequence(cmd_id(1), seq1);
 
-    core.register_pending_ack(
-        cmd_id(2),
-        cmd2,
-        priority,
-        category,
-        camera_id,
-        CommandKind::Command,
-        now,
-    );
+    core.register_pending_ack(cmd_id(2), cmd2, priority, camera_id, now);
     core.register_sequence(cmd_id(2), seq2);
 
     // Both 32-bit sequences should work
@@ -1156,7 +999,7 @@ fn test_16_bit_sequence_cleanup() {
 
     let now = Instant::now();
     let priority = Priority::Normal;
-    let category = CommandCategory::Movement;
+    let _category = CommandCategory::Movement;
     let camera_id = CameraId::CAMERA_1;
     let command = create_test_command(
         vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR],
@@ -1167,15 +1010,7 @@ fn test_16_bit_sequence_cleanup() {
 
     // Register a command with sequence
     let sequence = 0x12345678u32;
-    core.register_pending_ack(
-        cmd_id(1),
-        command,
-        priority,
-        category,
-        camera_id,
-        CommandKind::Command,
-        now,
-    );
+    core.register_pending_ack(cmd_id(1), command, priority, camera_id, now);
     core.register_sequence(cmd_id(1), sequence);
 
     // Verify both mappings exist
@@ -1205,7 +1040,7 @@ fn test_16_bit_sequence_collision_recovers_after_finish() {
 
     let now = Instant::now();
     let priority = Priority::Normal;
-    let category = CommandCategory::Movement;
+    let _category = CommandCategory::Movement;
     let camera_id = CameraId::CAMERA_1;
 
     // Create two commands with different 32-bit sequences but same lower 16 bits
@@ -1226,26 +1061,10 @@ fn test_16_bit_sequence_collision_recovers_after_finish() {
     );
 
     // Register both commands
-    core.register_pending_ack(
-        cmd_id(1),
-        cmd1,
-        priority,
-        category,
-        camera_id,
-        CommandKind::Command,
-        now,
-    );
+    core.register_pending_ack(cmd_id(1), cmd1, priority, camera_id, now);
     core.register_sequence(cmd_id(1), seq1);
 
-    core.register_pending_ack(
-        cmd_id(2),
-        cmd2,
-        priority,
-        category,
-        camera_id,
-        CommandKind::Command,
-        now,
-    );
+    core.register_pending_ack(cmd_id(2), cmd2, priority, camera_id, now);
     core.register_sequence(cmd_id(2), seq2);
 
     // Both 32-bit sequences should work
@@ -1294,7 +1113,7 @@ fn test_16_bit_sequence_collision_recovers_finish_order_reversed() {
 
     let now = Instant::now();
     let priority = Priority::Normal;
-    let category = CommandCategory::Movement;
+    let _category = CommandCategory::Movement;
     let camera_id = CameraId::CAMERA_1;
 
     let seq1 = 0x12345678u32;
@@ -1313,26 +1132,10 @@ fn test_16_bit_sequence_collision_recovers_finish_order_reversed() {
         camera_id,
     );
 
-    core.register_pending_ack(
-        cmd_id(1),
-        cmd1,
-        priority,
-        category,
-        camera_id,
-        CommandKind::Command,
-        now,
-    );
+    core.register_pending_ack(cmd_id(1), cmd1, priority, camera_id, now);
     core.register_sequence(cmd_id(1), seq1);
 
-    core.register_pending_ack(
-        cmd_id(2),
-        cmd2,
-        priority,
-        category,
-        camera_id,
-        CommandKind::Command,
-        now,
-    );
+    core.register_pending_ack(cmd_id(2), cmd2, priority, camera_id, now);
     core.register_sequence(cmd_id(2), seq2);
 
     // Both active: 16-bit should be ambiguous
@@ -1371,7 +1174,7 @@ fn test_16_bit_eviction_under_collision() {
 
     let now = Instant::now();
     let priority = Priority::Normal;
-    let category = CommandCategory::Movement;
+    let _category = CommandCategory::Movement;
     let camera_id = CameraId::CAMERA_1;
 
     // Command 1: starts with seq16 = 0x5678
@@ -1394,27 +1197,11 @@ fn test_16_bit_eviction_under_collision() {
     );
 
     // Register command 1 with its initial sequence
-    core.register_pending_ack(
-        cmd_id(1),
-        cmd1,
-        priority,
-        category,
-        camera_id,
-        CommandKind::Command,
-        now,
-    );
+    core.register_pending_ack(cmd_id(1), cmd1, priority, camera_id, now);
     core.register_sequence(cmd_id(1), seq1_initial);
 
     // Register command 2 (collision on 0x5678)
-    core.register_pending_ack(
-        cmd_id(2),
-        cmd2,
-        priority,
-        category,
-        camera_id,
-        CommandKind::Command,
-        now,
-    );
+    core.register_pending_ack(cmd_id(2), cmd2, priority, camera_id, now);
     core.register_sequence(cmd_id(2), seq2);
 
     // Both commands own 0x5678 - ambiguous
@@ -1452,7 +1239,7 @@ fn test_raw_visca_content_based_matching() {
     let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
     let now = Instant::now();
     let priority = Priority::Normal;
-    let category = CommandCategory::Quick;
+    let _category = CommandCategory::Quick;
     let camera_id = CameraId::CAMERA_1;
 
     // Start two different inquiries in raw VISCA mode
@@ -1469,24 +1256,8 @@ fn test_raw_visca_content_based_matching() {
         camera_id,
     );
 
-    core.start_inquiry(
-        cmd_id(1),
-        power_cmd,
-        priority,
-        category,
-        camera_id,
-        CommandKind::Inquiry,
-        now,
-    );
-    core.start_inquiry(
-        cmd_id(2),
-        zoom_cmd,
-        priority,
-        category,
-        camera_id,
-        CommandKind::Inquiry,
-        now,
-    );
+    core.start_inquiry(cmd_id(1), power_cmd, priority, camera_id, now);
+    core.start_inquiry(cmd_id(2), zoom_cmd, priority, camera_id, now);
 
     // Verify both are tracked
     assert_eq!(core.inquiries_order.len(), 2);
@@ -1581,9 +1352,7 @@ fn test_send_failure_retry_with_transport_error_flag() {
         cmd_id,
         command.clone(),
         Priority::Normal,
-        CommandCategory::Movement,
         CameraId::CAMERA_1,
-        CommandKind::Command,
         now,
     );
 
@@ -1636,9 +1405,7 @@ fn test_transport_error_classification_after_exhausted_retries() {
         cmd_id,
         command.clone(),
         Priority::Normal,
-        CommandCategory::Movement,
         CameraId::CAMERA_1,
-        CommandKind::Command,
         now,
     );
 
@@ -1696,9 +1463,7 @@ fn test_timeout_classification_without_transport_error_flag() {
         cmd_id,
         command.clone(),
         Priority::Normal,
-        CommandCategory::Movement,
         CameraId::CAMERA_1,
-        CommandKind::Command,
         now,
     );
 
@@ -1750,9 +1515,7 @@ fn test_multiple_commands_with_transport_errors() {
             cmd_id(i),
             command,
             Priority::Normal,
-            CommandCategory::Movement,
             CameraId::CAMERA_1,
-            CommandKind::Command,
             now,
         );
 
@@ -1791,9 +1554,7 @@ fn test_ack_without_socket_nibble_s1_free() {
         cmd_id(1),
         command,
         Priority::Normal,
-        CommandCategory::Movement,
         CameraId::CAMERA_1,
-        CommandKind::Command,
         now,
     );
 
@@ -1830,18 +1591,14 @@ fn test_ack_without_socket_nibble_s1_busy_s2_free() {
         cmd_id(1),
         command.clone(),
         Priority::Normal,
-        CommandCategory::Movement,
         CameraId::CAMERA_1,
-        CommandKind::Command,
         now,
     );
     core.register_pending_ack(
         cmd_id(2),
         command,
         Priority::Normal,
-        CommandCategory::Movement,
         CameraId::CAMERA_1,
-        CommandKind::Command,
         now,
     );
 
@@ -1885,9 +1642,7 @@ fn test_ack_without_socket_nibble_both_busy() {
             cmd_id(i),
             command.clone(),
             Priority::Normal,
-            CommandCategory::Movement,
             CameraId::CAMERA_1,
-            CommandKind::Command,
             now,
         );
     }
@@ -1940,18 +1695,14 @@ fn test_ack_with_busy_socket_fallback() {
         cmd_id(1),
         command.clone(),
         Priority::Normal,
-        CommandCategory::Movement,
         CameraId::CAMERA_1,
-        CommandKind::Command,
         now,
     );
     core.register_pending_ack(
         cmd_id(2),
         command,
         Priority::Normal,
-        CommandCategory::Movement,
         CameraId::CAMERA_1,
-        CommandKind::Command,
         now,
     );
 
@@ -2012,7 +1763,7 @@ fn test_command_kind_preserved_through_retries() {
         }
     }
 
-    let test_command = Arc::new(EncodedCommand::new(TestCommand, CameraId::CAMERA_1).unwrap());
+    let test_command = Arc::new(EncodedCommand::new(&TestCommand, CameraId::CAMERA_1).unwrap());
     let test_cmd_id = cmd_id(1);
 
     // Register as Command explicitly
@@ -2020,9 +1771,7 @@ fn test_command_kind_preserved_through_retries() {
         test_cmd_id,
         test_command.clone(),
         Priority::Normal,
-        CommandCategory::Movement,
         CameraId::CAMERA_1,
-        CommandKind::Command, // Explicitly a Command despite bytes[1] == 0x09
         now,
     );
 
@@ -2040,7 +1789,7 @@ fn test_command_kind_preserved_through_retries() {
 
     // The key assertion: kind should be Command, not Inquiry
     // This verifies that we no longer use the bytes[1] == 0x09 heuristic
-    assert_eq!(retry.kind, CommandKind::Command);
+    assert_eq!(retry.kind(), CommandKind::Command);
     assert_eq!(retry.id, test_cmd_id);
     // Verify the command is preserved (same Arc)
     assert!(Arc::ptr_eq(&retry.command, &test_command));
@@ -2071,7 +1820,7 @@ fn test_command_kind_preserved_through_retries() {
         }
     }
 
-    let test_inquiry = Arc::new(EncodedCommand::new(TestInquiry, CameraId::CAMERA_1).unwrap());
+    let test_inquiry = Arc::new(EncodedCommand::new(&TestInquiry, CameraId::CAMERA_1).unwrap());
     let inquiry_id = cmd_id(2);
 
     // Start as inquiry
@@ -2079,9 +1828,7 @@ fn test_command_kind_preserved_through_retries() {
         inquiry_id,
         test_inquiry.clone(),
         Priority::Normal,
-        CommandCategory::Quick,
         CameraId::CAMERA_1,
-        CommandKind::Inquiry,
         now,
     );
 
@@ -2101,7 +1848,7 @@ fn test_command_kind_preserved_through_retries() {
     let inquiry_retry = &inquiry_retries[0];
 
     // Verify Inquiry kind is preserved
-    assert_eq!(inquiry_retry.kind, CommandKind::Inquiry);
+    assert_eq!(inquiry_retry.kind(), CommandKind::Inquiry);
     assert_eq!(inquiry_retry.id, inquiry_id);
     // Verify the inquiry is preserved (same Arc)
     assert!(Arc::ptr_eq(&inquiry_retry.command, &test_inquiry));
@@ -2138,19 +1885,15 @@ fn test_inquiry_bypasses_socket_gate() {
         id: cmd_id(1),
         command: command1.clone(),
         priority: Priority::Normal,
-        category: CommandCategory::Movement,
         camera_id: CameraId::CAMERA_1,
         submitted_at: now,
-        kind: CommandKind::Command,
     });
     core.queue_command(PendingCommand {
         id: cmd_id(2),
         command: command2.clone(),
         priority: Priority::Normal,
-        category: CommandCategory::Movement,
         camera_id: CameraId::CAMERA_1,
         submitted_at: now,
-        kind: CommandKind::Command,
     });
 
     // Send and register both commands as pending ACK
@@ -2160,9 +1903,7 @@ fn test_inquiry_bypasses_socket_gate() {
         cmd_id(1),
         command1.clone(),
         Priority::Normal,
-        CommandCategory::Movement,
         CameraId::CAMERA_1,
-        CommandKind::Command,
         now,
     );
 
@@ -2172,9 +1913,7 @@ fn test_inquiry_bypasses_socket_gate() {
         cmd_id(2),
         command2.clone(),
         Priority::Normal,
-        CommandCategory::Movement,
         CameraId::CAMERA_1,
-        CommandKind::Command,
         now,
     );
 
@@ -2187,10 +1926,8 @@ fn test_inquiry_bypasses_socket_gate() {
         id: cmd_id(3),
         command: inquiry.clone(),
         priority: Priority::Normal,
-        category: CommandCategory::Quick,
         camera_id: CameraId::CAMERA_1,
         submitted_at: now,
-        kind: CommandKind::Inquiry,
     });
 
     // The inquiry should be sendable even though command sockets are full
@@ -2198,16 +1935,14 @@ fn test_inquiry_bypasses_socket_gate() {
     assert!(inq.is_some());
     let inq = inq.unwrap();
     assert_eq!(inq.id, cmd_id(3));
-    assert_eq!(inq.kind, CommandKind::Inquiry);
+    assert_eq!(inq.kind(), CommandKind::Inquiry);
 
     // Start the inquiry (track it in flight)
     core.start_inquiry(
         cmd_id(3),
         inquiry.clone(),
         Priority::Normal,
-        CommandCategory::Quick,
         CameraId::CAMERA_1,
-        CommandKind::Inquiry,
         now,
     );
 
@@ -2216,10 +1951,8 @@ fn test_inquiry_bypasses_socket_gate() {
         id: cmd_id(4),
         command: command1.clone(),
         priority: Priority::Normal,
-        category: CommandCategory::Movement,
         camera_id: CameraId::CAMERA_1,
         submitted_at: now,
-        kind: CommandKind::Command,
     });
 
     // No more commands should be sendable (sockets still full)
@@ -2230,10 +1963,8 @@ fn test_inquiry_bypasses_socket_gate() {
         id: cmd_id(5),
         command: inquiry.clone(),
         priority: Priority::Normal,
-        category: CommandCategory::Quick,
         camera_id: CameraId::CAMERA_1,
         submitted_at: now,
-        kind: CommandKind::Inquiry,
     });
 
     let inq2 = core.next_item_to_send(now);
@@ -2261,10 +1992,8 @@ fn test_inquiry_pipeline_limit() {
             id: cmd_id(id),
             command: inquiry.clone(),
             priority: Priority::Normal,
-            category: CommandCategory::Quick,
             camera_id: CameraId::CAMERA_1,
             submitted_at: now,
-            kind: CommandKind::Inquiry,
         });
     }
 
@@ -2276,9 +2005,7 @@ fn test_inquiry_pipeline_limit() {
         cmd_id(1),
         inquiry.clone(),
         Priority::Normal,
-        CommandCategory::Quick,
         CameraId::CAMERA_1,
-        CommandKind::Inquiry,
         now,
     );
 
@@ -2290,9 +2017,7 @@ fn test_inquiry_pipeline_limit() {
         cmd_id(2),
         inquiry.clone(),
         Priority::Normal,
-        CommandCategory::Quick,
         CameraId::CAMERA_1,
-        CommandKind::Inquiry,
         now,
     );
 
@@ -2338,40 +2063,32 @@ fn test_mixed_priority_queue_ordering() {
         id: cmd_id(1),
         command: command.clone(),
         priority: Priority::Low,
-        category: CommandCategory::Movement,
         camera_id: CameraId::CAMERA_1,
         submitted_at: now,
-        kind: CommandKind::Command,
     });
 
     core.queue_command(PendingCommand {
         id: cmd_id(2),
         command: inquiry.clone(),
         priority: Priority::High,
-        category: CommandCategory::Quick,
         camera_id: CameraId::CAMERA_1,
         submitted_at: now,
-        kind: CommandKind::Inquiry,
     });
 
     core.queue_command(PendingCommand {
         id: cmd_id(3),
         command: command.clone(),
         priority: Priority::Critical,
-        category: CommandCategory::Movement,
         camera_id: CameraId::CAMERA_1,
         submitted_at: now,
-        kind: CommandKind::Command,
     });
 
     core.queue_command(PendingCommand {
         id: cmd_id(4),
         command: inquiry.clone(),
         priority: Priority::Normal,
-        category: CommandCategory::Quick,
         camera_id: CameraId::CAMERA_1,
         submitted_at: now,
-        kind: CommandKind::Inquiry,
     });
 
     // Critical priority command should come first (Critical > High > Normal > Low)
@@ -2406,7 +2123,7 @@ fn test_high_priority_command_not_starved_by_normal_inquiries() {
     let command = Arc::new(EncodedCommand {
         payload: SmallVec::from_slice(&[0x01, 0x04, 0x3F, 0x01, 0x05, VISCA_TERMINATOR]),
         kind: CommandKind::Command,
-        category: CommandCategory::Preset,
+        category: CommandCategory::Movement,
         response_type: None,
     });
     let inquiry = Arc::new(EncodedCommand {
@@ -2422,10 +2139,8 @@ fn test_high_priority_command_not_starved_by_normal_inquiries() {
             id: cmd_id(i),
             command: inquiry.clone(),
             priority: Priority::Normal,
-            category: CommandCategory::Quick,
             camera_id: CameraId::CAMERA_1,
             submitted_at: now,
-            kind: CommandKind::Inquiry,
         });
     }
 
@@ -2434,10 +2149,8 @@ fn test_high_priority_command_not_starved_by_normal_inquiries() {
         id: cmd_id(100),
         command: command.clone(),
         priority: Priority::High,
-        category: CommandCategory::Preset,
         camera_id: CameraId::CAMERA_1,
         submitted_at: now,
-        kind: CommandKind::Command,
     });
 
     // The High-priority command should be returned BEFORE the Normal-priority inquiries
@@ -2449,12 +2162,12 @@ fn test_high_priority_command_not_starved_by_normal_inquiries() {
         "High-priority command should not be starved by Normal-priority inquiries"
     );
     assert_eq!(item.priority, Priority::High);
-    assert_eq!(item.kind, CommandKind::Command);
+    assert_eq!(item.kind(), CommandKind::Command);
 
     // Subsequent calls should return the Normal-priority inquiries
     let item2 = core.next_item_to_send(now).unwrap();
     assert_eq!(item2.priority, Priority::Normal);
-    assert_eq!(item2.kind, CommandKind::Inquiry);
+    assert_eq!(item2.kind(), CommandKind::Inquiry);
 }
 
 #[test]
@@ -2482,19 +2195,15 @@ fn test_equal_priority_prefers_inquiry_for_backwards_compat() {
         id: cmd_id(1),
         command: command.clone(),
         priority: Priority::Normal,
-        category: CommandCategory::Movement,
         camera_id: CameraId::CAMERA_1,
         submitted_at: now,
-        kind: CommandKind::Command,
     });
     core.queue_command(PendingCommand {
         id: cmd_id(2),
         command: inquiry.clone(),
         priority: Priority::Normal,
-        category: CommandCategory::Quick,
         camera_id: CameraId::CAMERA_1,
         submitted_at: now,
-        kind: CommandKind::Inquiry,
     });
 
     // Inquiry should be preferred at equal priority
@@ -2504,12 +2213,12 @@ fn test_equal_priority_prefers_inquiry_for_backwards_compat() {
         cmd_id(2),
         "Inquiry should be preferred at equal priority"
     );
-    assert_eq!(item.kind, CommandKind::Inquiry);
+    assert_eq!(item.kind(), CommandKind::Inquiry);
 
     // Then the command
     let item2 = core.next_item_to_send(now).unwrap();
     assert_eq!(item2.id, cmd_id(1));
-    assert_eq!(item2.kind, CommandKind::Command);
+    assert_eq!(item2.kind(), CommandKind::Command);
 }
 
 #[test]
@@ -2520,11 +2229,12 @@ fn test_immediate_error_without_ack_maps_to_most_recent_pending_command() {
     let now = Instant::now();
 
     // Create two pending ACK commands; the second one is the most recent
+    // Use Quick category so 0x41 error is NOT retryable (0x41 is only retryable for Movement/Preset)
     let camera_id = CameraId::CAMERA_1;
     let cmd1 = Arc::new(EncodedCommand {
         payload: SmallVec::from_slice(&[0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]),
         kind: CommandKind::Command,
-        category: CommandCategory::Movement,
+        category: CommandCategory::Quick,
         response_type: None,
     });
     let cmd2 = Arc::new(EncodedCommand {
@@ -2534,22 +2244,12 @@ fn test_immediate_error_without_ack_maps_to_most_recent_pending_command() {
         response_type: None,
     });
 
-    core.register_pending_ack(
-        cmd_id(1),
-        cmd1,
-        Priority::Normal,
-        CommandCategory::Movement,
-        camera_id,
-        CommandKind::Command,
-        now,
-    );
+    core.register_pending_ack(cmd_id(1), cmd1, Priority::Normal, camera_id, now);
     core.register_pending_ack(
         cmd_id(2),
         cmd2,
         Priority::Normal,
-        CommandCategory::Quick,
         camera_id,
-        CommandKind::Command,
         now + Duration::from_millis(1),
     );
 
@@ -2590,15 +2290,7 @@ fn test_error_without_socket_prefers_inflight_inquiry() {
         category: CommandCategory::Quick,
         response_type: Some(InquiryKind::Power), // any kind
     });
-    core.start_inquiry(
-        cmd_id(42),
-        inq,
-        Priority::Normal,
-        CommandCategory::Quick,
-        camera_id,
-        CommandKind::Inquiry,
-        now,
-    );
+    core.start_inquiry(cmd_id(42), inq, Priority::Normal, camera_id, now);
 
     // Also have a pending ACK command in the background
     let cmd = Arc::new(EncodedCommand {
@@ -2607,15 +2299,7 @@ fn test_error_without_socket_prefers_inflight_inquiry() {
         category: CommandCategory::Movement,
         response_type: None,
     });
-    core.register_pending_ack(
-        cmd_id(99),
-        cmd,
-        Priority::Normal,
-        CommandCategory::Movement,
-        camera_id,
-        CommandKind::Command,
-        now,
-    );
+    core.register_pending_ack(cmd_id(99), cmd, Priority::Normal, camera_id, now);
 
     // Simulate an inquiry-style error: 90 60 EE FF (y=0 -> no socket field)
     // Raw VISCA (no sequence), so heuristic fallback is allowed
@@ -2667,15 +2351,7 @@ fn test_max_retry_duration_ack_timeout() {
     let start = Instant::now();
 
     // Register a command
-    core.register_pending_ack(
-        cmd_id(1),
-        cmd,
-        Priority::Normal,
-        CommandCategory::Quick,
-        CameraId::CAMERA_1,
-        CommandKind::Command,
-        start,
-    );
+    core.register_pending_ack(cmd_id(1), cmd, Priority::Normal, CameraId::CAMERA_1, start);
 
     // Simulate ACK timeout at t+60ms (ack_timeout=50ms + 10ms margin, within duration 200ms)
     let actions = core.check_timeouts(start + Duration::from_millis(60));
@@ -2690,15 +2366,7 @@ fn test_max_retry_duration_ack_timeout() {
 
     // Re-register for next retry simulation with the original start time
     let cmd = make_duration_test_cmd(CommandCategory::Quick);
-    core.register_pending_ack(
-        cmd_id(1),
-        cmd,
-        Priority::Normal,
-        CommandCategory::Quick,
-        CameraId::CAMERA_1,
-        CommandKind::Command,
-        start,
-    );
+    core.register_pending_ack(cmd_id(1), cmd, Priority::Normal, CameraId::CAMERA_1, start);
 
     // Simulate ACK timeout at t+250ms (exceeds duration of 200ms)
     let actions = core.check_timeouts(start + Duration::from_millis(250));
@@ -2742,17 +2410,16 @@ fn test_max_retry_duration_inquiry_timeout() {
     };
     let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
 
-    let cmd = make_duration_test_cmd(CommandCategory::Quick);
+    // Use create_test_inquiry which creates an actual Inquiry-type command
+    let inquiry = create_test_inquiry(CameraId::CAMERA_1);
     let start = Instant::now();
 
     // Start an inquiry
     core.start_inquiry(
         cmd_id(1),
-        cmd,
+        inquiry,
         Priority::Normal,
-        CommandCategory::Quick,
         CameraId::CAMERA_1,
-        CommandKind::Inquiry,
         start,
     );
 
@@ -2785,15 +2452,7 @@ fn test_max_retry_duration_queue_retry_for_command() {
     let start = Instant::now();
 
     // Register a command
-    core.register_pending_ack(
-        cmd_id(1),
-        cmd,
-        Priority::Normal,
-        CommandCategory::Quick,
-        CameraId::CAMERA_1,
-        CommandKind::Command,
-        start,
-    );
+    core.register_pending_ack(cmd_id(1), cmd, Priority::Normal, CameraId::CAMERA_1, start);
 
     // Queue retry within duration - should succeed
     let action = core.queue_retry_for_command(cmd_id(1), start + Duration::from_millis(50));
@@ -2837,15 +2496,7 @@ fn test_max_retry_duration_should_retry_command() {
     let start = Instant::now();
 
     // Register a command
-    core.register_pending_ack(
-        cmd_id(1),
-        cmd,
-        Priority::Normal,
-        CommandCategory::Movement,
-        CameraId::CAMERA_1,
-        CommandKind::Command,
-        start,
-    );
+    core.register_pending_ack(cmd_id(1), cmd, Priority::Normal, CameraId::CAMERA_1, start);
 
     // Create a retryable error (0x41 = CommandNotExecutable, retryable for Movement)
     let error = ViscaError::from_byte(0x41);
@@ -2884,9 +2535,7 @@ fn test_max_retry_duration_socket_timeout() {
         cmd_id(1),
         cmd.clone(),
         Priority::Normal,
-        CommandCategory::Quick,
         CameraId::CAMERA_1,
-        CommandKind::Command,
         start,
     );
 
@@ -2926,9 +2575,7 @@ fn test_max_retry_duration_preserved_across_retries() {
         cmd_id(1),
         cmd.clone(),
         Priority::Normal,
-        CommandCategory::Quick,
         CameraId::CAMERA_1,
-        CommandKind::Command,
         start,
     );
 
@@ -2986,15 +2633,7 @@ fn test_max_retry_duration_with_high_retry_budget() {
     let cmd = make_duration_test_cmd(CommandCategory::Quick);
     let start = Instant::now();
 
-    core.register_pending_ack(
-        cmd_id(1),
-        cmd,
-        Priority::Normal,
-        CommandCategory::Quick,
-        CameraId::CAMERA_1,
-        CommandKind::Command,
-        start,
-    );
+    core.register_pending_ack(cmd_id(1), cmd, Priority::Normal, CameraId::CAMERA_1, start);
 
     // Even with 100 max_retries, should fail after 50ms duration
     let action = core.queue_retry_for_command(cmd_id(1), start + Duration::from_millis(60));
@@ -3037,15 +2676,7 @@ fn test_retry_config_should_retry_method_parity() {
     let mut core = SchedulerCore::with_retry_config(timeout_config, config);
 
     let cmd = make_duration_test_cmd(CommandCategory::Movement);
-    core.register_pending_ack(
-        cmd_id(1),
-        cmd,
-        Priority::Normal,
-        CommandCategory::Movement,
-        CameraId::CAMERA_1,
-        CommandKind::Command,
-        start,
-    );
+    core.register_pending_ack(cmd_id(1), cmd, Priority::Normal, CameraId::CAMERA_1, start);
 
     let error = ViscaError::from_byte(0x41); // Retryable for Movement
 
@@ -3077,10 +2708,8 @@ fn test_inquiry_spacing_blocks_too_fast_inquiries() {
             id: cmd_id(id),
             command: inquiry.clone(),
             priority: Priority::Normal,
-            category: CommandCategory::Quick,
             camera_id: CameraId::CAMERA_1,
             submitted_at: now,
-            kind: CommandKind::Inquiry,
         });
     }
 
@@ -3092,9 +2721,7 @@ fn test_inquiry_spacing_blocks_too_fast_inquiries() {
         cmd_id(1),
         inquiry.clone(),
         Priority::Normal,
-        CommandCategory::Quick,
         CameraId::CAMERA_1,
-        CommandKind::Inquiry,
         now,
     );
 
@@ -3156,10 +2783,8 @@ fn test_inquiry_spacing_allows_commands_while_blocking() {
         id: cmd_id(1),
         command: inquiry.clone(),
         priority: Priority::Normal,
-        category: CommandCategory::Quick,
         camera_id: CameraId::CAMERA_1,
         submitted_at: now,
-        kind: CommandKind::Inquiry,
     });
 
     let _inq1 = core.next_item_to_send(now).unwrap();
@@ -3167,9 +2792,7 @@ fn test_inquiry_spacing_allows_commands_while_blocking() {
         cmd_id(1),
         inquiry.clone(),
         Priority::Normal,
-        CommandCategory::Quick,
         CameraId::CAMERA_1,
-        CommandKind::Inquiry,
         now,
     );
 
@@ -3178,20 +2801,16 @@ fn test_inquiry_spacing_allows_commands_while_blocking() {
         id: cmd_id(2),
         command: inquiry.clone(),
         priority: Priority::Normal,
-        category: CommandCategory::Quick,
         camera_id: CameraId::CAMERA_1,
         submitted_at: now,
-        kind: CommandKind::Inquiry,
     });
 
     core.queue_command(PendingCommand {
         id: cmd_id(3),
         command: command.clone(),
         priority: Priority::Normal,
-        category: CommandCategory::Movement,
         camera_id: CameraId::CAMERA_1,
         submitted_at: now,
-        kind: CommandKind::Command,
     });
 
     // Inquiry should be blocked, but command should be sendable
@@ -3203,7 +2822,7 @@ fn test_inquiry_spacing_allows_commands_while_blocking() {
         cmd_id(3),
         "Command should be returned, not blocked inquiry"
     );
-    assert_eq!(cmd.kind, CommandKind::Command);
+    assert_eq!(cmd.kind(), CommandKind::Command);
 }
 
 #[test]
@@ -3226,10 +2845,8 @@ fn test_inquiry_spacing_zero_means_no_delay() {
             id: cmd_id(id),
             command: inquiry.clone(),
             priority: Priority::Normal,
-            category: CommandCategory::Quick,
             camera_id: CameraId::CAMERA_1,
             submitted_at: now,
-            kind: CommandKind::Inquiry,
         });
     }
 
@@ -3246,9 +2863,7 @@ fn test_inquiry_spacing_zero_means_no_delay() {
             cmd_id(expected_id),
             inquiry.clone(),
             Priority::Normal,
-            CommandCategory::Quick,
             CameraId::CAMERA_1,
-            CommandKind::Inquiry,
             now,
         );
     }
@@ -3287,9 +2902,7 @@ fn test_stale_retry_dropped_after_command_completion() {
         cmd_id,
         command.clone(),
         Priority::Normal,
-        CommandCategory::Movement,
         CameraId::CAMERA_1,
-        CommandKind::Command,
         now,
     );
 
@@ -3344,9 +2957,7 @@ fn test_stale_retry_dropped_after_inquiry_completion() {
         cmd_id,
         command.clone(),
         Priority::Normal,
-        CommandCategory::Quick,
         CameraId::CAMERA_1,
-        CommandKind::Inquiry,
         now,
     );
 
@@ -3395,9 +3006,7 @@ fn test_stale_retry_dropped_after_command_failure() {
         cmd_id,
         command.clone(),
         Priority::Normal,
-        CommandCategory::Movement,
         CameraId::CAMERA_1,
-        CommandKind::Command,
         now,
     );
 
@@ -3449,9 +3058,7 @@ fn test_superseded_retry_entries_are_ignored() {
         cmd_id,
         command.clone(),
         Priority::Normal,
-        CommandCategory::Movement,
         CameraId::CAMERA_1,
-        CommandKind::Command,
         now,
     );
 
@@ -3520,9 +3127,7 @@ fn test_valid_retry_still_works() {
         cmd_id,
         command.clone(),
         Priority::Normal,
-        CommandCategory::Movement,
         CameraId::CAMERA_1,
-        CommandKind::Command,
         now,
     );
 
@@ -3568,9 +3173,7 @@ fn test_multiple_commands_with_valid_and_stale_retries() {
             cmd_id(i),
             command.clone(),
             Priority::Normal,
-            CommandCategory::Movement,
             CameraId::CAMERA_1,
-            CommandKind::Command,
             now,
         );
         // Queue a retry for each
@@ -3631,15 +3234,7 @@ fn test_late_completion_after_socket_reuse_sequenced() {
     );
 
     // Step 1: Register command A
-    core.register_pending_ack(
-        cmd_id(1),
-        command.clone(),
-        Priority::Normal,
-        CommandCategory::Movement,
-        camera_id,
-        CommandKind::Command,
-        now,
-    );
+    core.register_pending_ack(cmd_id(1), command.clone(), Priority::Normal, camera_id, now);
     core.register_sequence(cmd_id(1), 100); // seqA = 100
 
     // ACK for command A
@@ -3673,15 +3268,7 @@ fn test_late_completion_after_socket_reuse_sequenced() {
     assert!(free);
 
     // Step 3: Start command B on socket 1
-    core.register_pending_ack(
-        cmd_id(2),
-        command,
-        Priority::Normal,
-        CommandCategory::Movement,
-        camera_id,
-        CommandKind::Command,
-        now,
-    );
+    core.register_pending_ack(cmd_id(2), command, Priority::Normal, camera_id, now);
     core.register_sequence(cmd_id(2), 101); // seqB = 101
 
     // ACK for command B (gets socket 1)
@@ -3761,22 +3348,12 @@ fn test_late_error_without_socket_sequenced() {
     );
 
     // Register two pending-ACK commands
-    core.register_pending_ack(
-        cmd_id(1),
-        command.clone(),
-        Priority::Normal,
-        CommandCategory::Movement,
-        camera_id,
-        CommandKind::Command,
-        now,
-    );
+    core.register_pending_ack(cmd_id(1), command.clone(), Priority::Normal, camera_id, now);
     core.register_pending_ack(
         cmd_id(2),
         command,
         Priority::Normal,
-        CommandCategory::Movement,
         camera_id,
-        CommandKind::Command,
         now + Duration::from_millis(1), // Slightly later
     );
 
@@ -3839,15 +3416,7 @@ fn test_late_inquiry_reply_sequenced() {
     });
 
     // Start an inquiry (adds to FIFO)
-    core.start_inquiry(
-        cmd_id(1),
-        inquiry,
-        Priority::Normal,
-        CommandCategory::Quick,
-        camera_id,
-        CommandKind::Inquiry,
-        now,
-    );
+    core.start_inquiry(cmd_id(1), inquiry, Priority::Normal, camera_id, now);
 
     // Verify inquiry is in queue
     assert_eq!(core.inquiries_order.len(), 1);
@@ -3909,15 +3478,7 @@ fn test_unsequenced_completion_still_uses_socket_fallback() {
     );
 
     // Register command
-    core.register_pending_ack(
-        cmd_id(1),
-        command,
-        Priority::Normal,
-        CommandCategory::Movement,
-        camera_id,
-        CommandKind::Command,
-        now,
-    );
+    core.register_pending_ack(cmd_id(1), command, Priority::Normal, camera_id, now);
 
     // ACK assigns socket (raw VISCA - no sequence)
     let source = ReplySource::from_fields(Some(cmd_id(1)), None, Some(ViscaSocket::S1));
@@ -3968,15 +3529,7 @@ fn test_unsequenced_error_still_uses_temporal_fallback() {
     );
 
     // Register a pending command
-    core.register_pending_ack(
-        cmd_id(1),
-        command,
-        Priority::Normal,
-        CommandCategory::Quick,
-        camera_id,
-        CommandKind::Command,
-        now,
-    );
+    core.register_pending_ack(cmd_id(1), command, Priority::Normal, camera_id, now);
 
     // Error with no socket nibble (raw VISCA)
     // Raw VISCA - temporal fallback allowed
@@ -4014,15 +3567,7 @@ fn test_late_ack_with_unmatched_sequence() {
     );
 
     // Register and complete a command
-    core.register_pending_ack(
-        cmd_id(1),
-        command.clone(),
-        Priority::Normal,
-        CommandCategory::Movement,
-        camera_id,
-        CommandKind::Command,
-        now,
-    );
+    core.register_pending_ack(cmd_id(1), command.clone(), Priority::Normal, camera_id, now);
     core.register_sequence(cmd_id(1), 100);
 
     // ACK and complete the command
@@ -4040,15 +3585,7 @@ fn test_late_ack_with_unmatched_sequence() {
     core.process_event(complete, now);
 
     // Start a new command
-    core.register_pending_ack(
-        cmd_id(2),
-        command,
-        Priority::Normal,
-        CommandCategory::Movement,
-        camera_id,
-        CommandKind::Command,
-        now,
-    );
+    core.register_pending_ack(cmd_id(2), command, Priority::Normal, camera_id, now);
 
     let counter_before = core.ignored_unmatched_sequenced_replies();
 
@@ -4101,15 +3638,7 @@ fn test_fail_after_receive_error_frees_socket() {
     );
 
     // Register command and assign socket via ACK
-    core.register_pending_ack(
-        cmd_id(1),
-        command,
-        Priority::Normal,
-        CommandCategory::Movement,
-        camera_id,
-        CommandKind::Command,
-        now,
-    );
+    core.register_pending_ack(cmd_id(1), command, Priority::Normal, camera_id, now);
 
     // Process ACK to assign socket
     let source = ReplySource::from_fields(Some(cmd_id(1)), None, Some(ViscaSocket::S1));
@@ -4185,15 +3714,7 @@ fn test_cancel_requested_before_ack_emits_send_cancel_on_ack() {
     );
 
     // Register a command as pending ACK
-    core.register_pending_ack(
-        cmd_id(1),
-        command,
-        Priority::Normal,
-        CommandCategory::Quick,
-        camera_id,
-        CommandKind::Command,
-        now,
-    );
+    core.register_pending_ack(cmd_id(1), command, Priority::Normal, camera_id, now);
 
     // Request cancel before ACK (no socket assigned yet)
     let result = core.request_cancel_by_id(cmd_id(1));
@@ -4267,15 +3788,7 @@ fn test_cancel_requested_after_ack_returns_immediately() {
     );
 
     // Register and send command, then process ACK to assign socket
-    core.register_pending_ack(
-        cmd_id(2),
-        command,
-        Priority::Normal,
-        CommandCategory::Quick,
-        camera_id,
-        CommandKind::Command,
-        now,
-    );
+    core.register_pending_ack(cmd_id(2), command, Priority::Normal, camera_id, now);
     core.process_event(
         SchedulerEvent::Ack {
             source: ReplySource::BySocket {
@@ -4351,15 +3864,7 @@ fn test_cancel_command_clears_cancel_requested() {
     );
 
     // Register command and request cancel
-    core.register_pending_ack(
-        cmd_id(3),
-        command,
-        Priority::Normal,
-        CommandCategory::Quick,
-        camera_id,
-        CommandKind::Command,
-        now,
-    );
+    core.register_pending_ack(cmd_id(3), command, Priority::Normal, camera_id, now);
     let _ = core.request_cancel_by_id(cmd_id(3));
 
     // Verify cancel_requested is set
@@ -4397,15 +3902,7 @@ fn test_clear_all_clears_cancel_requested() {
     );
 
     // Register command and request cancel
-    core.register_pending_ack(
-        cmd_id(4),
-        command,
-        Priority::Normal,
-        CommandCategory::Quick,
-        camera_id,
-        CommandKind::Command,
-        now,
-    );
+    core.register_pending_ack(cmd_id(4), command, Priority::Normal, camera_id, now);
     let _ = core.request_cancel_by_id(cmd_id(4));
 
     // Clear all state
@@ -4435,15 +3932,7 @@ fn test_multiple_cancel_requests_emit_once() {
     );
 
     // Register command
-    core.register_pending_ack(
-        cmd_id(5),
-        command,
-        Priority::Normal,
-        CommandCategory::Quick,
-        camera_id,
-        CommandKind::Command,
-        now,
-    );
+    core.register_pending_ack(cmd_id(5), command, Priority::Normal, camera_id, now);
 
     // Request cancel multiple times
     let _ = core.request_cancel_by_id(cmd_id(5));
@@ -4500,15 +3989,7 @@ fn test_inquiry_retry_preserves_attempt_count() {
     let inquiry = create_test_inquiry(camera_id);
 
     // Start initial inquiry
-    core.start_inquiry(
-        cmd_id(1),
-        inquiry.clone(),
-        Priority::Normal,
-        CommandCategory::Quick,
-        camera_id,
-        CommandKind::Inquiry,
-        now,
-    );
+    core.start_inquiry(cmd_id(1), inquiry.clone(), Priority::Normal, camera_id, now);
 
     // Verify initial state
     {
@@ -4543,9 +4024,7 @@ fn test_inquiry_retry_preserves_attempt_count() {
         cmd_id(1),
         inquiry.clone(),
         Priority::Normal,
-        CommandCategory::Quick,
         camera_id,
-        CommandKind::Inquiry,
         resend_time,
     );
 
@@ -4594,9 +4073,7 @@ fn test_inquiry_retry_preserves_submitted_at() {
         cmd_id(1),
         inquiry.clone(),
         Priority::Normal,
-        CommandCategory::Quick,
         camera_id,
-        CommandKind::Inquiry,
         start_time,
     );
 
@@ -4609,9 +4086,7 @@ fn test_inquiry_retry_preserves_submitted_at() {
             cmd_id(1),
             inquiry.clone(),
             Priority::Normal,
-            CommandCategory::Quick,
             camera_id,
-            CommandKind::Inquiry,
             resend_time,
         );
 
@@ -4649,15 +4124,7 @@ fn test_inquiry_retry_preserves_transport_error_flag() {
     let inquiry = create_test_inquiry(camera_id);
 
     // Start initial inquiry
-    core.start_inquiry(
-        cmd_id(1),
-        inquiry.clone(),
-        Priority::Normal,
-        CommandCategory::Quick,
-        camera_id,
-        CommandKind::Inquiry,
-        now,
-    );
+    core.start_inquiry(cmd_id(1), inquiry.clone(), Priority::Normal, camera_id, now);
 
     // Mark as transport error (e.g., network failure)
     core.mark_retry_as_transport_error(cmd_id(1));
@@ -4674,9 +4141,7 @@ fn test_inquiry_retry_preserves_transport_error_flag() {
         cmd_id(1),
         inquiry.clone(),
         Priority::Normal,
-        CommandCategory::Quick,
         camera_id,
-        CommandKind::Inquiry,
         resend_time,
     );
 
@@ -4715,9 +4180,7 @@ fn test_inquiry_retries_terminate_after_max_retries() {
         cmd_id(1),
         inquiry.clone(),
         Priority::Normal,
-        CommandCategory::Quick,
         camera_id,
-        CommandKind::Inquiry,
         start,
     );
 
@@ -4736,15 +4199,7 @@ fn test_inquiry_retries_terminate_after_max_retries() {
     );
 
     // Simulate resend (runtime would call start_inquiry again)
-    core.start_inquiry(
-        cmd_id(1),
-        inquiry.clone(),
-        Priority::Normal,
-        CommandCategory::Quick,
-        camera_id,
-        CommandKind::Inquiry,
-        t1,
-    );
+    core.start_inquiry(cmd_id(1), inquiry.clone(), Priority::Normal, camera_id, t1);
     core.inflight_inquiry_ids.insert(cmd_id(1));
 
     // Second timeout (attempt 1 -> 2)
@@ -4762,15 +4217,7 @@ fn test_inquiry_retries_terminate_after_max_retries() {
     );
 
     // Simulate resend
-    core.start_inquiry(
-        cmd_id(1),
-        inquiry.clone(),
-        Priority::Normal,
-        CommandCategory::Quick,
-        camera_id,
-        CommandKind::Inquiry,
-        t2,
-    );
+    core.start_inquiry(cmd_id(1), inquiry.clone(), Priority::Normal, camera_id, t2);
     core.inflight_inquiry_ids.insert(cmd_id(1));
 
     // Third timeout (attempt 2 >= max_retries=2) -> should FAIL, not retry
@@ -4822,9 +4269,7 @@ fn test_inquiry_retries_terminate_after_max_duration() {
         cmd_id(1),
         inquiry.clone(),
         Priority::Normal,
-        CommandCategory::Quick,
         camera_id,
-        CommandKind::Inquiry,
         start,
     );
 
@@ -4837,15 +4282,7 @@ fn test_inquiry_retries_terminate_after_max_duration() {
     );
 
     // Resend
-    core.start_inquiry(
-        cmd_id(1),
-        inquiry.clone(),
-        Priority::Normal,
-        CommandCategory::Quick,
-        camera_id,
-        CommandKind::Inquiry,
-        t1,
-    );
+    core.start_inquiry(cmd_id(1), inquiry.clone(), Priority::Normal, camera_id, t1);
     core.inflight_inquiry_ids.insert(cmd_id(1));
 
     // Second timeout - past max_retry_duration (start + 350ms > 300ms limit)
@@ -4894,9 +4331,7 @@ fn test_inquiry_transport_error_classification_after_retries() {
         cmd_id(1),
         inquiry.clone(),
         Priority::Normal,
-        CommandCategory::Quick,
         camera_id,
-        CommandKind::Inquiry,
         start,
     );
 
@@ -4909,15 +4344,7 @@ fn test_inquiry_transport_error_classification_after_retries() {
     core.mark_retry_as_transport_error(cmd_id(1));
 
     // Resend
-    core.start_inquiry(
-        cmd_id(1),
-        inquiry.clone(),
-        Priority::Normal,
-        CommandCategory::Quick,
-        camera_id,
-        CommandKind::Inquiry,
-        t1,
-    );
+    core.start_inquiry(cmd_id(1), inquiry.clone(), Priority::Normal, camera_id, t1);
     core.inflight_inquiry_ids.insert(cmd_id(1));
 
     // Verify transport_error is still set after resend
@@ -4935,15 +4362,7 @@ fn test_inquiry_transport_error_classification_after_retries() {
     );
 
     // Resend again (transport_error still set)
-    core.start_inquiry(
-        cmd_id(1),
-        inquiry.clone(),
-        Priority::Normal,
-        CommandCategory::Quick,
-        camera_id,
-        CommandKind::Inquiry,
-        t2,
-    );
+    core.start_inquiry(cmd_id(1), inquiry.clone(), Priority::Normal, camera_id, t2);
     core.inflight_inquiry_ids.insert(cmd_id(1));
 
     // Verify transport_error is STILL preserved after second resend
@@ -4987,15 +4406,7 @@ fn test_inquiries_order_no_duplicates_on_resend() {
     let inquiry = create_test_inquiry(camera_id);
 
     // Start initial inquiry
-    core.start_inquiry(
-        cmd_id(1),
-        inquiry.clone(),
-        Priority::Normal,
-        CommandCategory::Quick,
-        camera_id,
-        CommandKind::Inquiry,
-        now,
-    );
+    core.start_inquiry(cmd_id(1), inquiry.clone(), Priority::Normal, camera_id, now);
     assert_eq!(core.inquiries_order.len(), 1);
 
     // Simulate multiple resends
@@ -5005,9 +4416,7 @@ fn test_inquiries_order_no_duplicates_on_resend() {
             cmd_id(1),
             inquiry.clone(),
             Priority::Normal,
-            CommandCategory::Quick,
             camera_id,
-            CommandKind::Inquiry,
             resend_time,
         );
 
@@ -5036,15 +4445,7 @@ fn test_inquiry_preserves_cancel_requested_flag() {
     let inquiry = create_test_inquiry(camera_id);
 
     // Start initial inquiry
-    core.start_inquiry(
-        cmd_id(1),
-        inquiry.clone(),
-        Priority::Normal,
-        CommandCategory::Quick,
-        camera_id,
-        CommandKind::Inquiry,
-        now,
-    );
+    core.start_inquiry(cmd_id(1), inquiry.clone(), Priority::Normal, camera_id, now);
 
     // Set cancel_requested (normally done by request_cancel_by_id)
     if let Some(state) = core.commands.get_mut(&cmd_id(1)) {
@@ -5063,9 +4464,7 @@ fn test_inquiry_preserves_cancel_requested_flag() {
         cmd_id(1),
         inquiry.clone(),
         Priority::Normal,
-        CommandCategory::Quick,
         camera_id,
-        CommandKind::Inquiry,
         resend_time,
     );
 
@@ -5086,15 +4485,7 @@ fn test_new_inquiry_starts_fresh() {
     let inquiry = create_test_inquiry(camera_id);
 
     // Start a new inquiry
-    core.start_inquiry(
-        cmd_id(1),
-        inquiry.clone(),
-        Priority::Normal,
-        CommandCategory::Quick,
-        camera_id,
-        CommandKind::Inquiry,
-        now,
-    );
+    core.start_inquiry(cmd_id(1), inquiry.clone(), Priority::Normal, camera_id, now);
 
     let state = core.commands.get(&cmd_id(1)).expect("should exist");
     assert_eq!(state.attempt, 0, "New inquiry should have attempt = 0");
@@ -5117,9 +4508,7 @@ fn test_new_inquiry_starts_fresh() {
         cmd_id(2),
         inquiry.clone(),
         Priority::Normal,
-        CommandCategory::Quick,
         camera_id,
-        CommandKind::Inquiry,
         later,
     );
 
@@ -5153,15 +4542,7 @@ fn test_should_retry_timeout_respects_budget() {
     );
 
     // Register a pending ACK command
-    core.register_pending_ack(
-        cmd_id(1),
-        command.clone(),
-        Priority::Normal,
-        CommandCategory::Quick,
-        camera_id,
-        CommandKind::Command,
-        now,
-    );
+    core.register_pending_ack(cmd_id(1), command.clone(), Priority::Normal, camera_id, now);
 
     // With attempt = 0 and default budget (Quick gets base + 2 = 5), should retry
     assert!(
@@ -5197,15 +4578,7 @@ fn test_should_retry_timeout_respects_duration() {
     );
 
     // Register a pending ACK command
-    core.register_pending_ack(
-        cmd_id(1),
-        command.clone(),
-        Priority::Normal,
-        CommandCategory::Quick,
-        camera_id,
-        CommandKind::Command,
-        now,
-    );
+    core.register_pending_ack(cmd_id(1), command.clone(), Priority::Normal, camera_id, now);
 
     // Within duration, should be retryable
     let within_duration = now + Duration::from_secs(3);
@@ -5237,15 +4610,7 @@ fn test_timeout_terminal_error_with_transport_flag() {
     );
 
     // Register a pending ACK command and set transport_error flag
-    core.register_pending_ack(
-        cmd_id(1),
-        command.clone(),
-        Priority::Normal,
-        CommandCategory::Quick,
-        camera_id,
-        CommandKind::Command,
-        now,
-    );
+    core.register_pending_ack(cmd_id(1), command.clone(), Priority::Normal, camera_id, now);
 
     if let Some(state) = core.commands.get_mut(&cmd_id(1)) {
         state.transport_error = true;
@@ -5273,15 +4638,7 @@ fn test_timeout_terminal_error_without_transport_flag() {
     );
 
     // Register a pending ACK command without transport_error flag
-    core.register_pending_ack(
-        cmd_id(1),
-        command.clone(),
-        Priority::Normal,
-        CommandCategory::Quick,
-        camera_id,
-        CommandKind::Command,
-        now,
-    );
+    core.register_pending_ack(cmd_id(1), command.clone(), Priority::Normal, camera_id, now);
 
     let error = core.timeout_terminal_error(cmd_id(1));
     assert!(
@@ -5339,15 +4696,7 @@ fn test_handle_timeout_socket_frees_socket() {
     );
 
     // Register a pending ACK command
-    core.register_pending_ack(
-        cmd_id(1),
-        command.clone(),
-        Priority::Normal,
-        CommandCategory::Quick,
-        camera_id,
-        CommandKind::Command,
-        now,
-    );
+    core.register_pending_ack(cmd_id(1), command.clone(), Priority::Normal, camera_id, now);
 
     // Verify socket is free before ACK
     let (socket_free_before, _, _) = core.socket_state(ViscaSocket::S1);
@@ -5411,15 +4760,7 @@ fn test_handle_timeout_inquiry_removes_from_tracking() {
     );
 
     // Start an inquiry
-    core.start_inquiry(
-        cmd_id(1),
-        inquiry.clone(),
-        Priority::Normal,
-        CommandCategory::Quick,
-        camera_id,
-        CommandKind::Inquiry,
-        now,
-    );
+    core.start_inquiry(cmd_id(1), inquiry.clone(), Priority::Normal, camera_id, now);
 
     assert!(
         core.inflight_inquiry_ids.contains(&cmd_id(1)),
@@ -5455,15 +4796,7 @@ fn test_handle_timeout_ack_emits_timeout_action() {
     );
 
     // Register a pending ACK command
-    core.register_pending_ack(
-        cmd_id(1),
-        command.clone(),
-        Priority::Normal,
-        CommandCategory::Quick,
-        camera_id,
-        CommandKind::Command,
-        now,
-    );
+    core.register_pending_ack(cmd_id(1), command.clone(), Priority::Normal, camera_id, now);
 
     // Trigger ACK timeout
     let later = now + Duration::from_millis(200);

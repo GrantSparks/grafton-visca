@@ -11,7 +11,7 @@ mod profile_aware_blocking_tests {
         command::{inquiry::PanTiltPositionInquiry, InquiryData},
         runtime::blocking_runner::BlockingRunner,
         testing::testkit::scripted_transport::{ScriptedBlockingTransport, Step},
-        timeout::{CommandCategory, TimeoutConfig},
+        timeout::TimeoutConfig,
         CameraId,
     };
 
@@ -53,13 +53,9 @@ mod profile_aware_blocking_tests {
         }]);
 
         // Send inquiry command
+        // Note: Category is derived from EncodedCommand.category (no separate argument)
         let inquiry = PanTiltPositionInquiry;
-        let result = runner.send_command(
-            &mut transport,
-            &inquiry,
-            CameraId::CAMERA_1,
-            CommandCategory::Quick,
-        );
+        let result = runner.send_command(&mut transport, &inquiry, CameraId::CAMERA_1);
 
         match result {
             Ok(response) => {
@@ -93,13 +89,9 @@ mod profile_aware_blocking_tests {
         }]);
 
         // Send inquiry command
+        // Note: Category is derived from EncodedCommand.category (no separate argument)
         let inquiry = PanTiltPositionInquiry;
-        let result = runner.send_command(
-            &mut transport,
-            &inquiry,
-            CameraId::CAMERA_1,
-            CommandCategory::Quick,
-        );
+        let result = runner.send_command(&mut transport, &inquiry, CameraId::CAMERA_1);
 
         match result {
             Ok(response) => {
@@ -142,12 +134,7 @@ mod profile_aware_blocking_tests {
             }]);
 
             let inquiry = PanTiltPositionInquiry;
-            let result = runner.send_command(
-                &mut transport,
-                &inquiry,
-                CameraId::CAMERA_1,
-                CommandCategory::Quick,
-            );
+            let result = runner.send_command(&mut transport, &inquiry, CameraId::CAMERA_1);
 
             match result {
                 Ok(response) => {
@@ -193,12 +180,7 @@ mod profile_aware_blocking_tests {
         }]);
 
         let inquiry = PanTiltPositionInquiry;
-        let result = runner.send_command(
-            &mut transport,
-            &inquiry,
-            CameraId::CAMERA_1,
-            CommandCategory::Quick,
-        );
+        let result = runner.send_command(&mut transport, &inquiry, CameraId::CAMERA_1);
 
         match result {
             Ok(response) => {

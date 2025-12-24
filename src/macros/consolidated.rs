@@ -191,7 +191,8 @@ mod tests {
         let cmd = EvalCounterCommand { value: 0x42 };
 
         // Create an EncodedCommand which calls encoded_size() then write_into()
-        let _encoded = EncodedCommand::new(cmd, CameraId::CAMERA_1).expect("should encode command");
+        let _encoded =
+            EncodedCommand::new(&cmd, CameraId::CAMERA_1).expect("should encode command");
 
         // The parameter expression should only be evaluated once (during write_into),
         // not twice (once during encoded_size, once during write_into)

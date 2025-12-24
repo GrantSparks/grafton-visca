@@ -34,24 +34,30 @@ use crate::{
 /// across multiple HashMaps (pending_ack, command_metadata, retry_attempts,
 /// retry_trigger_transport_error, inquiries_inflight, inquiry_response_types).
 ///
+/// # Metadata Consolidation
+///
+/// The `command` field contains an `Arc<EncodedCommand>` which stores:
+/// - `category`: Timeout category (via `command.category`)
+/// - `kind`: Command vs Inquiry (via `command.kind`)
+/// - `response_type`: Expected response type (via `command.response_type`)
+///
+/// These are accessed via helper methods, making `EncodedCommand` the single
+/// source of truth and eliminating redundant storage.
+///
 /// # Fields
-/// - Core identity: `command`, `priority`, `category`, `camera_id`, `kind`
+/// - Core identity: `command`, `priority`, `camera_id`
 /// - Timing: `submitted_at`, `sent_at`
 /// - Retry tracking: `attempt`, `transport_error`
 /// - Cancel tracking: `cancel_requested`
-/// - Inquiry-specific: `response_type`
+/// - Inquiry-specific override: `response_type_override` (for late registration)
 #[derive(Debug, Clone)]
 pub struct CommandState {
-    /// Pre-encoded command bytes.
+    /// Pre-encoded command bytes (contains category, kind, and base response_type).
     pub command: Arc<EncodedCommand>,
     /// Scheduling priority.
     pub priority: Priority,
-    /// Timeout category for calculating timeouts.
-    pub category: CommandCategory,
     /// Target camera.
     pub camera_id: crate::camera_id::CameraId,
-    /// Command vs Inquiry.
-    pub kind: CommandKind,
     /// When first submitted to the scheduler.
     pub submitted_at: Instant,
 
@@ -70,9 +76,48 @@ pub struct CommandState {
     /// bounded to command lifetime.
     pub cancel_requested: bool,
 
-    // --- Inquiry-specific (if kind == Inquiry) ---
-    /// Expected response type for DataReply parsing.
-    pub response_type: Option<InquiryKind>,
+    // --- Inquiry-specific ---
+    /// Override for response type (used when registered after command creation).
+    ///
+    /// This allows late registration of inquiry types for commands that don't
+    /// have the response type set during encoding.
+    pub response_type_override: Option<InquiryKind>,
+}
+
+impl CommandState {
+    /// Get the timeout category for this command.
+    #[inline]
+    pub fn category(&self) -> CommandCategory {
+        self.command.category
+    }
+
+    /// Get the command kind (Command or Inquiry).
+    #[inline]
+    pub fn kind(&self) -> CommandKind {
+        self.command.kind
+    }
+
+    /// Get the response type for this command.
+    ///
+    /// Returns the override if set, otherwise falls back to the EncodedCommand's response_type.
+    #[inline]
+    pub fn response_type(&self) -> Option<InquiryKind> {
+        self.response_type_override.or(self.command.response_type)
+    }
+
+    /// Set the response type override.
+    #[inline]
+    pub fn set_response_type(&mut self, ty: InquiryKind) {
+        self.response_type_override = Some(ty);
+    }
+
+    /// Take the response type (clears the override).
+    #[inline]
+    pub fn take_response_type(&mut self) -> Option<InquiryKind> {
+        self.response_type_override
+            .take()
+            .or(self.command.response_type)
+    }
 }
 
 /// Retry budget configuration for command categories.
@@ -199,26 +244,42 @@ impl ViscaError {
 }
 
 /// Command waiting to be retried.
+///
+/// # Metadata Consolidation
+///
+/// The `command` field contains an `Arc<EncodedCommand>` which stores
+/// `category` and `kind`. These are accessed via helper methods rather
+/// than redundant fields.
 #[derive(Clone)]
 pub struct RetryCommand {
     /// Command ID (type-safe, non-zero).
     pub id: CommandId,
-    /// The pre-encoded command to retry.
+    /// The pre-encoded command to retry (contains category and kind).
     pub command: Arc<EncodedCommand>,
     /// Command priority.
     pub priority: Priority,
-    /// Command category.
-    pub category: CommandCategory,
     /// Camera ID used to encode the command.
     pub camera_id: crate::camera_id::CameraId,
-    /// Command kind (Command vs Inquiry).
-    pub kind: CommandKind,
     /// Retry attempt number.
     pub attempt: u32,
     /// Maximum retries allowed.
     pub max_retries: u32,
     /// When to retry this command (for exponential backoff).
     pub retry_at: Instant,
+}
+
+impl RetryCommand {
+    /// Get the timeout category for this command.
+    #[inline]
+    pub fn category(&self) -> CommandCategory {
+        self.command.category
+    }
+
+    /// Get the command kind (Command or Inquiry).
+    #[inline]
+    pub fn kind(&self) -> CommandKind {
+        self.command.kind
+    }
 }
 
 /// Wrapper for RetryCommand that implements Ord for BinaryHeap (min-heap).
@@ -255,9 +316,9 @@ impl std::fmt::Debug for RetryCommand {
         f.debug_struct("RetryCommand")
             .field("id", &self.id)
             .field("priority", &self.priority)
-            .field("category", &self.category)
+            .field("category", &self.command.category)
             .field("camera_id", &self.camera_id)
-            .field("kind", &self.kind)
+            .field("kind", &self.command.kind)
             .field("attempt", &self.attempt)
             .field("max_retries", &self.max_retries)
             .field("retry_at", &self.retry_at)
@@ -305,22 +366,43 @@ impl SocketState {
 }
 
 /// Priority queue item wrapper for commands.
+///
+/// # Metadata Consolidation
+///
+/// The `command` field contains an `Arc<EncodedCommand>` which stores all
+/// command metadata including:
+/// - `category`: Timeout category (via `command.category`)
+/// - `kind`: Command vs Inquiry (via `command.kind`)
+/// - `response_type`: Expected response type for inquiries (via `command.response_type`)
+///
+/// This makes `EncodedCommand` the single source of truth for command metadata,
+/// eliminating redundant storage and potential for divergence.
 #[derive(Clone)]
 pub struct PendingCommand {
     /// Unique identifier for this command (type-safe, non-zero).
     pub id: CommandId,
-    /// The pre-encoded command to send.
+    /// The pre-encoded command to send (contains category, kind, and response_type).
     pub command: Arc<EncodedCommand>,
     /// Priority level for scheduling.
     pub priority: Priority,
-    /// Category for timeout calculation.
-    pub category: CommandCategory,
     /// Camera ID used to encode the command.
     pub camera_id: crate::camera_id::CameraId,
     /// When the command was submitted.
     pub submitted_at: Instant,
-    /// Command kind (Command or Inquiry).
-    pub kind: CommandKind,
+}
+
+impl PendingCommand {
+    /// Get the timeout category for this command.
+    #[inline]
+    pub fn category(&self) -> CommandCategory {
+        self.command.category
+    }
+
+    /// Get the command kind (Command or Inquiry).
+    #[inline]
+    pub fn kind(&self) -> CommandKind {
+        self.command.kind
+    }
 }
 
 impl std::fmt::Debug for PendingCommand {
@@ -328,10 +410,10 @@ impl std::fmt::Debug for PendingCommand {
         f.debug_struct("PendingCommand")
             .field("id", &self.id)
             .field("priority", &self.priority)
-            .field("category", &self.category)
+            .field("category", &self.command.category)
             .field("camera_id", &self.camera_id)
             .field("submitted_at", &self.submitted_at)
-            .field("kind", &self.kind)
+            .field("kind", &self.command.kind)
             .finish()
     }
 }
@@ -779,9 +861,6 @@ pub struct SchedulerCore {
     min_inquiry_spacing: Duration,
     /// When the last inquiry was sent (for spacing enforcement).
     last_inquiry_sent: Option<Instant>,
-    /// Pending inquiry response types for commands that haven't been started yet.
-    /// This is needed because response types are registered before the command state exists.
-    pending_inquiry_types: HashMap<CommandId, InquiryKind>,
     /// Counter for ignored unmatched sequenced replies.
     ///
     /// Tracks the number of times a sequenced reply (ACK, Completion, Error, InquiryReply)
@@ -826,7 +905,6 @@ impl SchedulerCore {
             inquiries_order: VecDeque::new(),
             min_inquiry_spacing: Duration::ZERO,
             last_inquiry_sent: None,
-            pending_inquiry_types: HashMap::new(),
             ignored_unmatched_sequenced_replies: 0,
         }
     }
@@ -856,8 +934,8 @@ impl SchedulerCore {
 
     /// Queue a command for execution.
     pub fn queue_command(&mut self, command: PendingCommand) {
-        // Route based on command kind
-        match command.kind {
+        // Route based on command kind (derived from EncodedCommand)
+        match command.kind() {
             CommandKind::Inquiry => {
                 self.inquiry_queue.push(command);
             }
@@ -974,16 +1052,23 @@ impl SchedulerCore {
         }
     }
 
-    /// Register that a command was sent and is pending ACK.
-    #[allow(clippy::too_many_arguments)]
+    /// Register a command as pending ACK.
+    ///
+    /// # Arguments
+    /// - `id`: Command ID (type-safe, non-zero)
+    /// - `command`: Pre-encoded command (contains category, kind, response_type)
+    /// - `priority`: Scheduling priority
+    /// - `camera_id`: Target camera
+    /// - `now`: Current timestamp
+    ///
+    /// Category and kind are derived from the `EncodedCommand`, ensuring
+    /// consistency and eliminating the possibility of mismatched metadata.
     pub fn register_pending_ack(
         &mut self,
         id: CommandId,
         command: Arc<EncodedCommand>,
         priority: Priority,
-        category: CommandCategory,
         camera_id: crate::camera_id::CameraId,
-        kind: CommandKind,
         now: Instant,
     ) {
         // Update existing command state if it exists (preserves retry state),
@@ -992,25 +1077,22 @@ impl SchedulerCore {
             // Update send-related fields, preserve retry tracking
             existing.command = command;
             existing.priority = priority;
-            existing.category = category;
             existing.camera_id = camera_id;
-            existing.kind = kind;
             existing.sent_at = Some(now);
-            // Note: preserve attempt, transport_error, response_type, and submitted_at
+            // Note: preserve attempt, transport_error, response_type_override, and submitted_at
+            // Category and kind come from command, so no update needed
         } else {
             // New command - create fresh state
             let state = CommandState {
                 command,
                 priority,
-                category,
                 camera_id,
-                kind,
                 submitted_at: now,
                 sent_at: Some(now),
                 attempt: 0,
                 transport_error: false,
                 cancel_requested: false,
-                response_type: None,
+                response_type_override: None,
             };
             self.commands.insert(id, state);
         }
@@ -1408,32 +1490,15 @@ impl SchedulerCore {
         self.pending_ack_ids.remove(&id)
     }
 
-    /// Register the expected response type for an inquiry.
-    pub fn register_inquiry_type(&mut self, id: CommandId, ty: InquiryKind) {
-        // Update the response_type in the command state if it exists
-        if let Some(state) = self.commands.get_mut(&id) {
-            state.response_type = Some(ty);
-        } else {
-            // Command state doesn't exist yet - store in pending map
-            // This will be merged when the command is started
-            self.pending_inquiry_types.insert(id, ty);
-        }
-    }
-
-    /// Take the response type for an inquiry (removing it from storage).
-    pub fn take_inquiry_type(&mut self, id: CommandId) -> Option<InquiryKind> {
-        self.commands
-            .get_mut(&id)
-            .and_then(|state| state.response_type.take())
-            .or_else(|| self.pending_inquiry_types.remove(&id))
-    }
-
-    /// Get the response type for an inquiry (without removing it).
+    /// Get the response type for an inquiry from the command state.
+    ///
+    /// This returns the response type stored in the `CommandState`, which
+    /// falls back to `EncodedCommand.response_type` if no override is set.
+    /// Returns `None` if the command doesn't exist or has no response type.
     pub fn get_inquiry_type(&self, id: CommandId) -> Option<InquiryKind> {
         self.commands
             .get(&id)
-            .and_then(|state| state.response_type)
-            .or_else(|| self.pending_inquiry_types.get(&id).copied())
+            .and_then(|state| state.response_type())
     }
 
     /// Resolve inquiry ID from a VISCA payload.
@@ -1485,7 +1550,7 @@ impl SchedulerCore {
             .filter_map(|&id| {
                 self.commands
                     .get(&id)
-                    .and_then(|state| state.response_type)
+                    .and_then(|state| state.response_type())
                     .map(|ty| (id, ty))
             })
             .collect();
@@ -1602,7 +1667,7 @@ impl SchedulerCore {
                     self.finish_sequence(cmd_id);
                     // Extract metadata before removing it
                     let (category, camera_id) = if let Some(state) = self.commands.get(&cmd_id) {
-                        (state.category, state.camera_id)
+                        (state.category(), state.camera_id)
                     } else {
                         // Fallback for commands without metadata (shouldn't happen)
                         (CommandCategory::Quick, crate::camera_id::CameraId::CAMERA_1)
@@ -1630,7 +1695,7 @@ impl SchedulerCore {
                     self.finish_sequence(cmd_id);
                     // Extract metadata before removing it
                     let (category, camera_id) = if let Some(state) = self.commands.get(&cmd_id) {
-                        (state.category, state.camera_id)
+                        (state.category(), state.camera_id)
                     } else {
                         // Fallback for inquiries without metadata
                         (CommandCategory::Quick, crate::camera_id::CameraId::CAMERA_1)
@@ -1862,12 +1927,12 @@ impl SchedulerCore {
         for &cmd_id in &self.inflight_inquiry_ids {
             if let Some(state) = self.commands.get(&cmd_id) {
                 if let Some(sent_at) = state.sent_at {
-                    let timeout = self.timeout_config.get_timeout(state.category);
+                    let timeout = self.timeout_config.get_timeout(state.category());
                     let elapsed = now.duration_since(sent_at);
                     if elapsed > timeout {
                         warn!(
                             %cmd_id,
-                            inquiry_type = ?state.response_type,
+                            inquiry_type = ?state.response_type(),
                             timeout = ?timeout,
                             elapsed = ?elapsed,
                             "Inquiry timed out"
@@ -2026,7 +2091,7 @@ impl SchedulerCore {
         for &cmd_id in &self.inflight_inquiry_ids {
             if let Some(state) = self.commands.get(&cmd_id) {
                 if let Some(sent_at) = state.sent_at {
-                    let timeout = self.timeout_config.get_timeout(state.category);
+                    let timeout = self.timeout_config.get_timeout(state.category());
                     let deadline = sent_at + timeout;
                     Self::update_earliest(&mut earliest, deadline);
                 }
@@ -2054,7 +2119,7 @@ impl SchedulerCore {
     /// Returns `true` if the command should be retried based on budget and duration.
     fn should_retry_timeout(&self, cmd_id: CommandId, now: Instant) -> bool {
         self.commands.get(&cmd_id).is_some_and(|state| {
-            let max_retries = self.retry_budget.for_category(state.category);
+            let max_retries = self.retry_budget.for_category(state.category());
             let within_duration =
                 now.duration_since(state.submitted_at) < self.retry_config.max_retry_duration;
             state.attempt < max_retries && within_duration
@@ -2163,7 +2228,7 @@ impl SchedulerCore {
                     let state_copy = self.commands.get(&cmd_id).cloned();
                     if let Some(state) = state_copy {
                         let attempts = state.attempt;
-                        let max_retries = self.retry_budget.for_category(state.category);
+                        let max_retries = self.retry_budget.for_category(state.category());
 
                         debug!(
                             "Queueing ACK-timed-out command {} for retry (attempt {})",
@@ -2198,9 +2263,7 @@ impl SchedulerCore {
                             id: cmd_id,
                             command: state.command.clone(),
                             priority: state.priority,
-                            category: state.category,
                             camera_id: state.camera_id,
-                            kind: state.kind,
                             attempt: attempts + 1,
                             max_retries,
                             retry_at: now + retry_delay,
@@ -2226,7 +2289,7 @@ impl SchedulerCore {
                 TimeoutSource::Ack => {
                     let state_copy = self.commands.get(&cmd_id).cloned();
                     if let Some(state) = state_copy {
-                        let max_retries = self.retry_budget.for_category(state.category);
+                        let max_retries = self.retry_budget.for_category(state.category());
                         let error = self.timeout_terminal_error(cmd_id);
 
                         debug!(
@@ -2353,7 +2416,7 @@ impl SchedulerCore {
             self.sockets[idx] = SocketState::Busy {
                 command_id: target_id,
                 started_at: now,
-                category: cmd_state.category,
+                category: cmd_state.category(),
             };
 
             trace!(
@@ -2391,36 +2454,27 @@ impl SchedulerCore {
 
     /// Start tracking an inquiry (no socket allocation).
     ///
+    /// Category, kind, and response_type are derived from the `EncodedCommand`,
+    /// ensuring consistency and eliminating the possibility of mismatched metadata.
+    ///
     /// This method uses upsert semantics to preserve retry state across resends:
     /// - If the inquiry already exists in `commands`, update send-related fields
-    ///   (`command`, `priority`, `category`, `camera_id`, `kind`, `sent_at`) while
-    ///   preserving lifecycle tracking fields (`submitted_at`, `attempt`,
-    ///   `transport_error`, `cancel_requested`).
+    ///   while preserving lifecycle tracking fields.
     /// - If this is a new inquiry, create fresh state with `attempt = 0` and
     ///   `submitted_at = now`.
-    ///
-    /// This mirrors the `register_pending_ack` pattern for commands and ensures
-    /// that retry budgets (`max_retries`, `max_retry_duration`) are honored.
-    #[allow(clippy::too_many_arguments)]
     pub fn start_inquiry(
         &mut self,
         id: CommandId,
         command: Arc<EncodedCommand>,
         priority: Priority,
-        category: CommandCategory,
         camera_id: crate::camera_id::CameraId,
-        kind: CommandKind,
         now: Instant,
     ) {
         debug_assert!(
-            kind == CommandKind::Inquiry,
+            command.kind == CommandKind::Inquiry,
             "start_inquiry called with non-inquiry kind: {:?}",
-            kind
+            command.kind
         );
-
-        // Get response_type from pending_inquiry_types if not already in commands.
-        // Only remove from pending_inquiry_types for new inquiries.
-        let pending_response_type = self.pending_inquiry_types.remove(&id);
 
         // Update existing state if it exists (preserves retry tracking),
         // otherwise create a new state
@@ -2428,38 +2482,33 @@ impl SchedulerCore {
             // Update send-related fields, preserve retry tracking
             existing.command = command;
             existing.priority = priority;
-            existing.category = category;
             existing.camera_id = camera_id;
-            existing.kind = kind;
             existing.sent_at = Some(now);
             // Note: preserve attempt, transport_error, cancel_requested, and submitted_at
-            // If response_type was None but we have a pending type, fill it in
-            if existing.response_type.is_none() {
-                existing.response_type = pending_response_type;
-            }
+            // Category and kind come from command, so no update needed
+            // response_type comes from EncodedCommand.response_type via CommandState.response_type()
 
             trace!(
                 %id,
-                inquiry_type = ?existing.response_type,
+                inquiry_type = ?existing.response_type(),
                 attempt = existing.attempt,
                 "Updated existing inquiry state for resend"
             );
         } else {
             // New inquiry - create fresh state
-            let response_type = pending_response_type;
+            // response_type is read from command.response_type via CommandState.response_type()
             let state = CommandState {
                 command,
                 priority,
-                category,
                 camera_id,
-                kind,
                 submitted_at: now,
                 sent_at: Some(now),
                 attempt: 0,
                 transport_error: false,
                 cancel_requested: false,
-                response_type,
+                response_type_override: None,
             };
+            let response_type = state.response_type();
             self.commands.insert(id, state);
 
             trace!(
@@ -2570,8 +2619,8 @@ impl SchedulerCore {
 
     fn should_retry_command(&self, cmd_id: CommandId, error: &ViscaError, now: Instant) -> bool {
         if let Some(state) = self.commands.get(&cmd_id) {
-            if error.is_retryable(Some(state.category)) {
-                let max_retries = self.retry_budget.for_category(state.category);
+            if error.is_retryable(Some(state.category())) {
+                let max_retries = self.retry_budget.for_category(state.category());
                 let within_duration =
                     now.duration_since(state.submitted_at) < self.retry_config.max_retry_duration;
                 state.attempt < max_retries && within_duration
@@ -2671,7 +2720,7 @@ impl SchedulerCore {
             let new_attempt = state.attempt + 1;
 
             // Check if we've exceeded max retries
-            let max_retries = self.retry_budget.for_category(state.category);
+            let max_retries = self.retry_budget.for_category(state.category());
 
             // Check if we've exceeded max_retry_duration
             let elapsed = now.duration_since(state.submitted_at);
@@ -2704,9 +2753,7 @@ impl SchedulerCore {
                 id: cmd_id,
                 command: state.command.clone(),
                 priority: state.priority,
-                category: state.category,
                 camera_id: state.camera_id,
-                kind: state.kind,
                 attempt: new_attempt,
                 max_retries,
                 retry_at: now + delay,
@@ -2741,7 +2788,6 @@ impl SchedulerCore {
         self.seq16_to_cmds.clear();
         self.cmd_to_seq16s.clear();
         self.inquiries_order.clear();
-        self.pending_inquiry_types.clear();
         self.sockets = Default::default();
         self.last_logged_idle.set(false);
         self.last_inquiry_sent = None;

@@ -305,16 +305,19 @@ impl EncodedCommand {
     ///
     /// # Arguments
     ///
-    /// * `cmd` - The command to encode
+    /// * `cmd` - A reference to the command to encode
     /// * `camera_id` - The camera ID to address the command to
     ///
     /// # Errors
     ///
     /// Returns an error if encoding fails or command structure is invalid.
-    pub fn new<C: ViscaCommand + Clone + std::fmt::Debug>(
-        cmd: C,
-        camera_id: CameraId,
-    ) -> Result<Self, Error> {
+    ///
+    /// # Note
+    ///
+    /// This method takes a reference to the command, eliminating the need for
+    /// `Clone` bounds on command types and avoiding unnecessary deep copies
+    /// (particularly important for heap-backed commands like `RawCommand`).
+    pub fn new<C: ViscaCommand>(cmd: &C, camera_id: CameraId) -> Result<Self, Error> {
         // Allocate inline buffer sized for the command
         let size = cmd.encoded_size();
         let mut payload = SmallVec::with_capacity(size);
@@ -485,5 +488,143 @@ mod tests {
             "Expected InvalidRequest error with too short message, got: {:?}",
             result
         );
+    }
+
+    /// A non-Clone command type that holds owned data.
+    ///
+    /// This test type verifies that the API doesn't require Clone.
+    /// We use a simple struct with no Clone derive to prove the point.
+    /// The struct is naturally Send+Sync since it only contains primitive data.
+    struct NonCloneCommand {
+        /// Some data field.
+        value: u8,
+    }
+
+    // Note: NonCloneCommand does NOT derive Clone, proving that
+    // EncodedCommand::new doesn't require Clone on the command type.
+
+    impl ViscaCommand for NonCloneCommand {
+        type Response = ();
+        const MAX_SIZE: usize = 6;
+        const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
+
+        fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
+            buffer[0] = camera_id.to_address_byte();
+            buffer[1] = 0x01;
+            buffer[2] = 0x04;
+            buffer[3] = self.value;
+            buffer[4] = crate::command::bytes::VISCA_TERMINATOR;
+            Ok(5)
+        }
+
+        fn response_kind(&self) -> Option<InquiryKind> {
+            None
+        }
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn encoded_command_works_with_non_clone_types() {
+        // Create a non-Clone command
+        let cmd = NonCloneCommand { value: 42 };
+
+        // This test proves that EncodedCommand::new accepts a reference
+        // without requiring Clone. If Clone were required, this would
+        // fail to compile since NonCloneCommand doesn't implement Clone.
+        let result = EncodedCommand::new(&cmd, CameraId::CAMERA_1);
+        assert!(result.is_ok(), "Should encode non-Clone command");
+
+        let encoded = result.unwrap();
+        assert_eq!(encoded.as_slice().len(), 5);
+        assert_eq!(encoded.category, CommandCategory::Quick);
+
+        // Verify the value was encoded
+        assert_eq!(encoded.as_slice()[3], 42);
+    }
+
+    /// A command that wraps a vector (heap-allocated, non-Copy).
+    ///
+    /// This test type verifies that commands with heap-allocated data
+    /// work correctly with the reference-based API.
+    struct HeapCommand {
+        /// Heap-allocated data. Send+Sync is derived automatically for Vec<u8>.
+        data: Vec<u8>,
+    }
+
+    // Note: HeapCommand does NOT derive Clone, proving that
+    // EncodedCommand::new doesn't require Clone on heap-backed commands.
+
+    impl ViscaCommand for HeapCommand {
+        type Response = ();
+        const MAX_SIZE: usize = 32;
+        const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Custom;
+
+        fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
+            let len = 2 + self.data.len() + 1;
+            if len > buffer.len() {
+                return Err(Error::InvalidRequest("Buffer too small".into()));
+            }
+            buffer[0] = camera_id.to_address_byte();
+            buffer[1] = 0x01;
+            buffer[2..2 + self.data.len()].copy_from_slice(&self.data);
+            buffer[2 + self.data.len()] = crate::command::bytes::VISCA_TERMINATOR;
+            Ok(len)
+        }
+
+        fn response_kind(&self) -> Option<InquiryKind> {
+            None
+        }
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn encoded_command_works_with_heap_backed_data() {
+        // Create a heap-backed command (Vec allocates on heap)
+        let cmd = HeapCommand {
+            data: vec![0x04, 0x00, 0x03],
+        };
+
+        // EncodedCommand::new should accept &cmd without requiring Clone.
+        // This is important because cloning Vec<u8> would allocate.
+        let result = EncodedCommand::new(&cmd, CameraId::CAMERA_1);
+        assert!(result.is_ok(), "Should encode heap-backed command");
+
+        let encoded = result.unwrap();
+        // 1 (addr) + 1 (0x01) + 3 (data) + 1 (terminator) = 6
+        assert_eq!(encoded.as_slice().len(), 6);
+
+        // Verify the encoded bytes contain the data
+        let bytes = encoded.as_slice();
+        assert_eq!(bytes[0], 0x81); // Camera 1 address
+        assert_eq!(bytes[1], 0x01);
+        assert_eq!(&bytes[2..5], &[0x04, 0x00, 0x03]);
+        assert_eq!(bytes[5], crate::command::bytes::VISCA_TERMINATOR);
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn encoded_command_captures_data_not_reference() {
+        // This test verifies that EncodedCommand captures the encoded bytes,
+        // not a reference to the original command. This ensures the encoded
+        // command remains valid even after the original command is dropped.
+
+        let encoded = {
+            let cmd = HeapCommand {
+                data: vec![0x04, 0x00],
+            };
+
+            // Encode the command - this should capture the bytes
+            EncodedCommand::new(&cmd, CameraId::CAMERA_1).unwrap()
+            // `cmd` and its Vec are dropped here
+        };
+
+        // The encoded command should still be valid and contain the correct bytes
+        assert_eq!(encoded.as_slice().len(), 5);
+        let bytes = encoded.as_slice();
+        assert_eq!(bytes[0], 0x81); // Camera 1 address
+        assert_eq!(bytes[1], 0x01);
+        assert_eq!(bytes[2], 0x04);
+        assert_eq!(bytes[3], 0x00);
+        assert_eq!(bytes[4], crate::command::bytes::VISCA_TERMINATOR);
     }
 }
