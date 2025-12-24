@@ -430,6 +430,20 @@ pub enum TimeoutKind {
     // Response, // Can be added later for post-ACK response timeouts
 }
 
+/// Categorizes the source of a timeout for unified handling.
+///
+/// This enum enables consolidation of the three nearly identical timeout-handling
+/// patterns in `check_timeouts()` into a single `handle_timeout()` method.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum TimeoutSource {
+    /// Command timed out waiting for ACK (no socket assigned yet).
+    Ack,
+    /// Command timed out while holding a socket.
+    Socket(ViscaSocket),
+    /// Inquiry timed out waiting for data reply.
+    Inquiry,
+}
+
 /// How a reply is correlated to its originating command.
 ///
 /// This enum consolidates the reply identification triplet that was previously
@@ -1809,9 +1823,9 @@ impl SchedulerCore {
     /// Check for timeouts and return commands that need action.
     pub fn check_timeouts(&mut self, now: Instant) -> Vec<SchedulerAction> {
         let mut actions = Vec::new();
-        let mut timed_out = Vec::new();
 
-        // Check socket timeouts
+        // Collect timed-out socket commands
+        let mut timed_out_sockets = Vec::new();
         for socket_idx in 0..2 {
             let socket = if socket_idx == 0 {
                 ViscaSocket::S1
@@ -1838,12 +1852,12 @@ impl SchedulerCore {
                             command_id, socket, category, now.duration_since(*started_at)
                         );
                     }
-                    timed_out.push((socket, *command_id));
+                    timed_out_sockets.push((socket, *command_id));
                 }
             }
         }
 
-        // Check inquiry timeouts
+        // Collect timed-out inquiries
         let mut timed_out_inquiries = Vec::new();
         for &cmd_id in &self.inflight_inquiry_ids {
             if let Some(state) = self.commands.get(&cmd_id) {
@@ -1864,49 +1878,9 @@ impl SchedulerCore {
             }
         }
 
-        // Handle timed out inquiries
-        for cmd_id in timed_out_inquiries {
-            self.inflight_inquiry_ids.remove(&cmd_id);
-            // Remove from order queue if present
-            self.inquiries_order.retain(|&id| id != cmd_id);
-            // Check if we should retry (budget and duration checks)
-            let should_retry = self
-                .commands
-                .get(&cmd_id)
-                .map(|state| {
-                    let max_retries = self.retry_budget.for_category(state.category);
-                    let within_duration = now.duration_since(state.submitted_at)
-                        < self.retry_config.max_retry_duration;
-                    state.attempt < max_retries && within_duration
-                })
-                .unwrap_or(false);
-
-            if should_retry {
-                if let Some(retry_action) = self.queue_retry_for_command(cmd_id, now) {
-                    actions.push(retry_action);
-                }
-            } else {
-                // Terminal failure - check transport_error for proper error classification
-                let transport_error = self
-                    .commands
-                    .get(&cmd_id)
-                    .map(|s| s.transport_error)
-                    .unwrap_or(false);
-                let error = if transport_error {
-                    Error::TransportError("Network error after max retries".into())
-                } else {
-                    Error::Timeout
-                };
-                self.finish_sequence(cmd_id);
-                self.commands.remove(&cmd_id);
-                actions.push(SchedulerAction::CommandFailed { id: cmd_id, error });
-            }
-        }
-
-        // Check pending-ACK timeouts (commands sent but not yet acknowledged)
+        // Collect timed-out ACK commands
         let ack_timeout = self.timeout_config.ack_timeout;
-        let mut ack_timed_out = Vec::new();
-
+        let mut timed_out_acks = Vec::new();
         for &cmd_id in &self.pending_ack_ids {
             if let Some(state) = self.commands.get(&cmd_id) {
                 if let Some(sent_at) = state.sent_at {
@@ -1916,176 +1890,25 @@ impl SchedulerCore {
                             "Command {} timed out waiting for ACK after {:?}",
                             cmd_id, ack_timeout
                         );
-                        ack_timed_out.push(cmd_id);
+                        timed_out_acks.push(cmd_id);
                     }
                 }
             }
         }
 
-        // Process all timed-out ACK commands
-        for cmd_id in ack_timed_out {
-            // Get state before modification
-            let state_copy = self.commands.get(&cmd_id).cloned();
-
-            if let Some(state) = state_copy {
-                // Remove from pending_ack_ids FIRST to free capacity
-                self.pending_ack_ids.remove(&cmd_id);
-
-                if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
-                    eprintln!(
-                        "[SchedulerCore] ACK timeout: cmd_id={}, removed from pending_ack_ids (count={})",
-                        cmd_id,
-                        self.pending_ack_ids.len()
-                    );
-                }
-
-                // Debug assertion: command should not be in both pending_ack_ids and have a socket
-                #[cfg(debug_assertions)]
-                {
-                    for socket in &self.sockets {
-                        if socket.command_id() == Some(cmd_id) {
-                            eprintln!(
-                                "ERROR: Invariant violation: ACK-timed-out command {} still has socket allocated",
-                                cmd_id
-                            );
-                            debug_assert!(false, "ACK timeout invariant violation");
-                        }
-                    }
-                }
-
-                // Get retry count for this command
-                let attempts = state.attempt;
-                let max_retries = self.retry_budget.for_category(state.category);
-
-                // Check if within max_retry_duration
-                let within_duration =
-                    now.duration_since(state.submitted_at) < self.retry_config.max_retry_duration;
-
-                // Determine if we will retry (both budget and duration must allow it)
-                let will_retry = attempts < max_retries && within_duration;
-
-                // Always emit a timeout action to notify the adapter
-                actions.push(SchedulerAction::Timeout {
-                    id: cmd_id,
-                    kind: TimeoutKind::Ack,
-                    attempt: attempts + 1, // 1-based attempt number
-                    will_retry,
-                });
-
-                if will_retry {
-                    // Queue for retry
-                    debug!(
-                        "Queueing ACK-timed-out command {} for retry (attempt {})",
-                        cmd_id,
-                        attempts + 1
-                    );
-
-                    if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
-                        eprintln!(
-                            "[SchedulerCore] Queueing retry for cmd_id={} (attempt {}/{})",
-                            cmd_id,
-                            attempts + 1,
-                            max_retries
-                        );
-                    }
-
-                    // Update retry count in command state
-                    if let Some(cmd_state) = self.commands.get_mut(&cmd_id) {
-                        cmd_state.attempt = attempts + 1;
-                    }
-
-                    // Calculate retry delay using RetryConfig to maintain consistency
-                    // For ACK timeouts, we cap the exponent at 5 (2^5 = 32) to prevent
-                    // excessively long delays on repeated timeouts.
-                    // attempts + 1 is the 1-based attempt number
-                    let capped_attempt_num = (attempts + 1).min(6);
-                    let retry_attempt =
-                        RetryAttempt::new(capped_attempt_num).unwrap_or(RetryAttempt::FIRST);
-                    let retry_delay = self.retry_config.calculate_delay(retry_attempt, None);
-
-                    // Create and queue the retry command
-                    let retry_cmd = RetryCommand {
-                        id: cmd_id,
-                        command: state.command.clone(),
-                        priority: state.priority,
-                        category: state.category,
-                        camera_id: state.camera_id,
-                        kind: state.kind,
-                        attempt: attempts + 1,
-                        max_retries,
-                        retry_at: now + retry_delay,
-                    };
-
-                    self.retry_queue.push(RetryKey { command: retry_cmd });
-
-                    actions.push(SchedulerAction::RetryCommand {
-                        id: cmd_id,
-                        delay: retry_delay,
-                    });
-                } else {
-                    // Max retries exceeded - fail the command with proper error classification
-                    let error = if state.transport_error {
-                        Error::TransportError("Network error after max retries".into())
-                    } else {
-                        Error::Timeout
-                    };
-
-                    debug!(
-                        "Command {} exceeded max ACK retries, failing with {:?}",
-                        cmd_id, error
-                    );
-
-                    if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
-                        eprintln!(
-                            "[SchedulerCore] Command {} exceeded max ACK retries ({}), failing",
-                            cmd_id, max_retries
-                        );
-                    }
-
-                    // Clean up all state for this command
-                    self.finish_sequence(cmd_id);
-                    self.commands.remove(&cmd_id);
-
-                    actions.push(SchedulerAction::CommandFailed { id: cmd_id, error });
-                }
-            }
+        // Handle all timeouts using the unified handler
+        for (socket, cmd_id) in timed_out_sockets {
+            self.handle_timeout(TimeoutSource::Socket(socket), cmd_id, now, &mut actions);
         }
 
-        // Handle timed out commands (socket timeout)
-        for (socket, cmd_id) in timed_out {
-            self.free_socket(socket);
+        for cmd_id in timed_out_inquiries {
+            self.handle_timeout(TimeoutSource::Inquiry, cmd_id, now, &mut actions);
+        }
 
-            // Check if we should retry (budget and duration checks)
-            let should_retry = self
-                .commands
-                .get(&cmd_id)
-                .map(|state| {
-                    let max_retries = self.retry_budget.for_category(state.category);
-                    let within_duration = now.duration_since(state.submitted_at)
-                        < self.retry_config.max_retry_duration;
-                    state.attempt < max_retries && within_duration
-                })
-                .unwrap_or(false);
-
-            if should_retry {
-                if let Some(retry_action) = self.queue_retry_for_command(cmd_id, now) {
-                    actions.push(retry_action);
-                }
-            } else {
-                // Terminal failure - check transport_error for proper error classification
-                let transport_error = self
-                    .commands
-                    .get(&cmd_id)
-                    .map(|s| s.transport_error)
-                    .unwrap_or(false);
-                let error = if transport_error {
-                    Error::TransportError("Network error after max retries".into())
-                } else {
-                    Error::Timeout
-                };
-                self.finish_sequence(cmd_id);
-                self.commands.remove(&cmd_id);
-                actions.push(SchedulerAction::CommandFailed { id: cmd_id, error });
+        for cmd_id in timed_out_acks {
+            // Only process if command still exists (wasn't already handled by another timeout)
+            if self.commands.contains_key(&cmd_id) {
+                self.handle_timeout(TimeoutSource::Ack, cmd_id, now, &mut actions);
             }
         }
 
@@ -2180,11 +2003,7 @@ impl SchedulerCore {
             if let Some(state) = self.commands.get(&cmd_id) {
                 if let Some(sent_at) = state.sent_at {
                     let deadline = sent_at + self.timeout_config.ack_timeout;
-                    earliest = match earliest {
-                        None => Some(deadline),
-                        Some(e) if deadline < e => Some(deadline),
-                        _ => earliest,
-                    };
+                    Self::update_earliest(&mut earliest, deadline);
                 }
             }
         }
@@ -2199,11 +2018,7 @@ impl SchedulerCore {
             {
                 let timeout = self.timeout_config.get_timeout(*category);
                 let deadline = *started_at + timeout;
-                earliest = match earliest {
-                    None => Some(deadline),
-                    Some(e) if deadline < e => Some(deadline),
-                    _ => earliest,
-                };
+                Self::update_earliest(&mut earliest, deadline);
             }
         }
 
@@ -2213,34 +2028,21 @@ impl SchedulerCore {
                 if let Some(sent_at) = state.sent_at {
                     let timeout = self.timeout_config.get_timeout(state.category);
                     let deadline = sent_at + timeout;
-                    earliest = match earliest {
-                        None => Some(deadline),
-                        Some(e) if deadline < e => Some(deadline),
-                        _ => earliest,
-                    };
+                    Self::update_earliest(&mut earliest, deadline);
                 }
             }
         }
 
         // Check retry queue (peek at the earliest retry)
         if let Some(retry_key) = self.retry_queue.peek() {
-            let deadline = retry_key.command.retry_at;
-            earliest = match earliest {
-                None => Some(deadline),
-                Some(e) if deadline < e => Some(deadline),
-                _ => earliest,
-            };
+            Self::update_earliest(&mut earliest, retry_key.command.retry_at);
         }
 
         // Check inquiry spacing deadline (when queued inquiries can be sent)
         if !self.inquiry_queue.is_empty() && !self.min_inquiry_spacing.is_zero() {
             if let Some(last_sent) = self.last_inquiry_sent {
                 let next_inquiry_eligible = last_sent + self.min_inquiry_spacing;
-                earliest = match earliest {
-                    None => Some(next_inquiry_eligible),
-                    Some(e) if next_inquiry_eligible < e => Some(next_inquiry_eligible),
-                    _ => earliest,
-                };
+                Self::update_earliest(&mut earliest, next_inquiry_eligible);
             }
         }
 
@@ -2248,6 +2050,213 @@ impl SchedulerCore {
     }
 
     // Private helper methods
+
+    /// Returns `true` if the command should be retried based on budget and duration.
+    fn should_retry_timeout(&self, cmd_id: CommandId, now: Instant) -> bool {
+        self.commands.get(&cmd_id).is_some_and(|state| {
+            let max_retries = self.retry_budget.for_category(state.category);
+            let within_duration =
+                now.duration_since(state.submitted_at) < self.retry_config.max_retry_duration;
+            state.attempt < max_retries && within_duration
+        })
+    }
+
+    /// Build the appropriate error for a terminal timeout failure.
+    fn timeout_terminal_error(&self, cmd_id: CommandId) -> Error {
+        let transport_error = self
+            .commands
+            .get(&cmd_id)
+            .is_some_and(|s| s.transport_error);
+        if transport_error {
+            Error::TransportError("Network error after max retries".into())
+        } else {
+            Error::Timeout
+        }
+    }
+
+    /// Remove a command from all tracking structures.
+    ///
+    /// Note: Currently unused because each timeout source has slightly different
+    /// cleanup patterns (e.g., ACK timeouts don't need inquiry cleanup). This helper
+    /// is kept for potential future consolidation when all cleanup paths can be unified.
+    #[allow(dead_code)]
+    fn cleanup_command_state(&mut self, cmd_id: CommandId) {
+        self.finish_sequence(cmd_id);
+        self.pending_ack_ids.remove(&cmd_id);
+        self.inflight_inquiry_ids.remove(&cmd_id);
+        self.inquiries_order.retain(|&id| id != cmd_id);
+        self.commands.remove(&cmd_id);
+    }
+
+    /// Update earliest deadline if candidate is earlier.
+    #[inline]
+    fn update_earliest(earliest: &mut Option<Instant>, candidate: Instant) {
+        *earliest = match *earliest {
+            None => Some(candidate),
+            Some(e) if candidate < e => Some(candidate),
+            _ => *earliest,
+        };
+    }
+
+    /// Handle a timeout from any source with unified retry/fail logic.
+    ///
+    /// This method consolidates the three previously-duplicated timeout handling
+    /// patterns (socket, inquiry, ACK) into a single dispatch point.
+    fn handle_timeout(
+        &mut self,
+        source: TimeoutSource,
+        cmd_id: CommandId,
+        now: Instant,
+        actions: &mut Vec<SchedulerAction>,
+    ) {
+        // Source-specific pre-cleanup
+        match source {
+            TimeoutSource::Socket(socket) => {
+                self.free_socket(socket);
+            }
+            TimeoutSource::Inquiry => {
+                self.inflight_inquiry_ids.remove(&cmd_id);
+                self.inquiries_order.retain(|&id| id != cmd_id);
+            }
+            TimeoutSource::Ack => {
+                self.pending_ack_ids.remove(&cmd_id);
+
+                if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
+                    eprintln!(
+                        "[SchedulerCore] ACK timeout: cmd_id={}, removed from pending_ack_ids (count={})",
+                        cmd_id,
+                        self.pending_ack_ids.len()
+                    );
+                }
+
+                // Debug assertion: command should not be in both pending_ack_ids and have a socket
+                #[cfg(debug_assertions)]
+                {
+                    for socket in &self.sockets {
+                        if socket.command_id() == Some(cmd_id) {
+                            eprintln!(
+                                "ERROR: Invariant violation: ACK-timed-out command {} still has socket allocated",
+                                cmd_id
+                            );
+                            debug_assert!(false, "ACK timeout invariant violation");
+                        }
+                    }
+                }
+
+                // For ACK timeouts, emit a Timeout action to notify the adapter
+                let attempts = self.commands.get(&cmd_id).map_or(0, |s| s.attempt);
+                let will_retry = self.should_retry_timeout(cmd_id, now);
+                actions.push(SchedulerAction::Timeout {
+                    id: cmd_id,
+                    kind: TimeoutKind::Ack,
+                    attempt: attempts + 1, // 1-based attempt number
+                    will_retry,
+                });
+            }
+        }
+
+        if self.should_retry_timeout(cmd_id, now) {
+            // For ACK timeouts, we need manual retry queueing with capped exponent
+            // For other timeouts, use queue_retry_for_command
+            match source {
+                TimeoutSource::Ack => {
+                    let state_copy = self.commands.get(&cmd_id).cloned();
+                    if let Some(state) = state_copy {
+                        let attempts = state.attempt;
+                        let max_retries = self.retry_budget.for_category(state.category);
+
+                        debug!(
+                            "Queueing ACK-timed-out command {} for retry (attempt {})",
+                            cmd_id,
+                            attempts + 1
+                        );
+
+                        if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
+                            eprintln!(
+                                "[SchedulerCore] Queueing retry for cmd_id={} (attempt {}/{})",
+                                cmd_id,
+                                attempts + 1,
+                                max_retries
+                            );
+                        }
+
+                        // Update retry count in command state
+                        if let Some(cmd_state) = self.commands.get_mut(&cmd_id) {
+                            cmd_state.attempt = attempts + 1;
+                        }
+
+                        // Calculate retry delay using RetryConfig to maintain consistency
+                        // For ACK timeouts, we cap the exponent at 5 (2^5 = 32) to prevent
+                        // excessively long delays on repeated timeouts.
+                        let capped_attempt_num = (attempts + 1).min(6);
+                        let retry_attempt =
+                            RetryAttempt::new(capped_attempt_num).unwrap_or(RetryAttempt::FIRST);
+                        let retry_delay = self.retry_config.calculate_delay(retry_attempt, None);
+
+                        // Create and queue the retry command
+                        let retry_cmd = RetryCommand {
+                            id: cmd_id,
+                            command: state.command.clone(),
+                            priority: state.priority,
+                            category: state.category,
+                            camera_id: state.camera_id,
+                            kind: state.kind,
+                            attempt: attempts + 1,
+                            max_retries,
+                            retry_at: now + retry_delay,
+                        };
+
+                        self.retry_queue.push(RetryKey { command: retry_cmd });
+
+                        actions.push(SchedulerAction::RetryCommand {
+                            id: cmd_id,
+                            delay: retry_delay,
+                        });
+                    }
+                }
+                TimeoutSource::Socket(_) | TimeoutSource::Inquiry => {
+                    if let Some(retry_action) = self.queue_retry_for_command(cmd_id, now) {
+                        actions.push(retry_action);
+                    }
+                }
+            }
+        } else {
+            // Terminal failure
+            match source {
+                TimeoutSource::Ack => {
+                    let state_copy = self.commands.get(&cmd_id).cloned();
+                    if let Some(state) = state_copy {
+                        let max_retries = self.retry_budget.for_category(state.category);
+                        let error = self.timeout_terminal_error(cmd_id);
+
+                        debug!(
+                            "Command {} exceeded max ACK retries, failing with {:?}",
+                            cmd_id, error
+                        );
+
+                        if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
+                            eprintln!(
+                                "[SchedulerCore] Command {} exceeded max ACK retries ({}), failing",
+                                cmd_id, max_retries
+                            );
+                        }
+
+                        // Clean up all state for this command
+                        self.finish_sequence(cmd_id);
+                        self.commands.remove(&cmd_id);
+
+                        actions.push(SchedulerAction::CommandFailed { id: cmd_id, error });
+                    }
+                }
+                TimeoutSource::Socket(_) | TimeoutSource::Inquiry => {
+                    let error = self.timeout_terminal_error(cmd_id);
+                    self.finish_sequence(cmd_id);
+                    self.commands.remove(&cmd_id);
+                    actions.push(SchedulerAction::CommandFailed { id: cmd_id, error });
+                }
+            }
+        }
+    }
 
     /// Handle an ACK and assign a socket to the command.
     ///

@@ -7,6 +7,7 @@ use crate::command::bytes::VISCA_TERMINATOR;
 use crate::command::encode::EncodedCommand;
 use crate::transport::{BackoffStrategy, RetryAttempt, RetryConfig};
 use crate::CameraId;
+use crate::Error;
 use smallvec::SmallVec;
 use std::sync::Arc;
 use std::time::Duration;
@@ -5130,5 +5131,356 @@ fn test_new_inquiry_starts_fresh() {
     assert_eq!(
         state2.submitted_at, later,
         "Second new inquiry should have submitted_at = later"
+    );
+}
+
+// ============================================================================
+// Tests for helper methods introduced in #491 (TimeoutSource refactoring)
+// ============================================================================
+
+#[test]
+fn test_should_retry_timeout_respects_budget() {
+    let timeout_config = TimeoutConfig::default();
+    let retry_config = RetryConfig::default();
+    let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
+    let now = Instant::now();
+    let camera_id = CameraId::CAMERA_1;
+    let command = create_test_command(
+        vec![0x81, 0x01, 0x00, VISCA_TERMINATOR],
+        None,
+        CommandCategory::Quick,
+        camera_id,
+    );
+
+    // Register a pending ACK command
+    core.register_pending_ack(
+        cmd_id(1),
+        command.clone(),
+        Priority::Normal,
+        CommandCategory::Quick,
+        camera_id,
+        CommandKind::Command,
+        now,
+    );
+
+    // With attempt = 0 and default budget (Quick gets base + 2 = 5), should retry
+    assert!(
+        core.should_retry_timeout(cmd_id(1), now),
+        "Command at attempt 0 should be retryable"
+    );
+
+    // Set attempt to max_retries
+    if let Some(state) = core.commands.get_mut(&cmd_id(1)) {
+        state.attempt = 10; // Exceeds budget
+    }
+    assert!(
+        !core.should_retry_timeout(cmd_id(1), now),
+        "Command at max retries should not be retryable"
+    );
+}
+
+#[test]
+fn test_should_retry_timeout_respects_duration() {
+    let timeout_config = TimeoutConfig::default();
+    let retry_config = RetryConfig {
+        max_retry_duration: Duration::from_secs(5),
+        ..RetryConfig::default()
+    };
+    let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
+    let now = Instant::now();
+    let camera_id = CameraId::CAMERA_1;
+    let command = create_test_command(
+        vec![0x81, 0x01, 0x00, VISCA_TERMINATOR],
+        None,
+        CommandCategory::Quick,
+        camera_id,
+    );
+
+    // Register a pending ACK command
+    core.register_pending_ack(
+        cmd_id(1),
+        command.clone(),
+        Priority::Normal,
+        CommandCategory::Quick,
+        camera_id,
+        CommandKind::Command,
+        now,
+    );
+
+    // Within duration, should be retryable
+    let within_duration = now + Duration::from_secs(3);
+    assert!(
+        core.should_retry_timeout(cmd_id(1), within_duration),
+        "Command within duration should be retryable"
+    );
+
+    // After max_retry_duration, should not be retryable
+    let after_duration = now + Duration::from_secs(10);
+    assert!(
+        !core.should_retry_timeout(cmd_id(1), after_duration),
+        "Command after max_retry_duration should not be retryable"
+    );
+}
+
+#[test]
+fn test_timeout_terminal_error_with_transport_flag() {
+    let timeout_config = TimeoutConfig::default();
+    let retry_config = RetryConfig::default();
+    let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
+    let now = Instant::now();
+    let camera_id = CameraId::CAMERA_1;
+    let command = create_test_command(
+        vec![0x81, 0x01, 0x00, VISCA_TERMINATOR],
+        None,
+        CommandCategory::Quick,
+        camera_id,
+    );
+
+    // Register a pending ACK command and set transport_error flag
+    core.register_pending_ack(
+        cmd_id(1),
+        command.clone(),
+        Priority::Normal,
+        CommandCategory::Quick,
+        camera_id,
+        CommandKind::Command,
+        now,
+    );
+
+    if let Some(state) = core.commands.get_mut(&cmd_id(1)) {
+        state.transport_error = true;
+    }
+
+    let error = core.timeout_terminal_error(cmd_id(1));
+    assert!(
+        matches!(error, Error::TransportError(_)),
+        "Should return TransportError when transport_error flag is set"
+    );
+}
+
+#[test]
+fn test_timeout_terminal_error_without_transport_flag() {
+    let timeout_config = TimeoutConfig::default();
+    let retry_config = RetryConfig::default();
+    let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
+    let now = Instant::now();
+    let camera_id = CameraId::CAMERA_1;
+    let command = create_test_command(
+        vec![0x81, 0x01, 0x00, VISCA_TERMINATOR],
+        None,
+        CommandCategory::Quick,
+        camera_id,
+    );
+
+    // Register a pending ACK command without transport_error flag
+    core.register_pending_ack(
+        cmd_id(1),
+        command.clone(),
+        Priority::Normal,
+        CommandCategory::Quick,
+        camera_id,
+        CommandKind::Command,
+        now,
+    );
+
+    let error = core.timeout_terminal_error(cmd_id(1));
+    assert!(
+        matches!(error, Error::Timeout),
+        "Should return Timeout when transport_error flag is not set"
+    );
+}
+
+#[test]
+fn test_update_earliest_none_to_some() {
+    let mut earliest: Option<Instant> = None;
+    let now = Instant::now();
+
+    SchedulerCore::update_earliest(&mut earliest, now);
+    assert_eq!(earliest, Some(now), "Should update from None to Some");
+}
+
+#[test]
+fn test_update_earliest_earlier_wins() {
+    let now = Instant::now();
+    let later = now + Duration::from_secs(10);
+    let earlier = now;
+
+    let mut earliest = Some(later);
+    SchedulerCore::update_earliest(&mut earliest, earlier);
+    assert_eq!(earliest, Some(earlier), "Earlier deadline should win");
+}
+
+#[test]
+fn test_update_earliest_later_ignored() {
+    let now = Instant::now();
+    let later = now + Duration::from_secs(10);
+    let earlier = now;
+
+    let mut earliest = Some(earlier);
+    SchedulerCore::update_earliest(&mut earliest, later);
+    assert_eq!(earliest, Some(earlier), "Later deadline should be ignored");
+}
+
+#[test]
+fn test_handle_timeout_socket_frees_socket() {
+    let timeout_config = TimeoutConfig {
+        quick_timeout: Duration::from_millis(100),
+        ..Default::default()
+    };
+    let retry_config = RetryConfig::default();
+    let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
+    let now = Instant::now();
+    let camera_id = CameraId::CAMERA_1;
+    let command = create_test_command(
+        vec![0x81, 0x01, 0x00, VISCA_TERMINATOR],
+        None,
+        CommandCategory::Quick,
+        camera_id,
+    );
+
+    // Register a pending ACK command
+    core.register_pending_ack(
+        cmd_id(1),
+        command.clone(),
+        Priority::Normal,
+        CommandCategory::Quick,
+        camera_id,
+        CommandKind::Command,
+        now,
+    );
+
+    // Verify socket is free before ACK
+    let (socket_free_before, _, _) = core.socket_state(ViscaSocket::S1);
+    assert!(socket_free_before, "Socket should be free before ACK");
+
+    // Process ACK to assign socket
+    let _ack_actions = core.process_event(
+        SchedulerEvent::Ack {
+            source: ReplySource::BySocket {
+                socket: ViscaSocket::S1,
+            },
+        },
+        now,
+    );
+
+    // Socket should now be busy
+    let (socket_free_after_ack, socket_cmd, _) = core.socket_state(ViscaSocket::S1);
+    assert!(
+        !socket_free_after_ack,
+        "Socket should be busy after ACK assignment"
+    );
+    assert_eq!(
+        socket_cmd,
+        Some(cmd_id(1)),
+        "Socket should be assigned to command 1"
+    );
+
+    // Now trigger timeout via check_timeouts
+    let later = now + Duration::from_millis(200);
+    let timeout_actions = core.check_timeouts(later);
+
+    // Should have retry action
+    assert!(
+        !timeout_actions.is_empty(),
+        "Should have timeout actions (retry)"
+    );
+
+    // Socket should be freed
+    let (socket_free_after_timeout, _, _) = core.socket_state(ViscaSocket::S1);
+    assert!(
+        socket_free_after_timeout,
+        "Socket should be freed after timeout"
+    );
+}
+
+#[test]
+fn test_handle_timeout_inquiry_removes_from_tracking() {
+    let timeout_config = TimeoutConfig {
+        quick_timeout: Duration::from_millis(100),
+        ..Default::default()
+    };
+    let retry_config = RetryConfig::default();
+    let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
+    let now = Instant::now();
+    let camera_id = CameraId::CAMERA_1;
+    let inquiry = create_test_command(
+        vec![0x81, 0x09, 0x00, 0x02, VISCA_TERMINATOR],
+        Some(InquiryKind::Power),
+        CommandCategory::Quick,
+        camera_id,
+    );
+
+    // Start an inquiry
+    core.start_inquiry(
+        cmd_id(1),
+        inquiry.clone(),
+        Priority::Normal,
+        CommandCategory::Quick,
+        camera_id,
+        CommandKind::Inquiry,
+        now,
+    );
+
+    assert!(
+        core.inflight_inquiry_ids.contains(&cmd_id(1)),
+        "Inquiry should be tracked"
+    );
+
+    // Trigger timeout
+    let later = now + Duration::from_millis(200);
+    let _actions = core.check_timeouts(later);
+
+    // Inquiry should be removed from tracking (either retried or failed)
+    assert!(
+        !core.inflight_inquiry_ids.contains(&cmd_id(1)),
+        "Inquiry should be removed from tracking after timeout"
+    );
+}
+
+#[test]
+fn test_handle_timeout_ack_emits_timeout_action() {
+    let timeout_config = TimeoutConfig {
+        ack_timeout: Duration::from_millis(100),
+        ..Default::default()
+    };
+    let retry_config = RetryConfig::default();
+    let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
+    let now = Instant::now();
+    let camera_id = CameraId::CAMERA_1;
+    let command = create_test_command(
+        vec![0x81, 0x01, 0x00, VISCA_TERMINATOR],
+        None,
+        CommandCategory::Quick,
+        camera_id,
+    );
+
+    // Register a pending ACK command
+    core.register_pending_ack(
+        cmd_id(1),
+        command.clone(),
+        Priority::Normal,
+        CommandCategory::Quick,
+        camera_id,
+        CommandKind::Command,
+        now,
+    );
+
+    // Trigger ACK timeout
+    let later = now + Duration::from_millis(200);
+    let actions = core.check_timeouts(later);
+
+    // Should have Timeout action for ACK
+    let has_timeout_action = actions.iter().any(|a| {
+        matches!(
+            a,
+            SchedulerAction::Timeout {
+                kind: TimeoutKind::Ack,
+                ..
+            }
+        )
+    });
+    assert!(
+        has_timeout_action,
+        "Should emit Timeout action for ACK timeout"
     );
 }
