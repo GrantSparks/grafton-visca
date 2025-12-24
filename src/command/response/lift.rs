@@ -7,7 +7,7 @@ use super::{
     types::{InquiryKind, Response},
 };
 use crate::{
-    capabilities::Profile,
+    capabilities::{PanTilt, Profile},
     error::Error,
     protocol::response::{decode_basic, BasicKind, BasicResponse},
 };
@@ -59,7 +59,7 @@ pub fn lift_inquiry(
 /// This function converts from the protocol layer's basic response types
 /// to the command layer's semantic response types, parsing inquiry payloads
 /// with profile-specific coordinate system handling when needed.
-pub fn lift_inquiry_for<P: Profile>(
+pub fn lift_inquiry_for<P: Profile + PanTilt>(
     basic: &BasicResponse<'_>,
     expected: Option<&InquiryKind>,
 ) -> Result<Response, Error> {
@@ -141,7 +141,7 @@ impl Response {
     /// This method enables profile-aware parsing for responses that require
     /// coordinate system conversion (e.g., PanTiltPosition on cameras with
     /// unsigned-centered coordinates).
-    pub fn parse_with_profile<P: Profile>(
+    pub fn parse_with_profile<P: Profile + PanTilt>(
         bytes: &[u8],
         response_type: &InquiryKind,
     ) -> Result<Self, Error> {
