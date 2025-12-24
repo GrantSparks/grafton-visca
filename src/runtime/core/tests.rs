@@ -5,7 +5,7 @@
 use super::*;
 use crate::command::bytes::VISCA_TERMINATOR;
 use crate::command::encode::EncodedCommand;
-use crate::transport::{BackoffStrategy, RetryConfig};
+use crate::transport::{BackoffStrategy, RetryAttempt, RetryConfig};
 use crate::CameraId;
 use smallvec::SmallVec;
 use std::sync::Arc;
@@ -179,8 +179,9 @@ fn test_ack_backoff_parity() {
 
     for (attempts, expected_ms) in test_cases {
         // New calculation used in the code
-        let capped_attempt = (attempts + 1).min(6);
-        let actual_delay = retry_config.calculate_delay(capped_attempt, None);
+        let capped_attempt_num = (attempts + 1).min(6);
+        let retry_attempt = RetryAttempt::new(capped_attempt_num).unwrap();
+        let actual_delay = retry_config.calculate_delay(retry_attempt, None);
 
         assert_eq!(
             actual_delay,

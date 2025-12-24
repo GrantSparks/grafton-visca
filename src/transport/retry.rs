@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 
 #[cfg(test)]
 use super::BackoffStrategy;
-use super::RetryConfig;
+use super::{RetryAttempt, RetryConfig};
 #[cfg(feature = "mode-async")]
 use crate::executor::Executor;
 use crate::{
@@ -20,10 +20,21 @@ use crate::{
 /// A trait for operations that can provide retry hints.
 pub trait RetryableOperation {
     /// Check if the operation should be retried based on the error.
-    fn should_retry(&self, error: &Error, attempt: u32, start_time: Instant) -> bool;
+    ///
+    /// # Arguments
+    ///
+    /// * `error` - The error from the failed operation
+    /// * `retries_done` - Number of retries already completed (0-based)
+    /// * `start_time` - When the operation started
+    fn should_retry(&self, error: &Error, retries_done: u32, start_time: Instant) -> bool;
 
-    /// Get the suggested delay before retrying based on the error.
-    fn retry_delay(&self, error: &Error, attempt: u32) -> Option<Duration>;
+    /// Get the suggested delay before the next retry attempt.
+    ///
+    /// # Arguments
+    ///
+    /// * `error` - The error from the failed operation
+    /// * `next_attempt` - The 1-based attempt number for the upcoming retry
+    fn retry_delay(&self, error: &Error, next_attempt: RetryAttempt) -> Option<Duration>;
 }
 
 /// Default implementation of RetryableOperation using RetryConfig.
@@ -45,20 +56,20 @@ impl DefaultRetryStrategy {
 }
 
 impl RetryableOperation for DefaultRetryStrategy {
-    fn should_retry(&self, error: &Error, attempt: u32, start_time: Instant) -> bool {
+    fn should_retry(&self, error: &Error, retries_done: u32, start_time: Instant) -> bool {
         if !error.is_retryable() {
             return false;
         }
-        self.config.should_retry(attempt, start_time)
+        self.config.should_retry(retries_done, start_time)
     }
 
-    fn retry_delay(&self, error: &Error, attempt: u32) -> Option<Duration> {
+    fn retry_delay(&self, error: &Error, next_attempt: RetryAttempt) -> Option<Duration> {
         if !error.is_retryable() {
             return None;
         }
 
         let suggested_delay = error.suggested_retry_delay();
-        Some(self.config.calculate_delay(attempt, suggested_delay))
+        Some(self.config.calculate_delay(next_attempt, suggested_delay))
     }
 }
 
@@ -78,19 +89,15 @@ where
     F: FnMut() -> Result<T, Error>,
 {
     let start_time = Instant::now();
-    let mut attempts = 0;
+    let mut retries_done: u32 = 0;
 
     loop {
-        attempts += 1;
-
         match operation() {
             Ok(result) => return Ok(result),
             Err(error) => {
                 if !error.is_retryable() {
                     return Err(error);
                 }
-
-                let retries_done = attempts - 1;
 
                 if retries_done >= config.max_retries {
                     return Err(error);
@@ -100,9 +107,14 @@ where
                     return Err(error);
                 }
 
-                let delay = config.calculate_delay(retries_done, error.suggested_retry_delay());
+                // Calculate delay for the next attempt (retries_done + 1)
+                // SAFETY: retries_done < max_retries, so retries_done + 1 >= 1
+                let next_attempt =
+                    RetryAttempt::from_retries_done(retries_done).unwrap_or(RetryAttempt::FIRST);
+                let delay = config.calculate_delay(next_attempt, error.suggested_retry_delay());
 
                 std::thread::sleep(delay);
+                retries_done += 1;
             }
         }
     }
@@ -137,19 +149,15 @@ where
     Fut: Future<Output = Result<T, Error>>,
 {
     let start_time = executor.now();
-    let mut attempts = 0;
+    let mut retries_done: u32 = 0;
 
     loop {
-        attempts += 1;
-
         match operation().await {
             Ok(result) => return Ok(result),
             Err(error) => {
                 if !error.is_retryable() {
                     return Err(error);
                 }
-
-                let retries_done = attempts - 1;
 
                 if retries_done >= config.max_retries {
                     return Err(error);
@@ -161,9 +169,13 @@ where
                     return Err(error);
                 }
 
-                let delay = config.calculate_delay(retries_done, error.suggested_retry_delay());
+                // Calculate delay for the next attempt (retries_done + 1)
+                let next_attempt =
+                    RetryAttempt::from_retries_done(retries_done).unwrap_or(RetryAttempt::FIRST);
+                let delay = config.calculate_delay(next_attempt, error.suggested_retry_delay());
 
                 executor.sleep(delay).await;
+                retries_done += 1;
             }
         }
     }
@@ -335,7 +347,7 @@ where
     F: FnMut() -> Result<T, Error>,
 {
     let start_time = Instant::now();
-    let mut attempts = 0;
+    let mut retries_done: u32 = 0;
     let mut operation = operation;
 
     loop {
@@ -343,16 +355,12 @@ where
             return Err(Error::Timeout);
         }
 
-        attempts += 1;
-
         match operation() {
             Ok(result) => return Ok(result),
             Err(error) => {
                 if !error.is_retryable() {
                     return Err(error);
                 }
-
-                let retries_done = attempts - 1;
 
                 if retries_done >= retry_config.max_retries {
                     return Err(error);
@@ -363,8 +371,11 @@ where
                     return Err(error);
                 }
 
+                // Calculate delay for the next attempt (retries_done + 1)
+                let next_attempt =
+                    RetryAttempt::from_retries_done(retries_done).unwrap_or(RetryAttempt::FIRST);
                 let retry_delay =
-                    retry_config.calculate_delay(retries_done, error.suggested_retry_delay());
+                    retry_config.calculate_delay(next_attempt, error.suggested_retry_delay());
                 let remaining_time = deadline.remaining();
                 let actual_delay = retry_delay.min(remaining_time);
 
@@ -373,6 +384,7 @@ where
                 }
 
                 std::thread::sleep(actual_delay);
+                retries_done += 1;
             }
         }
     }
@@ -452,7 +464,7 @@ where
     Fut: Future<Output = Result<T, Error>>,
 {
     let start_time = executor.now();
-    let mut attempts = 0;
+    let mut retries_done: u32 = 0;
 
     loop {
         // Check if we've exceeded the overall deadline
@@ -461,16 +473,12 @@ where
             return Err(Error::Timeout);
         }
 
-        attempts += 1;
-
         match operation().await {
             Ok(result) => return Ok(result),
             Err(error) => {
                 if !error.is_retryable() {
                     return Err(error);
                 }
-
-                let retries_done = attempts - 1;
 
                 if retries_done >= retry_config.max_retries {
                     return Err(error);
@@ -482,8 +490,11 @@ where
                     return Err(error);
                 }
 
+                // Calculate delay for the next attempt (retries_done + 1)
+                let next_attempt =
+                    RetryAttempt::from_retries_done(retries_done).unwrap_or(RetryAttempt::FIRST);
                 let retry_delay =
-                    retry_config.calculate_delay(retries_done, error.suggested_retry_delay());
+                    retry_config.calculate_delay(next_attempt, error.suggested_retry_delay());
                 let remaining_time = deadline.remaining_at(now);
                 let actual_delay = retry_delay.min(remaining_time);
 
@@ -492,13 +503,14 @@ where
                 }
 
                 executor.sleep(actual_delay).await;
+                retries_done += 1;
             }
         }
     }
 }
 
 #[cfg(test)]
-#[allow(clippy::expect_used)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
     use std::sync::{
         atomic::{AtomicUsize, Ordering},
@@ -906,5 +918,144 @@ mod tests {
 
         // Verify they're different
         assert_ne!(CommandCategory::Quick, CommandCategory::Preset);
+    }
+
+    /// Test that exponential backoff produces correct delays for retry helpers.
+    ///
+    /// This is a regression test for issue #488 which identified off-by-one
+    /// errors in retry attempt indexing. With exponential backoff:
+    /// - First retry (attempt 1): base delay
+    /// - Second retry (attempt 2): base * 2
+    /// - Third retry (attempt 3): base * 4
+    #[test]
+    fn test_exponential_backoff_retry_delays_are_correct() {
+        use super::RetryAttempt;
+
+        let config = RetryConfig {
+            max_retries: 5,
+            base_retry_delay: Duration::from_millis(100),
+            max_retry_duration: Duration::from_secs(60),
+            backoff_strategy: BackoffStrategy::Exponential,
+        };
+
+        // Verify the exponential progression using RetryAttempt
+        let expected_delays = [
+            (1, 100),  // attempt 1: 100 * 2^0 = 100ms
+            (2, 200),  // attempt 2: 100 * 2^1 = 200ms
+            (3, 400),  // attempt 3: 100 * 2^2 = 400ms
+            (4, 800),  // attempt 4: 100 * 2^3 = 800ms
+            (5, 1600), // attempt 5: 100 * 2^4 = 1600ms
+        ];
+
+        for (attempt_num, expected_ms) in expected_delays {
+            let attempt = RetryAttempt::new(attempt_num).expect("valid attempt");
+            let delay = config.calculate_delay(attempt, None);
+            assert_eq!(
+                delay,
+                Duration::from_millis(expected_ms),
+                "Attempt {} should have delay {}ms, got {}ms",
+                attempt_num,
+                expected_ms,
+                delay.as_millis()
+            );
+        }
+    }
+
+    /// Test that RetryAttempt::from_retries_done correctly converts 0-based counts
+    /// to 1-based attempt numbers.
+    #[test]
+    fn test_retries_done_to_attempt_conversion() {
+        use super::RetryAttempt;
+
+        // retries_done = 0 means we're about to do attempt 1
+        let attempt = RetryAttempt::from_retries_done(0).expect("valid conversion");
+        assert_eq!(attempt.get(), 1);
+
+        // retries_done = 1 means we're about to do attempt 2
+        let attempt = RetryAttempt::from_retries_done(1).expect("valid conversion");
+        assert_eq!(attempt.get(), 2);
+
+        // retries_done = 2 means we're about to do attempt 3
+        let attempt = RetryAttempt::from_retries_done(2).expect("valid conversion");
+        assert_eq!(attempt.get(), 3);
+    }
+
+    /// Test that max_retries=0 yields zero retries.
+    #[test]
+    fn test_max_retries_zero_yields_no_retries() {
+        let config = RetryConfig {
+            max_retries: 0,
+            base_retry_delay: Duration::from_millis(100),
+            max_retry_duration: Duration::from_secs(10),
+            backoff_strategy: BackoffStrategy::Exponential,
+        };
+
+        let counter = Arc::new(AtomicUsize::new(0));
+        let counter_clone = counter.clone();
+
+        // Operation always fails with retryable error
+        let result = execute_with_retry(&config, || {
+            counter_clone.fetch_add(1, Ordering::SeqCst);
+            Err::<(), _>(Error::CameraBusy)
+        });
+
+        // Should fail after exactly 1 attempt (the initial attempt, no retries)
+        assert!(matches!(result, Err(Error::CameraBusy)));
+        assert_eq!(counter.load(Ordering::SeqCst), 1);
+    }
+
+    /// Test that max_retries=1 yields exactly one retry.
+    #[test]
+    fn test_max_retries_one_yields_one_retry() {
+        let config = RetryConfig {
+            max_retries: 1,
+            base_retry_delay: Duration::from_millis(1), // Fast for testing
+            max_retry_duration: Duration::from_secs(10),
+            backoff_strategy: BackoffStrategy::Exponential,
+        };
+
+        let counter = Arc::new(AtomicUsize::new(0));
+        let counter_clone = counter.clone();
+
+        // Operation always fails with retryable error
+        let result = execute_with_retry(&config, || {
+            counter_clone.fetch_add(1, Ordering::SeqCst);
+            Err::<(), _>(Error::CameraBusy)
+        });
+
+        // Should fail after 2 attempts (initial + 1 retry)
+        assert!(matches!(result, Err(Error::CameraBusy)));
+        assert_eq!(counter.load(Ordering::SeqCst), 2);
+    }
+
+    /// Regression test: second retry delay must NOT equal first retry delay
+    /// when using exponential backoff. This was the exact failure mode in issue #488.
+    #[test]
+    fn test_exponential_second_retry_differs_from_first() {
+        use super::RetryAttempt;
+
+        let config = RetryConfig {
+            max_retries: 3,
+            base_retry_delay: Duration::from_millis(100),
+            max_retry_duration: Duration::from_secs(10),
+            backoff_strategy: BackoffStrategy::Exponential,
+        };
+
+        let first_attempt = RetryAttempt::new(1).unwrap();
+        let second_attempt = RetryAttempt::new(2).unwrap();
+
+        let first_delay = config.calculate_delay(first_attempt, None);
+        let second_delay = config.calculate_delay(second_attempt, None);
+
+        // This was the bug: both were returning the same delay
+        assert_ne!(
+            first_delay, second_delay,
+            "Exponential backoff must have different delays for first and second retry"
+        );
+        assert_eq!(
+            second_delay,
+            first_delay * 2,
+            "Second retry delay should be double the first"
+        );
     }
 }

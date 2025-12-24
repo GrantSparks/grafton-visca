@@ -23,6 +23,7 @@ use crate::{
         CommandKind,
     },
     timeout::{CommandCategory, TimeoutConfig},
+    transport::RetryAttempt,
     visca_socket::ViscaSocket,
     Error,
 };
@@ -1986,12 +1987,13 @@ impl SchedulerCore {
                     }
 
                     // Calculate retry delay using RetryConfig to maintain consistency
-                    // For ACK timeouts, we preserve the legacy timing by using a special calculation:
-                    // - Base delay is 100ms (same as before)
-                    // - Exponent is capped at 5 (2^5 = 32) to match legacy behavior
-                    // - We add 1 to attempts because calculate_delay uses 2^(attempt-1)
-                    let capped_attempt = (attempts + 1).min(6); // Cap at 6 since calculate_delay uses attempt-1
-                    let retry_delay = self.retry_config.calculate_delay(capped_attempt, None);
+                    // For ACK timeouts, we cap the exponent at 5 (2^5 = 32) to prevent
+                    // excessively long delays on repeated timeouts.
+                    // attempts + 1 is the 1-based attempt number
+                    let capped_attempt_num = (attempts + 1).min(6);
+                    let retry_attempt =
+                        RetryAttempt::new(capped_attempt_num).unwrap_or(RetryAttempt::FIRST);
+                    let retry_delay = self.retry_config.calculate_delay(retry_attempt, None);
 
                     // Create and queue the retry command
                     let retry_cmd = RetryCommand {
@@ -2621,7 +2623,9 @@ impl SchedulerCore {
             }
 
             // Calculate backoff delay using RetryConfig
-            let delay = self.retry_config.calculate_delay(new_attempt, None);
+            // new_attempt is 1-based (state.attempt starts at 0, we added 1 above)
+            let retry_attempt = RetryAttempt::new(new_attempt).unwrap_or(RetryAttempt::FIRST);
+            let delay = self.retry_config.calculate_delay(retry_attempt, None);
 
             let retry_cmd = RetryCommand {
                 id: cmd_id,
