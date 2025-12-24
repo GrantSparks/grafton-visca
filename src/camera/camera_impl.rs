@@ -298,12 +298,11 @@ where
 
         // Create BlockingRunner with explicit timeout and retry configs,
         // but use transport's buffer and addressing settings
-        let blocking_runner = BlockingRunner::<P>::new_with_addressing(
-            timeout_config,
-            retry_config,
-            buffer_config,
-            addressing,
-        );
+        let blocking_runner = BlockingRunner::<P>::builder(timeout_config)
+            .retry_config(retry_config)
+            .buffer_config(buffer_config)
+            .addressing(addressing)
+            .build();
 
         let shared_transport = crate::mode::Blocking::share(transport);
 

@@ -62,50 +62,103 @@ pub struct BlockingRunner<P: Profile> {
     _profile: PhantomData<P>,
 }
 
-impl<P: Profile> BlockingRunner<P> {
-    /// Create a new blocking runner.
-    pub fn new(timeout_config: TimeoutConfig) -> Self {
-        Self::new_with_retry(timeout_config, RetryConfig::default())
-    }
+/// Builder for constructing a [`BlockingRunner`] with custom configuration.
+///
+/// # Example
+///
+/// ```ignore
+/// use grafton_visca::runtime::BlockingRunner;
+/// use grafton_visca::camera::profiles::PtzOpticsG2;
+///
+/// let runner = BlockingRunner::<PtzOpticsG2>::builder(TimeoutConfig::default())
+///     .retry_config(RetryConfig::default().max_retries(5))
+///     .buffer_config(BufferConfig::default())
+///     .addressing(AddressingMode::Serial)
+///     .build();
+/// ```
+#[derive(Debug)]
+pub struct BlockingRunnerBuilder<P: Profile> {
+    timeout_config: TimeoutConfig,
+    retry_config: RetryConfig,
+    buffer_config: BufferConfig,
+    addressing: AddressingMode,
+    _profile: PhantomData<P>,
+}
 
-    /// Create a new blocking runner with retry configuration.
-    pub fn new_with_retry(timeout_config: TimeoutConfig, retry_config: RetryConfig) -> Self {
-        let buffer_config = BufferConfig::default();
-        Self::new_with_buffer(timeout_config, retry_config, buffer_config)
-    }
-
-    /// Create a new blocking runner with full configuration including buffer config.
-    pub fn new_with_buffer(
-        timeout_config: TimeoutConfig,
-        retry_config: RetryConfig,
-        buffer_config: BufferConfig,
-    ) -> Self {
-        Self::new_with_addressing(
+impl<P: Profile> BlockingRunnerBuilder<P> {
+    /// Create a new builder with the given timeout configuration.
+    fn new(timeout_config: TimeoutConfig) -> Self {
+        Self {
             timeout_config,
-            retry_config,
-            buffer_config,
-            AddressingMode::Ip,
-        )
+            retry_config: RetryConfig::default(),
+            buffer_config: BufferConfig::default(),
+            addressing: AddressingMode::Ip,
+            _profile: PhantomData,
+        }
     }
 
-    /// Create a new blocking runner with full configuration including addressing mode.
-    pub fn new_with_addressing(
-        timeout_config: TimeoutConfig,
-        retry_config: RetryConfig,
-        buffer_config: BufferConfig,
-        addressing: AddressingMode,
-    ) -> Self {
-        let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
+    /// Set the retry configuration.
+    #[must_use]
+    pub fn retry_config(mut self, config: RetryConfig) -> Self {
+        self.retry_config = config;
+        self
+    }
+
+    /// Set the buffer configuration.
+    #[must_use]
+    pub fn buffer_config(mut self, config: BufferConfig) -> Self {
+        self.buffer_config = config;
+        self
+    }
+
+    /// Set the addressing mode.
+    #[must_use]
+    pub fn addressing(mut self, mode: AddressingMode) -> Self {
+        self.addressing = mode;
+        self
+    }
+
+    /// Build the [`BlockingRunner`] with the configured options.
+    pub fn build(self) -> BlockingRunner<P> {
+        let mut core = SchedulerCore::with_retry_config(self.timeout_config, self.retry_config);
         // Apply profile-specific inquiry spacing
         core.set_min_inquiry_spacing(P::MIN_INQUIRY_SPACING);
-        Self {
+        BlockingRunner {
             core,
-            envelope: P::Envelope::new(addressing),
-            buffer_manager: BufferManager::new(buffer_config),
-            framer: ProtocolFramer::new_with_config(buffer_config),
+            envelope: P::Envelope::new(self.addressing),
+            buffer_manager: BufferManager::new(self.buffer_config),
+            framer: ProtocolFramer::new_with_config(self.buffer_config),
             next_id: AtomicU32::new(1),
             _profile: PhantomData,
         }
+    }
+}
+
+impl<P: Profile> BlockingRunner<P> {
+    /// Create a builder for configuring a new blocking runner.
+    ///
+    /// This is the preferred way to construct a `BlockingRunner` with custom
+    /// retry, buffer, or addressing configuration.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let runner = BlockingRunner::<PtzOpticsG2>::builder(TimeoutConfig::default())
+    ///     .retry_config(RetryConfig::default().max_retries(5))
+    ///     .build();
+    /// ```
+    pub fn builder(timeout_config: TimeoutConfig) -> BlockingRunnerBuilder<P> {
+        BlockingRunnerBuilder::new(timeout_config)
+    }
+
+    /// Create a new blocking runner with default configuration.
+    ///
+    /// This is a convenience method equivalent to:
+    /// ```ignore
+    /// BlockingRunner::builder(timeout_config).build()
+    /// ```
+    pub fn new(timeout_config: TimeoutConfig) -> Self {
+        Self::builder(timeout_config).build()
     }
 
     /// Send a command and wait for the response.

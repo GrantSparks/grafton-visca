@@ -16,8 +16,9 @@ use crate::{
     WhiteBalanceMode,
 };
 
-mod exposure_constants {
+mod profile_constants {
     use crate::capabilities::ShutterSpeed;
+    use crate::WhiteBalanceMode;
 
     pub const PTZ_OPTICS_G2_SHUTTER_SPEEDS: &[ShutterSpeed] = &[
         ShutterSpeed::new("1/30", 0x01),
@@ -50,33 +51,23 @@ mod exposure_constants {
         ShutterSpeed::new("1/4000", 0x07),
         ShutterSpeed::new("1/10000", 0x08),
     ];
+
+    /// Standard white balance modes supported by most VISCA cameras.
+    ///
+    /// All tested camera profiles (PTZ Optics, Sony BRC, Generic) support
+    /// the same set of WB modes, so we consolidate into a single constant.
+    pub const STANDARD_WB_MODES: &[WhiteBalanceMode] = &[
+        WhiteBalanceMode::Auto,
+        WhiteBalanceMode::Indoor,
+        WhiteBalanceMode::Outdoor,
+        WhiteBalanceMode::OnePush,
+        WhiteBalanceMode::Manual,
+    ];
 }
 
-use self::exposure_constants::{GENERIC_VISCA_SHUTTER_SPEEDS, PTZ_OPTICS_G2_SHUTTER_SPEEDS};
-
-const PTZ_OPTICS_G2_WB_MODES: &[WhiteBalanceMode] = &[
-    WhiteBalanceMode::Auto,
-    WhiteBalanceMode::Indoor,
-    WhiteBalanceMode::Outdoor,
-    WhiteBalanceMode::OnePush,
-    WhiteBalanceMode::Manual,
-];
-
-const GENERIC_WB_MODES: &[WhiteBalanceMode] = &[
-    WhiteBalanceMode::Auto,
-    WhiteBalanceMode::Indoor,
-    WhiteBalanceMode::Outdoor,
-    WhiteBalanceMode::OnePush,
-    WhiteBalanceMode::Manual,
-];
-
-const SONY_BRC_WB_MODES: &[WhiteBalanceMode] = &[
-    WhiteBalanceMode::Auto,
-    WhiteBalanceMode::Indoor,
-    WhiteBalanceMode::Outdoor,
-    WhiteBalanceMode::OnePush,
-    WhiteBalanceMode::Manual,
-];
+use self::profile_constants::{
+    GENERIC_VISCA_SHUTTER_SPEEDS, PTZ_OPTICS_G2_SHUTTER_SPEEDS, STANDARD_WB_MODES,
+};
 
 /// PtzOptics G2 camera profile.
 ///
@@ -142,7 +133,7 @@ impl Exposure for PtzOpticsG2 {
 }
 
 impl WhiteBalance for PtzOpticsG2 {
-    const WB_MODES: &'static [WhiteBalanceMode] = PTZ_OPTICS_G2_WB_MODES;
+    const WB_MODES: &'static [WhiteBalanceMode] = STANDARD_WB_MODES;
     const SUPPORTS_ONE_PUSH_WB: bool = true;
     const RG_TUNING_RANGE: Option<std::ops::Range<i8>> = Some(-7..8);
     const BG_TUNING_RANGE: Option<std::ops::Range<i8>> = Some(-7..8);
@@ -239,7 +230,7 @@ impl Exposure for GenericVisca {
 }
 
 impl WhiteBalance for GenericVisca {
-    const WB_MODES: &'static [WhiteBalanceMode] = GENERIC_WB_MODES;
+    const WB_MODES: &'static [WhiteBalanceMode] = STANDARD_WB_MODES;
     const SUPPORTS_ONE_PUSH_WB: bool = true;
     const RG_TUNING_RANGE: Option<std::ops::Range<i8>> = None;
     const BG_TUNING_RANGE: Option<std::ops::Range<i8>> = None;
@@ -338,7 +329,7 @@ impl Exposure for SonyFR7 {
 }
 
 impl WhiteBalance for SonyFR7 {
-    const WB_MODES: &'static [WhiteBalanceMode] = PTZ_OPTICS_G2_WB_MODES;
+    const WB_MODES: &'static [WhiteBalanceMode] = STANDARD_WB_MODES;
     const SUPPORTS_ONE_PUSH_WB: bool = true;
     const RG_TUNING_RANGE: Option<std::ops::Range<i8>> = Some(-7..8);
     const BG_TUNING_RANGE: Option<std::ops::Range<i8>> = Some(-7..8);
@@ -454,7 +445,7 @@ impl Exposure for SonyBRCH900 {
 }
 
 impl WhiteBalance for SonyBRCH900 {
-    const WB_MODES: &'static [WhiteBalanceMode] = SONY_BRC_WB_MODES;
+    const WB_MODES: &'static [WhiteBalanceMode] = STANDARD_WB_MODES;
     const SUPPORTS_ONE_PUSH_WB: bool = true;
     const RG_TUNING_RANGE: Option<std::ops::Range<i8>> = Some(-7..8);
     const BG_TUNING_RANGE: Option<std::ops::Range<i8>> = Some(-7..8);
@@ -538,7 +529,7 @@ impl Exposure for SonyEVIH100 {
 }
 
 impl WhiteBalance for SonyEVIH100 {
-    const WB_MODES: &'static [WhiteBalanceMode] = SONY_BRC_WB_MODES;
+    const WB_MODES: &'static [WhiteBalanceMode] = STANDARD_WB_MODES;
     const SUPPORTS_ONE_PUSH_WB: bool = true;
     const RG_TUNING_RANGE: Option<std::ops::Range<i8>> = Some(-7..8);
     const BG_TUNING_RANGE: Option<std::ops::Range<i8>> = Some(-7..8);
@@ -620,7 +611,7 @@ impl Exposure for SonyBRC300 {
 }
 
 impl WhiteBalance for SonyBRC300 {
-    const WB_MODES: &'static [WhiteBalanceMode] = GENERIC_WB_MODES;
+    const WB_MODES: &'static [WhiteBalanceMode] = STANDARD_WB_MODES;
     const SUPPORTS_ONE_PUSH_WB: bool = false;
     const RG_TUNING_RANGE: Option<std::ops::Range<i8>> = None;
     const BG_TUNING_RANGE: Option<std::ops::Range<i8>> = None;
@@ -702,7 +693,7 @@ impl Exposure for NearusBRC300 {
 }
 
 impl WhiteBalance for NearusBRC300 {
-    const WB_MODES: &'static [WhiteBalanceMode] = GENERIC_WB_MODES;
+    const WB_MODES: &'static [WhiteBalanceMode] = STANDARD_WB_MODES;
     const SUPPORTS_ONE_PUSH_WB: bool = false;
     const RG_TUNING_RANGE: Option<std::ops::Range<i8>> = None;
     const BG_TUNING_RANGE: Option<std::ops::Range<i8>> = None;
@@ -784,7 +775,7 @@ impl Exposure for PtzOpticsG3 {
 }
 
 impl WhiteBalance for PtzOpticsG3 {
-    const WB_MODES: &'static [WhiteBalanceMode] = PTZ_OPTICS_G2_WB_MODES;
+    const WB_MODES: &'static [WhiteBalanceMode] = STANDARD_WB_MODES;
     const SUPPORTS_ONE_PUSH_WB: bool = true;
     const RG_TUNING_RANGE: Option<std::ops::Range<i8>> = Some(-7..8);
     const BG_TUNING_RANGE: Option<std::ops::Range<i8>> = Some(-7..8);
@@ -875,7 +866,7 @@ impl Exposure for PtzOptics30X {
 }
 
 impl WhiteBalance for PtzOptics30X {
-    const WB_MODES: &'static [WhiteBalanceMode] = PTZ_OPTICS_G2_WB_MODES;
+    const WB_MODES: &'static [WhiteBalanceMode] = STANDARD_WB_MODES;
     const SUPPORTS_ONE_PUSH_WB: bool = true;
     const RG_TUNING_RANGE: Option<std::ops::Range<i8>> = Some(-7..8);
     const BG_TUNING_RANGE: Option<std::ops::Range<i8>> = Some(-7..8);

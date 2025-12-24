@@ -39,16 +39,6 @@ pub struct ParamBuf<const N: usize> {
 }
 
 impl<const N: usize> ParamBuf<N> {
-    /// Create an empty ParamBuf.
-    #[inline]
-    #[allow(dead_code)] // Utility method for future use
-    pub const fn empty() -> Self {
-        Self {
-            buf: [0u8; N],
-            len: 0,
-        }
-    }
-
     /// Try to create a ParamBuf from a slice.
     ///
     /// Returns `Error::InvalidParameter` if the slice length exceeds N.
@@ -87,13 +77,6 @@ impl<const N: usize> ParamBuf<N> {
     #[inline]
     pub fn len(&self) -> usize {
         self.len
-    }
-
-    /// Returns true if the buffer is empty.
-    #[inline]
-    #[allow(dead_code)] // Utility method for future use
-    pub fn is_empty(&self) -> bool {
-        self.len == 0
     }
 }
 
@@ -199,15 +182,6 @@ mod tests {
         let data = vec![0x01, 0x02, 0x03, 0x04, 0x05];
         let buf: Result<ParamBuf<4>, _> = data.try_into();
         assert!(buf.is_err());
-    }
-
-    #[test]
-    fn test_parambuf_empty() {
-        let buf = ParamBuf::<4>::empty();
-        assert!(buf.is_empty());
-        assert_eq!(buf.len(), 0);
-        let empty: &[u8] = &[];
-        assert_eq!(buf.as_slice(), empty);
     }
 
     #[test]

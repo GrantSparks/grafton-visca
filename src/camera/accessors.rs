@@ -30,16 +30,42 @@ use crate::{
     Error,
 };
 
-/// Access to power-related controls and inquiries.
-#[derive(Debug)]
-pub struct PowerAccessor<'a, M, P, Tr, Exec>
-where
-    M: Mode,
-    P: Profile,
-    Exec: Executor,
-{
-    camera: &'a Camera<M, P, Tr, Exec>,
+/// Generates an accessor struct with the standard boilerplate.
+///
+/// Each accessor wraps a camera reference and provides domain-specific methods.
+macro_rules! define_accessor {
+    (
+        $(#[$meta:meta])*
+        $name:ident
+    ) => {
+        $(#[$meta])*
+        #[derive(Debug)]
+        pub struct $name<'a, M, P, Tr, Exec>
+        where
+            M: Mode,
+            P: Profile,
+            Exec: Executor,
+        {
+            camera: &'a Camera<M, P, Tr, Exec>,
+        }
+
+        impl<'a, M, P, Tr, Exec> $name<'a, M, P, Tr, Exec>
+        where
+            M: Mode,
+            P: Profile,
+            Exec: Executor,
+        {
+            pub(crate) fn new(camera: &'a Camera<M, P, Tr, Exec>) -> Self {
+                Self { camera }
+            }
+        }
+    };
 }
+
+define_accessor!(
+    /// Access to power-related controls and inquiries.
+    PowerAccessor
+);
 
 impl<'a, M, P, Tr, Exec> PowerAccessor<'a, M, P, Tr, Exec>
 where
@@ -47,10 +73,6 @@ where
     P: Profile,
     Exec: Executor,
 {
-    pub(crate) fn new(camera: &'a Camera<M, P, Tr, Exec>) -> Self {
-        Self { camera }
-    }
-
     /// Get the current power state.
     pub fn state(&self) -> M::Fut<'_, Result<bool, Error>>
     where
@@ -88,16 +110,10 @@ where
     }
 }
 
-/// Access to zoom-related controls and inquiries.
-#[derive(Debug)]
-pub struct ZoomAccessor<'a, M, P, Tr, Exec>
-where
-    M: Mode,
-    P: Profile,
-    Exec: Executor,
-{
-    camera: &'a Camera<M, P, Tr, Exec>,
-}
+define_accessor!(
+    /// Access to zoom-related controls and inquiries.
+    ZoomAccessor
+);
 
 impl<'a, M, P, Tr, Exec> ZoomAccessor<'a, M, P, Tr, Exec>
 where
@@ -105,10 +121,6 @@ where
     P: Profile,
     Exec: Executor,
 {
-    pub(crate) fn new(camera: &'a Camera<M, P, Tr, Exec>) -> Self {
-        Self { camera }
-    }
-
     /// Get the current zoom position.
     pub fn position(&self) -> M::Fut<'_, Result<crate::types::ZoomPosition, Error>>
     where
@@ -188,16 +200,10 @@ where
     }
 }
 
-/// Access to system-related controls and inquiries.
-#[derive(Debug)]
-pub struct SystemAccessor<'a, M, P, Tr, Exec>
-where
-    M: Mode,
-    P: Profile,
-    Exec: Executor,
-{
-    camera: &'a Camera<M, P, Tr, Exec>,
-}
+define_accessor!(
+    /// Access to system-related controls and inquiries.
+    SystemAccessor
+);
 
 impl<'a, M, P, Tr, Exec> SystemAccessor<'a, M, P, Tr, Exec>
 where
@@ -205,10 +211,6 @@ where
     P: Profile,
     Exec: Executor,
 {
-    pub(crate) fn new(camera: &'a Camera<M, P, Tr, Exec>) -> Self {
-        Self { camera }
-    }
-
     /// Get camera version information.
     pub fn version(&self) -> M::Fut<'_, Result<crate::command::typed::VersionInfo, Error>>
     where
@@ -234,16 +236,10 @@ where
     }
 }
 
-/// Access to pan/tilt-related controls and inquiries.
-#[derive(Debug)]
-pub struct PanTiltAccessor<'a, M, P, Tr, Exec>
-where
-    M: Mode,
-    P: Profile,
-    Exec: Executor,
-{
-    camera: &'a Camera<M, P, Tr, Exec>,
-}
+define_accessor!(
+    /// Access to pan/tilt-related controls and inquiries.
+    PanTiltAccessor
+);
 
 impl<'a, M, P, Tr, Exec> PanTiltAccessor<'a, M, P, Tr, Exec>
 where
@@ -251,10 +247,6 @@ where
     P: Profile,
     Exec: Executor,
 {
-    pub(crate) fn new(camera: &'a Camera<M, P, Tr, Exec>) -> Self {
-        Self { camera }
-    }
-
     /// Get the current pan and tilt position.
     pub fn position(&self) -> M::Fut<'_, Result<crate::camera::PanTiltPosition, Error>>
     where
@@ -385,16 +377,10 @@ where
     }
 }
 
-/// Access to focus-related controls and inquiries.
-#[derive(Debug)]
-pub struct FocusAccessor<'a, M, P, Tr, Exec>
-where
-    M: Mode,
-    P: Profile,
-    Exec: Executor,
-{
-    camera: &'a Camera<M, P, Tr, Exec>,
-}
+define_accessor!(
+    /// Access to focus-related controls and inquiries.
+    FocusAccessor
+);
 
 impl<'a, M, P, Tr, Exec> FocusAccessor<'a, M, P, Tr, Exec>
 where
@@ -402,10 +388,6 @@ where
     P: Profile,
     Exec: Executor,
 {
-    pub(crate) fn new(camera: &'a Camera<M, P, Tr, Exec>) -> Self {
-        Self { camera }
-    }
-
     /// Get the current focus position.
     pub fn position(&self) -> M::Fut<'_, Result<crate::types::FocusPosition, Error>>
     where
@@ -576,16 +558,10 @@ where
     }
 }
 
-/// Access to exposure-related controls and inquiries.
-#[derive(Debug)]
-pub struct ExposureAccessor<'a, M, P, Tr, Exec>
-where
-    M: Mode,
-    P: Profile,
-    Exec: Executor,
-{
-    camera: &'a Camera<M, P, Tr, Exec>,
-}
+define_accessor!(
+    /// Access to exposure-related controls and inquiries.
+    ExposureAccessor
+);
 
 impl<'a, M, P, Tr, Exec> ExposureAccessor<'a, M, P, Tr, Exec>
 where
@@ -593,10 +569,6 @@ where
     P: Profile,
     Exec: Executor,
 {
-    pub(crate) fn new(camera: &'a Camera<M, P, Tr, Exec>) -> Self {
-        Self { camera }
-    }
-
     /// Get the current exposure mode.
     pub fn mode(&self) -> M::Fut<'_, Result<crate::command::ExposureMode, Error>>
     where
@@ -696,16 +668,10 @@ where
     }
 }
 
-/// Access to white balance controls and inquiries.
-#[derive(Debug)]
-pub struct WhiteBalanceAccessor<'a, M, P, Tr, Exec>
-where
-    M: Mode,
-    P: Profile,
-    Exec: Executor,
-{
-    camera: &'a Camera<M, P, Tr, Exec>,
-}
+define_accessor!(
+    /// Access to white balance controls and inquiries.
+    WhiteBalanceAccessor
+);
 
 impl<'a, M, P, Tr, Exec> WhiteBalanceAccessor<'a, M, P, Tr, Exec>
 where
@@ -713,10 +679,6 @@ where
     P: Profile,
     Exec: Executor,
 {
-    pub(crate) fn new(camera: &'a Camera<M, P, Tr, Exec>) -> Self {
-        Self { camera }
-    }
-
     /// Get white balance mode.
     pub fn mode(&self) -> M::Fut<'_, Result<crate::command::WhiteBalanceMode, Error>>
     where
@@ -806,16 +768,10 @@ where
     }
 }
 
-/// Access to image processing controls and inquiries.
-#[derive(Debug)]
-pub struct ImageAccessor<'a, M, P, Tr, Exec>
-where
-    M: Mode,
-    P: Profile,
-    Exec: Executor,
-{
-    camera: &'a Camera<M, P, Tr, Exec>,
-}
+define_accessor!(
+    /// Access to image processing controls and inquiries.
+    ImageAccessor
+);
 
 impl<'a, M, P, Tr, Exec> ImageAccessor<'a, M, P, Tr, Exec>
 where
@@ -823,10 +779,6 @@ where
     P: Profile,
     Exec: Executor,
 {
-    pub(crate) fn new(camera: &'a Camera<M, P, Tr, Exec>) -> Self {
-        Self { camera }
-    }
-
     /// Get brightness level.
     pub fn brightness(&self) -> M::Fut<'_, Result<crate::types::BrightnessLevel, Error>>
     where
@@ -1189,16 +1141,10 @@ where
     }
 }
 
-/// Access to preset-related controls.
-#[derive(Debug)]
-pub struct PresetsAccessor<'a, M, P, Tr, Exec>
-where
-    M: Mode,
-    P: Profile,
-    Exec: Executor,
-{
-    camera: &'a Camera<M, P, Tr, Exec>,
-}
+define_accessor!(
+    /// Access to preset-related controls.
+    PresetsAccessor
+);
 
 impl<'a, M, P, Tr, Exec> PresetsAccessor<'a, M, P, Tr, Exec>
 where
@@ -1206,10 +1152,6 @@ where
     P: Profile,
     Exec: Executor,
 {
-    pub(crate) fn new(camera: &'a Camera<M, P, Tr, Exec>) -> Self {
-        Self { camera }
-    }
-
     /// Recall a preset.
     pub fn recall(&self, preset: u8) -> M::Fut<'_, Result<(), Error>>
     where
@@ -1259,16 +1201,10 @@ where
     }
 }
 
-/// Access to tally light controls and inquiries.
-#[derive(Debug)]
-pub struct TallyAccessor<'a, M, P, Tr, Exec>
-where
-    M: Mode,
-    P: Profile,
-    Exec: Executor,
-{
-    camera: &'a Camera<M, P, Tr, Exec>,
-}
+define_accessor!(
+    /// Access to tally light controls and inquiries.
+    TallyAccessor
+);
 
 impl<'a, M, P, Tr, Exec> TallyAccessor<'a, M, P, Tr, Exec>
 where
@@ -1276,10 +1212,6 @@ where
     P: Profile,
     Exec: Executor,
 {
-    pub(crate) fn new(camera: &'a Camera<M, P, Tr, Exec>) -> Self {
-        Self { camera }
-    }
-
     /// Get tally light status.
     pub fn status(&self) -> M::Fut<'_, Result<crate::command::typed::TallyStatusState, Error>>
     where
@@ -1409,16 +1341,10 @@ where
     }
 }
 
-/// Access to menu controls and inquiries.
-#[derive(Debug)]
-pub struct MenuAccessor<'a, M, P, Tr, Exec>
-where
-    M: Mode,
-    P: Profile,
-    Exec: Executor,
-{
-    camera: &'a Camera<M, P, Tr, Exec>,
-}
+define_accessor!(
+    /// Access to menu controls and inquiries.
+    MenuAccessor
+);
 
 impl<'a, M, P, Tr, Exec> MenuAccessor<'a, M, P, Tr, Exec>
 where
@@ -1426,10 +1352,6 @@ where
     P: Profile,
     Exec: Executor,
 {
-    pub(crate) fn new(camera: &'a Camera<M, P, Tr, Exec>) -> Self {
-        Self { camera }
-    }
-
     /// Get the menu open/close status.
     pub fn is_open(&self) -> M::Fut<'_, Result<bool, Error>>
     where

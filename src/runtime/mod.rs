@@ -95,6 +95,8 @@ pub mod inquiry_matcher;
 
 #[cfg(not(feature = "mode-async"))]
 pub mod blocking_runner;
+#[cfg(not(feature = "mode-async"))]
+pub use blocking_runner::{BlockingRunner, BlockingRunnerBuilder};
 
 #[cfg(feature = "mode-async")]
 pub mod traits;
