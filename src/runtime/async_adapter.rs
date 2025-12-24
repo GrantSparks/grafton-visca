@@ -6,7 +6,7 @@
 use flume::{Sender, TrySendError};
 use tracing::{debug, trace, warn};
 
-use std::{collections::HashMap, sync::Arc, time::Instant};
+use std::{collections::HashMap, collections::VecDeque, sync::Arc, time::Instant};
 
 use crate::{
     camera::inflight::CommandId,
@@ -185,6 +185,11 @@ pub(crate) struct AsyncAdapter<P: Profile, E: Executor> {
     completion_subscribers: Vec<Sender<CompletionEvent>>,
     /// Maximum pending queue depth for admission control.
     max_pending_queue_depth: usize,
+    /// Cancel outbox: queued cancel commands to be sent by loop_task.
+    ///
+    /// Populated when `SchedulerAction::SendCancel` is emitted (cancel-on-ACK).
+    /// Drained by `loop_task` to send cancel frames to the transport.
+    cancel_outbox: VecDeque<(CameraId, ViscaSocket)>,
     /// Profile marker (zero-sized type).
     _profile: std::marker::PhantomData<P>,
 }
@@ -216,6 +221,7 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
             metrics: Metrics::default(),
             completion_subscribers: Vec::new(),
             max_pending_queue_depth,
+            cancel_outbox: VecDeque::new(),
             _profile: std::marker::PhantomData,
         }
     }
@@ -444,6 +450,9 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
 
         // Clear the scheduler core state
         self.core.clear_all();
+
+        // Clear cancel outbox (no point sending cancels on a poisoned transport)
+        self.cancel_outbox.clear();
 
         failed_count
     }
@@ -678,6 +687,11 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
 
                 debug!("Scheduling retry for command {id} after {delay:?}");
             }
+            SchedulerAction::SendCancel { camera_id, socket } => {
+                // Queue the cancel for sending by loop_task
+                debug!(?camera_id, ?socket, "Queueing cancel for socket");
+                self.cancel_outbox.push_back((camera_id, socket));
+            }
         }
     }
 
@@ -754,11 +768,6 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
         }
     }
 
-    /// Find the socket for a given command ID.
-    pub fn socket_for_command(&self, id: CommandId) -> Option<ViscaSocket> {
-        self.core.find_socket_for_command(id)
-    }
-
     /// Handle a network error event.
     ///
     /// This mirrors the blocking runner's network error handling,
@@ -798,6 +807,34 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
         let (tx, rx) = flume::bounded(COMPLETIONS_BUFFER);
         self.completion_subscribers.push(tx);
         rx
+    }
+
+    /// Request cancellation of a command by ID.
+    ///
+    /// This routes the cancel request through the scheduler, which implements
+    /// lifecycle-aware cancel semantics:
+    ///
+    /// - **Command not active**: No-op (command already completed, timed out, or unknown ID).
+    /// - **Socket already assigned**: Returns `Some((camera_id, socket))` immediately for sending.
+    /// - **Awaiting ACK**: Flags the command for cancel-on-ACK; the cancel will be emitted
+    ///   as a `SchedulerAction::SendCancel` when the ACK arrives.
+    ///
+    /// If this method returns `Some((camera_id, socket))`, the caller should send
+    /// the cancel command to the transport. If it returns `None`, either the command
+    /// is inactive or the cancel has been deferred until ACK.
+    pub fn request_cancel_by_id(&mut self, cmd_id: CommandId) -> Option<(CameraId, ViscaSocket)> {
+        self.core.request_cancel_by_id(cmd_id)
+    }
+
+    /// Drain the cancel outbox, returning all queued cancel requests.
+    ///
+    /// This should be called by `loop_task` to retrieve cancels that were
+    /// queued via `SchedulerAction::SendCancel` (cancel-on-ACK path).
+    ///
+    /// Returns a `Vec` instead of an iterator to avoid borrow checker issues
+    /// when the caller needs to mutate `adapter` while iterating.
+    pub fn drain_cancel_outbox(&mut self) -> Vec<(CameraId, ViscaSocket)> {
+        self.cancel_outbox.drain(..).collect()
     }
 }
 

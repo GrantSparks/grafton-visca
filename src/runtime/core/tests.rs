@@ -4128,3 +4128,315 @@ fn test_fail_after_receive_error_frees_socket() {
         "Command should be removed from pending"
     );
 }
+
+// ============================================================================
+// Cancel lifecycle tests (issue #487)
+// ============================================================================
+
+/// Test: Cancel requested before ACK results in SendCancel action on ACK.
+///
+/// Verifies that when a cancel is requested for a command before a socket
+/// is assigned (awaiting ACK), the cancel is deferred and emitted as a
+/// `SchedulerAction::SendCancel` when the ACK arrives.
+#[test]
+fn test_cancel_requested_before_ack_emits_send_cancel_on_ack() {
+    let timeout_config = TimeoutConfig::default();
+    let retry_config = RetryConfig::default();
+    let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
+
+    let now = Instant::now();
+    let camera_id = CameraId::CAMERA_1;
+    let command = create_test_command(
+        vec![0x81, 0x01, 0x04, 0x07, 0x02, VISCA_TERMINATOR],
+        None,
+        CommandCategory::Quick,
+        camera_id,
+    );
+
+    // Register a command as pending ACK
+    core.register_pending_ack(
+        cmd_id(1),
+        command,
+        Priority::Normal,
+        CommandCategory::Quick,
+        camera_id,
+        CommandKind::Command,
+        now,
+    );
+
+    // Request cancel before ACK (no socket assigned yet)
+    let result = core.request_cancel_by_id(cmd_id(1));
+
+    // Should return None (cancel deferred, not immediate)
+    assert!(
+        result.is_none(),
+        "request_cancel_by_id should return None for command awaiting ACK"
+    );
+
+    // Verify cancel_requested is set
+    let state = core.commands.get(&cmd_id(1)).expect("Command should exist");
+    assert!(
+        state.cancel_requested,
+        "cancel_requested flag should be set"
+    );
+
+    // Now process an ACK to assign a socket
+    let actions = core.process_event(
+        SchedulerEvent::Ack {
+            source: ReplySource::BySocket {
+                socket: ViscaSocket::S1,
+            },
+        },
+        now,
+    );
+
+    // Should emit a SendCancel action
+    assert_eq!(
+        actions.len(),
+        1,
+        "Should emit exactly one action (SendCancel)"
+    );
+    match &actions[0] {
+        SchedulerAction::SendCancel {
+            camera_id: cam,
+            socket,
+        } => {
+            assert_eq!(*cam, camera_id, "Camera ID should match");
+            assert_eq!(*socket, ViscaSocket::S1, "Socket should be S1");
+        }
+        other => panic!("Expected SendCancel, got {:?}", other),
+    }
+
+    // Verify cancel_requested is cleared
+    let state = core.commands.get(&cmd_id(1)).expect("Command should exist");
+    assert!(
+        !state.cancel_requested,
+        "cancel_requested flag should be cleared after SendCancel emitted"
+    );
+}
+
+/// Test: Cancel requested after socket assignment returns immediately.
+///
+/// Verifies that when a cancel is requested for a command that already has
+/// a socket assigned, `request_cancel_by_id` returns the camera_id and socket
+/// immediately so the caller can send the cancel command.
+#[test]
+fn test_cancel_requested_after_ack_returns_immediately() {
+    let timeout_config = TimeoutConfig::default();
+    let retry_config = RetryConfig::default();
+    let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
+
+    let now = Instant::now();
+    let camera_id = CameraId::CAMERA_2;
+    let command = create_test_command(
+        vec![0x82, 0x01, 0x04, 0x07, 0x02, VISCA_TERMINATOR],
+        None,
+        CommandCategory::Quick,
+        camera_id,
+    );
+
+    // Register and send command, then process ACK to assign socket
+    core.register_pending_ack(
+        cmd_id(2),
+        command,
+        Priority::Normal,
+        CommandCategory::Quick,
+        camera_id,
+        CommandKind::Command,
+        now,
+    );
+    core.process_event(
+        SchedulerEvent::Ack {
+            source: ReplySource::BySocket {
+                socket: ViscaSocket::S2,
+            },
+        },
+        now,
+    );
+
+    // Request cancel after socket is assigned
+    let result = core.request_cancel_by_id(cmd_id(2));
+
+    // Should return Some with camera_id and socket
+    assert!(
+        result.is_some(),
+        "request_cancel_by_id should return Some for command with socket"
+    );
+    let (cam, socket) = result.unwrap();
+    assert_eq!(cam, camera_id, "Camera ID should match");
+    assert_eq!(socket, ViscaSocket::S2, "Socket should be S2");
+
+    // cancel_requested should NOT be set (cancel is immediate)
+    let state = core.commands.get(&cmd_id(2)).expect("Command should exist");
+    assert!(
+        !state.cancel_requested,
+        "cancel_requested should not be set for immediate cancel"
+    );
+}
+
+/// Test: Cancel requested for inactive/unknown command is a no-op.
+///
+/// Verifies that requesting a cancel for a command that doesn't exist
+/// (completed, timed out, or never existed) returns None and does not
+/// retain any state.
+#[test]
+fn test_cancel_requested_for_inactive_command_is_noop() {
+    let timeout_config = TimeoutConfig::default();
+    let retry_config = RetryConfig::default();
+    let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
+
+    // Request cancel for non-existent command
+    let result = core.request_cancel_by_id(cmd_id(999));
+
+    assert!(
+        result.is_none(),
+        "request_cancel_by_id should return None for inactive command"
+    );
+
+    // Verify no state was created
+    assert!(
+        core.commands.is_empty(),
+        "No commands should be created for inactive cancel"
+    );
+}
+
+/// Test: Command removal clears pending cancel.
+///
+/// Verifies that when a command is cancelled or completed after having
+/// `cancel_requested` set, the flag is properly cleaned up.
+#[test]
+fn test_cancel_command_clears_cancel_requested() {
+    let timeout_config = TimeoutConfig::default();
+    let retry_config = RetryConfig::default();
+    let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
+
+    let now = Instant::now();
+    let camera_id = CameraId::CAMERA_1;
+    let command = create_test_command(
+        vec![0x81, 0x01, 0x04, 0x07, 0x02, VISCA_TERMINATOR],
+        None,
+        CommandCategory::Quick,
+        camera_id,
+    );
+
+    // Register command and request cancel
+    core.register_pending_ack(
+        cmd_id(3),
+        command,
+        Priority::Normal,
+        CommandCategory::Quick,
+        camera_id,
+        CommandKind::Command,
+        now,
+    );
+    let _ = core.request_cancel_by_id(cmd_id(3));
+
+    // Verify cancel_requested is set
+    assert!(
+        core.commands.get(&cmd_id(3)).unwrap().cancel_requested,
+        "cancel_requested should be set"
+    );
+
+    // Cancel the command (removes all state)
+    core.cancel_command(cmd_id(3));
+
+    // Verify command is fully removed
+    assert!(
+        !core.commands.contains_key(&cmd_id(3)),
+        "Command should be removed after cancel_command"
+    );
+}
+
+/// Test: Clearing all state clears pending cancels.
+///
+/// Verifies that `clear_all()` properly clears any pending cancels.
+#[test]
+fn test_clear_all_clears_cancel_requested() {
+    let timeout_config = TimeoutConfig::default();
+    let retry_config = RetryConfig::default();
+    let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
+
+    let now = Instant::now();
+    let camera_id = CameraId::CAMERA_1;
+    let command = create_test_command(
+        vec![0x81, 0x01, 0x04, 0x07, 0x02, VISCA_TERMINATOR],
+        None,
+        CommandCategory::Quick,
+        camera_id,
+    );
+
+    // Register command and request cancel
+    core.register_pending_ack(
+        cmd_id(4),
+        command,
+        Priority::Normal,
+        CommandCategory::Quick,
+        camera_id,
+        CommandKind::Command,
+        now,
+    );
+    let _ = core.request_cancel_by_id(cmd_id(4));
+
+    // Clear all state
+    core.clear_all();
+
+    // Verify all commands are gone
+    assert!(core.commands.is_empty(), "All commands should be cleared");
+}
+
+/// Test: Multiple cancels for the same command only emit once.
+///
+/// Verifies that calling `request_cancel_by_id` multiple times for the
+/// same command before ACK only results in one `SendCancel` action.
+#[test]
+fn test_multiple_cancel_requests_emit_once() {
+    let timeout_config = TimeoutConfig::default();
+    let retry_config = RetryConfig::default();
+    let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
+
+    let now = Instant::now();
+    let camera_id = CameraId::CAMERA_1;
+    let command = create_test_command(
+        vec![0x81, 0x01, 0x04, 0x07, 0x02, VISCA_TERMINATOR],
+        None,
+        CommandCategory::Quick,
+        camera_id,
+    );
+
+    // Register command
+    core.register_pending_ack(
+        cmd_id(5),
+        command,
+        Priority::Normal,
+        CommandCategory::Quick,
+        camera_id,
+        CommandKind::Command,
+        now,
+    );
+
+    // Request cancel multiple times
+    let _ = core.request_cancel_by_id(cmd_id(5));
+    let _ = core.request_cancel_by_id(cmd_id(5));
+    let _ = core.request_cancel_by_id(cmd_id(5));
+
+    // Process ACK
+    let actions = core.process_event(
+        SchedulerEvent::Ack {
+            source: ReplySource::BySocket {
+                socket: ViscaSocket::S1,
+            },
+        },
+        now,
+    );
+
+    // Should emit exactly one SendCancel
+    assert_eq!(
+        actions.len(),
+        1,
+        "Should emit exactly one SendCancel despite multiple requests"
+    );
+    assert!(
+        matches!(actions[0], SchedulerAction::SendCancel { .. }),
+        "Action should be SendCancel"
+    );
+}

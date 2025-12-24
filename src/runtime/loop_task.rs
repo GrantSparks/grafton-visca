@@ -4,11 +4,9 @@ use flume::{Receiver, Sender};
 use futures_lite::future;
 use tracing::{debug, error, instrument, trace, warn};
 
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 use crate::{
-    camera::inflight::CommandId,
-    camera_id::CameraId,
     capabilities::Profile,
     command::{encode::ViscaCommand, system::CommandCancelCommand, CommandKind},
     error::{Error, Result},
@@ -157,9 +155,6 @@ pub async fn runtime_loop_with_config<
     adapter.set_max_inquiries_inflight(config.max_concurrent_inquiries);
     adapter.set_min_inquiry_spacing(config.min_inquiry_spacing);
     let mut protocol_framer = ProtocolFramer::new_with_config(config.buffer_manager.config());
-    // Track cancel requests that arrived before the command was bound to a socket.
-    // Maps CommandId -> CameraId so queued cancels use the original camera address.
-    let mut pending_cancel_ids: HashMap<CommandId, CameraId> = HashMap::new();
 
     // Allocate a single reusable buffer for receiving data
     let mut read_buf = vec![0u8; config.buffer_manager.config().recv_buffer_size];
@@ -332,8 +327,12 @@ pub async fn runtime_loop_with_config<
                             );
                         }
                     }
-                    TxItem::CancelById { camera_id, id } => {
-                        if let Some(socket) = adapter.socket_for_command(id) {
+                    TxItem::CancelById { camera_id: _, id } => {
+                        // Route cancel through the scheduler for lifecycle-aware handling.
+                        // The scheduler returns Some((camera_id, socket)) if the command has
+                        // a socket already assigned (send immediately). Otherwise, the cancel
+                        // is either deferred until ACK or a no-op for inactive commands.
+                        if let Some((camera_id, socket)) = adapter.request_cancel_by_id(id) {
                             let cancel_cmd = CommandCancelCommand::new(socket);
                             let mut temp_buf = [0u8; CommandCancelCommand::MAX_SIZE];
                             let len =
@@ -359,10 +358,10 @@ pub async fn runtime_loop_with_config<
                             } else {
                                 debug!("Sent cancel for command {id} on socket {socket:?} with camera_id {camera_id:?}");
                             }
-                        } else {
-                            debug!("No socket for command {id} yet; queuing cancel with camera_id {camera_id:?}");
-                            pending_cancel_ids.insert(id, camera_id);
                         }
+                        // If request_cancel_by_id returns None, either:
+                        // - The command is inactive (completed/timed out/unknown): no-op
+                        // - The command is awaiting ACK: flagged for cancel-on-ACK
                     }
                 }
                 // Fall through to housekeeping
@@ -451,45 +450,35 @@ pub async fn runtime_loop_with_config<
                     }
                 }
 
-                // Flush queued cancels whose sockets are now known
-                if !pending_cancel_ids.is_empty() {
-                    // Collect ready cancels: (id, camera_id) pairs where socket is now known
-                    let ready: Vec<(CommandId, CameraId)> = pending_cancel_ids
-                        .iter()
-                        .filter(|(id, _)| adapter.socket_for_command(**id).is_some())
-                        .map(|(id, camera_id)| (*id, *camera_id))
-                        .collect();
+                // Drain cancel outbox: send cancels that were queued via cancel-on-ACK
+                // (when a cancel was requested before the socket was assigned, and an
+                // ACK subsequently assigned the socket)
+                for (camera_id, socket) in adapter.drain_cancel_outbox() {
+                    let cancel_cmd = CommandCancelCommand::new(socket);
+                    let mut temp_buf = [0u8; CommandCancelCommand::MAX_SIZE];
+                    let len = cancel_cmd
+                        .write_into(camera_id, &mut temp_buf)
+                        .map_err(|e| {
+                            error!("Failed to encode cancel-on-ACK command: {e}");
+                            e
+                        })?;
 
-                    for (id, camera_id) in ready {
-                        if let Some(socket) = adapter.socket_for_command(id) {
-                            let cancel_cmd = CommandCancelCommand::new(socket);
-                            let mut temp_buf = [0u8; CommandCancelCommand::MAX_SIZE];
-                            let len =
-                                cancel_cmd
-                                    .write_into(camera_id, &mut temp_buf)
-                                    .map_err(|e| {
-                                        error!("Failed to encode queued cancel command: {e}");
-                                        e
-                                    })?;
+                    let kind = CommandKind::Command;
+                    config
+                        .envelope
+                        .frame_into(&temp_buf[..len], kind, &mut send_buf);
 
-                            let kind = CommandKind::Command;
-                            config
-                                .envelope
-                                .frame_into(&temp_buf[..len], kind, &mut send_buf);
-
-                            if let Err(e) = transport.send(&send_buf[..]).await {
-                                handle_send_failure!(
-                                    transport,
-                                    adapter,
-                                    e,
-                                    "Failed to send queued cancel for command"
-                                );
-                            } else {
-                                debug!("Sent queued cancel for command {id} on socket {socket:?} with camera_id {camera_id:?}");
-                            }
-
-                            pending_cancel_ids.remove(&id);
-                        }
+                    if let Err(e) = transport.send(&send_buf[..]).await {
+                        handle_send_failure!(
+                            transport,
+                            adapter,
+                            e,
+                            "Failed to send cancel-on-ACK for socket"
+                        );
+                    } else {
+                        debug!(
+                            "Sent cancel-on-ACK for socket {socket:?} with camera_id {camera_id:?}"
+                        );
                     }
                 }
                 // Fall through to housekeeping

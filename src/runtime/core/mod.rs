@@ -37,6 +37,7 @@ use crate::{
 /// - Core identity: `command`, `priority`, `category`, `camera_id`, `kind`
 /// - Timing: `submitted_at`, `sent_at`
 /// - Retry tracking: `attempt`, `transport_error`
+/// - Cancel tracking: `cancel_requested`
 /// - Inquiry-specific: `response_type`
 #[derive(Debug, Clone)]
 pub struct CommandState {
@@ -60,6 +61,13 @@ pub struct CommandState {
     pub attempt: u32,
     /// Whether last failure was a transport error.
     pub transport_error: bool,
+    /// Whether a cancel has been requested for this command.
+    ///
+    /// When set to true before a socket is assigned (ACK received), the cancel
+    /// will be sent immediately after the socket is assigned. This eliminates
+    /// the need for an out-of-band cancel tracking map and ensures cancels are
+    /// bounded to command lifetime.
+    pub cancel_requested: bool,
 
     // --- Inquiry-specific (if kind == Inquiry) ---
     /// Expected response type for DataReply parsing.
@@ -399,6 +407,17 @@ pub enum SchedulerAction {
         attempt: u32,
         /// True if a retry was enqueued.
         will_retry: bool,
+    },
+    /// Send a cancel command for a specific socket.
+    ///
+    /// This action is emitted when a cancel was requested for a command before
+    /// a socket was assigned, and an ACK has now assigned the socket. The cancel
+    /// should be sent immediately to the transport.
+    SendCancel {
+        /// Camera ID for addressing the cancel message.
+        camera_id: crate::camera_id::CameraId,
+        /// Socket to cancel.
+        socket: ViscaSocket,
     },
 }
 
@@ -975,6 +994,7 @@ impl SchedulerCore {
                 sent_at: Some(now),
                 attempt: 0,
                 transport_error: false,
+                cancel_requested: false,
                 response_type: None,
             };
             self.commands.insert(id, state);
@@ -1281,6 +1301,52 @@ impl SchedulerCore {
         trace!("Command {cmd_id} cancelled and all state cleaned up");
     }
 
+    /// Request cancellation of a command by ID.
+    ///
+    /// This method implements lifecycle-aware cancel-by-id semantics:
+    ///
+    /// - **Command not active**: Returns `None` (no-op, no state retained).
+    /// - **Socket already assigned**: Returns `Some((camera_id, socket))` so the caller
+    ///   can send the cancel command immediately.
+    /// - **Awaiting ACK (no socket yet)**: Sets `cancel_requested = true` on the command
+    ///   state and returns `None`. The cancel will be emitted as a `SchedulerAction::SendCancel`
+    ///   when the ACK arrives and assigns a socket.
+    ///
+    /// This design eliminates the need for an out-of-band `pending_cancel_ids` map,
+    /// ensuring cancels are bounded to command lifetime and cleaned up automatically.
+    pub fn request_cancel_by_id(
+        &mut self,
+        cmd_id: CommandId,
+    ) -> Option<(crate::camera_id::CameraId, ViscaSocket)> {
+        // Check if the command is active
+        let state = self.commands.get_mut(&cmd_id)?;
+
+        // Get camera_id from the command state (type-safe, no external CameraId needed)
+        let camera_id = state.camera_id;
+
+        // Check if a socket is already assigned
+        if let Some(socket) = self.find_socket_for_command(cmd_id) {
+            // Socket is assigned - caller should send cancel immediately
+            debug!(
+                %cmd_id,
+                ?socket,
+                ?camera_id,
+                "Cancel requested for command with socket - returning immediately"
+            );
+            Some((camera_id, socket))
+        } else {
+            // Command is active but no socket yet - mark for cancel on ACK
+            let state = self.commands.get_mut(&cmd_id)?;
+            state.cancel_requested = true;
+            debug!(
+                %cmd_id,
+                ?camera_id,
+                "Cancel requested for command awaiting ACK - flagged for cancel on socket assignment"
+            );
+            None
+        }
+    }
+
     /// Complete an inquiry, cleaning up tracking state.
     ///
     /// This should be called when an inquiry response is received and the
@@ -1498,8 +1564,13 @@ impl SchedulerCore {
 
                 let socket = source.socket();
                 let cmd_id = source.cmd_id();
-                if let Some(cmd_id) = self.handle_ack_with_id(socket, cmd_id, now) {
+                let (assigned_cmd_id, cancel_action) = self.handle_ack_with_id(socket, cmd_id, now);
+                if let Some(cmd_id) = assigned_cmd_id {
                     trace!("Command {cmd_id} assigned to socket {socket:?}");
+                }
+                // If a cancel was pending for this command, emit the SendCancel action
+                if let Some(action) = cancel_action {
+                    actions.push(action);
                 }
             }
             SchedulerEvent::Completion { source, response } => {
@@ -2157,12 +2228,18 @@ impl SchedulerCore {
 
     // Private helper methods
 
+    /// Handle an ACK and assign a socket to the command.
+    ///
+    /// Returns `(assigned_cmd_id, optional_cancel_action)`:
+    /// - `assigned_cmd_id`: The command ID that was assigned to a socket, if any.
+    /// - `optional_cancel_action`: A `SendCancel` action if the command had
+    ///   `cancel_requested` set before the socket was assigned.
     fn handle_ack_with_id(
         &mut self,
         socket: Option<ViscaSocket>,
         cmd_id: Option<CommandId>,
         now: Instant,
-    ) -> Option<CommandId> {
+    ) -> (Option<CommandId>, Option<SchedulerAction>) {
         // Prefer cmd_id from sequence mapping
         let target_id = if let Some(id) = cmd_id {
             // Verify it's actually pending
@@ -2184,7 +2261,12 @@ impl SchedulerCore {
                 })
                 .min_by_key(|(_, sent_time)| *sent_time)
                 .map(|(id, _)| id)
-        }?;
+        };
+
+        let target_id = match target_id {
+            Some(id) => id,
+            None => return (None, None),
+        };
 
         // Get command state
         let state_copy = self.commands.get(&target_id).cloned();
@@ -2218,7 +2300,7 @@ impl SchedulerCore {
                         warn!("Camera assigned {:?} but both sockets are occupied", s);
                         // Re-insert command into pending_ack_ids since we couldn't assign it
                         self.pending_ack_ids.insert(target_id);
-                        return None;
+                        return (None, None);
                     }
                 }
             } else {
@@ -2232,7 +2314,7 @@ impl SchedulerCore {
                     warn!("ACK received without socket nibble but both sockets are occupied");
                     // Re-insert command into pending_ack_ids since we couldn't assign it
                     self.pending_ack_ids.insert(target_id);
-                    return None;
+                    return (None, None);
                 }
             };
 
@@ -2249,10 +2331,31 @@ impl SchedulerCore {
                 target_id,
                 assigned_socket
             );
-            Some(target_id)
+
+            // Check if cancel was requested before socket was assigned
+            let cancel_action = if cmd_state.cancel_requested {
+                // Clear the flag and emit a cancel action
+                if let Some(state) = self.commands.get_mut(&target_id) {
+                    state.cancel_requested = false;
+                }
+                debug!(
+                    %target_id,
+                    ?assigned_socket,
+                    camera_id = ?cmd_state.camera_id,
+                    "Emitting SendCancel for command that had cancel_requested set"
+                );
+                Some(SchedulerAction::SendCancel {
+                    camera_id: cmd_state.camera_id,
+                    socket: assigned_socket,
+                })
+            } else {
+                None
+            };
+
+            (Some(target_id), cancel_action)
         } else {
             warn!("Failed to get command state for {target_id}");
-            None
+            (None, None)
         }
     }
 
@@ -2289,6 +2392,7 @@ impl SchedulerCore {
             sent_at: Some(now),
             attempt: 0,
             transport_error: false,
+            cancel_requested: false,
             response_type,
         };
         self.commands.insert(id, state);
