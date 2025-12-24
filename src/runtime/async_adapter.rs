@@ -385,14 +385,12 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
         self.core.register_sequence(cmd_id, sequence);
     }
 
-    /// Unregister a pending ACK (used for rollback on send failure).
-    pub fn unregister_pending_ack(&mut self, id: CommandId) -> bool {
-        self.core.unregister_pending_ack(id)
-    }
-
-    /// Free a reserved socket (used for rollback on inquiry send failure).
-    pub fn free_socket(&mut self, socket: ViscaSocket) {
-        self.core.free_socket(socket);
+    /// Revert a command to queued state (used for rollback on send failure).
+    ///
+    /// This method resets a command's phase to Queued when a send operation
+    /// fails and we want to preserve the command for retry.
+    pub fn revert_to_queued(&mut self, id: CommandId) -> bool {
+        self.core.revert_to_queued(id)
     }
 
     /// Handle a send failure - fails immediately with the original error wrapped in context.

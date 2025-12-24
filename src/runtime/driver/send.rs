@@ -11,7 +11,6 @@ use crate::{
     command::CommandKind,
     runtime::core::{PendingCommand, SchedulerAction},
     transport::envelope::Envelope,
-    visca_socket::ViscaSocket,
 };
 
 #[cfg(feature = "mode-async")]
@@ -39,14 +38,15 @@ pub enum SendResult {
 
 /// RAII guard for automatic rollback of send operations on failure.
 ///
-/// This guard ensures that if a send operation fails, any reserved resources
-/// (sockets, pending ACK registrations) are automatically rolled back.
-#[derive(Debug)]
-#[allow(missing_copy_implementations)] // Can't copy due to ViscaSocket
+/// This guard tracks whether a send operation has been committed (successful).
+/// If `rollback` is called and the send was not committed, the command is
+/// immediately failed via the scheduler.
+///
+/// With the phase-based command lifecycle design, socket and ACK state cleanup
+/// is implicit when the command is removed from the scheduler.
+#[derive(Debug, Clone, Copy)]
 pub struct SendGuard {
     id: CommandId,
-    reserved_socket: Option<ViscaSocket>,
-    ack_registered: bool,
     committed: bool,
 }
 
@@ -55,8 +55,6 @@ impl SendGuard {
     pub fn new(id: CommandId) -> Self {
         Self {
             id,
-            reserved_socket: None,
-            ack_registered: false,
             committed: false,
         }
     }
@@ -68,8 +66,9 @@ impl SendGuard {
 
     /// Rollback the send operation on failure.
     ///
-    /// This method automatically unregisters pending ACKs, frees reserved sockets,
-    /// and fails the command immediately with the provided error wrapped in context.
+    /// This method fails the command immediately with the provided error wrapped in context.
+    /// With the phase-based design, all cleanup (socket state, pending ACK state) is handled
+    /// implicitly when the command is removed from the scheduler during `fail_after_send_error`.
     ///
     /// The `cause` parameter preserves the original error (including timeout semantics)
     /// while the scheduler adds "Send failed" context.
@@ -88,22 +87,9 @@ impl SendGuard {
         cause: crate::Error,
     ) -> Option<SchedulerAction> {
         if !self.committed {
-            // Rollback on failure
-            if let Some(socket) = self.reserved_socket {
-                debug!(
-                    "SendGuard: Rolling back inquiry {id} socket reservation",
-                    id = self.id
-                );
-                scheduler.free_socket(socket);
-            }
-            if self.ack_registered {
-                debug!(
-                    "SendGuard: Rolling back command {id} ACK registration",
-                    id = self.id
-                );
-                scheduler.unregister_pending_ack(self.id);
-            }
-            // Fail immediately for send failure (no retry per documented semantics)
+            // Fail immediately for send failure (no retry per documented semantics).
+            // Socket and ACK state cleanup is implicit in phase-based design when
+            // the command is removed during fail_after_send_error.
             debug!(
                 "SendGuard: Failing command {id} after send failure (no retry)",
                 id = self.id
@@ -145,7 +131,6 @@ where
         trace!("Started tracking inquiry {id}", id = cmd.id);
     } else {
         scheduler.register_pending_ack(&cmd);
-        guard.ack_registered = true;
         trace!("Registered pending ACK for command {id}", id = cmd.id);
     }
 
@@ -252,7 +237,6 @@ where
         trace!("Started tracking inquiry {id}", id = cmd.id);
     } else {
         scheduler.register_pending_ack(&cmd);
-        guard.ack_registered = true;
         trace!("Registered pending ACK for command {id}", id = cmd.id);
     }
 

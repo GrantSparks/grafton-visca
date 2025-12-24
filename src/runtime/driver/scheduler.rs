@@ -25,11 +25,11 @@ pub trait SchedulerLike {
     /// an ACK response from the device.
     fn register_pending_ack(&mut self, cmd: &PendingCommand);
 
-    /// Unregister a pending ACK.
+    /// Revert a command to queued state (rollback from AwaitingAck on send failure).
     ///
-    /// This method removes a command from the pending ACK tracking,
-    /// typically called during rollback on send failure.
-    fn unregister_pending_ack(&mut self, id: CommandId);
+    /// This method resets a command's phase to Queued when a send operation
+    /// fails and we want to preserve the command for retry.
+    fn revert_to_queued(&mut self, id: CommandId);
 
     /// Fail a command immediately after send error.
     ///
@@ -60,12 +60,6 @@ pub trait SchedulerLike {
     /// enabling proper response routing in Sony-encapsulated mode.
     /// The `id` is type-safe (CommandId), while `seq` is a raw protocol u32.
     fn register_sequence(&mut self, id: CommandId, seq: u32);
-
-    /// Free a reserved socket.
-    ///
-    /// This method returns a socket to the pool, typically called during
-    /// rollback when an inquiry send fails.
-    fn free_socket(&mut self, socket: crate::visca_socket::ViscaSocket);
 }
 
 // Feature-gated implementation for async adapter
@@ -87,8 +81,8 @@ mod async_impl {
             self.register_pending_ack(cmd);
         }
 
-        fn unregister_pending_ack(&mut self, id: CommandId) {
-            self.unregister_pending_ack(id);
+        fn revert_to_queued(&mut self, id: CommandId) {
+            self.revert_to_queued(id);
         }
 
         fn fail_after_send_error(
@@ -105,10 +99,6 @@ mod async_impl {
 
         fn register_sequence(&mut self, id: CommandId, seq: u32) {
             self.register_sequence(id, seq);
-        }
-
-        fn free_socket(&mut self, socket: crate::visca_socket::ViscaSocket) {
-            self.free_socket(socket);
         }
     }
 }
@@ -157,8 +147,8 @@ mod blocking_impl {
             );
         }
 
-        fn unregister_pending_ack(&mut self, id: CommandId) {
-            self.core.unregister_pending_ack(id);
+        fn revert_to_queued(&mut self, id: CommandId) {
+            self.core.revert_to_queued(id);
         }
 
         fn fail_after_send_error(
@@ -172,10 +162,6 @@ mod blocking_impl {
 
         fn register_sequence(&mut self, id: CommandId, seq: u32) {
             self.core.register_sequence(id, seq);
-        }
-
-        fn free_socket(&mut self, socket: crate::visca_socket::ViscaSocket) {
-            self.core.free_socket(socket);
         }
     }
 }

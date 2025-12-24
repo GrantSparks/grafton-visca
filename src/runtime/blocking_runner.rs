@@ -550,9 +550,7 @@ impl<P: Profile> BlockingRunner<P> {
                                     if cmd_id == target_cmd_id {
                                         debug!("Command {cmd_id} completed successfully");
                                         // Clean up command state before returning
-                                        if let Some(socket) = socket {
-                                            self.core.free_socket(socket);
-                                        }
+                                        // (Socket is embedded in phase, freed with command)
                                         self.core.complete_command(cmd_id);
                                         let response_type = self.core.get_inquiry_type(cmd_id);
                                         let response =

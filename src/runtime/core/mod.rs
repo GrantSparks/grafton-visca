@@ -28,6 +28,81 @@ use crate::{
     Error,
 };
 
+/// Command lifecycle phase - makes invalid states unrepresentable.
+///
+/// This enum encodes the lifecycle phase of a command in the scheduler:
+/// - A command starts in `Queued` (waiting to be sent)
+/// - After being sent, it transitions to `AwaitingAck` (sent, waiting for ACK)
+/// - After ACK, commands with socket allocation transition to `Executing`
+/// - Inquiries transition to `AwaitingInquiryReply` (no socket allocation)
+///
+/// Each variant carries the timing information needed for timeout detection,
+/// eliminating the need for separate `sent_at` and socket tracking structures.
+#[derive(Debug, Clone, Copy)]
+pub enum CommandPhase {
+    /// Command queued but not yet sent.
+    Queued,
+    /// Sent to transport, awaiting ACK (commands) or immediate response (inquiries).
+    AwaitingAck {
+        /// When the command was sent.
+        sent_at: Instant,
+    },
+    /// ACK received, socket allocated, awaiting completion.
+    Executing {
+        /// Socket assigned by the camera.
+        socket: ViscaSocket,
+        /// When the socket was assigned.
+        started_at: Instant,
+    },
+    /// Inquiry sent, awaiting data reply (no socket allocation).
+    AwaitingInquiryReply {
+        /// When the inquiry was sent.
+        sent_at: Instant,
+    },
+}
+
+impl CommandPhase {
+    /// Returns the time when the command was sent, if applicable.
+    ///
+    /// Returns `Some(Instant)` for all phases except `Queued`.
+    #[inline]
+    pub fn sent_at(&self) -> Option<Instant> {
+        match self {
+            CommandPhase::Queued => None,
+            CommandPhase::AwaitingAck { sent_at } => Some(*sent_at),
+            CommandPhase::Executing { started_at, .. } => Some(*started_at),
+            CommandPhase::AwaitingInquiryReply { sent_at } => Some(*sent_at),
+        }
+    }
+
+    /// Returns `true` if this command is awaiting ACK.
+    #[inline]
+    pub fn is_awaiting_ack(&self) -> bool {
+        matches!(self, CommandPhase::AwaitingAck { .. })
+    }
+
+    /// Returns `true` if this command is executing (has a socket assigned).
+    #[inline]
+    pub fn is_executing(&self) -> bool {
+        matches!(self, CommandPhase::Executing { .. })
+    }
+
+    /// Returns `true` if this is an inquiry awaiting reply.
+    #[inline]
+    pub fn is_awaiting_inquiry_reply(&self) -> bool {
+        matches!(self, CommandPhase::AwaitingInquiryReply { .. })
+    }
+
+    /// Returns the socket if the command is in `Executing` phase.
+    #[inline]
+    pub fn socket(&self) -> Option<ViscaSocket> {
+        match self {
+            CommandPhase::Executing { socket, .. } => Some(*socket),
+            _ => None,
+        }
+    }
+}
+
 /// Complete lifecycle state for a single command.
 ///
 /// This struct consolidates all per-command state that was previously scattered
@@ -46,7 +121,7 @@ use crate::{
 ///
 /// # Fields
 /// - Core identity: `command`, `priority`, `camera_id`
-/// - Timing: `submitted_at`, `sent_at`
+/// - Timing: `submitted_at`, phase (with embedded timing)
 /// - Retry tracking: `attempt`, `transport_error`
 /// - Cancel tracking: `cancel_requested`
 /// - Inquiry-specific override: `response_type_override` (for late registration)
@@ -62,8 +137,8 @@ pub struct CommandState {
     pub submitted_at: Instant,
 
     // --- Lifecycle tracking ---
-    /// When sent over the wire (None if not yet sent).
-    pub sent_at: Option<Instant>,
+    /// Current lifecycle phase (includes timing for each phase).
+    pub phase: CommandPhase,
     /// Current retry attempt (0 = first try).
     pub attempt: u32,
     /// Whether last failure was a transport error.
@@ -117,6 +192,14 @@ impl CommandState {
         self.response_type_override
             .take()
             .or(self.command.response_type)
+    }
+
+    /// Get sent_at time from phase (for backwards compatibility).
+    ///
+    /// Returns `Some(Instant)` if the command has been sent (any phase except Queued).
+    #[inline]
+    pub fn sent_at(&self) -> Option<Instant> {
+        self.phase.sent_at()
     }
 }
 
@@ -323,45 +406,6 @@ impl std::fmt::Debug for RetryCommand {
             .field("max_retries", &self.max_retries)
             .field("retry_at", &self.retry_at)
             .finish()
-    }
-}
-
-/// Socket state tracking using typestate pattern.
-///
-/// This enum encodes the socket state invariants at compile-time:
-/// - A socket is either `Free` or `Busy`
-/// - A `Busy` socket always has a command_id, started_at, and category
-/// - Invalid states (like free=true with command_id=Some) are unrepresentable
-#[derive(Debug, Clone, Default)]
-enum SocketState {
-    /// Socket is available for allocation.
-    #[default]
-    Free,
-    /// Socket is allocated to a command.
-    Busy {
-        /// The command ID currently using this socket.
-        command_id: CommandId,
-        /// When the command was assigned to this socket.
-        started_at: Instant,
-        /// Command category for timeout calculation.
-        category: CommandCategory,
-    },
-}
-
-impl SocketState {
-    /// Returns true if the socket is free.
-    #[inline]
-    fn is_free(&self) -> bool {
-        matches!(self, Self::Free)
-    }
-
-    /// Returns the command ID if the socket is busy, None if free.
-    #[inline]
-    fn command_id(&self) -> Option<CommandId> {
-        match self {
-            Self::Busy { command_id, .. } => Some(*command_id),
-            Self::Free => None,
-        }
     }
 }
 
@@ -810,10 +854,20 @@ impl Seq16Owners {
 /// Runtime-agnostic scheduler core.
 ///
 /// This contains all the state machine logic without any async dependencies.
+///
+/// # Command Lifecycle State
+///
+/// Command lifecycle is tracked entirely through `CommandPhase` in `CommandState`:
+/// - `Queued`: Command waiting to be sent
+/// - `AwaitingAck { sent_at }`: Sent, waiting for ACK
+/// - `Executing { socket, started_at }`: ACK received, socket allocated
+/// - `AwaitingInquiryReply { sent_at }`: Inquiry sent, no socket needed
+///
+/// All lifecycle queries (pending ACK count, executing count, socket lookups)
+/// derive from iterating over `commands` and matching on phase. This provides
+/// a single source of truth and eliminates consistency bugs from scattered indices.
 #[derive(Debug)]
 pub struct SchedulerCore {
-    /// Socket states.
-    sockets: [SocketState; 2],
     /// Timeout configuration.
     timeout_config: TimeoutConfig,
     /// Retry configuration.
@@ -823,14 +877,11 @@ pub struct SchedulerCore {
 
     // === Unified command state ===
     /// All active commands indexed by ID.
-    /// This consolidates what was previously scattered across multiple HashMaps.
+    ///
+    /// This is the single source of truth for command lifecycle state.
+    /// `CommandState.phase` encodes what was previously scattered across
+    /// `pending_ack_ids`, `inflight_inquiry_ids`, and `sockets`.
     commands: HashMap<CommandId, CommandState>,
-    /// Command IDs that have been sent but not yet acknowledged.
-    /// Lightweight index set for O(1) membership queries.
-    pending_ack_ids: HashSet<CommandId>,
-    /// Inquiry IDs that are currently in flight.
-    /// Lightweight index set for O(1) membership queries.
-    inflight_inquiry_ids: HashSet<CommandId>,
 
     /// Commands waiting to be retried (after busy response).
     /// Uses a min-heap ordered by retry_at for efficient deadline-driven scheduling.
@@ -886,13 +937,10 @@ impl SchedulerCore {
         let retry_budget = RetryBudget::from_base(retry_config.max_retries);
 
         Self {
-            sockets: Default::default(),
             timeout_config,
             retry_config,
             last_logged_idle: Cell::new(false),
             commands: HashMap::new(),
-            pending_ack_ids: HashSet::new(),
-            inflight_inquiry_ids: HashSet::new(),
             retry_queue: BinaryHeap::new(),
             command_queue: BinaryHeap::new(),
             inquiry_queue: BinaryHeap::new(),
@@ -946,32 +994,37 @@ impl SchedulerCore {
     }
 
     /// Check if we can send another command (have room for pending ACK).
+    ///
+    /// Uses phase-based counting to determine capacity:
+    /// - Commands in `AwaitingAck` phase count toward the 2-slot limit
+    /// - Commands in `Executing` phase count toward the 2-slot limit
+    /// - Total must be < 2 to allow sending another command
     pub fn can_send_command(&self) -> bool {
-        // Count commands that are either pending ACK or have a socket allocated
-        let pending_count = self.pending_ack_ids.len();
-        let allocated_count = self.sockets.iter().filter(|s| !s.is_free()).count();
-        let total_in_flight = pending_count + allocated_count;
+        // Count commands by phase (single source of truth)
+        let awaiting_ack = self.count_awaiting_ack();
+        let executing = self.count_executing();
+        let total_in_flight = awaiting_ack + executing;
 
         let can_send = total_in_flight < 2;
 
         if !can_send && std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
             eprintln!(
-                "[SchedulerCore] can_send_command=false: {} pending ACK + {} allocated = {}/2 capacity",
-                pending_count, allocated_count, total_in_flight
+                "[SchedulerCore] can_send_command=false: {} awaiting ACK + {} executing = {}/2 capacity",
+                awaiting_ack, executing, total_in_flight
             );
         }
 
         // Log state transitions: always log once when going to idle, otherwise only when busy
         if total_in_flight > 0 {
             trace!(
-                "Commands in flight: {} pending ACK + {} allocated = {}/2",
-                pending_count,
-                allocated_count,
+                "Commands in flight: {} awaiting ACK + {} executing = {}/2",
+                awaiting_ack,
+                executing,
                 total_in_flight
             );
             self.last_logged_idle.set(false);
         } else if !self.last_logged_idle.get() {
-            trace!("Commands in flight: 0 pending ACK + 0 allocated = 0/2");
+            trace!("Commands in flight: 0 awaiting ACK + 0 executing = 0/2");
             self.last_logged_idle.set(true);
         }
 
@@ -983,9 +1036,14 @@ impl SchedulerCore {
     /// Returns true if:
     /// 1. The number of in-flight inquiries is below the maximum limit
     /// 2. The minimum spacing requirement since the last inquiry has been satisfied
+    ///
+    /// Uses phase-based counting to determine in-flight inquiries.
     pub fn can_send_inquiry(&self, now: Instant) -> bool {
+        // Count inquiries by phase (single source of truth)
+        let inflight_count = self.count_awaiting_inquiry_reply();
+
         // Check concurrency limit
-        if self.inflight_inquiry_ids.len() >= self.max_inquiries_inflight {
+        if inflight_count >= self.max_inquiries_inflight {
             return false;
         }
 
@@ -1078,7 +1136,7 @@ impl SchedulerCore {
             existing.command = command;
             existing.priority = priority;
             existing.camera_id = camera_id;
-            existing.sent_at = Some(now);
+            existing.phase = CommandPhase::AwaitingAck { sent_at: now };
             // Note: preserve attempt, transport_error, response_type_override, and submitted_at
             // Category and kind come from command, so no update needed
         } else {
@@ -1088,7 +1146,7 @@ impl SchedulerCore {
                 priority,
                 camera_id,
                 submitted_at: now,
-                sent_at: Some(now),
+                phase: CommandPhase::AwaitingAck { sent_at: now },
                 attempt: 0,
                 transport_error: false,
                 cancel_requested: false,
@@ -1096,8 +1154,8 @@ impl SchedulerCore {
             };
             self.commands.insert(id, state);
         }
-        self.pending_ack_ids.insert(id);
-        trace!(%id, "Registered command as pending ACK");
+        // Phase is now the single source of truth - no separate index needed
+        trace!(%id, "Registered command as pending ACK (phase=AwaitingAck)");
     }
 
     /// Register a Sony sequence number for a command.
@@ -1348,27 +1406,13 @@ impl SchedulerCore {
     pub fn cancel_command(&mut self, cmd_id: CommandId) {
         trace!("Cancelling command {cmd_id}");
 
-        // Free any allocated socket
-        for socket_idx in 0..2 {
-            if self.sockets[socket_idx].command_id() == Some(cmd_id) {
-                let socket = if socket_idx == 0 {
-                    ViscaSocket::S1
-                } else {
-                    ViscaSocket::S2
-                };
-                self.free_socket(socket);
-            }
-        }
-
         // Clean up sequence mappings
         self.finish_sequence(cmd_id);
 
-        // Remove from index sets
-        self.pending_ack_ids.remove(&cmd_id);
-        self.inflight_inquiry_ids.remove(&cmd_id);
+        // Remove from inquiry FIFO order (for raw VISCA correlation)
         self.inquiries_order.retain(|&id| id != cmd_id);
 
-        // Remove unified command state
+        // Remove command state (single source of truth - includes socket via phase)
         self.commands.remove(&cmd_id);
 
         // Remove from command/inquiry queues if still there
@@ -1403,8 +1447,8 @@ impl SchedulerCore {
     /// This method implements lifecycle-aware cancel-by-id semantics:
     ///
     /// - **Command not active**: Returns `None` (no-op, no state retained).
-    /// - **Socket already assigned**: Returns `Some((camera_id, socket))` so the caller
-    ///   can send the cancel command immediately.
+    /// - **Socket already assigned (Executing phase)**: Returns `Some((camera_id, socket))`
+    ///   so the caller can send the cancel command immediately.
     /// - **Awaiting ACK (no socket yet)**: Sets `cancel_requested = true` on the command
     ///   state and returns `None`. The cancel will be emitted as a `SchedulerAction::SendCancel`
     ///   when the ACK arrives and assigns a socket.
@@ -1415,14 +1459,14 @@ impl SchedulerCore {
         &mut self,
         cmd_id: CommandId,
     ) -> Option<(crate::camera_id::CameraId, ViscaSocket)> {
-        // Check if the command is active
+        // Check if the command is active and get its state
         let state = self.commands.get_mut(&cmd_id)?;
 
-        // Get camera_id from the command state (type-safe, no external CameraId needed)
+        // Get camera_id from the command state
         let camera_id = state.camera_id;
 
-        // Check if a socket is already assigned
-        if let Some(socket) = self.find_socket_for_command(cmd_id) {
+        // Check if a socket is assigned via phase (Executing variant)
+        if let CommandPhase::Executing { socket, .. } = state.phase {
             // Socket is assigned - caller should send cancel immediately
             debug!(
                 %cmd_id,
@@ -1433,7 +1477,6 @@ impl SchedulerCore {
             Some((camera_id, socket))
         } else {
             // Command is active but no socket yet - mark for cancel on ACK
-            let state = self.commands.get_mut(&cmd_id)?;
             state.cancel_requested = true;
             debug!(
                 %cmd_id,
@@ -1453,15 +1496,13 @@ impl SchedulerCore {
     pub fn complete_inquiry(&mut self, cmd_id: CommandId) {
         trace!("Completing inquiry {cmd_id}");
 
-        // Remove from index sets
-        self.inflight_inquiry_ids.remove(&cmd_id);
-        self.pending_ack_ids.remove(&cmd_id);
+        // Remove from inquiry FIFO order (for raw VISCA correlation)
         self.inquiries_order.retain(|&id| id != cmd_id);
 
         // Clean up sequence mappings
         self.finish_sequence(cmd_id);
 
-        // Remove unified command state
+        // Remove command state (single source of truth)
         self.commands.remove(&cmd_id);
     }
 
@@ -1475,19 +1516,23 @@ impl SchedulerCore {
         // Clean up sequence mappings
         self.finish_sequence(cmd_id);
 
-        // Remove from index sets
-        self.pending_ack_ids.remove(&cmd_id);
-        self.inflight_inquiry_ids.remove(&cmd_id);
-
-        // Remove unified command state
+        // Remove command state (single source of truth - includes socket via phase)
         self.commands.remove(&cmd_id);
     }
 
-    /// Unregister a pending ACK without removing command metadata.
-    /// This is used for rollback when a send operation fails.
-    /// Returns true if the command was found and removed from pending_ack_ids.
-    pub fn unregister_pending_ack(&mut self, id: CommandId) -> bool {
-        self.pending_ack_ids.remove(&id)
+    /// Transition a command's phase to Queued (rollback from AwaitingAck on send failure).
+    ///
+    /// This is used when a send operation fails and we want to preserve the command
+    /// for retry without removing it from the scheduler entirely.
+    ///
+    /// Returns true if the command exists and was transitioned, false otherwise.
+    pub fn revert_to_queued(&mut self, id: CommandId) -> bool {
+        if let Some(state) = self.commands.get_mut(&id) {
+            state.phase = CommandPhase::Queued;
+            true
+        } else {
+            false
+        }
     }
 
     /// Get the response type for an inquiry from the command state.
@@ -1526,8 +1571,8 @@ impl SchedulerCore {
         // First try sequence-based resolution if available
         if let Some(seq) = sequence {
             if let Some(cmd_id) = self.get_command_by_sequence(seq) {
-                // Verify it's an active inquiry
-                if self.inflight_inquiry_ids.contains(&cmd_id) {
+                // Verify it's an active inquiry (AwaitingInquiryReply phase)
+                if self.is_awaiting_inquiry_reply(cmd_id) {
                     trace!(%cmd_id, sequence = seq, "Resolved inquiry via sequence");
                     return Some(cmd_id);
                 } else {
@@ -1545,14 +1590,10 @@ impl SchedulerCore {
         // Try content-based matching for raw VISCA
         // Build a map of active inquiries with their types
         let active_inquiries: HashMap<CommandId, InquiryKind> = self
-            .inflight_inquiry_ids
+            .commands
             .iter()
-            .filter_map(|&id| {
-                self.commands
-                    .get(&id)
-                    .and_then(|state| state.response_type())
-                    .map(|ty| (id, ty))
-            })
+            .filter(|(_, state)| state.phase.is_awaiting_inquiry_reply())
+            .filter_map(|(&id, state)| state.response_type().map(|ty| (id, ty)))
             .collect();
 
         trace!(
@@ -1658,30 +1699,17 @@ impl SchedulerCore {
                 let resolved_cmd_id = self.resolve_command_for_completion(&source);
 
                 if let Some(cmd_id) = resolved_cmd_id {
-                    if let Some(socket) = source
-                        .socket()
-                        .or_else(|| self.find_socket_for_command(cmd_id))
+                    // Use finalize_command for unified cleanup
+                    if let Some((category, camera_id)) =
+                        self.finalize_command(cmd_id, source.socket())
                     {
-                        self.free_socket(socket);
+                        actions.push(SchedulerAction::CommandComplete {
+                            id: cmd_id,
+                            category,
+                            camera_id,
+                            response,
+                        });
                     }
-                    self.finish_sequence(cmd_id);
-                    // Extract metadata before removing it
-                    let (category, camera_id) = if let Some(state) = self.commands.get(&cmd_id) {
-                        (state.category(), state.camera_id)
-                    } else {
-                        // Fallback for commands without metadata (shouldn't happen)
-                        (CommandCategory::Quick, crate::camera_id::CameraId::CAMERA_1)
-                    };
-                    // Remove from index sets and unified state
-                    self.pending_ack_ids.remove(&cmd_id);
-                    self.inflight_inquiry_ids.remove(&cmd_id);
-                    self.commands.remove(&cmd_id);
-                    actions.push(SchedulerAction::CommandComplete {
-                        id: cmd_id,
-                        category,
-                        camera_id,
-                        response,
-                    });
                 }
             }
             SchedulerEvent::InquiryReply { source, response } => {
@@ -1689,28 +1717,16 @@ impl SchedulerCore {
                 let resolved_cmd_id = self.resolve_command_for_inquiry(&source);
 
                 if let Some(cmd_id) = resolved_cmd_id {
-                    // Remove from inflight tracking
-                    self.inflight_inquiry_ids.remove(&cmd_id);
-                    // Clean up sequence mappings
-                    self.finish_sequence(cmd_id);
-                    // Extract metadata before removing it
-                    let (category, camera_id) = if let Some(state) = self.commands.get(&cmd_id) {
-                        (state.category(), state.camera_id)
-                    } else {
-                        // Fallback for inquiries without metadata
-                        (CommandCategory::Quick, crate::camera_id::CameraId::CAMERA_1)
-                    };
-                    // Remove unified state
-                    self.pending_ack_ids.remove(&cmd_id);
-                    self.commands.remove(&cmd_id);
-                    // Complete the inquiry
-                    actions.push(SchedulerAction::CommandComplete {
-                        id: cmd_id,
-                        category,
-                        camera_id,
-                        response,
-                    });
-                    trace!("Inquiry {cmd_id} completed with response");
+                    // Use finalize_command for unified cleanup (inquiries have no socket)
+                    if let Some((category, camera_id)) = self.finalize_command(cmd_id, None) {
+                        actions.push(SchedulerAction::CommandComplete {
+                            id: cmd_id,
+                            category,
+                            camera_id,
+                            response,
+                        });
+                        trace!("Inquiry {cmd_id} completed with response");
+                    }
                 }
             }
             SchedulerEvent::Error { source, code } => {
@@ -1720,14 +1736,11 @@ impl SchedulerCore {
                 let resolved_cmd_id = self.resolve_command_for_error(&source, code);
 
                 if let Some(cmd_id) = resolved_cmd_id {
-                    // Remove from pending_ack_ids if it's there (for immediate errors without ACK)
-                    self.pending_ack_ids.remove(&cmd_id);
-                    // Check if this is an inquiry
-                    let is_inquiry = self.inflight_inquiry_ids.contains(&cmd_id);
+                    // Check if this is an inquiry via phase
+                    let is_inquiry = self.is_awaiting_inquiry_reply(cmd_id);
 
                     if is_inquiry {
-                        // Remove from inquiry tracking
-                        self.inflight_inquiry_ids.remove(&cmd_id);
+                        // Remove from inquiry FIFO order
                         self.inquiries_order.retain(|&id| id != cmd_id);
                     }
 
@@ -1738,12 +1751,7 @@ impl SchedulerCore {
                             actions.push(retry_action);
                         }
                     } else {
-                        if let Some(socket) = source
-                            .socket()
-                            .or_else(|| self.find_socket_for_command(cmd_id))
-                        {
-                            self.free_socket(socket);
-                        }
+                        // Clean up and fail the command
                         self.finish_sequence(cmd_id);
                         self.commands.remove(&cmd_id);
                         actions.push(SchedulerAction::CommandFailed {
@@ -1760,8 +1768,8 @@ impl SchedulerCore {
                 // For sequenced but unmatched errors, we already logged and incremented the counter above.
             }
             SchedulerEvent::NetworkError(error) => {
-                // Network error - retry all pending commands
-                let pending_cmds: Vec<_> = self.pending_ack_ids.iter().copied().collect();
+                // Network error - retry all commands in AwaitingAck phase
+                let pending_cmds: Vec<_> = self.commands_awaiting_ack().collect();
                 // Check if this is a transport error
                 let is_transport_error = matches!(error, Error::TransportError(_));
                 for cmd_id in pending_cmds {
@@ -1872,108 +1880,97 @@ impl SchedulerCore {
     }
 
     /// Find the most recently sent pending command (temporal correlation fallback).
+    ///
+    /// Searches commands in AwaitingAck phase and returns the one with the most recent sent_at.
     fn find_most_recent_pending_command(&self) -> Option<CommandId> {
-        self.pending_ack_ids
+        self.commands
             .iter()
-            .filter_map(|&id| {
-                self.commands
-                    .get(&id)
-                    .and_then(|s| s.sent_at)
-                    .map(|t| (id, t))
+            .filter_map(|(&cmd_id, state)| {
+                if let CommandPhase::AwaitingAck { sent_at } = state.phase {
+                    Some((cmd_id, sent_at))
+                } else {
+                    None
+                }
             })
             .max_by_key(|(_, sent_time)| *sent_time)
             .map(|(id, _)| id)
     }
 
     /// Check for timeouts and return commands that need action.
+    ///
+    /// Uses single-pass iteration over all commands, checking each phase for timeout:
+    /// - `AwaitingAck`: Check against `ack_timeout`
+    /// - `Executing`: Check against category-specific timeout
+    /// - `AwaitingInquiryReply`: Check against category-specific timeout
+    /// - `Queued`: Not sent yet, no timeout check needed
     pub fn check_timeouts(&mut self, now: Instant) -> Vec<SchedulerAction> {
         let mut actions = Vec::new();
-
-        // Collect timed-out socket commands
-        let mut timed_out_sockets = Vec::new();
-        for socket_idx in 0..2 {
-            let socket = if socket_idx == 0 {
-                ViscaSocket::S1
-            } else {
-                ViscaSocket::S2
-            };
-
-            if let SocketState::Busy {
-                command_id,
-                started_at,
-                category,
-            } = &self.sockets[socket_idx]
-            {
-                let timeout = self.timeout_config.get_timeout(*category);
-
-                if now.duration_since(*started_at) > timeout {
-                    warn!(
-                        "Command {} on socket {:?} timed out after {:?}",
-                        command_id, socket, timeout
-                    );
-                    if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
-                        eprintln!(
-                            "[SchedulerCore] Socket timeout: cmd_id={}, socket={:?}, category={:?}, duration={:?}",
-                            command_id, socket, category, now.duration_since(*started_at)
-                        );
-                    }
-                    timed_out_sockets.push((socket, *command_id));
-                }
-            }
-        }
-
-        // Collect timed-out inquiries
-        let mut timed_out_inquiries = Vec::new();
-        for &cmd_id in &self.inflight_inquiry_ids {
-            if let Some(state) = self.commands.get(&cmd_id) {
-                if let Some(sent_at) = state.sent_at {
-                    let timeout = self.timeout_config.get_timeout(state.category());
-                    let elapsed = now.duration_since(sent_at);
-                    if elapsed > timeout {
-                        warn!(
-                            %cmd_id,
-                            inquiry_type = ?state.response_type(),
-                            timeout = ?timeout,
-                            elapsed = ?elapsed,
-                            "Inquiry timed out"
-                        );
-                        timed_out_inquiries.push(cmd_id);
-                    }
-                }
-            }
-        }
-
-        // Collect timed-out ACK commands
         let ack_timeout = self.timeout_config.ack_timeout;
-        let mut timed_out_acks = Vec::new();
-        for &cmd_id in &self.pending_ack_ids {
-            if let Some(state) = self.commands.get(&cmd_id) {
-                if let Some(sent_at) = state.sent_at {
-                    let elapsed = now.duration_since(sent_at);
-                    if elapsed > ack_timeout {
-                        warn!(
-                            "Command {} timed out waiting for ACK after {:?}",
-                            cmd_id, ack_timeout
-                        );
-                        timed_out_acks.push(cmd_id);
+
+        // Single-pass collection of timed-out commands by phase
+        let timed_out: Vec<(CommandId, TimeoutSource)> = self
+            .commands
+            .iter()
+            .filter_map(|(&cmd_id, state)| {
+                let (sent_at, timeout_source, timeout) = match state.phase {
+                    CommandPhase::Queued => return None,
+                    CommandPhase::AwaitingAck { sent_at } => {
+                        (sent_at, TimeoutSource::Ack, ack_timeout)
                     }
+                    CommandPhase::Executing { socket, started_at } => {
+                        let timeout = self.timeout_config.get_timeout(state.category());
+                        (started_at, TimeoutSource::Socket(socket), timeout)
+                    }
+                    CommandPhase::AwaitingInquiryReply { sent_at } => {
+                        let timeout = self.timeout_config.get_timeout(state.category());
+                        (sent_at, TimeoutSource::Inquiry, timeout)
+                    }
+                };
+
+                let elapsed = now.duration_since(sent_at);
+                if elapsed > timeout {
+                    // Log the timeout based on source
+                    match &timeout_source {
+                        TimeoutSource::Ack => {
+                            warn!(
+                                "Command {} timed out waiting for ACK after {:?}",
+                                cmd_id, ack_timeout
+                            );
+                        }
+                        TimeoutSource::Socket(socket) => {
+                            warn!(
+                                "Command {} on socket {:?} timed out after {:?}",
+                                cmd_id, socket, timeout
+                            );
+                            if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
+                                eprintln!(
+                                    "[SchedulerCore] Socket timeout: cmd_id={}, socket={:?}, category={:?}, duration={:?}",
+                                    cmd_id, socket, state.category(), elapsed
+                                );
+                            }
+                        }
+                        TimeoutSource::Inquiry => {
+                            warn!(
+                                %cmd_id,
+                                inquiry_type = ?state.response_type(),
+                                timeout = ?timeout,
+                                elapsed = ?elapsed,
+                                "Inquiry timed out"
+                            );
+                        }
+                    }
+                    Some((cmd_id, timeout_source))
+                } else {
+                    None
                 }
-            }
-        }
+            })
+            .collect();
 
         // Handle all timeouts using the unified handler
-        for (socket, cmd_id) in timed_out_sockets {
-            self.handle_timeout(TimeoutSource::Socket(socket), cmd_id, now, &mut actions);
-        }
-
-        for cmd_id in timed_out_inquiries {
-            self.handle_timeout(TimeoutSource::Inquiry, cmd_id, now, &mut actions);
-        }
-
-        for cmd_id in timed_out_acks {
-            // Only process if command still exists (wasn't already handled by another timeout)
+        for (cmd_id, timeout_source) in timed_out {
+            // Only process if command still exists (wasn't already handled)
             if self.commands.contains_key(&cmd_id) {
-                self.handle_timeout(TimeoutSource::Ack, cmd_id, now, &mut actions);
+                self.handle_timeout(timeout_source, cmd_id, now, &mut actions);
             }
         }
 
@@ -2059,43 +2056,32 @@ impl SchedulerCore {
     }
 
     /// Get the next deadline for time-based operations.
-    /// Returns the earliest deadline among ACK timeouts, command timeouts, inquiry timeouts, and retry eligibility.
+    ///
+    /// Uses single-pass iteration over commands to find the earliest deadline among:
+    /// - ACK timeouts (AwaitingAck phase)
+    /// - Socket command timeouts (Executing phase)
+    /// - Inquiry timeouts (AwaitingInquiryReply phase)
+    /// - Retry eligibility
+    /// - Inquiry spacing
     pub fn next_deadline(&self, _now: Instant) -> Option<Instant> {
         let mut earliest: Option<Instant> = None;
+        let ack_timeout = self.timeout_config.ack_timeout;
 
-        // Check ACK timeouts
-        for &cmd_id in &self.pending_ack_ids {
-            if let Some(state) = self.commands.get(&cmd_id) {
-                if let Some(sent_at) = state.sent_at {
-                    let deadline = sent_at + self.timeout_config.ack_timeout;
-                    Self::update_earliest(&mut earliest, deadline);
-                }
-            }
-        }
-
-        // Check socket command timeouts
-        for socket_state in &self.sockets {
-            if let SocketState::Busy {
-                started_at,
-                category,
-                ..
-            } = socket_state
-            {
-                let timeout = self.timeout_config.get_timeout(*category);
-                let deadline = *started_at + timeout;
-                Self::update_earliest(&mut earliest, deadline);
-            }
-        }
-
-        // Check inquiry timeouts
-        for &cmd_id in &self.inflight_inquiry_ids {
-            if let Some(state) = self.commands.get(&cmd_id) {
-                if let Some(sent_at) = state.sent_at {
+        // Single-pass over all commands to find earliest timeout deadline
+        for state in self.commands.values() {
+            let deadline = match state.phase {
+                CommandPhase::Queued => continue,
+                CommandPhase::AwaitingAck { sent_at } => sent_at + ack_timeout,
+                CommandPhase::Executing { started_at, .. } => {
                     let timeout = self.timeout_config.get_timeout(state.category());
-                    let deadline = sent_at + timeout;
-                    Self::update_earliest(&mut earliest, deadline);
+                    started_at + timeout
                 }
-            }
+                CommandPhase::AwaitingInquiryReply { sent_at } => {
+                    let timeout = self.timeout_config.get_timeout(state.category());
+                    sent_at + timeout
+                }
+            };
+            Self::update_earliest(&mut earliest, deadline);
         }
 
         // Check retry queue (peek at the earliest retry)
@@ -2139,18 +2125,42 @@ impl SchedulerCore {
         }
     }
 
-    /// Remove a command from all tracking structures.
+    /// Complete a command successfully, extracting metadata and cleaning up all state.
     ///
-    /// Note: Currently unused because each timeout source has slightly different
-    /// cleanup patterns (e.g., ACK timeouts don't need inquiry cleanup). This helper
-    /// is kept for potential future consolidation when all cleanup paths can be unified.
-    #[allow(dead_code)]
-    fn cleanup_command_state(&mut self, cmd_id: CommandId) {
+    /// This consolidates the cleanup pattern used in Completion and InquiryReply handlers.
+    /// Returns `Some((category, camera_id))` if the command existed, `None` otherwise.
+    ///
+    /// Cleanup steps:
+    /// 1. Extract metadata from CommandState
+    /// 2. Clean up sequence mappings
+    /// 3. Remove from inquiry FIFO order
+    /// 4. Remove from commands HashMap (this is the single source of truth)
+    ///
+    /// Note: Socket cleanup is not done here - socket state is embedded in CommandPhase::Executing
+    /// and is automatically cleaned up when the command is removed from the HashMap.
+    fn finalize_command(
+        &mut self,
+        cmd_id: CommandId,
+        _source_socket: Option<ViscaSocket>,
+    ) -> Option<(CommandCategory, crate::camera_id::CameraId)> {
+        // Extract metadata before cleanup
+        let (category, camera_id) = if let Some(state) = self.commands.get(&cmd_id) {
+            (state.category(), state.camera_id)
+        } else {
+            return None;
+        };
+
+        // Clean up sequence mappings
         self.finish_sequence(cmd_id);
-        self.pending_ack_ids.remove(&cmd_id);
-        self.inflight_inquiry_ids.remove(&cmd_id);
+
+        // Remove from inquiry FIFO order (for raw VISCA correlation)
         self.inquiries_order.retain(|&id| id != cmd_id);
+
+        // Remove command state (single source of truth for lifecycle)
+        // This implicitly frees the socket since socket ownership is in CommandPhase::Executing
         self.commands.remove(&cmd_id);
+
+        Some((category, camera_id))
     }
 
     /// Update earliest deadline if candidate is earlier.
@@ -2176,31 +2186,32 @@ impl SchedulerCore {
     ) {
         // Source-specific pre-cleanup
         match source {
-            TimeoutSource::Socket(socket) => {
-                self.free_socket(socket);
+            TimeoutSource::Socket(_socket) => {
+                // Socket state is now in CommandPhase::Executing - no separate cleanup needed.
+                // The command will be removed from commands HashMap which implicitly frees the socket.
             }
             TimeoutSource::Inquiry => {
-                self.inflight_inquiry_ids.remove(&cmd_id);
+                // Remove from inquiry FIFO order
                 self.inquiries_order.retain(|&id| id != cmd_id);
             }
             TimeoutSource::Ack => {
-                self.pending_ack_ids.remove(&cmd_id);
+                // Phase transitions are handled by command state updates - no separate index to update.
 
                 if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
                     eprintln!(
-                        "[SchedulerCore] ACK timeout: cmd_id={}, removed from pending_ack_ids (count={})",
+                        "[SchedulerCore] ACK timeout: cmd_id={}, awaiting_ack_count={}",
                         cmd_id,
-                        self.pending_ack_ids.len()
+                        self.count_awaiting_ack()
                     );
                 }
 
-                // Debug assertion: command should not be in both pending_ack_ids and have a socket
+                // Debug assertion: command in AwaitingAck should not also have a socket in its phase
                 #[cfg(debug_assertions)]
                 {
-                    for socket in &self.sockets {
-                        if socket.command_id() == Some(cmd_id) {
+                    if let Some(state) = self.commands.get(&cmd_id) {
+                        if state.phase.socket().is_some() {
                             eprintln!(
-                                "ERROR: Invariant violation: ACK-timed-out command {} still has socket allocated",
+                                "ERROR: Invariant violation: ACK-timed-out command {} has socket in phase",
                                 cmd_id
                             );
                             debug_assert!(false, "ACK timeout invariant violation");
@@ -2335,22 +2346,23 @@ impl SchedulerCore {
     ) -> (Option<CommandId>, Option<SchedulerAction>) {
         // Prefer cmd_id from sequence mapping
         let target_id = if let Some(id) = cmd_id {
-            // Verify it's actually pending
-            if self.pending_ack_ids.contains(&id) {
+            // Verify it's actually in AwaitingAck phase
+            if self.is_awaiting_ack(id) {
                 Some(id)
             } else {
                 debug!("ACK with sequence {} not found in pending commands", id);
                 None
             }
         } else {
-            // Fall back to oldest pending command (FIFO order for raw VISCA)
-            self.pending_ack_ids
+            // Fall back to oldest pending command in AwaitingAck phase (FIFO order for raw VISCA)
+            self.commands
                 .iter()
-                .filter_map(|&id| {
-                    self.commands
-                        .get(&id)
-                        .and_then(|s| s.sent_at)
-                        .map(|t| (id, t))
+                .filter_map(|(&cmd_id, state)| {
+                    if let CommandPhase::AwaitingAck { sent_at } = state.phase {
+                        Some((cmd_id, sent_at))
+                    } else {
+                        None
+                    }
                 })
                 .min_by_key(|(_, sent_time)| *sent_time)
                 .map(|(id, _)| id)
@@ -2364,14 +2376,10 @@ impl SchedulerCore {
         // Get command state
         let state_copy = self.commands.get(&target_id).cloned();
         if let Some(cmd_state) = state_copy {
-            // Remove from pending_ack_ids
-            self.pending_ack_ids.remove(&target_id);
-
             // Determine which socket to use with fallback logic
             let assigned_socket = if let Some(s) = socket {
                 // Camera specified a socket - try to use it
-                let idx = s.as_index();
-                if self.sockets[idx].is_free() {
+                if self.is_socket_free(s) {
                     // Requested socket is free, use it
                     s
                 } else {
@@ -2382,42 +2390,38 @@ impl SchedulerCore {
                         ViscaSocket::S1
                     };
 
-                    if self.sockets[other.as_index()].is_free() {
+                    if self.is_socket_free(other) {
                         debug!(
                             "Camera requested {:?} but it's occupied, using {:?} instead",
                             s, other
                         );
                         other
                     } else {
-                        // Both sockets are busy
+                        // Both sockets are busy - command stays in AwaitingAck phase
                         warn!("Camera assigned {:?} but both sockets are occupied", s);
-                        // Re-insert command into pending_ack_ids since we couldn't assign it
-                        self.pending_ack_ids.insert(target_id);
                         return (None, None);
                     }
                 }
             } else {
                 // No socket specified - pick the first free one
-                if self.sockets[ViscaSocket::S1.as_index()].is_free() {
+                if self.is_socket_free(ViscaSocket::S1) {
                     ViscaSocket::S1
-                } else if self.sockets[ViscaSocket::S2.as_index()].is_free() {
+                } else if self.is_socket_free(ViscaSocket::S2) {
                     ViscaSocket::S2
                 } else {
-                    // Both sockets are busy
+                    // Both sockets are busy - command stays in AwaitingAck phase
                     warn!("ACK received without socket nibble but both sockets are occupied");
-                    // Re-insert command into pending_ack_ids since we couldn't assign it
-                    self.pending_ack_ids.insert(target_id);
                     return (None, None);
                 }
             };
 
-            // Allocate the chosen socket
-            let idx = assigned_socket.as_index();
-            self.sockets[idx] = SocketState::Busy {
-                command_id: target_id,
-                started_at: now,
-                category: cmd_state.category(),
-            };
+            // Transition command phase to Executing (socket is now embedded in phase)
+            if let Some(state) = self.commands.get_mut(&target_id) {
+                state.phase = CommandPhase::Executing {
+                    socket: assigned_socket,
+                    started_at: now,
+                };
+            }
 
             trace!(
                 "Assigned command {} to {:?} per camera ACK",
@@ -2483,7 +2487,7 @@ impl SchedulerCore {
             existing.command = command;
             existing.priority = priority;
             existing.camera_id = camera_id;
-            existing.sent_at = Some(now);
+            existing.phase = CommandPhase::AwaitingInquiryReply { sent_at: now };
             // Note: preserve attempt, transport_error, cancel_requested, and submitted_at
             // Category and kind come from command, so no update needed
             // response_type comes from EncodedCommand.response_type via CommandState.response_type()
@@ -2502,7 +2506,7 @@ impl SchedulerCore {
                 priority,
                 camera_id,
                 submitted_at: now,
-                sent_at: Some(now),
+                phase: CommandPhase::AwaitingInquiryReply { sent_at: now },
                 attempt: 0,
                 transport_error: false,
                 cancel_requested: false,
@@ -2518,7 +2522,7 @@ impl SchedulerCore {
             );
         }
 
-        self.inflight_inquiry_ids.insert(id);
+        // Phase is now set to AwaitingInquiryReply - no separate index needed
 
         // Remove any existing occurrence to prevent duplicates, then add to back
         // This maintains FIFO ordering while ensuring at most one entry per id
@@ -2537,23 +2541,24 @@ impl SchedulerCore {
             "inquiries_order contains duplicates after start_inquiry"
         );
 
-        let inflight_count = self.inflight_inquiry_ids.len();
+        let inflight_count = self.count_awaiting_inquiry_reply();
         trace!(
             %id,
             inflight_count,
-            "Started inquiry (no socket allocation)"
+            "Started inquiry (phase=AwaitingInquiryReply)"
         );
     }
 
-    /// Check if a command is pending (either awaiting ACK or has a socket).
+    /// Check if a command is pending (either awaiting ACK or executing with socket).
     pub fn is_command_pending(&self, cmd_id: CommandId) -> bool {
-        self.pending_ack_ids.contains(&cmd_id)
-            || self.sockets.iter().any(|s| s.command_id() == Some(cmd_id))
+        self.commands
+            .get(&cmd_id)
+            .is_some_and(|s| s.phase.is_awaiting_ack() || s.phase.is_executing())
     }
 
     /// Get the count of commands waiting for ACK.
     pub fn pending_ack_count(&self) -> usize {
-        self.pending_ack_ids.len()
+        self.count_awaiting_ack()
     }
 
     /// Get the count of ignored unmatched sequenced replies.
@@ -2566,55 +2571,33 @@ impl SchedulerCore {
         self.ignored_unmatched_sequenced_replies
     }
 
-    /// Free a previously reserved socket (used for rollback on inquiry send failure).
-    pub fn free_socket(&mut self, socket: ViscaSocket) {
-        let idx = socket.as_index();
-
-        if let SocketState::Busy { command_id, .. } = &self.sockets[idx] {
-            trace!("Freeing {socket:?} from command {command_id}");
-        }
-
-        self.sockets[idx] = SocketState::Free;
-    }
-
-    /// Find the command ID currently assigned to a socket.
-    pub fn find_command_on_socket(&self, socket: ViscaSocket) -> Option<CommandId> {
-        self.sockets[socket.as_index()].command_id()
-    }
-
     /// Get the camera ID for a command by its ID.
     pub fn camera_id_for_command(&self, id: CommandId) -> Option<crate::camera_id::CameraId> {
         self.commands.get(&id).map(|state| state.camera_id)
     }
 
-    pub(crate) fn find_socket_for_command(&self, cmd_id: CommandId) -> Option<ViscaSocket> {
-        for (idx, state) in self.sockets.iter().enumerate() {
-            if state.command_id() == Some(cmd_id) {
-                return Some(if idx == 0 {
-                    ViscaSocket::S1
-                } else {
-                    ViscaSocket::S2
-                });
-            }
-        }
-        None
-    }
-
     /// Get socket state for testing.
+    ///
+    /// Returns (is_free, command_id, category) for the given socket.
+    /// Socket state is derived from CommandPhase::Executing variants.
     #[cfg(test)]
     pub fn socket_state(
         &self,
         socket: ViscaSocket,
     ) -> (bool, Option<CommandId>, Option<CommandCategory>) {
-        let state = &self.sockets[socket.as_index()];
-        match state {
-            SocketState::Free => (true, None, None),
-            SocketState::Busy {
-                command_id,
-                category,
-                ..
-            } => (false, Some(*command_id), Some(*category)),
+        // Find any command in Executing phase with this socket
+        for (&cmd_id, state) in &self.commands {
+            if let CommandPhase::Executing {
+                socket: s,
+                started_at: _,
+            } = state.phase
+            {
+                if s == socket {
+                    return (false, Some(cmd_id), Some(state.category()));
+                }
+            }
         }
+        (true, None, None)
     }
 
     fn should_retry_command(&self, cmd_id: CommandId, error: &ViscaError, now: Instant) -> bool {
@@ -2645,9 +2628,7 @@ impl SchedulerCore {
         cmd_id: CommandId,
         cause: Error,
     ) -> Option<SchedulerAction> {
-        // If inquiry is in-flight, remove from index sets and order
-        self.inflight_inquiry_ids.remove(&cmd_id);
-        self.pending_ack_ids.remove(&cmd_id);
+        // Remove from inquiry FIFO order
         self.inquiries_order.retain(|&x| x != cmd_id);
 
         // For send failures on first attempt, fail immediately with the original error
@@ -2675,19 +2656,11 @@ impl SchedulerCore {
         cmd_id: CommandId,
         error: Error,
     ) -> Option<SchedulerAction> {
-        // Remove from all tracking sets
-        self.inflight_inquiry_ids.remove(&cmd_id);
-        self.pending_ack_ids.remove(&cmd_id);
+        // Remove from inquiry FIFO order
         self.inquiries_order.retain(|&x| x != cmd_id);
 
-        // Free any socket allocated to this command.
-        // Commands (unlike inquiries) may have sockets; freeing them allows
-        // subsequent commands to proceed without waiting for a timeout.
-        if let Some(socket) = self.find_socket_for_command(cmd_id) {
-            self.free_socket(socket);
-        }
-
         // Clean up sequence mappings and command state
+        // (Socket is embedded in phase, removed with command)
         self.finish_sequence(cmd_id);
         self.commands.remove(&cmd_id);
 
@@ -2711,9 +2684,9 @@ impl SchedulerCore {
         // Get current state
         let state_copy = self.commands.get(&cmd_id).cloned();
         if let Some(state) = state_copy {
-            // Free the socket if allocated
-            if let Some(socket) = self.find_socket_for_command(cmd_id) {
-                self.free_socket(socket);
+            // Reset phase to Queued for retry (socket is embedded in phase, this "frees" it)
+            if let Some(cmd_state) = self.commands.get_mut(&cmd_id) {
+                cmd_state.phase = CommandPhase::Queued;
             }
 
             // Increment retry count
@@ -2771,6 +2744,35 @@ impl SchedulerCore {
         }
     }
 
+    // --- Phase-based counting helpers ---
+
+    /// Count commands in the AwaitingAck phase.
+    #[inline]
+    fn count_awaiting_ack(&self) -> usize {
+        self.commands
+            .values()
+            .filter(|s| s.phase.is_awaiting_ack())
+            .count()
+    }
+
+    /// Count commands in the Executing phase.
+    #[inline]
+    fn count_executing(&self) -> usize {
+        self.commands
+            .values()
+            .filter(|s| s.phase.is_executing())
+            .count()
+    }
+
+    /// Count inquiries in the AwaitingInquiryReply phase.
+    #[inline]
+    fn count_awaiting_inquiry_reply(&self) -> usize {
+        self.commands
+            .values()
+            .filter(|s| s.phase.is_awaiting_inquiry_reply())
+            .count()
+    }
+
     /// Clear all scheduler state.
     ///
     /// This is used when the transport is poisoned and all commands must be failed.
@@ -2778,8 +2780,6 @@ impl SchedulerCore {
     /// that is handled by the caller.
     pub fn clear_all(&mut self) {
         self.commands.clear();
-        self.pending_ack_ids.clear();
-        self.inflight_inquiry_ids.clear();
         self.retry_queue.clear();
         self.command_queue.clear();
         self.inquiry_queue.clear();
@@ -2788,9 +2788,58 @@ impl SchedulerCore {
         self.seq16_to_cmds.clear();
         self.cmd_to_seq16s.clear();
         self.inquiries_order.clear();
-        self.sockets = Default::default();
         self.last_logged_idle.set(false);
         self.last_inquiry_sent = None;
+    }
+
+    /// Check if a command is in the AwaitingAck phase.
+    ///
+    /// Returns true if the command exists and is awaiting ACK.
+    #[inline]
+    fn is_awaiting_ack(&self, cmd_id: CommandId) -> bool {
+        self.commands
+            .get(&cmd_id)
+            .is_some_and(|s| s.phase.is_awaiting_ack())
+    }
+
+    /// Check if an inquiry is in the AwaitingInquiryReply phase.
+    ///
+    /// Returns true if the inquiry exists and is awaiting reply.
+    #[inline]
+    fn is_awaiting_inquiry_reply(&self, cmd_id: CommandId) -> bool {
+        self.commands
+            .get(&cmd_id)
+            .is_some_and(|s| s.phase.is_awaiting_inquiry_reply())
+    }
+
+    /// Find the command ID currently assigned to a socket, if any.
+    pub fn find_command_on_socket(&self, socket: ViscaSocket) -> Option<CommandId> {
+        self.commands.iter().find_map(|(&cmd_id, state)| {
+            if state.phase.socket() == Some(socket) {
+                Some(cmd_id)
+            } else {
+                None
+            }
+        })
+    }
+
+    /// Check if a socket is free (not assigned to any command).
+    fn is_socket_free(&self, socket: ViscaSocket) -> bool {
+        !self
+            .commands
+            .values()
+            .any(|s| s.phase.socket() == Some(socket))
+    }
+
+    /// Get commands in AwaitingAck phase.
+    fn commands_awaiting_ack(&self) -> impl Iterator<Item = CommandId> + '_ {
+        self.commands.iter().filter_map(|(&cmd_id, state)| {
+            if state.phase.is_awaiting_ack() {
+                Some(cmd_id)
+            } else {
+                None
+            }
+        })
     }
 }
 

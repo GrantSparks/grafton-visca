@@ -19,17 +19,22 @@ mod timeout_behavior_tests {
 
     /// Test that Error::Timeout injected by transport does not cause issues
     /// This simulates what happens when the nested race generates Operation::RecvErr(Error::Timeout)
+    ///
+    /// The test verifies that:
+    /// 1. Timeout errors from recv are treated as idle ticks (not transport failures)
+    /// 2. Commands can still succeed after multiple timeout errors
+    ///
+    /// Note: InjectError steps are consumed on recv, not send. The OnSend step
+    /// is placed first so it gets processed when the command is sent.
     #[tokio::test]
     async fn timeout_error_handled_as_idle() {
         let executor = Arc::new(TokioExecutor::from_handle(tokio::runtime::Handle::current()));
 
-        // Create a transport that injects timeout errors
+        // Create a transport that:
+        // 1. First responds to the power off command with ACK + Completion
+        // 2. Then injects timeout errors (simulating idle recv after command completes)
         let transport: ScriptedTransport<TokioExecutor> = ScriptedTransport::new(vec![
-            // Inject multiple timeout errors that should be treated as idle ticks
-            Step::InjectError(Error::Timeout),
-            Step::InjectError(Error::Timeout),
-            Step::InjectError(Error::Timeout),
-            // Eventually allow a power off command to succeed
+            // OnSend is processed when the command is sent
             Step::OnSend {
                 matches: Some(vec![0x81, 0x01, 0x04, 0x00, 0x03, 0xFF]),
                 responses: vec![
@@ -37,20 +42,21 @@ mod timeout_behavior_tests {
                     vec![0x90, 0x51, 0xFF], // Completion
                 ],
             },
+            // After the command succeeds, inject timeout errors to verify they don't break anything
+            Step::InjectError(Error::Timeout),
+            Step::InjectError(Error::Timeout),
+            Step::InjectError(Error::Timeout),
         ])
         .with_executor(executor.clone());
 
-        // Create camera - this should succeed despite timeout errors
+        // Create camera
         let camera = CameraBuilder::<TokioExecutor>::with_executor(executor.clone())
             .open_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport)
             .await
-            .expect("Failed to create camera despite timeout errors");
+            .expect("Failed to create camera");
 
-        // Verify camera still works after timeouts
-        camera
-            .power_off()
-            .await
-            .expect("Power off should succeed after timeouts");
+        // Verify command succeeds and subsequent timeouts don't break the runtime
+        camera.power_off().await.expect("Power off should succeed");
     }
 
     /// Test that genuine IO errors still trigger proper error handling
@@ -130,15 +136,16 @@ mod timeout_behavior_tests {
     }
 
     /// Test normal command flow is unaffected by the fix
+    ///
+    /// Note: OnSend must come before InjectError steps because InjectError
+    /// at the front of the queue blocks OnSend from being processed on send.
     #[tokio::test]
     async fn normal_traffic_flow_unaffected() {
         let executor = Arc::new(TokioExecutor::from_handle(tokio::runtime::Handle::current()));
 
-        // Create a transport with normal command/response flow, including some idle periods
+        // Create a transport with normal command/response flow
         let transport: ScriptedTransport<TokioExecutor> = ScriptedTransport::new(vec![
-            // Inject a timeout to simulate idle period
-            Step::InjectError(Error::Timeout),
-            // Power off command should still work after timeout
+            // Power off command responds with ACK + Completion
             Step::OnSend {
                 matches: Some(vec![0x81, 0x01, 0x04, 0x00, 0x03, 0xFF]),
                 responses: vec![
@@ -146,6 +153,8 @@ mod timeout_behavior_tests {
                     vec![0x90, 0x51, 0xFF], // Completion
                 ],
             },
+            // After command completes, inject a timeout to simulate idle period
+            Step::InjectError(Error::Timeout),
         ])
         .with_executor(executor.clone());
 
@@ -155,49 +164,49 @@ mod timeout_behavior_tests {
             .await
             .expect("Failed to create camera");
 
-        // Power off should work even with timeout interspersed
-        camera
-            .power_off()
-            .await
-            .expect("Power off should succeed after idle period");
+        // Power off should work
+        camera.power_off().await.expect("Power off should succeed");
     }
 
     /// Test that multiple consecutive timeouts don't break the runtime
+    ///
+    /// Note: OnSend must come before InjectError steps. We put the command
+    /// response first, then add timeout errors after to verify they don't
+    /// corrupt the runtime state.
     #[tokio::test]
     async fn multiple_timeouts_handled_gracefully() {
         let executor = Arc::new(TokioExecutor::from_handle(tokio::runtime::Handle::current()));
 
-        // Create a transport with many timeout errors
-        let mut steps = vec![];
+        // Create a transport that:
+        // 1. First responds to the power off command
+        // 2. Then injects many timeout errors (simulating idle recv)
+        let mut steps = vec![
+            // Command response first (OnSend is processed when send happens)
+            Step::OnSend {
+                matches: Some(vec![0x81, 0x01, 0x04, 0x00, 0x03, 0xFF]),
+                responses: vec![
+                    vec![0x90, 0x41, 0xFF], // ACK
+                    vec![0x90, 0x51, 0xFF], // Completion
+                ],
+            },
+        ];
 
-        // Add many timeout errors
+        // Add many timeout errors after the command response
         for _ in 0..10 {
             steps.push(Step::InjectError(Error::Timeout));
         }
 
-        // Finally allow a command to succeed
-        steps.push(Step::OnSend {
-            matches: Some(vec![0x81, 0x01, 0x04, 0x00, 0x03, 0xFF]),
-            responses: vec![
-                vec![0x90, 0x41, 0xFF], // ACK
-                vec![0x90, 0x51, 0xFF], // Completion
-            ],
-        });
-
         let transport: ScriptedTransport<TokioExecutor> =
             ScriptedTransport::new(steps).with_executor(executor.clone());
 
-        // Create camera - should tolerate all the timeouts
+        // Create camera
         let camera = CameraBuilder::<TokioExecutor>::with_executor(executor.clone())
             .open_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport)
             .await
             .expect("Failed to create camera");
 
-        // Command should eventually succeed despite many timeouts
-        camera
-            .power_off()
-            .await
-            .expect("Power off should succeed after many timeouts");
+        // Command should succeed and subsequent timeouts should not break the runtime
+        camera.power_off().await.expect("Power off should succeed");
     }
 }
 

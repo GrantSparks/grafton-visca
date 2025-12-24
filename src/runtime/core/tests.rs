@@ -315,24 +315,24 @@ fn test_inquiry_does_not_consume_sockets() {
     // Register first command on socket 1
     core.register_pending_ack(cmd_id(1), cmd1.clone(), priority, camera_id, now);
     // Manually allocate socket 1 (simulating ACK received)
-    // When ACK is received, command is removed from pending_ack_ids
-    core.pending_ack_ids.remove(&cmd_id(1));
-    core.sockets[0] = SocketState::Busy {
-        command_id: cmd_id(1),
-        started_at: now,
-        category: CommandCategory::Movement,
-    };
+    // When ACK is received, phase transitions from AwaitingAck to Executing
+    if let Some(state) = core.commands.get_mut(&cmd_id(1)) {
+        state.phase = CommandPhase::Executing {
+            socket: ViscaSocket::S1,
+            started_at: now,
+        };
+    }
 
     // Register second command on socket 2
     core.register_pending_ack(cmd_id(2), cmd2.clone(), priority, camera_id, now);
     // Manually allocate socket 2 (simulating ACK received)
-    // When ACK is received, command is removed from pending_ack_ids
-    core.pending_ack_ids.remove(&cmd_id(2));
-    core.sockets[1] = SocketState::Busy {
-        command_id: cmd_id(2),
-        started_at: now,
-        category: CommandCategory::Movement,
-    };
+    // When ACK is received, phase transitions from AwaitingAck to Executing
+    if let Some(state) = core.commands.get_mut(&cmd_id(2)) {
+        state.phase = CommandPhase::Executing {
+            socket: ViscaSocket::S2,
+            started_at: now,
+        };
+    }
 
     // Both sockets are now occupied, but inquiry should still be sendable
     assert!(!core.can_send_command()); // Cannot send more commands
@@ -341,7 +341,7 @@ fn test_inquiry_does_not_consume_sockets() {
     core.start_inquiry(cmd_id(3), inquiry_cmd.clone(), priority, camera_id, now);
 
     // Verify inquiry is tracked
-    assert!(core.inflight_inquiry_ids.contains(&cmd_id(3)));
+    assert!(core.is_awaiting_inquiry_reply(cmd_id(3)));
     assert!(core.inquiries_order.contains(&cmd_id(3)));
 
     // Sockets should still be occupied by commands
@@ -391,7 +391,7 @@ fn test_inquiry_reply_handling() {
     core.start_inquiry(cmd_id(1), command.clone(), priority, camera_id, now);
 
     // Verify inquiry is tracked
-    assert!(core.inflight_inquiry_ids.contains(&cmd_id(1)));
+    assert!(core.is_awaiting_inquiry_reply(cmd_id(1)));
     assert!(core.inquiries_order.contains(&cmd_id(1)));
 
     // Process InquiryReply event
@@ -419,7 +419,7 @@ fn test_inquiry_reply_handling() {
     }
 
     // Inquiry should be removed from tracking
-    assert!(!core.inflight_inquiry_ids.contains(&cmd_id(1)));
+    assert!(!core.is_awaiting_inquiry_reply(cmd_id(1)));
     assert!(!core.inquiries_order.contains(&cmd_id(1)));
 }
 
@@ -608,8 +608,8 @@ fn test_sony_sequence_attribution() {
     assert!(!free); // Socket occupied
     assert_eq!(socket_cmd_id, Some(cmd_id(2))); // By command 2
 
-    // Command 1 should still be pending
-    assert!(core.pending_ack_ids.contains(&cmd_id(1)));
+    // Command 1 should still be pending (awaiting ACK)
+    assert!(core.is_awaiting_ack(cmd_id(1)));
 
     // Now process ACK for command 1
     let cmd_id_1 = core.get_command_by_sequence(100);
@@ -646,7 +646,7 @@ fn test_inquiry_timeout_handling() {
 
     // Start an inquiry
     core.start_inquiry(cmd_id(1), command.clone(), priority, camera_id, now);
-    assert!(core.inflight_inquiry_ids.contains(&cmd_id(1)));
+    assert!(core.is_awaiting_inquiry_reply(cmd_id(1)));
 
     // Check timeout immediately - should not timeout
     let actions = core.check_timeouts(now);
@@ -672,11 +672,11 @@ fn test_inquiry_timeout_handling() {
     }
 
     // Inquiry should be removed from tracking after timeout
-    assert!(!core.inflight_inquiry_ids.contains(&cmd_id(1)));
+    assert!(!core.is_awaiting_inquiry_reply(cmd_id(1)));
 
     // Start inquiry again for the retry
     core.start_inquiry(cmd_id(1), command.clone(), priority, camera_id, later);
-    assert!(core.inflight_inquiry_ids.contains(&cmd_id(1)));
+    assert!(core.is_awaiting_inquiry_reply(cmd_id(1)));
 
     // Exhaust retries by timing out again (simulate max retries reached)
     // For Quick category, we get extra retries, so we need to exhaust them
@@ -1261,8 +1261,8 @@ fn test_raw_visca_content_based_matching() {
 
     // Verify both are tracked
     assert_eq!(core.inquiries_order.len(), 2);
-    assert!(core.inflight_inquiry_ids.contains(&cmd_id(1)));
-    assert!(core.inflight_inquiry_ids.contains(&cmd_id(2)));
+    assert!(core.is_awaiting_inquiry_reply(cmd_id(1)));
+    assert!(core.is_awaiting_inquiry_reply(cmd_id(2)));
 
     // Process replies out of order
     // Second inquiry (zoom) reply arrives first - with explicit cmd_id
@@ -1319,8 +1319,8 @@ fn test_raw_visca_content_based_matching() {
 
     // All inquiries should be completed
     assert_eq!(core.inquiries_order.len(), 0);
-    assert!(!core.inflight_inquiry_ids.contains(&cmd_id(1)));
-    assert!(!core.inflight_inquiry_ids.contains(&cmd_id(2)));
+    assert!(!core.is_awaiting_inquiry_reply(cmd_id(1)));
+    assert!(!core.is_awaiting_inquiry_reply(cmd_id(2)));
 }
 
 // Tests for issue #362: send-failure retry behavior
@@ -1661,9 +1661,9 @@ fn test_ack_without_socket_nibble_both_busy() {
     let event = SchedulerEvent::Ack { source };
     core.process_event(event, now);
 
-    // Verify command 3 is still pending
+    // Verify command 3 is still pending (awaiting ACK)
     assert!(
-        core.pending_ack_ids.contains(&cmd_id(3)),
+        core.is_awaiting_ack(cmd_id(3)),
         "Command 3 should still be pending"
     );
 
@@ -2026,9 +2026,10 @@ fn test_inquiry_pipeline_limit() {
     let inq3 = core.next_item_to_send(now);
     assert!(inq3.is_none());
 
-    // Complete one inquiry by removing it from inflight
-    core.inflight_inquiry_ids.remove(&cmd_id(1));
+    // Complete one inquiry by removing it from commands
+    // (phase state is embedded in the command, so removing it completes the inquiry)
     core.commands.remove(&cmd_id(1));
+    core.inquiries_order.retain(|&x| x != cmd_id(1));
 
     // Now the third inquiry should be sendable
     assert!(core.can_send_inquiry(now));
@@ -3420,7 +3421,7 @@ fn test_late_inquiry_reply_sequenced() {
 
     // Verify inquiry is in queue
     assert_eq!(core.inquiries_order.len(), 1);
-    assert!(core.inflight_inquiry_ids.contains(&cmd_id(1)));
+    assert!(core.is_awaiting_inquiry_reply(cmd_id(1)));
 
     let counter_before = core.ignored_unmatched_sequenced_replies();
 
@@ -3456,7 +3457,7 @@ fn test_late_inquiry_reply_sequenced() {
         "FIFO queue should not be popped"
     );
     assert!(
-        core.inflight_inquiry_ids.contains(&cmd_id(1)),
+        core.is_awaiting_inquiry_reply(cmd_id(1)),
         "Inquiry should still be inflight"
     );
 }
@@ -4042,7 +4043,7 @@ fn test_inquiry_retry_preserves_attempt_count() {
         );
         // sent_at should be updated to resend time
         assert_eq!(
-            state.sent_at,
+            state.sent_at(),
             Some(resend_time),
             "sent_at should be updated"
         );
@@ -4097,7 +4098,7 @@ fn test_inquiry_retry_preserves_submitted_at() {
             i
         );
         assert_eq!(
-            state.sent_at,
+            state.sent_at(),
             Some(resend_time),
             "sent_at should be updated on resend"
         );
@@ -4199,8 +4200,8 @@ fn test_inquiry_retries_terminate_after_max_retries() {
     );
 
     // Simulate resend (runtime would call start_inquiry again)
+    // start_inquiry sets phase to AwaitingInquiryReply
     core.start_inquiry(cmd_id(1), inquiry.clone(), Priority::Normal, camera_id, t1);
-    core.inflight_inquiry_ids.insert(cmd_id(1));
 
     // Second timeout (attempt 1 -> 2)
     let t2 = t1 + Duration::from_millis(150);
@@ -4218,7 +4219,6 @@ fn test_inquiry_retries_terminate_after_max_retries() {
 
     // Simulate resend
     core.start_inquiry(cmd_id(1), inquiry.clone(), Priority::Normal, camera_id, t2);
-    core.inflight_inquiry_ids.insert(cmd_id(1));
 
     // Third timeout (attempt 2 >= max_retries=2) -> should FAIL, not retry
     let t3 = t2 + Duration::from_millis(150);
@@ -4283,7 +4283,6 @@ fn test_inquiry_retries_terminate_after_max_duration() {
 
     // Resend
     core.start_inquiry(cmd_id(1), inquiry.clone(), Priority::Normal, camera_id, t1);
-    core.inflight_inquiry_ids.insert(cmd_id(1));
 
     // Second timeout - past max_retry_duration (start + 350ms > 300ms limit)
     let t2 = start + Duration::from_millis(350);
@@ -4345,7 +4344,6 @@ fn test_inquiry_transport_error_classification_after_retries() {
 
     // Resend
     core.start_inquiry(cmd_id(1), inquiry.clone(), Priority::Normal, camera_id, t1);
-    core.inflight_inquiry_ids.insert(cmd_id(1));
 
     // Verify transport_error is still set after resend
     assert!(
@@ -4363,7 +4361,6 @@ fn test_inquiry_transport_error_classification_after_retries() {
 
     // Resend again (transport_error still set)
     core.start_inquiry(cmd_id(1), inquiry.clone(), Priority::Normal, camera_id, t2);
-    core.inflight_inquiry_ids.insert(cmd_id(1));
 
     // Verify transport_error is STILL preserved after second resend
     assert!(
@@ -4763,7 +4760,7 @@ fn test_handle_timeout_inquiry_removes_from_tracking() {
     core.start_inquiry(cmd_id(1), inquiry.clone(), Priority::Normal, camera_id, now);
 
     assert!(
-        core.inflight_inquiry_ids.contains(&cmd_id(1)),
+        core.is_awaiting_inquiry_reply(cmd_id(1)),
         "Inquiry should be tracked"
     );
 
@@ -4773,7 +4770,7 @@ fn test_handle_timeout_inquiry_removes_from_tracking() {
 
     // Inquiry should be removed from tracking (either retried or failed)
     assert!(
-        !core.inflight_inquiry_ids.contains(&cmd_id(1)),
+        !core.is_awaiting_inquiry_reply(cmd_id(1)),
         "Inquiry should be removed from tracking after timeout"
     );
 }
