@@ -111,6 +111,15 @@ pub struct Capabilities {
     /// Valid focus speed range.
     pub focus_speed: RangeInclusive<u8>,
 
+    /// Whether camera supports focus zone selection.
+    pub has_focus_zone: bool,
+
+    /// Whether camera supports auto focus sensitivity adjustment.
+    pub has_af_sensitivity: bool,
+
+    /// Whether camera supports the focus near limit inquiry command.
+    pub has_focus_near_limit_inquiry: bool,
+
     // Exposure capabilities
     /// Whether camera supports exposure control.
     pub has_exposure: bool,
@@ -154,6 +163,9 @@ pub struct Capabilities {
 
     /// BG tuning range if supported.
     pub bg_tuning_range: Option<RangeInclusive<i8>>,
+
+    /// Whether camera supports manual RGB gain control (red/blue gain inquiries).
+    pub has_rgb_gain: bool,
 
     /// Number of white balance modes supported.
     pub wb_mode_count: usize,
@@ -349,6 +361,9 @@ impl Capabilities {
             has_one_push_focus: P::SUPPORTS_ONE_PUSH_FOCUS,
             focus_range,
             focus_speed,
+            has_focus_zone: P::SUPPORTS_FOCUS_ZONE,
+            has_af_sensitivity: P::SUPPORTS_AF_SENSITIVITY,
+            has_focus_near_limit_inquiry: P::SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY,
 
             // Exposure capabilities
             has_exposure: true, // All cameras have exposure control
@@ -367,6 +382,7 @@ impl Capabilities {
             color_temp_range,
             rg_tuning_range,
             bg_tuning_range,
+            has_rgb_gain: P::SUPPORTS_RGB_GAIN,
             wb_mode_count: P::WB_MODES.len(),
 
             // Image processing capabilities
@@ -499,6 +515,10 @@ mod tests {
 
         assert!(caps.has_auto_focus);
         assert!(caps.has_one_push_focus);
+        assert!(!caps.has_focus_zone);
+        assert!(!caps.has_af_sensitivity);
+        assert!(!caps.has_focus_near_limit_inquiry);
+        assert!(!caps.has_rgb_gain);
 
         assert_eq!(caps.max_presets, 89);
         assert!(!caps.supports_preset_tour);
@@ -516,6 +536,10 @@ mod tests {
 
         assert_eq!(caps.max_presets, 255);
         assert!(caps.supports_preset_tour);
+        assert!(caps.has_focus_zone);
+        assert!(caps.has_af_sensitivity);
+        assert!(caps.has_focus_near_limit_inquiry);
+        assert!(caps.has_rgb_gain);
 
         assert!(caps.has_advanced_features());
     }

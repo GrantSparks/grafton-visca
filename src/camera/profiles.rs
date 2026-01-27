@@ -121,6 +121,7 @@ impl Focus for PtzOpticsG2 {
     const FOCUS_FAR_LIMIT: u16 = 0xF000;
     const SUPPORTS_AUTO_FOCUS: bool = true;
     const SUPPORTS_ONE_PUSH_FOCUS: bool = true;
+    const SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY: bool = false;
 }
 
 impl Exposure for PtzOpticsG2 {
@@ -335,6 +336,9 @@ impl WhiteBalance for SonyFR7 {
     const BG_TUNING_RANGE: Option<std::ops::Range<i8>> = Some(-7..8);
     const SUPPORTS_COLOR_TEMP: bool = true;
     const COLOR_TEMP_RANGE: Option<std::ops::Range<u16>> = Some(2800..7500);
+    const SUPPORTS_RGB_GAIN: bool = true;
+    const RED_GAIN_RANGE: Option<std::ops::Range<u8>> = Some(0..255);
+    const BLUE_GAIN_RANGE: Option<std::ops::Range<u8>> = Some(0..255);
 }
 
 impl ImageProcessing for SonyFR7 {

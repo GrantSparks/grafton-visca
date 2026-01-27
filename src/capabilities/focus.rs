@@ -32,6 +32,11 @@ pub trait Focus {
 
     /// Whether camera supports auto focus sensitivity adjustment.
     const SUPPORTS_AF_SENSITIVITY: bool = false;
+
+    /// Whether camera supports the focus near limit inquiry command.
+    /// Some cameras (e.g., PTZOptics G2) can accept the near limit set
+    /// command but don't support reading it back via VISCA inquiry.
+    const SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY: bool = true;
 }
 
 /// Extension trait that adds validation methods to cameras with focus support.
