@@ -95,6 +95,18 @@ pub struct Capabilities {
     /// Whether camera supports variable speed zoom.
     pub supports_variable_zoom: bool,
 
+    /// Conversion factor from magnification to VISCA units.
+    ///
+    /// This value represents the number of VISCA units per 1x of magnification.
+    /// For example, a 20x camera with `OPTICAL_ZOOM_MAX = 0x4000` has
+    /// `zoom_magnification_to_units ≈ 862.3` because `0x4000 / 19 ≈ 862.3`.
+    ///
+    /// Use with helper methods:
+    /// - [`zoom_units_to_magnification`](Self::zoom_units_to_magnification) to convert VISCA units to magnification
+    /// - [`magnification_to_zoom_units`](Self::magnification_to_zoom_units) to convert magnification to VISCA units
+    /// - [`max_optical_zoom`](Self::max_optical_zoom) to get the maximum optical zoom magnification
+    pub zoom_magnification_to_units: f32,
+
     // Focus capabilities
     /// Whether camera supports focus control.
     pub has_focus: bool,
@@ -354,6 +366,7 @@ impl Capabilities {
             zoom_speed: P::ZOOM_SPEED_RANGE.start..=(P::ZOOM_SPEED_RANGE.end - 1),
             supports_direct_zoom: P::SUPPORTS_DIRECT_ZOOM,
             supports_variable_zoom: P::SUPPORTS_VARIABLE_ZOOM,
+            zoom_magnification_to_units: P::ZOOM_MAGNIFICATION_TO_UNITS,
 
             // Focus capabilities
             has_focus: true, // All cameras have focus
@@ -457,6 +470,85 @@ impl Capabilities {
             || self.has_motion_sync
     }
 
+    /// Returns the maximum optical zoom magnification (e.g., 20.0 for 20x).
+    ///
+    /// This is calculated from the optical zoom range and the magnification
+    /// conversion factor.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let caps = Capabilities::from_profile::<PtzOpticsG2>();
+    /// let max_zoom = caps.max_optical_zoom(); // ~20.0 for a 20x camera
+    /// println!("Max optical zoom: {:.1}x", max_zoom);
+    /// ```
+    #[must_use]
+    pub fn max_optical_zoom(&self) -> f32 {
+        self.zoom_units_to_magnification(*self.zoom_range_optical.end())
+    }
+
+    /// Returns the maximum combined zoom magnification (optical + digital).
+    ///
+    /// If the camera supports digital zoom, this returns the maximum digital
+    /// zoom magnification. Otherwise, it returns the maximum optical zoom.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let caps = Capabilities::from_profile::<PtzOpticsG2>();
+    /// let max_combined = caps.max_combined_zoom();
+    /// if caps.has_digital_zoom {
+    ///     println!("Max combined zoom: {:.1}x (includes digital)", max_combined);
+    /// }
+    /// ```
+    #[must_use]
+    pub fn max_combined_zoom(&self) -> f32 {
+        match &self.zoom_range_digital {
+            Some(range) => self.zoom_units_to_magnification(*range.end()),
+            None => self.max_optical_zoom(),
+        }
+    }
+
+    /// Convert VISCA zoom units to magnification (e.g., 0x2000 → ~10x).
+    ///
+    /// # Arguments
+    /// * `units` - Zoom position in VISCA units
+    ///
+    /// # Returns
+    /// The zoom magnification, where 1.0 is no zoom and higher values
+    /// represent greater magnification.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let caps = Capabilities::from_profile::<PtzOpticsG2>();
+    /// let magnification = caps.zoom_units_to_magnification(0x2000);
+    /// println!("Current zoom: {:.1}x", magnification); // ~10x
+    /// ```
+    #[must_use]
+    pub fn zoom_units_to_magnification(&self, units: u16) -> f32 {
+        1.0 + (units as f32 / self.zoom_magnification_to_units)
+    }
+
+    /// Convert magnification to VISCA zoom units (e.g., 10x → ~0x2000).
+    ///
+    /// # Arguments
+    /// * `magnification` - Desired zoom magnification (must be >= 1.0)
+    ///
+    /// # Returns
+    /// The zoom position in VISCA units. Values below 1.0 are clamped to 0 units.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let caps = Capabilities::from_profile::<PtzOpticsG2>();
+    /// let units = caps.magnification_to_zoom_units(10.0);
+    /// println!("10x zoom = 0x{:04X} units", units); // ~0x2000
+    /// ```
+    #[must_use]
+    pub fn magnification_to_zoom_units(&self, magnification: f32) -> u16 {
+        if magnification <= 1.0 {
+            return 0;
+        }
+        ((magnification - 1.0) * self.zoom_magnification_to_units) as u16
+    }
+
     /// Returns a summary of key capabilities as a formatted string.
     pub fn summary(&self) -> String {
         let mut lines = vec![
@@ -469,11 +561,19 @@ impl Capabilities {
                 "Tilt Range: {:?}° ({:?} units)",
                 self.tilt_range_degrees, self.tilt_range
             ),
-            format!("Optical Zoom: 0x{:04X}", self.zoom_range_optical.end()),
+            format!(
+                "Optical Zoom: {:.0}x (0x{:04X} units)",
+                self.max_optical_zoom(),
+                self.zoom_range_optical.end()
+            ),
         ];
 
         if let Some(digital) = &self.zoom_range_digital {
-            lines.push(format!("Digital Zoom: 0x{:04X}", digital.end()));
+            lines.push(format!(
+                "Digital Zoom: {:.0}x (0x{:04X} units)",
+                self.zoom_units_to_magnification(*digital.end()),
+                digital.end()
+            ));
         }
 
         lines.push(format!("Max Presets: {}", self.max_presets));
@@ -565,8 +665,105 @@ mod tests {
         let summary = caps.summary();
 
         assert!(summary.contains("Model: PtzOptics G2"));
-        assert!(summary.contains("Optical Zoom: 0x4000"));
-        assert!(summary.contains("Digital Zoom: 0x7000"));
+        assert!(summary.contains("Optical Zoom: 20x"));
+        assert!(summary.contains("0x4000"));
+        assert!(summary.contains("Digital Zoom:"));
+        assert!(summary.contains("0x7000"));
         assert!(summary.contains("Max Presets: 89"));
+    }
+
+    #[test]
+    fn test_zoom_magnification_field() {
+        // PtzOpticsG2: 20x optical zoom with ZOOM_MAGNIFICATION_TO_UNITS = 862.3
+        let caps = Capabilities::from_profile::<PtzOpticsG2>();
+        assert!((caps.zoom_magnification_to_units - 862.3).abs() < 0.01);
+
+        // GenericVisca: ZOOM_MAGNIFICATION_TO_UNITS = 1000.0
+        let caps = Capabilities::from_profile::<GenericVisca>();
+        assert!((caps.zoom_magnification_to_units - 1000.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_max_optical_zoom() {
+        // PtzOpticsG2: 0x4000 / 862.3 + 1 ≈ 20x
+        let caps = Capabilities::from_profile::<PtzOpticsG2>();
+        let max_zoom = caps.max_optical_zoom();
+        assert!(
+            (max_zoom - 20.0).abs() < 0.5,
+            "PtzOpticsG2 max optical zoom should be ~20x, got {max_zoom}"
+        );
+
+        // GenericVisca: 0xFFFF / 1000.0 + 1 ≈ 66.5x
+        let caps = Capabilities::from_profile::<GenericVisca>();
+        let max_zoom = caps.max_optical_zoom();
+        assert!(
+            (max_zoom - 66.5).abs() < 1.0,
+            "GenericVisca max optical zoom should be ~66.5x, got {max_zoom}"
+        );
+    }
+
+    #[test]
+    fn test_max_combined_zoom() {
+        // PtzOpticsG2 has digital zoom (0x7000)
+        let caps = Capabilities::from_profile::<PtzOpticsG2>();
+        let max_combined = caps.max_combined_zoom();
+        let max_optical = caps.max_optical_zoom();
+        assert!(
+            max_combined > max_optical,
+            "Combined zoom should exceed optical zoom for cameras with digital zoom"
+        );
+
+        // GenericVisca has no digital zoom
+        let caps = Capabilities::from_profile::<GenericVisca>();
+        let max_combined = caps.max_combined_zoom();
+        let max_optical = caps.max_optical_zoom();
+        assert!(
+            (max_combined - max_optical).abs() < 0.01,
+            "Without digital zoom, combined should equal optical"
+        );
+    }
+
+    #[test]
+    fn test_zoom_unit_conversions() {
+        let caps = Capabilities::from_profile::<PtzOpticsG2>();
+
+        // 1x magnification = 0 units
+        let units = caps.magnification_to_zoom_units(1.0);
+        assert_eq!(units, 0, "1x magnification should be 0 units");
+
+        // 0 units = 1x magnification
+        let mag = caps.zoom_units_to_magnification(0);
+        assert!(
+            (mag - 1.0).abs() < 0.01,
+            "0 units should be 1x magnification"
+        );
+
+        // Round-trip conversion
+        let original_mag = 10.0;
+        let units = caps.magnification_to_zoom_units(original_mag);
+        let recovered_mag = caps.zoom_units_to_magnification(units);
+        assert!(
+            (recovered_mag - original_mag).abs() < 0.1,
+            "Round-trip conversion failed: {original_mag} -> {units} -> {recovered_mag}"
+        );
+
+        // Max optical zoom units should give max optical magnification
+        let max_units = *caps.zoom_range_optical.end();
+        let max_mag = caps.zoom_units_to_magnification(max_units);
+        let expected_max = caps.max_optical_zoom();
+        assert!(
+            (max_mag - expected_max).abs() < 0.01,
+            "Max units should give max magnification"
+        );
+    }
+
+    #[test]
+    fn test_magnification_to_units_edge_cases() {
+        let caps = Capabilities::from_profile::<PtzOpticsG2>();
+
+        // Values below 1.0 should clamp to 0
+        assert_eq!(caps.magnification_to_zoom_units(0.5), 0);
+        assert_eq!(caps.magnification_to_zoom_units(0.0), 0);
+        assert_eq!(caps.magnification_to_zoom_units(-1.0), 0);
     }
 }
