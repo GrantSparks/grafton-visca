@@ -912,6 +912,10 @@ pub struct SchedulerCore {
     min_inquiry_spacing: Duration,
     /// When the last inquiry was sent (for spacing enforcement).
     last_inquiry_sent: Option<Instant>,
+    /// Minimum time spacing between consecutive command sends (any kind).
+    min_command_spacing: Duration,
+    /// When the last command (of any kind) was sent (for spacing enforcement).
+    last_command_sent: Option<Instant>,
     /// Counter for ignored unmatched sequenced replies.
     ///
     /// Tracks the number of times a sequenced reply (ACK, Completion, Error, InquiryReply)
@@ -953,6 +957,8 @@ impl SchedulerCore {
             inquiries_order: VecDeque::new(),
             min_inquiry_spacing: Duration::ZERO,
             last_inquiry_sent: None,
+            min_command_spacing: Duration::ZERO,
+            last_command_sent: None,
             ignored_unmatched_sequenced_replies: 0,
         }
     }
@@ -980,6 +986,20 @@ impl SchedulerCore {
         self.min_inquiry_spacing
     }
 
+    /// Set the minimum spacing between consecutive command sends (any kind).
+    ///
+    /// When set, this enforces a minimum delay between any two sends on the
+    /// transport. This prevents firmware buffer overflow on cameras that
+    /// cannot process commands at wire speed.
+    pub fn set_min_command_spacing(&mut self, spacing: Duration) {
+        self.min_command_spacing = spacing;
+    }
+
+    /// Get the minimum spacing between consecutive command sends.
+    pub fn min_command_spacing(&self) -> Duration {
+        self.min_command_spacing
+    }
+
     /// Queue a command for execution.
     pub fn queue_command(&mut self, command: PendingCommand) {
         // Route based on command kind (derived from EncodedCommand)
@@ -993,13 +1013,19 @@ impl SchedulerCore {
         }
     }
 
-    /// Check if we can send another command (have room for pending ACK).
+    /// Check if we can send another command (have room for pending ACK and spacing satisfied).
     ///
     /// Uses phase-based counting to determine capacity:
     /// - Commands in `AwaitingAck` phase count toward the 2-slot limit
     /// - Commands in `Executing` phase count toward the 2-slot limit
     /// - Total must be < 2 to allow sending another command
-    pub fn can_send_command(&self) -> bool {
+    /// - The minimum command spacing since the last send must be satisfied
+    pub fn can_send_command(&self, now: Instant) -> bool {
+        // Check command spacing requirement (applies to all send types)
+        if !self.check_command_spacing(now) {
+            return false;
+        }
+
         // Count commands by phase (single source of truth)
         let awaiting_ack = self.count_awaiting_ack();
         let executing = self.count_executing();
@@ -1034,11 +1060,17 @@ impl SchedulerCore {
     /// Check if we can send an inquiry (not at max capacity and spacing satisfied).
     ///
     /// Returns true if:
-    /// 1. The number of in-flight inquiries is below the maximum limit
-    /// 2. The minimum spacing requirement since the last inquiry has been satisfied
+    /// 1. The minimum command spacing since the last send has been satisfied
+    /// 2. The number of in-flight inquiries is below the maximum limit
+    /// 3. The minimum inquiry spacing requirement since the last inquiry has been satisfied
     ///
     /// Uses phase-based counting to determine in-flight inquiries.
     pub fn can_send_inquiry(&self, now: Instant) -> bool {
+        // Check command spacing requirement (applies to all send types)
+        if !self.check_command_spacing(now) {
+            return false;
+        }
+
         // Count inquiries by phase (single source of truth)
         let inflight_count = self.count_awaiting_inquiry_reply();
 
@@ -1047,7 +1079,7 @@ impl SchedulerCore {
             return false;
         }
 
-        // Check spacing requirement
+        // Check inquiry-specific spacing requirement
         if let Some(last_sent) = self.last_inquiry_sent {
             if now.duration_since(last_sent) < self.min_inquiry_spacing {
                 return false;
@@ -1079,7 +1111,7 @@ impl SchedulerCore {
     pub fn next_item_to_send(&mut self, now: Instant) -> Option<PendingCommand> {
         // Check what's available in each queue
         let inquiry_available = !self.inquiry_queue.is_empty() && self.can_send_inquiry(now);
-        let command_available = self.can_send_command() && !self.command_queue.is_empty();
+        let command_available = self.can_send_command(now) && !self.command_queue.is_empty();
 
         match (inquiry_available, command_available) {
             (false, false) => None,
@@ -1155,6 +1187,10 @@ impl SchedulerCore {
             self.commands.insert(id, state);
         }
         // Phase is now the single source of truth - no separate index needed
+
+        // Update last command sent time for spacing enforcement
+        self.last_command_sent = Some(now);
+
         trace!(%id, "Registered command as pending ACK (phase=AwaitingAck)");
     }
 
@@ -2097,10 +2133,41 @@ impl SchedulerCore {
             }
         }
 
+        // Check command spacing deadline (when any queued item can be sent)
+        let has_queued = !self.command_queue.is_empty() || !self.inquiry_queue.is_empty();
+        if has_queued && !self.min_command_spacing.is_zero() {
+            if let Some(last_sent) = self.last_command_sent {
+                let next_eligible = last_sent + self.min_command_spacing;
+                Self::update_earliest(&mut earliest, next_eligible);
+            }
+        }
+
         earliest
     }
 
     // Private helper methods
+
+    /// Check if the command spacing requirement is satisfied.
+    ///
+    /// Returns `true` if enough time has elapsed since the last send,
+    /// or if command spacing is disabled (zero interval).
+    fn check_command_spacing(&self, now: Instant) -> bool {
+        if self.min_command_spacing.is_zero() {
+            return true;
+        }
+        match self.last_command_sent {
+            Some(last_sent) => now.duration_since(last_sent) >= self.min_command_spacing,
+            None => true,
+        }
+    }
+
+    /// Record that a command was sent at the given time.
+    ///
+    /// Called after any successful send (command or inquiry) to enforce
+    /// minimum inter-command spacing.
+    pub fn record_command_sent(&mut self, now: Instant) {
+        self.last_command_sent = Some(now);
+    }
 
     /// Returns `true` if the command should be retried based on budget and duration.
     fn should_retry_timeout(&self, cmd_id: CommandId, now: Instant) -> bool {
@@ -2532,6 +2599,9 @@ impl SchedulerCore {
         // Update last inquiry sent time for spacing enforcement
         self.last_inquiry_sent = Some(now);
 
+        // Update last command sent time for spacing enforcement (applies to all sends)
+        self.last_command_sent = Some(now);
+
         // Debug assertion: inquiries_order should not contain duplicates
         debug_assert!(
             {
@@ -2790,6 +2860,7 @@ impl SchedulerCore {
         self.inquiries_order.clear();
         self.last_logged_idle.set(false);
         self.last_inquiry_sent = None;
+        self.last_command_sent = None;
     }
 
     /// Check if a command is in the AwaitingAck phase.

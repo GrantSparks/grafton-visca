@@ -11,6 +11,7 @@ use grafton_visca::{
     camera::CameraBuilder,
     command::{inquiry::ZoomPositionInquiry, zoom::Zoom},
     testing::testkit::{
+        deterministic_executor::DeterministicExecutorExt,
         scripted_transport::{ScriptedTransport, Step},
         DeterministicExecutor,
     },
@@ -189,7 +190,10 @@ fn test_sequential_command_ids_are_unique() {
     let transport = ScriptedTransport::new(steps).with_executor(executor.clone());
 
     let executor_clone = executor.clone();
-    executor.clone().block_on(async move {
+    // Use block_on_bg to allow virtual time advancement between commands.
+    // This is needed because PtzOpticsG2 has MIN_COMMAND_SPACING = 100ms,
+    // requiring the deterministic executor to advance time between sends.
+    executor.clone().block_on_bg(async move {
         use grafton_visca::camera::profiles::PtzOpticsG2;
 
         let camera = CameraBuilder::<DeterministicExecutor>::with_executor(executor_clone)

@@ -121,8 +121,9 @@ impl<P: Profile> BlockingRunnerBuilder<P> {
     /// Build the [`BlockingRunner`] with the configured options.
     pub fn build(self) -> BlockingRunner<P> {
         let mut core = SchedulerCore::with_retry_config(self.timeout_config, self.retry_config);
-        // Apply profile-specific inquiry spacing
+        // Apply profile-specific spacing
         core.set_min_inquiry_spacing(P::MIN_INQUIRY_SPACING);
+        core.set_min_command_spacing(P::MIN_COMMAND_SPACING);
         BlockingRunner {
             core,
             envelope: P::Envelope::new(self.addressing),
@@ -677,16 +678,18 @@ mod tests {
     fn test_scheduler_core_creation() {
         let timeout_config = TimeoutConfig::default();
         let runner = BlockingRunner::<PtzOpticsG2>::new(timeout_config);
+        let now = Instant::now();
 
-        assert!(runner.core.can_send_command());
+        assert!(runner.core.can_send_command(now));
     }
 
     #[test]
     fn test_scheduler_core_with_raw_visca() {
         let timeout_config = TimeoutConfig::default();
         let runner = BlockingRunner::<PtzOpticsG2>::new(timeout_config);
+        let now = Instant::now();
 
-        assert!(runner.core.can_send_command());
+        assert!(runner.core.can_send_command(now));
     }
 
     #[test]

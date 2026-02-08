@@ -111,6 +111,14 @@ pub struct RuntimeLoopConfig<E: Envelope> {
     /// ~125-150ms apart. Setting this enforces a minimum delay between sends.
     /// Default: Duration::ZERO (no artificial spacing)
     pub min_inquiry_spacing: std::time::Duration,
+    /// Minimum time spacing between consecutive sends of any kind.
+    ///
+    /// Consumer PTZ cameras have small internal command buffers that overflow
+    /// when commands are sent back-to-back at wire speed, causing spurious
+    /// syntax errors and dropped completions. This interval is enforced at
+    /// the transport layer for all sends (commands and inquiries).
+    /// Default: Duration::ZERO (no artificial spacing)
+    pub min_command_spacing: std::time::Duration,
     /// Maximum pending queue depth for admission control.
     ///
     /// This bounds the number of commands/inquiries that can be queued
@@ -154,6 +162,7 @@ pub async fn runtime_loop_with_config<
     );
     adapter.set_max_inquiries_inflight(config.max_concurrent_inquiries);
     adapter.set_min_inquiry_spacing(config.min_inquiry_spacing);
+    adapter.set_min_command_spacing(config.min_command_spacing);
     let mut protocol_framer = ProtocolFramer::new_with_config(config.buffer_manager.config());
 
     // Allocate a single reusable buffer for receiving data

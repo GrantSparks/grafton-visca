@@ -248,6 +248,14 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
         self.core.set_min_inquiry_spacing(spacing);
     }
 
+    /// Set the minimum spacing between consecutive sends of any kind.
+    ///
+    /// Prevents firmware buffer overflow on cameras that cannot process
+    /// commands at wire speed. Applies to all sends (commands and inquiries).
+    pub fn set_min_command_spacing(&mut self, spacing: std::time::Duration) {
+        self.core.set_min_command_spacing(spacing);
+    }
+
     /// Submit a command or inquiry to the scheduler.
     ///
     /// If the pending queue is at capacity, the submission is rejected with a
@@ -734,7 +742,8 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
 
     /// Check if we can send another command.
     pub fn can_send_command(&self) -> bool {
-        self.core.can_send_command()
+        let now = self.executor.now();
+        self.core.can_send_command(now)
     }
 
     /// Get the count of commands waiting for ACK.

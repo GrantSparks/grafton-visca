@@ -98,6 +98,9 @@ impl ProfileMetadata for PtzOpticsG2 {
     /// PTZOptics cameras cannot process inquiries faster than ~125-150ms apart.
     /// Using 150ms as a safe value at the upper end of the observed range.
     const MIN_INQUIRY_SPACING: Duration = Duration::from_millis(150);
+    /// PTZOptics firmware buffers overflow when commands are sent back-to-back.
+    /// 100ms provides safe inter-command spacing for TCP connections.
+    const MIN_COMMAND_SPACING: Duration = Duration::from_millis(100);
 }
 
 impl PanTilt for PtzOpticsG2 {
@@ -292,6 +295,8 @@ impl ProfileMetadata for SonyFR7 {
     const DEFAULT_UDP_PORT: u16 = 52381;
     /// Sony cameras: 35ms per VISCA spec (~33ms = 2 video frames at 60fps).
     const MIN_INQUIRY_SPACING: Duration = Duration::from_millis(35);
+    /// Sony professional cameras: 35ms per VISCA spec timing.
+    const MIN_COMMAND_SPACING: Duration = Duration::from_millis(35);
 }
 
 impl PanTilt for SonyFR7 {
@@ -414,6 +419,8 @@ impl ProfileMetadata for SonyBRCH900 {
     const DEFAULT_UDP_PORT: u16 = 52381;
     /// Sony cameras: 35ms per VISCA spec (~33ms = 2 video frames at 60fps).
     const MIN_INQUIRY_SPACING: Duration = Duration::from_millis(35);
+    /// Sony professional cameras: 35ms per VISCA spec timing.
+    const MIN_COMMAND_SPACING: Duration = Duration::from_millis(35);
 }
 
 impl PanTilt for SonyBRCH900 {
@@ -744,6 +751,9 @@ impl ProfileMetadata for PtzOpticsG3 {
     /// PTZOptics cameras cannot process inquiries faster than ~125-150ms apart.
     /// Using 150ms as a safe value at the upper end of the observed range.
     const MIN_INQUIRY_SPACING: Duration = Duration::from_millis(150);
+    /// PTZOptics firmware buffers overflow when commands are sent back-to-back.
+    /// 100ms provides safe inter-command spacing for TCP connections.
+    const MIN_COMMAND_SPACING: Duration = Duration::from_millis(100);
 }
 
 impl PanTilt for PtzOpticsG3 {
@@ -835,6 +845,9 @@ impl ProfileMetadata for PtzOptics30X {
     /// PTZOptics cameras cannot process inquiries faster than ~125-150ms apart.
     /// Using 150ms as a safe value at the upper end of the observed range.
     const MIN_INQUIRY_SPACING: Duration = Duration::from_millis(150);
+    /// PTZOptics firmware buffers overflow when commands are sent back-to-back.
+    /// 100ms provides safe inter-command spacing for TCP connections.
+    const MIN_COMMAND_SPACING: Duration = Duration::from_millis(100);
 }
 
 impl PanTilt for PtzOptics30X {

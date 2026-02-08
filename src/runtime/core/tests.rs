@@ -335,7 +335,7 @@ fn test_inquiry_does_not_consume_sockets() {
     }
 
     // Both sockets are now occupied, but inquiry should still be sendable
-    assert!(!core.can_send_command()); // Cannot send more commands
+    assert!(!core.can_send_command(now)); // Cannot send more commands
 
     // Start an inquiry - should not need a socket
     core.start_inquiry(cmd_id(3), inquiry_cmd.clone(), priority, camera_id, now);
@@ -1918,7 +1918,7 @@ fn test_inquiry_bypasses_socket_gate() {
     );
 
     // Now both commands are pending ACK - sockets are at capacity
-    assert!(!core.can_send_command());
+    assert!(!core.can_send_command(now));
     assert_eq!(core.next_item_to_send(now), None); // No commands can be sent
 
     // Queue an inquiry

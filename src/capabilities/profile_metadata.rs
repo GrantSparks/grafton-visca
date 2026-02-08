@@ -57,6 +57,24 @@ pub trait ProfileMetadata {
     ///
     /// Default: Duration::ZERO (no artificial spacing)
     const MIN_INQUIRY_SPACING: Duration = Duration::from_millis(0);
+
+    /// Minimum time spacing between consecutive command sends (any kind).
+    ///
+    /// Consumer PTZ cameras have small internal command buffers that can
+    /// overflow when commands are sent back-to-back at wire speed. This
+    /// causes spurious 0x02 Syntax Error responses and dropped completions.
+    ///
+    /// This interval is enforced at the transport layer for all sends
+    /// (commands and inquiries alike), so callers don't need to manage
+    /// timing themselves. A value of Duration::ZERO disables pacing.
+    ///
+    /// Camera-specific values:
+    /// - PTZOptics: 100ms (conservative for firmware buffer limitations)
+    /// - Sony Professional: 35ms (per VISCA spec timing)
+    /// - Generic: 0ms (assume no limitation)
+    ///
+    /// Default: Duration::ZERO (no artificial spacing)
+    const MIN_COMMAND_SPACING: Duration = Duration::from_millis(0);
 }
 
 // Marker traits for compile-time capability detection.
