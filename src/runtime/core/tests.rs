@@ -1360,7 +1360,7 @@ fn test_send_failure_retry_with_transport_error_flag() {
     core.mark_retry_as_transport_error(cmd_id);
 
     // Queue retry - should succeed
-    let action = core.queue_retry_for_command(cmd_id, now);
+    let action = core.queue_retry_for_command(cmd_id, now, None);
 
     // Should get a retry action
     match action {
@@ -1411,12 +1411,12 @@ fn test_transport_error_classification_after_exhausted_retries() {
 
     // First retry - should succeed
     core.mark_retry_as_transport_error(cmd_id);
-    let action = core.queue_retry_for_command(cmd_id, now);
+    let action = core.queue_retry_for_command(cmd_id, now, None);
     assert!(matches!(action, Some(SchedulerAction::RetryCommand { .. })));
 
     // Second retry - should fail with TransportError
     core.mark_retry_as_transport_error(cmd_id);
-    let action = core.queue_retry_for_command(cmd_id, now);
+    let action = core.queue_retry_for_command(cmd_id, now, None);
 
     match action {
         Some(SchedulerAction::CommandFailed { id, error }) => {
@@ -1468,11 +1468,11 @@ fn test_timeout_classification_without_transport_error_flag() {
     );
 
     // First retry WITHOUT marking as transport error
-    let action = core.queue_retry_for_command(cmd_id, now);
+    let action = core.queue_retry_for_command(cmd_id, now, None);
     assert!(matches!(action, Some(SchedulerAction::RetryCommand { .. })));
 
     // Second retry - should fail with Timeout (not TransportError)
-    let action = core.queue_retry_for_command(cmd_id, now);
+    let action = core.queue_retry_for_command(cmd_id, now, None);
 
     match action {
         Some(SchedulerAction::CommandFailed { id, error }) => {
@@ -1521,7 +1521,7 @@ fn test_multiple_commands_with_transport_errors() {
 
         // Mark as transport error and queue retry
         core.mark_retry_as_transport_error(cmd_id(i));
-        let action = core.queue_retry_for_command(cmd_id(i), now);
+        let action = core.queue_retry_for_command(cmd_id(i), now, None);
         assert!(matches!(action, Some(SchedulerAction::RetryCommand { .. })));
     }
 
@@ -1777,7 +1777,7 @@ fn test_command_kind_preserved_through_retries() {
 
     // Mark as transport error and queue retry
     core.mark_retry_as_transport_error(test_cmd_id);
-    let action = core.queue_retry_for_command(test_cmd_id, now);
+    let action = core.queue_retry_for_command(test_cmd_id, now, None);
 
     // Should get a retry action
     assert!(matches!(action, Some(SchedulerAction::RetryCommand { .. })));
@@ -1834,7 +1834,7 @@ fn test_command_kind_preserved_through_retries() {
 
     // Mark as transport error and queue retry
     core2.mark_retry_as_transport_error(inquiry_id);
-    let inquiry_action = core2.queue_retry_for_command(inquiry_id, now);
+    let inquiry_action = core2.queue_retry_for_command(inquiry_id, now, None);
 
     // Should get a retry action
     assert!(matches!(
@@ -2456,7 +2456,7 @@ fn test_max_retry_duration_queue_retry_for_command() {
     core.register_pending_ack(cmd_id(1), cmd, Priority::Normal, CameraId::CAMERA_1, start);
 
     // Queue retry within duration - should succeed
-    let action = core.queue_retry_for_command(cmd_id(1), start + Duration::from_millis(50));
+    let action = core.queue_retry_for_command(cmd_id(1), start + Duration::from_millis(50), None);
     assert!(
         matches!(action, Some(SchedulerAction::RetryCommand { id, .. }) if id == cmd_id(1)),
         "Expected retry command within duration"
@@ -2468,7 +2468,7 @@ fn test_max_retry_duration_queue_retry_for_command() {
     }
 
     // Queue retry after duration exceeded - should fail
-    let action = core.queue_retry_for_command(cmd_id(1), start + Duration::from_millis(150));
+    let action = core.queue_retry_for_command(cmd_id(1), start + Duration::from_millis(150), None);
     assert!(
         matches!(
             action,
@@ -2605,7 +2605,7 @@ fn test_max_retry_duration_preserved_across_retries() {
     );
 
     // Queue a retry
-    core.queue_retry_for_command(cmd_id(1), start + Duration::from_millis(100));
+    core.queue_retry_for_command(cmd_id(1), start + Duration::from_millis(100), None);
 
     // The command should still be trackable with original submitted_at
     // Note: After retry, the command may be in retry_queue not commands
@@ -2637,7 +2637,7 @@ fn test_max_retry_duration_with_high_retry_budget() {
     core.register_pending_ack(cmd_id(1), cmd, Priority::Normal, CameraId::CAMERA_1, start);
 
     // Even with 100 max_retries, should fail after 50ms duration
-    let action = core.queue_retry_for_command(cmd_id(1), start + Duration::from_millis(60));
+    let action = core.queue_retry_for_command(cmd_id(1), start + Duration::from_millis(60), None);
 
     assert!(
         matches!(
@@ -2908,7 +2908,7 @@ fn test_stale_retry_dropped_after_command_completion() {
     );
 
     // Queue a retry
-    let action = core.queue_retry_for_command(cmd_id, now);
+    let action = core.queue_retry_for_command(cmd_id, now, None);
     assert!(matches!(action, Some(SchedulerAction::RetryCommand { .. })));
 
     // Verify retry is queued
@@ -2963,7 +2963,7 @@ fn test_stale_retry_dropped_after_inquiry_completion() {
     );
 
     // Queue a retry
-    let action = core.queue_retry_for_command(cmd_id, now);
+    let action = core.queue_retry_for_command(cmd_id, now, None);
     assert!(matches!(action, Some(SchedulerAction::RetryCommand { .. })));
 
     // Complete the inquiry
@@ -3012,7 +3012,7 @@ fn test_stale_retry_dropped_after_command_failure() {
     );
 
     // Queue a retry
-    let action = core.queue_retry_for_command(cmd_id, now);
+    let action = core.queue_retry_for_command(cmd_id, now, None);
     assert!(matches!(action, Some(SchedulerAction::RetryCommand { .. })));
 
     // Cancel the command (simulating failure cleanup)
@@ -3064,7 +3064,7 @@ fn test_superseded_retry_entries_are_ignored() {
     );
 
     // Queue first retry (attempt 1)
-    let action1 = core.queue_retry_for_command(cmd_id, now);
+    let action1 = core.queue_retry_for_command(cmd_id, now, None);
     assert!(matches!(
         action1,
         Some(SchedulerAction::RetryCommand { .. })
@@ -3072,7 +3072,7 @@ fn test_superseded_retry_entries_are_ignored() {
 
     // Simulate another overlapping path queueing a second retry
     // This increments retry_attempts to 2 and queues another retry
-    let action2 = core.queue_retry_for_command(cmd_id, now);
+    let action2 = core.queue_retry_for_command(cmd_id, now, None);
     assert!(matches!(
         action2,
         Some(SchedulerAction::RetryCommand { .. })
@@ -3133,7 +3133,7 @@ fn test_valid_retry_still_works() {
     );
 
     // Queue a retry
-    let action = core.queue_retry_for_command(cmd_id, now);
+    let action = core.queue_retry_for_command(cmd_id, now, None);
     assert!(matches!(action, Some(SchedulerAction::RetryCommand { .. })));
 
     // Command is still active (not completed/cancelled)
@@ -3178,7 +3178,7 @@ fn test_multiple_commands_with_valid_and_stale_retries() {
             now,
         );
         // Queue a retry for each
-        let action = core.queue_retry_for_command(cmd_id(i), now);
+        let action = core.queue_retry_for_command(cmd_id(i), now, None);
         assert!(matches!(action, Some(SchedulerAction::RetryCommand { .. })));
     }
 
@@ -4593,58 +4593,6 @@ fn test_should_retry_timeout_respects_duration() {
 }
 
 #[test]
-fn test_timeout_terminal_error_with_transport_flag() {
-    let timeout_config = TimeoutConfig::default();
-    let retry_config = RetryConfig::default();
-    let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
-    let now = Instant::now();
-    let camera_id = CameraId::CAMERA_1;
-    let command = create_test_command(
-        vec![0x81, 0x01, 0x00, VISCA_TERMINATOR],
-        None,
-        CommandCategory::Quick,
-        camera_id,
-    );
-
-    // Register a pending ACK command and set transport_error flag
-    core.register_pending_ack(cmd_id(1), command.clone(), Priority::Normal, camera_id, now);
-
-    if let Some(state) = core.commands.get_mut(&cmd_id(1)) {
-        state.transport_error = true;
-    }
-
-    let error = core.timeout_terminal_error(cmd_id(1));
-    assert!(
-        matches!(error, Error::TransportError(_)),
-        "Should return TransportError when transport_error flag is set"
-    );
-}
-
-#[test]
-fn test_timeout_terminal_error_without_transport_flag() {
-    let timeout_config = TimeoutConfig::default();
-    let retry_config = RetryConfig::default();
-    let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
-    let now = Instant::now();
-    let camera_id = CameraId::CAMERA_1;
-    let command = create_test_command(
-        vec![0x81, 0x01, 0x00, VISCA_TERMINATOR],
-        None,
-        CommandCategory::Quick,
-        camera_id,
-    );
-
-    // Register a pending ACK command without transport_error flag
-    core.register_pending_ack(cmd_id(1), command.clone(), Priority::Normal, camera_id, now);
-
-    let error = core.timeout_terminal_error(cmd_id(1));
-    assert!(
-        matches!(error, Error::Timeout),
-        "Should return Timeout when transport_error flag is not set"
-    );
-}
-
-#[test]
 fn test_update_earliest_none_to_some() {
     let mut earliest: Option<Instant> = None;
     let now = Instant::now();
@@ -4813,4 +4761,440 @@ fn test_handle_timeout_ack_emits_timeout_action() {
         has_timeout_action,
         "Should emit Timeout action for ACK timeout"
     );
+}
+
+// =============================================================================
+// Issue #497: ACK timeout retry leaves command in AwaitingAck phase
+// =============================================================================
+
+#[test]
+fn test_ack_timeout_transitions_to_queued_phase() {
+    // Verify that after an ACK timeout, the command transitions to Queued phase
+    // (not remaining in AwaitingAck). This is the core fix for issue #497.
+    let timeout_config = TimeoutConfig {
+        ack_timeout: Duration::from_millis(100),
+        ..Default::default()
+    };
+    let retry_config = RetryConfig {
+        max_retries: 3,
+        base_retry_delay: Duration::from_millis(100),
+        max_retry_duration: Duration::from_secs(10),
+        backoff_strategy: BackoffStrategy::Exponential,
+    };
+    let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
+    let now = Instant::now();
+    let camera_id = CameraId::CAMERA_1;
+    let command = create_test_command(
+        vec![0x81, 0x01, 0x00, VISCA_TERMINATOR],
+        None,
+        CommandCategory::Quick,
+        camera_id,
+    );
+
+    // Register a pending ACK command
+    core.register_pending_ack(cmd_id(1), command.clone(), Priority::Normal, camera_id, now);
+
+    // Verify command is in AwaitingAck phase
+    assert!(
+        core.is_awaiting_ack(cmd_id(1)),
+        "Command should be in AwaitingAck phase after registration"
+    );
+
+    // Trigger ACK timeout
+    let later = now + Duration::from_millis(200);
+    let actions = core.check_timeouts(later);
+
+    // Should have a Timeout action and a RetryCommand action
+    assert!(
+        actions.iter().any(|a| matches!(
+            a,
+            SchedulerAction::Timeout {
+                kind: TimeoutKind::Ack,
+                ..
+            }
+        )),
+        "Should emit Timeout action for ACK timeout"
+    );
+    assert!(
+        actions
+            .iter()
+            .any(|a| matches!(a, SchedulerAction::RetryCommand { .. })),
+        "Should emit RetryCommand action for ACK timeout"
+    );
+
+    // The critical assertion: command should now be in Queued phase, NOT AwaitingAck
+    assert!(
+        !core.is_awaiting_ack(cmd_id(1)),
+        "Command must NOT be in AwaitingAck phase after ACK timeout"
+    );
+    let state = core
+        .commands
+        .get(&cmd_id(1))
+        .expect("Command should still exist");
+    assert!(
+        matches!(state.phase, CommandPhase::Queued),
+        "Command should be in Queued phase after ACK timeout, got {:?}",
+        state.phase
+    );
+    assert_eq!(state.attempt, 1, "Attempt should be incremented to 1");
+}
+
+#[test]
+fn test_late_ack_after_ack_timeout_is_discarded() {
+    // After ACK timeout transitions command to Queued, a late-arriving ACK should
+    // NOT match the timed-out command (since it's no longer in AwaitingAck phase).
+    let timeout_config = TimeoutConfig {
+        ack_timeout: Duration::from_millis(100),
+        ..Default::default()
+    };
+    let retry_config = RetryConfig {
+        max_retries: 3,
+        base_retry_delay: Duration::from_millis(100),
+        max_retry_duration: Duration::from_secs(10),
+        backoff_strategy: BackoffStrategy::Exponential,
+    };
+    let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
+    let now = Instant::now();
+    let camera_id = CameraId::CAMERA_1;
+    let command = create_test_command(
+        vec![0x81, 0x01, 0x00, VISCA_TERMINATOR],
+        None,
+        CommandCategory::Quick,
+        camera_id,
+    );
+
+    // Register a pending ACK command
+    core.register_pending_ack(cmd_id(1), command.clone(), Priority::Normal, camera_id, now);
+
+    // Trigger ACK timeout -> command transitions to Queued
+    let timeout_time = now + Duration::from_millis(200);
+    let _actions = core.check_timeouts(timeout_time);
+
+    // Verify command is in Queued phase
+    let state = core
+        .commands
+        .get(&cmd_id(1))
+        .expect("Command should still exist");
+    assert!(matches!(state.phase, CommandPhase::Queued));
+
+    // Now inject a late ACK (no specific command ID, raw VISCA style)
+    let late_ack_time = timeout_time + Duration::from_millis(20);
+    let (assigned_id, _cancel_action) = core.handle_ack_with_id(None, None, late_ack_time);
+
+    // The late ACK should NOT match any command (the timed-out command is in Queued phase)
+    assert!(
+        assigned_id.is_none(),
+        "Late ACK after timeout should not match any command, but matched {:?}",
+        assigned_id
+    );
+
+    // Command should still be in Queued phase, not transitioned to Executing
+    let state = core
+        .commands
+        .get(&cmd_id(1))
+        .expect("Command should still exist");
+    assert!(
+        matches!(state.phase, CommandPhase::Queued),
+        "Command should remain in Queued phase after late ACK, got {:?}",
+        state.phase
+    );
+}
+
+#[test]
+fn test_phase_guard_in_get_ready_retries_rejects_non_queued() {
+    // Verify that get_ready_retries rejects retries for commands not in Queued phase.
+    // This is a defense-in-depth measure for issue #497.
+    let timeout_config = TimeoutConfig::default();
+    let retry_config = RetryConfig {
+        max_retries: 5,
+        base_retry_delay: Duration::from_millis(100),
+        max_retry_duration: Duration::from_secs(10),
+        backoff_strategy: BackoffStrategy::Exponential,
+    };
+    let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
+    let now = Instant::now();
+    let camera_id = CameraId::CAMERA_1;
+    let command = create_test_command(
+        vec![0x81, 0x01, 0x00, VISCA_TERMINATOR],
+        None,
+        CommandCategory::Quick,
+        camera_id,
+    );
+
+    // Register and queue a retry (transitions to Queued, increments attempt)
+    core.register_pending_ack(cmd_id(1), command.clone(), Priority::Normal, camera_id, now);
+    let action = core.queue_retry_for_command(cmd_id(1), now, None);
+    assert!(matches!(action, Some(SchedulerAction::RetryCommand { .. })));
+
+    // Verify command is in Queued phase and attempt is 1
+    let state = core.commands.get(&cmd_id(1)).unwrap();
+    assert!(matches!(state.phase, CommandPhase::Queued));
+    assert_eq!(state.attempt, 1);
+
+    // Now manually set the command to Executing phase (simulating a race where
+    // a late ACK transitioned it before the retry fires)
+    if let Some(state) = core.commands.get_mut(&cmd_id(1)) {
+        state.phase = CommandPhase::Executing {
+            socket: ViscaSocket::S1,
+            started_at: now,
+        };
+    }
+
+    // Try to dispatch the retry - should be rejected because command is Executing
+    let retry_time = now + Duration::from_secs(1);
+    let ready = core.get_ready_retries(retry_time);
+
+    assert!(
+        ready.is_empty(),
+        "Retry should be rejected when command is in Executing phase, got {} retries",
+        ready.len()
+    );
+}
+
+#[test]
+fn test_ack_timeout_retry_fires_correctly_after_phase_transition() {
+    // After ACK timeout transitions to Queued, advancing time past the retry delay
+    // should allow the retry to fire via get_ready_retries.
+    let timeout_config = TimeoutConfig {
+        ack_timeout: Duration::from_millis(100),
+        ..Default::default()
+    };
+    let retry_config = RetryConfig {
+        max_retries: 3,
+        base_retry_delay: Duration::from_millis(100),
+        max_retry_duration: Duration::from_secs(10),
+        backoff_strategy: BackoffStrategy::Exponential,
+    };
+    let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
+    let now = Instant::now();
+    let camera_id = CameraId::CAMERA_1;
+    let command = create_test_command(
+        vec![0x81, 0x01, 0x00, VISCA_TERMINATOR],
+        None,
+        CommandCategory::Quick,
+        camera_id,
+    );
+
+    // Register and trigger ACK timeout
+    core.register_pending_ack(cmd_id(1), command.clone(), Priority::Normal, camera_id, now);
+    let timeout_time = now + Duration::from_millis(200);
+    let _actions = core.check_timeouts(timeout_time);
+
+    // Verify command is Queued with attempt 1
+    let state = core.commands.get(&cmd_id(1)).unwrap();
+    assert!(matches!(state.phase, CommandPhase::Queued));
+    assert_eq!(state.attempt, 1);
+
+    // Advance past retry delay and get retries
+    let retry_time = timeout_time + Duration::from_secs(1);
+    let ready = core.get_ready_retries(retry_time);
+
+    assert_eq!(ready.len(), 1, "Should have exactly one ready retry");
+    assert_eq!(ready[0].id, cmd_id(1));
+    assert_eq!(ready[0].attempt, 1);
+
+    // After register_pending_ack (simulating re-send), phase should be AwaitingAck
+    core.register_pending_ack(
+        cmd_id(1),
+        command.clone(),
+        Priority::Normal,
+        camera_id,
+        retry_time,
+    );
+    let state = core.commands.get(&cmd_id(1)).unwrap();
+    assert!(
+        matches!(state.phase, CommandPhase::AwaitingAck { .. }),
+        "Phase should be AwaitingAck after re-send"
+    );
+    assert_eq!(
+        state.attempt, 1,
+        "Attempt should be preserved across register_pending_ack"
+    );
+}
+
+#[test]
+fn test_ack_timeout_uses_capped_backoff_via_consolidated_path() {
+    // Verify that ACK timeout retries still use capped backoff (exponent cap at 5)
+    // after consolidation into queue_retry_for_command.
+    let timeout_config = TimeoutConfig {
+        ack_timeout: Duration::from_millis(100),
+        ..Default::default()
+    };
+    let retry_config = RetryConfig {
+        max_retries: 10,
+        base_retry_delay: Duration::from_millis(100),
+        max_retry_duration: Duration::from_secs(60),
+        backoff_strategy: BackoffStrategy::Exponential,
+    };
+    let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
+    let now = Instant::now();
+    let camera_id = CameraId::CAMERA_1;
+    let command = create_test_command(
+        vec![0x81, 0x01, 0x00, VISCA_TERMINATOR],
+        None,
+        CommandCategory::Quick,
+        camera_id,
+    );
+
+    // Register command and simulate multiple ACK timeouts
+    core.register_pending_ack(cmd_id(1), command.clone(), Priority::Normal, camera_id, now);
+
+    let mut current_time = now;
+    let mut delays = Vec::new();
+
+    for _ in 0..8 {
+        // Trigger ACK timeout
+        current_time += Duration::from_millis(200);
+        let actions = core.check_timeouts(current_time);
+
+        // Extract retry delay
+        for action in &actions {
+            if let SchedulerAction::RetryCommand { delay, .. } = action {
+                delays.push(*delay);
+            }
+        }
+
+        // Advance past retry delay and re-register for next iteration
+        current_time += Duration::from_secs(5);
+        let ready = core.get_ready_retries(current_time);
+        if let Some(retry) = ready.first() {
+            core.register_pending_ack(
+                retry.id,
+                retry.command.clone(),
+                retry.priority,
+                retry.camera_id,
+                current_time,
+            );
+        }
+    }
+
+    // Verify delays are capped: after exponent 5 (2^5 = 32), delay should be
+    // 100ms * 32 = 3200ms. Attempts beyond that should not exceed this.
+    let max_expected_delay = Duration::from_millis(3200);
+    for (i, delay) in delays.iter().enumerate() {
+        assert!(
+            *delay <= max_expected_delay,
+            "Delay at iteration {} is {:?}, exceeds cap of {:?}",
+            i,
+            delay,
+            max_expected_delay
+        );
+    }
+
+    // Verify the cap is actually applied: later delays should all be the same
+    // (capped at 3200ms) rather than continuing to grow
+    if delays.len() >= 7 {
+        assert_eq!(
+            delays[5], delays[6],
+            "Delays should be capped after exponent 5: {:?} vs {:?}",
+            delays[5], delays[6]
+        );
+    }
+}
+
+#[test]
+fn test_socket_slot_freed_after_ack_timeout() {
+    // After ACK timeout transitions to Queued, can_send_command should report
+    // availability since the timed-out command is no longer occupying the AwaitingAck slot.
+    let timeout_config = TimeoutConfig {
+        ack_timeout: Duration::from_millis(100),
+        ..Default::default()
+    };
+    let retry_config = RetryConfig::default();
+    let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
+    let now = Instant::now();
+    let camera_id = CameraId::CAMERA_1;
+    let command = create_test_command(
+        vec![0x81, 0x01, 0x00, VISCA_TERMINATOR],
+        None,
+        CommandCategory::Quick,
+        camera_id,
+    );
+
+    // Register two commands to fill both slots
+    core.register_pending_ack(cmd_id(1), command.clone(), Priority::Normal, camera_id, now);
+    core.register_pending_ack(cmd_id(2), command.clone(), Priority::Normal, camera_id, now);
+
+    // Both slots occupied - should not be able to send
+    assert!(
+        !core.can_send_command(now),
+        "Should not be able to send when both slots occupied"
+    );
+
+    // Trigger ACK timeout for both commands
+    let later = now + Duration::from_millis(200);
+    let _actions = core.check_timeouts(later);
+
+    // Both commands should now be in Queued phase, freeing the AwaitingAck count
+    assert_eq!(
+        core.count_awaiting_ack(),
+        0,
+        "No commands should be awaiting ACK after timeout"
+    );
+    assert!(
+        core.can_send_command(later),
+        "Should be able to send after ACK timeout frees slots"
+    );
+}
+
+#[test]
+fn test_exponent_cap_parameter_in_queue_retry() {
+    // Verify that delay_exponent_cap parameter works correctly in queue_retry_for_command.
+    let timeout_config = TimeoutConfig::default();
+    let retry_config = RetryConfig {
+        max_retries: 10,
+        base_retry_delay: Duration::from_millis(100),
+        max_retry_duration: Duration::from_secs(60),
+        backoff_strategy: BackoffStrategy::Exponential,
+    };
+    let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
+    let now = Instant::now();
+    let camera_id = CameraId::CAMERA_1;
+    let command = create_test_command(
+        vec![0x81, 0x01, 0x00, VISCA_TERMINATOR],
+        None,
+        CommandCategory::Quick,
+        camera_id,
+    );
+
+    // Test with cap=2 (max delay = 100ms * 2^2 = 400ms)
+    core.register_pending_ack(cmd_id(1), command.clone(), Priority::Normal, camera_id, now);
+
+    // Set attempt high to test cap
+    if let Some(state) = core.commands.get_mut(&cmd_id(1)) {
+        state.attempt = 5; // Without cap, this would be 2^6 = 6400ms
+    }
+
+    let action = core.queue_retry_for_command(cmd_id(1), now, Some(2));
+    match action {
+        Some(SchedulerAction::RetryCommand { delay, .. }) => {
+            // With cap=2, attempt 6's delay is capped: min(6, 2+1) = 3,
+            // so exponent = 3-1 = 2, delay = 100ms * 2^2 = 400ms
+            assert_eq!(
+                delay,
+                Duration::from_millis(400),
+                "Delay should be capped at 400ms (2^2 * 100ms)"
+            );
+        }
+        other => panic!("Expected RetryCommand action, got {:?}", other),
+    }
+
+    // Test without cap - same attempt should give uncapped delay
+    core.register_pending_ack(cmd_id(2), command.clone(), Priority::Normal, camera_id, now);
+    if let Some(state) = core.commands.get_mut(&cmd_id(2)) {
+        state.attempt = 5;
+    }
+
+    let action = core.queue_retry_for_command(cmd_id(2), now, None);
+    match action {
+        Some(SchedulerAction::RetryCommand { delay, .. }) => {
+            // Without cap, attempt 6 → exponent 5 → 100ms * 2^5 = 3200ms
+            assert_eq!(
+                delay,
+                Duration::from_millis(3200),
+                "Delay without cap should be 3200ms (2^5 * 100ms)"
+            );
+        }
+        other => panic!("Expected RetryCommand action, got {:?}", other),
+    }
 }

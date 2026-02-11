@@ -1783,7 +1783,8 @@ impl SchedulerCore {
                     let should_retry = self.should_retry_command(cmd_id, &error, now);
 
                     if should_retry {
-                        if let Some(retry_action) = self.queue_retry_for_command(cmd_id, now) {
+                        if let Some(retry_action) = self.queue_retry_for_command(cmd_id, now, None)
+                        {
                             actions.push(retry_action);
                         }
                     } else {
@@ -1813,7 +1814,7 @@ impl SchedulerCore {
                     if let Some(state) = self.commands.get_mut(&cmd_id) {
                         state.transport_error = is_transport_error;
                     }
-                    if let Some(retry_action) = self.queue_retry_for_command(cmd_id, now) {
+                    if let Some(retry_action) = self.queue_retry_for_command(cmd_id, now, None) {
                         actions.push(retry_action);
                     }
                 }
@@ -2076,6 +2077,21 @@ impl SchedulerCore {
                         continue;
                     }
 
+                    // Phase guard: only dispatch retries for commands in Queued phase.
+                    // This prevents duplicate sends if a late response (e.g., late ACK)
+                    // transitioned the command to a different phase between timeout and
+                    // retry dispatch.
+                    if let Some(state) = self.commands.get(&cmd_id) {
+                        if !matches!(state.phase, CommandPhase::Queued) {
+                            trace!(
+                                %cmd_id,
+                                phase = ?state.phase,
+                                "Dropping retry: command not in Queued phase"
+                            );
+                            continue;
+                        }
+                    }
+
                     ready.push(retry_key.command);
                 } else {
                     // This shouldn't happen since we just peeked, but handle gracefully
@@ -2177,19 +2193,6 @@ impl SchedulerCore {
                 now.duration_since(state.submitted_at) < self.retry_config.max_retry_duration;
             state.attempt < max_retries && within_duration
         })
-    }
-
-    /// Build the appropriate error for a terminal timeout failure.
-    fn timeout_terminal_error(&self, cmd_id: CommandId) -> Error {
-        let transport_error = self
-            .commands
-            .get(&cmd_id)
-            .is_some_and(|s| s.transport_error);
-        if transport_error {
-            Error::TransportError("Network error after max retries".into())
-        } else {
-            Error::Timeout
-        }
     }
 
     /// Complete a command successfully, extracting metadata and cleaning up all state.
@@ -2298,104 +2301,16 @@ impl SchedulerCore {
             }
         }
 
-        if self.should_retry_timeout(cmd_id, now) {
-            // For ACK timeouts, we need manual retry queueing with capped exponent
-            // For other timeouts, use queue_retry_for_command
-            match source {
-                TimeoutSource::Ack => {
-                    let state_copy = self.commands.get(&cmd_id).cloned();
-                    if let Some(state) = state_copy {
-                        let attempts = state.attempt;
-                        let max_retries = self.retry_budget.for_category(state.category());
-
-                        debug!(
-                            "Queueing ACK-timed-out command {} for retry (attempt {})",
-                            cmd_id,
-                            attempts + 1
-                        );
-
-                        if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
-                            eprintln!(
-                                "[SchedulerCore] Queueing retry for cmd_id={} (attempt {}/{})",
-                                cmd_id,
-                                attempts + 1,
-                                max_retries
-                            );
-                        }
-
-                        // Update retry count in command state
-                        if let Some(cmd_state) = self.commands.get_mut(&cmd_id) {
-                            cmd_state.attempt = attempts + 1;
-                        }
-
-                        // Calculate retry delay using RetryConfig to maintain consistency
-                        // For ACK timeouts, we cap the exponent at 5 (2^5 = 32) to prevent
-                        // excessively long delays on repeated timeouts.
-                        let capped_attempt_num = (attempts + 1).min(6);
-                        let retry_attempt =
-                            RetryAttempt::new(capped_attempt_num).unwrap_or(RetryAttempt::FIRST);
-                        let retry_delay = self.retry_config.calculate_delay(retry_attempt, None);
-
-                        // Create and queue the retry command
-                        let retry_cmd = RetryCommand {
-                            id: cmd_id,
-                            command: state.command.clone(),
-                            priority: state.priority,
-                            camera_id: state.camera_id,
-                            attempt: attempts + 1,
-                            max_retries,
-                            retry_at: now + retry_delay,
-                        };
-
-                        self.retry_queue.push(RetryKey { command: retry_cmd });
-
-                        actions.push(SchedulerAction::RetryCommand {
-                            id: cmd_id,
-                            delay: retry_delay,
-                        });
-                    }
-                }
-                TimeoutSource::Socket(_) | TimeoutSource::Inquiry => {
-                    if let Some(retry_action) = self.queue_retry_for_command(cmd_id, now) {
-                        actions.push(retry_action);
-                    }
-                }
-            }
-        } else {
-            // Terminal failure
-            match source {
-                TimeoutSource::Ack => {
-                    let state_copy = self.commands.get(&cmd_id).cloned();
-                    if let Some(state) = state_copy {
-                        let max_retries = self.retry_budget.for_category(state.category());
-                        let error = self.timeout_terminal_error(cmd_id);
-
-                        debug!(
-                            "Command {} exceeded max ACK retries, failing with {:?}",
-                            cmd_id, error
-                        );
-
-                        if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
-                            eprintln!(
-                                "[SchedulerCore] Command {} exceeded max ACK retries ({}), failing",
-                                cmd_id, max_retries
-                            );
-                        }
-
-                        // Clean up all state for this command
-                        self.finish_sequence(cmd_id);
-                        self.commands.remove(&cmd_id);
-
-                        actions.push(SchedulerAction::CommandFailed { id: cmd_id, error });
-                    }
-                }
-                TimeoutSource::Socket(_) | TimeoutSource::Inquiry => {
-                    let error = self.timeout_terminal_error(cmd_id);
-                    self.finish_sequence(cmd_id);
-                    self.commands.remove(&cmd_id);
-                    actions.push(SchedulerAction::CommandFailed { id: cmd_id, error });
-                }
-            }
+        // Unified retry/terminal-failure via queue_retry_for_command.
+        // ACK timeouts cap the backoff exponent at 5 (2^5 = 32x base delay) to prevent
+        // excessively long delays on repeated ACK timeouts. Socket and inquiry timeouts
+        // use uncapped exponential backoff.
+        let delay_exponent_cap = match source {
+            TimeoutSource::Ack => Some(5),
+            TimeoutSource::Socket(_) | TimeoutSource::Inquiry => None,
+        };
+        if let Some(action) = self.queue_retry_for_command(cmd_id, now, delay_exponent_cap) {
+            actions.push(action);
         }
     }
 
@@ -2746,10 +2661,16 @@ impl SchedulerCore {
     }
 
     /// Queue a command for retry based on the retry configuration.
+    ///
+    /// If `delay_exponent_cap` is `Some(cap)`, the backoff exponent is capped at `cap`
+    /// (i.e., the attempt number used for delay calculation is capped at `cap + 1`).
+    /// This is used for ACK timeouts to prevent excessively long delays (cap of 5
+    /// limits backoff to 2^5 = 32x base delay).
     pub fn queue_retry_for_command(
         &mut self,
         cmd_id: CommandId,
         now: Instant,
+        delay_exponent_cap: Option<u32>,
     ) -> Option<SchedulerAction> {
         // Get current state
         let state_copy = self.commands.get(&cmd_id).cloned();
@@ -2789,7 +2710,13 @@ impl SchedulerCore {
 
             // Calculate backoff delay using RetryConfig
             // new_attempt is 1-based (state.attempt starts at 0, we added 1 above)
-            let retry_attempt = RetryAttempt::new(new_attempt).unwrap_or(RetryAttempt::FIRST);
+            // When delay_exponent_cap is set, cap the attempt number used for delay
+            // calculation so the exponent doesn't exceed the cap.
+            let delay_attempt = match delay_exponent_cap {
+                Some(cap) => new_attempt.min(cap + 1),
+                None => new_attempt,
+            };
+            let retry_attempt = RetryAttempt::new(delay_attempt).unwrap_or(RetryAttempt::FIRST);
             let delay = self.retry_config.calculate_delay(retry_attempt, None);
 
             let retry_cmd = RetryCommand {
