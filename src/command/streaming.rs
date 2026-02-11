@@ -113,6 +113,50 @@ impl SetNdiQuality {
     }
 }
 
+/// USB audio control command.
+///
+/// Enables or disables USB audio output on the camera.
+/// **Vendor-Specific**: PTZOptics cameras only.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
+pub enum UsbAudio {
+    /// Enable USB audio.
+    On,
+    /// Disable USB audio.
+    Off,
+}
+
+impl crate::command::encode::ViscaCommand for UsbAudio {
+    type Response = ();
+    const MAX_SIZE: usize = 7;
+    const TIMEOUT_CATEGORY: crate::timeout::CommandCategory =
+        crate::timeout::CommandCategory::Quick;
+
+    fn write_into(
+        &self,
+        camera_id: crate::CameraId,
+        buffer: &mut [u8],
+    ) -> Result<usize, crate::Error> {
+        use crate::command::bytes::{constants, ConstCommandBuilder};
+
+        let builder = ConstCommandBuilder::<7>::from_prefix(constants::streaming::USB_AUDIO_PREFIX)
+            .with_camera_id(camera_id)
+            .push(match self {
+                Self::On => 0x02,
+                Self::Off => 0x03,
+            })
+            .terminate();
+        builder.build_into(buffer)
+    }
+
+    fn response_kind(&self) -> Option<crate::command::InquiryKind> {
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::expect_used, clippy::panic)]
@@ -160,5 +204,19 @@ mod tests {
         test_ndi_quality_off_encoding,
         SetNdiQuality::new(NdiQuality::Off),
         &[0x81, 0x0B, 0x01, 0x01, 0x04, VISCA_TERMINATOR]
+    );
+
+    visca_test!(
+        UsbAudio,
+        test_usb_audio_on_encoding,
+        UsbAudio::On,
+        &[0x81, 0x2A, 0x02, 0xA0, 0x04, 0x02, VISCA_TERMINATOR]
+    );
+
+    visca_test!(
+        UsbAudio,
+        test_usb_audio_off_encoding,
+        UsbAudio::Off,
+        &[0x81, 0x2A, 0x02, 0xA0, 0x04, 0x03, VISCA_TERMINATOR]
     );
 }

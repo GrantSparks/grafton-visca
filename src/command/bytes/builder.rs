@@ -146,11 +146,6 @@ impl<const N: usize> ConstCommandBuilder<N, Incomplete> {
         self
     }
 
-    /// Add VISCA-encoded 14-bit value (4 bytes).
-    pub fn push_visca_u14(self, value: u16) -> Self {
-        self.push_visca_u16(value & 0x3FFF)
-    }
-
     /// Add a nibble pair (2 bytes) from a u16 value.
     /// The high nibble (bits 4-7) and low nibble (bits 0-3) are stored as separate bytes.
     pub fn push_nibble_pair(mut self, value: u16) -> Self {

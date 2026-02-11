@@ -40,6 +40,52 @@ crate::visca_range_type! {
     }
 }
 
+crate::visca_range_type! {
+    /// Preset recall speed.
+    ///
+    /// Valid range: 1 to 24 (0x01 to 0x18).
+    /// Controls the speed at which the camera moves when recalling a preset position.
+    /// **Vendor-Specific**: PTZOptics cameras only.
+    PresetRecallSpeed: u8 {
+        min: 1,
+        max: 24
+    }
+}
+
+/// Command to set the preset recall movement speed.
+///
+/// This controls how fast the camera moves when recalling a preset position.
+/// **Vendor-Specific**: PTZOptics cameras only.
+#[derive(Debug, Copy, Clone)]
+pub(crate) struct PresetRecallSpeedCommand {
+    /// The recall speed to set.
+    pub speed: PresetRecallSpeed,
+}
+
+impl ViscaCommand for PresetRecallSpeedCommand {
+    type Response = ();
+    const MAX_SIZE: usize = 6;
+    const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
+
+    fn write_into(
+        &self,
+        camera_id: crate::camera_id::CameraId,
+        buffer: &mut [u8],
+    ) -> Result<usize, Error> {
+        use crate::command::bytes::constants::preset;
+
+        ConstCommandBuilder::<6>::from_prefix(preset::RECALL_SPEED_PREFIX)
+            .with_camera_id(camera_id)
+            .push(self.speed.value())
+            .terminate()
+            .build_into(buffer)
+    }
+
+    fn response_kind(&self) -> Option<InquiryKind> {
+        None
+    }
+}
+
 /// Command to manage camera presets.
 #[derive(Debug, Copy, Clone)]
 pub(crate) struct PresetCommand {
@@ -171,4 +217,30 @@ mod tests {
         };
         assert!(cmd.response_kind().is_none());
     }
+
+    #[test]
+    fn test_preset_recall_speed_valid_range() {
+        assert!(PresetRecallSpeed::new(1).is_ok());
+        assert!(PresetRecallSpeed::new(24).is_ok());
+        assert!(PresetRecallSpeed::new(0).is_err());
+        assert!(PresetRecallSpeed::new(25).is_err());
+    }
+
+    visca_test!(
+        PresetRecallSpeedCommand,
+        test_preset_recall_speed_min,
+        PresetRecallSpeedCommand {
+            speed: PresetRecallSpeed::new(1).unwrap_or_else(|e| panic!("Valid speed: {e:?}")),
+        },
+        &[0x81, 0x01, 0x06, 0x01, 0x01, VISCA_TERMINATOR]
+    );
+
+    visca_test!(
+        PresetRecallSpeedCommand,
+        test_preset_recall_speed_max,
+        PresetRecallSpeedCommand {
+            speed: PresetRecallSpeed::new(24).unwrap_or_else(|e| panic!("Valid speed: {e:?}")),
+        },
+        &[0x81, 0x01, 0x06, 0x01, 0x18, VISCA_TERMINATOR]
+    );
 }

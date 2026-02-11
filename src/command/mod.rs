@@ -449,6 +449,11 @@ pub enum InquiryData {
         /// Whether night/day switch is enabled.
         enabled: bool,
     },
+    /// Flicker mode inquiry response.
+    FlickerMode {
+        /// Current anti-flicker mode setting.
+        mode: AntiFlickerMode,
+    },
 }
 
 #[cfg(test)]

@@ -8,6 +8,12 @@
 
 **Notice:** *This document is a work in progress. It may contain inaccuracies or omissions, and new camera models may introduce further variations. Use with caution and verify against official documentation where available.* However, every effort has been made to cite authoritative sources to ensure accuracy of the information presented.
 
+**Validation status (patch 2026-02-10):**
+- ✅ **PTZOptics NDI|HX Gen‑2 sections** were cross‑checked against the provided PT12X/PT20X/PT30X NDI|HX user manuals and datasheets (Rev 1.5/1.6 and Rev 1.3, Aug 2020).
+- ✅ **Axis range notes** were cross‑checked against the provided Axis VISCA Interface API Description (M1.6, Mar 2021).
+- ⚠️ Content about other manufacturers/models (e.g., Sony FR7/BRC/EVI, Nearus) is retained for completeness but was **not** re‑validated in this patch set because those primary manuals were not included in the provided source bundle.
+
+
 ---
 
 ## 1. Scope & Intent
@@ -230,7 +236,7 @@ Different camera models vary in capabilities even though they share the VISCA pr
 | Feature                     | PTZOptics Gen‑2 (SDI/NDI)                       | Sony ILME‑FR7                           | Sony BRC‑H900                           | Sony EVI‑H100              | Nearus BRC‑300 (Sony OEM) |
 | --------------------------- | ----------------------------------------------- | --------------------------------------- | --------------------------------------- | -------------------------- | ------------------------- |
 | **VISCA over IP**           | **Raw** UDP 1259 / TCP 5678 (no header)         | Encapsulated UDP (port 52381)           | Encapsulated UDP\* (52381, via IP card) | — (Serial only)            | — (Serial only)           |
-| **Preset slots**            | **128** (firmware ≥2.2) (prev. 10–64)           | 100 (0–99)                              | 16 (0–15)                               | 6 (0–5)                    | 6 (0–5)                   |
+| **Preset slots**            | **255** (serial/IP) / **10** (IR remote)        | 100 (0–99)                              | 16 (0–15)                               | 6 (0–5)                    | 6 (0–5)                   |
 | **Pan speed steps**         | 1–24 (std. VISCA range)                         | **1–50** (supports “Fine” mode)         | 1–24                                    | 1–24                       | 1–24                      |
 | **Focus Lock command**      | ✔ (`81 0A 04 68 02/03 FF`)                      | ✖ (no separate lock; uses AF/MF toggle) | ✖                                       | ✖                          | ✖                         |
 | **“Snap” Focus (One-push)** | ✔ (`81 01 04 38 04 FF` triggers one-shot focus) | ✔ (Push AF commands)                    | ✖                                       | ✖ (older models lack this) | ✖                         |
@@ -242,7 +248,7 @@ Different camera models vary in capabilities even though they share the VISCA pr
 
 \* Sony BRC‑H900 IP control requires the BRBK-IP10 option; without it, only RS-232/422 control is available.
 
-As seen above, the newer FR7 introduces unique features like a variable electronic ND filter and dual tally lights, not found on older models. PTZOptics has some custom commands (like Focus Lock and Snap Focus) not present on Sony cameras. The number of preset memory slots varies widely: from 6 on entry-level models up to 100+ on newer cameras. PTZOptics significantly expanded presets via firmware (older units effectively had 10 via IR or 64 via software, now 128). When developing a controller, it’s wise to query the camera’s version or model info and adjust the UI/controls accordingly – for example, disable ND controls for models without ND filters, limit the preset index range offered to the user, or hide options like ATW or dual tally unless the camera supports them.
+As seen above, the newer FR7 introduces unique features like a variable electronic ND filter and dual tally lights, not found on older models. PTZOptics has some custom commands (like Focus Lock and Snap Focus) not present on Sony cameras. The number of preset memory slots varies widely: from 6 on entry-level models up to 100+ on newer cameras. PTZOptics NDI|HX Gen‑2 documentation lists **255 presets** available via **serial/IP control**, while the included **IR remote supports 10 presets (0–9)**. When developing a controller, treat **255** as the supported preset count and adjust the UI accordingly – for example, disable ND controls for models without ND filters, limit the preset index range offered to the user, or hide options like ATW or dual tally unless the camera supports them.
 
 *(Note: The Sony BRC-X1000 4K camera (2017) is similar to FR7 in many respects and supports up to 100 presets. The older Sony BRC-300 had only 6 presets accessible via remote/serial. Always check model specs.)*
 

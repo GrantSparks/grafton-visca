@@ -122,6 +122,23 @@ pub trait PresetsControl {
         &self,
         preset: PresetNumber,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+
+    /// Set the speed for preset recall movements.
+    ///
+    /// Controls how fast the camera moves when recalling a preset position.
+    /// Speed range is 1 (slowest) to 24 (fastest).
+    ///
+    /// **Vendor-Specific**: PTZOptics cameras only.
+    ///
+    /// # Parameters
+    /// - `speed`: The recall speed (1-24)
+    ///
+    /// # Errors
+    /// Returns an error if the command fails to send or receive a response.
+    fn set_preset_recall_speed(
+        &self,
+        speed: crate::command::preset::PresetRecallSpeed,
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 }
 
 /// Helper function to validate a preset number against the camera's MAX_PRESETS.
@@ -178,6 +195,14 @@ where
             action: PresetAction::Reset,
             preset_number: preset,
         };
+        self.execute(cmd)
+    }
+
+    fn set_preset_recall_speed(
+        &self,
+        speed: crate::command::preset::PresetRecallSpeed,
+    ) -> M::Fut<'_, Result<(), Error>> {
+        let cmd = crate::command::preset::PresetRecallSpeedCommand { speed };
         self.execute(cmd)
     }
 }

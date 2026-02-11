@@ -115,6 +115,15 @@ pub enum Focus {
     OnePushTrigger,
     /// Set focus to infinity.
     Infinity,
+    /// Toggle between auto and manual focus modes.
+    ///
+    /// **Vendor-Specific**: PTZOptics cameras.
+    Toggle,
+    /// Snap focus (one-push AF while in manual mode).
+    ///
+    /// Triggers a single autofocus operation, then returns to manual focus mode.
+    /// **Vendor-Specific**: PTZOptics "Snap Focus" feature.
+    Snap,
 }
 
 impl ViscaCommand for Focus {
@@ -174,12 +183,14 @@ impl ViscaCommand for Focus {
                     .terminate();
                 builder.build_into(buffer)
             }
-            Self::Auto | Self::Manual => {
+            Self::Auto | Self::Manual | Self::Toggle | Self::Snap => {
                 let mut builder = ConstCommandBuilder::<6>::new();
                 builder.append_mut(constants::focus::MODE_PREFIX);
                 builder.push_mut(match self {
                     Self::Auto => 0x02,
                     Self::Manual => 0x03,
+                    Self::Snap => 0x04,
+                    Self::Toggle => 0x10,
                     _ => unreachable!(),
                 });
                 builder.with_camera_id_mut(camera_id);
@@ -533,6 +544,20 @@ mod tests {
         test_focus_command_manual,
         Focus::Manual,
         &[0x81, 0x01, 0x04, 0x38, 0x03, VISCA_TERMINATOR]
+    );
+
+    visca_test!(
+        Focus,
+        test_focus_command_toggle,
+        Focus::Toggle,
+        &[0x81, 0x01, 0x04, 0x38, 0x10, VISCA_TERMINATOR]
+    );
+
+    visca_test!(
+        Focus,
+        test_focus_command_snap,
+        Focus::Snap,
+        &[0x81, 0x01, 0x04, 0x38, 0x04, VISCA_TERMINATOR]
     );
 
     visca_test!(

@@ -245,10 +245,13 @@ impl crate::command::typed::ResponseParser for ColorTemperatureInquiry {
 }
 
 /// Inquiry command to get the current red gain value.
+///
+/// Queries register 0x04 0x43 (same as red tuning). The raw value is
+/// interpreted as an absolute gain (0x00-0xFF) offset by 10 to produce
+/// a signed tuning value.
 #[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
-    opcode = 0x12,
-    subcode = 0x0A,
+    opcode = 0x43,
     response = "RedChannel",
     parser = "offset",
     field = "gain",
@@ -258,10 +261,13 @@ impl crate::command::typed::ResponseParser for ColorTemperatureInquiry {
 pub struct RedGainInquiry;
 
 /// Inquiry command to get the current blue gain value.
+///
+/// Queries register 0x04 0x44 (same as blue tuning). The raw value is
+/// interpreted as an absolute gain (0x00-0xFF) offset by 10 to produce
+/// a signed tuning value.
 #[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
-    opcode = 0x13,
-    subcode = 0x0A,
+    opcode = 0x44,
     response = "BlueChannel",
     parser = "offset",
     field = "gain",
@@ -986,6 +992,17 @@ impl crate::command::typed::ResponseParser for TallyGreenInquiry {
     }
 }
 
+/// Inquiry command to get the current flicker mode setting.
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
+#[visca(
+    opcode = 0x55,
+    response = "FlickerMode",
+    parser = "mode",
+    value_type = "AntiFlickerMode",
+    bytes_const = "FLICKER_MODE"
+)]
+pub struct FlickerModeInquiry;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1189,5 +1206,11 @@ mod tests {
         test_black_white_mode_inquiry,
         BlackWhiteModeInquiry,
         constants::inquiry::BLACK_WHITE_MODE
+    );
+    visca_test!(
+        FlickerModeInquiry,
+        test_flicker_mode_inquiry,
+        FlickerModeInquiry,
+        constants::inquiry::FLICKER_MODE
     );
 }

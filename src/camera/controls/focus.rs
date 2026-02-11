@@ -221,6 +221,28 @@ pub trait FocusControl {
     where
         T: TryInto<FocusPosition>,
         T::Error: Into<Error>;
+
+    /// Toggle between auto and manual focus modes.
+    ///
+    /// Switches the focus mode from auto to manual or vice versa.
+    ///
+    /// **Vendor-Specific**: PTZOptics cameras only.
+    ///
+    /// # Errors
+    /// Returns an error if the command fails to send or receive a response.
+    fn focus_toggle(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+
+    /// Trigger snap focus (one-push AF in manual mode).
+    ///
+    /// Performs a single autofocus operation then returns to manual focus mode.
+    /// This is similar to `focus_one_push` but uses the PTZOptics-specific
+    /// snap focus implementation.
+    ///
+    /// **Vendor-Specific**: PTZOptics cameras only.
+    ///
+    /// # Errors
+    /// Returns an error if the command fails to send or receive a response.
+    fn focus_snap(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 }
 
 // Single unified implementation for all Camera types!
@@ -312,6 +334,14 @@ where
             }),
             Err(e) => self.error(e.into()),
         }
+    }
+
+    fn focus_toggle(&self) -> M::Fut<'_, Result<(), Error>> {
+        self.execute(Focus::Toggle)
+    }
+
+    fn focus_snap(&self) -> M::Fut<'_, Result<(), Error>> {
+        self.execute(Focus::Snap)
     }
 }
 

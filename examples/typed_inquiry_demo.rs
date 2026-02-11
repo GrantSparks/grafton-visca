@@ -45,8 +45,16 @@ fn main() -> Result<(), Error> {
 
             // Use ZoomPositionExt for domain-aware normalization
             use grafton_visca::{inquiry_conversions::ZoomDomain, ZoomPositionExt};
-            let optical = zoom_pos.normalize(ZoomDomain::Optical);
-            let full = zoom_pos.normalize(ZoomDomain::OpticalPlusDigital);
+            // PtzOpticsG2 profile constants
+            let optical_max = 0x4000u16;
+            let digital_max = Some(0x7000u16);
+            let optical =
+                zoom_pos.normalize_with_max(ZoomDomain::Optical, optical_max, digital_max);
+            let full = zoom_pos.normalize_with_max(
+                ZoomDomain::OpticalPlusDigital,
+                optical_max,
+                digital_max,
+            );
 
             println!("  Zoom: 0x{raw_value:04X}");
             println!("    → Optical zoom: {:.1}%", optical.0 * 100.0);

@@ -34,8 +34,8 @@ use crate::command::image::{
 use crate::command::resolution::{NdFilterPosition, PictureEffectMode, ResolutionMode};
 use crate::command::system::{MotionSyncMode, MotionSyncPreset};
 use crate::command::{
-    AutoFocusSensitivity, AutoWhiteBalanceSensitivity, ExposureMode, FocusMode, FocusRange,
-    FocusZone, InquiryData, WhiteBalanceMode,
+    AntiFlickerMode, AutoFocusSensitivity, AutoWhiteBalanceSensitivity, ExposureMode, FocusMode,
+    FocusRange, FocusZone, InquiryData, WhiteBalanceMode,
 };
 use crate::error::{format_payload_hex, Error};
 use crate::types::DefogLevel;
@@ -622,6 +622,26 @@ pub(crate) fn dispatch(kind: InquiryKind, payload: Payload<'_>) -> Result<Respon
         InquiryKind::TallyAutoAdjust => {
             let on = payload.parse_bool("tally_auto_adjust_status", BoolConvention::OnIs03)?;
             Ok(Response::Inquiry(InquiryData::TallyAutoAdjust { on }))
+        }
+
+        // ============================================================
+        // Flicker mode decoder
+        // ============================================================
+        InquiryKind::FlickerMode => {
+            require_len(&payload, 1)?;
+            let mode = match payload.as_slice()[0] {
+                0x00 => AntiFlickerMode::Off,
+                0x01 => AntiFlickerMode::Hz50,
+                0x02 => AntiFlickerMode::Hz60,
+                v => {
+                    return Err(Error::InvalidParameter {
+                        parameter: "flicker_mode",
+                        value: Cow::Owned(format!("{v:02X}")),
+                        reason: Cow::Borrowed("Unknown flicker mode value"),
+                    });
+                }
+            };
+            Ok(Response::Inquiry(InquiryData::FlickerMode { mode }))
         }
     }
 }

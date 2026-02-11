@@ -392,6 +392,23 @@ pub trait ExposureControl {
         &self,
         level: crate::types::BrightnessLevel,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+
+    /// Set anti-flicker mode.
+    ///
+    /// Controls the camera's flicker reduction to match the local AC power frequency.
+    /// Using the wrong setting can cause visible banding/flickering in the image.
+    ///
+    /// **Vendor-Specific**: PTZOptics cameras only.
+    ///
+    /// # Parameters
+    /// - `mode`: The anti-flicker mode (Off, 50Hz, or 60Hz)
+    ///
+    /// # Errors
+    /// Returns an error if the command fails to send or receive a response.
+    fn set_anti_flicker_mode(
+        &self,
+        mode: crate::command::exposure::AntiFlickerMode,
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 }
 
 // Single unified implementation for all Camera types!
@@ -569,6 +586,14 @@ where
         level: crate::types::BrightnessLevel,
     ) -> M::Fut<'_, Result<(), Error>> {
         let cmd = crate::command::exposure::Brightness::Direct(level);
+        self.execute(cmd)
+    }
+
+    fn set_anti_flicker_mode(
+        &self,
+        mode: crate::command::exposure::AntiFlickerMode,
+    ) -> M::Fut<'_, Result<(), Error>> {
+        let cmd = crate::command::exposure::AntiFlickerCommand::new(mode);
         self.execute(cmd)
     }
 }

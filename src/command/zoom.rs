@@ -108,7 +108,7 @@ impl ViscaCommand for Zoom {
                 // Direct position: 81 01 04 47 0p 0q 0r 0s FF
                 let builder = ConstCommandBuilder::<9>::from_prefix(zoom::POSITION_PREFIX)
                     .with_camera_id(camera_id)
-                    .push_visca_u14(position.value())
+                    .push_visca_u16(position.value())
                     .terminate();
                 builder.build_into(buffer)
             }
@@ -160,5 +160,146 @@ impl ViscaCommand for DigitalZoom {
 
     fn response_kind(&self) -> Option<InquiryKind> {
         None
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+    use crate::camera_id::CameraId;
+    use crate::command::bytes::VISCA_TERMINATOR;
+    use crate::command::encode::ViscaCommand;
+
+    /// Helper to encode a zoom command and return the bytes.
+    fn encode_zoom(cmd: &Zoom) -> Vec<u8> {
+        let mut buf = [0u8; 16];
+        let len = cmd.write_into(CameraId::CAMERA_1, &mut buf).unwrap();
+        buf[..len].to_vec()
+    }
+
+    #[test]
+    fn test_zoom_position_encoding_min() {
+        let pos = ZoomPosition::new(0x0000).unwrap();
+        let bytes = encode_zoom(&Zoom::Position(pos));
+        // 81 01 04 47 00 00 00 00 FF
+        assert_eq!(
+            bytes,
+            &[
+                0x81,
+                0x01,
+                0x04,
+                0x47,
+                0x00,
+                0x00,
+                0x00,
+                0x00,
+                VISCA_TERMINATOR
+            ]
+        );
+    }
+
+    #[test]
+    fn test_zoom_position_encoding_optical_g2_max() {
+        // PtzOpticsG2 optical max = 0x4000
+        let pos = ZoomPosition::new(0x4000).unwrap();
+        let bytes = encode_zoom(&Zoom::Position(pos));
+        // 0x4000 = 0100 0000 0000 0000 → nibbles: 4, 0, 0, 0
+        assert_eq!(
+            bytes,
+            &[
+                0x81,
+                0x01,
+                0x04,
+                0x47,
+                0x04,
+                0x00,
+                0x00,
+                0x00,
+                VISCA_TERMINATOR
+            ]
+        );
+    }
+
+    #[test]
+    fn test_zoom_position_encoding_digital_g2_max() {
+        // PtzOpticsG2 digital max = 0x7000
+        let pos = ZoomPosition::new(0x7000).unwrap();
+        let bytes = encode_zoom(&Zoom::Position(pos));
+        // 0x7000 = nibbles: 7, 0, 0, 0
+        assert_eq!(
+            bytes,
+            &[
+                0x81,
+                0x01,
+                0x04,
+                0x47,
+                0x07,
+                0x00,
+                0x00,
+                0x00,
+                VISCA_TERMINATOR
+            ]
+        );
+    }
+
+    #[test]
+    fn test_zoom_position_encoding_30x_optical_max() {
+        // PtzOptics30X optical max = 0x7AC0
+        let pos = ZoomPosition::new(0x7AC0).unwrap();
+        let bytes = encode_zoom(&Zoom::Position(pos));
+        // 0x7AC0 = nibbles: 7, A, C, 0
+        assert_eq!(
+            bytes,
+            &[
+                0x81,
+                0x01,
+                0x04,
+                0x47,
+                0x07,
+                0x0A,
+                0x0C,
+                0x00,
+                VISCA_TERMINATOR
+            ]
+        );
+    }
+
+    #[test]
+    fn test_zoom_position_encoding_digital_max() {
+        // Maximum digital zoom = 0x7FFF
+        let pos = ZoomPosition::new(0x7FFF).unwrap();
+        let bytes = encode_zoom(&Zoom::Position(pos));
+        // 0x7FFF = nibbles: 7, F, F, F
+        assert_eq!(
+            bytes,
+            &[
+                0x81,
+                0x01,
+                0x04,
+                0x47,
+                0x07,
+                0x0F,
+                0x0F,
+                0x0F,
+                VISCA_TERMINATOR
+            ]
+        );
+    }
+
+    /// Regression test: previously push_visca_u14 masked to 0x3FFF,
+    /// truncating values >= 0x4000.
+    #[test]
+    fn test_zoom_position_above_0x3fff_not_truncated() {
+        // 0x4001 should encode as 04 00 00 01, NOT 00 00 00 01
+        let pos = ZoomPosition::new(0x4001).unwrap();
+        let bytes = encode_zoom(&Zoom::Position(pos));
+        assert_eq!(
+            bytes[4], 0x04,
+            "High nibble must be preserved (was truncated by u14 mask)"
+        );
+        assert_eq!(bytes[5], 0x00);
+        assert_eq!(bytes[6], 0x00);
+        assert_eq!(bytes[7], 0x01);
     }
 }

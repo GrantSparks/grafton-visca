@@ -352,6 +352,45 @@ impl ViscaCommand for Brightness {
     }
 }
 
+/// Anti-flicker mode setting.
+///
+/// Controls the camera's flicker reduction to match the local AC power frequency.
+/// Using the wrong setting can cause visible banding/flickering in the image.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, ViscaEnum)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
+pub enum AntiFlickerMode {
+    /// Anti-flicker disabled.
+    Off = 0x00,
+    /// 50 Hz flicker reduction (for PAL regions).
+    Hz50 = 0x01,
+    /// 60 Hz flicker reduction (for NTSC regions).
+    Hz60 = 0x02,
+}
+
+visca_command! {
+    /// Command to set the camera's anti-flicker mode.
+    ///
+    /// PTZOptics G2/G3 specific. Controls flicker reduction to match the local
+    /// AC power frequency (50 Hz or 60 Hz).
+    pub struct AntiFlickerCommand {
+        mode: AntiFlickerMode,
+    };
+    prefix = [0x01, 0x04, 0x23];
+    param = *mode as u8;
+    max_param_size = 1;
+    category = CommandCategory::Quick;
+}
+
+impl AntiFlickerCommand {
+    /// Create a new anti-flicker command.
+    pub fn new(mode: AntiFlickerMode) -> Self {
+        Self { mode }
+    }
+}
+
 visca_command! {
         /// Turn spotlight on (Sony models).
     ///
@@ -1112,4 +1151,42 @@ mod tests {
         AutoSlowShutterOff::new(),
         &[0x81, 0x01, 0x04, 0x5A, 0x03, VISCA_TERMINATOR]
     );
+
+    visca_test!(
+        AntiFlickerCommand,
+        test_anti_flicker_off,
+        AntiFlickerCommand::new(AntiFlickerMode::Off),
+        &[0x81, 0x01, 0x04, 0x23, 0x00, VISCA_TERMINATOR]
+    );
+
+    visca_test!(
+        AntiFlickerCommand,
+        test_anti_flicker_50hz,
+        AntiFlickerCommand::new(AntiFlickerMode::Hz50),
+        &[0x81, 0x01, 0x04, 0x23, 0x01, VISCA_TERMINATOR]
+    );
+
+    visca_test!(
+        AntiFlickerCommand,
+        test_anti_flicker_60hz,
+        AntiFlickerCommand::new(AntiFlickerMode::Hz60),
+        &[0x81, 0x01, 0x04, 0x23, 0x02, VISCA_TERMINATOR]
+    );
+
+    #[test]
+    fn test_anti_flicker_mode_try_from() {
+        assert!(matches!(
+            AntiFlickerMode::try_from(0x00),
+            Ok(AntiFlickerMode::Off)
+        ));
+        assert!(matches!(
+            AntiFlickerMode::try_from(0x01),
+            Ok(AntiFlickerMode::Hz50)
+        ));
+        assert!(matches!(
+            AntiFlickerMode::try_from(0x02),
+            Ok(AntiFlickerMode::Hz60)
+        ));
+        assert!(AntiFlickerMode::try_from(0x03).is_err());
+    }
 }

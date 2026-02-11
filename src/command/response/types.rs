@@ -214,4 +214,6 @@ pub enum InquiryKind {
     TallyStatus,
     /// Tally auto adjust inquiry response.
     TallyAutoAdjust,
+    /// Flicker mode inquiry response.
+    FlickerMode,
 }

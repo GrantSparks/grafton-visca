@@ -251,7 +251,13 @@ where
         }
 
         // Convert normalized position to zoom position based on domain
-        match ZoomPosition::from_normalized(position, domain) {
+        // Uses profile constants for correct mapping across camera models
+        match ZoomPosition::from_normalized(
+            position,
+            domain,
+            P::OPTICAL_ZOOM_MAX,
+            P::DIGITAL_ZOOM_MAX,
+        ) {
             Ok(zoom_pos) => self.execute(Zoom::Position(zoom_pos)),
             Err(e) => self.error(e),
         }

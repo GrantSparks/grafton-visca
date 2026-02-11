@@ -78,8 +78,12 @@ fn main() -> grafton_visca::Result<()> {
             println!("Zoom: {:?}", zoom);
 
             use grafton_visca::{inquiry_conversions::ZoomDomain, ZoomPositionExt};
-            let optical = zoom.normalize(ZoomDomain::Optical);
-            let full = zoom.normalize(ZoomDomain::OpticalPlusDigital);
+            // PtzOpticsG2 profile constants
+            let optical_max = 0x4000u16;
+            let digital_max = Some(0x7000u16);
+            let optical = zoom.normalize_with_max(ZoomDomain::Optical, optical_max, digital_max);
+            let full =
+                zoom.normalize_with_max(ZoomDomain::OpticalPlusDigital, optical_max, digital_max);
             println!(
                 "  → Optical: {:.1}%, Full range: {:.1}%",
                 optical.0 * 100.0,
@@ -202,8 +206,12 @@ async fn main() -> grafton_visca::Result<()> {
             println!("Zoom: {z:?}");
 
             use grafton_visca::{inquiry_conversions::ZoomDomain, ZoomPositionExt};
-            let optical = z.normalize(ZoomDomain::Optical);
-            let full = z.normalize(ZoomDomain::OpticalPlusDigital);
+            // PtzOpticsG2 profile constants
+            let optical_max = 0x4000u16;
+            let digital_max = Some(0x7000u16);
+            let optical = z.normalize_with_max(ZoomDomain::Optical, optical_max, digital_max);
+            let full =
+                z.normalize_with_max(ZoomDomain::OpticalPlusDigital, optical_max, digital_max);
             println!(
                 "  → Optical: {:.1}%, Full range: {:.1}%",
                 optical.0 * 100.0,

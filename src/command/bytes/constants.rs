@@ -74,6 +74,11 @@ pub mod preset {
 
     /// Preset control prefix (reset/set/recall).
     pub const CONTROL_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x3F];
+
+    /// Preset recall speed prefix (PTZOptics specific).
+    /// Note: Shares the same 4-byte prefix as pan_tilt::MOVE_PREFIX but uses
+    /// only a single speed byte (6-byte command) vs pan/tilt's multi-byte format.
+    pub const RECALL_SPEED_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x06, 0x01];
 }
 
 /// Focus command constants.
@@ -114,6 +119,9 @@ pub mod exposure {
 
     /// Exposure mode control prefix.
     pub const MODE_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x39];
+
+    /// Anti-flicker mode prefix.
+    pub const ANTI_FLICKER_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x23];
 
     /// Spotlight prefix (Sony models).
     pub const SPOTLIGHT_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x3A];
@@ -379,16 +387,18 @@ pub mod inquiry {
 
     // White balance and color inquiries
     /// Auto white balance sensitivity inquiry.
-    pub const AUTO_WB_SENSITIVITY: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x59];
+    pub const AUTO_WB_SENSITIVITY: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0xA9];
 
     /// Exposure compensation position inquiry.
     pub const EXPOSURE_COMPENSATION_POSITION: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x4E];
 
     /// Red tuning inquiry (white balance).
-    pub const RED_TUNING: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x43];
+    /// Alias for RED_GAIN — both query register 0x04 0x43.
+    pub const RED_TUNING: &[u8] = RED_GAIN;
 
     /// Blue tuning inquiry (white balance).
-    pub const BLUE_TUNING: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x44];
+    /// Alias for BLUE_GAIN — both query register 0x04 0x44.
+    pub const BLUE_TUNING: &[u8] = BLUE_GAIN;
 
     // Image quality inquiries
     /// Sharpness position inquiry.
@@ -435,7 +445,8 @@ pub mod inquiry {
     pub const BLACK_WHITE: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x01];
 
     /// Inquiry command to get the current blue gain value.
-    pub const BLUE_GAIN: &[u8] = visca_bytes![0x81, 0x09, 0x0A, 0x13];
+    /// Note: Same register as BLUE_TUNING (0x04 0x44); interpretation differs.
+    pub const BLUE_GAIN: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x44];
 
     /// Inquiry command to get the current brightness adjustment value.
     pub const BRIGHT: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x4D];
@@ -495,7 +506,8 @@ pub mod inquiry {
     pub const PAN_TILT_POSITION: &[u8] = visca_bytes![0x81, 0x09, 0x06, 0x12];
 
     /// Inquiry command to get the current red gain value.
-    pub const RED_GAIN: &[u8] = visca_bytes![0x81, 0x09, 0x0A, 0x12];
+    /// Note: Same register as RED_TUNING (0x04 0x43); interpretation differs.
+    pub const RED_GAIN: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x43];
 
     /// Inquiry command to get the current color saturation level.
     pub const SATURATION: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x49];
@@ -520,6 +532,9 @@ pub mod inquiry {
 
     /// Inquiry command to get the current white balance mode.
     pub const WHITE_BALANCE_MODE: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x35];
+
+    /// Inquiry command to get the current flicker mode setting.
+    pub const FLICKER_MODE: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x55];
 }
 
 /// Menu command constants.
@@ -553,6 +568,10 @@ pub mod streaming {
     /// **Vendor-Specific**: PtzOptics Ndi streaming commands.
     /// Used by: NdiQualityCommandInternal in streaming.rs
     pub const NDI_QUALITY_PREFIX: &[u8] = visca_prefix![0x81, 0x0B, 0x01, 0x01];
+
+    /// USB audio control prefix.
+    /// **Vendor-Specific**: PtzOptics USB audio toggle.
+    pub const USB_AUDIO_PREFIX: &[u8] = visca_prefix![0x81, 0x2A, 0x02, 0xA0, 0x04];
 }
 
 /// ND filter command constants.
@@ -709,6 +728,7 @@ mod validation_tests {
             inquiry::MOTION_SYNC_SPEED,
             inquiry::AUTO_TRACE,
             inquiry::FOCUS_UNLOCK,
+            inquiry::FLICKER_MODE,
         ];
 
         let mut seen = HashSet::new();

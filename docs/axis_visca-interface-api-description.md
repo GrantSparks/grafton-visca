@@ -8,6 +8,8 @@ Part No. T10162575
 
 ---
 
+> **Patch note (2026-02-10):** Corrected the **absolute zoom (direct)** command packet to use `04 47` (Direct Zoom) rather than `04 07` (continuous zoom), aligning the packet with the documented `pqrs` zoom position parameters.
+
 ## Command List: Camera
 
 | Command Set | Command | Command Packet | Comments |
@@ -17,7 +19,7 @@ Part No. T10162575
 | | wide fixed speed | `8x 01 04 07 03 FF` | - |
 | | tele controllable speed | `8x 01 04 07 2p FF` | p = speed, min 0x0, max 0x7 |
 | | wide control speed | `8x 01 04 07 3p FF` | p = speed, min 0x0, max 0x7 |
-| **absolute zoom** | - | `8x 01 04 07 02 FF` | pqrs = position<br>0x0000 to 0x4000 optical range<br>0x4001 to 0x7AC0 digital range |
+| **absolute zoom** | - | `8x 01 04 47 0p 0q 0r 0s FF` | pqrs = position<br>0x0000 to 0x4000 optical range<br>0x4001 to 0x7AC0 digital range |
 | **continuous focus** | stop | `8x 01 04 08 00 FF` | - |
 | | far fixed speed | `8x 01 04 08 02 FF` | - |
 | | near fixed speed | `8x 01 04 08 03 FF` | - |

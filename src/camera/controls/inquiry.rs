@@ -671,6 +671,18 @@ pub trait InquiryControl {
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
     fn motion_sync_mode(&self) -> <Self::Mode as Mode>::Fut<'_, Result<MotionSyncMode, Error>>;
+
+    /// Get the anti-flicker mode setting.
+    ///
+    /// Returns the current flicker reduction mode (Off, 50Hz, or 60Hz).
+    ///
+    /// **Vendor-Specific**: PTZOptics cameras only.
+    ///
+    /// # Errors
+    /// Returns an error if the inquiry fails or times out.
+    fn flicker_mode(
+        &self,
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::command::exposure::AntiFlickerMode, Error>>;
 }
 
 /// Pan/tilt-specific inquiry operations for cameras.
@@ -1015,6 +1027,11 @@ where
     fn motion_sync_mode(&self) -> M::Fut<'_, Result<MotionSyncMode, Error>> {
         use crate::command::inquiry_structs::MotionSyncModeInquiry;
         self.query(MotionSyncModeInquiry)
+    }
+
+    fn flicker_mode(&self) -> M::Fut<'_, Result<crate::command::exposure::AntiFlickerMode, Error>> {
+        use crate::command::inquiry_structs::FlickerModeInquiry;
+        self.query(FlickerModeInquiry)
     }
 }
 

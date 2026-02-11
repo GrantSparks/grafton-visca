@@ -86,6 +86,19 @@ pub trait StreamingControl {
         &self,
         quality: NdiQuality,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+
+    /// Set USB audio output on or off.
+    ///
+    /// Enables or disables audio output over USB connection.
+    ///
+    /// **Vendor-Specific**: PTZOptics cameras only.
+    ///
+    /// # Parameters
+    /// - `enabled`: True to enable USB audio, false to disable
+    ///
+    /// # Errors
+    /// Returns an error if the command fails to send or receive a response.
+    fn set_usb_audio(&self, enabled: bool) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 }
 
 // Single unified implementation for all Camera types!
@@ -111,5 +124,11 @@ where
     fn set_ndi_quality(&self, quality: NdiQuality) -> M::Fut<'_, Result<(), Error>> {
         use crate::command::streaming::SetNdiQuality;
         self.execute(SetNdiQuality::new(quality))
+    }
+
+    fn set_usb_audio(&self, enabled: bool) -> M::Fut<'_, Result<(), Error>> {
+        use crate::command::streaming::UsbAudio;
+        let cmd = if enabled { UsbAudio::On } else { UsbAudio::Off };
+        self.execute(cmd)
     }
 }
