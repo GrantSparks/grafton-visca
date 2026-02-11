@@ -5,6 +5,41 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Breaking Changes
+
+#### Zoom Position Type Range Expanded (#494)
+- `ZoomPosition` max changed from `0x7000` to `0x7FFF` to support all profile-declared zoom ranges (e.g., `PtzOptics30X` at `0x7AC0`, digital zoom at `0x7FFF`)
+- Removed global `ZoomPosition::MAX_OPTICAL` and `ZoomPosition::MAX_DIGITAL` constants — use profile capability constants (`P::OPTICAL_ZOOM_MAX`, `P::DIGITAL_ZOOM_MAX`) instead
+- Zoom normalization (`from_normalized`, `to_normalized`) now requires profile max parameters instead of using global constants
+- Removed `push_visca_u14` builder method (only caller was zoom, which now uses `push_visca_u16`)
+
+#### Inquiry Byte Corrections
+- `RED_GAIN` inquiry corrected from `0x0A, 0x12` to `0x04, 0x43` — responses may differ from previous (incorrect) queries
+- `BLUE_GAIN` inquiry corrected from `0x0A, 0x13` to `0x04, 0x44`
+- `AUTO_WB_SENSITIVITY` inquiry corrected from `0x04, 0x59` to `0x04, 0xA9`
+- `RED_TUNING` / `BLUE_TUNING` inquiry constants are now aliases for `RED_GAIN` / `BLUE_GAIN` (same register)
+
+### Added
+
+#### New PTZOptics Commands
+- Anti-flicker mode control (`AntiFlickerMode`: Off, 50Hz, 60Hz) with `set_anti_flicker_mode()` on `ExposureControl`
+- Preset recall speed control (`PresetRecallSpeed`: 1-24) with `set_preset_recall_speed()` on `PresetsControl`
+- USB audio on/off control with `set_usb_audio()` on `StreamingControl`
+- Focus toggle (AF/MF switch) with `focus_toggle()` on `FocusControl`
+- Focus snap (one-push AF in manual mode) with `focus_snap()` on `FocusControl`
+
+#### New Inquiry Commands
+- Flicker mode inquiry (`81 09 04 55 FF`) with `flicker_mode()` on `InquiryControl`
+- `FlickerModeInquiry` struct with `ResponseParser` support
+
+### Fixed
+
+#### Zoom Position Truncation (#494)
+- **Critical:** `Zoom::Position` encoding no longer silently truncates values above `0x3FFF` — previously, any zoom value with bit 14 set was masked to zero (e.g., `0x4000` encoded as `0x0000`)
+- Profile-aware zoom normalization now correctly maps to each camera's actual optical/digital zoom range instead of hardcoded global constants
+
 ## [0.10.0] - 2025-12-22
 
 ### Breaking Changes
