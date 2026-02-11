@@ -618,9 +618,9 @@ mod tests {
         assert!(!caps.has_focus_zone);
         assert!(!caps.has_af_sensitivity);
         assert!(!caps.has_focus_near_limit_inquiry);
-        assert!(!caps.has_rgb_gain);
+        assert!(caps.has_rgb_gain);
 
-        assert_eq!(caps.max_presets, 89);
+        assert_eq!(caps.max_presets, 127);
         assert!(!caps.supports_preset_tour);
 
         assert!(caps.has_basic_features());
@@ -669,7 +669,7 @@ mod tests {
         assert!(summary.contains("0x4000"));
         assert!(summary.contains("Digital Zoom:"));
         assert!(summary.contains("0x7000"));
-        assert!(summary.contains("Max Presets: 89"));
+        assert!(summary.contains("Max Presets: 127"));
     }
 
     #[test]

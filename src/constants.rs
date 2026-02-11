@@ -230,7 +230,7 @@ impl CameraConstants for CameraVariant {
 
     fn max_preset_id(&self) -> u8 {
         match self {
-            Self::PtzOpticsG2 => 89,
+            Self::PtzOpticsG2 => 127,
             Self::PtzOpticsG3 | Self::PtzOptics30X | Self::Unknown => preset::PRESET_ID_MAX,
             Self::SonyFR7 => 255,
         }

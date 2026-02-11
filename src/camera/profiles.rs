@@ -63,10 +63,24 @@ mod profile_constants {
         WhiteBalanceMode::OnePush,
         WhiteBalanceMode::Manual,
     ];
+
+    /// White balance modes for PTZOptics cameras (G2/G3/30X).
+    ///
+    /// PTZOptics cameras additionally support ColorTemperature mode (0x20)
+    /// beyond the standard VISCA white balance modes.
+    pub const PTZ_OPTICS_WB_MODES: &[WhiteBalanceMode] = &[
+        WhiteBalanceMode::Auto,
+        WhiteBalanceMode::Indoor,
+        WhiteBalanceMode::Outdoor,
+        WhiteBalanceMode::OnePush,
+        WhiteBalanceMode::Manual,
+        WhiteBalanceMode::ColorTemperature,
+    ];
 }
 
 use self::profile_constants::{
-    GENERIC_VISCA_SHUTTER_SPEEDS, PTZ_OPTICS_G2_SHUTTER_SPEEDS, STANDARD_WB_MODES,
+    GENERIC_VISCA_SHUTTER_SPEEDS, PTZ_OPTICS_G2_SHUTTER_SPEEDS, PTZ_OPTICS_WB_MODES,
+    STANDARD_WB_MODES,
 };
 
 /// PtzOptics G2 camera profile.
@@ -75,10 +89,11 @@ use self::profile_constants::{
 /// - Pan/Tilt with 340° pan range and -30° to +90° tilt
 /// - 20x optical zoom with digital zoom extension
 /// - Auto and manual focus
-/// - Full exposure control
-/// - White balance with 6 modes
-/// - Image processing including flip/mirror
-/// - 90 preset positions
+/// - Full exposure control with exposure compensation
+/// - White balance with 6 modes including color temperature
+/// - RGB gain control
+/// - Image processing including flip/mirror and hue
+/// - 128 preset positions (0-127)
 /// - Power control with standby
 ///
 /// Does NOT support:
@@ -133,23 +148,29 @@ impl Exposure for PtzOpticsG2 {
     const GAIN_RANGE: std::ops::Range<u8> = 0..9;
     const SUPPORTS_AUTO_EXPOSURE: bool = true;
     const SUPPORTS_BACKLIGHT_COMP: bool = true;
+    const SUPPORTS_EXPOSURE_COMP: bool = true;
     const SUPPORTS_WDR: bool = true;
 }
 
 impl WhiteBalance for PtzOpticsG2 {
-    const WB_MODES: &'static [WhiteBalanceMode] = STANDARD_WB_MODES;
+    const WB_MODES: &'static [WhiteBalanceMode] = PTZ_OPTICS_WB_MODES;
     const SUPPORTS_ONE_PUSH_WB: bool = true;
-    const RG_TUNING_RANGE: Option<std::ops::Range<i8>> = Some(-7..8);
-    const BG_TUNING_RANGE: Option<std::ops::Range<i8>> = Some(-7..8);
+    const RG_TUNING_RANGE: Option<std::ops::Range<i8>> = Some(-10..11);
+    const BG_TUNING_RANGE: Option<std::ops::Range<i8>> = Some(-10..11);
+    const SUPPORTS_COLOR_TEMP: bool = true;
+    const COLOR_TEMP_RANGE: Option<std::ops::Range<u16>> = Some(2500..8001);
+    const SUPPORTS_RGB_GAIN: bool = true;
 }
 
 impl ImageProcessing for PtzOpticsG2 {
-    const BRIGHTNESS_RANGE: std::ops::Range<u8> = 0..18;
+    const BRIGHTNESS_RANGE: std::ops::Range<u8> = 0..15;
     const CONTRAST_RANGE: std::ops::Range<u8> = 0..15;
-    const SHARPNESS_RANGE: std::ops::Range<u8> = 0..15;
+    const SHARPNESS_RANGE: std::ops::Range<u8> = 0..12;
     const SATURATION_RANGE: Option<std::ops::Range<u8>> = Some(0..15);
     const SUPPORTS_FLIP: bool = true;
     const SUPPORTS_MIRROR: bool = true;
+    const SUPPORTS_HUE: bool = true;
+    const HUE_RANGE: Option<std::ops::Range<u8>> = Some(0..15);
     const SUPPORTS_NOISE_REDUCTION: bool = true;
     const SUPPORTS_2D_NR: bool = true;
     const SUPPORTS_3D_NR: bool = true;
@@ -159,7 +180,7 @@ impl ImageProcessing for PtzOpticsG2 {
 }
 
 impl Presets for PtzOpticsG2 {
-    const MAX_PRESETS: u8 = 89;
+    const MAX_PRESETS: u8 = 127;
     const PRESET_SPEED_RANGE: std::ops::Range<u8> = 1..25;
     const SUPPORTS_PRESET_TOUR: bool = false;
 }
@@ -179,10 +200,14 @@ impl crate::capabilities::Tally for PtzOpticsG2 {}
 impl crate::capabilities::HasAutoExposure for PtzOpticsG2 {}
 impl crate::capabilities::HasBacklightCompensation for PtzOpticsG2 {}
 impl crate::capabilities::HasWDR for PtzOpticsG2 {}
+impl crate::capabilities::HasExposureCompensation for PtzOpticsG2 {}
 impl crate::capabilities::HasOnePushWhiteBalance for PtzOpticsG2 {}
+impl crate::capabilities::HasColorTemperature for PtzOpticsG2 {}
+impl crate::capabilities::HasRGBGain for PtzOpticsG2 {}
 impl crate::capabilities::HasAutoFocus for PtzOpticsG2 {}
 impl crate::capabilities::HasOnePushFocus for PtzOpticsG2 {}
 impl crate::capabilities::HasFocusLock for PtzOpticsG2 {}
+impl crate::capabilities::HasHue for PtzOpticsG2 {}
 
 /// Generic VISCA camera profile.
 ///
@@ -785,23 +810,29 @@ impl Exposure for PtzOpticsG3 {
     const GAIN_RANGE: std::ops::Range<u8> = 0..9;
     const SUPPORTS_AUTO_EXPOSURE: bool = true;
     const SUPPORTS_BACKLIGHT_COMP: bool = true;
+    const SUPPORTS_EXPOSURE_COMP: bool = true;
     const SUPPORTS_WDR: bool = true;
 }
 
 impl WhiteBalance for PtzOpticsG3 {
-    const WB_MODES: &'static [WhiteBalanceMode] = STANDARD_WB_MODES;
+    const WB_MODES: &'static [WhiteBalanceMode] = PTZ_OPTICS_WB_MODES;
     const SUPPORTS_ONE_PUSH_WB: bool = true;
-    const RG_TUNING_RANGE: Option<std::ops::Range<i8>> = Some(-7..8);
-    const BG_TUNING_RANGE: Option<std::ops::Range<i8>> = Some(-7..8);
+    const RG_TUNING_RANGE: Option<std::ops::Range<i8>> = Some(-10..11);
+    const BG_TUNING_RANGE: Option<std::ops::Range<i8>> = Some(-10..11);
+    const SUPPORTS_COLOR_TEMP: bool = true;
+    const COLOR_TEMP_RANGE: Option<std::ops::Range<u16>> = Some(2500..8001);
+    const SUPPORTS_RGB_GAIN: bool = true;
 }
 
 impl ImageProcessing for PtzOpticsG3 {
-    const BRIGHTNESS_RANGE: std::ops::Range<u8> = 0..18;
+    const BRIGHTNESS_RANGE: std::ops::Range<u8> = 0..15;
     const CONTRAST_RANGE: std::ops::Range<u8> = 0..15;
-    const SHARPNESS_RANGE: std::ops::Range<u8> = 0..15;
+    const SHARPNESS_RANGE: std::ops::Range<u8> = 0..12;
     const SATURATION_RANGE: Option<std::ops::Range<u8>> = Some(0..15);
     const SUPPORTS_FLIP: bool = true;
     const SUPPORTS_MIRROR: bool = true;
+    const SUPPORTS_HUE: bool = true;
+    const HUE_RANGE: Option<std::ops::Range<u8>> = Some(0..15);
     const SUPPORTS_NOISE_REDUCTION: bool = true;
     const SUPPORTS_2D_NR: bool = true;
     const SUPPORTS_3D_NR: bool = true;
@@ -821,7 +852,17 @@ impl Power for PtzOpticsG3 {
 }
 impl MenuCapability for PtzOpticsG3 {}
 impl crate::capabilities::Tally for PtzOpticsG3 {}
+impl crate::capabilities::HasAutoExposure for PtzOpticsG3 {}
+impl crate::capabilities::HasBacklightCompensation for PtzOpticsG3 {}
+impl crate::capabilities::HasWDR for PtzOpticsG3 {}
+impl crate::capabilities::HasExposureCompensation for PtzOpticsG3 {}
+impl crate::capabilities::HasOnePushWhiteBalance for PtzOpticsG3 {}
+impl crate::capabilities::HasColorTemperature for PtzOpticsG3 {}
+impl crate::capabilities::HasRGBGain for PtzOpticsG3 {}
+impl crate::capabilities::HasAutoFocus for PtzOpticsG3 {}
+impl crate::capabilities::HasOnePushFocus for PtzOpticsG3 {}
 impl crate::capabilities::HasFocusLock for PtzOpticsG3 {}
+impl crate::capabilities::HasHue for PtzOpticsG3 {}
 
 impl MotionSync for PtzOpticsG3 {
     const SUPPORTS_MOTION_SYNC: bool = true;
@@ -879,23 +920,29 @@ impl Exposure for PtzOptics30X {
     const GAIN_RANGE: std::ops::Range<u8> = 0..9;
     const SUPPORTS_AUTO_EXPOSURE: bool = true;
     const SUPPORTS_BACKLIGHT_COMP: bool = true;
+    const SUPPORTS_EXPOSURE_COMP: bool = true;
     const SUPPORTS_WDR: bool = true;
 }
 
 impl WhiteBalance for PtzOptics30X {
-    const WB_MODES: &'static [WhiteBalanceMode] = STANDARD_WB_MODES;
+    const WB_MODES: &'static [WhiteBalanceMode] = PTZ_OPTICS_WB_MODES;
     const SUPPORTS_ONE_PUSH_WB: bool = true;
-    const RG_TUNING_RANGE: Option<std::ops::Range<i8>> = Some(-7..8);
-    const BG_TUNING_RANGE: Option<std::ops::Range<i8>> = Some(-7..8);
+    const RG_TUNING_RANGE: Option<std::ops::Range<i8>> = Some(-10..11);
+    const BG_TUNING_RANGE: Option<std::ops::Range<i8>> = Some(-10..11);
+    const SUPPORTS_COLOR_TEMP: bool = true;
+    const COLOR_TEMP_RANGE: Option<std::ops::Range<u16>> = Some(2500..8001);
+    const SUPPORTS_RGB_GAIN: bool = true;
 }
 
 impl ImageProcessing for PtzOptics30X {
-    const BRIGHTNESS_RANGE: std::ops::Range<u8> = 0..18;
+    const BRIGHTNESS_RANGE: std::ops::Range<u8> = 0..15;
     const CONTRAST_RANGE: std::ops::Range<u8> = 0..15;
-    const SHARPNESS_RANGE: std::ops::Range<u8> = 0..15;
+    const SHARPNESS_RANGE: std::ops::Range<u8> = 0..12;
     const SATURATION_RANGE: Option<std::ops::Range<u8>> = Some(0..15);
     const SUPPORTS_FLIP: bool = true;
     const SUPPORTS_MIRROR: bool = true;
+    const SUPPORTS_HUE: bool = true;
+    const HUE_RANGE: Option<std::ops::Range<u8>> = Some(0..15);
     const SUPPORTS_NOISE_REDUCTION: bool = true;
     const SUPPORTS_2D_NR: bool = true;
     const SUPPORTS_3D_NR: bool = true;
@@ -915,25 +962,36 @@ impl Power for PtzOptics30X {
 }
 impl MenuCapability for PtzOptics30X {}
 impl crate::capabilities::Tally for PtzOptics30X {}
+impl crate::capabilities::HasAutoExposure for PtzOptics30X {}
+impl crate::capabilities::HasBacklightCompensation for PtzOptics30X {}
+impl crate::capabilities::HasWDR for PtzOptics30X {}
+impl crate::capabilities::HasExposureCompensation for PtzOptics30X {}
+impl crate::capabilities::HasOnePushWhiteBalance for PtzOptics30X {}
+impl crate::capabilities::HasColorTemperature for PtzOptics30X {}
+impl crate::capabilities::HasRGBGain for PtzOptics30X {}
+impl crate::capabilities::HasAutoFocus for PtzOptics30X {}
+impl crate::capabilities::HasOnePushFocus for PtzOptics30X {}
+impl crate::capabilities::HasFocusLock for PtzOptics30X {}
+impl crate::capabilities::HasHue for PtzOptics30X {}
 
 impl MotionSync for PtzOptics30X {
     const SUPPORTS_MOTION_SYNC: bool = true;
     const MAX_MOTION_SYNC_SPEED: u8 = 24;
 }
 
-/// Preset ID for PtzOptics G2 cameras (0-89).
+/// Preset ID for PtzOptics G2 cameras (0-127).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct G2PresetId(u8);
 
 impl G2PresetId {
     /// Create a new preset ID with validation.
     pub fn new(id: u8) -> Result<Self, Error> {
-        if id <= 89 {
+        if id <= 127 {
             Ok(Self(id))
         } else {
             Err(Error::InvalidPreset {
                 preset: id,
-                max: 89,
+                max: 127,
             })
         }
     }
@@ -1388,7 +1446,7 @@ impl ProfileId {
     pub const fn description(&self) -> &'static str {
         match self {
             ProfileId::PtzOpticsG2 => {
-                "20x optical zoom PTZ camera with digital zoom and 90 presets"
+                "20x optical zoom PTZ camera with digital zoom and 128 presets"
             }
             ProfileId::PtzOpticsG3 => {
                 "Latest generation PTZ camera with enhanced features and 255 presets"
@@ -1727,7 +1785,7 @@ mod tests {
 
         let desc = ProfileId::PtzOpticsG2.description();
         assert!(desc.contains("20x"));
-        assert!(desc.contains("90 presets"));
+        assert!(desc.contains("128 presets"));
 
         let desc = ProfileId::GenericVisca.description();
         assert!(desc.contains("Conservative"));

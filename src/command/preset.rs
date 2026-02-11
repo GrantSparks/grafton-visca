@@ -1,7 +1,7 @@
 //! Preset position commands for VISCA cameras.
 //!
 //! This module provides commands for storing and recalling camera positions.
-//! `PtzOptics` G2 cameras support up to 90 presets (0-89).
+//! `PtzOptics` G2 cameras support up to 128 presets (0-127).
 
 use crate::{
     command::{bytes::builder::ConstCommandBuilder, encode::ViscaCommand, InquiryKind},
@@ -29,7 +29,7 @@ crate::visca_range_type! {
     ///
     /// Valid range: 0 to 255 (0x00 to 0xFF).
     /// Note: Actual valid range depends on camera model:
-    /// - PtzOptics G2: 0-89
+    /// - PtzOptics G2: 0-127
     /// - PtzOptics G3: 0-255
     /// - Sony FR7: 0-255
     /// - Sony EVI-H100: 0-6
