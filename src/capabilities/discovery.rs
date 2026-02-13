@@ -221,6 +221,9 @@ pub struct Capabilities {
     /// Whether camera supports picture effect modes (negative, B&W, sepia, etc.).
     pub has_picture_effect: bool,
 
+    /// Whether camera supports gamma curve control.
+    pub has_gamma: bool,
+
     /// Whether camera supports tally light control.
     pub has_tally: bool,
 
@@ -422,6 +425,7 @@ impl Capabilities {
             has_2d_nr: P::SUPPORTS_2D_NR,
             has_3d_nr: P::SUPPORTS_3D_NR,
             has_picture_effect: P::SUPPORTS_PICTURE_EFFECT,
+            has_gamma: P::SUPPORTS_GAMMA,
             has_tally: P::SUPPORTS_TALLY,
 
             // Preset capabilities
