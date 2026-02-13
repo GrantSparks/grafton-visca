@@ -1120,6 +1120,12 @@ where
         /// Get hue.
         fn hue() -> crate::types::HueLevel;
 
+        /// Get contrast level.
+        fn contrast() -> crate::types::ContrastLevel;
+
+        /// Get luminance level.
+        fn luminance() -> crate::types::LuminanceLevel;
+
         /// Get black and white mode.
         fn black_white() -> bool;
 

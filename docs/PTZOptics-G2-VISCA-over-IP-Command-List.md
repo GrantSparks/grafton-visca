@@ -66,8 +66,8 @@ Below is the existing curated list kept intact for quick reference, followed by 
 #### Camera Commands
 
 - **Image**
-  - Luminance Direct: `81 01 04 A1 00 00 00 0p FF` (p: 0x0=0 ~ E=14)
-  - Contrast Direct: `81 01 04 A2 00 00 00 0p FF` (p: 0x0=0 ~ E=14)
+  - Luminance Direct: `81 01 04 A1 00 00 0p 0q FF` (pq: Brightness Position, 0x00–0x0E)
+  - Contrast Direct: `81 01 04 A2 00 00 0p 0q FF` (pq: Contrast Position, 0x00–0x0E)
   - Sharpness:
     - Mode: `81 01 04 05 0p FF` (p: 0x2=Auto, 0x3=Manual)
     - Reset: `81 01 04 02 00 FF`
@@ -849,8 +849,10 @@ The source documents contain a few internal inconsistencies. These are the major
 2. **Brightness Direct opcode typo in the manual:** The manual’s Part 2 table lists `CAM_Bright Direct` as `... 04 0D ...` even though the inquiry uses `04 4D` (and standard VISCA uses `4D` for Bright direct).
    - **Recommendation:** Prefer `04 4D` for “Bright Direct” when implementing.
 
-3. **Luminance/Contrast parameter width differences:**
-   - Manual lists `A1/A2` “Direct” with `0p 0q` (2 nibbles), while the existing 2023 doc lists a more constrained form `... 00 0p` for 0–14 steps.
-   - Without hardware‑side confirmation, keep both variants in mind and/or validate by sending an inquiry / observing camera behavior.
+3. **Luminance/Contrast parameter width — RESOLVED:**
+   - Manual lists `A1/A2` "Direct" with `0p 0q` (2 nibbles); the curated 2023 list had a more constrained `... 00 0p` form.
+   - Hardware testing on a PTZOptics G2 confirms the `0p 0q` (2-nibble) form is correct.
+   - Inquiry responses use the standard 4-nibble format: `y0 50 00 00 0p 0q FF`.
+   - The curated list has been updated to match.
 
 4. **VISCA‑over‑IP encapsulation:** PTZOptics NDI®|HX cameras use **raw VISCA bytes** over TCP/UDP on the PTZ ports; they do not use Sony’s UDP “encapsulated VISCA over IP” header format.

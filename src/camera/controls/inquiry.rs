@@ -318,6 +318,27 @@ pub trait InquiryControl {
     /// Returns an error if the inquiry fails or times out.
     fn hue(&self) -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::HueLevel, Error>>;
 
+    /// Get the contrast level.
+    ///
+    /// Returns the current contrast level setting.
+    /// Higher values increase the difference between light and dark areas.
+    ///
+    /// # Errors
+    /// Returns an error if the inquiry fails or times out.
+    fn contrast(&self)
+        -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::ContrastLevel, Error>>;
+
+    /// Get the luminance (brightness) level.
+    ///
+    /// Returns the current luminance level setting applied in post-processing.
+    /// This is separate from exposure brightness.
+    ///
+    /// # Errors
+    /// Returns an error if the inquiry fails or times out.
+    fn luminance(
+        &self,
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::LuminanceLevel, Error>>;
+
     /// Check if black and white mode is enabled.
     ///
     /// Returns whether the camera is currently outputting
@@ -860,6 +881,16 @@ where
     fn hue(&self) -> M::Fut<'_, Result<crate::types::HueLevel, Error>> {
         use crate::command::inquiry_structs::HueInquiry;
         self.query(HueInquiry)
+    }
+
+    fn contrast(&self) -> M::Fut<'_, Result<crate::types::ContrastLevel, Error>> {
+        use crate::command::inquiry_structs::ContrastInquiry;
+        self.query(ContrastInquiry)
+    }
+
+    fn luminance(&self) -> M::Fut<'_, Result<crate::types::LuminanceLevel, Error>> {
+        use crate::command::inquiry_structs::LuminanceInquiry;
+        self.query(LuminanceInquiry)
     }
 
     fn black_white(&self) -> M::Fut<'_, Result<bool, Error>> {

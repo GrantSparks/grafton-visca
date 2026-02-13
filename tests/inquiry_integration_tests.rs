@@ -257,8 +257,29 @@ async fn test_image_adjustment_inquiries_integration() {
         .await
         .unwrap();
 
-    // NOTE: Sharpness and contrast inquiries are not documented in VISCA specs
-    // and have been disabled until proper documentation is found.
+    // Test contrast inquiry
+    let contrast = camera
+        .image()
+        .contrast()
+        .await
+        .expect("contrast inquiry should succeed");
+    assert_eq!(
+        contrast,
+        grafton_visca::types::ContrastLevel::new(0x09).unwrap(),
+        "Contrast should be at default"
+    );
+
+    // Test luminance inquiry
+    let luminance = camera
+        .image()
+        .luminance()
+        .await
+        .expect("luminance inquiry should succeed");
+    assert_eq!(
+        luminance,
+        grafton_visca::types::LuminanceLevel::new(0x06).unwrap(),
+        "Luminance should be at default"
+    );
 
     // Test saturation inquiry
     let saturation = camera

@@ -386,10 +386,10 @@ pub(crate) fn dispatch(kind: InquiryKind, payload: Payload<'_>) -> Result<Respon
             }))
         }
         InquiryKind::Contrast => {
-            require_len(&payload, 1)?;
-            Ok(Response::Inquiry(InquiryData::Contrast(
-                payload.as_slice()[0],
-            )))
+            let nibbles = Nibbles::<4>::try_from(payload)?;
+            Ok(Response::Inquiry(InquiryData::Contrast {
+                level: nibbles.last_nibble(),
+            }))
         }
         InquiryKind::PictureEffect => {
             require_nonempty(&payload)?;
@@ -457,10 +457,10 @@ pub(crate) fn dispatch(kind: InquiryKind, payload: Payload<'_>) -> Result<Respon
             Ok(Response::Inquiry(InquiryData::Backlight { status }))
         }
         InquiryKind::Luminance => {
-            require_len(&payload, 1)?;
-            Ok(Response::Inquiry(InquiryData::Luminance(
-                payload.as_slice()[0],
-            )))
+            let nibbles = Nibbles::<4>::try_from(payload)?;
+            Ok(Response::Inquiry(InquiryData::Luminance {
+                level: nibbles.last_nibble(),
+            }))
         }
         InquiryKind::NdFilter => {
             require_nonempty(&payload)?;

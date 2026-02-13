@@ -39,6 +39,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Zoom normalization (`from_normalized`, `to_normalized`) now requires profile max parameters instead of using global constants
 - Removed `push_visca_u14` builder method (only caller was zoom, which now uses `push_visca_u16`)
 
+#### `InquiryData` Contrast/Luminance Variants (#500)
+- **BREAKING**: `InquiryData::Contrast(u8)` and `InquiryData::Luminance(u8)` tuple variants changed to struct variants with named `level: u8` field
+- Pattern matching must use `InquiryData::Contrast { level }` / `InquiryData::Luminance { level }` instead of `InquiryData::Contrast(val)` / `InquiryData::Luminance(val)`
+
 #### Inquiry Byte Corrections
 - `RED_GAIN` inquiry corrected from `0x0A, 0x12` to `0x04, 0x43` — responses may differ from previous (incorrect) queries
 - `BLUE_GAIN` inquiry corrected from `0x0A, 0x13` to `0x04, 0x44`
@@ -62,10 +66,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Focus snap (one-push AF in manual mode) with `focus_snap()` on `FocusControl`
 
 #### New Inquiry Commands
+- Contrast inquiry (`81 09 04 A2 FF`) with `contrast()` on `InquiryControl` — returns `ContrastLevel` (#500)
+- Luminance inquiry (`81 09 04 A1 FF`) with `luminance()` on `InquiryControl` — returns `LuminanceLevel` (#500)
+- `ContrastInquiry` and `LuminanceInquiry` derive-macro structs with `last_nibble` parser (#500)
+- `ImageAccessor::contrast()` and `ImageAccessor::luminance()` accessor methods (via `camera.image().contrast()`) (#500)
+- Blocking API `contrast()` and `luminance()` methods on `BlockingClient` (#500)
+- Camera simulator support for contrast (opcode `0xA2`) and luminance (opcode `0xA1`) inquiry responses (#500)
+- Integration tests for contrast and luminance inquiries (#500)
 - Flicker mode inquiry (`81 09 04 55 FF`) with `flicker_mode()` on `InquiryControl`
 - `FlickerModeInquiry` struct with `ResponseParser` support
 
 ### Fixed
+
+#### Contrast/Luminance Response Decoder Format (#500)
+- Contrast and luminance response decoders corrected from 1-byte direct parsing to proper 4-nibble `Nibbles::<4>` format with `last_nibble()` extraction
+- Hardware-validated against a real PTZOptics G2 camera: contrast inquiry returns `90 50 00 00 00 09 FF`, luminance returns `90 50 00 00 00 06 FF`
+- Removed "write-only" notes from `set_contrast` and `set_luminance` doc comments; added cross-references to the new inquiry methods
+- Camera simulator contrast/luminance handlers were previously commented out — now fully implemented with `encode_position()` encoding
+- Documentation errata note #3 in PTZOptics G2 command list resolved: confirmed `0p 0q` (2-nibble) parameter form and updated curated command list to match
 
 #### Stale Inquiry Comments (#498)
 - Fixed comments in `examples/inquiry_quickstart.rs` that incorrectly claimed PTZOptics cameras support only a "subset" of VISCA inquiries — they support the full set

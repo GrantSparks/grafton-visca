@@ -111,15 +111,15 @@ pub trait ImageProcessingControl {
     /// Higher values increase contrast (more dramatic differences),
     /// lower values decrease contrast (flatter appearance).
     ///
-    /// **Note:** Contrast is write-only on most cameras. There is no corresponding
-    /// inquiry command to read back the current contrast level. The camera will accept
-    /// and apply the setting, but you cannot query the current value.
+    /// Use [`InquiryControl::contrast`] to query the current value.
     ///
     /// # Parameters
     /// - `level`: The contrast level to set
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
+    ///
+    /// [`InquiryControl::contrast`]: crate::camera::controls::inquiry::InquiryControl::contrast
     fn set_contrast(
         &self,
         level: ContrastLevel,
@@ -283,15 +283,15 @@ pub trait ImageProcessingControl {
     /// affecting exposure settings. This is different from exposure
     /// brightness as it's applied in post-processing.
     ///
-    /// **Note:** Luminance is write-only on most cameras. There is no corresponding
-    /// inquiry command to read back the current luminance level. The camera will accept
-    /// and apply the setting, but you cannot query the current value.
+    /// Use [`InquiryControl::luminance`] to query the current value.
     ///
     /// # Parameters
     /// - `level`: The luminance level to set
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
+    ///
+    /// [`InquiryControl::luminance`]: crate::camera::controls::inquiry::InquiryControl::luminance
     fn set_luminance(
         &self,
         level: LuminanceLevel,

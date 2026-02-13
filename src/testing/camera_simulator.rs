@@ -106,8 +106,8 @@ struct CameraState {
     color_temperature: u16,
 
     // Image adjustments
-    // NOTE: sharpness, contrast, and luminance are not documented in VISCA specs
-    // and have been removed from the simulator until proper documentation is found
+    contrast: u8,
+    luminance: u8,
     saturation: u8,
     hue: u8,
 
@@ -148,6 +148,8 @@ impl Default for CameraState {
             backlight_enabled: false,
             white_balance_mode: 0x00, // Auto
             color_temperature: 3,     // VISCA value 3 = 2800K
+            contrast: 0x09,
+            luminance: 0x06,
             saturation: 0x07,
             hue: 0x07,
             image_flip_vertical: false,
@@ -545,16 +547,19 @@ impl ViscaCameraSimulator {
                 ])
             }
 
-            // NOTE: Sharpness and contrast inquiries are not documented in VISCA specs
-            // and have been disabled until proper documentation is found.
-
-            // // Sharpness inquiry: 0x81 0x09 0x04 0x42 0xFF
-            // (Some(0x04), Some(0x42)) => Some(vec![0x90, 0x50, state.sharpness, VISCA_TERMINATOR]),
-
-            // // Contrast inquiry: 0x81 0x09 0x4E 0x50 0xFF
-            // (Some(0x4E), Some(0x50)) => {
-            //     Some(vec![0x90, 0x50, 0x00, state.contrast, VISCA_TERMINATOR])
-            // }
+            // Contrast inquiry: 0x81 0x09 0x04 0xA2 0xFF
+            (Some(0x04), Some(0xA2)) => {
+                let contrast_bytes = encode_position(state.contrast as u16);
+                Some(vec![
+                    0x90,
+                    0x50,
+                    contrast_bytes[0],
+                    contrast_bytes[1],
+                    contrast_bytes[2],
+                    contrast_bytes[3],
+                    VISCA_TERMINATOR,
+                ])
+            }
 
             // Saturation inquiry: 0x81 0x09 0x04 0x49 0xFF
             (Some(0x04), Some(0x49)) => {
@@ -585,11 +590,19 @@ impl ViscaCameraSimulator {
                 ])
             }
 
-            // NOTE: Luminance inquiry is not documented in VISCA specs
-            // and has been disabled until proper documentation is found.
-
-            // // Luminance inquiry: 0x81 0x09 0x4D 0x50 0xFF
-            // (Some(0x4D), Some(0x50)) => Some(vec![0x90, 0x50, state.luminance, VISCA_TERMINATOR]),
+            // Luminance inquiry: 0x81 0x09 0x04 0xA1 0xFF
+            (Some(0x04), Some(0xA1)) => {
+                let luminance_bytes = encode_position(state.luminance as u16);
+                Some(vec![
+                    0x90,
+                    0x50,
+                    luminance_bytes[0],
+                    luminance_bytes[1],
+                    luminance_bytes[2],
+                    luminance_bytes[3],
+                    VISCA_TERMINATOR,
+                ])
+            }
 
             // Image flip inquiry: 0x81 0x09 0x04 0x66 0xFF
             (Some(0x04), Some(0x66)) => {

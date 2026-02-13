@@ -234,7 +234,8 @@ fn test_parse_gain_level_inquiry() {
 
 #[test]
 fn test_parse_contrast_inquiry() {
-    let data = vec![0x90, 0x50, 0x0C, 0xFF];
+    // Response format: y0 50 00 00 0p 0q FF where pq = position
+    let data = vec![0x90, 0x50, 0x00, 0x00, 0x00, 0x0C, 0xFF];
     let result = Response::parse_with_type(&data, &InquiryKind::Contrast);
     assert!(
         result.is_ok(),
@@ -243,8 +244,8 @@ fn test_parse_contrast_inquiry() {
     );
 
     match result.unwrap() {
-        Response::Inquiry(InquiryData::Contrast(value)) => {
-            assert_eq!(value, 0x0C, "Contrast value mismatch");
+        Response::Inquiry(InquiryData::Contrast { level }) => {
+            assert_eq!(level, 0x0C, "Contrast value mismatch");
         }
         _ => panic!("Unexpected response type"),
     }
@@ -252,7 +253,8 @@ fn test_parse_contrast_inquiry() {
 
 #[test]
 fn test_parse_luminance_inquiry() {
-    let data = vec![0x90, 0x50, 0x07, 0xFF];
+    // Response format: y0 50 00 00 0p 0q FF where pq = position
+    let data = vec![0x90, 0x50, 0x00, 0x00, 0x00, 0x07, 0xFF];
     let result = Response::parse_with_type(&data, &InquiryKind::Luminance);
     assert!(
         result.is_ok(),
@@ -261,8 +263,8 @@ fn test_parse_luminance_inquiry() {
     );
 
     match result.unwrap() {
-        Response::Inquiry(InquiryData::Luminance(value)) => {
-            assert_eq!(value, 0x07, "Luminance value mismatch");
+        Response::Inquiry(InquiryData::Luminance { level }) => {
+            assert_eq!(level, 0x07, "Luminance value mismatch");
         }
         _ => panic!("Unexpected response type"),
     }

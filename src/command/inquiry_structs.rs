@@ -1003,6 +1003,34 @@ impl crate::command::typed::ResponseParser for TallyGreenInquiry {
 )]
 pub struct FlickerModeInquiry;
 
+/// Inquiry command to get the current contrast level (image processing).
+///
+/// Queries register `0x04 0xA2`. The camera responds with a 4-nibble
+/// payload encoding the contrast position (0–14).
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
+#[visca(
+    opcode = 0xA2,
+    response = "Contrast",
+    parser = "last_nibble",
+    field = "level",
+    bytes_const = "CONTRAST"
+)]
+pub struct ContrastInquiry;
+
+/// Inquiry command to get the current luminance (brightness) level (image processing).
+///
+/// Queries register `0x04 0xA1`. The camera responds with a 4-nibble
+/// payload encoding the luminance position (0–14).
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
+#[visca(
+    opcode = 0xA1,
+    response = "Luminance",
+    parser = "last_nibble",
+    field = "level",
+    bytes_const = "LUMINANCE_LEVEL"
+)]
+pub struct LuminanceInquiry;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1212,5 +1240,17 @@ mod tests {
         test_flicker_mode_inquiry,
         FlickerModeInquiry,
         constants::inquiry::FLICKER_MODE
+    );
+    visca_test!(
+        ContrastInquiry,
+        test_contrast_inquiry,
+        ContrastInquiry,
+        constants::inquiry::CONTRAST
+    );
+    visca_test!(
+        LuminanceInquiry,
+        test_luminance_inquiry,
+        LuminanceInquiry,
+        constants::inquiry::LUMINANCE_LEVEL
     );
 }

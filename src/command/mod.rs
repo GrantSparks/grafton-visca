@@ -75,9 +75,15 @@ pub enum InquiryData {
     },
 
     /// Luminance level inquiry response.
-    Luminance(u8),
+    Luminance {
+        /// Current luminance (image processing brightness) level.
+        level: u8,
+    },
     /// Contrast level inquiry response.
-    Contrast(u8),
+    Contrast {
+        /// Current contrast level.
+        level: u8,
+    },
     /// Sharpness value inquiry response.
     Sharpness {
         /// Current sharpness value.

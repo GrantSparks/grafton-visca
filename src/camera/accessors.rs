@@ -803,6 +803,22 @@ where
         self.camera.hue()
     }
 
+    /// Get contrast level.
+    pub fn contrast(&self) -> M::Fut<'_, Result<crate::types::ContrastLevel, Error>>
+    where
+        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+    {
+        self.camera.contrast()
+    }
+
+    /// Get luminance (brightness) level.
+    pub fn luminance(&self) -> M::Fut<'_, Result<crate::types::LuminanceLevel, Error>>
+    where
+        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+    {
+        self.camera.luminance()
+    }
+
     /// Get gamma level.
     pub fn gamma(&self) -> M::Fut<'_, Result<crate::types::GammaLevel, Error>>
     where

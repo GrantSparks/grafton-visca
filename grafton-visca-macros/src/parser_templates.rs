@@ -57,13 +57,7 @@ pub fn generate_direct_byte_parser(
     _field_name: &Ident,
     crate_path: &TokenStream,
 ) -> TokenStream {
-    // Handle both tuple variants (Luminance(u8)) and struct variants (GainLimit { limit: u8 })
     match response_variant.to_string().as_str() {
-        "Luminance" | "Contrast" => {
-            quote! {
-                Ok(#crate_path::command::InquiryData::#response_variant(data[0]))
-            }
-        }
         "GainLimit" => {
             quote! {
                 Ok(#crate_path::command::InquiryData::#response_variant { limit: data[0] })

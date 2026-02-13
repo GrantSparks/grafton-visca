@@ -239,7 +239,8 @@ fn test_version_inquiry() {
 #[test]
 fn test_contrast_inquiry() {
     // Test contrast inquiry response parsing
-    let payload = vec![0x90, 0x50, 0x0C, 0xFF];
+    // Response format: y0 50 00 00 0p 0q FF where pq = position
+    let payload = vec![0x90, 0x50, 0x00, 0x00, 0x00, 0x0C, 0xFF];
 
     let result = Response::parse_with_type(&payload, &InquiryKind::Contrast);
     assert!(
@@ -249,8 +250,8 @@ fn test_contrast_inquiry() {
     );
 
     match result.unwrap() {
-        Response::Inquiry(InquiryData::Contrast(value)) => {
-            assert_eq!(value, 0x0C, "Contrast value mismatch");
+        Response::Inquiry(InquiryData::Contrast { level }) => {
+            assert_eq!(level, 0x0C, "Contrast value mismatch");
         }
         _ => panic!("ViscaResponse type mismatch"),
     }
@@ -259,7 +260,8 @@ fn test_contrast_inquiry() {
 #[test]
 fn test_luminance_inquiry() {
     // Test luminance inquiry response parsing
-    let payload = vec![0x90, 0x50, 0x07, 0xFF];
+    // Response format: y0 50 00 00 0p 0q FF where pq = position
+    let payload = vec![0x90, 0x50, 0x00, 0x00, 0x00, 0x07, 0xFF];
 
     let result = Response::parse_with_type(&payload, &InquiryKind::Luminance);
     assert!(
@@ -269,8 +271,8 @@ fn test_luminance_inquiry() {
     );
 
     match result.unwrap() {
-        Response::Inquiry(InquiryData::Luminance(value)) => {
-            assert_eq!(value, 0x07, "Luminance value mismatch");
+        Response::Inquiry(InquiryData::Luminance { level }) => {
+            assert_eq!(level, 0x07, "Luminance value mismatch");
         }
         _ => panic!("ViscaResponse type mismatch"),
     }

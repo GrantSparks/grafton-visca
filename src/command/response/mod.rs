@@ -208,31 +208,32 @@ mod tests {
     #[test]
     fn test_parse_luminance_response() {
         // Test minimum luminance value (0)
-        let luminance_response_bytes = &[0x90, 0x50, 0x00, VISCA_TERMINATOR];
+        // Response format: y0 50 00 00 0p 0q FF where pq = position
+        let luminance_response_bytes = &[0x90, 0x50, 0x00, 0x00, 0x00, 0x00, VISCA_TERMINATOR];
         let response = Response::parse_with_type(luminance_response_bytes, &InquiryKind::Luminance);
         match response {
-            Ok(Response::Inquiry(InquiryData::Luminance(value))) => {
-                assert_eq!(value, 0x00);
+            Ok(Response::Inquiry(InquiryData::Luminance { level })) => {
+                assert_eq!(level, 0x00);
             }
             _ => panic!("Expected Luminance inquiry response"),
         }
 
         // Test middle luminance value (7)
-        let luminance_response_bytes = &[0x90, 0x50, 0x07, VISCA_TERMINATOR];
+        let luminance_response_bytes = &[0x90, 0x50, 0x00, 0x00, 0x00, 0x07, VISCA_TERMINATOR];
         let response = Response::parse_with_type(luminance_response_bytes, &InquiryKind::Luminance);
         match response {
-            Ok(Response::Inquiry(InquiryData::Luminance(value))) => {
-                assert_eq!(value, 0x07);
+            Ok(Response::Inquiry(InquiryData::Luminance { level })) => {
+                assert_eq!(level, 0x07);
             }
             _ => panic!("Expected Luminance inquiry response"),
         }
 
         // Test maximum luminance value (14)
-        let luminance_response_bytes = &[0x90, 0x50, 0x0E, VISCA_TERMINATOR];
+        let luminance_response_bytes = &[0x90, 0x50, 0x00, 0x00, 0x00, 0x0E, VISCA_TERMINATOR];
         let response = Response::parse_with_type(luminance_response_bytes, &InquiryKind::Luminance);
         match response {
-            Ok(Response::Inquiry(InquiryData::Luminance(value))) => {
-                assert_eq!(value, 0x0E);
+            Ok(Response::Inquiry(InquiryData::Luminance { level })) => {
+                assert_eq!(level, 0x0E);
             }
             _ => panic!("Expected Luminance inquiry response"),
         }
@@ -241,31 +242,32 @@ mod tests {
     #[test]
     fn test_parse_contrast_response() {
         // Test minimum contrast value (0)
-        let contrast_response_bytes = &[0x90, 0x50, 0x00, VISCA_TERMINATOR];
+        // Response format: y0 50 00 00 0p 0q FF where pq = position
+        let contrast_response_bytes = &[0x90, 0x50, 0x00, 0x00, 0x00, 0x00, VISCA_TERMINATOR];
         let response = Response::parse_with_type(contrast_response_bytes, &InquiryKind::Contrast);
         match response {
-            Ok(Response::Inquiry(InquiryData::Contrast(value))) => {
-                assert_eq!(value, 0x00);
+            Ok(Response::Inquiry(InquiryData::Contrast { level })) => {
+                assert_eq!(level, 0x00);
             }
             _ => panic!("Expected Contrast inquiry response"),
         }
 
         // Test middle contrast value (7)
-        let contrast_response_bytes = &[0x90, 0x50, 0x07, VISCA_TERMINATOR];
+        let contrast_response_bytes = &[0x90, 0x50, 0x00, 0x00, 0x00, 0x07, VISCA_TERMINATOR];
         let response = Response::parse_with_type(contrast_response_bytes, &InquiryKind::Contrast);
         match response {
-            Ok(Response::Inquiry(InquiryData::Contrast(value))) => {
-                assert_eq!(value, 0x07);
+            Ok(Response::Inquiry(InquiryData::Contrast { level })) => {
+                assert_eq!(level, 0x07);
             }
             _ => panic!("Expected Contrast inquiry response"),
         }
 
         // Test maximum contrast value (14)
-        let contrast_response_bytes = &[0x90, 0x50, 0x0E, VISCA_TERMINATOR];
+        let contrast_response_bytes = &[0x90, 0x50, 0x00, 0x00, 0x00, 0x0E, VISCA_TERMINATOR];
         let response = Response::parse_with_type(contrast_response_bytes, &InquiryKind::Contrast);
         match response {
-            Ok(Response::Inquiry(InquiryData::Contrast(value))) => {
-                assert_eq!(value, 0x0E);
+            Ok(Response::Inquiry(InquiryData::Contrast { level })) => {
+                assert_eq!(level, 0x0E);
             }
             _ => panic!("Expected Contrast inquiry response"),
         }

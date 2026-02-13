@@ -535,6 +535,16 @@ pub mod inquiry {
 
     /// Inquiry command to get the current flicker mode setting.
     pub const FLICKER_MODE: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x55];
+
+    /// Inquiry command to get the current contrast level (image processing).
+    ///
+    /// Response format: `y0 50 00 00 0p 0q FF` where `pq` is the contrast position.
+    pub const CONTRAST: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0xA2];
+
+    /// Inquiry command to get the current luminance (brightness) level (image processing).
+    ///
+    /// Response format: `y0 50 00 00 0p 0q FF` where `pq` is the brightness position.
+    pub const LUMINANCE_LEVEL: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0xA1];
 }
 
 /// Menu command constants.
