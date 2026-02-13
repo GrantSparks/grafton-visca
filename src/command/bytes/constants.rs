@@ -211,6 +211,12 @@ pub mod image {
 
     /// Sharpness direct level prefix.
     pub const SHARPNESS_LEVEL_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x42, 0x00, 0x00];
+
+    /// Gamma curve selection prefix.
+    ///
+    /// VISCA command `81 01 04 5B 0p FF` where p selects the gamma curve
+    /// (0=Standard, 1-4=different gamma curves).
+    pub const GAMMA_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x5B];
 }
 
 /// System command constants.

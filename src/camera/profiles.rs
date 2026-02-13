@@ -177,6 +177,10 @@ impl ImageProcessing for PtzOpticsG2 {
     const SUPPORTS_PICTURE_EFFECT: bool = false;
     const USES_COMBINED_FLIP_COMMAND: bool = true;
     const REQUIRES_SETTINGS_SAVE_FOR_FLIP: bool = true;
+    const SUPPORTS_LUMINANCE: bool = true;
+    const LUMINANCE_RANGE: Option<std::ops::Range<u8>> = Some(0..15);
+    const SUPPORTS_GAMMA: bool = true;
+    const GAMMA_RANGE: Option<std::ops::Range<u8>> = Some(0..5);
 }
 
 impl Presets for PtzOpticsG2 {
@@ -391,6 +395,8 @@ impl ImageProcessing for SonyFR7 {
     const SUPPORTS_2D_NR: bool = true;
     const SUPPORTS_3D_NR: bool = true;
     const SUPPORTS_PICTURE_EFFECT: bool = true;
+    const SUPPORTS_GAMMA: bool = true;
+    const GAMMA_RANGE: Option<std::ops::Range<u8>> = Some(0..5);
 }
 
 impl Presets for SonyFR7 {
@@ -506,6 +512,8 @@ impl ImageProcessing for SonyBRCH900 {
     const SUPPORTS_2D_NR: bool = true;
     const SUPPORTS_3D_NR: bool = true;
     const SUPPORTS_PICTURE_EFFECT: bool = true;
+    const SUPPORTS_GAMMA: bool = true;
+    const GAMMA_RANGE: Option<std::ops::Range<u8>> = Some(0..5);
 }
 
 impl Presets for SonyBRCH900 {
@@ -605,6 +613,8 @@ impl ImageProcessing for SonyEVIH100 {
     const SUPPORTS_NOISE_REDUCTION: bool = true;
     const SUPPORTS_2D_NR: bool = false;
     const SUPPORTS_3D_NR: bool = false;
+    const SUPPORTS_GAMMA: bool = true;
+    const GAMMA_RANGE: Option<std::ops::Range<u8>> = Some(0..5);
 }
 
 impl MenuCapability for SonyEVIH100 {}
@@ -864,6 +874,10 @@ impl ImageProcessing for PtzOpticsG3 {
     const SUPPORTS_3D_NR: bool = true;
     const USES_COMBINED_FLIP_COMMAND: bool = true;
     const REQUIRES_SETTINGS_SAVE_FOR_FLIP: bool = true;
+    const SUPPORTS_LUMINANCE: bool = true;
+    const LUMINANCE_RANGE: Option<std::ops::Range<u8>> = Some(0..15);
+    const SUPPORTS_GAMMA: bool = true;
+    const GAMMA_RANGE: Option<std::ops::Range<u8>> = Some(0..5);
 }
 
 impl Presets for PtzOpticsG3 {
@@ -976,6 +990,10 @@ impl ImageProcessing for PtzOptics30X {
     const SUPPORTS_3D_NR: bool = true;
     const USES_COMBINED_FLIP_COMMAND: bool = true;
     const REQUIRES_SETTINGS_SAVE_FOR_FLIP: bool = true;
+    const SUPPORTS_LUMINANCE: bool = true;
+    const LUMINANCE_RANGE: Option<std::ops::Range<u8>> = Some(0..15);
+    const SUPPORTS_GAMMA: bool = true;
+    const GAMMA_RANGE: Option<std::ops::Range<u8>> = Some(0..5);
 }
 
 impl Presets for PtzOptics30X {

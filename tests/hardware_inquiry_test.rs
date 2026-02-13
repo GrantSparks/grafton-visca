@@ -84,6 +84,9 @@ inquiry_test!(test_hue, hue);
 inquiry_test!(test_noise_reduction_2d, noise_reduction_2d);
 inquiry_test!(test_noise_reduction_3d, noise_reduction_3d);
 inquiry_test!(test_image_flip, image_flip);
+inquiry_test!(test_gamma, gamma);
+inquiry_test!(test_contrast, contrast);
+inquiry_test!(test_luminance, luminance);
 
 // === System inquiries ===
 inquiry_test!(test_power_state, power_state);
@@ -199,6 +202,9 @@ fn test_all_inquiries_succeed() {
     // PTZOptics also has CAM_FlipInq (0xA4) for combined H/V/HV flip and
     // CAM_LR_ReverseInq (0x61) for horizontal-only flip.
     check!("image_flip", camera.image_flip());
+    check!("gamma", camera.gamma());
+    check!("contrast", camera.contrast());
+    check!("luminance", camera.luminance());
     // flip_mode (0x65) is not a PTZOptics command — PTZOptics uses CAM_FlipInq (0xA4) instead
     check_known_mismatch!(
         "flip_mode",

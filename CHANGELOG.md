@@ -76,7 +76,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Flicker mode inquiry (`81 09 04 55 FF`) with `flicker_mode()` on `InquiryControl`
 - `FlickerModeInquiry` struct with `ResponseParser` support
 
+#### Gamma Curve Control (#499)
+- `GammaCommand` — sets gamma curve via VISCA command `81 01 04 5B 0p FF` (p=0 Standard, 1-4 different gamma curves)
+- `set_gamma(level: GammaLevel)` on `ImageProcessingControl` trait with full doc comments cross-referencing `InquiryControl::gamma`
+- Blocking API `set_gamma()` method on `BlockingClient`
+- `SUPPORTS_GAMMA: bool` and `GAMMA_RANGE: Option<Range<u8>>` on `ImageProcessing` capability trait (defaults to unsupported)
+- `validate_gamma()` on `ImageProcessingExt` for profile-aware validation
+- `image::GAMMA_PREFIX` byte constant
+- Gamma support enabled for PtzOpticsG2, PtzOpticsG3, PtzOptics30X, SonyFR7, SonyBRCH900, SonyEVIH100 (range 0-4)
+- Completes the get/set pair: existing `InquiryControl::gamma()` (inquiry) + new `ImageProcessingControl::set_gamma()` (control)
+- **Hardware-validated**: Gamma inquiry and set commands confirmed working on PTZOptics G2 (undocumented in official PTZOptics VISCA reference)
+
+#### Hardware Control Tests
+- New `tests/hardware_control_test.rs` for validating VISCA SET commands against a real PTZOptics G2 camera
+- Round-trip tests for gamma, contrast, and luminance: read original value, set to a different value, verify readback, restore original
+- Each test safely restores original camera settings after validation
+- Tests are `#[ignore]` by default — run with `VISCA_CAMERA_IP=192.168.0.110 cargo test --test hardware_control_test -- --ignored --nocapture --test-threads=1`
+
+#### Hardware Inquiry Test Additions
+- Added gamma, contrast, and luminance to `hardware_inquiry_test.rs` individual and comprehensive tests
+- All three inquiries pass on PTZOptics G2 (gamma=2, contrast=9, luminance=6 at time of testing)
+
+#### Documentation: Image Processing Commands
+- Added Section 8.4 "Image Processing Parameters" to unified VISCA reference covering Brightness, Luminance, Contrast, Gamma, and Sharpness
+- Expanded Section 7 capability matrix with "Image Processing" row listing supported features per camera model
+- Updated Section 9.1 (PTZOptics) and Section 9.4 (EVI-H100) with image processing capability details
+- Added gamma command/inquiry to PTZOptics G2 command list with errata note #5 documenting undocumented-but-functional status
+- Added Image Processing entries to Appendix A opcode table (Sharpness, Brightness, Luminance, Contrast, Gamma, NR)
+
 ### Fixed
+
+#### PTZOptics Luminance Profile Support
+- PtzOpticsG2, PtzOpticsG3, PtzOptics30X profiles now correctly declare `SUPPORTS_LUMINANCE = true` and `LUMINANCE_RANGE = Some(0..15)` (previously defaulted to unsupported despite luminance being documented and hardware-validated)
 
 #### Contrast/Luminance Response Decoder Format (#500)
 - Contrast and luminance response decoders corrected from 1-byte direct parsing to proper 4-nibble `Nibbles::<4>` format with `last_nibble()` extraction

@@ -931,6 +931,9 @@ where
         /// Set luminance level.
         fn set_luminance(level: crate::types::LuminanceLevel) -> ();
 
+        /// Set gamma curve.
+        fn set_gamma(level: crate::types::GammaLevel) -> ();
+
         /// Enable freeze frame.
         fn enable_freeze() -> ();
 

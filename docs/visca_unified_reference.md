@@ -245,6 +245,7 @@ Different camera models vary in capabilities even though they share the VISCA pr
 | **“Bright” AE mode**        | ✔ (Bright mode available)                       | ✖ (not supported on FR7)                | ✔ (Bright mode supported)               | ✔ (Bright mode supported)  | ✔ (Bright mode supported) |
 | **ATW (Auto Trace WB)**     | ✖ (no ATW mode)                                 | ✔ (“ATW” mode available)                | ✖ (no ATW)                              | ✖                          | ✖                         |
 | **WB Color Temp mode**      | ✔ (WB mode 0x20 = Color Temp)                   | ✖ (FR7 uses Memory WB A/B instead)      | ✔ (Color Temp WB mode)                  | ✔ (Color Temp WB mode)     | ✖                         |
+| **Image Processing**        | Brightness, Luminance, Contrast, Gamma, Sharpness, Saturation, Hue, 2D/3D NR | Brightness, Contrast, Sharpness, Saturation | Brightness, Contrast, Sharpness | Gamma, NR, Brightness, Sharpness | Brightness, Sharpness |
 
 \* Sony BRC‑H900 IP control requires the BRBK-IP10 option; without it, only RS-232/422 control is available.
 
@@ -301,7 +302,23 @@ Exposure settings (shutter speed, iris aperture, gain, exposure compensation, et
 
 In summary, while VISCA provides a uniform way to set these parameters, the actual values correspond to model-specific scales. Use inquiries (`ShutterInq`, `IrisInq`, etc.) to get baseline readings. Also, many cameras have *absolute* modes (like “Bright Mode” which overrides Iris/Gain to a combined brightness value, or *Auto Slow Shutter* toggles). Ensure your controller checks which exposure mode is active before sending direct parameter commands (sending iris commands in Full Auto mode will yield a `41 FF` error – you must switch to Manual or Shutter-priority first).
 
-Sony’s official VISCA command lists (and some third-party docs like Axis) provide tables for these mappings. Refer to them for precise step definitions if needed.
+Sony's official VISCA command lists (and some third-party docs like Axis) provide tables for these mappings. Refer to them for precise step definitions if needed.
+
+### 8.4 Image Processing Parameters (Brightness, Luminance, Contrast, Gamma)
+
+VISCA provides commands for adjusting image processing parameters that affect the camera's internal image pipeline. These are separate from exposure controls (Section 8.3) and are applied in post-processing.
+
+* **Brightness (CAM_Bright, opcode `0xA0`):** Controls the camera's "Bright" level, which adjusts overall image brightness in certain exposure modes. Set via `81 01 04 A0 00 00 0p 0q FF` (pq: brightness position). Inquiry: `81 09 04 A0 FF`. Range varies by model (typically 0x00–0x0E for PTZOptics, 0x00–0x11 for Sony FR7/BRC-H900).
+
+* **Luminance (opcode `0xA1`):** Controls luminance (brightness curve) of the image output. Set via `81 01 04 A1 00 00 0p 0q FF` (pq: luminance position, 0x00–0x0E on PTZOptics). Inquiry: `81 09 04 A1 FF`. Response: `y0 50 00 00 0p 0q FF`. Supported on PTZOptics G2/G3/30X. *Note:* PTZOptics documentation labels this "Brightness Direct" but it uses a distinct opcode from exposure Bright (`0xA0`).
+
+* **Contrast (opcode `0xA2`):** Controls the contrast ratio of the image. Set via `81 01 04 A2 00 00 0p 0q FF` (pq: contrast position, 0x00–0x0E on PTZOptics). Inquiry: `81 09 04 A2 FF`. Response: `y0 50 00 00 0p 0q FF`. Supported on PTZOptics G2/G3/30X and Sony models.
+
+* **Gamma (opcode `0x5B`):** Selects the gamma correction curve for the camera's image output. Set via `81 01 04 5B 0p FF` (p: 0=Standard, 1–4=alternate gamma curves). Inquiry: `81 09 04 5B FF`. Response: `y0 50 0p FF`. Hardware-validated on PTZOptics G2 (undocumented in official PTZOptics manual but functional). Also supported on Sony EVI-H100 and similar models.
+
+* **Sharpness (opcode `0x42`):** Controls image edge sharpness. Mode selection via `81 01 04 05 0p FF` (p: 2=Auto, 3=Manual). Direct level set via `81 01 04 42 00 00 0p 0q FF`. Range is model-dependent (0x00–0x0B on PTZOptics, 0x00–0x0F on some Sony models).
+
+Other image processing parameters (saturation, hue, noise reduction) are also available but vary more significantly across models — see Section 9 for model-specific details.
 
 ---
 
@@ -323,7 +340,9 @@ PTZOptics cameras largely follow the standard VISCA command set (their firmware 
 * **NDI|HX Mode Quality:** `81 0B 01 01 0p FF` – on NDI cameras, sets the NDI stream bandwidth/quality (p=1 High, 2 Medium, 3 Low, 4 Off). Again, not standard VISCA, but PTZOptics extends VISCA commands for some IP configuration settings.
 * **Motion Sync Feature:** Some newer PTZOptics (e.g., firmware 1.1.6+ on certain models) have “PTZ Motion Sync”, which coordinates pan, tilt, and zoom to start and stop simultaneously for preset recalls. Commands like `81 0A 11 13 02 FF` (MotionSync On) / `... 13 03 FF` (Off) and `81 0A 11 14 pp FF` (set MotionSync max speed, pp = 0x01–0x18 for speeds 1–24) configure this. When MotionSync is on, recalling a preset will adjust the pan/tilt speeds so that zoom and pan/tilt movements complete at the same time, yielding a more synchronized and smooth arrival on the preset.
 
-*(Refer to the PTZOptics VISCA over IP Commands PDF for other vendor-specific codes. For example, some models have a “Preset Speed” setting command, some have OSD menu navigation via VISCA, etc. Most of these are beyond the basic Sony VISCA set.)*
+* **Image Processing:** PTZOptics G2/G3/30X cameras support a full set of image processing controls (see Section 8.4): Luminance (`0xA1`, range 0–14), Contrast (`0xA2`, range 0–14), Sharpness (`0x42`, range 0–11), Saturation (range 0–14), Hue (range 0–14), and 2D/3D Noise Reduction. Gamma curve control (`0x5B`, values 0–4) is also supported despite not being listed in the official PTZOptics VISCA command reference — hardware testing confirms both gamma inquiry and set commands work correctly.
+
+*(Refer to the PTZOptics VISCA over IP Commands PDF for other vendor-specific codes. For example, some models have a "Preset Speed" setting command, some have OSD menu navigation via VISCA, etc. Most of these are beyond the basic Sony VISCA set.)*
 
 **Note:** Older PTZOptics models (Gen1) had fewer presets and lacked some of these commands. If you query version (`90 50 ... KK FF` part of VersionInq), newer PTZOptics return a “model ID” that can be used to differentiate if needed. In general, Gen2 and later support all the above. The cameras will respond with syntax errors for unsupported commands.
 
@@ -363,7 +382,7 @@ Other BRC-series cameras (e.g., BRC-X1000, BRC-X400) share many features with ei
 
 * **Advanced Image Settings:** The EVI-H100 (and siblings like EVI-HD1, SRG-120, etc.) include VISCA commands for picture adjustments:
 
-  * *Gamma:* `81 01 04 5B 0p FF` – available on some models (p=0 Standard, 1–4 different gamma curves).
+  * *Gamma:* `81 01 04 5B 0p FF` – p=0 Standard, 1–4 different gamma curves. Also hardware-validated on PTZOptics G2 (see Section 9.1). Inquiry: `81 09 04 5B FF`.
   * *High Resolution Mode / Visibility Enhancer:* `81 01 04 52 02 FF` (On), `... 52 03 FF` (Off) on models that have Wide-D or “Visibility Enhancer” (H100 has “High Resolution” which is a wide dynamic range mode).
   * *Noise Reduction:* `81 01 04 53 0p FF` – set NR level (p=0 Off, 1–5 levels).
   * *Flip/Mirror:* Some EVI models use separate horizontal flip (`61 02/03`) and vertical flip (`66 02/03`) commands. (These are the ones consolidated into A4 on PTZOptics.)
@@ -525,6 +544,19 @@ WB,R Gain Direct,81 01 04 43 00 00 0p 0q FF,10,Yes,Yes,Yes,
 WB,B Gain Direct,81 01 04 44 00 00 0p 0q FF,10,Yes,Yes,Yes,
 WB,Color Temp Direct,81 01 04 20 0p 0q FF,8,Yes,Yes,No,
 WB,Color Temp Inq,81 09 04 20 FF,5,Yes,Yes,No,Reply 90 50 0p0q
+Image,Sharpness Auto,81 01 04 05 02 FF,6,Yes,Yes,Yes,
+Image,Sharpness Manual,81 01 04 05 03 FF,6,Yes,Yes,Yes,
+Image,Sharpness Direct,81 01 04 42 00 00 0p 0q FF,10,Yes,Yes,Yes,pq: level
+Image,Sharpness Inq,81 09 04 42 FF,5,Yes,Yes,Yes,Reply 90 50 00 00 0p 0q FF
+Image,Brightness Direct,81 01 04 A0 00 00 0p 0q FF,10,Yes,Yes,No,pq: brightness (PTZOptics only in Bright mode)
+Image,Brightness Inq,81 09 04 A0 FF,5,Yes,Yes,No,Reply 90 50 00 00 0p 0q FF
+Image,Luminance Direct,81 01 04 A1 00 00 0p 0q FF,10,No,Yes,No,pq: 0x00–0x0E (PTZOptics)
+Image,Luminance Inq,81 09 04 A1 FF,5,No,Yes,No,Reply 90 50 00 00 0p 0q FF
+Image,Contrast Direct,81 01 04 A2 00 00 0p 0q FF,10,Yes,Yes,Yes,pq: 0x00–0x0E
+Image,Contrast Inq,81 09 04 A2 FF,5,Yes,Yes,Yes,Reply 90 50 00 00 0p 0q FF
+Image,Gamma Direct,81 01 04 5B 0p FF,6,Yes,Yes,No,p: 0=Standard 1–4=curves
+Image,Gamma Inq,81 09 04 5B FF,5,Yes,Yes,No,Reply 90 50 0p FF
+Image,NR (Legacy),81 01 04 53 0p FF,6,Yes,No,No,p: 0=Off 1–5=level (EVI-H100)
 Tally,Tally On (Red),81 01 7E 01 0A 00 02 FF,8,Yes,No,Yes,
 Tally,Tally Off (Red),81 01 7E 01 0A 00 03 FF,8,Yes,No,Yes,
 Tally,Tally Inq (Red),81 09 7E 01 0A 00 FF,7,Yes,No,Yes,Reply 90 50 02/03

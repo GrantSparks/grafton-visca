@@ -63,6 +63,15 @@ pub trait ImageProcessing {
     /// PTZOptics cameras may require this command after changing flip settings to ensure
     /// the changes persist across power cycles.
     const REQUIRES_SETTINGS_SAVE_FOR_FLIP: bool = false;
+
+    /// Whether camera supports gamma curve control via VISCA command `0x5B`.
+    ///
+    /// When supported, the camera accepts direct gamma curve selection
+    /// (0=Standard, 1-4=different gamma curves depending on model).
+    const SUPPORTS_GAMMA: bool = false;
+
+    /// Valid range for gamma curve selection, if supported.
+    const GAMMA_RANGE: Option<Range<u8>> = None;
 }
 
 /// Extension trait that adds validation methods to cameras with image processing support.
@@ -154,6 +163,22 @@ pub trait ImageProcessingExt: ImageProcessing {
                 max: (range.end - 1) as f64,
             }),
             None => Err(ValidationError::NotSupported("luminance")),
+        }
+    }
+
+    /// Validate gamma value.
+    ///
+    /// Note: This method should only be called on profiles that support gamma.
+    fn validate_gamma(&self, value: u8) -> Result<u8, ValidationError> {
+        match Self::GAMMA_RANGE {
+            Some(ref range) if range.contains(&value) => Ok(value),
+            Some(ref range) => Err(ValidationError::OutOfRange {
+                parameter: "gamma",
+                value: value as f64,
+                min: range.start as f64,
+                max: (range.end - 1) as f64,
+            }),
+            None => Err(ValidationError::NotSupported("gamma")),
         }
     }
 

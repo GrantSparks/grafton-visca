@@ -68,6 +68,7 @@ Below is the existing curated list kept intact for quick reference, followed by 
 - **Image**
   - Luminance Direct: `81 01 04 A1 00 00 0p 0q FF` (pq: Brightness Position, 0x00–0x0E)
   - Contrast Direct: `81 01 04 A2 00 00 0p 0q FF` (pq: Contrast Position, 0x00–0x0E)
+  - Gamma Direct: `81 01 04 5B 0p FF` (p: Gamma Curve, 0x00=Standard, 0x01–0x04=Alternate curves)
   - Sharpness:
     - Mode: `81 01 04 05 0p FF` (p: 0x2=Auto, 0x3=Manual)
     - Reset: `81 01 04 02 00 FF`
@@ -332,6 +333,7 @@ LimitClear ZZZZ: Tilt Position
 07 0F 0F 0F 07 0F 0F 0F FF
 CAM_Brightness Direct 8x 01 04 A1 00 00 0p 0q FF pq: Brightness Position
 CAM_Contrast Direct 8x 01 04 A2 00 00 0p 0q FF pq: Contrast Position
+CAM_Gamma Direct 8x 01 04 5B 0p FF p: Gamma Curve (0=Standard, 1-4=Alternate)
 Off 8x 01 04 A4 00 FF
 Flip-H 8x 01 04 A4 01 FF
 CAM_Flip Single Command For Video Flip
@@ -446,6 +448,7 @@ nq
 y0 50 03 FF Low
 CAM_BrightnessInq 8x 09 04 A1 FF y0 50 00 00 0p 0q FF pq: Brightness Position
 CAM_ContrastInq 8x 09 04 A2 FF y0 50 00 00 0p 0q FF pq: Contrast Position
+CAM_GammaInq 8x 09 04 5B FF y0 50 0p FF p: Gamma Curve Position
 y0 50 00 FF Off
 y0 50 01 FF Flip-H
 CAM_FlipInq 8x 09 04 A4 FF
@@ -639,6 +642,7 @@ LimitClear ZZZZ: Tilt Position
 07 0F 0F 0F 07 0F 0F 0F FF
 CAM_Brightness Direct 81 01 04 A1 00 00 0p 0q FF pq: Brightness Position
 CAM_Contrast Direct 81 01 04 A2 00 00 0p 0q FF pq: Contrast Position
+CAM_Gamma Direct 81 01 04 5B 0p FF p: Gamma Curve (0=Standard, 1-4=Alternate)
 Off 81 01 04 A4 00 FF
 Flip-H 81 01 04 A4 01 FF
 CAM_Flip Single Command For Video Flip
@@ -753,6 +757,7 @@ nq
 90 50 03 FF Low
 CAM_BrightnessInq 81 09 04 A1 FF 90 50 00 00 0p 0q FF pq: Brightness Position
 CAM_ContrastInq 81 09 04 A2 FF 90 50 00 00 0p 0q FF pq: Contrast Position
+CAM_GammaInq 81 09 04 5B FF 90 50 0p FF p: Gamma Curve Position
 90 50 00 FF Off
 90 50 01 FF Flip-H
 CAM_FlipInq 81 09 04 A4 FF
@@ -855,4 +860,10 @@ The source documents contain a few internal inconsistencies. These are the major
    - Inquiry responses use the standard 4-nibble format: `y0 50 00 00 0p 0q FF`.
    - The curated list has been updated to match.
 
-4. **VISCA‑over‑IP encapsulation:** PTZOptics NDI®|HX cameras use **raw VISCA bytes** over TCP/UDP on the PTZ ports; they do not use Sony’s UDP “encapsulated VISCA over IP” header format.
+4. **VISCA‑over‑IP encapsulation:** PTZOptics NDI®|HX cameras use **raw VISCA bytes** over TCP/UDP on the PTZ ports; they do not use Sony's UDP "encapsulated VISCA over IP" header format.
+
+5. **Gamma (0x5B) command — undocumented but functional:**
+   - The PTZOptics G2 manual does not mention the gamma command (`81 01 04 5B 0p FF`), but hardware testing confirms it is supported. Both the set command and inquiry work correctly.
+   - Gamma values 0–4 are accepted: 0 = Standard, 1–4 = alternate gamma curves.
+   - Inquiry format: `81 09 04 5B FF` → response `90 50 0p FF`.
+   - This command has been added to the curated command list and inquiry table above.

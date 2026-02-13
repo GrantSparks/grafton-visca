@@ -2,7 +2,7 @@
 //!
 //! This module provides commands for controlling various image quality settings,
 //! including backlight compensation, noise reduction, image flip, picture effects,
-//! brightness (luminance), contrast, and sharpness adjustments.
+//! brightness (luminance), contrast, gamma, and sharpness adjustments.
 
 use grafton_visca_macros::ViscaEnum;
 
@@ -12,7 +12,9 @@ use crate::{
     command::{encode::ViscaCommand, resolution::PictureEffectMode, InquiryKind},
     error::Error,
     timeout::CommandCategory,
-    types::{ContrastLevel, LuminanceLevel, NoiseReduction2DLevel, NoiseReduction3DLevel},
+    types::{
+        ContrastLevel, GammaLevel, LuminanceLevel, NoiseReduction2DLevel, NoiseReduction3DLevel,
+    },
     visca_command,
 };
 
@@ -197,6 +199,31 @@ impl Contrast {
     /// Create a new contrast command.
     pub fn new(value: ContrastLevel) -> Self {
         Self { value }
+    }
+}
+
+visca_command! {
+        /// Command to set the gamma curve.
+    ///
+    /// Selects the gamma correction curve for the camera's image output.
+    /// Gamma affects the overall brightness curve and tonal response.
+    /// Value 0 is typically standard gamma, while values 1-4 select
+    /// different gamma curves depending on the camera model.
+    ///
+    /// Use [`InquiryControl::gamma`] to query the current value.
+    ///
+    /// [`InquiryControl::gamma`]: crate::camera::controls::inquiry::InquiryControl::gamma
+    pub struct GammaCommand { level: GammaLevel };
+    prefix = [0x01, 0x04, 0x5B];
+    param = level.value();
+    max_param_size = 1;
+    category = CommandCategory::Custom;
+}
+
+impl GammaCommand {
+    /// Create a new gamma command.
+    pub fn new(level: GammaLevel) -> Self {
+        Self { level }
     }
 }
 
@@ -931,6 +958,43 @@ mod tests {
         }
     }
 
+    visca_test!(
+        GammaCommand,
+        test_gamma_level_0,
+        GammaCommand::new(GammaLevel::new(0).unwrap()),
+        &[0x81, 0x01, 0x04, 0x5B, 0x00, VISCA_TERMINATOR]
+    );
+
+    visca_test!(
+        GammaCommand,
+        test_gamma_level_2,
+        GammaCommand::new(GammaLevel::new(2).unwrap()),
+        &[0x81, 0x01, 0x04, 0x5B, 0x02, VISCA_TERMINATOR]
+    );
+
+    visca_test!(
+        GammaCommand,
+        test_gamma_level_4,
+        GammaCommand::new(GammaLevel::new(4).unwrap()),
+        &[0x81, 0x01, 0x04, 0x5B, 0x04, VISCA_TERMINATOR]
+    );
+
+    #[test]
+    fn test_gamma_properties() {
+        let cmd = GammaCommand::new(GammaLevel::new(0).unwrap());
+        assert!(cmd.response_kind().is_none());
+        assert!(matches!(cmd.timeout_class(), CommandCategory::Custom));
+    }
+
+    #[test]
+    fn test_gamma_valid_values() {
+        for value in 0..=4 {
+            let level =
+                GammaLevel::new(value).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
+            let _cmd = GammaCommand::new(level);
+        }
+    }
+
     #[test]
     fn test_sharpness_mode_equality() {
         assert_eq!(SharpnessMode::Auto, SharpnessMode::Auto);
@@ -950,6 +1014,9 @@ mod tests {
             )),
             Box::new(Contrast::new(
                 ContrastLevel::new(7).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
+            )),
+            Box::new(GammaCommand::new(
+                GammaLevel::new(2).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             )),
         ];
 
@@ -1058,6 +1125,11 @@ mod tests {
         )
         .response_kind()
         .is_none());
+        assert!(GammaCommand::new(
+            GammaLevel::new(2).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
+        )
+        .response_kind()
+        .is_none());
     }
 
     #[test]
@@ -1085,5 +1157,10 @@ mod tests {
             ContrastLevel::new(7).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
         let cmd = Contrast { value: level };
         assert!(matches!(cmd.timeout_class(), CommandCategory::Quick));
+
+        // Test GammaCommand uses Custom category
+        let level = GammaLevel::new(2).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
+        let cmd = GammaCommand { level };
+        assert!(matches!(cmd.timeout_class(), CommandCategory::Custom));
     }
 }

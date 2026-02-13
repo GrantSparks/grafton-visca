@@ -21,8 +21,8 @@ use crate::{
     command::{resolution::PictureEffectMode, ImageFlipMode},
     mode::Mode,
     types::{
-        ContrastLevel, HueLevel, LuminanceLevel, NoiseReduction2DLevel, NoiseReduction3DLevel,
-        SaturationLevel, SharpnessLevel,
+        ContrastLevel, GammaLevel, HueLevel, LuminanceLevel, NoiseReduction2DLevel,
+        NoiseReduction3DLevel, SaturationLevel, SharpnessLevel,
     },
     Error,
 };
@@ -39,6 +39,7 @@ use crate::{
 /// - **Saturation**: Adjusts color intensity and vividness
 /// - **Hue**: Shifts the overall color tone of the image
 /// - **Luminance**: Controls overall brightness level
+/// - **Gamma**: Selects gamma correction curve for tonal response
 ///
 /// # Noise Reduction
 ///
@@ -297,6 +298,23 @@ pub trait ImageProcessingControl {
         level: LuminanceLevel,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
+    /// Set gamma curve.
+    ///
+    /// Selects the gamma correction curve for the camera's image output.
+    /// Gamma affects the overall brightness curve and tonal response,
+    /// and is important for multi-camera color matching.
+    ///
+    /// Use [`InquiryControl::gamma`] to query the current value.
+    ///
+    /// # Parameters
+    /// - `level`: The gamma curve to select (0=Standard, 1-4=different curves)
+    ///
+    /// # Errors
+    /// Returns an error if the command fails to send or receive a response.
+    ///
+    /// [`InquiryControl::gamma`]: crate::camera::controls::inquiry::InquiryControl::gamma
+    fn set_gamma(&self, level: GammaLevel) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+
     /// Enable image freeze.
     ///
     /// Freezes the camera's video output on the last frame. This is useful
@@ -546,6 +564,11 @@ where
 
     fn set_luminance(&self, level: LuminanceLevel) -> M::Fut<'_, Result<(), Error>> {
         let cmd = crate::command::image::Luminance::new(level);
+        self.execute(cmd)
+    }
+
+    fn set_gamma(&self, level: GammaLevel) -> M::Fut<'_, Result<(), Error>> {
+        let cmd = crate::command::image::GammaCommand::new(level);
         self.execute(cmd)
     }
 
