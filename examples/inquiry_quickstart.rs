@@ -44,8 +44,8 @@ fn main() -> grafton_visca::Result<()> {
     println!("Connecting to camera at {camera_addr}...");
     let camera = Connect::open_tcp_blocking::<PtzOpticsG2>(camera_addr)?;
 
-    // PTZOptics cameras support a subset of VISCA inquiries.
-    // This example queries only the commonly-supported ones.
+    // PTZOptics G2 cameras support the full VISCA inquiry command set.
+    // This example demonstrates a representative selection of inquiries.
 
     println!("\n--- Power ---");
     match camera.power_state() {
@@ -148,8 +148,8 @@ async fn main() -> grafton_visca::Result<()> {
     // response matching. For true concurrent execution, use a Sony camera
     // profile (SonyFR7, SonyBRCH900) which supports sequence-based correlation.
     //
-    // PTZOptics cameras support a subset of VISCA inquiries. This example
-    // queries only the commonly-supported ones.
+    // PTZOptics G2 cameras support the full VISCA inquiry command set.
+    // This example demonstrates a representative selection of inquiries.
     println!("\n⚡ Executing inquiries (serialized for PtzOpticsG2)...\n");
 
     let start = Instant::now();
@@ -161,7 +161,7 @@ async fn main() -> grafton_visca::Result<()> {
     let exposure_acc = camera.exposure();
     let white_balance_acc = camera.white_balance();
 
-    // Query only PTZOptics-supported inquiries
+    // Query a representative set of inquiries
     let (power, pan_tilt, zoom, focus_mode, focus_pos, exposure_mode, wb_mode) = tokio::join!(
         power_acc.state(),
         pan_tilt_acc.position(),

@@ -25,7 +25,7 @@ pub use profile_metadata::{
     HasExposureCompensation, HasFocus, HasFocusLock, HasHue, HasImageProcessing, HasLuminance,
     HasMenuControl, HasMotionSync, HasNdFilter, HasOnePushFocus, HasOnePushWhiteBalance,
     HasPanTilt, HasPictureEffect, HasPower, HasPresets, HasPushAutoFocus, HasRGBGain, HasTally,
-    HasVariableSpeed, HasWDR, HasWhiteBalance, HasZoom, ProfileMetadata,
+    HasVariableSpeed, HasWDR, HasWhiteBalance, HasZoom, InquirySupport, ProfileMetadata,
 };
 
 // Re-export all capability traits
@@ -58,7 +58,9 @@ pub use discovery::Capabilities;
 /// Super-trait that encompasses all camera capabilities.
 ///
 /// This trait allows a single generic bound to ensure a type has all the
-/// necessary camera capabilities. It combines metadata with all feature traits.
+/// necessary camera capabilities. It combines metadata with all feature traits,
+/// including optional features like motion sync, ND filter, and variable speed
+/// (which default to "not supported" when not overridden).
 ///
 /// # Example
 /// ```ignore
@@ -66,6 +68,8 @@ pub use discovery::Capabilities;
 ///     // All capability traits are available
 ///     let model = P::MODEL_NAME;
 ///     let zoom_range = P::ZOOM_SPEED_RANGE;
+///     let inquiry = P::INQUIRY_SUPPORT;
+///     let has_motion_sync = P::SUPPORTS_MOTION_SYNC;
 /// }
 /// ```
 pub trait Profile:
@@ -80,6 +84,9 @@ pub trait Profile:
     + Power
     + MenuCapability
     + Tally
+    + MotionSync
+    + NdFilter
+    + VariableSpeed
     + Sized
     + Send
     + Sync
@@ -100,6 +107,9 @@ impl<T> Profile for T where
         + Power
         + MenuCapability
         + Tally
+        + MotionSync
+        + NdFilter
+        + VariableSpeed
         + Sized
         + Send
         + Sync

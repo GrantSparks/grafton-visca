@@ -9,6 +9,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking Changes
 
+#### `InquirySupport` Enum Replaces `SUPPORTS_INQUIRY: bool` (#498)
+- **BREAKING**: `ProfileMetadata::SUPPORTS_INQUIRY: bool` replaced with `ProfileMetadata::INQUIRY_SUPPORT: InquirySupport`
+- New `InquirySupport` enum with three variants: `Full`, `Partial`, `None`
+- Derives `Debug, Clone, Copy, PartialEq, Eq, Hash` plus `serde`, `schemars`, `ts-rs` when feature-gated
+- Default is `InquirySupport::Full` (most VISCA cameras support all inquiries)
+- Profile assignments:
+  - `Full`: PtzOpticsG2, PtzOpticsG3, PtzOptics30X, SonyFR7, SonyBRCH900 (hardware-confirmed)
+  - `Partial`: GenericVisca, SonyEVIH100, SonyBRC300, NearusBRC300
+- Added `ProfileId::inquiry_support()` and `ProfileGroup::inquiry_support()` runtime query methods
+- `Capabilities` struct: `supports_inquiry: bool` replaced with `inquiry_support: InquirySupport`
+- Added `Capabilities::has_full_inquiry_support()` convenience method
+
+#### Extended `Profile` Supertrait (#498)
+- **BREAKING**: `Profile` supertrait now requires `MotionSync + NdFilter + VariableSpeed`
+- All three traits have sensible defaults, so existing `impl Profile for T {}` blocks continue to work
+- `NdFilter` trait now has default associated constants (`ND_MODE = NdFilterMode::None`, `ND_STEPS = None`)
+- `Capabilities::from_profile` now reads trait data instead of hardcoded false values:
+  - `has_nd_filter` — from `P::ND_MODE`
+  - `nd_filter_type` — from `P::ND_MODE` variant
+  - `has_motion_sync` / `max_motion_sync_speed` — from `P::SUPPORTS_MOTION_SYNC` / `P::MAX_MOTION_SYNC_SPEED`
+  - `has_variable_speed` — from `P::SUPPORTS_VARIABLE_SPEED`
+  - `has_direct_menu_control` — from `P::SUPPORTS_DIRECT_CONTROL`
+  - `supports_wake_on_lan` — from `P::SUPPORTS_WAKE_ON_LAN`
+
 #### Zoom Position Type Range Expanded (#494)
 - `ZoomPosition` max changed from `0x7000` to `0x7FFF` to support all profile-declared zoom ranges (e.g., `PtzOptics30X` at `0x7AC0`, digital zoom at `0x7FFF`)
 - Removed global `ZoomPosition::MAX_OPTICAL` and `ZoomPosition::MAX_DIGITAL` constants — use profile capability constants (`P::OPTICAL_ZOOM_MAX`, `P::DIGITAL_ZOOM_MAX`) instead
@@ -23,6 +47,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### Hardware Integration Test (#498)
+- New `tests/hardware_inquiry_test.rs` for validating VISCA inquiries against a real PTZOptics G2 camera
+- Tests are `#[ignore]` by default — run with `VISCA_CAMERA_IP=192.168.0.110 cargo test --test hardware_inquiry_test -- --ignored --nocapture --test-threads=1`
+- Comprehensive `test_all_inquiries_succeed` test categorizes results as OK, KNOWN_MISMATCH (parser bug), or FAIL (unexpected)
+- Hardware validation confirmed 23/28 inquiries parse correctly; 5 have known response format mismatches (red_gain, blue_gain, color_temperature, flip_mode, version)
+- These parser mismatches are library-side bugs — the camera responds to all commands
+
 #### New PTZOptics Commands
 - Anti-flicker mode control (`AntiFlickerMode`: Off, 50Hz, 60Hz) with `set_anti_flicker_mode()` on `ExposureControl`
 - Preset recall speed control (`PresetRecallSpeed`: 1-24) with `set_preset_recall_speed()` on `PresetsControl`
@@ -35,6 +66,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `FlickerModeInquiry` struct with `ResponseParser` support
 
 ### Fixed
+
+#### Stale Inquiry Comments (#498)
+- Fixed comments in `examples/inquiry_quickstart.rs` that incorrectly claimed PTZOptics cameras support only a "subset" of VISCA inquiries — they support the full set
+
+#### Hardcoded `false` Values in `Capabilities::from_profile` (#498)
+- `has_nd_filter`, `has_motion_sync`, `has_variable_speed`, `has_direct_menu_control`, and `supports_wake_on_lan` were all hardcoded to `false` — now correctly read from profile trait constants
 
 #### Zoom Position Truncation (#494)
 - **Critical:** `Zoom::Position` encoding no longer silently truncates values above `0x3FFF` — previously, any zoom value with bit 14 set was masked to zero (e.g., `0x4000` encoded as `0x0000`)

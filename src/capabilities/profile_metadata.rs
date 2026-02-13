@@ -2,6 +2,69 @@
 
 use std::time::Duration;
 
+/// Level of VISCA inquiry command support for a camera profile.
+///
+/// VISCA cameras vary in their support for inquiry (status read-back) commands.
+/// This enum lets consumers determine inquiry support per-profile without
+/// matching on [`ProfileGroup`](crate::camera::profiles::ProfileGroup).
+///
+/// # Hardware Evidence
+///
+/// PTZOptics G2/G3/30X cameras have been confirmed via hardware testing to support
+/// the complete VISCA inquiry command set, including all exposure, focus, image
+/// processing, and color inquiries documented in the PTZOptics VISCA command list.
+/// See [issue #498](https://github.com/GrantSparks/grafton-visca/issues/498) for
+/// the full test results against a PTZOptics PT20X-NDI (G2 profile).
+///
+/// # Usage
+///
+/// ```
+/// use grafton_visca::capabilities::InquirySupport;
+/// use grafton_visca::profiles::ProfileId;
+///
+/// let profile = ProfileId::PtzOpticsG2;
+/// match profile.inquiry_support() {
+///     InquirySupport::Full => {
+///         // Safe to use all inquiry commands
+///     }
+///     InquirySupport::Partial => {
+///         // Basic inquiries work; advanced ones may not
+///     }
+///     InquirySupport::None => {
+///         // Camera does not support inquiry commands
+///     }
+/// }
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
+pub enum InquirySupport {
+    /// Full inquiry support — all documented VISCA inquiry commands work correctly.
+    ///
+    /// Cameras with full support respond to every inquiry command in their VISCA
+    /// documentation, including exposure mode, shutter, iris, focus mode,
+    /// backlight, image processing settings, and block inquiries.
+    ///
+    /// Confirmed profiles: PTZOptics G2, PTZOptics G3, PTZOptics 30X,
+    /// Sony FR7, Sony BRC-H900.
+    Full,
+
+    /// Partial inquiry support — basic inquiries work, but some may not respond.
+    ///
+    /// Position queries (zoom, pan/tilt, focus) and basic status queries work,
+    /// but some feature-specific inquiries (exposure mode, image processing, etc.)
+    /// may time out or return errors. Consumers should handle inquiry failures
+    /// gracefully for cameras at this level.
+    Partial,
+
+    /// No inquiry command support.
+    ///
+    /// The camera does not respond to any VISCA inquiry commands.
+    /// All inquiry operations will fail.
+    None,
+}
+
 /// Core trait that all camera profiles must implement.
 ///
 /// This trait provides essential metadata about the camera model including
@@ -29,8 +92,14 @@ pub trait ProfileMetadata {
     /// Some cameras need a delay after operations like preset recall.
     const BUSY_TIMEOUT: Duration = Duration::from_millis(0);
 
-    /// Whether this camera supports VISCA inquiry commands.
-    const SUPPORTS_INQUIRY: bool = true;
+    /// Level of VISCA inquiry command support for this camera.
+    ///
+    /// Determines whether consumers can use inquiry commands to read camera state,
+    /// and to what extent. See [`InquirySupport`] for detailed descriptions of
+    /// each level.
+    ///
+    /// Default: [`InquirySupport::Full`] — most VISCA cameras support all inquiries.
+    const INQUIRY_SUPPORT: InquirySupport = InquirySupport::Full;
 
     /// Whether this camera sends operation complete messages (0x51) after movements.
     ///

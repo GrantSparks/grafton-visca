@@ -6,6 +6,8 @@
 
 use std::ops::RangeInclusive;
 
+use super::profile_metadata::InquirySupport;
+
 /// Structured capabilities response for runtime feature discovery.
 ///
 /// This struct provides a runtime-queryable representation of all camera
@@ -271,8 +273,11 @@ pub struct Capabilities {
     pub has_variable_speed: bool,
 
     // Protocol features
-    /// Whether camera supports VISCA inquiry commands.
-    pub supports_inquiry: bool,
+    /// Level of VISCA inquiry command support for this camera.
+    ///
+    /// Use this instead of matching on `ProfileGroup` to determine whether
+    /// inquiry commands are available. See [`InquirySupport`] for details.
+    pub inquiry_support: InquirySupport,
 
     /// Whether camera sends operation complete messages.
     pub supports_operation_complete: bool,
@@ -328,16 +333,22 @@ impl Capabilities {
         // Extract preset capabilities
         let preset_speed_range = P::PRESET_SPEED_RANGE.start..=(P::PRESET_SPEED_RANGE.end - 1);
 
-        // Note: ND filter capabilities require a separate trait check
-        // For now, we'll mark as false and let profiles that have ND filter
-        // override this through a separate method
-        let has_nd_filter = false;
-        let nd_filter_type = None;
+        // Extract ND filter capabilities from the NdFilter trait
+        let has_nd_filter = !matches!(P::ND_MODE, crate::capabilities::NdFilterMode::None);
+        let nd_filter_type = match P::ND_MODE {
+            crate::capabilities::NdFilterMode::None => None,
+            crate::capabilities::NdFilterMode::Fixed(_) => Some("Fixed ND filter".to_string()),
+            crate::capabilities::NdFilterMode::Stepped(_) => Some("Stepped ND filter".to_string()),
+            crate::capabilities::NdFilterMode::Variable => Some("Variable ND filter".to_string()),
+        };
 
-        // Extract motion sync capabilities
-        // Motion sync is an optional trait, so we'll default to false
-        // Camera profiles that support it will have the constants
-        let (has_motion_sync, max_motion_sync_speed) = (false, None);
+        // Extract motion sync capabilities from the MotionSync trait
+        let has_motion_sync = P::SUPPORTS_MOTION_SYNC;
+        let max_motion_sync_speed = if has_motion_sync {
+            Some(P::MAX_MOTION_SYNC_SPEED)
+        } else {
+            None
+        };
 
         Self {
             // Camera identification
@@ -423,7 +434,7 @@ impl Capabilities {
             // Power capabilities
             has_power: true, // All cameras have power control
             supports_standby: P::SUPPORTS_STANDBY,
-            supports_wake_on_lan: false, // Not currently part of Power trait
+            supports_wake_on_lan: P::SUPPORTS_WAKE_ON_LAN,
             power_on_time_secs: P::POWER_ON_TIME.as_secs(),
 
             // Special capabilities
@@ -431,13 +442,23 @@ impl Capabilities {
             nd_filter_type,
             has_motion_sync,
             max_motion_sync_speed,
-            has_direct_menu_control: false, // Could check trait implementation
-            has_variable_speed: false,      // Could check trait implementation
+            has_direct_menu_control: P::SUPPORTS_DIRECT_CONTROL,
+            has_variable_speed: P::SUPPORTS_VARIABLE_SPEED,
 
             // Protocol features
-            supports_inquiry: P::SUPPORTS_INQUIRY,
+            inquiry_support: P::INQUIRY_SUPPORT,
             supports_operation_complete: P::SUPPORTS_OPERATION_COMPLETE,
         }
+    }
+
+    /// Returns true if the camera supports all VISCA inquiry commands.
+    ///
+    /// This is a convenience method that checks [`InquirySupport::Full`].
+    /// Consumers should use this instead of matching on `ProfileGroup` to
+    /// determine whether inquiry commands are safe to use without fallbacks.
+    #[must_use]
+    pub fn has_full_inquiry_support(&self) -> bool {
+        self.inquiry_support == InquirySupport::Full
     }
 
     /// Returns true if the camera has all basic features.

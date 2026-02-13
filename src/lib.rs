@@ -841,4 +841,5 @@ pub mod profiles {
         GenericVisca, NearusBRC300, ProfileGroup, ProfileId, PtzOptics30X, PtzOpticsG2,
         PtzOpticsG3, SonyBRC300, SonyBRCH900, SonyEVIH100, SonyFR7,
     };
+    pub use crate::capabilities::InquirySupport;
 }

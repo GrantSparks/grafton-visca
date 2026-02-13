@@ -10,11 +10,15 @@ use crate::capabilities::ValidationError;
 /// ND filters reduce the amount of light entering the camera without affecting color.
 pub trait NdFilter {
     /// ND filter mode determines how the filter operates.
-    const ND_MODE: NdFilterMode;
+    ///
+    /// Default: [`NdFilterMode::None`] — no ND filter available.
+    const ND_MODE: NdFilterMode = NdFilterMode::None;
 
     /// Number of discrete ND filter steps (for stepped filters).
     /// None for continuous/variable filters.
-    const ND_STEPS: Option<u8>;
+    ///
+    /// Default: `None`.
+    const ND_STEPS: Option<u8> = None;
 }
 
 /// Extension trait that adds validation methods to cameras with ND filter support.

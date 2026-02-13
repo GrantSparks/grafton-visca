@@ -208,6 +208,8 @@ impl crate::capabilities::HasAutoFocus for PtzOpticsG2 {}
 impl crate::capabilities::HasOnePushFocus for PtzOpticsG2 {}
 impl crate::capabilities::HasFocusLock for PtzOpticsG2 {}
 impl crate::capabilities::HasHue for PtzOpticsG2 {}
+impl NdFilter for PtzOpticsG2 {}
+impl VariableSpeed for PtzOpticsG2 {}
 
 /// Generic VISCA camera profile.
 ///
@@ -221,6 +223,8 @@ impl ProfileMetadata for GenericVisca {
     type Envelope = RawVisca;
     const ACK_TIMEOUT: Duration = Duration::from_millis(200);
     const COMPLETION_TIMEOUT: Duration = Duration::from_millis(10000);
+    const INQUIRY_SUPPORT: crate::capabilities::InquirySupport =
+        crate::capabilities::InquirySupport::Partial;
     const DEFAULT_TCP_PORT: u16 = 5678;
     const DEFAULT_UDP_PORT: u16 = 1259;
 }
@@ -298,6 +302,9 @@ impl Presets for GenericVisca {
 }
 
 impl crate::capabilities::Tally for GenericVisca {}
+impl MotionSync for GenericVisca {}
+impl NdFilter for GenericVisca {}
+impl VariableSpeed for GenericVisca {}
 
 impl crate::capabilities::HasAutoExposure for GenericVisca {}
 impl crate::capabilities::HasOnePushWhiteBalance for GenericVisca {}
@@ -427,6 +434,7 @@ impl crate::capabilities::Tally for SonyFR7 {
     const SUPPORTS_TALLY: bool = true;
 }
 impl crate::capabilities::HasPictureEffect for SonyFR7 {}
+impl MotionSync for SonyFR7 {}
 
 /// Sony BRC-H900 camera profile.
 ///
@@ -515,6 +523,9 @@ impl crate::capabilities::Tally for SonyBRCH900 {
     const SUPPORTS_TALLY: bool = true;
 }
 impl crate::capabilities::HasPictureEffect for SonyBRCH900 {}
+impl MotionSync for SonyBRCH900 {}
+impl NdFilter for SonyBRCH900 {}
+impl VariableSpeed for SonyBRCH900 {}
 
 /// Sony EVI-H100 camera profile.
 ///
@@ -528,6 +539,8 @@ impl ProfileMetadata for SonyEVIH100 {
     type Envelope = RawVisca;
     const ACK_TIMEOUT: Duration = Duration::from_millis(100);
     const COMPLETION_TIMEOUT: Duration = Duration::from_millis(5000);
+    const INQUIRY_SUPPORT: crate::capabilities::InquirySupport =
+        crate::capabilities::InquirySupport::Partial;
     const DEFAULT_TCP_PORT: u16 = 5678;
     const DEFAULT_UDP_PORT: u16 = 1259;
 }
@@ -596,6 +609,9 @@ impl ImageProcessing for SonyEVIH100 {
 
 impl MenuCapability for SonyEVIH100 {}
 impl crate::capabilities::Tally for SonyEVIH100 {}
+impl MotionSync for SonyEVIH100 {}
+impl NdFilter for SonyEVIH100 {}
+impl VariableSpeed for SonyEVIH100 {}
 
 /// Sony BRC-300 camera profile.
 ///
@@ -609,6 +625,8 @@ impl ProfileMetadata for SonyBRC300 {
     type Envelope = RawVisca;
     const ACK_TIMEOUT: Duration = Duration::from_millis(100);
     const COMPLETION_TIMEOUT: Duration = Duration::from_millis(5000);
+    const INQUIRY_SUPPORT: crate::capabilities::InquirySupport =
+        crate::capabilities::InquirySupport::Partial;
     const DEFAULT_TCP_PORT: u16 = 5678;
     const DEFAULT_UDP_PORT: u16 = 1259;
 }
@@ -678,6 +696,9 @@ impl ImageProcessing for SonyBRC300 {
 
 impl MenuCapability for SonyBRC300 {}
 impl crate::capabilities::Tally for SonyBRC300 {}
+impl MotionSync for SonyBRC300 {}
+impl NdFilter for SonyBRC300 {}
+impl VariableSpeed for SonyBRC300 {}
 
 /// Nearus BRC-300 camera profile.
 ///
@@ -691,6 +712,8 @@ impl ProfileMetadata for NearusBRC300 {
     type Envelope = RawVisca;
     const ACK_TIMEOUT: Duration = Duration::from_millis(100);
     const COMPLETION_TIMEOUT: Duration = Duration::from_millis(5000);
+    const INQUIRY_SUPPORT: crate::capabilities::InquirySupport =
+        crate::capabilities::InquirySupport::Partial;
     const DEFAULT_TCP_PORT: u16 = 5678;
     const DEFAULT_UDP_PORT: u16 = 1259;
 }
@@ -758,6 +781,9 @@ impl ImageProcessing for NearusBRC300 {
 
 impl MenuCapability for NearusBRC300 {}
 impl crate::capabilities::Tally for NearusBRC300 {}
+impl MotionSync for NearusBRC300 {}
+impl NdFilter for NearusBRC300 {}
+impl VariableSpeed for NearusBRC300 {}
 
 /// PtzOptics G3 camera profile.
 ///
@@ -868,6 +894,8 @@ impl MotionSync for PtzOpticsG3 {
     const SUPPORTS_MOTION_SYNC: bool = true;
     const MAX_MOTION_SYNC_SPEED: u8 = 24;
 }
+impl NdFilter for PtzOpticsG3 {}
+impl VariableSpeed for PtzOpticsG3 {}
 
 /// PtzOptics 30X camera profile.
 ///
@@ -978,6 +1006,8 @@ impl MotionSync for PtzOptics30X {
     const SUPPORTS_MOTION_SYNC: bool = true;
     const MAX_MOTION_SYNC_SPEED: u8 = 24;
 }
+impl NdFilter for PtzOptics30X {}
+impl VariableSpeed for PtzOptics30X {}
 
 /// Preset ID for PtzOptics G2 cameras (0-127).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1431,6 +1461,36 @@ impl ProfileId {
         }
     }
 
+    /// Returns the level of VISCA inquiry command support for this profile.
+    ///
+    /// Use this method instead of matching on [`ProfileGroup`] to determine
+    /// whether inquiry commands are available. PTZOptics G2/G3/30X and Sony
+    /// professional cameras have full inquiry support confirmed by hardware
+    /// testing and manufacturer documentation.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use grafton_visca::camera::profiles::ProfileId;
+    /// use grafton_visca::capabilities::InquirySupport;
+    ///
+    /// assert_eq!(ProfileId::PtzOpticsG2.inquiry_support(), InquirySupport::Full);
+    /// assert_eq!(ProfileId::GenericVisca.inquiry_support(), InquirySupport::Partial);
+    /// ```
+    pub const fn inquiry_support(&self) -> crate::capabilities::InquirySupport {
+        match self {
+            ProfileId::PtzOpticsG2 => PtzOpticsG2::INQUIRY_SUPPORT,
+            ProfileId::PtzOpticsG3 => PtzOpticsG3::INQUIRY_SUPPORT,
+            ProfileId::PtzOptics30X => PtzOptics30X::INQUIRY_SUPPORT,
+            ProfileId::SonyFr7 => SonyFR7::INQUIRY_SUPPORT,
+            ProfileId::SonyBrcH900 => SonyBRCH900::INQUIRY_SUPPORT,
+            ProfileId::SonyEviH100 => SonyEVIH100::INQUIRY_SUPPORT,
+            ProfileId::SonyBrc300 => SonyBRC300::INQUIRY_SUPPORT,
+            ProfileId::NearusBrc300 => NearusBRC300::INQUIRY_SUPPORT,
+            ProfileId::GenericVisca => GenericVisca::INQUIRY_SUPPORT,
+        }
+    }
+
     /// Returns a brief description of this profile's capabilities.
     ///
     /// Provides a human-readable summary of the camera's feature set.
@@ -1575,6 +1635,35 @@ impl ProfileGroup {
     /// ```
     pub const fn supports_serial(&self) -> bool {
         true // All profiles support serial
+    }
+
+    /// Returns the level of VISCA inquiry command support for this profile group.
+    ///
+    /// Use this method instead of matching on the group variant to determine
+    /// whether inquiry commands are available. This provides a stable API for
+    /// inquiry capability detection that won't break when new profiles are added.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use grafton_visca::camera::profiles::ProfileGroup;
+    /// use grafton_visca::capabilities::InquirySupport;
+    ///
+    /// // PTZOptics cameras support all VISCA inquiry commands
+    /// assert_eq!(ProfileGroup::PtzOpticsG2.inquiry_support(), InquirySupport::Full);
+    ///
+    /// // Sony professional cameras support all VISCA inquiry commands
+    /// assert_eq!(ProfileGroup::SonyProfessional.inquiry_support(), InquirySupport::Full);
+    ///
+    /// // Generic cameras have partial inquiry support
+    /// assert_eq!(ProfileGroup::GenericVisca.inquiry_support(), InquirySupport::Partial);
+    /// ```
+    pub const fn inquiry_support(&self) -> crate::capabilities::InquirySupport {
+        match self {
+            ProfileGroup::PtzOpticsG2 => crate::capabilities::InquirySupport::Full,
+            ProfileGroup::SonyProfessional => crate::capabilities::InquirySupport::Full,
+            ProfileGroup::GenericVisca => crate::capabilities::InquirySupport::Partial,
+        }
     }
 }
 
