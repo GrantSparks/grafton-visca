@@ -138,7 +138,7 @@ impl Focus for PtzOpticsG2 {
     const FOCUS_NEAR_LIMIT: u16 = 0x1000;
     const FOCUS_FAR_LIMIT: u16 = 0xF000;
     const SUPPORTS_AUTO_FOCUS: bool = true;
-    const SUPPORTS_ONE_PUSH_FOCUS: bool = true;
+    const SUPPORTS_ONE_PUSH_FOCUS: bool = false;
     const SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY: bool = false;
 }
 
@@ -209,7 +209,6 @@ impl crate::capabilities::HasOnePushWhiteBalance for PtzOpticsG2 {}
 impl crate::capabilities::HasColorTemperature for PtzOpticsG2 {}
 impl crate::capabilities::HasRGBGain for PtzOpticsG2 {}
 impl crate::capabilities::HasAutoFocus for PtzOpticsG2 {}
-impl crate::capabilities::HasOnePushFocus for PtzOpticsG2 {}
 impl crate::capabilities::HasFocusLock for PtzOpticsG2 {}
 impl crate::capabilities::HasHue for PtzOpticsG2 {}
 impl NdFilter for PtzOpticsG2 {}
