@@ -19,9 +19,6 @@ pub trait Exposure {
     /// Valid range for gain values.
     const GAIN_RANGE: Range<u8>;
 
-    /// Whether camera supports auto exposure mode.
-    const SUPPORTS_AUTO_EXPOSURE: bool;
-
     /// Whether camera supports backlight compensation.
     const SUPPORTS_BACKLIGHT_COMP: bool;
 
@@ -163,7 +160,6 @@ mod tests {
         const IRIS_RANGE: Range<u16> = 0x00..0x1D;
         const SHUTTER_SPEEDS: &'static [ShutterSpeed] = TEST_SHUTTER_SPEEDS;
         const GAIN_RANGE: Range<u8> = 0..16;
-        const SUPPORTS_AUTO_EXPOSURE: bool = true;
         const SUPPORTS_BACKLIGHT_COMP: bool = true;
         const SUPPORTS_EXPOSURE_COMP: bool = true;
     }

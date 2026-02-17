@@ -92,8 +92,7 @@ pub trait WhiteBalanceExt: WhiteBalance {
 
     /// Validate color temperature in Kelvin.
     ///
-    /// Note: This method should only be called on profiles that support color temperature.
-    /// The compile-time check is enforced by requiring HasColorTemperature marker trait.
+    /// Returns `NotSupported` error if `COLOR_TEMP_RANGE` is `None`.
     fn validate_color_temp(&self, kelvin: u16) -> Result<u16, ValidationError> {
         match Self::COLOR_TEMP_RANGE {
             Some(ref range) if range.contains(&kelvin) => Ok(kelvin),
@@ -109,8 +108,7 @@ pub trait WhiteBalanceExt: WhiteBalance {
 
     /// Validate red gain value.
     ///
-    /// Note: This method should only be called on profiles that support RGB gain.
-    /// The compile-time check is enforced by requiring HasRGBGain marker trait.
+    /// Returns `NotSupported` error if `RED_GAIN_RANGE` is `None`.
     fn validate_red_gain(&self, gain: u8) -> Result<u8, ValidationError> {
         match Self::RED_GAIN_RANGE {
             Some(ref range) if range.contains(&gain) => Ok(gain),
@@ -126,8 +124,7 @@ pub trait WhiteBalanceExt: WhiteBalance {
 
     /// Validate blue gain value.
     ///
-    /// Note: This method should only be called on profiles that support RGB gain.
-    /// The compile-time check is enforced by requiring HasRGBGain marker trait.
+    /// Returns `NotSupported` error if `BLUE_GAIN_RANGE` is `None`.
     fn validate_blue_gain(&self, gain: u8) -> Result<u8, ValidationError> {
         match Self::BLUE_GAIN_RANGE {
             Some(ref range) if range.contains(&gain) => Ok(gain),

@@ -146,7 +146,6 @@ impl Exposure for PtzOpticsG2 {
     const IRIS_RANGE: std::ops::Range<u16> = 0x00..0x1D;
     const SHUTTER_SPEEDS: &'static [ShutterSpeed] = PTZ_OPTICS_G2_SHUTTER_SPEEDS;
     const GAIN_RANGE: std::ops::Range<u8> = 0..9;
-    const SUPPORTS_AUTO_EXPOSURE: bool = true;
     const SUPPORTS_BACKLIGHT_COMP: bool = true;
     const SUPPORTS_EXPOSURE_COMP: bool = true;
     const SUPPORTS_WDR: bool = true;
@@ -201,15 +200,8 @@ impl MotionSync for PtzOpticsG2 {
 impl MenuCapability for PtzOpticsG2 {}
 impl crate::capabilities::Tally for PtzOpticsG2 {}
 
-impl crate::capabilities::HasBacklightCompensation for PtzOpticsG2 {}
-impl crate::capabilities::HasWDR for PtzOpticsG2 {}
 impl crate::capabilities::HasExposureCompensation for PtzOpticsG2 {}
-impl crate::capabilities::HasOnePushWhiteBalance for PtzOpticsG2 {}
-impl crate::capabilities::HasColorTemperature for PtzOpticsG2 {}
-impl crate::capabilities::HasRGBGain for PtzOpticsG2 {}
-impl crate::capabilities::HasAutoFocus for PtzOpticsG2 {}
 impl crate::capabilities::HasFocusLock for PtzOpticsG2 {}
-impl crate::capabilities::HasHue for PtzOpticsG2 {}
 impl NdFilter for PtzOpticsG2 {}
 impl VariableSpeed for PtzOpticsG2 {}
 
@@ -258,7 +250,6 @@ impl Exposure for GenericVisca {
     const IRIS_RANGE: std::ops::Range<u16> = 0x00..0x1C;
     const SHUTTER_SPEEDS: &'static [ShutterSpeed] = GENERIC_VISCA_SHUTTER_SPEEDS;
     const GAIN_RANGE: std::ops::Range<u8> = 0..8;
-    const SUPPORTS_AUTO_EXPOSURE: bool = true;
     const SUPPORTS_BACKLIGHT_COMP: bool = false;
     const SUPPORTS_WDR: bool = false;
     const SUPPORTS_EXPOSURE_COMP: bool = false;
@@ -307,9 +298,6 @@ impl crate::capabilities::Tally for GenericVisca {}
 impl MotionSync for GenericVisca {}
 impl NdFilter for GenericVisca {}
 impl VariableSpeed for GenericVisca {}
-
-impl crate::capabilities::HasOnePushWhiteBalance for GenericVisca {}
-impl crate::capabilities::HasAutoFocus for GenericVisca {}
 
 /// Sony FR7 camera profile (example with ND filter).
 ///
@@ -361,7 +349,6 @@ impl Exposure for SonyFR7 {
     const IRIS_RANGE: std::ops::Range<u16> = 0x00..0x1F;
     const SHUTTER_SPEEDS: &'static [ShutterSpeed] = PTZ_OPTICS_G2_SHUTTER_SPEEDS;
     const GAIN_RANGE: std::ops::Range<u8> = 0..16;
-    const SUPPORTS_AUTO_EXPOSURE: bool = true;
     const SUPPORTS_BACKLIGHT_COMP: bool = true;
     const SUPPORTS_WDR: bool = true;
     const SUPPORTS_EXPOSURE_COMP: bool = true;
@@ -421,21 +408,12 @@ impl VariableSpeed for SonyFR7 {
     const SUPPORTS_VARIABLE_SPEED: bool = true;
 }
 
-impl crate::capabilities::HasBacklightCompensation for SonyFR7 {}
-impl crate::capabilities::HasWDR for SonyFR7 {}
 impl crate::capabilities::HasExposureCompensation for SonyFR7 {}
-impl crate::capabilities::HasOnePushWhiteBalance for SonyFR7 {}
-impl crate::capabilities::HasColorTemperature for SonyFR7 {}
-impl crate::capabilities::HasRGBGain for SonyFR7 {}
-impl crate::capabilities::HasAutoFocus for SonyFR7 {}
-impl crate::capabilities::HasOnePushFocus for SonyFR7 {}
 impl crate::capabilities::HasPushAutoFocus for SonyFR7 {}
-impl crate::capabilities::HasHue for SonyFR7 {}
 impl crate::capabilities::menu_control::HasDirectMenuControl for SonyFR7 {}
 impl crate::capabilities::Tally for SonyFR7 {
     const SUPPORTS_TALLY: bool = true;
 }
-impl crate::capabilities::HasPictureEffect for SonyFR7 {}
 impl MotionSync for SonyFR7 {}
 
 /// Sony BRC-H900 camera profile.
@@ -485,7 +463,6 @@ impl Exposure for SonyBRCH900 {
     const IRIS_RANGE: std::ops::Range<u16> = 0x00..0x1F;
     const SHUTTER_SPEEDS: &'static [ShutterSpeed] = GENERIC_VISCA_SHUTTER_SPEEDS;
     const GAIN_RANGE: std::ops::Range<u8> = 0..16;
-    const SUPPORTS_AUTO_EXPOSURE: bool = true;
     const SUPPORTS_BACKLIGHT_COMP: bool = true;
     const SUPPORTS_WDR: bool = true;
 }
@@ -526,7 +503,6 @@ impl MenuCapability for SonyBRCH900 {}
 impl crate::capabilities::Tally for SonyBRCH900 {
     const SUPPORTS_TALLY: bool = true;
 }
-impl crate::capabilities::HasPictureEffect for SonyBRCH900 {}
 impl MotionSync for SonyBRCH900 {}
 impl NdFilter for SonyBRCH900 {}
 impl VariableSpeed for SonyBRCH900 {}
@@ -576,7 +552,6 @@ impl Exposure for SonyEVIH100 {
     const IRIS_RANGE: std::ops::Range<u16> = 0x00..0x1C;
     const SHUTTER_SPEEDS: &'static [ShutterSpeed] = GENERIC_VISCA_SHUTTER_SPEEDS;
     const GAIN_RANGE: std::ops::Range<u8> = 0..8;
-    const SUPPORTS_AUTO_EXPOSURE: bool = true;
     const SUPPORTS_BACKLIGHT_COMP: bool = true;
     const SUPPORTS_WDR: bool = false;
 }
@@ -665,7 +640,6 @@ impl Exposure for SonyBRC300 {
     const IRIS_RANGE: std::ops::Range<u16> = 0x00..0x11;
     const SHUTTER_SPEEDS: &'static [ShutterSpeed] = GENERIC_VISCA_SHUTTER_SPEEDS;
     const GAIN_RANGE: std::ops::Range<u8> = 0..7;
-    const SUPPORTS_AUTO_EXPOSURE: bool = true;
     const SUPPORTS_BACKLIGHT_COMP: bool = true;
     const SUPPORTS_WDR: bool = false;
 }
@@ -752,7 +726,6 @@ impl Exposure for NearusBRC300 {
     const IRIS_RANGE: std::ops::Range<u16> = 0x00..0x11;
     const SHUTTER_SPEEDS: &'static [ShutterSpeed] = GENERIC_VISCA_SHUTTER_SPEEDS;
     const GAIN_RANGE: std::ops::Range<u8> = 0..7;
-    const SUPPORTS_AUTO_EXPOSURE: bool = true;
     const SUPPORTS_BACKLIGHT_COMP: bool = true;
     const SUPPORTS_WDR: bool = false;
 }
@@ -803,6 +776,7 @@ impl ProfileMetadata for PtzOpticsG3 {
     type Envelope = RawVisca;
     const ACK_TIMEOUT: Duration = Duration::from_millis(100);
     const COMPLETION_TIMEOUT: Duration = Duration::from_millis(5000);
+    const SUPPORTS_OPERATION_COMPLETE: bool = true;
     const DEFAULT_TCP_PORT: u16 = 5678;
     const DEFAULT_UDP_PORT: u16 = 1259;
     /// PTZOptics cameras cannot process inquiries faster than ~125-150ms apart.
@@ -840,7 +814,6 @@ impl Exposure for PtzOpticsG3 {
     const IRIS_RANGE: std::ops::Range<u16> = 0x00..0x1D;
     const SHUTTER_SPEEDS: &'static [ShutterSpeed] = PTZ_OPTICS_G2_SHUTTER_SPEEDS;
     const GAIN_RANGE: std::ops::Range<u8> = 0..9;
-    const SUPPORTS_AUTO_EXPOSURE: bool = true;
     const SUPPORTS_BACKLIGHT_COMP: bool = true;
     const SUPPORTS_EXPOSURE_COMP: bool = true;
     const SUPPORTS_WDR: bool = true;
@@ -888,16 +861,8 @@ impl Power for PtzOpticsG3 {
 }
 impl MenuCapability for PtzOpticsG3 {}
 impl crate::capabilities::Tally for PtzOpticsG3 {}
-impl crate::capabilities::HasBacklightCompensation for PtzOpticsG3 {}
-impl crate::capabilities::HasWDR for PtzOpticsG3 {}
 impl crate::capabilities::HasExposureCompensation for PtzOpticsG3 {}
-impl crate::capabilities::HasOnePushWhiteBalance for PtzOpticsG3 {}
-impl crate::capabilities::HasColorTemperature for PtzOpticsG3 {}
-impl crate::capabilities::HasRGBGain for PtzOpticsG3 {}
-impl crate::capabilities::HasAutoFocus for PtzOpticsG3 {}
-impl crate::capabilities::HasOnePushFocus for PtzOpticsG3 {}
 impl crate::capabilities::HasFocusLock for PtzOpticsG3 {}
-impl crate::capabilities::HasHue for PtzOpticsG3 {}
 
 impl MotionSync for PtzOpticsG3 {
     const SUPPORTS_MOTION_SYNC: bool = true;
@@ -918,6 +883,7 @@ impl ProfileMetadata for PtzOptics30X {
     type Envelope = RawVisca;
     const ACK_TIMEOUT: Duration = Duration::from_millis(100);
     const COMPLETION_TIMEOUT: Duration = Duration::from_millis(5000);
+    const SUPPORTS_OPERATION_COMPLETE: bool = true;
     const DEFAULT_TCP_PORT: u16 = 5678;
     const DEFAULT_UDP_PORT: u16 = 1259;
     /// PTZOptics cameras cannot process inquiries faster than ~125-150ms apart.
@@ -955,7 +921,6 @@ impl Exposure for PtzOptics30X {
     const IRIS_RANGE: std::ops::Range<u16> = 0x00..0x1D;
     const SHUTTER_SPEEDS: &'static [ShutterSpeed] = PTZ_OPTICS_G2_SHUTTER_SPEEDS;
     const GAIN_RANGE: std::ops::Range<u8> = 0..9;
-    const SUPPORTS_AUTO_EXPOSURE: bool = true;
     const SUPPORTS_BACKLIGHT_COMP: bool = true;
     const SUPPORTS_EXPOSURE_COMP: bool = true;
     const SUPPORTS_WDR: bool = true;
@@ -1003,16 +968,8 @@ impl Power for PtzOptics30X {
 }
 impl MenuCapability for PtzOptics30X {}
 impl crate::capabilities::Tally for PtzOptics30X {}
-impl crate::capabilities::HasBacklightCompensation for PtzOptics30X {}
-impl crate::capabilities::HasWDR for PtzOptics30X {}
 impl crate::capabilities::HasExposureCompensation for PtzOptics30X {}
-impl crate::capabilities::HasOnePushWhiteBalance for PtzOptics30X {}
-impl crate::capabilities::HasColorTemperature for PtzOptics30X {}
-impl crate::capabilities::HasRGBGain for PtzOptics30X {}
-impl crate::capabilities::HasAutoFocus for PtzOptics30X {}
-impl crate::capabilities::HasOnePushFocus for PtzOptics30X {}
 impl crate::capabilities::HasFocusLock for PtzOptics30X {}
-impl crate::capabilities::HasHue for PtzOptics30X {}
 
 impl MotionSync for PtzOptics30X {
     const SUPPORTS_MOTION_SYNC: bool = true;

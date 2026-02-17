@@ -138,9 +138,6 @@ pub struct Capabilities {
     /// Whether camera supports exposure control.
     pub has_exposure: bool,
 
-    /// Whether camera supports auto-exposure mode.
-    pub has_auto_exposure: bool,
-
     /// Whether camera supports backlight compensation.
     pub has_backlight_comp: bool,
 
@@ -397,7 +394,6 @@ impl Capabilities {
 
             // Exposure capabilities
             has_exposure: true, // All cameras have exposure control
-            has_auto_exposure: P::SUPPORTS_AUTO_EXPOSURE,
             has_backlight_comp: P::SUPPORTS_BACKLIGHT_COMP,
             has_wdr: P::SUPPORTS_WDR,
             has_exposure_comp: P::SUPPORTS_EXPOSURE_COMP,

@@ -189,30 +189,6 @@ pub trait HasNdFilter {}
 /// Marker trait indicating support for exposure compensation.
 pub trait HasExposureCompensation {}
 
-/// Marker trait indicating support for color temperature control.
-pub trait HasColorTemperature {}
-
-/// Marker trait indicating support for RGB gain control.
-pub trait HasRGBGain {}
-
-/// Marker trait indicating support for hue control.
-pub trait HasHue {}
-
-/// Marker trait indicating support for luminance control.
-pub trait HasLuminance {}
-
-/// Marker trait indicating support for backlight compensation.
-pub trait HasBacklightCompensation {}
-
-/// Marker trait indicating support for WDR (Wide Dynamic Range).
-pub trait HasWDR {}
-
-/// Marker trait indicating support for auto focus.
-pub trait HasAutoFocus {}
-
-/// Marker trait indicating support for one push focus.
-pub trait HasOnePushFocus {}
-
 /// Marker trait indicating support for focus lock.
 ///
 /// Focus lock prevents any focus changes while enabled, useful for
@@ -226,15 +202,6 @@ pub trait HasFocusLock {}
 /// then returns to the previous focus mode. This is a vendor-specific
 /// feature primarily supported by Sony cameras.
 pub trait HasPushAutoFocus {}
-
-/// Marker trait indicating support for one push white balance.
-pub trait HasOnePushWhiteBalance {}
-
-/// Marker trait indicating support for tally light control.
-pub trait HasTally {}
-
-/// Marker trait indicating support for picture effect modes.
-pub trait HasPictureEffect {}
 
 // Specialized blanket implementations for each marker trait.
 // These automatically implement the marker trait for any type that implements
@@ -252,15 +219,6 @@ impl<T: ProfileMetadata + crate::capabilities::MenuCapability> HasMenuControl fo
 impl<T: ProfileMetadata + crate::capabilities::MotionSync> HasMotionSync for T {}
 impl<T: ProfileMetadata + crate::capabilities::VariableSpeed> HasVariableSpeed for T {}
 impl<T: ProfileMetadata + crate::capabilities::NdFilter> HasNdFilter for T {}
-impl<T: ProfileMetadata + crate::capabilities::Tally> HasTally for T {}
-
-// Note: Unlike the capability marker traits (HasPanTilt, HasZoom, etc.) which have
-// blanket implementations, these specific feature marker traits must be manually
-// implemented for each camera profile that supports them. This is because Rust
-// doesn't support const equality in trait bounds in stable Rust.
-//
-// Example implementation in camera profiles:
-// impl HasExposureCompensation for PtzOpticsG2 {}
 
 #[cfg(test)]
 mod tests {
