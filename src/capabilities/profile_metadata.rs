@@ -230,9 +230,6 @@ pub trait HasPushAutoFocus {}
 /// Marker trait indicating support for one push white balance.
 pub trait HasOnePushWhiteBalance {}
 
-/// Marker trait indicating support for auto exposure.
-pub trait HasAutoExposure {}
-
 /// Marker trait indicating support for tally light control.
 pub trait HasTally {}
 
@@ -264,7 +261,6 @@ impl<T: ProfileMetadata + crate::capabilities::Tally> HasTally for T {}
 //
 // Example implementation in camera profiles:
 // impl HasExposureCompensation for PtzOpticsG2 {}
-// impl HasAutoExposure for PtzOpticsG2 {}
 
 #[cfg(test)]
 mod tests {

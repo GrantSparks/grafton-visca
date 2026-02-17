@@ -34,11 +34,6 @@ pub trait Exposure {
 
     /// Whether camera supports wide dynamic range.
     const SUPPORTS_WDR: bool = false;
-
-    /// Whether camera supports the exposure mode inquiry command.
-    /// Some cameras (e.g., PTZOptics G2) can accept the exposure mode SET
-    /// command but don't support reading it back via VISCA inquiry (opcode 0x39).
-    const SUPPORTS_EXPOSURE_MODE_INQUIRY: bool = true;
 }
 
 /// Extension trait that adds validation methods to cameras with exposure support.

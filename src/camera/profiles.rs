@@ -150,8 +150,6 @@ impl Exposure for PtzOpticsG2 {
     const SUPPORTS_BACKLIGHT_COMP: bool = true;
     const SUPPORTS_EXPOSURE_COMP: bool = true;
     const SUPPORTS_WDR: bool = true;
-    /// PTZOptics G2 firmware returns Syntax Error for ExposureMode inquiry (0x39).
-    const SUPPORTS_EXPOSURE_MODE_INQUIRY: bool = false;
 }
 
 impl WhiteBalance for PtzOpticsG2 {
@@ -203,7 +201,6 @@ impl MotionSync for PtzOpticsG2 {
 impl MenuCapability for PtzOpticsG2 {}
 impl crate::capabilities::Tally for PtzOpticsG2 {}
 
-impl crate::capabilities::HasAutoExposure for PtzOpticsG2 {}
 impl crate::capabilities::HasBacklightCompensation for PtzOpticsG2 {}
 impl crate::capabilities::HasWDR for PtzOpticsG2 {}
 impl crate::capabilities::HasExposureCompensation for PtzOpticsG2 {}
@@ -311,7 +308,6 @@ impl MotionSync for GenericVisca {}
 impl NdFilter for GenericVisca {}
 impl VariableSpeed for GenericVisca {}
 
-impl crate::capabilities::HasAutoExposure for GenericVisca {}
 impl crate::capabilities::HasOnePushWhiteBalance for GenericVisca {}
 impl crate::capabilities::HasAutoFocus for GenericVisca {}
 
@@ -425,7 +421,6 @@ impl VariableSpeed for SonyFR7 {
     const SUPPORTS_VARIABLE_SPEED: bool = true;
 }
 
-impl crate::capabilities::HasAutoExposure for SonyFR7 {}
 impl crate::capabilities::HasBacklightCompensation for SonyFR7 {}
 impl crate::capabilities::HasWDR for SonyFR7 {}
 impl crate::capabilities::HasExposureCompensation for SonyFR7 {}
@@ -849,8 +844,6 @@ impl Exposure for PtzOpticsG3 {
     const SUPPORTS_BACKLIGHT_COMP: bool = true;
     const SUPPORTS_EXPOSURE_COMP: bool = true;
     const SUPPORTS_WDR: bool = true;
-    /// PTZOptics G3 firmware returns Syntax Error for ExposureMode inquiry (0x39).
-    const SUPPORTS_EXPOSURE_MODE_INQUIRY: bool = false;
 }
 
 impl WhiteBalance for PtzOpticsG3 {
@@ -895,7 +888,6 @@ impl Power for PtzOpticsG3 {
 }
 impl MenuCapability for PtzOpticsG3 {}
 impl crate::capabilities::Tally for PtzOpticsG3 {}
-impl crate::capabilities::HasAutoExposure for PtzOpticsG3 {}
 impl crate::capabilities::HasBacklightCompensation for PtzOpticsG3 {}
 impl crate::capabilities::HasWDR for PtzOpticsG3 {}
 impl crate::capabilities::HasExposureCompensation for PtzOpticsG3 {}
@@ -967,8 +959,6 @@ impl Exposure for PtzOptics30X {
     const SUPPORTS_BACKLIGHT_COMP: bool = true;
     const SUPPORTS_EXPOSURE_COMP: bool = true;
     const SUPPORTS_WDR: bool = true;
-    /// PTZOptics 30X firmware returns Syntax Error for ExposureMode inquiry (0x39).
-    const SUPPORTS_EXPOSURE_MODE_INQUIRY: bool = false;
 }
 
 impl WhiteBalance for PtzOptics30X {
@@ -1013,7 +1003,6 @@ impl Power for PtzOptics30X {
 }
 impl MenuCapability for PtzOptics30X {}
 impl crate::capabilities::Tally for PtzOptics30X {}
-impl crate::capabilities::HasAutoExposure for PtzOptics30X {}
 impl crate::capabilities::HasBacklightCompensation for PtzOptics30X {}
 impl crate::capabilities::HasWDR for PtzOptics30X {}
 impl crate::capabilities::HasExposureCompensation for PtzOptics30X {}

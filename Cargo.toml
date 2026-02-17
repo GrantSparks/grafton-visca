@@ -154,3 +154,6 @@ name = "transport_builder_demo"
 
 [[example]]
 name = "validate_inquiries"
+
+[[example]]
+name = "validate_ae_commands"
