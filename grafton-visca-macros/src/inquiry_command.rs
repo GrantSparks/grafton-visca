@@ -119,7 +119,6 @@ struct ViscaAttributes {
 struct ParserInfo {
     parser_type: String,
     field_name: Option<String>,
-    offset: Option<i8>,
     mode_type: Option<String>,
     custom_fn: Option<String>,
     convention: Option<String>, // "OnIs02" or "OnIs03" for bool_convention parser
@@ -199,7 +198,6 @@ fn parse_visca_attributes_from_struct(input: &DeriveInput) -> ViscaAttributes {
                     let parser_info = ParserInfo {
                         parser_type: parser_value.to_string(),
                         field_name: None,
-                        offset: None,
                         mode_type: None,
                         custom_fn: None,
                         convention: None,
@@ -217,16 +215,6 @@ fn parse_visca_attributes_from_struct(input: &DeriveInput) -> ViscaAttributes {
                         .trim_matches('"');
                     if let Some(ref mut parser) = attrs.parser {
                         parser.field_name = Some(value.to_string());
-                    }
-                } else if part.contains("offset") && attrs.parser.is_some() {
-                    let value = part
-                        .split('=')
-                        .nth(1)
-                        .expect("offset must have a value")
-                        .trim();
-                    if let Some(ref mut parser) = attrs.parser {
-                        parser.offset =
-                            Some(value.parse::<i8>().expect("offset must be a valid i8"));
                     }
                 } else if (part.contains("type") || part.contains("value_type"))
                     && attrs.parser.is_some()
@@ -322,20 +310,6 @@ fn generate_parser_body(
             super::parser_templates::generate_extended_nibble_parser(
                 response_variant,
                 &field_name,
-                crate_path,
-            )
-        }
-        "offset" => {
-            let field_name = parser_info
-                .field_name
-                .as_deref()
-                .map(|s| format_ident!("{}", s))
-                .unwrap_or_else(|| format_ident!("value"));
-            let offset = parser_info.offset.unwrap_or(0);
-            super::parser_templates::generate_offset_parser(
-                response_variant,
-                &field_name,
-                offset,
                 crate_path,
             )
         }
@@ -1079,12 +1053,6 @@ fn generate_typed_impl(
         }
         ("ColorTemperature", _, _) => {
             quote! { impl #crate_path::command::typed::ResponseParser for #struct_name { type Response = u16; fn from_response(resp:#crate_path::command::Response)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::Response::Inquiry(#crate_path::command::InquiryData::ColorTemperature{ temperature })=>Ok(temperature), #crate_path::command::Response::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
-        }
-        ("RedChannel", _, _) => {
-            quote! { impl #crate_path::command::typed::ResponseParser for #struct_name { type Response = #crate_path::types::RedChannel; fn from_response(resp:#crate_path::command::Response)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::Response::Inquiry(#crate_path::command::InquiryData::RedChannel{ gain })=>#crate_path::types::RedChannel::new(gain as u8), #crate_path::command::Response::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
-        }
-        ("BlueChannel", _, _) => {
-            quote! { impl #crate_path::command::typed::ResponseParser for #struct_name { type Response = #crate_path::types::BlueChannel; fn from_response(resp:#crate_path::command::Response)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::Response::Inquiry(#crate_path::command::InquiryData::BlueChannel{ gain })=>#crate_path::types::BlueChannel::new(gain as u8), #crate_path::command::Response::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }
         }
         ("Saturation", _, _) => {
             quote! { impl #crate_path::command::typed::ResponseParser for #struct_name { type Response = #crate_path::types::SaturationLevel; fn from_response(resp:#crate_path::command::Response)->Result<Self::Response,#crate_path::Error>{ match resp { #crate_path::command::Response::Inquiry(#crate_path::command::InquiryData::Saturation{ level })=>#crate_path::types::SaturationLevel::new(level), #crate_path::command::Response::Error(e)=>Err(e), _=>Err(#crate_path::Error::UnexpectedResponseType), } } } }

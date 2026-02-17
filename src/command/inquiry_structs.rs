@@ -246,35 +246,95 @@ impl crate::command::typed::ResponseParser for ColorTemperatureInquiry {
 
 /// Inquiry command to get the current red gain value.
 ///
-/// Queries register 0x04 0x43 (same as red tuning). The raw value is
-/// interpreted as an absolute gain (0x00-0xFF) offset by 10 to produce
-/// a signed tuning value.
-#[derive(ViscaInquiry, Debug, Copy, Clone)]
-#[visca(
-    opcode = 0x43,
-    response = "RedChannel",
-    parser = "offset",
-    field = "gain",
-    offset = 10,
-    bytes_const = "RED_GAIN"
-)]
+/// Queries register 0x04 0x43 (same as red tuning). G2 cameras respond
+/// with a 4-nibble payload encoding the absolute gain value.
+#[derive(Debug, Copy, Clone)]
 pub struct RedGainInquiry;
+
+impl crate::command::encode::ViscaCommand for RedGainInquiry {
+    type Response = crate::command::InquiryData;
+    const MAX_SIZE: usize = 7;
+    const TIMEOUT_CATEGORY: crate::timeout::CommandCategory =
+        crate::timeout::CommandCategory::Quick;
+
+    fn write_into(
+        &self,
+        camera_id: crate::camera_id::CameraId,
+        buffer: &mut [u8],
+    ) -> Result<usize, crate::error::Error> {
+        use crate::command::bytes::ConstCommandBuilder;
+
+        let builder = ConstCommandBuilder::<7>::new()
+            .append(crate::command::bytes::constants::inquiry::RED_GAIN)
+            .with_camera_id(camera_id)
+            .terminate();
+        builder.build_into(buffer)
+    }
+
+    fn response_kind(&self) -> Option<crate::command::response::InquiryKind> {
+        Some(crate::command::response::InquiryKind::RedChannel)
+    }
+}
+
+impl crate::command::typed::ResponseParser for RedGainInquiry {
+    type Response = crate::types::RedChannel;
+
+    fn from_response(resp: crate::command::Response) -> Result<Self::Response, crate::Error> {
+        match resp {
+            crate::command::Response::Inquiry(crate::command::InquiryData::RedChannel { gain }) => {
+                crate::types::RedChannel::new(gain)
+            }
+            crate::command::Response::Error(e) => Err(e),
+            _ => Err(crate::Error::UnexpectedResponseType),
+        }
+    }
+}
 
 /// Inquiry command to get the current blue gain value.
 ///
-/// Queries register 0x04 0x44 (same as blue tuning). The raw value is
-/// interpreted as an absolute gain (0x00-0xFF) offset by 10 to produce
-/// a signed tuning value.
-#[derive(ViscaInquiry, Debug, Copy, Clone)]
-#[visca(
-    opcode = 0x44,
-    response = "BlueChannel",
-    parser = "offset",
-    field = "gain",
-    offset = 10,
-    bytes_const = "BLUE_GAIN"
-)]
+/// Queries register 0x04 0x44 (same as blue tuning). G2 cameras respond
+/// with a 4-nibble payload encoding the absolute gain value.
+#[derive(Debug, Copy, Clone)]
 pub struct BlueGainInquiry;
+
+impl crate::command::encode::ViscaCommand for BlueGainInquiry {
+    type Response = crate::command::InquiryData;
+    const MAX_SIZE: usize = 7;
+    const TIMEOUT_CATEGORY: crate::timeout::CommandCategory =
+        crate::timeout::CommandCategory::Quick;
+
+    fn write_into(
+        &self,
+        camera_id: crate::camera_id::CameraId,
+        buffer: &mut [u8],
+    ) -> Result<usize, crate::error::Error> {
+        use crate::command::bytes::ConstCommandBuilder;
+
+        let builder = ConstCommandBuilder::<7>::new()
+            .append(crate::command::bytes::constants::inquiry::BLUE_GAIN)
+            .with_camera_id(camera_id)
+            .terminate();
+        builder.build_into(buffer)
+    }
+
+    fn response_kind(&self) -> Option<crate::command::response::InquiryKind> {
+        Some(crate::command::response::InquiryKind::BlueChannel)
+    }
+}
+
+impl crate::command::typed::ResponseParser for BlueGainInquiry {
+    type Response = crate::types::BlueChannel;
+
+    fn from_response(resp: crate::command::Response) -> Result<Self::Response, crate::Error> {
+        match resp {
+            crate::command::Response::Inquiry(crate::command::InquiryData::BlueChannel {
+                gain,
+            }) => crate::types::BlueChannel::new(gain),
+            crate::command::Response::Error(e) => Err(e),
+            _ => Err(crate::Error::UnexpectedResponseType),
+        }
+    }
+}
 
 /// Inquiry command to get the current sharpness mode on/off status.
 #[derive(ViscaInquiry, Debug, Copy, Clone)]

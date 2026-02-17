@@ -20,7 +20,8 @@
 //! - **Direct byte**: Luminance, Contrast, GainLimit
 //! - **Last nibble**: Iris, Saturation, Hue, Gain
 //! - **Mode enum**: ExposureMode, WhiteBalanceMode, FocusMode
-//! - **Offset values**: RedChannel, BlueChannel (subtract offset)
+//! - **4-nibble absolute**: RedChannel, BlueChannel (nibble pair → u8)
+//! - **4-nibble offset**: RedTuning, BlueTuning (nibble pair → u8, subtract 10)
 //! - **Bit flags**: FlipState (horizontal/vertical)
 
 use std::borrow::Cow;
@@ -288,37 +289,36 @@ pub(crate) fn dispatch(kind: InquiryKind, payload: Payload<'_>) -> Result<Respon
             Ok(Response::Inquiry(InquiryData::WhiteBalanceMode { mode }))
         }
         InquiryKind::ColorTemperature => {
-            let nibbles = Nibbles::<4>::try_from(payload)?;
-            // Extract the color temperature from nibbles 2 and 3
-            let temperature = nibbles.u8_pair(2) as u16;
+            require_len(&payload, 1)?;
+            let temperature = payload.as_slice()[0] as u16;
             Ok(Response::Inquiry(InquiryData::ColorTemperature {
                 temperature,
             }))
         }
         InquiryKind::RedChannel => {
-            require_len(&payload, 1)?;
-            #[allow(clippy::cast_possible_wrap)]
-            let gain = payload.as_slice()[0] as i8 - 10;
+            let nibbles = Nibbles::<4>::try_from(payload)?;
+            let gain = nibbles.u8_pair(2);
             Ok(Response::Inquiry(InquiryData::RedChannel { gain }))
         }
         InquiryKind::BlueChannel => {
-            require_len(&payload, 1)?;
-            #[allow(clippy::cast_possible_wrap)]
-            let gain = payload.as_slice()[0] as i8 - 10;
+            let nibbles = Nibbles::<4>::try_from(payload)?;
+            let gain = nibbles.u8_pair(2);
             Ok(Response::Inquiry(InquiryData::BlueChannel { gain }))
         }
         InquiryKind::RedTuning => {
-            require_nonempty(&payload)?;
+            let nibbles = Nibbles::<4>::try_from(payload)?;
+            let raw = nibbles.u8_pair(2);
             // Convert from wire format (0-20) to semantic value (-10 to +10)
             #[allow(clippy::cast_possible_wrap)]
-            let level = payload.as_slice()[0] as i8 - 10;
+            let level = raw as i8 - 10;
             Ok(Response::Inquiry(InquiryData::RedTuning { level }))
         }
         InquiryKind::BlueTuning => {
-            require_nonempty(&payload)?;
+            let nibbles = Nibbles::<4>::try_from(payload)?;
+            let raw = nibbles.u8_pair(2);
             // Convert from wire format (0-20) to semantic value (-10 to +10)
             #[allow(clippy::cast_possible_wrap)]
-            let level = payload.as_slice()[0] as i8 - 10;
+            let level = raw as i8 - 10;
             Ok(Response::Inquiry(InquiryData::BlueTuning { level }))
         }
         InquiryKind::AutoWhiteBalanceSensitivity => {
@@ -787,5 +787,71 @@ fn decode_pan_tilt_position_for<P: Profile + PanTilt>(
             inquiry_kind: InquiryKind::PanTiltPosition,
             payload_hex: format_payload_hex(payload.as_slice()),
         })
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::panic)]
+mod tests {
+    use super::*;
+    use crate::command::response::payload::Payload;
+
+    /// Helper to dispatch a raw payload slice for a given inquiry kind.
+    #[allow(clippy::unwrap_used)]
+    fn decode(kind: InquiryKind, raw: &[u8]) -> Response {
+        let payload = Payload::new(raw);
+        dispatch(kind, payload).unwrap()
+    }
+
+    #[test]
+    fn test_red_channel_g2_wire_format() {
+        // G2 sends 4 nibbles: [0x00, 0x00, 0x0D, 0x05] → gain = 0xD5
+        let resp = decode(InquiryKind::RedChannel, &[0x00, 0x00, 0x0D, 0x05]);
+        match resp {
+            Response::Inquiry(InquiryData::RedChannel { gain }) => assert_eq!(gain, 0xD5),
+            other => panic!("unexpected response: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_blue_channel_g2_wire_format() {
+        // G2 sends 4 nibbles: [0x00, 0x00, 0x0B, 0x01] → gain = 0xB1
+        let resp = decode(InquiryKind::BlueChannel, &[0x00, 0x00, 0x0B, 0x01]);
+        match resp {
+            Response::Inquiry(InquiryData::BlueChannel { gain }) => assert_eq!(gain, 0xB1),
+            other => panic!("unexpected response: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_color_temperature_g2_wire_format() {
+        // G2 sends 1 raw byte: [0x28] → temperature = 40
+        let resp = decode(InquiryKind::ColorTemperature, &[0x28]);
+        match resp {
+            Response::Inquiry(InquiryData::ColorTemperature { temperature }) => {
+                assert_eq!(temperature, 0x28);
+            }
+            other => panic!("unexpected response: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_red_tuning_g2_wire_format() {
+        // G2 sends 4 nibbles: [0x00, 0x00, 0x00, 0x0F] → raw=15, level = 15-10 = 5
+        let resp = decode(InquiryKind::RedTuning, &[0x00, 0x00, 0x00, 0x0F]);
+        match resp {
+            Response::Inquiry(InquiryData::RedTuning { level }) => assert_eq!(level, 5),
+            other => panic!("unexpected response: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_blue_tuning_g2_wire_format() {
+        // G2 sends 4 nibbles: [0x00, 0x00, 0x00, 0x0A] → raw=10, level = 10-10 = 0
+        let resp = decode(InquiryKind::BlueTuning, &[0x00, 0x00, 0x00, 0x0A]);
+        match resp {
+            Response::Inquiry(InquiryData::BlueTuning { level }) => assert_eq!(level, 0),
+            other => panic!("unexpected response: {other:?}"),
+        }
     }
 }

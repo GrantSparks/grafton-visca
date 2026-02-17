@@ -189,13 +189,13 @@ pub enum InquiryData {
     },
     /// Red channel gain inquiry response.
     RedChannel {
-        /// Red channel gain offset (-10 to +10).
-        gain: i8,
+        /// Red channel absolute gain value.
+        gain: u8,
     },
     /// Blue channel gain inquiry response.
     BlueChannel {
-        /// Blue channel gain offset (-10 to +10).
-        gain: i8,
+        /// Blue channel absolute gain value.
+        gain: u8,
     },
 
     /// Image flip inquiry response.

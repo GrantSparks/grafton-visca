@@ -524,27 +524,10 @@ impl ViscaCameraSimulator {
             }
 
             // Color temperature inquiry: 0x81 0x09 0x04 0x20 0xFF
+            // G2 cameras return a single raw byte (not 4 nibbles)
             (Some(0x04), Some(0x20)) => {
-                // Color temperature is returned as 2 nibbles at positions 2 and 3
-                // The parser does: temperature = nibbles.u8_pair(2) as u16
-                // For 2800K which maps to value 55 (0x37 in the VISCA scale),
-                // we need nibbles: [0x00, 0x00, 0x03, 0x07]
-                // But if the state is storing the actual K value (2800), we need to convert
-                // The simulator appears to be using a simplified mapping where the value
-                // is just sent as nibbles directly
-                let temp_value = state.color_temperature;
-                // Extract nibbles from the temperature value
-                let nibble_high = ((temp_value >> 4) & 0x0F) as u8;
-                let nibble_low = (temp_value & 0x0F) as u8;
-                Some(vec![
-                    0x90,
-                    0x50,
-                    0x00,
-                    0x00,
-                    nibble_high,
-                    nibble_low,
-                    VISCA_TERMINATOR,
-                ])
+                let temp_value = state.color_temperature as u8;
+                Some(vec![0x90, 0x50, temp_value, VISCA_TERMINATOR])
             }
 
             // Contrast inquiry: 0x81 0x09 0x04 0xA2 0xFF

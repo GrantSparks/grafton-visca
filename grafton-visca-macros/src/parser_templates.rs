@@ -15,8 +15,7 @@
 //! 2. **Direct byte**: Luminance, Contrast, Saturation, Hue (raw byte value)
 //! 3. **Position (4-nibble)**: ZoomPosition, FocusPosition (4 nibbles -> u16)
 //! 4. **Extended nibble**: Sharpness, Shutter, ColorTemperature (2 nibbles -> u8)
-//! 5. **Offset values**: RedGain, BlueGain (subtract offset), ExposureCompensation
-//! 6. **Bit flags**: ImageFlip (bit 0 = horizontal, bit 1 = vertical)
+//! 5. **Bit flags**: ImageFlip (bit 0 = horizontal, bit 1 = vertical)
 //! 7. **Mode enums**: ExposureMode, WhiteBalanceMode (enum from byte)
 //! 8. **Special**: PanTiltPosition (two signed 16-bit values)
 //!
@@ -156,22 +155,6 @@ pub fn generate_extended_nibble_parser(
             let value = ((data[0] & 0x0F) << 4) | (data[1] & 0x0F);
             Ok(#crate_path::command::InquiryData::#response_variant {
                 #field_name: value as u8,
-            })
-        }
-    }
-}
-
-/// Generate an offset value parser (subtracts offset from byte value)
-pub fn generate_offset_parser(
-    response_variant: &Ident,
-    field_name: &Ident,
-    offset: i8,
-    crate_path: &TokenStream,
-) -> TokenStream {
-    quote! {
-        {
-            Ok(#crate_path::command::InquiryData::#response_variant {
-                #field_name: (data[0] as i8) - #offset,
             })
         }
     }
