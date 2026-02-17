@@ -150,6 +150,8 @@ impl Exposure for PtzOpticsG2 {
     const SUPPORTS_BACKLIGHT_COMP: bool = true;
     const SUPPORTS_EXPOSURE_COMP: bool = true;
     const SUPPORTS_WDR: bool = true;
+    /// PTZOptics G2 firmware returns Syntax Error for ExposureMode inquiry (0x39).
+    const SUPPORTS_EXPOSURE_MODE_INQUIRY: bool = false;
 }
 
 impl WhiteBalance for PtzOpticsG2 {
@@ -847,6 +849,8 @@ impl Exposure for PtzOpticsG3 {
     const SUPPORTS_BACKLIGHT_COMP: bool = true;
     const SUPPORTS_EXPOSURE_COMP: bool = true;
     const SUPPORTS_WDR: bool = true;
+    /// PTZOptics G3 firmware returns Syntax Error for ExposureMode inquiry (0x39).
+    const SUPPORTS_EXPOSURE_MODE_INQUIRY: bool = false;
 }
 
 impl WhiteBalance for PtzOpticsG3 {
@@ -963,6 +967,8 @@ impl Exposure for PtzOptics30X {
     const SUPPORTS_BACKLIGHT_COMP: bool = true;
     const SUPPORTS_EXPOSURE_COMP: bool = true;
     const SUPPORTS_WDR: bool = true;
+    /// PTZOptics 30X firmware returns Syntax Error for ExposureMode inquiry (0x39).
+    const SUPPORTS_EXPOSURE_MODE_INQUIRY: bool = false;
 }
 
 impl WhiteBalance for PtzOptics30X {

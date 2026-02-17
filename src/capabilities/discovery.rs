@@ -150,6 +150,10 @@ pub struct Capabilities {
     /// Whether camera supports exposure compensation.
     pub has_exposure_comp: bool,
 
+    /// Whether camera supports the exposure mode inquiry command.
+    /// Some cameras can set exposure mode but cannot read it back via VISCA inquiry.
+    pub has_exposure_mode_inquiry: bool,
+
     /// Iris range in VISCA units.
     pub iris_range: RangeInclusive<u16>,
 
@@ -401,6 +405,7 @@ impl Capabilities {
             has_backlight_comp: P::SUPPORTS_BACKLIGHT_COMP,
             has_wdr: P::SUPPORTS_WDR,
             has_exposure_comp: P::SUPPORTS_EXPOSURE_COMP,
+            has_exposure_mode_inquiry: P::SUPPORTS_EXPOSURE_MODE_INQUIRY,
             iris_range,
             gain_range,
             shutter_speed_count: P::SHUTTER_SPEEDS.len(),
