@@ -13,3 +13,26 @@ pub use send::SendGuard;
 
 #[cfg(not(feature = "mode-async"))]
 pub(crate) use send::SendResult;
+
+/// Zero-allocation hex display wrapper for wire-level byte logging.
+///
+/// Formats bytes as uppercase hex with spaces (e.g., `81 01 04 2C 07 FF`).
+/// Implements `Display` so it can be used directly in `tracing` fields.
+pub(crate) struct HexBytes<'a>(pub &'a [u8]);
+
+impl std::fmt::Display for HexBytes<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for (i, b) in self.0.iter().enumerate() {
+            if i > 0 {
+                f.write_str(" ")?;
+            }
+            write!(f, "{b:02X}")?;
+        }
+        Ok(())
+    }
+}
+
+/// Create a displayable hex representation of a byte slice.
+pub(crate) fn hex_bytes(bytes: &[u8]) -> HexBytes<'_> {
+    HexBytes(bytes)
+}

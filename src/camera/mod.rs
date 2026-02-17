@@ -131,14 +131,7 @@ where
     {
         use crate::mode::Mode;
         let future = self.send_command(&command);
-        crate::mode::Async::from_future(async move {
-            use crate::command::response::Response;
-            match future.await? {
-                Response::Completion { .. } => Ok(()),
-                Response::Error(e) => Err(e),
-                _ => Ok(()),
-            }
-        })
+        crate::mode::Async::from_future(async move { future.await?.into_result() })
     }
 
     fn query<C>(
@@ -190,18 +183,9 @@ where
         // Clone the cache for the async block (Arc<Mutex<>> is Clone)
         let cache = self.state_cache().clone();
         crate::mode::Async::from_future(async move {
-            use crate::command::response::Response;
-            match future.await? {
-                Response::Completion { .. } => {
-                    update_fn(&cache);
-                    Ok(())
-                }
-                Response::Error(e) => Err(e),
-                _ => {
-                    update_fn(&cache);
-                    Ok(())
-                }
-            }
+            future.await?.into_result()?;
+            update_fn(&cache);
+            Ok(())
         })
     }
 }
@@ -220,18 +204,10 @@ where
     where
         C: crate::command::ViscaCommand + Send + Sync + Clone + std::fmt::Debug + 'static,
     {
-        // In blocking mode, send_command already returns a Ready<Result<...>>
-        // so we need to extract the value from it using pollster
         use crate::mode::BlockingFutureExt;
         let future = self.send_command(&command);
         let result = future.block();
-        use crate::command::response::Response;
-        std::future::ready(match result {
-            Ok(Response::Completion { .. }) => Ok(()),
-            Ok(Response::Error(e)) => Err(e),
-            Ok(_) => Ok(()),
-            Err(e) => Err(e),
-        })
+        std::future::ready(result.and_then(|r| r.into_result()))
     }
 
     fn query<C>(
@@ -284,19 +260,9 @@ where
         use crate::mode::BlockingFutureExt;
         let future = self.send_command(&command);
         let result = future.block();
-        use crate::command::response::Response;
         let cache = self.state_cache();
-        std::future::ready(match result {
-            Ok(Response::Completion { .. }) => {
-                update_fn(cache);
-                Ok(())
-            }
-            Ok(Response::Error(e)) => Err(e),
-            Ok(_) => {
-                update_fn(cache);
-                Ok(())
-            }
-            Err(e) => Err(e),
-        })
+        std::future::ready(result.and_then(|r| r.into_result()).map(|()| {
+            update_fn(cache);
+        }))
     }
 }

@@ -5,7 +5,7 @@
 
 use tracing::{debug, error, trace};
 
-use super::SchedulerLike;
+use super::{hex_bytes, SchedulerLike};
 use crate::{
     camera::inflight::CommandId,
     command::CommandKind,
@@ -121,6 +121,16 @@ where
     // Frame the command directly into the reusable send buffer (zero allocation)
     let meta = envelope.frame_into(cmd.command.as_slice(), cmd.kind(), send_buf);
 
+    // Wire-level TX logging for diagnostics
+    trace!(
+        target: "grafton_visca::wire",
+        id = %cmd.id,
+        kind = %if cmd.kind() == CommandKind::Inquiry { "INQ" } else { "CMD" },
+        len = send_buf.len(),
+        hex = %hex_bytes(&send_buf[..]),
+        "TX",
+    );
+
     // Create guard for tracking rollback state
     let mut guard = SendGuard::new(cmd.id);
 
@@ -226,6 +236,16 @@ where
 {
     // Frame the command directly into the reusable send buffer (zero allocation)
     let meta = envelope.frame_into(cmd.command.as_slice(), cmd.kind(), send_buf);
+
+    // Wire-level TX logging for diagnostics
+    trace!(
+        target: "grafton_visca::wire",
+        id = %cmd.id,
+        kind = %if cmd.kind() == CommandKind::Inquiry { "INQ" } else { "CMD" },
+        len = send_buf.len(),
+        hex = %hex_bytes(&send_buf[..]),
+        "TX",
+    );
 
     // Create guard for tracking rollback state
     let mut guard = SendGuard::new(cmd.id);

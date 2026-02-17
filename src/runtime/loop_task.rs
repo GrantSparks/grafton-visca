@@ -398,6 +398,14 @@ pub async fn runtime_loop_with_config<
 
                 trace!("Received {n} bytes from transport");
 
+                // Wire-level RX logging for diagnostics
+                trace!(
+                    target: "grafton_visca::wire",
+                    len = n,
+                    hex = %crate::runtime::driver::hex_bytes(&read_buf[..n]),
+                    "RX",
+                );
+
                 // Use push_slice_with_resync to handle buffer overflow gracefully.
                 // This clears the buffer and retries if overflow occurs, preventing
                 // permanent runtime stalls from un-framable data accumulation.
