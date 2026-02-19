@@ -856,10 +856,10 @@ mod tests {
             "Error should contain original error message 'Simulated send failure', got: {error_msg}"
         );
 
-        // Verify the error kind is preserved (TransportError -> Other)
+        // Verify the error kind is preserved (TransportError -> IoClosed)
         assert_eq!(
             error.kind(),
-            crate::ErrorKind::Other,
+            crate::ErrorKind::IoClosed,
             "Error kind should be preserved through context wrapping"
         );
 
@@ -1250,11 +1250,11 @@ mod tests {
             "Error should contain original error message, got: {error_msg}"
         );
 
-        // Verify the error kind is Other (StreamPoisoned is a distinct error)
+        // Verify the error kind is IoClosed (StreamPoisoned is a transport failure)
         assert_eq!(
             error.kind(),
-            crate::ErrorKind::Other,
-            "StreamPoisoned error should have ErrorKind::Other"
+            crate::ErrorKind::IoClosed,
+            "StreamPoisoned error should have ErrorKind::IoClosed"
         );
 
         // Verify the error was returned promptly (not after timeout)
