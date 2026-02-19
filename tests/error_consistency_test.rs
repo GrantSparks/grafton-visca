@@ -73,7 +73,6 @@ fn test_error_retryability_consistency() {
         Error::SyntaxError,
         Error::CommandNotExecutable,
         Error::CommandCanceled,
-        Error::NoSocket,
         Error::MessageLengthError,
     ];
 
@@ -124,14 +123,14 @@ fn test_internal_external_error_consistency() {
 
         // Verify that specific error codes have expected retryability
         match code {
-            0x03 => {
-                // Buffer full should always be retryable
+            0x03 | 0x05 => {
+                // Buffer full (0x03) and no socket (0x05) are transient capacity — retryable
                 assert!(
                     public_error.is_retryable(),
-                    "Error for 0x{code:02X} (BufferFull) should be retryable"
+                    "Error for 0x{code:02X} should be retryable"
                 );
             }
-            0x01 | 0x02 | 0x04 | 0x05 => {
+            0x01 | 0x02 | 0x04 => {
                 // These should not be retryable
                 assert!(
                     !public_error.is_retryable(),

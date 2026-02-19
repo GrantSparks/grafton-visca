@@ -500,25 +500,95 @@ impl Error {
     #[must_use]
     pub fn kind(&self) -> ErrorKind {
         match self {
-            Self::Timeout | Self::CommandTimeout { .. } => ErrorKind::Timeout,
+            // Timeout: transient timing failures
+            Self::Timeout | Self::CommandTimeout { .. } | Self::MaxRetriesExceeded => {
+                ErrorKind::Timeout
+            }
+
+            // Cancelled: explicit cancellation
             Self::CommandCanceled => ErrorKind::Cancelled,
-            Self::CommandBufferFull | Self::RuntimeQueueFull { .. } => ErrorKind::BufferFull,
-            Self::CommandNotExecutable => ErrorKind::NotExecutable,
-            Self::ConnectionClosed { .. } | Self::NoResponse => ErrorKind::IoClosed,
+
+            // BufferFull: transient capacity exhaustion
+            Self::CommandBufferFull | Self::RuntimeQueueFull { .. } | Self::NoSocket => {
+                ErrorKind::BufferFull
+            }
+
+            // NotExecutable: command invalid in current state
+            Self::CommandNotExecutable
+            | Self::CameraNotReady
+            | Self::CommandRejected { .. }
+            | Self::InvalidState(..) => ErrorKind::NotExecutable,
+
+            // IoClosed: connection/transport no longer usable
+            Self::ConnectionClosed { .. }
+            | Self::NoResponse
+            | Self::TransportError(..)
+            | Self::ChannelClosed
+            | Self::RuntimeShutdown
+            | Self::StreamPoisoned { .. }
+            | Self::SocketManagerUnavailable
+            | Self::SocketManagerChannelClosed
+            | Self::ResponseChannelClosed
+            | Self::NoTransport
+            | Self::TransportChannelClosed => ErrorKind::IoClosed,
+
+            // IoRefused: connection attempt rejected
             Self::ConnectionFailed { .. } => ErrorKind::IoRefused,
+
+            // Protocol: malformed or unexpected wire data
             Self::InvalidResponseFormat
             | Self::InvalidResponseLength { .. }
             | Self::UnexpectedResponseType
             | Self::ParseError { .. }
-            | Self::MessageLengthError => ErrorKind::Protocol,
-            Self::FeatureNotSupported { .. } | Self::NotSupported => ErrorKind::Unsupported,
+            | Self::MessageLengthError
+            | Self::InvalidResponse { .. }
+            | Self::Unknown(..)
+            | Self::UnknownResponseKind { .. }
+            | Self::DecoderNotFound { .. }
+            | Self::ResponseTooLarge { .. } => ErrorKind::Protocol,
+
+            // Unsupported: feature/capability not available
+            Self::FeatureNotSupported { .. } | Self::NotSupported | Self::MissingRuntime => {
+                ErrorKind::Unsupported
+            }
+
+            // InvalidParameter: caller-supplied value is invalid
             Self::InvalidParameter { .. }
             | Self::InvalidPreset { .. }
             | Self::ParameterOutOfRange { .. }
-            | Self::SyntaxError => ErrorKind::InvalidParameter,
-            Self::CameraBusy | Self::CameraMoving { .. } => ErrorKind::Busy,
+            | Self::SyntaxError
+            | Self::PresetNotFound { .. }
+            | Self::InvalidRequest(..)
+            | Self::BufferTooSmall { .. }
+            | Self::ValidationError(..)
+            | Self::InvalidCameraId { .. }
+            | Self::InquiryNotCancelable { .. }
+            | Self::InvalidAddress { .. }
+            | Self::TransportMismatch { .. } => ErrorKind::InvalidParameter,
+
+            // Busy: transient contention
+            Self::CameraBusy
+            | Self::CameraMoving { .. }
+            | Self::TransportBusy
+            | Self::CommandPending => ErrorKind::Busy,
+
+            // Other: truly uncategorizable
+            Self::LockPoisoned(..) => ErrorKind::Other,
+
+            // Delegated: unwrap context wrapper
             Self::WithContext { source, .. } => source.kind(),
-            _ => ErrorKind::Other,
+
+            // Io: inspect inner io::ErrorKind
+            Self::Io(arc) => match arc.kind() {
+                io::ErrorKind::TimedOut | io::ErrorKind::WouldBlock => ErrorKind::Timeout,
+                io::ErrorKind::ConnectionRefused => ErrorKind::IoRefused,
+                io::ErrorKind::ConnectionReset
+                | io::ErrorKind::ConnectionAborted
+                | io::ErrorKind::BrokenPipe
+                | io::ErrorKind::UnexpectedEof
+                | io::ErrorKind::NotConnected => ErrorKind::IoClosed,
+                _ => ErrorKind::Other,
+            },
         }
     }
 
@@ -589,12 +659,13 @@ impl Error {
     pub fn is_retryable(&self) -> bool {
         match self {
             Self::WithContext { source, .. } => source.is_retryable(),
-            _ => {
-                matches!(
-                    self.kind(),
-                    ErrorKind::Timeout | ErrorKind::BufferFull | ErrorKind::Busy
-                ) || matches!(self, Self::CommandPending | Self::CameraMoving { .. })
-            }
+            // MaxRetriesExceeded maps to Timeout (retryable kind) but must not
+            // itself be retried — doing so would cause infinite retry loops.
+            Self::MaxRetriesExceeded => false,
+            _ => matches!(
+                self.kind(),
+                ErrorKind::Timeout | ErrorKind::BufferFull | ErrorKind::Busy
+            ),
         }
     }
 
@@ -631,7 +702,8 @@ impl Error {
             Self::CommandPending => Some(Duration::from_millis(50)),
             Self::CameraMoving { .. } => Some(Duration::from_millis(500)),
             Self::CommandTimeout { .. } => Some(Duration::from_secs(1)),
-            Self::CommandBufferFull | Self::RuntimeQueueFull { .. } => {
+            Self::TransportBusy => Some(Duration::from_millis(50)),
+            Self::CommandBufferFull | Self::RuntimeQueueFull { .. } | Self::NoSocket => {
                 Some(Duration::from_millis(200))
             }
             Self::Timeout => Some(Duration::from_secs(2)),
@@ -899,6 +971,15 @@ mod tests {
         assert!(Error::CommandBufferFull.is_retryable());
         assert!(Error::Timeout.is_retryable());
 
+        // Issue #501: TransportBusy is transient and should be retryable
+        assert!(Error::TransportBusy.is_retryable());
+        // Issue #501: NoSocket is transient capacity and should be retryable
+        assert!(Error::NoSocket.is_retryable());
+        // Issue #501: CommandPending is now Busy via kind(), no special-case needed
+        assert!(Error::CommandPending.is_retryable());
+        // Issue #501: MaxRetriesExceeded must NOT be retryable (prevents infinite loops)
+        assert!(!Error::MaxRetriesExceeded.is_retryable());
+
         assert!(!Error::SyntaxError.is_retryable());
         assert!(!Error::CommandNotExecutable.is_retryable());
         assert!(!Error::InvalidParameter {
@@ -937,6 +1018,17 @@ mod tests {
             Some(Duration::from_secs(2))
         );
 
+        // Issue #501: TransportBusy → 50ms (extremely transient borrow conflict)
+        assert_eq!(
+            Error::TransportBusy.suggested_retry_delay(),
+            Some(Duration::from_millis(50))
+        );
+        // Issue #501: NoSocket grouped with CommandBufferFull at 200ms
+        assert_eq!(
+            Error::NoSocket.suggested_retry_delay(),
+            Some(Duration::from_millis(200))
+        );
+
         assert_eq!(Error::SyntaxError.suggested_retry_delay(), None);
         assert_eq!(
             Error::InvalidParameter {
@@ -961,6 +1053,9 @@ mod tests {
             Error::CommandBufferFull,
             Error::RuntimeQueueFull { capacity: 64 },
             Error::Timeout,
+            Error::TransportBusy,
+            Error::CommandPending,
+            Error::NoSocket,
         ];
 
         for error in retryable_errors {
@@ -981,6 +1076,7 @@ mod tests {
                 value: Cow::Borrowed("invalid"),
                 reason: Cow::Borrowed("test reason"),
             },
+            Error::MaxRetriesExceeded,
         ];
 
         for error in non_retryable_errors {
@@ -993,6 +1089,127 @@ mod tests {
                 "Non-retryable error should not have suggested delay: {error}"
             );
         }
+    }
+
+    #[test]
+    fn test_exhaustive_error_kind_mapping() {
+        // Verify specific kind() mappings per issue #501
+
+        // Timeout
+        assert_eq!(Error::Timeout.kind(), ErrorKind::Timeout);
+        assert_eq!(
+            Error::CommandTimeout {
+                duration: Duration::from_secs(1),
+                command: Cow::Borrowed("test")
+            }
+            .kind(),
+            ErrorKind::Timeout
+        );
+        assert_eq!(Error::MaxRetriesExceeded.kind(), ErrorKind::Timeout);
+
+        // Cancelled
+        assert_eq!(Error::CommandCanceled.kind(), ErrorKind::Cancelled);
+
+        // BufferFull
+        assert_eq!(Error::CommandBufferFull.kind(), ErrorKind::BufferFull);
+        assert_eq!(
+            Error::RuntimeQueueFull { capacity: 64 }.kind(),
+            ErrorKind::BufferFull
+        );
+        assert_eq!(Error::NoSocket.kind(), ErrorKind::BufferFull);
+
+        // NotExecutable
+        assert_eq!(Error::CommandNotExecutable.kind(), ErrorKind::NotExecutable);
+        assert_eq!(Error::CameraNotReady.kind(), ErrorKind::NotExecutable);
+        assert_eq!(
+            Error::InvalidState(Cow::Borrowed("test")).kind(),
+            ErrorKind::NotExecutable
+        );
+
+        // IoClosed
+        assert_eq!(
+            Error::TransportError(Cow::Borrowed("test")).kind(),
+            ErrorKind::IoClosed
+        );
+        assert_eq!(Error::ChannelClosed.kind(), ErrorKind::IoClosed);
+        assert_eq!(Error::RuntimeShutdown.kind(), ErrorKind::IoClosed);
+        assert_eq!(Error::SocketManagerUnavailable.kind(), ErrorKind::IoClosed);
+        assert_eq!(
+            Error::SocketManagerChannelClosed.kind(),
+            ErrorKind::IoClosed
+        );
+        assert_eq!(Error::ResponseChannelClosed.kind(), ErrorKind::IoClosed);
+        assert_eq!(Error::NoTransport.kind(), ErrorKind::IoClosed);
+        assert_eq!(Error::TransportChannelClosed.kind(), ErrorKind::IoClosed);
+
+        // Protocol
+        assert_eq!(Error::Unknown(0xFF).kind(), ErrorKind::Protocol);
+        assert_eq!(
+            Error::UnknownResponseKind {
+                response_type: Cow::Borrowed("test"),
+                data: vec![0x00],
+            }
+            .kind(),
+            ErrorKind::Protocol
+        );
+
+        // Unsupported
+        assert_eq!(Error::MissingRuntime.kind(), ErrorKind::Unsupported);
+
+        // InvalidParameter
+        assert_eq!(
+            Error::PresetNotFound { id: 1 }.kind(),
+            ErrorKind::InvalidParameter
+        );
+        assert_eq!(
+            Error::InvalidRequest(Cow::Borrowed("test")).kind(),
+            ErrorKind::InvalidParameter
+        );
+        assert_eq!(
+            Error::InvalidAddress {
+                reason: Cow::Borrowed("test"),
+            }
+            .kind(),
+            ErrorKind::InvalidParameter
+        );
+
+        // Busy
+        assert_eq!(Error::CameraBusy.kind(), ErrorKind::Busy);
+        assert_eq!(Error::TransportBusy.kind(), ErrorKind::Busy);
+        assert_eq!(Error::CommandPending.kind(), ErrorKind::Busy);
+
+        // Other
+        assert_eq!(Error::LockPoisoned("test").kind(), ErrorKind::Other);
+
+        // Io: inspect inner io::ErrorKind
+        assert_eq!(
+            Error::Io(Arc::new(io::Error::new(io::ErrorKind::TimedOut, "test"))).kind(),
+            ErrorKind::Timeout
+        );
+        assert_eq!(
+            Error::Io(Arc::new(io::Error::new(
+                io::ErrorKind::ConnectionRefused,
+                "test"
+            )))
+            .kind(),
+            ErrorKind::IoRefused
+        );
+        assert_eq!(
+            Error::Io(Arc::new(io::Error::new(
+                io::ErrorKind::ConnectionReset,
+                "test"
+            )))
+            .kind(),
+            ErrorKind::IoClosed
+        );
+        assert_eq!(
+            Error::Io(Arc::new(io::Error::new(io::ErrorKind::BrokenPipe, "test"))).kind(),
+            ErrorKind::IoClosed
+        );
+        assert_eq!(
+            Error::Io(Arc::new(io::Error::other("test"))).kind(),
+            ErrorKind::Other
+        );
     }
 
     #[test]
