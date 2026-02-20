@@ -86,21 +86,21 @@ For async-std or smol, enable the corresponding feature and use its runtime adap
 
 ```toml
 [dependencies]
-grafton-visca = "0.10"
+grafton-visca = "0.11"
 ```
 
 ### Common configurations
 
 ```toml
 # Async with Tokio
-grafton-visca = { version = "0.10", features = ["runtime-tokio"] }
+grafton-visca = { version = "0.11", features = ["runtime-tokio"] }
 tokio = { version = "1", features = ["full"] }
 
 # With serialization
-grafton-visca = { version = "0.10", features = ["serde"] }
+grafton-visca = { version = "0.11", features = ["serde"] }
 
 # Serial transport (blocking)
-grafton-visca = { version = "0.10", features = ["transport-serial"] }
+grafton-visca = { version = "0.11", features = ["transport-serial"] }
 ```
 
 ### Feature flags
@@ -123,13 +123,15 @@ grafton-visca = { version = "0.10", features = ["transport-serial"] }
 
 Profiles define protocol format and default ports:
 
-| Profile            | Protocol           | TCP Port | UDP Port |
-| ------------------ | ------------------ | -------: | -------: |
-| `GenericVisca`     | Raw VISCA          |     5678 |     1259 |
-| `PtzOpticsG2/G3`   | Raw VISCA          |     5678 |     1259 |
-| `SonyBRC300`       | Raw VISCA          |     5678 |     1259 |
-| `SonyBRCH900`      | Sony encapsulation |    52381 |    52381 |
-| `SonyFR7`          | Sony encapsulation |    52381 |    52381 |
+| Profile              | Protocol           | TCP Port | UDP Port |
+| -------------------- | ------------------ | -------: | -------: |
+| `GenericVisca`       | Raw VISCA          |     5678 |     1259 |
+| `PtzOpticsG2/G3/30X` | Raw VISCA          |     5678 |     1259 |
+| `SonyEVIH100`       | Raw VISCA          |     5678 |     1259 |
+| `SonyBRC300`         | Raw VISCA          |     5678 |     1259 |
+| `NearusBRC300`       | Raw VISCA          |     5678 |     1259 |
+| `SonyBRCH900`        | Sony encapsulation |    52381 |    52381 |
+| `SonyFR7`            | Sony encapsulation |    52381 |    52381 |
 
 Port can be omitted in connection strings; the profile default is used.
 

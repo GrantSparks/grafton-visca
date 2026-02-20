@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-02-20
+
 ### Breaking Changes
 
 #### `InquirySupport` Enum Replaces `SUPPORTS_INQUIRY: bool` (#498)
@@ -48,6 +50,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `BLUE_GAIN` inquiry corrected from `0x0A, 0x13` to `0x04, 0x44`
 - `AUTO_WB_SENSITIVITY` inquiry corrected from `0x04, 0x59` to `0x04, 0xA9`
 - `RED_TUNING` / `BLUE_TUNING` inquiry constants are now aliases for `RED_GAIN` / `BLUE_GAIN` (same register)
+
+#### Color Inquiry Decoder Format Changes
+- **BREAKING**: `ColorTemperature` inquiry response decoder changed from 4-nibble to 1-byte raw parsing to match PTZOptics G2 wire format
+- **BREAKING**: `RedChannel`/`BlueChannel` inquiry decoders changed from 1-byte signed offset (`i8`) to 4-nibble absolute gain (`u8`) — parsed values will differ
+- `RedTuning`/`BlueTuning` inquiry decoders changed from 1-byte raw to 4-nibble with offset
+- `RedGainInquiry` and `BlueGainInquiry` converted from derive macro to manual `ResponseParser` impls
+
+#### Removed `has_exposure_mode_inquiry` from `Capabilities`
+- **BREAKING**: `has_exposure_mode_inquiry` field removed from `Capabilities` struct — the flag was universally true and never checked before sending the inquiry
+- `SUPPORTS_EXPOSURE_MODE_INQUIRY` constant removed from the `Exposure` trait
+- `HasAutoExposure` marker trait removed (defined for 5 profiles but never used as a trait bound)
+
+#### Dead Marker Traits Removed
+- **BREAKING**: 11 marker traits removed that were defined and implemented but never used as trait bounds (~40 manual `impl` blocks)
+- `SUPPORTS_AUTO_EXPOSURE` flag removed from `Exposure` trait (was universally `true`, never checked)
+
+#### Dependency Major Version Bumps
+- `ts-rs` upgraded from 11 to 12 — downstream code using the `ts-rs` feature may need updates for the new `Config` parameter in test APIs
+- `flume` upgraded from 0.11 to 0.12
+- `schemars` upgraded from 1.1 to 1.2
 
 ### Added
 
@@ -104,6 +126,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added gamma command/inquiry to PTZOptics G2 command list with errata note #5 documenting undocumented-but-functional status
 - Added Image Processing entries to Appendix A opcode table (Sharpness, Brightness, Luminance, Contrast, Gamma, NR)
 
+#### Transport-Level Command Pacing (#496)
+- New `MIN_COMMAND_SPACING` constant on `ProfileMetadata` trait, enforced at the scheduler layer for all sends (commands and inquiries)
+- Prevents spurious `0x02 Syntax Error` responses and dropped completions on cameras with small internal command buffers
+- PTZOptics G2/G3/30X: 100ms spacing; Sony FR7/BRC-H900: 35ms spacing; GenericVisca and others: 0ms (no artificial spacing)
+
+#### Zoom Magnification Helpers (#495)
+- `zoom_magnification_to_units` field on `Capabilities` struct — exposes profile's magnification-to-VISCA-units lookup table at runtime
+- `max_optical_zoom()` — returns maximum optical magnification (e.g., 20.0 for a 20x camera)
+- `max_combined_zoom()` — returns maximum magnification including digital zoom if available
+- `zoom_units_to_magnification()` — convert VISCA position units to magnification ratio
+- `magnification_to_zoom_units()` — convert magnification ratio to VISCA position units
+- Enhanced `Capabilities::summary()` to display human-readable zoom values (e.g., "Optical Zoom: 20x (0x4000 units)")
+
+#### Fine-Grained Capability Flags
+- `has_focus_zone`, `has_af_sensitivity`, `has_focus_near_limit_inquiry`, `has_rgb_gain` fields on `Capabilities` struct
+- `SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY` on `Focus` trait (default `true`; overridden to `false` for PTZOptics G2)
+- `has_gamma` and `has_luminance` fields on `Capabilities` struct — wired from `SUPPORTS_GAMMA` and `SUPPORTS_LUMINANCE` profile traits
+
+#### Wire-Level Debug Logging
+- Trace-level logging at target `grafton_visca::wire` showing every TX and RX byte in hex format
+- Enable with `RUST_LOG=grafton_visca::wire=trace`; zero overhead when disabled
+
+#### Inquiry Registry Unification (#503, #504)
+- New `define_inquiries!` declarative macro in `inquiry_registry.rs` replaces 4 independently-maintained copies of inquiry metadata
+- Single source of truth generates `InquiryKind` (76 variants), `InquiryData` (76 variants), and `dispatch()` (76 match arms) from one definition table
+- `generate_typed_impl()` proc-macro refactored from 72-arm string matching to attribute-driven (`typed_response`, `typed_field`, `typed_constructor`)
+- All 10 manual `ViscaCommand+ResponseParser` impls converted to `#[derive(ViscaInquiry)]`
+- Adding a new inquiry type now requires editing exactly one registry entry + one struct; unknown cases produce compile errors instead of silent no-ops
+- Net reduction: ~2,100 lines removed
+
+### Changed
+
+#### Dependency Updates
+- Updated 79 semver-compatible lockfile dependencies
+- Removed unused `rand` dev-dependency
+
 ### Fixed
 
 #### PTZOptics Luminance Profile Support
@@ -125,6 +183,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 #### Zoom Position Truncation (#494)
 - **Critical:** `Zoom::Position` encoding no longer silently truncates values above `0x3FFF` — previously, any zoom value with bit 14 set was masked to zero (e.g., `0x4000` encoded as `0x0000`)
 - Profile-aware zoom normalization now correctly maps to each camera's actual optical/digital zoom range instead of hardcoded global constants
+
+#### PTZOptics G2/G3/30X Capability Range Corrections
+- Brightness range corrected from `0..18` to `0..15`
+- Sharpness range corrected from `0..15` to `0..12`
+- RG/BG tuning range corrected from `-7..8` to `-10..11`
+- Added missing ColorTemperature WB mode and color temp range (2500–8000K)
+- Added missing exposure compensation, RGB gain, and hue support declarations
+- G2 `MAX_PRESETS` corrected from 89 to 127
+
+#### Scheduler ACK-Timeout Retry (#497)
+- Commands that timed out waiting for ACK now transition to `Queued` phase before retry, preventing late ACKs from matching timed-out commands and eliminating duplicate command sends
+- Added phase guard in `get_ready_retries` as defense-in-depth to reject retries for commands not in `Queued` phase
+
+#### `Error::kind()` Exhaustive Match (#501, #502)
+- Replaced wildcard `_ => ErrorKind::Other` in `Error::kind()` with an exhaustive match covering all ~55 `Error` variants
+- `TransportBusy` now maps to `Busy` (retryable with 50ms delay) instead of `Other` (non-retryable)
+- `NoSocket` now maps to `BufferFull` (retryable with 200ms delay) instead of `Other`
+- `CommandPending` now maps to `Busy`; `MaxRetriesExceeded` maps to `Timeout` with `is_retryable() = false`
+- Adding a new `Error` variant without a `kind()` arm now causes a compile error
+
+#### `execute()` Error Masking
+- `ViscaClient::execute()` had wildcard match arms that silently returned `Ok(())` for non-Completion responses (`CmdAck`, `Unknown`)
+- Now uses `Response::into_result()` which correctly maps `CmdAck` to `Err(CommandPending)` and `Unknown` to `Err(InvalidResponse)`
+- Cache updates in `execute_updating_cache` now only occur after confirmed success
+
+#### One-Push Focus Removed from PtzOpticsG2
+- `SUPPORTS_ONE_PUSH_FOCUS` set to `false` for PtzOpticsG2 — the camera ACKs the one-push focus command (`81 01 04 18 01 FF`) but never sends a Completion response, causing a 30-second timeout
+
+#### PtzOpticsG3/30X `SUPPORTS_OPERATION_COMPLETE` Fix
+- `SUPPORTS_OPERATION_COMPLETE` now correctly set to `true` for PtzOpticsG3 and PtzOptics30X (same firmware family as G2), enabling event-driven movement detection
 
 ## [0.10.0] - 2025-12-22
 

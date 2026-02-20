@@ -236,7 +236,7 @@ Different camera models vary in capabilities even though they share the VISCA pr
 | Feature                     | PTZOptics Gen‑2 (SDI/NDI)                       | Sony ILME‑FR7                           | Sony BRC‑H900                           | Sony EVI‑H100              | Nearus BRC‑300 (Sony OEM) |
 | --------------------------- | ----------------------------------------------- | --------------------------------------- | --------------------------------------- | -------------------------- | ------------------------- |
 | **VISCA over IP**           | **Raw** UDP 1259 / TCP 5678 (no header)         | Encapsulated UDP (port 52381)           | Encapsulated UDP\* (52381, via IP card) | — (Serial only)            | — (Serial only)           |
-| **Preset slots**            | **255** (serial/IP) / **10** (IR remote)        | 100 (0–99)                              | 16 (0–15)                               | 6 (0–5)                    | 6 (0–5)                   |
+| **Preset slots**            | **127** G2 / **255** G3 / **10** (IR remote)    | 100 (0–99)                              | 16 (0–15)                               | 6 (0–5)                    | 6 (0–5)                   |
 | **Pan speed steps**         | 1–24 (std. VISCA range)                         | **1–50** (supports “Fine” mode)         | 1–24                                    | 1–24                       | 1–24                      |
 | **Focus Lock command**      | ✔ (`81 0A 04 68 02/03 FF`)                      | ✖ (no separate lock; uses AF/MF toggle) | ✖                                       | ✖                          | ✖                         |
 | **“Snap” Focus (One-push)** | ✔ (`81 01 04 38 04 FF` triggers one-shot focus) | ✔ (Push AF commands)                    | ✖                                       | ✖ (older models lack this) | ✖                         |
@@ -249,7 +249,7 @@ Different camera models vary in capabilities even though they share the VISCA pr
 
 \* Sony BRC‑H900 IP control requires the BRBK-IP10 option; without it, only RS-232/422 control is available.
 
-As seen above, the newer FR7 introduces unique features like a variable electronic ND filter and dual tally lights, not found on older models. PTZOptics has some custom commands (like Focus Lock and Snap Focus) not present on Sony cameras. The number of preset memory slots varies widely: from 6 on entry-level models up to 100+ on newer cameras. PTZOptics NDI|HX Gen‑2 documentation lists **255 presets** available via **serial/IP control**, while the included **IR remote supports 10 presets (0–9)**. When developing a controller, treat **255** as the supported preset count and adjust the UI accordingly – for example, disable ND controls for models without ND filters, limit the preset index range offered to the user, or hide options like ATW or dual tally unless the camera supports them.
+As seen above, the newer FR7 introduces unique features like a variable electronic ND filter and dual tally lights, not found on older models. PTZOptics has some custom commands (like Focus Lock and Snap Focus) not present on Sony cameras. The number of preset memory slots varies widely: from 6 on entry-level models up to 100+ on newer cameras. PTZOptics NDI|HX Gen‑2 documentation lists **127 presets** (0–127) available via **serial/IP control**, while Gen‑3 models support **255 presets**; the included **IR remote supports 10 presets (0–9)**. When developing a controller, use the profile's `MAX_PRESETS` value and adjust the UI accordingly – for example, disable ND controls for models without ND filters, limit the preset index range offered to the user, or hide options like ATW or dual tally unless the camera supports them.
 
 *(Note: The Sony BRC-X1000 4K camera (2017) is similar to FR7 in many respects and supports up to 100 presets. The older Sony BRC-300 had only 6 presets accessible via remote/serial. Always check model specs.)*
 
@@ -426,7 +426,7 @@ Finally, here’s a checklist of best practices and considerations when implemen
 5. **Discovery (IP cameras):** Consider implementing a discovery mechanism for cameras on the network. Sony cameras with an IP interface may support a broadcast query (e.g., sending a UDP packet to port 52380 as mentioned for the BRBK-IP10). Some third-party cameras might not, but you can at least allow manual entry of IP. Alternatively, use protocols like mDNS/SSDP if the cameras support them (many Sony cameras do not broadcast their presence, so this may be manual).
 6. **UDP Retries and Timeouts:** For UDP connections (Sony or raw), implement a timeout for responses. If no ACK comes within, say, 100 ms, resend the command (with new sequence if Sony style). But also guard against receiving a very late ACK from the first attempt – your code should handle duplicate replies gracefully (perhaps by matching sequence numbers and ignoring duplicates). Having a reliable command send mechanism will greatly improve user experience on less-than-perfect networks.
 7. **OSD Menu Handling:** Ensure that if a user might use the camera’s OSD menu (either via IR remote or a menu invocation command), your controller doesn’t get “stuck.” For instance, if your user opens the camera’s menu via IR, and then tries to send a pan command from your software, the camera might ignore it. One strategy is to periodically send an OSD Close (`81 01 06 06 03 FF`) if you detect no response to commands, in case the menu was left open. Or disable your control UI while the menu is open. Some cameras have an inquiry for OSD open status (FR7 does not, but some older ones had an “Information Display” toggle inquiry).
-8. **Command Spacing & Sequencing:** Avoid “flooding” a camera with back-to-back commands, even if using the two sockets. It’s good to insert slight delays (e.g., 50 ms) between distinct actions, especially for older cameras. This avoids the “not executable” temporary busy states. It also helps on networks to not bunch packets (though Nagle’s algorithm on TCP or proper UDP spacing can handle it). Essentially, pace the commands to what the camera can realistically execute.
+8. **Command Spacing & Sequencing:** Avoid “flooding” a camera with back-to-back commands, even if using the two sockets. Insert per-profile minimum delays between all sends (commands and inquiries) to avoid spurious `0x02 Syntax Error` responses and dropped completions. Hardware-validated spacing: **PTZOptics G2/G3/30X: 100 ms**, **Sony FR7/BRC-H900: 35 ms**. The library enforces this via the `MIN_COMMAND_SPACING` profile constant at the scheduler layer. Without pacing, cameras with small internal command buffers will intermittently fail under rapid-fire command sequences.
 9. **Logging and Diagnostics:** Implement a verbose logging mode that records every byte sent and received (in hex) with timestamps. This is invaluable for debugging. If a camera isn’t doing what’s expected, the log will show if an error was returned or if no reply came. It also helps when seeking support from the camera manufacturer or community – you can share the exact command/reply sequence. Be mindful to disable verbose logs in production by default, but have it available for troubleshooting.
 
 By following this checklist and the detailed guidance throughout this document, you should be well on your way to a robust unified VISCA implementation capable of orchestrating a diverse fleet of PTZ cameras. Each camera will have its peculiarities, but the core protocol consistency and a thoughtful software design will make those differences manageable.
@@ -531,6 +531,10 @@ Exposure,Shutter Inq,81 09 04 4A FF,5,Yes,Yes,Yes,Reply 90 50 0p0q0r0s
 Exposure,Gain Direct,81 01 04 0C 00 00 0p 0q FF,10,Yes,Yes,Yes,
 Exposure,Gain Inq,81 09 04 4C FF,5,Yes,Yes,Yes,Reply 90 50 0p0q0r0s
 Exposure,Bright Direct,81 01 04 0D 00 00 0p 0q FF,10,Yes,Yes,No,Not on FR7
+Exposure,Anti-Flicker Off,81 01 04 23 00 FF,6,No,Yes,No,PTZOptics CAM_Flicker
+Exposure,Anti-Flicker 50Hz,81 01 04 23 01 FF,6,No,Yes,No,PTZOptics CAM_Flicker
+Exposure,Anti-Flicker 60Hz,81 01 04 23 02 FF,6,No,Yes,No,PTZOptics CAM_Flicker
+Exposure,Flicker Mode Inq,81 09 04 55 FF,5,No,Yes,No,Reply 90 50 0p FF (PTZOptics CAM_FlickerModeInq)
 WB,WB Auto,81 01 04 35 00 FF,6,Yes,Yes,Yes,
 WB,WB Indoor,81 01 04 35 01 FF,6,Yes,Yes,Yes,
 WB,WB Outdoor,81 01 04 35 02 FF,6,Yes,Yes,Yes,
@@ -554,8 +558,8 @@ Image,Luminance Direct,81 01 04 A1 00 00 0p 0q FF,10,No,Yes,No,pq: 0x00–0x0E (
 Image,Luminance Inq,81 09 04 A1 FF,5,No,Yes,No,Reply 90 50 00 00 0p 0q FF
 Image,Contrast Direct,81 01 04 A2 00 00 0p 0q FF,10,Yes,Yes,Yes,pq: 0x00–0x0E
 Image,Contrast Inq,81 09 04 A2 FF,5,Yes,Yes,Yes,Reply 90 50 00 00 0p 0q FF
-Image,Gamma Direct,81 01 04 5B 0p FF,6,Yes,Yes,No,p: 0=Standard 1–4=curves
-Image,Gamma Inq,81 09 04 5B FF,5,Yes,Yes,No,Reply 90 50 0p FF
+Image,Gamma Direct,81 01 04 5B 0p FF,6,Yes,Yes,Yes,p: 0=Standard 1–4=curves (PTZOptics undocumented but functional)
+Image,Gamma Inq,81 09 04 5B FF,5,Yes,Yes,Yes,Reply 90 50 0p FF (PTZOptics undocumented but functional)
 Image,NR (Legacy),81 01 04 53 0p FF,6,Yes,No,No,p: 0=Off 1–5=level (EVI-H100)
 Tally,Tally On (Red),81 01 7E 01 0A 00 02 FF,8,Yes,No,Yes,
 Tally,Tally Off (Red),81 01 7E 01 0A 00 03 FF,8,Yes,No,Yes,
@@ -568,6 +572,9 @@ Tally,Tally Inq (Green),81 09 7E 04 1A 00 FF,7,No,No,Yes,Reply 90 50 02/03
 Tally,Tally (PTZOptics) Flash,81 0A 02 02 01 FF,6,No,Yes,No,
 Tally,Tally (PTZOptics) On,81 0A 02 02 02 FF,6,No,Yes,No,
 Tally,Tally (PTZOptics) Off,81 0A 02 02 03 FF,6,No,Yes,No,
+Streaming,USB Audio On,81 2A 02 A0 04 02 FF,7,No,Yes,No,PTZOptics CAM_UACStatus
+Streaming,USB Audio Off,81 2A 02 A0 04 03 FF,7,No,Yes,No,PTZOptics CAM_UACStatus
+Streaming,USB Audio Inq,81 2A 02 A0 04 FF,6,No,Yes,No,Reply 90 50 0p FF (PTZOptics CAM_UACInq)
 System,Address Set (Broadcast),88 30 01 FF,4,Yes,Yes,Yes,Serial only
 System,I/F Clear (Broadcast),88 01 00 01 FF,5,Yes,Yes,Yes,Serial only
 System,Version Inq,81 09 00 02 FF,5,Yes,Yes,Yes,Reply 90 50 VV VV MM MM FF FF KK FF
