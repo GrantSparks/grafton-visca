@@ -225,7 +225,7 @@ fn test_parse_gain_level_inquiry() {
     );
 
     match result.unwrap() {
-        Response::Inquiry(InquiryData::GainLevel { gain }) => {
+        Response::Inquiry(InquiryData::Gain { gain }) => {
             assert_eq!(gain, 0x05, "Gain value mismatch");
         }
         _ => panic!("Unexpected response type"),

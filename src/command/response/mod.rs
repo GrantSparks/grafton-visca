@@ -11,8 +11,12 @@ pub mod types;
 pub use self::{
     lift::{lift_inquiry, lift_inquiry_for, parse_inquiry_payload},
     payload::{BoolConvention, Payload},
-    types::{InquiryKind, Response},
+    types::Response,
 };
+
+// Re-export InquiryKind from the registry (canonical definition) so existing
+// import paths via `crate::command::response::InquiryKind` continue to work.
+pub use crate::command::inquiry_registry::InquiryKind;
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::panic)]
@@ -448,7 +452,7 @@ mod tests {
         let gain_bytes = &[0x90, 0x50, 0x00, 0x00, 0x00, 0x07, VISCA_TERMINATOR];
         let response = Response::parse_with_type(gain_bytes, &InquiryKind::Gain);
         match response {
-            Ok(Response::Inquiry(InquiryData::GainLevel { gain })) => {
+            Ok(Response::Inquiry(InquiryData::Gain { gain })) => {
                 assert_eq!(gain, 0x07);
             }
             _ => panic!("Expected Gain inquiry response"),
