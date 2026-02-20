@@ -406,7 +406,7 @@ pub enum Error {
     #[error("No decoder found for {inquiry_kind:?} (payload: {payload_hex})")]
     DecoderNotFound {
         /// The inquiry kind that no decoder could handle.
-        inquiry_kind: crate::command::response::types::InquiryKind,
+        inquiry_kind: crate::command::inquiry_registry::InquiryKind,
         /// Hex representation of the payload for debugging.
         payload_hex: Box<str>,
     },

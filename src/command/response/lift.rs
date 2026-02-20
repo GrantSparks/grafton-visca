@@ -4,8 +4,9 @@ use std::borrow::Cow;
 
 use super::{
     decoders::{dispatch, dispatch_for},
-    types::{InquiryKind, Response},
+    types::Response,
 };
+use crate::command::inquiry_registry::InquiryKind;
 use crate::{
     capabilities::{PanTilt, Profile},
     error::Error,

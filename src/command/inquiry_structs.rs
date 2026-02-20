@@ -11,7 +11,9 @@ use grafton_visca_macros::ViscaInquiry;
     opcode = 0x00,
     response = "Power",
     parser = "bool",
-    bytes_const = "POWER"
+    bytes_const = "POWER",
+    typed_response = "bool",
+    typed_field = "on"
 )]
 pub struct PowerInquiry;
 
@@ -21,7 +23,10 @@ pub struct PowerInquiry;
     opcode = 0x02,
     subcode = 0x00,
     response = "Version",
-    bytes_const = "VERSION"
+    bytes_const = "VERSION",
+    typed_response = "command::typed::VersionInfo",
+    typed_field = "vendor model rom_version max_socket",
+    typed_constructor = "ok_struct"
 )]
 pub struct VersionInquiry;
 
@@ -32,7 +37,10 @@ pub struct VersionInquiry;
     subcode = 0x06,
     response = "PanTiltPosition",
     parser = "pan_tilt",
-    bytes_const = "PAN_TILT_POSITION"
+    bytes_const = "PAN_TILT_POSITION",
+    typed_response = "camera::PanTiltPosition",
+    typed_field = "pan tilt",
+    typed_constructor = "ok_struct"
 )]
 pub struct PanTiltPositionInquiry;
 
@@ -42,7 +50,10 @@ pub struct PanTiltPositionInquiry;
     opcode = 0x47,
     response = "ZoomPosition",
     parser = "position",
-    bytes_const = "ZOOM_POSITION"
+    bytes_const = "ZOOM_POSITION",
+    typed_response = "types::ZoomPosition",
+    typed_field = "position",
+    typed_constructor = "new"
 )]
 pub struct ZoomPositionInquiry;
 
@@ -52,7 +63,10 @@ pub struct ZoomPositionInquiry;
     opcode = 0x48,
     response = "FocusPosition",
     parser = "position",
-    bytes_const = "FOCUS_POSITION"
+    bytes_const = "FOCUS_POSITION",
+    typed_response = "types::FocusPosition",
+    typed_field = "position",
+    typed_constructor = "ok_new"
 )]
 pub struct FocusPositionInquiry;
 
@@ -63,54 +77,23 @@ pub struct FocusPositionInquiry;
     response = "ExposureMode",
     parser = "mode",
     value_type = "ExposureMode",
-    bytes_const = "EXPOSURE_MODE"
+    bytes_const = "EXPOSURE_MODE",
+    typed_response = "command::ExposureMode",
+    typed_field = "mode"
 )]
 pub struct ExposureModeInquiry;
 
 /// Inquiry command to get the current exposure compensation value.
-///
-/// NOTE: This inquiry is handled directly in the exposure decoder module.
-#[derive(Debug, Copy, Clone)]
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
+#[visca(
+    opcode = 0x4E,
+    response = "ExposureCompensation",
+    bytes_const = "EXPOSURE_COMPENSATION",
+    typed_response = "types::ExposureCompensationLevel",
+    typed_field = "value",
+    typed_constructor = "new"
+)]
 pub struct ExposureCompensationInquiry;
-
-impl crate::command::encode::ViscaCommand for ExposureCompensationInquiry {
-    type Response = crate::command::InquiryData;
-    const MAX_SIZE: usize = 7;
-    const TIMEOUT_CATEGORY: crate::timeout::CommandCategory =
-        crate::timeout::CommandCategory::Quick;
-
-    fn write_into(
-        &self,
-        camera_id: crate::camera_id::CameraId,
-        buffer: &mut [u8],
-    ) -> Result<usize, crate::error::Error> {
-        use crate::command::bytes::ConstCommandBuilder;
-
-        let builder = ConstCommandBuilder::<7>::new()
-            .append(crate::command::bytes::constants::inquiry::EXPOSURE_COMPENSATION)
-            .with_camera_id(camera_id)
-            .terminate();
-        builder.build_into(buffer)
-    }
-
-    fn response_kind(&self) -> Option<crate::command::response::InquiryKind> {
-        Some(crate::command::response::InquiryKind::ExposureCompensation)
-    }
-}
-
-impl crate::command::typed::ResponseParser for ExposureCompensationInquiry {
-    type Response = crate::types::ExposureCompensationLevel;
-
-    fn from_response(resp: crate::command::Response) -> Result<Self::Response, crate::Error> {
-        match resp {
-            crate::command::Response::Inquiry(
-                crate::command::InquiryData::ExposureCompensation { value },
-            ) => crate::types::ExposureCompensationLevel::new(value),
-            crate::command::Response::Error(e) => Err(e),
-            _ => Err(crate::Error::UnexpectedResponseType),
-        }
-    }
-}
 
 /// Inquiry command to get the exposure compensation mode on/off status.
 #[derive(ViscaInquiry, Debug, Copy, Clone)]
@@ -118,7 +101,9 @@ impl crate::command::typed::ResponseParser for ExposureCompensationInquiry {
     opcode = 0x3E,
     response = "ExposureCompensationMode",
     parser = "bool",
-    bytes_const = "EXPOSURE_COMPENSATION_MODE"
+    bytes_const = "EXPOSURE_COMPENSATION_MODE",
+    typed_response = "bool",
+    typed_field = "on"
 )]
 pub struct ExposureCompensationModeInquiry;
 
@@ -129,54 +114,24 @@ pub struct ExposureCompensationModeInquiry;
     response = "Iris",
     parser = "last_nibble",
     field = "position",
-    bytes_const = "IRIS"
+    bytes_const = "IRIS",
+    typed_response = "types::IrisLevel",
+    typed_field = "position",
+    typed_constructor = "new"
 )]
 pub struct IrisInquiry;
 
 /// Inquiry command to get the current shutter speed setting.
-///
-/// NOTE: This inquiry is handled directly in the exposure decoder module.
-#[derive(Debug, Copy, Clone)]
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
+#[visca(
+    opcode = 0x4A,
+    response = "Shutter",
+    bytes_const = "SHUTTER",
+    typed_response = "types::ShutterSpeed",
+    typed_field = "position",
+    typed_constructor = "new"
+)]
 pub struct ShutterInquiry;
-
-impl crate::command::encode::ViscaCommand for ShutterInquiry {
-    type Response = crate::command::InquiryData;
-    const MAX_SIZE: usize = 7;
-    const TIMEOUT_CATEGORY: crate::timeout::CommandCategory =
-        crate::timeout::CommandCategory::Quick;
-
-    fn write_into(
-        &self,
-        camera_id: crate::camera_id::CameraId,
-        buffer: &mut [u8],
-    ) -> Result<usize, crate::error::Error> {
-        use crate::command::bytes::ConstCommandBuilder;
-
-        let builder = ConstCommandBuilder::<7>::new()
-            .append(crate::command::bytes::constants::inquiry::SHUTTER)
-            .with_camera_id(camera_id)
-            .terminate();
-        builder.build_into(buffer)
-    }
-
-    fn response_kind(&self) -> Option<crate::command::response::InquiryKind> {
-        Some(crate::command::response::InquiryKind::Shutter)
-    }
-}
-
-impl crate::command::typed::ResponseParser for ShutterInquiry {
-    type Response = crate::types::ShutterSpeed;
-
-    fn from_response(resp: crate::command::Response) -> Result<Self::Response, crate::Error> {
-        match resp {
-            crate::command::Response::Inquiry(crate::command::InquiryData::Shutter {
-                position,
-            }) => crate::types::ShutterSpeed::new(position),
-            crate::command::Response::Error(e) => Err(e),
-            _ => Err(crate::Error::UnexpectedResponseType),
-        }
-    }
-}
 
 /// Inquiry command to get the current brightness adjustment value.
 #[derive(ViscaInquiry, Debug, Copy, Clone)]
@@ -184,7 +139,10 @@ impl crate::command::typed::ResponseParser for ShutterInquiry {
     opcode = 0x4D,
     response = "Brightness",
     parser = "position",
-    bytes_const = "BRIGHT"
+    bytes_const = "BRIGHT",
+    typed_response = "types::BrightnessLevel",
+    typed_field = "position",
+    typed_constructor = "new"
 )]
 pub struct BrightnessInquiry;
 
@@ -195,146 +153,53 @@ pub struct BrightnessInquiry;
     response = "WhiteBalanceMode",
     parser = "mode",
     value_type = "WhiteBalanceMode",
-    bytes_const = "WHITE_BALANCE_MODE"
+    bytes_const = "WHITE_BALANCE_MODE",
+    typed_response = "command::WhiteBalanceMode",
+    typed_field = "mode"
 )]
 pub struct WhiteBalanceModeInquiry;
 
 /// Inquiry command to get the current color temperature value.
-///
-/// NOTE: This inquiry is handled directly in the color decoder module.
-#[derive(Debug, Copy, Clone)]
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
+#[visca(
+    opcode = 0x20,
+    response = "ColorTemperature",
+    bytes_const = "COLOR_TEMPERATURE",
+    typed_response = "types::ColorTemp",
+    typed_field = "temperature",
+    typed_constructor = "new"
+)]
 pub struct ColorTemperatureInquiry;
-
-impl crate::command::encode::ViscaCommand for ColorTemperatureInquiry {
-    type Response = crate::command::InquiryData;
-    const MAX_SIZE: usize = 7;
-    const TIMEOUT_CATEGORY: crate::timeout::CommandCategory =
-        crate::timeout::CommandCategory::Quick;
-
-    fn write_into(
-        &self,
-        camera_id: crate::camera_id::CameraId,
-        buffer: &mut [u8],
-    ) -> Result<usize, crate::error::Error> {
-        use crate::command::bytes::ConstCommandBuilder;
-
-        let builder = ConstCommandBuilder::<7>::new()
-            .append(crate::command::bytes::constants::inquiry::COLOR_TEMPERATURE)
-            .with_camera_id(camera_id)
-            .terminate();
-        builder.build_into(buffer)
-    }
-
-    fn response_kind(&self) -> Option<crate::command::response::InquiryKind> {
-        Some(crate::command::response::InquiryKind::ColorTemperature)
-    }
-}
-
-impl crate::command::typed::ResponseParser for ColorTemperatureInquiry {
-    type Response = crate::types::ColorTemp;
-
-    fn from_response(resp: crate::command::Response) -> Result<Self::Response, crate::Error> {
-        match resp {
-            crate::command::Response::Inquiry(crate::command::InquiryData::ColorTemperature {
-                temperature,
-            }) => crate::types::ColorTemp::new(temperature),
-            crate::command::Response::Error(e) => Err(e),
-            _ => Err(crate::Error::UnexpectedResponseType),
-        }
-    }
-}
 
 /// Inquiry command to get the current red gain value.
 ///
 /// Queries register 0x04 0x43 (same as red tuning). G2 cameras respond
 /// with a 4-nibble payload encoding the absolute gain value.
-#[derive(Debug, Copy, Clone)]
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
+#[visca(
+    opcode = 0x43,
+    response = "RedChannel",
+    bytes_const = "RED_GAIN",
+    typed_response = "types::RedChannel",
+    typed_field = "gain",
+    typed_constructor = "new"
+)]
 pub struct RedGainInquiry;
-
-impl crate::command::encode::ViscaCommand for RedGainInquiry {
-    type Response = crate::command::InquiryData;
-    const MAX_SIZE: usize = 7;
-    const TIMEOUT_CATEGORY: crate::timeout::CommandCategory =
-        crate::timeout::CommandCategory::Quick;
-
-    fn write_into(
-        &self,
-        camera_id: crate::camera_id::CameraId,
-        buffer: &mut [u8],
-    ) -> Result<usize, crate::error::Error> {
-        use crate::command::bytes::ConstCommandBuilder;
-
-        let builder = ConstCommandBuilder::<7>::new()
-            .append(crate::command::bytes::constants::inquiry::RED_GAIN)
-            .with_camera_id(camera_id)
-            .terminate();
-        builder.build_into(buffer)
-    }
-
-    fn response_kind(&self) -> Option<crate::command::response::InquiryKind> {
-        Some(crate::command::response::InquiryKind::RedChannel)
-    }
-}
-
-impl crate::command::typed::ResponseParser for RedGainInquiry {
-    type Response = crate::types::RedChannel;
-
-    fn from_response(resp: crate::command::Response) -> Result<Self::Response, crate::Error> {
-        match resp {
-            crate::command::Response::Inquiry(crate::command::InquiryData::RedChannel { gain }) => {
-                crate::types::RedChannel::new(gain)
-            }
-            crate::command::Response::Error(e) => Err(e),
-            _ => Err(crate::Error::UnexpectedResponseType),
-        }
-    }
-}
 
 /// Inquiry command to get the current blue gain value.
 ///
 /// Queries register 0x04 0x44 (same as blue tuning). G2 cameras respond
 /// with a 4-nibble payload encoding the absolute gain value.
-#[derive(Debug, Copy, Clone)]
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
+#[visca(
+    opcode = 0x44,
+    response = "BlueChannel",
+    bytes_const = "BLUE_GAIN",
+    typed_response = "types::BlueChannel",
+    typed_field = "gain",
+    typed_constructor = "new"
+)]
 pub struct BlueGainInquiry;
-
-impl crate::command::encode::ViscaCommand for BlueGainInquiry {
-    type Response = crate::command::InquiryData;
-    const MAX_SIZE: usize = 7;
-    const TIMEOUT_CATEGORY: crate::timeout::CommandCategory =
-        crate::timeout::CommandCategory::Quick;
-
-    fn write_into(
-        &self,
-        camera_id: crate::camera_id::CameraId,
-        buffer: &mut [u8],
-    ) -> Result<usize, crate::error::Error> {
-        use crate::command::bytes::ConstCommandBuilder;
-
-        let builder = ConstCommandBuilder::<7>::new()
-            .append(crate::command::bytes::constants::inquiry::BLUE_GAIN)
-            .with_camera_id(camera_id)
-            .terminate();
-        builder.build_into(buffer)
-    }
-
-    fn response_kind(&self) -> Option<crate::command::response::InquiryKind> {
-        Some(crate::command::response::InquiryKind::BlueChannel)
-    }
-}
-
-impl crate::command::typed::ResponseParser for BlueGainInquiry {
-    type Response = crate::types::BlueChannel;
-
-    fn from_response(resp: crate::command::Response) -> Result<Self::Response, crate::Error> {
-        match resp {
-            crate::command::Response::Inquiry(crate::command::InquiryData::BlueChannel {
-                gain,
-            }) => crate::types::BlueChannel::new(gain),
-            crate::command::Response::Error(e) => Err(e),
-            _ => Err(crate::Error::UnexpectedResponseType),
-        }
-    }
-}
 
 /// Inquiry command to get the current sharpness mode on/off status.
 #[derive(ViscaInquiry, Debug, Copy, Clone)]
@@ -342,7 +207,9 @@ impl crate::command::typed::ResponseParser for BlueGainInquiry {
     opcode = 0x05,
     response = "SharpnessMode",
     parser = "sharpness_mode",
-    bytes_const = "SHARPNESS_MODE"
+    bytes_const = "SHARPNESS_MODE",
+    typed_response = "command::SharpnessMode",
+    typed_field = "mode"
 )]
 pub struct SharpnessModeInquiry;
 
@@ -353,7 +220,10 @@ pub struct SharpnessModeInquiry;
     response = "Saturation",
     parser = "last_nibble",
     field = "level",
-    bytes_const = "SATURATION"
+    bytes_const = "SATURATION",
+    typed_response = "types::SaturationLevel",
+    typed_field = "level",
+    typed_constructor = "new"
 )]
 pub struct SaturationInquiry;
 
@@ -364,7 +234,10 @@ pub struct SaturationInquiry;
     response = "Hue",
     parser = "last_nibble",
     field = "hue",
-    bytes_const = "HUE"
+    bytes_const = "HUE",
+    typed_response = "types::HueLevel",
+    typed_field = "hue",
+    typed_constructor = "new"
 )]
 pub struct HueInquiry;
 
@@ -375,8 +248,11 @@ pub struct HueInquiry;
     response = "Gain",
     parser = "last_nibble",
     field = "gain",
-    data_variant = "GainLevel",
-    bytes_const = "GAIN"
+    data_variant = "Gain",
+    bytes_const = "GAIN",
+    typed_response = "types::GainLevel",
+    typed_field = "gain",
+    typed_constructor = "new"
 )]
 pub struct GainInquiry;
 
@@ -386,7 +262,10 @@ pub struct GainInquiry;
     opcode = 0x2C,
     response = "GainLimit",
     parser = "byte",
-    bytes_const = "GAIN_LIMIT"
+    bytes_const = "GAIN_LIMIT",
+    typed_response = "types::GainLimit",
+    typed_field = "limit",
+    typed_constructor = "new"
 )]
 pub struct GainLimitInquiry;
 
@@ -396,7 +275,9 @@ pub struct GainLimitInquiry;
     opcode = 0x33,
     response = "Backlight",
     parser = "bool",
-    bytes_const = "BACKLIGHT"
+    bytes_const = "BACKLIGHT",
+    typed_response = "bool",
+    typed_field = "status"
 )]
 pub struct BacklightInquiry;
 
@@ -406,7 +287,10 @@ pub struct BacklightInquiry;
     opcode = 0x66,
     response = "FlipState",
     parser = "flags",
-    bytes_const = "IMAGE_FLIP"
+    bytes_const = "IMAGE_FLIP",
+    typed_response = "command::typed::FlipState",
+    typed_field = "horizontal vertical",
+    typed_constructor = "ok_struct"
 )]
 pub struct ImageFlipInquiry;
 
@@ -416,7 +300,9 @@ pub struct ImageFlipInquiry;
     opcode = 0x01,
     response = "BlackWhite",
     parser = "bool",
-    bytes_const = "BLACK_WHITE"
+    bytes_const = "BLACK_WHITE",
+    typed_response = "bool",
+    typed_field = "on"
 )]
 pub struct BlackWhiteInquiry;
 
@@ -426,7 +312,10 @@ pub struct BlackWhiteInquiry;
     opcode = 0x53,
     response = "NoiseReduction2D",
     parser = "byte",
-    bytes_const = "NOISE_REDUCTION_2D"
+    bytes_const = "NOISE_REDUCTION_2D",
+    typed_response = "types::NoiseReduction2DLevel",
+    typed_field = "level",
+    typed_constructor = "new"
 )]
 pub struct NoiseReduction2DInquiry;
 
@@ -436,7 +325,10 @@ pub struct NoiseReduction2DInquiry;
     opcode = 0x54,
     response = "NoiseReduction3D",
     parser = "byte",
-    bytes_const = "NOISE_REDUCTION_3D"
+    bytes_const = "NOISE_REDUCTION_3D",
+    typed_response = "types::NoiseReduction3DLevel",
+    typed_field = "level",
+    typed_constructor = "new"
 )]
 pub struct NoiseReduction3DInquiry;
 
@@ -446,7 +338,10 @@ pub struct NoiseReduction3DInquiry;
     opcode = 0x25,
     response = "DynamicRange",
     parser = "byte",
-    bytes_const = "DYNAMIC_RANGE"
+    bytes_const = "DYNAMIC_RANGE",
+    typed_response = "types::DynamicRangeLevel",
+    typed_field = "level",
+    typed_constructor = "new"
 )]
 pub struct DynamicRangeInquiry;
 
@@ -457,7 +352,9 @@ pub struct DynamicRangeInquiry;
     response = "FocusZone",
     parser = "mode",
     value_type = "FocusZone",
-    bytes_const = "FOCUS_ZONE"
+    bytes_const = "FOCUS_ZONE",
+    typed_response = "command::FocusZone",
+    typed_field = "zone"
 )]
 pub struct FocusZoneInquiry;
 
@@ -468,7 +365,9 @@ pub struct FocusZoneInquiry;
     response = "AutoFocusSensitivity",
     parser = "mode",
     value_type = "AutoFocusSensitivity",
-    bytes_const = "AUTO_FOCUS_SENSITIVITY"
+    bytes_const = "AUTO_FOCUS_SENSITIVITY",
+    typed_response = "command::AutoFocusSensitivity",
+    typed_field = "sensitivity"
 )]
 pub struct AutoFocusSensitivityInquiry;
 
@@ -478,7 +377,10 @@ pub struct AutoFocusSensitivityInquiry;
     opcode = 0x28,
     response = "FocusNearLimit",
     parser = "position",
-    bytes_const = "FOCUS_NEAR_LIMIT"
+    bytes_const = "FOCUS_NEAR_LIMIT",
+    typed_response = "types::FocusPosition",
+    typed_field = "position",
+    typed_constructor = "ok_new"
 )]
 pub struct FocusNearLimitInquiry;
 
@@ -489,7 +391,9 @@ pub struct FocusNearLimitInquiry;
     response = "FocusMode",
     parser = "mode",
     value_type = "FocusMode",
-    bytes_const = "FOCUS_MODE"
+    bytes_const = "FOCUS_MODE",
+    typed_response = "command::FocusMode",
+    typed_field = "mode"
 )]
 pub struct FocusModeInquiry;
 
@@ -501,7 +405,9 @@ pub struct FocusModeInquiry;
     parser = "bool_convention",
     convention = "OnIs02",
     field = "is_open",
-    bytes_const = "MENU_OPEN_CLOSE"
+    bytes_const = "MENU_OPEN_CLOSE",
+    typed_response = "bool",
+    typed_field = "is_open"
 )]
 pub struct MenuOpenCloseInquiry;
 
@@ -515,7 +421,10 @@ pub struct MenuOpenCloseInquiry;
     opcode = 0xA8,
     response = "TallyStatus",
     parser = "tally_status",
-    bytes_const = "TALLY_STATUS"
+    bytes_const = "TALLY_STATUS",
+    typed_response = "command::typed::TallyStatusState",
+    typed_field = "red_on green_on",
+    typed_constructor = "ok_struct"
 )]
 pub struct TallyStatusInquiry;
 
@@ -525,7 +434,10 @@ pub struct TallyStatusInquiry;
     opcode = 0x63,
     response = "Resolution",
     parser = "byte",
-    bytes_const = "RESOLUTION"
+    bytes_const = "RESOLUTION",
+    typed_response = "command::resolution::ResolutionMode",
+    typed_field = "val",
+    typed_is_tuple
 )]
 pub struct ResolutionInquiry;
 
@@ -537,7 +449,9 @@ pub struct ResolutionInquiry;
     parser = "bool_convention",
     convention = "OnIs03",
     field = "is_night",
-    bytes_const = "NIGHT_DAY_MODE"
+    bytes_const = "NIGHT_DAY_MODE",
+    typed_response = "bool",
+    typed_field = "is_night"
 )]
 pub struct NightDayModeInquiry;
 
@@ -547,7 +461,9 @@ pub struct NightDayModeInquiry;
     opcode = 0x64,
     response = "NdFilter",
     parser = "nd_filter",
-    bytes_const = "ND_FILTER"
+    bytes_const = "ND_FILTER",
+    typed_response = "command::resolution::NdFilterPosition",
+    typed_field = "position"
 )]
 pub struct NdFilterInquiry;
 
@@ -557,7 +473,9 @@ pub struct NdFilterInquiry;
     opcode = 0x32,
     response = "PictureEffect",
     parser = "picture_effect",
-    bytes_const = "PICTURE_EFFECT"
+    bytes_const = "PICTURE_EFFECT",
+    typed_response = "command::resolution::PictureEffectMode",
+    typed_field = "effect"
 )]
 pub struct PictureEffectInquiry;
 
@@ -567,7 +485,10 @@ pub struct PictureEffectInquiry;
     opcode = 0x65,
     response = "FlipState",
     parser = "flags",
-    bytes_const = "FLIP_MODE"
+    bytes_const = "FLIP_MODE",
+    typed_response = "command::typed::FlipState",
+    typed_field = "horizontal vertical",
+    typed_constructor = "ok_struct"
 )]
 pub struct FlipStateInquiry;
 
@@ -579,7 +500,9 @@ pub struct FlipStateInquiry;
     parser = "bool_convention",
     convention = "OnIs03",
     field = "in_standby",
-    bytes_const = "STANDBY"
+    bytes_const = "STANDBY",
+    typed_response = "bool",
+    typed_field = "in_standby"
 )]
 pub struct StandbyInquiry;
 
@@ -589,7 +512,9 @@ pub struct StandbyInquiry;
     opcode = 0x2A,
     response = "FocusRange",
     parser = "focus_range",
-    bytes_const = "FOCUS_RANGE"
+    bytes_const = "FOCUS_RANGE",
+    typed_response = "command::FocusRange",
+    typed_field = "range"
 )]
 pub struct FocusRangeInquiry;
 
@@ -601,7 +526,9 @@ pub struct FocusRangeInquiry;
     parser = "bool_convention",
     convention = "OnIs03",
     field = "auto",
-    bytes_const = "IRIS_CONTROL"
+    bytes_const = "IRIS_CONTROL",
+    typed_response = "bool",
+    typed_field = "auto"
 )]
 pub struct IrisControlInquiry;
 
@@ -623,7 +550,9 @@ pub struct DefogModeInquiry;
     opcode = 0xA0,
     response = "DefogLevel",
     parser = "defog_level",
-    bytes_const = "DEFOG_LEVEL"
+    bytes_const = "DEFOG_LEVEL",
+    typed_response = "types::DefogLevel",
+    typed_field = "level"
 )]
 pub struct DefogLevelInquiry;
 
@@ -635,7 +564,9 @@ pub struct DefogLevelInquiry;
     parser = "bool_convention",
     convention = "OnIs03",
     field = "enabled",
-    bytes_const = "DIGITAL_PTZ"
+    bytes_const = "DIGITAL_PTZ",
+    typed_response = "bool",
+    typed_field = "enabled"
 )]
 pub struct DigitalPtzInquiry;
 
@@ -645,144 +576,46 @@ pub struct DigitalPtzInquiry;
     opcode = 0x59,
     response = "AutoWhiteBalanceSensitivity",
     parser = "auto_wb_sensitivity",
-    bytes_const = "AUTO_WB_SENSITIVITY"
+    bytes_const = "AUTO_WB_SENSITIVITY",
+    typed_response = "command::AutoWhiteBalanceSensitivity",
+    typed_field = "sensitivity"
 )]
 pub struct AutoWhiteBalanceSensitivityInquiry;
 
 /// Inquiry command to get the exposure compensation position.
-///
-/// NOTE: This inquiry is handled directly in the exposure decoder module.
-#[derive(Debug, Copy, Clone)]
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
+#[visca(
+    opcode = 0x4E,
+    response = "ExposureCompensationPosition",
+    bytes_const = "EXPOSURE_COMPENSATION_POSITION",
+    typed_response = "types::ExposureCompensationPosition",
+    typed_field = "position"
+)]
 pub struct ExposureCompensationPositionInquiry;
 
-impl crate::command::encode::ViscaCommand for ExposureCompensationPositionInquiry {
-    type Response = crate::command::InquiryData;
-    const MAX_SIZE: usize = 7;
-    const TIMEOUT_CATEGORY: crate::timeout::CommandCategory =
-        crate::timeout::CommandCategory::Quick;
-
-    fn write_into(
-        &self,
-        camera_id: crate::camera_id::CameraId,
-        buffer: &mut [u8],
-    ) -> Result<usize, crate::error::Error> {
-        use crate::command::bytes::ConstCommandBuilder;
-
-        let builder = ConstCommandBuilder::<7>::new()
-            .append(crate::command::bytes::constants::inquiry::EXPOSURE_COMPENSATION_POSITION)
-            .with_camera_id(camera_id)
-            .terminate();
-        builder.build_into(buffer)
-    }
-
-    fn response_kind(&self) -> Option<crate::command::response::InquiryKind> {
-        Some(crate::command::response::InquiryKind::ExposureCompensationPosition)
-    }
-}
-
-impl crate::command::typed::ResponseParser for ExposureCompensationPositionInquiry {
-    type Response = crate::types::ExposureCompensationPosition;
-
-    fn from_response(resp: crate::command::Response) -> Result<Self::Response, crate::Error> {
-        match resp {
-            crate::command::Response::Inquiry(
-                crate::command::InquiryData::ExposureCompensationPosition { position },
-            ) => Ok(position),
-            crate::command::Response::Error(e) => Err(e),
-            _ => Err(crate::Error::UnexpectedResponseType),
-        }
-    }
-}
-
 /// Inquiry command to get the red channel tuning level.
-///
-/// NOTE: This inquiry is handled with manual implementation due to i8 return type.
-#[derive(Debug, Copy, Clone)]
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
+#[visca(
+    opcode = 0x43,
+    response = "RedTuning",
+    bytes_const = "RED_TUNING",
+    typed_response = "types::RedTuning",
+    typed_field = "level",
+    typed_constructor = "new"
+)]
 pub struct RedTuningInquiry;
 
-impl crate::command::encode::ViscaCommand for RedTuningInquiry {
-    type Response = crate::command::InquiryData;
-    const MAX_SIZE: usize = 7;
-    const TIMEOUT_CATEGORY: crate::timeout::CommandCategory =
-        crate::timeout::CommandCategory::Quick;
-
-    fn write_into(
-        &self,
-        camera_id: crate::camera_id::CameraId,
-        buffer: &mut [u8],
-    ) -> Result<usize, crate::error::Error> {
-        use crate::command::bytes::ConstCommandBuilder;
-
-        let builder = ConstCommandBuilder::<7>::new()
-            .append(crate::command::bytes::constants::inquiry::RED_TUNING)
-            .with_camera_id(camera_id)
-            .terminate();
-        builder.build_into(buffer)
-    }
-
-    fn response_kind(&self) -> Option<crate::command::response::InquiryKind> {
-        Some(crate::command::response::InquiryKind::RedTuning)
-    }
-}
-
-impl crate::command::typed::ResponseParser for RedTuningInquiry {
-    type Response = crate::types::RedTuning;
-
-    fn from_response(resp: crate::command::Response) -> Result<Self::Response, crate::Error> {
-        match resp {
-            crate::command::Response::Inquiry(crate::command::InquiryData::RedTuning { level }) => {
-                crate::types::RedTuning::new(level)
-            }
-            crate::command::Response::Error(e) => Err(e),
-            _ => Err(crate::Error::UnexpectedResponseType),
-        }
-    }
-}
-
 /// Inquiry command to get the blue channel tuning level.
-///
-/// NOTE: This inquiry is handled with manual implementation due to i8 return type.
-#[derive(Debug, Copy, Clone)]
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
+#[visca(
+    opcode = 0x44,
+    response = "BlueTuning",
+    bytes_const = "BLUE_TUNING",
+    typed_response = "types::BlueTuning",
+    typed_field = "level",
+    typed_constructor = "new"
+)]
 pub struct BlueTuningInquiry;
-
-impl crate::command::encode::ViscaCommand for BlueTuningInquiry {
-    type Response = crate::command::InquiryData;
-    const MAX_SIZE: usize = 7;
-    const TIMEOUT_CATEGORY: crate::timeout::CommandCategory =
-        crate::timeout::CommandCategory::Quick;
-
-    fn write_into(
-        &self,
-        camera_id: crate::camera_id::CameraId,
-        buffer: &mut [u8],
-    ) -> Result<usize, crate::error::Error> {
-        use crate::command::bytes::ConstCommandBuilder;
-
-        let builder = ConstCommandBuilder::<7>::new()
-            .append(crate::command::bytes::constants::inquiry::BLUE_TUNING)
-            .with_camera_id(camera_id)
-            .terminate();
-        builder.build_into(buffer)
-    }
-
-    fn response_kind(&self) -> Option<crate::command::response::InquiryKind> {
-        Some(crate::command::response::InquiryKind::BlueTuning)
-    }
-}
-
-impl crate::command::typed::ResponseParser for BlueTuningInquiry {
-    type Response = crate::types::BlueTuning;
-
-    fn from_response(resp: crate::command::Response) -> Result<Self::Response, crate::Error> {
-        match resp {
-            crate::command::Response::Inquiry(crate::command::InquiryData::BlueTuning {
-                level,
-            }) => crate::types::BlueTuning::new(level),
-            crate::command::Response::Error(e) => Err(e),
-            _ => Err(crate::Error::UnexpectedResponseType),
-        }
-    }
-}
 
 /// Inquiry command to get the current gamma curve setting.
 #[derive(ViscaInquiry, Debug, Copy, Clone)]
@@ -790,7 +623,10 @@ impl crate::command::typed::ResponseParser for BlueTuningInquiry {
     opcode = 0x5B,
     response = "Gamma",
     parser = "gamma",
-    bytes_const = "GAMMA"
+    bytes_const = "GAMMA",
+    typed_response = "types::GammaLevel",
+    typed_field = "value",
+    typed_constructor = "new"
 )]
 pub struct GammaInquiry;
 
@@ -803,7 +639,9 @@ pub struct GammaInquiry;
     parser = "bool_convention",
     convention = "OnIs03",
     field = "enabled",
-    bytes_const = "AUTO_TRACE"
+    bytes_const = "AUTO_TRACE",
+    typed_response = "bool",
+    typed_field = "enabled"
 )]
 pub struct AutoTraceInquiry;
 
@@ -816,7 +654,9 @@ pub struct AutoTraceInquiry;
     parser = "bool_convention",
     convention = "OnIs03",
     field = "unlocked",
-    bytes_const = "FOCUS_UNLOCK"
+    bytes_const = "FOCUS_UNLOCK",
+    typed_response = "bool",
+    typed_field = "unlocked"
 )]
 pub struct FocusUnlockInquiry;
 
@@ -826,7 +666,10 @@ pub struct FocusUnlockInquiry;
     opcode = 0x42,
     response = "SharpnessPosition",
     parser = "position",
-    bytes_const = "SHARPNESS_POSITION"
+    bytes_const = "SHARPNESS_POSITION",
+    typed_response = "types::SharpnessLevel",
+    typed_field = "position",
+    typed_constructor = "new_u8"
 )]
 pub struct SharpnessPositionInquiry;
 
@@ -836,7 +679,11 @@ pub struct SharpnessPositionInquiry;
     opcode = 0x52,
     response = "NoiseReductionLevel",
     parser = "byte",
-    bytes_const = "NR_LEVEL"
+    bytes_const = "NR_LEVEL",
+    typed_response = "types::NoiseReductionLevel",
+    typed_field = "val",
+    typed_constructor = "new",
+    typed_is_tuple
 )]
 pub struct NrLevelInquiry;
 
@@ -846,7 +693,10 @@ pub struct NrLevelInquiry;
     opcode = 0x75,
     response = "BroadcastDomain",
     parser = "byte",
-    bytes_const = "BROADCAST_DOMAIN"
+    bytes_const = "BROADCAST_DOMAIN",
+    typed_response = "types::BroadcastDomain",
+    typed_field = "val",
+    typed_is_tuple
 )]
 pub struct BroadcastDomainInquiry;
 
@@ -857,7 +707,9 @@ pub struct BroadcastDomainInquiry;
     response = "MotionSyncMode",
     parser = "mode",
     value_type = "MotionSyncMode",
-    bytes_const = "MOTION_SYNC_MODE"
+    bytes_const = "MOTION_SYNC_MODE",
+    typed_response = "command::MotionSyncMode",
+    typed_field = "mode"
 )]
 pub struct MotionSyncModeInquiry;
 
@@ -869,7 +721,9 @@ pub struct MotionSyncModeInquiry;
     inquiry_variant = "MotionSyncPreset",
     parser = "speed",
     value_type = "MotionSyncPreset",
-    bytes_const = "MOTION_SYNC_SPEED"
+    bytes_const = "MOTION_SYNC_SPEED",
+    typed_response = "command::MotionSyncPreset",
+    typed_field = "speed"
 )]
 pub struct MotionSyncPresetInquiry;
 
@@ -880,7 +734,9 @@ pub struct MotionSyncPresetInquiry;
     response = "NoiseReductionMode",
     parser = "mode",
     value_type = "NoiseReductionMode",
-    bytes_const = "NR_MODE"
+    bytes_const = "NR_MODE",
+    typed_response = "command::NoiseReductionMode",
+    typed_field = "mode"
 )]
 pub struct NrModeInquiry;
 
@@ -902,7 +758,9 @@ pub struct NrSpeedInquiry;
     response = "BlackWhiteMode",
     parser = "mode",
     value_type = "BlackWhiteMode",
-    bytes_const = "BLACK_WHITE_MODE"
+    bytes_const = "BLACK_WHITE_MODE",
+    typed_response = "command::BlackWhiteMode",
+    typed_field = "mode"
 )]
 pub struct BlackWhiteModeInquiry;
 
@@ -912,7 +770,9 @@ pub struct BlackWhiteModeInquiry;
     opcode = 0x7A,
     response = "UsbAudio",
     parser = "bool",
-    bytes_const = "USB_AUDIO"
+    bytes_const = "USB_AUDIO",
+    typed_response = "bool",
+    typed_field = "on"
 )]
 pub struct UsbAudioInquiry;
 
@@ -922,7 +782,9 @@ pub struct UsbAudioInquiry;
     opcode = 0x74,
     response = "TwoToneMode",
     parser = "bool",
-    bytes_const = "TWO_TONE_MODE"
+    bytes_const = "TWO_TONE_MODE",
+    typed_response = "bool",
+    typed_field = "on"
 )]
 pub struct TwoToneModeInquiry;
 
@@ -932,7 +794,9 @@ pub struct TwoToneModeInquiry;
     opcode = 0x66,
     response = "NdFilterPreset",
     parser = "byte",
-    bytes_const = "ND_FILTER_PRESET"
+    bytes_const = "ND_FILTER_PRESET",
+    typed_response = "types::NdFilterPreset",
+    typed_field = "preset"
 )]
 pub struct NdFilterPresetInquiry;
 
@@ -942,7 +806,9 @@ pub struct NdFilterPresetInquiry;
     opcode = 0x7B,
     response = "Digital",
     parser = "bool",
-    bytes_const = "DIGITAL"
+    bytes_const = "DIGITAL",
+    typed_response = "bool",
+    typed_field = "on"
 )]
 pub struct DigitalInquiry;
 
@@ -952,105 +818,39 @@ pub struct DigitalInquiry;
     opcode = 0xA9,
     response = "TallyAutoAdjust",
     parser = "bool",
-    bytes_const = "TALLY_AUTO_ADJUST"
+    bytes_const = "TALLY_AUTO_ADJUST",
+    typed_response = "bool",
+    typed_field = "on"
 )]
 pub struct TallyAutoAdjustInquiry;
 
 /// Inquiry command to get the red tally light status (baseline VISCA).
 /// Returns 0x02 for On, 0x03 for Off.
 ///
-/// NOTE: This uses a special extended inquiry format (0x7E 0x01 0x0A 0x00)
-/// instead of the standard inquiry format, which is why it cannot use
-/// the ViscaInquiry derive macro.
-#[derive(Debug, Copy, Clone)]
+/// Uses the extended inquiry format (0x7E 0x01 0x0A 0x00).
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
+#[visca(
+    opcode = 0x0A,
+    response = "TallyRed",
+    bytes_const = "TALLY_RED",
+    typed_response = "bool",
+    typed_field = "on"
+)]
 pub struct TallyRedInquiry;
-
-impl crate::command::encode::ViscaCommand for TallyRedInquiry {
-    type Response = crate::command::InquiryData;
-    const MAX_SIZE: usize = 8;
-    const TIMEOUT_CATEGORY: crate::timeout::CommandCategory =
-        crate::timeout::CommandCategory::Quick;
-
-    fn write_into(
-        &self,
-        camera_id: crate::camera_id::CameraId,
-        buffer: &mut [u8],
-    ) -> Result<usize, crate::error::Error> {
-        use crate::command::bytes::ConstCommandBuilder;
-
-        let builder = ConstCommandBuilder::<8>::new()
-            .append(crate::command::bytes::constants::inquiry::TALLY_RED)
-            .with_camera_id(camera_id)
-            .terminate();
-        builder.build_into(buffer)
-    }
-
-    fn response_kind(&self) -> Option<crate::command::response::InquiryKind> {
-        Some(crate::command::response::InquiryKind::TallyRed)
-    }
-}
-
-impl crate::command::typed::ResponseParser for TallyRedInquiry {
-    type Response = bool;
-
-    fn from_response(resp: crate::command::Response) -> Result<Self::Response, crate::Error> {
-        match resp {
-            crate::command::Response::Inquiry(crate::command::InquiryData::TallyRed { on }) => {
-                Ok(on)
-            }
-            crate::command::Response::Error(e) => Err(e),
-            _ => Err(crate::Error::UnexpectedResponseType),
-        }
-    }
-}
 
 /// Inquiry command to get the green tally light status (Sony FR7 specific).
 /// Returns 0x02 for On, 0x03 for Off.
 ///
-/// NOTE: This uses a special extended inquiry format (0x7E 0x04 0x1A 0x00)
-/// instead of the standard inquiry format, which is why it cannot use
-/// the ViscaInquiry derive macro.
-#[derive(Debug, Copy, Clone)]
+/// Uses the extended inquiry format (0x7E 0x04 0x1A 0x00).
+#[derive(ViscaInquiry, Debug, Copy, Clone)]
+#[visca(
+    opcode = 0x1A,
+    response = "TallyGreen",
+    bytes_const = "TALLY_GREEN",
+    typed_response = "bool",
+    typed_field = "on"
+)]
 pub struct TallyGreenInquiry;
-
-impl crate::command::encode::ViscaCommand for TallyGreenInquiry {
-    type Response = crate::command::InquiryData;
-    const MAX_SIZE: usize = 7;
-    const TIMEOUT_CATEGORY: crate::timeout::CommandCategory =
-        crate::timeout::CommandCategory::Quick;
-
-    fn write_into(
-        &self,
-        camera_id: crate::camera_id::CameraId,
-        buffer: &mut [u8],
-    ) -> Result<usize, crate::error::Error> {
-        use crate::command::bytes::ConstCommandBuilder;
-
-        let builder = ConstCommandBuilder::<7>::new()
-            .append(crate::command::bytes::constants::inquiry::TALLY_GREEN)
-            .with_camera_id(camera_id)
-            .terminate();
-        builder.build_into(buffer)
-    }
-
-    fn response_kind(&self) -> Option<crate::command::response::InquiryKind> {
-        Some(crate::command::response::InquiryKind::TallyGreen)
-    }
-}
-
-impl crate::command::typed::ResponseParser for TallyGreenInquiry {
-    type Response = bool;
-
-    fn from_response(resp: crate::command::Response) -> Result<Self::Response, crate::Error> {
-        match resp {
-            crate::command::Response::Inquiry(crate::command::InquiryData::TallyGreen { on }) => {
-                Ok(on)
-            }
-            crate::command::Response::Error(e) => Err(e),
-            _ => Err(crate::Error::UnexpectedResponseType),
-        }
-    }
-}
 
 /// Inquiry command to get the current flicker mode setting.
 #[derive(ViscaInquiry, Debug, Copy, Clone)]
@@ -1059,35 +859,43 @@ impl crate::command::typed::ResponseParser for TallyGreenInquiry {
     response = "FlickerMode",
     parser = "mode",
     value_type = "AntiFlickerMode",
-    bytes_const = "FLICKER_MODE"
+    bytes_const = "FLICKER_MODE",
+    typed_response = "command::exposure::AntiFlickerMode",
+    typed_field = "mode"
 )]
 pub struct FlickerModeInquiry;
 
 /// Inquiry command to get the current contrast level (image processing).
 ///
 /// Queries register `0x04 0xA2`. The camera responds with a 4-nibble
-/// payload encoding the contrast position (0–14).
+/// payload encoding the contrast position (0-14).
 #[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
     opcode = 0xA2,
     response = "Contrast",
     parser = "last_nibble",
     field = "level",
-    bytes_const = "CONTRAST"
+    bytes_const = "CONTRAST",
+    typed_response = "types::ContrastLevel",
+    typed_field = "level",
+    typed_constructor = "new"
 )]
 pub struct ContrastInquiry;
 
 /// Inquiry command to get the current luminance (brightness) level (image processing).
 ///
 /// Queries register `0x04 0xA1`. The camera responds with a 4-nibble
-/// payload encoding the luminance position (0–14).
+/// payload encoding the luminance position (0-14).
 #[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
     opcode = 0xA1,
     response = "Luminance",
     parser = "last_nibble",
     field = "level",
-    bytes_const = "LUMINANCE_LEVEL"
+    bytes_const = "LUMINANCE_LEVEL",
+    typed_response = "types::LuminanceLevel",
+    typed_field = "level",
+    typed_constructor = "new"
 )]
 pub struct LuminanceInquiry;
 
