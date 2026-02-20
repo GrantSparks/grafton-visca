@@ -184,9 +184,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Critical:** `Zoom::Position` encoding no longer silently truncates values above `0x3FFF` — previously, any zoom value with bit 14 set was masked to zero (e.g., `0x4000` encoded as `0x0000`)
 - Profile-aware zoom normalization now correctly maps to each camera's actual optical/digital zoom range instead of hardcoded global constants
 
-#### PTZOptics G2/G3/30X Capability Range Corrections
-- Brightness range corrected from `0..18` to `0..15`
-- Sharpness range corrected from `0..15` to `0..12`
+#### PTZOptics G2/G3/30X Capability Range Corrections (hardware-validated)
+- Gain range corrected from `0..9` to `0..8` (hardware max is 7; values above are silently clamped)
+- Brightness (Bright Direct) range corrected to `0..18` (hardware max is 17)
+- Sharpness range corrected to `0..16` (hardware accepts 0-15; PTZOptics docs say 0-11 but camera accepts full range)
 - RG/BG tuning range corrected from `-7..8` to `-10..11`
 - Added missing ColorTemperature WB mode and color temp range (2500–8000K)
 - Added missing exposure compensation, RGB gain, and hue support declarations

@@ -74,7 +74,7 @@ Below is the existing curated list kept intact for quick reference, followed by 
     - Reset: `81 01 04 02 00 FF`
     - Up: `81 01 04 02 02 FF`
     - Down: `81 01 04 02 03 FF`
-    - Direct: `81 01 04 42 00 00 0p 0q FF` (pq: 0x00=0 ~ 0x0B=11)
+    - Direct: `81 01 04 42 00 00 0p 0q FF` (pq: 0x00=0 ~ 0x0F=15; docs say 0-11 but hardware accepts 0-15)
 
 - **Exposure**
   - Exposure Mode: `81 01 04 39 0p FF` (p: 0x0=Auto, 0x3=Manual, 0xA=Shutter, 0xB=Iris, 0xD=Bright)
@@ -106,7 +106,7 @@ Below is the existing curated list kept intact for quick reference, followed by 
   - Reset: `81 01 04 0C 00 FF`
   - Up: `81 01 04 0C 02 FF`
   - Down: `81 01 04 0C 03 FF`
-  - Direct: `81 01 04 4C 00 00 0p 0q FF` (pq: 0x00=0 ~ 0x08=8)
+  - Direct: `81 01 04 4C 00 00 0p 0q FF` (pq: 0x00=0 ~ 0x07=7)
   - Gain Limit Direct: `81 01 04 2C 0p FF` (p: 0x0=0 ~ 0xF=15)
   - Anti-Flicker Direct: `81 01 04 23 0p FF` (p: 0x0=Off, 0x1=50Hz, 0x2=60Hz)
 

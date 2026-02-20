@@ -145,7 +145,7 @@ impl Focus for PtzOpticsG2 {
 impl Exposure for PtzOpticsG2 {
     const IRIS_RANGE: std::ops::Range<u16> = 0x00..0x1D;
     const SHUTTER_SPEEDS: &'static [ShutterSpeed] = PTZ_OPTICS_G2_SHUTTER_SPEEDS;
-    const GAIN_RANGE: std::ops::Range<u8> = 0..9;
+    const GAIN_RANGE: std::ops::Range<u8> = 0..8;
     const SUPPORTS_BACKLIGHT_COMP: bool = true;
     const SUPPORTS_EXPOSURE_COMP: bool = true;
     const SUPPORTS_WDR: bool = true;
@@ -162,9 +162,9 @@ impl WhiteBalance for PtzOpticsG2 {
 }
 
 impl ImageProcessing for PtzOpticsG2 {
-    const BRIGHTNESS_RANGE: std::ops::Range<u8> = 0..15;
+    const BRIGHTNESS_RANGE: std::ops::Range<u8> = 0..18;
     const CONTRAST_RANGE: std::ops::Range<u8> = 0..15;
-    const SHARPNESS_RANGE: std::ops::Range<u8> = 0..12;
+    const SHARPNESS_RANGE: std::ops::Range<u8> = 0..16;
     const SATURATION_RANGE: Option<std::ops::Range<u8>> = Some(0..15);
     const SUPPORTS_FLIP: bool = true;
     const SUPPORTS_MIRROR: bool = true;
@@ -813,7 +813,7 @@ impl Focus for PtzOpticsG3 {
 impl Exposure for PtzOpticsG3 {
     const IRIS_RANGE: std::ops::Range<u16> = 0x00..0x1D;
     const SHUTTER_SPEEDS: &'static [ShutterSpeed] = PTZ_OPTICS_G2_SHUTTER_SPEEDS;
-    const GAIN_RANGE: std::ops::Range<u8> = 0..9;
+    const GAIN_RANGE: std::ops::Range<u8> = 0..8;
     const SUPPORTS_BACKLIGHT_COMP: bool = true;
     const SUPPORTS_EXPOSURE_COMP: bool = true;
     const SUPPORTS_WDR: bool = true;
@@ -830,9 +830,9 @@ impl WhiteBalance for PtzOpticsG3 {
 }
 
 impl ImageProcessing for PtzOpticsG3 {
-    const BRIGHTNESS_RANGE: std::ops::Range<u8> = 0..15;
+    const BRIGHTNESS_RANGE: std::ops::Range<u8> = 0..18;
     const CONTRAST_RANGE: std::ops::Range<u8> = 0..15;
-    const SHARPNESS_RANGE: std::ops::Range<u8> = 0..12;
+    const SHARPNESS_RANGE: std::ops::Range<u8> = 0..16;
     const SATURATION_RANGE: Option<std::ops::Range<u8>> = Some(0..15);
     const SUPPORTS_FLIP: bool = true;
     const SUPPORTS_MIRROR: bool = true;
@@ -920,7 +920,7 @@ impl Focus for PtzOptics30X {
 impl Exposure for PtzOptics30X {
     const IRIS_RANGE: std::ops::Range<u16> = 0x00..0x1D;
     const SHUTTER_SPEEDS: &'static [ShutterSpeed] = PTZ_OPTICS_G2_SHUTTER_SPEEDS;
-    const GAIN_RANGE: std::ops::Range<u8> = 0..9;
+    const GAIN_RANGE: std::ops::Range<u8> = 0..8;
     const SUPPORTS_BACKLIGHT_COMP: bool = true;
     const SUPPORTS_EXPOSURE_COMP: bool = true;
     const SUPPORTS_WDR: bool = true;
@@ -937,9 +937,9 @@ impl WhiteBalance for PtzOptics30X {
 }
 
 impl ImageProcessing for PtzOptics30X {
-    const BRIGHTNESS_RANGE: std::ops::Range<u8> = 0..15;
+    const BRIGHTNESS_RANGE: std::ops::Range<u8> = 0..18;
     const CONTRAST_RANGE: std::ops::Range<u8> = 0..15;
-    const SHARPNESS_RANGE: std::ops::Range<u8> = 0..12;
+    const SHARPNESS_RANGE: std::ops::Range<u8> = 0..16;
     const SATURATION_RANGE: Option<std::ops::Range<u8>> = Some(0..15);
     const SUPPORTS_FLIP: bool = true;
     const SUPPORTS_MIRROR: bool = true;

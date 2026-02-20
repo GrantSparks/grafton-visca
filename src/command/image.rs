@@ -811,14 +811,14 @@ mod tests {
     fn test_sharpness_valid_values() {
         use crate::types::SharpnessLevel;
 
-        // Test valid values
-        for value in 0..=11 {
+        // Test valid values (hardware-validated: PTZOptics G2 accepts 0-15)
+        for value in 0..=15 {
             let _cmd = Sharpness::SetLevel { value };
         }
 
         // Test invalid value
-        // SharpnessLevel enforces valid range 0-11, so we can't create value 12
-        let result = SharpnessLevel::new(12);
+        // SharpnessLevel enforces valid range 0-15, so we can't create value 16
+        let result = SharpnessLevel::new(16);
         assert!(result.is_err());
     }
 

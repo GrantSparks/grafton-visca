@@ -308,15 +308,15 @@ Sony's official VISCA command lists (and some third-party docs like Axis) provid
 
 VISCA provides commands for adjusting image processing parameters that affect the camera's internal image pipeline. These are separate from exposure controls (Section 8.3) and are applied in post-processing.
 
-* **Brightness (CAM_Bright, opcode `0xA0`):** Controls the camera's "Bright" level, which adjusts overall image brightness in certain exposure modes. Set via `81 01 04 A0 00 00 0p 0q FF` (pq: brightness position). Inquiry: `81 09 04 A0 FF`. Range varies by model (typically 0x00–0x0E for PTZOptics, 0x00–0x11 for Sony FR7/BRC-H900).
+* **Brightness (CAM_Bright, opcode `0x4D`):** Controls the camera's "Bright" level, which adjusts overall image brightness in Bright exposure mode. Set via `81 01 04 4D 00 00 0p 0q FF` (pq: brightness position). Inquiry: `81 09 04 4D FF`. Range varies by model (0x00–0x11 on PTZOptics G2, hardware-validated; 0x00–0x11 for Sony FR7/BRC-H900). *Note:* Opcode `0xA0` is documented in some sources but returns Syntax Error on PTZOptics G2 hardware.
 
-* **Luminance (opcode `0xA1`):** Controls luminance (brightness curve) of the image output. Set via `81 01 04 A1 00 00 0p 0q FF` (pq: luminance position, 0x00–0x0E on PTZOptics). Inquiry: `81 09 04 A1 FF`. Response: `y0 50 00 00 0p 0q FF`. Supported on PTZOptics G2/G3/30X. *Note:* PTZOptics documentation labels this "Brightness Direct" but it uses a distinct opcode from exposure Bright (`0xA0`).
+* **Luminance (opcode `0xA1`):** Controls luminance (brightness curve) of the image output. Set via `81 01 04 A1 00 00 0p 0q FF` (pq: luminance position, 0x00–0x0E on PTZOptics). Inquiry: `81 09 04 A1 FF`. Response: `y0 50 00 00 0p 0q FF`. Supported on PTZOptics G2/G3/30X. *Note:* PTZOptics documentation labels this "Brightness Direct" but it uses a distinct opcode from exposure Bright (`0x4D`).
 
 * **Contrast (opcode `0xA2`):** Controls the contrast ratio of the image. Set via `81 01 04 A2 00 00 0p 0q FF` (pq: contrast position, 0x00–0x0E on PTZOptics). Inquiry: `81 09 04 A2 FF`. Response: `y0 50 00 00 0p 0q FF`. Supported on PTZOptics G2/G3/30X and Sony models.
 
 * **Gamma (opcode `0x5B`):** Selects the gamma correction curve for the camera's image output. Set via `81 01 04 5B 0p FF` (p: 0=Standard, 1–4=alternate gamma curves). Inquiry: `81 09 04 5B FF`. Response: `y0 50 0p FF`. Hardware-validated on PTZOptics G2 (undocumented in official PTZOptics manual but functional). Also supported on Sony EVI-H100 and similar models.
 
-* **Sharpness (opcode `0x42`):** Controls image edge sharpness. Mode selection via `81 01 04 05 0p FF` (p: 2=Auto, 3=Manual). Direct level set via `81 01 04 42 00 00 0p 0q FF`. Range is model-dependent (0x00–0x0B on PTZOptics, 0x00–0x0F on some Sony models).
+* **Sharpness (opcode `0x42`):** Controls image edge sharpness. Mode selection via `81 01 04 05 0p FF` (p: 2=Auto, 3=Manual). Direct level set via `81 01 04 42 00 00 0p 0q FF`. Range is model-dependent (0x00–0x0F on PTZOptics G2, hardware-validated; PTZOptics docs say 0x00–0x0B but camera accepts full range).
 
 Other image processing parameters (saturation, hue, noise reduction) are also available but vary more significantly across models — see Section 9 for model-specific details.
 
@@ -552,8 +552,8 @@ Image,Sharpness Auto,81 01 04 05 02 FF,6,Yes,Yes,Yes,
 Image,Sharpness Manual,81 01 04 05 03 FF,6,Yes,Yes,Yes,
 Image,Sharpness Direct,81 01 04 42 00 00 0p 0q FF,10,Yes,Yes,Yes,pq: level
 Image,Sharpness Inq,81 09 04 42 FF,5,Yes,Yes,Yes,Reply 90 50 00 00 0p 0q FF
-Image,Brightness Direct,81 01 04 A0 00 00 0p 0q FF,10,Yes,Yes,No,pq: brightness (PTZOptics only in Bright mode)
-Image,Brightness Inq,81 09 04 A0 FF,5,Yes,Yes,No,Reply 90 50 00 00 0p 0q FF
+Image,Defog Direct,81 01 04 A0 00 00 0p 0q FF,10,Yes,No,No,Sony only; returns Syntax Error on PTZOptics G2 (hardware-validated)
+Image,Defog Inq,81 09 04 A0 FF,5,Yes,No,No,Sony only; Reply 90 50 00 00 0p 0q FF
 Image,Luminance Direct,81 01 04 A1 00 00 0p 0q FF,10,No,Yes,No,pq: 0x00–0x0E (PTZOptics)
 Image,Luminance Inq,81 09 04 A1 FF,5,No,Yes,No,Reply 90 50 00 00 0p 0q FF
 Image,Contrast Direct,81 01 04 A2 00 00 0p 0q FF,10,Yes,Yes,Yes,pq: 0x00–0x0E
