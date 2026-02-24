@@ -587,8 +587,8 @@ impl ViscaCameraSimulator {
                 ])
             }
 
-            // Image flip inquiry: 0x81 0x09 0x04 0x66 0xFF
-            (Some(0x04), Some(0x66)) => {
+            // Combined flip inquiry (CAM_FlipInq): 0x81 0x09 0x04 0xA4 0xFF
+            (Some(0x04), Some(0xA4)) => {
                 let flip_mode = match (state.image_flip_vertical, state.image_flip_horizontal) {
                     (false, false) => 0x00, // Off
                     (false, true) => 0x01,  // Horizontal

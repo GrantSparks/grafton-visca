@@ -205,12 +205,8 @@ fn test_all_inquiries_succeed() {
     check!("gamma", camera.gamma());
     check!("contrast", camera.contrast());
     check!("luminance", camera.luminance());
-    // flip_mode (0x65) is not a PTZOptics command — PTZOptics uses CAM_FlipInq (0xA4) instead
-    check_known_mismatch!(
-        "flip_mode",
-        camera.flip_mode(),
-        "opcode 0x65 not supported; PTZOptics uses CAM_FlipInq at 0xA4"
-    );
+    // flip_mode now uses CAM_FlipInq (0xA4) — should work correctly on PTZOptics
+    check!("flip_mode", camera.flip_mode());
 
     // System
     check!("power_state", camera.power_state());

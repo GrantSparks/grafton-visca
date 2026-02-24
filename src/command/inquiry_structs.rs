@@ -281,10 +281,21 @@ pub struct GainLimitInquiry;
 )]
 pub struct BacklightInquiry;
 
-/// Inquiry command to get the image flip (mirror/reverse) settings.
+/// Inquiry command to get the combined flip state (horizontal + vertical).
+///
+/// Uses CAM_FlipInq (opcode 0xA4) which returns the combined flip mode:
+/// 0x00=Off, 0x01=Horizontal, 0x02=Vertical, 0x03=Both.
+///
+/// This matches the write command (CAM_Flip, also opcode 0xA4) ensuring
+/// consistent read/write behavior. The bit decomposition in the response
+/// parser correctly maps: bit 0 = horizontal, bit 1 = vertical.
+///
+/// NOTE: The legacy CAM_PictureFlipInq (opcode 0x66) returns a VISCA boolean
+/// (0x02=On, 0x03=Off) for vertical flip only and MUST NOT be used with the
+/// flags parser, as 0x03 ("Off") would be misinterpreted as {h:true, v:true}.
 #[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
-    opcode = 0x66,
+    opcode = 0xA4,
     response = "FlipState",
     parser = "flags",
     bytes_const = "IMAGE_FLIP",
@@ -480,9 +491,13 @@ pub struct NdFilterInquiry;
 pub struct PictureEffectInquiry;
 
 /// Inquiry command to get the current flip mode (combined horizontal/vertical).
+///
+/// Uses CAM_FlipInq (opcode 0xA4) — same as `ImageFlipInquiry`.
+/// Previously used undocumented opcode 0x65 which is not present in
+/// the PTZOptics VISCA command reference.
 #[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(
-    opcode = 0x65,
+    opcode = 0xA4,
     response = "FlipState",
     parser = "flags",
     bytes_const = "FLIP_MODE",

@@ -368,8 +368,11 @@ pub mod inquiry {
     /// Picture effect mode inquiry.
     pub const PICTURE_EFFECT: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x32];
 
-    /// Flip mode inquiry.
-    pub const FLIP_MODE: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x65];
+    /// Flip mode inquiry (combined horizontal/vertical via CAM_FlipInq).
+    ///
+    /// Previously used undocumented opcode 0x65. Now uses 0xA4 (same as IMAGE_FLIP)
+    /// to match the PTZOptics VISCA command reference.
+    pub const FLIP_MODE: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0xA4];
 
     /// Standby mode inquiry.
     pub const STANDBY: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x70];
@@ -493,8 +496,14 @@ pub mod inquiry {
     /// Inquiry command to get the current hue adjustment value.
     pub const HUE: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x4F];
 
-    /// Inquiry command to get the image flip (mirror/reverse) settings.
-    pub const IMAGE_FLIP: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x66];
+    /// Inquiry command to get the combined flip state (horizontal + vertical).
+    ///
+    /// Uses CAM_FlipInq (opcode 0xA4) which returns 0x00=Off, 0x01=H, 0x02=V, 0x03=HV.
+    /// This matches the write command (CAM_Flip, also opcode 0xA4).
+    ///
+    /// NOTE: The legacy CAM_PictureFlipInq (opcode 0x66) returns a VISCA boolean
+    /// (0x02=On, 0x03=Off) for vertical flip only — it cannot be parsed as a bitfield.
+    pub const IMAGE_FLIP: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0xA4];
 
     /// Inquiry command to get the current iris position value.
     pub const IRIS: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x4B];
