@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.11.0] - 2026-02-20
+## [0.11.0] - 2026-02-28
 
 ### Breaking Changes
 
@@ -77,7 +77,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - New `tests/hardware_inquiry_test.rs` for validating VISCA inquiries against a real PTZOptics G2 camera
 - Tests are `#[ignore]` by default — run with `VISCA_CAMERA_IP=192.168.0.110 cargo test --test hardware_inquiry_test -- --ignored --nocapture --test-threads=1`
 - Comprehensive `test_all_inquiries_succeed` test categorizes results as OK, KNOWN_MISMATCH (parser bug), or FAIL (unexpected)
-- Hardware validation confirmed 23/28 inquiries parse correctly; 5 have known response format mismatches (red_gain, blue_gain, color_temperature, flip_mode, version)
+- Hardware validation confirmed 24/28 inquiries parse correctly; 4 have known response format mismatches (red_gain, blue_gain, color_temperature, version)
 - These parser mismatches are library-side bugs — the camera responds to all commands
 
 #### New PTZOptics Commands
@@ -192,6 +192,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added missing ColorTemperature WB mode and color temp range (2500–8000K)
 - Added missing exposure compensation, RGB gain, and hue support declarations
 - G2 `MAX_PRESETS` corrected from 89 to 127
+
+#### Flip Inquiry Opcode Correction
+- `ImageFlipInquiry` corrected from opcode `0x66` (`CAM_PictureFlipInq`, vertical-only boolean) to `0xA4` (`CAM_FlipInq`, combined bitfield)
+- `FlipStateInquiry` corrected from undocumented opcode `0x65` to `0xA4`
+- Previously, `0x66` returned `0x03` (flip OFF) which the flags parser misinterpreted as `{horizontal: true, vertical: true}`
+- `0xA4` returns a `0x00`–`0x03` bitfield matching the `CAM_Flip` write command, ensuring consistent read/write behavior
 
 #### Scheduler ACK-Timeout Retry (#497)
 - Commands that timed out waiting for ACK now transition to `Queued` phase before retry, preventing late ACKs from matching timed-out commands and eliminating duplicate command sends
