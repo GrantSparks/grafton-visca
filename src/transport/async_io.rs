@@ -69,6 +69,9 @@ pub struct TcpConnectionConfig {
     pub ttl: Option<u32>,
     /// Connection timeout duration
     pub connect_timeout: std::time::Duration,
+    /// TCP keepalive interval. When set, enables OS-level TCP keepalive probes
+    /// at the specified interval to prevent camera-side idle timeout.
+    pub keepalive: Option<std::time::Duration>,
 }
 
 impl Default for TcpConnectionConfig {
@@ -77,6 +80,7 @@ impl Default for TcpConnectionConfig {
             nodelay: Some(true), // Default to low latency
             ttl: None,
             connect_timeout: std::time::Duration::from_secs(5),
+            keepalive: None,
         }
     }
 }
@@ -87,6 +91,7 @@ impl From<TransportConfig> for TcpConnectionConfig {
             nodelay: config.tcp_nodelay,
             ttl: config.ttl,
             connect_timeout: config.connect_timeout,
+            keepalive: config.keepalive,
         }
     }
 }

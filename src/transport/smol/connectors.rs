@@ -76,6 +76,13 @@ pub async fn connect_tcp(
         stream.set_ttl(ttl)?;
     }
 
+    // Note: TCP keepalive is supported on the tokio transport via socket2.
+    // smol TcpStream does not expose AsFd, so keepalive must be configured
+    // before handing off to smol if needed.
+    if config.keepalive.is_some() {
+        tracing::debug!("TCP keepalive requested but not supported on smol transport");
+    }
+
     Ok(SmolTcpStream::new(stream))
 }
 

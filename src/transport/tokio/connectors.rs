@@ -105,6 +105,17 @@ pub async fn connect_tcp(
         stream.set_ttl(ttl)?;
     }
 
+    // Enable TCP keepalive to prevent camera-side idle timeout
+    if let Some(interval) = config.keepalive {
+        let sock_ref = socket2::SockRef::from(&stream);
+        let ka = socket2::TcpKeepalive::new()
+            .with_time(interval)
+            .with_interval(interval);
+        if let Err(e) = sock_ref.set_tcp_keepalive(&ka) {
+            tracing::warn!("Failed to set TCP keepalive: {e}");
+        }
+    }
+
     // Split and wrap
     let (read_half, write_half) = stream.into_split();
 

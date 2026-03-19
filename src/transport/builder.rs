@@ -86,6 +86,9 @@ pub struct TransportConfig {
     pub tcp_nodelay: Option<bool>,
     /// TTL (Time To Live) for packets.
     pub ttl: Option<u32>,
+    /// TCP keepalive interval. When set, enables OS-level TCP keepalive probes
+    /// to prevent camera-side idle timeout on long-lived connections.
+    pub keepalive: Option<Duration>,
     /// Maximum pending queue depth for runtime admission control and backpressure.
     ///
     /// This value provides a **hard memory/backpressure guarantee** by bounding:
@@ -117,6 +120,7 @@ impl Default for TransportConfig {
             addressing: AddressingMode::default(),
             tcp_nodelay: None,
             ttl: None,
+            keepalive: Some(Duration::from_secs(30)),
             max_pending_queue_depth: DEFAULT_MAX_PENDING_QUEUE_DEPTH_NONZERO,
         }
     }

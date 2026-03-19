@@ -72,6 +72,13 @@ pub async fn connect_tcp(
         stream.set_ttl(ttl)?;
     }
 
+    // Note: TCP keepalive is supported on the tokio transport via socket2.
+    // async_std::net::TcpStream does not implement AsFd, so keepalive
+    // must be configured before handing off to async_std if needed.
+    if config.keepalive.is_some() {
+        tracing::debug!("TCP keepalive requested but not supported on async_std transport");
+    }
+
     Ok(AsyncStdTcpStream::new(stream))
 }
 
