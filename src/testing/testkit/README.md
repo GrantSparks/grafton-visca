@@ -39,7 +39,7 @@ Use real runtime executors (Tokio, async-std, smol) for:
 
 Example:
 ```rust
-#[cfg(feature = "rt-tokio")]
+#[cfg(feature = "runtime-tokio")]
 #[tokio::test]
 async fn test_timeout_behavior() {
     use grafton_visca::TokioExecutor;

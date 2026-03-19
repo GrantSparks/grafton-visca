@@ -234,33 +234,29 @@
 //! }
 //! ```
 //!
-//! ### Runtime Coexistence Example
+//! ### Explicit Runtime Selection Example
 //! ```ignore
-//! // Multiple runtimes can coexist! Priority: tokio → async-std → smol
+//! // Multiple runtime features can coexist, but runtime selection is explicit.
 //! [dependencies]
 //! grafton-visca = { version = "*", features = ["runtime-tokio", "runtime-async-std"] }
 //!
 //! use grafton_visca::{
 //!     CameraBuilder, Error,
 //!     camera::profiles::PtzOpticsG2,
-//!     transport::Transport,
-//!     PowerControl, ZoomControl,
+//!     runtime::AsyncStdRuntime,
+//!     runtime_adapters::async_std::TcpTransport,
 //! };
 //!
 //! #[async_std::main]
 //! async fn main() -> Result<(), Error> {
-//!     // Same Transport API - runtime auto-selected based on priority
-//!     let transport = Transport::tcp()
-//!         .address("192.168.0.110:5678")
-//!         .connect()  // Uses tokio if available, async-std otherwise
-//!         .await?;
-//!     use grafton_visca::runtime::{AsyncStdRuntime, Runtime};
+//!     let transport = TcpTransport::connect("192.168.0.110:5678").await?;
 //!     let runtime = AsyncStdRuntime::new();
 //!     let camera = CameraBuilder::with_executor(runtime)
-//!         .open_async::<PtzOpticsG2, _>(transport)
+//!         .from_transport(transport)
+//!         .profile::<PtzOpticsG2>()
+//!         .open_async()
 //!         .await?;
 //!
-//!     // Use accessor-style API across all runtimes
 //!     camera.power().on().await?;
 //!     camera.zoom().tele().await?;
 //!
@@ -268,29 +264,22 @@
 //! }
 //! ```
 //!
-//! ### Unified Trait Usage Example
+//! ### Connect Helper Example
 //! ```ignore
 //! use grafton_visca::{
-//!     CameraBuilder, Error,
-//!     camera::profiles::PtzOpticsG2,
-//!     transport::Transport,
-//!     PowerControl, ZoomControl, PanTiltControl,
+//!     Error,
+//!     camera::{Connect, profiles::PtzOpticsG2},
+//!     runtime::SmolRuntime,
 //! };
 //!
 //! fn main() -> Result<(), Error> {
 //!     smol::block_on(async {
-//!         // Same unified Transport API works across all runtimes
-//!         let transport = Transport::tcp()
-//!             .address("192.168.0.110:5678")
-//!             .connect()  // Runtime auto-selected based on enabled features
-//!             .await?;
-//!         use grafton_visca::runtime::{Runtime, SmolRuntime};
-//!         let runtime = SmolRuntime::new();
-//!         let camera = CameraBuilder::with_executor(runtime)
-//!             .open_async::<PtzOpticsG2, _>(transport)
-//!             .await?;
+//!         let camera = Connect::open_tcp_async::<PtzOpticsG2, _>(
+//!             "192.168.0.110:5678",
+//!             SmolRuntime::new(),
+//!         )
+//!         .await?;
 //!
-//!         // Use accessor-style API consistently across runtimes
 //!         camera.power().on().await?;
 //!         camera.pan_tilt().home().await?;
 //!         camera.zoom().tele().await?;
@@ -365,7 +354,8 @@
 //! Example transport implementations are demonstrated in:
 //! - `examples/quickstart.rs` - TCP/IP transport with blocking API
 //! - `examples/quickstart_async.rs` - TCP/IP transport with async API
-//! - `examples-advanced/transports.rs` - Custom and advanced transport examples
+//! - `examples/transports.rs` - Protocol and transport comparisons
+//! - `examples/transport_builder_demo.rs` - Transport configuration patterns
 //!
 //! ## Async Support
 //!
@@ -427,94 +417,95 @@
 //! grafton-visca = { version = "*", features = ["runtime-tokio", "runtime-smol", "runtime-async-std"] }
 //! ```
 //!
-//! Then use the corresponding `CameraBuilder` method:
+//! Then pass the runtime explicitly, either through `Connect` for quick setup or
+//! `CameraBuilder::with_executor(...)` for advanced BYO-transport flows:
 //!
 //! ```ignore
 //! // Tokio
-//! use grafton_visca::runtime::{Runtime, TokioRuntime};
+//! use grafton_visca::{camera::{Connect, profiles::PtzOpticsG2}, runtime::TokioRuntime};
 //! let runtime = TokioRuntime::from_current()?;
-//! let camera = CameraBuilder::with_executor(runtime)
-//!     .open_async::<PtzOpticsG2, _>(transport)
-//!     .await?;
+//! let camera = Connect::open_tcp_async::<PtzOpticsG2, _>("192.168.0.110", runtime).await?;
 //!
 //! // async-std
-//! use grafton_visca::runtime::{AsyncStdRuntime, Runtime};
+//! use grafton_visca::{camera::{Connect, profiles::PtzOpticsG2}, runtime::AsyncStdRuntime};
 //! let runtime = AsyncStdRuntime::new();
-//! let camera = CameraBuilder::with_executor(runtime)
-//!     .open_async::<PtzOpticsG2, _>(transport)
-//!     .await?;
+//! let camera = Connect::open_tcp_async::<PtzOpticsG2, _>("192.168.0.110", runtime).await?;
 //!
 //! // smol
-//! use grafton_visca::runtime::{Runtime, SmolRuntime};
+//! use grafton_visca::{camera::{Connect, profiles::PtzOpticsG2}, runtime::SmolRuntime};
 //! let runtime = SmolRuntime::new();
-//! let camera = CameraBuilder::with_executor(runtime)
-//!     .open_async::<PtzOpticsG2, _>(transport)
-//!     .await?;
+//! let camera = Connect::open_tcp_async::<PtzOpticsG2, _>("192.168.0.110", runtime).await?;
 //! ```
 //!
 //! #### Option 2: Provide your own runtime (Advanced)
 //!
-//! For complete runtime independence, use the unified Executor trait:
+//! For complete runtime independence, implement `Executor` and attach your own
+//! async transport with `CameraBuilder::from_transport(...)`:
 //!
 //! ```ignore
 //! use grafton_visca::{
-//!     Camera, CameraBuilder, Executor,
-//!     prelude::r#async::*,
+//!     CameraBuilder, Error, ExecError, Executor,
+//!     camera::profiles::PtzOpticsG2,
 //! };
-//! use std::{pin::Pin, time::Duration, future::Future};
+//! use std::{future::Future, pin::Pin, time::Duration};
 //!
-//! // Example: Custom executor implementation for async-std
 //! #[derive(Debug, Clone)]
-//! struct AsyncStdExecutor;
+//! struct MyExecutor;
 //!
-//! impl Executor for AsyncStdExecutor {
+//! impl Executor for MyExecutor {
 //!     type Join<T> = Pin<Box<dyn Future<Output = Result<T, ExecError>> + Send + 'static>>
 //!     where T: Send + 'static;
 //!
-//!     fn spawn<F>(&self, fut: F) -> Self::Join<F::Output>
+//!     type Detach = ();
+//!
+//!     fn spawn_with_detach<F>(&self, fut: F) -> (Self::Join<F::Output>, Self::Detach)
 //!     where
 //!         F: Future + Send + 'static,
 //!         F::Output: Send + 'static,
 //!     {
-//!         // Implementation using async-std
-//!         // ...
+//!         // Spawn on your runtime here
 //!     }
 //!
 //!     fn block_on<F: Future>(&self, fut: F) -> F::Output {
-//!         async_std::task::block_on(fut)
+//!         todo!()
 //!     }
 //!
-//!     fn sleep(&self, duration: Duration) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
-//!         Box::pin(async_std::task::sleep(duration))
+//!     fn sleep(&self, duration: Duration) -> impl Future<Output = ()> + Send + '_ {
+//!         async move {
+//!             let _ = duration;
+//!         }
 //!     }
 //!
 //!     fn timeout<'a, F, T>(
 //!         &'a self,
 //!         duration: Duration,
 //!         fut: F,
-//!     ) -> Pin<Box<dyn Future<Output = Result<T, Error>> + Send + 'a>>
+//!     ) -> impl Future<Output = Result<T, Error>> + Send + 'a
 //!     where
 //!         F: Future<Output = T> + Send + 'a,
 //!         T: Send + 'a,
 //!     {
-//!         // Implementation using async-std timeout
-//!         // ...
+//!         async move {
+//!             let _ = duration;
+//!             Ok(fut.await)
+//!         }
 //!     }
 //! }
 //!
-//! #[async_std::main]
 //! async fn main() -> Result<(), Error> {
-//!     // Create camera with custom executor
-//!     let executor = AsyncStdExecutor;
-//!     let camera = CameraBuilder::with_executor(executor)
-//!         .open_async::<PtzOpticsG2, _>(transport)?;
+//!     let transport = MyAsyncTransport::connect("192.168.0.110:5678").await?;
+//!     let camera = CameraBuilder::with_executor(MyExecutor)
+//!         .from_transport(transport)
+//!         .profile::<PtzOpticsG2>()
+//!         .open_async()
+//!         .await?;
 //!
-//!     // All async operations now use async-std
-//!     camera.power_on().await?;
-//!     camera.zoom_in().await?;
+//!     camera.power().on().await?;
 //!     Ok(())
 //! }
 //! ```
+//!
+//! See `examples/runtime_agnostic.rs` for a complete end-to-end example.
 //!
 //! ### Common Runtime Errors and Solutions
 //!
@@ -596,7 +587,7 @@
 //!     .preset_operations(Duration::from_secs(60))
 //!     .open();
 //!
-//! // For async mode (default)
+//! // For async mode
 //! use grafton_visca::runtime::{Runtime, TokioRuntime};
 //! let runtime = TokioRuntime::from_current()?;
 //! let camera = CameraBuilder::with_executor(runtime)

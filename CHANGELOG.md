@@ -30,6 +30,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+#### Documentation Alignment
+- Refreshed README, examples guide, contributor guide, and crate/module docs to match the current feature names and explicit runtime-selection model
+- Updated transport-configuration guidance to use `CameraConfig`, `TransportConfig`, and the current `CameraBuilder::with_executor(...).from_transport(...)` flow
+
 #### PTZOptics Sharpness Range Validation
 - PTZOptics G2, G3, and 30X sharpness validation now consistently accepts `0x00..=0x0F` in the model-aware constructors and validators
 - Added regression coverage for accepted `0x0F` and rejected `0x10` sharpness levels

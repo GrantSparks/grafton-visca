@@ -14,7 +14,7 @@
 //!
 //! Run with:
 //! ```sh
-//! cargo run --example runtime_agnostic --features async
+//! cargo run --example runtime_agnostic --features mode-async
 //! cargo run --example runtime_agnostic --features runtime-tokio
 //! ```
 
@@ -212,13 +212,13 @@ fn main() {
     println!("let transport = MyCustomTransport::new();");
     println!();
     println!("// Create your executor");
-    println!("let executor = MyCustomExecutor::new();");
+    println!("let executor = MyCustomExecutor;");
     println!();
     println!("// Build the camera with your components");
-    println!("let camera = CameraBuilder::with_transport(transport)");
-    println!("    .executor(executor)");
+    println!("let camera = CameraBuilder::with_executor(executor)");
+    println!("    .from_transport(transport)");
     println!("    .profile::<PtzOpticsG2>()");
-    println!("    .open()");
+    println!("    .open_async()");
     println!("    .await?;");
     println!();
     println!("// Use the camera - all async operations use YOUR runtime!");
@@ -235,7 +235,7 @@ fn main() {
     println!("\n💡 Tips:");
     println!("- Start with a provided executor (runtime-tokio) to test");
     println!("- Look at TokioExecutor source for implementation example");
-    println!("- The spawn() method is used for background tasks");
+    println!("- The spawn_with_detach() method is used for background tasks");
     println!("- The timeout() method is critical for camera operations");
 
     // Show that we can reference the executor
@@ -246,7 +246,7 @@ fn main() {
 
 #[cfg(not(feature = "mode-async"))]
 fn main() {
-    eprintln!("This example requires the 'async' feature to be enabled.");
-    eprintln!("Run with: cargo run --example runtime_agnostic --features async");
+    eprintln!("This example requires the 'mode-async' feature to be enabled.");
+    eprintln!("Run with: cargo run --example runtime_agnostic --features mode-async");
     std::process::exit(1);
 }

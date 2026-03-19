@@ -3,25 +3,34 @@
 //! This module provides a unified builder API for creating and configuring
 //! all transport types with a consistent interface.
 //!
-//! ## New Uniform API
+//! ## Blocking Transport Builder
 //!
-//! The library now provides a unified async transport API that automatically
-//! selects the appropriate runtime implementation based on enabled features:
+//! `Transport` and `NetTransportBuilder` are the blocking transport-construction
+//! entry points. For async mode, use either:
+//! - `CameraConfig::transport_config(...)` for high-level configuration, or
+//! - runtime-specific transports plus `CameraBuilder::from_transport(...)` for
+//!   advanced BYO-transport flows.
 //!
 //! ```rust,no_run
 //! # #[cfg(feature = "runtime-tokio")]
-//! use grafton_visca::camera::{Camera, Connect, CameraConfig, profiles::GenericVisca};
+//! use grafton_visca::camera::{CameraConfig, profiles::GenericVisca};
 //! # #[cfg(feature = "runtime-tokio")]
 //! use grafton_visca::runtime::TokioRuntime;
+//! # #[cfg(feature = "runtime-tokio")]
+//! use grafton_visca::transport::TransportConfig;
+//! # #[cfg(feature = "runtime-tokio")]
+//! use std::time::Duration;
 //!
 //! # #[cfg(feature = "runtime-tokio")]
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! // New session-centric API with convenience methods
 //! let runtime = TokioRuntime::from_current()?;
-//! let session = Connect::open_tcp_async::<GenericVisca, _>(
-//!     "192.168.0.110:5678",
-//!     runtime
-//! ).await?;
+//! let config = CameraConfig::<GenericVisca>::new()
+//!     .address("192.168.0.110:5678")
+//!     .transport_config(TransportConfig {
+//!         tcp_keepalive: Some(Duration::from_secs(30)),
+//!         ..TransportConfig::default()
+//!     });
+//! let _camera = config.open_async(runtime).await?;
 //! # Ok(())
 //! # }
 //! ```

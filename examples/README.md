@@ -1,21 +1,22 @@
 # grafton-visca Examples
 
-This directory contains comprehensive examples demonstrating how to use the grafton-visca library for controlling VISCA-compatible PTZ cameras.
+This directory contains working examples for the current `grafton-visca` API surface.
 
-Preferred usage: Use the high-level Camera API wherever possible.
-- Build cameras via `CameraBuilder` and a concrete profile.
-- Call methods from `camera::controls` (power, pan_tilt, zoom, focus, exposure, presets, inquiry).
-- Avoid sending raw VISCA bytes directly in applications; that is reserved for advanced demos.
+Preferred usage:
+- Use `Connect` or `CameraConfig` for high-level application code.
+- Use `CameraBuilder::with_executor(...).from_transport(...)` only when you need custom async transport wiring.
+- Treat raw transport and protocol examples as advanced integration/reference material.
 
 ## Important: Feature Flags
 
 This library uses feature flags to control dependencies:
-- **No features** (default): Blocking API only, zero async dependencies
-- **`async`**: Runtime-agnostic async support (requires executor)
-- **`rt-tokio`**: Tokio runtime integration (includes async)
-- **`rt-async-std`**: async-std runtime integration (includes async)
-- **`rt-smol`**: smol runtime integration (includes async)
-- **`serial`**: Serial port support for RS-232/RS-422 (partial implementation)
+- **No features** (default): Blocking API only
+- **`mode-async`**: Runtime-agnostic async API; provide your own executor/runtime integration
+- **`runtime-tokio`**: Built-in Tokio runtime support (implies `mode-async`)
+- **`runtime-async-std`**: Built-in async-std runtime support (implies `mode-async`)
+- **`runtime-smol`**: Built-in smol runtime support (implies `mode-async`)
+- **`transport-serial`**: Blocking serial (RS-232/RS-422)
+- **`transport-serial-tokio`**: Tokio serial transport (implies `runtime-tokio`)
 - **`test-utils`**: Testing utilities (not for production)
 
 ## Getting Started
@@ -23,31 +24,37 @@ This library uses feature flags to control dependencies:
 If you're new to the library, start with these examples in order:
 
 1. **[quickstart.rs](quickstart.rs)** - Blocking example using high-level methods (preferred)
-2. **[quickstart_async.rs](quickstart_async.rs)** - Async example using high-level methods (preferred)
-3. **[error_handling.rs](error_handling.rs)** - Learn proper error handling patterns
+2. **[inquiry_quickstart.rs](inquiry_quickstart.rs)** - Blocking inquiry flow with the current accessor API
+3. **[quickstart_async.rs](quickstart_async.rs)** - Async example using the current runtime-specific features
+4. **[transport_builder_demo.rs](transport_builder_demo.rs)** - Transport configuration and builder terminology
 
 ## Examples by Category
 
 ### Basic Usage
 - **[quickstart.rs](quickstart.rs)** - Blocking example covering movement, presets, and imaging (high-level)
-- **[quickstart_async.rs](quickstart_async.rs)** - Async version with concurrent operations and state management (high-level)
-- **[runtime_agnostic.rs](runtime_agnostic.rs)** - Works with any async runtime (smol, async-std, etc.)
-
-### Camera Control
-- **[camera_inquiry.rs](camera_inquiry.rs)** - Query and read camera state, positions, and settings
+- **[quickstart_async.rs](quickstart_async.rs)** - Async version for Tokio, async-std, or smol
+- **[inquiry_quickstart.rs](inquiry_quickstart.rs)** - High-level inquiry accessors and typed responses
 - **[preset_demo.rs](preset_demo.rs)** - Working with preset positions
-- **[type_safe_commands.rs](type_safe_commands.rs)** - Demonstrates compile-time type safety with profiles
+- **[type_safe_commands.rs](type_safe_commands.rs)** - Compile-time profile and capability safety
 
-### Connection & Transport
-- **[transports.rs](transports.rs)** - Compare TCP vs UDP transports, configuration options
-- **[builder_api.rs](builder_api.rs)** - Explore all CameraBuilder patterns and options
+### Connection, Transport, and Configuration
+- **[transports.rs](transports.rs)** - Compare TCP vs UDP transports and connection behavior
+- **[transport_builder_demo.rs](transport_builder_demo.rs)** - Blocking transport builder API and async transport-config guidance
+- **[builder_api.rs](builder_api.rs)** - Explore `CameraBuilder` flows for blocking and async cameras
 - **[sony_encapsulation.rs](sony_encapsulation.rs)** - Sony encapsulated protocol with 8-byte header (advanced)
+- **[serial_async_demo.rs](serial_async_demo.rs)** - Tokio serial transport setup
 
 ### Advanced Patterns
-- **[concurrent_control.rs](concurrent_control.rs)** - Thread-safe operations from multiple threads
+- **[runtime_agnostic.rs](runtime_agnostic.rs)** - Bring your own executor and async transport
+- **[runtime_demo.rs](runtime_demo.rs)** - Runtime integration details and lower-level flows
+- **[runtime_demo_lowlevel.rs](runtime_demo_lowlevel.rs)** - Lower-level runtime plumbing
+- **[concurrent_control.rs](concurrent_control.rs)** - Concurrent async control patterns
 - **[error_handling.rs](error_handling.rs)** - Comprehensive error handling and recovery strategies
-- **[runtime_demo.rs](runtime_demo.rs)** - Runtime internals and low-level flows (advanced)
-- **[inquiry_demo.rs](inquiry_demo.rs)** - Camera state queries using high-level inquiry methods
+
+### Validation and Reference
+- **[typed_inquiry_demo.rs](typed_inquiry_demo.rs)** - Typed inquiry API walkthrough
+- **[validate_inquiries.rs](validate_inquiries.rs)** - Inquiry validation/reference tool
+- **[validate_ae_commands.rs](validate_ae_commands.rs)** - Auto-exposure command validation/reference tool
 
 ## Running Examples
 
@@ -55,34 +62,35 @@ If you're new to the library, start with these examples in order:
 
 1. Ensure you have a VISCA-compatible camera connected to your network
 2. Update the IP address in the examples to match your camera (default: `192.168.0.110`)
-3. Verify the port number - defaults vary by camera model:
+3. Verify the port number; defaults vary by camera model:
    - PTZOptics cameras: TCP port `5678`, UDP port `1259`
    - Sony cameras: TCP port `52381`, UDP port `52381`
-   - The CameraBuilder will use appropriate defaults based on the profile you select
+   - The selected profile will provide the default port when you omit it
 
 ### Basic Execution
 
 Run blocking examples:
 ```bash
 cargo run --example quickstart
+cargo run --example inquiry_quickstart
 cargo run --example preset_demo
 cargo run --example transports
 cargo run --example type_safe_commands
+cargo run --example transport_builder_demo
 ```
 
-Run async examples (requires rt-tokio feature):
+Run async examples:
 ```bash
-cargo run --example quickstart_async --features rt-tokio
-cargo run --example camera_inquiry --features rt-tokio
-cargo run --example concurrent_control --features rt-tokio
-cargo run --example error_handling --features rt-tokio
-cargo run --example builder_api --features rt-tokio
-cargo run --example sony_encapsulation --features rt-tokio
-cargo run --example inquiry_demo --features rt-tokio
-cargo run --example runtime_demo --features rt-tokio
+cargo run --example quickstart_async --features runtime-tokio
+cargo run --example builder_api --features runtime-tokio
+cargo run --example concurrent_control --features runtime-tokio
+cargo run --example error_handling --features runtime-tokio
+cargo run --example runtime_demo --features runtime-tokio
+cargo run --example sony_encapsulation --features runtime-tokio
+cargo run --example serial_async_demo --features runtime-tokio,transport-serial-tokio
 
 # Runtime-agnostic async example
-cargo run --example runtime_agnostic --features async
+cargo run --example runtime_agnostic --features mode-async
 ```
 
 ### With Logging
@@ -90,7 +98,7 @@ cargo run --example runtime_agnostic --features async
 Enable debug logging to see VISCA commands and responses:
 ```bash
 RUST_LOG=debug cargo run --example quickstart
-RUST_LOG=grafton_visca=debug cargo run --example quickstart_async --features rt-tokio
+RUST_LOG=grafton_visca=debug cargo run --example quickstart_async --features runtime-tokio
 ```
 
 ## Camera Profiles
@@ -107,61 +115,26 @@ The examples use different camera profiles to demonstrate compile-time type safe
 
 Profiles enable compile-time validation of camera capabilities. Commands not supported by a profile won't compile, preventing runtime errors.
 
-## Common Patterns
+## Current API Shape
 
-### Connection Setup
 ```rust
-use grafton_visca::{Camera, camera::BlockingMode};
-use grafton_visca::transport::blocking::tcp::Tcp;
-use grafton_visca::camera::profiles::PtzOpticsG2;
+use grafton_visca::camera::{CameraConfig, Connect};
+use grafton_visca::profiles::PtzOpticsG2;
+use grafton_visca::runtime::TokioRuntime;
+use grafton_visca::transport::TransportConfig;
+use std::time::Duration;
 
-// Blocking TCP
-let transport = Tcp::connect("192.168.0.110:5678")?;
-let cam = Camera::<BlockingMode, PtzOpticsG2, _, _>::new(transport);
+let _blocking = Connect::open_tcp_blocking::<PtzOpticsG2>("192.168.0.110")?;
 
-// Async TCP with Tokio runtime
-use grafton_visca::{CameraBuilder, transport::tokio::tcp::Tcp as TokioTcp};
-
-let transport = TokioTcp::connect("192.168.0.110:5678").await?;
-let cam = CameraBuilder::tokio()?
-    .build_async::<PtzOpticsG2, _>(transport)
+let runtime = TokioRuntime::from_current()?;
+let _async_camera = CameraConfig::<PtzOpticsG2>::new()
+    .address("192.168.0.110")
+    .transport_config(TransportConfig {
+        tcp_keepalive: Some(Duration::from_secs(30)),
+        ..TransportConfig::default()
+    })
+    .open_async(runtime)
     .await?;
-
-// Runtime-agnostic async (bring your own executor)
-use grafton_visca::runtime::executor::Executor;
-
-let executor = YourExecutor::new();
-let transport = your_async_transport().await?;
-let cam = CameraBuilder::with_executor(executor)
-    .build_async::<PtzOpticsG2, _>(transport)
-    .await?;
-```
-
-### Error Handling
-```rust
-use grafton_visca::camera::controls::zoom::ZoomControlBlocking;
-
-match cam.zoom_tele_std() {
-    Ok(_) => println!("Success"),
-    Err(e) if e.is_retryable() => {
-        std::thread::sleep(e.suggested_retry_delay().unwrap());
-        // retry...
-    }
-    Err(e) => eprintln!("Fatal error: {}", e),
-}
-```
-
-### Concurrent Operations (Async)
-```rust
-use grafton_visca::camera::controls::{
-    pan_tilt::PanTiltControl,
-    zoom::ZoomControl,
-};
-
-let (pan_result, zoom_result) = tokio::join!(
-    cam.pan_tilt_right(speed),
-    cam.zoom_tele_std()
-);
 ```
 
 ## Troubleshooting
@@ -182,7 +155,7 @@ let (pan_result, zoom_result) = tokio::join!(
 - Use async for concurrent operations
 - Consider UDP for lower latency (but less reliable)
 - TCP provides better reliability and is recommended
-- Adjust timeouts based on network conditions
+- Adjust timeouts, retry policy, and TCP keepalive based on network conditions
 - The library uses zero-copy parsing and stack-allocated buffers
 - Runtime-agnostic design means zero overhead when not using async
 

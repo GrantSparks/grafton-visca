@@ -26,7 +26,7 @@ We can only support what we can test. If you have access to different hardware, 
 - **Unified blocking/async API** — Single `Camera` type works in both modes; async futures are `Send`-safe
 - **Multi-runtime support** — Pluggable adapters for Tokio, async-std, and smol (can coexist)
 - **Type-safe profiles** — Compile-time protocol selection (raw VISCA vs Sony encapsulation) with capability-based APIs
-- **Flexible transports** — TCP, UDP, and serial (RS-232/422) with configurable timeouts and retries
+- **Flexible transports** — TCP, UDP, and serial (RS-232/422) with configurable timeouts, retries, and TCP keepalive
 - **Ergonomic API** — One-line connection helpers, intuitive unit types (`Degrees`, `Percentage`), built-in inquiry conversions
 - **Optional serialization** — Serde and JSON Schema support for all types
 - **Zero-allocation hot path** — Stack-allocated command buffers for standard VISCA commands
@@ -92,6 +92,9 @@ grafton-visca = "0.12"
 ### Common configurations
 
 ```toml
+# Runtime-agnostic async (bring your own executor)
+grafton-visca = { version = "0.12", features = ["mode-async"] }
+
 # Async with Tokio
 grafton-visca = { version = "0.12", features = ["runtime-tokio"] }
 tokio = { version = "1", features = ["full"] }
@@ -101,6 +104,25 @@ grafton-visca = { version = "0.12", features = ["serde"] }
 
 # Serial transport (blocking)
 grafton-visca = { version = "0.12", features = ["transport-serial"] }
+
+# Serial transport (Tokio)
+grafton-visca = { version = "0.12", features = ["runtime-tokio", "transport-serial-tokio"] }
+```
+
+### Configuring transport behavior
+
+```rust
+use grafton_visca::camera::CameraConfig;
+use grafton_visca::profiles::PtzOpticsG2;
+use grafton_visca::transport::TransportConfig;
+use std::time::Duration;
+
+let config = CameraConfig::<PtzOpticsG2>::new()
+    .address("192.168.0.110")
+    .transport_config(TransportConfig {
+        tcp_keepalive: Some(Duration::from_secs(30)),
+        ..TransportConfig::default()
+    });
 ```
 
 ### Feature flags
@@ -150,6 +172,7 @@ Port can be omitted in connection strings; the profile default is used.
 | Blocking quickstart | `cargo run --example quickstart` |
 | Async inquiry (Tokio) | `cargo run --example inquiry_quickstart --features runtime-tokio` |
 | Builder API | `cargo run --example builder_api` |
+| Transport builder | `cargo run --example transport_builder_demo` |
 | Error handling | `cargo run --example error_handling --features runtime-tokio` |
 | Serial (async) | `cargo run --example serial_async_demo --features runtime-tokio,transport-serial-tokio` |
 

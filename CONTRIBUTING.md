@@ -31,11 +31,21 @@ cd grafton-visca
 # Run tests with default features
 cargo test
 
-# Run tests with async features
-cargo test --features "mode-async,runtime-tokio"
+# Run representative async/runtime matrix entries
+cargo test --no-default-features --features runtime-tokio
+cargo test --no-default-features --features runtime-async-std
+cargo test --no-default-features --features runtime-smol
+
+# Run serial coverage when touching transport code
+cargo test --no-default-features --features runtime-tokio,transport-serial
+cargo test --no-default-features --features runtime-tokio,transport-serial-tokio
 
 # Run clippy checks
-cargo clippy --all-targets --all-features
+cargo clippy --all-targets --all-features -- -D warnings
+
+# Optional safety checks
+cargo +nightly miri setup
+cargo +nightly miri test --lib --no-default-features
 
 # Format code
 cargo fmt
@@ -191,8 +201,14 @@ fn test_movement_safety() {
 cargo test --all-features
 
 # Specific feature combinations
-cargo test --features "mode-async,runtime-tokio"
-cargo test --features "transport-serial"
+cargo test --no-default-features --features runtime-tokio
+cargo test --no-default-features --features runtime-async-std
+cargo test --no-default-features --features runtime-smol
+cargo test --no-default-features --features runtime-tokio,transport-serial
+cargo test --no-default-features --features runtime-tokio,transport-serial-tokio
+
+# Optional interpreter-based UB checks for library tests
+cargo +nightly miri test --lib --no-default-features
 
 # With output for debugging
 cargo test -- --nocapture
@@ -251,7 +267,7 @@ pub fn zoom_absolute(&mut self, position: u16) -> Result<(), Error> {
 
 4. **Checklist**: Before submitting:
    - [ ] Tests pass: `cargo test --all-features`
-   - [ ] No clippy warnings: `cargo clippy --all-features`
+   - [ ] No clippy warnings: `cargo clippy --all-targets --all-features -- -D warnings`
    - [ ] Formatted: `cargo fmt`
    - [ ] Documentation updated
    - [ ] CHANGELOG.md updated (if applicable)

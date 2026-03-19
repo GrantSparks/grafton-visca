@@ -3,7 +3,9 @@
 //! This example shows how to create transport builders with custom configurations
 //! without actually establishing connections.
 //!
-//! Run with: cargo run --example transport_builder_demo --features runtime-tokio
+//! Run with:
+//! - cargo run --example transport_builder_demo
+//! - cargo run --example transport_builder_demo --features runtime-tokio
 
 #[cfg(not(feature = "mode-async"))]
 use std::time::Duration;
@@ -23,7 +25,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("Example 1: Simple TCP transport builder");
         let _simple_tcp = Transport::tcp().address("192.168.0.110:5678");
         println!("  Created builder for TCP at 192.168.0.110:5678");
-        println!("  Would connect with: .open()\n");
+        println!("  Would connect with: .build_blocking()\n");
 
         // Example 2: TCP transport builder with custom timeouts
         println!("Example 2: TCP transport builder with custom timeouts");
@@ -58,11 +60,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .timeout(Duration::from_secs(3)) // Set all timeouts at once
             .tcp_nodelay(true) // Disable Nagle's algorithm
             .ttl(64) // Set Time To Live
+            .tcp_keepalive(Duration::from_secs(30))
             .max_retries(10);
         println!("  Created builder with:");
         println!("    - All timeouts: 3s");
         println!("    - TCP nodelay: enabled");
         println!("    - TTL: 64");
+        println!("    - TCP keepalive: 30s");
         println!("    - Max retries: 10\n");
     }
 
@@ -114,23 +118,31 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(feature = "mode-async")]
     {
         println!("Example 7: Async Transport API");
-        println!("  In async mode, use runtime-specific transports directly:");
+        println!("  Blocking transport builders are not available in async mode.");
+        println!("  Use CameraConfig + TransportConfig for high-level setup:");
         println!();
         println!("  For Tokio:");
+        println!("    use grafton_visca::camera::CameraConfig;");
+        println!("    use grafton_visca::profiles::PtzOpticsG2;");
+        println!("    use grafton_visca::runtime::TokioRuntime;");
+        println!("    use grafton_visca::transport::TransportConfig;");
+        println!("    let runtime = TokioRuntime::from_current()?;");
+        println!("    let camera = CameraConfig::<PtzOpticsG2>::new()");
+        println!("        .address(\"192.168.0.110\")");
+        println!("        .transport_config(TransportConfig::default())");
+        println!("        .open_async(runtime)");
+        println!("        .await?;");
+        println!();
+        println!("  For advanced BYO-transport flows:");
+        println!("    use grafton_visca::CameraBuilder;");
         println!("    use grafton_visca::runtime_adapters::tokio::TcpTransport;");
         println!("    let transport = TcpTransport::connect(\"192.168.0.110:5678\").await?;");
-        println!();
-        println!("  For async-std:");
-        println!("    use grafton_visca::runtime_adapters::async_std::TcpTransport;");
-        println!("    let transport = TcpTransport::connect(\"192.168.0.110:5678\").await?;");
-        println!();
-        println!("  For smol:");
-        println!("    use grafton_visca::runtime_adapters::smol::TcpTransport;");
-        println!("    let transport = TcpTransport::connect(\"192.168.0.110:5678\").await?;");
-        println!();
-        println!("  Type-safe runtime pairing:");
-        println!("    The Runtime trait ensures executor and transport match.");
-        println!("    Mismatched combinations are impossible at compile time!");
+        println!("    let runtime = TokioRuntime::from_current()?;");
+        println!("    let camera = CameraBuilder::with_executor(runtime)");
+        println!("        .from_transport(transport)");
+        println!("        .profile::<PtzOpticsG2>()");
+        println!("        .open_async()");
+        println!("        .await?;");
         println!();
     }
 
