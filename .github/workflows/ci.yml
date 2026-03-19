@@ -302,15 +302,17 @@ jobs:
       - name: Setup miri
         run: cargo miri setup
 
-      # Run miri on different feature combinations
+      # Restrict Miri to library tests. Integration tests intentionally exercise
+      # real socket I/O and OS resolution paths, which belong in the normal CI matrix
+      # rather than Miri's isolation model.
       - name: Run miri tests (no features)
-        run: cargo miri test --no-default-features
+        run: cargo miri test --lib --no-default-features
 
       - name: Run miri tests (mode-async)
-        run: cargo miri test --no-default-features --features mode-async
+        run: cargo miri test --lib --no-default-features --features mode-async
 
       - name: Run miri tests (runtime-tokio)
-        run: cargo miri test --no-default-features --features runtime-tokio
+        run: cargo miri test --lib --no-default-features --features runtime-tokio
 
   # Cross-compilation testing
   cross-compile:
