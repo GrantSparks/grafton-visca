@@ -598,6 +598,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[cfg_attr(miri, ignore = "requires OS hostname resolution")]
     fn test_resolve_localhost() {
         let resolver = AddressResolver::new();
         let result = resolver.resolve("localhost:5678");
