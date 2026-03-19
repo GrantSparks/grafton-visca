@@ -32,10 +32,6 @@ env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: "-D warnings"
   RUST_BACKTRACE: 1
-  CACHE_VERSION: v2
-  SCCACHE_GHA_ENABLED: "true"
-  RUSTC_WRAPPER: "sccache"
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
   # Quick format check (no dependencies needed)
@@ -117,9 +113,7 @@ jobs:
 
       # Setup sccache for compiler caching (gracefully handle service outages)
       - name: Setup sccache
-        uses: mozilla-actions/sccache-action@v0.0.9
-        continue-on-error: true
-        id: sccache
+        uses: ./.github/actions/setup-sccache
 
       # Enhanced caching with registry index
       - uses: Swatinem/rust-cache@v2
@@ -184,9 +178,7 @@ jobs:
 
       # Setup sccache for compiler caching (gracefully handle service outages)
       - name: Setup sccache
-        uses: mozilla-actions/sccache-action@v0.0.9
-        continue-on-error: true
-        id: sccache
+        uses: ./.github/actions/setup-sccache
 
       # Enhanced caching with registry index
       - uses: Swatinem/rust-cache@v2
@@ -258,8 +250,7 @@ jobs:
 
       # Setup sccache (gracefully handle service outages)
       - name: Setup sccache
-        uses: mozilla-actions/sccache-action@v0.0.9
-        continue-on-error: true
+        uses: ./.github/actions/setup-sccache
 
       # Sanitize features for cache keys (replace commas with hyphens)
       - name: Sanitize features for cache keys
@@ -352,8 +343,7 @@ jobs:
 
       # Setup sccache (gracefully handle service outages)
       - name: Setup sccache
-        uses: mozilla-actions/sccache-action@v0.0.9
-        continue-on-error: true
+        uses: ./.github/actions/setup-sccache
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -397,8 +387,7 @@ jobs:
 
       # Setup sccache (gracefully handle service outages)
       - name: Setup sccache
-        uses: mozilla-actions/sccache-action@v0.0.9
-        continue-on-error: true
+        uses: ./.github/actions/setup-sccache
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -488,8 +477,7 @@ jobs:
 
       # Setup sccache (gracefully handle service outages)
       - name: Setup sccache
-        uses: mozilla-actions/sccache-action@v0.0.9
-        continue-on-error: true
+        uses: ./.github/actions/setup-sccache
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -548,29 +536,7 @@ jobs:
 
       # Setup sccache (gracefully handle service outages)
       - name: Setup sccache
-        uses: mozilla-actions/sccache-action@v0.0.9
-        continue-on-error: true
-        id: sccache
-
-      # Test sccache connectivity and configure if working
-      - name: Configure sccache
-        if: steps.sccache.outcome == 'success'
-        run: |
-          if sccache --start-server && sccache --show-stats >/dev/null 2>&1; then
-            echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
-            echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
-          else
-            echo "SCCACHE_GHA_ENABLED=false" >> $GITHUB_ENV
-            echo "RUSTC_WRAPPER=" >> $GITHUB_ENV
-          fi
-        continue-on-error: true
-
-      # Fallback if sccache setup failed
-      - name: Disable sccache fallback
-        if: steps.sccache.outcome != 'success'
-        run: |
-          echo "SCCACHE_GHA_ENABLED=false" >> $GITHUB_ENV
-          echo "RUSTC_WRAPPER=" >> $GITHUB_ENV
+        uses: ./.github/actions/setup-sccache
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -601,8 +567,7 @@ jobs:
 
       # Setup sccache (gracefully handle service outages)
       - name: Setup sccache
-        uses: mozilla-actions/sccache-action@v0.0.9
-        continue-on-error: true
+        uses: ./.github/actions/setup-sccache
 
       - uses: Swatinem/rust-cache@v2
         with:

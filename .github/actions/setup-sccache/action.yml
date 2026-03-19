@@ -1,0 +1,24 @@
+name: Setup sccache
+description: Install and configure sccache from official Mozilla release artifacts.
+inputs:
+  version:
+    description: Official sccache release tag.
+    required: false
+    default: v0.12.0
+runs:
+  using: composite
+  steps:
+    - name: Install and configure sccache (Unix)
+      if: runner.os != 'Windows'
+      shell: bash
+      env:
+        SCCACHE_SETUP_VERSION: ${{ inputs.version }}
+      run: ${{ github.action_path }}/setup-sccache.sh
+
+    - name: Install and configure sccache (Windows)
+      if: runner.os == 'Windows'
+      shell: pwsh
+      env:
+        SCCACHE_SETUP_VERSION: ${{ inputs.version }}
+      run: |
+        & "${{ github.action_path }}/setup-sccache.ps1"
