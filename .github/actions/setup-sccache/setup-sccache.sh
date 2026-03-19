@@ -62,10 +62,6 @@ download_asset() {
     "$url"
 }
 
-gha_cache_available() {
-  [[ -n "${ACTIONS_RUNTIME_TOKEN:-}" ]] && [[ -n "${ACTIONS_CACHE_URL:-}" || -n "${ACTIONS_RESULTS_URL:-}" ]]
-}
-
 sha256_file() {
   python3 - "$1" <<'PY'
 import hashlib
@@ -89,11 +85,6 @@ main() {
   install_dir="${RUNNER_TEMP}/sccache-${version}-${triple}"
   archive_path="${install_dir}/${archive}"
   checksum_path="${archive_path}.sha256"
-
-  if ! gha_cache_available; then
-    warn "GitHub Actions cache environment was not detected"
-    return 1
-  fi
 
   rm -rf "$install_dir"
   mkdir -p "$install_dir"
@@ -121,14 +112,22 @@ main() {
 
   echo "$binary_dir" >> "$GITHUB_PATH"
   export PATH="$binary_dir:$PATH"
+  export ACTIONS_CACHE_SERVICE_V2=on
+  export ACTIONS_RESULTS_URL="${ACTIONS_RESULTS_URL:-}"
+  export ACTIONS_RUNTIME_TOKEN="${ACTIONS_RUNTIME_TOKEN:-}"
   export SCCACHE_GHA_ENABLED=true
   export RUSTC_WRAPPER=sccache
   export SCCACHE_DIR="$cache_dir"
+  export SCCACHE_PATH="$binary_path"
 
   {
+    echo "ACTIONS_CACHE_SERVICE_V2=on"
+    echo "ACTIONS_RESULTS_URL=$ACTIONS_RESULTS_URL"
+    echo "ACTIONS_RUNTIME_TOKEN=$ACTIONS_RUNTIME_TOKEN"
     echo "SCCACHE_GHA_ENABLED=true"
     echo "RUSTC_WRAPPER=sccache"
     echo "SCCACHE_DIR=$cache_dir"
+    echo "SCCACHE_PATH=$binary_path"
   } >> "$GITHUB_ENV"
 
   sccache --version

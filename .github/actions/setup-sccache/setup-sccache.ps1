@@ -37,13 +37,6 @@ function Invoke-Download([string]$Uri, [string]$OutFile) {
     }
 }
 
-function Test-GhaCacheEnvironment {
-    return -not [string]::IsNullOrWhiteSpace($env:ACTIONS_RUNTIME_TOKEN) -and (
-        -not [string]::IsNullOrWhiteSpace($env:ACTIONS_CACHE_URL) -or
-        -not [string]::IsNullOrWhiteSpace($env:ACTIONS_RESULTS_URL)
-    )
-}
-
 try {
     $tag = if ($env:SCCACHE_SETUP_VERSION) { $env:SCCACHE_SETUP_VERSION } else { "v0.12.0" }
     $version = $tag.TrimStart('v')
@@ -53,10 +46,6 @@ try {
     $installDir = Join-Path $env:RUNNER_TEMP "sccache-$version-$triple"
     $archivePath = Join-Path $installDir $archive
     $checksumPath = "$archivePath.sha256"
-
-    if (-not (Test-GhaCacheEnvironment)) {
-        throw "GitHub Actions cache environment was not detected"
-    }
 
     if (Test-Path $installDir) {
         Remove-Item -Path $installDir -Recurse -Force
@@ -85,13 +74,21 @@ try {
 
     Add-FileLine $env:GITHUB_PATH $binDir
     $env:Path = "$binDir;$env:Path"
+    $env:ACTIONS_CACHE_SERVICE_V2 = "on"
+    if (-not $env:ACTIONS_RESULTS_URL) { $env:ACTIONS_RESULTS_URL = "" }
+    if (-not $env:ACTIONS_RUNTIME_TOKEN) { $env:ACTIONS_RUNTIME_TOKEN = "" }
     $env:SCCACHE_GHA_ENABLED = "true"
     $env:RUSTC_WRAPPER = "sccache"
     $env:SCCACHE_DIR = $cacheDir
+    $env:SCCACHE_PATH = $binary.FullName
 
+    Add-FileLine $env:GITHUB_ENV "ACTIONS_CACHE_SERVICE_V2=on"
+    Add-FileLine $env:GITHUB_ENV "ACTIONS_RESULTS_URL=$env:ACTIONS_RESULTS_URL"
+    Add-FileLine $env:GITHUB_ENV "ACTIONS_RUNTIME_TOKEN=$env:ACTIONS_RUNTIME_TOKEN"
     Add-FileLine $env:GITHUB_ENV "SCCACHE_GHA_ENABLED=true"
     Add-FileLine $env:GITHUB_ENV "RUSTC_WRAPPER=sccache"
     Add-FileLine $env:GITHUB_ENV "SCCACHE_DIR=$cacheDir"
+    Add-FileLine $env:GITHUB_ENV "SCCACHE_PATH=$($binary.FullName)"
 
     & sccache --version
     & sccache --start-server
