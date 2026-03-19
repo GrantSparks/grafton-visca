@@ -281,21 +281,20 @@ where
         }
     }
 
-    #[cfg(any(feature = "transport-serial", feature = "transport-serial-tokio"))]
-    fn serial_transport_config(&self) -> TransportConfig {
-        TransportConfig {
+    #[cfg(any(
+        feature = "transport-serial-tokio",
+        all(not(feature = "mode-async"), feature = "transport-serial")
+    ))]
+    fn serial_config(&self, port: &str, baud_rate: u32) -> crate::transport::serial::Config {
+        let transport_config = TransportConfig {
             buffer_config: self.defaulted_buffer_config(BufferConfig::for_serial()),
             addressing: AddressingMode::Serial,
             tcp_nodelay: None,
             ttl: None,
             tcp_keepalive: None,
             ..self.transport_config
-        }
-    }
+        };
 
-    #[cfg(any(feature = "transport-serial", feature = "transport-serial-tokio"))]
-    fn serial_config(&self, port: &str, baud_rate: u32) -> crate::transport::serial::Config {
-        let transport_config = self.serial_transport_config();
         crate::transport::serial::Config::new(port.to_string())
             .baud_rate(baud_rate)
             .camera_address(self.camera_id.id())
