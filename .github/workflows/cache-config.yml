@@ -39,6 +39,8 @@ jobs:
       # Setup sccache for compiler caching (gracefully handle service outages)
       - name: Setup sccache
         uses: mozilla-actions/sccache-action@v0.0.9
+        env:
+          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
         continue-on-error: true
         id: sccache
         with:
@@ -91,7 +93,7 @@ jobs:
 
       # Cache cargo registry
       - name: Cache cargo registry
-        uses: actions/cache@v3
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry/index
@@ -106,7 +108,7 @@ jobs:
       # Cache cargo target directory
       - name: Cache cargo target
         id: cache
-        uses: actions/cache@v3
+        uses: actions/cache@v5
         with:
           path: target
           key: cargo-target-${{ inputs.os }}-${{ inputs.rust }}-${{ steps.features.outputs.sanitized }}-${{ hashFiles('**/Cargo.lock') }}-${{ hashFiles('**/*.rs') }}
@@ -133,7 +135,7 @@ jobs:
 
       # Cache sccache directory
       - name: Cache sccache
-        uses: actions/cache@v3
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cache/sccache
@@ -146,7 +148,7 @@ jobs:
 
       # Cache additional build tools
       - name: Cache build tools
-        uses: actions/cache@v3
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/bin

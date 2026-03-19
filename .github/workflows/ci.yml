@@ -43,7 +43,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install Rust nightly toolchain
         uses: dtolnay/rust-toolchain@nightly
@@ -88,7 +88,7 @@ jobs:
         rust: [stable, beta]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       # Install system dependencies for transport-serial
       - name: Install system dependencies
@@ -117,6 +117,8 @@ jobs:
       # Setup sccache for compiler caching (gracefully handle service outages)
       - name: Setup sccache
         uses: mozilla-actions/sccache-action@v0.0.9
+        env:
+          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
         continue-on-error: true
         id: sccache
 
@@ -131,7 +133,7 @@ jobs:
 
       # Cache cargo registry index
       - name: Cache cargo registry index
-        uses: actions/cache@v3
+        uses: actions/cache@v5
         with:
           path: ~/.cargo/registry/index
           key: cargo-index-${{ matrix.os }}-${{ hashFiles('**/Cargo.lock') }}
@@ -162,7 +164,7 @@ jobs:
           - "runtime-async-std"
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install Rust ${{ matrix.rust }} toolchain
         uses: dtolnay/rust-toolchain@master
@@ -184,6 +186,8 @@ jobs:
       # Setup sccache for compiler caching (gracefully handle service outages)
       - name: Setup sccache
         uses: mozilla-actions/sccache-action@v0.0.9
+        env:
+          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
         continue-on-error: true
         id: sccache
 
@@ -198,7 +202,7 @@ jobs:
 
       # Cache cargo registry index
       - name: Cache cargo registry index
-        uses: actions/cache@v3
+        uses: actions/cache@v5
         with:
           path: ~/.cargo/registry/index
           key: cargo-index-windows-${{ hashFiles('**/Cargo.lock') }}
@@ -243,7 +247,7 @@ jobs:
           - "runtime-smol,test-utils"
           - "runtime-tokio,transport-serial"  # legacy compatibility
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install system dependencies
         run: |
@@ -258,6 +262,8 @@ jobs:
       # Setup sccache (gracefully handle service outages)
       - name: Setup sccache
         uses: mozilla-actions/sccache-action@v0.0.9
+        env:
+          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
         continue-on-error: true
 
       # Sanitize features for cache keys (replace commas with hyphens)
@@ -295,7 +301,7 @@ jobs:
     # Only run on main branch and PRs to avoid overwhelming CI
     if: github.ref == 'refs/heads/main' || github.event_name == 'pull_request'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install system dependencies
         run: |
@@ -339,7 +345,7 @@ jobs:
           - wasm32-unknown-unknown
           - riscv64gc-unknown-linux-gnu
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install Rust stable toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -352,6 +358,8 @@ jobs:
       # Setup sccache (gracefully handle service outages)
       - name: Setup sccache
         uses: mozilla-actions/sccache-action@v0.0.9
+        env:
+          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
         continue-on-error: true
 
       - uses: Swatinem/rust-cache@v2
@@ -382,7 +390,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install system dependencies
         run: |
@@ -397,6 +405,8 @@ jobs:
       # Setup sccache (gracefully handle service outages)
       - name: Setup sccache
         uses: mozilla-actions/sccache-action@v0.0.9
+        env:
+          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
         continue-on-error: true
 
       - uses: Swatinem/rust-cache@v2
@@ -475,7 +485,7 @@ jobs:
       matrix:
         runtime: [runtime-tokio, runtime-async-std, runtime-smol]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install system dependencies
         run: |
@@ -488,6 +498,8 @@ jobs:
       # Setup sccache (gracefully handle service outages)
       - name: Setup sccache
         uses: mozilla-actions/sccache-action@v0.0.9
+        env:
+          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
         continue-on-error: true
 
       - uses: Swatinem/rust-cache@v2
@@ -535,7 +547,7 @@ jobs:
     timeout-minutes: 20
     if: github.event_name == 'pull_request'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install system dependencies
         run: |
@@ -548,6 +560,8 @@ jobs:
       # Setup sccache (gracefully handle service outages)
       - name: Setup sccache
         uses: mozilla-actions/sccache-action@v0.0.9
+        env:
+          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
         continue-on-error: true
         id: sccache
 
@@ -588,7 +602,7 @@ jobs:
     timeout-minutes: 20
     if: github.event_name != 'pull_request' && !(github.event_name == 'push' && startsWith(github.ref, 'refs/heads/feature/'))
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install system dependencies
         run: |
@@ -601,6 +615,8 @@ jobs:
       # Setup sccache (gracefully handle service outages)
       - name: Setup sccache
         uses: mozilla-actions/sccache-action@v0.0.9
+        env:
+          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
         continue-on-error: true
 
       - uses: Swatinem/rust-cache@v2
@@ -672,7 +688,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install system dependencies
         run: |

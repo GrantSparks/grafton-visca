@@ -33,7 +33,7 @@ jobs:
     runs-on: ${{ inputs.runs-on }}
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       # Install system dependencies
       - name: Install system dependencies
@@ -51,6 +51,8 @@ jobs:
       # Setup sccache for compiler caching (gracefully handle service outages)
       - name: Setup sccache
         uses: mozilla-actions/sccache-action@v0.0.9
+        env:
+          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
         continue-on-error: true
         id: sccache
 
@@ -89,7 +91,7 @@ jobs:
 
       # Cache cargo registry index
       - name: Cache cargo registry index
-        uses: actions/cache@v3
+        uses: actions/cache@v5
         with:
           path: ~/.cargo/registry/index
           key: cargo-index-${{ inputs.os }}-${{ hashFiles('**/Cargo.lock') }}
