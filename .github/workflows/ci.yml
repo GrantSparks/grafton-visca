@@ -35,6 +35,7 @@ env:
   CACHE_VERSION: v2
   SCCACHE_GHA_ENABLED: "true"
   RUSTC_WRAPPER: "sccache"
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
   # Quick format check (no dependencies needed)
@@ -117,8 +118,6 @@ jobs:
       # Setup sccache for compiler caching (gracefully handle service outages)
       - name: Setup sccache
         uses: mozilla-actions/sccache-action@v0.0.9
-        env:
-          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
         continue-on-error: true
         id: sccache
 
@@ -186,8 +185,6 @@ jobs:
       # Setup sccache for compiler caching (gracefully handle service outages)
       - name: Setup sccache
         uses: mozilla-actions/sccache-action@v0.0.9
-        env:
-          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
         continue-on-error: true
         id: sccache
 
@@ -262,8 +259,6 @@ jobs:
       # Setup sccache (gracefully handle service outages)
       - name: Setup sccache
         uses: mozilla-actions/sccache-action@v0.0.9
-        env:
-          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
         continue-on-error: true
 
       # Sanitize features for cache keys (replace commas with hyphens)
@@ -358,8 +353,6 @@ jobs:
       # Setup sccache (gracefully handle service outages)
       - name: Setup sccache
         uses: mozilla-actions/sccache-action@v0.0.9
-        env:
-          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
         continue-on-error: true
 
       - uses: Swatinem/rust-cache@v2
@@ -405,8 +398,6 @@ jobs:
       # Setup sccache (gracefully handle service outages)
       - name: Setup sccache
         uses: mozilla-actions/sccache-action@v0.0.9
-        env:
-          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
         continue-on-error: true
 
       - uses: Swatinem/rust-cache@v2
@@ -498,8 +489,6 @@ jobs:
       # Setup sccache (gracefully handle service outages)
       - name: Setup sccache
         uses: mozilla-actions/sccache-action@v0.0.9
-        env:
-          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
         continue-on-error: true
 
       - uses: Swatinem/rust-cache@v2
@@ -560,8 +549,6 @@ jobs:
       # Setup sccache (gracefully handle service outages)
       - name: Setup sccache
         uses: mozilla-actions/sccache-action@v0.0.9
-        env:
-          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
         continue-on-error: true
         id: sccache
 
@@ -615,8 +602,6 @@ jobs:
       # Setup sccache (gracefully handle service outages)
       - name: Setup sccache
         uses: mozilla-actions/sccache-action@v0.0.9
-        env:
-          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
         continue-on-error: true
 
       - uses: Swatinem/rust-cache@v2

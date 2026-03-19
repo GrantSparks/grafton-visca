@@ -21,6 +21,9 @@ on:
         description: "Whether cache was hit"
         value: ${{ jobs.setup.outputs.cache-hit }}
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   setup:
     name: Setup Cache
@@ -39,8 +42,6 @@ jobs:
       # Setup sccache for compiler caching (gracefully handle service outages)
       - name: Setup sccache
         uses: mozilla-actions/sccache-action@v0.0.9
-        env:
-          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
         continue-on-error: true
         id: sccache
         with:
