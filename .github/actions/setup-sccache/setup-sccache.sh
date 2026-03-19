@@ -7,9 +7,10 @@ warn() {
 
 disable_sccache() {
   {
-    echo "SCCACHE_GHA_ENABLED=false"
     echo "RUSTC_WRAPPER="
     echo "SCCACHE_DIR="
+    echo "SCCACHE_PATH="
+    echo "SCCACHE_CACHE_SIZE="
   } >> "$GITHUB_ENV"
 }
 
@@ -112,22 +113,16 @@ main() {
 
   echo "$binary_dir" >> "$GITHUB_PATH"
   export PATH="$binary_dir:$PATH"
-  export ACTIONS_CACHE_SERVICE_V2=on
-  export ACTIONS_RESULTS_URL="${ACTIONS_RESULTS_URL:-}"
-  export ACTIONS_RUNTIME_TOKEN="${ACTIONS_RUNTIME_TOKEN:-}"
-  export SCCACHE_GHA_ENABLED=true
   export RUSTC_WRAPPER=sccache
   export SCCACHE_DIR="$cache_dir"
   export SCCACHE_PATH="$binary_path"
+  export SCCACHE_CACHE_SIZE=2G
 
   {
-    echo "ACTIONS_CACHE_SERVICE_V2=on"
-    echo "ACTIONS_RESULTS_URL=$ACTIONS_RESULTS_URL"
-    echo "ACTIONS_RUNTIME_TOKEN=$ACTIONS_RUNTIME_TOKEN"
-    echo "SCCACHE_GHA_ENABLED=true"
     echo "RUSTC_WRAPPER=sccache"
     echo "SCCACHE_DIR=$cache_dir"
     echo "SCCACHE_PATH=$binary_path"
+    echo "SCCACHE_CACHE_SIZE=2G"
   } >> "$GITHUB_ENV"
 
   sccache --version
