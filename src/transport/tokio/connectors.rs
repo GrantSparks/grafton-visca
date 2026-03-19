@@ -13,8 +13,8 @@ use crate::{
         address::AddressResolver,
         async_io::{
             AsyncDatagram, AsyncReadExt as AsyncReadExtTrait, AsyncWriteExt as AsyncWriteExtTrait,
-            TcpConnectionConfig, UdpSocketConfig,
         },
+        socket_options::{apply_tcp_socket_options, TcpConnectionConfig, UdpSocketConfig},
     },
     Error,
 };
@@ -94,27 +94,7 @@ pub async fn connect_tcp(
         .await
         .map_err(|_| Error::Timeout)??;
 
-    // Apply socket configuration
-    if let Some(nodelay) = config.nodelay {
-        stream.set_nodelay(nodelay)?;
-    } else {
-        stream.set_nodelay(true)?; // Default to low latency
-    }
-
-    if let Some(ttl) = config.ttl {
-        stream.set_ttl(ttl)?;
-    }
-
-    // Enable TCP keepalive to prevent camera-side idle timeout
-    if let Some(interval) = config.keepalive {
-        let sock_ref = socket2::SockRef::from(&stream);
-        let ka = socket2::TcpKeepalive::new()
-            .with_time(interval)
-            .with_interval(interval);
-        if let Err(e) = sock_ref.set_tcp_keepalive(&ka) {
-            tracing::warn!("Failed to set TCP keepalive: {e}");
-        }
-    }
+    apply_tcp_socket_options(&stream, config)?;
 
     // Split and wrap
     let (read_half, write_half) = stream.into_split();

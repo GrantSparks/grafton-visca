@@ -86,21 +86,21 @@ For async-std or smol, enable the corresponding feature and use its runtime adap
 
 ```toml
 [dependencies]
-grafton-visca = "0.11"
+grafton-visca = "0.12"
 ```
 
 ### Common configurations
 
 ```toml
 # Async with Tokio
-grafton-visca = { version = "0.11", features = ["runtime-tokio"] }
+grafton-visca = { version = "0.12", features = ["runtime-tokio"] }
 tokio = { version = "1", features = ["full"] }
 
 # With serialization
-grafton-visca = { version = "0.11", features = ["serde"] }
+grafton-visca = { version = "0.12", features = ["serde"] }
 
 # Serial transport (blocking)
-grafton-visca = { version = "0.11", features = ["transport-serial"] }
+grafton-visca = { version = "0.12", features = ["transport-serial"] }
 ```
 
 ### Feature flags

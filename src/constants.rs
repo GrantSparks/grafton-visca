@@ -640,25 +640,33 @@ pub fn validate_saturation_level(_level: u8, _model: CameraVariant) -> Result<u8
     }
 }
 
-/// Validate sharpness level is within VISCA range (0x00-0x0B for most cameras)
+/// Validate sharpness level using model-specific VISCA ranges.
+///
+/// PTZOptics cameras support the extended `0x00..=0x0F` range verified from
+/// hardware validation, while the generic VISCA range remains `0x00..=0x0B`.
 ///
 /// # Errors
 ///
 /// Returns `Error::ParameterOutOfRange` if the sharpness level is outside the valid range
-pub fn validate_sharpness_level(_level: u8, _model: CameraVariant) -> Result<u8, Error> {
-    // Using VISCA standard range - could be refined per model
+pub fn validate_sharpness_level(level: u8, model: CameraVariant) -> Result<u8, Error> {
     const SHARPNESS_MIN: u8 = 0x00;
-    const SHARPNESS_MAX: u8 = 0x0B;
 
-    if _level > SHARPNESS_MAX {
+    let sharpness_max = match model {
+        CameraVariant::PtzOpticsG2 | CameraVariant::PtzOpticsG3 | CameraVariant::PtzOptics30X => {
+            0x0F
+        }
+        CameraVariant::SonyFR7 | CameraVariant::Unknown => 0x0B,
+    };
+
+    if level > sharpness_max {
         Err(Error::ParameterOutOfRange {
             parameter: "sharpness_level",
-            value: i32::from(_level),
+            value: i32::from(level),
             min: i32::from(SHARPNESS_MIN),
-            max: i32::from(SHARPNESS_MAX),
+            max: i32::from(sharpness_max),
         })
     } else {
-        Ok(_level)
+        Ok(level)
     }
 }
 

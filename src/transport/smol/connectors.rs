@@ -15,8 +15,8 @@ use crate::{
         address::AddressResolver,
         async_io::{
             AsyncDatagram, AsyncReadExt as AsyncReadExtTrait, AsyncWriteExt as AsyncWriteExtTrait,
-            TcpConnectionConfig, UdpSocketConfig,
         },
+        socket_options::{apply_tcp_socket_options, TcpConnectionConfig, UdpSocketConfig},
     },
     Error,
 };
@@ -65,23 +65,7 @@ pub async fn connect_tcp(
     })
     .await?;
 
-    // Apply socket configuration
-    if let Some(nodelay) = config.nodelay {
-        stream.set_nodelay(nodelay)?;
-    } else {
-        stream.set_nodelay(true)?; // Default to low latency
-    }
-
-    if let Some(ttl) = config.ttl {
-        stream.set_ttl(ttl)?;
-    }
-
-    // Note: TCP keepalive is supported on the tokio transport via socket2.
-    // smol TcpStream does not expose AsFd, so keepalive must be configured
-    // before handing off to smol if needed.
-    if config.keepalive.is_some() {
-        tracing::debug!("TCP keepalive requested but not supported on smol transport");
-    }
+    apply_tcp_socket_options(&stream, config)?;
 
     Ok(SmolTcpStream::new(stream))
 }

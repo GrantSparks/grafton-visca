@@ -6,7 +6,15 @@
 
 use std::marker::PhantomData;
 
-use crate::{camera_id::CameraId, error::Error, timeout::TimeoutConfig};
+use crate::{
+    camera_id::CameraId,
+    error::Error,
+    timeout::TimeoutConfig,
+    transport::{
+        buffer::BufferConfig,
+        builder::{AddressingMode, TransportConfig},
+    },
+};
 
 /// Transport configuration options.
 #[derive(Debug, Clone)]
@@ -101,8 +109,8 @@ pub struct CameraConfig<P> {
     pub(crate) transport: TransportOptions,
     /// Command timeout configuration.
     pub(crate) timeouts: TimeoutConfig,
-    /// Retry configuration for failed commands.
-    pub(crate) retries: crate::transport::RetryConfig,
+    /// Transport configuration for the underlying connection.
+    pub(crate) transport_config: TransportConfig,
     /// Camera VISCA address (usually 1).
     pub(crate) camera_id: CameraId,
     /// Profile marker.
@@ -122,7 +130,7 @@ where
                 address: format!("192.168.0.100:{}", P::DEFAULT_TCP_PORT),
             },
             timeouts: TimeoutConfig::default(),
-            retries: crate::transport::RetryConfig::default(),
+            transport_config: TransportConfig::default(),
             camera_id: CameraId::new(P::DEFAULT_CAMERA_ID).unwrap_or_default(),
             _phantom: PhantomData,
         }
@@ -231,9 +239,15 @@ where
         self
     }
 
+    /// Set transport configuration.
+    pub fn transport_config(mut self, transport_config: TransportConfig) -> Self {
+        self.transport_config = transport_config;
+        self
+    }
+
     /// Set retry configuration.
-    pub fn retries(mut self, retries: crate::transport::RetryConfig) -> Self {
-        self.retries = retries;
+    pub fn retry_config(mut self, retry_config: crate::transport::RetryConfig) -> Self {
+        self.transport_config.retry_config = retry_config;
         self
     }
 
@@ -241,6 +255,54 @@ where
     pub fn camera_id(mut self, id: u8) -> Result<Self, Error> {
         self.camera_id = CameraId::new(id)?;
         Ok(self)
+    }
+
+    fn defaulted_buffer_config(&self, transport_default: BufferConfig) -> BufferConfig {
+        if self.transport_config.buffer_config == BufferConfig::default() {
+            transport_default
+        } else {
+            self.transport_config.buffer_config
+        }
+    }
+
+    fn tcp_transport_config(&self) -> TransportConfig {
+        TransportConfig {
+            buffer_config: self.defaulted_buffer_config(BufferConfig::for_raw_ip()),
+            addressing: AddressingMode::Ip,
+            ..self.transport_config
+        }
+    }
+
+    fn udp_transport_config(&self) -> TransportConfig {
+        TransportConfig {
+            buffer_config: self.defaulted_buffer_config(BufferConfig::for_udp()),
+            addressing: AddressingMode::Ip,
+            ..self.transport_config
+        }
+    }
+
+    #[cfg(any(feature = "transport-serial", feature = "transport-serial-tokio"))]
+    fn serial_transport_config(&self) -> TransportConfig {
+        TransportConfig {
+            buffer_config: self.defaulted_buffer_config(BufferConfig::for_serial()),
+            addressing: AddressingMode::Serial,
+            tcp_nodelay: None,
+            ttl: None,
+            tcp_keepalive: None,
+            ..self.transport_config
+        }
+    }
+
+    #[cfg(any(feature = "transport-serial", feature = "transport-serial-tokio"))]
+    fn serial_config(&self, port: &str, baud_rate: u32) -> crate::transport::serial::Config {
+        let transport_config = self.serial_transport_config();
+        crate::transport::serial::Config::new(port.to_string())
+            .baud_rate(baud_rate)
+            .camera_address(self.camera_id.id())
+            .read_timeout(transport_config.read_timeout)
+            .write_timeout(transport_config.write_timeout)
+            .retry_config(transport_config.retry_config)
+            .buffer_config(transport_config.buffer_config)
     }
 }
 
@@ -299,13 +361,6 @@ where
         R: crate::runtime::Runtime,
     {
         use crate::runtime::TransportHandle;
-        use crate::transport::builder::TransportConfig;
-
-        // Create transport config with retry settings from camera config
-        let transport_config = TransportConfig {
-            retry_config: self.retries,
-            ..TransportConfig::default()
-        };
 
         // Create transport based on configuration
         let transport = match &self.transport {
@@ -316,7 +371,7 @@ where
                     Some(P::DEFAULT_TCP_PORT),
                 )?;
                 let tcp = runtime
-                    .connect_tcp(&canonical_addr, transport_config)
+                    .connect_tcp(&canonical_addr, self.tcp_transport_config())
                     .await?;
                 TransportHandle::Tcp(tcp)
             }
@@ -327,7 +382,7 @@ where
                     Some(P::DEFAULT_UDP_PORT),
                 )?;
                 let udp = runtime
-                    .connect_udp(&canonical_addr, transport_config)
+                    .connect_udp(&canonical_addr, self.udp_transport_config())
                     .await?;
                 TransportHandle::Udp(udp)
             }
@@ -352,7 +407,7 @@ where
                 transport,
                 runtime.clone(),
                 self.timeouts,
-                self.retries,
+                self.transport_config.retry_config,
             )
             .await?;
 
@@ -407,9 +462,7 @@ where
         match &self.transport {
             TransportOptions::Serial { port, baud_rate } => {
                 // Create serial config from transport options
-                let serial_config = crate::transport::serial::Config::new(port.clone())
-                    .baud_rate(*baud_rate)
-                    .camera_address(self.camera_id.id());
+                let serial_config = self.serial_config(port, *baud_rate);
 
                 // Connect using RuntimeSerial trait
                 let serial = runtime.connect_serial(serial_config).await?;
@@ -422,7 +475,7 @@ where
                         transport,
                         runtime.clone(),
                         self.timeouts,
-                        self.retries,
+                        self.transport_config.retry_config,
                     )
                     .await?;
 
@@ -482,7 +535,7 @@ where
                     address,
                     Some(P::DEFAULT_TCP_PORT),
                 )?;
-                let tcp = Tcp::connect(&canonical_addr)?;
+                let tcp = Tcp::connect_with_config(&canonical_addr, self.tcp_transport_config())?;
                 crate::transport::BlockingTransportHandle::Tcp(tcp)
             }
             TransportOptions::Udp { address } => {
@@ -491,7 +544,7 @@ where
                     address,
                     Some(P::DEFAULT_UDP_PORT),
                 )?;
-                let udp = Udp::connect(&canonical_addr)?;
+                let udp = Udp::connect_with_config(&canonical_addr, self.udp_transport_config())?;
                 crate::transport::BlockingTransportHandle::Udp(udp)
             }
             TransportOptions::Serial { .. } => {
@@ -514,7 +567,7 @@ where
             crate::camera::Camera::<crate::mode::Blocking, P, _, ()>::new_blocking_with_config(
                 transport,
                 self.timeouts,
-                self.retries,
+                self.transport_config.retry_config,
             )?;
 
         // Apply camera ID if different from profile default
@@ -555,9 +608,7 @@ where
         match &self.transport {
             TransportOptions::Serial { port, baud_rate } => {
                 // Create serial config from transport options
-                let serial_config = crate::transport::serial::Config::new(port.clone())
-                    .baud_rate(*baud_rate)
-                    .camera_address(self.camera_id.id());
+                let serial_config = self.serial_config(port, *baud_rate);
 
                 // Create blocking serial transport
                 let serial_transport =
@@ -570,7 +621,7 @@ where
                     crate::camera::Camera::<crate::mode::Blocking, P, _, _>::new_blocking_with_config(
                         transport,
                         self.timeouts,
-                        self.retries,
+                        self.transport_config.retry_config,
                     )?;
 
                 // Apply camera ID if different from profile default

@@ -22,7 +22,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! grafton-visca = { version = "0.9", features = ["dyn-api", "runtime-tokio"] }
+//! grafton-visca = { version = "0.12", features = ["dyn-api", "runtime-tokio"] }
 //! ```
 //!
 //! Then convert a concrete camera to use the dynamic API:

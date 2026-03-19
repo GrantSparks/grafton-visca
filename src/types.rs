@@ -1601,4 +1601,20 @@ mod tests {
         assert!(ZoomPosition::try_from(-0.1f32).is_err());
         assert!(ZoomPosition::try_from(1.1f32).is_err());
     }
+
+    #[test]
+    fn test_sharpness_level_new_for_model_accepts_ptzoptics_extended_range() {
+        assert!(matches!(
+            SharpnessLevel::new_for_model(0x0F, crate::constants::CameraVariant::PtzOpticsG2),
+            Ok(level) if level.value() == 0x0F
+        ));
+    }
+
+    #[test]
+    fn test_sharpness_level_new_for_model_rejects_values_above_ptzoptics_range() {
+        assert!(
+            SharpnessLevel::new_for_model(0x10, crate::constants::CameraVariant::PtzOpticsG2)
+                .is_err()
+        );
+    }
 }

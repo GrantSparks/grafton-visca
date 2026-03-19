@@ -152,6 +152,13 @@ pub mod serial;
 pub(crate) mod serial_blocking;
 #[cfg(all(feature = "mode-async", feature = "runtime-smol"))]
 pub(crate) mod smol;
+#[cfg(any(
+    not(feature = "mode-async"),
+    feature = "runtime-tokio",
+    feature = "runtime-async-std",
+    feature = "runtime-smol"
+))]
+pub(crate) mod socket_options;
 #[cfg(all(feature = "mode-async", feature = "runtime-tokio"))]
 pub(crate) mod tokio;
 

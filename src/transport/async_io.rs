@@ -5,7 +5,7 @@
 
 use std::future::Future;
 
-use crate::{transport::builder::TransportConfig, Error};
+use crate::Error;
 
 /// Trait abstracting async read operations across different runtimes.
 ///
@@ -59,70 +59,6 @@ pub async fn write_all_flush<W: AsyncWriteExt>(writer: &mut W, data: &[u8]) -> R
     writer.flush().await?;
     Ok(())
 }
-
-/// Configuration for TCP connection behavior.
-#[derive(Debug, Clone)]
-pub struct TcpConnectionConfig {
-    /// Whether to enable TCP_NODELAY (Nagle's algorithm disable)
-    pub nodelay: Option<bool>,
-    /// Time-to-live for packets
-    pub ttl: Option<u32>,
-    /// Connection timeout duration
-    pub connect_timeout: std::time::Duration,
-    /// TCP keepalive interval. When set, enables OS-level TCP keepalive probes
-    /// at the specified interval to prevent camera-side idle timeout.
-    pub keepalive: Option<std::time::Duration>,
-}
-
-impl Default for TcpConnectionConfig {
-    fn default() -> Self {
-        Self {
-            nodelay: Some(true), // Default to low latency
-            ttl: None,
-            connect_timeout: std::time::Duration::from_secs(5),
-            keepalive: None,
-        }
-    }
-}
-
-impl From<TransportConfig> for TcpConnectionConfig {
-    fn from(config: TransportConfig) -> Self {
-        Self {
-            nodelay: config.tcp_nodelay,
-            ttl: config.ttl,
-            connect_timeout: config.connect_timeout,
-            keepalive: config.keepalive,
-        }
-    }
-}
-
-/// Configuration for UDP socket behavior.
-#[derive(Debug, Clone)]
-pub struct UdpSocketConfig {
-    /// Time-to-live for packets
-    pub ttl: Option<u32>,
-    /// Connection timeout duration
-    pub connect_timeout: std::time::Duration,
-}
-
-impl Default for UdpSocketConfig {
-    fn default() -> Self {
-        Self {
-            ttl: None,
-            connect_timeout: std::time::Duration::from_secs(5),
-        }
-    }
-}
-
-impl From<TransportConfig> for UdpSocketConfig {
-    fn from(config: TransportConfig) -> Self {
-        Self {
-            ttl: config.ttl,
-            connect_timeout: config.connect_timeout,
-        }
-    }
-}
-
 #[cfg(test)]
 #[allow(clippy::panic)]
 #[allow(clippy::expect_used)]

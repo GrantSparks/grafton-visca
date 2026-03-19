@@ -1,6 +1,6 @@
 //! async-std-specific implementations of unified async I/O connectors.
 
-use std::time::Instant;
+use std::{convert::TryFrom, time::Instant};
 
 use async_std::{
     io::prelude::*,
@@ -13,8 +13,8 @@ use crate::{
         address::AddressResolver,
         async_io::{
             AsyncDatagram, AsyncReadExt as AsyncReadExtTrait, AsyncWriteExt as AsyncWriteExtTrait,
-            TcpConnectionConfig, UdpSocketConfig,
         },
+        socket_options::{apply_tcp_socket_options, TcpConnectionConfig, UdpSocketConfig},
     },
     Error,
 };
@@ -56,28 +56,16 @@ pub async fn connect_tcp(
     address: &str,
     config: TcpConnectionConfig,
 ) -> Result<AsyncStdTcpStream, Error> {
-    // Connect with timeout
+    // Connect with timeout using async-std's native connector first.
     let stream = async_std::future::timeout(config.connect_timeout, TcpStream::connect(address))
         .await
         .map_err(|_| Error::Timeout)??;
 
-    // Apply socket configuration
-    if let Some(nodelay) = config.nodelay {
-        stream.set_nodelay(nodelay)?;
-    } else {
-        stream.set_nodelay(true)?; // Default to low latency
-    }
-
-    if let Some(ttl) = config.ttl {
-        stream.set_ttl(ttl)?;
-    }
-
-    // Note: TCP keepalive is supported on the tokio transport via socket2.
-    // async_std::net::TcpStream does not implement AsFd, so keepalive
-    // must be configured before handing off to async_std if needed.
-    if config.keepalive.is_some() {
-        tracing::debug!("TCP keepalive requested but not supported on async_std transport");
-    }
+    // async-std does not expose the socket handle traits on all builds, so
+    // configure the connected socket through a std::net::TcpStream round-trip.
+    let stream = std::net::TcpStream::try_from(stream)?;
+    apply_tcp_socket_options(&stream, config)?;
+    let stream = TcpStream::from(stream);
 
     Ok(AsyncStdTcpStream::new(stream))
 }

@@ -11,6 +11,7 @@ use crate::{
     transport::{
         address::AddressResolver,
         builder::{AddressingMode, TransportConfig},
+        socket_options::apply_tcp_socket_options,
         BlockingTransport, HasTransportConfig,
     },
     Error,
@@ -85,15 +86,7 @@ impl Tcp {
                     // Apply socket options from config
                     stream.set_read_timeout(Some(config.read_timeout))?;
                     stream.set_write_timeout(Some(config.write_timeout))?;
-                    if let Some(nodelay) = config.tcp_nodelay {
-                        stream.set_nodelay(nodelay)?;
-                    } else {
-                        // Default to nodelay for low latency
-                        stream.set_nodelay(true)?;
-                    }
-                    if let Some(ttl) = config.ttl {
-                        stream.set_ttl(ttl)?;
-                    }
+                    apply_tcp_socket_options(&stream, config.into())?;
 
                     // Clone the stream for separate reader and writer
                     let reader_stream = stream.try_clone()?;

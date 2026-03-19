@@ -192,6 +192,10 @@ mod tests {
         assert_eq!(config.camera_address, 1);
         assert!(config.if_clear_on_connect);
         assert!(!config.address_set_on_connect);
+        assert_eq!(
+            config.buffer_config,
+            crate::transport::buffer::BufferConfig::for_serial()
+        );
     }
 
     /// A mock serial port for testing that records all operations.

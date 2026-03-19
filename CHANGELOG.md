@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Breaking Changes
+
+#### `CameraConfig` Now Owns Full `TransportConfig`
+- **BREAKING**: `CameraConfig` now stores and applies a full `TransportConfig` across TCP, UDP, blocking serial, and Tokio serial transports
+- `retry_config()` replaces `retries()`
+- Transport-specific defaults are now derived from the active transport instead of being split across separate configuration paths
+
+### Added
+
+#### Full Cross-Runtime TCP Keepalive Support
+- TCP keepalive is now fully applied for Tokio, async-std, smol, and blocking TCP transports
+- New transport builder methods: `tcp_keepalive(Duration)` and `disable_tcp_keepalive()`
+- Default TCP transport configuration now enables keepalive consistently across all supported runtimes
+
+### Changed
+
+#### Transport Socket Option Unification
+- Shared TCP and UDP socket option handling now lives in a common transport module instead of being duplicated per runtime
+- Runtime-specific TCP connectors now flow through the same socket-option application path, removing unsupported keepalive fallbacks
+- Serial transport defaults now use consistent buffer sizing across blocking and Tokio implementations
+
+### Fixed
+
+#### PTZOptics Sharpness Range Validation
+- PTZOptics G2, G3, and 30X sharpness validation now consistently accepts `0x00..=0x0F` in the model-aware constructors and validators
+- Added regression coverage for accepted `0x0F` and rejected `0x10` sharpness levels
+
 ## [0.11.0] - 2026-02-28
 
 ### Breaking Changes

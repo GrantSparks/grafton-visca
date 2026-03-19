@@ -67,6 +67,9 @@ pub const DEFAULT_MAX_PENDING_QUEUE_DEPTH: usize = 64;
 pub const DEFAULT_MAX_PENDING_QUEUE_DEPTH_NONZERO: NonZeroUsize =
     NonZeroUsize::new(DEFAULT_MAX_PENDING_QUEUE_DEPTH).unwrap();
 
+/// Default TCP keepalive interval for long-lived VISCA TCP connections.
+pub(crate) const DEFAULT_TCP_KEEPALIVE_INTERVAL: Duration = Duration::from_secs(30);
+
 /// Common configuration options for all transport types.
 #[derive(Debug, Clone, Copy)]
 pub struct TransportConfig {
@@ -88,7 +91,7 @@ pub struct TransportConfig {
     pub ttl: Option<u32>,
     /// TCP keepalive interval. When set, enables OS-level TCP keepalive probes
     /// to prevent camera-side idle timeout on long-lived connections.
-    pub keepalive: Option<Duration>,
+    pub tcp_keepalive: Option<Duration>,
     /// Maximum pending queue depth for runtime admission control and backpressure.
     ///
     /// This value provides a **hard memory/backpressure guarantee** by bounding:
@@ -118,9 +121,9 @@ impl Default for TransportConfig {
             retry_config: RetryConfig::default(),
             buffer_config: BufferConfig::default(),
             addressing: AddressingMode::default(),
-            tcp_nodelay: None,
+            tcp_nodelay: Some(true),
             ttl: None,
-            keepalive: Some(Duration::from_secs(30)),
+            tcp_keepalive: Some(DEFAULT_TCP_KEEPALIVE_INTERVAL),
             max_pending_queue_depth: DEFAULT_MAX_PENDING_QUEUE_DEPTH_NONZERO,
         }
     }
@@ -381,6 +384,24 @@ impl NetTransportBuilder {
         self
     }
 
+    /// Set the TCP keepalive interval.
+    ///
+    /// This option only affects TCP transports. The interval controls both the
+    /// initial idle period before keepalive probes begin and the spacing between
+    /// subsequent probes.
+    pub fn tcp_keepalive(mut self, interval: Duration) -> Self {
+        self.config.tcp_keepalive = Some(interval);
+        self
+    }
+
+    /// Disable TCP keepalive.
+    ///
+    /// This option only affects TCP transports.
+    pub fn disable_tcp_keepalive(mut self) -> Self {
+        self.config.tcp_keepalive = None;
+        self
+    }
+
     /// Set the maximum pending queue depth for runtime admission control.
     ///
     /// This bounds the number of commands/inquiries that can be queued
@@ -468,6 +489,11 @@ mod tests {
         assert_eq!(builder.protocol, Protocol::Tcp);
         assert_eq!(builder.config.connect_timeout, Duration::from_secs(5));
         assert_eq!(builder.config.retry_config.max_retries, 3);
+        assert_eq!(builder.config.tcp_nodelay, Some(true));
+        assert_eq!(
+            builder.config.tcp_keepalive,
+            Some(DEFAULT_TCP_KEEPALIVE_INTERVAL)
+        );
     }
 
     #[test]
@@ -476,13 +502,15 @@ mod tests {
             .address("192.168.0.110:5678")
             .connect_timeout(Duration::from_secs(10))
             .max_retries(5)
-            .tcp_nodelay(true);
+            .tcp_nodelay(true)
+            .tcp_keepalive(Duration::from_secs(45));
 
         assert_eq!(builder.protocol, Protocol::Udp);
         assert_eq!(builder.address, Some("192.168.0.110:5678".to_string()));
         assert_eq!(builder.config.connect_timeout, Duration::from_secs(10));
         assert_eq!(builder.config.retry_config.max_retries, 5);
         assert_eq!(builder.config.tcp_nodelay, Some(true));
+        assert_eq!(builder.config.tcp_keepalive, Some(Duration::from_secs(45)));
     }
 
     #[test]
@@ -492,6 +520,12 @@ mod tests {
         assert_eq!(builder.config.connect_timeout, Duration::from_secs(3));
         assert_eq!(builder.config.read_timeout, Duration::from_secs(3));
         assert_eq!(builder.config.write_timeout, Duration::from_secs(3));
+    }
+
+    #[test]
+    fn test_net_builder_disable_tcp_keepalive() {
+        let builder = NetTransportBuilder::tcp().disable_tcp_keepalive();
+        assert_eq!(builder.config.tcp_keepalive, None);
     }
 
     #[test]

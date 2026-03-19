@@ -9,7 +9,6 @@ use crate::{
     executor::TokioExecutor,
     transport::{
         async_io::{AsyncReadExt as AsyncReadExtTrait, AsyncWriteExt as AsyncWriteExtTrait},
-        buffer::BufferConfig,
         builder::TransportConfig,
         serial::{
             handshake::async_handshake::{address_set_async, if_clear_async},
@@ -107,11 +106,11 @@ impl Serial {
             read_timeout: config.read_timeout,
             write_timeout: config.write_timeout,
             retry_config: config.retry_config,
-            buffer_config: BufferConfig::for_serial(), // Serial uses dedicated buffer sizing
+            buffer_config: config.buffer_config,
             addressing: crate::transport::builder::AddressingMode::Serial, // Serial uses Serial addressing
             tcp_nodelay: None,
             ttl: None,
-            keepalive: None,
+            tcp_keepalive: None,
             max_pending_queue_depth: TransportConfig::default().max_pending_queue_depth,
         };
 

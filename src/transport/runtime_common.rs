@@ -57,7 +57,8 @@ macro_rules! declare_net_transport {
 
             use $crate::{
                 transport::{
-                    async_io::{write_all_flush, AsyncReadExt, TcpConnectionConfig},
+                    async_io::{write_all_flush, AsyncReadExt},
+                    socket_options::TcpConnectionConfig,
                     buffer::BufferConfig,
                     builder::TransportConfig,
                 },
@@ -187,7 +188,7 @@ macro_rules! declare_net_transport {
 
             use $crate::{
                 transport::{
-                    async_io::UdpSocketConfig,
+                    socket_options::UdpSocketConfig,
                     buffer::BufferConfig,
                     builder::TransportConfig,
                     RetryConfig,
@@ -260,7 +261,8 @@ macro_rules! declare_net_transport {
 
             use $crate::{
                 transport::{
-                    async_io::{write_all_flush, AsyncReadExt, TcpConnectionConfig},
+                    async_io::{write_all_flush, AsyncReadExt},
+                    socket_options::TcpConnectionConfig,
                     buffer::BufferConfig,
                     builder::TransportConfig,
                 },
@@ -390,7 +392,7 @@ macro_rules! declare_net_transport {
 
             use $crate::{
                 transport::{
-                    async_io::UdpSocketConfig,
+                    socket_options::UdpSocketConfig,
                     buffer::BufferConfig,
                     builder::TransportConfig,
                     RetryConfig,

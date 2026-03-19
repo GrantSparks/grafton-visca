@@ -45,7 +45,7 @@ impl Default for Config {
             read_timeout: Duration::from_millis(100),
             write_timeout: Duration::from_millis(100),
             retry_config: RetryConfig::default(),
-            buffer_config: BufferConfig::default(),
+            buffer_config: BufferConfig::for_serial(),
         }
     }
 }
