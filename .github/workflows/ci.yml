@@ -305,15 +305,12 @@ jobs:
       # Run miri on different feature combinations
       - name: Run miri tests (no features)
         run: cargo miri test --no-default-features
-        continue-on-error: true  # Don't fail CI if miri finds issues initially
 
       - name: Run miri tests (mode-async)
         run: cargo miri test --no-default-features --features mode-async
-        continue-on-error: true
 
       - name: Run miri tests (runtime-tokio)
         run: cargo miri test --no-default-features --features runtime-tokio
-        continue-on-error: true
 
   # Cross-compilation testing
   cross-compile:

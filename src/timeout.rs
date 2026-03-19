@@ -762,14 +762,164 @@ impl TimeoutPolicy {
 #[allow(clippy::expect_used)]
 mod timeout_manager_tests {
     use std::{
+        io,
         net::{TcpListener, TcpStream, UdpSocket},
+        sync::Mutex,
         thread,
     };
 
     use super::*;
 
+    #[derive(Debug, Default)]
+    struct MockTimeoutSocket {
+        read_timeout: Option<Duration>,
+        write_timeout: Option<Duration>,
+    }
+
+    impl MockTimeoutSocket {
+        const fn new(read_timeout: Option<Duration>, write_timeout: Option<Duration>) -> Self {
+            Self {
+                read_timeout,
+                write_timeout,
+            }
+        }
+    }
+
+    impl TimeoutManager for MockTimeoutSocket {
+        fn with_timeout<F, R>(&mut self, timeout: Duration, f: F) -> Result<R, Error>
+        where
+            F: FnOnce(&mut Self) -> Result<R, Error>,
+        {
+            self.with_read_timeout(timeout, f)
+        }
+
+        fn get_read_timeout(&self) -> io::Result<Option<Duration>> {
+            Ok(self.read_timeout)
+        }
+
+        fn set_read_timeout(&mut self, timeout: Option<Duration>) -> io::Result<()> {
+            self.read_timeout = timeout;
+            Ok(())
+        }
+
+        fn get_write_timeout(&self) -> io::Result<Option<Duration>> {
+            Ok(self.write_timeout)
+        }
+
+        fn set_write_timeout(&mut self, timeout: Option<Duration>) -> io::Result<()> {
+            self.write_timeout = timeout;
+            Ok(())
+        }
+    }
+
     #[test]
-    fn test_tcp_timeout_manager() {
+    fn test_with_read_timeout_restores_original_timeout_on_success() {
+        let original_timeout = Some(Duration::from_secs(5));
+        let requested_timeout = Duration::from_secs(1);
+        let mut socket = MockTimeoutSocket::new(original_timeout, None);
+
+        let result = socket.with_read_timeout(requested_timeout, |socket| {
+            assert_eq!(socket.read_timeout, Some(requested_timeout));
+            Ok(42)
+        });
+
+        assert_eq!(result.expect("temporary read timeout should succeed"), 42);
+        assert_eq!(socket.read_timeout, original_timeout);
+    }
+
+    #[test]
+    fn test_with_read_timeout_restores_original_timeout_on_error() {
+        let original_timeout = Some(Duration::from_secs(5));
+        let requested_timeout = Duration::from_secs(1);
+        let mut socket = MockTimeoutSocket::new(original_timeout, None);
+
+        let error = socket
+            .with_read_timeout(requested_timeout, |socket| {
+                assert_eq!(socket.read_timeout, Some(requested_timeout));
+                Err::<(), Error>(Error::from(io::Error::other(
+                    "expected timeout test failure",
+                )))
+            })
+            .expect_err("closure failure should be propagated");
+
+        assert!(matches!(error, Error::Io(_)));
+        assert_eq!(socket.read_timeout, original_timeout);
+    }
+
+    #[test]
+    fn test_with_write_timeout_restores_original_timeout() {
+        let original_timeout = Some(Duration::from_secs(10));
+        let requested_timeout = Duration::from_secs(2);
+        let mut socket = MockTimeoutSocket::new(None, original_timeout);
+
+        let result = socket.with_write_timeout(requested_timeout, |socket| {
+            assert_eq!(socket.write_timeout, Some(requested_timeout));
+            Ok("ok")
+        });
+
+        assert_eq!(
+            result.expect("temporary write timeout should succeed"),
+            "ok"
+        );
+        assert_eq!(socket.write_timeout, original_timeout);
+    }
+
+    #[test]
+    fn test_timeout_guard_restores_timeouts() {
+        let original_read_timeout = Some(Duration::from_secs(5));
+        let original_write_timeout = Some(Duration::from_secs(10));
+        let requested_read_timeout = Duration::from_secs(1);
+        let requested_write_timeout = Duration::from_secs(2);
+        let mut socket = MockTimeoutSocket::new(original_read_timeout, original_write_timeout);
+
+        {
+            let mut guard = TimeoutGuard::new(
+                &mut socket,
+                Some(requested_read_timeout),
+                Some(requested_write_timeout),
+            )
+            .expect("Failed to create timeout guard");
+
+            assert_eq!(guard.socket.read_timeout, Some(requested_read_timeout));
+            assert_eq!(guard.socket.write_timeout, Some(requested_write_timeout));
+
+            guard
+                .restore()
+                .expect("Failed to restore original timeouts");
+            assert_eq!(guard.socket.read_timeout, original_read_timeout);
+            assert_eq!(guard.socket.write_timeout, original_write_timeout);
+
+            guard
+                .restore()
+                .expect("timeout restoration should be idempotent");
+        }
+
+        assert_eq!(socket.read_timeout, original_read_timeout);
+        assert_eq!(socket.write_timeout, original_write_timeout);
+    }
+
+    #[test]
+    fn test_with_timeout_on_guard_restores_read_timeout() {
+        let original_timeout = Some(Duration::from_secs(5));
+        let requested_timeout = Duration::from_secs(3);
+        let socket = Mutex::new(MockTimeoutSocket::new(original_timeout, None));
+        let mut guard = socket.lock().expect("mutex should not be poisoned");
+
+        let result = with_timeout_on_guard(&mut guard, requested_timeout, |socket| {
+            assert_eq!(socket.read_timeout, Some(requested_timeout));
+            Ok("ok")
+        });
+
+        assert_eq!(
+            result.expect("temporary timeout through mutex guard should succeed"),
+            "ok"
+        );
+        assert_eq!(guard.read_timeout, original_timeout);
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "requires real TCP sockets")]
+    fn test_tcp_timeout_manager_smoke() {
         // Start a TCP server
         let listener = TcpListener::bind("127.0.0.1:0").expect("Failed to bind test listener");
         let addr = listener
@@ -822,7 +972,8 @@ mod timeout_manager_tests {
     }
 
     #[test]
-    fn test_udp_timeout_manager() {
+    #[cfg_attr(miri, ignore = "requires real UDP sockets")]
+    fn test_udp_timeout_manager_smoke() {
         let mut socket = UdpSocket::bind("127.0.0.1:0").expect("Failed to bind UDP socket");
 
         // Test setting and getting timeouts
@@ -865,56 +1016,25 @@ mod timeout_manager_tests {
     }
 
     #[test]
-    fn test_timeout_guard() {
-        let mut socket = UdpSocket::bind("127.0.0.1:0").expect("Failed to bind UDP socket");
-
-        // Set initial timeouts
-        socket
-            .set_read_timeout(Some(Duration::from_secs(5)))
-            .expect("Failed to set read timeout");
-        socket
-            .set_write_timeout(Some(Duration::from_secs(10)))
-            .expect("Failed to set write timeout");
-
-        // Verify initial timeouts
-        assert_eq!(
-            socket
-                .get_read_timeout()
-                .expect("Failed to get read timeout"),
-            Some(Duration::from_secs(5))
-        );
-        assert_eq!(
-            socket
-                .get_write_timeout()
-                .expect("Failed to get write timeout"),
-            Some(Duration::from_secs(10))
-        );
+    fn test_timeout_guard_restores_timeouts_on_drop() {
+        let original_read_timeout = Some(Duration::from_secs(5));
+        let original_write_timeout = Some(Duration::from_secs(10));
+        let mut socket = MockTimeoutSocket::new(original_read_timeout, original_write_timeout);
 
         {
-            let mut _guard = TimeoutGuard::new(
+            let guard = TimeoutGuard::new(
                 &mut socket,
                 Some(Duration::from_secs(1)),
                 Some(Duration::from_secs(2)),
             )
             .expect("Failed to create timeout guard");
 
-            // Guard holds the mutable reference, so we can't access socket here
-            // The guard will automatically restore on drop
+            assert_eq!(guard.socket.read_timeout, Some(Duration::from_secs(1)));
+            assert_eq!(guard.socket.write_timeout, Some(Duration::from_secs(2)));
         }
 
-        // Verify original timeouts are restored after guard is dropped
-        assert_eq!(
-            socket
-                .get_read_timeout()
-                .expect("Failed to get read timeout after guard"),
-            Some(Duration::from_secs(5))
-        );
-        assert_eq!(
-            socket
-                .get_write_timeout()
-                .expect("Failed to get write timeout after guard"),
-            Some(Duration::from_secs(10))
-        );
+        assert_eq!(socket.read_timeout, original_read_timeout);
+        assert_eq!(socket.write_timeout, original_write_timeout);
     }
 
     #[test]
