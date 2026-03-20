@@ -87,7 +87,7 @@ use self::profile_constants::{
 ///
 /// This camera supports:
 /// - Pan/Tilt with 340° pan range and -30° to +90° tilt
-/// - 20x optical zoom with digital zoom extension
+/// - 20x optical zoom (no VISCA digital zoom control)
 /// - Auto and manual focus
 /// - Full exposure control with exposure compensation
 /// - White balance with 6 modes including color temperature
@@ -98,6 +98,7 @@ use self::profile_constants::{
 ///
 /// Does NOT support:
 /// - ND filters
+/// - VISCA digital zoom control (camera rejects the command and may close TCP)
 #[derive(Debug, Default, Clone, Copy)]
 pub struct PtzOpticsG2;
 
@@ -129,7 +130,7 @@ impl PanTilt for PtzOpticsG2 {
 
 impl Zoom for PtzOpticsG2 {
     const OPTICAL_ZOOM_MAX: u16 = 0x4000;
-    const DIGITAL_ZOOM_MAX: Option<u16> = Some(0x7000);
+    const DIGITAL_ZOOM_MAX: Option<u16> = None;
     const ZOOM_SPEED_RANGE: std::ops::Range<u8> = 0..8;
     const ZOOM_MAGNIFICATION_TO_UNITS: f32 = 862.3;
 }
@@ -798,7 +799,7 @@ impl PanTilt for PtzOpticsG3 {
 
 impl Zoom for PtzOpticsG3 {
     const OPTICAL_ZOOM_MAX: u16 = 0x4000;
-    const DIGITAL_ZOOM_MAX: Option<u16> = Some(0x7000);
+    const DIGITAL_ZOOM_MAX: Option<u16> = None;
     const ZOOM_SPEED_RANGE: std::ops::Range<u8> = 0..8;
     const ZOOM_MAGNIFICATION_TO_UNITS: f32 = 862.3;
 }
@@ -905,7 +906,7 @@ impl PanTilt for PtzOptics30X {
 
 impl Zoom for PtzOptics30X {
     const OPTICAL_ZOOM_MAX: u16 = 0x7AC0;
-    const DIGITAL_ZOOM_MAX: Option<u16> = Some(0x7FFF);
+    const DIGITAL_ZOOM_MAX: Option<u16> = None;
     const ZOOM_SPEED_RANGE: std::ops::Range<u8> = 0..8;
     const ZOOM_MAGNIFICATION_TO_UNITS: f32 = 1043.0;
 }

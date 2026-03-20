@@ -390,7 +390,7 @@ pub async fn runtime_loop_with_config<
 
             LoopEvent::TransportRecv(n) => {
                 if n == 0 {
-                    debug!("Connection closed by peer; exiting runtime loop");
+                    error!("Connection closed by peer; exiting runtime loop");
                     return Err(Error::ConnectionClosed {
                         reason: Some(std::borrow::Cow::Borrowed("peer closed connection")),
                     });
@@ -503,7 +503,7 @@ pub async fn runtime_loop_with_config<
 
             LoopEvent::TransportErr(e) => {
                 if matches!(e, Error::ConnectionClosed { .. }) {
-                    debug!("Connection closed by peer; exiting runtime loop");
+                    error!("Connection closed by peer; exiting runtime loop");
                     return Err(e);
                 }
 

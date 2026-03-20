@@ -634,9 +634,9 @@ mod tests {
         assert_eq!(caps.tilt_speed, 1..=20);
 
         assert!(caps.has_zoom);
-        assert!(caps.has_digital_zoom);
+        assert!(!caps.has_digital_zoom);
         assert_eq!(caps.zoom_range_optical, 0x0000..=0x4000);
-        assert_eq!(caps.zoom_range_digital, Some(0x4000..=0x7000));
+        assert_eq!(caps.zoom_range_digital, None);
 
         assert!(caps.has_auto_focus);
         assert!(!caps.has_one_push_focus);
@@ -692,8 +692,7 @@ mod tests {
         assert!(summary.contains("Model: PtzOptics G2"));
         assert!(summary.contains("Optical Zoom: 20x"));
         assert!(summary.contains("0x4000"));
-        assert!(summary.contains("Digital Zoom:"));
-        assert!(summary.contains("0x7000"));
+        assert!(!summary.contains("0x7000"));
         assert!(summary.contains("Max Presets: 127"));
     }
 
@@ -729,13 +728,26 @@ mod tests {
 
     #[test]
     fn test_max_combined_zoom() {
-        // PtzOpticsG2 has digital zoom (0x7000)
-        let caps = Capabilities::from_profile::<PtzOpticsG2>();
+        // SonyFR7 has digital zoom (0x7000)
+        let caps = Capabilities::from_profile::<SonyFR7>();
         let max_combined = caps.max_combined_zoom();
         let max_optical = caps.max_optical_zoom();
         assert!(
             max_combined > max_optical,
             "Combined zoom should exceed optical zoom for cameras with digital zoom"
+        );
+
+        // PtzOpticsG2 has no digital zoom (cameras reject the VISCA command)
+        let caps = Capabilities::from_profile::<PtzOpticsG2>();
+        assert!(
+            !caps.has_digital_zoom,
+            "PtzOpticsG2 should not declare digital zoom support"
+        );
+        let max_combined = caps.max_combined_zoom();
+        let max_optical = caps.max_optical_zoom();
+        assert!(
+            (max_combined - max_optical).abs() < 0.01,
+            "Without digital zoom, combined should equal optical"
         );
 
         // GenericVisca has no digital zoom

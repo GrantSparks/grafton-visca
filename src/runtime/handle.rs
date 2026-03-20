@@ -648,7 +648,7 @@ fn spawn_runtime_loop<P, T, E>(
     E: Executor + Send + Sync + 'static,
 {
     executor.spawn_bg(async move {
-        let _ = runtime_loop_with_config::<P, T, E>(
+        match runtime_loop_with_config::<P, T, E>(
             transport,
             submit_rx,
             metrics_rx,
@@ -657,7 +657,16 @@ fn spawn_runtime_loop<P, T, E>(
             task_executor,
             config,
         )
-        .await;
+        .await
+        {
+            Ok(()) => tracing::debug!("Runtime loop exited cleanly"),
+            Err(ref e) if matches!(e, Error::ConnectionClosed { .. }) => {
+                tracing::error!("Runtime loop exited: {e} — all subsequent commands on this connection will fail");
+            }
+            Err(ref e) => {
+                tracing::error!("Runtime loop exited unexpectedly: {e}");
+            }
+        }
     });
 }
 
