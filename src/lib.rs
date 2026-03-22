@@ -32,7 +32,7 @@
 //! - **Unified API Architecture**: Single consistent interface across blocking and async modes
 //! - **Type-Safe Camera Profiles**: Compile-time validation with camera-specific profiles
 //! - **Feature-Gated Methods**: Choose blocking or async at compile time with zero runtime overhead
-//! - **Multi-Runtime Support**: Tokio, async-std, smol can coexist with priority-based selection
+//! - **Multi-Runtime Support**: Tokio and smol can coexist with priority-based selection; `runtime-async-std` is now a deprecated compatibility alias to smol
 //! - **Complete Command Coverage**: Full VISCA protocol support across all camera types
 //! - **Profile-Aware Conversions**: Automatic unit conversions based on camera model
 //! - **Comprehensive Inquiry**: Query camera state for all supported features
@@ -238,29 +238,30 @@
 //! ```ignore
 //! // Multiple runtime features can coexist, but runtime selection is explicit.
 //! [dependencies]
-//! grafton-visca = { version = "*", features = ["runtime-tokio", "runtime-async-std"] }
+//! grafton-visca = { version = "*", features = ["runtime-tokio", "runtime-smol"] }
 //!
 //! use grafton_visca::{
 //!     CameraBuilder, Error,
 //!     camera::profiles::PtzOpticsG2,
-//!     runtime::AsyncStdRuntime,
-//!     runtime_adapters::async_std::TcpTransport,
+//!     runtime::SmolRuntime,
+//!     runtime_adapters::smol::TcpTransport,
 //! };
 //!
-//! #[async_std::main]
-//! async fn main() -> Result<(), Error> {
-//!     let transport = TcpTransport::connect("192.168.0.110:5678").await?;
-//!     let runtime = AsyncStdRuntime::new();
-//!     let camera = CameraBuilder::with_executor(runtime)
-//!         .from_transport(transport)
-//!         .profile::<PtzOpticsG2>()
-//!         .open_async()
-//!         .await?;
+//! fn main() -> Result<(), Error> {
+//!     smol::block_on(async {
+//!         let transport = TcpTransport::connect("192.168.0.110:5678").await?;
+//!         let runtime = SmolRuntime::new();
+//!         let camera = CameraBuilder::with_executor(runtime)
+//!             .from_transport(transport)
+//!             .profile::<PtzOpticsG2>()
+//!             .open_async()
+//!             .await?;
 //!
-//!     camera.power().on().await?;
-//!     camera.zoom().tele().await?;
+//!         camera.power().on().await?;
+//!         camera.zoom().tele().await?;
 //!
-//!     Ok(())
+//!         Ok(())
+//!     })
 //! }
 //! ```
 //!
@@ -360,14 +361,14 @@
 //! ## Async Support
 //!
 //! The library provides runtime-agnostic async support, allowing you to use ANY async runtime
-//! (tokio, async-std, smol, etc.) or even create your own.
+//! (tokio, smol, etc.) or even create your own. The deprecated `runtime-async-std` feature now aliases `runtime-smol` for one release cycle.
 //!
 //! ### Feature Flags
 //!
 //! - `mode-async` - Enables async support without any specific runtime. You must provide your own runtime.
 //! - `mode-blocking` - Explicit feature flag for blocking mode (blocking is always available, this is for feature detection).
 //! - `runtime-tokio` - Enables async with built-in Tokio runtime support (implies `mode-async`).
-//! - `runtime-async-std` - Enables async with built-in async-std runtime support (implies `mode-async`).
+//! - `runtime-async-std` - Deprecated compatibility alias to `runtime-smol`; scheduled for removal in `0.13.0`.
 //! - `runtime-smol` - Enables async with built-in smol runtime support (implies `mode-async`).
 //! - `transport-serial` - Enables serial port support for blocking mode.
 //! - `transport-serial-tokio` - Enables serial port support with Tokio (implies `runtime-tokio`).
@@ -413,7 +414,7 @@
 //! grafton-visca = { version = "*", features = ["runtime-smol"] }
 //!
 //! # Multiple runtimes (choose executor at construction time):
-//! grafton-visca = { version = "*", features = ["runtime-tokio", "runtime-async-std"] }
+//! grafton-visca = { version = "*", features = ["runtime-tokio", "runtime-smol"] }
 //! grafton-visca = { version = "*", features = ["runtime-tokio", "runtime-smol", "runtime-async-std"] }
 //! ```
 //!
@@ -426,7 +427,7 @@
 //! let runtime = TokioRuntime::from_current()?;
 //! let camera = Connect::open_tcp_async::<PtzOpticsG2, _>("192.168.0.110", runtime).await?;
 //!
-//! // async-std
+//! // Deprecated async-std compatibility alias (smol-backed in 0.12)
 //! use grafton_visca::{camera::{Connect, profiles::PtzOpticsG2}, runtime::AsyncStdRuntime};
 //! let runtime = AsyncStdRuntime::new();
 //! let camera = Connect::open_tcp_async::<PtzOpticsG2, _>("192.168.0.110", runtime).await?;

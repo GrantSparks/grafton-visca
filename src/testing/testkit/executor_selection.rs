@@ -125,11 +125,11 @@ macro_rules! timeout_test {
         }
 
         #[cfg(all(not(feature = "runtime-tokio"), feature = "runtime-async-std"))]
-        #[async_std::test]
-        async fn $name() {
+        #[test]
+        fn $name() {
             use $crate::executor::AsyncStdExecutor;
             let executor = std::sync::Arc::new(AsyncStdExecutor);
-            $body(executor).await
+            smol::block_on(async { $body(executor).await })
         }
 
         #[cfg(all(

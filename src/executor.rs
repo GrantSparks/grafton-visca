@@ -326,117 +326,6 @@ mod tokio_impl {
 #[cfg(feature = "runtime-tokio")]
 pub use tokio_impl::TokioExecutor;
 
-// async-std executor implementation
-#[cfg(feature = "runtime-async-std")]
-mod async_std_impl {
-    use std::{pin::Pin, time::Duration};
-
-    use super::*;
-
-    /// async-std based executor implementation.
-    #[derive(Debug, Clone, Copy)]
-    pub struct AsyncStdExecutor;
-
-    impl AsyncStdExecutor {
-        /// Create a new async-std executor.
-        pub fn new() -> Self {
-            Self
-        }
-    }
-
-    impl Default for AsyncStdExecutor {
-        fn default() -> Self {
-            Self::new()
-        }
-    }
-
-    // Custom join handle wrapper for async-std
-    #[derive(Debug)]
-    pub struct AsyncStdJoin<T>(async_std::task::JoinHandle<T>);
-
-    impl<T> Future for AsyncStdJoin<T>
-    where
-        T: Send + 'static,
-    {
-        type Output = Result<T, ExecError>;
-
-        fn poll(
-            mut self: Pin<&mut Self>,
-            cx: &mut std::task::Context<'_>,
-        ) -> std::task::Poll<Self::Output> {
-            let join_handle = Pin::new(&mut self.0);
-            match join_handle.poll(cx) {
-                std::task::Poll::Ready(value) => std::task::Poll::Ready(Ok(value)),
-                std::task::Poll::Pending => std::task::Poll::Pending,
-            }
-        }
-    }
-
-    impl Executor for AsyncStdExecutor {
-        type Join<T>
-            = AsyncStdJoin<T>
-        where
-            T: Send + 'static;
-
-        type Detach = ();
-
-        fn spawn_with_detach<F>(&self, fut: F) -> (Self::Join<F::Output>, Self::Detach)
-        where
-            F: Future + Send + 'static,
-            F::Output: Send + 'static,
-        {
-            (AsyncStdJoin(async_std::task::spawn(fut)), ())
-        }
-
-        fn block_on<F: Future>(&self, fut: F) -> F::Output {
-            async_std::task::block_on(fut)
-        }
-
-        #[allow(clippy::manual_async_fn)]
-        fn sleep(&self, duration: Duration) -> impl Future<Output = ()> + Send + '_ {
-            async move { async_std::task::sleep(duration).await }
-        }
-
-        #[allow(clippy::manual_async_fn)]
-        fn timeout<'a, F, T>(
-            &'a self,
-            duration: Duration,
-            fut: F,
-        ) -> impl Future<Output = Result<T, Error>> + Send + 'a
-        where
-            F: Future<Output = T> + Send + 'a,
-            T: Send + 'a,
-        {
-            async move {
-                match async_std::future::timeout(duration, fut).await {
-                    Ok(value) => Ok(value),
-                    Err(_) => Err(Error::Timeout),
-                }
-            }
-        }
-
-        #[allow(clippy::manual_async_fn)]
-        fn timeout_owned<T>(
-            &self,
-            duration: Duration,
-            fut: impl Future<Output = T> + Send + 'static,
-        ) -> impl Future<Output = Result<T, Error>> + Send + 'static
-        where
-            T: Send + 'static,
-        {
-            async move {
-                match async_std::future::timeout(duration, fut).await {
-                    Ok(value) => Ok(value),
-                    Err(_) => Err(Error::Timeout),
-                }
-            }
-        }
-    }
-}
-
-#[cfg(feature = "runtime-async-std")]
-pub use async_std_impl::AsyncStdExecutor;
-
 // smol executor implementation
 #[cfg(feature = "runtime-smol")]
 mod smol_impl {
@@ -564,6 +453,92 @@ mod smol_impl {
 
 #[cfg(feature = "runtime-smol")]
 pub use smol_impl::SmolExecutor;
+
+#[cfg(feature = "runtime-async-std")]
+mod async_std_impl {
+    use std::time::Duration;
+
+    use super::*;
+
+    /// Compatibility executor for the deprecated `runtime-async-std` feature.
+    ///
+    /// This release routes async-std compatibility through the maintained smol
+    /// executor. New code should prefer `SmolExecutor` with `runtime-smol`.
+    #[derive(Debug, Clone, Copy)]
+    pub struct AsyncStdExecutor {
+        inner: SmolExecutor,
+    }
+
+    impl AsyncStdExecutor {
+        /// Create a new async-std compatibility executor.
+        pub fn new() -> Self {
+            Self {
+                inner: SmolExecutor::new(),
+            }
+        }
+    }
+
+    impl Default for AsyncStdExecutor {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
+
+    impl Executor for AsyncStdExecutor {
+        type Join<T>
+            = <SmolExecutor as Executor>::Join<T>
+        where
+            T: Send + 'static;
+
+        type Detach = <SmolExecutor as Executor>::Detach;
+
+        fn spawn_with_detach<F>(&self, fut: F) -> (Self::Join<F::Output>, Self::Detach)
+        where
+            F: Future + Send + 'static,
+            F::Output: Send + 'static,
+        {
+            self.inner.spawn_with_detach(fut)
+        }
+
+        fn block_on<F: Future>(&self, fut: F) -> F::Output {
+            self.inner.block_on(fut)
+        }
+
+        fn sleep(&self, duration: Duration) -> impl Future<Output = ()> + Send + '_ {
+            self.inner.sleep(duration)
+        }
+
+        fn timeout<'a, F, T>(
+            &'a self,
+            duration: Duration,
+            fut: F,
+        ) -> impl Future<Output = Result<T, Error>> + Send + 'a
+        where
+            F: Future<Output = T> + Send + 'a,
+            T: Send + 'a,
+        {
+            self.inner.timeout(duration, fut)
+        }
+
+        fn timeout_owned<T>(
+            &self,
+            duration: Duration,
+            fut: impl Future<Output = T> + Send + 'static,
+        ) -> impl Future<Output = Result<T, Error>> + Send + 'static
+        where
+            T: Send + 'static,
+        {
+            self.inner.timeout_owned(duration, fut)
+        }
+
+        fn now(&self) -> Instant {
+            self.inner.now()
+        }
+    }
+}
+
+#[cfg(feature = "runtime-async-std")]
+pub use async_std_impl::AsyncStdExecutor;
 
 #[cfg(all(test, feature = "runtime-smol"))]
 mod smol_tests {

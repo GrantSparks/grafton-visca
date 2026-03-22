@@ -149,12 +149,18 @@ async fn main() -> Result<(), Error> {
 }
 
 // =================== ASYNC-STD RUNTIME ===================
-#[cfg(all(feature = "runtime-async-std", not(feature = "runtime-smol")))]
-#[async_std::main]
-async fn main() -> Result<(), Error> {
-    use async_std::task::sleep;
+#[cfg(feature = "runtime-async-std")]
+fn main() -> Result<(), Error> {
+    smol::block_on(async_main())
+}
 
+#[cfg(feature = "runtime-async-std")]
+async fn async_main() -> Result<(), Error> {
     use std::time::Duration;
+
+    async fn sleep(duration: Duration) {
+        smol::Timer::after(duration).await;
+    }
 
     use grafton_visca::runtime::AsyncStdRuntime;
 
@@ -165,7 +171,7 @@ async fn main() -> Result<(), Error> {
         .nth(1)
         .unwrap_or_else(|| "192.168.0.110".to_string());
 
-    println!("=== Async Quickstart with async-std ===");
+    println!("=== Async Quickstart with async-std compatibility (smol-backed) ===");
     println!("Connecting to camera at {camera_addr}...\n");
 
     // Connect to camera using the high-level API
@@ -237,14 +243,14 @@ async fn main() -> Result<(), Error> {
     println!("Moved to home position");
 
     println!("\n✓ Quickstart completed successfully!");
-    println!("  Runtime: async-std");
+    println!("  Runtime: async-std compatibility (smol-backed)");
     println!("  Camera: {camera_addr}");
 
     Ok(())
 }
 
 // =================== SMOL RUNTIME ===================
-#[cfg(feature = "runtime-smol")]
+#[cfg(all(feature = "runtime-smol", not(feature = "runtime-async-std")))]
 fn main() -> Result<(), Error> {
     use grafton_visca::runtime::SmolRuntime;
 

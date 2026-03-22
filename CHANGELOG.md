@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-03-22
+
 ### Breaking Changes
 
 #### `CameraConfig` Now Owns Full `TransportConfig`
@@ -14,11 +16,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `retry_config()` replaces `retries()`
 - Transport-specific defaults are now derived from the active transport instead of being split across separate configuration paths
 
+### Deprecated
+
+#### `runtime-async-std` Compatibility Alias
+- `runtime-async-std` is now a deprecated compatibility alias to `runtime-smol` and will be removed in `0.13.0`
+- `AsyncStdRuntime`, `AsyncStdExecutor`, and `runtime_adapters::async_std` remain available in this release to ease migration
+- Builds that enable `runtime-async-std` now emit a cargo warning directing new code to `runtime-smol`
+
 ### Added
 
 #### Full Cross-Runtime TCP Keepalive Support
-- TCP keepalive is now fully applied for Tokio, async-std, smol, and blocking TCP transports
-- New transport builder methods: `tcp_keepalive(Duration)` and `disable_tcp_keepalive()`
+- TCP keepalive is now fully applied for Tokio, smol, the deprecated `runtime-async-std` compatibility alias, and blocking TCP transports
+- New `TcpKeepaliveConfig` policy type with builder support via `tcp_keepalive(TcpKeepaliveConfig)` and `disable_tcp_keepalive()`
 - Default TCP transport configuration now enables keepalive consistently across all supported runtimes
 
 ### Changed
@@ -27,6 +36,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Shared TCP and UDP socket option handling now lives in a common transport module instead of being duplicated per runtime
 - Runtime-specific TCP connectors now flow through the same socket-option application path, removing unsupported keepalive fallbacks
 - Serial transport defaults now use consistent buffer sizing across blocking and Tokio implementations
+
+#### Structured TCP Keepalive Policy
+- TCP keepalive configuration now uses `Option<TcpKeepaliveConfig>` instead of a raw duration, allowing the idle period and probe interval to be tuned separately
+- `TcpKeepaliveConfig::default()` now provides the long-lived VISCA TCP policy used by default transport configurations
+
+#### Maintained Socket Options Backend
+- Updated the internal TCP socket option plumbing to the maintained `socket2` 0.6 API line
 
 ### Fixed
 
@@ -37,6 +53,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 #### PTZOptics Sharpness Range Validation
 - PTZOptics G2, G3, and 30X sharpness validation now consistently accepts `0x00..=0x0F` in the model-aware constructors and validators
 - Added regression coverage for accepted `0x0F` and rejected `0x10` sharpness levels
+
+#### PTZOptics Digital Zoom and Runtime Error Visibility
+- PTZOptics G2, G3, and 30X profiles no longer advertise VISCA digital zoom support because the cameras reject the command and may close the TCP connection afterward
+- Capability discovery and regression tests now reflect PTZOptics digital zoom as unsupported
+- Background runtime loop exits and connection-closed transport failures are now surfaced through error-level logging instead of being silently discarded
 
 ## [0.11.0] - 2026-02-28
 

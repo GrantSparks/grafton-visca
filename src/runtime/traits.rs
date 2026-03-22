@@ -303,122 +303,6 @@ mod tokio_impl {
 #[cfg(feature = "runtime-tokio")]
 pub use tokio_impl::TokioRuntime;
 
-// async-std runtime implementation
-#[cfg(feature = "runtime-async-std")]
-mod async_std_impl {
-    use super::*;
-    use crate::{
-        executor::AsyncStdExecutor,
-        runtime_adapters::async_std::{TcpTransport, UdpTransport},
-    };
-
-    use std::future::Future;
-
-    /// async-std runtime implementation.
-    ///
-    /// This runtime binds the async-std executor with async-std-specific TCP and UDP
-    /// transport implementations, ensuring type-safe runtime consistency.
-    #[derive(Debug, Clone, Copy)]
-    pub struct AsyncStdRuntime {
-        executor: AsyncStdExecutor,
-    }
-
-    impl AsyncStdRuntime {
-        /// Create a new async-std runtime.
-        pub fn new() -> Self {
-            Self {
-                executor: AsyncStdExecutor::new(),
-            }
-        }
-    }
-
-    impl Default for AsyncStdRuntime {
-        fn default() -> Self {
-            Self::new()
-        }
-    }
-
-    // Implement Executor trait by delegating to inner executor
-    impl Executor for AsyncStdRuntime {
-        type Join<T>
-            = <AsyncStdExecutor as Executor>::Join<T>
-        where
-            T: Send + 'static;
-
-        type Detach = <AsyncStdExecutor as Executor>::Detach;
-
-        fn spawn_with_detach<F>(&self, fut: F) -> (Self::Join<F::Output>, Self::Detach)
-        where
-            F: Future + Send + 'static,
-            F::Output: Send + 'static,
-        {
-            self.executor.spawn_with_detach(fut)
-        }
-
-        fn block_on<F: Future>(&self, fut: F) -> F::Output {
-            self.executor.block_on(fut)
-        }
-
-        fn sleep(&self, duration: std::time::Duration) -> impl Future<Output = ()> + Send + '_ {
-            self.executor.sleep(duration)
-        }
-
-        fn timeout<'a, F, T>(
-            &'a self,
-            duration: std::time::Duration,
-            fut: F,
-        ) -> impl Future<Output = Result<T, Error>> + Send + 'a
-        where
-            F: Future<Output = T> + Send + 'a,
-            T: Send + 'a,
-        {
-            self.executor.timeout(duration, fut)
-        }
-
-        #[allow(refining_impl_trait_reachable)]
-        fn timeout_owned<T>(
-            &self,
-            duration: std::time::Duration,
-            fut: impl Future<Output = T> + Send + 'static,
-        ) -> std::pin::Pin<Box<dyn Future<Output = Result<T, Error>> + Send + 'static>>
-        where
-            T: Send + 'static,
-        {
-            Box::pin(self.executor.timeout_owned(duration, fut))
-        }
-
-        fn now(&self) -> Instant {
-            self.executor.now()
-        }
-    }
-
-    impl Runtime for AsyncStdRuntime {
-        type TcpTransport = TcpTransport;
-        type UdpTransport = UdpTransport;
-
-        async fn connect_tcp(
-            &self,
-            addr: &str,
-            cfg: TransportConfig,
-        ) -> Result<Self::TcpTransport, Error> {
-            // Timeout is enforced at the connector layer (single source of truth)
-            TcpTransport::connect_with_config(addr, cfg).await
-        }
-
-        async fn connect_udp(
-            &self,
-            addr: &str,
-            cfg: TransportConfig,
-        ) -> Result<Self::UdpTransport, Error> {
-            // Timeout is enforced at the connector layer (single source of truth)
-            UdpTransport::connect_with_config(addr, cfg).await
-        }
-    }
-}
-
-#[cfg(feature = "runtime-async-std")]
-pub use async_std_impl::AsyncStdRuntime;
-
 // smol runtime implementation
 #[cfg(feature = "runtime-smol")]
 mod smol_impl {
@@ -534,3 +418,115 @@ mod smol_impl {
 
 #[cfg(feature = "runtime-smol")]
 pub use smol_impl::SmolRuntime;
+
+#[cfg(feature = "runtime-async-std")]
+mod async_std_impl {
+    use super::*;
+    use crate::{
+        executor::AsyncStdExecutor,
+        runtime_adapters::async_std::{TcpTransport, UdpTransport},
+    };
+
+    use std::future::Future;
+
+    /// Compatibility runtime for the deprecated `runtime-async-std` feature.
+    ///
+    /// This release routes async-std compatibility through the maintained smol
+    /// runtime. New code should prefer `SmolRuntime` with `runtime-smol`.
+    #[derive(Debug, Clone, Copy)]
+    pub struct AsyncStdRuntime {
+        executor: AsyncStdExecutor,
+    }
+
+    impl AsyncStdRuntime {
+        /// Create a new async-std compatibility runtime.
+        pub fn new() -> Self {
+            Self {
+                executor: AsyncStdExecutor::new(),
+            }
+        }
+    }
+
+    impl Default for AsyncStdRuntime {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
+
+    impl Executor for AsyncStdRuntime {
+        type Join<T>
+            = <AsyncStdExecutor as Executor>::Join<T>
+        where
+            T: Send + 'static;
+
+        type Detach = <AsyncStdExecutor as Executor>::Detach;
+
+        fn spawn_with_detach<F>(&self, fut: F) -> (Self::Join<F::Output>, Self::Detach)
+        where
+            F: Future + Send + 'static,
+            F::Output: Send + 'static,
+        {
+            self.executor.spawn_with_detach(fut)
+        }
+
+        fn block_on<F: Future>(&self, fut: F) -> F::Output {
+            self.executor.block_on(fut)
+        }
+
+        fn sleep(&self, duration: std::time::Duration) -> impl Future<Output = ()> + Send + '_ {
+            self.executor.sleep(duration)
+        }
+
+        fn timeout<'a, F, T>(
+            &'a self,
+            duration: std::time::Duration,
+            fut: F,
+        ) -> impl Future<Output = Result<T, Error>> + Send + 'a
+        where
+            F: Future<Output = T> + Send + 'a,
+            T: Send + 'a,
+        {
+            self.executor.timeout(duration, fut)
+        }
+
+        #[allow(refining_impl_trait_reachable)]
+        fn timeout_owned<T>(
+            &self,
+            duration: std::time::Duration,
+            fut: impl Future<Output = T> + Send + 'static,
+        ) -> std::pin::Pin<Box<dyn Future<Output = Result<T, Error>> + Send + 'static>>
+        where
+            T: Send + 'static,
+        {
+            Box::pin(self.executor.timeout_owned(duration, fut))
+        }
+
+        fn now(&self) -> Instant {
+            self.executor.now()
+        }
+    }
+
+    impl Runtime for AsyncStdRuntime {
+        type TcpTransport = TcpTransport;
+        type UdpTransport = UdpTransport;
+
+        async fn connect_tcp(
+            &self,
+            addr: &str,
+            cfg: TransportConfig,
+        ) -> Result<Self::TcpTransport, Error> {
+            TcpTransport::connect_with_config(addr, cfg).await
+        }
+
+        async fn connect_udp(
+            &self,
+            addr: &str,
+            cfg: TransportConfig,
+        ) -> Result<Self::UdpTransport, Error> {
+            UdpTransport::connect_with_config(addr, cfg).await
+        }
+    }
+}
+
+#[cfg(feature = "runtime-async-std")]
+pub use async_std_impl::AsyncStdRuntime;

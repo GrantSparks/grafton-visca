@@ -116,8 +116,6 @@ pub mod address;
 pub(crate) mod async_io;
 #[cfg(feature = "transport-serial-tokio")]
 pub(crate) mod async_serial;
-#[cfg(all(feature = "mode-async", feature = "runtime-async-std"))]
-pub(crate) mod async_std;
 #[cfg(any(
     feature = "runtime-tokio",
     feature = "runtime-async-std",
@@ -152,6 +150,8 @@ pub mod serial;
 pub(crate) mod serial_blocking;
 #[cfg(all(feature = "mode-async", feature = "runtime-smol"))]
 pub(crate) mod smol;
+#[cfg(all(feature = "mode-async", feature = "runtime-async-std"))]
+pub(crate) use self::smol as async_std;
 #[cfg(all(
     any(unix, windows),
     any(

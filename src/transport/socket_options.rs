@@ -108,10 +108,10 @@ where
     S: AsFd,
 {
     let socket_ref = socket2::SockRef::from(socket);
-    socket_ref.set_nodelay(config.nodelay_enabled())?;
+    socket_ref.set_tcp_nodelay(config.nodelay_enabled())?;
 
     if let Some(ttl) = config.ttl {
-        socket_ref.set_ttl(ttl)?;
+        socket_ref.set_ttl_v4(ttl)?;
     }
 
     apply_tcp_keepalive(socket, config.tcp_keepalive)
@@ -124,10 +124,10 @@ where
     S: AsSocket,
 {
     let socket_ref = socket2::SockRef::from(socket);
-    socket_ref.set_nodelay(config.nodelay_enabled())?;
+    socket_ref.set_tcp_nodelay(config.nodelay_enabled())?;
 
     if let Some(ttl) = config.ttl {
-        socket_ref.set_ttl(ttl)?;
+        socket_ref.set_ttl_v4(ttl)?;
     }
 
     apply_tcp_keepalive(socket, config.tcp_keepalive)

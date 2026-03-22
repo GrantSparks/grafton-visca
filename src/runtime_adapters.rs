@@ -34,10 +34,10 @@ pub mod tokio {
 }
 
 #[cfg(feature = "runtime-async-std")]
-/// async-std runtime transport adapters.
+/// Deprecated compatibility adapters for the former async-std runtime feature.
 ///
-/// These transports are optimized for use with the async-std runtime and require
-/// the `runtime-async-std` feature to be enabled.
+/// `runtime-async-std` now reuses the maintained smol transport adapters and will
+/// be removed in 0.13.0. New code should prefer `runtime_adapters::smol`.
 ///
 /// # Example
 ///
@@ -47,7 +47,7 @@ pub mod tokio {
 /// use grafton_visca::transport::AsyncTransport;
 ///
 /// # #[cfg(feature = "runtime-async-std")]
-/// # async_std::task::block_on(async {
+/// # smol::block_on(async {
 /// let tcp = TcpTransport::connect("192.168.0.110:5678").await?;
 /// let udp = UdpTransport::connect("192.168.0.110:1259").await?;
 /// # Ok::<(), Box<dyn std::error::Error>>(())

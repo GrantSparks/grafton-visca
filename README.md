@@ -5,7 +5,7 @@
 [![License](https://img.shields.io/crates/l/grafton-visca.svg)](LICENSE)
 [![CI](https://github.com/GrantSparks/grafton-visca/actions/workflows/ci.yml/badge.svg)](https://github.com/GrantSparks/grafton-visca/actions/workflows/ci.yml)
 
-A pure Rust library for controlling PTZ cameras via the VISCA protocol. Supports blocking and async APIs with pluggable runtime adapters (Tokio, async-std, smol), TCP/UDP/serial transports, and type-safe camera profiles.
+A pure Rust library for controlling PTZ cameras via the VISCA protocol. Supports blocking and async APIs with maintained built-in runtime adapters (Tokio and smol), a deprecated `runtime-async-std` compatibility alias, TCP/UDP/serial transports, and type-safe camera profiles.
 
 ---
 
@@ -24,7 +24,7 @@ We can only support what we can test. If you have access to different hardware, 
 ## Features
 
 - **Unified blocking/async API** — Single `Camera` type works in both modes; async futures are `Send`-safe
-- **Multi-runtime support** — Pluggable adapters for Tokio, async-std, and smol (can coexist)
+- **Multi-runtime support** — Pluggable adapters for Tokio and smol, plus a deprecated `runtime-async-std` compatibility alias
 - **Type-safe profiles** — Compile-time protocol selection (raw VISCA vs Sony encapsulation) with capability-based APIs
 - **Flexible transports** — TCP, UDP, and serial (RS-232/422) with configurable timeouts, retries, and TCP keepalive
 - **Ergonomic API** — One-line connection helpers, intuitive unit types (`Degrees`, `Percentage`), built-in inquiry conversions
@@ -78,7 +78,7 @@ async fn main() -> Result<(), grafton_visca::Error> {
 }
 ```
 
-For async-std or smol, enable the corresponding feature and use its runtime adapter.
+For smol, enable `runtime-smol` and use `SmolRuntime`. `runtime-async-std` remains available in this release as a deprecated compatibility alias to ease migration and is planned for removal in `0.13.0`.
 
 ---
 
@@ -120,7 +120,7 @@ use std::time::Duration;
 let config = CameraConfig::<PtzOpticsG2>::new()
     .address("192.168.0.110")
     .transport_config(TransportConfig {
-        tcp_keepalive: Some(Duration::from_secs(30)),
+        tcp_keepalive: Some(grafton_visca::transport::TcpKeepaliveConfig::new(Duration::from_secs(30))),
         ..TransportConfig::default()
     });
 ```
@@ -130,7 +130,7 @@ let config = CameraConfig::<PtzOpticsG2>::new()
 | Feature                | Enables                                    |
 | ---------------------- | ------------------------------------------ |
 | `runtime-tokio`        | Tokio async runtime adapter                |
-| `runtime-async-std`    | async-std runtime adapter                  |
+| `runtime-async-std`    | Deprecated compatibility alias for `runtime-smol` (planned removal in `0.13.0`) |
 | `runtime-smol`         | smol runtime adapter                       |
 | `transport-serial`     | Blocking serial (RS-232/422)               |
 | `transport-serial-tokio` | Async serial (Tokio)                     |

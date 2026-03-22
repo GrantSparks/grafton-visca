@@ -33,8 +33,9 @@ cargo test
 
 # Run representative async/runtime matrix entries
 cargo test --no-default-features --features runtime-tokio
-cargo test --no-default-features --features runtime-async-std
 cargo test --no-default-features --features runtime-smol
+# Optional compatibility check for the deprecated async-std alias
+cargo test --no-default-features --features runtime-async-std
 
 # Run serial coverage when touching transport code
 cargo test --no-default-features --features runtime-tokio,transport-serial
@@ -202,7 +203,7 @@ cargo test --all-features
 
 # Specific feature combinations
 cargo test --no-default-features --features runtime-tokio
-cargo test --no-default-features --features runtime-async-std
+cargo test --no-default-features --features runtime-smol
 cargo test --no-default-features --features runtime-smol
 cargo test --no-default-features --features runtime-tokio,transport-serial
 cargo test --no-default-features --features runtime-tokio,transport-serial-tokio

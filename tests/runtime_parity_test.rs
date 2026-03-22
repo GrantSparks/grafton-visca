@@ -85,7 +85,7 @@ mod parity_tests {
     fn test_async_std_runtime_operations() {
         use grafton_visca::AsyncStdExecutor;
 
-        async_std::task::block_on(async {
+        smol::block_on(async {
             let executor = Arc::new(AsyncStdExecutor::new());
             let transport: ScriptedTransport<AsyncStdExecutor> =
                 ScriptedTransport::new(create_test_script()).with_executor(executor.clone());
@@ -174,7 +174,7 @@ mod parity_tests {
     fn test_async_std_builder_transport_creation() {
         use grafton_visca::AsyncStdExecutor;
 
-        async_std::task::block_on(async {
+        smol::block_on(async {
             let executor = Arc::new(AsyncStdExecutor::new());
             let transport: ScriptedTransport<AsyncStdExecutor> =
                 ScriptedTransport::new(vec![Step::OnSend {
@@ -244,7 +244,7 @@ mod parity_tests {
     fn test_async_std_error_handling() {
         use grafton_visca::AsyncStdExecutor;
 
-        async_std::task::block_on(async {
+        smol::block_on(async {
             let executor = Arc::new(AsyncStdExecutor::new());
             let transport: ScriptedTransport<AsyncStdExecutor> =
                 ScriptedTransport::new(vec![Step::OnSend {

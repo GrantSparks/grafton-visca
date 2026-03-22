@@ -105,42 +105,52 @@ mod async_std_runtime_tests {
         Executor,
     };
 
-    #[async_std::test]
-    async fn test_async_std_runtime_creation() {
-        let runtime = AsyncStdRuntime::new();
-        let _ = runtime;
+    fn run_async_std<F: std::future::Future>(f: F) -> F::Output {
+        smol::block_on(f)
     }
 
-    #[async_std::test]
-    async fn test_async_std_runtime_tcp_connection() {
-        let runtime = AsyncStdRuntime::new();
-
-        // This will fail to connect but tests the type system works
-        let result = runtime
-            .connect_tcp(
-                "192.0.2.1:5678", // TEST-NET-1 address that won't connect
-                Default::default(),
-            )
-            .await;
-
-        assert!(result.is_err());
+    #[test]
+    fn test_async_std_runtime_creation() {
+        run_async_std(async {
+            let runtime = AsyncStdRuntime::new();
+            let _ = runtime;
+        });
     }
 
-    #[async_std::test]
-    async fn test_async_std_runtime_executor_delegation() {
-        let runtime = AsyncStdRuntime::new();
+    #[test]
+    fn test_async_std_runtime_tcp_connection() {
+        run_async_std(async {
+            let runtime = AsyncStdRuntime::new();
 
-        // Test that executor methods are properly delegated
-        let future = async { 84 };
-        let result = runtime.timeout(Duration::from_millis(100), future).await;
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap(), 84);
+            // This will fail to connect but tests the type system works
+            let result = runtime
+                .connect_tcp(
+                    "192.0.2.1:5678", // TEST-NET-1 address that won't connect
+                    Default::default(),
+                )
+                .await;
 
-        // Test sleep delegation
-        let start = Instant::now();
-        runtime.sleep(Duration::from_millis(10)).await;
-        let elapsed = start.elapsed();
-        assert!(elapsed >= Duration::from_millis(10));
+            assert!(result.is_err());
+        });
+    }
+
+    #[test]
+    fn test_async_std_runtime_executor_delegation() {
+        run_async_std(async {
+            let runtime = AsyncStdRuntime::new();
+
+            // Test that executor methods are properly delegated
+            let future = async { 84 };
+            let result = runtime.timeout(Duration::from_millis(100), future).await;
+            assert!(result.is_ok());
+            assert_eq!(result.unwrap(), 84);
+
+            // Test sleep delegation
+            let start = Instant::now();
+            runtime.sleep(Duration::from_millis(10)).await;
+            let elapsed = start.elapsed();
+            assert!(elapsed >= Duration::from_millis(10));
+        });
     }
 }
 
@@ -273,31 +283,31 @@ mod tokio_transport_connect_tests {
 
 #[cfg(feature = "runtime-async-std")]
 mod async_std_transport_connect_tests {
-    use std::time::Duration;
+    use std::{net::UdpSocket, time::Duration};
 
     use grafton_visca::{
         runtime_adapters::async_std::UdpTransport, transport::builder::TransportConfig,
     };
 
     /// Test that UDP transport connection completes successfully with a local address.
-    #[async_std::test]
-    async fn test_udp_transport_connect_with_config_success() {
-        // Create a local UDP socket to connect to
-        let server = async_std::net::UdpSocket::bind("127.0.0.1:0")
-            .await
-            .unwrap();
-        let addr = server.local_addr().unwrap();
+    #[test]
+    fn test_udp_transport_connect_with_config_success() {
+        smol::block_on(async {
+            // Create a local UDP socket to connect to
+            let server = UdpSocket::bind("127.0.0.1:0").unwrap();
+            let addr = server.local_addr().unwrap();
 
-        let config = TransportConfig {
-            connect_timeout: Duration::from_secs(5),
-            ..Default::default()
-        };
+            let config = TransportConfig {
+                connect_timeout: Duration::from_secs(5),
+                ..Default::default()
+            };
 
-        let result = UdpTransport::connect_with_config(&addr.to_string(), config).await;
-        assert!(
-            result.is_ok(),
-            "UDP transport should connect successfully to local address"
-        );
+            let result = UdpTransport::connect_with_config(&addr.to_string(), config).await;
+            assert!(
+                result.is_ok(),
+                "UDP transport should connect successfully to local address"
+            );
+        });
     }
 }
 
