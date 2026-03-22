@@ -170,7 +170,7 @@ pub use async_transport::AsyncTransport;
 #[cfg(not(feature = "mode-async"))]
 pub use blocking_transport::BlockingTransportHandle;
 pub use blocking_transport::{BlockingTransport, HasTransportConfig};
-pub use builder::{AddressingMode, TransportConfig};
+pub use builder::{AddressingMode, TcpKeepaliveConfig, TransportConfig};
 #[cfg(not(feature = "mode-async"))]
 pub use builder::{NetTransportBuilder, Transport, TransportBuilderExt};
 

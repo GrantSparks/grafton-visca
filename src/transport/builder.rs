@@ -17,9 +17,7 @@
 //! # #[cfg(feature = "runtime-tokio")]
 //! use grafton_visca::runtime::TokioRuntime;
 //! # #[cfg(feature = "runtime-tokio")]
-//! use grafton_visca::transport::TransportConfig;
-//! # #[cfg(feature = "runtime-tokio")]
-//! use std::time::Duration;
+//! use grafton_visca::transport::{TcpKeepaliveConfig, TransportConfig};
 //!
 //! # #[cfg(feature = "runtime-tokio")]
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
@@ -27,7 +25,7 @@
 //! let config = CameraConfig::<GenericVisca>::new()
 //!     .address("192.168.0.110:5678")
 //!     .transport_config(TransportConfig {
-//!         tcp_keepalive: Some(Duration::from_secs(30)),
+//!         tcp_keepalive: Some(TcpKeepaliveConfig::default()),
 //!         ..TransportConfig::default()
 //!     });
 //! let _camera = config.open_async(runtime).await?;
@@ -76,8 +74,56 @@ pub const DEFAULT_MAX_PENDING_QUEUE_DEPTH: usize = 64;
 pub const DEFAULT_MAX_PENDING_QUEUE_DEPTH_NONZERO: NonZeroUsize =
     NonZeroUsize::new(DEFAULT_MAX_PENDING_QUEUE_DEPTH).unwrap();
 
-/// Default TCP keepalive interval for long-lived VISCA TCP connections.
-pub(crate) const DEFAULT_TCP_KEEPALIVE_INTERVAL: Duration = Duration::from_secs(30);
+/// Default initial idle period before TCP keepalive probes begin.
+pub(crate) const DEFAULT_TCP_KEEPALIVE_IDLE: Duration = Duration::from_secs(10);
+
+/// Default spacing between TCP keepalive probes.
+pub(crate) const DEFAULT_TCP_KEEPALIVE_INTERVAL: Duration = Duration::from_secs(10);
+
+/// TCP keepalive policy for long-lived VISCA TCP connections.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TcpKeepaliveConfig {
+    /// Idle time before the first keepalive probe is sent.
+    pub idle: Duration,
+    /// Optional spacing between subsequent keepalive probes.
+    ///
+    /// When `None`, the OS default is used.
+    pub interval: Option<Duration>,
+}
+
+impl TcpKeepaliveConfig {
+    /// Create a keepalive policy with a required idle period and OS defaults for
+    /// the remaining parameters.
+    pub const fn new(idle: Duration) -> Self {
+        Self {
+            idle,
+            interval: None,
+        }
+    }
+
+    /// Create the default keepalive policy used for long-lived VISCA TCP sessions.
+    pub const fn for_visca_long_lived_tcp() -> Self {
+        DEFAULT_TCP_KEEPALIVE
+    }
+
+    /// Override the spacing between keepalive probes.
+    pub const fn with_interval(mut self, interval: Duration) -> Self {
+        self.interval = Some(interval);
+        self
+    }
+}
+
+impl Default for TcpKeepaliveConfig {
+    fn default() -> Self {
+        DEFAULT_TCP_KEEPALIVE
+    }
+}
+
+/// Default TCP keepalive policy for long-lived VISCA TCP connections.
+pub(crate) const DEFAULT_TCP_KEEPALIVE: TcpKeepaliveConfig = TcpKeepaliveConfig {
+    idle: DEFAULT_TCP_KEEPALIVE_IDLE,
+    interval: Some(DEFAULT_TCP_KEEPALIVE_INTERVAL),
+};
 
 /// Common configuration options for all transport types.
 #[derive(Debug, Clone, Copy)]
@@ -98,9 +144,9 @@ pub struct TransportConfig {
     pub tcp_nodelay: Option<bool>,
     /// TTL (Time To Live) for packets.
     pub ttl: Option<u32>,
-    /// TCP keepalive interval. When set, enables OS-level TCP keepalive probes
+    /// TCP keepalive policy. When set, enables OS-level TCP keepalive probes
     /// to prevent camera-side idle timeout on long-lived connections.
-    pub tcp_keepalive: Option<Duration>,
+    pub tcp_keepalive: Option<TcpKeepaliveConfig>,
     /// Maximum pending queue depth for runtime admission control and backpressure.
     ///
     /// This value provides a **hard memory/backpressure guarantee** by bounding:
@@ -132,7 +178,7 @@ impl Default for TransportConfig {
             addressing: AddressingMode::default(),
             tcp_nodelay: Some(true),
             ttl: None,
-            tcp_keepalive: Some(DEFAULT_TCP_KEEPALIVE_INTERVAL),
+            tcp_keepalive: Some(DEFAULT_TCP_KEEPALIVE),
             max_pending_queue_depth: DEFAULT_MAX_PENDING_QUEUE_DEPTH_NONZERO,
         }
     }
@@ -393,13 +439,11 @@ impl NetTransportBuilder {
         self
     }
 
-    /// Set the TCP keepalive interval.
+    /// Set the TCP keepalive policy.
     ///
-    /// This option only affects TCP transports. The interval controls both the
-    /// initial idle period before keepalive probes begin and the spacing between
-    /// subsequent probes.
-    pub fn tcp_keepalive(mut self, interval: Duration) -> Self {
-        self.config.tcp_keepalive = Some(interval);
+    /// This option only affects TCP transports.
+    pub fn tcp_keepalive(mut self, keepalive: TcpKeepaliveConfig) -> Self {
+        self.config.tcp_keepalive = Some(keepalive);
         self
     }
 
@@ -499,10 +543,7 @@ mod tests {
         assert_eq!(builder.config.connect_timeout, Duration::from_secs(5));
         assert_eq!(builder.config.retry_config.max_retries, 3);
         assert_eq!(builder.config.tcp_nodelay, Some(true));
-        assert_eq!(
-            builder.config.tcp_keepalive,
-            Some(DEFAULT_TCP_KEEPALIVE_INTERVAL)
-        );
+        assert_eq!(builder.config.tcp_keepalive, Some(DEFAULT_TCP_KEEPALIVE));
     }
 
     #[test]
@@ -512,14 +553,23 @@ mod tests {
             .connect_timeout(Duration::from_secs(10))
             .max_retries(5)
             .tcp_nodelay(true)
-            .tcp_keepalive(Duration::from_secs(45));
+            .tcp_keepalive(
+                TcpKeepaliveConfig::new(Duration::from_secs(45))
+                    .with_interval(Duration::from_secs(15)),
+            );
 
         assert_eq!(builder.protocol, Protocol::Udp);
         assert_eq!(builder.address, Some("192.168.0.110:5678".to_string()));
         assert_eq!(builder.config.connect_timeout, Duration::from_secs(10));
         assert_eq!(builder.config.retry_config.max_retries, 5);
         assert_eq!(builder.config.tcp_nodelay, Some(true));
-        assert_eq!(builder.config.tcp_keepalive, Some(Duration::from_secs(45)));
+        assert_eq!(
+            builder.config.tcp_keepalive,
+            Some(
+                TcpKeepaliveConfig::new(Duration::from_secs(45))
+                    .with_interval(Duration::from_secs(15))
+            )
+        );
     }
 
     #[test]

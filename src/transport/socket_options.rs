@@ -11,7 +11,7 @@ use std::os::unix::io::AsFd;
 use std::os::windows::io::AsSocket;
 
 use crate::{
-    transport::builder::{TransportConfig, DEFAULT_TCP_KEEPALIVE_INTERVAL},
+    transport::builder::{TcpKeepaliveConfig, TransportConfig, DEFAULT_TCP_KEEPALIVE},
     Error,
 };
 
@@ -32,9 +32,9 @@ pub struct TcpConnectionConfig {
     pub ttl: Option<u32>,
     /// Connection timeout duration.
     pub connect_timeout: Duration,
-    /// TCP keepalive interval. When set, enables OS-level TCP keepalive probes
-    /// at the specified interval to prevent camera-side idle timeout.
-    pub tcp_keepalive: Option<Duration>,
+    /// TCP keepalive policy. When set, enables OS-level TCP keepalive probes
+    /// to prevent camera-side idle timeout.
+    pub tcp_keepalive: Option<TcpKeepaliveConfig>,
 }
 
 impl TcpConnectionConfig {
@@ -50,7 +50,7 @@ impl Default for TcpConnectionConfig {
             nodelay: Some(true),
             ttl: None,
             connect_timeout: Duration::from_secs(5),
-            tcp_keepalive: Some(DEFAULT_TCP_KEEPALIVE_INTERVAL),
+            tcp_keepalive: Some(DEFAULT_TCP_KEEPALIVE),
         }
     }
 }
@@ -137,14 +137,20 @@ where
 ///
 /// This returns an error if keepalive was requested but could not be applied.
 #[cfg(unix)]
-pub fn apply_tcp_keepalive<S>(socket: &S, tcp_keepalive: Option<Duration>) -> Result<(), Error>
+pub fn apply_tcp_keepalive<S>(
+    socket: &S,
+    tcp_keepalive: Option<TcpKeepaliveConfig>,
+) -> Result<(), Error>
 where
     S: AsFd,
 {
-    if let Some(interval) = tcp_keepalive {
-        let keepalive = socket2::TcpKeepalive::new()
-            .with_time(interval)
-            .with_interval(interval);
+    if let Some(config) = tcp_keepalive {
+        let mut keepalive = socket2::TcpKeepalive::new().with_time(config.idle);
+
+        if let Some(interval) = config.interval {
+            keepalive = tcp_keepalive_with_interval(keepalive, interval);
+        }
+
         socket2::SockRef::from(socket).set_tcp_keepalive(&keepalive)?;
     }
 
@@ -153,18 +159,68 @@ where
 
 /// Windows implementation of [`apply_tcp_keepalive`].
 #[cfg(windows)]
-pub fn apply_tcp_keepalive<S>(socket: &S, tcp_keepalive: Option<Duration>) -> Result<(), Error>
+pub fn apply_tcp_keepalive<S>(
+    socket: &S,
+    tcp_keepalive: Option<TcpKeepaliveConfig>,
+) -> Result<(), Error>
 where
     S: AsSocket,
 {
-    if let Some(interval) = tcp_keepalive {
-        let keepalive = socket2::TcpKeepalive::new()
-            .with_time(interval)
-            .with_interval(interval);
+    if let Some(config) = tcp_keepalive {
+        let mut keepalive = socket2::TcpKeepalive::new().with_time(config.idle);
+
+        if let Some(interval) = config.interval {
+            keepalive = tcp_keepalive_with_interval(keepalive, interval);
+        }
+
         socket2::SockRef::from(socket).set_tcp_keepalive(&keepalive)?;
     }
 
     Ok(())
+}
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "fuchsia",
+    target_os = "illumos",
+    target_os = "ios",
+    target_os = "visionos",
+    target_os = "linux",
+    target_os = "macos",
+    target_os = "netbsd",
+    target_os = "tvos",
+    target_os = "watchos",
+    target_os = "windows",
+))]
+fn tcp_keepalive_with_interval(
+    keepalive: socket2::TcpKeepalive,
+    interval: Duration,
+) -> socket2::TcpKeepalive {
+    keepalive.with_interval(interval)
+}
+
+#[cfg(not(any(
+    target_os = "android",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "fuchsia",
+    target_os = "illumos",
+    target_os = "ios",
+    target_os = "visionos",
+    target_os = "linux",
+    target_os = "macos",
+    target_os = "netbsd",
+    target_os = "tvos",
+    target_os = "watchos",
+    target_os = "windows",
+)))]
+fn tcp_keepalive_with_interval(
+    keepalive: socket2::TcpKeepalive,
+    _interval: Duration,
+) -> socket2::TcpKeepalive {
+    keepalive
 }
 
 #[cfg(test)]
@@ -181,11 +237,8 @@ mod tests {
         let transport = TransportConfig::default();
         let tcp = TcpConnectionConfig::default();
 
-        assert_eq!(
-            transport.tcp_keepalive,
-            Some(DEFAULT_TCP_KEEPALIVE_INTERVAL)
-        );
-        assert_eq!(tcp.tcp_keepalive, Some(DEFAULT_TCP_KEEPALIVE_INTERVAL));
+        assert_eq!(transport.tcp_keepalive, Some(DEFAULT_TCP_KEEPALIVE));
+        assert_eq!(tcp.tcp_keepalive, Some(DEFAULT_TCP_KEEPALIVE));
         assert_eq!(tcp.tcp_keepalive, transport.tcp_keepalive);
         assert!(tcp.nodelay_enabled());
         assert_eq!(transport.tcp_nodelay, Some(true));
@@ -202,8 +255,7 @@ mod tests {
         });
 
         let stream = TcpStream::connect(addr).expect("connect stream");
-        apply_tcp_keepalive(&stream, Some(DEFAULT_TCP_KEEPALIVE_INTERVAL))
-            .expect("apply keepalive");
+        apply_tcp_keepalive(&stream, Some(DEFAULT_TCP_KEEPALIVE)).expect("apply keepalive");
 
         let keepalive_enabled = socket2::SockRef::from(&stream)
             .keepalive()

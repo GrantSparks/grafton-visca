@@ -11,7 +11,9 @@
 use std::time::Duration;
 
 #[cfg(not(feature = "mode-async"))]
-use grafton_visca::transport::{BackoffStrategy, NetTransportBuilder, RetryConfig, Transport};
+use grafton_visca::transport::{
+    BackoffStrategy, NetTransportBuilder, RetryConfig, TcpKeepaliveConfig, Transport,
+};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Transport Builder Pattern Demo");
@@ -60,13 +62,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .timeout(Duration::from_secs(3)) // Set all timeouts at once
             .tcp_nodelay(true) // Disable Nagle's algorithm
             .ttl(64) // Set Time To Live
-            .tcp_keepalive(Duration::from_secs(30))
+            .tcp_keepalive(TcpKeepaliveConfig::default())
             .max_retries(10);
         println!("  Created builder with:");
         println!("    - All timeouts: 3s");
         println!("    - TCP nodelay: enabled");
         println!("    - TTL: 64");
-        println!("    - TCP keepalive: 30s");
+        println!("    - TCP keepalive: default VISCA long-lived policy");
         println!("    - Max retries: 10\n");
     }
 

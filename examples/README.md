@@ -121,8 +121,7 @@ Profiles enable compile-time validation of camera capabilities. Commands not sup
 use grafton_visca::camera::{CameraConfig, Connect};
 use grafton_visca::profiles::PtzOpticsG2;
 use grafton_visca::runtime::TokioRuntime;
-use grafton_visca::transport::TransportConfig;
-use std::time::Duration;
+use grafton_visca::transport::{TcpKeepaliveConfig, TransportConfig};
 
 let _blocking = Connect::open_tcp_blocking::<PtzOpticsG2>("192.168.0.110")?;
 
@@ -130,7 +129,7 @@ let runtime = TokioRuntime::from_current()?;
 let _async_camera = CameraConfig::<PtzOpticsG2>::new()
     .address("192.168.0.110")
     .transport_config(TransportConfig {
-        tcp_keepalive: Some(Duration::from_secs(30)),
+        tcp_keepalive: Some(TcpKeepaliveConfig::default()),
         ..TransportConfig::default()
     })
     .open_async(runtime)
