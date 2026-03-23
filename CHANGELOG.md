@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Breaking Changes
+
+#### Granular Iris Capability Modelling
+- **BREAKING**: `Exposure::IRIS_RANGE` changed from `Range<u16>` to `Option<Range<u16>>`; downstream `impl Exposure` blocks must wrap their range in `Some(...)` or use `None` for cameras that lack iris control
+- **BREAKING**: `Capabilities::iris_range` changed from `RangeInclusive<u16>` to `Option<RangeInclusive<u16>>`
+- **BREAKING**: `Capabilities` struct gains new fields `has_iris_control: bool` and `exposure_modes: Vec<ExposureMode>`, which is a breaking change for code that constructs the struct with literal syntax
+
+### Added
+
+#### Per-Profile Iris and Exposure-Mode Support
+- New `Exposure::EXPOSURE_MODES` associated constant lets each profile declare which exposure modes the hardware accepts (defaults to all five standard modes)
+- New `ExposureExt::supports_exposure_mode()` and `ExposureExt::supports_iris_control()` helper methods
+- New `Capabilities::has_iris_control` field and `Capabilities::supports_exposure_mode()` convenience method for runtime feature gating
+- Runtime guards in `set_exposure_mode()`, `set_iris()`, `reset_iris()`, and `iris_inquiry()` now return `Error::FeatureNotSupported` for unsupported profiles instead of sending a command the camera will reject
+
+### Changed
+
+#### PTZOptics Profiles Disable Iris
+- PTZOptics G2, G3, and 30X profiles now set `IRIS_RANGE: None` and exclude `ExposureMode::Iris` from their supported modes, reflecting hardware behaviour observed on real devices
+- All Sony and generic VISCA profiles retain full iris support unchanged
+
 ## [0.12.0] - 2026-03-22
 
 ### Breaking Changes
