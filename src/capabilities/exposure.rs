@@ -2,15 +2,24 @@
 
 use std::{borrow::Cow, ops::Range};
 
-use crate::capabilities::ValidationError;
+use crate::{capabilities::ValidationError, command::exposure::ExposureMode};
 
 /// Trait for cameras that support exposure control.
 ///
 /// This trait defines the constants and capabilities for exposure settings
-/// including iris, shutter speed, gain, and exposure compensation.
+/// including exposure modes, iris, shutter speed, gain, and exposure compensation.
 pub trait Exposure {
-    /// Valid range for iris values in VISCA units.
-    const IRIS_RANGE: Range<u16>;
+    /// Supported exposure modes for this camera profile.
+    const EXPOSURE_MODES: &'static [ExposureMode] = &[
+        ExposureMode::Auto,
+        ExposureMode::Manual,
+        ExposureMode::Shutter,
+        ExposureMode::Iris,
+        ExposureMode::Bright,
+    ];
+
+    /// Valid range for iris values in VISCA units, if iris control is supported.
+    const IRIS_RANGE: Option<Range<u16>>;
 
     /// Supported shutter speeds as VISCA values.
     /// Each camera model has specific supported speeds.
@@ -35,16 +44,30 @@ pub trait Exposure {
 
 /// Extension trait that adds validation methods to cameras with exposure support.
 pub trait ExposureExt: Exposure {
+    /// Returns true when the profile supports the requested exposure mode.
+    fn supports_exposure_mode(&self, mode: ExposureMode) -> bool {
+        Self::EXPOSURE_MODES.contains(&mode)
+    }
+
+    /// Returns true when the profile supports direct iris control.
+    fn supports_iris_control(&self) -> bool {
+        Self::IRIS_RANGE.is_some()
+    }
+
     /// Validate iris value is within range.
     fn validate_iris(&self, iris: u16) -> Result<u16, ValidationError> {
-        if Self::IRIS_RANGE.contains(&iris) {
+        let range = Self::IRIS_RANGE
+            .as_ref()
+            .ok_or(ValidationError::NotSupported("Iris control"))?;
+
+        if range.contains(&iris) {
             Ok(iris)
         } else {
             Err(ValidationError::OutOfRange {
                 parameter: "iris",
                 value: iris as f64,
-                min: Self::IRIS_RANGE.start as f64,
-                max: (Self::IRIS_RANGE.end - 1) as f64,
+                min: range.start as f64,
+                max: (range.end - 1) as f64,
             })
         }
     }
@@ -102,15 +125,19 @@ pub trait ExposureExt: Exposure {
 
     /// Convert F-stop to iris VISCA units.
     fn fstop_to_iris_units(&self, fstop: f32) -> Result<u16, ValidationError> {
+        let range = Self::IRIS_RANGE
+            .as_ref()
+            .ok_or(ValidationError::NotSupported("Iris control"))?;
+
         // This is camera-specific and would need proper calibration
         // This is a simplified example
         let iris = match fstop {
-            f if f <= 1.8 => Self::IRIS_RANGE.end - 1,
-            f if f >= 11.0 => Self::IRIS_RANGE.start,
+            f if f <= 1.8 => range.end - 1,
+            f if f >= 11.0 => range.start,
             f => {
-                let range = Self::IRIS_RANGE.end - Self::IRIS_RANGE.start;
+                let width = range.end - range.start;
                 let normalized = 1.0 - ((f - 1.8) / (11.0 - 1.8));
-                Self::IRIS_RANGE.start + (normalized * range as f32) as u16
+                range.start + (normalized * width as f32) as u16
             }
         };
 
@@ -157,11 +184,21 @@ mod tests {
     struct TestCamera;
 
     impl Exposure for TestCamera {
-        const IRIS_RANGE: Range<u16> = 0x00..0x1D;
+        const IRIS_RANGE: Option<Range<u16>> = Some(0x00..0x1D);
         const SHUTTER_SPEEDS: &'static [ShutterSpeed] = TEST_SHUTTER_SPEEDS;
         const GAIN_RANGE: Range<u8> = 0..16;
         const SUPPORTS_BACKLIGHT_COMP: bool = true;
         const SUPPORTS_EXPOSURE_COMP: bool = true;
+    }
+
+    struct NoIrisCamera;
+
+    impl Exposure for NoIrisCamera {
+        const EXPOSURE_MODES: &'static [ExposureMode] = &[ExposureMode::Auto, ExposureMode::Manual];
+        const IRIS_RANGE: Option<Range<u16>> = None;
+        const SHUTTER_SPEEDS: &'static [ShutterSpeed] = TEST_SHUTTER_SPEEDS;
+        const GAIN_RANGE: Range<u8> = 0..16;
+        const SUPPORTS_BACKLIGHT_COMP: bool = true;
     }
 
     #[test]
@@ -171,6 +208,27 @@ mod tests {
         assert!(camera.validate_iris(0x00).is_ok());
         assert!(camera.validate_iris(0x1C).is_ok());
         assert!(camera.validate_iris(0x1D).is_err());
+    }
+
+    #[test]
+    fn test_iris_validation_rejects_unsupported_profiles() {
+        let camera = NoIrisCamera;
+
+        assert_eq!(
+            camera.validate_iris(0x00),
+            Err(ValidationError::NotSupported("Iris control"))
+        );
+    }
+
+    #[test]
+    fn test_exposure_mode_support() {
+        let camera = TestCamera;
+        assert!(camera.supports_exposure_mode(ExposureMode::Iris));
+        assert!(camera.supports_iris_control());
+
+        let camera = NoIrisCamera;
+        assert!(!camera.supports_exposure_mode(ExposureMode::Iris));
+        assert!(!camera.supports_iris_control());
     }
 
     #[test]

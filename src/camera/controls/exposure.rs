@@ -16,6 +16,44 @@
 
 use crate::{camera::ViscaClient, mode::Mode, Error};
 
+fn exposure_mode_feature(mode: crate::command::exposure::ExposureMode) -> &'static str {
+    match mode {
+        crate::command::exposure::ExposureMode::Auto => "Auto exposure mode",
+        crate::command::exposure::ExposureMode::Manual => "Manual exposure mode",
+        crate::command::exposure::ExposureMode::Shutter => "Shutter-priority exposure mode",
+        crate::command::exposure::ExposureMode::Iris => "Iris-priority exposure mode",
+        crate::command::exposure::ExposureMode::Bright => "Brightness-priority exposure mode",
+    }
+}
+
+fn ensure_exposure_mode_supported<P>(
+    mode: crate::command::exposure::ExposureMode,
+) -> Result<(), Error>
+where
+    P: crate::capabilities::exposure::Exposure,
+{
+    if P::EXPOSURE_MODES.contains(&mode) {
+        Ok(())
+    } else {
+        Err(Error::FeatureNotSupported {
+            feature: exposure_mode_feature(mode),
+        })
+    }
+}
+
+fn ensure_iris_control_supported<P>() -> Result<(), Error>
+where
+    P: crate::capabilities::exposure::Exposure,
+{
+    if P::IRIS_RANGE.is_some() {
+        Ok(())
+    } else {
+        Err(Error::FeatureNotSupported {
+            feature: "Iris control",
+        })
+    }
+}
+
 /// Exposure operations for PTZ cameras.
 ///
 /// This trait provides comprehensive exposure control methods that work seamlessly for both
@@ -425,6 +463,10 @@ where
         &self,
         mode: crate::command::exposure::ExposureMode,
     ) -> M::Fut<'_, Result<(), Error>> {
+        if let Err(err) = ensure_exposure_mode_supported::<P>(mode) {
+            return self.error(err);
+        }
+
         let cmd = crate::command::exposure::ExposureCommand { mode };
         self.execute(cmd)
     }
@@ -450,21 +492,37 @@ where
     }
 
     fn set_iris(&self, level: crate::types::IrisLevel) -> M::Fut<'_, Result<(), Error>> {
+        if let Err(err) = ensure_iris_control_supported::<P>() {
+            return self.error(err);
+        }
+
         let cmd = crate::command::exposure::Iris::SetAperture(level);
         self.execute(cmd)
     }
 
     fn reset_iris(&self) -> M::Fut<'_, Result<(), Error>> {
+        if let Err(err) = ensure_iris_control_supported::<P>() {
+            return self.error(err);
+        }
+
         let cmd = crate::command::exposure::Iris::Reset;
         self.execute(cmd)
     }
 
     fn increase_iris(&self) -> M::Fut<'_, Result<(), Error>> {
+        if let Err(err) = ensure_iris_control_supported::<P>() {
+            return self.error(err);
+        }
+
         let cmd = crate::command::exposure::Iris::Up;
         self.execute(cmd)
     }
 
     fn decrease_iris(&self) -> M::Fut<'_, Result<(), Error>> {
+        if let Err(err) = ensure_iris_control_supported::<P>() {
+            return self.error(err);
+        }
+
         let cmd = crate::command::exposure::Iris::Down;
         self.execute(cmd)
     }
@@ -717,5 +775,43 @@ where
             }
             Err(e) => self.error(e),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ensure_exposure_mode_supported, ensure_iris_control_supported};
+    use crate::{
+        camera::profiles::{GenericVisca, PtzOpticsG2},
+        command::exposure::ExposureMode,
+        Error,
+    };
+
+    #[test]
+    fn test_ptzoptics_rejects_unsupported_iris_mode() {
+        let result = ensure_exposure_mode_supported::<PtzOpticsG2>(ExposureMode::Iris);
+        assert!(matches!(
+            result,
+            Err(Error::FeatureNotSupported {
+                feature: "Iris-priority exposure mode"
+            })
+        ));
+    }
+
+    #[test]
+    fn test_ptzoptics_rejects_unsupported_iris_control() {
+        let result = ensure_iris_control_supported::<PtzOpticsG2>();
+        assert!(matches!(
+            result,
+            Err(Error::FeatureNotSupported {
+                feature: "Iris control"
+            })
+        ));
+    }
+
+    #[test]
+    fn test_generic_visca_keeps_standard_iris_support() {
+        assert!(ensure_exposure_mode_supported::<GenericVisca>(ExposureMode::Iris).is_ok());
+        assert!(ensure_iris_control_supported::<GenericVisca>().is_ok());
     }
 }

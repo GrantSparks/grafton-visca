@@ -7,6 +7,7 @@
 use std::ops::RangeInclusive;
 
 use super::profile_metadata::InquirySupport;
+use crate::command::exposure::ExposureMode;
 
 /// Structured capabilities response for runtime feature discovery.
 ///
@@ -138,6 +139,12 @@ pub struct Capabilities {
     /// Whether camera supports exposure control.
     pub has_exposure: bool,
 
+    /// Whether camera supports direct iris control.
+    pub has_iris_control: bool,
+
+    /// Supported exposure modes for this profile.
+    pub exposure_modes: Vec<ExposureMode>,
+
     /// Whether camera supports backlight compensation.
     pub has_backlight_comp: bool,
 
@@ -147,8 +154,8 @@ pub struct Capabilities {
     /// Whether camera supports exposure compensation.
     pub has_exposure_comp: bool,
 
-    /// Iris range in VISCA units.
-    pub iris_range: RangeInclusive<u16>,
+    /// Iris range in VISCA units, if iris control is supported.
+    pub iris_range: Option<RangeInclusive<u16>>,
 
     /// Gain range in VISCA units.
     pub gain_range: RangeInclusive<u8>,
@@ -318,7 +325,11 @@ impl Capabilities {
         let focus_speed = 0..=7; // Standard VISCA focus speed range
 
         // Extract exposure capabilities
-        let iris_range = P::IRIS_RANGE.start..=(P::IRIS_RANGE.end - 1);
+        let has_iris_control = P::IRIS_RANGE.is_some();
+        let exposure_modes = P::EXPOSURE_MODES.to_vec();
+        let iris_range = P::IRIS_RANGE
+            .as_ref()
+            .map(|range| range.start..=(range.end - 1));
         let gain_range = P::GAIN_RANGE.start..=(P::GAIN_RANGE.end - 1);
 
         // Extract white balance capabilities
@@ -394,6 +405,8 @@ impl Capabilities {
 
             // Exposure capabilities
             has_exposure: true, // All cameras have exposure control
+            has_iris_control,
+            exposure_modes,
             has_backlight_comp: P::SUPPORTS_BACKLIGHT_COMP,
             has_wdr: P::SUPPORTS_WDR,
             has_exposure_comp: P::SUPPORTS_EXPOSURE_COMP,
@@ -493,6 +506,12 @@ impl Capabilities {
             || self.supports_preset_tour
             || self.has_nd_filter
             || self.has_motion_sync
+    }
+
+    /// Returns true if the camera supports the requested exposure mode.
+    #[must_use]
+    pub fn supports_exposure_mode(&self, mode: ExposureMode) -> bool {
+        self.exposure_modes.contains(&mode)
     }
 
     /// Returns the maximum optical zoom magnification (e.g., 20.0 for 20x).
@@ -643,6 +662,9 @@ mod tests {
         assert!(!caps.has_focus_zone);
         assert!(!caps.has_af_sensitivity);
         assert!(!caps.has_focus_near_limit_inquiry);
+        assert!(!caps.has_iris_control);
+        assert!(!caps.supports_exposure_mode(ExposureMode::Iris));
+        assert_eq!(caps.iris_range, None);
         assert!(caps.has_rgb_gain);
 
         assert_eq!(caps.max_presets, 127);
@@ -677,6 +699,8 @@ mod tests {
         assert!(!caps.has_digital_zoom);
         assert!(!caps.supports_direct_zoom);
         assert_eq!(caps.max_presets, 6);
+        assert!(caps.has_iris_control);
+        assert!(caps.supports_exposure_mode(ExposureMode::Iris));
 
         assert!(caps.has_basic_features());
         // GenericVisca has one-push white balance, which counts as an advanced feature
