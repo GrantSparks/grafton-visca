@@ -96,64 +96,6 @@ mod tokio_runtime_tests {
     }
 }
 
-#[cfg(feature = "runtime-async-std")]
-mod async_std_runtime_tests {
-    use std::time::{Duration, Instant};
-
-    use grafton_visca::{
-        runtime::{AsyncStdRuntime, Runtime},
-        Executor,
-    };
-
-    fn run_async_std<F: std::future::Future>(f: F) -> F::Output {
-        smol::block_on(f)
-    }
-
-    #[test]
-    fn test_async_std_runtime_creation() {
-        run_async_std(async {
-            let runtime = AsyncStdRuntime::new();
-            let _ = runtime;
-        });
-    }
-
-    #[test]
-    fn test_async_std_runtime_tcp_connection() {
-        run_async_std(async {
-            let runtime = AsyncStdRuntime::new();
-
-            // This will fail to connect but tests the type system works
-            let result = runtime
-                .connect_tcp(
-                    "192.0.2.1:5678", // TEST-NET-1 address that won't connect
-                    Default::default(),
-                )
-                .await;
-
-            assert!(result.is_err());
-        });
-    }
-
-    #[test]
-    fn test_async_std_runtime_executor_delegation() {
-        run_async_std(async {
-            let runtime = AsyncStdRuntime::new();
-
-            // Test that executor methods are properly delegated
-            let future = async { 84 };
-            let result = runtime.timeout(Duration::from_millis(100), future).await;
-            assert!(result.is_ok());
-            assert_eq!(result.unwrap(), 84);
-
-            // Test sleep delegation
-            let start = Instant::now();
-            runtime.sleep(Duration::from_millis(10)).await;
-            let elapsed = start.elapsed();
-            assert!(elapsed >= Duration::from_millis(10));
-        });
-    }
-}
-
 // NOTE: Smol tests are disabled when Tokio is also enabled to avoid
 // runtime conflicts. See issue #394 for details.
 #[cfg(all(feature = "runtime-smol", not(feature = "runtime-tokio")))]
@@ -281,36 +223,6 @@ mod tokio_transport_connect_tests {
     }
 }
 
-#[cfg(feature = "runtime-async-std")]
-mod async_std_transport_connect_tests {
-    use std::{net::UdpSocket, time::Duration};
-
-    use grafton_visca::{
-        runtime_adapters::async_std::UdpTransport, transport::builder::TransportConfig,
-    };
-
-    /// Test that UDP transport connection completes successfully with a local address.
-    #[test]
-    fn test_udp_transport_connect_with_config_success() {
-        smol::block_on(async {
-            // Create a local UDP socket to connect to
-            let server = UdpSocket::bind("127.0.0.1:0").unwrap();
-            let addr = server.local_addr().unwrap();
-
-            let config = TransportConfig {
-                connect_timeout: Duration::from_secs(5),
-                ..Default::default()
-            };
-
-            let result = UdpTransport::connect_with_config(&addr.to_string(), config).await;
-            assert!(
-                result.is_ok(),
-                "UDP transport should connect successfully to local address"
-            );
-        });
-    }
-}
-
 #[cfg(all(feature = "runtime-smol", not(feature = "runtime-tokio")))]
 mod smol_transport_connect_tests {
     use std::time::Duration;
@@ -342,35 +254,6 @@ mod smol_transport_connect_tests {
                 "UDP transport should connect successfully to local address"
             );
         });
-    }
-}
-
-// Compile-time tests to ensure type safety
-#[cfg(all(feature = "runtime-tokio", feature = "runtime-async-std"))]
-mod compile_time_safety_tests {
-    use std::any::TypeId;
-
-    use grafton_visca::runtime::{AsyncStdRuntime, TokioRuntime};
-
-    // This function should NOT compile if uncommented, proving type safety:
-    // fn mismatched_runtime_transport() {
-    //     // This would try to create a TransportHandle<TokioRuntime> with an async-std transport
-    //     // which should be impossible
-    //     let _bad: TransportHandle<TokioRuntime> = TransportHandle::Tcp(
-    //         // Can't put an AsyncStdRuntime::TcpTransport here!
-    //         unimplemented!()
-    //     );
-    // }
-
-    #[test]
-    fn test_runtime_types_are_distinct() {
-        // Verify that runtime types are distinct at compile time
-        fn is_tokio_runtime<R: grafton_visca::runtime::Runtime>() -> bool {
-            TypeId::of::<R>() == TypeId::of::<TokioRuntime>()
-        }
-
-        assert!(is_tokio_runtime::<TokioRuntime>());
-        assert!(!is_tokio_runtime::<AsyncStdRuntime>());
     }
 }
 

@@ -36,6 +36,7 @@ use crate::command::exposure::ExposureMode;
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[non_exhaustive]
 pub struct Capabilities {
     // Camera identification
     /// Model name of the camera.

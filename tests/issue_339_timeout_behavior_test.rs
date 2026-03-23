@@ -216,7 +216,6 @@ mod timeout_behavior_tests {
 #[cfg(all(
     feature = "test-utils",
     not(feature = "runtime-tokio"),
-    not(feature = "runtime-async-std"),
     not(feature = "runtime-smol")
 ))]
 mod deterministic_tests {

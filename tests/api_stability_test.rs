@@ -74,26 +74,13 @@ fn test_control_traits_api_stability() {
 #[test]
 fn test_runtime_feature_detection_stability() {
     // Count active runtime features
-    #[cfg(any(
-        feature = "runtime-tokio",
-        feature = "runtime-async-std",
-        feature = "runtime-smol"
-    ))]
+    #[cfg(any(feature = "runtime-tokio", feature = "runtime-smol"))]
     let mut active_runtimes = 0;
 
-    #[cfg(not(any(
-        feature = "runtime-tokio",
-        feature = "runtime-async-std",
-        feature = "runtime-smol"
-    )))]
+    #[cfg(not(any(feature = "runtime-tokio", feature = "runtime-smol")))]
     let active_runtimes = 0;
 
     #[cfg(feature = "runtime-tokio")]
-    {
-        active_runtimes += 1;
-    }
-
-    #[cfg(feature = "runtime-async-std")]
     {
         active_runtimes += 1;
     }

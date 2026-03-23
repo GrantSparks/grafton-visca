@@ -107,8 +107,6 @@ pub mod r#async {
     pub use crate::units::{Degrees, Normalized, Percentage, Raw};
 
     // Runtime support for async operations
-    #[cfg(feature = "runtime-async-std")]
-    pub use crate::runtime::AsyncStdRuntime;
     #[cfg(feature = "runtime-smol")]
     pub use crate::runtime::SmolRuntime;
     #[cfg(feature = "runtime-tokio")]

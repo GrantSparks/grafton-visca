@@ -55,14 +55,6 @@ repos:
         args: ["--all-targets", "--no-default-features", "--features", "runtime-tokio", "--", "-D", "warnings"]
         types: [rust]
         pass_filenames: false
-      - id: clippy-runtime-async-std
-        name: clippy (runtime-async-std)
-        description: Lint rust sources with async-std runtime
-        entry: cargo clippy
-        language: system
-        args: ["--all-targets", "--no-default-features", "--features", "runtime-async-std", "--", "-D", "warnings"]
-        types: [rust]
-        pass_filenames: false
       - id: clippy-runtime-smol
         name: clippy (runtime-smol)
         description: Lint rust sources with smol runtime
@@ -85,14 +77,6 @@ repos:
         entry: cargo clippy
         language: system
         args: ["--all-targets", "--no-default-features", "--features", "runtime-tokio,test-utils", "--", "-D", "warnings"]
-        types: [rust]
-        pass_filenames: false
-      - id: clippy-async-std-test-utils
-        name: clippy (runtime-async-std + test-utils)
-        description: Lint rust sources with async-std runtime and test utilities
-        entry: cargo clippy
-        language: system
-        args: ["--all-targets", "--no-default-features", "--features", "runtime-async-std,test-utils", "--", "-D", "warnings"]
         types: [rust]
         pass_filenames: false
       - id: doc

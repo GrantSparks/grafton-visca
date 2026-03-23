@@ -2,7 +2,7 @@
 members = [".", "grafton-visca-macros"]
 
 [workspace.package]
-version = "0.12.0"
+version = "0.13.0"
 authors = ["Grant Sparks <grant@grafton.ai>"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/GrantSparks/grafton-visca"
@@ -34,7 +34,6 @@ mode-blocking = []  # Optional: for explicit feature detection in downstream cod
 
 # Runtime features and compatibility aliases (each implies mode-async)
 runtime-tokio = ["mode-async", "dep:tokio"]
-runtime-async-std = ["runtime-smol"]  # Deprecated compatibility alias; scheduled for removal in 0.13.0
 runtime-smol = ["mode-async", "dep:smol", "dep:async-executor", "dep:async-io"]
 
 # Transport features
@@ -58,7 +57,7 @@ bytes = "1.5"
 chrono = { version = "0.4" }
 flume = "0.12"
 smallvec = "1.13"
-grafton-visca-macros = { path = "grafton-visca-macros", version = "0.12.0" }
+grafton-visca-macros = { path = "grafton-visca-macros", version = "0.13.0" }
 hex = "0.4"
 tracing = "0.1"
 nom = "8.0.0"

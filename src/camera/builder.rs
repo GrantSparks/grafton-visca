@@ -7,7 +7,6 @@
 //!
 //! The builder supports multiple async runtimes through the unified executor approach:
 //! - **Tokio**: `CameraBuilder::with_executor(TokioRuntime::from_current())` (requires `runtime-tokio` feature)
-//! - **async-std**: `CameraBuilder::with_executor(AsyncStdRuntime::new())` (requires `runtime-async-std` feature)
 //! - **smol**: `CameraBuilder::with_executor(SmolRuntime::new())` (requires `runtime-smol` feature)
 //!
 //! # Example
@@ -27,13 +26,6 @@
 //! camera.power().on().await?;
 //! camera.zoom().tele().await?;
 //! camera.await_idle().await?;
-//!
-//! // async-std
-//! use grafton_visca::runtime::{AsyncStdRuntime, Runtime};
-//! let runtime = AsyncStdRuntime::new();
-//! let camera = CameraBuilder::with_executor(runtime)
-//!     .open_async::<PtzOpticsG2, _>(transport)
-//!     .await?;
 //!
 //! // smol
 //! use grafton_visca::runtime::{Runtime, SmolRuntime};
@@ -533,16 +525,6 @@ pub mod async_cameras {
 
     /// A camera using the Tokio executor.
     pub type TokioCamera<P, T> = Camera<mode::Async, P, T, crate::executor::TokioExecutor>;
-}
-
-/// Type aliases for async-std camera configurations.
-#[cfg(all(feature = "mode-async", feature = "runtime-async-std"))]
-pub mod async_std_cameras {
-    use crate::camera::Camera;
-    use crate::mode;
-
-    /// A camera using the async-std executor.
-    pub type AsyncStdCamera<P, T> = Camera<mode::Async, P, T, crate::executor::AsyncStdExecutor>;
 }
 
 /// Type aliases for smol camera configurations.

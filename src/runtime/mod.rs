@@ -130,9 +130,6 @@ pub use traits::RuntimeSerial;
 #[cfg(all(feature = "mode-async", feature = "runtime-tokio"))]
 pub use traits::TokioRuntime;
 
-#[cfg(all(feature = "mode-async", feature = "runtime-async-std"))]
-pub use traits::AsyncStdRuntime;
-
 #[cfg(all(feature = "mode-async", feature = "runtime-smol"))]
 pub use traits::SmolRuntime;
 

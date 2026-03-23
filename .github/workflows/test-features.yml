@@ -91,11 +91,10 @@ jobs:
               cargo test --no-default-features --verbose
               cargo test --no-default-features --features mode-async --verbose
               cargo test --no-default-features --features runtime-tokio --verbose
-              cargo test --no-default-features --features runtime-async-std --verbose
               cargo test --no-default-features --features runtime-smol --verbose
               cargo test --no-default-features --features test-utils --verbose
               cargo test --no-default-features --features runtime-tokio,test-utils --verbose
-              cargo test --no-default-features --features runtime-async-std,test-utils --verbose
+              cargo test --no-default-features --features runtime-smol,test-utils --verbose
               cargo test -p grafton-visca-macros --verbose
               ;;
 

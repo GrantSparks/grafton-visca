@@ -33,31 +33,6 @@ pub mod tokio {
     pub use crate::transport::tokio::udp::Udp as UdpTransport;
 }
 
-#[cfg(feature = "runtime-async-std")]
-/// Deprecated compatibility adapters for the former async-std runtime feature.
-///
-/// `runtime-async-std` now reuses the maintained smol transport adapters and will
-/// be removed in 0.13.0. New code should prefer `runtime_adapters::smol`.
-///
-/// # Example
-///
-/// ```rust,no_run
-/// # #[cfg(feature = "runtime-async-std")]
-/// use grafton_visca::runtime_adapters::async_std::{TcpTransport, UdpTransport};
-/// use grafton_visca::transport::AsyncTransport;
-///
-/// # #[cfg(feature = "runtime-async-std")]
-/// # smol::block_on(async {
-/// let tcp = TcpTransport::connect("192.168.0.110:5678").await?;
-/// let udp = UdpTransport::connect("192.168.0.110:1259").await?;
-/// # Ok::<(), Box<dyn std::error::Error>>(())
-/// # }).unwrap();
-/// ```
-pub mod async_std {
-    pub use crate::transport::async_std::tcp::Tcp as TcpTransport;
-    pub use crate::transport::async_std::udp::Udp as UdpTransport;
-}
-
 #[cfg(feature = "runtime-smol")]
 /// smol runtime transport adapters.
 ///

@@ -44,9 +44,6 @@ pub enum TestExecutorType {
     /// TokioExecutor - for timeout and timing tests with Tokio
     #[cfg(feature = "runtime-tokio")]
     Tokio,
-    /// AsyncStdExecutor - for timeout and timing tests with async-std
-    #[cfg(feature = "runtime-async-std")]
-    AsyncStd,
     /// SmolExecutor - for timeout and timing tests with smol
     #[cfg(feature = "runtime-smol")]
     Smol,
@@ -65,22 +62,11 @@ pub trait TestExecutorSelector {
         #[cfg(feature = "runtime-tokio")]
         return TestExecutorType::Tokio;
 
-        #[cfg(all(not(feature = "runtime-tokio"), feature = "runtime-async-std"))]
-        return TestExecutorType::AsyncStd;
-
-        #[cfg(all(
-            not(feature = "runtime-tokio"),
-            not(feature = "runtime-async-std"),
-            feature = "runtime-smol"
-        ))]
+        #[cfg(all(not(feature = "runtime-tokio"), feature = "runtime-smol"))]
         return TestExecutorType::Smol;
 
-        #[cfg(all(
-            not(feature = "runtime-tokio"),
-            not(feature = "runtime-async-std"),
-            not(feature = "runtime-smol")
-        ))]
-        panic!("No real runtime available for timeout tests. Enable at least one of: runtime-tokio, runtime-async-std, runtime-smol");
+        #[cfg(all(not(feature = "runtime-tokio"), not(feature = "runtime-smol")))]
+        panic!("No real runtime available for timeout tests. Enable at least one of: runtime-tokio, runtime-smol");
     }
 }
 
@@ -124,19 +110,7 @@ macro_rules! timeout_test {
             $body(executor).await
         }
 
-        #[cfg(all(not(feature = "runtime-tokio"), feature = "runtime-async-std"))]
-        #[test]
-        fn $name() {
-            use $crate::executor::AsyncStdExecutor;
-            let executor = std::sync::Arc::new(AsyncStdExecutor);
-            smol::block_on(async { $body(executor).await })
-        }
-
-        #[cfg(all(
-            not(feature = "runtime-tokio"),
-            not(feature = "runtime-async-std"),
-            feature = "runtime-smol"
-        ))]
+        #[cfg(all(not(feature = "runtime-tokio"), feature = "runtime-smol"))]
         #[test]
         fn $name() {
             use $crate::executor::SmolExecutor;

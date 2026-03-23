@@ -32,7 +32,7 @@
 //! - **Unified API Architecture**: Single consistent interface across blocking and async modes
 //! - **Type-Safe Camera Profiles**: Compile-time validation with camera-specific profiles
 //! - **Feature-Gated Methods**: Choose blocking or async at compile time with zero runtime overhead
-//! - **Multi-Runtime Support**: Tokio and smol can coexist with priority-based selection; `runtime-async-std` is now a deprecated compatibility alias to smol
+//! - **Multi-Runtime Support**: Tokio and smol can coexist with priority-based selection
 //! - **Complete Command Coverage**: Full VISCA protocol support across all camera types
 //! - **Profile-Aware Conversions**: Automatic unit conversions based on camera model
 //! - **Comprehensive Inquiry**: Query camera state for all supported features
@@ -361,14 +361,13 @@
 //! ## Async Support
 //!
 //! The library provides runtime-agnostic async support, allowing you to use ANY async runtime
-//! (tokio, smol, etc.) or even create your own. The deprecated `runtime-async-std` feature now aliases `runtime-smol` for one release cycle.
+//! (tokio, smol, etc.) or even create your own.
 //!
 //! ### Feature Flags
 //!
 //! - `mode-async` - Enables async support without any specific runtime. You must provide your own runtime.
 //! - `mode-blocking` - Explicit feature flag for blocking mode (blocking is always available, this is for feature detection).
 //! - `runtime-tokio` - Enables async with built-in Tokio runtime support (implies `mode-async`).
-//! - `runtime-async-std` - Deprecated compatibility alias to `runtime-smol`; scheduled for removal in `0.13.0`.
 //! - `runtime-smol` - Enables async with built-in smol runtime support (implies `mode-async`).
 //! - `transport-serial` - Enables serial port support for blocking mode.
 //! - `transport-serial-tokio` - Enables serial port support with Tokio (implies `runtime-tokio`).
@@ -410,12 +409,10 @@
 //! [dependencies]
 //! # Single runtime:
 //! grafton-visca = { version = "*", features = ["runtime-tokio"] }
-//! grafton-visca = { version = "*", features = ["runtime-async-std"] }
 //! grafton-visca = { version = "*", features = ["runtime-smol"] }
 //!
 //! # Multiple runtimes (choose executor at construction time):
 //! grafton-visca = { version = "*", features = ["runtime-tokio", "runtime-smol"] }
-//! grafton-visca = { version = "*", features = ["runtime-tokio", "runtime-smol", "runtime-async-std"] }
 //! ```
 //!
 //! Then pass the runtime explicitly, either through `Connect` for quick setup or
@@ -425,11 +422,6 @@
 //! // Tokio
 //! use grafton_visca::{camera::{Connect, profiles::PtzOpticsG2}, runtime::TokioRuntime};
 //! let runtime = TokioRuntime::from_current()?;
-//! let camera = Connect::open_tcp_async::<PtzOpticsG2, _>("192.168.0.110", runtime).await?;
-//!
-//! // Deprecated async-std compatibility alias (smol-backed in 0.12)
-//! use grafton_visca::{camera::{Connect, profiles::PtzOpticsG2}, runtime::AsyncStdRuntime};
-//! let runtime = AsyncStdRuntime::new();
 //! let camera = Connect::open_tcp_async::<PtzOpticsG2, _>("192.168.0.110", runtime).await?;
 //!
 //! // smol
@@ -691,8 +683,6 @@ pub use crate::camera::{blocking_api::BlockingClient, BlockingCamera};
 #[cfg(feature = "mode-async")]
 pub use crate::camera::AsyncCamera;
 
-#[cfg(all(feature = "mode-async", feature = "runtime-async-std"))]
-pub use crate::executor::AsyncStdExecutor;
 #[cfg(all(feature = "mode-async", feature = "runtime-smol"))]
 pub use crate::executor::SmolExecutor;
 #[cfg(all(feature = "mode-async", feature = "runtime-tokio"))]
@@ -700,8 +690,6 @@ pub use crate::executor::TokioExecutor;
 #[cfg(feature = "mode-async")]
 pub use crate::executor::{ExecError, Executor};
 
-#[cfg(all(feature = "mode-async", feature = "runtime-async-std"))]
-pub use crate::runtime::AsyncStdRuntime;
 #[cfg(all(feature = "mode-async", feature = "runtime-smol"))]
 pub use crate::runtime::SmolRuntime;
 #[cfg(all(feature = "mode-async", feature = "runtime-tokio"))]

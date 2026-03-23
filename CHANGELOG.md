@@ -12,7 +12,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 #### Granular Iris Capability Modelling
 - **BREAKING**: `Exposure::IRIS_RANGE` changed from `Range<u16>` to `Option<Range<u16>>`; downstream `impl Exposure` blocks must wrap their range in `Some(...)` or use `None` for cameras that lack iris control
 - **BREAKING**: `Capabilities::iris_range` changed from `RangeInclusive<u16>` to `Option<RangeInclusive<u16>>`
-- **BREAKING**: `Capabilities` struct gains new fields `has_iris_control: bool` and `exposure_modes: Vec<ExposureMode>`, which is a breaking change for code that constructs the struct with literal syntax
+- **BREAKING**: `Capabilities` struct is now `#[non_exhaustive]`; use `Capabilities::from_profile::<P>()` instead of struct literals
+
+#### Removal of `runtime-async-std` Compatibility Alias
+- **BREAKING**: The `runtime-async-std` feature, `AsyncStdRuntime`, `AsyncStdExecutor`, `AsyncStdCamera`, and `runtime_adapters::async_std` module have been removed
+- **Migration**: Replace `runtime-async-std` with `runtime-smol` in `Cargo.toml`; replace `AsyncStdRuntime::new()` with `SmolRuntime::new()`
+- CI, pre-commit hooks, and documentation no longer reference async-std
 
 ### Added
 

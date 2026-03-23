@@ -1,7 +1,7 @@
 //! Async camera control quickstart example.
 //!
 //! This example demonstrates basic async camera control operations using the high-level
-//! Camera API with your choice of async runtime (tokio, async-std, or smol).
+//! Camera API with your choice of async runtime (tokio or smol).
 //!
 //! The example shows:
 //! - Connection and power management
@@ -14,49 +14,30 @@
 //! # With tokio (most common)
 //! cargo run --example quickstart_async --features runtime-tokio [camera_ip[:port]]
 //!
-//! # With async-std
-//! cargo run --example quickstart_async --features runtime-async-std [camera_ip[:port]]
-//!
 //! # With smol
 //! cargo run --example quickstart_async --features runtime-smol [camera_ip[:port]]
 //! ```
 
-#[cfg(any(
-    feature = "runtime-tokio",
-    feature = "runtime-async-std",
-    feature = "runtime-smol"
-))]
+#[cfg(any(feature = "runtime-tokio", feature = "runtime-smol"))]
 use std::env;
 
-#[cfg(any(
-    feature = "runtime-tokio",
-    feature = "runtime-async-std",
-    feature = "runtime-smol"
-))]
+#[cfg(any(feature = "runtime-tokio", feature = "runtime-smol"))]
 use grafton_visca::{
     camera::{profiles::PtzOpticsG2, Connect},
     Error,
 };
 
 // Main function for when no runtime is selected
-#[cfg(not(any(
-    feature = "runtime-tokio",
-    feature = "runtime-async-std",
-    feature = "runtime-smol"
-)))]
+#[cfg(not(any(feature = "runtime-tokio", feature = "runtime-smol")))]
 fn main() {
     eprintln!("This example requires an async runtime feature.");
     eprintln!("Run with one of:");
     eprintln!("  cargo run --example quickstart_async --features runtime-tokio");
-    eprintln!("  cargo run --example quickstart_async --features runtime-async-std");
     eprintln!("  cargo run --example quickstart_async --features runtime-smol");
 }
 
 // =================== TOKIO RUNTIME ===================
-#[cfg(all(
-    feature = "runtime-tokio",
-    not(any(feature = "runtime-async-std", feature = "runtime-smol"))
-))]
+#[cfg(feature = "runtime-tokio")]
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     use tokio::time::{sleep, Duration};
@@ -148,109 +129,9 @@ async fn main() -> Result<(), Error> {
     Ok(())
 }
 
-// =================== ASYNC-STD RUNTIME ===================
-#[cfg(feature = "runtime-async-std")]
-fn main() -> Result<(), Error> {
-    smol::block_on(async_main())
-}
-
-#[cfg(feature = "runtime-async-std")]
-async fn async_main() -> Result<(), Error> {
-    use std::time::Duration;
-
-    async fn sleep(duration: Duration) {
-        smol::Timer::after(duration).await;
-    }
-
-    use grafton_visca::runtime::AsyncStdRuntime;
-
-    tracing_subscriber::fmt::init();
-
-    // Parse camera address from command line or use default
-    let camera_addr = env::args()
-        .nth(1)
-        .unwrap_or_else(|| "192.168.0.110".to_string());
-
-    println!("=== Async Quickstart with async-std compatibility (smol-backed) ===");
-    println!("Connecting to camera at {camera_addr}...\n");
-
-    // Connect to camera using the high-level API
-    let runtime = AsyncStdRuntime::new();
-    let camera = Connect::open_tcp_async::<PtzOpticsG2, _>(&camera_addr, runtime).await?;
-    println!("✓ Connected successfully");
-
-    // Power management - check state first
-    println!("\n--- Power Management ---");
-    let is_on = camera.power().state().await?;
-    if !is_on {
-        println!("Camera is off, powering on...");
-        camera.power().on().await?;
-        // Wait for power-on to complete
-        sleep(Duration::from_secs(2)).await;
-        // Verify power is on
-        let is_on = camera.power().state().await?;
-        let power_status = if is_on { "ON" } else { "OFF" };
-        println!("Power state: {power_status}");
-    } else {
-        println!("Camera is already powered ON");
-    }
-
-    // PTZ operations using accessors
-    println!("\n--- PTZ Operations ---");
-
-    // Zoom operations
-    println!("Testing zoom...");
-    camera.zoom().stop().await?;
-    sleep(Duration::from_millis(500)).await;
-
-    camera.zoom().tele().await?;
-    println!("  Zooming in (tele)...");
-    sleep(Duration::from_secs(2)).await;
-
-    camera.zoom().wide().await?;
-    println!("  Zooming out (wide)...");
-    sleep(Duration::from_secs(2)).await;
-
-    camera.zoom().stop().await?;
-    println!("  Zoom stopped");
-
-    // Pan/Tilt operations
-    println!("\nTesting pan/tilt...");
-    camera.pan_tilt().home().await?;
-    println!("  Moving to home position...");
-    sleep(Duration::from_secs(3)).await;
-
-    // Move to specific position
-    println!("  Moving to center position...");
-    camera
-        .pan_tilt()
-        .absolute(
-            grafton_visca::units::Degrees(0.0),
-            grafton_visca::units::Degrees(0.0),
-            grafton_visca::types::SpeedLevel::Medium,
-        )
-        .await?;
-    sleep(Duration::from_secs(2)).await;
-
-    // Focus operations
-    println!("\n--- Focus Control ---");
-    camera.focus().auto().await?;
-    println!("Focus mode set to auto");
-
-    // Final home position
-    println!("\n--- Returning Home ---");
-    camera.pan_tilt().home().await?;
-    println!("Moved to home position");
-
-    println!("\n✓ Quickstart completed successfully!");
-    println!("  Runtime: async-std compatibility (smol-backed)");
-    println!("  Camera: {camera_addr}");
-
-    Ok(())
-}
-
 // =================== SMOL RUNTIME ===================
-#[cfg(all(feature = "runtime-smol", not(feature = "runtime-async-std")))]
+#[cfg(all(feature = "runtime-smol", not(feature = "runtime-tokio")))]
+#[allow(unused_imports)]
 fn main() -> Result<(), Error> {
     use grafton_visca::runtime::SmolRuntime;
 

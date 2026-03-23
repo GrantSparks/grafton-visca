@@ -10,7 +10,7 @@ use crate::Error;
 /// Trait abstracting async read operations across different runtimes.
 ///
 /// This trait unifies the async read capabilities needed for VISCA communication
-/// across tokio, async-std, and smol runtimes. Not all methods will be used by
+/// across tokio and smol runtimes. Not all methods will be used by
 /// all runtimes, which is expected for a unified interface.
 pub trait AsyncReadExt {
     /// Read data into a buffer, returning the number of bytes read.
@@ -22,7 +22,7 @@ pub trait AsyncReadExt {
 /// Trait abstracting async write operations across different runtimes.
 ///
 /// This trait unifies the async write capabilities needed for VISCA communication
-/// across tokio, async-std, and smol runtimes.
+/// across tokio and smol runtimes.
 pub trait AsyncWriteExt {
     /// Write all data in the buffer.
     ///
@@ -36,7 +36,7 @@ pub trait AsyncWriteExt {
 /// Trait abstracting async datagram (UDP) operations across different runtimes.
 ///
 /// This trait unifies the async UDP socket capabilities needed for VISCA communication
-/// across tokio, async-std, and smol runtimes, enabling zero-cost abstractions
+/// across tokio and smol runtimes, enabling zero-cost abstractions
 /// through monomorphization.
 pub trait AsyncDatagram: Send + Sync {
     /// Send data on the socket to the connected remote address.

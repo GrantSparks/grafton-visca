@@ -10,7 +10,7 @@ name: Rust CI/CD
 # - Reusable workflows for better organization
 # - Job timeouts for reliability
 # - Comprehensive feature matrix testing (matches pre-commit hooks)
-# - Tests all combinations: default, no-default, mode-async, runtime-tokio, runtime-async-std, runtime-smol, test-utils
+# - Tests all combinations: default, no-default, mode-async, runtime-tokio, runtime-smol, test-utils
 # - Enhanced clippy coverage for all feature combinations
 # - Platform matrix testing (ubuntu, windows, macos) × (stable, beta)
 # - Separate minimal testing for feature branches (faster feedback)
@@ -154,7 +154,6 @@ jobs:
           - ""  # default features
           - "no-default"
           - "runtime-tokio"
-          - "runtime-async-std"
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v6
@@ -228,11 +227,9 @@ jobs:
           - ""  # no features
           - "mode-async"
           - "runtime-tokio"
-          - "runtime-async-std"
           - "runtime-smol"
           - "test-utils"
           - "runtime-tokio,test-utils"
-          - "runtime-async-std,test-utils"
           - "runtime-smol,test-utils"
           - "runtime-tokio,transport-serial"  # legacy compatibility
     steps:
@@ -406,11 +403,10 @@ jobs:
             ""
             "mode-async"
             "runtime-tokio"
-            "runtime-async-std"
             "runtime-smol"
             "test-utils"
             "runtime-tokio,test-utils"
-            "runtime-async-std,test-utils"
+            "runtime-smol,test-utils"
             "runtime-tokio,transport-serial"
           )
 
@@ -444,7 +440,6 @@ jobs:
           # Check documentation builds for different feature sets
           cargo doc --no-deps --no-default-features
           cargo doc --no-deps --no-default-features --features runtime-tokio
-          cargo doc --no-deps --no-default-features --features runtime-async-std
           cargo doc --no-deps --all-features
 
           # Check private items documentation
@@ -462,7 +457,7 @@ jobs:
     timeout-minutes: 30
     strategy:
       matrix:
-        runtime: [runtime-tokio, runtime-async-std, runtime-smol]
+        runtime: [runtime-tokio, runtime-smol]
     steps:
       - uses: actions/checkout@v6
 
@@ -499,9 +494,6 @@ jobs:
 
           case "${{ matrix.runtime }}" in
             "runtime-tokio")
-              other_runtime="runtime-async-std"
-              ;;
-            "runtime-async-std")
               other_runtime="runtime-smol"
               ;;
             "runtime-smol")

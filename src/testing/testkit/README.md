@@ -30,7 +30,7 @@ fn test_protocol_logic() {
 
 ### When to Use Real Runtime Executors
 
-Use real runtime executors (Tokio, async-std, smol) for:
+Use real runtime executors (Tokio, smol) for:
 - Timeout behavior tests
 - Tests that require actual time progression
 - Tests involving concurrent timeouts

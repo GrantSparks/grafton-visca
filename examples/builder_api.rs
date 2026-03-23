@@ -71,26 +71,18 @@ fn main() -> Result<()> {
 
 #[cfg(all(
     feature = "mode-async",
-    not(any(
-        feature = "runtime-tokio",
-        feature = "runtime-async-std",
-        feature = "runtime-smol"
-    ))
+    not(any(feature = "runtime-tokio", feature = "runtime-smol"))
 ))]
 fn main() -> grafton_visca::Result<()> {
     println!("=== CameraBuilder API Demo ===\n");
     println!("This example requires a specific async runtime feature:");
     println!("- Run with: cargo run --example builder_api --features runtime-tokio");
-    println!("- Or with:  cargo run --example builder_api --features runtime-async-std");
     println!("- Or with:  cargo run --example builder_api --features runtime-smol");
     println!("- Or for blocking: cargo run --example builder_api (no features)");
     Ok(())
 }
 
-#[cfg(all(
-    feature = "runtime-tokio",
-    not(any(feature = "runtime-async-std", feature = "runtime-smol"))
-))]
+#[cfg(feature = "runtime-tokio")]
 #[tokio::main]
 async fn main() -> grafton_visca::Result<()> {
     use tokio::join;
@@ -180,42 +172,7 @@ async fn main() -> grafton_visca::Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "runtime-async-std")]
-fn main() -> grafton_visca::Result<()> {
-    use grafton_visca::{
-        camera::profiles::PtzOpticsG2,
-        runtime_adapters::async_std::{TcpTransport as Tcp, UdpTransport as Udp},
-        CameraBuilder,
-    };
-
-    tracing_subscriber::fmt::init();
-
-    println!("=== CameraBuilder API Demo (async-std compatibility via smol) ===\n");
-
-    smol::block_on(async {
-        println!("--- Example 1: async-std compatibility TCP ---");
-        let transport = Tcp::connect("192.168.0.110").await?;
-        let runtime = grafton_visca::runtime::AsyncStdRuntime::new();
-        let _camera = CameraBuilder::with_executor(runtime)
-            .open_async::<PtzOpticsG2, _>(transport)
-            .await?;
-        println!("✓ Created async TCP camera with async-std compatibility");
-
-        println!("\n--- Example 2: async-std compatibility UDP ---");
-        let transport = Udp::connect("192.168.0.110").await?;
-        let runtime = grafton_visca::runtime::AsyncStdRuntime::new();
-        let _camera = CameraBuilder::with_executor(runtime)
-            .open_async::<PtzOpticsG2, _>(transport)
-            .await?;
-        println!("✓ Created async UDP camera with async-std compatibility");
-
-        println!("\n✓ All async-std compatibility builder examples completed!");
-
-        Ok(())
-    })
-}
-
-#[cfg(all(feature = "runtime-smol", not(feature = "runtime-async-std")))]
+#[cfg(all(feature = "runtime-smol", not(feature = "runtime-tokio")))]
 fn main() -> grafton_visca::Result<()> {
     use grafton_visca::{
         camera::profiles::PtzOpticsG2,
