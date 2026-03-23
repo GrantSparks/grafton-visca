@@ -18,7 +18,7 @@ pub struct Connect;
 ///
 /// This builder provides a fluent API for configuring camera connections
 /// without assuming any specific runtime, making it suitable for use with
-/// tokio, async-std, smol, or blocking mode.
+/// tokio, smol, or blocking mode.
 ///
 /// # Example
 /// ```rust,ignore

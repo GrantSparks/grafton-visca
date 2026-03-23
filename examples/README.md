@@ -13,7 +13,6 @@ This library uses feature flags to control dependencies:
 - **No features** (default): Blocking API only
 - **`mode-async`**: Runtime-agnostic async API; provide your own executor/runtime integration
 - **`runtime-tokio`**: Built-in Tokio runtime support (implies `mode-async`)
-- **`runtime-async-std`**: Deprecated compatibility alias for `runtime-smol` (scheduled for removal in `0.13.0`)
 - **`runtime-smol`**: Built-in smol runtime support (implies `mode-async`)
 - **`transport-serial`**: Blocking serial (RS-232/RS-422)
 - **`transport-serial-tokio`**: Tokio serial transport (implies `runtime-tokio`)
@@ -32,7 +31,7 @@ If you're new to the library, start with these examples in order:
 
 ### Basic Usage
 - **[quickstart.rs](quickstart.rs)** - Blocking example covering movement, presets, and imaging (high-level)
-- **[quickstart_async.rs](quickstart_async.rs)** - Async version for Tokio or smol, with an async-std compatibility entrypoint for migration
+- **[quickstart_async.rs](quickstart_async.rs)** - Async version for Tokio or smol
 - **[inquiry_quickstart.rs](inquiry_quickstart.rs)** - High-level inquiry accessors and typed responses
 - **[preset_demo.rs](preset_demo.rs)** - Working with preset positions
 - **[type_safe_commands.rs](type_safe_commands.rs)** - Compile-time profile and capability safety

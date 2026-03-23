@@ -11,14 +11,14 @@ use crate::{
         NdFilterMode, PanTilt, Power, Presets, ProfileMetadata, ShutterSpeed, VariableSpeed,
         WhiteBalance, Zoom,
     },
+    command::exposure::ExposureMode,
     error::Error,
     transport::envelope::{RawVisca, SonyEncapsulated},
     WhiteBalanceMode,
 };
 
 mod profile_constants {
-    use crate::capabilities::ShutterSpeed;
-    use crate::WhiteBalanceMode;
+    use crate::{capabilities::ShutterSpeed, command::exposure::ExposureMode, WhiteBalanceMode};
 
     pub const PTZ_OPTICS_G2_SHUTTER_SPEEDS: &[ShutterSpeed] = &[
         ShutterSpeed::new("1/30", 0x01),
@@ -52,6 +52,26 @@ mod profile_constants {
         ShutterSpeed::new("1/10000", 0x08),
     ];
 
+    /// Standard exposure modes supported by most VISCA cameras.
+    pub const STANDARD_EXPOSURE_MODES: &[ExposureMode] = &[
+        ExposureMode::Auto,
+        ExposureMode::Manual,
+        ExposureMode::Shutter,
+        ExposureMode::Iris,
+        ExposureMode::Bright,
+    ];
+
+    /// Exposure modes supported by PTZOptics cameras.
+    ///
+    /// Hardware testing shows these cameras reject iris-priority mode and direct iris commands,
+    /// so the shared PTZOptics family omits iris from its supported mode list.
+    pub const PTZ_OPTICS_EXPOSURE_MODES: &[ExposureMode] = &[
+        ExposureMode::Auto,
+        ExposureMode::Manual,
+        ExposureMode::Shutter,
+        ExposureMode::Bright,
+    ];
+
     /// Standard white balance modes supported by most VISCA cameras.
     ///
     /// All tested camera profiles (PTZ Optics, Sony BRC, Generic) support
@@ -79,8 +99,8 @@ mod profile_constants {
 }
 
 use self::profile_constants::{
-    GENERIC_VISCA_SHUTTER_SPEEDS, PTZ_OPTICS_G2_SHUTTER_SPEEDS, PTZ_OPTICS_WB_MODES,
-    STANDARD_WB_MODES,
+    GENERIC_VISCA_SHUTTER_SPEEDS, PTZ_OPTICS_EXPOSURE_MODES, PTZ_OPTICS_G2_SHUTTER_SPEEDS,
+    PTZ_OPTICS_WB_MODES, STANDARD_EXPOSURE_MODES, STANDARD_WB_MODES,
 };
 
 /// PtzOptics G2 camera profile.
@@ -89,7 +109,7 @@ use self::profile_constants::{
 /// - Pan/Tilt with 340° pan range and -30° to +90° tilt
 /// - 20x optical zoom (no VISCA digital zoom control)
 /// - Auto and manual focus
-/// - Full exposure control with exposure compensation
+/// - Exposure mode, gain, shutter, backlight, WDR, and exposure compensation control
 /// - White balance with 6 modes including color temperature
 /// - RGB gain control
 /// - Image processing including flip/mirror and hue
@@ -97,6 +117,7 @@ use self::profile_constants::{
 /// - Power control with standby
 ///
 /// Does NOT support:
+/// - Iris control or iris-priority exposure mode
 /// - ND filters
 /// - VISCA digital zoom control (camera rejects the command and may close TCP)
 #[derive(Debug, Default, Clone, Copy)]
@@ -144,7 +165,8 @@ impl Focus for PtzOpticsG2 {
 }
 
 impl Exposure for PtzOpticsG2 {
-    const IRIS_RANGE: std::ops::Range<u16> = 0x00..0x1D;
+    const EXPOSURE_MODES: &'static [ExposureMode] = PTZ_OPTICS_EXPOSURE_MODES;
+    const IRIS_RANGE: Option<std::ops::Range<u16>> = None;
     const SHUTTER_SPEEDS: &'static [ShutterSpeed] = PTZ_OPTICS_G2_SHUTTER_SPEEDS;
     const GAIN_RANGE: std::ops::Range<u8> = 0..8;
     const SUPPORTS_BACKLIGHT_COMP: bool = true;
@@ -248,7 +270,8 @@ impl Power for GenericVisca {
 impl MenuCapability for GenericVisca {}
 
 impl Exposure for GenericVisca {
-    const IRIS_RANGE: std::ops::Range<u16> = 0x00..0x1C;
+    const EXPOSURE_MODES: &'static [ExposureMode] = STANDARD_EXPOSURE_MODES;
+    const IRIS_RANGE: Option<std::ops::Range<u16>> = Some(0x00..0x1C);
     const SHUTTER_SPEEDS: &'static [ShutterSpeed] = GENERIC_VISCA_SHUTTER_SPEEDS;
     const GAIN_RANGE: std::ops::Range<u8> = 0..8;
     const SUPPORTS_BACKLIGHT_COMP: bool = false;
@@ -347,7 +370,7 @@ impl Focus for SonyFR7 {
 }
 
 impl Exposure for SonyFR7 {
-    const IRIS_RANGE: std::ops::Range<u16> = 0x00..0x1F;
+    const IRIS_RANGE: Option<std::ops::Range<u16>> = Some(0x00..0x1F);
     const SHUTTER_SPEEDS: &'static [ShutterSpeed] = PTZ_OPTICS_G2_SHUTTER_SPEEDS;
     const GAIN_RANGE: std::ops::Range<u8> = 0..16;
     const SUPPORTS_BACKLIGHT_COMP: bool = true;
@@ -461,7 +484,7 @@ impl Focus for SonyBRCH900 {
 }
 
 impl Exposure for SonyBRCH900 {
-    const IRIS_RANGE: std::ops::Range<u16> = 0x00..0x1F;
+    const IRIS_RANGE: Option<std::ops::Range<u16>> = Some(0x00..0x1F);
     const SHUTTER_SPEEDS: &'static [ShutterSpeed] = GENERIC_VISCA_SHUTTER_SPEEDS;
     const GAIN_RANGE: std::ops::Range<u8> = 0..16;
     const SUPPORTS_BACKLIGHT_COMP: bool = true;
@@ -550,7 +573,7 @@ impl Focus for SonyEVIH100 {
 }
 
 impl Exposure for SonyEVIH100 {
-    const IRIS_RANGE: std::ops::Range<u16> = 0x00..0x1C;
+    const IRIS_RANGE: Option<std::ops::Range<u16>> = Some(0x00..0x1C);
     const SHUTTER_SPEEDS: &'static [ShutterSpeed] = GENERIC_VISCA_SHUTTER_SPEEDS;
     const GAIN_RANGE: std::ops::Range<u8> = 0..8;
     const SUPPORTS_BACKLIGHT_COMP: bool = true;
@@ -638,7 +661,7 @@ impl Focus for SonyBRC300 {
 }
 
 impl Exposure for SonyBRC300 {
-    const IRIS_RANGE: std::ops::Range<u16> = 0x00..0x11;
+    const IRIS_RANGE: Option<std::ops::Range<u16>> = Some(0x00..0x11);
     const SHUTTER_SPEEDS: &'static [ShutterSpeed] = GENERIC_VISCA_SHUTTER_SPEEDS;
     const GAIN_RANGE: std::ops::Range<u8> = 0..7;
     const SUPPORTS_BACKLIGHT_COMP: bool = true;
@@ -724,7 +747,7 @@ impl Focus for NearusBRC300 {
 }
 
 impl Exposure for NearusBRC300 {
-    const IRIS_RANGE: std::ops::Range<u16> = 0x00..0x11;
+    const IRIS_RANGE: Option<std::ops::Range<u16>> = Some(0x00..0x11);
     const SHUTTER_SPEEDS: &'static [ShutterSpeed] = GENERIC_VISCA_SHUTTER_SPEEDS;
     const GAIN_RANGE: std::ops::Range<u8> = 0..7;
     const SUPPORTS_BACKLIGHT_COMP: bool = true;
@@ -812,7 +835,8 @@ impl Focus for PtzOpticsG3 {
 }
 
 impl Exposure for PtzOpticsG3 {
-    const IRIS_RANGE: std::ops::Range<u16> = 0x00..0x1D;
+    const EXPOSURE_MODES: &'static [ExposureMode] = PTZ_OPTICS_EXPOSURE_MODES;
+    const IRIS_RANGE: Option<std::ops::Range<u16>> = None;
     const SHUTTER_SPEEDS: &'static [ShutterSpeed] = PTZ_OPTICS_G2_SHUTTER_SPEEDS;
     const GAIN_RANGE: std::ops::Range<u8> = 0..8;
     const SUPPORTS_BACKLIGHT_COMP: bool = true;
@@ -919,7 +943,8 @@ impl Focus for PtzOptics30X {
 }
 
 impl Exposure for PtzOptics30X {
-    const IRIS_RANGE: std::ops::Range<u16> = 0x00..0x1D;
+    const EXPOSURE_MODES: &'static [ExposureMode] = PTZ_OPTICS_EXPOSURE_MODES;
+    const IRIS_RANGE: Option<std::ops::Range<u16>> = None;
     const SHUTTER_SPEEDS: &'static [ShutterSpeed] = PTZ_OPTICS_G2_SHUTTER_SPEEDS;
     const GAIN_RANGE: std::ops::Range<u8> = 0..8;
     const SUPPORTS_BACKLIGHT_COMP: bool = true;

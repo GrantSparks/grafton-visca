@@ -10,7 +10,6 @@
     feature = "mode-async",
     feature = "test-utils",
     not(feature = "runtime-tokio"),
-    not(feature = "runtime-async-std"),
     not(feature = "runtime-smol")
 ))]
 

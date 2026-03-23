@@ -7,7 +7,6 @@
 //!
 //! The library provides built-in executors for common runtimes:
 //! - tokio (with --features runtime-tokio)
-//! - async-std (with --features runtime-async-std)
 //! - smol (with --features runtime-smol)
 //!
 //! But you can use ANY runtime by implementing the Executor trait!
@@ -32,9 +31,6 @@ fn main() {
     #[cfg(feature = "runtime-tokio")]
     println!("✅ Tokio runtime support enabled");
 
-    #[cfg(feature = "runtime-async-std")]
-    println!("✅ async-std runtime support enabled");
-
     #[cfg(feature = "runtime-smol")]
     println!("✅ smol runtime support enabled");
 
@@ -58,10 +54,6 @@ fn main() {
             F: Future + Send + 'static,
             F::Output: Send + 'static,
         {
-            // Example: If using async-std, you would do:
-            // let handle = async_std::task::spawn(future);
-            // (Box::pin(async move { Ok(handle.await) }), ())
-
             // For this demo, we return a stub
             drop(future);
             (
@@ -75,9 +67,6 @@ fn main() {
         }
 
         fn block_on<F: Future>(&self, future: F) -> F::Output {
-            // Example: If using async-std, you would do:
-            // async_std::task::block_on(future)
-
             // For this demo, we panic
             drop(future);
             panic!("Demo executor - implement block_on() for your runtime")
@@ -85,9 +74,6 @@ fn main() {
 
         #[allow(clippy::manual_async_fn)]
         fn sleep(&self, duration: Duration) -> impl Future<Output = ()> + Send + '_ {
-            // Example: If using async-std, you would do:
-            // async move { async_std::task::sleep(duration).await }
-
             // For this demo, we return immediately
             async move {
                 println!("  Would sleep for {:?}", duration);
@@ -104,13 +90,6 @@ fn main() {
             F: Future<Output = T> + Send + 'a,
             T: Send + 'a,
         {
-            // Example: If using async-std, you would do:
-            // async move {
-            //     async_std::future::timeout(duration, future)
-            //         .await
-            //         .map_err(|_| Error::Timeout)
-            // }
-
             // For this demo, we return timeout error
             async move {
                 let _ = (duration, future);
@@ -127,13 +106,6 @@ fn main() {
         where
             T: Send + 'static,
         {
-            // Example: If using async-std, you would do:
-            // Box::pin(async move {
-            //     async_std::future::timeout(duration, future)
-            //         .await
-            //         .map_err(|_| Error::Timeout)
-            // })
-
             // For this demo, we return timeout error
             Box::pin(async move {
                 let _ = (duration, future);
@@ -158,16 +130,6 @@ fn main() {
             println!("  ✅ Created TokioExecutor after entering runtime");
             let _ = executor;
         }
-    }
-
-    #[cfg(feature = "runtime-async-std")]
-    {
-        use grafton_visca::AsyncStdExecutor;
-
-        println!("Using async-std executor:");
-        let executor = AsyncStdExecutor::new();
-        println!("  ✅ Created AsyncStdExecutor");
-        let _ = executor;
     }
 
     #[cfg(feature = "runtime-smol")]
@@ -228,7 +190,7 @@ fn main() {
 
     println!("\n📚 Key Benefits:");
     println!("✅ No forced runtime dependency");
-    println!("✅ Works with ANY async runtime (tokio, async-std, smol, embassy, etc.)");
+    println!("✅ Works with ANY async runtime (tokio, smol, embassy, etc.)");
     println!("✅ Can integrate with embedded async runtimes");
     println!("✅ Full control over async execution");
 

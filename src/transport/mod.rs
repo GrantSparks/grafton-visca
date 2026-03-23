@@ -108,27 +108,15 @@ pub enum SendSemantics {
 }
 
 pub mod address;
-#[cfg(any(
-    feature = "runtime-tokio",
-    feature = "runtime-async-std",
-    feature = "runtime-smol"
-))]
+#[cfg(any(feature = "runtime-tokio", feature = "runtime-smol"))]
 pub(crate) mod async_io;
 #[cfg(feature = "transport-serial-tokio")]
 pub(crate) mod async_serial;
-#[cfg(any(
-    feature = "runtime-tokio",
-    feature = "runtime-async-std",
-    feature = "runtime-smol"
-))]
+#[cfg(any(feature = "runtime-tokio", feature = "runtime-smol"))]
 pub(crate) mod async_tcp;
 #[cfg(feature = "mode-async")]
 pub mod async_transport;
-#[cfg(any(
-    feature = "runtime-tokio",
-    feature = "runtime-async-std",
-    feature = "runtime-smol"
-))]
+#[cfg(any(feature = "runtime-tokio", feature = "runtime-smol"))]
 pub(crate) mod async_udp;
 #[cfg(not(feature = "mode-async"))]
 pub(crate) mod blocking;
@@ -137,11 +125,7 @@ pub mod buffer;
 pub mod builder;
 pub mod envelope;
 pub mod retry;
-#[cfg(any(
-    feature = "runtime-tokio",
-    feature = "runtime-async-std",
-    feature = "runtime-smol"
-))]
+#[cfg(any(feature = "runtime-tokio", feature = "runtime-smol"))]
 #[macro_use]
 pub(crate) mod runtime_common;
 #[cfg(any(feature = "transport-serial", feature = "transport-serial-tokio"))]
@@ -150,14 +134,11 @@ pub mod serial;
 pub(crate) mod serial_blocking;
 #[cfg(all(feature = "mode-async", feature = "runtime-smol"))]
 pub(crate) mod smol;
-#[cfg(all(feature = "mode-async", feature = "runtime-async-std"))]
-pub(crate) use self::smol as async_std;
 #[cfg(all(
     any(unix, windows),
     any(
         not(feature = "mode-async"),
         feature = "runtime-tokio",
-        feature = "runtime-async-std",
         feature = "runtime-smol"
     )
 ))]

@@ -2,7 +2,7 @@
 //!
 //! This module provides a declarative macro that eliminates duplication across
 //! runtime-specific transport implementations. The macro generates identical
-//! connection methods and split logic for each runtime (tokio, async-std, smol)
+//! connection methods and split logic for each runtime (tokio, smol)
 //! while maintaining the existing public API and zero-cost abstractions.
 
 /// Generate runtime-specific TCP and UDP transport implementations.
@@ -12,7 +12,7 @@
 ///
 /// # Parameters
 ///
-/// - `runtime`: The runtime name (e.g., "tokio", "async-std", "smol")
+/// - `runtime`: The runtime name (e.g., "tokio", "smol")
 /// - `tcp_stream`: The runtime-specific TCP stream type
 /// - `udp_socket`: The runtime-specific UDP socket type
 /// - `tcp_connect`: The runtime-specific TCP connector function

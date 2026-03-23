@@ -15,7 +15,7 @@ use crate::{
 ///
 /// This transport uses native async functions without boxing and supports
 /// both IPv4 and IPv6 addresses. It works with any socket type implementing
-/// the AsyncDatagram trait (tokio, async-std, smol, etc.).
+/// the AsyncDatagram trait (tokio, smol, etc.).
 #[derive(Debug)]
 pub struct Udp<S: AsyncDatagram> {
     socket: S,

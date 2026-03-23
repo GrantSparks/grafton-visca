@@ -794,6 +794,12 @@ where
     }
 
     fn iris(&self) -> M::Fut<'_, Result<crate::types::IrisLevel, Error>> {
+        if P::IRIS_RANGE.is_none() {
+            return self.error(Error::FeatureNotSupported {
+                feature: "Iris control",
+            });
+        }
+
         use crate::command::inquiry_structs::IrisInquiry;
         self.query(IrisInquiry)
     }

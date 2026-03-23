@@ -13,7 +13,6 @@
     feature = "mode-async",
     feature = "test-utils",
     not(feature = "runtime-tokio"),
-    not(feature = "runtime-async-std"),
     not(feature = "runtime-smol")
 ))]
 
@@ -277,40 +276,5 @@ mod tokio_runtime_tests {
             .expect("Detection should succeed");
 
         assert_eq!(result, DetectionResult::SonyEncapsulated);
-    }
-}
-
-#[cfg(feature = "runtime-async-std")]
-mod async_std_runtime_tests {
-    use grafton_visca::AsyncStdExecutor;
-
-    use super::*;
-
-    #[test]
-    fn test_async_detect_with_real_async_std_executor() {
-        smol::block_on(async {
-            // Test with real async-std executor
-            let mut transport: ScriptedTransport<AsyncStdExecutor> =
-                ScriptedTransport::new(vec![Step::OnSend {
-                    matches: Some(vec![
-                        0x01, 0x10, 0x00, 0x05, 0x00, 0x00, 0x00, 0x00, 0x81, 0x09, 0x00, 0x02,
-                        0xFF,
-                    ]),
-                    responses: vec![vec![
-                        0x01, 0x11, 0x00, 0x0A, 0x00, 0x00, 0x00, 0x00, 0x90, 0x50, 0x00, 0x01,
-                        0x00, 0x01, 0x00, 0x00, 0x02, 0xFF,
-                    ]],
-                }]);
-
-            let executor = AsyncStdExecutor::new();
-            let detector = ProtocolDetector::new();
-
-            let result = detector
-                .detect_protocol(&mut transport, &executor)
-                .await
-                .expect("Detection should succeed");
-
-            assert_eq!(result, DetectionResult::SonyEncapsulated);
-        });
     }
 }

@@ -62,7 +62,6 @@ run_miri_test "Mode-async feature" "mode-async"
 
 echo -e "${BLUE}Testing runtime implementations${NC}"
 run_miri_test "Tokio runtime" "runtime-tokio"
-run_miri_test "Async-std runtime" "runtime-async-std"
 run_miri_test "Smol runtime" "runtime-smol"
 
 echo -e "${BLUE}Testing utility features${NC}"

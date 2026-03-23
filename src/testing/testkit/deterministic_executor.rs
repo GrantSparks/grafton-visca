@@ -14,7 +14,7 @@
 //! - Tests that don't rely on actual timeout behavior
 //!
 //! For tests that need real timeout behavior, use real runtime executors
-//! (TokioExecutor, AsyncStdExecutor, SmolExecutor) instead.
+//! (TokioExecutor, SmolExecutor) instead.
 
 use async_executor::Executor as AsyncExec;
 
@@ -1190,28 +1190,6 @@ mod tests {
             !clock.has_pending_deadlines(),
             "All sleep futures should have been cleaned up"
         );
-    }
-}
-
-#[cfg(all(feature = "mode-async", feature = "runtime-async-std"))]
-impl ExecutorExt for crate::executor::AsyncStdExecutor {
-    fn spawn_detached<F>(&self, fut: F)
-    where
-        F: Future<Output = ()> + Send + 'static,
-    {
-        drop(self.spawn(fut));
-    }
-
-    fn spawn_detached_ignore_result_with_logging<F, E>(&self, fut: F)
-    where
-        F: Future<Output = Result<(), E>> + Send + 'static,
-        E: std::fmt::Debug + Send + 'static,
-    {
-        ExecutorExt::spawn_detached(self, async move {
-            if let Err(e) = fut.await {
-                eprintln!("[async-std-runtime] background task returned error: {e:?}");
-            }
-        });
     }
 }
 

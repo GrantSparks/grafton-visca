@@ -17,11 +17,7 @@ use crate::{
 
 /// Configuration for TCP connection behavior.
 #[cfg_attr(
-    not(any(
-        feature = "runtime-tokio",
-        feature = "runtime-async-std",
-        feature = "runtime-smol"
-    )),
+    not(any(feature = "runtime-tokio", feature = "runtime-smol")),
     allow(dead_code)
 )]
 #[derive(Debug, Clone, Copy)]
@@ -68,11 +64,7 @@ impl From<TransportConfig> for TcpConnectionConfig {
 
 /// Configuration for UDP socket behavior.
 #[cfg_attr(
-    not(any(
-        feature = "runtime-tokio",
-        feature = "runtime-async-std",
-        feature = "runtime-smol"
-    )),
+    not(any(feature = "runtime-tokio", feature = "runtime-smol")),
     allow(dead_code)
 )]
 #[derive(Debug, Clone, Copy)]

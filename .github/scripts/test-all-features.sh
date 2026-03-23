@@ -46,9 +46,6 @@ run_test "mode-async feature (runtime-agnostic)" \
 run_test "runtime-tokio runtime" \
     "cargo test --no-default-features --features runtime-tokio --verbose"
 
-run_test "runtime-async-std runtime" \
-    "cargo test --no-default-features --features runtime-async-std --verbose"
-
 run_test "runtime-smol runtime" \
     "cargo test --no-default-features --features runtime-smol --verbose"
 
@@ -59,9 +56,6 @@ run_test "test-utils feature" \
 # Test runtime + test-utils combinations
 run_test "runtime-tokio + test-utils" \
     "cargo test --no-default-features --features runtime-tokio,test-utils --verbose"
-
-run_test "runtime-async-std + test-utils" \
-    "cargo test --no-default-features --features runtime-async-std,test-utils --verbose"
 
 run_test "runtime-smol + test-utils" \
     "cargo test --no-default-features --features runtime-smol,test-utils --verbose"
@@ -99,7 +93,6 @@ echo "✓ Default features"
 echo "✓ Blocking mode (no features)"
 echo "✓ Mode-async (runtime-agnostic)"
 echo "✓ Tokio runtime"
-echo "✓ Async-std runtime"
 echo "✓ Smol runtime"
 echo "✓ Test utilities"
 echo "✓ Runtime + test-utils combinations"

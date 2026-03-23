@@ -646,41 +646,6 @@ mod tests {
         assert_eq!(counter.load(Ordering::SeqCst), 3);
     }
 
-    #[cfg(feature = "runtime-async-std")]
-    #[test]
-    fn test_async_retry_with_async_std() {
-        use crate::executor::AsyncStdExecutor;
-
-        smol::block_on(async {
-            let config = RetryConfig {
-                max_retries: 2,
-                base_retry_delay: Duration::from_millis(10),
-                max_retry_duration: Duration::from_secs(1),
-                backoff_strategy: BackoffStrategy::Constant,
-            };
-
-            let executor = AsyncStdExecutor::new();
-            let counter = Arc::new(AtomicUsize::new(0));
-            let counter_clone = counter.clone();
-
-            let result = execute_with_retry_async(&executor, &config, || {
-                let counter = counter_clone.clone();
-                async move {
-                    let count = counter.fetch_add(1, Ordering::SeqCst);
-                    if count < 1 {
-                        Err(Error::CameraBusy)
-                    } else {
-                        Ok(100)
-                    }
-                }
-            })
-            .await;
-
-            assert_eq!(result.expect("AsyncStd executor test failed"), 100);
-            assert_eq!(counter.load(Ordering::SeqCst), 2);
-        });
-    }
-
     #[cfg(feature = "runtime-smol")]
     #[test]
     fn test_async_retry_with_smol() {
