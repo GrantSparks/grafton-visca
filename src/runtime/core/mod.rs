@@ -172,9 +172,9 @@ impl CommandEntry {
         self.command.category
     }
 
-    /// Get sent_at time from phase (for backwards compatibility).
+    /// Get the send time from the command phase.
     ///
-    /// Returns `Some(Instant)` if the command has been sent (any phase except Queued).
+    /// Returns `Some(Instant)` if the command has been sent.
     #[inline]
     pub fn sent_at(&self) -> Option<Instant> {
         self.phase.sent_at()
@@ -519,12 +519,6 @@ impl Ord for PendingCommand {
 /// Actions that the scheduler core can request.
 #[derive(Debug)]
 pub enum SchedulerAction {
-    /// Send a command.
-    /// Note: This variant is currently unused but kept for potential future use.
-    SendCommand {
-        /// Command ID (type-safe).
-        id: CommandId,
-    },
     /// Command completed successfully.
     CommandComplete {
         /// Command ID (type-safe).
@@ -1118,8 +1112,8 @@ impl SchedulerCore {
     /// - Inquiries bypass socket allocation but respect max_inquiries_inflight
     /// - Commands require socket capacity (2-socket limit)
     ///
-    /// When priorities are equal, inquiries are preferred for backwards compatibility
-    /// (they're typically faster and don't hold sockets).
+    /// When priorities are equal, inquiries are preferred because they are
+    /// typically quick status reads and do not consume command sockets.
     ///
     /// # Priority-Aware Selection
     ///
@@ -1154,8 +1148,8 @@ impl SchedulerCore {
                     .map(|c| c.priority)
                     .unwrap_or(Priority::Low);
 
-                // If command has strictly higher priority, prefer it
-                // Otherwise (equal or lower), prefer inquiry for backwards compatibility
+                // If command has strictly higher priority, prefer it.
+                // Otherwise, prefer the inquiry because it does not consume a command socket.
                 if command_priority > inquiry_priority {
                     self.command_queue.pop()
                 } else {

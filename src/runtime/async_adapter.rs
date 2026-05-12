@@ -4,7 +4,7 @@
 //! state management to the core while handling async I/O and futures.
 
 use flume::{Sender, TrySendError};
-use tracing::{debug, trace, warn};
+use tracing::{debug, trace};
 
 use std::{collections::HashMap, collections::VecDeque, sync::Arc, time::Instant};
 
@@ -616,9 +616,6 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
     /// (like send-failure rollback paths) while maintaining consistent behavior.
     fn apply_action(&mut self, action: SchedulerAction) {
         match action {
-            SchedulerAction::SendCommand { .. } => {
-                warn!("Unexpected SendCommand action from apply_action");
-            }
             SchedulerAction::CommandComplete {
                 id,
                 category,
@@ -696,8 +693,8 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
 
     /// Handle a scheduler action asynchronously.
     ///
-    /// This is a thin async wrapper around `apply_action` for compatibility
-    /// with the async event processing loop.
+    /// This is a thin async wrapper around `apply_action` for the async event
+    /// processing loop.
     async fn handle_action(&mut self, action: SchedulerAction) -> Result<()> {
         self.apply_action(action);
         Ok(())

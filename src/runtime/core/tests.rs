@@ -179,7 +179,7 @@ fn test_retry_budget_for_category() {
 
 #[test]
 fn test_ack_backoff_parity() {
-    // Test that the new ACK backoff calculation matches the legacy behavior
+    // Test the ACK timeout backoff sequence used by the scheduler.
     let retry_config = RetryConfig {
         max_retries: 3,
         base_retry_delay: Duration::from_millis(100),
@@ -187,10 +187,8 @@ fn test_ack_backoff_parity() {
         backoff_strategy: BackoffStrategy::Exponential,
     };
 
-    // Legacy calculation: base_delay * 2^attempts.min(5)
-    // New calculation: retry_config.calculate_delay((attempts + 1).min(6), None)
-
-    // Test cases matching the legacy behavior
+    // Calculation: retry_config.calculate_delay((attempts + 1).min(6), None)
+    // which caps the exponential backoff at 2^5.
     let test_cases = vec![
         (0, 100),  // 2^0 = 1, 100ms * 1 = 100ms
         (1, 200),  // 2^1 = 2, 100ms * 2 = 200ms
@@ -2171,9 +2169,9 @@ fn test_high_priority_command_not_starved_by_normal_inquiries() {
 }
 
 #[test]
-fn test_equal_priority_prefers_inquiry_for_backwards_compat() {
-    // When command and inquiry have equal priority, prefer inquiry for backwards
-    // compatibility (inquiries don't hold sockets and are typically faster).
+fn test_equal_priority_prefers_inquiry_for_socket_efficiency() {
+    // When command and inquiry have equal priority, prefer the inquiry because
+    // it does not hold a command socket and is typically a quick status read.
     let mut core = SchedulerCore::new(TimeoutConfig::default());
     let now = Instant::now();
 
