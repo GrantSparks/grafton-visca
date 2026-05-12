@@ -95,7 +95,6 @@ fn check_command_structure(buffer: &[u8], len: usize) -> Result<(), Error> {
 ///
 /// # Example Implementation
 /// ```ignore
-/// // Internal trait - not part of public API
 /// # use grafton_visca::timeout::CommandCategory;
 /// # use grafton_visca::camera_id::CameraId;
 /// # use grafton_visca::Error;

@@ -1,0 +1,16 @@
+error[E0603]: function `lift_inquiry_for` is private
+ --> tests/api_contract/fail/protocol_lift_helpers_are_internal.rs:3:43
+  |
+3 |         grafton_visca::command::response::lift_inquiry_for::<grafton_visca::profiles::GenericVisca>;
+  |                                           ^^^^^^^^^^^^^^^^ private function
+  |
+note: the function `lift_inquiry_for` is defined here
+ --> src/command/response/mod.rs
+  |
+  | pub(crate) use self::lift::lift_inquiry_for;
+  |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+help: import `lift_inquiry_for` directly
+  |
+3 -         grafton_visca::command::response::lift_inquiry_for::<grafton_visca::profiles::GenericVisca>;
+3 +         grafton_visca::command::response::lift::lift_inquiry_for;
+  |

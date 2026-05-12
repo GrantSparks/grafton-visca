@@ -750,15 +750,14 @@ pub mod camera_id;
 /// Capability traits for camera feature composition
 pub mod capabilities;
 
-/// Command definitions for VISCA protocol (advanced use only)
+/// Low-level VISCA command definitions and extension traits.
 ///
-/// **⚠️ Advanced API**: This module contains low-level protocol implementation details.
 /// Most users should use the high-level camera accessor API instead:
 /// - `camera.power().on()` instead of manual command construction
 /// - `camera.zoom().position()` instead of response matching
 ///
-/// This module remains public for extensibility but its direct use is discouraged.
-/// Consider it unstable and subject to breaking changes.
+/// This module is the stable low-level extension surface for custom commands,
+/// typed response parsing, and integrations that need raw VISCA command control.
 pub mod command;
 
 /// Constants for VISCA protocol including default ports
@@ -774,11 +773,7 @@ pub mod mode;
 
 pub mod prelude;
 
-/// Protocol encoding and decoding utilities (internal use)
-///
-/// **⚠️ Internal API**: This module contains protocol-level utilities.
-/// Users should not need to interact with this module directly.
-pub mod protocol;
+pub(crate) mod protocol;
 
 /// VISCA runtime with flume-based scheduling
 pub mod runtime;

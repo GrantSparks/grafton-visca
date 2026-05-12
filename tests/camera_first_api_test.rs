@@ -70,15 +70,8 @@ fn test_camera_builder_udp() {
 }
 
 #[test]
+#[cfg(not(feature = "mode-async"))]
 fn test_no_direct_transport_access() {
-    // This test verifies that direct transport types are not accessible.
-    // If this test compiles, it proves the types are not in the public API.
-
-    // The following would fail to compile if uncommented:
-    // let _tcp = grafton_visca::BlockingTcp::connect("addr");  // ERROR: BlockingTcp not found
-    // let _udp = grafton_visca::BlockingUdp::connect("addr");  // ERROR: BlockingUdp not found
-    // use grafton_visca::transport::blocking;  // ERROR: module is private
-
-    // This absence of direct transport access enforces camera-first architecture
-    // The test passing means the code compiled, proving the types are private
+    let cases = trybuild::TestCases::new();
+    cases.compile_fail("tests/camera_first_contract/fail/*.rs");
 }

@@ -140,101 +140,6 @@ pub fn decode_basic(frame: &[u8]) -> Option<BasicResponse<'_>> {
     }
 }
 
-/// Zero-copy frame iterator for VISCA frame splitting.
-///
-/// This iterator finds complete frames (terminated by 0xFF) in a buffer
-/// without allocating memory for each frame.
-#[derive(Debug)]
-pub struct FrameIter<'a> {
-    buf: &'a [u8],
-    cursor: usize,
-}
-
-impl<'a> FrameIter<'a> {
-    /// Create a new frame iterator over a buffer.
-    pub fn new(buf: &'a [u8]) -> Self {
-        Self { buf, cursor: 0 }
-    }
-
-    /// Get the remaining unparsed buffer.
-    ///
-    /// This returns any incomplete frame data that hasn't been consumed yet.
-    pub fn remainder(&self) -> &'a [u8] {
-        &self.buf[self.cursor..]
-    }
-}
-
-impl<'a> Iterator for FrameIter<'a> {
-    type Item = &'a [u8];
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.cursor >= self.buf.len() {
-            return None;
-        }
-
-        // Find the next terminator
-        if let Some(pos) = self.buf[self.cursor..]
-            .iter()
-            .position(|&b| b == VISCA_TERMINATOR)
-        {
-            let start = self.cursor;
-            let end = self.cursor + pos + 1; // Include the terminator
-            self.cursor = end;
-            Some(&self.buf[start..end])
-        } else {
-            None
-        }
-    }
-}
-
-/// Parse multiple frames from a buffer (compatibility function).
-///
-/// This function provides backward compatibility with the existing API
-/// while using the new zero-copy FrameIter internally.
-///
-/// # Arguments
-/// * `buffer` - Buffer potentially containing multiple VISCA frames
-///
-/// # Returns
-/// * Tuple of (complete_frames, remaining_bytes)
-pub fn parse_frames(buffer: &[u8]) -> (Vec<Vec<u8>>, Vec<u8>) {
-    let iter = FrameIter::new(buffer);
-    let mut frames = Vec::new();
-
-    for frame in iter {
-        frames.push(frame.to_vec());
-    }
-
-    let remainder = if !frames.is_empty() {
-        let last_end = frames.iter().map(|f| f.len()).sum::<usize>();
-        buffer[last_end..].to_vec()
-    } else {
-        buffer.to_vec()
-    };
-
-    (frames, remainder)
-}
-
-/// Find the next complete frame in a buffer (compatibility function).
-///
-/// This function provides backward compatibility with the existing API.
-///
-/// # Arguments
-/// * `buffer` - Buffer to search for a complete frame
-///
-/// # Returns
-/// * `Some((frame, remaining))` if a complete frame is found
-/// * `None` if no complete frame is found
-pub fn find_next_frame(buffer: &[u8]) -> Option<(Vec<u8>, &[u8])> {
-    if let Some(pos) = buffer.iter().position(|&b| b == VISCA_TERMINATOR) {
-        let frame = buffer[..=pos].to_vec();
-        let remaining = &buffer[pos + 1..];
-        Some((frame, remaining))
-    } else {
-        None
-    }
-}
-
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
@@ -332,38 +237,6 @@ mod tests {
     }
 
     #[test]
-    fn test_frame_iter() {
-        let buffer = vec![
-            0x90,
-            0x41,
-            VISCA_TERMINATOR,
-            0x90,
-            0x51,
-            VISCA_TERMINATOR,
-            0x90,
-            0x50,
-            0x02,
-            VISCA_TERMINATOR,
-            0x90,
-            0x60, // Incomplete frame
-        ];
-
-        let mut iter = FrameIter::new(&buffer);
-
-        let frame1 = iter.next().expect("Expected first frame");
-        assert_eq!(frame1, &[0x90, 0x41, VISCA_TERMINATOR]);
-
-        let frame2 = iter.next().expect("Expected second frame");
-        assert_eq!(frame2, &[0x90, 0x51, VISCA_TERMINATOR]);
-
-        let frame3 = iter.next().expect("Expected third frame");
-        assert_eq!(frame3, &[0x90, 0x50, 0x02, VISCA_TERMINATOR]);
-
-        assert!(iter.next().is_none());
-        assert_eq!(iter.remainder(), &[0x90, 0x60]);
-    }
-
-    #[test]
     fn test_lift_inquiry() {
         // Test ACK lifting
         let basic = BasicResponse {
@@ -418,25 +291,5 @@ mod tests {
             Response::Inquiry(InquiryData::Power { on }) => assert!(on),
             _ => panic!("Expected Power inquiry response"),
         }
-    }
-
-    #[test]
-    fn test_parse_frames_compat() {
-        let buffer = vec![
-            0x90,
-            0x41,
-            VISCA_TERMINATOR,
-            0x90,
-            0x51,
-            VISCA_TERMINATOR,
-            0x90,
-            0x50,
-        ];
-        let (frames, remaining) = parse_frames(&buffer);
-
-        assert_eq!(frames.len(), 2);
-        assert_eq!(frames[0], vec![0x90, 0x41, VISCA_TERMINATOR]);
-        assert_eq!(frames[1], vec![0x90, 0x51, VISCA_TERMINATOR]);
-        assert_eq!(remaining, vec![0x90, 0x50]);
     }
 }

@@ -1,0 +1,13 @@
+error[E0603]: module `protocol` is private
+ --> tests/api_contract/fail/protocol_module_is_internal.rs:2:28
+  |
+2 |     let _ = grafton_visca::protocol::response::decode_basic(&[]);
+  |                            ^^^^^^^^            ------------ function `decode_basic` is not publicly re-exported
+  |                            |
+  |                            private module
+  |
+note: the module `protocol` is defined here
+ --> src/lib.rs
+  |
+  | pub(crate) mod protocol;
+  | ^^^^^^^^^^^^^^^^^^^^^^^

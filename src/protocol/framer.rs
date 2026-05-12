@@ -32,6 +32,7 @@ pub struct ProtocolFramer {
 
 impl ProtocolFramer {
     /// Create a new protocol framer with the specified initial capacity.
+    #[cfg(test)]
     pub fn new(capacity: usize) -> Self {
         Self {
             buf: BytesMut::with_capacity(capacity),
@@ -52,6 +53,7 @@ impl ProtocolFramer {
     }
 
     /// Create a new protocol framer with explicit size limits (mainly for testing).
+    #[cfg(test)]
     pub fn new_with_limits(capacity: usize, max_frame_size: usize, max_buffer_size: usize) -> Self {
         Self {
             buf: BytesMut::with_capacity(capacity),
@@ -62,6 +64,7 @@ impl ProtocolFramer {
 
     /// Push a chunk of bytes into the framer's buffer.
     /// Returns an error if the buffer would exceed max_buffer_size.
+    #[cfg(test)]
     pub fn push(&mut self, chunk: Bytes) -> Result<(), Error> {
         let new_len = self.buf.len() + chunk.len();
         if new_len > self.max_buffer_size {
@@ -162,6 +165,7 @@ impl ProtocolFramer {
 
     /// Try to extract any available frame when the stream has ended.
     /// This handles edge cases where EOF is encountered with partial data.
+    #[cfg(all(test, not(feature = "mode-async")))]
     pub fn drain_on_eof(&mut self) -> Option<Result<Bytes, Error>> {
         if self.buf.is_empty() {
             return None;
@@ -185,11 +189,13 @@ impl ProtocolFramer {
     }
 
     /// Returns the number of bytes currently buffered but not yet parsed into complete frames.
+    #[cfg(test)]
     pub fn buffered_len(&self) -> usize {
         self.buf.len()
     }
 
     /// Returns true if the buffer is empty.
+    #[cfg(test)]
     pub fn is_empty(&self) -> bool {
         self.buf.is_empty()
     }
@@ -200,6 +206,7 @@ impl ProtocolFramer {
     }
 
     /// Returns the maximum buffer size limit.
+    #[cfg(test)]
     pub fn max_buffer_size(&self) -> usize {
         self.max_buffer_size
     }

@@ -8,8 +8,11 @@ mod lift;
 pub mod payload;
 pub mod types;
 
+#[cfg(test)]
+pub(crate) use self::lift::lift_inquiry;
+pub(crate) use self::lift::lift_inquiry_for;
 pub use self::{
-    lift::{lift_inquiry, lift_inquiry_for, parse_inquiry_payload},
+    lift::parse_inquiry_payload,
     payload::{BoolConvention, Payload},
     types::Response,
 };
