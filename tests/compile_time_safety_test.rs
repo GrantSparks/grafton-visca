@@ -5,11 +5,11 @@
 
 #[cfg(feature = "test-utils")]
 use grafton_visca::{
+    camera::controls::{power::PowerControl, zoom::ZoomControl},
     capabilities::*,
-    mode::BlockingFutureExt,
-    prelude::blocking::{GenericViscaCam, PtzOpticsG2Cam, SonyFR7Cam},
+    prelude::blocking::{GenericVisca, PtzOpticsG2, PtzOpticsG2Cam, SonyFR7, SonyFR7Cam},
     testing::testkit::{helpers, ScriptedBlockingTransport},
-    Error, FocusControl, PanTiltControl, PowerControl, PresetNumber, PresetsControl, ZoomControl,
+    Error,
 };
 
 #[cfg(feature = "test-utils")]
@@ -23,16 +23,13 @@ fn test_ptzoptics_g2_capabilities() -> Result<(), Error> {
         helpers::auto_respond_step(),
     ]);
 
-    let camera = PtzOpticsG2Cam::new_blocking(transport)?;
+    let camera = PtzOpticsG2Cam::new(transport)?;
 
-    assert!(camera.power_on().block().is_ok());
-    assert!(camera.pan_tilt_home().block().is_ok());
-    assert!(camera.zoom_stop().block().is_ok());
-    assert!(camera.focus_auto().block().is_ok());
-    assert!(camera
-        .preset_recall(PresetNumber::new(1).unwrap())
-        .block()
-        .is_ok());
+    assert!(camera.power().on().is_ok());
+    assert!(camera.pan_tilt().home().is_ok());
+    assert!(camera.zoom().stop().is_ok());
+    assert!(camera.focus().auto().is_ok());
+    assert!(camera.presets().recall(1).is_ok());
     Ok(())
 }
 
@@ -45,11 +42,11 @@ fn test_sony_fr7_has_nd_filter() -> Result<(), Error> {
         helpers::sony_auto_respond_step(),
     ]);
 
-    let camera = SonyFR7Cam::new_blocking(transport)?;
+    let camera = SonyFR7Cam::new(transport)?;
 
-    assert!(camera.power_on().block().is_ok());
-    assert!(camera.pan_tilt_home().block().is_ok());
-    assert!(camera.zoom_stop().block().is_ok());
+    assert!(camera.power().on().is_ok());
+    assert!(camera.pan_tilt().home().is_ok());
+    assert!(camera.zoom().stop().is_ok());
     Ok(())
 }
 
@@ -65,12 +62,10 @@ fn test_compile_time_capability_checking() {
     }
 
     let fr7_transport = ScriptedBlockingTransport::new(vec![helpers::auto_respond_step()]);
-    let fr7_camera = SonyFR7Cam::new_blocking(fr7_transport).unwrap();
-    let fr7 = grafton_visca::BlockingCamera::from(fr7_camera);
+    let fr7 = SonyFR7Cam::new(fr7_transport).unwrap();
 
     let _g2_transport = ScriptedBlockingTransport::new(vec![helpers::auto_respond_step()]);
-    let _g2_camera = PtzOpticsG2Cam::new_blocking(_g2_transport).unwrap();
-    let _g2 = grafton_visca::BlockingCamera::from(_g2_camera);
+    let _g2 = PtzOpticsG2Cam::new(_g2_transport).unwrap();
 
     assert!(adjust_nd_filter(&fr7).is_ok());
 }
@@ -106,23 +101,40 @@ fn test_generic_functions_with_trait_bounds() {
         helpers::auto_respond_step(),
         helpers::auto_respond_step(),
     ]);
-    let mut g2_camera = PtzOpticsG2Cam::new_blocking(g2_transport).unwrap();
+    let mut g2_camera = grafton_visca::camera::Camera::<
+        grafton_visca::mode::Blocking,
+        PtzOpticsG2,
+        _,
+        (),
+    >::new_blocking(g2_transport)
+    .unwrap();
 
     let g2_transport_wrapper = ScriptedBlockingTransport::new(vec![helpers::auto_respond_step()]);
-    let g2_camera_wrapper = PtzOpticsG2Cam::new_blocking(g2_transport_wrapper).unwrap();
-    let g2_wrapper = grafton_visca::BlockingCamera::from(g2_camera_wrapper);
+    let g2_wrapper = PtzOpticsG2Cam::new(g2_transport_wrapper).unwrap();
 
     let fr7_transport = ScriptedBlockingTransport::new(vec![
         helpers::sony_auto_respond_step(),
         helpers::sony_auto_respond_step(),
     ]);
-    let mut fr7_camera = SonyFR7Cam::new_blocking(fr7_transport).unwrap();
+    let mut fr7_camera = grafton_visca::camera::Camera::<
+        grafton_visca::mode::Blocking,
+        SonyFR7,
+        _,
+        (),
+    >::new_blocking(fr7_transport)
+    .unwrap();
 
     let generic_transport = ScriptedBlockingTransport::new(vec![
         helpers::auto_respond_step(),
         helpers::auto_respond_step(),
     ]);
-    let mut generic_camera = GenericViscaCam::new_blocking(generic_transport).unwrap();
+    let mut generic_camera = grafton_visca::camera::Camera::<
+        grafton_visca::mode::Blocking,
+        GenericVisca,
+        _,
+        (),
+    >::new_blocking(generic_transport)
+    .unwrap();
 
     assert!(basic_control(&mut g2_camera).is_ok());
 

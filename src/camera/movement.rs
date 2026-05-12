@@ -442,7 +442,7 @@ impl PanTiltPosition {
 
 /// Check if two positions are equal within tolerance.
 #[inline]
-pub fn positions_equal_within_tolerance(
+fn positions_equal_within_tolerance(
     pos1: PanTiltPosition,
     pos2: PanTiltPosition,
     tolerance: i16,
@@ -450,20 +450,9 @@ pub fn positions_equal_within_tolerance(
     (pos1.pan - pos2.pan).abs() <= tolerance && (pos1.tilt - pos2.tilt).abs() <= tolerance
 }
 
-/// Check if two positions are equal within separate pan/tilt tolerances.
-#[inline]
-pub fn positions_equal_within_tolerance_separate(
-    pos1: PanTiltPosition,
-    pos2: PanTiltPosition,
-    pan_tolerance: i16,
-    tilt_tolerance: i16,
-) -> bool {
-    (pos1.pan - pos2.pan).abs() <= pan_tolerance && (pos1.tilt - pos2.tilt).abs() <= tilt_tolerance
-}
-
 /// Check if two zoom values are equal within tolerance.
 #[inline]
-pub fn zoom_equal_within_tolerance(z1: u16, z2: u16, tolerance: u16) -> bool {
+fn zoom_equal_within_tolerance(z1: u16, z2: u16, tolerance: u16) -> bool {
     (z1 as i32 - z2 as i32).abs() <= tolerance as i32
 }
 

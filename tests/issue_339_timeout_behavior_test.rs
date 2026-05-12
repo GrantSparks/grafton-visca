@@ -12,9 +12,9 @@ mod timeout_behavior_tests {
     use std::sync::Arc;
 
     use grafton_visca::{
-        camera::CameraBuilder,
+        camera::{controls::power::PowerControl, CameraBuilder},
         testing::testkit::{ScriptedTransport, Step},
-        Error, PowerControl, TokioExecutor,
+        Error, TokioExecutor,
     };
 
     /// Test that Error::Timeout injected by transport does not cause issues
@@ -222,11 +222,11 @@ mod deterministic_tests {
     use std::time::Duration;
 
     use grafton_visca::{
-        camera::CameraBuilder,
+        camera::{controls::power::PowerControl, CameraBuilder},
         testing::testkit::{
             deterministic_executor::DeterministicExecutor, ScriptedTransport, Step,
         },
-        Error, Executor, PowerControl,
+        Error, Executor,
     };
 
     /// Test with deterministic executor for precise timeout testing

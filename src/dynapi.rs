@@ -22,7 +22,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! grafton-visca = { version = "0.12", features = ["dyn-api", "runtime-tokio"] }
+//! grafton-visca = { version = "1", features = ["dyn-api", "runtime-tokio"] }
 //! ```
 //!
 //! Then convert a concrete camera to use the dynamic API:
@@ -483,7 +483,7 @@ pub trait DynCameraControl: Send + Sync {
 ///
 /// This trait provides unified motion control operations, allowing you to stop
 /// all camera motion with a single method call. It mirrors the static
-/// [`MotionControl`](crate::MotionControl) trait but with object-safe signatures.
+/// [`MotionControl`](crate::camera::controls::motion::MotionControl) trait but with object-safe signatures.
 ///
 /// # Example
 ///
@@ -767,9 +767,10 @@ pub trait DynPresetsControl: Send + Sync {
 
 /// Wrapper type that implements the dyn traits for a concrete camera.
 ///
-/// This is an internal implementation detail that bridges the static and dynamic APIs.
-/// It wraps a camera in an `Arc` to allow creating type-erased `InFlightDyn` handles
-/// that can reference the camera for cancellation and completion waiting.
+/// Adapter that implements the dyn traits for a concrete camera.
+///
+/// It wraps a camera in an `Arc` so type-erased [`InFlightDyn`] handles can
+/// reference the camera for cancellation and completion waiting.
 #[cfg(feature = "dyn-api")]
 pub struct DynCamera<P, Tr, Exec>
 where

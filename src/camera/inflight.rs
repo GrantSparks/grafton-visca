@@ -83,7 +83,7 @@ pub struct CommandId(NonZeroU32);
 impl CommandId {
     /// Creates a new `CommandId` from a raw `u32`, returning `None` if the value is zero.
     ///
-    /// This is only available within the crate for internal use during ID generation.
+    /// This is only available within the crate during ID generation.
     /// Used by both async runtime (RuntimeHandle) and blocking runtime (BlockingRunner).
     #[inline]
     pub(crate) fn from_raw(value: u32) -> Option<Self> {

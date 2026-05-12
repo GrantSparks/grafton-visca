@@ -48,7 +48,7 @@ fn main() -> grafton_visca::Result<()> {
     // This example demonstrates a representative selection of inquiries.
 
     println!("\n--- Power ---");
-    match camera.power_state() {
+    match camera.power().state() {
         Ok(is_on) => {
             let state = if is_on { "ON" } else { "OFF" };
             println!("Power: {state}");
@@ -57,7 +57,7 @@ fn main() -> grafton_visca::Result<()> {
     }
 
     println!("\n--- Position ---");
-    match camera.pan_tilt_position() {
+    match camera.pan_tilt().position() {
         Ok(pos) => {
             println!("Pan: {:?}", pos.pan);
             println!("Tilt: {:?}", pos.tilt);
@@ -73,7 +73,7 @@ fn main() -> grafton_visca::Result<()> {
         Err(e) => println!("Pan/Tilt: Failed - {e}"),
     }
 
-    match camera.zoom_position() {
+    match camera.zoom().position() {
         Ok(zoom) => {
             println!("Zoom: {:?}", zoom);
 
@@ -94,24 +94,24 @@ fn main() -> grafton_visca::Result<()> {
     }
 
     println!("\n--- Focus ---");
-    match camera.focus_mode() {
+    match camera.focus().mode() {
         Ok(mode) => println!("Focus Mode: {mode:?}"),
         Err(e) => println!("Focus Mode: Failed - {e}"),
     }
 
-    match camera.focus_position() {
+    match camera.focus().position() {
         Ok(focus) => println!("Focus Position: {:?}", focus),
         Err(e) => println!("Focus Position: Failed - {e}"),
     }
 
     println!("\n--- Exposure ---");
-    match camera.exposure_mode() {
+    match camera.exposure().mode() {
         Ok(mode) => println!("Exposure Mode: {mode:?}"),
         Err(e) => println!("Exposure Mode: Failed - {e}"),
     }
 
     println!("\n--- White Balance ---");
-    match camera.white_balance_mode() {
+    match camera.white_balance().mode() {
         Ok(mode) => println!("WB Mode: {mode:?}"),
         Err(e) => println!("WB Mode: Failed - {e}"),
     }

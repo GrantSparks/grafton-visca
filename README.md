@@ -9,13 +9,11 @@ A pure Rust library for controlling PTZ cameras via the VISCA protocol. Supports
 
 ---
 
-## Pre-Release Notice
-
-> **This crate is in pre-release (< 1.0.0).** Breaking changes may occur until version 1.0.0.
+## Support Status
 
 **Tested:** PTZOptics cameras G2 and G3 series over TCP and UDP.
 
-**Experimental:** Other VISCA cameras, Sony encapsulation profiles, serial transport
+**Best effort:** Other VISCA cameras, Sony encapsulation profiles, serial transport
 
 We can only support what we can test. If you have access to different hardware, please [report issues](https://github.com/GrantSparks/grafton-visca/issues) or [submit pull requests](https://github.com/GrantSparks/grafton-visca/pulls).
 
@@ -23,7 +21,7 @@ We can only support what we can test. If you have access to different hardware, 
 
 ## Features
 
-- **Unified blocking/async API** — Single `Camera` type works in both modes; async futures are `Send`-safe
+- **Camera-first blocking/async API** — Shared noun accessors across blocking and async; async futures are `Send`-safe
 - **Multi-runtime support** — Pluggable adapters for Tokio and smol
 - **Type-safe profiles** — Compile-time protocol selection (raw VISCA vs Sony encapsulation) with capability-based APIs
 - **Flexible transports** — TCP, UDP, and serial (RS-232/422) with configurable timeouts, retries, and TCP keepalive
@@ -42,12 +40,12 @@ use grafton_visca::camera::Connect;
 use grafton_visca::profiles::PtzOpticsG2;
 
 fn main() -> Result<(), grafton_visca::Error> {
-    let mut cam = Connect::open_tcp_blocking::<PtzOpticsG2>("192.168.0.110")?;
+    let cam = Connect::open_tcp_blocking::<PtzOpticsG2>("192.168.0.110")?;
 
-    cam.power_on()?;
-    cam.pan_tilt_home()?;
+    cam.power().on()?;
+    cam.pan_tilt().home()?;
 
-    let pos = cam.pan_tilt_position()?;
+    let pos = cam.pan_tilt().position()?;
     let (pan, tilt) = pos.as_degrees();
     println!("Position: {:.1}°, {:.1}°", pan.0, tilt.0);
 
@@ -70,7 +68,7 @@ async fn main() -> Result<(), grafton_visca::Error> {
     cam.power().on().await?;
     cam.pan_tilt().home().await?;
 
-    let pos = cam.inquiry().pan_tilt_position().await?;
+    let pos = cam.pan_tilt().position().await?;
     let (pan, tilt) = pos.as_degrees();
     println!("Position: {:.1}°, {:.1}°", pan.0, tilt.0);
 
@@ -86,27 +84,27 @@ For smol, enable `runtime-smol` and use `SmolRuntime`.
 
 ```toml
 [dependencies]
-grafton-visca = "0.12"
+grafton-visca = "1"
 ```
 
 ### Common configurations
 
 ```toml
 # Runtime-agnostic async (bring your own executor)
-grafton-visca = { version = "0.12", features = ["mode-async"] }
+grafton-visca = { version = "1", features = ["mode-async"] }
 
 # Async with Tokio
-grafton-visca = { version = "0.12", features = ["runtime-tokio"] }
+grafton-visca = { version = "1", features = ["runtime-tokio"] }
 tokio = { version = "1", features = ["full"] }
 
 # With serialization
-grafton-visca = { version = "0.12", features = ["serde"] }
+grafton-visca = { version = "1", features = ["serde"] }
 
 # Serial transport (blocking)
-grafton-visca = { version = "0.12", features = ["transport-serial"] }
+grafton-visca = { version = "1", features = ["transport-serial"] }
 
 # Serial transport (Tokio)
-grafton-visca = { version = "0.12", features = ["runtime-tokio", "transport-serial-tokio"] }
+grafton-visca = { version = "1", features = ["runtime-tokio", "transport-serial-tokio"] }
 ```
 
 ### Configuring transport behavior
@@ -118,6 +116,7 @@ use grafton_visca::transport::TransportConfig;
 use std::time::Duration;
 
 let config = CameraConfig::<PtzOpticsG2>::new()
+    .tcp()
     .address("192.168.0.110")
     .transport_config(TransportConfig {
         tcp_keepalive: Some(grafton_visca::transport::TcpKeepaliveConfig::new(Duration::from_secs(30))),

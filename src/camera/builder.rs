@@ -355,9 +355,9 @@ where
     /// This method attaches the provided transport to create a camera instance.
     pub fn open(
         self,
-    ) -> Result<crate::BlockingCamera<P, crate::transport::BlockingTransportHandle>, Error> {
+    ) -> Result<crate::BlockingClient<P, crate::transport::BlockingTransportHandle>, Error> {
         // Create camera using the profile's envelope type
-        crate::BlockingCamera::new_blocking(self.transport)
+        crate::BlockingClient::new(self.transport)
     }
 }
 
@@ -396,7 +396,7 @@ where
     /// network operations occur at this point.
     pub fn open(
         self,
-    ) -> Result<crate::BlockingCamera<P, crate::transport::BlockingTransportHandle>, Error> {
+    ) -> Result<crate::BlockingClient<P, crate::transport::BlockingTransportHandle>, Error> {
         // Parse the address to check if it has a port
         let addr_with_port =
             if let Ok(parsed) = crate::transport::address::HostPort::parse(&self.address) {
@@ -426,8 +426,7 @@ where
             }
         };
 
-        // Create camera using the profile's envelope type
-        crate::BlockingCamera::new_blocking(transport)
+        crate::BlockingClient::new(transport)
     }
 }
 
@@ -494,10 +493,7 @@ impl CameraBuilder<()> {
     ///
     /// Uses the builder's timeout configuration and the transport's retry configuration.
     #[cfg(not(feature = "mode-async"))]
-    pub fn build_blocking<P, T>(
-        self,
-        transport: T,
-    ) -> Result<crate::camera::Camera<crate::mode::Blocking, P, T, ()>, Error>
+    pub fn build_blocking<P, T>(self, transport: T) -> Result<crate::BlockingClient<P, T>, Error>
     where
         P: Profile + Default,
         T: BlockingTransport + crate::transport::HasTransportConfig + Send + 'static,
@@ -513,7 +509,7 @@ impl CameraBuilder<()> {
         )?;
         camera.set_camera_id(self.camera_id);
 
-        Ok(camera)
+        Ok(crate::BlockingClient::from_camera(camera))
     }
 }
 

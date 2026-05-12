@@ -15,12 +15,15 @@
 use std::time::Duration;
 
 use grafton_visca::{
-    camera::profiles::PtzOpticsG2,
+    camera::{
+        controls::{inquiry::InquiryControl, zoom::ZoomControl},
+        profiles::PtzOpticsG2,
+    },
     testing::testkit::{
         deterministic_executor::DeterministicExecutor, helpers, ScriptedTransport, Step,
     },
     timeout::TimeoutConfig,
-    Error, Executor, InquiryControl, ZoomControl,
+    Error, Executor,
 };
 
 /// Test that async Camera properly delegates to runtime.

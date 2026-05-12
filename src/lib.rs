@@ -151,28 +151,23 @@
 //! ```
 //!
 //! ### Profile-Based Compile-Time Safety
-//! When using camera profiles, validation happens at compile time through
-//! capability traits:
+//! Camera profiles carry model-specific limits and capabilities at compile time:
 //! ```ignore
-//! use grafton_visca::{Camera, camera::profiles::PtzOpticsG2};
+//! use grafton_visca::{camera::Connect, profiles::PtzOpticsG2, units::Degrees, SpeedLevel};
 //!
-//! // Profile provides model-specific constants at compile time
-//! let camera = Camera::<PtzOpticsG2, _>::new(transport);
-//! // Methods automatically use profile's validated ranges
-//! camera.pan_tilt_absolute(1000, 500, 10, 10)?;  // Validated against G2 limits
+//! let camera = Connect::open_tcp_blocking::<PtzOpticsG2>("192.168.0.110")?;
+//! camera.pan_tilt().absolute(Degrees(45.0), Degrees(10.0), SpeedLevel::Medium)?;
 //! ```
 //!
 //! ### Compile-Time Capability Gating
-//! Vendor-specific commands are gated by marker traits, ensuring compile-time safety:
+//! Vendor-specific controls are exposed through the same accessor path and are
+//! only available when the selected profile supports them:
 //! ```ignore
-//! use grafton_visca::{FocusLockControl, camera::profiles::PtzOpticsG2};
+//! use grafton_visca::{camera::Connect, profiles::PtzOpticsG2};
 //!
-//! // FocusLockControl is only available for profiles with HasFocusLock
-//! // PtzOpticsG2 implements HasFocusLock, so these methods are available
-//! camera.enable_focus_lock()?;  // Compiles with PtzOpticsG2
-//! camera.disable_focus_lock()?;
-//!
-//! // With a different profile that doesn't have HasFocusLock, this wouldn't compile
+//! let camera = Connect::open_tcp_blocking::<PtzOpticsG2>("192.168.0.110")?;
+//! camera.focus().lock()?;
+//! camera.focus().unlock()?;
 //! ```
 //!
 //! This multi-layered approach ensures:
@@ -299,26 +294,16 @@
 //!
 //! ### Compile-Time Type Safety
 //!
-//! The generic API ensures type safety at compile time:
+//! The camera profile controls which accessors are available at compile time:
 //!
 //! ```ignore
 //! use grafton_visca::prelude::blocking::*;
 //!
-//! // This function only accepts cameras with ND filter support
-//! fn adjust_nd_filter<P, T>(camera: &Camera<P, T>) -> Result<(), Error>
-//! where
-//!     P: Profile + NdFilter,
-//!     T: Transport + Send + Sync,
-//! {
-//!     camera.set_nd_filter_mode(NdFilterMode::Clear)
-//! }
+//! let sony = Connect::open_tcp_blocking::<SonyFR7>("192.168.0.110")?;
+//! sony.nd_filter().set_mode(NdFilterMode::Clear)?;
 //!
-//! // This would compile for SonyFR7 but not for PtzOpticsG2
-//! let sony = SonyFR7Cam::new(transport);
-//! adjust_nd_filter(&sony)?; // OK - Sony FR7 has ND filter
-//!
-//! let g2 = PtzOpticsG2Cam::new(transport);
-//! // adjust_nd_filter(&g2)?; // Compile error - G2 doesn't have ND filter
+//! let g2 = Connect::open_tcp_blocking::<PtzOpticsG2>("192.168.0.111")?;
+//! // g2.nd_filter().set_mode(NdFilterMode::Clear)?; // Compile error: G2 has no ND filter capability
 //! ```
 //!
 //! ## Transport Implementation
@@ -371,9 +356,9 @@
 //! - `runtime-smol` - Enables async with built-in smol runtime support (implies `mode-async`).
 //! - `transport-serial` - Enables serial port support for blocking mode.
 //! - `transport-serial-tokio` - Enables serial port support with Tokio (implies `runtime-tokio`).
-//! - `test-utils` - Testing utilities including ScriptedTransport and DeterministicExecutor (not for production).
+//! - `test-utils` - Deterministic test transports and executors for crate and downstream tests.
 //!
-//! **Multiple Runtime Support**: As of version 0.7.0, runtime features can be enabled simultaneously.
+//! **Multiple Runtime Support**: Runtime features can be enabled simultaneously.
 //! This allows libraries to support multiple runtime ecosystems without forcing users to choose.
 //! Use explicit executor selection (`CameraBuilder::with_executor(TokioRuntime::from_current())`, etc.) when multiple runtimes are available.
 //!
@@ -386,7 +371,7 @@
 //! This guarantee ensures spawn-safety across all async runtimes and prevents
 //! subtle `!Send` future errors in multi-threaded executors.
 //!
-//! ### ⚠️ Important: Runtime Requirements for Async
+//! ### Runtime Requirements for Async
 //!
 //! **The async API REQUIRES a runtime to be configured.** Without a runtime, ALL async operations
 //! will fail with: `Error::InvalidState("No runtime configured for async operations")`.
@@ -556,13 +541,13 @@
 //!
 //! ```ignore
 //! // Work in degrees (recommended)
-//! camera.set_position(Degrees(45.0), Degrees(-15.0))?;
+//! camera.pan_tilt().absolute(Degrees(45.0), Degrees(-15.0), SpeedLevel::Medium)?;
 //!
 //! // Stop all movement
-//! camera.stop()?;
+//! camera.pan_tilt().stop()?;
 //!
 //! // Move to home position
-//! camera.home()?;
+//! camera.pan_tilt().home()?;
 //! ```
 //!
 //! ## Timeout Configuration
@@ -619,7 +604,10 @@
 //! use grafton_visca::camera::{AwaitConfig, Axes};
 //!
 //! // Start a pan/tilt movement
-//! camera.pan_tilt_absolute(45.0, 15.0, 10, 10).await?;
+//! camera
+//!     .pan_tilt()
+//!     .absolute(Degrees(45.0), Degrees(15.0), SpeedLevel::Medium)
+//!     .await?;
 //!
 //! // Wait for all movements to complete (pan/tilt, zoom, focus)
 //! camera.await_idle(Duration::from_secs(30)).await?;
@@ -640,7 +628,11 @@
 //! The library provides comprehensive error types for all VISCA error conditions:
 //!
 //! ```ignore
-//! match camera.pan_tilt_absolute(180.0, 0.0, 10, 10).await {
+//! match camera
+//!     .pan_tilt()
+//!     .absolute(Degrees(180.0), Degrees(0.0), SpeedLevel::Medium)
+//!     .await
+//! {
 //!     Ok(_) => println!("Position set successfully"),
 //!     Err(Error::SyntaxError) => println!("Position out of range"),
 //!     Err(Error::CommandNotExecutable) => println!("Camera busy or powered off"),
@@ -678,7 +670,7 @@ pub use crate::{
 };
 
 #[cfg(not(feature = "mode-async"))]
-pub use crate::camera::{blocking_api::BlockingClient, BlockingCamera};
+pub use crate::camera::{BlockingCamera, BlockingClient};
 
 #[cfg(feature = "mode-async")]
 pub use crate::camera::AsyncCamera;
@@ -696,27 +688,6 @@ pub use crate::runtime::SmolRuntime;
 pub use crate::runtime::TokioRuntime;
 #[cfg(feature = "mode-async")]
 pub use crate::runtime::{Runtime, TransportHandle};
-
-#[doc(hidden)]
-pub use crate::camera::controls::{
-    color::ColorControl,
-    exposure::ExposureControl,
-    focus::{FocusControl, FocusLockControl, PushAFControl},
-    image_processing::ImageProcessingControl,
-    inquiry::{InquiryControl, PanTiltInquiryControl},
-    menu::{DirectMenuControl, MenuControl},
-    motion::{MotionControl, MotionGuard},
-    nd_filter::NdFilterControl,
-    pan_tilt::PanTiltControl,
-    power::PowerControl,
-    presets::PresetsControl,
-    streaming::StreamingControl,
-    system::SystemControl,
-    tally::TallyControl,
-    variable_speed::VariableSpeedControl,
-    white_balance::WhiteBalanceControl,
-    zoom::ZoomControl,
-};
 
 mod error;
 pub(crate) mod macros;

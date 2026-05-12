@@ -89,8 +89,11 @@
 //! - Receive failures result in `Timeout` rather than `TransportError`
 //! - This provides better error specificity while maintaining resilience
 
+#[doc(hidden)]
 pub mod core;
+#[doc(hidden)]
 pub mod driver;
+#[doc(hidden)]
 pub mod inquiry_matcher;
 
 #[cfg(not(feature = "mode-async"))]

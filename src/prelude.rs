@@ -12,24 +12,21 @@
 //! ```ignore
 //! # #[cfg(feature = "mode-async")]
 //! use grafton_visca::prelude::r#async::*;
-//! use grafton_visca::{Camera, mode::Async};
 //!
 //! # #[tokio::main]
 //! # async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! # #[cfg(feature = "runtime-tokio")]
 //! # {
-//! // Simple connection
-//! let runtime = TokioRuntime::new();
-//! let camera = Camera::<Async, PtzOpticsG2, _, _>::connect_tcp(
-//!     "192.168.0.110:5678",
-//!     runtime
+//! let runtime = TokioRuntime::from_current()?;
+//! let camera = Connect::open_tcp_async::<PtzOpticsG2, _>(
+//!     "192.168.0.110",
+//!     runtime,
 //! ).await?;
 //!
-//! // Use camera with type-safe controls
-//! camera.power_on().await?;
-//! camera.zoom_stop().await?;
-//! camera.pan_tilt_home().await?;
-//! camera.shutdown().await?;
+//! camera.power().on().await?;
+//! camera.zoom().stop().await?;
+//! camera.pan_tilt().home().await?;
+//! camera.close().await?;
 //! # }
 //! # Ok(())
 //! # }
@@ -39,16 +36,13 @@
 //!
 //! ```ignore
 //! use grafton_visca::prelude::blocking::*;
-//! use grafton_visca::{Camera, mode::Blocking};
 //!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! // Simple connection
-//! let camera = Camera::open_tcp_blocking::<PtzOpticsG2>("192.168.0.110:5678")?;
+//! let camera = Connect::open_tcp_blocking::<PtzOpticsG2>("192.168.0.110")?;
 //!
-//! // Use camera with type-safe controls
-//! camera.power_on()?;
-//! camera.zoom_stop()?;
-//! camera.pan_tilt_home()?;
+//! camera.power().on()?;
+//! camera.zoom().stop()?;
+//! camera.pan_tilt().home()?;
 //! camera.close()?;
 //! # Ok(())
 //! # }
@@ -95,8 +89,8 @@ pub mod r#async {
         AutoWhiteBalanceSensitivity, Error, ExposureMode, MotionSyncMode, NdFilterMode,
         PanTiltDirection, PanTiltLimitCorner, PresetNumber, ResolutionMode, WhiteBalanceMode,
     };
-    // High-level camera configuration
-    pub use crate::camera::AwaitConfig;
+    // High-level camera construction and configuration
+    pub use crate::camera::{AwaitConfig, CameraConfig, Connect};
     // Camera profiles - these are the primary way to configure camera behavior
     pub use crate::camera::profiles::{
         GenericVisca, NearusBRC300, PtzOptics30X, PtzOpticsG2, PtzOpticsG3, SonyBRC300,
@@ -132,8 +126,8 @@ pub mod blocking {
         AutoWhiteBalanceSensitivity, Error, ExposureMode, MotionSyncMode, NdFilterMode,
         PanTiltDirection, PanTiltLimitCorner, PresetNumber, ResolutionMode, WhiteBalanceMode,
     };
-    // High-level camera types and configuration
-    pub use crate::camera::{AwaitConfig, BlockingCamera as Camera};
+    // High-level camera construction, camera type, and configuration
+    pub use crate::camera::{AwaitConfig, BlockingCamera as Camera, CameraConfig, Connect};
     // Camera profiles - these are the primary way to configure camera behavior
     pub use crate::camera::profiles::{
         GenericVisca, NearusBRC300, PtzOptics30X, PtzOpticsG2, PtzOpticsG3, SonyBRC300,

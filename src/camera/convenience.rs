@@ -271,10 +271,9 @@ impl Connect {
     where
         P: Profile + Default,
     {
-        let session = CameraConfig::<P>::new()
+        CameraConfig::<P>::new()
             .serial(port, baud_rate)
-            .open_serial_blocking()?;
-        Ok(crate::BlockingClient::from_camera(session.into_inner()))
+            .open_serial_blocking()
     }
 }
 
@@ -443,10 +442,9 @@ impl ConnectBuilder {
                     .baud_rate
                     .ok_or_else(|| Error::InvalidState("No baud rate configured".into()))?;
 
-                let session = CameraConfig::<P>::new()
+                CameraConfig::<P>::new()
                     .serial(port, baud_rate)
-                    .open_serial_blocking()?;
-                Ok(crate::BlockingClient::from_camera(session.into_inner()))
+                    .open_serial_blocking()
             }
             #[cfg(not(feature = "transport-serial"))]
             TransportType::Serial => Err(Error::NotSupported),

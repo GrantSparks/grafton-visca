@@ -19,7 +19,6 @@ use std::{env, thread::sleep, time::Duration};
 #[cfg(not(feature = "mode-async"))]
 use grafton_visca::{
     camera::{profiles::PtzOpticsG2, AwaitConfig, Axes, Connect},
-    command::preset::PresetNumber,
     types::SpeedLevel,
     units::{Degrees, Normalized},
     Error,
@@ -46,8 +45,8 @@ fn main() -> Result<(), Error> {
     println!("✅ Connected successfully!\n");
 
     println!("Moving to home position...");
-    camera.pan_tilt_home()?;
-    camera.set_zoom(Normalized(0.0))?;
+    camera.pan_tilt().home()?;
+    camera.zoom().set_position(Normalized(0.0))?;
     // Only wait for pan/tilt and zoom - we set both, no focus change
     camera.await_axes_idle(Axes::PAN_TILT | Axes::ZOOM, Duration::from_secs(30))?;
     println!("✓ At home position\n");
@@ -94,13 +93,15 @@ fn main() -> Result<(), Error> {
             preset.zoom.0 * 100.0
         );
 
-        camera.pan_tilt_absolute(preset.pan, preset.tilt, SpeedLevel::Medium)?;
-        camera.set_zoom(preset.zoom)?;
+        camera
+            .pan_tilt()
+            .absolute(preset.pan, preset.tilt, SpeedLevel::Medium)?;
+        camera.zoom().set_position(preset.zoom)?;
 
         // Wait for pan/tilt and zoom to complete - 20s is generous for medium speed
         camera.await_axes_idle(Axes::PAN_TILT | Axes::ZOOM, Duration::from_secs(20))?;
 
-        camera.preset_set(PresetNumber::new(preset.number)?)?;
+        camera.presets().set(preset.number)?;
         println!("  ✓ Preset {} saved\n", preset.number);
 
         sleep(Duration::from_millis(200));
@@ -108,8 +109,10 @@ fn main() -> Result<(), Error> {
 
     println!("═══ Testing Preset Recall ═══");
     println!("Moving to test position (60°, -15°)...");
-    camera.pan_tilt_absolute(Degrees(60.0), Degrees(-15.0), SpeedLevel::Fast)?;
-    camera.set_zoom(Normalized(0.7))?;
+    camera
+        .pan_tilt()
+        .absolute(Degrees(60.0), Degrees(-15.0), SpeedLevel::Fast)?;
+    camera.zoom().set_position(Normalized(0.7))?;
     // Fast speed but still needs time for the full range of motion
     camera.await_axes_idle(Axes::PAN_TILT | Axes::ZOOM, Duration::from_secs(15))?;
     println!("At test position\n");
@@ -117,7 +120,7 @@ fn main() -> Result<(), Error> {
     for preset in &presets {
         println!("Recalling Preset {} - '{}'", preset.number, preset.name);
 
-        camera.preset_recall(PresetNumber::new(preset.number)?)?;
+        camera.presets().recall(preset.number)?;
 
         // Use the preset-specific config: 60s timeout, all axes monitored
         // Presets can move pan/tilt, zoom, and focus simultaneously

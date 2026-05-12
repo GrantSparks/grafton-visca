@@ -348,14 +348,6 @@ impl<P, Tr> CameraSession<crate::mode::Blocking, P, Tr, (), Open>
 where
     P: Profile,
 {
-    /// Create a new open session from a camera instance.
-    pub(crate) fn new(camera: Camera<crate::mode::Blocking, P, Tr, ()>) -> Self {
-        Self {
-            camera,
-            _state: PhantomData,
-        }
-    }
-
     /// Get a reference to the underlying camera.
     pub fn camera(&self) -> &Camera<crate::mode::Blocking, P, Tr, ()> {
         &self.camera

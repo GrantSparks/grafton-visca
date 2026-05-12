@@ -511,19 +511,11 @@ where
     /// let config = CameraConfig::for::<PtzOpticsG2>()
     ///     .address("192.168.0.110");
     ///
-    /// let session = config.open_blocking()?;
+    /// let camera = config.open_blocking()?;
     /// ```
     pub fn open_blocking(
         &self,
-    ) -> Result<
-        crate::camera::session::CameraSession<
-            crate::mode::Blocking,
-            P,
-            crate::transport::BlockingTransportHandle,
-            (),
-        >,
-        Error,
-    > {
+    ) -> Result<crate::BlockingClient<P, crate::transport::BlockingTransportHandle>, Error> {
         use crate::transport::blocking::{Tcp, Udp};
 
         // Create transport based on configuration
@@ -574,8 +566,7 @@ where
             camera.set_camera_id(self.camera_id);
         }
 
-        // Wrap in session
-        Ok(crate::camera::session::CameraSession::new(camera))
+        Ok(crate::BlockingClient::from_camera(camera))
     }
 
     /// Open a blocking serial camera session using the configuration.
@@ -590,20 +581,12 @@ where
     /// let config = CameraConfig::for::<PtzOpticsG2>()
     ///     .serial("/dev/ttyUSB0", 9600);
     ///
-    /// let session = config.open_serial_blocking()?;
+    /// let camera = config.open_serial_blocking()?;
     /// ```
     #[cfg(feature = "transport-serial")]
     pub fn open_serial_blocking(
         &self,
-    ) -> Result<
-        crate::camera::session::CameraSession<
-            crate::mode::Blocking,
-            P,
-            crate::transport::BlockingTransportHandle,
-            (),
-        >,
-        Error,
-    > {
+    ) -> Result<crate::BlockingClient<P, crate::transport::BlockingTransportHandle>, Error> {
         match &self.transport {
             TransportOptions::Serial { port, baud_rate } => {
                 // Create serial config from transport options
@@ -628,8 +611,7 @@ where
                     camera.set_camera_id(self.camera_id);
                 }
 
-                // Wrap in session
-                Ok(crate::camera::session::CameraSession::new(camera))
+                Ok(crate::BlockingClient::from_camera(camera))
             }
             _ => Err(Error::InvalidState(
                 "open_serial_blocking requires serial transport configuration".into(),

@@ -28,8 +28,9 @@ fn test_async_mode_compile() {
 #[cfg(not(feature = "mode-async"))]
 #[test]
 fn test_blocking_traits_available() {
-    use grafton_visca::{
-        FocusControl, InquiryControl, PanTiltControl, PowerControl, PresetsControl, ZoomControl,
+    use grafton_visca::camera::controls::{
+        focus::FocusControl, inquiry::InquiryControl, pan_tilt::PanTiltControl,
+        power::PowerControl, presets::PresetsControl, zoom::ZoomControl,
     };
 
     fn _uses_blocking_traits<T>()
@@ -47,8 +48,9 @@ fn test_blocking_traits_available() {
 #[cfg(feature = "mode-async")]
 #[test]
 fn test_async_traits_with_feature() {
-    use grafton_visca::{
-        FocusControl, InquiryControl, PanTiltControl, PowerControl, PresetsControl, ZoomControl,
+    use grafton_visca::camera::controls::{
+        focus::FocusControl, inquiry::InquiryControl, pan_tilt::PanTiltControl,
+        power::PowerControl, presets::PresetsControl, zoom::ZoomControl,
     };
 
     fn _uses_async_traits<T>()

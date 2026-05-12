@@ -1,0 +1,11 @@
+error[E0603]: module `camera_impl` is private
+ --> tests/api_contract/fail/camera_impl_module_is_internal.rs:1:28
+  |
+1 | use grafton_visca::camera::camera_impl;
+  |                            ^^^^^^^^^^^ private module
+  |
+note: the module `camera_impl` is defined here
+ --> src/camera/mod.rs
+  |
+  | mod camera_impl;
+  | ^^^^^^^^^^^^^^^

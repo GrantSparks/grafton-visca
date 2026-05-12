@@ -11,10 +11,10 @@
 ))]
 
 use grafton_visca::{
-    camera::{profiles::PtzOpticsG2, CameraBuilder},
+    camera::{controls::zoom::ZoomControl, profiles::PtzOpticsG2, CameraBuilder},
     runtime::TokioRuntime,
     testing::testkit::{helpers, ScriptedTransport, Step},
-    TokioExecutor, ZoomControl,
+    TokioExecutor,
 };
 
 /// Test that an ACK delivered synchronously from within send() is properly handled.
@@ -115,7 +115,7 @@ async fn test_normal_operation_still_works() {
 /// Test multiple commands with immediate ACKs to ensure ordering is preserved.
 #[tokio::test]
 async fn test_multiple_immediate_acks_preserve_order() {
-    use grafton_visca::PanTiltControl;
+    use grafton_visca::camera::controls::pan_tilt::PanTiltControl;
 
     // Create transport that sends immediate ACKs for each command
     let transport: ScriptedTransport<TokioExecutor> = ScriptedTransport::new(vec![

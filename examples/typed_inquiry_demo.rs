@@ -28,7 +28,7 @@ fn main() -> Result<(), Error> {
     println!("\n=== High-Level API Inquiry Demo ===\n");
 
     println!("Checking power status...");
-    match camera.power_state() {
+    match camera.power().state() {
         Ok(power_on) => {
             let status = if power_on { "ON" } else { "OFF" };
             println!("  Power: {status}");
@@ -39,7 +39,7 @@ fn main() -> Result<(), Error> {
     // NOTE: Pan/Tilt position inquiry would be available in async mode
 
     println!("\nChecking zoom position...");
-    match camera.zoom_position() {
+    match camera.zoom().position() {
         Ok(zoom_pos) => {
             let raw_value = zoom_pos.value();
 
@@ -68,11 +68,11 @@ fn main() -> Result<(), Error> {
     println!("\nDemonstrating control methods...");
 
     println!("Zooming in...");
-    if let Err(e) = camera.zoom_tele(None) {
+    if let Err(e) = camera.zoom().tele() {
         println!("  Zoom command failed: {e}");
     } else {
         std::thread::sleep(Duration::from_millis(500));
-        let _ = camera.zoom_stop();
+        let _ = camera.zoom().stop();
         println!("  Zoom completed");
     }
 

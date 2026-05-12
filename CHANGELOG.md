@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking Changes
 
+#### Public API Freeze and Camera-First Convergence (#509, #510)
+- **BREAKING**: Blocking camera construction now returns the ergonomic `BlockingClient<P, Tr>` surface consistently; `CameraConfig::open_blocking()`, `CameraConfig::open_serial_blocking()`, blocking `CameraBuilder::open()`, and `CameraBuilder::build_blocking()` no longer expose the raw mode-generic camera type
+- **BREAKING**: `BlockingCamera<P, Tr>` now aliases `BlockingClient<P, Tr>`, making noun accessors such as `camera.power().on()?` and `camera.pan_tilt().home()?` the canonical blocking API
+- **BREAKING**: Root-level control trait re-exports such as `grafton_visca::PowerControl` and `grafton_visca::ZoomControl` were removed from the public 1.0 surface; advanced trait-generic code should import them from `grafton_visca::camera::controls::*`
+- **BREAKING**: Camera implementation modules are no longer public extension points; `camera::camera_impl`, `camera::movement`, and `camera::capabilities` were hidden behind the stable top-level camera exports
+- **BREAKING**: The direct blocking `nd_filter()` inquiry method was removed to reserve `camera.nd_filter()` for the camera-first ND filter accessor; use `camera.nd_filter().position()?`
+
 #### Granular Iris Capability Modelling
 - **BREAKING**: `Exposure::IRIS_RANGE` changed from `Range<u16>` to `Option<Range<u16>>`; downstream `impl Exposure` blocks must wrap their range in `Some(...)` or use `None` for cameras that lack iris control
 - **BREAKING**: `Capabilities::iris_range` changed from `RangeInclusive<u16>` to `Option<RangeInclusive<u16>>`
@@ -21,6 +28,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### Blocking Camera-First Accessors (#510)
+- Added blocking noun accessors for power, zoom, pan/tilt, focus, exposure, white balance, image processing, presets, tally, system, menu, ND filter, motion sync, and advanced inquiries
+- Blocking accessors return `Result<T, Error>` directly, eliminating `.block()` from the canonical blocking flow while preserving async accessor parity
+- Added missing white-balance accessor operations for one-push mode, ATW mode, and color-temperature mode
+- Added compile-time API contract coverage for the frozen camera-first construction path, blocking accessor surface, hidden implementation modules, and removal of root-level control trait re-exports
+
 #### Per-Profile Iris and Exposure-Mode Support
 - New `Exposure::EXPOSURE_MODES` associated constant lets each profile declare which exposure modes the hardware accepts (defaults to all five standard modes)
 - New `ExposureExt::supports_exposure_mode()` and `ExposureExt::supports_iris_control()` helper methods
@@ -28,6 +41,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Runtime guards in `set_exposure_mode()`, `set_iris()`, `reset_iris()`, and `iris_inquiry()` now return `Error::FeatureNotSupported` for unsupported profiles instead of sending a command the camera will reject
 
 ### Changed
+
+#### Documentation and Examples Aligned for v1.0 (#509, #510)
+- README, crate docs, prelude docs, and examples now present `Connect` plus camera-first accessors as the primary API for both blocking and async users
+- Installation snippets now target the v1 line and remove stale pre-release/0.x caveats
+- Blocking and async examples were updated away from direct trait-method calls toward the long-term `camera.power()`, `camera.zoom()`, `camera.pan_tilt()`, and related accessor style
 
 #### PTZOptics Profiles Disable Iris
 - PTZOptics G2, G3, and 30X profiles now set `IRIS_RANGE: None` and exclude `ExposureMode::Iris` from their supported modes, reflecting hardware behaviour observed on real devices

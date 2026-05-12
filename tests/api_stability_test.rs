@@ -111,9 +111,10 @@ fn test_zero_cost_generic_transports() {
 /// Test that async control traits maintain stable public signatures.
 #[test]
 fn test_control_traits_api_stability() {
-    use grafton_visca::{
-        ExposureControl, FocusControl, ImageProcessingControl, InquiryControl, PanTiltControl,
-        PowerControl, PresetsControl, WhiteBalanceControl, ZoomControl,
+    use grafton_visca::camera::controls::{
+        exposure::ExposureControl, focus::FocusControl, image_processing::ImageProcessingControl,
+        inquiry::InquiryControl, pan_tilt::PanTiltControl, power::PowerControl,
+        presets::PresetsControl, white_balance::WhiteBalanceControl, zoom::ZoomControl,
     };
 
     #[allow(dead_code)]
@@ -499,5 +500,7 @@ fn test_raw_command_extension_contract() {
 fn test_compile_time_api_contracts() {
     let cases = trybuild::TestCases::new();
     cases.pass("tests/api_contract/pass/*.rs");
+    #[cfg(not(feature = "mode-async"))]
+    cases.pass("tests/api_contract/pass_blocking/*.rs");
     cases.compile_fail("tests/api_contract/fail/*.rs");
 }

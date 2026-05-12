@@ -15,10 +15,10 @@ use std::time::Duration;
 
 #[cfg(feature = "runtime-tokio")]
 use grafton_visca::{
-    camera::profiles::PtzOpticsG2,
+    camera::{controls::zoom::ZoomControl, profiles::PtzOpticsG2},
     testing::testkit::{ScriptedTransport, Step},
     timeout::TimeoutConfig,
-    Error, ZoomControl,
+    Error,
 };
 
 /// Minimal standalone repro test for timeout stalling.

@@ -5,9 +5,13 @@ mod tokio_tests {
     use std::sync::Arc;
 
     use grafton_visca::{
-        camera::{profiles::PtzOpticsG2, CameraBuilder},
+        camera::{
+            controls::{power::PowerControl, zoom::ZoomControl},
+            profiles::PtzOpticsG2,
+            CameraBuilder,
+        },
         testing::testkit::{helpers, ScriptedTransport},
-        PowerControl, TokioExecutor, ZoomControl,
+        TokioExecutor,
     };
 
     /// Create a ScriptedTransport that auto-responds to any command with ACK+completion

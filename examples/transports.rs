@@ -21,11 +21,10 @@ use std::{
 
 #[cfg(not(feature = "mode-async"))]
 use grafton_visca::{
-    mode::BlockingFutureExt,
     profiles::PtzOpticsG2,
     types::SpeedLevel,
     units::{Degrees, Normalized},
-    BlockingCamera, Error, PanTiltControl, ZoomControl,
+    BlockingCamera, Error,
 };
 
 #[cfg(not(feature = "mode-async"))]
@@ -55,7 +54,7 @@ fn main() -> Result<(), Error> {
 
     // Test TCP connection with a simple command
     println!("Testing TCP transport with zoom command...");
-    tcp_camera.set_zoom(Normalized(0.3)).block()?;
+    tcp_camera.zoom().set_position(Normalized(0.3))?;
     tcp_camera.await_zoom_idle(Duration::from_secs(5))?;
     println!("✓ Command sent successfully via TCP");
     println!();
@@ -70,7 +69,7 @@ fn main() -> Result<(), Error> {
 
             // Test connection
             println!("Testing custom port connection...");
-            camera.pan_tilt_home().block()?;
+            camera.pan_tilt().home()?;
             println!("✓ Command sent successfully via custom port");
         }
         Err(e) => {
@@ -97,13 +96,13 @@ fn main() -> Result<(), Error> {
             // Test UDP connection
             println!("Testing UDP transport with pan/tilt command...");
             camera
-                .pan_tilt_absolute(Degrees(45.0), Degrees(0.0), SpeedLevel::Medium)
-                .block()?;
+                .pan_tilt()
+                .absolute(Degrees(45.0), Degrees(0.0), SpeedLevel::Medium)?;
             camera.await_pan_tilt_idle(Duration::from_secs(5))?;
             println!("✓ Command sent successfully via UDP");
 
             // Return to home
-            camera.pan_tilt_home().block()?;
+            camera.pan_tilt().home()?;
             camera.await_pan_tilt_idle(Duration::from_secs(5))?;
         }
         Err(e) => {
@@ -163,14 +162,16 @@ fn main() -> Result<(), Error> {
 
     let tcp_start = Instant::now();
     for i in 0..10 {
-        tcp_camera.set_zoom(Normalized((i as f32) * 0.1)).block()?;
+        tcp_camera
+            .zoom()
+            .set_position(Normalized((i as f32) * 0.1))?;
         thread::sleep(Duration::from_millis(100));
     }
     let tcp_elapsed = tcp_start.elapsed();
     println!("✓ TCP: 10 commands in {:.2}s", tcp_elapsed.as_secs_f32());
 
     // Reset zoom
-    tcp_camera.set_zoom(Normalized(0.0)).block()?;
+    tcp_camera.zoom().set_position(Normalized(0.0))?;
 
     // If UDP is available, compare performance
     if let Ok(udp_camera) =
@@ -180,14 +181,16 @@ fn main() -> Result<(), Error> {
 
         let udp_start = Instant::now();
         for i in 0..10 {
-            udp_camera.set_zoom(Normalized((i as f32) * 0.1)).block()?;
+            udp_camera
+                .zoom()
+                .set_position(Normalized((i as f32) * 0.1))?;
             thread::sleep(Duration::from_millis(100));
         }
         let udp_elapsed = udp_start.elapsed();
         println!("✓ UDP: 10 commands in {:.2}s", udp_elapsed.as_secs_f32());
 
         // Reset zoom
-        udp_camera.set_zoom(Normalized(0.0)).block()?;
+        udp_camera.zoom().set_position(Normalized(0.0))?;
 
         if udp_elapsed < tcp_elapsed {
             println!();

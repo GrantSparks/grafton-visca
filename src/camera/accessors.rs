@@ -751,12 +751,36 @@ where
         self.camera.white_balance_outdoor()
     }
 
+    /// Set to one-push white balance mode.
+    pub fn one_push(&self) -> M::Fut<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: WhiteBalanceControl<Mode = M>,
+    {
+        self.camera.white_balance_one_push()
+    }
+
+    /// Set to auto-tracing white balance mode.
+    pub fn atw(&self) -> M::Fut<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: WhiteBalanceControl<Mode = M>,
+    {
+        self.camera.white_balance_atw()
+    }
+
     /// Set to manual white balance.
     pub fn manual(&self) -> M::Fut<'_, Result<(), Error>>
     where
         Camera<M, P, Tr, Exec>: WhiteBalanceControl<Mode = M>,
     {
         self.camera.white_balance_manual()
+    }
+
+    /// Set to color temperature white balance mode.
+    pub fn color_temperature_mode(&self) -> M::Fut<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: WhiteBalanceControl<Mode = M>,
+    {
+        self.camera.white_balance_color_temperature()
     }
 
     /// Trigger one-push white balance.

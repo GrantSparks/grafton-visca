@@ -11,9 +11,7 @@ use std::{
     time::Duration,
 };
 
-use grafton_visca::{
-    camera::profiles::PtzOpticsG2, mode::BlockingFutureExt, BlockingCamera, CameraBuilder,
-};
+use grafton_visca::{camera::profiles::PtzOpticsG2, BlockingCamera, CameraBuilder};
 
 /// Test that the camera-first API creates a TCP camera with proper configuration
 #[test]
@@ -154,7 +152,7 @@ fn test_camera_retry_behavior() {
 
     // Send a command to actually communicate with the server
     // The power state inquiry should work immediately
-    let _ = camera.power().state().block();
+    let _ = camera.power().state();
 
     // Give server time to process
     thread::sleep(Duration::from_millis(200));

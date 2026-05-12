@@ -46,7 +46,7 @@ use crate::{
 ///     BlockingClient, CameraBuilder, Error,
 ///     camera::profiles::PtzOpticsG2,
 ///     transport::Transport,
-///     PowerControl, ZoomControl,
+///     units::Normalized,
 /// };
 ///
 /// fn main() -> Result<(), Error> {
@@ -55,12 +55,12 @@ use crate::{
 ///         .connect_blocking()?;
 ///
 ///     // Create wrapped camera for ergonomic blocking API
-///     let camera = BlockingClient::new::<PtzOpticsG2, _>(transport)?;
+///     let camera = BlockingClient::<PtzOpticsG2, _>::new(transport)?;
 ///
 ///     // Direct Result<T, Error> returns - no .block() needed!
-///     camera.power_on()?;
-///     camera.zoom_stop()?;
-///     camera.set_zoom(Normalized(0.5))?;
+///     camera.power().on()?;
+///     camera.zoom().stop()?;
+///     camera.zoom().set_position(Normalized(0.5))?;
 ///
 ///     Ok(())
 /// }
@@ -166,13 +166,12 @@ where
     /// # Example
     ///
     /// ```rust,ignore
-    /// use grafton_visca::{BlockingClient, camera::{profiles::PtzOpticsG2, AwaitConfig, Axes}};
-    /// use std::time::Duration;
+    /// use grafton_visca::camera::{profiles::PtzOpticsG2, AwaitConfig, Connect};
     ///
-    /// let camera = Camera::open_tcp_blocking::<PtzOpticsG2>("192.168.0.110:5678")?;
+    /// let mut camera = Connect::open_tcp_blocking::<PtzOpticsG2>("192.168.0.110:5678")?;
     ///
     /// // After preset recall, wait for all axes with generous timeout
-    /// camera.preset_recall(PresetNumber::new(1)?)?;
+    /// camera.presets().recall(1)?;
     /// camera.await_with_config(&AwaitConfig::for_preset_recall())?;
     /// ```
     pub fn await_with_config(&mut self, config: &super::AwaitConfig) -> Result<(), Error>
@@ -191,13 +190,17 @@ where
     /// # Example
     ///
     /// ```rust,ignore
-    /// use grafton_visca::{BlockingClient, camera::{profiles::PtzOpticsG2, Axes}};
+    /// use grafton_visca::{
+    ///     camera::{profiles::PtzOpticsG2, Axes, Connect},
+    ///     units::Degrees,
+    ///     SpeedLevel,
+    /// };
     /// use std::time::Duration;
     ///
-    /// let camera = Camera::open_tcp_blocking::<PtzOpticsG2>("192.168.0.110:5678")?;
+    /// let mut camera = Connect::open_tcp_blocking::<PtzOpticsG2>("192.168.0.110:5678")?;
     ///
     /// // After pan/tilt command, only wait for pan/tilt (not zoom/focus)
-    /// camera.pan_tilt_absolute(Degrees(45.0), Degrees(10.0), SpeedLevel::Fast)?;
+    /// camera.pan_tilt().absolute(Degrees(45.0), Degrees(10.0), SpeedLevel::Fast)?;
     /// camera.await_axes_idle(Axes::PAN_TILT, Duration::from_secs(20))?;
     /// ```
     pub fn await_axes_idle(
@@ -234,6 +237,91 @@ where
     {
         self.inner.close()
     }
+
+    /// Access power-related controls and inquiries.
+    pub fn power(&self) -> BlockingPowerAccessor<'_, P, Tr> {
+        BlockingPowerAccessor::new(self)
+    }
+
+    /// Access zoom-related controls and inquiries.
+    pub fn zoom(&self) -> BlockingZoomAccessor<'_, P, Tr> {
+        BlockingZoomAccessor::new(self)
+    }
+
+    /// Access pan/tilt-related controls and inquiries.
+    pub fn pan_tilt(&self) -> BlockingPanTiltAccessor<'_, P, Tr> {
+        BlockingPanTiltAccessor::new(self)
+    }
+
+    /// Access focus-related controls and inquiries.
+    pub fn focus(&self) -> BlockingFocusAccessor<'_, P, Tr> {
+        BlockingFocusAccessor::new(self)
+    }
+
+    /// Access exposure-related controls and inquiries.
+    pub fn exposure(&self) -> BlockingExposureAccessor<'_, P, Tr> {
+        BlockingExposureAccessor::new(self)
+    }
+
+    /// Access white balance controls and inquiries.
+    pub fn white_balance(&self) -> BlockingWhiteBalanceAccessor<'_, P, Tr> {
+        BlockingWhiteBalanceAccessor::new(self)
+    }
+
+    /// Access image processing controls and inquiries.
+    pub fn image(&self) -> BlockingImageAccessor<'_, P, Tr> {
+        BlockingImageAccessor::new(self)
+    }
+
+    /// Access preset-related controls.
+    pub fn presets(&self) -> BlockingPresetsAccessor<'_, P, Tr> {
+        BlockingPresetsAccessor::new(self)
+    }
+
+    /// Access tally light controls and inquiries.
+    pub fn tally(&self) -> BlockingTallyAccessor<'_, P, Tr> {
+        BlockingTallyAccessor::new(self)
+    }
+
+    /// Access system-related controls and inquiries.
+    pub fn system(&self) -> BlockingSystemAccessor<'_, P, Tr> {
+        BlockingSystemAccessor::new(self)
+    }
+
+    /// Access menu controls and inquiries.
+    pub fn menu(&self) -> BlockingMenuAccessor<'_, P, Tr> {
+        BlockingMenuAccessor::new(self)
+    }
+
+    /// Access ND filter controls and inquiries.
+    pub fn nd_filter(&self) -> BlockingNdFilterAccessor<'_, P, Tr> {
+        BlockingNdFilterAccessor::new(self)
+    }
+
+    /// Access motion sync controls and inquiries.
+    pub fn motion_sync(&self) -> BlockingMotionSyncAccessor<'_, P, Tr> {
+        BlockingMotionSyncAccessor::new(self)
+    }
+
+    /// Access advanced settings inquiries.
+    pub fn advanced(&self) -> BlockingAdvancedAccessor<'_, P, Tr> {
+        BlockingAdvancedAccessor::new(self)
+    }
+}
+
+impl<P> BlockingClient<P, crate::transport::BlockingTransportHandle>
+where
+    P: crate::capabilities::Profile + Default,
+{
+    /// Open a TCP blocking camera connection.
+    pub fn open_tcp(addr: impl Into<String>) -> Result<Self, Error> {
+        crate::camera::Connect::open_tcp_blocking::<P>(addr)
+    }
+
+    /// Open a UDP blocking camera connection.
+    pub fn open_udp(addr: impl Into<String>) -> Result<Self, Error> {
+        crate::camera::Connect::open_udp_blocking::<P>(addr)
+    }
 }
 
 impl<P, Tr> From<Camera<Blocking, P, Tr, ()>> for BlockingClient<P, Tr>
@@ -242,27 +330,6 @@ where
 {
     fn from(camera: Camera<Blocking, P, Tr, ()>) -> Self {
         Self { inner: camera }
-    }
-}
-
-impl<P, Tr>
-    From<crate::camera::session::CameraSession<Blocking, P, Tr, (), crate::camera::session::Open>>
-    for BlockingClient<P, Tr>
-where
-    P: crate::capabilities::Profile,
-{
-    fn from(
-        session: crate::camera::session::CameraSession<
-            Blocking,
-            P,
-            Tr,
-            (),
-            crate::camera::session::Open,
-        >,
-    ) -> Self {
-        Self {
-            inner: session.into_inner(),
-        }
     }
 }
 
@@ -283,6 +350,1006 @@ where
 {
     fn as_ref(&self) -> &Camera<Blocking, P, Tr, ()> {
         &self.inner
+    }
+}
+
+macro_rules! define_blocking_accessor {
+    (
+        $(#[$meta:meta])*
+        $name:ident
+    ) => {
+        $(#[$meta])*
+        pub struct $name<'a, P, Tr>
+        where
+            P: crate::capabilities::Profile,
+        {
+            camera: &'a BlockingClient<P, Tr>,
+        }
+
+        impl<'a, P, Tr> $name<'a, P, Tr>
+        where
+            P: crate::capabilities::Profile,
+        {
+            fn new(camera: &'a BlockingClient<P, Tr>) -> Self {
+                Self { camera }
+            }
+        }
+
+        impl<P, Tr> core::fmt::Debug for $name<'_, P, Tr>
+        where
+            P: crate::capabilities::Profile,
+        {
+            fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+                f.debug_struct(stringify!($name)).finish_non_exhaustive()
+            }
+        }
+    };
+}
+
+define_blocking_accessor!(
+    /// Blocking power controls and inquiries.
+    BlockingPowerAccessor
+);
+
+impl<P, Tr> BlockingPowerAccessor<'_, P, Tr>
+where
+    P: crate::capabilities::Profile + Default + crate::capabilities::power::Power,
+    Camera<Blocking, P, Tr, ()>: PowerControl<Mode = Blocking> + InquiryControl<Mode = Blocking>,
+{
+    /// Get the current power state.
+    pub fn state(&self) -> Result<bool, Error> {
+        self.camera.power_state()
+    }
+
+    /// Turn the camera on.
+    pub fn on(&self) -> Result<(), Error> {
+        self.camera.power_on()
+    }
+
+    /// Turn the camera off.
+    pub fn off(&self) -> Result<(), Error> {
+        self.camera.power_off()
+    }
+
+    /// Set power state.
+    pub fn set(&self, on: bool) -> Result<(), Error> {
+        if on {
+            self.on()
+        } else {
+            self.off()
+        }
+    }
+}
+
+define_blocking_accessor!(
+    /// Blocking zoom controls and inquiries.
+    BlockingZoomAccessor
+);
+
+impl<P, Tr> BlockingZoomAccessor<'_, P, Tr>
+where
+    P: crate::capabilities::Profile + Default + crate::capabilities::zoom::Zoom,
+    Camera<Blocking, P, Tr, ()>: ZoomControl<Mode = Blocking> + InquiryControl<Mode = Blocking>,
+{
+    /// Get the current zoom position.
+    pub fn position(&self) -> Result<crate::types::ZoomPosition, Error> {
+        self.camera.zoom_position()
+    }
+
+    /// Zoom toward telephoto at standard speed.
+    pub fn tele(&self) -> Result<(), Error> {
+        self.camera.zoom_tele(None)
+    }
+
+    /// Zoom toward wide angle at standard speed.
+    pub fn wide(&self) -> Result<(), Error> {
+        self.camera.zoom_wide(None)
+    }
+
+    /// Stop zoom movement.
+    pub fn stop(&self) -> Result<(), Error> {
+        self.camera.zoom_stop()
+    }
+
+    /// Set zoom position directly.
+    pub fn set_position<T>(&self, position: T) -> Result<(), Error>
+    where
+        T: TryInto<crate::types::ZoomPosition>,
+        T::Error: Into<Error>,
+    {
+        self.camera.set_zoom(position)
+    }
+
+    /// Zoom toward telephoto with variable speed.
+    pub fn tele_variable<S>(&self, speed: S) -> Result<(), Error>
+    where
+        S: Into<crate::ZoomSpeed>,
+    {
+        self.camera.zoom_tele(Some(speed.into()))
+    }
+
+    /// Zoom toward wide angle with variable speed.
+    pub fn wide_variable<S>(&self, speed: S) -> Result<(), Error>
+    where
+        S: Into<crate::ZoomSpeed>,
+    {
+        self.camera.zoom_wide(Some(speed.into()))
+    }
+
+    /// Set zoom to an absolute position.
+    pub fn absolute<T>(&self, position: T) -> Result<(), Error>
+    where
+        T: TryInto<crate::types::ZoomPosition>,
+        T::Error: Into<Error>,
+    {
+        self.set_position(position)
+    }
+}
+
+define_blocking_accessor!(
+    /// Blocking pan/tilt controls and inquiries.
+    BlockingPanTiltAccessor
+);
+
+impl<P, Tr> BlockingPanTiltAccessor<'_, P, Tr>
+where
+    P: crate::capabilities::Profile + Default + crate::capabilities::pan_tilt::PanTilt,
+    Camera<Blocking, P, Tr, ()>:
+        PanTiltControl<Mode = Blocking> + PanTiltInquiryControl<Mode = Blocking>,
+{
+    /// Get the current pan/tilt position.
+    pub fn position(&self) -> Result<crate::camera::PanTiltPosition, Error> {
+        self.camera.pan_tilt_position()
+    }
+
+    /// Move in a specific direction.
+    pub fn move_direction(
+        &self,
+        direction: crate::command::pan_tilt::PanTiltDirection,
+        pan_speed: crate::types::PanSpeed,
+        tilt_speed: crate::types::TiltSpeed,
+    ) -> Result<(), Error> {
+        self.camera.pan_tilt_move(direction, pan_speed, tilt_speed)
+    }
+
+    /// Move up.
+    pub fn up(
+        &self,
+        pan_speed: crate::types::PanSpeed,
+        tilt_speed: crate::types::TiltSpeed,
+    ) -> Result<(), Error> {
+        self.move_direction(
+            crate::command::pan_tilt::PanTiltDirection::Up,
+            pan_speed,
+            tilt_speed,
+        )
+    }
+
+    /// Move down.
+    pub fn down(
+        &self,
+        pan_speed: crate::types::PanSpeed,
+        tilt_speed: crate::types::TiltSpeed,
+    ) -> Result<(), Error> {
+        self.move_direction(
+            crate::command::pan_tilt::PanTiltDirection::Down,
+            pan_speed,
+            tilt_speed,
+        )
+    }
+
+    /// Move left.
+    pub fn left(
+        &self,
+        pan_speed: crate::types::PanSpeed,
+        tilt_speed: crate::types::TiltSpeed,
+    ) -> Result<(), Error> {
+        self.move_direction(
+            crate::command::pan_tilt::PanTiltDirection::Left,
+            pan_speed,
+            tilt_speed,
+        )
+    }
+
+    /// Move right.
+    pub fn right(
+        &self,
+        pan_speed: crate::types::PanSpeed,
+        tilt_speed: crate::types::TiltSpeed,
+    ) -> Result<(), Error> {
+        self.move_direction(
+            crate::command::pan_tilt::PanTiltDirection::Right,
+            pan_speed,
+            tilt_speed,
+        )
+    }
+
+    /// Stop pan/tilt movement.
+    pub fn stop(&self) -> Result<(), Error> {
+        self.camera.pan_tilt_stop()
+    }
+
+    /// Move to home position.
+    pub fn home(&self) -> Result<(), Error> {
+        self.camera.pan_tilt_home()
+    }
+
+    /// Move to an absolute pan/tilt position.
+    pub fn absolute(
+        &self,
+        pan: crate::units::Degrees,
+        tilt: crate::units::Degrees,
+        speed: crate::types::SpeedLevel,
+    ) -> Result<(), Error> {
+        self.camera.pan_tilt_absolute(pan, tilt, speed)
+    }
+
+    /// Move relative to the current pan/tilt position.
+    pub fn relative(
+        &self,
+        pan: crate::units::Degrees,
+        tilt: crate::units::Degrees,
+        speed: crate::types::SpeedLevel,
+    ) -> Result<(), Error> {
+        self.camera.pan_tilt_relative(pan, tilt, speed)
+    }
+}
+
+define_blocking_accessor!(
+    /// Blocking focus controls and inquiries.
+    BlockingFocusAccessor
+);
+
+impl<P, Tr> BlockingFocusAccessor<'_, P, Tr>
+where
+    P: crate::capabilities::Profile + Default + crate::capabilities::focus::Focus,
+    Camera<Blocking, P, Tr, ()>: FocusControl<Mode = Blocking> + InquiryControl<Mode = Blocking>,
+{
+    /// Get the current focus position.
+    pub fn position(&self) -> Result<crate::types::FocusPosition, Error> {
+        self.camera.focus_position()
+    }
+
+    /// Get the current focus mode.
+    pub fn mode(&self) -> Result<crate::command::FocusMode, Error> {
+        self.camera.focus_mode()
+    }
+
+    /// Set auto focus mode.
+    pub fn auto(&self) -> Result<(), Error> {
+        self.camera.focus_auto()
+    }
+
+    /// Set manual focus mode.
+    pub fn manual(&self) -> Result<(), Error> {
+        self.camera.focus_manual()
+    }
+
+    /// Focus near.
+    pub fn near(&self, speed: crate::types::SpeedLevel) -> Result<(), Error> {
+        self.camera.focus_near(speed)
+    }
+
+    /// Focus far.
+    pub fn far(&self, speed: crate::types::SpeedLevel) -> Result<(), Error> {
+        self.camera.focus_far(speed)
+    }
+
+    /// Stop focus movement.
+    pub fn stop(&self) -> Result<(), Error> {
+        self.camera.focus_stop()
+    }
+
+    /// Set focus position directly.
+    pub fn set_position<T>(&self, position: T) -> Result<(), Error>
+    where
+        T: TryInto<crate::types::FocusPosition>,
+        T::Error: Into<Error>,
+    {
+        let position = position.try_into().map_err(Into::into)?;
+        self.camera.set_focus(position)
+    }
+
+    /// Get the focus near limit.
+    pub fn near_limit(&self) -> Result<crate::types::FocusPosition, Error> {
+        self.camera.focus_near_limit()
+    }
+
+    /// Get the focus zone.
+    pub fn zone(&self) -> Result<crate::command::FocusZone, Error> {
+        self.camera.focus_zone()
+    }
+
+    /// Set the focus zone.
+    pub fn set_zone(&self, zone: crate::command::FocusZone) -> Result<(), Error> {
+        self.camera.set_focus_zone(zone)
+    }
+
+    /// Set auto focus sensitivity.
+    pub fn set_sensitivity(
+        &self,
+        sensitivity: crate::command::AutoFocusSensitivity,
+    ) -> Result<(), Error> {
+        self.camera.set_auto_focus_sensitivity(sensitivity)
+    }
+
+    /// Set the focus near limit.
+    pub fn set_near_limit<T>(&self, position: T) -> Result<(), Error>
+    where
+        T: TryInto<crate::types::FocusPosition>,
+        T::Error: Into<Error>,
+    {
+        let position = position.try_into().map_err(Into::into)?;
+        self.camera.set_focus_near_limit(position)
+    }
+
+    /// Trigger one-push auto focus.
+    pub fn one_push(&self) -> Result<(), Error> {
+        self.camera.focus_one_push()
+    }
+}
+
+impl<P, Tr> BlockingFocusAccessor<'_, P, Tr>
+where
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasFocusLock,
+    Camera<Blocking, P, Tr, ()>: FocusLockControl<Mode = Blocking>,
+{
+    /// Enable focus lock.
+    pub fn lock(&self) -> Result<(), Error> {
+        self.camera.enable_focus_lock()
+    }
+
+    /// Disable focus lock.
+    pub fn unlock(&self) -> Result<(), Error> {
+        self.camera.disable_focus_lock()
+    }
+}
+
+impl<P, Tr> BlockingFocusAccessor<'_, P, Tr>
+where
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasPushAutoFocus,
+    Camera<Blocking, P, Tr, ()>: PushAFControl<Mode = Blocking>,
+{
+    /// Press Push AF.
+    pub fn push_af_press(&self) -> Result<(), Error> {
+        self.camera.push_af_press()
+    }
+
+    /// Release Push AF.
+    pub fn push_af_release(&self) -> Result<(), Error> {
+        self.camera.push_af_release()
+    }
+}
+
+define_blocking_accessor!(
+    /// Blocking exposure controls and inquiries.
+    BlockingExposureAccessor
+);
+
+impl<P, Tr> BlockingExposureAccessor<'_, P, Tr>
+where
+    P: crate::capabilities::Profile + Default + crate::capabilities::exposure::Exposure,
+    Camera<Blocking, P, Tr, ()>: ExposureControl<Mode = Blocking> + InquiryControl<Mode = Blocking>,
+{
+    /// Get the current exposure mode.
+    pub fn mode(&self) -> Result<crate::command::ExposureMode, Error> {
+        self.camera.exposure_mode()
+    }
+
+    /// Get exposure compensation.
+    pub fn compensation(&self) -> Result<crate::types::ExposureCompensationLevel, Error> {
+        self.camera.exposure_compensation()
+    }
+
+    /// Check whether exposure compensation is enabled.
+    pub fn compensation_enabled(&self) -> Result<bool, Error> {
+        self.camera.exposure_compensation_enabled()
+    }
+
+    /// Get exposure compensation position.
+    pub fn compensation_position(
+        &self,
+    ) -> Result<crate::types::ExposureCompensationPosition, Error> {
+        self.camera.exposure_compensation_position()
+    }
+
+    /// Get iris level.
+    pub fn iris(&self) -> Result<crate::types::IrisLevel, Error> {
+        self.camera.iris()
+    }
+
+    /// Get shutter speed.
+    pub fn shutter(&self) -> Result<crate::types::ShutterSpeed, Error> {
+        self.camera.shutter()
+    }
+
+    /// Get gain value.
+    pub fn gain(&self) -> Result<crate::types::GainLevel, Error> {
+        self.camera.gain()
+    }
+
+    /// Get gain limit.
+    pub fn gain_limit(&self) -> Result<crate::types::GainLimit, Error> {
+        self.camera.gain_limit()
+    }
+
+    /// Set auto exposure.
+    pub fn auto(&self) -> Result<(), Error> {
+        self.camera.exposure_auto()
+    }
+
+    /// Set manual exposure.
+    pub fn manual(&self) -> Result<(), Error> {
+        self.camera.exposure_manual()
+    }
+
+    /// Set shutter-priority exposure.
+    pub fn shutter_priority(&self) -> Result<(), Error> {
+        self.camera.exposure_shutter_priority()
+    }
+
+    /// Set iris-priority exposure.
+    pub fn iris_priority(&self) -> Result<(), Error> {
+        self.camera.exposure_iris_priority()
+    }
+}
+
+define_blocking_accessor!(
+    /// Blocking white balance controls and inquiries.
+    BlockingWhiteBalanceAccessor
+);
+
+impl<P, Tr> BlockingWhiteBalanceAccessor<'_, P, Tr>
+where
+    P: crate::capabilities::Profile + Default + crate::capabilities::white_balance::WhiteBalance,
+    Camera<Blocking, P, Tr, ()>:
+        WhiteBalanceControl<Mode = Blocking> + InquiryControl<Mode = Blocking>,
+{
+    /// Get white balance mode.
+    pub fn mode(&self) -> Result<crate::command::WhiteBalanceMode, Error> {
+        self.camera.white_balance_mode()
+    }
+
+    /// Get red gain.
+    pub fn red_gain(&self) -> Result<crate::types::RedChannel, Error> {
+        self.camera.red_gain()
+    }
+
+    /// Get blue gain.
+    pub fn blue_gain(&self) -> Result<crate::types::BlueChannel, Error> {
+        self.camera.blue_gain()
+    }
+
+    /// Get red tuning.
+    pub fn red_tuning(&self) -> Result<crate::types::RedTuning, Error> {
+        self.camera.red_tuning()
+    }
+
+    /// Get blue tuning.
+    pub fn blue_tuning(&self) -> Result<crate::types::BlueTuning, Error> {
+        self.camera.blue_tuning()
+    }
+
+    /// Get color temperature.
+    pub fn color_temperature(&self) -> Result<crate::types::ColorTemp, Error> {
+        self.camera.color_temperature()
+    }
+
+    /// Set auto white balance.
+    pub fn auto(&self) -> Result<(), Error> {
+        self.camera.white_balance_auto()
+    }
+
+    /// Set indoor white balance.
+    pub fn indoor(&self) -> Result<(), Error> {
+        self.camera.white_balance_indoor()
+    }
+
+    /// Set outdoor white balance.
+    pub fn outdoor(&self) -> Result<(), Error> {
+        self.camera.white_balance_outdoor()
+    }
+
+    /// Set one-push white balance mode.
+    pub fn one_push(&self) -> Result<(), Error> {
+        self.camera.white_balance_one_push()
+    }
+
+    /// Set auto-tracing white balance mode.
+    pub fn atw(&self) -> Result<(), Error> {
+        self.camera.white_balance_atw()
+    }
+
+    /// Set manual white balance.
+    pub fn manual(&self) -> Result<(), Error> {
+        self.camera.white_balance_manual()
+    }
+
+    /// Set color temperature white balance mode.
+    pub fn color_temperature_mode(&self) -> Result<(), Error> {
+        self.camera.white_balance_color_temperature()
+    }
+}
+
+impl<P, Tr> BlockingWhiteBalanceAccessor<'_, P, Tr>
+where
+    P: crate::capabilities::Profile + Default,
+    Camera<Blocking, P, Tr, ()>: ColorControl<Mode = Blocking>,
+{
+    /// Trigger one-push white balance.
+    pub fn one_push_trigger(&self) -> Result<(), Error> {
+        self.camera.one_push_trigger()
+    }
+}
+
+define_blocking_accessor!(
+    /// Blocking image processing controls and inquiries.
+    BlockingImageAccessor
+);
+
+impl<P, Tr> BlockingImageAccessor<'_, P, Tr>
+where
+    P: crate::capabilities::Profile
+        + Default
+        + crate::capabilities::image_processing::ImageProcessing,
+    Camera<Blocking, P, Tr, ()>:
+        ImageProcessingControl<Mode = Blocking> + InquiryControl<Mode = Blocking>,
+{
+    /// Get brightness level.
+    pub fn brightness(&self) -> Result<crate::types::BrightnessLevel, Error> {
+        self.camera.brightness()
+    }
+
+    /// Get saturation level.
+    pub fn saturation(&self) -> Result<crate::types::SaturationLevel, Error> {
+        self.camera.saturation()
+    }
+
+    /// Get hue level.
+    pub fn hue(&self) -> Result<crate::types::HueLevel, Error> {
+        self.camera.hue()
+    }
+
+    /// Get contrast level.
+    pub fn contrast(&self) -> Result<crate::types::ContrastLevel, Error> {
+        self.camera.contrast()
+    }
+
+    /// Get luminance level.
+    pub fn luminance(&self) -> Result<crate::types::LuminanceLevel, Error> {
+        self.camera.luminance()
+    }
+
+    /// Get gamma level.
+    pub fn gamma(&self) -> Result<crate::types::GammaLevel, Error> {
+        self.camera.gamma()
+    }
+
+    /// Get sharpness mode.
+    pub fn sharpness_mode(&self) -> Result<crate::command::SharpnessMode, Error> {
+        self.camera.sharpness_mode()
+    }
+
+    /// Check whether black-and-white mode is enabled.
+    pub fn black_white(&self) -> Result<bool, Error> {
+        self.camera.black_white()
+    }
+
+    /// Get black-and-white mode.
+    pub fn black_white_mode(&self) -> Result<crate::command::BlackWhiteMode, Error> {
+        self.camera.black_white_mode()
+    }
+
+    /// Get image flip state.
+    pub fn flip(&self) -> Result<crate::command::FlipState, Error> {
+        self.camera.image_flip()
+    }
+
+    /// Get flip mode.
+    pub fn flip_mode(&self) -> Result<crate::command::FlipState, Error> {
+        self.camera.flip_mode()
+    }
+
+    /// Get resolution mode.
+    pub fn resolution(&self) -> Result<crate::command::resolution::ResolutionMode, Error> {
+        self.camera.resolution()
+    }
+
+    /// Get picture effect mode.
+    pub fn picture_effect(&self) -> Result<crate::command::resolution::PictureEffectMode, Error> {
+        self.camera.picture_effect()
+    }
+
+    /// Check whether backlight compensation is enabled.
+    pub fn backlight_enabled(&self) -> Result<bool, Error> {
+        self.camera.backlight_enabled()
+    }
+
+    /// Get defog level.
+    pub fn defog_level(&self) -> Result<crate::types::DefogLevel, Error> {
+        self.camera.defog_level()
+    }
+
+    /// Get aggregate noise reduction level.
+    pub fn noise_reduction_level(&self) -> Result<crate::types::NoiseReductionLevel, Error> {
+        self.camera.noise_reduction_level()
+    }
+
+    /// Get 2D noise reduction level.
+    pub fn noise_reduction_2d(&self) -> Result<crate::types::NoiseReduction2DLevel, Error> {
+        self.camera.noise_reduction_2d()
+    }
+
+    /// Get 3D noise reduction level.
+    pub fn noise_reduction_3d(&self) -> Result<crate::types::NoiseReduction3DLevel, Error> {
+        self.camera.noise_reduction_3d()
+    }
+
+    /// Get noise reduction mode.
+    pub fn noise_reduction_mode(&self) -> Result<crate::command::NoiseReductionMode, Error> {
+        self.camera.noise_reduction_mode()
+    }
+
+    /// Enable vertical image flip.
+    pub fn enable_flip(&self) -> Result<(), Error> {
+        self.camera.enable_flip()
+    }
+
+    /// Disable vertical image flip.
+    pub fn disable_flip(&self) -> Result<(), Error> {
+        self.camera.disable_flip()
+    }
+
+    /// Enable horizontal image flip.
+    pub fn enable_horizontal_flip(&self) -> Result<(), Error> {
+        self.camera.enable_horizontal_flip()
+    }
+
+    /// Disable horizontal image flip.
+    pub fn disable_horizontal_flip(&self) -> Result<(), Error> {
+        self.camera.disable_horizontal_flip()
+    }
+
+    /// Set combined flip mode.
+    pub fn set_flip_mode(&self, mode: crate::command::ImageFlipMode) -> Result<(), Error> {
+        self.camera.set_image_flip(mode)
+    }
+
+    /// Set contrast level.
+    pub fn set_contrast(&self, level: crate::types::ContrastLevel) -> Result<(), Error> {
+        self.camera.set_contrast(level)
+    }
+
+    /// Set sharpness level.
+    pub fn set_sharpness(&self, level: crate::types::SharpnessLevel) -> Result<(), Error> {
+        self.camera.set_sharpness(level)
+    }
+
+    /// Set saturation level.
+    pub fn set_saturation(&self, level: crate::types::SaturationLevel) -> Result<(), Error> {
+        self.camera.set_saturation(level)
+    }
+
+    /// Set hue level.
+    pub fn set_hue(&self, level: crate::types::HueLevel) -> Result<(), Error> {
+        self.camera.set_hue(level)
+    }
+
+    /// Set luminance level.
+    pub fn set_luminance(&self, level: crate::types::LuminanceLevel) -> Result<(), Error> {
+        self.camera.set_luminance(level)
+    }
+
+    /// Enable image freeze.
+    pub fn freeze(&self) -> Result<(), Error> {
+        self.camera.enable_freeze()
+    }
+
+    /// Disable image freeze.
+    pub fn unfreeze(&self) -> Result<(), Error> {
+        self.camera.disable_freeze()
+    }
+
+    /// Enable black-and-white mode.
+    pub fn enable_black_white(&self) -> Result<(), Error> {
+        self.camera.enable_black_white()
+    }
+
+    /// Disable black-and-white mode.
+    pub fn disable_black_white(&self) -> Result<(), Error> {
+        self.camera.disable_black_white()
+    }
+
+    /// Set picture effect mode.
+    pub fn set_picture_effect(
+        &self,
+        mode: crate::command::resolution::PictureEffectMode,
+    ) -> Result<(), Error> {
+        self.camera.set_picture_effect(mode)
+    }
+
+    /// Set 2D noise reduction level.
+    pub fn set_noise_reduction_2d(
+        &self,
+        level: crate::types::NoiseReduction2DLevel,
+    ) -> Result<(), Error> {
+        self.camera.set_noise_reduction_2d(level)
+    }
+
+    /// Disable 2D noise reduction.
+    pub fn disable_noise_reduction_2d(&self) -> Result<(), Error> {
+        self.camera.disable_noise_reduction_2d()
+    }
+
+    /// Set 3D noise reduction level.
+    pub fn set_noise_reduction_3d(
+        &self,
+        level: crate::types::NoiseReduction3DLevel,
+    ) -> Result<(), Error> {
+        self.camera.set_noise_reduction_3d(level)
+    }
+
+    /// Disable 3D noise reduction.
+    pub fn disable_noise_reduction_3d(&self) -> Result<(), Error> {
+        self.camera.disable_noise_reduction_3d()
+    }
+}
+
+define_blocking_accessor!(
+    /// Blocking preset controls.
+    BlockingPresetsAccessor
+);
+
+impl<P, Tr> BlockingPresetsAccessor<'_, P, Tr>
+where
+    P: crate::capabilities::Profile + Default + crate::capabilities::presets::Presets,
+    Camera<Blocking, P, Tr, ()>: PresetsControl<Mode = Blocking>,
+{
+    /// Recall a preset.
+    pub fn recall(&self, preset: u8) -> Result<(), Error> {
+        self.camera.preset_recall(crate::PresetNumber::new(preset)?)
+    }
+
+    /// Save the current position as a preset.
+    pub fn set(&self, preset: u8) -> Result<(), Error> {
+        self.camera.preset_set(crate::PresetNumber::new(preset)?)
+    }
+
+    /// Clear a preset.
+    pub fn reset(&self, preset: u8) -> Result<(), Error> {
+        self.camera.preset_reset(crate::PresetNumber::new(preset)?)
+    }
+}
+
+define_blocking_accessor!(
+    /// Blocking tally controls and inquiries.
+    BlockingTallyAccessor
+);
+
+impl<P, Tr> BlockingTallyAccessor<'_, P, Tr>
+where
+    P: crate::capabilities::Profile + Default,
+    Camera<Blocking, P, Tr, ()>: TallyControl<Mode = Blocking> + InquiryControl<Mode = Blocking>,
+{
+    /// Get tally light status.
+    pub fn status(&self) -> Result<crate::command::typed::TallyStatusState, Error> {
+        self.camera.tally_light_status()
+    }
+
+    /// Check whether tally auto-adjust is enabled.
+    pub fn auto_adjust_enabled(&self) -> Result<bool, Error> {
+        self.camera.tally_auto_adjust_enabled()
+    }
+
+    /// Turn on red tally light.
+    pub fn red_on(&self) -> Result<(), Error> {
+        self.camera.tally_red_on()
+    }
+
+    /// Turn off red tally light.
+    pub fn red_off(&self) -> Result<(), Error> {
+        self.camera.tally_red_off()
+    }
+
+    /// Turn on green tally light.
+    pub fn green_on(&self) -> Result<(), Error> {
+        self.camera.tally_green_on()
+    }
+
+    /// Turn off green tally light.
+    pub fn green_off(&self) -> Result<(), Error> {
+        self.camera.tally_green_off()
+    }
+}
+
+define_blocking_accessor!(
+    /// Blocking system controls and inquiries.
+    BlockingSystemAccessor
+);
+
+impl<P, Tr> BlockingSystemAccessor<'_, P, Tr>
+where
+    P: crate::capabilities::Profile + Default,
+    Camera<Blocking, P, Tr, ()>: SystemControl<Mode = Blocking> + InquiryControl<Mode = Blocking>,
+{
+    /// Get camera version information.
+    pub fn version(&self) -> Result<crate::command::typed::VersionInfo, Error> {
+        self.camera.version()
+    }
+
+    /// Clear the VISCA interface.
+    pub fn interface_clear(&self) -> Result<(), Error> {
+        self.camera.interface_clear()
+    }
+
+    /// Cancel a command on a VISCA socket.
+    pub fn cancel_command(&self, socket: crate::ViscaSocket) -> Result<(), Error> {
+        self.camera.cancel_command(socket)
+    }
+}
+
+define_blocking_accessor!(
+    /// Blocking menu controls and inquiries.
+    BlockingMenuAccessor
+);
+
+impl<P, Tr> BlockingMenuAccessor<'_, P, Tr>
+where
+    P: crate::capabilities::Profile + Default + crate::capabilities::MenuCapability,
+    Camera<Blocking, P, Tr, ()>: MenuControl<Mode = Blocking> + InquiryControl<Mode = Blocking>,
+{
+    /// Check whether the menu is open.
+    pub fn is_open(&self) -> Result<bool, Error> {
+        self.camera.menu_status()
+    }
+
+    /// Open the menu.
+    pub fn open(&self) -> Result<(), Error> {
+        self.camera.set_menu_display(true)
+    }
+
+    /// Close the menu.
+    pub fn close(&self) -> Result<(), Error> {
+        self.camera.set_menu_display(false)
+    }
+
+    /// Navigate up.
+    pub fn up(&self) -> Result<(), Error> {
+        self.camera
+            .menu_navigate(crate::command::menu::MenuDirection::Up)
+    }
+
+    /// Navigate down.
+    pub fn down(&self) -> Result<(), Error> {
+        self.camera
+            .menu_navigate(crate::command::menu::MenuDirection::Down)
+    }
+
+    /// Navigate left.
+    pub fn left(&self) -> Result<(), Error> {
+        self.camera
+            .menu_navigate(crate::command::menu::MenuDirection::Left)
+    }
+
+    /// Navigate right.
+    pub fn right(&self) -> Result<(), Error> {
+        self.camera
+            .menu_navigate(crate::command::menu::MenuDirection::Right)
+    }
+
+    /// Confirm menu selection.
+    pub fn enter(&self) -> Result<(), Error> {
+        self.camera
+            .menu_action(crate::command::menu::MenuAction::Select)
+    }
+
+    /// Return from the current menu level.
+    pub fn return_menu(&self) -> Result<(), Error> {
+        self.camera
+            .menu_action(crate::command::menu::MenuAction::Cancel)
+    }
+}
+
+define_blocking_accessor!(
+    /// Blocking ND filter controls and inquiries.
+    BlockingNdFilterAccessor
+);
+
+impl<P, Tr> BlockingNdFilterAccessor<'_, P, Tr>
+where
+    P: crate::capabilities::Profile + Default + crate::capabilities::nd_filter::NdFilter,
+    Camera<Blocking, P, Tr, ()>: NdFilterControl<Mode = Blocking> + InquiryControl<Mode = Blocking>,
+{
+    /// Get the current ND filter position.
+    pub fn position(&self) -> Result<crate::command::resolution::NdFilterPosition, Error> {
+        self.camera.nd_filter_position()
+    }
+
+    /// Get the ND filter preset setting.
+    pub fn preset(&self) -> Result<crate::types::NdFilterPreset, Error> {
+        self.camera.nd_filter_preset()
+    }
+
+    /// Set ND filter mode.
+    pub fn set_mode(&self, mode: crate::command::NdFilterMode) -> Result<(), Error> {
+        self.camera.set_nd_filter_mode(mode)
+    }
+}
+
+define_blocking_accessor!(
+    /// Blocking motion sync controls and inquiries.
+    BlockingMotionSyncAccessor
+);
+
+impl<P, Tr> BlockingMotionSyncAccessor<'_, P, Tr>
+where
+    P: crate::capabilities::Profile + Default + crate::capabilities::motion_sync::MotionSync,
+    Camera<Blocking, P, Tr, ()>: MotionSyncControl<Mode = Blocking>,
+{
+    /// Get the motion sync mode.
+    pub fn mode(&self) -> Result<crate::command::MotionSyncMode, Error> {
+        self.camera.motion_sync_mode()
+    }
+}
+
+define_blocking_accessor!(
+    /// Blocking advanced settings inquiries.
+    BlockingAdvancedAccessor
+);
+
+impl<P, Tr> BlockingAdvancedAccessor<'_, P, Tr>
+where
+    P: crate::capabilities::Profile + Default,
+    Camera<Blocking, P, Tr, ()>: InquiryControl<Mode = Blocking>,
+{
+    /// Check whether night/day mode is enabled.
+    pub fn night_day_mode(&self) -> Result<bool, Error> {
+        self.camera.night_day_mode()
+    }
+
+    /// Check whether standby is enabled.
+    pub fn standby_enabled(&self) -> Result<bool, Error> {
+        self.camera.standby_enabled()
+    }
+
+    /// Check iris control status.
+    pub fn iris_control(&self) -> Result<bool, Error> {
+        self.camera.iris_control()
+    }
+
+    /// Check whether digital PTZ is enabled.
+    pub fn digital_ptz_enabled(&self) -> Result<bool, Error> {
+        self.camera.digital_ptz_enabled()
+    }
+
+    /// Check whether auto trace is enabled.
+    pub fn auto_trace_enabled(&self) -> Result<bool, Error> {
+        self.camera.auto_trace_enabled()
+    }
+
+    /// Get focus unlock state.
+    pub fn focus_unlock(&self) -> Result<bool, Error> {
+        self.camera.focus_unlock()
+    }
+
+    /// Get broadcast domain setting.
+    pub fn broadcast_domain(&self) -> Result<crate::types::BroadcastDomain, Error> {
+        self.camera.broadcast_domain()
+    }
+
+    /// Check whether USB audio is enabled.
+    pub fn usb_audio_enabled(&self) -> Result<bool, Error> {
+        self.camera.usb_audio_enabled()
+    }
+
+    /// Check whether two-tone mode is enabled.
+    pub fn two_tone_mode_enabled(&self) -> Result<bool, Error> {
+        self.camera.two_tone_mode_enabled()
+    }
+
+    /// Check whether digital mode is enabled.
+    pub fn digital_mode_enabled(&self) -> Result<bool, Error> {
+        self.camera.digital_mode_enabled()
     }
 }
 
@@ -1039,8 +2106,6 @@ where
         /// Enable/disable auto ND.
         fn set_auto_nd(enabled: bool) -> ();
 
-        /// Get ND filter value.
-        fn nd_filter() -> crate::command::resolution::NdFilterPosition;
     }
 }
 

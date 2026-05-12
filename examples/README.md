@@ -16,7 +16,7 @@ This library uses feature flags to control dependencies:
 - **`runtime-smol`**: Built-in smol runtime support (implies `mode-async`)
 - **`transport-serial`**: Blocking serial (RS-232/RS-422)
 - **`transport-serial-tokio`**: Tokio serial transport (implies `runtime-tokio`)
-- **`test-utils`**: Testing utilities (not for production)
+- **`test-utils`**: Deterministic test transports and executors
 
 ## Getting Started
 

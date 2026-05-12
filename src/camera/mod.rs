@@ -14,19 +14,20 @@
 
 pub mod accessors;
 pub mod builder;
-pub mod camera_impl;
-pub mod capabilities;
+mod camera_impl;
+pub(crate) mod capabilities;
 pub mod config;
 pub mod controls;
 pub mod convenience;
 pub mod inflight;
-pub mod movement;
+mod movement;
 pub mod profiles;
 pub mod session;
 
-// Blocking-specific wrapper module
 #[cfg(not(feature = "mode-async"))]
-pub mod blocking_api;
+mod blocking_api;
+#[cfg(not(feature = "mode-async"))]
+pub use blocking_api::BlockingClient;
 
 // Re-export the camera type (the actual implementation)
 pub use camera_impl::Camera;
@@ -49,13 +50,13 @@ pub use convenience::{Connect, ConnectBuilder};
 #[cfg(feature = "mode-async")]
 pub type AsyncCamera<P, Tr, Exec> = Camera<crate::mode::Async, P, Tr, Exec>;
 
-/// Blocking camera type alias for unified API usage.
+/// Blocking camera client type alias.
 ///
-/// This type represents a camera operating in blocking mode with synchronous operations.
-/// It requires a sync transport for operation. For ergonomic blocking API with direct
-/// Result returns, see `blocking_api::BlockingCamera`.
+/// This is the ergonomic blocking client returned by [`Connect`],
+/// [`CameraConfig::open_blocking`], and blocking [`CameraBuilder`] flows. Its
+/// methods and noun accessors return `Result<T, Error>` directly.
 #[cfg(not(feature = "mode-async"))]
-pub type BlockingCamera<P, Tr> = Camera<crate::mode::Blocking, P, Tr, ()>;
+pub type BlockingCamera<P, Tr> = BlockingClient<P, Tr>;
 
 // Re-export builder types
 pub use builder::CameraBuilder;

@@ -1185,7 +1185,7 @@ impl ZoomSpeed {
     ///
     /// # Safety
     /// The caller must ensure that the value is within the valid range (0-7).
-    /// This is intended for internal use where the value is already validated.
+    /// Use this only when the value has already been validated by another API.
     #[doc(hidden)]
     pub const fn new_unchecked(value: u8) -> Self {
         debug_assert!(value <= 7, "ZoomSpeed value must be <= 7");

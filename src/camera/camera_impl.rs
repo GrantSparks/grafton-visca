@@ -730,7 +730,7 @@ where
         })
     }
 
-    /// Get a reference to the runtime handle (internal use).
+    /// Get a reference to the runtime handle.
     pub(crate) fn runtime(&self) -> &crate::runtime::RuntimeHandle<P, Exec> {
         &self.runtime
     }
