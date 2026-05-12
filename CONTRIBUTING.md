@@ -196,12 +196,11 @@ fn test_movement_safety() {
 ### Running Tests
 
 ```bash
-# All tests
-cargo test --all-features
+# Default test suite
+cargo test
 
-# Specific feature combinations
+# Runtime and transport feature combinations
 cargo test --no-default-features --features runtime-tokio
-cargo test --no-default-features --features runtime-smol
 cargo test --no-default-features --features runtime-smol
 cargo test --no-default-features --features runtime-tokio,transport-serial
 cargo test --no-default-features --features runtime-tokio,transport-serial-tokio
@@ -214,6 +213,8 @@ cargo test -- --nocapture
 ```
 
 ## Documentation
+
+For v1.0 milestone work, update the Unreleased section of `CHANGELOG.md` in the same change as the implementation. If behavior, setup, examples, or contributor workflow changes, update the matching README, example, or contributor docs before closing the task.
 
 ### Code Documentation
 

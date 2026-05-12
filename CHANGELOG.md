@@ -42,6 +42,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+#### Scheduler Command/Inquiry State Split (#508)
+- Runtime scheduler state is now split into distinct command and inquiry entries instead of a shared mixed state bag
+- Commands own ACK, socket, retry, and cancellation state; inquiries own reply correlation, response typing, and inquiry retry state
+- Inquiry response type is required when an inquiry enters active scheduler state, and inquiry handling no longer depends on debug-only kind assertions
+- Tests now cover legal command/inquiry invariants only, including that inquiry entries cannot carry cancellation state
+
 #### Documentation and Examples Aligned for v1.0 (#509, #510)
 - README, crate docs, prelude docs, and examples now present `Connect` plus camera-first accessors as the primary API for both blocking and async users
 - Installation snippets now target the v1 line and remove stale pre-release/0.x caveats

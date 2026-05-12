@@ -326,8 +326,8 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
                 self.response_channels.insert(id, response_tx);
 
                 // Queue inquiry in core with Low priority.
-                // response_type is stored in EncodedCommand and accessed via
-                // CommandState.response_type() when the inquiry is started.
+                // response_type is stored in EncodedCommand and copied into
+                // InquiryEntry when the inquiry is started.
                 // Inquiries are typically used for polling/status checks, so they should
                 // not block user-initiated commands. This prevents command starvation when
                 // polling generates many inquiries that timeout/retry (GitHub issue #381).

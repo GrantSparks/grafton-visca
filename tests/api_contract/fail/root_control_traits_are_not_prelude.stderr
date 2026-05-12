@@ -1,8 +1,8 @@
 error[E0405]: cannot find trait `PowerControl` in crate `grafton_visca`
- --> tests/api_contract/fail/root_control_traits_are_not_prelude.rs:3:52
+ --> tests/api_contract/fail/root_control_traits_are_not_prelude.rs:3:28
   |
-3 |         core::any::TypeId::of::<dyn grafton_visca::PowerControl<Mode = grafton_visca::mode::Blocking>>();
-  |                                                    ^^^^^^^^^^^^ not found in `grafton_visca`
+3 |         dyn grafton_visca::PowerControl<Mode = grafton_visca::mode::Blocking>,
+  |                            ^^^^^^^^^^^^ not found in `grafton_visca`
   |
 help: consider importing this trait
   |
@@ -10,6 +10,6 @@ help: consider importing this trait
   |
 help: if you import `PowerControl`, refer to it directly
   |
-3 -         core::any::TypeId::of::<dyn grafton_visca::PowerControl<Mode = grafton_visca::mode::Blocking>>();
-3 +         core::any::TypeId::of::<dyn PowerControl<Mode = grafton_visca::mode::Blocking>>();
+3 -         dyn grafton_visca::PowerControl<Mode = grafton_visca::mode::Blocking>,
+3 +         dyn PowerControl<Mode = grafton_visca::mode::Blocking>,
   |

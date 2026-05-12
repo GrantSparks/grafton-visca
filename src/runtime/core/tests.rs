@@ -681,8 +681,8 @@ fn test_inquiry_timeout_handling() {
     // Exhaust retries by timing out again (simulate max retries reached)
     // For Quick category, we get extra retries, so we need to exhaust them
     // Set retry attempts to max to force failure on next timeout
-    // Must be done AFTER start_inquiry since it creates a new CommandState
-    if let Some(state) = core.commands.get_mut(&cmd_id(1)) {
+    // Must be done AFTER start_inquiry since it creates a new InquiryEntry.
+    if let Some(state) = core.inquiries.get_mut(&cmd_id(1)) {
         state.attempt = 10; // Force max retries exceeded
     }
 
@@ -2026,9 +2026,8 @@ fn test_inquiry_pipeline_limit() {
     let inq3 = core.next_item_to_send(now);
     assert!(inq3.is_none());
 
-    // Complete one inquiry by removing it from commands
-    // (phase state is embedded in the command, so removing it completes the inquiry)
-    core.commands.remove(&cmd_id(1));
+    // Complete one inquiry by removing it from inquiry state.
+    core.inquiries.remove(&cmd_id(1));
     core.inquiries_order.retain(|&x| x != cmd_id(1));
 
     // Now the third inquiry should be sendable
@@ -3994,7 +3993,7 @@ fn test_inquiry_retry_preserves_attempt_count() {
 
     // Verify initial state
     {
-        let state = core.commands.get(&cmd_id(1)).expect("should exist");
+        let state = core.inquiries.get(&cmd_id(1)).expect("should exist");
         assert_eq!(state.attempt, 0, "Initial attempt should be 0");
         assert_eq!(state.submitted_at, now, "Initial submitted_at should match");
     }
@@ -4015,7 +4014,7 @@ fn test_inquiry_retry_preserves_attempt_count() {
 
     // Verify attempt was incremented to 1
     {
-        let state = core.commands.get(&cmd_id(1)).expect("should exist");
+        let state = core.inquiries.get(&cmd_id(1)).expect("should exist");
         assert_eq!(state.attempt, 1, "Attempt should be incremented to 1");
     }
 
@@ -4031,7 +4030,7 @@ fn test_inquiry_retry_preserves_attempt_count() {
 
     // CRITICAL: attempt should still be 1 (not reset to 0)
     {
-        let state = core.commands.get(&cmd_id(1)).expect("should exist");
+        let state = core.inquiries.get(&cmd_id(1)).expect("should exist");
         assert_eq!(
             state.attempt, 1,
             "Attempt count should be PRESERVED (1), not reset to 0"
@@ -4078,7 +4077,7 @@ fn test_inquiry_retry_preserves_submitted_at() {
         start_time,
     );
 
-    let original_submitted_at = core.commands.get(&cmd_id(1)).unwrap().submitted_at;
+    let original_submitted_at = core.inquiries.get(&cmd_id(1)).unwrap().submitted_at;
 
     // Simulate multiple resends at different times
     for i in 1..=3 {
@@ -4091,7 +4090,7 @@ fn test_inquiry_retry_preserves_submitted_at() {
             resend_time,
         );
 
-        let state = core.commands.get(&cmd_id(1)).expect("should exist");
+        let state = core.inquiries.get(&cmd_id(1)).expect("should exist");
         assert_eq!(
             state.submitted_at, original_submitted_at,
             "submitted_at should be preserved across resends (iteration {})",
@@ -4132,7 +4131,7 @@ fn test_inquiry_retry_preserves_transport_error_flag() {
 
     // Verify flag is set
     assert!(
-        core.commands.get(&cmd_id(1)).unwrap().transport_error,
+        core.inquiries.get(&cmd_id(1)).unwrap().transport_error,
         "transport_error should be set"
     );
 
@@ -4148,7 +4147,7 @@ fn test_inquiry_retry_preserves_transport_error_flag() {
 
     // CRITICAL: transport_error should still be true
     assert!(
-        core.commands.get(&cmd_id(1)).unwrap().transport_error,
+        core.inquiries.get(&cmd_id(1)).unwrap().transport_error,
         "transport_error flag should be PRESERVED after resend"
     );
 }
@@ -4194,13 +4193,13 @@ fn test_inquiry_retries_terminate_after_max_retries() {
         "First timeout should trigger retry"
     );
     assert_eq!(
-        core.commands.get(&cmd_id(1)).unwrap().attempt,
+        core.inquiries.get(&cmd_id(1)).unwrap().attempt,
         1,
         "Attempt should be 1"
     );
 
     // Simulate resend (runtime would call start_inquiry again)
-    // start_inquiry sets phase to AwaitingInquiryReply
+    // start_inquiry sets phase to AwaitingReply.
     core.start_inquiry(cmd_id(1), inquiry.clone(), Priority::Normal, camera_id, t1);
 
     // Second timeout (attempt 1 -> 2)
@@ -4212,7 +4211,7 @@ fn test_inquiry_retries_terminate_after_max_retries() {
         "Second timeout should trigger retry"
     );
     assert_eq!(
-        core.commands.get(&cmd_id(1)).unwrap().attempt,
+        core.inquiries.get(&cmd_id(1)).unwrap().attempt,
         2,
         "Attempt should be 2"
     );
@@ -4238,8 +4237,8 @@ fn test_inquiry_retries_terminate_after_max_retries() {
 
     // Command should be removed
     assert!(
-        !core.commands.contains_key(&cmd_id(1)),
-        "Command should be removed after terminal failure"
+        !core.inquiries.contains_key(&cmd_id(1)),
+        "Inquiry should be removed after terminal failure"
     );
 }
 
@@ -4347,7 +4346,7 @@ fn test_inquiry_transport_error_classification_after_retries() {
 
     // Verify transport_error is still set after resend
     assert!(
-        core.commands.get(&cmd_id(1)).unwrap().transport_error,
+        core.inquiries.get(&cmd_id(1)).unwrap().transport_error,
         "transport_error should be preserved after resend"
     );
 
@@ -4364,7 +4363,7 @@ fn test_inquiry_transport_error_classification_after_retries() {
 
     // Verify transport_error is STILL preserved after second resend
     assert!(
-        core.commands.get(&cmd_id(1)).unwrap().transport_error,
+        core.inquiries.get(&cmd_id(1)).unwrap().transport_error,
         "transport_error should be preserved after second resend"
     );
 
@@ -4433,8 +4432,7 @@ fn test_inquiries_order_no_duplicates_on_resend() {
 }
 
 #[test]
-fn test_inquiry_preserves_cancel_requested_flag() {
-    // Test: start_inquiry on resend should NOT reset cancel_requested flag.
+fn test_inquiry_entries_do_not_accept_cancel_state() {
     let mut core = SchedulerCore::new(TimeoutConfig::default());
     let camera_id = CameraId::CAMERA_1;
     let now = Instant::now();
@@ -4444,16 +4442,11 @@ fn test_inquiry_preserves_cancel_requested_flag() {
     // Start initial inquiry
     core.start_inquiry(cmd_id(1), inquiry.clone(), Priority::Normal, camera_id, now);
 
-    // Set cancel_requested (normally done by request_cancel_by_id)
-    if let Some(state) = core.commands.get_mut(&cmd_id(1)) {
-        state.cancel_requested = true;
-    }
-
-    // Verify flag is set
-    assert!(
-        core.commands.get(&cmd_id(1)).unwrap().cancel_requested,
-        "cancel_requested should be set"
-    );
+    // Cancel-by-id is command-only. An inquiry with the same id is not mutated
+    // and no command entry is created.
+    assert!(core.request_cancel_by_id(cmd_id(1)).is_none());
+    assert!(!core.commands.contains_key(&cmd_id(1)));
+    assert!(core.inquiries.contains_key(&cmd_id(1)));
 
     // Simulate resend
     let resend_time = now + Duration::from_millis(200);
@@ -4465,11 +4458,8 @@ fn test_inquiry_preserves_cancel_requested_flag() {
         resend_time,
     );
 
-    // CRITICAL: cancel_requested should still be true
-    assert!(
-        core.commands.get(&cmd_id(1)).unwrap().cancel_requested,
-        "cancel_requested flag should be PRESERVED after resend"
-    );
+    assert!(!core.commands.contains_key(&cmd_id(1)));
+    assert!(core.inquiries.contains_key(&cmd_id(1)));
 }
 
 #[test]
@@ -4484,7 +4474,7 @@ fn test_new_inquiry_starts_fresh() {
     // Start a new inquiry
     core.start_inquiry(cmd_id(1), inquiry.clone(), Priority::Normal, camera_id, now);
 
-    let state = core.commands.get(&cmd_id(1)).expect("should exist");
+    let state = core.inquiries.get(&cmd_id(1)).expect("should exist");
     assert_eq!(state.attempt, 0, "New inquiry should have attempt = 0");
     assert_eq!(
         state.submitted_at, now,
@@ -4493,10 +4483,6 @@ fn test_new_inquiry_starts_fresh() {
     assert!(
         !state.transport_error,
         "New inquiry should have transport_error = false"
-    );
-    assert!(
-        !state.cancel_requested,
-        "New inquiry should have cancel_requested = false"
     );
 
     // Start a different new inquiry
@@ -4509,7 +4495,7 @@ fn test_new_inquiry_starts_fresh() {
         later,
     );
 
-    let state2 = core.commands.get(&cmd_id(2)).expect("should exist");
+    let state2 = core.inquiries.get(&cmd_id(2)).expect("should exist");
     assert_eq!(
         state2.attempt, 0,
         "Second new inquiry should have attempt = 0"
