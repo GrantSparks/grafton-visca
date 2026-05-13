@@ -190,7 +190,9 @@ jobs:
         with:
           shared-key: "rust-cache-windows-${{ matrix.rust }}-${{ steps.windows-features.outputs.sanitized }}"
           save-if: ${{ github.ref == 'refs/heads/main' }}
-          cache-targets: true
+          # Trybuild creates transient target/tests/target trees on Windows; skip
+          # target caching there so post-job cache scans do not emit ENOENT noise.
+          cache-targets: false
           cache-on-failure: true
           cache-all-crates: true
 
