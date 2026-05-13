@@ -23,6 +23,7 @@
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! let runtime = TokioRuntime::from_current()?;
 //! let config = CameraConfig::<GenericVisca>::new()
+//!     .tcp()
 //!     .address("192.168.0.110:5678")
 //!     .transport_config(TransportConfig {
 //!         tcp_keepalive: Some(TcpKeepaliveConfig::default()),
@@ -216,7 +217,7 @@ impl Transport {
     /// # #[cfg(feature = "runtime-tokio")]
     /// # async fn async_example() -> Result<(), Box<dyn std::error::Error>> {
     /// // Building cameras with transport configuration
-    /// use grafton_visca::{camera::{CameraConfig, Camera, Connect}, runtime::TokioRuntime};
+    /// use grafton_visca::{camera::{CameraConfig, Connect}, runtime::TokioRuntime};
     /// use grafton_visca::camera::profiles::GenericVisca;
     /// let runtime = TokioRuntime::from_current()?;
     /// // Use convenience method for quick setup
@@ -249,7 +250,7 @@ impl Transport {
     /// # #[cfg(feature = "runtime-tokio")]
     /// # async fn async_example() -> Result<(), Box<dyn std::error::Error>> {
     /// // Building cameras with transport configuration
-    /// use grafton_visca::{camera::{CameraConfig, Camera, Connect}, runtime::TokioRuntime};
+    /// use grafton_visca::{camera::{CameraConfig, Connect}, runtime::TokioRuntime};
     /// use grafton_visca::camera::profiles::GenericVisca;
     /// let runtime = TokioRuntime::from_current()?;
     /// // Use convenience method for quick setup

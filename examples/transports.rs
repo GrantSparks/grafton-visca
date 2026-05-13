@@ -21,10 +21,11 @@ use std::{
 
 #[cfg(not(feature = "mode-async"))]
 use grafton_visca::{
+    camera::Connect,
     profiles::PtzOpticsG2,
     types::SpeedLevel,
     units::{Degrees, Normalized},
-    BlockingCamera, Error,
+    Error,
 };
 
 #[cfg(not(feature = "mode-async"))]
@@ -48,7 +49,7 @@ fn main() -> Result<(), Error> {
     println!();
 
     println!("Connecting via TCP (default port 5678)...");
-    let mut tcp_camera = BlockingCamera::<PtzOpticsG2, _>::open_tcp(format!("{camera_addr}:5678"))?;
+    let mut tcp_camera = Connect::open_tcp_blocking::<PtzOpticsG2>(format!("{camera_addr}:5678"))?;
 
     println!("✓ TCP connection established");
 
@@ -63,7 +64,7 @@ fn main() -> Result<(), Error> {
     println!("═══ TCP with Custom Port ═══");
     println!("Connecting via TCP on custom port 1259...");
 
-    match BlockingCamera::<PtzOpticsG2, _>::open_tcp(format!("{camera_addr}:1259")) {
+    match Connect::open_tcp_blocking::<PtzOpticsG2>(format!("{camera_addr}:1259")) {
         Ok(camera) => {
             println!("✓ TCP connection established on port 1259");
 
@@ -89,7 +90,7 @@ fn main() -> Result<(), Error> {
     // PTZOptics uses UDP port 1259 for raw VISCA
     // Sony cameras typically use UDP port 52381 with encapsulation
 
-    match BlockingCamera::<PtzOpticsG2, _>::open_udp(format!("{camera_addr}:1259")) {
+    match Connect::open_udp_blocking::<PtzOpticsG2>(format!("{camera_addr}:1259")) {
         Ok(mut camera) => {
             println!("✓ UDP transport initialized");
 
@@ -120,7 +121,7 @@ fn main() -> Result<(), Error> {
     println!("Attempting to connect to non-existent camera (192.168.255.255)...");
     let start = Instant::now();
 
-    let timeout_result = BlockingCamera::<PtzOpticsG2, _>::open_tcp("192.168.255.255");
+    let timeout_result = Connect::open_tcp_blocking::<PtzOpticsG2>("192.168.255.255");
 
     let elapsed = start.elapsed();
 
@@ -175,7 +176,7 @@ fn main() -> Result<(), Error> {
 
     // If UDP is available, compare performance
     if let Ok(udp_camera) =
-        BlockingCamera::<PtzOpticsG2, _>::open_udp(format!("{camera_addr}:52381"))
+        Connect::open_udp_blocking::<PtzOpticsG2>(format!("{camera_addr}:52381"))
     {
         println!("Sending 10 commands via UDP...");
 

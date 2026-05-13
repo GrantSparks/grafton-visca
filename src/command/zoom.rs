@@ -10,14 +10,16 @@
 //! ```ignore
 //! # #[cfg(not(feature = "mode-async"))]
 //! # {
-//! # use grafton_visca::{command::Zoom, ZoomSpeed};
-//! # use grafton_visca::Client;
-//! # let client = Client::connect_udp("192.168.0.110:5678").unwrap();
+//! # use grafton_visca::{CameraId, command::{ViscaCommand, Zoom}, ZoomSpeed};
 //! // Zoom in at standard speed
-//! client.send(&Zoom::TeleStd).unwrap();
+//! let tele = Zoom::TeleStd.to_bytes(CameraId::CAMERA_1).unwrap();
+//! assert_eq!(tele[0], 0x81);
 //!
 //! // Zoom out at variable speed
-//! client.send(&Zoom::WideVariable(ZoomSpeed::new(5).unwrap())).unwrap();
+//! let wide = Zoom::WideVariable(ZoomSpeed::new(5).unwrap())
+//!     .to_bytes(CameraId::CAMERA_1)
+//!     .unwrap();
+//! assert_eq!(wide[0], 0x81);
 //! # }
 //! ```
 

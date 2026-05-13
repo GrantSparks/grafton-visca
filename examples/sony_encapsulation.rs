@@ -11,8 +11,10 @@
 
 #[cfg(not(feature = "mode-async"))]
 use grafton_visca::{
-    camera::profiles::SonyFR7, prelude::blocking::*, types::SpeedLevel, units::Degrees,
-    CameraBuilder, Error, ZoomSpeed,
+    camera::{profiles::SonyFR7, Connect},
+    types::SpeedLevel,
+    units::Degrees,
+    Error, ZoomSpeed,
 };
 
 #[cfg(not(feature = "mode-async"))]
@@ -34,11 +36,8 @@ fn main() -> Result<(), Error> {
     println!("Connecting to Sony camera at {camera_addr}");
     println!("Using profile: Sony FR7 (with sequence numbers)\n");
 
-    // Build camera with Sony FR7 profile
-    // This automatically configures the transport to use Sony encapsulation
-    let camera = CameraBuilder::tcp(&camera_addr)
-        .profile::<SonyFR7>() // Sony FR7 uses encapsulation with sequence numbers
-        .open()?;
+    // Connect with Sony FR7 profile; the profile selects Sony encapsulation.
+    let camera = Connect::open_tcp_blocking::<SonyFR7>(&camera_addr)?;
 
     println!("✅ Connected successfully!");
     println!("Protocol: Sony Encapsulated (8-byte header with sequence tracking)\n");
@@ -133,8 +132,11 @@ fn main() -> Result<(), Error> {
 
 #[cfg(feature = "runtime-tokio")]
 use grafton_visca::{
-    camera::profiles::SonyFR7, runtime::TokioRuntime, runtime_adapters::tokio::TcpTransport as Tcp,
-    types::SpeedLevel, units::Degrees, CameraBuilder, Error,
+    camera::{profiles::SonyFR7, Connect},
+    runtime::TokioRuntime,
+    types::SpeedLevel,
+    units::Degrees,
+    Error,
 };
 #[cfg(feature = "runtime-tokio")]
 use tokio::time::{sleep, Duration};
@@ -159,13 +161,9 @@ async fn main() -> Result<(), Error> {
     println!("Connecting to Sony camera at {camera_addr}");
     println!("Using profile: Sony FR7 (with sequence numbers)\n");
 
-    // Build camera with Sony FR7 profile
-    // This automatically configures the transport to use Sony encapsulation
-    let transport = Tcp::connect(&camera_addr).await?;
+    // Connect with Sony FR7 profile; the profile selects Sony encapsulation.
     let runtime = TokioRuntime::from_current()?;
-    let camera = CameraBuilder::with_executor(runtime)
-        .open_async::<SonyFR7, _>(transport)
-        .await?;
+    let camera = Connect::open_tcp_async::<SonyFR7, _>(&camera_addr, runtime).await?;
 
     println!("✅ Connected successfully!");
     println!("Protocol: Sony Encapsulated (8-byte header with sequence tracking)\n");

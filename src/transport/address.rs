@@ -224,7 +224,7 @@ impl HostPort {
     }
 
     /// Get the port if specified.
-    #[cfg(any(not(feature = "mode-async"), test))]
+    #[cfg(test)]
     pub fn port(&self) -> Option<u16> {
         match self {
             HostPort::Ipv4 { port, .. } => *port,

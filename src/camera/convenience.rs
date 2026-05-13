@@ -14,16 +14,14 @@ use crate::camera::CameraSession;
 #[derive(Debug, Clone, Copy)]
 pub struct Connect;
 
-/// Builder for creating camera connections with runtime-neutral configuration.
+/// Builder for creating high-level camera connections with runtime-neutral configuration.
 ///
-/// This builder provides a fluent API for configuring camera connections
-/// without assuming any specific runtime, making it suitable for use with
-/// tokio, smol, or blocking mode.
+/// This builder is the configured form of the primary `Connect` path. It
+/// supports TCP, UDP, and serial selection without exposing transport internals.
 ///
 /// # Example
 /// ```rust,ignore
-/// use grafton_visca::Connect;
-/// use grafton_visca::camera::profiles::PtzOpticsG2;
+/// use grafton_visca::camera::{Connect, profiles::PtzOpticsG2};
 ///
 /// // Simple TCP connection with default port
 /// let cam = Connect::builder()
@@ -67,13 +65,16 @@ impl Connect {
     /// # Example
     ///
     /// ```ignore
-    /// use grafton_visca::camera::{Camera, profiles::PtzOpticsG2};
+    /// use grafton_visca::camera::{Connect, profiles::PtzOpticsG2};
+    /// use grafton_visca::runtime::TokioRuntime;
+    ///
+    /// let runtime = TokioRuntime::from_current()?;
     ///
     /// // With explicit port
-    /// let cam = Camera::open_tcp_async::<PtzOpticsG2>("192.168.0.110:5678", &tokio_runtime).await?;
+    /// let cam = Connect::open_tcp_async::<PtzOpticsG2, _>("192.168.0.110:5678", runtime.clone()).await?;
     ///
     /// // Without port - runtime adds PtzOpticsG2::DEFAULT_TCP_PORT (5678)
-    /// let cam = Camera::open_tcp_async::<PtzOpticsG2>("192.168.0.110", &tokio_runtime).await?;
+    /// let cam = Connect::open_tcp_async::<PtzOpticsG2, _>("192.168.0.110", runtime).await?;
     /// ```
     pub async fn open_tcp_async<P, R>(
         addr: impl Into<String>,
@@ -100,13 +101,16 @@ impl Connect {
     /// # Example
     ///
     /// ```ignore
-    /// use grafton_visca::camera::{Camera, profiles::GenericVisca};
+    /// use grafton_visca::camera::{Connect, profiles::GenericVisca};
+    /// use grafton_visca::runtime::TokioRuntime;
+    ///
+    /// let runtime = TokioRuntime::from_current()?;
     ///
     /// // With explicit port
-    /// let cam = Camera::open_udp_async::<GenericVisca>("192.168.0.110:1259", &tokio_runtime).await?;
+    /// let cam = Connect::open_udp_async::<GenericVisca, _>("192.168.0.110:1259", runtime.clone()).await?;
     ///
     /// // Without port - runtime adds GenericVisca::DEFAULT_UDP_PORT (1259)
-    /// let cam = Camera::open_udp_async::<GenericVisca>("192.168.0.110", &tokio_runtime).await?;
+    /// let cam = Connect::open_udp_async::<GenericVisca, _>("192.168.0.110", runtime).await?;
     /// ```
     pub async fn open_udp_async<P, R>(
         addr: impl Into<String>,
@@ -137,11 +141,11 @@ impl Connect {
     /// # Example
     ///
     /// ```ignore
-    /// use grafton_visca::camera::{Camera, profiles::PtzOpticsG2};
+    /// use grafton_visca::camera::{Connect, profiles::PtzOpticsG2};
     /// use grafton_visca::runtime::TokioRuntime;
     ///
     /// let runtime = TokioRuntime::from_current()?;
-    /// let cam = Camera::open_serial_async::<PtzOpticsG2, _>("/dev/ttyUSB0", 9600, runtime).await?;
+    /// let cam = Connect::open_serial_async::<PtzOpticsG2, _>("/dev/ttyUSB0", 9600, runtime).await?;
     /// cam.power().on().await?;
     /// cam.close().await?;
     /// ```
@@ -176,16 +180,16 @@ impl Connect {
     /// # Example
     ///
     /// ```ignore
-    /// use grafton_visca::camera::{Camera, profiles::PtzOpticsG2};
+    /// use grafton_visca::camera::{Connect, profiles::PtzOpticsG2};
     ///
     /// // With explicit port
-    /// let cam = Camera::open_tcp_blocking::<PtzOpticsG2>("192.168.0.110:5678")?;
+    /// let cam = Connect::open_tcp_blocking::<PtzOpticsG2>("192.168.0.110:5678")?;
     ///
     /// // Without port - uses PtzOpticsG2::DEFAULT_TCP_PORT (5678)
-    /// let cam = Camera::open_tcp_blocking::<PtzOpticsG2>("192.168.0.110")?;
+    /// let cam = Connect::open_tcp_blocking::<PtzOpticsG2>("192.168.0.110")?;
     ///
     /// // IPv6 with explicit port (canonicalized automatically)
-    /// let cam = Camera::open_tcp_blocking::<PtzOpticsG2>("[::1]:5678")?;
+    /// let cam = Connect::open_tcp_blocking::<PtzOpticsG2>("[::1]:5678")?;
     /// ```
     pub fn open_tcp_blocking<P>(
         addr: impl Into<String>,
@@ -216,16 +220,16 @@ impl Connect {
     /// # Example
     ///
     /// ```ignore
-    /// use grafton_visca::camera::{Camera, profiles::GenericVisca};
+    /// use grafton_visca::camera::{Connect, profiles::GenericVisca};
     ///
     /// // With explicit port
-    /// let cam = Camera::open_udp_blocking::<GenericVisca>("192.168.0.110:1259")?;
+    /// let cam = Connect::open_udp_blocking::<GenericVisca>("192.168.0.110:1259")?;
     ///
     /// // Without port - uses GenericVisca::DEFAULT_UDP_PORT (1259)
-    /// let cam = Camera::open_udp_blocking::<GenericVisca>("192.168.0.110")?;
+    /// let cam = Connect::open_udp_blocking::<GenericVisca>("192.168.0.110")?;
     ///
     /// // IPv6 with explicit port (canonicalized automatically)
-    /// let cam = Camera::open_udp_blocking::<GenericVisca>("[::1]:1259")?;
+    /// let cam = Connect::open_udp_blocking::<GenericVisca>("[::1]:1259")?;
     /// ```
     pub fn open_udp_blocking<P>(
         addr: impl Into<String>,
@@ -257,9 +261,9 @@ impl Connect {
     /// # Example
     ///
     /// ```ignore
-    /// use grafton_visca::camera::{Camera, profiles::PtzOpticsG2};
+    /// use grafton_visca::camera::{Connect, profiles::PtzOpticsG2};
     ///
-    /// let cam = Camera::open_serial_blocking::<PtzOpticsG2>("/dev/ttyUSB0", 9600)?;
+    /// let cam = Connect::open_serial_blocking::<PtzOpticsG2>("/dev/ttyUSB0", 9600)?;
     /// cam.power().on()?;
     /// cam.close()?;
     /// ```
@@ -286,8 +290,7 @@ impl Connect {
     ///
     /// # Example
     /// ```rust,ignore
-    /// use grafton_visca::Connect;
-    /// use grafton_visca::camera::profiles::PtzOpticsG2;
+    /// use grafton_visca::camera::{Connect, profiles::PtzOpticsG2};
     ///
     /// // Build a connection with default settings
     /// let cam = Connect::builder()

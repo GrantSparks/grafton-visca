@@ -67,10 +67,8 @@ fn test_transport_builder_api_stability() {
             transport::{TcpKeepaliveConfig, TransportConfig},
         };
 
-        let _connect_builder = Connect::builder()
-            .tcp("127.0.0.1")
-            .with_default_port()
-            .udp("127.0.0.1:1259");
+        let _tcp_connect_builder = Connect::builder().tcp("127.0.0.1").with_default_port();
+        let _udp_connect_builder = Connect::builder().udp("127.0.0.1:1259");
 
         let _camera_config = CameraConfig::<PtzOpticsG2>::new()
             .tcp()

@@ -1,6 +1,8 @@
 //! Prelude modules for convenient imports.
 //!
 //! This module provides separate preludes for async and blocking camera-first APIs.
+//! They are intended for application code that follows the 1.0 path:
+//! `Connect` or `CameraConfig` for construction, then accessor-style controls.
 //!
 //! # High-Level API (Recommended)
 //!
@@ -50,9 +52,9 @@
 //! Advanced extension APIs remain available from their owning modules, such as
 //! [`camera`](crate::camera), [`command`](crate::command), and
 //! [`transport`](crate::transport). They are intentionally not glob-reexported
-//! from a raw prelude. For custom commands that are not represented by a typed
-//! control trait, use [`Camera::execute`](crate::Camera::execute) or
-//! [`Camera::send_command`](crate::Camera::send_command) explicitly.
+//! from a raw prelude. Use [`CameraBuilder`](crate::CameraBuilder) only for
+//! custom transport attachment, and use [`command`](crate::command) explicitly
+//! for custom VISCA commands that are not represented by a typed accessor.
 
 /// Async prelude - import this for async camera control.
 ///
@@ -122,7 +124,8 @@ pub mod blocking {
     pub use crate::types::{FStop, IrisLevel, PanSpeed, ShutterSpeed, SpeedLevel, TiltSpeed};
     pub use crate::units::{Degrees, Normalized, Percentage, Raw};
 
-    // Ergonomic type aliases for specific camera models
+    // Type aliases for signatures in applications that need named blocking
+    // camera types. Construction should still go through Connect or CameraConfig.
     /// Generic VISCA camera type alias.
     pub type GenericViscaCam<T> = Camera<GenericVisca, T>;
 

@@ -97,43 +97,5 @@ macro_rules! assert_inquiry_response {
     }};
 }
 
-#[cfg(not(feature = "mode-async"))]
-#[macro_export]
-macro_rules! create_test_client {
-    (udp, $addr:expr) => {{
-        $crate::Client::connect_udp($addr)
-            .unwrap_or_else(|e| panic!("Failed to create UDP client at {}: {e:?}", $addr))
-    }};
-    (tcp, $addr:expr) => {{
-        $crate::Client::connect_tcp($addr)
-            .unwrap_or_else(|e| panic!("Failed to create TCP client at {}: {e:?}", $addr))
-    }};
-}
-
-#[cfg(not(feature = "mode-async"))]
-#[macro_export]
-macro_rules! assert_send_ok {
-    ($client:expr, $command:expr) => {{
-        match $client.send(&$command) {
-            Ok(response) => response,
-            Err(e) => panic!("Failed to send command {:?}: {e:?}", stringify!($command)),
-        }
-    }};
-    ($client:expr, $command:expr, $expected:expr) => {{
-        match $client.send(&$command) {
-            Ok(response) => {
-                assert_eq!(
-                    response,
-                    $expected,
-                    "Command {:?} returned unexpected response",
-                    stringify!($command)
-                );
-                response
-            }
-            Err(e) => panic!("Failed to send command {:?}: {e:?}", stringify!($command)),
-        }
-    }};
-}
-
 #[cfg(test)]
 mod tests {}

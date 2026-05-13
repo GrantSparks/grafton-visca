@@ -20,11 +20,14 @@ use crate::{executor::Executor, transport::AsyncTransport};
 #[cfg(not(feature = "mode-async"))]
 use crate::{runtime::blocking_runner::BlockingRunner, transport::BlockingTransport};
 
-/// Camera client that works in both blocking and async modes.
+/// Lower-level camera client used by the high-level connection APIs.
 ///
-/// This struct provides type-safe camera control that adapts to the chosen
-/// execution mode through the Mode trait system. All mode-specific behavior
-/// is resolved at compile time through the Mode type parameter.
+/// Most application code should construct cameras with [`Connect`](crate::camera::Connect)
+/// or [`CameraConfig`](crate::camera::CameraConfig), then use noun accessors
+/// such as `camera.power().on()` and `camera.zoom().position()`.
+///
+/// Use this type directly only when integrating a custom transport or building
+/// infrastructure on top of the camera runtime.
 ///
 /// # Type Parameters
 ///
@@ -44,11 +47,11 @@ use crate::{runtime::blocking_runner::BlockingRunner, transport::BlockingTranspo
 ///
 /// ```rust,ignore
 /// // BAD: Multiple connections to same camera
-/// let cam1 = Camera::open_tcp::<Profile>("192.168.0.10")?; // Client 1
-/// let cam2 = Camera::open_tcp::<Profile>("192.168.0.10")?; // Client 2 - AVOID!
+/// let cam1 = Connect::open_tcp_blocking::<Profile>("192.168.0.10")?; // Client 1
+/// let cam2 = Connect::open_tcp_blocking::<Profile>("192.168.0.10")?; // Client 2 - AVOID!
 ///
 /// // GOOD: Share a single camera instance
-/// let camera = Camera::open_tcp::<Profile>("192.168.0.10")?;
+/// let camera = Connect::open_tcp_blocking::<Profile>("192.168.0.10")?;
 /// let cam1 = camera.clone(); // Client 1 - lightweight handle
 /// let cam2 = camera.clone(); // Client 2 - same underlying connection
 /// ```
@@ -93,11 +96,14 @@ where
     _phantom_transport: PhantomData<Tr>,
 }
 
-/// Camera client that works in both blocking and async modes.
+/// Lower-level camera client used by the high-level connection APIs.
 ///
-/// This struct provides type-safe camera control that adapts to the chosen
-/// execution mode through the Mode trait system. All mode-specific behavior
-/// is resolved at compile time through the Mode type parameter.
+/// Most application code should construct cameras with [`Connect`](crate::camera::Connect)
+/// or [`CameraConfig`](crate::camera::CameraConfig), then use noun accessors
+/// such as `camera.power().on()` and `camera.zoom().position()`.
+///
+/// Use this type directly only when integrating a custom transport or building
+/// infrastructure on top of the camera runtime.
 ///
 /// # Type Parameters
 ///
@@ -117,11 +123,11 @@ where
 ///
 /// ```rust,ignore
 /// // BAD: Multiple connections to same camera
-/// let cam1 = Camera::open_tcp::<Profile>("192.168.0.10")?; // Client 1
-/// let cam2 = Camera::open_tcp::<Profile>("192.168.0.10")?; // Client 2 - AVOID!
+/// let cam1 = Connect::open_tcp_blocking::<Profile>("192.168.0.10")?; // Client 1
+/// let cam2 = Connect::open_tcp_blocking::<Profile>("192.168.0.10")?; // Client 2 - AVOID!
 ///
 /// // GOOD: Share a single camera instance
-/// let camera = Camera::open_tcp::<Profile>("192.168.0.10")?;
+/// let camera = Connect::open_tcp_blocking::<Profile>("192.168.0.10")?;
 /// let cam1 = camera.clone(); // Client 1 - lightweight handle
 /// let cam2 = camera.clone(); // Client 2 - same underlying connection
 /// ```
@@ -354,7 +360,7 @@ where
     ///
     /// # Example
     /// ```ignore
-    /// let camera = Camera::open_tcp::<PtzOpticsG2>("192.168.0.10")?;
+    /// let camera = Connect::open_tcp_async::<PtzOpticsG2, _>("192.168.0.10", runtime).await?;
     /// let caps = camera.capabilities();
     ///
     /// println!("Model: {}", caps.model_name);
@@ -489,7 +495,7 @@ where
     ///
     /// # Example
     /// ```ignore
-    /// let camera = Camera::open_tcp::<PtzOpticsG2>("192.168.0.10")?;
+    /// let camera = Connect::open_tcp_blocking::<PtzOpticsG2>("192.168.0.10")?;
     /// let caps = camera.capabilities();
     ///
     /// println!("Model: {}", caps.model_name);
@@ -587,81 +593,6 @@ where
     /// ```
     pub fn state_cache(&self) -> &crate::StateCache {
         &self.state_cache
-    }
-}
-
-// Unified constructor methods for blocking mode with BlockingTransportHandle (zero-cost)
-#[cfg(not(feature = "mode-async"))]
-impl<P> Camera<crate::mode::Blocking, P, crate::transport::BlockingTransportHandle, ()>
-where
-    P: Profile + Default,
-{
-    /// Open a TCP connection to a camera.
-    ///
-    /// This is the primary convenience method for creating a blocking camera via TCP.
-    /// It internally creates the transport and connects to the camera.
-    ///
-    /// If no port is specified in the address, the profile's DEFAULT_TCP_PORT will be used.
-    /// IPv6 addresses are properly canonicalized (e.g., `2001:db8::1:5678` becomes `[2001:db8::1]:5678`).
-    ///
-    /// # Example
-    ///
-    /// ```rust,ignore
-    /// use grafton_visca::camera::Camera;
-    /// use grafton_visca::camera::profiles::PtzOpticsG2;
-    /// use grafton_visca::mode::BlockingFutureExt;
-    ///
-    /// let camera = Camera::open_tcp::<PtzOpticsG2>("192.168.0.110:5678")?;
-    /// camera.power().on()?;  // Direct Result<(), Error> with BlockingClient
-    /// camera.close()?;
-    ///
-    /// // IPv6 with explicit port (canonicalized automatically)
-    /// let camera = Camera::open_tcp::<PtzOpticsG2>("[::1]:5678")?;
-    /// ```
-    pub fn open_tcp(addr: impl Into<String>) -> Result<Self, Error> {
-        // Canonicalize the address (handles IPv6 bracketing and default port)
-        let canonical_addr = crate::transport::address::canonicalize_endpoint(
-            &addr.into(),
-            Some(P::DEFAULT_TCP_PORT),
-        )?;
-
-        let tcp = crate::transport::blocking::tcp::Tcp::connect(&canonical_addr)?;
-        let transport = crate::transport::BlockingTransportHandle::Tcp(tcp);
-        Self::new_blocking(transport)
-    }
-
-    /// Open a UDP connection to a camera.
-    ///
-    /// This is the primary convenience method for creating a blocking camera via UDP.
-    /// It internally creates the transport and connects to the camera.
-    ///
-    /// If no port is specified in the address, the profile's DEFAULT_UDP_PORT will be used.
-    /// IPv6 addresses are properly canonicalized (e.g., `2001:db8::1:1259` becomes `[2001:db8::1]:1259`).
-    ///
-    /// # Example
-    ///
-    /// ```rust,ignore
-    /// use grafton_visca::camera::Camera;
-    /// use grafton_visca::camera::profiles::GenericVisca;
-    /// use grafton_visca::mode::BlockingFutureExt;
-    ///
-    /// let camera = Camera::open_udp::<GenericVisca>("192.168.0.110:1259")?;
-    /// camera.power().on()?;  // Direct Result<(), Error> with BlockingClient
-    /// camera.close()?;
-    ///
-    /// // IPv6 with explicit port (canonicalized automatically)
-    /// let camera = Camera::open_udp::<GenericVisca>("[::1]:1259")?;
-    /// ```
-    pub fn open_udp(addr: impl Into<String>) -> Result<Self, Error> {
-        // Canonicalize the address (handles IPv6 bracketing and default port)
-        let canonical_addr = crate::transport::address::canonicalize_endpoint(
-            &addr.into(),
-            Some(P::DEFAULT_UDP_PORT),
-        )?;
-
-        let udp = crate::transport::blocking::udp::Udp::connect(&canonical_addr)?;
-        let transport = crate::transport::BlockingTransportHandle::Udp(udp);
-        Self::new_blocking(transport)
     }
 }
 
@@ -1084,7 +1015,7 @@ where
     /// ```rust,ignore
     /// use grafton_visca::{Camera, mode::Blocking, camera::profiles::PtzOpticsG2};
     ///
-    /// let camera = Camera::<Blocking, PtzOpticsG2, _, ()>::connect_tcp("192.168.0.110:5678")?;
+    /// let camera = Connect::open_tcp_blocking::<PtzOpticsG2>("192.168.0.110:5678")?;
     /// // Use the camera...
     /// camera.close()?;
     /// // Camera is now closed and cannot be used
@@ -1117,7 +1048,7 @@ where
     /// ```rust,ignore
     /// use grafton_visca::{Camera, mode::Async, camera::profiles::PtzOpticsG2};
     ///
-    /// let camera = Camera::<Async, PtzOpticsG2, _, _>::connect_tcp("192.168.0.110:5678", runtime).await?;
+    /// let camera = Connect::open_tcp_async::<PtzOpticsG2, _>("192.168.0.110:5678", runtime).await?;
     /// // Use the camera...
     /// camera.shutdown().await?;
     /// // Camera is now closed and cannot be used

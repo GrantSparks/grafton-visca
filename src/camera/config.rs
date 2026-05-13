@@ -86,6 +86,7 @@ impl TransportOptions {
 /// use grafton_visca::runtime::TokioRuntime;
 ///
 /// let config = CameraConfig::<PtzOpticsG2>::new()
+///     .tcp()
 ///     .address("192.168.0.110")
 ///     .timeouts(TimeoutConfig::balanced());
 ///
@@ -141,7 +142,7 @@ where
     /// # Example
     ///
     /// ```ignore
-    /// let config = CameraConfig::for::<SonyFR7>()
+    /// let config = CameraConfig::<SonyFR7>::new()
     ///     .address("192.168.0.108");
     /// ```
     pub fn for_camera() -> Self {
@@ -339,7 +340,8 @@ where
     /// use grafton_visca::runtime::TokioRuntime;
     ///
     /// let runtime = TokioRuntime::from_current()?;
-    /// let config = CameraConfig::for::<PtzOpticsG2>()
+    /// let config = CameraConfig::<PtzOpticsG2>::new()
+    ///     .tcp()
     ///     .address("192.168.0.110");
     ///
     /// let session = config.open_async(runtime).await?;
@@ -434,7 +436,7 @@ where
     /// use grafton_visca::runtime::TokioRuntime;
     ///
     /// let runtime = TokioRuntime::from_current()?;
-    /// let config = CameraConfig::for::<PtzOpticsG2>()
+    /// let config = CameraConfig::<PtzOpticsG2>::new()
     ///     .serial("/dev/ttyUSB0", 9600);
     ///
     /// let session = config.open_serial_async(runtime).await?;
@@ -508,7 +510,8 @@ where
     /// ```ignore
     /// use grafton_visca::camera::{CameraConfig, profiles::PtzOpticsG2};
     ///
-    /// let config = CameraConfig::for::<PtzOpticsG2>()
+    /// let config = CameraConfig::<PtzOpticsG2>::new()
+    ///     .tcp()
     ///     .address("192.168.0.110");
     ///
     /// let camera = config.open_blocking()?;
@@ -578,7 +581,7 @@ where
     /// ```ignore
     /// use grafton_visca::camera::{CameraConfig, profiles::PtzOpticsG2};
     ///
-    /// let config = CameraConfig::for::<PtzOpticsG2>()
+    /// let config = CameraConfig::<PtzOpticsG2>::new()
     ///     .serial("/dev/ttyUSB0", 9600);
     ///
     /// let camera = config.open_serial_blocking()?;

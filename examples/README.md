@@ -3,8 +3,9 @@
 This directory contains working examples for the current `grafton-visca` API surface.
 
 Preferred usage:
-- Use `Connect` or `CameraConfig` for high-level application code.
-- Use `CameraBuilder::with_executor(...).from_transport(...)` only when you need custom async transport wiring.
+- Use `Connect` for simple blocking and async camera connections.
+- Use `CameraConfig` when a standard TCP, UDP, or serial connection needs explicit timeouts, retry policy, keepalive, or camera ID.
+- Use `CameraBuilder` only when you already own a custom transport and need to attach it to a camera.
 - Treat raw transport and protocol examples as advanced integration/reference material.
 
 ## Important: Feature Flags
@@ -25,7 +26,7 @@ If you're new to the library, start with these examples in order:
 1. **[quickstart.rs](quickstart.rs)** - Blocking example using high-level methods (preferred)
 2. **[inquiry_quickstart.rs](inquiry_quickstart.rs)** - Blocking inquiry flow with the current accessor API
 3. **[quickstart_async.rs](quickstart_async.rs)** - Async example using the current runtime-specific features
-4. **[transport_builder_demo.rs](transport_builder_demo.rs)** - Transport configuration and builder terminology
+4. **[transport_builder_demo.rs](transport_builder_demo.rs)** - Advanced transport configuration terminology
 
 ## Examples by Category
 
@@ -39,7 +40,7 @@ If you're new to the library, start with these examples in order:
 ### Connection, Transport, and Configuration
 - **[transports.rs](transports.rs)** - Compare TCP vs UDP transports and connection behavior
 - **[transport_builder_demo.rs](transport_builder_demo.rs)** - Blocking transport builder API and async transport-config guidance
-- **[builder_api.rs](builder_api.rs)** - Explore `CameraBuilder` flows for blocking and async cameras
+- **[builder_api.rs](builder_api.rs)** - Advanced `CameraBuilder` flows for custom/BYO transports
 - **[sony_encapsulation.rs](sony_encapsulation.rs)** - Sony encapsulated protocol with 8-byte header (advanced)
 - **[serial_async_demo.rs](serial_async_demo.rs)** - Tokio serial transport setup
 
@@ -121,10 +122,12 @@ use grafton_visca::profiles::PtzOpticsG2;
 use grafton_visca::runtime::TokioRuntime;
 use grafton_visca::transport::{TcpKeepaliveConfig, TransportConfig};
 
-let _blocking = Connect::open_tcp_blocking::<PtzOpticsG2>("192.168.0.110")?;
+let blocking = Connect::open_tcp_blocking::<PtzOpticsG2>("192.168.0.110")?;
+blocking.power().on()?;
 
 let runtime = TokioRuntime::from_current()?;
-let _async_camera = CameraConfig::<PtzOpticsG2>::new()
+let async_camera = CameraConfig::<PtzOpticsG2>::new()
+    .tcp()
     .address("192.168.0.110")
     .transport_config(TransportConfig {
         tcp_keepalive: Some(TcpKeepaliveConfig::default()),
@@ -132,6 +135,7 @@ let _async_camera = CameraConfig::<PtzOpticsG2>::new()
     })
     .open_async(runtime)
     .await?;
+async_camera.power().on().await?;
 ```
 
 ## Troubleshooting

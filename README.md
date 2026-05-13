@@ -61,7 +61,7 @@ device-specific firmware quirks are handled as reproducible bugs.
 
 ## Features
 
-- **Camera-first blocking/async API** — Shared noun accessors across blocking and async; async futures are `Send`-safe
+- **Camera-first blocking/async API** — `Connect` for simple construction, `CameraConfig` for configured standard transports, and shared noun accessors across blocking and async
 - **Multi-runtime support** — Pluggable adapters for Tokio and smol
 - **Type-safe profiles** — Compile-time protocol selection (raw VISCA vs Sony encapsulation) with capability-based APIs
 - **Flexible transports** — TCP, UDP, and serial (RS-232/422) with configurable timeouts, retries, and TCP keepalive
@@ -147,7 +147,7 @@ grafton-visca = { version = "1", features = ["transport-serial"] }
 grafton-visca = { version = "1", features = ["runtime-tokio", "transport-serial-tokio"] }
 ```
 
-### Configuring transport behavior
+### Configuring Standard Transport Behavior
 
 ```rust
 use grafton_visca::camera::CameraConfig;
@@ -209,7 +209,7 @@ Port can be omitted in connection strings; the profile default is used.
 | ------- | ------- |
 | Blocking quickstart | `cargo run --example quickstart` |
 | Async inquiry (Tokio) | `cargo run --example inquiry_quickstart --features runtime-tokio` |
-| Builder API | `cargo run --example builder_api` |
+| Advanced custom transport builder | `cargo run --example builder_api` |
 | Transport builder | `cargo run --example transport_builder_demo` |
 | Error handling | `cargo run --example error_handling --features runtime-tokio` |
 | Serial (async) | `cargo run --example serial_async_demo --features runtime-tokio,transport-serial-tokio` |

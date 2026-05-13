@@ -130,6 +130,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("    use grafton_visca::transport::TransportConfig;");
         println!("    let runtime = TokioRuntime::from_current()?;");
         println!("    let camera = CameraConfig::<PtzOpticsG2>::new()");
+        println!("        .tcp()");
         println!("        .address(\"192.168.0.110\")");
         println!("        .transport_config(TransportConfig::default())");
         println!("        .open_async(runtime)");

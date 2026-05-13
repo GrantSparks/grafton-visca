@@ -1,7 +1,10 @@
-//! Camera builder with unified Executor support.
+//! Advanced camera builder with unified Executor support.
 //!
-//! This module provides a builder pattern for constructing cameras with
-//! the new unified Executor trait, preventing runtime/spawner mismatches.
+//! The default application path is [`Connect`](crate::camera::Connect) for
+//! simple connections and [`CameraConfig`](crate::camera::CameraConfig) for
+//! configured TCP, UDP, or serial sessions. `CameraBuilder` is the advanced
+//! escape hatch for integrations that already own a custom transport and need
+//! to attach explicit timeout, retry, camera ID, or executor settings.
 //!
 //! # Supported Runtimes
 //!
@@ -12,14 +15,14 @@
 //! # Example
 //!
 //! ```ignore
-//! use grafton_visca::camera::profiles::PtzOpticsG2;
-//! use grafton_visca::CameraBuilder;
+//! use grafton_visca::{camera::{CameraConfig, profiles::PtzOpticsG2}, runtime::TokioRuntime};
 //!
-//! // Tokio
-//! use grafton_visca::runtime::{Runtime, TokioRuntime};
+//! // Preferred application path.
 //! let runtime = TokioRuntime::from_current()?;
-//! let camera = CameraBuilder::with_executor(runtime)
-//!     .open_async::<PtzOpticsG2, _>(transport)
+//! let camera = CameraConfig::<PtzOpticsG2>::new()
+//!     .tcp()
+//!     .address("192.168.0.110")
+//!     .open_async(runtime)
 //!     .await?;
 //!
 //! // Use accessor-style API
@@ -27,11 +30,12 @@
 //! camera.zoom().tele().await?;
 //! camera.await_idle().await?;
 //!
-//! // smol
-//! use grafton_visca::runtime::{Runtime, SmolRuntime};
-//! let runtime = SmolRuntime::new();
+//! // Advanced BYO-transport path.
+//! let runtime = TokioRuntime::from_current()?;
 //! let camera = CameraBuilder::with_executor(runtime)
-//!     .open_async::<PtzOpticsG2, _>(transport)
+//!     .from_transport(custom_transport)
+//!     .profile::<PtzOpticsG2>()
+//!     .open_async()
 //!     .await?;
 //! ```
 
@@ -281,24 +285,6 @@ where
     }
 }
 
-/// Transport type for builder.
-#[cfg(not(feature = "mode-async"))]
-#[derive(Debug, Clone, Copy)]
-pub enum TransportType {
-    /// TCP transport
-    Tcp,
-    /// UDP transport
-    Udp,
-}
-
-/// Builder with transport configuration.
-#[derive(Debug)]
-#[cfg(not(feature = "mode-async"))]
-pub struct CameraBuilderWithTransport {
-    transport_type: TransportType,
-    address: String,
-}
-
 /// Builder with BlockingTransportHandle (zero-cost variant).
 #[cfg(not(feature = "mode-async"))]
 pub struct CameraBuilderWithHandleTransport {
@@ -361,112 +347,12 @@ where
     }
 }
 
-#[cfg(not(feature = "mode-async"))]
-impl CameraBuilderWithTransport {
-    /// Set the camera profile.
-    pub fn profile<P>(self) -> CameraBuilderWithProfile<P>
-    where
-        P: Profile + Default,
-    {
-        CameraBuilderWithProfile {
-            transport_type: self.transport_type,
-            address: self.address,
-            _phantom: std::marker::PhantomData,
-        }
-    }
-}
-
-/// Builder with both transport and profile configured.
-#[derive(Debug)]
-#[cfg(not(feature = "mode-async"))]
-pub struct CameraBuilderWithProfile<P> {
-    transport_type: TransportType,
-    address: String,
-    _phantom: std::marker::PhantomData<P>,
-}
-
-#[cfg(not(feature = "mode-async"))]
-impl<P> CameraBuilderWithProfile<P>
-where
-    P: Profile + Default,
-{
-    /// Open the camera connection with the configured settings.
-    ///
-    /// This method explicitly connects to the camera, making it clear that
-    /// network operations occur at this point.
-    pub fn open(
-        self,
-    ) -> Result<crate::BlockingClient<P, crate::transport::BlockingTransportHandle>, Error> {
-        // Parse the address to check if it has a port
-        let addr_with_port =
-            if let Ok(parsed) = crate::transport::address::HostPort::parse(&self.address) {
-                // If no port specified, use the profile's default port
-                if parsed.port().is_none() {
-                    let default_port = match self.transport_type {
-                        TransportType::Tcp => P::DEFAULT_TCP_PORT,
-                        TransportType::Udp => P::DEFAULT_UDP_PORT,
-                    };
-                    parsed.format_socket_addr(Some(default_port))
-                } else {
-                    self.address.clone()
-                }
-            } else {
-                // If parsing fails, just pass it through - let the connection fail with proper error
-                self.address.clone()
-            };
-
-        let transport = match self.transport_type {
-            TransportType::Tcp => {
-                let tcp = crate::transport::blocking::tcp::Tcp::connect(&addr_with_port)?;
-                crate::transport::BlockingTransportHandle::Tcp(tcp)
-            }
-            TransportType::Udp => {
-                let udp = crate::transport::blocking::udp::Udp::connect(&addr_with_port)?;
-                crate::transport::BlockingTransportHandle::Udp(udp)
-            }
-        };
-
-        crate::BlockingClient::new(transport)
-    }
-}
-
 impl CameraBuilder<()> {
-    /// Create a builder for TCP transport.
-    ///
-    /// # Example
-    /// ```ignore
-    /// let camera = CameraBuilder::tcp("192.168.0.110:5678")
-    ///     .profile::<PtzOpticsG2>()
-    ///     .open()?;
-    /// ```
-    #[cfg(not(feature = "mode-async"))]
-    pub fn tcp(address: impl Into<String>) -> CameraBuilderWithTransport {
-        CameraBuilderWithTransport {
-            transport_type: TransportType::Tcp,
-            address: address.into(),
-        }
-    }
-
-    /// Create a builder for UDP transport.
-    ///
-    /// # Example
-    /// ```ignore
-    /// let camera = CameraBuilder::udp("192.168.0.110:1259")
-    ///     .profile::<PtzOpticsG2>()
-    ///     .open()?;
-    /// ```
-    #[cfg(not(feature = "mode-async"))]
-    pub fn udp(address: impl Into<String>) -> CameraBuilderWithTransport {
-        CameraBuilderWithTransport {
-            transport_type: TransportType::Udp,
-            address: address.into(),
-        }
-    }
-
     /// Create a builder from a BlockingTransportHandle.
     ///
-    /// This is the standard method for TCP/UDP transports, providing zero-cost
-    /// operation without boxing or dynamic dispatch.
+    /// This is the advanced BYO-transport path for blocking applications that
+    /// need transport settings beyond the high-level [`Connect`](crate::camera::Connect)
+    /// and [`CameraConfig`](crate::camera::CameraConfig) APIs.
     ///
     /// # Example
     /// ```ignore

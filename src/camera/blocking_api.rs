@@ -1,4 +1,4 @@
-//! Blocking-specific wrapper providing direct `Result<T, E>` returns.
+//! Blocking-specific camera client with direct `Result<T, E>` returns.
 //!
 //! This module provides a thin wrapper around `Camera<Blocking, _, _, _>` that
 //! converts the `Ready<T>` futures to direct `Result<T, E>` values, restoring
@@ -33,31 +33,28 @@ use crate::{
     Error,
 };
 
-/// Zero-cost wrapper for blocking cameras providing direct method access.
+/// Blocking camera client returned by [`Connect`](crate::camera::Connect) and
+/// blocking [`CameraConfig`](crate::camera::CameraConfig) flows.
 ///
-/// This type wraps a `Camera<Blocking, P, Tr, ()>` and provides methods that
-/// return `Result<T, Error>` directly instead of `Ready<Result<T, Error>>`,
-/// eliminating the need for `.block()` calls at every usage site.
+/// Most users should construct this type with
+/// [`Connect::open_tcp_blocking`](crate::camera::Connect::open_tcp_blocking) or
+/// [`Connect::open_udp_blocking`](crate::camera::Connect::open_udp_blocking).
+/// Use [`BlockingClient::new`] only for advanced integrations that already own
+/// a configured blocking transport.
 ///
 /// # Examples
 ///
 /// ```ignore
 /// use grafton_visca::{
-///     BlockingClient, CameraBuilder, Error,
-///     camera::profiles::PtzOpticsG2,
-///     transport::Transport,
+///     Error,
+///     camera::{Connect, profiles::PtzOpticsG2},
 ///     units::Normalized,
 /// };
 ///
 /// fn main() -> Result<(), Error> {
-///     let transport = Transport::tcp()
-///         .address("192.168.0.110:5678")
-///         .connect_blocking()?;
+///     let camera = Connect::open_tcp_blocking::<PtzOpticsG2>("192.168.0.110")?;
 ///
-///     // Create wrapped camera for ergonomic blocking API
-///     let camera = BlockingClient::<PtzOpticsG2, _>::new(transport)?;
-///
-///     // Direct Result<T, Error> returns - no .block() needed!
+///     // Direct Result<T, Error> returns - no .block() needed.
 ///     camera.power().on()?;
 ///     camera.zoom().stop()?;
 ///     camera.zoom().set_position(Normalized(0.5))?;
@@ -174,10 +171,10 @@ where
     /// # Example
     ///
     /// ```rust,ignore
-    /// use grafton_visca::{BlockingClient, camera::profiles::PtzOpticsG2};
+    /// use grafton_visca::camera::{Connect, profiles::PtzOpticsG2};
     /// use std::time::Duration;
     ///
-    /// let camera = Camera::open_tcp_blocking::<PtzOpticsG2>("192.168.0.110:5678")?;
+    /// let mut camera = Connect::open_tcp_blocking::<PtzOpticsG2>("192.168.0.110:5678")?;
     /// camera.zoom().tele()?;
     /// camera.await_idle(Duration::from_secs(10))?;
     /// // Camera has finished zooming
@@ -256,9 +253,9 @@ where
     /// # Example
     ///
     /// ```rust,ignore
-    /// use grafton_visca::{BlockingClient, camera::profiles::PtzOpticsG2};
+    /// use grafton_visca::camera::{Connect, profiles::PtzOpticsG2};
     ///
-    /// let camera = Camera::open_tcp_blocking::<PtzOpticsG2>("192.168.0.110:5678")?;
+    /// let camera = Connect::open_tcp_blocking::<PtzOpticsG2>("192.168.0.110:5678")?;
     /// // Use the camera...
     /// camera.close()?;
     /// // Camera is now closed and cannot be used
@@ -338,21 +335,6 @@ where
     /// Access advanced settings inquiries.
     pub fn advanced(&self) -> BlockingAdvancedAccessor<'_, P, Tr> {
         BlockingAdvancedAccessor::new(self)
-    }
-}
-
-impl<P> BlockingClient<P, crate::transport::BlockingTransportHandle>
-where
-    P: crate::capabilities::Profile + Default,
-{
-    /// Open a TCP blocking camera connection.
-    pub fn open_tcp(addr: impl Into<String>) -> Result<Self, Error> {
-        crate::camera::Connect::open_tcp_blocking::<P>(addr)
-    }
-
-    /// Open a UDP blocking camera connection.
-    pub fn open_udp(addr: impl Into<String>) -> Result<Self, Error> {
-        crate::camera::Connect::open_udp_blocking::<P>(addr)
     }
 }
 

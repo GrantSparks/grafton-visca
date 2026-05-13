@@ -6,7 +6,7 @@ use std::{
     process::Command,
 };
 
-const EXPECTED_INACCESSIBLE_ERROR_CODES: &[&str] = &["E0432", "E0433", "E0603"];
+const EXPECTED_INACCESSIBLE_ERROR_CODES: &[&str] = &["E0432", "E0433", "E0599", "E0603"];
 
 pub fn active_grafton_visca_features() -> Vec<&'static str> {
     let mut features = Vec::new();

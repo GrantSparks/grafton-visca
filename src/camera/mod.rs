@@ -1,10 +1,13 @@
-//! Camera module with Send-safe, profile-centric VISCA API.
+//! Camera-first, profile-centric VISCA API.
 //!
-//! This module provides a unified Camera<M, P, Tr, Exec> type that works in both
-//! async and blocking modes through the Mode trait system. All mode-specific behavior
-//! is resolved at compile time for zero runtime overhead.
+//! The primary 1.0 construction path is [`crate::camera::Connect`] for simple TCP, UDP,
+//! and serial sessions, or [`crate::camera::CameraConfig`] when standard transports need explicit
+//! configuration. Once connected, use noun accessors such as
+//! `camera.power().on()` and `camera.zoom().position()`.
 //!
-//! The unified design ensures Send-safe futures and consistent API across both modes.
+//! [`crate::camera::CameraBuilder`] and the generic [`crate::camera::Camera`] type remain
+//! available for advanced integrations that own custom transports or need lower-level
+//! runtime wiring.
 //!
 //! # Type Parameters
 //! - `M`: Mode (Async or Blocking)

@@ -11,10 +11,11 @@ use grafton_visca::Error;
 #[cfg(feature = "runtime-tokio")]
 use grafton_visca::{
     camera::{
-        builder::CameraBuilder,
         profiles::{G2PresetId, PtzOpticsG2},
+        CameraConfig,
     },
     runtime::TokioRuntime,
+    transport::TransportConfig,
     types::{PanSpeed, TiltSpeed},
     PanTiltDirection,
 };
@@ -22,10 +23,9 @@ use grafton_visca::{
 use grafton_visca::{
     camera::{
         profiles::{G2PresetId, PtzOpticsG2},
-        Camera,
+        CameraConfig,
     },
-    mode::Blocking,
-    transport::{NetTransportBuilder, Transport},
+    transport::TransportConfig,
     types::{PanSpeed, TiltSpeed},
     PanTiltDirection,
 };
@@ -161,23 +161,25 @@ fn demonstrate_error_classification() {
 fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
     println!("   Attempting to connect to camera at {camera_addr}...");
 
-    let transport = match Transport::tcp()
+    let camera_config = CameraConfig::<PtzOpticsG2>::new()
+        .tcp()
         .address(camera_addr)
-        .connect_timeout(Duration::from_secs(5))
-        .open()
-    {
-        Ok(t) => {
-            println!("   ✓ Transport created successfully");
-            t
+        .transport_config(TransportConfig {
+            connect_timeout: Duration::from_secs(5),
+            ..TransportConfig::default()
+        });
+
+    let mut camera = match camera_config.open_blocking() {
+        Ok(camera) => {
+            println!("   ✓ Camera connected successfully");
+            camera
         }
         Err(e) => {
-            println!("   ✗ Failed to create transport: {e}");
+            println!("   ✗ Failed to connect camera: {e}");
             println!("   💡 This is expected if the address is invalid");
             return Err(e);
         }
     };
-
-    let mut camera = Camera::<Blocking, PtzOpticsG2, _>::new_blocking(transport)?;
 
     println!("\n3. Retry Pattern Implementation:");
     println!("   Implementing exponential backoff for camera operations\n");
@@ -301,27 +303,26 @@ fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
 async fn demonstrate_camera_errors(camera_addr: &str) -> Result<(), Error> {
     println!("   Attempting to connect to camera at {camera_addr}...");
 
-    let runtime = TokioRuntime::from_current()?;
+    let camera_config = CameraConfig::<PtzOpticsG2>::new()
+        .tcp()
+        .address(camera_addr)
+        .transport_config(TransportConfig {
+            connect_timeout: Duration::from_secs(5),
+            ..TransportConfig::default()
+        });
 
-    use grafton_visca::runtime_adapters::tokio::TcpTransport as Tcp;
-    let transport = match Tcp::connect(camera_addr).await {
-        Ok(t) => {
-            println!("   ✓ Transport created successfully");
-            t
+    let runtime = TokioRuntime::from_current()?;
+    let camera = match camera_config.open_async(runtime).await {
+        Ok(camera) => {
+            println!("   ✓ Camera connected successfully");
+            camera
         }
         Err(e) => {
-            println!("   ✗ Failed to create transport: {e}");
+            println!("   ✗ Failed to connect camera: {e}");
             println!("   💡 This is expected if the address is invalid");
             return Err(e);
         }
     };
-
-    let session = CameraBuilder::with_executor(runtime)
-        .from_transport(transport)
-        .profile::<PtzOpticsG2>()
-        .open_async()
-        .await?;
-    let camera = session;
 
     println!("\n3. Retry Pattern Implementation:");
     println!("   Implementing exponential backoff for camera operations\n");

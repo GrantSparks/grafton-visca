@@ -14,16 +14,15 @@
 //! ```ignore
 //! # #[cfg(not(feature = "mode-async"))]
 //! # {
-//! # use grafton_visca::{command::{PanTilt, PanTiltDirection}, types::{PanSpeed, TiltSpeed}};
-//! # use grafton_visca::Client;
-//! # let client = Client::connect_udp("192.168.0.110:5678").unwrap();
+//! # use grafton_visca::{CameraId, command::{PanTilt, PanTiltDirection, ViscaCommand}, types::{PanSpeed, TiltSpeed}};
 //! // Move camera diagonally up-right
 //! let command = PanTilt::Move {
 //!     direction: PanTiltDirection::UpRight,
 //!     pan_speed: PanSpeed::new(0x10).unwrap(),
 //!     tilt_speed: TiltSpeed::new(0x10).unwrap(),
 //! };
-//! client.send(&command).unwrap();
+//! let bytes = command.to_bytes(CameraId::CAMERA_1).unwrap();
+//! assert_eq!(bytes[0], 0x81);
 //! # }
 //! ```
 
