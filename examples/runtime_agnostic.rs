@@ -96,22 +96,6 @@ fn main() {
                 Err(Error::Timeout)
             }
         }
-
-        #[allow(refining_impl_trait_internal)]
-        fn timeout_owned<T>(
-            &self,
-            duration: Duration,
-            future: impl Future<Output = T> + Send + 'static,
-        ) -> Pin<Box<dyn Future<Output = Result<T, Error>> + Send + 'static>>
-        where
-            T: Send + 'static,
-        {
-            // For this demo, we return timeout error
-            Box::pin(async move {
-                let _ = (duration, future);
-                Err(Error::Timeout)
-            })
-        }
     }
 
     // Demonstrate using different runtime executors

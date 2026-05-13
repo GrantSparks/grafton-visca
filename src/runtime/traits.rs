@@ -245,18 +245,6 @@ mod tokio_impl {
             self.executor.timeout(duration, fut)
         }
 
-        #[allow(refining_impl_trait_reachable)]
-        fn timeout_owned<T>(
-            &self,
-            duration: std::time::Duration,
-            fut: impl Future<Output = T> + Send + 'static,
-        ) -> std::pin::Pin<Box<dyn Future<Output = Result<T, Error>> + Send + 'static>>
-        where
-            T: Send + 'static,
-        {
-            Box::pin(self.executor.timeout_owned(duration, fut))
-        }
-
         fn now(&self) -> Instant {
             self.executor.now()
         }
@@ -373,18 +361,6 @@ mod smol_impl {
             T: Send + 'a,
         {
             self.executor.timeout(duration, fut)
-        }
-
-        #[allow(refining_impl_trait_reachable)]
-        fn timeout_owned<T>(
-            &self,
-            duration: std::time::Duration,
-            fut: impl Future<Output = T> + Send + 'static,
-        ) -> std::pin::Pin<Box<dyn Future<Output = Result<T, Error>> + Send + 'static>>
-        where
-            T: Send + 'static,
-        {
-            Box::pin(self.executor.timeout_owned(duration, fut))
         }
 
         fn now(&self) -> Instant {

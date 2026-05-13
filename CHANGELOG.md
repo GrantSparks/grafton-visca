@@ -36,6 +36,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dynamic movement timeout parameters now apply to command completion responses consistently; physical idle waits are available explicitly through `DynMotionControl::await_idle()` and the axis-specific idle wait methods
 - Dynamic in-flight handles now preserve command errors, cancellation results, and timeout behavior from the static response future
 
+#### Executor Timeout Surface Slimming
+- **BREAKING**: `Executor::timeout_owned()` was removed; executor implementors now provide only the borrowed `Executor::timeout()` timeout primitive, eliminating the duplicate owned/object-safe timeout path
+
 ### Added
 
 #### Blocking Camera-First Accessors (#510)

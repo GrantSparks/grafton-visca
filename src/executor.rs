@@ -121,22 +121,6 @@ pub trait Executor: Clone + Send + Sync + 'static {
     fn now(&self) -> Instant {
         Instant::now()
     }
-
-    /// Create a timeout future that owns all its data.
-    ///
-    /// Unlike the `timeout` method, this returns a `'static` future that doesn't
-    /// borrow from `&self`. This is useful when creating boxed static futures
-    /// that need to embed timeout operations.
-    ///
-    /// The returned future will complete with `Ok(T)` if the input future
-    /// completes within the duration, or `Err(Error::Timeout)` if it times out.
-    fn timeout_owned<T>(
-        &self,
-        duration: std::time::Duration,
-        fut: impl Future<Output = T> + Send + 'static,
-    ) -> impl Future<Output = Result<T, Error>> + Send + 'static
-    where
-        T: Send + 'static;
 }
 
 // Generic implementation for Arc<E> where E: Executor
@@ -181,18 +165,6 @@ where
         T: Send + 'a,
     {
         (**self).timeout(duration, fut)
-    }
-
-    #[allow(clippy::manual_async_fn)]
-    fn timeout_owned<T>(
-        &self,
-        duration: std::time::Duration,
-        fut: impl Future<Output = T> + Send + 'static,
-    ) -> impl Future<Output = Result<T, Error>> + Send + 'static
-    where
-        T: Send + 'static,
-    {
-        (**self).timeout_owned(duration, fut)
     }
 
     fn now(&self) -> Instant {
@@ -286,23 +258,6 @@ mod tokio_impl {
         where
             F: Future<Output = T> + Send + 'a,
             T: Send + 'a,
-        {
-            async move {
-                match tokio::time::timeout(duration, fut).await {
-                    Ok(value) => Ok(value),
-                    Err(_) => Err(Error::Timeout),
-                }
-            }
-        }
-
-        #[allow(clippy::manual_async_fn)]
-        fn timeout_owned<T>(
-            &self,
-            duration: Duration,
-            fut: impl Future<Output = T> + Send + 'static,
-        ) -> impl Future<Output = Result<T, Error>> + Send + 'static
-        where
-            T: Send + 'static,
         {
             async move {
                 match tokio::time::timeout(duration, fut).await {
@@ -436,18 +391,6 @@ mod smol_impl {
         {
             race_timeout(duration, fut)
         }
-
-        #[allow(clippy::manual_async_fn)]
-        fn timeout_owned<T>(
-            &self,
-            duration: Duration,
-            fut: impl Future<Output = T> + Send + 'static,
-        ) -> impl Future<Output = Result<T, Error>> + Send + 'static
-        where
-            T: Send + 'static,
-        {
-            race_timeout(duration, fut)
-        }
     }
 }
 
@@ -501,30 +444,11 @@ mod smol_tests {
         assert!(matches!(result, Err(Error::Timeout)));
     }
 
-    /// Test that timeout_owned times out correctly.
-    #[test]
-    fn timeout_owned_returns_error_for_never_completing_future() {
-        let executor = SmolExecutor::new();
-        let (never_complete, _poll_count) = NeverComplete::new();
-        let result =
-            executor.block_on(executor.timeout_owned(Duration::from_millis(10), never_complete));
-        assert!(matches!(result, Err(Error::Timeout)));
-    }
-
     /// Test that an immediately completing future returns success.
     #[test]
     fn timeout_returns_ok_for_immediate_completion() {
         let executor = SmolExecutor::new();
         let result = executor.block_on(executor.timeout(Duration::from_secs(10), async { 42 }));
-        assert!(matches!(result, Ok(42)));
-    }
-
-    /// Test that timeout_owned returns success for immediate completion.
-    #[test]
-    fn timeout_owned_returns_ok_for_immediate_completion() {
-        let executor = SmolExecutor::new();
-        let result =
-            executor.block_on(executor.timeout_owned(Duration::from_secs(10), async { 42 }));
         assert!(matches!(result, Ok(42)));
     }
 
@@ -547,24 +471,6 @@ mod smol_tests {
         let polls = poll_count.load(Ordering::SeqCst);
         // A waker-driven implementation polls very few times (typically 1-2).
         // A busy-polling loop would poll hundreds or thousands of times in 50ms.
-        assert!(
-            polls <= 10,
-            "Expected ≤10 polls for waker-driven implementation, got {polls}. \
-             This suggests a busy-polling regression."
-        );
-    }
-
-    /// Regression test for timeout_owned: Verify it is also waker-driven.
-    #[test]
-    fn timeout_owned_does_not_busy_poll() {
-        let executor = SmolExecutor::new();
-        let (never_complete, poll_count) = NeverComplete::new();
-
-        let result =
-            executor.block_on(executor.timeout_owned(Duration::from_millis(50), never_complete));
-        assert!(matches!(result, Err(Error::Timeout)));
-
-        let polls = poll_count.load(Ordering::SeqCst);
         assert!(
             polls <= 10,
             "Expected ≤10 polls for waker-driven implementation, got {polls}. \

@@ -765,25 +765,6 @@ impl Executor for DeterministicExecutor {
         }
     }
 
-    #[allow(clippy::manual_async_fn)]
-    fn timeout_owned<T>(
-        &self,
-        duration: Duration,
-        fut: impl Future<Output = T> + Send + 'static,
-    ) -> impl Future<Output = Result<T, Error>> + Send + 'static
-    where
-        T: Send + 'static,
-    {
-        let clock = self.clock.clone();
-        async move {
-            let timeout_future = TimeoutFuture {
-                future: Box::pin(fut),
-                sleep: clock.sleep(duration),
-            };
-            timeout_future.await
-        }
-    }
-
     fn now(&self) -> Instant {
         self.clock.now()
     }
