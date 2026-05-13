@@ -1,0 +1,16 @@
+error[E0603]: module `encode` is private
+ --> tests/api_contract/fail/command_encode_module_is_internal.rs:2:43
+  |
+2 |     fn _assert<T: grafton_visca::command::encode::ViscaCommand>() {}
+  |                                           ^^^^^^ private module
+  |
+note: the module `encode` is defined here
+ --> src/command/mod.rs
+  |
+  | pub(crate) mod encode;
+  | ^^^^^^^^^^^^^^^^^^^^^
+help: consider importing this trait instead
+  |
+2 -     fn _assert<T: grafton_visca::command::encode::ViscaCommand>() {}
+2 +     fn _assert<T: grafton_visca::prelude::raw::ViscaCommand>() {}
+  |

@@ -46,7 +46,7 @@ pub enum MenuDirection {
 }
 
 // Manual implementation for MenuNavigate due to complex direction mapping
-impl crate::command::encode::ViscaCommand for MenuNavigate {
+impl crate::command::ViscaCommand for MenuNavigate {
     type Response = ();
     const MAX_SIZE: usize = 9;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
@@ -153,7 +153,7 @@ pub struct DirectMenuControl {
     pub control2: u8,
 }
 
-impl crate::command::encode::ViscaCommand for DirectMenuControl {
+impl crate::command::ViscaCommand for DirectMenuControl {
     type Response = ();
     const MAX_SIZE: usize = 8;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;

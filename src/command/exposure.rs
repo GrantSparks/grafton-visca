@@ -55,14 +55,10 @@ impl ExposureCommand {
     }
 }
 
-/// Exposure compensation commands.
+/// Raw exposure compensation commands.
 ///
-/// # Example
-/// ```text
-/// This type is used internally by the camera methods.
-/// Users should use the high-level camera API instead:
-/// camera.set_exposure_compensation(true).await?;
-/// ```
+/// Most applications should use the camera exposure accessor. Use this enum
+/// when implementing custom command flows on top of the low-level command API.
 #[derive(Debug, Copy, Clone)]
 pub enum ExposureCompensation {
     /// Enable exposure compensation

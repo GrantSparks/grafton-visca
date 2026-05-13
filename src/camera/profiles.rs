@@ -13,7 +13,7 @@ use crate::{
     },
     command::exposure::ExposureMode,
     error::Error,
-    transport::envelope::{RawVisca, SonyEncapsulated},
+    transport::{RawVisca, SonyEncapsulated},
     WhiteBalanceMode,
 };
 

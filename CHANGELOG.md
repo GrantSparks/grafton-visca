@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **BREAKING**: `BlockingCamera<P, Tr>` now aliases `BlockingClient<P, Tr>`, making noun accessors such as `camera.power().on()?` and `camera.pan_tilt().home()?` the canonical blocking API
 - **BREAKING**: Root-level control trait re-exports such as `grafton_visca::PowerControl` and `grafton_visca::ZoomControl` were removed from the public 1.0 surface; advanced trait-generic code should import them from `grafton_visca::camera::controls::*`
 - **BREAKING**: Camera implementation modules are no longer public extension points; `camera::camera_impl`, `camera::movement`, and `camera::capabilities` were hidden behind the stable top-level camera exports
+- **BREAKING**: Runtime scheduler internals are no longer part of the production public API; `runtime::RuntimeHandle`, `runtime::Priority`, and scheduler submodules are hidden, with test-only hooks available under `runtime::testing` when `test-utils` is enabled
+- **BREAKING**: Transport implementation modules such as `transport::builder`, `transport::buffer`, `transport::blocking_transport`, `transport::address`, and `transport::envelope` are hidden; supported transport configuration and extension types are re-exported from `grafton_visca::transport`
+- **BREAKING**: The `command::encode` implementation module is hidden; raw command extensions should import `ViscaCommand`, `CommandKind`, and `InquiryKind` from `grafton_visca::command`
+- **BREAKING**: The unused `MotionGuard` helper and low-level `runtime_demo_lowlevel` example were removed; use explicit camera accessors such as `camera.zoom().stop()` and the high-level `runtime_demo` example instead
 - **BREAKING**: The direct blocking `nd_filter()` inquiry method was removed to reserve `camera.nd_filter()` for the camera-first ND filter accessor; use `camera.nd_filter().position()?`
 
 #### Granular Iris Capability Modelling
@@ -47,11 +51,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Commands own ACK, socket, retry, and cancellation state; inquiries own reply correlation, response typing, and inquiry retry state
 - Inquiry response type is required when an inquiry enters active scheduler state, and inquiry handling no longer depends on debug-only kind assertions
 - Tests now cover legal command/inquiry invariants only, including that inquiry entries cannot carry cancellation state
+- Removed the stale scheduler send-failure rollback helper and compile feature-specific scheduler internals only where they are used
 
 #### Documentation and Examples Aligned for v1.0 (#509, #510)
 - README, crate docs, prelude docs, and examples now present `Connect` plus camera-first accessors as the primary API for both blocking and async users
 - Installation snippets now target the v1 line and remove stale pre-release/0.x caveats
 - Blocking and async examples were updated away from direct trait-method calls toward the long-term `camera.power()`, `camera.zoom()`, `camera.pan_tilt()`, and related accessor style
+- The examples guide no longer presents direct runtime-handle usage as application-facing API
 
 #### PTZOptics Profiles Disable Iris
 - PTZOptics G2, G3, and 30X profiles now set `IRIS_RANGE: None` and exclude `ExposureMode::Iris` from their supported modes, reflecting hardware behaviour observed on real devices

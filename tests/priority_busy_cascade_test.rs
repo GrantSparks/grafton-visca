@@ -5,7 +5,9 @@
 
 #![cfg(all(feature = "mode-async", feature = "test-utils"))]
 
-use grafton_visca::{runtime::Priority, testing::testkit::DeterministicExecutor, Executor};
+use grafton_visca::{
+    runtime::testing::Priority, testing::testkit::DeterministicExecutor, Executor,
+};
 
 #[test]
 fn test_busy_cascade_across_priorities() {

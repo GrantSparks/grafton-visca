@@ -127,10 +127,6 @@ name = "preset_demo"
 name = "type_safe_commands"
 
 [[example]]
-name = "runtime_demo_lowlevel"
-required-features = ["mode-async", "runtime-tokio"]
-
-[[example]]
 name = "runtime_agnostic"
 required-features = ["mode-async"]
 

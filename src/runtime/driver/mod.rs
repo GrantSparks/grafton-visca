@@ -9,7 +9,6 @@ pub mod send;
 
 pub use scheduler::SchedulerLike;
 pub(crate) use send::send_one;
-pub use send::SendGuard;
 
 #[cfg(not(feature = "mode-async"))]
 pub(crate) use send::SendResult;

@@ -12,7 +12,7 @@ use crate::{
     error::{Error, Result},
     protocol::framer::ProtocolFramer,
     runtime::{
-        async_adapter::{AsyncAdapter, CompletionEvent, MetricsSummary, TxItem},
+        async_adapter::{AsyncAdapter, CompletionEvent, TxItem},
         core::PendingCommand,
         driver::send_one,
     },
@@ -21,6 +21,14 @@ use crate::{
         buffer::BufferManager, envelope::Envelope, AsyncTransport, RetryConfig, SendSemantics,
     },
 };
+
+#[cfg(feature = "test-utils")]
+use crate::runtime::async_adapter::MetricsSummary;
+
+#[cfg(feature = "test-utils")]
+pub(crate) type MetricsRequestReceiver = Receiver<Sender<MetricsSummary>>;
+#[cfg(not(feature = "test-utils"))]
+pub(crate) type MetricsRequestReceiver = ();
 
 /// Event variants representing all possible wake sources for the runtime loop.
 ///
@@ -31,6 +39,7 @@ enum LoopEvent {
     /// A command, inquiry, or cancel was submitted.
     Submit(TxItem),
     /// A metrics request was received.
+    #[cfg(feature = "test-utils")]
     Metrics(Sender<MetricsSummary>),
     /// A completion subscription request was received.
     SubscribeCompletions(Sender<Receiver<CompletionEvent>>),
@@ -134,7 +143,7 @@ pub struct RuntimeLoopConfig<E: Envelope> {
     skip(
         transport,
         submit_rx,
-        metrics_rx,
+        _metrics_rx,
         completions_rx,
         shutdown_rx,
         executor,
@@ -148,7 +157,7 @@ pub async fn runtime_loop_with_config<
 >(
     mut transport: T,
     submit_rx: Receiver<TxItem>,
-    metrics_rx: Receiver<Sender<MetricsSummary>>,
+    _metrics_rx: MetricsRequestReceiver,
     completions_rx: Receiver<Sender<Receiver<CompletionEvent>>>,
     shutdown_rx: Receiver<()>,
     executor: Arc<Ex>,
@@ -229,8 +238,9 @@ pub async fn runtime_loop_with_config<
                     Err(_) => LoopEvent::Shutdown,
                 }
             };
+            #[cfg(feature = "test-utils")]
             let metrics_future = async {
-                match metrics_rx.recv_async().await {
+                match _metrics_rx.recv_async().await {
                     Ok(tx) => LoopEvent::Metrics(tx),
                     // Channel closed - treat as tick (non-fatal)
                     Err(_) => LoopEvent::Tick,
@@ -246,7 +256,8 @@ pub async fn runtime_loop_with_config<
 
             // Combine all futures using nested races
             // Priority order matters for ties: shutdown > submit > metrics > completions > recv/tick
-            future::race(
+            #[cfg(feature = "test-utils")]
+            let control_future = future::race(
                 shutdown_future,
                 future::race(
                     submit_future,
@@ -255,14 +266,24 @@ pub async fn runtime_loop_with_config<
                         future::race(completions_future, recv_or_tick),
                     ),
                 ),
-            )
-            .await
+            );
+            #[cfg(not(feature = "test-utils"))]
+            let control_future = future::race(
+                shutdown_future,
+                future::race(
+                    submit_future,
+                    future::race(completions_future, recv_or_tick),
+                ),
+            );
+
+            control_future.await
         };
 
         runtime_trace!(
             "Event received: {}",
             match &event {
                 LoopEvent::Submit(item) => format!("Submit({:?})", item),
+                #[cfg(feature = "test-utils")]
                 LoopEvent::Metrics(_) => "Metrics".to_string(),
                 LoopEvent::SubscribeCompletions(_) => "SubscribeCompletions".to_string(),
                 LoopEvent::TransportRecv(n) => format!("TransportRecv({n})"),
@@ -376,6 +397,7 @@ pub async fn runtime_loop_with_config<
                 // Fall through to housekeeping
             }
 
+            #[cfg(feature = "test-utils")]
             LoopEvent::Metrics(response_tx) => {
                 let summary = adapter.metrics_summary();
                 let _ = response_tx.send(summary);

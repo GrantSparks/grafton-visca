@@ -21,9 +21,9 @@ use std::time::Duration;
 
 use grafton_visca::{
     camera::profiles::PtzOpticsG2,
-    runtime::RuntimeHandle,
+    runtime::testing::RuntimeHandle,
     testing::testkit::{helpers, ScriptedTransport, Step},
-    transport::builder::TransportConfig,
+    transport::TransportConfig,
     CameraId, TokioExecutor,
 };
 

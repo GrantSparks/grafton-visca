@@ -23,8 +23,11 @@ use crate::{
     Error,
 };
 
-/// Metadata extracted from or used during framing operations.
-#[doc(hidden)]
+/// Metadata extracted from or used during VISCA framing operations.
+///
+/// Raw VISCA frames do not carry request sequence numbers, so
+/// [`FrameMeta::sequence`] is `None` for [`RawVisca`]. Sony encapsulated frames
+/// carry a sequence number that the runtime uses to correlate replies.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FrameMeta {
     /// Sequence number for Sony protocol, None for raw VISCA.

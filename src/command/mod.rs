@@ -33,8 +33,8 @@ pub mod zoom;
 // Command encoding module
 pub mod bytes;
 
-// New unified ViscaCommand trait
-pub mod encode;
+// Unified ViscaCommand implementation internals.
+pub(crate) mod encode;
 
 // Re-export command types
 pub use self::{

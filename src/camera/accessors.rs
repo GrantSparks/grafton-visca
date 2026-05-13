@@ -22,7 +22,7 @@ use crate::{
             white_balance::WhiteBalanceControl,
             zoom::ZoomControl,
         },
-        Camera, ViscaClient,
+        Camera,
     },
     capabilities::Profile,
     executor::Executor,
@@ -1195,48 +1195,48 @@ where
     /// Recall a preset.
     pub fn recall(&self, preset: u8) -> M::Fut<'_, Result<(), Error>>
     where
-        Camera<M, P, Tr, Exec>: PresetsControl<Mode = M> + ViscaClient<M>,
+        Camera<M, P, Tr, Exec>: PresetsControl<Mode = M>,
     {
         use crate::command::preset::PresetNumber;
         match PresetNumber::new(preset) {
             Ok(preset_number) => self.camera.preset_recall(preset_number),
-            Err(_) => self.camera.error(Error::InvalidParameter {
+            Err(_) => M::ready(Err(Error::InvalidParameter {
                 parameter: "preset",
                 value: preset.to_string().into(),
                 reason: "Preset number must be between 0 and 255".into(),
-            }),
+            })),
         }
     }
 
     /// Set (save) a preset.
     pub fn set(&self, preset: u8) -> M::Fut<'_, Result<(), Error>>
     where
-        Camera<M, P, Tr, Exec>: PresetsControl<Mode = M> + ViscaClient<M>,
+        Camera<M, P, Tr, Exec>: PresetsControl<Mode = M>,
     {
         use crate::command::preset::PresetNumber;
         match PresetNumber::new(preset) {
             Ok(preset_number) => self.camera.preset_set(preset_number),
-            Err(_) => self.camera.error(Error::InvalidParameter {
+            Err(_) => M::ready(Err(Error::InvalidParameter {
                 parameter: "preset",
                 value: preset.to_string().into(),
                 reason: "Preset number must be between 0 and 255".into(),
-            }),
+            })),
         }
     }
 
     /// Reset (clear) a preset.
     pub fn reset(&self, preset: u8) -> M::Fut<'_, Result<(), Error>>
     where
-        Camera<M, P, Tr, Exec>: PresetsControl<Mode = M> + ViscaClient<M>,
+        Camera<M, P, Tr, Exec>: PresetsControl<Mode = M>,
     {
         use crate::command::preset::PresetNumber;
         match PresetNumber::new(preset) {
             Ok(preset_number) => self.camera.preset_reset(preset_number),
-            Err(_) => self.camera.error(Error::InvalidParameter {
+            Err(_) => M::ready(Err(Error::InvalidParameter {
                 parameter: "preset",
                 value: preset.to_string().into(),
                 reason: "Preset number must be between 0 and 255".into(),
-            }),
+            })),
         }
     }
 }

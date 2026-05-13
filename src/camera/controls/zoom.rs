@@ -270,7 +270,7 @@ impl<P, Tr, Exec> crate::camera::Camera<crate::mode::Async, P, Tr, Exec>
 where
     P: crate::capabilities::Profile + Default + crate::capabilities::zoom::Zoom,
     Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
-    Exec: crate::executor::Executor,
+    Exec: crate::executor::Executor + Send + Sync + Clone + 'static,
 {
     /// Set zoom to a position and return an operation handle.
     ///
@@ -302,7 +302,7 @@ where
     pub async fn set_zoom_op<T>(
         &self,
         position: T,
-    ) -> Result<crate::camera::inflight::InFlight<'_, crate::camera::inflight::Zoom, Self>, Error>
+    ) -> Result<crate::camera::inflight::InFlight<'_, crate::camera::inflight::Zoom, P, Exec>, Error>
     where
         T: TryInto<ZoomPosition>,
         T::Error: Into<Error>,
@@ -317,7 +317,7 @@ where
         Ok(crate::camera::inflight::InFlight::new(
             id,
             self.camera_id(),
-            self,
+            self.runtime(),
             response_future,
         ))
     }

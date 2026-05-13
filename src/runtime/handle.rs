@@ -17,11 +17,11 @@ use crate::{
     camera::inflight::CommandId,
     camera_id::CameraId,
     capabilities::Profile,
-    command::{encode::EncodedCommand, encode::ViscaCommand, response::Response},
+    command::{encode::EncodedCommand, response::Response},
     error::{Error, Result},
     executor::Executor,
     runtime::{
-        async_adapter::{CompletionEvent, MetricsSummary, TxItem},
+        async_adapter::{CompletionEvent, TxItem},
         core::Priority,
         loop_task::{runtime_loop_with_config, RuntimeLoopConfig},
     },
@@ -31,6 +31,11 @@ use crate::{
     },
     ViscaSocket,
 };
+
+#[cfg(feature = "test-utils")]
+use crate::command::encode::ViscaCommand;
+#[cfg(feature = "test-utils")]
+use crate::runtime::async_adapter::MetricsSummary;
 
 /// VISCA runtime handle.
 ///
@@ -55,6 +60,7 @@ struct RuntimeHandleInner<P: Profile, E: Executor> {
     /// Shutdown signal sender using flume for runtime-agnostic signaling.
     shutdown_tx: Sender<()>,
     /// Channel for requesting metrics from the runtime.
+    #[cfg(feature = "test-utils")]
     metrics_tx: Sender<Sender<MetricsSummary>>,
     /// Channel for requesting completion event subscriptions from the runtime.
     completions_tx: Sender<Sender<Receiver<CompletionEvent>>>,
@@ -78,6 +84,7 @@ impl<P: Profile + 'static, E: Executor + Send + Sync + 'static> RuntimeHandle<P,
     /// Create a new camera runtime with the given transport.
     ///
     /// This spawns a background task to handle communication with the camera.
+    #[cfg(feature = "test-utils")]
     pub async fn new<T: AsyncTransport + Send + 'static>(
         transport: T,
         executor: Arc<E>,
@@ -91,6 +98,7 @@ impl<P: Profile + 'static, E: Executor + Send + Sync + 'static> RuntimeHandle<P,
     /// Create a new runtime handle with a transport and executor.
     ///
     /// This is an alias for `new` to match the expected API used by AsyncCamera.
+    #[cfg(feature = "test-utils")]
     pub async fn spawn_with_transport<T: AsyncTransport + Send + 'static>(
         transport: T,
         executor: E,
@@ -104,6 +112,7 @@ impl<P: Profile + 'static, E: Executor + Send + Sync + 'static> RuntimeHandle<P,
     /// Create a new camera runtime with timeout config.
     ///
     /// This allows specifying custom timeouts.
+    #[cfg(feature = "test-utils")]
     pub async fn new_with_timeout<T: AsyncTransport + Send + 'static>(
         transport: T,
         executor: Arc<E>,
@@ -150,7 +159,10 @@ impl<P: Profile + 'static, E: Executor + Send + Sync + 'static> RuntimeHandle<P,
         let (submit_tx, submit_rx) = flume::bounded(tcfg.max_pending_queue_depth.get());
 
         // Keep other low-volume channels unbounded - they don't carry command traffic
+        #[cfg(feature = "test-utils")]
         let (metrics_tx, metrics_rx) = flume::unbounded();
+        #[cfg(not(feature = "test-utils"))]
+        let metrics_rx = ();
         let (completions_tx, completions_rx) = flume::unbounded();
         let (shutdown_tx, shutdown_rx) = flume::unbounded();
 
@@ -199,6 +211,7 @@ impl<P: Profile + 'static, E: Executor + Send + Sync + 'static> RuntimeHandle<P,
                 submit: submit_tx,
                 shutdown: Arc::new(AtomicBool::new(false)),
                 shutdown_tx,
+                #[cfg(feature = "test-utils")]
                 metrics_tx,
                 completions_tx,
                 next_command_id: Arc::new(AtomicU32::new(1)),
@@ -206,24 +219,6 @@ impl<P: Profile + 'static, E: Executor + Send + Sync + 'static> RuntimeHandle<P,
                 _profile: PhantomData,
             }),
         })
-    }
-
-    /// Create a new camera runtime with raw TCP transport (PtzOptics style).
-    ///
-    /// Note: This method requires the "runtime-tokio" feature as it uses tokio-specific async transports.
-    #[cfg(feature = "runtime-tokio")]
-    pub async fn new_tcp_raw(address: impl AsRef<str>, executor: Arc<E>) -> Result<Self> {
-        let transport = crate::transport::tokio::tcp::Tcp::connect(address.as_ref()).await?;
-        Self::new(transport, executor).await
-    }
-
-    /// Create a new camera runtime with raw UDP transport (PtzOptics style).
-    ///
-    /// Note: This method requires the "runtime-tokio" feature as it uses tokio-specific async transports.
-    #[cfg(feature = "runtime-tokio")]
-    pub async fn new_udp_raw(address: impl AsRef<str>, executor: Arc<E>) -> Result<Self> {
-        let transport = crate::transport::tokio::udp::Udp::connect(address.as_ref()).await?;
-        Self::new(transport, executor).await
     }
 
     /// Send a command item to the runtime.
@@ -308,6 +303,7 @@ impl<P: Profile + 'static, E: Executor + Send + Sync + 'static> RuntimeHandle<P,
     ///
     /// Returns a snapshot of the current runtime metrics including queue depths,
     /// command counts, retry statistics, and more.
+    #[cfg(feature = "test-utils")]
     pub async fn metrics(&self) -> Result<MetricsSummary> {
         let (response_tx, response_rx) = flume::bounded(1);
         self.inner
@@ -391,6 +387,7 @@ impl<P: Profile + 'static, E: Executor + Send + Sync + 'static> RuntimeHandle<P,
     ///
     /// # Returns
     /// The response from the camera
+    #[cfg(feature = "test-utils")]
     pub async fn send_command<C>(
         &self,
         cmd: &C,
@@ -423,6 +420,7 @@ impl<P: Profile + 'static, E: Executor + Send + Sync + 'static> RuntimeHandle<P,
     /// This method is for **commands only**, not inquiries. Inquiries complete
     /// immediately and cannot be canceled. Use [`send_inquiry`](Self::send_inquiry)
     /// for inquiry operations.
+    #[cfg(feature = "test-utils")]
     pub async fn send_command_with_id<C>(
         &self,
         cmd: &C,
@@ -493,6 +491,7 @@ impl<P: Profile + 'static, E: Executor + Send + Sync + 'static> RuntimeHandle<P,
     /// Inquiries are not cancelable and do not return a `CommandId`. They complete
     /// immediately without occupying a VISCA socket. For cancelable operations,
     /// use [`send_command_with_id`](Self::send_command_with_id).
+    #[cfg(feature = "test-utils")]
     pub async fn send_inquiry<I>(&self, inquiry: &I, camera_id: CameraId) -> Result<Response>
     where
         I: ViscaCommand,
@@ -637,7 +636,7 @@ fn spawn_runtime_loop<P, T, E>(
     executor: Arc<E>,
     transport: T,
     submit_rx: Receiver<TxItem>,
-    metrics_rx: Receiver<Sender<MetricsSummary>>,
+    metrics_rx: crate::runtime::loop_task::MetricsRequestReceiver,
     completions_rx: Receiver<Sender<Receiver<CompletionEvent>>>,
     shutdown_rx: Receiver<()>,
     task_executor: Arc<E>,

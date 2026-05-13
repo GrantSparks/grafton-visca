@@ -1,0 +1,16 @@
+error[E0603]: module `builder` is private
+ --> tests/api_contract/fail/transport_builder_module_is_internal.rs:2:39
+  |
+2 |     let _ = grafton_visca::transport::builder::TransportConfig::default();
+  |                                       ^^^^^^^ private module
+  |
+note: the module `builder` is defined here
+ --> src/transport/mod.rs
+  |
+  | pub(crate) mod builder;
+  | ^^^^^^^^^^^^^^^^^^^^^^
+help: consider importing this struct instead
+  |
+2 -     let _ = grafton_visca::transport::builder::TransportConfig::default();
+2 +     let _ = grafton_visca::transport::TransportConfig::default();
+  |

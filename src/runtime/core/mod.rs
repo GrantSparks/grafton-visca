@@ -56,18 +56,6 @@ pub enum CommandPhase {
 }
 
 impl CommandPhase {
-    /// Returns the time when the command was sent, if applicable.
-    ///
-    /// Returns `Some(Instant)` for all phases except `Queued`.
-    #[inline]
-    pub fn sent_at(&self) -> Option<Instant> {
-        match self {
-            CommandPhase::Queued => None,
-            CommandPhase::AwaitingAck { sent_at } => Some(*sent_at),
-            CommandPhase::Executing { started_at, .. } => Some(*started_at),
-        }
-    }
-
     /// Returns `true` if this command is awaiting ACK.
     #[inline]
     pub fn is_awaiting_ack(&self) -> bool {
@@ -104,6 +92,7 @@ pub enum InquiryPhase {
 
 impl InquiryPhase {
     /// Returns the time when the inquiry was sent, if applicable.
+    #[cfg(test)]
     #[inline]
     pub fn sent_at(&self) -> Option<Instant> {
         match self {
@@ -171,14 +160,6 @@ impl CommandEntry {
     pub fn category(&self) -> CommandCategory {
         self.command.category
     }
-
-    /// Get the send time from the command phase.
-    ///
-    /// Returns `Some(Instant)` if the command has been sent.
-    #[inline]
-    pub fn sent_at(&self) -> Option<Instant> {
-        self.phase.sent_at()
-    }
 }
 
 /// Complete lifecycle state for an inquiry.
@@ -213,6 +194,7 @@ impl InquiryEntry {
     }
 
     /// Get sent_at time from phase.
+    #[cfg(test)]
     #[inline]
     pub fn sent_at(&self) -> Option<Instant> {
         self.phase.sent_at()
@@ -305,8 +287,10 @@ pub enum Priority {
     /// Normal priority - default.
     Normal = 1,
     /// High priority - user-initiated actions.
+    #[cfg(any(all(feature = "mode-async", feature = "test-utils"), test))]
     High = 2,
     /// Critical priority - emergency/safety operations.
+    #[cfg(any(all(feature = "mode-async", feature = "test-utils"), test))]
     Critical = 3,
 }
 
@@ -368,13 +352,8 @@ pub struct RetryCommand {
 }
 
 impl RetryCommand {
-    /// Get the timeout category for this command.
-    #[inline]
-    pub fn category(&self) -> CommandCategory {
-        self.command.category
-    }
-
     /// Get the command kind (Command or Inquiry).
+    #[cfg(any(not(feature = "mode-async"), test))]
     #[inline]
     pub fn kind(&self) -> CommandKind {
         self.command.kind
@@ -462,12 +441,6 @@ pub struct PendingCommand {
 }
 
 impl PendingCommand {
-    /// Get the timeout category for this command.
-    #[inline]
-    pub fn category(&self) -> CommandCategory {
-        self.command.category
-    }
-
     /// Get the command kind (Command or Inquiry).
     #[inline]
     pub fn kind(&self) -> CommandKind {
@@ -524,8 +497,10 @@ pub enum SchedulerAction {
         /// Command ID (type-safe).
         id: CommandId,
         /// Command category.
+        #[cfg(feature = "mode-async")]
         category: CommandCategory,
         /// Camera ID.
+        #[cfg(feature = "mode-async")]
         camera_id: crate::camera_id::CameraId,
         /// Response from the camera.
         response: Response,
@@ -540,19 +515,22 @@ pub enum SchedulerAction {
     /// Retry a command.
     RetryCommand {
         /// Command ID (type-safe).
+        #[cfg(any(feature = "mode-async", test))]
         id: CommandId,
         /// Delay before retrying.
+        #[cfg(any(feature = "mode-async", test))]
         delay: Duration,
     },
     /// A command exceeded one of the scheduler's timeouts.
     Timeout {
         /// Command ID that timed out (type-safe).
+        #[cfg(any(feature = "mode-async", test))]
         id: CommandId,
         /// Kind of timeout that occurred.
+        #[cfg(any(feature = "mode-async", test))]
         kind: TimeoutKind,
-        /// 1-based attempt number that timed out.
-        attempt: u32,
         /// True if a retry was enqueued.
+        #[cfg(any(feature = "mode-async", test))]
         will_retry: bool,
     },
     /// Send a cancel command for a specific socket.
@@ -562,13 +540,16 @@ pub enum SchedulerAction {
     /// should be sent immediately to the transport.
     SendCancel {
         /// Camera ID for addressing the cancel message.
+        #[cfg(any(feature = "mode-async", test))]
         camera_id: crate::camera_id::CameraId,
         /// Socket to cancel.
+        #[cfg(any(feature = "mode-async", test))]
         socket: ViscaSocket,
     },
 }
 
 /// Kind of timeout that can occur.
+#[cfg(any(feature = "mode-async", test))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TimeoutKind {
     /// Timeout waiting for ACK.
@@ -943,6 +924,7 @@ pub struct SchedulerCore {
 
 impl SchedulerCore {
     /// Create a new scheduler core with the given timeout configuration.
+    #[cfg(test)]
     pub fn new(timeout_config: TimeoutConfig) -> Self {
         // Use default retry config
         Self::with_retry_config(timeout_config, crate::transport::RetryConfig::default())
@@ -981,11 +963,13 @@ impl SchedulerCore {
     }
 
     /// Set the timeout configuration.
+    #[cfg(not(feature = "mode-async"))]
     pub fn set_timeout_config(&mut self, timeout_config: TimeoutConfig) {
         self.timeout_config = timeout_config;
     }
 
     /// Set the maximum number of inquiries that can be in flight simultaneously.
+    #[cfg(any(feature = "mode-async", test))]
     pub fn set_max_inquiries_inflight(&mut self, max: usize) {
         self.max_inquiries_inflight = max;
     }
@@ -998,11 +982,6 @@ impl SchedulerCore {
         self.min_inquiry_spacing = spacing;
     }
 
-    /// Get the minimum spacing between consecutive inquiry sends.
-    pub fn min_inquiry_spacing(&self) -> Duration {
-        self.min_inquiry_spacing
-    }
-
     /// Set the minimum spacing between consecutive command sends (any kind).
     ///
     /// When set, this enforces a minimum delay between any two sends on the
@@ -1010,11 +989,6 @@ impl SchedulerCore {
     /// cannot process commands at wire speed.
     pub fn set_min_command_spacing(&mut self, spacing: Duration) {
         self.min_command_spacing = spacing;
-    }
-
-    /// Get the minimum spacing between consecutive command sends.
-    pub fn min_command_spacing(&self) -> Duration {
-        self.min_command_spacing
     }
 
     /// Queue a command for execution.
@@ -1465,6 +1439,7 @@ impl SchedulerCore {
     /// - Retry state
     /// - Inquiry state
     /// - Socket allocations
+    #[cfg(any(not(feature = "mode-async"), test))]
     pub fn cancel_command(&mut self, cmd_id: CommandId) {
         trace!("Cancelling command {cmd_id}");
 
@@ -1518,6 +1493,7 @@ impl SchedulerCore {
     ///
     /// This design eliminates the need for an out-of-band `pending_cancel_ids` map,
     /// ensuring cancels are bounded to command lifetime and cleaned up automatically.
+    #[cfg(any(feature = "mode-async", test))]
     pub fn request_cancel_by_id(
         &mut self,
         cmd_id: CommandId,
@@ -1556,6 +1532,7 @@ impl SchedulerCore {
     /// caller is returning early (not going through `process_event`).
     /// It removes the inquiry from inflight tracking to prevent stale
     /// command IDs from causing response misrouting.
+    #[cfg(any(not(feature = "mode-async"), test))]
     pub fn complete_inquiry(&mut self, cmd_id: CommandId) {
         trace!("Completing inquiry {cmd_id}");
 
@@ -1573,6 +1550,7 @@ impl SchedulerCore {
     ///
     /// This should be called when a command completion is received and the
     /// caller is returning early (not going through `process_event`).
+    #[cfg(any(not(feature = "mode-async"), test))]
     pub fn complete_command(&mut self, cmd_id: CommandId) {
         trace!("Completing command {cmd_id}");
 
@@ -1581,24 +1559,6 @@ impl SchedulerCore {
 
         // Remove command state.
         self.commands.remove(&cmd_id);
-    }
-
-    /// Transition a command's phase to Queued (rollback from AwaitingAck on send failure).
-    ///
-    /// This is used when a send operation fails and we want to preserve the command
-    /// for retry without removing it from the scheduler entirely.
-    ///
-    /// Returns true if the command exists and was transitioned, false otherwise.
-    pub fn revert_to_queued(&mut self, id: CommandId) -> bool {
-        if let Some(state) = self.commands.get_mut(&id) {
-            state.phase = CommandPhase::Queued;
-            true
-        } else if let Some(state) = self.inquiries.get_mut(&id) {
-            state.phase = InquiryPhase::Queued;
-            true
-        } else {
-            false
-        }
     }
 
     /// Get the response type for an inquiry from the command state.
@@ -1768,10 +1728,14 @@ impl SchedulerCore {
                     {
                         actions.push(SchedulerAction::CommandComplete {
                             id: cmd_id,
+                            #[cfg(feature = "mode-async")]
                             category,
+                            #[cfg(feature = "mode-async")]
                             camera_id,
                             response,
                         });
+                        #[cfg(not(feature = "mode-async"))]
+                        let _ = (category, camera_id);
                     }
                 }
             }
@@ -1784,10 +1748,14 @@ impl SchedulerCore {
                     if let Some((category, camera_id)) = self.finalize_command(cmd_id, None) {
                         actions.push(SchedulerAction::CommandComplete {
                             id: cmd_id,
+                            #[cfg(feature = "mode-async")]
                             category,
+                            #[cfg(feature = "mode-async")]
                             camera_id,
                             response,
                         });
+                        #[cfg(not(feature = "mode-async"))]
+                        let _ = (category, camera_id);
                         trace!("Inquiry {cmd_id} completed with response");
                     }
                 }
@@ -2051,6 +2019,7 @@ impl SchedulerCore {
     }
 
     /// Get the number of commands waiting to be retried.
+    #[cfg(any(all(feature = "mode-async", feature = "test-utils"), test))]
     pub fn retry_queue_depth(&self) -> usize {
         self.retry_queue.len()
     }
@@ -2065,6 +2034,7 @@ impl SchedulerCore {
     /// Note: This does NOT include commands that have been sent but are awaiting
     /// response (pending_ack, inquiries_inflight), as those have already been
     /// accepted and are tracked separately.
+    #[cfg(feature = "mode-async")]
     pub fn pending_queue_depth(&self) -> usize {
         self.command_queue.len() + self.inquiry_queue.len()
     }
@@ -2216,14 +2186,6 @@ impl SchedulerCore {
         }
     }
 
-    /// Record that a command was sent at the given time.
-    ///
-    /// Called after any successful send (command or inquiry) to enforce
-    /// minimum inter-command spacing.
-    pub fn record_command_sent(&mut self, now: Instant) {
-        self.last_command_sent = Some(now);
-    }
-
     /// Returns `true` if the command should be retried based on budget and duration.
     fn should_retry_timeout(&self, cmd_id: CommandId, now: Instant) -> bool {
         if let Some(state) = self.commands.get(&cmd_id) {
@@ -2339,14 +2301,17 @@ impl SchedulerCore {
                 }
 
                 // For ACK timeouts, emit a Timeout action to notify the adapter
-                let attempts = self.commands.get(&cmd_id).map_or(0, |s| s.attempt);
                 let will_retry = self.should_retry_timeout(cmd_id, now);
                 actions.push(SchedulerAction::Timeout {
+                    #[cfg(any(feature = "mode-async", test))]
                     id: cmd_id,
+                    #[cfg(any(feature = "mode-async", test))]
                     kind: TimeoutKind::Ack,
-                    attempt: attempts + 1, // 1-based attempt number
+                    #[cfg(any(feature = "mode-async", test))]
                     will_retry,
                 });
+                #[cfg(not(any(feature = "mode-async", test)))]
+                let _ = will_retry;
             }
         }
 
@@ -2473,7 +2438,9 @@ impl SchedulerCore {
                     "Emitting SendCancel for command that had cancel_requested set"
                 );
                 Some(SchedulerAction::SendCancel {
+                    #[cfg(any(feature = "mode-async", test))]
                     camera_id: cmd_state.camera_id,
+                    #[cfg(any(feature = "mode-async", test))]
                     socket: assigned_socket,
                 })
             } else {
@@ -2590,6 +2557,7 @@ impl SchedulerCore {
     }
 
     /// Check if a command is pending (either awaiting ACK or executing with socket).
+    #[cfg(any(feature = "mode-async", test))]
     pub fn is_command_pending(&self, cmd_id: CommandId) -> bool {
         self.commands
             .get(&cmd_id)
@@ -2601,6 +2569,7 @@ impl SchedulerCore {
     }
 
     /// Get the count of commands waiting for ACK.
+    #[cfg(feature = "mode-async")]
     pub fn pending_ack_count(&self) -> usize {
         self.count_awaiting_ack()
     }
@@ -2611,16 +2580,9 @@ impl SchedulerCore {
     /// Error, InquiryReply) was received with a sequence number that did not resolve
     /// to an active command. This is expected for stale/duplicate UDP packets and
     /// indicates the sequence correlation safety mechanism is working correctly.
+    #[cfg(any(all(feature = "mode-async", feature = "test-utils"), test))]
     pub fn ignored_unmatched_sequenced_replies(&self) -> u64 {
         self.ignored_unmatched_sequenced_replies
-    }
-
-    /// Get the camera ID for a command by its ID.
-    pub fn camera_id_for_command(&self, id: CommandId) -> Option<crate::camera_id::CameraId> {
-        self.commands
-            .get(&id)
-            .map(|state| state.camera_id)
-            .or_else(|| self.inquiries.get(&id).map(|state| state.camera_id))
     }
 
     /// Get socket state for testing.
@@ -2708,6 +2670,7 @@ impl SchedulerCore {
     /// Unlike send errors, receive errors indicate the camera did receive and process
     /// the command, but the response was malformed or indicated an error condition.
     /// No "Send failed" context is added since the send succeeded.
+    #[cfg(any(feature = "mode-async", test))]
     pub fn fail_after_receive_error(
         &mut self,
         cmd_id: CommandId,
@@ -2727,6 +2690,7 @@ impl SchedulerCore {
 
     /// Mark a retry as being triggered by a transport error.
     /// This affects the final error classification when retries are exhausted.
+    #[cfg(test)]
     pub fn mark_retry_as_transport_error(&mut self, cmd_id: CommandId) {
         if let Some(state) = self.commands.get_mut(&cmd_id) {
             state.transport_error = true;
@@ -2806,7 +2770,15 @@ impl SchedulerCore {
         );
         self.retry_queue.push(RetryKey { command: retry_cmd });
 
-        Some(SchedulerAction::RetryCommand { id: cmd_id, delay })
+        #[cfg(not(any(feature = "mode-async", test)))]
+        let _ = delay;
+
+        Some(SchedulerAction::RetryCommand {
+            #[cfg(any(feature = "mode-async", test))]
+            id: cmd_id,
+            #[cfg(any(feature = "mode-async", test))]
+            delay,
+        })
     }
 
     fn retry_state(&self, cmd_id: CommandId) -> Option<RetryState> {

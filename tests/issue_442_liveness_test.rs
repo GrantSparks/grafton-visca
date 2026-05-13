@@ -29,7 +29,7 @@ use grafton_visca::{
         profiles::PtzOpticsG2,
         CameraBuilder,
     },
-    runtime::RuntimeHandle,
+    runtime::testing::RuntimeHandle,
     testing::testkit::{helpers, ScriptedTransport, Step},
     timeout::TimeoutConfig,
     Error, TokioExecutor,

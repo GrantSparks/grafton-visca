@@ -64,11 +64,11 @@ pub use builder::CameraBuilder;
 // Re-export movement detection types
 pub use movement::{AwaitConfig, Axes, MovementTolerance, PanTiltPosition};
 
-/// Internal trait that provides mode-agnostic VISCA client capabilities.
+/// Trait that provides mode-agnostic VISCA client capabilities for built-in controls.
 ///
 /// This trait abstracts over the differences between async and blocking modes,
 /// allowing control traits to have a single implementation that works for both.
-pub trait ViscaClient<M>
+pub(crate) trait ViscaClient<M>
 where
     M: crate::mode::Mode,
 {

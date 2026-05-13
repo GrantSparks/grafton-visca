@@ -107,7 +107,7 @@ pub enum SendSemantics {
     Datagram,
 }
 
-pub mod address;
+pub(crate) mod address;
 #[cfg(any(feature = "runtime-tokio", feature = "runtime-smol"))]
 pub(crate) mod async_io;
 #[cfg(feature = "transport-serial-tokio")]
@@ -115,16 +115,15 @@ pub(crate) mod async_serial;
 #[cfg(any(feature = "runtime-tokio", feature = "runtime-smol"))]
 pub(crate) mod async_tcp;
 #[cfg(feature = "mode-async")]
-pub mod async_transport;
+pub(crate) mod async_transport;
 #[cfg(any(feature = "runtime-tokio", feature = "runtime-smol"))]
 pub(crate) mod async_udp;
 #[cfg(not(feature = "mode-async"))]
 pub(crate) mod blocking;
-pub mod blocking_transport;
-pub mod buffer;
-pub mod builder;
-pub mod envelope;
-pub mod retry;
+pub(crate) mod blocking_transport;
+pub(crate) mod buffer;
+pub(crate) mod builder;
+pub(crate) mod envelope;
 #[cfg(any(feature = "runtime-tokio", feature = "runtime-smol"))]
 #[macro_use]
 pub(crate) mod runtime_common;
@@ -151,9 +150,13 @@ pub use async_transport::AsyncTransport;
 #[cfg(not(feature = "mode-async"))]
 pub use blocking_transport::BlockingTransportHandle;
 pub use blocking_transport::{BlockingTransport, HasTransportConfig};
-pub use builder::{AddressingMode, TcpKeepaliveConfig, TransportConfig};
+pub use buffer::BufferConfig;
+pub use builder::{
+    AddressingMode, TcpKeepaliveConfig, TransportConfig, DEFAULT_MAX_PENDING_QUEUE_DEPTH,
+};
 #[cfg(not(feature = "mode-async"))]
 pub use builder::{NetTransportBuilder, Transport, TransportBuilderExt};
+pub use envelope::{Envelope, FrameMeta, RawVisca, SonyEncapsulated};
 
 /// Backoff strategy for retry delays.
 ///

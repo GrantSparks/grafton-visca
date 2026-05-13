@@ -42,7 +42,10 @@ use core::{future::Future, marker::PhantomData, pin::Pin, time::Duration};
 use std::sync::Mutex;
 
 #[cfg(feature = "mode-async")]
-use crate::{camera_id::CameraId, command::response::Response, error::Error, Result};
+use crate::{
+    camera_id::CameraId, capabilities::Profile, command::response::Response, error::Error,
+    executor::Executor, Result,
+};
 
 use core::num::NonZeroU32;
 
@@ -133,78 +136,6 @@ pub struct Focus;
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Preset;
 
-/// Trait for types that can provide camera-like operations.
-///
-/// This trait unifies `Camera` and `CameraSession` behind a minimal interface
-/// that the `InFlight` handle needs. It provides access to:
-/// - The runtime (for cancellation)
-/// - Typed completion waiters (for await_completion)
-///
-/// This trait is only available in async mode.
-#[cfg(feature = "mode-async")]
-pub trait CameraLike {
-    /// The profile type for this camera.
-    type Profile: crate::capabilities::Profile;
-    /// The executor type for this camera.
-    type Executor: crate::executor::Executor;
-
-    /// Get access to the runtime handle for cancellation.
-    fn runtime(&self) -> &crate::runtime::RuntimeHandle<Self::Profile, Self::Executor>;
-
-    /// Wait for all operations to complete (general idle wait).
-    fn await_idle(&self, timeout: Duration) -> impl Future<Output = Result<()>> + Send + '_;
-
-    /// Wait for pan/tilt operations to complete.
-    fn await_pan_tilt_idle(
-        &self,
-        timeout: Duration,
-    ) -> impl Future<Output = Result<()>> + Send + '_;
-
-    /// Wait for zoom operations to complete.
-    fn await_zoom_idle(&self, timeout: Duration) -> impl Future<Output = Result<()>> + Send + '_;
-
-    /// Wait for focus operations to complete.
-    fn await_focus_idle(&self, timeout: Duration) -> impl Future<Output = Result<()>> + Send + '_;
-}
-
-/// Trait that maps a category marker to the appropriate completion waiter.
-///
-/// This provides compile-time dispatch from the marker type `C` to the correct
-/// waiter method on a `CameraLike` type.
-#[cfg(feature = "mode-async")]
-pub trait WaitFor<C> {
-    /// Wait for operations of category `C` to complete.
-    fn wait(&self, timeout: Duration) -> impl Future<Output = Result<()>> + Send + '_;
-}
-
-#[cfg(feature = "mode-async")]
-impl<T: CameraLike> WaitFor<PanTilt> for T {
-    fn wait(&self, timeout: Duration) -> impl Future<Output = Result<()>> + Send + '_ {
-        self.await_pan_tilt_idle(timeout)
-    }
-}
-
-#[cfg(feature = "mode-async")]
-impl<T: CameraLike> WaitFor<Zoom> for T {
-    fn wait(&self, timeout: Duration) -> impl Future<Output = Result<()>> + Send + '_ {
-        self.await_zoom_idle(timeout)
-    }
-}
-
-#[cfg(feature = "mode-async")]
-impl<T: CameraLike> WaitFor<Focus> for T {
-    fn wait(&self, timeout: Duration) -> impl Future<Output = Result<()>> + Send + '_ {
-        self.await_focus_idle(timeout)
-    }
-}
-
-#[cfg(feature = "mode-async")]
-impl<T: CameraLike> WaitFor<Preset> for T {
-    fn wait(&self, timeout: Duration) -> impl Future<Output = Result<()>> + Send + '_ {
-        self.await_idle(timeout)
-    }
-}
-
 /// Type alias for boxed response futures returned by `start_command_with_id`.
 #[cfg(feature = "mode-async")]
 pub type ResponseFuture = Pin<Box<dyn Future<Output = Result<Response, Error>> + Send + 'static>>;
@@ -224,15 +155,20 @@ pub type ResponseFuture = Pin<Box<dyn Future<Output = Result<Response, Error>> +
 ///
 /// - `'a`: Lifetime of the camera/session reference
 /// - `C`: Category marker (PanTilt, Zoom, Focus, or Preset)
-/// - `T`: The camera-like type (Camera or CameraSession)
+/// - `P`: Camera profile type
+/// - `Exec`: Async executor type
 #[cfg(feature = "mode-async")]
-pub struct InFlight<'a, C, T: CameraLike + ?Sized> {
+pub struct InFlight<'a, C, P, Exec>
+where
+    P: Profile,
+    Exec: Executor,
+{
     /// The command ID assigned by the runtime.
     id: CommandId,
     /// Camera ID for addressing cancel messages.
     camera_id: CameraId,
-    /// Reference to the camera or session.
-    cam: &'a T,
+    /// Runtime that owns the in-flight command.
+    runtime: &'a crate::runtime::RuntimeHandle<P, Exec>,
     /// The response future that completes when the camera reports completion.
     /// Wrapped in Mutex to allow `await_completion` to take ownership.
     response_future: Mutex<Option<ResponseFuture>>,
@@ -241,9 +177,10 @@ pub struct InFlight<'a, C, T: CameraLike + ?Sized> {
 }
 
 #[cfg(feature = "mode-async")]
-impl<'a, C, T> InFlight<'a, C, T>
+impl<'a, C, P, Exec> InFlight<'a, C, P, Exec>
 where
-    T: CameraLike + WaitFor<C> + ?Sized,
+    P: Profile + 'static,
+    Exec: Executor + Send + Sync + 'static,
 {
     /// Create a new in-flight handle with the response future.
     ///
@@ -256,13 +193,13 @@ where
     pub(crate) fn new(
         id: CommandId,
         camera_id: CameraId,
-        cam: &'a T,
+        runtime: &'a crate::runtime::RuntimeHandle<P, Exec>,
         response_future: ResponseFuture,
     ) -> Self {
         Self {
             id,
             camera_id,
-            cam,
+            runtime,
             response_future: Mutex::new(Some(response_future)),
             _c: PhantomData,
         }
@@ -285,7 +222,7 @@ where
     ///
     /// Returns an error if the cancellation request cannot be sent to the runtime.
     pub async fn cancel(&self) -> Result<()> {
-        self.cam.runtime().cancel(self.camera_id, self.id).await
+        self.runtime.cancel(self.camera_id, self.id).await
     }
 
     /// Wait for this operation to complete.
@@ -322,7 +259,7 @@ where
             .ok_or_else(|| Error::InvalidState("await_completion called more than once".into()))?;
 
         // Use the executor's timeout mechanism to enforce the deadline
-        match self.cam.runtime().timeout(timeout, future).await {
+        match self.runtime.timeout(timeout, future).await {
             Ok(_response) => Ok(()),
             Err(e) => Err(e),
         }
@@ -330,86 +267,16 @@ where
 }
 
 #[cfg(feature = "mode-async")]
-impl<'a, C, T> std::fmt::Debug for InFlight<'a, C, T>
+impl<'a, C, P, Exec> std::fmt::Debug for InFlight<'a, C, P, Exec>
 where
-    T: CameraLike + ?Sized,
+    P: Profile,
+    Exec: Executor,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("InFlight")
             .field("id", &self.id)
             .field("category", &std::any::type_name::<C>())
             .finish()
-    }
-}
-
-// Implementations of CameraLike for Camera and CameraSession
-
-#[cfg(feature = "mode-async")]
-impl<P, Tr, Exec> CameraLike for crate::camera::Camera<crate::mode::Async, P, Tr, Exec>
-where
-    P: crate::capabilities::Profile + crate::capabilities::ProfileMetadata + Default,
-    Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
-    Exec: crate::executor::Executor,
-{
-    type Profile = P;
-    type Executor = Exec;
-
-    fn runtime(&self) -> &crate::runtime::RuntimeHandle<Self::Profile, Self::Executor> {
-        self.runtime()
-    }
-
-    fn await_idle(&self, timeout: Duration) -> impl Future<Output = Result<()>> + Send + '_ {
-        self.await_idle(timeout)
-    }
-
-    fn await_pan_tilt_idle(
-        &self,
-        timeout: Duration,
-    ) -> impl Future<Output = Result<()>> + Send + '_ {
-        self.await_pan_tilt_idle(timeout)
-    }
-
-    fn await_zoom_idle(&self, timeout: Duration) -> impl Future<Output = Result<()>> + Send + '_ {
-        self.await_zoom_idle(timeout)
-    }
-
-    fn await_focus_idle(&self, timeout: Duration) -> impl Future<Output = Result<()>> + Send + '_ {
-        self.await_focus_idle(timeout)
-    }
-}
-
-#[cfg(feature = "mode-async")]
-impl<P, Tr, Exec> CameraLike
-    for crate::camera::CameraSession<crate::mode::Async, P, Tr, Exec, crate::camera::session::Open>
-where
-    P: crate::capabilities::Profile + crate::capabilities::ProfileMetadata + Default,
-    Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
-    Exec: crate::executor::Executor,
-{
-    type Profile = P;
-    type Executor = Exec;
-
-    fn runtime(&self) -> &crate::runtime::RuntimeHandle<Self::Profile, Self::Executor> {
-        self.camera().runtime()
-    }
-
-    fn await_idle(&self, timeout: Duration) -> impl Future<Output = Result<()>> + Send + '_ {
-        self.await_idle(timeout)
-    }
-
-    fn await_pan_tilt_idle(
-        &self,
-        timeout: Duration,
-    ) -> impl Future<Output = Result<()>> + Send + '_ {
-        self.await_pan_tilt_idle(timeout)
-    }
-
-    fn await_zoom_idle(&self, timeout: Duration) -> impl Future<Output = Result<()>> + Send + '_ {
-        self.await_zoom_idle(timeout)
-    }
-
-    fn await_focus_idle(&self, timeout: Duration) -> impl Future<Output = Result<()>> + Send + '_ {
-        self.await_focus_idle(timeout)
     }
 }
 

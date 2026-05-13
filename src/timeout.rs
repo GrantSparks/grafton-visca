@@ -689,7 +689,7 @@ pub trait CommandTimeout {
 /// based on their TIMEOUT_CATEGORY constant.
 impl<T> CommandTimeout for T
 where
-    T: crate::command::encode::ViscaCommand,
+    T: crate::command::ViscaCommand,
 {
     fn timeout_class(&self) -> CommandCategory {
         T::TIMEOUT_CATEGORY

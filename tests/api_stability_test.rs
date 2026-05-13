@@ -355,9 +355,8 @@ fn test_async_trait_method_signatures() {
 fn test_transport_module_structure() {
     // Test that key transport types are publicly available
     use grafton_visca::transport::{
-        buffer::BufferConfig,
-        builder::{TransportConfig, DEFAULT_MAX_PENDING_QUEUE_DEPTH},
-        AddressingMode, BackoffStrategy, RetryAttempt, RetryConfig, TcpKeepaliveConfig,
+        AddressingMode, BackoffStrategy, BufferConfig, RetryAttempt, RetryConfig,
+        TcpKeepaliveConfig, TransportConfig, DEFAULT_MAX_PENDING_QUEUE_DEPTH,
     };
 
     #[cfg(all(
@@ -503,4 +502,6 @@ fn test_compile_time_api_contracts() {
     #[cfg(not(feature = "mode-async"))]
     cases.pass("tests/api_contract/pass_blocking/*.rs");
     cases.compile_fail("tests/api_contract/fail/*.rs");
+    #[cfg(feature = "runtime-tokio")]
+    cases.compile_fail("tests/api_contract/fail_async/*.rs");
 }

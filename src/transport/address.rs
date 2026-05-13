@@ -3,10 +3,17 @@
 //! This module provides a unified way to resolve network addresses across
 //! different transport types, eliminating code duplication.
 
-use std::{
-    borrow::Cow,
-    net::{SocketAddr, ToSocketAddrs},
-};
+#[cfg(test)]
+use std::borrow::Cow;
+#[cfg(any(
+    not(feature = "mode-async"),
+    feature = "runtime-tokio",
+    feature = "runtime-smol",
+    test
+))]
+use std::net::SocketAddr;
+#[cfg(any(not(feature = "mode-async"), test))]
+use std::net::ToSocketAddrs;
 
 use crate::Error;
 
@@ -207,6 +214,7 @@ impl HostPort {
     }
 
     /// Get the host part of the address (without brackets for IPv6).
+    #[cfg(test)]
     pub fn host(&self) -> &str {
         match self {
             HostPort::Ipv4 { host, .. } => host,
@@ -216,6 +224,7 @@ impl HostPort {
     }
 
     /// Get the port if specified.
+    #[cfg(any(not(feature = "mode-async"), test))]
     pub fn port(&self) -> Option<u16> {
         match self {
             HostPort::Ipv4 { port, .. } => *port,
@@ -225,6 +234,7 @@ impl HostPort {
     }
 
     /// Check if this is an IPv6 address.
+    #[cfg(test)]
     pub fn is_ipv6(&self) -> bool {
         matches!(self, HostPort::Ipv6 { .. })
     }
@@ -306,6 +316,7 @@ fn is_ipv4_address(s: &str) -> bool {
 ///     "192.168.1.1:1234"
 /// );
 /// ```
+#[cfg(test)]
 pub fn normalize_host_with_default_port(
     host: &str,
     default_port: Option<u16>,
@@ -406,9 +417,21 @@ pub fn canonicalize_endpoint(address: &str, default_port: Option<u16>) -> Result
 ///
 /// This struct provides common address resolution logic that can be used
 /// across different transport implementations, reducing code duplication.
+#[cfg(any(
+    not(feature = "mode-async"),
+    feature = "runtime-tokio",
+    feature = "runtime-smol",
+    test
+))]
 #[derive(Debug, Clone, Copy, Default)]
 pub struct AddressResolver;
 
+#[cfg(any(
+    not(feature = "mode-async"),
+    feature = "runtime-tokio",
+    feature = "runtime-smol",
+    test
+))]
 impl AddressResolver {
     /// Create a new address resolver.
     pub fn new() -> Self {
@@ -446,6 +469,7 @@ impl AddressResolver {
     /// }
     /// # Ok::<(), grafton_visca::Error>(())
     /// ```
+    #[cfg(any(not(feature = "mode-async"), test))]
     pub fn resolve(&self, address: &str) -> Result<Vec<SocketAddr>, Error> {
         let addrs: Vec<SocketAddr> = address
             .to_socket_addrs()
@@ -493,6 +517,7 @@ impl AddressResolver {
     /// println!("Using address: {addr}");
     /// # Ok::<(), grafton_visca::Error>(())
     /// ```
+    #[cfg(any(not(feature = "mode-async"), test))]
     pub fn resolve_first(&self, address: &str) -> Result<SocketAddr, Error> {
         self.resolve(address)?
             .into_iter()
@@ -554,6 +579,7 @@ impl AddressResolver {
     /// # Errors
     ///
     /// Returns an error if no addresses could be resolved.
+    #[cfg(test)]
     pub fn resolve_with_preference(
         &self,
         address: &str,
@@ -573,21 +599,6 @@ impl AddressResolver {
             .ok_or(Error::InvalidAddress {
                 reason: Cow::Borrowed("No addresses resolved"),
             })
-    }
-}
-
-/// A trait for types that can resolve addresses.
-///
-/// This trait can be implemented by transport types to provide
-/// consistent address resolution behavior.
-pub trait ResolveAddress {
-    /// Resolve an address string to a socket address.
-    fn resolve_address(&self, address: &str) -> Result<SocketAddr, Error>;
-}
-
-impl ResolveAddress for AddressResolver {
-    fn resolve_address(&self, address: &str) -> Result<SocketAddr, Error> {
-        self.resolve_first(address)
     }
 }
 

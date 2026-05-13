@@ -25,12 +25,6 @@ pub trait SchedulerLike {
     /// an ACK response from the device.
     fn register_pending_ack(&mut self, cmd: &PendingCommand);
 
-    /// Revert a command to queued state (rollback from AwaitingAck on send failure).
-    ///
-    /// This method resets a command's phase to Queued when a send operation
-    /// fails and we want to preserve the command for retry.
-    fn revert_to_queued(&mut self, id: CommandId);
-
     /// Fail a command immediately after send error.
     ///
     /// This method handles send failures by immediately failing the command
@@ -79,10 +73,6 @@ mod async_impl {
 
         fn register_pending_ack(&mut self, cmd: &PendingCommand) {
             self.register_pending_ack(cmd);
-        }
-
-        fn revert_to_queued(&mut self, id: CommandId) {
-            self.revert_to_queued(id);
         }
 
         fn fail_after_send_error(
@@ -145,10 +135,6 @@ mod blocking_impl {
                 cmd.camera_id,
                 self.now,
             );
-        }
-
-        fn revert_to_queued(&mut self, id: CommandId) {
-            self.core.revert_to_queued(id);
         }
 
         fn fail_after_send_error(

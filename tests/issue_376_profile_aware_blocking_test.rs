@@ -9,7 +9,7 @@ mod profile_aware_blocking_tests {
     use grafton_visca::{
         camera::profiles::{PtzOpticsG2, SonyBRC300},
         command::{inquiry::PanTiltPositionInquiry, InquiryData},
-        runtime::blocking_runner::BlockingRunner,
+        runtime::testing::BlockingRunner,
         testing::testkit::scripted_transport::{ScriptedBlockingTransport, Step},
         timeout::TimeoutConfig,
         CameraId,

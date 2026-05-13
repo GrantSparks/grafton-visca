@@ -351,7 +351,7 @@ impl<P, Tr, Exec> crate::camera::Camera<crate::mode::Async, P, Tr, Exec>
 where
     P: crate::capabilities::Profile + Default,
     Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
-    Exec: crate::executor::Executor,
+    Exec: crate::executor::Executor + Send + Sync + Clone + 'static,
 {
     /// Set focus to a specific position and return an operation handle.
     ///
@@ -383,7 +383,7 @@ where
     pub async fn set_focus_op<T>(
         &self,
         position: T,
-    ) -> Result<crate::camera::inflight::InFlight<'_, crate::camera::inflight::Focus, Self>, Error>
+    ) -> Result<crate::camera::inflight::InFlight<'_, crate::camera::inflight::Focus, P, Exec>, Error>
     where
         T: TryInto<FocusPosition>,
         T::Error: Into<Error>,
@@ -400,7 +400,7 @@ where
         Ok(crate::camera::inflight::InFlight::new(
             id,
             self.camera_id(),
-            self,
+            self.runtime(),
             response_future,
         ))
     }

@@ -37,7 +37,6 @@ pub const DEFAULT_CAMERA_ID: u8 = 0x81;
 /// # Examples
 ///
 /// ```ignore
-/// // Internal type - not part of public API
 /// let cmd = MyCommand { value: 42 };
 /// let encoded = cmd.to_fixed_bytes::<16>(CameraId::CAMERA_1)?;
 ///

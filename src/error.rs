@@ -356,7 +356,7 @@ pub enum Error {
     ///
     /// The queue depth is configurable via [`TransportConfig::max_pending_queue_depth`].
     ///
-    /// [`TransportConfig::max_pending_queue_depth`]: crate::transport::builder::TransportConfig::max_pending_queue_depth
+    /// [`TransportConfig::max_pending_queue_depth`]: crate::transport::TransportConfig::max_pending_queue_depth
     #[error("Runtime queue full: at capacity ({capacity} pending commands)")]
     RuntimeQueueFull {
         /// The maximum queue capacity that was reached.

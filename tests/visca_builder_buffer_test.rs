@@ -7,8 +7,8 @@
 use grafton_visca::{
     camera_id::CameraId,
     command::{
-        encode::ViscaCommand,
         image::{Contrast, Luminance},
+        ViscaCommand,
     },
     types::{ContrastLevel, LuminanceLevel},
     Error,

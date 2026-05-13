@@ -16,10 +16,6 @@ use crate::{
 };
 
 /// Configuration for TCP connection behavior.
-#[cfg_attr(
-    not(any(feature = "runtime-tokio", feature = "runtime-smol")),
-    allow(dead_code)
-)]
 #[derive(Debug, Clone, Copy)]
 pub struct TcpConnectionConfig {
     /// Whether to enable TCP_NODELAY (Nagle's algorithm disable).
@@ -27,6 +23,7 @@ pub struct TcpConnectionConfig {
     /// Time-to-live for packets.
     pub ttl: Option<u32>,
     /// Connection timeout duration.
+    #[cfg(any(feature = "runtime-tokio", feature = "runtime-smol"))]
     pub connect_timeout: Duration,
     /// TCP keepalive policy. When set, enables OS-level TCP keepalive probes
     /// to prevent camera-side idle timeout.
@@ -45,6 +42,7 @@ impl Default for TcpConnectionConfig {
         Self {
             nodelay: Some(true),
             ttl: None,
+            #[cfg(any(feature = "runtime-tokio", feature = "runtime-smol"))]
             connect_timeout: Duration::from_secs(5),
             tcp_keepalive: Some(DEFAULT_TCP_KEEPALIVE),
         }
@@ -56,6 +54,7 @@ impl From<TransportConfig> for TcpConnectionConfig {
         Self {
             nodelay: config.tcp_nodelay,
             ttl: config.ttl,
+            #[cfg(any(feature = "runtime-tokio", feature = "runtime-smol"))]
             connect_timeout: config.connect_timeout,
             tcp_keepalive: config.tcp_keepalive,
         }
@@ -63,10 +62,7 @@ impl From<TransportConfig> for TcpConnectionConfig {
 }
 
 /// Configuration for UDP socket behavior.
-#[cfg_attr(
-    not(any(feature = "runtime-tokio", feature = "runtime-smol")),
-    allow(dead_code)
-)]
+#[cfg(any(feature = "runtime-tokio", feature = "runtime-smol"))]
 #[derive(Debug, Clone, Copy)]
 pub struct UdpSocketConfig {
     /// Time-to-live for packets.
@@ -75,6 +71,7 @@ pub struct UdpSocketConfig {
     pub connect_timeout: Duration,
 }
 
+#[cfg(any(feature = "runtime-tokio", feature = "runtime-smol"))]
 impl Default for UdpSocketConfig {
     fn default() -> Self {
         Self {
@@ -84,6 +81,7 @@ impl Default for UdpSocketConfig {
     }
 }
 
+#[cfg(any(feature = "runtime-tokio", feature = "runtime-smol"))]
 impl From<TransportConfig> for UdpSocketConfig {
     fn from(config: TransportConfig) -> Self {
         Self {

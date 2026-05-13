@@ -318,7 +318,7 @@ impl<P, Tr, Exec> crate::camera::Camera<crate::mode::Async, P, Tr, Exec>
 where
     P: crate::capabilities::Profile + crate::capabilities::PanTilt + Default,
     Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
-    Exec: crate::executor::Executor,
+    Exec: crate::executor::Executor + Send + Sync + Clone + 'static,
 {
     /// Move to an absolute pan/tilt position and return an operation handle.
     pub async fn pan_tilt_absolute_op(
@@ -326,8 +326,10 @@ where
         pan: impl Into<Degrees>,
         tilt: impl Into<Degrees>,
         speed: SpeedLevel,
-    ) -> Result<crate::camera::inflight::InFlight<'_, crate::camera::inflight::PanTilt, Self>, Error>
-    {
+    ) -> Result<
+        crate::camera::inflight::InFlight<'_, crate::camera::inflight::PanTilt, P, Exec>,
+        Error,
+    > {
         use crate::command::pan_tilt::PanTilt;
 
         // Convert inputs to Degrees
@@ -358,7 +360,7 @@ where
         Ok(crate::camera::inflight::InFlight::new(
             id,
             self.camera_id(),
-            self,
+            self.runtime(),
             response_future,
         ))
     }
@@ -369,8 +371,10 @@ where
         pan: impl Into<Degrees>,
         tilt: impl Into<Degrees>,
         speed: SpeedLevel,
-    ) -> Result<crate::camera::inflight::InFlight<'_, crate::camera::inflight::PanTilt, Self>, Error>
-    {
+    ) -> Result<
+        crate::camera::inflight::InFlight<'_, crate::camera::inflight::PanTilt, P, Exec>,
+        Error,
+    > {
         use crate::command::pan_tilt::PanTilt;
 
         // Convert inputs to Degrees
@@ -402,7 +406,7 @@ where
         Ok(crate::camera::inflight::InFlight::new(
             id,
             self.camera_id(),
-            self,
+            self.runtime(),
             response_future,
         ))
     }
@@ -426,8 +430,10 @@ where
     /// Returns an error if the command fails to send.
     pub async fn pan_tilt_home_op(
         &self,
-    ) -> Result<crate::camera::inflight::InFlight<'_, crate::camera::inflight::PanTilt, Self>, Error>
-    {
+    ) -> Result<
+        crate::camera::inflight::InFlight<'_, crate::camera::inflight::PanTilt, P, Exec>,
+        Error,
+    > {
         use crate::command::pan_tilt::PanTilt;
 
         // Use start_command_with_id to get the response future without awaiting it
@@ -437,7 +443,7 @@ where
         Ok(crate::camera::inflight::InFlight::new(
             id,
             self.camera_id(),
-            self,
+            self.runtime(),
             response_future,
         ))
     }
@@ -461,8 +467,10 @@ where
     /// Returns an error if the command fails to send.
     pub async fn pan_tilt_reset_op(
         &self,
-    ) -> Result<crate::camera::inflight::InFlight<'_, crate::camera::inflight::PanTilt, Self>, Error>
-    {
+    ) -> Result<
+        crate::camera::inflight::InFlight<'_, crate::camera::inflight::PanTilt, P, Exec>,
+        Error,
+    > {
         use crate::command::pan_tilt::PanTilt;
 
         // Use start_command_with_id to get the response future without awaiting it
@@ -472,7 +480,7 @@ where
         Ok(crate::camera::inflight::InFlight::new(
             id,
             self.camera_id(),
-            self,
+            self.runtime(),
             response_future,
         ))
     }

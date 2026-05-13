@@ -158,6 +158,7 @@ impl<P: Profile> BlockingRunner<P> {
     /// ```ignore
     /// BlockingRunner::builder(timeout_config).build()
     /// ```
+    #[cfg(any(test, feature = "test-utils"))]
     pub fn new(timeout_config: TimeoutConfig) -> Self {
         Self::builder(timeout_config).build()
     }

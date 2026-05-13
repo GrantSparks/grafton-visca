@@ -225,8 +225,8 @@ pub mod raw {
     pub use crate::runtime::{Runtime, TransportHandle};
 
     // Transport traits for custom implementations
-    #[cfg(not(feature = "mode-async"))]
-    pub use crate::transport::blocking_transport::BlockingTransport;
     #[cfg(feature = "mode-async")]
     pub use crate::transport::AsyncTransport;
+    #[cfg(not(feature = "mode-async"))]
+    pub use crate::transport::BlockingTransport;
 }

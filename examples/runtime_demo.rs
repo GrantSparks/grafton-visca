@@ -8,7 +8,7 @@
 //! cargo run --example runtime_demo --features runtime-tokio [camera_ip[:port]]
 //! ```
 //!
-//! For low-level runtime usage, see examples-advanced/runtime_demo_lowlevel.rs
+//! For runtime-independent construction, see runtime_agnostic.rs.
 
 #[cfg(not(all(feature = "mode-async", feature = "runtime-tokio")))]
 fn main() {
@@ -81,8 +81,8 @@ async fn main() -> Result<(), Error> {
 
     // Get runtime metrics (if available through Camera API)
     println!("\n5. Runtime metrics demonstration...");
-    println!("   Note: Metrics access through high-level API");
-    println!("   For detailed runtime metrics, see examples-advanced/");
+    println!("   Runtime internals are intentionally hidden from the public API.");
+    println!("   Application code should use the camera accessors shown here.");
 
     // Demonstrate concurrent operations with high-level API
     println!("\n6. Demonstrating concurrent operations...");

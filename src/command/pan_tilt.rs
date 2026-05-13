@@ -243,8 +243,9 @@ pub enum PanTilt {
     },
     /// Move camera to an absolute pan/tilt position using raw camera units.
     ///
-    /// The pan and tilt values are pre-converted to camera coordinate system.
-    /// This is used internally when the profile-aware conversion has already been applied.
+    /// The pan and tilt values are pre-converted to the camera coordinate system.
+    /// Prefer [`AbsolutePosition`](Self::AbsolutePosition) unless you are building
+    /// a profile-aware conversion layer.
     AbsolutePositionRaw {
         /// Absolute pan position in camera units.
         pan_u16: u16,
@@ -257,8 +258,9 @@ pub enum PanTilt {
     },
     /// Move camera relative to its current position using raw camera units.
     ///
-    /// The pan and tilt values are pre-converted to camera coordinate system.
-    /// This is used internally when the profile-aware conversion has already been applied.
+    /// The pan and tilt values are pre-converted to the camera coordinate system.
+    /// Prefer [`RelativePosition`](Self::RelativePosition) unless you are building
+    /// a profile-aware conversion layer.
     RelativePositionRaw {
         /// Relative pan movement in camera units.
         pan_u16: u16,

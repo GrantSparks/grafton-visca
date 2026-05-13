@@ -163,9 +163,7 @@ mod smol_runtime_tests {
 mod tokio_transport_connect_tests {
     use std::time::Duration;
 
-    use grafton_visca::{
-        runtime_adapters::tokio::UdpTransport, transport::builder::TransportConfig,
-    };
+    use grafton_visca::{runtime_adapters::tokio::UdpTransport, transport::TransportConfig};
 
     /// Test that UDP transport connection completes successfully with a local address.
     ///
@@ -227,9 +225,7 @@ mod tokio_transport_connect_tests {
 mod smol_transport_connect_tests {
     use std::time::Duration;
 
-    use grafton_visca::{
-        runtime_adapters::smol::UdpTransport, transport::builder::TransportConfig,
-    };
+    use grafton_visca::{runtime_adapters::smol::UdpTransport, transport::TransportConfig};
 
     fn run_smol<F: std::future::Future>(f: F) -> F::Output {
         smol::block_on(f)

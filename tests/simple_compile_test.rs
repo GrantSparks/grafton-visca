@@ -8,7 +8,7 @@ use grafton_visca::{
         profiles::{GenericVisca, PtzOpticsG2, SonyFR7},
         AsyncCamera,
     },
-    transport::async_transport::AsyncTransport,
+    transport::AsyncTransport,
 };
 
 #[cfg(not(feature = "mode-async"))]

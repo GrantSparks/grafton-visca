@@ -3,6 +3,7 @@
 //! This module provides unified buffer management across all transport implementations,
 //! ensuring consistent buffer sizes and allocation strategies.
 
+#[cfg(all(not(feature = "mode-async"), test))]
 use bytes::BytesMut;
 
 /// Default buffer size for most VISCA operations.
@@ -117,6 +118,7 @@ impl BufferManager {
     /// Allocate a new send buffer.
     /// Available for all transport configurations that need BytesMut.
     /// Some transports don't need send buffers (they send data directly).
+    #[cfg(all(not(feature = "mode-async"), test))]
     pub fn alloc_send_buffer(&self) -> BytesMut {
         BytesMut::with_capacity(self.config.send_buffer_size)
     }

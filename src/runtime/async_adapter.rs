@@ -122,6 +122,7 @@ impl std::fmt::Debug for TxItem {
 }
 
 /// Metrics summary for async runtime.
+#[cfg(feature = "test-utils")]
 #[derive(Debug, Clone, Copy, Default)]
 pub struct MetricsSummary {
     /// Total number of commands sent.
@@ -161,8 +162,6 @@ pub struct CompletionEvent {
     pub camera_id: CameraId,
     /// The category of the completed command.
     pub category: CommandCategory,
-    /// When the completion occurred.
-    pub when: Instant,
 }
 
 /// Buffer size for per-subscriber completion event channels.
@@ -391,14 +390,6 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
             "register_sequence called for non-pending command {cmd_id}"
         );
         self.core.register_sequence(cmd_id, sequence);
-    }
-
-    /// Revert a command to queued state (used for rollback on send failure).
-    ///
-    /// This method resets a command's phase to Queued when a send operation
-    /// fails and we want to preserve the command for retry.
-    pub fn revert_to_queued(&mut self, id: CommandId) -> bool {
-        self.core.revert_to_queued(id)
     }
 
     /// Handle a send failure - fails immediately with the original error wrapped in context.
@@ -634,7 +625,6 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
                     let event = CompletionEvent {
                         camera_id,
                         category,
-                        when: self.executor.now(),
                     };
 
                     // Broadcast to all subscribers, handling overflow and disconnection separately:
@@ -749,6 +739,7 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
     }
 
     /// Get metrics summary.
+    #[cfg(feature = "test-utils")]
     pub fn metrics_summary(&self) -> MetricsSummary {
         MetricsSummary {
             commands_sent: self.metrics.commands_sent,

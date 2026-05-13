@@ -80,7 +80,7 @@ pub trait ProfileMetadata {
 
     /// Protocol envelope type for compile-time protocol selection.
     /// This determines whether commands use raw VISCA or Sony encapsulation.
-    type Envelope: crate::transport::envelope::Envelope;
+    type Envelope: crate::transport::Envelope;
 
     /// Maximum time to wait for command acknowledgment.
     const ACK_TIMEOUT: Duration;
@@ -229,7 +229,7 @@ mod tests {
     impl ProfileMetadata for TestCamera {
         const MODEL_NAME: &'static str = "Test Camera";
         const DEFAULT_CAMERA_ID: u8 = 1;
-        type Envelope = crate::transport::envelope::RawVisca;
+        type Envelope = crate::transport::RawVisca;
         const ACK_TIMEOUT: Duration = Duration::from_millis(100);
         const COMPLETION_TIMEOUT: Duration = Duration::from_millis(5000);
         const DEFAULT_TCP_PORT: u16 = 5678;
@@ -239,8 +239,7 @@ mod tests {
     #[test]
     fn test_envelope_type() {
         // Test that we can create an envelope from the profile's associated type
-        use crate::transport::builder::AddressingMode;
-        use crate::transport::envelope::Envelope;
+        use crate::transport::{AddressingMode, Envelope};
 
         let envelope = <TestCamera as ProfileMetadata>::Envelope::new(AddressingMode::Ip);
         // The fact this compiles proves the envelope type is correct

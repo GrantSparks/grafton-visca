@@ -45,8 +45,7 @@ If you're new to the library, start with these examples in order:
 
 ### Advanced Patterns
 - **[runtime_agnostic.rs](runtime_agnostic.rs)** - Bring your own executor and async transport
-- **[runtime_demo.rs](runtime_demo.rs)** - Runtime integration details and lower-level flows
-- **[runtime_demo_lowlevel.rs](runtime_demo_lowlevel.rs)** - Lower-level runtime plumbing
+- **[runtime_demo.rs](runtime_demo.rs)** - Async runtime setup using the high-level accessor API
 - **[concurrent_control.rs](concurrent_control.rs)** - Concurrent async control patterns
 - **[error_handling.rs](error_handling.rs)** - Comprehensive error handling and recovery strategies
 

@@ -16,7 +16,7 @@
 //! - Command delivery failures
 //! - Unpredictable response routing between connections
 //!
-//! The [`Camera`] type (and its underlying `RuntimeHandle`) is designed for
+//! The [`Camera`] type (and its underlying runtime) is designed for
 //! concurrent access:
 //! - **Thread-safe**: Internal synchronization handles concurrent command submission
 //! - **Clone-friendly**: `Camera::clone()` creates a lightweight handle to the same
@@ -89,17 +89,11 @@
 //! - Receive failures result in `Timeout` rather than `TransportError`
 //! - This provides better error specificity while maintaining resilience
 
-#[doc(hidden)]
-pub mod core;
-#[doc(hidden)]
-pub mod driver;
-#[doc(hidden)]
-pub mod inquiry_matcher;
+pub(crate) mod core;
+pub(crate) mod driver;
 
 #[cfg(not(feature = "mode-async"))]
-pub mod blocking_runner;
-#[cfg(not(feature = "mode-async"))]
-pub use blocking_runner::{BlockingRunner, BlockingRunnerBuilder};
+pub(crate) mod blocking_runner;
 
 #[cfg(feature = "mode-async")]
 pub mod traits;
@@ -111,17 +105,8 @@ mod handle;
 #[cfg(feature = "mode-async")]
 mod loop_task;
 
-pub use core::Priority;
-
-// Re-export CommandId from camera::inflight for use in runtime modules
-pub use crate::camera::inflight::CommandId;
-
 #[cfg(feature = "mode-async")]
-pub use async_adapter::{CompletionEvent, MetricsSummary};
-
-#[cfg(feature = "mode-async")]
-#[doc(hidden)]
-pub use handle::RuntimeHandle;
+pub(crate) use handle::RuntimeHandle;
 
 // Re-export runtime traits at the module level for compatibility
 #[cfg(feature = "mode-async")]
@@ -135,6 +120,23 @@ pub use traits::TokioRuntime;
 
 #[cfg(all(feature = "mode-async", feature = "runtime-smol"))]
 pub use traits::SmolRuntime;
+
+/// Runtime test harness utilities.
+///
+/// Enable the `test-utils` feature to use these from integration tests. The
+/// production runtime contract is the [`Runtime`] trait plus concrete runtime
+/// adapters such as `TokioRuntime` and `SmolRuntime`.
+#[cfg(feature = "test-utils")]
+pub mod testing {
+    #[cfg(feature = "mode-async")]
+    pub use super::async_adapter::{CompletionEvent, MetricsSummary};
+    #[cfg(not(feature = "mode-async"))]
+    pub use super::blocking_runner::BlockingRunner;
+    #[cfg(feature = "mode-async")]
+    pub use super::core::Priority;
+    #[cfg(feature = "mode-async")]
+    pub use super::handle::RuntimeHandle;
+}
 
 #[cfg(test)]
 mod tests {

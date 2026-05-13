@@ -7,7 +7,7 @@
 //!
 //! # Motivation
 //!
-//! The standard `Camera` API uses generics and `InFlight<'a, C, T>` handles that
+//! The standard `Camera` API uses generics and typed `InFlight` handles that
 //! include generic type parameters, violating Rust's object safety rules. This
 //! forces downstream consumers to maintain parallel trait hierarchies when they
 //! need `dyn` dispatch.

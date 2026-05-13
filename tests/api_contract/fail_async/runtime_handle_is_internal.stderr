@@ -1,0 +1,23 @@
+error[E0603]: struct `RuntimeHandle` is private
+ --> tests/api_contract/fail_async/runtime_handle_is_internal.rs:3:33
+  |
+3 |         grafton_visca::runtime::RuntimeHandle<
+  |                                 ^^^^^^^^^^^^^ private struct
+  |
+note: the struct `RuntimeHandle` is defined here
+ --> src/runtime/mod.rs
+  |
+  | pub(crate) use handle::RuntimeHandle;
+  |                ^^^^^^^^^^^^^^^^^^^^^
+help: consider importing this struct instead
+  |
+3 |         grafton_visca::runtime::testing::RuntimeHandle<
+  |                                 +++++++++
+help: import `RuntimeHandle` directly
+  |
+3 -         grafton_visca::runtime::RuntimeHandle<
+4 -             grafton_visca::profiles::PtzOpticsG2,
+5 -             grafton_visca::TokioExecutor,
+6 -         >,
+3 +         grafton_visca::runtime::handle::RuntimeHandle,
+  |

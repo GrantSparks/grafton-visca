@@ -1,0 +1,16 @@
+error[E0603]: module `buffer` is private
+ --> tests/api_contract/fail/transport_buffer_module_is_internal.rs:2:39
+  |
+2 |     let _ = grafton_visca::transport::buffer::BufferConfig::default();
+  |                                       ^^^^^^ private module
+  |
+note: the module `buffer` is defined here
+ --> src/transport/mod.rs
+  |
+  | pub(crate) mod buffer;
+  | ^^^^^^^^^^^^^^^^^^^^^
+help: consider importing this struct instead
+  |
+2 -     let _ = grafton_visca::transport::buffer::BufferConfig::default();
+2 +     let _ = grafton_visca::transport::BufferConfig::default();
+  |

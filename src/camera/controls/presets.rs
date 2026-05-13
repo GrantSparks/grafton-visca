@@ -213,14 +213,16 @@ impl<P, Tr, Exec> crate::camera::Camera<crate::mode::Async, P, Tr, Exec>
 where
     P: crate::capabilities::Profile + Default,
     Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
-    Exec: crate::executor::Executor,
+    Exec: crate::executor::Executor + Send + Sync + Clone + 'static,
 {
     /// Recall a preset position and return an operation handle.
     pub async fn preset_recall_op(
         &self,
         preset: PresetNumber,
-    ) -> Result<crate::camera::inflight::InFlight<'_, crate::camera::inflight::Preset, Self>, Error>
-    {
+    ) -> Result<
+        crate::camera::inflight::InFlight<'_, crate::camera::inflight::Preset, P, Exec>,
+        Error,
+    > {
         // Validate preset number against camera's MAX_PRESETS
         validate_preset::<P>(preset)?;
 
@@ -236,7 +238,7 @@ where
         Ok(crate::camera::inflight::InFlight::new(
             id,
             self.camera_id(),
-            self,
+            self.runtime(),
             response_future,
         ))
     }

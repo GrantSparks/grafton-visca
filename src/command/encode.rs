@@ -264,7 +264,7 @@ pub trait ViscaCommand: Send + Sync {
 /// Inline buffer size for encoded commands - 24 bytes covers most commands without heap allocation.
 ///
 /// Maximum VISCA command size is 15 bytes, so 24 bytes provides headroom for common cases.
-pub const INLINE_COMMAND_SIZE: usize = 24;
+pub(crate) const INLINE_COMMAND_SIZE: usize = 24;
 
 /// Pre-encoded command that stores the VISCA bytes inline for zero-allocation sends.
 ///
@@ -272,28 +272,17 @@ pub const INLINE_COMMAND_SIZE: usize = 24;
 /// inline on the stack for common command sizes, eliminating heap allocations in the
 /// hot send path.
 ///
-/// Renamed from `PreparedCommand` to `EncodedCommand` to reflect the breaking change
-/// in storage representation.
-///
-/// # Example
-/// ```ignore
-/// // Internal type - not part of public API
-/// let cmd = MyCommand { value: 42 };
-/// let encoded = EncodedCommand::new(cmd, CameraId::CAMERA_1)?;
-/// // Now encoded.payload contains the inline VISCA bytes
-/// // and can be sent multiple times without heap allocation
-/// ```
 #[derive(Debug, Clone)]
-pub struct EncodedCommand {
+pub(crate) struct EncodedCommand {
     /// The encoded VISCA bytes stored inline for zero-allocation.
     /// Uses SmallVec with inline capacity of 24 bytes (covers most commands).
     pub(crate) payload: SmallVec<[u8; INLINE_COMMAND_SIZE]>,
     /// The command kind (Command or Inquiry).
-    pub kind: CommandKind,
+    pub(crate) kind: CommandKind,
     /// The timeout category for this command.
-    pub category: CommandCategory,
+    pub(crate) category: CommandCategory,
     /// The expected response type for inquiry commands.
-    pub response_type: Option<InquiryKind>,
+    pub(crate) response_type: Option<InquiryKind>,
 }
 
 impl EncodedCommand {
@@ -316,7 +305,7 @@ impl EncodedCommand {
     /// This method takes a reference to the command, eliminating the need for
     /// `Clone` bounds on command types and avoiding unnecessary deep copies
     /// (particularly important for heap-backed commands like `RawCommand`).
-    pub fn new<C: ViscaCommand>(cmd: &C, camera_id: CameraId) -> Result<Self, Error> {
+    pub(crate) fn new<C: ViscaCommand>(cmd: &C, camera_id: CameraId) -> Result<Self, Error> {
         // Allocate inline buffer sized for the command
         let size = cmd.encoded_size();
         let mut payload = SmallVec::with_capacity(size);
@@ -350,7 +339,7 @@ impl EncodedCommand {
     ///
     /// This provides zero-copy access to the inline buffer for framing operations.
     #[inline]
-    pub fn as_slice(&self) -> &[u8] {
+    pub(crate) fn as_slice(&self) -> &[u8] {
         &self.payload
     }
 }
