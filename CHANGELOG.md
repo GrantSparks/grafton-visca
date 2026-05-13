@@ -41,6 +41,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 #### Executor Timeout Surface Slimming
 - **BREAKING**: `Executor::timeout_owned()` was removed; executor implementors now provide only the borrowed `Executor::timeout()` timeout primitive, eliminating the duplicate owned/object-safe timeout path
 
+#### Runtime Transport Bounds
+- **BREAKING**: `Runtime::{TcpTransport,UdpTransport}` and `RuntimeSerial::SerialTransport` now require `Sync` in addition to `Send`, matching the camera control surface returned by `Connect` and `CameraConfig`
+
 ### Added
 
 #### Blocking Camera-First Accessors (#510)
@@ -48,6 +51,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Blocking accessors return `Result<T, Error>` directly, eliminating `.block()` from the canonical blocking flow while preserving async accessor parity
 - Added missing white-balance accessor operations for one-push mode, ATW mode, and color-temperature mode
 - Added compile-time API contract coverage for the frozen camera-first construction path, blocking accessor surface, command-root extension API, hidden implementation modules, `test-utils` gating, and removal of root-level control trait re-exports
+
+#### 1.0 API Contract Tests (#512)
+- Expanded the API stability suite from compile-presence checks into explicit 1.0 contract assertions for public value wrappers, profile capabilities, serialization/schema/type-generation features, and runtime/transport-gated public entry points
+- Added feature-specific compile contracts for async camera-first sessions, blocking serial, Tokio serial, `dyn-api`, and `test-utils` so supported feature surfaces fail loudly when their public API drifts
 
 #### Per-Profile Iris and Exposure-Mode Support
 - New `Exposure::EXPOSURE_MODES` associated constant lets each profile declare which exposure modes the hardware accepts (defaults to all five standard modes)

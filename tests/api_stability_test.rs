@@ -136,6 +136,51 @@ fn test_control_traits_api_stability() {
     let _ = CoreCameraControls::<()>(PhantomData);
 }
 
+/// Test that public value wrappers keep their validation and conversion semantics.
+#[test]
+fn test_public_value_type_contracts() {
+    use grafton_visca::{
+        types::{ColorTemp, FocusPosition, PanSpeed, TiltSpeed, ZoomPosition, ZoomSpeed},
+        Error, SpeedLevel,
+    };
+
+    assert_eq!(PanSpeed::ZERO.value(), 0);
+    assert_eq!(TiltSpeed::ZERO.value(), 0);
+    assert_eq!(ZoomSpeed::ZERO.value(), 0);
+    assert_eq!(PanSpeed::from(SpeedLevel::Medium).value(), 12);
+    assert_eq!(TiltSpeed::from(SpeedLevel::Medium).value(), 10);
+    assert_eq!(ZoomSpeed::from(SpeedLevel::Fastest).value(), 7);
+
+    let pan_too_fast = PanSpeed::new(25).expect_err("pan speed 25 exceeds the VISCA range");
+    assert!(matches!(
+        pan_too_fast,
+        Error::ParameterOutOfRange {
+            parameter: "PanSpeed",
+            value: 25,
+            min: 0,
+            max: 24,
+        }
+    ));
+
+    let zoom_half = ZoomPosition::try_from(0.5_f32)
+        .expect("normalized zoom 0.5 should map into the stable VISCA range");
+    assert_eq!(zoom_half.value(), 0x4000);
+    assert_eq!(f32::from(ZoomPosition::MIN), 0.0);
+    assert_eq!(f32::from(ZoomPosition::MAX), 1.0);
+    assert!(ZoomPosition::try_from(-0.1_f32).is_err());
+    assert!(ZoomPosition::try_from(1.1_f32).is_err());
+
+    let focus = FocusPosition::new(0x1234);
+    assert_eq!(focus.value(), 0x1234);
+    assert_eq!(u16::from(focus), 0x1234);
+
+    let color_temp = ColorTemp::from_kelvin(5600).expect("5600K is in the public range");
+    assert_eq!(color_temp.value(), 31);
+    assert_eq!(color_temp.to_kelvin(), 5600);
+    assert!(ColorTemp::from_kelvin(2400).is_err());
+    assert!(ColorTemp::from_kelvin(8100).is_err());
+}
+
 /// Test that runtime feature detection works correctly.
 #[test]
 fn test_runtime_feature_detection_stability() {
@@ -270,8 +315,8 @@ fn test_core_types_stability() {
 fn test_capability_traits_stability() {
     use grafton_visca::camera::profiles::{GenericVisca, PtzOpticsG2, SonyFR7};
     use grafton_visca::capabilities::{
-        Exposure, Focus, ImageProcessing, NdFilter, PanTilt, Power, Profile, ProfileMetadata,
-        WhiteBalance, Zoom,
+        Capabilities, Exposure, Focus, ImageProcessing, InquirySupport, NdFilter, PanTilt, Power,
+        Profile, ProfileMetadata, WhiteBalance, Zoom,
     };
 
     // Test that capability traits can be used as bounds
@@ -312,6 +357,105 @@ fn test_capability_traits_stability() {
     assert_eq!(GenericVisca::DEFAULT_TCP_PORT, 5678);
     assert_eq!(GenericVisca::DEFAULT_UDP_PORT, 1259);
     assert_eq!(SonyFR7::DEFAULT_CAMERA_ID, 1);
+
+    let g2_caps = Capabilities::from_profile::<PtzOpticsG2>();
+    assert_eq!(g2_caps.model_name, "PtzOptics G2");
+    assert!(g2_caps.has_basic_features());
+    assert!(g2_caps.has_full_inquiry_support());
+    assert_eq!(g2_caps.inquiry_support, InquirySupport::Full);
+    assert!(g2_caps.has_motion_sync);
+    assert_eq!(g2_caps.max_motion_sync_speed, Some(24));
+    assert!(!g2_caps.has_nd_filter);
+    assert!(!g2_caps.has_iris_control);
+
+    let fr7_caps = Capabilities::from_profile::<SonyFR7>();
+    assert_eq!(fr7_caps.model_name, "Sony FR7");
+    assert!(fr7_caps.has_basic_features());
+    assert!(fr7_caps.has_advanced_features());
+    assert!(fr7_caps.has_nd_filter);
+    assert!(fr7_caps.supports_wake_on_lan);
+    assert_eq!(fr7_caps.default_tcp_port, 52381);
+    assert_eq!(fr7_caps.default_udp_port, 52381);
+}
+
+#[test]
+#[cfg(feature = "serde")]
+fn test_serde_public_contract() {
+    use grafton_visca::{
+        camera::{config::TransportOptions, profiles::ProfileId},
+        PresetNumber, SpeedLevel,
+    };
+
+    let transport = TransportOptions::Tcp {
+        address: "192.168.0.110:5678".to_string(),
+    };
+    let transport_json =
+        serde_json::to_value(&transport).expect("TransportOptions should serialize");
+    assert_eq!(
+        transport_json,
+        serde_json::json!({
+            "type": "TCP",
+            "address": "192.168.0.110:5678"
+        })
+    );
+
+    assert_eq!(
+        serde_json::to_string(&ProfileId::PtzOpticsG2).expect("ProfileId should serialize"),
+        "\"ptz-optics-g2\""
+    );
+    assert_eq!(
+        serde_json::to_string(&SpeedLevel::Fast).expect("SpeedLevel should serialize"),
+        "\"fast\""
+    );
+
+    let preset: PresetNumber =
+        serde_json::from_str("42").expect("PresetNumber should deserialize from a number");
+    assert_eq!(preset.value(), 42);
+}
+
+#[test]
+#[cfg(feature = "schemars")]
+fn test_schemars_public_contract() {
+    use grafton_visca::{
+        camera::{config::TransportOptions, profiles::ProfileId},
+        capabilities::Capabilities,
+        PresetNumber,
+    };
+    use schemars::schema_for;
+
+    let _transport_options_schema = schema_for!(TransportOptions);
+    let _profile_id_schema = schema_for!(ProfileId);
+    let _capabilities_schema = schema_for!(Capabilities);
+    let _preset_number_schema = schema_for!(PresetNumber);
+}
+
+#[test]
+#[cfg(feature = "ts-rs")]
+fn test_ts_rs_public_contract() {
+    use grafton_visca::{
+        camera::{config::TransportOptions, profiles::ProfileId},
+        PanTiltDirection, PresetNumber, SpeedLevel,
+    };
+    use ts_rs::{Config, TS};
+
+    let config = Config::default();
+
+    let transport_ts = TransportOptions::export_to_string(&config)
+        .expect("TransportOptions should export a TypeScript definition");
+    assert!(transport_ts.contains("type"));
+
+    assert!(!ProfileId::export_to_string(&config)
+        .expect("ProfileId should export a TypeScript definition")
+        .is_empty());
+    assert!(!SpeedLevel::export_to_string(&config)
+        .expect("SpeedLevel should export a TypeScript definition")
+        .is_empty());
+    assert!(!PanTiltDirection::export_to_string(&config)
+        .expect("PanTiltDirection should export a TypeScript definition")
+        .is_empty());
+    assert!(!PresetNumber::export_to_string(&config)
+        .expect("PresetNumber should export a TypeScript definition")
+        .is_empty());
 }
 
 /// Test that async trait method signatures remain stable.
@@ -544,8 +688,18 @@ fn test_dyn_api_public_contract() {
 fn test_public_compile_time_api_contracts() {
     let cases = trybuild::TestCases::new();
     cases.pass("tests/api_contract/pass/*.rs");
+    #[cfg(feature = "mode-async")]
+    cases.pass("tests/api_contract/pass_async/*.rs");
     #[cfg(not(feature = "mode-async"))]
     cases.pass("tests/api_contract/pass_blocking/*.rs");
+    #[cfg(all(not(feature = "mode-async"), feature = "transport-serial"))]
+    cases.pass("tests/api_contract/pass_serial_blocking/*.rs");
+    #[cfg(feature = "transport-serial-tokio")]
+    cases.pass("tests/api_contract/pass_serial_tokio/*.rs");
+    #[cfg(feature = "dyn-api")]
+    cases.pass("tests/api_contract/pass_dyn/*.rs");
+    #[cfg(feature = "test-utils")]
+    cases.pass("tests/api_contract/pass_test_utils/*.rs");
 }
 
 #[test]

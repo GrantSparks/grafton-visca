@@ -38,10 +38,10 @@ use crate::{
 #[cfg(feature = "mode-async")]
 pub trait Runtime: Executor + Clone + Send + Sync + 'static {
     /// TCP transport type for this runtime.
-    type TcpTransport: AsyncTransport + HasTransportConfig + Send + 'static;
+    type TcpTransport: AsyncTransport + HasTransportConfig + Send + Sync + 'static;
 
     /// UDP transport type for this runtime.
-    type UdpTransport: AsyncTransport + HasTransportConfig + Send + 'static;
+    type UdpTransport: AsyncTransport + HasTransportConfig + Send + Sync + 'static;
 
     /// Connect to a TCP endpoint.
     ///
@@ -82,7 +82,7 @@ pub trait Runtime: Executor + Clone + Send + Sync + 'static {
 #[cfg(all(feature = "mode-async", feature = "transport-serial-tokio"))]
 pub trait RuntimeSerial: Runtime {
     /// Serial transport type for this runtime.
-    type SerialTransport: AsyncTransport + HasTransportConfig + Send + 'static;
+    type SerialTransport: AsyncTransport + HasTransportConfig + Send + Sync + 'static;
 
     /// Connect to a serial port.
     ///
