@@ -212,7 +212,7 @@ where
     Exec: Executor,
 {
     /// Get camera version information.
-    pub fn version(&self) -> M::Fut<'_, Result<crate::command::typed::VersionInfo, Error>>
+    pub fn version(&self) -> M::Fut<'_, Result<crate::command::VersionInfo, Error>>
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
@@ -257,10 +257,10 @@ where
 
     /// Move in a specific direction.
     ///
-    /// Accepts high-level `command::pan_tilt::PanTiltDirection` for direction.
+    /// Accepts high-level [`crate::PanTiltDirection`] for direction.
     pub fn move_direction(
         &self,
-        direction: crate::command::pan_tilt::PanTiltDirection,
+        direction: crate::command::PanTiltDirection,
         pan_speed: crate::types::PanSpeed,
         tilt_speed: crate::types::TiltSpeed,
     ) -> M::Fut<'_, Result<(), Error>>
@@ -279,11 +279,7 @@ where
     where
         Camera<M, P, Tr, Exec>: PanTiltControl<Mode = M>,
     {
-        self.move_direction(
-            crate::command::pan_tilt::PanTiltDirection::Up,
-            pan_speed,
-            tilt_speed,
-        )
+        self.move_direction(crate::command::PanTiltDirection::Up, pan_speed, tilt_speed)
     }
 
     /// Move down.
@@ -296,7 +292,7 @@ where
         Camera<M, P, Tr, Exec>: PanTiltControl<Mode = M>,
     {
         self.move_direction(
-            crate::command::pan_tilt::PanTiltDirection::Down,
+            crate::command::PanTiltDirection::Down,
             pan_speed,
             tilt_speed,
         )
@@ -312,7 +308,7 @@ where
         Camera<M, P, Tr, Exec>: PanTiltControl<Mode = M>,
     {
         self.move_direction(
-            crate::command::pan_tilt::PanTiltDirection::Left,
+            crate::command::PanTiltDirection::Left,
             pan_speed,
             tilt_speed,
         )
@@ -328,7 +324,7 @@ where
         Camera<M, P, Tr, Exec>: PanTiltControl<Mode = M>,
     {
         self.move_direction(
-            crate::command::pan_tilt::PanTiltDirection::Right,
+            crate::command::PanTiltDirection::Right,
             pan_speed,
             tilt_speed,
         )
@@ -892,9 +888,7 @@ where
     }
 
     /// Get resolution mode.
-    pub fn resolution(
-        &self,
-    ) -> M::Fut<'_, Result<crate::command::resolution::ResolutionMode, Error>>
+    pub fn resolution(&self) -> M::Fut<'_, Result<crate::command::ResolutionMode, Error>>
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
@@ -902,9 +896,7 @@ where
     }
 
     /// Get picture effect mode.
-    pub fn picture_effect(
-        &self,
-    ) -> M::Fut<'_, Result<crate::command::resolution::PictureEffectMode, Error>>
+    pub fn picture_effect(&self) -> M::Fut<'_, Result<crate::command::PictureEffectMode, Error>>
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
@@ -1124,7 +1116,7 @@ where
     /// Set picture effect mode.
     pub fn set_picture_effect(
         &self,
-        mode: crate::command::resolution::PictureEffectMode,
+        mode: crate::command::PictureEffectMode,
     ) -> M::Fut<'_, Result<(), Error>>
     where
         Camera<M, P, Tr, Exec>:
@@ -1197,7 +1189,7 @@ where
     where
         Camera<M, P, Tr, Exec>: PresetsControl<Mode = M>,
     {
-        use crate::command::preset::PresetNumber;
+        use crate::command::PresetNumber;
         match PresetNumber::new(preset) {
             Ok(preset_number) => self.camera.preset_recall(preset_number),
             Err(_) => M::ready(Err(Error::InvalidParameter {
@@ -1213,7 +1205,7 @@ where
     where
         Camera<M, P, Tr, Exec>: PresetsControl<Mode = M>,
     {
-        use crate::command::preset::PresetNumber;
+        use crate::command::PresetNumber;
         match PresetNumber::new(preset) {
             Ok(preset_number) => self.camera.preset_set(preset_number),
             Err(_) => M::ready(Err(Error::InvalidParameter {
@@ -1229,7 +1221,7 @@ where
     where
         Camera<M, P, Tr, Exec>: PresetsControl<Mode = M>,
     {
-        use crate::command::preset::PresetNumber;
+        use crate::command::PresetNumber;
         match PresetNumber::new(preset) {
             Ok(preset_number) => self.camera.preset_reset(preset_number),
             Err(_) => M::ready(Err(Error::InvalidParameter {
@@ -1253,7 +1245,7 @@ where
     Exec: Executor,
 {
     /// Get tally light status.
-    pub fn status(&self) -> M::Fut<'_, Result<crate::command::typed::TallyStatusState, Error>>
+    pub fn status(&self) -> M::Fut<'_, Result<crate::command::TallyStatusState, Error>>
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {
@@ -1372,9 +1364,7 @@ where
     }
 
     /// Get the current ND filter position.
-    pub fn position(
-        &self,
-    ) -> M::Fut<'_, Result<crate::command::resolution::NdFilterPosition, Error>>
+    pub fn position(&self) -> M::Fut<'_, Result<crate::command::NdFilterPosition, Error>>
     where
         Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
     {

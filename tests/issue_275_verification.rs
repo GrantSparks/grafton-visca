@@ -9,12 +9,8 @@
 
 use grafton_visca::{
     command::{
-        exposure::{SpotlightOff, SpotlightOn},
-        tally::{
-            TallyBrightHi, TallyBrightLo, TallyFlash, TallyGreenOff, TallyGreenOn, TallyOff,
-            TallyOn, TallyRedOff, TallyRedOn,
-        },
-        ViscaCommand,
+        SpotlightOff, SpotlightOn, TallyBrightHi, TallyBrightLo, TallyFlash, TallyGreenOff,
+        TallyGreenOn, TallyOff, TallyOn, TallyRedOff, TallyRedOn, ViscaCommand,
     },
     CameraId,
 };

@@ -23,7 +23,7 @@ use crate::error::Error;
 /// # Examples
 ///
 /// ```ignore
-/// use grafton_visca::command::response::{BoolConvention, Payload};
+/// use grafton_visca::command::{BoolConvention, Payload};
 ///
 /// let data = [0x02];
 /// let payload = Payload::new(&data);

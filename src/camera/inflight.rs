@@ -45,7 +45,7 @@ use std::sync::Mutex;
 
 #[cfg(feature = "mode-async")]
 use crate::{
-    camera_id::CameraId, capabilities::Profile, command::response::Response, error::Error,
+    camera_id::CameraId, capabilities::Profile, command::Response, error::Error,
     executor::Executor, Result,
 };
 

@@ -3,11 +3,7 @@
 use grafton_visca::{
     camera::profiles::{PtzOpticsG2, SonyBRC300},
     capabilities::CoordinateSystem,
-    command::{
-        pan_tilt::{PanTilt as PanTiltCommand, PanTiltLimitCorner},
-        response::{InquiryKind, Response},
-        ViscaCommand,
-    },
+    command::{InquiryKind, PanTilt as PanTiltCommand, PanTiltLimitCorner, Response, ViscaCommand},
     types::{PanSpeed, TiltSpeed},
     CameraId,
 };

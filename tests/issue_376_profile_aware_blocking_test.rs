@@ -8,7 +8,7 @@
 mod profile_aware_blocking_tests {
     use grafton_visca::{
         camera::profiles::{PtzOpticsG2, SonyBRC300},
-        command::{inquiry::PanTiltPositionInquiry, InquiryData},
+        command::{InquiryData, PanTiltPositionInquiry},
         runtime::testing::BlockingRunner,
         testing::testkit::scripted_transport::{ScriptedBlockingTransport, Step},
         timeout::TimeoutConfig,
@@ -59,9 +59,10 @@ mod profile_aware_blocking_tests {
 
         match result {
             Ok(response) => {
-                if let grafton_visca::command::response::Response::Inquiry(
-                    InquiryData::PanTiltPosition { pan, tilt },
-                ) = response
+                if let grafton_visca::command::Response::Inquiry(InquiryData::PanTiltPosition {
+                    pan,
+                    tilt,
+                }) = response
                 {
                     // For SignedCentered, values should be interpreted as signed i16
                     assert_eq!(pan, 0x1234_i16);
@@ -95,9 +96,10 @@ mod profile_aware_blocking_tests {
 
         match result {
             Ok(response) => {
-                if let grafton_visca::command::response::Response::Inquiry(
-                    InquiryData::PanTiltPosition { pan, tilt },
-                ) = response
+                if let grafton_visca::command::Response::Inquiry(InquiryData::PanTiltPosition {
+                    pan,
+                    tilt,
+                }) = response
                 {
                     // For UnsignedCentered, 0x8000 should convert to 0 logical
                     // 0x9000 should convert to 0x1000 logical (0x9000 - 0x8000)
@@ -138,7 +140,7 @@ mod profile_aware_blocking_tests {
 
             match result {
                 Ok(response) => {
-                    if let grafton_visca::command::response::Response::Inquiry(
+                    if let grafton_visca::command::Response::Inquiry(
                         InquiryData::PanTiltPosition { pan, tilt },
                     ) = response
                     {
@@ -184,9 +186,10 @@ mod profile_aware_blocking_tests {
 
         match result {
             Ok(response) => {
-                if let grafton_visca::command::response::Response::Inquiry(
-                    InquiryData::PanTiltPosition { pan, tilt },
-                ) = response
+                if let grafton_visca::command::Response::Inquiry(InquiryData::PanTiltPosition {
+                    pan,
+                    tilt,
+                }) = response
                 {
                     assert_eq!(pan, 0);
                     assert_eq!(tilt, 0);

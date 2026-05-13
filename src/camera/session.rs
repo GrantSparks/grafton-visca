@@ -10,7 +10,7 @@ use crate::{
     camera::Camera,
     camera_id::CameraId,
     capabilities::Profile,
-    command::{response::InquiryKind, typed::ResponseParser, CommandKind, ViscaCommand},
+    command::{CommandKind, InquiryKind, ResponseParser, ViscaCommand},
     error::Error,
     mode::Mode,
     timeout::CommandCategory,

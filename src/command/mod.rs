@@ -1,34 +1,36 @@
-//! VISCA command definitions and traits.
+//! Stable low-level VISCA command extension surface.
 //!
-//! This module provides all command types for controlling VISCA cameras,
-//! organized by functionality.
+//! Most users should prefer the camera-first accessor API. This module is for
+//! custom command implementations and integrations that need raw VISCA command
+//! control. Public items are re-exported from this module root; the category
+//! modules that organize the implementation are crate-private.
 
 // Command modules
-pub mod color;
-pub mod exposure;
-pub mod flip;
-pub mod focus;
-pub mod gain;
-pub mod image;
-pub mod inquiry;
+pub(crate) mod color;
+pub(crate) mod exposure;
+pub(crate) mod flip;
+pub(crate) mod focus;
+pub(crate) mod gain;
+pub(crate) mod image;
+pub(crate) mod inquiry;
 pub(crate) mod inquiry_registry;
 pub(crate) mod inquiry_structs; // Internal module for macro-generated inquiry commands
-pub mod inquiry_types;
-pub mod menu;
-pub mod motion_sync;
-pub mod nd_filter;
-pub mod pan_tilt;
-pub mod power;
-pub mod preset;
-pub mod resolution;
-pub mod response;
-pub mod streaming;
-pub mod system;
-pub mod tally;
-pub mod typed;
-pub mod variable_speed;
-pub mod white_balance;
-pub mod zoom;
+pub(crate) mod inquiry_types;
+pub(crate) mod menu;
+pub(crate) mod motion_sync;
+pub(crate) mod nd_filter;
+pub(crate) mod pan_tilt;
+pub(crate) mod power;
+pub(crate) mod preset;
+pub(crate) mod resolution;
+pub(crate) mod response;
+pub(crate) mod streaming;
+pub(crate) mod system;
+pub(crate) mod tally;
+pub(crate) mod typed;
+pub(crate) mod variable_speed;
+pub(crate) mod white_balance;
+pub(crate) mod zoom;
 
 // Command encoding implementation. The stable extension surface is re-exported
 // from this module root rather than through implementation submodules.
@@ -43,19 +45,31 @@ pub use self::{
     color::*,
     encode::{CommandKind, ViscaCommand},
     exposure::*,
+    flip::Flip,
     focus::*,
+    gain::{Gain, GainLimitCommand},
     image::*,
+    inquiry::*,
     inquiry_registry::{InquiryData, InquiryKind},
     inquiry_types::{FlipState, IrisControl, NightDayMode, TallyStatus, Version},
     menu::*,
+    motion_sync::{SetMotionSyncMode, SetMotionSyncPreset},
     nd_filter::*,
     pan_tilt::*,
     power::*,
     preset::*,
-    response::Response,
+    resolution::{NdFilterPosition, PictureEffectMode, ResolutionMode},
+    response::{BoolConvention, Nibbles, Nibbles4Or8, Payload, Response},
+    streaming::{MulticastStreaming, SetNdiQuality, UsbAudio},
     system::{MotionSyncMode, MotionSyncPreset, SettingsSaveCommand},
+    tally::{
+        TallyBrightHi, TallyBrightLo, TallyFlash, TallyGreenOff, TallyGreenOn, TallyOff, TallyOn,
+        TallyRedOff, TallyRedOn,
+    },
+    typed::{ResponseParser, TallyStatusState, VersionInfo},
     variable_speed::*,
     white_balance::*,
+    zoom::{DigitalZoom, Zoom},
 };
 
 #[cfg(test)]

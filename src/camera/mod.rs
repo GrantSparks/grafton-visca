@@ -81,16 +81,16 @@ where
     fn query<C>(
         &self,
         command: C,
-    ) -> M::Fut<'_, Result<<C as crate::command::typed::ResponseParser>::Response, crate::Error>>
+    ) -> M::Fut<'_, Result<<C as crate::command::ResponseParser>::Response, crate::Error>>
     where
-        C: crate::command::typed::ResponseParser
+        C: crate::command::ResponseParser
             + crate::command::ViscaCommand
             + Send
             + Sync
             + Clone
             + std::fmt::Debug
             + 'static,
-        <C as crate::command::typed::ResponseParser>::Response: Send + 'static;
+        <C as crate::command::ResponseParser>::Response: Send + 'static;
 
     /// Return an error immediately.
     fn error<T>(&self, error: crate::Error) -> M::Fut<'_, Result<T, crate::Error>>
@@ -140,17 +140,17 @@ where
         command: C,
     ) -> <crate::mode::Async as crate::mode::Mode>::Fut<
         '_,
-        Result<<C as crate::command::typed::ResponseParser>::Response, crate::Error>,
+        Result<<C as crate::command::ResponseParser>::Response, crate::Error>,
     >
     where
-        C: crate::command::typed::ResponseParser
+        C: crate::command::ResponseParser
             + crate::command::ViscaCommand
             + Send
             + Sync
             + Clone
             + std::fmt::Debug
             + 'static,
-        <C as crate::command::typed::ResponseParser>::Response: Send + 'static,
+        <C as crate::command::ResponseParser>::Response: Send + 'static,
     {
         self.send_command_typed(&command)
     }
@@ -216,17 +216,17 @@ where
         command: C,
     ) -> <crate::mode::Blocking as crate::mode::Mode>::Fut<
         '_,
-        Result<<C as crate::command::typed::ResponseParser>::Response, crate::Error>,
+        Result<<C as crate::command::ResponseParser>::Response, crate::Error>,
     >
     where
-        C: crate::command::typed::ResponseParser
+        C: crate::command::ResponseParser
             + crate::command::ViscaCommand
             + Send
             + Sync
             + Clone
             + std::fmt::Debug
             + 'static,
-        <C as crate::command::typed::ResponseParser>::Response: Send + 'static,
+        <C as crate::command::ResponseParser>::Response: Send + 'static,
     {
         // send_command_typed already returns a Ready future in blocking mode
         // so we need to extract the value from it using .block()

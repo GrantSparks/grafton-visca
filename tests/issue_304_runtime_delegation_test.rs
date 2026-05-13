@@ -135,7 +135,7 @@ fn test_command_cancellation_through_runtime() {
             .await
             .unwrap();
 
-        use grafton_visca::command::zoom::Zoom;
+        use grafton_visca::command::Zoom;
         let (cmd_id, future) = camera
             .start_command_with_id(&Zoom::TeleStd)
             .await

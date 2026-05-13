@@ -11,8 +11,8 @@
 
 #[cfg(not(feature = "mode-async"))]
 use grafton_visca::{
-    camera::profiles::SonyFR7, command::zoom::ZoomSpeed, prelude::blocking::*, types::SpeedLevel,
-    units::Degrees, CameraBuilder, Error,
+    camera::profiles::SonyFR7, prelude::blocking::*, types::SpeedLevel, units::Degrees,
+    CameraBuilder, Error, ZoomSpeed,
 };
 
 #[cfg(not(feature = "mode-async"))]

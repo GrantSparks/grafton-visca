@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **BREAKING**: Runtime scheduler internals are no longer part of the production public API; `runtime::RuntimeHandle`, `runtime::Priority`, and scheduler submodules are hidden, with test-only hooks available under `runtime::testing` when `test-utils` is enabled
 - **BREAKING**: Transport implementation modules such as `transport::builder`, `transport::buffer`, `transport::blocking_transport`, `transport::address`, and `transport::envelope` are hidden; supported transport configuration and extension types are re-exported from `grafton_visca::transport`
 - **BREAKING**: The `command::encode` implementation module is hidden; raw command extensions should import `ViscaCommand`, `CommandKind`, and `InquiryKind` from `grafton_visca::command`
+- **BREAKING**: Command category modules such as `command::zoom`, `command::preset`, `command::resolution`, `command::response`, `command::typed`, and `command::inquiry` are no longer public API; supported low-level command, response, parser, and inquiry types are re-exported from `grafton_visca::command`
+- **BREAKING**: `grafton_visca::testing` is exported only with `test-utils` enabled; `runtime-tokio` alone no longer exposes the camera simulator or deterministic test helpers
 - **BREAKING**: The unused `MotionGuard` helper and low-level `runtime_demo_lowlevel` example were removed; use explicit camera accessors such as `camera.zoom().stop()` and the high-level `runtime_demo` example instead
 - **BREAKING**: The direct blocking `nd_filter()` inquiry method was removed to reserve `camera.nd_filter()` for the camera-first ND filter accessor; use `camera.nd_filter().position()?`
 
@@ -45,7 +47,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added blocking noun accessors for power, zoom, pan/tilt, focus, exposure, white balance, image processing, presets, tally, system, menu, ND filter, motion sync, and advanced inquiries
 - Blocking accessors return `Result<T, Error>` directly, eliminating `.block()` from the canonical blocking flow while preserving async accessor parity
 - Added missing white-balance accessor operations for one-push mode, ATW mode, and color-temperature mode
-- Added compile-time API contract coverage for the frozen camera-first construction path, blocking accessor surface, hidden implementation modules, and removal of root-level control trait re-exports
+- Added compile-time API contract coverage for the frozen camera-first construction path, blocking accessor surface, command-root extension API, hidden implementation modules, `test-utils` gating, and removal of root-level control trait re-exports
 
 #### Per-Profile Iris and Exposure-Mode Support
 - New `Exposure::EXPOSURE_MODES` associated constant lets each profile declare which exposure modes the hardware accepts (defaults to all five standard modes)

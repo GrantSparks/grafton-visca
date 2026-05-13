@@ -3,7 +3,7 @@
 //! This module tests the end-to-end flow of inquiry commands from the camera
 //! through the socket manager to the simulator and back.
 
-#![cfg(feature = "runtime-tokio")]
+#![cfg(all(feature = "runtime-tokio", feature = "test-utils"))]
 
 use tokio::join;
 
@@ -11,7 +11,7 @@ use std::time::Duration;
 
 use grafton_visca::{
     camera::{profiles::GenericVisca, CameraBuilder},
-    command::{exposure::ExposureMode, focus::FocusMode, white_balance::WhiteBalanceMode},
+    command::{ExposureMode, FocusMode, WhiteBalanceMode},
     runtime::TokioRuntime,
     testing::camera_simulator::{SimulatorBuilder, ViscaCameraSimulator},
     ResolutionMode,

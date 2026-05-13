@@ -7,10 +7,7 @@
 use grafton_visca::{
     camera::profiles::{GenericVisca, SonyBRC300},
     capabilities::{CoordinateSystem, PanTilt},
-    command::{
-        response::{InquiryKind, Response},
-        InquiryData,
-    },
+    command::{InquiryData, InquiryKind, Response},
 };
 
 #[test]

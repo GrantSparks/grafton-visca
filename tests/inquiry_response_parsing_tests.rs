@@ -4,10 +4,7 @@
 //! real-world response patterns from PTZ cameras.
 
 use grafton_visca::{
-    command::{
-        response::{InquiryKind, Response},
-        InquiryData,
-    },
+    command::{InquiryData, InquiryKind, Response},
     ResolutionMode,
 };
 

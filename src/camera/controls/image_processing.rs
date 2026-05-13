@@ -18,7 +18,7 @@
 use crate::{
     camera::ViscaClient,
     capabilities::ImageProcessing as ImageProcessingCap,
-    command::{resolution::PictureEffectMode, ImageFlipMode},
+    command::{ImageFlipMode, PictureEffectMode},
     mode::Mode,
     types::{
         ContrastLevel, GammaLevel, HueLevel, LuminanceLevel, NoiseReduction2DLevel,

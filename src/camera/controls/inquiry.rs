@@ -361,7 +361,7 @@ pub trait InquiryControl {
     /// Returns an error if the inquiry fails or times out.
     fn resolution(
         &self,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::command::resolution::ResolutionMode, Error>>;
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::command::ResolutionMode, Error>>;
 
     /// Get the current picture effect mode.
     ///
@@ -371,7 +371,7 @@ pub trait InquiryControl {
     /// Returns an error if the inquiry fails or times out.
     fn picture_effect(
         &self,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::command::resolution::PictureEffectMode, Error>>;
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::command::PictureEffectMode, Error>>;
 
     /// Get the current ND filter position.
     ///
@@ -382,7 +382,7 @@ pub trait InquiryControl {
     /// Returns an error if the inquiry fails, times out, or is not supported.
     fn nd_filter_position(
         &self,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::command::resolution::NdFilterPosition, Error>>;
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::command::NdFilterPosition, Error>>;
 
     /// Get the camera version information.
     ///
@@ -391,9 +391,7 @@ pub trait InquiryControl {
     ///
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
-    fn version(
-        &self,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::command::typed::VersionInfo, Error>>;
+    fn version(&self) -> <Self::Mode as Mode>::Fut<'_, Result<crate::command::VersionInfo, Error>>;
 
     /// Check if backlight compensation is enabled.
     ///
@@ -447,7 +445,7 @@ pub trait InquiryControl {
     /// Returns an error if the inquiry fails or times out.
     fn tally_light_status(
         &self,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::command::typed::TallyStatusState, Error>>;
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::command::TallyStatusState, Error>>;
 
     /// Get the night/day mode status.
     ///
@@ -904,26 +902,22 @@ where
         self.query(BlackWhiteInquiry)
     }
 
-    fn resolution(&self) -> M::Fut<'_, Result<crate::command::resolution::ResolutionMode, Error>> {
+    fn resolution(&self) -> M::Fut<'_, Result<crate::command::ResolutionMode, Error>> {
         use crate::command::inquiry_structs::ResolutionInquiry;
         self.query(ResolutionInquiry)
     }
 
-    fn picture_effect(
-        &self,
-    ) -> M::Fut<'_, Result<crate::command::resolution::PictureEffectMode, Error>> {
+    fn picture_effect(&self) -> M::Fut<'_, Result<crate::command::PictureEffectMode, Error>> {
         use crate::command::inquiry_structs::PictureEffectInquiry;
         self.query(PictureEffectInquiry)
     }
 
-    fn nd_filter_position(
-        &self,
-    ) -> M::Fut<'_, Result<crate::command::resolution::NdFilterPosition, Error>> {
+    fn nd_filter_position(&self) -> M::Fut<'_, Result<crate::command::NdFilterPosition, Error>> {
         use crate::command::inquiry_structs::NdFilterInquiry;
         self.query(NdFilterInquiry)
     }
 
-    fn version(&self) -> M::Fut<'_, Result<crate::command::typed::VersionInfo, Error>> {
+    fn version(&self) -> M::Fut<'_, Result<crate::command::VersionInfo, Error>> {
         use crate::command::inquiry_structs::VersionInquiry;
         self.query(VersionInquiry)
     }
@@ -948,9 +942,7 @@ where
         self.query(MenuOpenCloseInquiry)
     }
 
-    fn tally_light_status(
-        &self,
-    ) -> M::Fut<'_, Result<crate::command::typed::TallyStatusState, Error>> {
+    fn tally_light_status(&self) -> M::Fut<'_, Result<crate::command::TallyStatusState, Error>> {
         use crate::command::inquiry_structs::TallyStatusInquiry;
         self.query(TallyStatusInquiry)
     }

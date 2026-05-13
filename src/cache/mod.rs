@@ -40,7 +40,7 @@
 //! ```
 
 use crate::{
-    command::pan_tilt::PanTiltLimitCorner,
+    command::PanTiltLimitCorner,
     types::{PanPosition, TiltPosition},
 };
 

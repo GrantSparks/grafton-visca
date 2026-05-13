@@ -14,7 +14,7 @@
 //! ```ignore
 //! # #[cfg(not(feature = "mode-async"))]
 //! # {
-//! # use grafton_visca::command::pan_tilt::{PanTilt, PanTiltDirection, PanSpeed, TiltSpeed};
+//! # use grafton_visca::{command::{PanTilt, PanTiltDirection}, types::{PanSpeed, TiltSpeed}};
 //! # use grafton_visca::Client;
 //! # let client = Client::connect_udp("192.168.0.110:5678").unwrap();
 //! // Move camera diagonally up-right

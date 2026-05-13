@@ -5,10 +5,7 @@
 
 mod common;
 
-#[cfg(all(
-    not(feature = "mode-async"),
-    any(feature = "runtime-tokio", feature = "test-utils")
-))]
+#[cfg(all(not(feature = "mode-async"), feature = "test-utils"))]
 mod blocking_tests {
     use grafton_visca::{
         prelude::blocking::*,

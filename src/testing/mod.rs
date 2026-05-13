@@ -3,10 +3,10 @@
 //! This module provides testing infrastructure, including a VISCA camera simulator
 //! that accurately models the protocol behavior for integration testing.
 
-#[cfg(feature = "runtime-tokio")]
+#[cfg(all(feature = "runtime-tokio", any(test, feature = "test-utils")))]
 pub mod camera_simulator;
 
-#[cfg(feature = "runtime-tokio")]
+#[cfg(all(feature = "runtime-tokio", any(test, feature = "test-utils")))]
 pub use camera_simulator::ViscaCameraSimulator;
 
 /// Testing toolkit for deterministic and scriptable transport testing.

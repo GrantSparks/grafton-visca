@@ -12,7 +12,7 @@
 
 use crate::{
     camera::ViscaClient,
-    command::pan_tilt::{PanTiltDirection, PanTiltLimitCorner},
+    command::{PanTiltDirection, PanTiltLimitCorner},
     mode::Mode,
     types::{PanPosition, PanSpeed, SpeedLevel, TiltPosition, TiltSpeed},
     units::Degrees,

@@ -552,10 +552,15 @@ fn test_public_compile_time_api_contracts() {
 
 #[test]
 fn test_internal_api_contracts_do_not_compile() {
-    #[cfg(feature = "runtime-tokio")]
-    let fixture_dirs = ["tests/api_contract/fail", "tests/api_contract/fail_async"];
-    #[cfg(not(feature = "runtime-tokio"))]
-    let fixture_dirs = ["tests/api_contract/fail"];
+    let mut fixture_dirs = vec!["tests/api_contract/fail"];
+
+    if cfg!(feature = "runtime-tokio") {
+        fixture_dirs.push("tests/api_contract/fail_async");
+    }
+
+    if !cfg!(feature = "test-utils") {
+        fixture_dirs.push("tests/api_contract/fail_no_test_utils");
+    }
 
     let features = compile_fail::active_grafton_visca_features();
     compile_fail::assert_compile_fail_fixtures(&fixture_dirs, &features);

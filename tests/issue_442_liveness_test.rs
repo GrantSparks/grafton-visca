@@ -86,7 +86,7 @@ async fn test_submission_wakes_loop_during_long_deadline_sleep() {
     let first_handle = tokio::spawn(async move {
         runtime_clone
             .send_command(
-                &grafton_visca::command::zoom::Zoom::TeleStd,
+                &grafton_visca::command::Zoom::TeleStd,
                 grafton_visca::CameraId::CAMERA_1,
                 None,
             )
@@ -106,7 +106,7 @@ async fn test_submission_wakes_loop_during_long_deadline_sleep() {
     // Use Zoom::Stop as the second command (simpler than constructing PanTilt::Move)
     let result = runtime
         .send_command(
-            &grafton_visca::command::zoom::Zoom::Stop,
+            &grafton_visca::command::Zoom::Stop,
             grafton_visca::CameraId::CAMERA_1,
             None,
         )
@@ -182,7 +182,7 @@ async fn test_metrics_and_completions_do_not_hang_during_long_waits() {
     let cmd_handle = tokio::spawn(async move {
         runtime_clone
             .send_command(
-                &grafton_visca::command::zoom::Zoom::TeleStd,
+                &grafton_visca::command::Zoom::TeleStd,
                 grafton_visca::CameraId::CAMERA_1,
                 None,
             )
@@ -419,7 +419,7 @@ async fn regression_guard_loop_responsiveness() {
     let first_handle = tokio::spawn(async move {
         runtime_clone
             .send_command(
-                &grafton_visca::command::zoom::Zoom::TeleStd,
+                &grafton_visca::command::Zoom::TeleStd,
                 grafton_visca::CameraId::CAMERA_1,
                 None,
             )
@@ -433,7 +433,7 @@ async fn regression_guard_loop_responsiveness() {
     let start = Instant::now();
     let result = runtime
         .send_command(
-            &grafton_visca::command::zoom::Zoom::Stop,
+            &grafton_visca::command::Zoom::Stop,
             grafton_visca::CameraId::CAMERA_1,
             None,
         )

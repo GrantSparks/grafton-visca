@@ -11,7 +11,7 @@ use grafton_visca::{transport::BlockingTransportHandle, BlockingClient};
 
 use grafton_visca::{
     capabilities::{MotionSync, NdFilter, Profile, VariableSpeed},
-    command::resolution::NdFilterPosition,
+    NdFilterPosition,
 };
 
 // These tests demonstrate compile-time trait bounds and mode separation.

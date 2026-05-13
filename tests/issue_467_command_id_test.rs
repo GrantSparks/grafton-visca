@@ -9,7 +9,7 @@
 
 use grafton_visca::{
     camera::CameraBuilder,
-    command::{inquiry::ZoomPositionInquiry, zoom::Zoom},
+    command::{Zoom, ZoomPositionInquiry},
     testing::testkit::{
         deterministic_executor::DeterministicExecutorExt,
         scripted_transport::{ScriptedTransport, Step},

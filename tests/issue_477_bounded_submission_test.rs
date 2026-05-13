@@ -95,7 +95,7 @@ async fn test_submission_channel_is_bounded() {
         async move {
             runtime
                 .send_command(
-                    &grafton_visca::command::zoom::Zoom::TeleStd,
+                    &grafton_visca::command::Zoom::TeleStd,
                     CameraId::CAMERA_1,
                     None,
                 )
@@ -109,7 +109,7 @@ async fn test_submission_channel_is_bounded() {
         async move {
             runtime
                 .send_command(
-                    &grafton_visca::command::zoom::Zoom::WideStd,
+                    &grafton_visca::command::Zoom::WideStd,
                     CameraId::CAMERA_1,
                     None,
                 )
@@ -123,7 +123,7 @@ async fn test_submission_channel_is_bounded() {
         async move {
             runtime
                 .send_command(
-                    &grafton_visca::command::zoom::Zoom::Stop,
+                    &grafton_visca::command::Zoom::Stop,
                     CameraId::CAMERA_1,
                     None,
                 )
@@ -204,7 +204,7 @@ async fn test_max_pending_queue_depth_is_respected() {
     // Verify runtime is functional
     let result = runtime
         .send_command(
-            &grafton_visca::command::zoom::Zoom::TeleStd,
+            &grafton_visca::command::Zoom::TeleStd,
             CameraId::CAMERA_1,
             None,
         )
@@ -246,7 +246,7 @@ async fn test_adapter_admission_control_preserved() {
     // Verify multiple commands can be sent and complete normally
     let result1 = runtime
         .send_command(
-            &grafton_visca::command::zoom::Zoom::TeleStd,
+            &grafton_visca::command::Zoom::TeleStd,
             CameraId::CAMERA_1,
             None,
         )
@@ -254,7 +254,7 @@ async fn test_adapter_admission_control_preserved() {
 
     let result2 = runtime
         .send_command(
-            &grafton_visca::command::zoom::Zoom::WideStd,
+            &grafton_visca::command::Zoom::WideStd,
             CameraId::CAMERA_1,
             None,
         )

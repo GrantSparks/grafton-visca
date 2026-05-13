@@ -4,10 +4,7 @@
 //! using real-world response patterns (golden replies) from PTZ cameras.
 
 use grafton_visca::{
-    command::{
-        response::{InquiryKind, Response},
-        InquiryData,
-    },
+    command::{InquiryData, InquiryKind, Response},
     ResolutionMode,
 };
 

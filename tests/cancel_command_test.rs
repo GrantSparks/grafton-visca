@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use grafton_visca::{
     camera::CameraBuilder,
-    command::{pan_tilt::PanTiltDirection, zoom::Zoom},
+    command::{PanTiltDirection, Zoom},
     testing::testkit::{
         scripted_transport::{ScriptedTransport, Step},
         DeterministicExecutor,

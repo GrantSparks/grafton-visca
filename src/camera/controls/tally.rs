@@ -158,7 +158,7 @@ pub trait TallyControl {
     /// Returns an error if the inquiry fails or times out.
     fn tally_status(
         &self,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::command::typed::TallyStatusState, Error>>;
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::command::TallyStatusState, Error>>;
 
     /// Query green tally light state (FR7 specific).
     ///
@@ -239,7 +239,7 @@ where
         self.execute(TallyOff::new())
     }
 
-    fn tally_status(&self) -> M::Fut<'_, Result<crate::command::typed::TallyStatusState, Error>> {
+    fn tally_status(&self) -> M::Fut<'_, Result<crate::command::TallyStatusState, Error>> {
         self.query(TallyStatusInquiry)
     }
 

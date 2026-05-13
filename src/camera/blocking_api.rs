@@ -537,7 +537,7 @@ where
     /// Move in a specific direction.
     pub fn move_direction(
         &self,
-        direction: crate::command::pan_tilt::PanTiltDirection,
+        direction: crate::command::PanTiltDirection,
         pan_speed: crate::types::PanSpeed,
         tilt_speed: crate::types::TiltSpeed,
     ) -> Result<(), Error> {
@@ -550,11 +550,7 @@ where
         pan_speed: crate::types::PanSpeed,
         tilt_speed: crate::types::TiltSpeed,
     ) -> Result<(), Error> {
-        self.move_direction(
-            crate::command::pan_tilt::PanTiltDirection::Up,
-            pan_speed,
-            tilt_speed,
-        )
+        self.move_direction(crate::command::PanTiltDirection::Up, pan_speed, tilt_speed)
     }
 
     /// Move down.
@@ -564,7 +560,7 @@ where
         tilt_speed: crate::types::TiltSpeed,
     ) -> Result<(), Error> {
         self.move_direction(
-            crate::command::pan_tilt::PanTiltDirection::Down,
+            crate::command::PanTiltDirection::Down,
             pan_speed,
             tilt_speed,
         )
@@ -577,7 +573,7 @@ where
         tilt_speed: crate::types::TiltSpeed,
     ) -> Result<(), Error> {
         self.move_direction(
-            crate::command::pan_tilt::PanTiltDirection::Left,
+            crate::command::PanTiltDirection::Left,
             pan_speed,
             tilt_speed,
         )
@@ -590,7 +586,7 @@ where
         tilt_speed: crate::types::TiltSpeed,
     ) -> Result<(), Error> {
         self.move_direction(
-            crate::command::pan_tilt::PanTiltDirection::Right,
+            crate::command::PanTiltDirection::Right,
             pan_speed,
             tilt_speed,
         )
@@ -983,12 +979,12 @@ where
     }
 
     /// Get resolution mode.
-    pub fn resolution(&self) -> Result<crate::command::resolution::ResolutionMode, Error> {
+    pub fn resolution(&self) -> Result<crate::command::ResolutionMode, Error> {
         self.camera.resolution()
     }
 
     /// Get picture effect mode.
-    pub fn picture_effect(&self) -> Result<crate::command::resolution::PictureEffectMode, Error> {
+    pub fn picture_effect(&self) -> Result<crate::command::PictureEffectMode, Error> {
         self.camera.picture_effect()
     }
 
@@ -1093,10 +1089,7 @@ where
     }
 
     /// Set picture effect mode.
-    pub fn set_picture_effect(
-        &self,
-        mode: crate::command::resolution::PictureEffectMode,
-    ) -> Result<(), Error> {
+    pub fn set_picture_effect(&self, mode: crate::command::PictureEffectMode) -> Result<(), Error> {
         self.camera.set_picture_effect(mode)
     }
 
@@ -1164,7 +1157,7 @@ where
     Camera<Blocking, P, Tr, ()>: TallyControl<Mode = Blocking> + InquiryControl<Mode = Blocking>,
 {
     /// Get tally light status.
-    pub fn status(&self) -> Result<crate::command::typed::TallyStatusState, Error> {
+    pub fn status(&self) -> Result<crate::command::TallyStatusState, Error> {
         self.camera.tally_light_status()
     }
 
@@ -1235,7 +1228,7 @@ where
     Camera<Blocking, P, Tr, ()>: SystemControl<Mode = Blocking> + InquiryControl<Mode = Blocking>,
 {
     /// Get camera version information.
-    pub fn version(&self) -> Result<crate::command::typed::VersionInfo, Error> {
+    pub fn version(&self) -> Result<crate::command::VersionInfo, Error> {
         self.camera.version()
     }
 
@@ -1323,7 +1316,7 @@ where
     Camera<Blocking, P, Tr, ()>: NdFilterControl<Mode = Blocking> + InquiryControl<Mode = Blocking>,
 {
     /// Get the current ND filter position.
-    pub fn position(&self) -> Result<crate::command::resolution::NdFilterPosition, Error> {
+    pub fn position(&self) -> Result<crate::command::NdFilterPosition, Error> {
         self.camera.nd_filter_position()
     }
 
@@ -1791,16 +1784,16 @@ where
         fn pan_tilt_relative(pan: crate::units::Degrees, tilt: crate::units::Degrees, speed: crate::types::SpeedLevel) -> ();
 
         /// Move pan/tilt in a specific direction.
-        fn pan_tilt_move(direction: crate::command::pan_tilt::PanTiltDirection, pan_speed: crate::types::PanSpeed, tilt_speed: crate::types::TiltSpeed) -> ();
+        fn pan_tilt_move(direction: crate::command::PanTiltDirection, pan_speed: crate::types::PanSpeed, tilt_speed: crate::types::TiltSpeed) -> ();
 
         /// Reset pan/tilt to default position.
         fn pan_tilt_reset() -> ();
 
         /// Set pan/tilt limit at a specific corner.
-        fn pan_tilt_limit_set(corner: crate::command::pan_tilt::PanTiltLimitCorner, pan: crate::types::PanPosition, tilt: crate::types::TiltPosition) -> ();
+        fn pan_tilt_limit_set(corner: crate::command::PanTiltLimitCorner, pan: crate::types::PanPosition, tilt: crate::types::TiltPosition) -> ();
 
         /// Clear pan/tilt limit for a specific corner.
-        fn pan_tilt_limit_clear(corner: crate::command::pan_tilt::PanTiltLimitCorner) -> ();
+        fn pan_tilt_limit_clear(corner: crate::command::PanTiltLimitCorner) -> ();
     }
 }
 
@@ -1815,13 +1808,13 @@ where
 {
     impl_blocking_methods! {
         /// Recall a preset position.
-        fn preset_recall(preset: crate::command::preset::PresetNumber) -> ();
+        fn preset_recall(preset: crate::command::PresetNumber) -> ();
 
         /// Set (save) current position as preset.
-        fn preset_set(preset: crate::command::preset::PresetNumber) -> ();
+        fn preset_set(preset: crate::command::PresetNumber) -> ();
 
         /// Reset (clear) a preset.
-        fn preset_reset(preset: crate::command::preset::PresetNumber) -> ();
+        fn preset_reset(preset: crate::command::PresetNumber) -> ();
     }
 }
 
@@ -1962,7 +1955,7 @@ where
         fn tally_off() -> ();
 
         /// Get tally status (red and green states).
-        fn tally_status() -> crate::command::typed::TallyStatusState;
+        fn tally_status() -> crate::command::TallyStatusState;
 
         /// Get green tally status (FR7 specific).
         fn green_tally_status() -> bool;
@@ -2075,7 +2068,7 @@ where
         fn disable_noise_reduction_3d() -> ();
 
         /// Set image flip mode.
-        fn set_image_flip(mode: crate::command::image::ImageFlipMode) -> ();
+        fn set_image_flip(mode: crate::command::ImageFlipMode) -> ();
 
         /// Set luminance level.
         fn set_luminance(level: crate::types::LuminanceLevel) -> ();
@@ -2096,7 +2089,7 @@ where
         fn disable_black_white() -> ();
 
         /// Set picture effect mode.
-        fn set_picture_effect(mode: crate::command::resolution::PictureEffectMode) -> ();
+        fn set_picture_effect(mode: crate::command::PictureEffectMode) -> ();
     }
 }
 
@@ -2280,16 +2273,16 @@ where
         fn black_white() -> bool;
 
         /// Get resolution.
-        fn resolution() -> crate::command::resolution::ResolutionMode;
+        fn resolution() -> crate::command::ResolutionMode;
 
         /// Get picture effect.
-        fn picture_effect() -> crate::command::resolution::PictureEffectMode;
+        fn picture_effect() -> crate::command::PictureEffectMode;
 
         /// Get ND filter position.
-        fn nd_filter_position() -> crate::command::resolution::NdFilterPosition;
+        fn nd_filter_position() -> crate::command::NdFilterPosition;
 
         /// Get camera version information.
-        fn version() -> crate::command::typed::VersionInfo;
+        fn version() -> crate::command::VersionInfo;
 
         /// Get backlight enabled status.
         fn backlight_enabled() -> bool;
@@ -2304,7 +2297,7 @@ where
         fn menu_status() -> bool;
 
         /// Get tally light status.
-        fn tally_light_status() -> crate::command::typed::TallyStatusState;
+        fn tally_light_status() -> crate::command::TallyStatusState;
 
         /// Get night/day mode.
         fn night_day_mode() -> bool;

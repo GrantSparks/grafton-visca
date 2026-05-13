@@ -17,7 +17,6 @@ use std::{
 
 use grafton_visca::{
     camera::{profiles::PtzOpticsG2, CameraBuilder},
-    command::preset::PresetNumber,
     dynapi::{
         DynCameraControl, DynFocusControl, DynMotionControl, DynPanTiltControl, DynPresetsControl,
         DynZoomControl, IntoDynCamera,
@@ -25,7 +24,7 @@ use grafton_visca::{
     runtime::TokioRuntime,
     testing::testkit::{helpers, scripted_transport::Step, ScriptedTransport},
     types::SpeedLevel,
-    Error, TokioExecutor,
+    Error, PresetNumber, TokioExecutor,
 };
 
 use crate::common::patterns;

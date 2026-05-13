@@ -423,7 +423,7 @@ fn generate_parser_body(
         }
         "nd_filter" => {
             let field_name = format_ident!("position");
-            let converter_type = quote! { #crate_path::command::resolution::NdFilterPosition };
+            let converter_type = quote! { #crate_path::command::NdFilterPosition };
             super::parser_templates::generate_byte_converter_parser(
                 &actual_variant,
                 &field_name,
@@ -434,7 +434,7 @@ fn generate_parser_body(
         }
         "picture_effect" => {
             let field_name = format_ident!("effect");
-            let converter_type = quote! { #crate_path::command::resolution::PictureEffectMode };
+            let converter_type = quote! { #crate_path::command::PictureEffectMode };
             super::parser_templates::generate_byte_converter_parser(
                 &actual_variant,
                 &field_name,
@@ -472,7 +472,7 @@ fn generate_parser_body(
                 .map(|s| format_ident!("{}", s))
                 .expect("custom parser requires custom_fn/parse_with attribute");
             quote! {
-                #crate_path::command::response::#custom_fn(data)
+                #custom_fn(data)
             }
         }
         _ => {
@@ -487,7 +487,7 @@ fn generate_parser_body(
     }
 }
 
-/// Generate an impl of `command::typed::ResponseParser` for the struct based on
+/// Generate an impl of `command::ResponseParser` for the struct based on
 /// `typed_*` attributes. Returns empty tokens if no `typed_response` attribute is set.
 fn generate_typed_impl(
     struct_name: &Ident,
@@ -557,7 +557,7 @@ fn generate_typed_impl(
     };
 
     quote! {
-        impl #crate_path::command::typed::ResponseParser for #struct_name {
+        impl #crate_path::command::ResponseParser for #struct_name {
             type Response = #response_type;
 
             fn from_response(

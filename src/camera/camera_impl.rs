@@ -10,7 +10,7 @@ use std::{future::Future, pin::Pin, sync::Arc};
 use crate::{
     camera_id::CameraId,
     capabilities::Profile,
-    command::{typed::ResponseParser, ViscaCommand},
+    command::{ResponseParser, ViscaCommand},
     error::Error,
     mode::Mode,
     timeout::TimeoutConfig,
@@ -698,7 +698,7 @@ where
     pub fn send_command<'a, C>(
         &'a self,
         command: &'a C,
-    ) -> <crate::mode::Async as Mode>::Fut<'static, Result<crate::command::response::Response, Error>>
+    ) -> <crate::mode::Async as Mode>::Fut<'static, Result<crate::command::Response, Error>>
     where
         C: ViscaCommand,
         Tr: AsyncTransport + Send + Sync,
@@ -794,13 +794,7 @@ where
         command: &'a C,
     ) -> <crate::mode::Async as Mode>::Fut<
         'static,
-        Result<
-            (
-                crate::camera::inflight::CommandId,
-                crate::command::response::Response,
-            ),
-            Error,
-        >,
+        Result<(crate::camera::inflight::CommandId, crate::command::Response), Error>,
     >
     where
         C: ViscaCommand,
@@ -858,13 +852,7 @@ where
     ) -> Result<
         (
             crate::camera::inflight::CommandId,
-            Pin<
-                Box<
-                    dyn Future<Output = Result<crate::command::response::Response, Error>>
-                        + Send
-                        + 'static,
-                >,
-            >,
+            Pin<Box<dyn Future<Output = Result<crate::command::Response, Error>> + Send + 'static>>,
         ),
         Error,
     >
@@ -953,7 +941,7 @@ where
     pub fn send_command<C>(
         &self,
         command: &C,
-    ) -> <crate::mode::Blocking as Mode>::Fut<'_, Result<crate::command::response::Response, Error>>
+    ) -> <crate::mode::Blocking as Mode>::Fut<'_, Result<crate::command::Response, Error>>
     where
         C: ViscaCommand,
     {
@@ -996,7 +984,7 @@ where
         use crate::mode::BlockingFutureExt;
 
         let response = self.send_command(&command).block();
-        std::future::ready(response.and_then(crate::command::response::Response::into_result))
+        std::future::ready(response.and_then(crate::command::Response::into_result))
     }
 
     /// Send a typed command and return the response.
@@ -1046,7 +1034,7 @@ where
         &self,
         command: &C,
         deadline: crate::timeout::Deadline,
-    ) -> <crate::mode::Blocking as Mode>::Fut<'_, Result<crate::command::response::Response, Error>>
+    ) -> <crate::mode::Blocking as Mode>::Fut<'_, Result<crate::command::Response, Error>>
     where
         C: ViscaCommand,
     {

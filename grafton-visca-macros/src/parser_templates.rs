@@ -109,7 +109,7 @@ pub fn generate_direct_byte_parser(
         "Resolution" => {
             quote! {
                 {
-                    let mode = #crate_path::command::resolution::ResolutionMode::from_byte(data[0]);
+                    let mode = #crate_path::command::ResolutionMode::from_byte(data[0]);
                     Ok(#crate_path::command::InquiryData::#response_variant(mode))
                 }
             }
@@ -239,10 +239,10 @@ pub fn generate_bool_convention_parser(
     let param_name = field_name.to_string();
     quote! {
         {
-            let payload = #crate_path::command::response::Payload::new(data);
+            let payload = #crate_path::command::Payload::new(data);
             let #field_name = payload.parse_bool(
                 #param_name,
-                #crate_path::command::response::BoolConvention::#convention
+                #crate_path::command::BoolConvention::#convention
             )?;
             Ok(#crate_path::command::InquiryData::#response_variant { #field_name })
         }
@@ -259,8 +259,8 @@ pub fn generate_last_nibble_parser(
 ) -> TokenStream {
     quote! {
         {
-            let payload = #crate_path::command::response::Payload::new(data);
-            let nibbles = #crate_path::command::response::Nibbles::<4>::try_from(payload)?;
+            let payload = #crate_path::command::Payload::new(data);
+            let nibbles = #crate_path::command::Nibbles::<4>::try_from(payload)?;
             Ok(#crate_path::command::InquiryData::#response_variant {
                 #field_name: nibbles.last_nibble()
             })
@@ -277,15 +277,15 @@ pub fn generate_tally_status_parser(crate_path: &TokenStream) -> TokenStream {
             if data.len() < 2 {
                 return Err(#crate_path::Error::invalid_response_length(2, data));
             }
-            let red_payload = #crate_path::command::response::Payload::new(&data[0..1]);
-            let green_payload = #crate_path::command::response::Payload::new(&data[1..2]);
+            let red_payload = #crate_path::command::Payload::new(&data[0..1]);
+            let green_payload = #crate_path::command::Payload::new(&data[1..2]);
             let red_on = red_payload.parse_bool(
                 "tally_red_status",
-                #crate_path::command::response::BoolConvention::OnIs03
+                #crate_path::command::BoolConvention::OnIs03
             )?;
             let green_on = green_payload.parse_bool(
                 "tally_green_status",
-                #crate_path::command::response::BoolConvention::OnIs03
+                #crate_path::command::BoolConvention::OnIs03
             )?;
             Ok(#crate_path::command::InquiryData::TallyStatus { red_on, green_on })
         }
@@ -302,8 +302,8 @@ pub fn generate_sharpness_mode_parser(crate_path: &TokenStream) -> TokenStream {
                 return Err(#crate_path::Error::invalid_response_length(1, data));
             }
             let mode = match data[0] {
-                0x02 => #crate_path::command::image::SharpnessMode::Auto,
-                0x03 => #crate_path::command::image::SharpnessMode::Manual,
+                0x02 => #crate_path::command::SharpnessMode::Auto,
+                0x03 => #crate_path::command::SharpnessMode::Manual,
                 _ => return Err(#crate_path::Error::InvalidParameter {
                     parameter: "sharpness_mode",
                     value: ::std::borrow::Cow::Owned(format!("0x{:02X}", data[0])),

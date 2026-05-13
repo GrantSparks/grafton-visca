@@ -10,9 +10,8 @@ use ts_rs::{Config, TS};
 
 use grafton_visca::{
     camera::{config::TransportOptions, profiles::ProfileId},
-    command::pan_tilt::PanTiltDirection,
     types::{SpeedLevel, ZoomPosition},
-    PresetNumber,
+    PanTiltDirection, PresetNumber,
 };
 
 #[test]

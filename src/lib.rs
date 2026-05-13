@@ -659,14 +659,9 @@ pub use crate::{
     },
     camera_id::CameraId,
     command::{
-        exposure::ExposureMode,
-        focus::{AutoFocusSensitivity, FocusMode},
-        nd_filter::NdFilterMode,
-        pan_tilt::{PanTiltDirection, PanTiltLimitCorner},
-        preset::PresetNumber,
-        resolution::{PictureEffectMode, ResolutionMode},
-        system::{MotionSyncMode, MotionSyncPreset},
-        white_balance::{AutoWhiteBalanceSensitivity, WhiteBalanceMode},
+        AutoFocusSensitivity, AutoWhiteBalanceSensitivity, ExposureMode, FocusMode, MotionSyncMode,
+        MotionSyncPreset, NdFilterMode, NdFilterPosition, PanTiltDirection, PanTiltLimitCorner,
+        PictureEffectMode, PresetNumber, ResolutionMode, WhiteBalanceMode,
     },
     constants::CameraVariant,
     error::{Error, ErrorKind, Result},
@@ -752,8 +747,8 @@ pub mod runtime;
 #[cfg(feature = "mode-async")]
 pub mod runtime_adapters;
 
-/// Testing utilities (available with test-utils feature for deterministic testing)
-#[cfg(any(feature = "runtime-tokio", feature = "test-utils"))]
+/// Testing utilities for deterministic downstream tests.
+#[cfg(any(test, feature = "test-utils"))]
 pub mod testing;
 
 pub mod timeout;

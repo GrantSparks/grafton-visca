@@ -22,10 +22,9 @@
 #[cfg(not(feature = "mode-async"))]
 use grafton_visca::{
     camera::{profiles::PtzOpticsG2, Connect},
-    command::pan_tilt::PanTiltDirection,
     types::{Coarse, PanSpeed, SpeedLevel, TiltSpeed},
     units::{Degrees, Normalized},
-    Error,
+    Error, PanTiltDirection,
 };
 
 #[cfg(not(feature = "mode-async"))]

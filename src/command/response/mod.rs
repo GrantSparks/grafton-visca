@@ -17,8 +17,7 @@ pub use self::{
     types::Response,
 };
 
-// Re-export InquiryKind from the registry (canonical definition) so existing
-// import paths via `crate::command::response::InquiryKind` continue to work.
+// Re-export InquiryKind from the registry for crate-internal response code.
 pub use crate::command::inquiry_registry::InquiryKind;
 
 #[cfg(test)]

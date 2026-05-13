@@ -1,5 +1,5 @@
 use grafton_visca::{
-    command::response::{BoolConvention, Nibbles, Payload, Response},
+    command::{BoolConvention, Nibbles, Payload, Response},
     CachedFlipState, CameraId, CameraVariant, PanTiltLimits, StateCache, ViscaSocket,
 };
 

@@ -2,11 +2,7 @@
 //! This verifies that TallyGreenInquiry is correctly classified as an inquiry
 //! both by its type metadata (response_type()) and by the new command_kind() method.
 
-use grafton_visca::command::{
-    inquiry::{PowerInquiry, TallyGreenInquiry},
-    power::PowerOn,
-    CommandKind, ViscaCommand,
-};
+use grafton_visca::command::{CommandKind, PowerInquiry, PowerOn, TallyGreenInquiry, ViscaCommand};
 
 #[test]
 fn test_tally_green_inquiry_is_detected_as_inquiry() {

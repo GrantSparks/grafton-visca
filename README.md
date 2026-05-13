@@ -12,10 +12,10 @@ A pure Rust library for controlling PTZ cameras via the VISCA protocol. Supports
 ## 1.0 Support Matrix
 
 The 1.0 contract is the camera-first API, the documented transport/runtime
-configuration types, the raw command extension trait, and the optional feature
-surfaces listed below. Hardware validation is narrower than software support:
-the library contract is tested automatically, while device-specific firmware
-quirks are handled as reproducible bugs.
+configuration types, the root-level raw command extension surface, and the
+optional feature surfaces listed below. Hardware validation is narrower than
+software support: the library contract is tested automatically, while
+device-specific firmware quirks are handled as reproducible bugs.
 
 ### APIs and runtimes
 
@@ -26,6 +26,7 @@ quirks are handled as reproducible bugs.
 | Tokio async | `runtime-tokio`, `TokioRuntime`, Tokio TCP/UDP adapters | `cargo test --no-default-features --features runtime-tokio` |
 | smol async | `runtime-smol`, `SmolRuntime`, smol TCP/UDP adapters | `cargo test --no-default-features --features runtime-smol` |
 | Dynamic API | `dyn-api` object-safe camera traits for async cameras, with runtime capabilities, command-completion timeouts, and cancellable in-flight handles | `cargo test --no-default-features --features runtime-tokio,dyn-api,test-utils --test dyn_api_integration_test`, `cargo test --no-default-features --features runtime-smol,dyn-api,test-utils --test dyn_api_smol_integration_test` |
+| Raw command extension | Custom command and inquiry implementations through `grafton_visca::command::{ViscaCommand, CommandKind, InquiryKind, ResponseParser}` plus root command value re-exports | API contract tests |
 
 ### Transports
 
@@ -54,7 +55,7 @@ quirks are handled as reproducible bugs.
 | `schemars` | Stable JSON Schema generation for serde-backed public types |
 | `ts-rs` | Stable TypeScript type generation for supported exported types |
 | `dyn-api` | Stable object-safe async camera traits with command timeout and cancellation support |
-| `test-utils` | Stable deterministic test transports and helpers for downstream tests |
+| `test-utils` | Stable deterministic test transports, executors, and Tokio camera simulator under `grafton_visca::testing`; `runtime-tokio` alone does not expose test helpers |
 
 ---
 

@@ -15,7 +15,7 @@
 
 use grafton_visca::{
     camera::{profiles::PtzOpticsG2, CameraBuilder},
-    command::zoom::Zoom,
+    command::Zoom,
     testing::testkit::{
         scripted_transport::{ScriptedTransport, Step},
         DeterministicExecutor,
