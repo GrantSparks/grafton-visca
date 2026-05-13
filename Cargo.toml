@@ -102,6 +102,7 @@ name = "quickstart"
 
 [[example]]
 name = "quickstart_async"
+required-features = ["runtime-tokio"]
 
 [[example]]
 name = "transports"

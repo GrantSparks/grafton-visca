@@ -1,225 +1,118 @@
-//! Transport options demonstration - TCP and UDP connections.
+//! Compare TCP and UDP connection setup.
 //!
-//! This example shows how to use different transport layers (TCP and UDP)
-//! for VISCA communication. It demonstrates:
-//! - TCP transport for reliable communication
-//! - UDP transport for low-latency communication
-//! - Custom port configuration
-//! - Connection timeouts and retries
-//! - Transport-specific error handling
+//! This example keeps the camera state unchanged. It opens TCP and/or UDP
+//! connections and runs a power inquiry so users can confirm which transport
+//! works for their camera profile and network.
 //!
 //! Run with:
 //! ```sh
-//! cargo run --example transports [camera_ip[:port]]
+//! cargo run --example transports -- 192.168.0.110
+//! cargo run --example transports -- 192.168.0.110 --tcp-only
+//! cargo run --example transports -- 192.168.0.110 --udp-only
 //! ```
 
 #[cfg(not(feature = "mode-async"))]
-use std::{
-    env, thread,
-    time::{Duration, Instant},
-};
+mod blocking {
+    use std::env;
+
+    use grafton_visca::{camera::Connect, profiles::PtzOpticsG2, Error};
+
+    #[derive(Debug, Clone, Copy)]
+    enum Selection {
+        TcpOnly,
+        UdpOnly,
+        Both,
+    }
+
+    #[derive(Debug)]
+    struct Args {
+        address: String,
+        selection: Selection,
+    }
+
+    impl Args {
+        fn parse() -> Self {
+            let mut address = None;
+            let mut selection = Selection::Both;
+
+            for arg in env::args().skip(1) {
+                match arg.as_str() {
+                    "--tcp-only" => selection = Selection::TcpOnly,
+                    "--udp-only" => selection = Selection::UdpOnly,
+                    _ if address.is_none() => address = Some(arg),
+                    _ => {}
+                }
+            }
+
+            Self {
+                address: address
+                    .or_else(|| env::var("VISCA_CAMERA_ADDR").ok())
+                    .unwrap_or_else(|| "192.168.0.110".to_string()),
+                selection,
+            }
+        }
+
+        fn include_tcp(&self) -> bool {
+            matches!(self.selection, Selection::TcpOnly | Selection::Both)
+        }
+
+        fn include_udp(&self) -> bool {
+            matches!(self.selection, Selection::UdpOnly | Selection::Both)
+        }
+    }
+
+    fn power_label(is_on: bool) -> &'static str {
+        if is_on {
+            "on"
+        } else {
+            "off"
+        }
+    }
+
+    fn check_tcp(address: &str) -> Result<(), Error> {
+        let camera = Connect::open_tcp_blocking::<PtzOpticsG2>(address)?;
+        let power = camera.power().state()?;
+        println!("TCP: connected, power is {}", power_label(power));
+        camera.close()?;
+        Ok(())
+    }
+
+    fn check_udp(address: &str) -> Result<(), Error> {
+        let camera = Connect::open_udp_blocking::<PtzOpticsG2>(address)?;
+        let power = camera.power().state()?;
+        println!("UDP: connected, power is {}", power_label(power));
+        camera.close()?;
+        Ok(())
+    }
+
+    pub fn main() {
+        let _ = tracing_subscriber::fmt::try_init();
+
+        let args = Args::parse();
+        println!("Transport check");
+        println!("Address: {}", args.address);
+
+        if args.include_tcp() {
+            if let Err(error) = check_tcp(&args.address) {
+                println!("TCP: failed: {error}");
+            }
+        }
+
+        if args.include_udp() {
+            if let Err(error) = check_udp(&args.address) {
+                println!("UDP: failed: {error}");
+            }
+        }
+    }
+}
 
 #[cfg(not(feature = "mode-async"))]
-use grafton_visca::{
-    camera::Connect,
-    profiles::PtzOpticsG2,
-    types::SpeedLevel,
-    units::{Degrees, Normalized},
-    Error,
-};
-
-#[cfg(not(feature = "mode-async"))]
-fn main() -> Result<(), Error> {
-    let _ = tracing_subscriber::fmt::try_init();
-
-    // Get camera address from command line or use default
-    let camera_addr = env::args()
-        .nth(1)
-        .unwrap_or_else(|| "192.168.0.110".to_string());
-
-    println!("🔌 Transport Options Demo");
-    println!("=========================");
-    println!("Target camera: {camera_addr}");
-    println!();
-
-    // === TCP TRANSPORT (DEFAULT) ===
-    println!("═══ TCP Transport ═══");
-    println!("TCP provides reliable, ordered delivery of commands.");
-    println!("Best for: Critical operations, preset management, configuration");
-    println!();
-
-    println!("Connecting via TCP (default port 5678)...");
-    let mut tcp_camera = Connect::open_tcp_blocking::<PtzOpticsG2>(format!("{camera_addr}:5678"))?;
-
-    println!("✓ TCP connection established");
-
-    // Test TCP connection with a simple command
-    println!("Testing TCP transport with zoom command...");
-    tcp_camera.zoom().set_position(Normalized(0.3))?;
-    tcp_camera.await_zoom_idle(Duration::from_secs(5))?;
-    println!("✓ Command sent successfully via TCP");
-    println!();
-
-    // === TCP WITH CUSTOM PORT ===
-    println!("═══ TCP with Custom Port ═══");
-    println!("Connecting via TCP on custom port 1259...");
-
-    match Connect::open_tcp_blocking::<PtzOpticsG2>(format!("{camera_addr}:1259")) {
-        Ok(camera) => {
-            println!("✓ TCP connection established on port 1259");
-
-            // Test connection
-            println!("Testing custom port connection...");
-            camera.pan_tilt().home()?;
-            println!("✓ Command sent successfully via custom port");
-        }
-        Err(e) => {
-            println!("✗ Failed to connect on port 1259: {e}");
-            println!("  (This is expected if camera doesn't listen on this port)");
-        }
-    }
-    println!();
-
-    // === UDP TRANSPORT ===
-    println!("═══ UDP Transport ═══");
-    println!("UDP provides low-latency, connectionless communication.");
-    println!("Best for: Real-time control, streaming operations");
-    println!();
-
-    println!("Connecting via UDP port 1259 (raw VISCA for PTZOptics)...");
-    // PTZOptics uses UDP port 1259 for raw VISCA
-    // Sony cameras typically use UDP port 52381 with encapsulation
-
-    match Connect::open_udp_blocking::<PtzOpticsG2>(format!("{camera_addr}:1259")) {
-        Ok(mut camera) => {
-            println!("✓ UDP transport initialized");
-
-            // Test UDP connection
-            println!("Testing UDP transport with pan/tilt command...");
-            camera
-                .pan_tilt()
-                .absolute(Degrees(45.0), Degrees(0.0), SpeedLevel::Medium)?;
-            camera.await_pan_tilt_idle(Duration::from_secs(5))?;
-            println!("✓ Command sent successfully via UDP");
-
-            // Return to home
-            camera.pan_tilt().home()?;
-            camera.await_pan_tilt_idle(Duration::from_secs(5))?;
-        }
-        Err(e) => {
-            println!("✗ Failed to initialize UDP transport: {e}");
-            println!("  (Camera may not support UDP or may use different port)");
-        }
-    }
-    println!();
-
-    // === CONNECTION ERROR HANDLING ===
-    println!("═══ Connection Error Handling ═══");
-    println!("Testing connection error handling...");
-
-    // Try to connect to a non-existent address
-    println!("Attempting to connect to non-existent camera (192.168.255.255)...");
-    let start = Instant::now();
-
-    let timeout_result = Connect::open_tcp_blocking::<PtzOpticsG2>("192.168.255.255");
-
-    let elapsed = start.elapsed();
-
-    match timeout_result {
-        Ok(_) => {
-            println!("✗ Unexpected success (camera shouldn't exist)");
-        }
-        Err(e) => {
-            println!(
-                "✓ Connection failed as expected after {:.1}s",
-                elapsed.as_secs_f32()
-            );
-            println!("  Error: {e}");
-        }
-    }
-    println!();
-
-    // === TRANSPORT COMPARISON ===
-    println!("═══ Transport Comparison ═══");
-    println!();
-    println!("TCP Transport:");
-    println!("  ✓ Reliable delivery");
-    println!("  ✓ Connection state tracking");
-    println!("  ✓ Automatic retransmission");
-    println!("  ✗ Higher latency");
-    println!("  ✗ Connection overhead");
-    println!();
-    println!("UDP Transport:");
-    println!("  ✓ Low latency");
-    println!("  ✓ No connection overhead");
-    println!("  ✓ Better for real-time control");
-    println!("  ✗ No delivery guarantee");
-    println!("  ✗ Possible packet loss");
-    println!();
-
-    // === PERFORMANCE TEST ===
-    println!("═══ Performance Comparison ═══");
-    println!("Sending 10 commands via TCP...");
-
-    let tcp_start = Instant::now();
-    for i in 0..10 {
-        tcp_camera
-            .zoom()
-            .set_position(Normalized((i as f32) * 0.1))?;
-        thread::sleep(Duration::from_millis(100));
-    }
-    let tcp_elapsed = tcp_start.elapsed();
-    println!("✓ TCP: 10 commands in {:.2}s", tcp_elapsed.as_secs_f32());
-
-    // Reset zoom
-    tcp_camera.zoom().set_position(Normalized(0.0))?;
-
-    // If UDP is available, compare performance
-    if let Ok(udp_camera) =
-        Connect::open_udp_blocking::<PtzOpticsG2>(format!("{camera_addr}:52381"))
-    {
-        println!("Sending 10 commands via UDP...");
-
-        let udp_start = Instant::now();
-        for i in 0..10 {
-            udp_camera
-                .zoom()
-                .set_position(Normalized((i as f32) * 0.1))?;
-            thread::sleep(Duration::from_millis(100));
-        }
-        let udp_elapsed = udp_start.elapsed();
-        println!("✓ UDP: 10 commands in {:.2}s", udp_elapsed.as_secs_f32());
-
-        // Reset zoom
-        udp_camera.zoom().set_position(Normalized(0.0))?;
-
-        if udp_elapsed < tcp_elapsed {
-            println!();
-            println!(
-                "UDP was {:.0}% faster than TCP",
-                ((tcp_elapsed.as_secs_f32() - udp_elapsed.as_secs_f32())
-                    / tcp_elapsed.as_secs_f32())
-                    * 100.0
-            );
-        }
-    }
-
-    println!();
-    println!("✨ Transport demo complete!");
-    println!();
-    println!("Summary:");
-    println!("  • Use TCP for reliable command delivery");
-    println!("  • Use UDP for low-latency real-time control");
-    println!("  • Configure custom ports as needed");
-    println!("  • Set appropriate timeouts for your network");
-    println!();
-    println!("See camera_profiles for camera-specific configurations.");
-
-    Ok(())
+fn main() {
+    blocking::main()
 }
 
 #[cfg(feature = "mode-async")]
 fn main() {
-    println!("This example requires blocking mode. Run without the async feature:");
-    println!("  cargo run --example transports --no-default-features");
+    println!("This example requires blocking mode. Run without async features:");
+    println!("  cargo run --example transports -- 192.168.0.110");
 }

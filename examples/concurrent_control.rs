@@ -14,22 +14,13 @@
 //! cargo run --example concurrent_control --features runtime-tokio [camera_ip[:port]]
 //! ```
 
-#[cfg(not(feature = "runtime-tokio"))]
-fn main() {
-    println!("This example requires the 'runtime-tokio' feature.");
-    println!("Run with: cargo run --example concurrent_control --features runtime-tokio");
-}
+use std::sync::Arc;
 
-#[cfg(feature = "runtime-tokio")]
 use tokio::{
     sync::mpsc,
     time::{sleep, Duration},
 };
 
-#[cfg(feature = "runtime-tokio")]
-use std::sync::Arc;
-
-#[cfg(feature = "runtime-tokio")]
 use grafton_visca::{
     camera::{profiles::PtzOpticsG2, session::CameraSession, Connect},
     mode::Async,
@@ -39,7 +30,6 @@ use grafton_visca::{
     PanTiltDirection, PresetNumber, Result, TokioRuntime,
 };
 
-#[cfg(feature = "runtime-tokio")]
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
@@ -62,7 +52,6 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "runtime-tokio")]
 async fn parallel_operations(camera_addr: &str) -> Result<()> {
     println!("--- Example 1: Parallel Operations ---");
 
@@ -140,7 +129,6 @@ async fn parallel_operations(camera_addr: &str) -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "runtime-tokio")]
 async fn producer_consumer_pattern(camera_addr: &str) -> Result<()> {
     println!("--- Example 2: Producer-Consumer Pattern ---");
 
@@ -211,7 +199,6 @@ async fn producer_consumer_pattern(camera_addr: &str) -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "runtime-tokio")]
 #[derive(Debug)]
 enum Command {
     Home,

@@ -1,258 +1,89 @@
-//! Camera inquiry quickstart demonstration.
+//! Blocking inquiry quickstart.
 //!
-//! This example shows how to query camera state and settings using the VISCA protocol.
-//! It demonstrates both blocking and async approaches to reading camera parameters:
-//! - Power state and system information
-//! - Position information (pan/tilt/zoom)
-//! - Focus settings and position
-//! - Exposure settings (mode, iris, shutter, gain)
-//! - White balance and color temperature
-//! - Image quality parameters
-//! - Noise reduction levels
-//!
-//! ## Concurrent Inquiry Behavior
-//!
-//! The async version fires inquiries via `tokio::join!`, but actual concurrency depends
-//! on the camera protocol:
-//!
-//! - **Sony cameras** (SonyFR7, SonyBRCH900): Use sequence-numbered protocol, allowing
-//!   true concurrent execution. All inquiries run in parallel for maximum speed.
-//!
-//! - **Raw VISCA cameras** (GenericVisca, PtzOpticsG2): No sequence numbers, so the
-//!   runtime automatically serializes inquiries to ensure reliable response matching.
-//!   `tokio::join!` still provides clean async semantics, but execution is sequential.
+//! This example reads camera state through high-level accessors and typed
+//! inquiry responses. It does not change camera state.
 //!
 //! Run with:
-//! - Blocking: cargo run --example inquiry_quickstart
-//! - Async (Tokio): cargo run --example inquiry_quickstart --features runtime-tokio
-//!
-//! Set the CAMERA_IP environment variable to override the default (192.168.0.110):
-//! CAMERA_IP=192.168.1.100 cargo run --example inquiry_quickstart
+//! ```sh
+//! cargo run --example inquiry_quickstart -- 192.168.0.110
+//! ```
 
-// Blocking implementation
 #[cfg(not(feature = "mode-async"))]
-fn main() -> grafton_visca::Result<()> {
-    use grafton_visca::camera::{profiles::PtzOpticsG2, Connect};
-
-    tracing_subscriber::fmt::init();
-
-    println!("=== Camera Inquiry Quickstart (Blocking) ===\n");
-
-    // Get camera IP from environment or use default
-    let camera_addr = std::env::var("CAMERA_IP").unwrap_or_else(|_| "192.168.0.110".to_string());
-
-    println!("Connecting to camera at {camera_addr}...");
-    let camera = Connect::open_tcp_blocking::<PtzOpticsG2>(camera_addr)?;
-
-    // PTZOptics G2 cameras support the full VISCA inquiry command set.
-    // This example demonstrates a representative selection of inquiries.
-
-    println!("\n--- Power ---");
-    match camera.power().state() {
-        Ok(is_on) => {
-            let state = if is_on { "ON" } else { "OFF" };
-            println!("Power: {state}");
-        }
-        Err(e) => println!("Power: Failed - {e}"),
-    }
-
-    println!("\n--- Position ---");
-    match camera.pan_tilt().position() {
-        Ok(pos) => {
-            println!("Pan: {:?}", pos.pan);
-            println!("Tilt: {:?}", pos.tilt);
-
-            use grafton_visca::inquiry_conversions::PanTiltPositionRaw;
-            let raw = PanTiltPositionRaw::new(pos.pan, pos.tilt);
-            let degrees = raw.as_degrees();
-            println!(
-                "  → Pan: {:.1}°, Tilt: {:.1}°",
-                degrees.pan.0, degrees.tilt.0
-            );
-        }
-        Err(e) => println!("Pan/Tilt: Failed - {e}"),
-    }
-
-    match camera.zoom().position() {
-        Ok(zoom) => {
-            println!("Zoom: {:?}", zoom);
-
-            use grafton_visca::{inquiry_conversions::ZoomDomain, ZoomPositionExt};
-            // PtzOpticsG2 profile constants
-            let optical_max = 0x4000u16;
-            let digital_max = Some(0x7000u16);
-            let optical = zoom.normalize_with_max(ZoomDomain::Optical, optical_max, digital_max);
-            let full =
-                zoom.normalize_with_max(ZoomDomain::OpticalPlusDigital, optical_max, digital_max);
-            println!(
-                "  → Optical: {:.1}%, Full range: {:.1}%",
-                optical.0 * 100.0,
-                full.0 * 100.0
-            );
-        }
-        Err(e) => println!("Zoom: Failed - {e}"),
-    }
-
-    println!("\n--- Focus ---");
-    match camera.focus().mode() {
-        Ok(mode) => println!("Focus Mode: {mode:?}"),
-        Err(e) => println!("Focus Mode: Failed - {e}"),
-    }
-
-    match camera.focus().position() {
-        Ok(focus) => println!("Focus Position: {:?}", focus),
-        Err(e) => println!("Focus Position: Failed - {e}"),
-    }
-
-    println!("\n--- Exposure ---");
-    match camera.exposure().mode() {
-        Ok(mode) => println!("Exposure Mode: {mode:?}"),
-        Err(e) => println!("Exposure Mode: Failed - {e}"),
-    }
-
-    println!("\n--- White Balance ---");
-    match camera.white_balance().mode() {
-        Ok(mode) => println!("WB Mode: {mode:?}"),
-        Err(e) => println!("WB Mode: Failed - {e}"),
-    }
-
-    println!("\n✓ Inquiry completed!");
-
-    Ok(())
-}
-
-// Async implementation with concurrent inquiries
-#[cfg(feature = "runtime-tokio")]
-#[tokio::main]
-async fn main() -> grafton_visca::Result<()> {
-    use tokio::time::Instant;
-
+mod blocking {
     use grafton_visca::{
         camera::{profiles::PtzOpticsG2, Connect},
-        runtime::TokioRuntime,
+        inquiry_conversions::{PanTiltPositionRaw, ZoomDomain},
+        ZoomPositionExt,
     };
 
-    tracing_subscriber::fmt::init();
+    pub fn main() -> grafton_visca::Result<()> {
+        let _ = tracing_subscriber::fmt::try_init();
 
-    println!("=== Camera Inquiry Quickstart (Async) ===\n");
+        let address = std::env::args()
+            .nth(1)
+            .or_else(|| std::env::var("VISCA_CAMERA_ADDR").ok())
+            .unwrap_or_else(|| "192.168.0.110".to_string());
 
-    // Get camera IP from environment or use default
-    let camera_addr = std::env::var("CAMERA_IP").unwrap_or_else(|_| "192.168.0.110".to_string());
+        println!("Inquiry quickstart");
+        println!("Address: {address}");
 
-    println!("Connecting to camera at {camera_addr}...");
-    let runtime = TokioRuntime::from_current()?;
-    let camera = Connect::open_tcp_async::<PtzOpticsG2, _>(&camera_addr, runtime).await?;
+        let camera = Connect::open_tcp_blocking::<PtzOpticsG2>(&address)?;
 
-    // Note: PtzOpticsG2 uses Raw VISCA protocol without sequence numbers,
-    // so inquiries are automatically serialized by the runtime for reliable
-    // response matching. For true concurrent execution, use a Sony camera
-    // profile (SonyFR7, SonyBRCH900) which supports sequence-based correlation.
-    //
-    // PTZOptics G2 cameras support the full VISCA inquiry command set.
-    // This example demonstrates a representative selection of inquiries.
-    println!("\n⚡ Executing inquiries (serialized for PtzOpticsG2)...\n");
-
-    let start = Instant::now();
-
-    let power_acc = camera.power();
-    let pan_tilt_acc = camera.pan_tilt();
-    let zoom_acc = camera.zoom();
-    let focus_acc = camera.focus();
-    let exposure_acc = camera.exposure();
-    let white_balance_acc = camera.white_balance();
-
-    // Query a representative set of inquiries
-    let (power, pan_tilt, zoom, focus_mode, focus_pos, exposure_mode, wb_mode) = tokio::join!(
-        power_acc.state(),
-        pan_tilt_acc.position(),
-        zoom_acc.position(),
-        focus_acc.mode(),
-        focus_acc.position(),
-        exposure_acc.mode(),
-        white_balance_acc.mode(),
-    );
-
-    let elapsed = start.elapsed();
-
-    // Display results
-    println!("--- Power ---");
-    match power {
-        Ok(is_on) => {
-            let power_state = if is_on { "ON" } else { "OFF" };
-            println!("Power: {power_state}");
+        match camera.power().state() {
+            Ok(is_on) => println!("Power: {}", if is_on { "on" } else { "off" }),
+            Err(error) => println!("Power inquiry failed: {error}"),
         }
-        Err(e) => println!("Power: Failed - {e}"),
-    }
 
-    println!("\n--- Position ---");
-    match pan_tilt {
-        Ok(pos) => {
-            println!("Pan: {:?}", pos.pan);
-            println!("Tilt: {:?}", pos.tilt);
-
-            use grafton_visca::inquiry_conversions::PanTiltPositionRaw;
-            let raw = PanTiltPositionRaw::new(pos.pan, pos.tilt);
-            let degrees = raw.as_degrees();
-            println!(
-                "  → Pan: {:.1}°, Tilt: {:.1}°",
-                degrees.pan.0, degrees.tilt.0
-            );
+        match camera.pan_tilt().position() {
+            Ok(position) => {
+                let degrees = PanTiltPositionRaw::new(position.pan, position.tilt).as_degrees();
+                println!(
+                    "Pan/tilt: pan={:.1} deg, tilt={:.1} deg",
+                    degrees.pan.0, degrees.tilt.0
+                );
+            }
+            Err(error) => println!("Pan/tilt inquiry failed: {error}"),
         }
-        Err(e) => println!("Pan/Tilt: Failed - {e}"),
-    }
 
-    match zoom {
-        Ok(z) => {
-            println!("Zoom: {z:?}");
-
-            use grafton_visca::{inquiry_conversions::ZoomDomain, ZoomPositionExt};
-            // PtzOpticsG2 profile constants
-            let optical_max = 0x4000u16;
-            let digital_max = Some(0x7000u16);
-            let optical = z.normalize_with_max(ZoomDomain::Optical, optical_max, digital_max);
-            let full =
-                z.normalize_with_max(ZoomDomain::OpticalPlusDigital, optical_max, digital_max);
-            println!(
-                "  → Optical: {:.1}%, Full range: {:.1}%",
-                optical.0 * 100.0,
-                full.0 * 100.0
-            );
+        match camera.zoom().position() {
+            Ok(position) => {
+                let optical = position.normalize_with_max(ZoomDomain::Optical, 0x4000, None);
+                println!(
+                    "Zoom: 0x{:04X} ({:.1}% optical)",
+                    position.value(),
+                    optical.0 * 100.0
+                );
+            }
+            Err(error) => println!("Zoom inquiry failed: {error}"),
         }
-        Err(e) => println!("Zoom: Failed - {e}"),
-    }
 
-    println!("\n--- Focus ---");
-    match focus_mode {
-        Ok(mode) => println!("Focus Mode: {mode:?}"),
-        Err(e) => println!("Focus Mode: Failed - {e}"),
-    }
-    match focus_pos {
-        Ok(pos) => println!("Focus Position: {pos:?}"),
-        Err(e) => println!("Focus Position: Failed - {e}"),
-    }
+        match camera.focus().mode() {
+            Ok(mode) => println!("Focus mode: {mode:?}"),
+            Err(error) => println!("Focus mode inquiry failed: {error}"),
+        }
 
-    println!("\n--- Exposure ---");
-    match exposure_mode {
-        Ok(mode) => println!("Exposure Mode: {mode:?}"),
-        Err(e) => println!("Exposure Mode: Failed - {e}"),
+        match camera.exposure().mode() {
+            Ok(mode) => println!("Exposure mode: {mode:?}"),
+            Err(error) => println!("Exposure mode inquiry failed: {error}"),
+        }
+
+        match camera.white_balance().mode() {
+            Ok(mode) => println!("White balance mode: {mode:?}"),
+            Err(error) => println!("White balance inquiry failed: {error}"),
+        }
+
+        camera.close()?;
+        Ok(())
     }
-
-    println!("\n--- White Balance ---");
-    match wb_mode {
-        Ok(mode) => println!("WB Mode: {mode:?}"),
-        Err(e) => println!("WB Mode: Failed - {e}"),
-    }
-
-    println!("\n✓ All inquiries completed in {:.2?}!", elapsed);
-    println!("Note: PtzOpticsG2 serializes inquiries. Sony cameras run truly concurrent.");
-
-    Ok(())
 }
 
-// Handle unsupported configurations
-#[cfg(all(feature = "mode-async", not(feature = "runtime-tokio")))]
+#[cfg(not(feature = "mode-async"))]
+fn main() -> grafton_visca::Result<()> {
+    blocking::main()
+}
+
+#[cfg(feature = "mode-async")]
 fn main() {
-    println!("This example requires either blocking mode or tokio runtime:");
-    println!("  cargo run --example inquiry_quickstart");
-    println!("  cargo run --example inquiry_quickstart --features runtime-tokio");
+    eprintln!("This blocking example requires no async runtime feature.");
+    eprintln!("Run with: cargo run --example inquiry_quickstart -- 192.168.0.110");
 }

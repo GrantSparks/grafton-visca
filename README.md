@@ -86,6 +86,10 @@ documented rows they combine.
 
 ## Quick Start
 
+The quickstart snippets are read-only. They connect to a camera, query state,
+and close the session. Movement and configuration changes are shown in focused
+examples that opt in to hardware changes explicitly.
+
 ### Blocking
 
 ```rust
@@ -95,12 +99,10 @@ use grafton_visca::profiles::PtzOpticsG2;
 fn main() -> Result<(), grafton_visca::Error> {
     let cam = Connect::open_tcp_blocking::<PtzOpticsG2>("192.168.0.110")?;
 
-    cam.power().on()?;
-    cam.pan_tilt().home()?;
-
-    let pos = cam.pan_tilt().position()?;
-    let (pan, tilt) = pos.as_degrees();
-    println!("Position: {:.1}°, {:.1}°", pan.0, tilt.0);
+    let power_is_on = cam.power().state()?;
+    let zoom = cam.zoom().position()?;
+    println!("Power: {}", if power_is_on { "on" } else { "off" });
+    println!("Zoom position: 0x{:04X}", zoom.value());
 
     cam.close()
 }
@@ -118,12 +120,10 @@ async fn main() -> Result<(), grafton_visca::Error> {
     let runtime = TokioRuntime::from_current()?;
     let cam = Connect::open_tcp_async::<PtzOpticsG2, _>("192.168.0.110", runtime).await?;
 
-    cam.power().on().await?;
-    cam.pan_tilt().home().await?;
-
-    let pos = cam.pan_tilt().position().await?;
-    let (pan, tilt) = pos.as_degrees();
-    println!("Position: {:.1}°, {:.1}°", pan.0, tilt.0);
+    let power_is_on = cam.power().state().await?;
+    let zoom = cam.zoom().position().await?;
+    println!("Power: {}", if power_is_on { "on" } else { "off" });
+    println!("Zoom position: 0x{:04X}", zoom.value());
 
     cam.close().await
 }
@@ -213,17 +213,21 @@ Port can be omitted in connection strings; the profile default is used.
 ## Documentation
 
 - **[API Reference](https://docs.rs/grafton-visca)** — Complete type and method documentation
-- **[Examples](examples/)** — Working code for common scenarios
+- **[Examples](examples/)** — Maintained examples for common scenarios
+- **[Example Policy](docs/examples.md)** — 1.0 examples contract and maintenance rules
 - **[CHANGELOG](CHANGELOG.md)** — Version history and migration guides
 
 ### Examples
 
 | Example | Command |
 | ------- | ------- |
-| Blocking quickstart | `cargo run --example quickstart` |
-| Async inquiry (Tokio) | `cargo run --example inquiry_quickstart --features runtime-tokio` |
-| Advanced custom transport builder | `cargo run --example builder_api` |
-| Transport builder | `cargo run --example transport_builder_demo` |
+| Blocking quickstart | `cargo run --example quickstart -- 192.168.0.110` |
+| Blocking quickstart with movement | `cargo run --example quickstart -- 192.168.0.110 --move` |
+| Async quickstart (Tokio) | `cargo run --example quickstart_async --features runtime-tokio -- 192.168.0.110` |
+| Inquiry quickstart | `cargo run --example inquiry_quickstart` |
+| Configured transport policy | `cargo run --example transport_builder_demo -- 192.168.0.110` |
+| Caller-owned transport | `cargo run --example builder_api -- 192.168.0.110:1259` |
+| Preset recall | `cargo run --example preset_demo -- 192.168.0.110 recall 1` |
 | Error handling | `cargo run --example error_handling --features runtime-tokio` |
 | Serial (async) | `cargo run --example serial_async_demo --features runtime-tokio,transport-serial-tokio` |
 

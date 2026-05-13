@@ -6,7 +6,14 @@ Preferred usage:
 - Use `Connect` for simple blocking and async camera connections.
 - Use `CameraConfig` when a standard TCP, UDP, or serial connection needs explicit timeouts, retry policy, keepalive, or camera ID.
 - Use `CameraBuilder` only when you already own a custom transport and need to attach it to a camera.
-- Treat raw transport and protocol examples as advanced integration/reference material.
+- Treat raw transport, protocol, and lab-validation programs as advanced integration/reference material.
+
+Example quality bar:
+- A runnable example should either connect to a camera, validate public API types, or be clearly marked as reference material.
+- Examples that move hardware should take the camera address from an argument or environment variable and should keep movement focused.
+- Hard-coded lab IPs belong only in validation utilities, not in getting-started examples.
+
+See [docs/examples.md](../docs/examples.md) for the 1.0 example maintenance policy.
 
 ## Important: Feature Flags
 
@@ -23,37 +30,38 @@ This library uses feature flags to control dependencies:
 
 If you're new to the library, start with these examples in order:
 
-1. **[quickstart.rs](quickstart.rs)** - Blocking example using high-level methods (preferred)
+1. **[quickstart.rs](quickstart.rs)** - Blocking connection and read-only state query
 2. **[inquiry_quickstart.rs](inquiry_quickstart.rs)** - Blocking inquiry flow with the current accessor API
-3. **[quickstart_async.rs](quickstart_async.rs)** - Async example using the current runtime-specific features
-4. **[transport_builder_demo.rs](transport_builder_demo.rs)** - Advanced transport configuration terminology
+3. **[quickstart_async.rs](quickstart_async.rs)** - Tokio async connection and read-only state query
+4. **[type_safe_commands.rs](type_safe_commands.rs)** - Profile metadata, validation, and compile-time capability bounds
+5. **[transport_builder_demo.rs](transport_builder_demo.rs)** - Configured connection setup with `CameraConfig`
 
 ## Examples by Category
 
 ### Basic Usage
-- **[quickstart.rs](quickstart.rs)** - Blocking example covering movement, presets, and imaging (high-level)
-- **[quickstart_async.rs](quickstart_async.rs)** - Async version for Tokio or smol
+- **[quickstart.rs](quickstart.rs)** - Blocking high-level API; read-only unless `--move` is passed
+- **[quickstart_async.rs](quickstart_async.rs)** - Async version for Tokio
 - **[inquiry_quickstart.rs](inquiry_quickstart.rs)** - High-level inquiry accessors and typed responses
-- **[preset_demo.rs](preset_demo.rs)** - Working with preset positions
-- **[type_safe_commands.rs](type_safe_commands.rs)** - Compile-time profile and capability safety
+- **[preset_demo.rs](preset_demo.rs)** - Single preset set, recall, or clear operation
+- **[type_safe_commands.rs](type_safe_commands.rs)** - Compile-time profile and capability safety (no camera required)
 
 ### Connection, Transport, and Configuration
-- **[transports.rs](transports.rs)** - Compare TCP vs UDP transports and connection behavior
-- **[transport_builder_demo.rs](transport_builder_demo.rs)** - Blocking transport builder API and async transport-config guidance
-- **[builder_api.rs](builder_api.rs)** - Advanced `CameraBuilder` flows for custom/BYO transports
+- **[transports.rs](transports.rs)** - Check TCP and UDP connectivity without changing camera state
+- **[transport_builder_demo.rs](transport_builder_demo.rs)** - Current `CameraConfig` transport policy setup
+- **[builder_api.rs](builder_api.rs)** - Attach a caller-owned UDP transport with `CameraBuilder`
 - **[sony_encapsulation.rs](sony_encapsulation.rs)** - Sony encapsulated protocol with 8-byte header (advanced)
 - **[serial_async_demo.rs](serial_async_demo.rs)** - Tokio serial transport setup
 
 ### Advanced Patterns
-- **[runtime_agnostic.rs](runtime_agnostic.rs)** - Bring your own executor and async transport
-- **[runtime_demo.rs](runtime_demo.rs)** - Async runtime setup using the high-level accessor API
+- **[runtime_agnostic.rs](runtime_agnostic.rs)** - Reference skeleton for custom executor and async transport integrations
+- **[runtime_demo.rs](runtime_demo.rs)** - Tokio runtime setup with concurrent read-only inquiries
 - **[concurrent_control.rs](concurrent_control.rs)** - Concurrent async control patterns
 - **[error_handling.rs](error_handling.rs)** - Comprehensive error handling and recovery strategies
 
 ### Validation and Reference
 - **[typed_inquiry_demo.rs](typed_inquiry_demo.rs)** - Typed inquiry API walkthrough
-- **[validate_inquiries.rs](validate_inquiries.rs)** - Inquiry validation/reference tool
-- **[validate_ae_commands.rs](validate_ae_commands.rs)** - Auto-exposure command validation/reference tool
+- **[validate_inquiries.rs](validate_inquiries.rs)** - Lab inquiry validation tool with hard-coded defaults
+- **[validate_ae_commands.rs](validate_ae_commands.rs)** - Lab auto-exposure validation tool with hard-coded defaults
 
 ## Running Examples
 
@@ -66,22 +74,26 @@ If you're new to the library, start with these examples in order:
    - Sony cameras: TCP port `52381`, UDP port `52381`
    - The selected profile will provide the default port when you omit it
 
+Most user-facing examples accept a camera address as the first positional argument. Some also read `VISCA_CAMERA_ADDR` or `CAMERA_IP`; check the example header for the exact input.
+
 ### Basic Execution
 
 Run blocking examples:
 ```bash
-cargo run --example quickstart
+cargo run --example quickstart -- 192.168.0.110
+cargo run --example quickstart -- 192.168.0.110 --move
 cargo run --example inquiry_quickstart
-cargo run --example preset_demo
-cargo run --example transports
+cargo run --example preset_demo -- 192.168.0.110 recall 1
+cargo run --example transports -- 192.168.0.110
+cargo run --example builder_api -- 192.168.0.110:1259
 cargo run --example type_safe_commands
-cargo run --example transport_builder_demo
+cargo run --example transport_builder_demo -- 192.168.0.110
+cargo run --example transport_builder_demo -- 192.168.0.110 --udp
 ```
 
 Run async examples:
 ```bash
-cargo run --example quickstart_async --features runtime-tokio
-cargo run --example builder_api --features runtime-tokio
+cargo run --example quickstart_async --features runtime-tokio -- 192.168.0.110
 cargo run --example concurrent_control --features runtime-tokio
 cargo run --example error_handling --features runtime-tokio
 cargo run --example runtime_demo --features runtime-tokio
@@ -90,6 +102,12 @@ cargo run --example serial_async_demo --features runtime-tokio,transport-serial-
 
 # Runtime-agnostic async example
 cargo run --example runtime_agnostic --features mode-async
+```
+
+Run lab validation tools only after editing their camera lists or confirming the checked-in defaults match your test bench:
+```bash
+cargo run --example validate_inquiries
+cargo run --example validate_ae_commands
 ```
 
 ### With Logging
@@ -123,7 +141,7 @@ use grafton_visca::runtime::TokioRuntime;
 use grafton_visca::transport::{TcpKeepaliveConfig, TransportConfig};
 
 let blocking = Connect::open_tcp_blocking::<PtzOpticsG2>("192.168.0.110")?;
-blocking.power().on()?;
+let is_on = blocking.power().state()?;
 
 let runtime = TokioRuntime::from_current()?;
 let async_camera = CameraConfig::<PtzOpticsG2>::new()
@@ -135,7 +153,7 @@ let async_camera = CameraConfig::<PtzOpticsG2>::new()
     })
     .open_async(runtime)
     .await?;
-async_camera.power().on().await?;
+let is_on = async_camera.power().state().await?;
 ```
 
 ## Troubleshooting

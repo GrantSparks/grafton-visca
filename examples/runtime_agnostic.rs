@@ -17,7 +17,6 @@
 //! cargo run --example runtime_agnostic --features runtime-tokio
 //! ```
 
-#[cfg(feature = "mode-async")]
 fn main() {
     use std::{future::Future, pin::Pin, time::Duration};
 
@@ -168,8 +167,8 @@ fn main() {
     println!("    .await?;");
     println!();
     println!("// Use the camera - all async operations use YOUR runtime!");
-    println!("camera.power().on().await?;");
-    println!("camera.zoom().tele().await?;");
+    println!("let power_is_on = camera.power().state().await?;");
+    println!("let zoom = camera.zoom().position().await?;");
     println!("```");
 
     println!("\n📚 Key Benefits:");
@@ -188,11 +187,4 @@ fn main() {
     let _ = my_executor;
 
     println!("\n✅ Example completed successfully!");
-}
-
-#[cfg(not(feature = "mode-async"))]
-fn main() {
-    eprintln!("This example requires the 'mode-async' feature to be enabled.");
-    eprintln!("Run with: cargo run --example runtime_agnostic --features mode-async");
-    std::process::exit(1);
 }

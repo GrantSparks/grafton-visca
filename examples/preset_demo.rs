@@ -1,146 +1,120 @@
-//! Focused preset management demonstration.
+//! Focused preset operations.
 //!
-//! This example demonstrates preset functionality including:
-//! - Saving multiple preset positions with pan/tilt/zoom
-//! - Recalling presets to verify they work correctly
-//! - Using axis-specific movement detection for efficient waiting
-//! - Proper timeout configuration for different operation types
-//!
-//! **Context**: This is a blocking example that requires NO async features or runtime.
+//! This example performs exactly one preset operation. It does not move the
+//! camera to staged positions or overwrite multiple presets.
 //!
 //! Run with:
 //! ```sh
-//! cargo run --example preset_demo [camera_ip[:port]]
+//! cargo run --example preset_demo -- 192.168.0.110 set 1
+//! cargo run --example preset_demo -- 192.168.0.110 recall 1
+//! cargo run --example preset_demo -- 192.168.0.110 clear 1
 //! ```
 
 #[cfg(not(feature = "mode-async"))]
-use std::{env, thread::sleep, time::Duration};
+mod blocking {
+    use std::{env, time::Duration};
+
+    use grafton_visca::{
+        camera::{profiles::PtzOpticsG2, AwaitConfig, Connect},
+        Error,
+    };
+
+    #[derive(Debug, Clone, Copy)]
+    enum Operation {
+        Set(u8),
+        Recall(u8),
+        Clear(u8),
+    }
+
+    #[derive(Debug)]
+    struct Args {
+        address: String,
+        operation: Operation,
+    }
+
+    impl Args {
+        fn parse() -> Result<Self, String> {
+            let mut values = env::args().skip(1).collect::<Vec<_>>();
+
+            if values.len() == 2 {
+                values.insert(
+                    0,
+                    env::var("VISCA_CAMERA_ADDR").unwrap_or_else(|_| "192.168.0.110".to_string()),
+                );
+            }
+
+            let [address, command, preset] = values.as_slice() else {
+                return Err(usage());
+            };
+
+            let preset = preset
+                .parse::<u8>()
+                .map_err(|_| "preset must be an integer from 0 to 127".to_string())?;
+            if preset > 127 {
+                return Err("preset must be an integer from 0 to 127".to_string());
+            }
+
+            let operation = match command.as_str() {
+                "set" => Operation::Set(preset),
+                "recall" => Operation::Recall(preset),
+                "clear" | "reset" => Operation::Clear(preset),
+                _ => return Err(usage()),
+            };
+
+            Ok(Self {
+                address: address.clone(),
+                operation,
+            })
+        }
+    }
+
+    fn usage() -> String {
+        "usage: cargo run --example preset_demo -- [address] <set|recall|clear> <preset>"
+            .to_string()
+    }
+
+    pub fn main() -> Result<(), Error> {
+        let _ = tracing_subscriber::fmt::try_init();
+
+        let args = match Args::parse() {
+            Ok(args) => args,
+            Err(message) => {
+                eprintln!("{message}");
+                return Ok(());
+            }
+        };
+
+        let mut camera = Connect::open_tcp_blocking::<PtzOpticsG2>(&args.address)?;
+
+        match args.operation {
+            Operation::Set(preset) => {
+                camera.presets().set(preset)?;
+                println!("Saved current position to preset {preset}.");
+            }
+            Operation::Recall(preset) => {
+                camera.presets().recall(preset)?;
+                camera.await_with_config(&AwaitConfig::for_preset_recall())?;
+                println!("Recalled preset {preset}.");
+            }
+            Operation::Clear(preset) => {
+                camera.presets().reset(preset)?;
+                println!("Cleared preset {preset}.");
+            }
+        }
+
+        let _ = camera.await_idle(Duration::from_secs(1));
+        camera.close()?;
+        Ok(())
+    }
+}
 
 #[cfg(not(feature = "mode-async"))]
-use grafton_visca::{
-    camera::{profiles::PtzOpticsG2, AwaitConfig, Axes, Connect},
-    types::SpeedLevel,
-    units::{Degrees, Normalized},
-    Error,
-};
-
-#[cfg(not(feature = "mode-async"))]
-fn main() -> Result<(), Error> {
-    tracing_subscriber::fmt::init();
-
-    let camera_addr = env::args()
-        .nth(1)
-        .unwrap_or_else(|| "192.168.0.110".to_string());
-
-    println!("🎥 Preset Management Demo");
-    println!("========================");
-    println!("Connecting to camera at {camera_addr}\n");
-
-    // Connect to camera using the convenience API
-    let mut camera = Connect::open_tcp_blocking::<PtzOpticsG2>(&camera_addr).map_err(|e| {
-        eprintln!("Failed to connect to camera at {camera_addr}: {e}");
-        e
-    })?;
-
-    println!("✅ Connected successfully!\n");
-
-    println!("Moving to home position...");
-    camera.pan_tilt().home()?;
-    camera.zoom().set_position(Normalized(0.0))?;
-    // Only wait for pan/tilt and zoom - we set both, no focus change
-    camera.await_axes_idle(Axes::PAN_TILT | Axes::ZOOM, Duration::from_secs(30))?;
-    println!("✓ At home position\n");
-
-    struct PresetTest {
-        number: u8,
-        name: &'static str,
-        pan: Degrees,
-        tilt: Degrees,
-        zoom: Normalized,
-    }
-
-    let presets = [
-        PresetTest {
-            number: 1,
-            name: "Wide Overview",
-            pan: Degrees(0.0),
-            tilt: Degrees(0.0),
-            zoom: Normalized(0.0),
-        },
-        PresetTest {
-            number: 2,
-            name: "Left Corner",
-            pan: Degrees(-45.0),
-            tilt: Degrees(10.0),
-            zoom: Normalized(0.3),
-        },
-        PresetTest {
-            number: 3,
-            name: "Right Corner",
-            pan: Degrees(45.0),
-            tilt: Degrees(-5.0),
-            zoom: Normalized(0.4),
-        },
-    ];
-
-    println!("═══ Saving Presets ═══");
-    for preset in &presets {
-        println!("Setting up Preset {} - '{}'", preset.number, preset.name);
-        println!(
-            "  Moving to: Pan={:.1}°, Tilt={:.1}°, Zoom={:.0}%",
-            preset.pan.0,
-            preset.tilt.0,
-            preset.zoom.0 * 100.0
-        );
-
-        camera
-            .pan_tilt()
-            .absolute(preset.pan, preset.tilt, SpeedLevel::Medium)?;
-        camera.zoom().set_position(preset.zoom)?;
-
-        // Wait for pan/tilt and zoom to complete - 20s is generous for medium speed
-        camera.await_axes_idle(Axes::PAN_TILT | Axes::ZOOM, Duration::from_secs(20))?;
-
-        camera.presets().set(preset.number)?;
-        println!("  ✓ Preset {} saved\n", preset.number);
-
-        sleep(Duration::from_millis(200));
-    }
-
-    println!("═══ Testing Preset Recall ═══");
-    println!("Moving to test position (60°, -15°)...");
-    camera
-        .pan_tilt()
-        .absolute(Degrees(60.0), Degrees(-15.0), SpeedLevel::Fast)?;
-    camera.zoom().set_position(Normalized(0.7))?;
-    // Fast speed but still needs time for the full range of motion
-    camera.await_axes_idle(Axes::PAN_TILT | Axes::ZOOM, Duration::from_secs(15))?;
-    println!("At test position\n");
-
-    for preset in &presets {
-        println!("Recalling Preset {} - '{}'", preset.number, preset.name);
-
-        camera.presets().recall(preset.number)?;
-
-        // Use the preset-specific config: 60s timeout, all axes monitored
-        // Presets can move pan/tilt, zoom, and focus simultaneously
-        camera.await_with_config(&AwaitConfig::for_preset_recall())?;
-
-        println!(
-            "  ✓ Recalled to Pan={:.1}°, Tilt={:.1}°, Zoom={:.0}%\n",
-            preset.pan.0,
-            preset.tilt.0,
-            preset.zoom.0 * 100.0
-        );
-    }
-
-    println!("✨ Preset demo complete!");
-
-    Ok(())
+fn main() -> grafton_visca::Result<()> {
+    blocking::main()
 }
 
 #[cfg(feature = "mode-async")]
 fn main() {
-    println!("This example requires blocking mode. Run without the async feature:");
-    println!("  cargo run --example preset_demo --no-default-features");
+    println!("This example requires blocking mode. Run without async features:");
+    println!("  cargo run --example preset_demo -- 192.168.0.110 recall 1");
 }

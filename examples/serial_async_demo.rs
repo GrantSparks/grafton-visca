@@ -11,34 +11,19 @@
 //! 2. Send I/F Clear and optionally Address Set commands
 //! 3. Send some basic commands to verify operation
 
-#[cfg(all(
-    feature = "mode-async",
-    feature = "runtime-tokio",
-    feature = "transport-serial-tokio"
-))]
 use std::env;
 
-#[cfg(all(
-    feature = "mode-async",
-    feature = "runtime-tokio",
-    feature = "transport-serial-tokio"
-))]
 use grafton_visca::{
     camera::{profiles::GenericVisca, Connect},
     runtime::TokioRuntime,
     Error,
 };
 
-#[cfg(all(
-    feature = "mode-async",
-    feature = "runtime-tokio",
-    feature = "transport-serial-tokio"
-))]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt::init();
 
-    println!("📡 Async Serial VISCA Demo (EPIC Task C1/C2)");
+    println!("Async Serial VISCA Demo");
     println!("This example demonstrates async serial communication with VISCA cameras.\n");
 
     let args: Vec<String> = env::args().collect();
@@ -104,8 +89,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     println!("\n📚 About Async Serial VISCA:");
-    println!("This implementation provides EPIC Task C1 (RS-232/422 support) and");
-    println!("C2 (Address Set + I/F Clear orchestration) for async runtimes.");
+    println!("This implementation provides RS-232/422 support for async runtimes.");
     println!("Features:");
     println!("• Full async/await support using tokio-serial");
     println!("• Automatic I/F Clear during connection establishment");
@@ -114,16 +98,4 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("• Configurable timeouts and retry policies");
 
     Ok(())
-}
-
-#[cfg(not(all(
-    feature = "mode-async",
-    feature = "runtime-tokio",
-    feature = "transport-serial-tokio"
-)))]
-fn main() {
-    eprintln!("This example requires 'runtime-tokio' and 'transport-serial-tokio' features.");
-    eprintln!(
-        "Run with: cargo run --example serial_async_demo --features 'runtime-tokio,transport-serial-tokio'"
-    );
 }

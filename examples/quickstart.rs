@@ -1,256 +1,99 @@
-//! Comprehensive camera control example using the blocking API.
+//! Blocking quickstart for the high-level camera API.
 //!
-//! This example demonstrates the full range of camera control operations available
-//! in the **BLOCKING API** (no async runtime required), including:
-//! - Connection and power management
-//! - Pan/Tilt/Zoom (PTZ) operations
-//! - Focus control
-//! - Exposure settings
-//! - White balance
-//! - Image adjustments
-//! - Presets management
-//! - Speed control
-//!
-//! **Context**: This is a pure blocking example that requires NO async features or runtime.
-//! It demonstrates the library's ability to work with zero async dependencies.
+//! By default this example is read-only: it connects, queries a few pieces of
+//! state, and exits. Pass `--move` to run a short zoom movement and then stop.
 //!
 //! Run with:
 //! ```sh
-//! cargo run --example quickstart [camera_ip[:port]]
+//! cargo run --example quickstart -- 192.168.0.110
+//! cargo run --example quickstart -- 192.168.0.110 --move
 //! ```
 
 #[cfg(not(feature = "mode-async"))]
-use grafton_visca::{
-    camera::{profiles::PtzOpticsG2, Connect},
-    types::{Coarse, PanSpeed, SpeedLevel, TiltSpeed},
-    units::{Degrees, Normalized},
-    Error, PanTiltDirection,
-};
+mod blocking {
+    use std::{env, thread::sleep, time::Duration};
 
-#[cfg(not(feature = "mode-async"))]
-use std::{env, thread::sleep, time::Duration};
+    use grafton_visca::{
+        camera::{profiles::PtzOpticsG2, Connect},
+        Error,
+    };
 
-#[cfg(not(feature = "mode-async"))]
-fn main() -> Result<(), Error> {
-    tracing_subscriber::fmt::init();
-
-    let camera_addr = env::args()
-        .nth(1)
-        .unwrap_or_else(|| "192.168.0.110".to_string());
-
-    println!("🎥 Comprehensive Camera Control Demo");
-    println!("====================================");
-    println!("Connecting to camera at {camera_addr}");
-    println!();
-
-    // Use the new convenience API for blocking mode
-    let mut camera = Connect::open_tcp_blocking::<PtzOpticsG2>(&camera_addr)?;
-
-    println!("✅ Connected successfully!");
-    println!();
-
-    println!("═══ Saving Initial Camera State ═══");
-    println!("⚠ Position inquiry not yet available, will return to home at end");
-    println!();
-
-    println!("═══ Basic Movement Operations ═══");
-
-    println!("Moving to home position...");
-    camera.pan_tilt().home()?;
-    camera.await_pan_tilt_idle(Duration::from_secs(5))?;
-    println!("✓ At home position");
-
-    println!("Testing zoom...");
-    println!("  Zooming in briefly...");
-    camera.zoom().tele()?;
-    sleep(Duration::from_secs(1));
-    camera.zoom().stop()?;
-    camera.await_zoom_idle(Duration::from_secs(2))?;
-
-    println!("  Zooming out briefly...");
-    camera.zoom().wide()?;
-    sleep(Duration::from_secs(1));
-    camera.zoom().stop()?;
-    camera.await_zoom_idle(Duration::from_secs(2))?;
-    println!("✓ Zoom complete");
-
-    println!("Testing pan/tilt with Coarse speed mapping...");
-
-    println!("  Panning right briefly with Medium speed...");
-    camera.pan_tilt().move_direction(
-        PanTiltDirection::Right,
-        PanSpeed::from_coarse(Coarse::Medium),
-        TiltSpeed::from_coarse(Coarse::Slowest),
-    )?;
-    sleep(Duration::from_millis(100));
-    camera.pan_tilt().stop()?;
-    sleep(Duration::from_secs(1));
-
-    println!("  Tilting up briefly with Fast speed...");
-    camera.pan_tilt().move_direction(
-        PanTiltDirection::Up,
-        PanSpeed::from_coarse(Coarse::Slowest),
-        TiltSpeed::from_coarse(Coarse::Fast),
-    )?;
-    sleep(Duration::from_millis(100));
-    camera.pan_tilt().stop()?;
-    sleep(Duration::from_secs(1));
-    println!("✓ Pan/tilt complete (using Coarse speed levels)");
-    println!();
-
-    println!("═══ Advanced Positioning ═══");
-
-    println!("Moving to absolute position (45°, 15°)...");
-    camera
-        .pan_tilt()
-        .absolute(Degrees(45.0), Degrees(15.0), SpeedLevel::Fast)?;
-    sleep(Duration::from_secs(3));
-    println!("✓ Moved to position");
-
-    println!("Moving relative (+10°, +5°)...");
-    camera
-        .pan_tilt()
-        .relative(Degrees(10.0), Degrees(5.0), SpeedLevel::Medium)?;
-
-    sleep(Duration::from_secs(2));
-    println!("✓ Relative movement complete");
-
-    println!("Setting zoom to 50%...");
-    camera.zoom().set_position(Normalized(0.5))?;
-    sleep(Duration::from_secs(2));
-    println!("✓ Zoom at 50%");
-    println!();
-
-    println!("═══ Focus Control ═══");
-
-    println!("Setting auto focus...");
-    camera.focus().auto()?;
-    println!("✓ Auto focus enabled");
-
-    println!("Testing manual focus...");
-    camera.focus().manual()?;
-    camera.focus().near(SpeedLevel::Medium)?;
-    sleep(Duration::from_millis(100));
-    camera.focus().stop()?;
-    sleep(Duration::from_secs(1));
-
-    camera.focus().far(SpeedLevel::Medium)?;
-    sleep(Duration::from_millis(100));
-    camera.focus().stop()?;
-    sleep(Duration::from_secs(1));
-    println!("✓ Manual focus complete");
-
-    println!("Triggering one-push auto focus...");
-    camera.focus().one_push()?;
-    sleep(Duration::from_secs(2));
-    println!("✓ One-push focus complete");
-    camera.focus().auto()?;
-    println!();
-
-    println!("═══ Exposure & White Balance ═══");
-
-    println!("Testing exposure modes...");
-    camera.exposure().auto()?;
-    println!("  ✓ Auto exposure");
-    camera.exposure().manual()?;
-    println!("  ✓ Manual exposure");
-    camera.exposure().shutter_priority()?;
-    println!("  ✓ Shutter priority");
-    camera.exposure().auto()?;
-
-    println!("Testing white balance modes...");
-    camera.white_balance().auto()?;
-    println!("  ✓ Auto white balance");
-    camera.white_balance().indoor()?;
-    println!("  ✓ Indoor");
-    camera.white_balance().outdoor()?;
-    println!("  ✓ Outdoor");
-    // Set to OnePush mode first before triggering
-    camera.white_balance().one_push()?;
-    println!("  ✓ OnePush mode");
-    camera.white_balance().one_push_trigger()?;
-    println!("  ✓ One-push triggered");
-    camera.white_balance().auto()?;
-    println!();
-
-    println!("═══ Preset Management ═══");
-
-    println!("Saving preset positions...");
-
-    camera
-        .pan_tilt()
-        .absolute(Degrees(0.0), Degrees(0.0), SpeedLevel::Medium)?;
-    camera.zoom().set_position(Normalized(0.0))?;
-    sleep(Duration::from_secs(3));
-    camera.presets().set(1)?;
-    println!("  ✓ Preset 1 (Wide Overview) saved");
-
-    camera
-        .pan_tilt()
-        .absolute(Degrees(45.0), Degrees(-10.0), SpeedLevel::Medium)?;
-    camera.zoom().set_position(Normalized(0.3))?;
-    sleep(Duration::from_secs(3));
-    camera.presets().set(2)?;
-    println!("  ✓ Preset 2 (Right View) saved");
-
-    camera
-        .pan_tilt()
-        .absolute(Degrees(-45.0), Degrees(-10.0), SpeedLevel::Medium)?;
-    camera.zoom().set_position(Normalized(0.3))?;
-    sleep(Duration::from_secs(3));
-    camera.presets().set(3)?;
-    println!("  ✓ Preset 3 (Left View) saved");
-
-    println!("Testing preset recall...");
-    for i in 1..=3 {
-        println!("  Recalling Preset {i}...");
-        camera.presets().recall(i)?;
-        sleep(Duration::from_secs(3));
+    #[derive(Debug)]
+    struct Args {
+        address: String,
+        move_camera: bool,
     }
-    println!("✓ Preset recall complete");
 
-    println!("Clearing Preset 3...");
-    camera.presets().reset(3)?;
-    println!("✓ Preset 3 cleared");
-    println!();
+    impl Args {
+        fn parse() -> Self {
+            let mut address = None;
+            let mut move_camera = false;
 
-    println!("═══ Finishing Demo ═══");
-    println!("Restoring camera to home position...");
+            for arg in env::args().skip(1) {
+                match arg.as_str() {
+                    "--move" => move_camera = true,
+                    _ if address.is_none() => address = Some(arg),
+                    _ => {}
+                }
+            }
 
-    camera.pan_tilt().home()?;
-    sleep(Duration::from_secs(3));
-    camera.zoom().set_position(Normalized(0.0))?;
-    sleep(Duration::from_secs(2));
-    println!("✓ Camera at home position");
+            Self {
+                address: address
+                    .or_else(|| env::var("VISCA_CAMERA_ADDR").ok())
+                    .unwrap_or_else(|| "192.168.0.110".to_string()),
+                move_camera,
+            }
+        }
+    }
 
-    println!();
-    camera.close()?;
+    fn power_label(is_on: bool) -> &'static str {
+        if is_on {
+            "on"
+        } else {
+            "off"
+        }
+    }
 
-    println!("✨ Demo complete!");
-    println!();
-    println!("Demonstrated features:");
-    println!("  ✓ Basic movement (pan/tilt/zoom)");
-    println!("  ✓ Advanced positioning (absolute, relative)");
-    println!("  ✓ Focus control (auto, manual, one-push)");
-    println!("  ✓ Exposure & white balance modes");
-    println!("  ✓ Image adjustments (flip)");
-    println!("  ✓ Preset management (save, recall, clear)");
-    println!();
-    println!("Key API features demonstrated:");
-    println!("  ✓ Coarse speed mapping (intuitive speed levels)");
-    println!("  ✓ Direct f64 usage with Degrees (no casts needed)");
-    println!("  ✓ Await idle for movement completion");
-    println!();
-    println!("Next steps:");
-    println!("  - Try quickstart_async for the async version");
-    println!("  - Try inquiry_quickstart for inquiry_conversions demo");
-    println!("  - Check other examples for specific features");
+    pub fn main() -> Result<(), Error> {
+        let _ = tracing_subscriber::fmt::try_init();
 
-    Ok(())
+        let args = Args::parse();
+        println!("Blocking quickstart");
+        println!("Address: {}", args.address);
+
+        let mut camera = Connect::open_tcp_blocking::<PtzOpticsG2>(&args.address)?;
+
+        let power = camera.power().state()?;
+        println!("Power: {}", power_label(power));
+
+        match camera.zoom().position() {
+            Ok(position) => println!("Zoom position: 0x{:04X}", position.value()),
+            Err(error) => println!("Zoom position inquiry failed: {error}"),
+        }
+
+        if args.move_camera {
+            println!("Running short zoom movement.");
+            camera.zoom().tele()?;
+            sleep(Duration::from_millis(250));
+            camera.zoom().stop()?;
+            camera.await_zoom_idle(Duration::from_secs(2))?;
+            println!("Zoom stopped.");
+        } else {
+            println!("No movement requested. Pass --move to run a short zoom command.");
+        }
+
+        camera.close()?;
+        Ok(())
+    }
+}
+
+#[cfg(not(feature = "mode-async"))]
+fn main() -> grafton_visca::Result<()> {
+    blocking::main()
 }
 
 #[cfg(feature = "mode-async")]
 fn main() {
-    println!("This example requires blocking mode. Run without the async feature:");
-    println!("  cargo run --example quickstart --no-default-features");
+    println!("This example requires blocking mode. Run without async features:");
+    println!("  cargo run --example quickstart -- 192.168.0.110");
 }
