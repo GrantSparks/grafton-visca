@@ -1,5 +1,0 @@
-error[E0432]: unresolved import `grafton_visca::prelude::raw`
- --> tests/api_contract/fail/raw_prelude_removed.rs:1:29
-  |
-1 | use grafton_visca::prelude::raw::*;
-  |                             ^^^ could not find `raw` in `prelude`

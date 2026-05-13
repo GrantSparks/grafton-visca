@@ -1,5 +1,0 @@
-error[E0433]: failed to resolve: could not find `diagnostics` in `grafton_visca`
- --> tests/api_contract/fail/diagnostics_module_removed.rs:2:56
-  |
-2 |     let _ = core::any::TypeId::of::<dyn grafton_visca::diagnostics::Diagnostics>();
-  |                                                        ^^^^^^^^^^^ could not find `diagnostics` in `grafton_visca`

@@ -3,6 +3,9 @@
 //! These tests intentionally assert stable behavior and exported entry points.
 //! Changes here should reflect an explicit public contract decision.
 
+#[path = "common/compile_fail.rs"]
+mod compile_fail;
+
 use std::{marker::PhantomData, num::NonZeroUsize, time::Duration};
 
 #[cfg(all(feature = "runtime-tokio", feature = "test-utils"))]
@@ -498,12 +501,20 @@ fn test_raw_command_extension_contract() {
 }
 
 #[test]
-fn test_compile_time_api_contracts() {
+fn test_public_compile_time_api_contracts() {
     let cases = trybuild::TestCases::new();
     cases.pass("tests/api_contract/pass/*.rs");
     #[cfg(not(feature = "mode-async"))]
     cases.pass("tests/api_contract/pass_blocking/*.rs");
-    cases.compile_fail("tests/api_contract/fail/*.rs");
+}
+
+#[test]
+fn test_internal_api_contracts_do_not_compile() {
     #[cfg(feature = "runtime-tokio")]
-    cases.compile_fail("tests/api_contract/fail_async/*.rs");
+    let fixture_dirs = ["tests/api_contract/fail", "tests/api_contract/fail_async"];
+    #[cfg(not(feature = "runtime-tokio"))]
+    let fixture_dirs = ["tests/api_contract/fail"];
+
+    let features = compile_fail::active_grafton_visca_features();
+    compile_fail::assert_compile_fail_fixtures(&fixture_dirs, &features);
 }

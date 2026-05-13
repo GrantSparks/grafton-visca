@@ -6,6 +6,10 @@
 //! - The new connect helpers function properly
 
 #[cfg(not(feature = "mode-async"))]
+#[path = "common/compile_fail.rs"]
+mod compile_fail;
+
+#[cfg(not(feature = "mode-async"))]
 use grafton_visca::{profiles::GenericVisca, BlockingCamera, CameraBuilder};
 
 #[cfg(not(feature = "mode-async"))]
@@ -72,6 +76,6 @@ fn test_camera_builder_udp() {
 #[test]
 #[cfg(not(feature = "mode-async"))]
 fn test_no_direct_transport_access() {
-    let cases = trybuild::TestCases::new();
-    cases.compile_fail("tests/camera_first_contract/fail/*.rs");
+    let features = compile_fail::active_grafton_visca_features();
+    compile_fail::assert_compile_fail_fixtures(&["tests/camera_first_contract/fail"], &features);
 }

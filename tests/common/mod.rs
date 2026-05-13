@@ -5,6 +5,7 @@
 //! This module provides shared mock implementations and utilities
 //! to avoid code duplication across test files.
 
+pub mod compile_fail;
 pub mod helpers;
 pub mod macros;
 pub mod patterns;
