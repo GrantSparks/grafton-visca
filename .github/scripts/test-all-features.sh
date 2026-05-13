@@ -87,6 +87,9 @@ run_test "runtime-tokio + dyn-api + test-utils" \
 run_test "runtime-smol + dyn-api" \
     "cargo test --no-default-features --features runtime-smol,dyn-api --verbose"
 
+run_test "runtime-smol + dyn-api + test-utils integration" \
+    "cargo test --no-default-features --features runtime-smol,dyn-api,test-utils --test dyn_api_smol_integration_test --verbose"
+
 # Test runtime coexistence explicitly.
 run_test "tokio + smol runtime coexistence" \
     "cargo check --no-default-features --features runtime-tokio,runtime-smol --verbose"

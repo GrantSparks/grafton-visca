@@ -51,23 +51,26 @@
 //! }
 //!
 //! async fn control_camera(camera: &dyn DynCameraControl) -> Result<(), Error> {
-//!     if let Some(pt) = camera.as_pan_tilt() {
-//!         pt.pan_tilt_home(None).await?;
-//!     }
+//!     camera.pan_tilt().pan_tilt_home(None).await?;
 //!     Ok(())
 //! }
 //! ```
 //!
 //! # Timeout Behavior
 //!
-//! All movement methods accept an optional `timeout` parameter:
+//! Movement methods that accept an optional `timeout` parameter use it as a
+//! deadline for the command's own VISCA completion response:
 //!
 //! - **`None`**: Uses the camera's default `TimeoutConfig` for the command category.
 //!   This is the recommended option for most use cases.
 //!
-//! - **`Some(Duration)`**: Uses the `_op` method internally to get an `InFlight` handle,
-//!   then waits for movement completion with the specified timeout. This allows
-//!   fine-grained control over individual operation deadlines.
+//! - **`Some(Duration)`**: Applies that duration to this command's completion wait.
+//!   The wait resolves when the camera reports completion or an error for the
+//!   command. It does not infer physical movement completion from idle polling.
+//!
+//! To wait for physical motion to settle, use
+//! [`DynMotionControl::await_idle`](crate::dynapi::DynMotionControl::await_idle)
+//! or the axis-specific idle wait methods after issuing the command.
 //!
 //! ```ignore
 //! use std::time::Duration;
@@ -113,15 +116,15 @@
 //! handle.cancel().await?;  // Sends VISCA CANCEL command
 //!
 //! // Method 2: Emergency stop all motion
-//! if let Some(motion) = camera.as_motion() {
-//!     motion.stop_all_motion().await?;
-//! }
+//! camera.motion().stop_all_motion().await?;
 //! ```
 //!
 //! ## Timeout Layering
 //!
-//! The dyn-api provides per-call timeout parameters that override `TimeoutConfig`
-//! defaults. **Avoid adding external timeouts that race with library timeouts**:
+//! The dyn-api provides per-call timeout parameters for command completion.
+//! The runtime scheduler still owns VISCA retries, cancellation, and transport
+//! error reporting. **Avoid adding external timeouts that race with library
+//! timeouts**:
 //!
 //! ```ignore
 //! // GOOD: Use the built-in timeout parameter
@@ -142,39 +145,34 @@
 //! | Cancel specific command | `InFlightDyn::cancel()` |
 //! | Emergency stop all motion | `DynMotionControl::stop_all_motion()` |
 //! | Timeout on specific operation | Pass `timeout` parameter to method |
+//! | Wait for physical idle | `camera.motion().await_idle(timeout)` |
 //! | Graceful shutdown | `stop_all_motion()`, then drop camera |
 //!
 //! # Capability Detection
 //!
-//! The `DynCameraControl` trait provides capability accessors that return
-//! `Option<&dyn TraitName>`, enabling runtime capability detection:
+//! The `DynCameraControl` trait exposes the same core control families for every
+//! profile and provides a structured [`Capabilities`](crate::capabilities::Capabilities)
+//! value for runtime feature discovery:
 //!
 //! ```ignore
 //! async fn control_any_camera(camera: &dyn DynCameraControl) -> Result<(), Error> {
-//!     // Check if pan/tilt is available
-//!     if let Some(pt) = camera.as_pan_tilt() {
-//!         pt.pan_tilt_home(None).await?;
+//!     let caps = camera.capabilities();
+//!
+//!     if caps.has_pan_tilt {
+//!         camera.pan_tilt().pan_tilt_home(None).await?;
 //!     }
 //!
-//!     // Check if zoom is available
-//!     if let Some(zoom) = camera.as_zoom() {
-//!         zoom.zoom_tele(None, None).await?;
+//!     if caps.has_zoom {
+//!         camera.zoom().zoom_tele(None, None).await?;
 //!     }
 //!
-//!     // Check if focus is available
-//!     if let Some(focus) = camera.as_focus() {
-//!         focus.focus_auto().await?;
+//!     if caps.has_focus {
+//!         camera.focus().focus_auto().await?;
 //!     }
 //!
-//!     // Check if presets are available
-//!     if let Some(presets) = camera.as_presets() {
+//!     if caps.has_presets {
 //!         let preset = PresetNumber::new(1)?;
-//!         presets.preset_recall(preset, None).await?;
-//!     }
-//!
-//!     // Check if motion control is available (for stop_all_motion)
-//!     if let Some(motion) = camera.as_motion() {
-//!         motion.stop_all_motion().await?;
+//!         camera.presets().preset_recall(preset, None).await?;
 //!     }
 //!
 //!     Ok(())
@@ -196,9 +194,7 @@
 //!
 //! // Control all cameras uniformly
 //! for camera in &cameras {
-//!     if let Some(pt) = camera.as_pan_tilt() {
-//!         pt.pan_tilt_home(None).await?;
-//!     }
+//!     camera.pan_tilt().pan_tilt_home(None).await?;
 //! }
 //! ```
 //!
@@ -206,8 +202,9 @@
 //!
 //! Each dyn trait mirrors the corresponding static trait but with:
 //! - All methods returning `BoxFuture` instead of `impl Future`
-//! - An additional `timeout: Option<Duration>` parameter for movement methods
-//! - Capability accessors returning `Option<&dyn TraitName>` for feature detection
+//! - An additional command-completion `timeout: Option<Duration>` parameter for
+//!   movement methods where per-call deadlines are useful
+//! - Structured runtime capability discovery through `DynCameraControl::capabilities()`
 //!
 //! # Available Traits
 //!
@@ -218,10 +215,13 @@
 //! - `DynPresetsControl` - Preset operations (recall, set, reset)
 //! - `DynMotionControl` - Unified motion control (stop all motion)
 
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use crate::{
-    camera::inflight::CommandId,
+    camera::inflight::{CommandId, ResponseFuture},
     command::{
         focus::{AutoFocusSensitivity, FocusZone},
         pan_tilt::{PanTiltDirection, PanTiltLimitCorner},
@@ -232,7 +232,7 @@ use crate::{
         FocusPosition, PanPosition, PanSpeed, SpeedLevel, TiltPosition, TiltSpeed, ZoomPosition,
         ZoomSpeed,
     },
-    Error, Normalized, ZoomDomain,
+    Error, Normalized, ZoomDomain, ZoomPositionExt,
 };
 
 // ============================================================================
@@ -241,8 +241,8 @@ use crate::{
 
 /// Operation category for type-erased handles.
 ///
-/// This enum identifies the category of a camera operation, which determines
-/// which idle-detection mechanism to use when waiting for completion.
+/// This enum identifies the semantic category of a camera operation. It is
+/// exposed for diagnostics and telemetry on [`InFlightDyn`] handles.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum OperationCategory {
     /// Pan/tilt movement operations.
@@ -277,11 +277,11 @@ pub(crate) trait RuntimeDyn: Send + Sync {
     fn cancel(&self, camera_id: crate::CameraId, id: CommandId)
         -> BoxFuture<'_, Result<(), Error>>;
 
-    /// Wait for operations of a specific category to become idle.
-    fn await_category_idle(
+    /// Wait for the exact command response future owned by a dyn handle.
+    fn await_response_completion(
         &self,
-        category: OperationCategory,
         timeout: Duration,
+        response_future: ResponseFuture,
     ) -> BoxFuture<'_, Result<(), Error>>;
 }
 
@@ -319,6 +319,11 @@ pub struct InFlightDyn {
     category: OperationCategory,
     /// Reference to the runtime for cancellation and completion waiting.
     runtime: Arc<dyn RuntimeDyn>,
+    /// Response future for the command this handle represents.
+    ///
+    /// This mirrors the static `InFlight` handle: completion is tied to the
+    /// command's own VISCA response channel, not inferred from later idle state.
+    response_future: Mutex<Option<ResponseFuture>>,
 }
 
 #[cfg(feature = "dyn-api")]
@@ -329,12 +334,14 @@ impl InFlightDyn {
         camera_id: crate::CameraId,
         category: OperationCategory,
         runtime: Arc<dyn RuntimeDyn>,
+        response_future: ResponseFuture,
     ) -> Self {
         Self {
             id,
             camera_id,
             category,
             runtime,
+            response_future: Mutex::new(Some(response_future)),
         }
     }
 
@@ -364,13 +371,11 @@ impl InFlightDyn {
         self.runtime.cancel(self.camera_id, self.id)
     }
 
-    /// Wait for this operation to complete.
+    /// Wait for this operation's command response to complete.
     ///
-    /// The operation category determines which completion waiter is used:
-    /// - `PanTilt` → waits for pan/tilt idle
-    /// - `Zoom` → waits for zoom idle
-    /// - `Focus` → waits for focus idle
-    /// - `Preset` → waits for general idle
+    /// This uses the same response future as the static `InFlight` API. It
+    /// resolves when the camera reports completion or an error for this command.
+    /// It does not infer completion from later category-level idle state.
     ///
     /// # Arguments
     ///
@@ -386,7 +391,21 @@ impl InFlightDyn {
     ///
     /// Returns an error if the wait fails or times out.
     pub fn await_completion(&self, timeout: Duration) -> BoxFuture<'_, Result<(), Error>> {
-        self.runtime.await_category_idle(self.category, timeout)
+        Box::pin(async move {
+            let response_future = self
+                .response_future
+                .lock()
+                .ok()
+                .ok_or(Error::LockPoisoned("InFlightDyn response_future"))?
+                .take()
+                .ok_or_else(|| {
+                    Error::InvalidState("await_completion called more than once".into())
+                })?;
+
+            self.runtime
+                .await_response_completion(timeout, response_future)
+                .await
+        })
     }
 }
 
@@ -402,9 +421,9 @@ impl std::fmt::Debug for InFlightDyn {
 
 /// Object-safe camera control trait for runtime polymorphism.
 ///
-/// This trait provides capability accessors that return optional references to
-/// specialized control traits. Each accessor returns `None` if the camera
-/// doesn't support that capability.
+/// This trait provides object-safe access to the stable dynamic camera control
+/// surface. Core control families are exposed directly; profile-specific feature
+/// discovery is provided by [`capabilities`](Self::capabilities).
 ///
 /// # Example
 ///
@@ -412,27 +431,30 @@ impl std::fmt::Debug for InFlightDyn {
 /// use grafton_visca::dynapi::DynCameraControl;
 ///
 /// async fn demo(camera: &dyn DynCameraControl) -> Result<(), Error> {
-///     // Check and use capabilities
-///     if let Some(zoom) = camera.as_zoom() {
-///         zoom.zoom_tele(None, None).await?;
+///     let caps = camera.capabilities();
+///     if caps.has_zoom {
+///         camera.zoom().zoom_tele(None, None).await?;
 ///     }
 ///     Ok(())
 /// }
 /// ```
 pub trait DynCameraControl: Send + Sync {
-    /// Returns pan/tilt control if available.
-    fn as_pan_tilt(&self) -> Option<&dyn DynPanTiltControl>;
+    /// Returns runtime-queryable profile capabilities.
+    fn capabilities(&self) -> &crate::capabilities::Capabilities;
 
-    /// Returns zoom control if available.
-    fn as_zoom(&self) -> Option<&dyn DynZoomControl>;
+    /// Returns pan/tilt control.
+    fn pan_tilt(&self) -> &dyn DynPanTiltControl;
 
-    /// Returns focus control if available.
-    fn as_focus(&self) -> Option<&dyn DynFocusControl>;
+    /// Returns zoom control.
+    fn zoom(&self) -> &dyn DynZoomControl;
 
-    /// Returns preset control if available.
-    fn as_presets(&self) -> Option<&dyn DynPresetsControl>;
+    /// Returns focus control.
+    fn focus(&self) -> &dyn DynFocusControl;
 
-    /// Returns motion control if available.
+    /// Returns preset control.
+    fn presets(&self) -> &dyn DynPresetsControl;
+
+    /// Returns motion control.
     ///
     /// Motion control provides unified stop operations for all camera axes.
     /// Use this for emergency stops or coordinated motion control.
@@ -440,12 +462,9 @@ pub trait DynCameraControl: Send + Sync {
     /// # Example
     ///
     /// ```ignore
-    /// if let Some(motion) = camera.as_motion() {
-    ///     // Stop all camera motion (pan/tilt, zoom, focus)
-    ///     motion.stop_all_motion().await?;
-    /// }
+    /// camera.motion().stop_all_motion().await?;
     /// ```
-    fn as_motion(&self) -> Option<&dyn DynMotionControl>;
+    fn motion(&self) -> &dyn DynMotionControl;
 
     /// Returns the state cache for write-only properties.
     ///
@@ -521,6 +540,18 @@ pub trait DynMotionControl: Send + Sync {
     /// Returns the first error encountered while stopping motion. All stop
     /// commands are attempted for safety even if earlier ones fail.
     fn stop_all_motion(&self) -> BoxFuture<'_, Result<(), Error>>;
+
+    /// Wait for all camera motion to become idle.
+    fn await_idle(&self, timeout: Duration) -> BoxFuture<'_, Result<(), Error>>;
+
+    /// Wait for pan/tilt motion to become idle.
+    fn await_pan_tilt_idle(&self, timeout: Duration) -> BoxFuture<'_, Result<(), Error>>;
+
+    /// Wait for zoom motion to become idle.
+    fn await_zoom_idle(&self, timeout: Duration) -> BoxFuture<'_, Result<(), Error>>;
+
+    /// Wait for focus motion to become idle.
+    fn await_focus_idle(&self, timeout: Duration) -> BoxFuture<'_, Result<(), Error>>;
 }
 
 /// Object-safe pan/tilt control trait.
@@ -771,7 +802,7 @@ pub trait DynPresetsControl: Send + Sync {
 #[cfg(feature = "dyn-api")]
 pub struct DynCamera<P, Tr, Exec>
 where
-    P: crate::capabilities::Profile + crate::capabilities::ProfileMetadata + Default,
+    P: crate::capabilities::Profile + Default,
     Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
     Exec: crate::executor::Executor,
 {
@@ -784,24 +815,28 @@ where
 #[cfg(feature = "dyn-api")]
 struct DynCameraInner<P, Tr, Exec>
 where
-    P: crate::capabilities::Profile + crate::capabilities::ProfileMetadata + Default,
+    P: crate::capabilities::Profile + Default,
     Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
     Exec: crate::executor::Executor,
 {
     camera: crate::camera::Camera<crate::mode::Async, P, Tr, Exec>,
+    capabilities: crate::capabilities::Capabilities,
 }
 
 #[cfg(feature = "dyn-api")]
 impl<P, Tr, Exec> DynCamera<P, Tr, Exec>
 where
-    P: crate::capabilities::Profile + crate::capabilities::ProfileMetadata + Default,
+    P: crate::capabilities::Profile + Default,
     Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
     Exec: crate::executor::Executor,
 {
     /// Create a new DynCamera wrapper from an async camera.
     pub fn new(camera: crate::camera::Camera<crate::mode::Async, P, Tr, Exec>) -> Self {
         Self {
-            inner: Arc::new(DynCameraInner { camera }),
+            inner: Arc::new(DynCameraInner {
+                camera,
+                capabilities: crate::capabilities::Capabilities::from_profile::<P>(),
+            }),
         }
     }
 
@@ -855,12 +890,48 @@ where
     }
 
     /// Get an `Arc<dyn RuntimeDyn>` for creating `InFlightDyn` handles.
-    fn runtime_dyn(&self) -> Arc<dyn RuntimeDyn>
-    where
-        P: crate::capabilities::PanTilt + crate::capabilities::zoom::Zoom,
-    {
+    fn runtime_dyn(&self) -> Arc<dyn RuntimeDyn> {
         let inner: Arc<DynCameraInner<P, Tr, Exec>> = Arc::clone(&self.inner);
         inner
+    }
+
+    /// Convert a static in-flight handle into the type-erased dyn handle.
+    fn erase_inflight<C>(
+        &self,
+        handle: crate::camera::inflight::InFlight<'_, C, P, Exec>,
+        category: OperationCategory,
+    ) -> Result<InFlightDyn, Error> {
+        let (id, camera_id, response_future) = handle.into_parts()?;
+        Ok(InFlightDyn::new(
+            id,
+            camera_id,
+            category,
+            self.runtime_dyn(),
+            response_future,
+        ))
+    }
+
+    /// Execute a command and apply an explicit deadline to its completion response.
+    ///
+    /// The dyn API uses this for methods that expose a per-call timeout but do
+    /// not have a public static `_op` variant. The semantics intentionally match
+    /// `InFlight::await_completion`: the timeout applies to this command's
+    /// response future, not to a later physical idle poll.
+    async fn execute_command_with_timeout<C>(
+        &self,
+        command: C,
+        timeout: Duration,
+    ) -> Result<(), Error>
+    where
+        C: crate::command::ViscaCommand + Send + Sync,
+    {
+        let (_id, response_future) = self.inner.camera.start_command_with_id(&command).await?;
+        self.inner
+            .camera
+            .runtime()
+            .timeout(timeout, response_future)
+            .await?
+            .map(|_| ())
     }
 }
 
@@ -868,11 +939,7 @@ where
 #[cfg(feature = "dyn-api")]
 impl<P, Tr, Exec> RuntimeDyn for DynCameraInner<P, Tr, Exec>
 where
-    P: crate::capabilities::Profile
-        + crate::capabilities::ProfileMetadata
-        + crate::capabilities::PanTilt
-        + crate::capabilities::zoom::Zoom
-        + Default,
+    P: crate::capabilities::Profile + Default,
     Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
     Exec: crate::executor::Executor,
 {
@@ -884,18 +951,17 @@ where
         Box::pin(self.camera.runtime().cancel(camera_id, id))
     }
 
-    fn await_category_idle(
+    fn await_response_completion(
         &self,
-        category: OperationCategory,
         timeout: Duration,
+        response_future: ResponseFuture,
     ) -> BoxFuture<'_, Result<(), Error>> {
         Box::pin(async move {
-            match category {
-                OperationCategory::PanTilt => self.camera.await_pan_tilt_idle(timeout).await,
-                OperationCategory::Zoom => self.camera.await_zoom_idle(timeout).await,
-                OperationCategory::Focus => self.camera.await_focus_idle(timeout).await,
-                OperationCategory::Preset => self.camera.await_idle(timeout).await,
-            }
+            self.camera
+                .runtime()
+                .timeout(timeout, response_future)
+                .await?
+                .map(|_| ())
         })
     }
 }
@@ -903,7 +969,7 @@ where
 #[cfg(feature = "dyn-api")]
 impl<P, Tr, Exec> std::fmt::Debug for DynCamera<P, Tr, Exec>
 where
-    P: crate::capabilities::Profile + crate::capabilities::ProfileMetadata + Default,
+    P: crate::capabilities::Profile + Default,
     Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
     Exec: crate::executor::Executor,
 {
@@ -918,33 +984,32 @@ where
 #[cfg(feature = "dyn-api")]
 impl<P, Tr, Exec> DynCameraControl for DynCamera<P, Tr, Exec>
 where
-    P: crate::capabilities::Profile
-        + crate::capabilities::ProfileMetadata
-        + crate::capabilities::PanTilt
-        + crate::capabilities::zoom::Zoom
-        + crate::capabilities::focus::Focus
-        + Default,
+    P: crate::capabilities::Profile + Default,
     Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
     Exec: crate::executor::Executor,
 {
-    fn as_pan_tilt(&self) -> Option<&dyn DynPanTiltControl> {
-        Some(self)
+    fn capabilities(&self) -> &crate::capabilities::Capabilities {
+        &self.inner.capabilities
     }
 
-    fn as_zoom(&self) -> Option<&dyn DynZoomControl> {
-        Some(self)
+    fn pan_tilt(&self) -> &dyn DynPanTiltControl {
+        self
     }
 
-    fn as_focus(&self) -> Option<&dyn DynFocusControl> {
-        Some(self)
+    fn zoom(&self) -> &dyn DynZoomControl {
+        self
     }
 
-    fn as_presets(&self) -> Option<&dyn DynPresetsControl> {
-        Some(self)
+    fn focus(&self) -> &dyn DynFocusControl {
+        self
     }
 
-    fn as_motion(&self) -> Option<&dyn DynMotionControl> {
-        Some(self)
+    fn presets(&self) -> &dyn DynPresetsControl {
+        self
+    }
+
+    fn motion(&self) -> &dyn DynMotionControl {
+        self
     }
 
     fn state_cache(&self) -> &crate::StateCache {
@@ -956,11 +1021,7 @@ where
 #[cfg(feature = "dyn-api")]
 impl<P, Tr, Exec> DynPanTiltControl for DynCamera<P, Tr, Exec>
 where
-    P: crate::capabilities::Profile
-        + crate::capabilities::ProfileMetadata
-        + crate::capabilities::PanTilt
-        + crate::capabilities::zoom::Zoom
-        + Default,
+    P: crate::capabilities::Profile + Default,
     Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
     Exec: crate::executor::Executor,
 {
@@ -984,12 +1045,7 @@ where
     fn pan_tilt_home_op(&self) -> BoxFuture<'_, Result<InFlightDyn, Error>> {
         Box::pin(async move {
             let handle = self.inner.camera.pan_tilt_home_op().await?;
-            Ok(InFlightDyn::new(
-                handle.id(),
-                self.inner.camera.camera_id(),
-                OperationCategory::PanTilt,
-                self.runtime_dyn(),
-            ))
+            self.erase_inflight(handle, OperationCategory::PanTilt)
         })
     }
 
@@ -1030,12 +1086,7 @@ where
                 .camera
                 .pan_tilt_absolute_op(pan_deg, tilt_deg, speed)
                 .await?;
-            Ok(InFlightDyn::new(
-                handle.id(),
-                self.inner.camera.camera_id(),
-                OperationCategory::PanTilt,
-                self.runtime_dyn(),
-            ))
+            self.erase_inflight(handle, OperationCategory::PanTilt)
         })
     }
 
@@ -1076,12 +1127,7 @@ where
                 .camera
                 .pan_tilt_relative_op(pan_deg, tilt_deg, speed)
                 .await?;
-            Ok(InFlightDyn::new(
-                handle.id(),
-                self.inner.camera.camera_id(),
-                OperationCategory::PanTilt,
-                self.runtime_dyn(),
-            ))
+            self.erase_inflight(handle, OperationCategory::PanTilt)
         })
     }
 
@@ -1114,12 +1160,7 @@ where
     fn pan_tilt_reset_op(&self) -> BoxFuture<'_, Result<InFlightDyn, Error>> {
         Box::pin(async move {
             let handle = self.inner.camera.pan_tilt_reset_op().await?;
-            Ok(InFlightDyn::new(
-                handle.id(),
-                self.inner.camera.camera_id(),
-                OperationCategory::PanTilt,
-                self.runtime_dyn(),
-            ))
+            self.erase_inflight(handle, OperationCategory::PanTilt)
         })
     }
 
@@ -1143,11 +1184,7 @@ where
 #[cfg(feature = "dyn-api")]
 impl<P, Tr, Exec> DynZoomControl for DynCamera<P, Tr, Exec>
 where
-    P: crate::capabilities::Profile
-        + crate::capabilities::ProfileMetadata
-        + crate::capabilities::PanTilt
-        + crate::capabilities::zoom::Zoom
-        + Default,
+    P: crate::capabilities::Profile + Default,
     Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
     Exec: crate::executor::Executor,
 {
@@ -1162,12 +1199,17 @@ where
         timeout: Option<Duration>,
     ) -> BoxFuture<'_, Result<(), Error>> {
         Box::pin(async move {
-            use crate::camera::controls::zoom::ZoomControl;
-            self.inner.camera.zoom_tele(speed).await?;
             if let Some(t) = timeout {
-                self.inner.camera.await_zoom_idle(t).await?;
+                use crate::command::zoom::Zoom;
+                let command = match speed {
+                    Some(speed) => Zoom::TeleVariable(speed),
+                    None => Zoom::TeleStd,
+                };
+                self.execute_command_with_timeout(command, t).await
+            } else {
+                use crate::camera::controls::zoom::ZoomControl;
+                self.inner.camera.zoom_tele(speed).await
             }
-            Ok(())
         })
     }
 
@@ -1177,12 +1219,17 @@ where
         timeout: Option<Duration>,
     ) -> BoxFuture<'_, Result<(), Error>> {
         Box::pin(async move {
-            use crate::camera::controls::zoom::ZoomControl;
-            self.inner.camera.zoom_wide(speed).await?;
             if let Some(t) = timeout {
-                self.inner.camera.await_zoom_idle(t).await?;
+                use crate::command::zoom::Zoom;
+                let command = match speed {
+                    Some(speed) => Zoom::WideVariable(speed),
+                    None => Zoom::WideStd,
+                };
+                self.execute_command_with_timeout(command, t).await
+            } else {
+                use crate::camera::controls::zoom::ZoomControl;
+                self.inner.camera.zoom_wide(speed).await
             }
-            Ok(())
         })
     }
 
@@ -1205,12 +1252,7 @@ where
     fn set_zoom_op(&self, position: ZoomPosition) -> BoxFuture<'_, Result<InFlightDyn, Error>> {
         Box::pin(async move {
             let handle = self.inner.camera.set_zoom_op(position).await?;
-            Ok(InFlightDyn::new(
-                handle.id(),
-                self.inner.camera.camera_id(),
-                OperationCategory::Zoom,
-                self.runtime_dyn(),
-            ))
+            self.erase_inflight(handle, OperationCategory::Zoom)
         })
     }
 
@@ -1226,15 +1268,31 @@ where
         timeout: Option<Duration>,
     ) -> BoxFuture<'_, Result<(), Error>> {
         Box::pin(async move {
-            use crate::camera::controls::zoom::ZoomControl;
-            self.inner
-                .camera
-                .zoom_absolute_normalized(position, domain)
-                .await?;
             if let Some(t) = timeout {
-                self.inner.camera.await_zoom_idle(t).await?;
+                if domain == ZoomDomain::OpticalPlusDigital && P::DIGITAL_ZOOM_MAX.is_none() {
+                    return Err(Error::FeatureNotSupported {
+                        feature: "Digital zoom",
+                    });
+                }
+
+                let zoom_position = ZoomPosition::from_normalized(
+                    position,
+                    domain,
+                    P::OPTICAL_ZOOM_MAX,
+                    P::DIGITAL_ZOOM_MAX,
+                )?;
+                self.execute_command_with_timeout(
+                    crate::command::zoom::Zoom::Position(zoom_position),
+                    t,
+                )
+                .await
+            } else {
+                use crate::camera::controls::zoom::ZoomControl;
+                self.inner
+                    .camera
+                    .zoom_absolute_normalized(position, domain)
+                    .await
             }
-            Ok(())
         })
     }
 }
@@ -1243,11 +1301,7 @@ where
 #[cfg(feature = "dyn-api")]
 impl<P, Tr, Exec> DynFocusControl for DynCamera<P, Tr, Exec>
 where
-    P: crate::capabilities::Profile
-        + crate::capabilities::ProfileMetadata
-        + crate::capabilities::PanTilt
-        + crate::capabilities::zoom::Zoom
-        + Default,
+    P: crate::capabilities::Profile + Default,
     Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
     Exec: crate::executor::Executor,
 {
@@ -1300,12 +1354,7 @@ where
     fn set_focus_op(&self, position: FocusPosition) -> BoxFuture<'_, Result<InFlightDyn, Error>> {
         Box::pin(async move {
             let handle = self.inner.camera.set_focus_op(position).await?;
-            Ok(InFlightDyn::new(
-                handle.id(),
-                self.inner.camera.camera_id(),
-                OperationCategory::Focus,
-                self.runtime_dyn(),
-            ))
+            self.erase_inflight(handle, OperationCategory::Focus)
         })
     }
 
@@ -1337,11 +1386,7 @@ where
 #[cfg(feature = "dyn-api")]
 impl<P, Tr, Exec> DynPresetsControl for DynCamera<P, Tr, Exec>
 where
-    P: crate::capabilities::Profile
-        + crate::capabilities::ProfileMetadata
-        + crate::capabilities::PanTilt
-        + crate::capabilities::zoom::Zoom
-        + Default,
+    P: crate::capabilities::Profile + Default,
     Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
     Exec: crate::executor::Executor,
 {
@@ -1364,12 +1409,7 @@ where
     fn preset_recall_op(&self, preset: PresetNumber) -> BoxFuture<'_, Result<InFlightDyn, Error>> {
         Box::pin(async move {
             let handle = self.inner.camera.preset_recall_op(preset).await?;
-            Ok(InFlightDyn::new(
-                handle.id(),
-                self.inner.camera.camera_id(),
-                OperationCategory::Preset,
-                self.runtime_dyn(),
-            ))
+            self.erase_inflight(handle, OperationCategory::Preset)
         })
     }
 
@@ -1388,12 +1428,7 @@ where
 #[cfg(feature = "dyn-api")]
 impl<P, Tr, Exec> DynMotionControl for DynCamera<P, Tr, Exec>
 where
-    P: crate::capabilities::Profile
-        + crate::capabilities::ProfileMetadata
-        + crate::capabilities::PanTilt
-        + crate::capabilities::zoom::Zoom
-        + crate::capabilities::focus::Focus
-        + Default,
+    P: crate::capabilities::Profile + Default,
     Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
     Exec: crate::executor::Executor,
 {
@@ -1420,6 +1455,22 @@ where
             pt_result.and(zoom_result).and(focus_result)
         })
     }
+
+    fn await_idle(&self, timeout: Duration) -> BoxFuture<'_, Result<(), Error>> {
+        Box::pin(self.inner.camera.await_idle(timeout))
+    }
+
+    fn await_pan_tilt_idle(&self, timeout: Duration) -> BoxFuture<'_, Result<(), Error>> {
+        Box::pin(self.inner.camera.await_pan_tilt_idle(timeout))
+    }
+
+    fn await_zoom_idle(&self, timeout: Duration) -> BoxFuture<'_, Result<(), Error>> {
+        Box::pin(self.inner.camera.await_zoom_idle(timeout))
+    }
+
+    fn await_focus_idle(&self, timeout: Duration) -> BoxFuture<'_, Result<(), Error>> {
+        Box::pin(self.inner.camera.await_focus_idle(timeout))
+    }
 }
 
 /// Extension trait to convert an async camera into a dyn-compatible wrapper.
@@ -1435,8 +1486,7 @@ pub trait IntoDynCamera {
     /// Convert this camera into a `DynCamera` wrapper for trait object usage.
     fn into_dyn(self) -> DynCamera<Self::Profile, Self::Transport, Self::Executor>
     where
-        Self::Profile:
-            crate::capabilities::Profile + crate::capabilities::ProfileMetadata + Default,
+        Self::Profile: crate::capabilities::Profile + Default,
         Self::Transport: crate::transport::AsyncTransport + Send + Sync + 'static,
         Self::Executor: crate::executor::Executor;
 }
@@ -1444,7 +1494,7 @@ pub trait IntoDynCamera {
 #[cfg(feature = "dyn-api")]
 impl<P, Tr, Exec> IntoDynCamera for crate::camera::Camera<crate::mode::Async, P, Tr, Exec>
 where
-    P: crate::capabilities::Profile + crate::capabilities::ProfileMetadata + Default,
+    P: crate::capabilities::Profile + Default,
     Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
     Exec: crate::executor::Executor,
 {

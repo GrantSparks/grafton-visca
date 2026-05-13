@@ -507,6 +507,7 @@ fn test_dyn_api_public_contract() {
         DynCameraControl, DynFocusControl, DynMotionControl, DynPanTiltControl, DynPresetsControl,
         DynZoomControl, InFlightDyn, IntoDynCamera,
     };
+    use grafton_visca::{capabilities::Capabilities, mode::BoxFuture, Error, StateCache};
 
     fn _assert_dyn_camera_object_safe(_: &dyn DynCameraControl) {}
     fn _assert_pan_tilt_object_safe(_: &dyn DynPanTiltControl) {}
@@ -516,6 +517,24 @@ fn test_dyn_api_public_contract() {
     fn _assert_motion_object_safe(_: &dyn DynMotionControl) {}
 
     fn _assert_into_dyn_bound<T: IntoDynCamera>() {}
+    fn _assert_control_accessors(camera: &dyn DynCameraControl) {
+        let _: &Capabilities = camera.capabilities();
+        let _: &dyn DynPanTiltControl = camera.pan_tilt();
+        let _: &dyn DynZoomControl = camera.zoom();
+        let _: &dyn DynFocusControl = camera.focus();
+        let _: &dyn DynPresetsControl = camera.presets();
+        let _: &dyn DynMotionControl = camera.motion();
+        let _: &StateCache = camera.state_cache();
+    }
+
+    fn _assert_motion_waits(motion: &dyn DynMotionControl) {
+        fn assert_box_future(_: BoxFuture<'_, Result<(), Error>>) {}
+
+        assert_box_future(motion.await_idle(Duration::from_secs(1)));
+        assert_box_future(motion.await_pan_tilt_idle(Duration::from_secs(1)));
+        assert_box_future(motion.await_zoom_idle(Duration::from_secs(1)));
+        assert_box_future(motion.await_focus_idle(Duration::from_secs(1)));
+    }
 
     let _: PhantomData<Box<dyn DynCameraControl + Send + Sync>> = PhantomData;
     let _: PhantomData<fn() -> InFlightDyn> = PhantomData;

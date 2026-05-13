@@ -25,7 +25,7 @@ quirks are handled as reproducible bugs.
 | Runtime-agnostic async | `mode-async` with caller-provided executor/runtime | `cargo test --no-default-features --features mode-async` |
 | Tokio async | `runtime-tokio`, `TokioRuntime`, Tokio TCP/UDP adapters | `cargo test --no-default-features --features runtime-tokio` |
 | smol async | `runtime-smol`, `SmolRuntime`, smol TCP/UDP adapters | `cargo test --no-default-features --features runtime-smol` |
-| Dynamic API | `dyn-api` object-safe camera traits for async cameras | `cargo test --no-default-features --features runtime-tokio,dyn-api,test-utils --test dyn_api_integration_test`, plus smol compile/test coverage |
+| Dynamic API | `dyn-api` object-safe camera traits for async cameras, with runtime capabilities, command-completion timeouts, and cancellable in-flight handles | `cargo test --no-default-features --features runtime-tokio,dyn-api,test-utils --test dyn_api_integration_test`, `cargo test --no-default-features --features runtime-smol,dyn-api,test-utils --test dyn_api_smol_integration_test` |
 
 ### Transports
 
@@ -53,7 +53,7 @@ quirks are handled as reproducible bugs.
 | `serde` | Stable serialization/deserialization for public value and configuration types |
 | `schemars` | Stable JSON Schema generation for serde-backed public types |
 | `ts-rs` | Stable TypeScript type generation for supported exported types |
-| `dyn-api` | Stable object-safe async camera traits |
+| `dyn-api` | Stable object-safe async camera traits with command timeout and cancellation support |
 | `test-utils` | Stable deterministic test transports and helpers for downstream tests |
 
 ---
@@ -174,7 +174,7 @@ let config = CameraConfig::<PtzOpticsG2>::new()
 | `serde`                | Serialize/Deserialize for all types        |
 | `schemars`             | JSON Schema generation                     |
 | `ts-rs`                | TypeScript type generation                 |
-| `dyn-api`              | Object-safe camera traits                  |
+| `dyn-api`              | Object-safe async camera traits            |
 
 ---
 

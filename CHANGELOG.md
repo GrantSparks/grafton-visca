@@ -30,6 +30,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Migration**: Replace `runtime-async-std` with `runtime-smol` in `Cargo.toml`; replace `AsyncStdRuntime::new()` with `SmolRuntime::new()`
 - CI, pre-commit hooks, and documentation no longer reference async-std
 
+#### First-Class `dyn-api` Contract (#514)
+- **BREAKING**: `DynCameraControl` now exposes direct control-family accessors (`pan_tilt()`, `zoom()`, `focus()`, `presets()`, and `motion()`) plus `capabilities()` for runtime feature discovery; the old optional `as_*` accessor shape was removed
+- **BREAKING**: `InFlightDyn::await_completion()` is a one-shot wait on the command's own VISCA response future, matching the static `InFlight` contract instead of approximating completion through category-level idle polling
+- Dynamic movement timeout parameters now apply to command completion responses consistently; physical idle waits are available explicitly through `DynMotionControl::await_idle()` and the axis-specific idle wait methods
+- Dynamic in-flight handles now preserve command errors, cancellation results, and timeout behavior from the static response future
+
 ### Added
 
 #### Blocking Camera-First Accessors (#510)
@@ -62,7 +68,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 #### 1.0 Support Matrix (#513, #514)
 - README and contributor docs now declare the supported runtime, transport, profile, and optional-feature matrix for the 1.0 contract
 - CI feature coverage now includes explicit blocking detection, blocking serial, Tokio serial, serde/schemars/ts-rs, dyn-api, and Tokio/smol runtime coexistence entries
-- `dyn-api` is treated as a first-class 1.0 feature with public API contract coverage and runtime integration tests
+- `dyn-api` is treated as a first-class 1.0 feature with public API contract coverage plus Tokio and smol runtime integration tests
 
 #### PTZOptics Profiles Disable Iris
 - PTZOptics G2, G3, and 30X profiles now set `IRIS_RANGE: None` and exclude `ExposureMode::Iris` from their supported modes, reflecting hardware behaviour observed on real devices

@@ -5,14 +5,16 @@
 //!
 //! - **Socket-safe cancellation**: Cancel commands by ID without needing to know
 //!   which socket they're using. The runtime handles socket resolution automatically.
-//! - **Type-directed completion waits**: Each handle knows which completion waiter
-//!   to use based on the command category (pan/tilt, zoom, focus, or preset).
+//! - **Exact completion waits**: Each handle owns the response future for the
+//!   command it represents, so completion and command errors are never inferred
+//!   from later movement state.
 //!
 //! # Design
 //!
-//! The design uses zero-sized type (ZST) markers to encode completion categories
-//! at compile time. This provides type-safe dispatch to the correct waiter without
-//! runtime overhead or dynamic dispatch.
+//! The design uses zero-sized type (ZST) markers to preserve the command category
+//! in the type system while the handle stores the command's own response future.
+//! Cancellation stays ID-based, and completion waits are tied to the exact VISCA
+//! response channel returned when the command was submitted.
 //!
 //! # Example
 //!
@@ -26,7 +28,7 @@
 //! // Start a pan/tilt operation and get a typed handle
 //! let handle = camera.pan_tilt().pan_tilt_absolute_op(45.0, 15.0, SpeedLevel::Fast).await?;
 //!
-//! // Wait for completion (automatically uses await_pan_tilt_idle)
+//! // Wait for the command's own completion response
 //! handle.await_completion(Duration::from_secs(5)).await?;
 //!
 //! // Or cancel the operation
@@ -259,10 +261,23 @@ where
             .ok_or_else(|| Error::InvalidState("await_completion called more than once".into()))?;
 
         // Use the executor's timeout mechanism to enforce the deadline
-        match self.runtime.timeout(timeout, future).await {
-            Ok(_response) => Ok(()),
-            Err(e) => Err(e),
-        }
+        self.runtime.timeout(timeout, future).await?.map(|_| ())
+    }
+
+    /// Consume this handle and return the parts needed for type-erased handling.
+    ///
+    /// This is used by the dynamic API so `InFlightDyn` can preserve the exact
+    /// command response future from the static API instead of approximating
+    /// completion with category-level idle polling.
+    #[cfg(feature = "dyn-api")]
+    pub(crate) fn into_parts(self) -> Result<(CommandId, CameraId, ResponseFuture)> {
+        let response_future = self
+            .response_future
+            .into_inner()
+            .map_err(|_| Error::LockPoisoned("InFlight response_future"))?
+            .ok_or_else(|| Error::InvalidState("await_completion called more than once".into()))?;
+
+        Ok((self.id, self.camera_id, response_future))
     }
 }
 

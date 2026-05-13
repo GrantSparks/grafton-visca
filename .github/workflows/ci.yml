@@ -240,6 +240,7 @@ jobs:
           - "serde,schemars,ts-rs"
           - "runtime-tokio,dyn-api,test-utils"
           - "runtime-smol,dyn-api"
+          - "runtime-smol,dyn-api,test-utils"
     steps:
       - uses: actions/checkout@v6
 
@@ -422,6 +423,7 @@ jobs:
             "serde,schemars,ts-rs"
             "runtime-tokio,dyn-api,test-utils"
             "runtime-smol,dyn-api"
+            "runtime-smol,dyn-api,test-utils"
           )
 
           for feature in "${features[@]}"; do

@@ -3,27 +3,29 @@
 //! These tests verify that the dynamic trait object API works correctly,
 //! including object safety, blanket implementations, and timeout handling.
 //!
-//! Note: Tests using explicit timeout parameters (`Some(Duration)`) are more complex
-//! because they require simulating the movement idle detection mechanism. The basic
-//! tests here focus on the `timeout: None` path which uses standard command completion.
+//! The tests cover both the default timeout path and explicit per-call
+//! command-completion deadlines.
 
 #![cfg(all(feature = "dyn-api", feature = "runtime-tokio", feature = "test-utils"))]
 
 mod common;
 
-use std::sync::Arc;
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use grafton_visca::{
     camera::{profiles::PtzOpticsG2, CameraBuilder},
     command::preset::PresetNumber,
     dynapi::{
-        DynCameraControl, DynFocusControl, DynPanTiltControl, DynPresetsControl, DynZoomControl,
-        IntoDynCamera,
+        DynCameraControl, DynFocusControl, DynMotionControl, DynPanTiltControl, DynPresetsControl,
+        DynZoomControl, IntoDynCamera,
     },
     runtime::TokioRuntime,
-    testing::testkit::{helpers, ScriptedTransport},
+    testing::testkit::{helpers, scripted_transport::Step, ScriptedTransport},
     types::SpeedLevel,
-    TokioExecutor,
+    Error, TokioExecutor,
 };
 
 use crate::common::patterns;
@@ -36,6 +38,7 @@ fn test_dyn_traits_are_object_safe() {
     fn _assert_zoom_control(_: &dyn DynZoomControl) {}
     fn _assert_focus_control(_: &dyn DynFocusControl) {}
     fn _assert_presets_control(_: &dyn DynPresetsControl) {}
+    fn _assert_motion_control(_: &dyn DynMotionControl) {}
 
     // This test passes if it compiles - the functions above prove object safety.
 }
@@ -55,26 +58,22 @@ async fn test_dyn_camera_creation_and_capability_accessors() {
     // Convert to DynCamera
     let dyn_camera = camera.into_dyn();
 
-    // Test capability accessors
+    // Test capability metadata and core control accessors
     let camera_control: &dyn DynCameraControl = &dyn_camera;
+    let capabilities = camera_control.capabilities();
 
     // PtzOpticsG2 has all capabilities
-    assert!(
-        camera_control.as_pan_tilt().is_some(),
-        "Should have pan/tilt control"
-    );
-    assert!(
-        camera_control.as_zoom().is_some(),
-        "Should have zoom control"
-    );
-    assert!(
-        camera_control.as_focus().is_some(),
-        "Should have focus control"
-    );
-    assert!(
-        camera_control.as_presets().is_some(),
-        "Should have preset control"
-    );
+    assert!(capabilities.has_pan_tilt, "Should have pan/tilt control");
+    assert!(capabilities.has_zoom, "Should have zoom control");
+    assert!(capabilities.has_focus, "Should have focus control");
+    assert!(capabilities.has_presets, "Should have preset control");
+    assert_eq!(capabilities.model_name, "PtzOptics G2");
+
+    let _ = camera_control.pan_tilt();
+    let _ = camera_control.zoom();
+    let _ = camera_control.focus();
+    let _ = camera_control.presets();
+    let _ = camera_control.motion();
 }
 
 /// Test pan/tilt operations through the dyn-api without timeout.
@@ -93,9 +92,7 @@ async fn test_dyn_pan_tilt_home_no_timeout() {
         .expect("Failed to create camera");
 
     let dyn_camera = camera.into_dyn();
-    let pt = dyn_camera
-        .as_pan_tilt()
-        .expect("Should have pan/tilt control");
+    let pt = dyn_camera.pan_tilt();
 
     // Call pan_tilt_home without timeout (uses default timeout)
     let result = pt.pan_tilt_home(None).await;
@@ -103,6 +100,163 @@ async fn test_dyn_pan_tilt_home_no_timeout() {
         result.is_ok(),
         "pan_tilt_home should succeed: {:?}",
         result.err()
+    );
+}
+
+/// Explicit dyn method timeouts wait on the command response future and
+/// propagate camera errors instead of treating any completed response as success.
+#[tokio::test]
+async fn test_dyn_method_explicit_timeout_path_propagates_command_errors() {
+    let transport: ScriptedTransport<TokioExecutor> =
+        ScriptedTransport::new(vec![helpers::errors::syntax_error(1)]);
+
+    let runtime = TokioRuntime::from_current().expect("Failed to get runtime");
+    let camera = CameraBuilder::with_executor(runtime)
+        .open_async::<PtzOpticsG2, _>(transport)
+        .await
+        .expect("Failed to create camera");
+
+    let dyn_camera = camera.into_dyn();
+    let result = dyn_camera
+        .pan_tilt()
+        .pan_tilt_home(Some(Duration::from_secs(1)))
+        .await;
+
+    assert!(
+        matches!(result, Err(Error::SyntaxError)),
+        "camera syntax error should propagate through dyn method timeout path: {result:?}"
+    );
+}
+
+/// Dyn operation handles preserve the exact command response future from the
+/// static handle, so command errors are returned by await_completion.
+#[tokio::test]
+async fn test_dyn_inflight_await_completion_propagates_command_errors() {
+    let transport: ScriptedTransport<TokioExecutor> =
+        ScriptedTransport::new(vec![helpers::errors::syntax_error(1)]);
+
+    let runtime = TokioRuntime::from_current().expect("Failed to get runtime");
+    let camera = CameraBuilder::with_executor(runtime)
+        .open_async::<PtzOpticsG2, _>(transport)
+        .await
+        .expect("Failed to create camera");
+
+    let dyn_camera = camera.into_dyn();
+    let handle = dyn_camera
+        .pan_tilt()
+        .pan_tilt_home_op()
+        .await
+        .expect("operation handle should be created before the response arrives");
+
+    let result = handle.await_completion(Duration::from_secs(1)).await;
+    assert!(
+        matches!(result, Err(Error::SyntaxError)),
+        "camera syntax error should propagate through InFlightDyn: {result:?}"
+    );
+}
+
+/// Awaiting a dyn operation consumes its response future, matching the static
+/// InFlight contract.
+#[tokio::test]
+async fn test_dyn_inflight_await_completion_is_one_shot() {
+    let transport: ScriptedTransport<TokioExecutor> =
+        ScriptedTransport::new(vec![helpers::command_response(
+            patterns::pan_tilt::HOME.to_vec(),
+            1,
+        )]);
+
+    let runtime = TokioRuntime::from_current().expect("Failed to get runtime");
+    let camera = CameraBuilder::with_executor(runtime)
+        .open_async::<PtzOpticsG2, _>(transport)
+        .await
+        .expect("Failed to create camera");
+
+    let dyn_camera = camera.into_dyn();
+    let handle = dyn_camera
+        .pan_tilt()
+        .pan_tilt_home_op()
+        .await
+        .expect("operation handle should be created");
+
+    handle
+        .await_completion(Duration::from_secs(1))
+        .await
+        .expect("first completion wait should succeed");
+
+    let second = handle.await_completion(Duration::from_secs(1)).await;
+    assert!(
+        matches!(second, Err(Error::InvalidState(ref message)) if message.contains("await_completion called more than once")),
+        "second completion wait should be rejected: {second:?}"
+    );
+}
+
+/// Cancelling a dyn operation should fail that operation's completion future
+/// with the VISCA cancellation error.
+#[tokio::test]
+async fn test_dyn_inflight_cancel_propagates_command_canceled() {
+    let transport: ScriptedTransport<TokioExecutor> = ScriptedTransport::new(vec![
+        Step::OnSend {
+            matches: Some(patterns::pan_tilt::HOME.to_vec()),
+            responses: vec![helpers::ack(1)],
+        },
+        Step::OnSend {
+            matches: Some(vec![0x81, 0x21, 0xFF]),
+            responses: vec![vec![0x90, 0x61, 0x04, 0xFF]],
+        },
+    ]);
+
+    let runtime = TokioRuntime::from_current().expect("Failed to get runtime");
+    let camera = CameraBuilder::with_executor(runtime)
+        .open_async::<PtzOpticsG2, _>(transport)
+        .await
+        .expect("Failed to create camera");
+
+    let dyn_camera = camera.into_dyn();
+    let handle = dyn_camera
+        .pan_tilt()
+        .pan_tilt_home_op()
+        .await
+        .expect("operation handle should be created");
+
+    tokio::time::sleep(Duration::from_millis(10)).await;
+    handle.cancel().await.expect("cancel should be submitted");
+
+    let result = handle.await_completion(Duration::from_secs(1)).await;
+    assert!(
+        matches!(result, Err(Error::CommandCanceled)),
+        "cancelled dyn operation should resolve as CommandCanceled: {result:?}"
+    );
+}
+
+/// Methods without a public static `_op` variant still apply explicit dyn
+/// timeouts to command completion, not to a later idle poll.
+#[tokio::test]
+async fn test_dyn_zoom_tele_explicit_timeout_uses_command_completion_deadline() {
+    let transport: ScriptedTransport<TokioExecutor> = ScriptedTransport::new(vec![Step::OnSend {
+        matches: Some(vec![0x81, 0x01, 0x04, 0x07, 0x02, 0xFF]),
+        responses: vec![helpers::ack(1)],
+    }]);
+
+    let runtime = TokioRuntime::from_current().expect("Failed to get runtime");
+    let camera = CameraBuilder::with_executor(runtime)
+        .open_async::<PtzOpticsG2, _>(transport)
+        .await
+        .expect("Failed to create camera");
+
+    let dyn_camera = camera.into_dyn();
+    let started = Instant::now();
+    let result = dyn_camera
+        .zoom()
+        .zoom_tele(None, Some(Duration::from_millis(50)))
+        .await;
+
+    assert!(
+        matches!(result, Err(Error::Timeout)),
+        "missing completion should use explicit dyn timeout: {result:?}"
+    );
+    assert!(
+        started.elapsed() < Duration::from_secs(1),
+        "explicit dyn timeout should not wait for the default command timeout"
     );
 }
 
@@ -122,9 +276,7 @@ async fn test_dyn_pan_tilt_reset() {
         .expect("Failed to create camera");
 
     let dyn_camera = camera.into_dyn();
-    let pt = dyn_camera
-        .as_pan_tilt()
-        .expect("Should have pan/tilt control");
+    let pt = dyn_camera.pan_tilt();
 
     // Call pan_tilt_reset without timeout (uses default timeout)
     let result = pt.pan_tilt_reset(None).await;
@@ -150,9 +302,7 @@ async fn test_dyn_pan_tilt_stop() {
         .expect("Failed to create camera");
 
     let dyn_camera = camera.into_dyn();
-    let pt = dyn_camera
-        .as_pan_tilt()
-        .expect("Should have pan/tilt control");
+    let pt = dyn_camera.pan_tilt();
 
     let result = pt.pan_tilt_stop().await;
     assert!(
@@ -179,7 +329,7 @@ async fn test_dyn_zoom_operations() {
         .expect("Failed to create camera");
 
     let dyn_camera = camera.into_dyn();
-    let zoom = dyn_camera.as_zoom().expect("Should have zoom control");
+    let zoom = dyn_camera.zoom();
 
     // Test zoom stop
     let stop_result = zoom.zoom_stop().await;
@@ -213,7 +363,7 @@ async fn test_dyn_focus_operations() {
         .expect("Failed to create camera");
 
     let dyn_camera = camera.into_dyn();
-    let focus = dyn_camera.as_focus().expect("Should have focus control");
+    let focus = dyn_camera.focus();
 
     // Test focus auto
     let auto_result = focus.focus_auto().await;
@@ -247,7 +397,7 @@ async fn test_dyn_preset_operations() {
         .expect("Failed to create camera");
 
     let dyn_camera = camera.into_dyn();
-    let presets = dyn_camera.as_presets().expect("Should have preset control");
+    let presets = dyn_camera.presets();
 
     let preset_num = PresetNumber::new(1).expect("Valid preset number");
 
@@ -283,7 +433,7 @@ async fn test_dyn_preset_reset() {
         .expect("Failed to create camera");
 
     let dyn_camera = camera.into_dyn();
-    let presets = dyn_camera.as_presets().expect("Should have preset control");
+    let presets = dyn_camera.presets();
 
     let preset_num = PresetNumber::new(0).expect("Valid preset number");
 
@@ -300,12 +450,8 @@ async fn test_dyn_preset_reset() {
 async fn test_dyn_api_polymorphism() {
     // This function demonstrates using trait objects for runtime polymorphism
     async fn control_camera(camera: &dyn DynCameraControl) -> grafton_visca::Result<()> {
-        if let Some(pt) = camera.as_pan_tilt() {
-            pt.pan_tilt_stop().await?;
-        }
-        if let Some(zoom) = camera.as_zoom() {
-            zoom.zoom_stop().await?;
-        }
+        camera.pan_tilt().pan_tilt_stop().await?;
+        camera.zoom().zoom_stop().await?;
         Ok(())
     }
 
@@ -350,10 +496,10 @@ async fn test_dyn_camera_in_box() {
     let boxed: Box<dyn DynCameraControl> = Box::new(dyn_camera);
 
     // Use through the boxed trait object
-    assert!(boxed.as_pan_tilt().is_some());
-    assert!(boxed.as_zoom().is_some());
-    assert!(boxed.as_focus().is_some());
-    assert!(boxed.as_presets().is_some());
+    assert!(boxed.capabilities().has_pan_tilt);
+    assert!(boxed.capabilities().has_zoom);
+    assert!(boxed.capabilities().has_focus);
+    assert!(boxed.capabilities().has_presets);
 }
 
 /// Test that DynCamera can be stored in an Arc for shared access.
@@ -378,10 +524,8 @@ async fn test_dyn_camera_in_arc() {
     let arc_clone = Arc::clone(&arc_camera);
 
     // Use through the Arc
-    if let Some(pt) = arc_clone.as_pan_tilt() {
-        let result = pt.pan_tilt_stop().await;
-        assert!(result.is_ok(), "Should succeed through Arc");
-    }
+    let result = arc_clone.pan_tilt().pan_tilt_stop().await;
+    assert!(result.is_ok(), "Should succeed through Arc");
 }
 
 /// Test pan_tilt_absolute through dyn-api.
@@ -399,9 +543,7 @@ async fn test_dyn_pan_tilt_absolute() {
         .expect("Failed to create camera");
 
     let dyn_camera = camera.into_dyn();
-    let pt = dyn_camera
-        .as_pan_tilt()
-        .expect("Should have pan/tilt control");
+    let pt = dyn_camera.pan_tilt();
 
     // Test absolute positioning without timeout
     let result = pt
@@ -427,9 +569,7 @@ async fn test_dyn_pan_tilt_relative() {
         .expect("Failed to create camera");
 
     let dyn_camera = camera.into_dyn();
-    let pt = dyn_camera
-        .as_pan_tilt()
-        .expect("Should have pan/tilt control");
+    let pt = dyn_camera.pan_tilt();
 
     // Test relative positioning without timeout (uses default timeout)
     let result = pt
