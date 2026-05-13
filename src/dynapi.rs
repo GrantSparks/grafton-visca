@@ -274,11 +274,8 @@ impl std::fmt::Display for OperationCategory {
 #[cfg(feature = "dyn-api")]
 pub(crate) trait RuntimeDyn: Send + Sync {
     /// Cancel a command by its ID using the specified camera address.
-    fn cancel(
-        &self,
-        camera_id: crate::camera_id::CameraId,
-        id: CommandId,
-    ) -> BoxFuture<'_, Result<(), Error>>;
+    fn cancel(&self, camera_id: crate::CameraId, id: CommandId)
+        -> BoxFuture<'_, Result<(), Error>>;
 
     /// Wait for operations of a specific category to become idle.
     fn await_category_idle(
@@ -317,7 +314,7 @@ pub struct InFlightDyn {
     /// The command ID assigned by the runtime.
     id: CommandId,
     /// Camera ID for addressing cancel messages.
-    camera_id: crate::camera_id::CameraId,
+    camera_id: crate::CameraId,
     /// The operation category for this handle.
     category: OperationCategory,
     /// Reference to the runtime for cancellation and completion waiting.
@@ -329,7 +326,7 @@ impl InFlightDyn {
     /// Create a new type-erased in-flight handle.
     pub(crate) fn new(
         id: CommandId,
-        camera_id: crate::camera_id::CameraId,
+        camera_id: crate::CameraId,
         category: OperationCategory,
         runtime: Arc<dyn RuntimeDyn>,
     ) -> Self {
@@ -476,7 +473,7 @@ pub trait DynCameraControl: Send + Sync {
     ///     println!("Pan/tilt limits configured");
     /// }
     /// ```
-    fn state_cache(&self) -> &crate::cache::StateCache;
+    fn state_cache(&self) -> &crate::StateCache;
 }
 
 /// Object-safe motion control trait.
@@ -881,7 +878,7 @@ where
 {
     fn cancel(
         &self,
-        camera_id: crate::camera_id::CameraId,
+        camera_id: crate::CameraId,
         id: CommandId,
     ) -> BoxFuture<'_, Result<(), Error>> {
         Box::pin(self.camera.runtime().cancel(camera_id, id))
@@ -950,7 +947,7 @@ where
         Some(self)
     }
 
-    fn state_cache(&self) -> &crate::cache::StateCache {
+    fn state_cache(&self) -> &crate::StateCache {
         self.inner.camera.state_cache()
     }
 }

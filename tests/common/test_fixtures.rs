@@ -161,11 +161,6 @@ pub mod generators {
         vec![0, 1, 2, 3, 4, 5, 10, 15, 20, 50, 99, 127]
     }
 
-    /// Alias for preset_ids for backward compatibility
-    pub fn preset_numbers() -> Vec<u8> {
-        preset_ids()
-    }
-
     /// Generate exposure mode values
     pub fn exposure_modes() -> Vec<u8> {
         vec![

@@ -1,0 +1,16 @@
+error[E0603]: module `visca_socket` is private
+ --> tests/api_contract/fail/visca_socket_module_is_internal.rs:2:28
+  |
+2 |     let _ = grafton_visca::visca_socket::ViscaSocket::S1;
+  |                            ^^^^^^^^^^^^ private module
+  |
+note: the module `visca_socket` is defined here
+ --> src/lib.rs
+  |
+  | mod visca_socket;
+  | ^^^^^^^^^^^^^^^^
+help: consider importing this unit variant instead
+  |
+2 -     let _ = grafton_visca::visca_socket::ViscaSocket::S1;
+2 +     let _ = grafton_visca::ViscaSocket::S1;
+  |

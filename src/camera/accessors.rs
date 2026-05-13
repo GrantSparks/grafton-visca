@@ -1299,6 +1299,54 @@ where
     {
         self.camera.tally_green_off()
     }
+
+    /// Query green tally light state.
+    pub fn green_status(&self) -> M::Fut<'_, Result<bool, Error>>
+    where
+        Camera<M, P, Tr, Exec>: TallyControl<Mode = M>,
+    {
+        self.camera.green_tally_status()
+    }
+
+    /// Set tally brightness to low.
+    pub fn bright_lo(&self) -> M::Fut<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: TallyControl<Mode = M>,
+    {
+        self.camera.tally_bright_lo()
+    }
+
+    /// Set tally brightness to high.
+    pub fn bright_hi(&self) -> M::Fut<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: TallyControl<Mode = M>,
+    {
+        self.camera.tally_bright_hi()
+    }
+
+    /// Flash the tally light.
+    pub fn flash(&self) -> M::Fut<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: TallyControl<Mode = M>,
+    {
+        self.camera.tally_flash()
+    }
+
+    /// Turn the tally light system on.
+    pub fn on(&self) -> M::Fut<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: TallyControl<Mode = M>,
+    {
+        self.camera.tally_on()
+    }
+
+    /// Turn the tally light system off.
+    pub fn off(&self) -> M::Fut<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: TallyControl<Mode = M>,
+    {
+        self.camera.tally_off()
+    }
 }
 
 /// Access to ND filter controls and inquiries.
@@ -1347,6 +1395,38 @@ where
         Camera<M, P, Tr, Exec>: NdFilterControl<Mode = M>,
     {
         self.camera.set_nd_filter_mode(mode)
+    }
+
+    /// Set ND filter value directly.
+    pub fn set_value(&self, value: u16) -> M::Fut<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: NdFilterControl<Mode = M>,
+    {
+        self.camera.set_nd_filter_value(value)
+    }
+
+    /// Set ND filter by stop value.
+    pub fn set_stops(&self, stops: f32) -> M::Fut<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: NdFilterControl<Mode = M>,
+    {
+        self.camera.set_nd_filter_stops(stops)
+    }
+
+    /// Step ND filter up or down.
+    pub fn step(&self, direction: crate::command::NdFilterStep) -> M::Fut<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: NdFilterControl<Mode = M>,
+    {
+        self.camera.step_nd_filter(direction)
+    }
+
+    /// Enable or disable auto ND.
+    pub fn set_auto(&self, enabled: bool) -> M::Fut<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: NdFilterControl<Mode = M>,
+    {
+        self.camera.set_auto_nd(enabled)
     }
 }
 

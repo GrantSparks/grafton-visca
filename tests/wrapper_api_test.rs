@@ -16,7 +16,9 @@ use grafton_visca::{
 use grafton_visca::{camera::AsyncCamera, transport::AsyncTransport, Executor};
 
 #[cfg(all(feature = "mode-async", feature = "runtime-tokio"))]
-use grafton_visca::{units::Normalized, Error};
+use grafton_visca::{
+    runtime::TransportHandle, units::Normalized, Error, TokioExecutor, TokioRuntime,
+};
 
 #[cfg(not(feature = "mode-async"))]
 #[test]
@@ -36,7 +38,6 @@ fn test_blocking_wrapper_api() {
 #[cfg(feature = "runtime-tokio")]
 #[tokio::test]
 async fn test_async_wrapper_api() {
-    #[allow(dead_code)]
     async fn example<
         P: Profile + Default,
         T: AsyncTransport + Send + Sync + 'static,
@@ -50,6 +51,8 @@ async fn test_async_wrapper_api() {
         camera.zoom().absolute(Normalized(0.5)).await?;
         Ok(())
     }
+
+    let _ = example::<GenericVisca, TransportHandle<TokioRuntime>, TokioExecutor>;
 }
 
 #[test]

@@ -15,13 +15,12 @@
 
 use grafton_visca::{
     camera::{profiles::PtzOpticsG2, CameraBuilder},
-    camera_id::CameraId,
     command::zoom::Zoom,
     testing::testkit::{
         scripted_transport::{ScriptedTransport, Step},
         DeterministicExecutor,
     },
-    Error, Executor, ViscaSocket,
+    CameraId, Error, Executor, ViscaSocket,
 };
 
 /// Test that cancel commands use the correct camera ID for the command being cancelled
@@ -173,9 +172,8 @@ fn test_multiple_cameras_cancel_with_own_ids() {
 
 /// Test cancel by socket uses correct camera ID when command is on socket
 ///
-/// Note: cancel_socket will fall back to CAMERA_1 if no command is found on the socket.
-/// This is a known limitation for backward compatibility. In practice, you should only
-/// cancel a socket that has an active command, or use cancel() with the command ID instead.
+/// Note: cancel_socket is only meaningful for sockets that have active command context.
+/// Use cancel() with the command ID when canceling a specific operation.
 #[test]
 fn test_cancel_socket_uses_correct_camera_id() {
     // Create executor and transport

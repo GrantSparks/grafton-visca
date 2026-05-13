@@ -445,7 +445,7 @@ where
     /// let limits = camera.state_cache().pan_tilt_limits();
     /// assert!(limits.up_right().is_some());
     /// ```
-    pub fn state_cache(&self) -> &crate::cache::StateCache {
+    pub fn state_cache(&self) -> &crate::StateCache {
         &self.state_cache
     }
 }
@@ -585,7 +585,7 @@ where
     /// let limits = camera.state_cache().pan_tilt_limits();
     /// assert!(limits.up_right().is_some());
     /// ```
-    pub fn state_cache(&self) -> &crate::cache::StateCache {
+    pub fn state_cache(&self) -> &crate::StateCache {
         &self.state_cache
     }
 }
@@ -728,6 +728,24 @@ where
                     .await
             }
         })
+    }
+
+    /// Execute an arbitrary VISCA command and require a successful completion.
+    ///
+    /// This is the public escape hatch for custom or newly added command types
+    /// that are not yet covered by a typed control trait. Prefer the camera
+    /// control traits and noun accessors for built-in operations.
+    pub fn execute<C>(
+        &self,
+        command: C,
+    ) -> <crate::mode::Async as Mode>::Fut<'static, Result<(), Error>>
+    where
+        C: ViscaCommand,
+        Tr: AsyncTransport + Send + Sync,
+        Exec: Executor + Send + Sync + Clone,
+    {
+        let response = self.send_command(&command);
+        Box::pin(async move { response.await?.into_result() })
     }
 
     /// Get a reference to the runtime handle.
@@ -961,6 +979,24 @@ where
             Ok(response) => std::future::ready(Ok(response)),
             Err(e) => std::future::ready(Err(e)),
         }
+    }
+
+    /// Execute an arbitrary VISCA command and require a successful completion.
+    ///
+    /// This is the public escape hatch for custom or newly added command types
+    /// that are not yet covered by a typed control trait. Prefer the camera
+    /// control traits and noun accessors for built-in operations.
+    pub fn execute<C>(
+        &self,
+        command: C,
+    ) -> <crate::mode::Blocking as Mode>::Fut<'_, Result<(), Error>>
+    where
+        C: ViscaCommand,
+    {
+        use crate::mode::BlockingFutureExt;
+
+        let response = self.send_command(&command).block();
+        std::future::ready(response.and_then(crate::command::response::Response::into_result))
     }
 
     /// Send a typed command and return the response.

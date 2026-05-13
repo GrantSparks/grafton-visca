@@ -176,8 +176,8 @@ where
             match crate::transport::address::canonicalize_endpoint(&addr, Some(default_port)) {
                 Ok(canonical) => canonical,
                 Err(_) => {
-                    // If parsing fails, fall back to old behavior for compatibility
-                    // This handles edge cases where the input might not be a standard address
+                    // Preserve nonstandard endpoint strings so the eventual
+                    // transport connection reports the concrete resolution error.
                     if addr.contains(':') {
                         addr
                     } else {

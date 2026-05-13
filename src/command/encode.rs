@@ -7,7 +7,7 @@
 use bytes::Bytes;
 use smallvec::SmallVec;
 
-use crate::{camera_id::CameraId, error::Error, timeout::CommandCategory};
+use crate::{error::Error, timeout::CommandCategory, CameraId};
 
 use super::{bytes::FixedCommandBytes, response::InquiryKind};
 
@@ -96,7 +96,7 @@ fn check_command_structure(buffer: &[u8], len: usize) -> Result<(), Error> {
 /// # Example Implementation
 /// ```ignore
 /// # use grafton_visca::timeout::CommandCategory;
-/// # use grafton_visca::camera_id::CameraId;
+/// # use grafton_visca::CameraId;
 /// # use grafton_visca::Error;
 /// struct MyCommand;
 ///

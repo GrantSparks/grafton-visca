@@ -44,7 +44,7 @@ macro_rules! visca_command {
             const MAX_SIZE: usize = { [$($byte),*].len() + 2 }; // +2 for camera_id and terminator
             const TIMEOUT_CATEGORY: $crate::timeout::CommandCategory = $category;
 
-            fn write_into(&self, camera_id: $crate::camera_id::CameraId, buffer: &mut [u8]) -> Result<usize, $crate::Error> {
+            fn write_into(&self, camera_id: $crate::CameraId, buffer: &mut [u8]) -> Result<usize, $crate::Error> {
                 const BYTES: &[u8] = &[$($byte),*];
                 let len = BYTES.len() + 2;
 
@@ -101,7 +101,7 @@ macro_rules! visca_command {
             // Use default encoded_size() which returns MAX_SIZE.
             // This avoids double evaluation of $param_expr.
 
-            fn write_into(&self, camera_id: $crate::camera_id::CameraId, buffer: &mut [u8]) -> Result<usize, $crate::Error> {
+            fn write_into(&self, camera_id: $crate::CameraId, buffer: &mut [u8]) -> Result<usize, $crate::Error> {
                 const PREFIX: &[u8] = &[$($byte),*];
 
                 // Destructure self for use in param expression
@@ -140,8 +140,7 @@ macro_rules! visca_command {
         }
     };
 
-    // Command with parameters (without explicit max_param_size) - DEPRECATED
-    // This arm is removed to enforce explicit max_param_size for safety.
+    // Command parameters must declare max_param_size so encoding capacity is explicit.
     // All commands with parameters MUST specify max_param_size.
 }
 

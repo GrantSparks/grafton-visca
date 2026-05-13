@@ -1,7 +1,6 @@
 //! Prelude modules for convenient imports.
 //!
-//! This module provides separate preludes for async and blocking APIs,
-//! with a clear separation between high-level (blessed path) and low-level (advanced) APIs.
+//! This module provides separate preludes for async and blocking camera-first APIs.
 //!
 //! # High-Level API (Recommended)
 //!
@@ -48,26 +47,12 @@
 //! # }
 //! ```
 //!
-//! # Low-Level API (Raw)
-//!
-//! Advanced users who need direct access to transports, raw commands, or custom protocols
-//! can use the low-level API:
-//!
-//! ```ignore
-//! use grafton_visca::prelude::raw::*;
-//! use grafton_visca::transport::Transport;
-//!
-//! // Build custom transport with specific settings
-//! let transport = Transport::tcp()
-//!     .address("192.168.0.110:5678")
-//!     .connect_timeout(Duration::from_secs(10))
-//!     .build_blocking()?;
-//!
-//! // Use transport with camera builder
-//! let camera = CameraBuilder::from_transport(transport)
-//!     .profile::<PtzOpticsG2>()
-//!     .open()?;
-//! ```
+//! Advanced extension APIs remain available from their owning modules, such as
+//! [`camera`](crate::camera), [`command`](crate::command), and
+//! [`transport`](crate::transport). They are intentionally not glob-reexported
+//! from a raw prelude. For custom commands that are not represented by a typed
+//! control trait, use [`Camera::execute`](crate::Camera::execute) or
+//! [`Camera::send_command`](crate::Camera::send_command) explicitly.
 
 /// Async prelude - import this for async camera control.
 ///
@@ -76,7 +61,7 @@
 /// - Common types and error handling
 /// - Runtime support
 ///
-/// For advanced features (custom transports, raw commands), use `prelude::raw`.
+/// Import advanced extension APIs from their owning modules when needed.
 ///
 /// # Example
 /// ```no_run
@@ -113,7 +98,7 @@ pub mod r#async {
 /// - Camera profiles and type aliases
 /// - Common types and error handling
 ///
-/// For advanced features (custom transports, raw commands), use `prelude::raw`.
+/// Import advanced extension APIs from their owning modules when needed.
 ///
 /// # Example
 /// ```no_run
@@ -164,69 +149,4 @@ pub mod blocking {
 
     /// Sony FR7 camera type alias.
     pub type SonyFR7Cam<T> = Camera<SonyFR7, T>;
-}
-
-/// Raw prelude - import this for low-level and custom control.
-///
-/// This prelude provides access to raw/low-level features for power users:
-/// - Direct transport builders and configuration
-/// - Raw VISCA commands and protocol handling
-/// - Socket managers and buffer management
-/// - Custom error handling and retry logic
-///
-/// **Note:** Most users should use the high-level API in `prelude::async` or
-/// `prelude::blocking` instead. Only use these APIs if you need custom transport
-/// configuration or raw protocol access.
-///
-/// # Example
-/// ```ignore
-/// use grafton_visca::prelude::raw::*;
-/// use grafton_visca::CameraBuilder;
-/// use std::time::Duration;
-///
-/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-/// // Build a custom transport with specific settings
-/// let transport = Transport::tcp()
-///     .address("192.168.0.110:5678")
-///     .connect_timeout(Duration::from_secs(10))
-///     .tcp_nodelay(true)
-///     .build_blocking()?;
-///
-/// // Use the transport with camera builder
-/// let camera = CameraBuilder::from_transport(transport)
-///     .profile::<PtzOpticsG2>()
-///     .open()?;
-/// # Ok(())
-/// # }
-/// ```
-pub mod raw {
-    // Camera builder for advanced configuration
-    pub use crate::camera::CameraBuilder;
-    // Re-export camera profiles for convenience
-    pub use crate::camera::profiles::*;
-    // Camera ID for multi-camera setups
-    pub use crate::camera_id::CameraId;
-    // Raw command types and encoding
-    pub use crate::command::{CommandKind, InquiryData, InquiryKind, Response, ViscaCommand};
-    // Error types with retry logic
-    pub use crate::error::{Error, Result};
-    // Timeout configuration
-    pub use crate::timeout::TimeoutConfig;
-    // All the type-safe parameter types (same as high-level)
-    pub use crate::types::*;
-    pub use crate::units::*;
-    // Socket management (for custom implementations)
-    pub use crate::visca_socket::ViscaSocket;
-
-    // Runtime and executor types for async operations
-    #[cfg(feature = "mode-async")]
-    pub use crate::executor::Executor;
-    #[cfg(feature = "mode-async")]
-    pub use crate::runtime::{Runtime, TransportHandle};
-
-    // Transport traits for custom implementations
-    #[cfg(feature = "mode-async")]
-    pub use crate::transport::AsyncTransport;
-    #[cfg(not(feature = "mode-async"))]
-    pub use crate::transport::BlockingTransport;
 }

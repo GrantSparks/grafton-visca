@@ -8,7 +8,6 @@
 #![cfg(test)]
 
 use grafton_visca::{
-    camera_id::CameraId,
     command::{
         exposure::{SpotlightOff, SpotlightOn},
         tally::{
@@ -17,6 +16,7 @@ use grafton_visca::{
         },
         ViscaCommand,
     },
+    CameraId,
 };
 
 #[test]

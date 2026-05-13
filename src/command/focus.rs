@@ -73,10 +73,7 @@ impl FocusSpeed {
     ///
     /// # Errors
     /// Returns an error if the speed exceeds the model's maximum focus speed.
-    pub fn new_for_model(
-        value: u8,
-        _model: crate::constants::CameraVariant,
-    ) -> Result<Self, Error> {
+    pub fn new_for_model(value: u8, _model: crate::CameraVariant) -> Result<Self, Error> {
         // For now, use the same validation for all models
         // In the future, this could check model-specific limits
         crate::constants::validate_focus_speed(value)?;

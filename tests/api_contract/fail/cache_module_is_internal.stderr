@@ -1,0 +1,16 @@
+error[E0603]: module `cache` is private
+ --> tests/api_contract/fail/cache_module_is_internal.rs:2:28
+  |
+2 |     let _ = grafton_visca::cache::StateCache::new();
+  |                            ^^^^^ private module
+  |
+note: the module `cache` is defined here
+ --> src/lib.rs
+  |
+  | mod cache;
+  | ^^^^^^^^^
+help: consider importing this struct instead
+  |
+2 -     let _ = grafton_visca::cache::StateCache::new();
+2 +     let _ = grafton_visca::StateCache::new();
+  |

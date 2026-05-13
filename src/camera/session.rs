@@ -648,14 +648,18 @@ where
     /// copying them once into the encoded command payload.
     pub async fn send_bytes(&self, bytes: &[u8]) -> Result<(), Error> {
         let command = RawBytesRef::new(bytes, CommandKind::Command);
-        let response = self.camera.send_command(&command).await?;
+        self.camera.execute(command).await
+    }
 
-        use crate::command::response::Response;
-        match response {
-            Response::Completion { .. } => Ok(()),
-            Response::Error(e) => Err(e),
-            _ => Ok(()),
-        }
+    /// Execute a typed VISCA command and require a successful completion.
+    ///
+    /// This is the raw-command escape hatch for custom command types that are
+    /// not yet represented by a typed control method.
+    pub async fn execute<C>(&self, command: C) -> Result<(), Error>
+    where
+        C: ViscaCommand,
+    {
+        self.camera.execute(command).await
     }
 
     /// Send a typed VISCA command.
@@ -664,7 +668,7 @@ where
         command: C,
     ) -> Result<<C as ResponseParser>::Response, Error>
     where
-        C: ResponseParser + ViscaCommand + Send + Sync + Clone + std::fmt::Debug + 'static,
+        C: ResponseParser + ViscaCommand,
         <C as ResponseParser>::Response: Send + 'static,
     {
         self.camera.send_command_typed(&command).await
@@ -685,20 +689,26 @@ where
         use crate::mode::BlockingFutureExt;
 
         let command = RawBytesRef::new(bytes, CommandKind::Command);
-        let response = self.camera.send_command(&command).block()?;
+        self.camera.execute(command).block()
+    }
 
-        use crate::command::response::Response;
-        match response {
-            Response::Completion { .. } => Ok(()),
-            Response::Error(e) => Err(e),
-            _ => Ok(()),
-        }
+    /// Execute a typed VISCA command and require a successful completion.
+    ///
+    /// This is the raw-command escape hatch for custom command types that are
+    /// not yet represented by a typed control method.
+    pub fn execute<C>(&self, command: C) -> Result<(), Error>
+    where
+        C: ViscaCommand,
+    {
+        use crate::mode::BlockingFutureExt;
+
+        self.camera.execute(command).block()
     }
 
     /// Send a typed VISCA command.
     pub fn send_command<C>(&self, command: C) -> Result<<C as ResponseParser>::Response, Error>
     where
-        C: ResponseParser + ViscaCommand + Send + Sync + Clone + std::fmt::Debug + 'static,
+        C: ResponseParser + ViscaCommand,
         <C as ResponseParser>::Response: Send + 'static,
     {
         use crate::mode::BlockingFutureExt;

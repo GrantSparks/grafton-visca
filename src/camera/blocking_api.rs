@@ -112,6 +112,38 @@ where
         &mut self.inner
     }
 
+    /// Execute an arbitrary VISCA command and require a successful completion.
+    ///
+    /// This is the blocking raw-command escape hatch for custom command types
+    /// that are not yet represented by a typed control method.
+    pub fn execute<C>(&self, command: C) -> Result<(), Error>
+    where
+        P: Default,
+        Tr: crate::transport::BlockingTransport
+            + crate::transport::HasTransportConfig
+            + Send
+            + 'static,
+        C: crate::command::ViscaCommand,
+    {
+        self.inner.execute(command).block()
+    }
+
+    /// Send an arbitrary VISCA command and return the raw response.
+    ///
+    /// Prefer [`execute`](Self::execute) for command-only operations and typed
+    /// control methods for built-in commands.
+    pub fn send_command<C>(&self, command: &C) -> Result<crate::command::Response, Error>
+    where
+        P: Default,
+        Tr: crate::transport::BlockingTransport
+            + crate::transport::HasTransportConfig
+            + Send
+            + 'static,
+        C: crate::command::ViscaCommand,
+    {
+        self.inner.send_command(command).block()
+    }
+
     /// Wait for pan/tilt movement to complete.
     ///
     /// This method polls the camera position until movement stops or timeout occurs.
@@ -1160,6 +1192,36 @@ where
     pub fn green_off(&self) -> Result<(), Error> {
         self.camera.tally_green_off()
     }
+
+    /// Query green tally light state.
+    pub fn green_status(&self) -> Result<bool, Error> {
+        self.camera.green_tally_status()
+    }
+
+    /// Set tally brightness to low.
+    pub fn bright_lo(&self) -> Result<(), Error> {
+        self.camera.tally_bright_lo()
+    }
+
+    /// Set tally brightness to high.
+    pub fn bright_hi(&self) -> Result<(), Error> {
+        self.camera.tally_bright_hi()
+    }
+
+    /// Flash the tally light.
+    pub fn flash(&self) -> Result<(), Error> {
+        self.camera.tally_flash()
+    }
+
+    /// Turn the tally light system on.
+    pub fn on(&self) -> Result<(), Error> {
+        self.camera.tally_on()
+    }
+
+    /// Turn the tally light system off.
+    pub fn off(&self) -> Result<(), Error> {
+        self.camera.tally_off()
+    }
 }
 
 define_blocking_accessor!(
@@ -1273,6 +1335,26 @@ where
     /// Set ND filter mode.
     pub fn set_mode(&self, mode: crate::command::NdFilterMode) -> Result<(), Error> {
         self.camera.set_nd_filter_mode(mode)
+    }
+
+    /// Set ND filter value directly.
+    pub fn set_value(&self, value: u16) -> Result<(), Error> {
+        self.camera.set_nd_filter_value(value)
+    }
+
+    /// Set ND filter by stop value.
+    pub fn set_stops(&self, stops: f32) -> Result<(), Error> {
+        self.camera.set_nd_filter_stops(stops)
+    }
+
+    /// Step ND filter up or down.
+    pub fn step(&self, direction: crate::command::NdFilterStep) -> Result<(), Error> {
+        self.camera.step_nd_filter(direction)
+    }
+
+    /// Enable or disable auto ND.
+    pub fn set_auto(&self, enabled: bool) -> Result<(), Error> {
+        self.camera.set_auto_nd(enabled)
     }
 }
 

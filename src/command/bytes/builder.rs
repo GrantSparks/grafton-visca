@@ -124,7 +124,7 @@ impl<const N: usize> ConstCommandBuilder<N, Incomplete> {
 
     /// Add camera ID byte at the beginning of the buffer.
     /// This replaces the default 0x81 with the provided camera ID.
-    pub fn with_camera_id(mut self, camera_id: crate::camera_id::CameraId) -> Self {
+    pub fn with_camera_id(mut self, camera_id: crate::CameraId) -> Self {
         if !self.buffer.is_empty() && self.buffer[0] == crate::command::bytes::DEFAULT_CAMERA_ID {
             self.buffer[0] = camera_id.to_address_byte();
         }
@@ -160,7 +160,7 @@ impl<const N: usize> ConstCommandBuilder<N, Incomplete> {
         self
     }
 
-    /// Mutable append bytes from a slice (for backward compatibility).
+    /// Mutable append bytes from a slice.
     pub fn append_mut(&mut self, bytes: &[u8]) -> &mut Self {
         self.required += bytes.len();
         for &b in bytes {
@@ -174,7 +174,7 @@ impl<const N: usize> ConstCommandBuilder<N, Incomplete> {
         self
     }
 
-    /// Mutable push a single byte (for backward compatibility).
+    /// Mutable push a single byte.
     pub fn push_mut(&mut self, b: u8) -> &mut Self {
         self.required += 1;
         if self.position < N {
@@ -186,15 +186,15 @@ impl<const N: usize> ConstCommandBuilder<N, Incomplete> {
         self
     }
 
-    /// Mutable camera ID method (for backward compatibility).
-    pub fn with_camera_id_mut(&mut self, camera_id: crate::camera_id::CameraId) -> &mut Self {
+    /// Mutable camera ID method.
+    pub fn with_camera_id_mut(&mut self, camera_id: crate::CameraId) -> &mut Self {
         if !self.buffer.is_empty() && self.buffer[0] == crate::command::bytes::DEFAULT_CAMERA_ID {
             self.buffer[0] = camera_id.to_address_byte();
         }
         self
     }
 
-    /// Mutable VISCA-encoded 16-bit value (for backward compatibility).
+    /// Mutable VISCA-encoded 16-bit value.
     pub fn push_visca_u16_mut(&mut self, value: u16) -> &mut Self {
         self.required += 4;
         if self.position + 4 <= N {
@@ -209,7 +209,7 @@ impl<const N: usize> ConstCommandBuilder<N, Incomplete> {
         self
     }
 
-    /// Mutable nibble pair (for backward compatibility).
+    /// Mutable nibble pair.
     pub fn push_nibble_pair_mut(&mut self, value: u16) -> &mut Self {
         self.required += 2;
         if self.position + 2 <= N {

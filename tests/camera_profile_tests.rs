@@ -3,14 +3,7 @@
 //! This test suite validates the mode-based Camera API with profile capabilities.
 
 #[cfg(feature = "mode-async")]
-use grafton_visca::{
-    camera::{
-        profiles::{GenericVisca, PtzOpticsG2, SonyFR7},
-        AsyncCamera,
-    },
-    transport::AsyncTransport,
-    Executor,
-};
+use grafton_visca::{camera::AsyncCamera, transport::AsyncTransport, Executor};
 
 #[cfg(not(feature = "mode-async"))]
 use grafton_visca::{
@@ -27,29 +20,54 @@ fn test_profile_type_aliases() {
 
     #[cfg(feature = "mode-async")]
     {
-        #[allow(dead_code)]
-        fn _accepts_g2_camera_async<T, E>(_camera: AsyncCamera<PtzOpticsG2, T, E>)
-        where
-            T: AsyncTransport + Send + Sync + 'static,
-            E: Executor + Send + Sync + 'static,
+        #[cfg(feature = "runtime-tokio")]
         {
-            // AsyncCamera<P, T, E> for all runtimes
+            let _: Option<
+                AsyncCamera<
+                    grafton_visca::camera::profiles::PtzOpticsG2,
+                    (),
+                    grafton_visca::TokioExecutor,
+                >,
+            > = None;
+            let _: Option<
+                AsyncCamera<
+                    grafton_visca::camera::profiles::SonyFR7,
+                    (),
+                    grafton_visca::TokioExecutor,
+                >,
+            > = None;
+            let _: Option<
+                AsyncCamera<
+                    grafton_visca::camera::profiles::GenericVisca,
+                    (),
+                    grafton_visca::TokioExecutor,
+                >,
+            > = None;
         }
 
-        #[allow(dead_code)]
-        fn _accepts_fr7_camera_async<T, E>(_camera: AsyncCamera<SonyFR7, T, E>)
-        where
-            T: AsyncTransport + Send + Sync + 'static,
-            E: Executor + Send + Sync + 'static,
+        #[cfg(all(not(feature = "runtime-tokio"), feature = "runtime-smol"))]
         {
-        }
-
-        #[allow(dead_code)]
-        fn _accepts_generic_camera_async<T, E>(_camera: AsyncCamera<GenericVisca, T, E>)
-        where
-            T: AsyncTransport + Send + Sync + 'static,
-            E: Executor + Send + Sync + 'static,
-        {
+            let _: Option<
+                AsyncCamera<
+                    grafton_visca::camera::profiles::PtzOpticsG2,
+                    (),
+                    grafton_visca::SmolExecutor,
+                >,
+            > = None;
+            let _: Option<
+                AsyncCamera<
+                    grafton_visca::camera::profiles::SonyFR7,
+                    (),
+                    grafton_visca::SmolExecutor,
+                >,
+            > = None;
+            let _: Option<
+                AsyncCamera<
+                    grafton_visca::camera::profiles::GenericVisca,
+                    (),
+                    grafton_visca::SmolExecutor,
+                >,
+            > = None;
         }
     }
 

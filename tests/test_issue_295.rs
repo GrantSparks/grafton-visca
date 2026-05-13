@@ -15,7 +15,7 @@ fn test_tally_green_inquiry_is_detected_as_inquiry() {
 
     // Encode the command
     let mut buffer = [0u8; 32];
-    let camera_id = grafton_visca::camera_id::CameraId::default();
+    let camera_id = grafton_visca::CameraId::default();
     let _len = grafton_visca::command::ViscaCommand::write_into(&inquiry, camera_id, &mut buffer)
         .expect("Should encode");
 

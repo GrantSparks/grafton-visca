@@ -1,0 +1,16 @@
+error[E0603]: module `camera_id` is private
+ --> tests/api_contract/fail/camera_id_module_is_internal.rs:2:28
+  |
+2 |     let _ = grafton_visca::camera_id::CameraId::CAMERA_1;
+  |                            ^^^^^^^^^ private module
+  |
+note: the module `camera_id` is defined here
+ --> src/lib.rs
+  |
+  | mod camera_id;
+  | ^^^^^^^^^^^^^
+help: consider importing this struct instead
+  |
+2 -     let _ = grafton_visca::camera_id::CameraId::CAMERA_1;
+2 +     let _ = grafton_visca::CameraId::CAMERA_1;
+  |

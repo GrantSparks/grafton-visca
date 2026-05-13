@@ -554,10 +554,7 @@ impl ZoomPosition {
     ///
     /// # Errors
     /// Returns an error if the position is outside the model's zoom range.
-    pub fn new_for_model(
-        value: u16,
-        model: crate::constants::CameraVariant,
-    ) -> Result<Self, Error> {
+    pub fn new_for_model(value: u16, model: crate::CameraVariant) -> Result<Self, Error> {
         crate::constants::validate_zoom_position(value, model)?;
         Self::new(value)
     }
@@ -755,7 +752,7 @@ impl SaturationLevel {
     ///
     /// # Errors
     /// Returns an error if the level is outside the model's saturation range.
-    pub fn new_for_model(level: u8, model: crate::constants::CameraVariant) -> Result<Self, Error> {
+    pub fn new_for_model(level: u8, model: crate::CameraVariant) -> Result<Self, Error> {
         crate::constants::validate_saturation_level(level, model)?;
         Self::new(level)
     }
@@ -769,7 +766,7 @@ impl HueLevel {
     ///
     /// # Errors
     /// Returns an error if the level is outside the model's hue range.
-    pub fn new_for_model(level: u8, model: crate::constants::CameraVariant) -> Result<Self, Error> {
+    pub fn new_for_model(level: u8, model: crate::CameraVariant) -> Result<Self, Error> {
         crate::constants::validate_hue_level(level, model)?;
         Self::new(level)
     }
@@ -783,7 +780,7 @@ impl GainLevel {
     ///
     /// # Errors
     /// Returns an error if the level is outside the model's gain range.
-    pub fn new_for_model(level: u8, model: crate::constants::CameraVariant) -> Result<Self, Error> {
+    pub fn new_for_model(level: u8, model: crate::CameraVariant) -> Result<Self, Error> {
         crate::constants::validate_gain_level(level, model)?;
         Self::new(level)
     }
@@ -797,7 +794,7 @@ impl IrisLevel {
     ///
     /// # Errors
     /// Returns an error if the level is outside the model's iris range.
-    pub fn new_for_model(level: u8, model: crate::constants::CameraVariant) -> Result<Self, Error> {
+    pub fn new_for_model(level: u8, model: crate::CameraVariant) -> Result<Self, Error> {
         crate::constants::validate_iris_level(level, model)?;
         Self::new(level)
     }
@@ -811,10 +808,7 @@ impl ShutterSpeed {
     ///
     /// # Errors
     /// Returns an error if the speed is outside the model's shutter speed range.
-    pub fn new_for_model(
-        speed: u16,
-        model: crate::constants::CameraVariant,
-    ) -> Result<Self, Error> {
+    pub fn new_for_model(speed: u16, model: crate::CameraVariant) -> Result<Self, Error> {
         crate::constants::validate_shutter_speed(speed, model)?;
         Self::new(speed)
     }
@@ -828,10 +822,7 @@ impl BrightnessLevel {
     ///
     /// # Errors
     /// Returns an error if the level is outside the model's brightness range.
-    pub fn new_for_model(
-        level: u16,
-        model: crate::constants::CameraVariant,
-    ) -> Result<Self, Error> {
+    pub fn new_for_model(level: u16, model: crate::CameraVariant) -> Result<Self, Error> {
         crate::constants::validate_brightness_level(level, model)?;
         Self::new(level)
     }
@@ -845,7 +836,7 @@ impl ContrastLevel {
     ///
     /// # Errors
     /// Returns an error if the level is outside the model's contrast range.
-    pub fn new_for_model(level: u8, model: crate::constants::CameraVariant) -> Result<Self, Error> {
+    pub fn new_for_model(level: u8, model: crate::CameraVariant) -> Result<Self, Error> {
         crate::constants::validate_contrast_level(level, model)?;
         Self::new(level)
     }
@@ -859,7 +850,7 @@ impl SharpnessLevel {
     ///
     /// # Errors
     /// Returns an error if the level is outside the model's sharpness range.
-    pub fn new_for_model(level: u8, model: crate::constants::CameraVariant) -> Result<Self, Error> {
+    pub fn new_for_model(level: u8, model: crate::CameraVariant) -> Result<Self, Error> {
         crate::constants::validate_sharpness_level(level, model)?;
         Self::new(level)
     }
@@ -926,10 +917,7 @@ impl PanPosition {
     ///
     /// # Errors
     /// Returns an error if the position is outside the model's pan range.
-    pub fn new_for_model(
-        value: i16,
-        model: crate::constants::CameraVariant,
-    ) -> Result<Self, Error> {
+    pub fn new_for_model(value: i16, model: crate::CameraVariant) -> Result<Self, Error> {
         crate::constants::validate_pan_position(value, model)?;
         Ok(Self(value))
     }
@@ -982,10 +970,7 @@ impl TiltPosition {
     ///
     /// # Errors
     /// Returns an error if the position is outside the model's tilt range.
-    pub fn new_for_model(
-        value: i16,
-        model: crate::constants::CameraVariant,
-    ) -> Result<Self, Error> {
+    pub fn new_for_model(value: i16, model: crate::CameraVariant) -> Result<Self, Error> {
         crate::constants::validate_tilt_position(value, model)?;
         Ok(Self(value))
     }
@@ -1050,10 +1035,7 @@ impl PanSpeed {
     ///
     /// # Errors
     /// Returns an error if the speed exceeds the model's maximum pan speed.
-    pub fn new_for_model(
-        value: u8,
-        _model: crate::constants::CameraVariant,
-    ) -> Result<Self, Error> {
+    pub fn new_for_model(value: u8, _model: crate::CameraVariant) -> Result<Self, Error> {
         // For now, use the same validation for all models
         // In the future, this could check model-specific limits
         crate::constants::validate_pan_speed(value)?;
@@ -1109,10 +1091,7 @@ impl TiltSpeed {
     ///
     /// # Errors
     /// Returns an error if the speed exceeds the model's maximum tilt speed.
-    pub fn new_for_model(
-        value: u8,
-        _model: crate::constants::CameraVariant,
-    ) -> Result<Self, Error> {
+    pub fn new_for_model(value: u8, _model: crate::CameraVariant) -> Result<Self, Error> {
         // For now, use the same validation for all models
         // In the future, this could check model-specific limits
         crate::constants::validate_tilt_speed(value)?;
@@ -1171,10 +1150,7 @@ impl ZoomSpeed {
     ///
     /// # Errors
     /// Returns an error if the speed exceeds the model's maximum zoom speed.
-    pub fn new_for_model(
-        value: u8,
-        _model: crate::constants::CameraVariant,
-    ) -> Result<Self, Error> {
+    pub fn new_for_model(value: u8, _model: crate::CameraVariant) -> Result<Self, Error> {
         // For now, use the same validation for all models
         // In the future, this could check model-specific limits
         crate::constants::validate_zoom_speed(value)?;
@@ -1256,10 +1232,7 @@ impl FocusSpeed {
     ///
     /// # Errors
     /// Returns an error if the speed exceeds the model's maximum focus speed.
-    pub fn new_for_model(
-        value: u8,
-        _model: crate::constants::CameraVariant,
-    ) -> Result<Self, Error> {
+    pub fn new_for_model(value: u8, _model: crate::CameraVariant) -> Result<Self, Error> {
         // For now, use the same validation for all models
         // In the future, this could check model-specific limits
         if value > Self::MAX.value() {
@@ -1594,16 +1567,13 @@ mod tests {
     #[test]
     fn test_sharpness_level_new_for_model_accepts_ptzoptics_extended_range() {
         assert!(matches!(
-            SharpnessLevel::new_for_model(0x0F, crate::constants::CameraVariant::PtzOpticsG2),
+            SharpnessLevel::new_for_model(0x0F, crate::CameraVariant::PtzOpticsG2),
             Ok(level) if level.value() == 0x0F
         ));
     }
 
     #[test]
     fn test_sharpness_level_new_for_model_rejects_values_above_ptzoptics_range() {
-        assert!(
-            SharpnessLevel::new_for_model(0x10, crate::constants::CameraVariant::PtzOpticsG2)
-                .is_err()
-        );
+        assert!(SharpnessLevel::new_for_model(0x10, crate::CameraVariant::PtzOpticsG2).is_err());
     }
 }

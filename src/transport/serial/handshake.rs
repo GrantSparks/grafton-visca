@@ -241,7 +241,8 @@ pub mod async_handshake {
                         }
                     }
 
-                    // Also check accumulated buffer for backward compatibility
+                    // Also check the accumulated buffer for partial serial reads
+                    // that do not yet form a complete framed response.
                     match parse_address_set_bytes(&response_buffer) {
                         ParseOutcome::Complete { camera_count } => {
                             return Ok(camera_count);
@@ -396,7 +397,8 @@ pub mod blocking_handshake {
                         }
                     }
 
-                    // Also check accumulated buffer for backward compatibility
+                    // Also check the accumulated buffer for partial serial reads
+                    // that do not yet form a complete framed response.
                     match parse_address_set_bytes(&response_buffer) {
                         ParseOutcome::Complete { camera_count } => {
                             return Ok(camera_count);

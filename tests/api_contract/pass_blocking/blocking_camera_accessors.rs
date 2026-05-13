@@ -1,4 +1,5 @@
 use grafton_visca::{
+    command::{NdFilterMode, NdFilterStep},
     profiles::PtzOpticsG2,
     transport::BlockingTransportHandle,
     units::{Degrees, Normalized},
@@ -17,6 +18,14 @@ fn use_blocking_camera(
     camera.exposure().auto()?;
     camera.white_balance().auto()?;
     camera.presets().recall(1)?;
+    camera.tally().bright_hi()?;
+    camera.tally().flash()?;
+    camera.tally().off()?;
+    camera.nd_filter().set_mode(NdFilterMode::Variable)?;
+    camera.nd_filter().set_value(4)?;
+    camera.nd_filter().set_stops(3.0)?;
+    camera.nd_filter().step(NdFilterStep::Up)?;
+    camera.nd_filter().set_auto(false)?;
     camera.system().interface_clear()?;
     Ok(())
 }

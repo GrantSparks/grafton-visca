@@ -5,13 +5,12 @@
 //! encoded command, even when smaller than MAX_SIZE.
 
 use grafton_visca::{
-    camera_id::CameraId,
     command::{
         image::{Contrast, Luminance},
         ViscaCommand,
     },
     types::{ContrastLevel, LuminanceLevel},
-    Error,
+    CameraId, Error,
 };
 
 #[test]

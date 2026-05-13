@@ -58,7 +58,7 @@ impl HostPort {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```ignore
     /// use grafton_visca::transport::address::HostPort;
     ///
     /// // IPv4 examples
@@ -293,7 +293,7 @@ fn is_ipv4_address(s: &str) -> bool {
 ///
 /// # Examples
 ///
-/// ```
+/// ```ignore
 /// use grafton_visca::transport::address::normalize_host_with_default_port;
 ///
 /// // IPv6 examples
@@ -363,7 +363,7 @@ pub fn normalize_host_with_default_port(
 ///
 /// # Examples
 ///
-/// ```
+/// ```ignore
 /// use grafton_visca::transport::address::canonicalize_endpoint;
 ///
 /// // Unbracketed IPv6 with port is canonicalized to bracketed form
@@ -459,7 +459,7 @@ impl AddressResolver {
     ///
     /// # Examples
     ///
-    /// ```no_run
+    /// ```ignore
     /// use grafton_visca::transport::address::AddressResolver;
     ///
     /// let resolver = AddressResolver::new();
@@ -509,7 +509,7 @@ impl AddressResolver {
     ///
     /// # Examples
     ///
-    /// ```no_run
+    /// ```ignore
     /// use grafton_visca::transport::address::AddressResolver;
     ///
     /// let resolver = AddressResolver::new();
@@ -542,7 +542,7 @@ impl AddressResolver {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```ignore
     /// use grafton_visca::transport::address::AddressResolver;
     /// use std::net::{IpAddr, Ipv4Addr, SocketAddr};
     ///

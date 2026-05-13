@@ -117,9 +117,9 @@ fn test_control_traits_api_stability() {
         presets::PresetsControl, white_balance::WhiteBalanceControl, zoom::ZoomControl,
     };
 
-    #[allow(dead_code)]
-    fn requires_core_camera_controls<T>()
-    where
+    struct CoreCameraControls<T>(PhantomData<T>);
+
+    impl<T> CoreCameraControls<T> where
         T: PowerControl
             + ZoomControl
             + FocusControl
@@ -128,9 +128,11 @@ fn test_control_traits_api_stability() {
             + InquiryControl
             + ExposureControl
             + WhiteBalanceControl
-            + ImageProcessingControl,
+            + ImageProcessingControl
     {
     }
+
+    let _ = CoreCameraControls::<()>(PhantomData);
 }
 
 /// Test that runtime feature detection works correctly.

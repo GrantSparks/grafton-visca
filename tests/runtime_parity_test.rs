@@ -15,7 +15,6 @@ mod parity_tests {
     };
 
     // Common test scenario: Power on, zoom in, recall preset
-    #[allow(dead_code)]
     fn create_test_script() -> Vec<Step> {
         vec![
             // Power inquiry

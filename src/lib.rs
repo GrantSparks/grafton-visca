@@ -141,8 +141,7 @@
 //! For precise control, use model-aware constructors that validate against
 //! specific camera capabilities:
 //! ```ignore
-//! use grafton_visca::types::{PanPosition, TiltSpeed};
-//! use grafton_visca::constants::CameraVariant;
+//! use grafton_visca::{types::{PanPosition, TiltSpeed}, CameraVariant};
 //!
 //! // Model-specific validation for PTZOptics G2
 //! let model = CameraVariant::PtzOpticsG2;
@@ -647,8 +646,17 @@
 pub use grafton_visca_macros::{ViscaEnum, ViscaInquiry, ViscaValue};
 
 pub use crate::{
-    cache::{PanTiltLimits, StateCache},
-    camera::{Camera, CameraBuilder},
+    cache::{CachedFlipState, PanTiltLimits, StateCache},
+    camera::{
+        controls::{
+            ColorControl, DirectMenuControl, ExposureCompensationControl, ExposureControl,
+            FocusControl, FocusLockControl, ImageProcessingControl, InquiryControl, MenuControl,
+            MotionControl, MotionSyncControl, NdFilterControl, PanTiltControl,
+            PanTiltInquiryControl, PowerControl, PresetsControl, PushAFControl, StreamingControl,
+            SystemControl, TallyControl, VariableSpeedControl, WhiteBalanceControl, ZoomControl,
+        },
+        Camera, CameraBuilder,
+    },
     camera_id::CameraId,
     command::{
         exposure::ExposureMode,
@@ -660,6 +668,7 @@ pub use crate::{
         system::{MotionSyncMode, MotionSyncPreset},
         white_balance::{AutoWhiteBalanceSensitivity, WhiteBalanceMode},
     },
+    constants::CameraVariant,
     error::{Error, ErrorKind, Result},
     inquiry_conversions::{
         zoom_from_normalized, Normalized, PanTiltPositionDeg, PanTiltPositionRaw, ZoomDomain,
@@ -705,18 +714,12 @@ pub(crate) mod executor {
     impl Executor for () {}
 }
 
-/// State cache for write-only VISCA properties.
-///
-/// This module provides optional state tracking for write-only properties
-/// that have no corresponding VISCA inquiry command. Values are cached
-/// automatically when setter commands succeed.
-pub mod cache;
+mod cache;
 
 /// Camera profile system for type-safe, model-specific control
 pub mod camera;
 
-/// Camera ID type for VISCA protocol addressing
-pub mod camera_id;
+mod camera_id;
 
 /// Capability traits for camera feature composition
 pub mod capabilities;
@@ -731,11 +734,7 @@ pub mod capabilities;
 /// typed response parsing, and integrations that need raw VISCA command control.
 pub mod command;
 
-/// Constants for VISCA protocol including default ports
-pub mod constants;
-
-/// Diagnostics and health check utilities
-pub mod diagnostics;
+mod constants;
 
 /// Inquiry conversion utilities for raw to user-friendly values
 pub mod inquiry_conversions;
@@ -768,8 +767,7 @@ pub mod types;
 /// Semantic unit types for intuitive API usage
 pub mod units;
 
-/// Unified VISCA socket type
-pub mod visca_socket;
+mod visca_socket;
 
 /// Dynamic trait object API with per-operation timeout support.
 ///
