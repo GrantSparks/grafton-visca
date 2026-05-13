@@ -579,7 +579,7 @@ impl<P: Profile> BlockingRunner<P> {
                                 // Only use FIFO fallback for raw VISCA (no sequence).
                                 // For sequenced transports, process_event will gate the heuristic.
                                 if cmd_id.is_none() && socket.is_none() && meta.sequence.is_none() {
-                                    use crate::command::response::payload::Payload;
+                                    use crate::command::response::Payload;
                                     cmd_id = self
                                         .core
                                         .resolve_inquiry_id(Payload::new(&[]), meta.sequence);

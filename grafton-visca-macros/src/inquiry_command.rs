@@ -22,28 +22,53 @@ pub fn derive_visca_inquiry_impl(input: DeriveInput) -> TokenStream {
                 .clone()
                 .expect("visca attribute must have a 'response' value");
 
-            let constant_name = attrs
-                .constant
-                .as_ref()
-                .expect("visca attribute must have a 'constant' or 'bytes_const' value - all inquiries must use predefined constants");
-
             // Determine crate path once for consistency
-            let crate_path =
-                if std::env::var("CARGO_PKG_NAME").unwrap_or_default() == "grafton-visca" {
-                    quote! { crate }
-                } else {
-                    quote! { ::grafton_visca }
-                };
+            let is_internal_crate =
+                std::env::var("CARGO_PKG_NAME").unwrap_or_default() == "grafton-visca";
+            let crate_path = if is_internal_crate {
+                quote! { crate }
+            } else {
+                quote! { ::grafton_visca }
+            };
 
-            // Use the predefined constant
-            let constant_path = format_ident!("{}", constant_name);
-            let bytes_expr = quote! {
-                {
-                    let mut bytes = #crate_path::command::bytes::constants::inquiry::#constant_path.to_vec();
-                    // Replace camera ID (first byte)
-                    bytes[0] = camera_id.to_address_byte();
-                    bytes
-                }
+            let byte_value = attrs
+                .byte_value
+                .expect("visca attribute must have an 'opcode' value");
+            let subcategory = attrs.subcategory.unwrap_or(0x04);
+
+            // Inside grafton-visca, inquiry structs use the crate's private
+            // canonical byte constants so unusual extended inquiries stay exact.
+            // Downstream derives cannot access those private constants, so they
+            // generate standard VISCA inquiry bytes directly from opcode/subcode.
+            let (max_size_expr, bytes_expr) = if is_internal_crate {
+                let constant_name = attrs
+                        .constant
+                        .as_ref()
+                        .expect("visca attribute must have a 'constant' or 'bytes_const' value for internal inquiries");
+                let constant_path = format_ident!("{}", constant_name);
+                (
+                    quote! { #crate_path::command::bytes::constants::inquiry::#constant_path.len() },
+                    quote! {
+                        {
+                            let mut bytes = #crate_path::command::bytes::constants::inquiry::#constant_path.to_vec();
+                            bytes[0] = camera_id.to_address_byte();
+                            bytes
+                        }
+                    },
+                )
+            } else {
+                (
+                    quote! { 5 },
+                    quote! {
+                        vec![
+                            camera_id.to_address_byte(),
+                            0x09,
+                            #subcategory,
+                            #byte_value,
+                            0xFF,
+                        ]
+                    },
+                )
             };
 
             // Generate parser implementation if parser info is provided
@@ -70,10 +95,10 @@ pub fn derive_visca_inquiry_impl(input: DeriveInput) -> TokenStream {
             let expanded = quote! {
                 impl #crate_path::command::ViscaCommand for #struct_name {
                     type Response = #crate_path::command::InquiryData;
-                    const MAX_SIZE: usize = #crate_path::command::bytes::constants::inquiry::#constant_path.len();
+                    const MAX_SIZE: usize = #max_size_expr;
                     const TIMEOUT_CATEGORY: #crate_path::timeout::CommandCategory = #crate_path::timeout::CommandCategory::Quick;
 
-                    fn write_into(&self, camera_id: #crate_path::camera_id::CameraId, buffer: &mut [u8]) -> Result<usize, #crate_path::Error> {
+                    fn write_into(&self, camera_id: #crate_path::CameraId, buffer: &mut [u8]) -> Result<usize, #crate_path::Error> {
                         let bytes = #bytes_expr;
                         let len = bytes.len();
                         if buffer.len() < len {

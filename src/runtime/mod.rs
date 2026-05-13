@@ -96,7 +96,7 @@ pub(crate) mod driver;
 pub(crate) mod blocking_runner;
 
 #[cfg(feature = "mode-async")]
-pub mod traits;
+mod traits;
 
 #[cfg(feature = "mode-async")]
 mod async_adapter;
@@ -108,7 +108,7 @@ mod loop_task;
 #[cfg(feature = "mode-async")]
 pub(crate) use handle::RuntimeHandle;
 
-// Re-export runtime traits at the module level for compatibility
+// Re-export the stable runtime contract at the module level.
 #[cfg(feature = "mode-async")]
 pub use traits::{Runtime, TransportHandle};
 

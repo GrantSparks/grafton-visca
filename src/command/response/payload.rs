@@ -23,7 +23,7 @@ use crate::error::Error;
 /// # Examples
 ///
 /// ```ignore
-/// use grafton_visca::command::response::payload::{BoolConvention, Payload};
+/// use grafton_visca::command::response::{BoolConvention, Payload};
 ///
 /// let data = [0x02];
 /// let payload = Payload::new(&data);
@@ -308,9 +308,6 @@ impl<'a> TryFrom<Payload<'a>> for Nibbles4Or8<'a> {
         }
     }
 }
-
-/// 6-nibble view for responses that use this specific format.
-pub type Nibbles6<'a> = Nibbles<'a, 6>;
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]

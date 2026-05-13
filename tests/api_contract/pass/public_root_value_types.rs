@@ -1,4 +1,5 @@
 use grafton_visca::{
+    command::response::{BoolConvention, Nibbles, Payload, Response},
     CachedFlipState, CameraId, CameraVariant, PanTiltLimits, StateCache, ViscaSocket,
 };
 
@@ -14,4 +15,10 @@ fn main() {
         horizontal: false,
         vertical: false,
     };
+    let _response = Response::Completion { socket: None };
+    let payload = Payload::new(&[0x02]);
+    let _ = payload
+        .parse_bool("contract", BoolConvention::OnIs02)
+        .unwrap();
+    let _ = Nibbles::<4>::try_from(Payload::new(&[0, 1, 2, 3])).unwrap();
 }

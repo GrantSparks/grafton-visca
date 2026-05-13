@@ -9,6 +9,7 @@
 use crate::macros::support::{visca_bytes, visca_prefix};
 
 /// Power command constants.
+#[cfg(test)]
 pub mod power {
     use super::*;
 
@@ -101,12 +102,15 @@ pub mod focus {
     pub const LOCK_PREFIX: &[u8] = visca_prefix![0x81, 0x0A, 0x04, 0x68];
 
     /// Focus zone control prefix.
+    #[cfg(test)]
     pub const ZONE_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0xAA];
 
     /// Auto focus sensitivity prefix.
+    #[cfg(test)]
     pub const AF_SENSITIVITY_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x58];
 
     /// Focus range/near limit prefix.
+    #[cfg(test)]
     pub const NEAR_LIMIT_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x28];
 
     /// Push AF control prefix (Sony FR7).
@@ -118,12 +122,15 @@ pub mod exposure {
     use super::*;
 
     /// Exposure mode control prefix.
+    #[cfg(test)]
     pub const MODE_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x39];
 
     /// Anti-flicker mode prefix.
+    #[cfg(test)]
     pub const ANTI_FLICKER_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x23];
 
     /// Spotlight prefix (Sony models).
+    #[cfg(test)]
     pub const SPOTLIGHT_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x3A];
 
     /// Exposure compensation on/off prefix.
@@ -137,6 +144,7 @@ pub mod exposure {
         visca_prefix![0x81, 0x01, 0x04, 0x4E, 0x00, 0x00, 0x00];
 
     /// Dynamic range control prefix.
+    #[cfg(test)]
     pub const DYNAMIC_RANGE_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x25, 0x00, 0x00, 0x00];
 
     /// Iris control prefix (reset/up/down).
@@ -161,10 +169,12 @@ pub mod exposure {
     pub const BRIGHTNESS_VALUE_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x0D, 0x00, 0x00];
 
     /// Spot AE (auto exposure) control prefix.
+    #[cfg(test)]
     pub const SPOT_AE_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x5A];
 }
 
 /// Image flip command constants.
+#[cfg(test)]
 pub mod flip {
     use super::*;
 
@@ -183,24 +193,31 @@ pub mod image {
     use super::*;
 
     /// Backlight compensation prefix.
+    #[cfg(test)]
     pub const BACKLIGHT_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x33];
 
     /// Image flip combined mode prefix (PtzOptics specific).
+    #[cfg(test)]
     pub const FLIP_COMBINED_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0xA4];
 
     /// Picture effect mode prefix.
+    #[cfg(test)]
     pub const PICTURE_EFFECT_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x63];
 
     /// 2D noise reduction prefix.
+    #[cfg(test)]
     pub const NOISE_REDUCTION_2D_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x53];
 
     /// 3D noise reduction prefix.
+    #[cfg(test)]
     pub const NOISE_REDUCTION_3D_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x54];
 
     /// Luminance/brightness adjustment prefix.
+    #[cfg(test)]
     pub const LUMINANCE_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0xA1, 0x00, 0x00, 0x00];
 
     /// Contrast adjustment prefix.
+    #[cfg(test)]
     pub const CONTRAST_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0xA2, 0x00, 0x00, 0x00];
 
     /// Sharpness mode control prefix (auto/manual).
@@ -216,6 +233,7 @@ pub mod image {
     ///
     /// VISCA command `81 01 04 5B 0p FF` where p selects the gamma curve
     /// (0=Standard, 1-4=different gamma curves).
+    #[cfg(test)]
     pub const GAMMA_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x5B];
 }
 
@@ -228,6 +246,7 @@ pub mod system {
 }
 
 /// White balance command constants.
+#[cfg(test)]
 pub mod white_balance {
     use super::*;
 
@@ -249,9 +268,11 @@ pub mod color {
     use super::*;
 
     /// Color saturation prefix.
+    #[cfg(test)]
     pub const SATURATION_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x49, 0x00, 0x00, 0x00];
 
     /// Color hue prefix.
+    #[cfg(test)]
     pub const HUE_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x4F, 0x00, 0x00, 0x00];
 
     /// Red gain direct prefix (for WB fine-tuning).
@@ -281,10 +302,12 @@ pub mod gain {
     pub const DIRECT_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x4C, 0x00, 0x00];
 
     /// Gain limit prefix.
+    #[cfg(test)]
     pub const GAIN_LIMIT_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x2C];
 }
 
 /// Tally command constants.
+#[cfg(test)]
 pub mod tally {
     use super::*;
 
@@ -328,6 +351,7 @@ pub mod inquiry {
     pub const FOCUS_MODE: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x38];
 
     /// Auto focus on/off inquiry.
+    #[cfg(test)]
     pub const AUTO_FOCUS: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x18];
 
     // Menu and UI inquiries
@@ -563,6 +587,7 @@ pub mod inquiry {
 }
 
 /// Menu command constants.
+#[cfg(test)]
 pub mod menu {
     use super::*;
 
@@ -587,11 +612,13 @@ pub mod streaming {
     /// Multicast streaming control prefix.
     /// **Vendor-Specific**: PtzOptics streaming commands.
     /// Used by: MulticastStreamingInternal in streaming.rs
+    #[cfg(test)]
     pub const MULTICAST_PREFIX: &[u8] = visca_prefix![0x81, 0x0B, 0x01, 0x23];
 
     /// Ndi quality control prefix.
     /// **Vendor-Specific**: PtzOptics Ndi streaming commands.
     /// Used by: NdiQualityCommandInternal in streaming.rs
+    #[cfg(test)]
     pub const NDI_QUALITY_PREFIX: &[u8] = visca_prefix![0x81, 0x0B, 0x01, 0x01];
 
     /// USB audio control prefix.
@@ -636,6 +663,7 @@ pub mod variable_speed {
 }
 
 /// System command-related constants.
+#[cfg(test)]
 pub mod system_cmd {
     use super::*;
 
@@ -795,6 +823,7 @@ mod validation_tests {
             focus::NEAR_LIMIT_PREFIX,
             // Exposure prefixes
             exposure::MODE_PREFIX,
+            exposure::ANTI_FLICKER_PREFIX,
             exposure::SPOTLIGHT_PREFIX,
             exposure::COMPENSATION_ON_OFF_PREFIX,
             exposure::COMPENSATION_CONTROL_PREFIX,
@@ -808,6 +837,21 @@ mod validation_tests {
             exposure::BRIGHTNESS_DIRECT_PREFIX,
             exposure::BRIGHTNESS_VALUE_PREFIX,
             exposure::SPOT_AE_PREFIX,
+            // Flip and image-processing prefixes
+            flip::PREFIX,
+            flip::HFLIP_PREFIX,
+            flip::FREEZE_PREFIX,
+            image::BACKLIGHT_PREFIX,
+            image::FLIP_COMBINED_PREFIX,
+            image::PICTURE_EFFECT_PREFIX,
+            image::NOISE_REDUCTION_2D_PREFIX,
+            image::NOISE_REDUCTION_3D_PREFIX,
+            image::LUMINANCE_PREFIX,
+            image::CONTRAST_PREFIX,
+            image::GAMMA_PREFIX,
+            // White balance prefixes
+            white_balance::MODE_PREFIX,
+            white_balance::AWB_SENSITIVITY_PREFIX,
             // Other prefixes
             gain::CONTROL_PREFIX,
             gain::DIRECT_PREFIX,
@@ -819,6 +863,15 @@ mod validation_tests {
             color::RED_GAIN_CONTROL_PREFIX,
             color::BLUE_GAIN_CONTROL_PREFIX,
             color::TEMPERATURE_PREFIX,
+            tally::TALLY_PREFIX,
+            tally::TALLY_BRIGHT_PREFIX,
+            tally::TALLY_GREEN_PREFIX,
+            tally::TALLY_INQUIRY_PREFIX,
+            menu::TOGGLE_PREFIX,
+            menu::NAVIGATE_PREFIX,
+            menu::SETTINGS_PREFIX,
+            streaming::NDI_QUALITY_PREFIX,
+            system_cmd::CANCEL_PREFIX,
         ];
 
         for (idx, &prefix) in prefixes.iter().enumerate() {

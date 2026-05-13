@@ -1576,7 +1576,7 @@ impl SchedulerCore {
     /// else (c) FIFO front of inquiries_order.
     pub fn resolve_inquiry_id(
         &self,
-        payload: crate::command::response::payload::Payload<'_>,
+        payload: crate::command::response::Payload<'_>,
         sequence: Option<u32>,
     ) -> Option<CommandId> {
         use tracing::{debug, trace};

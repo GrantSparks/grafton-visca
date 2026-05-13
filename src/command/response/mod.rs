@@ -5,15 +5,15 @@
 
 mod decoders;
 mod lift;
-pub mod payload;
-pub mod types;
+mod payload;
+mod types;
 
 #[cfg(test)]
 pub(crate) use self::lift::lift_inquiry;
 pub(crate) use self::lift::lift_inquiry_for;
 pub use self::{
     lift::parse_inquiry_payload,
-    payload::{BoolConvention, Payload},
+    payload::{BoolConvention, Nibbles, Nibbles4Or8, Payload},
     types::Response,
 };
 

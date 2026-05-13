@@ -5,7 +5,7 @@ use grafton_visca::{
     capabilities::CoordinateSystem,
     command::{
         pan_tilt::{PanTilt as PanTiltCommand, PanTiltLimitCorner},
-        response::{types::Response, InquiryKind},
+        response::{InquiryKind, Response},
         ViscaCommand,
     },
     types::{PanSpeed, TiltSpeed},

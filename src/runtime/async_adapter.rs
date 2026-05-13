@@ -518,7 +518,7 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
                 // Note: For sequenced transports, this fallback will be blocked by process_event
                 // when sequence is Some but cmd_id is None - the reply will be ignored as stale.
                 if cmd_id.is_none() && basic.socket.is_none() && sequence.is_none() {
-                    use crate::command::response::payload::Payload;
+                    use crate::command::response::Payload;
                     cmd_id = self.core.resolve_inquiry_id(Payload::new(&[]), sequence);
                 }
 

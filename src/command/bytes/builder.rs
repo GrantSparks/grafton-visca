@@ -2,7 +2,9 @@
 
 use core::marker::PhantomData;
 
-use crate::command::bytes::{FixedCommandBytes, VISCA_TERMINATOR};
+#[cfg(test)]
+use crate::command::bytes::FixedCommandBytes;
+use crate::command::bytes::VISCA_TERMINATOR;
 
 /// Type state for an incomplete (unterminated) command
 #[derive(Debug, Clone, Copy)]
@@ -251,12 +253,6 @@ impl<const N: usize> ConstCommandBuilder<N, Incomplete> {
         }
     }
 
-    /// Alias for terminate() to ease migration.
-    /// Provides a convenient shorthand for the terminate operation.
-    pub fn finish(self) -> ConstCommandBuilder<N, Terminated> {
-        self.terminate()
-    }
-
     // Note: build_into() is removed from Incomplete state.
     // Use terminate().build_into() instead for the type-safe pattern.
 }
@@ -268,18 +264,15 @@ impl<const N: usize> ConstCommandBuilder<N, Terminated> {
     ///
     /// Returns only the meaningful bytes (up to and including the terminator),
     /// not the full buffer capacity.
+    #[cfg(test)]
     pub fn as_bytes(&self) -> &[u8] {
         &self.buffer[..self.position]
     }
 
     /// Get the number of bytes in the terminated command.
+    #[cfg(test)]
     pub fn len(&self) -> usize {
         self.position
-    }
-
-    /// Check if the terminated command is empty.
-    pub fn is_empty(&self) -> bool {
-        self.position == 0
     }
 
     /// Build the command, returning a length-aware buffer.
@@ -291,6 +284,7 @@ impl<const N: usize> ConstCommandBuilder<N, Terminated> {
     /// # Errors
     ///
     /// Returns `Error::BufferTooSmall` if the command would overflow the buffer.
+    #[cfg(test)]
     pub fn try_build(self) -> Result<FixedCommandBytes<N>, crate::Error> {
         if self.overflowed {
             return Err(crate::Error::BufferTooSmall {

@@ -260,7 +260,7 @@ pub fn generate_last_nibble_parser(
     quote! {
         {
             let payload = #crate_path::command::response::Payload::new(data);
-            let nibbles = #crate_path::command::response::payload::Nibbles::<4>::try_from(payload)?;
+            let nibbles = #crate_path::command::response::Nibbles::<4>::try_from(payload)?;
             Ok(#crate_path::command::InquiryData::#response_variant {
                 #field_name: nibbles.last_nibble()
             })

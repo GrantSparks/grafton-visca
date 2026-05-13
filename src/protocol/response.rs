@@ -5,7 +5,7 @@
 //! async and sync paths while preserving socket awareness and type safety.
 
 use crate::{
-    command::{bytes::VISCA_TERMINATOR, response::payload::Payload},
+    command::{bytes::VISCA_TERMINATOR, response::Payload},
     ViscaSocket,
 };
 

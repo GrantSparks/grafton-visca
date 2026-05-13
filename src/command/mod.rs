@@ -30,8 +30,9 @@ pub mod variable_speed;
 pub mod white_balance;
 pub mod zoom;
 
-// Command encoding module
-pub mod bytes;
+// Command encoding implementation. The stable extension surface is re-exported
+// from this module root rather than through implementation submodules.
+pub(crate) mod bytes;
 
 // Unified ViscaCommand implementation internals.
 pub(crate) mod encode;
