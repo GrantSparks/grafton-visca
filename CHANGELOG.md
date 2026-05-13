@@ -79,6 +79,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### 1.0 Support Matrix (#513, #514)
 - README and contributor docs now declare the supported runtime, transport, profile, and optional-feature matrix for the 1.0 contract
+- Compatibility-only feature unions are documented separately from supported contract rows, so CI coverage for dependency-graph combinations does not imply additional public API promises
 - CI feature coverage now includes explicit blocking detection, blocking serial, Tokio serial, serde/schemars/ts-rs, dyn-api, and Tokio/smol runtime coexistence entries
 - `dyn-api` is treated as a first-class 1.0 feature with public API contract coverage plus Tokio and smol runtime integration tests
 

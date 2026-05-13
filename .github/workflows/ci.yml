@@ -235,10 +235,12 @@ jobs:
           - "runtime-tokio,test-utils"
           - "runtime-smol,test-utils"
           - "transport-serial"
+          # Compatibility-only union: async runtime plus blocking serial dependency.
           - "runtime-tokio,transport-serial"
           - "runtime-tokio,transport-serial-tokio"
           - "serde,schemars,ts-rs"
           - "runtime-tokio,dyn-api,test-utils"
+          # Compatibility-only union: smol dyn-api without test helpers.
           - "runtime-smol,dyn-api"
           - "runtime-smol,dyn-api,test-utils"
     steps:
@@ -418,10 +420,12 @@ jobs:
             "runtime-tokio,test-utils"
             "runtime-smol,test-utils"
             "transport-serial"
+            # Compatibility-only union: async runtime plus blocking serial dependency.
             "runtime-tokio,transport-serial"
             "runtime-tokio,transport-serial-tokio"
             "serde,schemars,ts-rs"
             "runtime-tokio,dyn-api,test-utils"
+            # Compatibility-only union: smol dyn-api without test helpers.
             "runtime-smol,dyn-api"
             "runtime-smol,dyn-api,test-utils"
           )

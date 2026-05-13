@@ -99,10 +99,12 @@ jobs:
               cargo test --no-default-features --features runtime-tokio,test-utils --verbose
               cargo test --no-default-features --features runtime-smol,test-utils --verbose
               cargo test --no-default-features --features transport-serial --verbose
+              # Compatibility-only union: async runtime plus blocking serial dependency.
               cargo test --no-default-features --features runtime-tokio,transport-serial --verbose
               cargo test --no-default-features --features runtime-tokio,transport-serial-tokio --verbose
               cargo test --no-default-features --features serde,schemars,ts-rs --verbose
               cargo test --no-default-features --features runtime-tokio,dyn-api,test-utils --test dyn_api_integration_test --verbose
+              # Compatibility-only union: smol dyn-api without test helpers.
               cargo test --no-default-features --features runtime-smol,dyn-api --verbose
               cargo test --no-default-features --features runtime-smol,dyn-api,test-utils --test dyn_api_smol_integration_test --verbose
               cargo test -p grafton-visca-macros --verbose

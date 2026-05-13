@@ -32,16 +32,24 @@ cd grafton-visca
 bash .github/scripts/test-all-features.sh
 
 # Or run individual matrix entries while iterating
+cargo test
 cargo test --no-default-features
 cargo test --no-default-features --features mode-blocking
 cargo test --no-default-features --features mode-async
 cargo test --no-default-features --features runtime-tokio
 cargo test --no-default-features --features runtime-smol
+cargo check --no-default-features --features runtime-tokio,runtime-smol
 cargo test --no-default-features --features transport-serial
-cargo test --no-default-features --features runtime-tokio,transport-serial
 cargo test --no-default-features --features runtime-tokio,transport-serial-tokio
 cargo test --no-default-features --features serde,schemars,ts-rs
+cargo test --no-default-features --features test-utils
+cargo test --no-default-features --features runtime-tokio,test-utils
+cargo test --no-default-features --features runtime-smol,test-utils
 cargo test --no-default-features --features runtime-tokio,dyn-api,test-utils --test dyn_api_integration_test
+cargo test --no-default-features --features runtime-smol,dyn-api,test-utils --test dyn_api_smol_integration_test
+
+# Compatibility-only checks for feature unions that may appear downstream
+cargo test --no-default-features --features runtime-tokio,transport-serial
 cargo test --no-default-features --features runtime-smol,dyn-api
 
 # Run clippy checks
@@ -206,12 +214,18 @@ cargo test
 
 # Declared 1.0 runtime and transport feature combinations
 bash .github/scripts/test-all-features.sh
+cargo test
 cargo test --no-default-features --features runtime-tokio
 cargo test --no-default-features --features runtime-smol
+cargo check --no-default-features --features runtime-tokio,runtime-smol
 cargo test --no-default-features --features transport-serial
-cargo test --no-default-features --features runtime-tokio,transport-serial
 cargo test --no-default-features --features runtime-tokio,transport-serial-tokio
 cargo test --no-default-features --features runtime-tokio,dyn-api,test-utils --test dyn_api_integration_test
+cargo test --no-default-features --features runtime-smol,dyn-api,test-utils --test dyn_api_smol_integration_test
+
+# Compatibility-only feature-union checks
+cargo test --no-default-features --features runtime-tokio,transport-serial
+cargo test --no-default-features --features runtime-smol,dyn-api
 
 # Optional interpreter-based UB checks for library tests
 cargo +nightly miri test --lib --no-default-features

@@ -17,6 +17,11 @@ optional feature surfaces listed below. Hardware validation is narrower than
 software support: the library contract is tested automatically, while
 device-specific firmware quirks are handled as reproducible bugs.
 
+The rows below are the support promise. CI also includes compatibility checks
+for feature unions that can appear in downstream dependency graphs; those checks
+keep combinations buildable without expanding the public contract beyond the
+documented rows they combine.
+
 ### APIs and runtimes
 
 | Area | Supported 1.0 contract | Automated validation |
@@ -25,6 +30,7 @@ device-specific firmware quirks are handled as reproducible bugs.
 | Runtime-agnostic async | `mode-async` with caller-provided executor/runtime | `cargo test --no-default-features --features mode-async` |
 | Tokio async | `runtime-tokio`, `TokioRuntime`, Tokio TCP/UDP adapters | `cargo test --no-default-features --features runtime-tokio` |
 | smol async | `runtime-smol`, `SmolRuntime`, smol TCP/UDP adapters | `cargo test --no-default-features --features runtime-smol` |
+| Runtime coexistence | `runtime-tokio` and `runtime-smol` may be enabled together; camera construction still chooses one runtime explicitly | `cargo check --no-default-features --features runtime-tokio,runtime-smol` |
 | Dynamic API | `dyn-api` object-safe camera traits for async cameras, with runtime capabilities, command-completion timeouts, and cancellable in-flight handles | `cargo test --no-default-features --features runtime-tokio,dyn-api,test-utils --test dyn_api_integration_test`, `cargo test --no-default-features --features runtime-smol,dyn-api,test-utils --test dyn_api_smol_integration_test` |
 | Raw command extension | Custom command and inquiry implementations through `grafton_visca::command::{ViscaCommand, CommandKind, InquiryKind, ResponseParser}` plus root command value re-exports | API contract tests |
 
@@ -56,6 +62,13 @@ device-specific firmware quirks are handled as reproducible bugs.
 | `ts-rs` | Stable TypeScript type generation for supported exported types |
 | `dyn-api` | Stable object-safe async camera traits with command timeout and cancellation support |
 | `test-utils` | Stable deterministic test transports, executors, and Tokio camera simulator under `grafton_visca::testing`; `runtime-tokio` alone does not expose test helpers |
+
+### Compatibility-only checks
+
+| Feature union | Scope | Automated validation |
+| ------------- | ----- | -------------------- |
+| `runtime-tokio,transport-serial` | Dependency-graph compatibility only. The supported serial APIs are the blocking `transport-serial` row and the Tokio `transport-serial-tokio` row above. | `cargo test --no-default-features --features runtime-tokio,transport-serial` |
+| `runtime-smol,dyn-api` | Build/API compatibility for dyn-api with smol without test helpers. Runtime behavior is covered by the smol dyn-api integration row above. | `cargo test --no-default-features --features runtime-smol,dyn-api` |
 
 ---
 

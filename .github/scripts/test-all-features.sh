@@ -2,9 +2,9 @@
 
 # 1.0 support-matrix testing script.
 #
-# Keep this list in sync with README.md and CONTRIBUTING.md. Each entry here is
-# part of the documented support contract unless it is explicitly called out as a
-# build-only/doc-only check.
+# Keep this list in sync with README.md and CONTRIBUTING.md. Entries below are
+# part of the documented support contract unless they are explicitly labelled
+# compatibility-only.
 
 set -e
 
@@ -71,7 +71,7 @@ run_test "runtime-smol + test-utils" \
 run_test "blocking serial transport" \
     "cargo test --no-default-features --features transport-serial --verbose"
 
-run_test "runtime-tokio + transport-serial" \
+run_test "runtime-tokio + transport-serial compatibility-only union" \
     "cargo test --no-default-features --features runtime-tokio,transport-serial --verbose"
 
 run_test "runtime-tokio + transport-serial-tokio" \
@@ -84,7 +84,7 @@ run_test "serde + schemars + ts-rs" \
 run_test "runtime-tokio + dyn-api + test-utils" \
     "cargo test --no-default-features --features runtime-tokio,dyn-api,test-utils --test dyn_api_integration_test --verbose"
 
-run_test "runtime-smol + dyn-api" \
+run_test "runtime-smol + dyn-api compatibility-only union" \
     "cargo test --no-default-features --features runtime-smol,dyn-api --verbose"
 
 run_test "runtime-smol + dyn-api + test-utils integration" \
@@ -131,5 +131,6 @@ echo "✓ Blocking and Tokio serial transport features"
 echo "✓ Serialization/schema/type-generation features"
 echo "✓ Dyn-api feature"
 echo "✓ Tokio + smol runtime coexistence"
+echo "✓ Compatibility-only feature unions"
 echo "✓ Macro crate"
 echo "✓ Examples compilation"
