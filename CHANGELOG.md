@@ -59,6 +59,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Blocking and async examples were updated away from direct trait-method calls toward the long-term `camera.power()`, `camera.zoom()`, `camera.pan_tilt()`, and related accessor style
 - The examples guide no longer presents direct runtime-handle usage as application-facing API
 
+#### 1.0 Support Matrix (#513, #514)
+- README and contributor docs now declare the supported runtime, transport, profile, and optional-feature matrix for the 1.0 contract
+- CI feature coverage now includes explicit blocking detection, blocking serial, Tokio serial, serde/schemars/ts-rs, dyn-api, and Tokio/smol runtime coexistence entries
+- `dyn-api` is treated as a first-class 1.0 feature with public API contract coverage and runtime integration tests
+
 #### PTZOptics Profiles Disable Iris
 - PTZOptics G2, G3, and 30X profiles now set `IRIS_RANGE: None` and exclude `ExposureMode::Iris` from their supported modes, reflecting hardware behaviour observed on real devices
 - All Sony and generic VISCA profiles retain full iris support unchanged

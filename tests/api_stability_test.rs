@@ -501,6 +501,29 @@ fn test_raw_command_extension_contract() {
 }
 
 #[test]
+#[cfg(feature = "dyn-api")]
+fn test_dyn_api_public_contract() {
+    use grafton_visca::dynapi::{
+        DynCameraControl, DynFocusControl, DynMotionControl, DynPanTiltControl, DynPresetsControl,
+        DynZoomControl, InFlightDyn, IntoDynCamera,
+    };
+
+    fn _assert_dyn_camera_object_safe(_: &dyn DynCameraControl) {}
+    fn _assert_pan_tilt_object_safe(_: &dyn DynPanTiltControl) {}
+    fn _assert_zoom_object_safe(_: &dyn DynZoomControl) {}
+    fn _assert_focus_object_safe(_: &dyn DynFocusControl) {}
+    fn _assert_presets_object_safe(_: &dyn DynPresetsControl) {}
+    fn _assert_motion_object_safe(_: &dyn DynMotionControl) {}
+
+    fn _assert_into_dyn_bound<T: IntoDynCamera>() {}
+
+    let _: PhantomData<Box<dyn DynCameraControl + Send + Sync>> = PhantomData;
+    let _: PhantomData<fn() -> InFlightDyn> = PhantomData;
+    let _: PhantomData<fn() -> Box<dyn DynCameraControl>> = PhantomData;
+    let _: PhantomData<fn(&dyn DynCameraControl)> = PhantomData;
+}
+
+#[test]
 fn test_public_compile_time_api_contracts() {
     let cases = trybuild::TestCases::new();
     cases.pass("tests/api_contract/pass/*.rs");

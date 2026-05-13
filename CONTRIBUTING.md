@@ -28,16 +28,21 @@ Before contributing, please:
 git clone https://github.com/YOUR_USERNAME/grafton-visca.git
 cd grafton-visca
 
-# Run tests with default features
-cargo test
+# Run the declared 1.0 support matrix
+bash .github/scripts/test-all-features.sh
 
-# Run representative async/runtime matrix entries
+# Or run individual matrix entries while iterating
+cargo test --no-default-features
+cargo test --no-default-features --features mode-blocking
+cargo test --no-default-features --features mode-async
 cargo test --no-default-features --features runtime-tokio
 cargo test --no-default-features --features runtime-smol
-
-# Run serial coverage when touching transport code
+cargo test --no-default-features --features transport-serial
 cargo test --no-default-features --features runtime-tokio,transport-serial
 cargo test --no-default-features --features runtime-tokio,transport-serial-tokio
+cargo test --no-default-features --features serde,schemars,ts-rs
+cargo test --no-default-features --features runtime-tokio,dyn-api,test-utils --test dyn_api_integration_test
+cargo test --no-default-features --features runtime-smol,dyn-api
 
 # Run clippy checks
 cargo clippy --all-targets --all-features -- -D warnings
@@ -199,11 +204,14 @@ fn test_movement_safety() {
 # Default test suite
 cargo test
 
-# Runtime and transport feature combinations
+# Declared 1.0 runtime and transport feature combinations
+bash .github/scripts/test-all-features.sh
 cargo test --no-default-features --features runtime-tokio
 cargo test --no-default-features --features runtime-smol
+cargo test --no-default-features --features transport-serial
 cargo test --no-default-features --features runtime-tokio,transport-serial
 cargo test --no-default-features --features runtime-tokio,transport-serial-tokio
+cargo test --no-default-features --features runtime-tokio,dyn-api,test-utils --test dyn_api_integration_test
 
 # Optional interpreter-based UB checks for library tests
 cargo +nightly miri test --lib --no-default-features

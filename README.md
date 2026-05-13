@@ -9,13 +9,52 @@ A pure Rust library for controlling PTZ cameras via the VISCA protocol. Supports
 
 ---
 
-## Support Status
+## 1.0 Support Matrix
 
-**Tested:** PTZOptics cameras G2 and G3 series over TCP and UDP.
+The 1.0 contract is the camera-first API, the documented transport/runtime
+configuration types, the raw command extension trait, and the optional feature
+surfaces listed below. Hardware validation is narrower than software support:
+the library contract is tested automatically, while device-specific firmware
+quirks are handled as reproducible bugs.
 
-**Best effort:** Other VISCA cameras, Sony encapsulation profiles, serial transport
+### APIs and runtimes
 
-We can only support what we can test. If you have access to different hardware, please [report issues](https://github.com/GrantSparks/grafton-visca/issues) or [submit pull requests](https://github.com/GrantSparks/grafton-visca/pulls).
+| Area | Supported 1.0 contract | Automated validation |
+| ---- | ---------------------- | -------------------- |
+| Blocking API | Default build with no enabled features, plus `mode-blocking` for cfg-based downstream detection | `cargo test --no-default-features`, `cargo test --no-default-features --features mode-blocking` |
+| Runtime-agnostic async | `mode-async` with caller-provided executor/runtime | `cargo test --no-default-features --features mode-async` |
+| Tokio async | `runtime-tokio`, `TokioRuntime`, Tokio TCP/UDP adapters | `cargo test --no-default-features --features runtime-tokio` |
+| smol async | `runtime-smol`, `SmolRuntime`, smol TCP/UDP adapters | `cargo test --no-default-features --features runtime-smol` |
+| Dynamic API | `dyn-api` object-safe camera traits for async cameras | `cargo test --no-default-features --features runtime-tokio,dyn-api,test-utils --test dyn_api_integration_test`, plus smol compile/test coverage |
+
+### Transports
+
+| Transport | Supported 1.0 contract | Automated validation |
+| --------- | ---------------------- | -------------------- |
+| TCP | Blocking, Tokio, and smol camera connections through `Connect`, `CameraConfig`, and transport config types | Runtime matrix above |
+| UDP | Blocking, Tokio, and smol camera connections through `Connect`, `CameraConfig`, and transport config types | Runtime matrix above |
+| Blocking serial | RS-232/422 configuration and blocking serial transport APIs behind `transport-serial` | `cargo test --no-default-features --features transport-serial` |
+| Tokio serial | Async serial transport APIs behind `transport-serial-tokio` | `cargo test --no-default-features --features runtime-tokio,transport-serial-tokio` |
+| Custom transports | Public transport traits and handles documented under `grafton_visca::transport` | API contract tests |
+
+### Profiles
+
+| Profile family | Protocol | 1.0 support |
+| -------------- | -------- | ----------- |
+| `GenericVisca` | Raw VISCA | Supported baseline profile with conservative capabilities |
+| `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` | Raw VISCA | Supported; G2/G3 TCP and UDP behavior is hardware-validated |
+| `SonyEVIH100`, `SonyBRC300`, `NearusBRC300` | Raw VISCA | Supported through profile capability gates and protocol tests |
+| `SonyBRCH900`, `SonyFR7` | Sony encapsulation | Supported through Sony encapsulation, profile capability gates, and protocol tests |
+
+### Optional features
+
+| Feature | 1.0 support |
+| ------- | ----------- |
+| `serde` | Stable serialization/deserialization for public value and configuration types |
+| `schemars` | Stable JSON Schema generation for serde-backed public types |
+| `ts-rs` | Stable TypeScript type generation for supported exported types |
+| `dyn-api` | Stable object-safe async camera traits |
+| `test-utils` | Stable deterministic test transports and helpers for downstream tests |
 
 ---
 

@@ -9,8 +9,8 @@ name: Rust CI/CD
 # - Cross-compilation testing
 # - Reusable workflows for better organization
 # - Job timeouts for reliability
-# - Comprehensive feature matrix testing (matches pre-commit hooks)
-# - Tests all combinations: default, no-default, mode-async, runtime-tokio, runtime-smol, test-utils
+# - Comprehensive 1.0 support-matrix testing (matches README and contributor docs)
+# - Tests blocking, async runtimes, serial transports, dyn-api, and serialization features
 # - Enhanced clippy coverage for all feature combinations
 # - Platform matrix testing (ubuntu, windows, macos) × (stable, beta)
 # - Separate minimal testing for feature branches (faster feedback)
@@ -153,7 +153,9 @@ jobs:
         features:
           - ""  # default features
           - "no-default"
+          - "mode-blocking"
           - "runtime-tokio"
+          - "runtime-smol"
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v6
@@ -225,13 +227,19 @@ jobs:
       matrix:
         features:
           - ""  # no features
+          - "mode-blocking"
           - "mode-async"
           - "runtime-tokio"
           - "runtime-smol"
           - "test-utils"
           - "runtime-tokio,test-utils"
           - "runtime-smol,test-utils"
-          - "runtime-tokio,transport-serial"  # legacy compatibility
+          - "transport-serial"
+          - "runtime-tokio,transport-serial"
+          - "runtime-tokio,transport-serial-tokio"
+          - "serde,schemars,ts-rs"
+          - "runtime-tokio,dyn-api,test-utils"
+          - "runtime-smol,dyn-api"
     steps:
       - uses: actions/checkout@v6
 
@@ -401,13 +409,19 @@ jobs:
 
           features=(
             ""
+            "mode-blocking"
             "mode-async"
             "runtime-tokio"
             "runtime-smol"
             "test-utils"
             "runtime-tokio,test-utils"
             "runtime-smol,test-utils"
+            "transport-serial"
             "runtime-tokio,transport-serial"
+            "runtime-tokio,transport-serial-tokio"
+            "serde,schemars,ts-rs"
+            "runtime-tokio,dyn-api,test-utils"
+            "runtime-smol,dyn-api"
           )
 
           for feature in "${features[@]}"; do
@@ -537,7 +551,7 @@ jobs:
       - uses: obi1kenobi/cargo-semver-checks-action@v2
         with:
           feature-group: only-explicit-features
-          features: runtime-tokio,transport-serial
+          features: runtime-tokio,transport-serial,transport-serial-tokio,serde,schemars,ts-rs,dyn-api,test-utils
 
   # Check package metadata and dependencies
   package-check:

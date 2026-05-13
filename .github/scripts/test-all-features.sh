@@ -1,7 +1,10 @@
 #!/bin/bash
 
-# Comprehensive feature testing script
-# This script tests all feature combinations to ensure compatibility
+# 1.0 support-matrix testing script.
+#
+# Keep this list in sync with README.md and CONTRIBUTING.md. Each entry here is
+# part of the documented support contract unless it is explicitly called out as a
+# build-only/doc-only check.
 
 set -e
 
@@ -38,6 +41,10 @@ run_test "default features" \
 run_test "no default features (blocking mode)" \
     "cargo test --no-default-features --verbose"
 
+# Test explicit blocking feature detection
+run_test "mode-blocking feature (blocking mode)" \
+    "cargo test --no-default-features --features mode-blocking --verbose"
+
 # Test mode-async feature (runtime-agnostic)
 run_test "mode-async feature (runtime-agnostic)" \
     "cargo test --no-default-features --features mode-async --verbose"
@@ -61,8 +68,28 @@ run_test "runtime-smol + test-utils" \
     "cargo test --no-default-features --features runtime-smol,test-utils --verbose"
 
 # Test transport features
+run_test "blocking serial transport" \
+    "cargo test --no-default-features --features transport-serial --verbose"
+
 run_test "runtime-tokio + transport-serial" \
     "cargo test --no-default-features --features runtime-tokio,transport-serial --verbose"
+
+run_test "runtime-tokio + transport-serial-tokio" \
+    "cargo test --no-default-features --features runtime-tokio,transport-serial-tokio --verbose"
+
+# Test optional public contract features
+run_test "serde + schemars + ts-rs" \
+    "cargo test --no-default-features --features serde,schemars,ts-rs --verbose"
+
+run_test "runtime-tokio + dyn-api + test-utils" \
+    "cargo test --no-default-features --features runtime-tokio,dyn-api,test-utils --test dyn_api_integration_test --verbose"
+
+run_test "runtime-smol + dyn-api" \
+    "cargo test --no-default-features --features runtime-smol,dyn-api --verbose"
+
+# Test runtime coexistence explicitly.
+run_test "tokio + smol runtime coexistence" \
+    "cargo check --no-default-features --features runtime-tokio,runtime-smol --verbose"
 
 # Test the macro crate
 run_test "grafton-visca-macros crate" \
@@ -91,11 +118,15 @@ echo "Feature Matrix Coverage:"
 echo "------------------------"
 echo "✓ Default features"
 echo "✓ Blocking mode (no features)"
+echo "✓ Explicit mode-blocking feature"
 echo "✓ Mode-async (runtime-agnostic)"
 echo "✓ Tokio runtime"
 echo "✓ Smol runtime"
 echo "✓ Test utilities"
 echo "✓ Runtime + test-utils combinations"
-echo "✓ Transport features"
+echo "✓ Blocking and Tokio serial transport features"
+echo "✓ Serialization/schema/type-generation features"
+echo "✓ Dyn-api feature"
+echo "✓ Tokio + smol runtime coexistence"
 echo "✓ Macro crate"
 echo "✓ Examples compilation"
