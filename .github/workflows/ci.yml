@@ -115,24 +115,15 @@ jobs:
       - name: Setup sccache
         uses: ./.github/actions/setup-sccache
 
-      # Enhanced caching with registry index
+      # Compiler/dependency cache. Advisory only: tests must run if cache restore fails.
       - uses: Swatinem/rust-cache@v2
+        continue-on-error: true
         with:
           shared-key: "rust-cache-${{ matrix.os }}-${{ matrix.rust }}"
           save-if: ${{ github.ref == 'refs/heads/main' }}
           cache-targets: true
           cache-on-failure: true
           cache-all-crates: true
-
-      # Cache cargo registry index
-      - name: Cache cargo registry index
-        uses: actions/cache@v5
-        with:
-          path: ~/.cargo/registry/index
-          key: cargo-index-${{ matrix.os }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            cargo-index-${{ matrix.os }}-
-            cargo-index-
 
       # Use reusable workflow for comprehensive testing
       - name: Run comprehensive feature tests
@@ -181,24 +172,27 @@ jobs:
       - name: Setup sccache
         uses: ./.github/actions/setup-sccache
 
-      # Enhanced caching with registry index
+      # Normalize the empty default feature entry before it reaches cache keys.
+      - name: Sanitize features for cache keys
+        id: windows-features
+        run: |
+          FEATURES="${{ matrix.features }}"
+          if [ -z "$FEATURES" ]; then
+            FEATURES="default"
+          fi
+          FEATURES="${FEATURES//,/-}"
+          echo "sanitized=$FEATURES" >> "$GITHUB_OUTPUT"
+        shell: bash
+
+      # Compiler/dependency cache. Advisory only: tests must run if cache restore fails.
       - uses: Swatinem/rust-cache@v2
+        continue-on-error: true
         with:
-          shared-key: "rust-cache-windows-${{ matrix.rust }}-${{ matrix.features }}"
+          shared-key: "rust-cache-windows-${{ matrix.rust }}-${{ steps.windows-features.outputs.sanitized }}"
           save-if: ${{ github.ref == 'refs/heads/main' }}
           cache-targets: true
           cache-on-failure: true
           cache-all-crates: true
-
-      # Cache cargo registry index
-      - name: Cache cargo registry index
-        uses: actions/cache@v5
-        with:
-          path: ~/.cargo/registry/index
-          key: cargo-index-windows-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            cargo-index-windows-
-            cargo-index-
 
       # Run targeted tests based on features
       - name: Run tests - ${{ matrix.features || 'default' }}
@@ -265,10 +259,14 @@ jobs:
         id: features
         run: |
           SANITIZED_FEATURES="${{ matrix.features }}"
+          if [ -z "$SANITIZED_FEATURES" ]; then
+            SANITIZED_FEATURES="no-features"
+          fi
           SANITIZED_FEATURES="${SANITIZED_FEATURES//,/-}"
           echo "sanitized=${SANITIZED_FEATURES}" >> $GITHUB_OUTPUT
 
       - uses: Swatinem/rust-cache@v2
+        continue-on-error: true
         with:
           shared-key: "rust-cache-features-${{ steps.features.outputs.sanitized }}"
           save-if: ${{ github.ref == 'refs/heads/main' }}
@@ -353,6 +351,7 @@ jobs:
         uses: ./.github/actions/setup-sccache
 
       - uses: Swatinem/rust-cache@v2
+        continue-on-error: true
         with:
           shared-key: "rust-cache-cross-${{ matrix.target }}"
           save-if: false
@@ -397,6 +396,7 @@ jobs:
         uses: ./.github/actions/setup-sccache
 
       - uses: Swatinem/rust-cache@v2
+        continue-on-error: true
         with:
           shared-key: "rust-cache-ubuntu-latest-stable"
           save-if: ${{ github.ref == 'refs/heads/main' }}
@@ -494,6 +494,7 @@ jobs:
         uses: ./.github/actions/setup-sccache
 
       - uses: Swatinem/rust-cache@v2
+        continue-on-error: true
         with:
           shared-key: "rust-cache-async-${{ matrix.runtime }}"
           save-if: false
@@ -550,6 +551,7 @@ jobs:
         uses: ./.github/actions/setup-sccache
 
       - uses: Swatinem/rust-cache@v2
+        continue-on-error: true
         with:
           shared-key: "rust-cache-ubuntu-latest-stable"
           save-if: false
@@ -581,6 +583,7 @@ jobs:
         uses: ./.github/actions/setup-sccache
 
       - uses: Swatinem/rust-cache@v2
+        continue-on-error: true
         with:
           shared-key: "rust-cache-ubuntu-latest-stable"
           save-if: false
@@ -660,6 +663,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2
+        continue-on-error: true
         with:
           shared-key: "rust-cache-ubuntu-latest-stable"
           save-if: false

@@ -50,24 +50,15 @@ jobs:
       - name: Setup sccache
         uses: ./.github/actions/setup-sccache
 
-      # Enhanced caching
+      # Compiler/dependency cache. Advisory only: tests must run if cache restore fails.
       - uses: Swatinem/rust-cache@v2
+        continue-on-error: true
         with:
           shared-key: "rust-cache-${{ inputs.os }}-${{ inputs.rust }}"
           save-if: ${{ github.ref == 'refs/heads/main' }}
           cache-targets: true
           cache-on-failure: true
           cache-all-crates: true
-
-      # Cache cargo registry index
-      - name: Cache cargo registry index
-        uses: actions/cache@v5
-        with:
-          path: ~/.cargo/registry/index
-          key: cargo-index-${{ inputs.os }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            cargo-index-${{ inputs.os }}-
-            cargo-index-
 
       # Run tests based on feature set
       - name: Run tests for ${{ inputs.features }}
