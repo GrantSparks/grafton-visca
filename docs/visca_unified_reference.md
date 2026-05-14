@@ -239,7 +239,7 @@ Different camera models vary in capabilities even though they share the VISCA pr
 | **Preset slots**            | **127** G2 / **255** G3 / **10** (IR remote)    | 100 (0–99)                              | 16 (0–15)                               | 6 (0–5)                    | 6 (0–5)                   |
 | **Pan speed steps**         | 1–24 (std. VISCA range)                         | **1–50** (supports “Fine” mode)         | 1–24                                    | 1–24                       | 1–24                      |
 | **Focus Lock command**      | ✔ (`81 0A 04 68 02/03 FF`)                      | ✖ (no separate lock; uses AF/MF toggle) | ✖                                       | ✖                          | ✖                         |
-| **“Snap” Focus (One-push)** | ✔ (`81 01 04 38 04 FF` triggers one-shot focus) | ✔ (Push AF commands)                    | ✖                                       | ✖ (older models lack this) | ✖                         |
+| **“Snap” Focus (One-push)** | ✖ (not listed in Gen-2 model specs)             | ✔ (Push AF commands)                    | ✖                                       | ✖ (older models lack this) | ✖                         |
 | **ND Filter control**       | ✖ (no ND filter)                                | ✔ (Elec. ND 2–7 stops, 1/4 to 1/128)    | ✖ (no ND; uses optical only)            | ✖                          | ✖                         |
 | **Dual Tally lamps**        | Single (one lamp: On/Off/Flash)                 | **Two** (Red & Green, independent)      | Single (red, Hi/Lo brightness)          | ✖ (no tally)               | ✖                         |
 | **“Bright” AE mode**        | ✔ (Bright mode available)                       | ✖ (not supported on FR7)                | ✔ (Bright mode supported)               | ✔ (Bright mode supported)  | ✔ (Bright mode supported) |
@@ -249,7 +249,7 @@ Different camera models vary in capabilities even though they share the VISCA pr
 
 \* Sony BRC‑H900 IP control requires the BRBK-IP10 option; without it, only RS-232/422 control is available.
 
-As seen above, the newer FR7 introduces unique features like a variable electronic ND filter and dual tally lights, not found on older models. PTZOptics has some custom commands (like Focus Lock and Snap Focus) not present on Sony cameras. The number of preset memory slots varies widely: from 6 on entry-level models up to 100+ on newer cameras. PTZOptics NDI|HX Gen‑2 documentation lists **127 presets** (0–127) available via **serial/IP control**, while Gen‑3 models support **255 presets**; the included **IR remote supports 10 presets (0–9)**. When developing a controller, use the profile's `MAX_PRESETS` value and adjust the UI accordingly – for example, disable ND controls for models without ND filters, limit the preset index range offered to the user, or hide options like ATW or dual tally unless the camera supports them.
+As seen above, the newer FR7 introduces unique features like a variable electronic ND filter and dual tally lights, not found on older models. PTZOptics has some custom commands (like Focus Lock) not present on Sony cameras. The number of preset memory slots varies widely: from 6 on entry-level models up to 100+ on newer cameras. PTZOptics NDI|HX Gen‑2 documentation lists **127 presets** (0–127) available via **serial/IP control**, while Gen‑3 models support **255 presets**; the included **IR remote supports 10 presets (0–9)**. When developing a controller, use the profile's `MAX_PRESETS` value and adjust the UI accordingly – for example, disable ND controls for models without ND filters, limit the preset index range offered to the user, or hide options like ATW or dual tally unless the camera supports them. In the Rust API, runtime metadata remains available through `Capabilities::from_profile::<P>()`, while typed optional vendor controls are compile-gated by support markers. From the current model capability specs, `SonyFR7` exposes typed ND filter and variable speed controls; built-in PTZOptics profiles are not marked for typed Motion Sync.
 
 *(Note: The Sony BRC-X1000 4K camera (2017) is similar to FR7 in many respects and supports up to 100 presets. The older Sony BRC-300 had only 6 presets accessible via remote/serial. Always check model specs.)*
 
@@ -331,14 +331,14 @@ Many cameras implement additional VISCA commands beyond the baseline set, often 
 PTZOptics cameras largely follow the standard VISCA command set (their firmware is VISCA-based). However, they added a few extensions:
 
 * **Focus Lock:** `81 0A 04 68 02 FF` (Lock focus) / `81 0A 04 68 03 FF` (Unlock focus). When focus lock is on, the camera’s focus mechanism is held at its current position and any autofocus or manual focus commands are ignored. If you attempt a focus move while locked, the camera will return a `41 FF` *Not Executable* error (because it refuses to change focus). This is useful to temporarily prevent any focus changes.
-* **Snap Focus (One-Push AF in Manual):** `81 01 04 38 04 FF`. This command, sometimes called “One Push Trigger” for focus, will trigger an autofocus operation once, even if the camera is in manual focus mode. After the focus operation completes (or times out), the camera remains in Manual focus mode. Essentially, it’s a way to quickly autofocus at a target, then remain in manual (so it won’t continue hunting). On the PTZOptics Move series, this is documented as “Snap Focus”.
+* **Snap Focus / One-Push Focus:** The current PTZOptics Gen-2 model specs used by this repository do not list one-push focus as a supported camera capability. Keep any raw opcode experiments outside the typed built-in profile contract unless profile-specific evidence is added.
 * **Image Flip/Mirror:** PTZOptics provides a combined flip command. `81 01 04 A4 0p FF` controls mirroring/orientation. p = 0 (Off, normal), 1 (Horizontal Flip), 2 (Vertical Flip), 3 (Both H+V Flip). This single command replaces the separate Sony commands (`61` and `66` opcodes) used on some other models. Use this when mounting the camera inverted (ceiling) or if you need a mirror image.
 
   **Important:** PTZOptics G2/G3/30X cameras require using the combined flip command (0xA4) rather than legacy separate commands (0x61/0x66). The legacy commands may be accepted but not actually applied. The library automatically routes flip operations (`enable_flip`, `disable_flip`, etc.) through the combined command for PTZOptics profiles. To persist flip settings across power cycles, call `save_settings()` after changing flip settings.
 * **Auto WB Sensitivity:** `81 01 04 A9 00 FF` (High), `... A9 01 FF` (Normal), `... A9 02 FF` (Low). This adjusts how aggressively the Auto White Balance reacts to scene changes. In some PTZOptics models, “High” makes WB change more rapidly (useful for fast lighting changes), while “Low” dampens the response for stability.
 * **Multicast Streaming On/Off:** `81 0B 01 23 01 FF` (Enable multicast), `81 0B 01 23 02 FF` (Disable) – specific to NDI models. This toggles the camera’s multicast video stream output. (Not a VISCA camera control per se, but implemented via the VISCA-over-IP interface on PTZOptics NDI cameras).
 * **NDI|HX Mode Quality:** `81 0B 01 01 0p FF` – on NDI cameras, sets the NDI stream bandwidth/quality (p=1 High, 2 Medium, 3 Low, 4 Off). Again, not standard VISCA, but PTZOptics extends VISCA commands for some IP configuration settings.
-* **Motion Sync Feature:** Some newer PTZOptics (e.g., firmware 1.1.6+ on certain models) have “PTZ Motion Sync”, which coordinates pan, tilt, and zoom to start and stop simultaneously for preset recalls. Commands like `81 0A 11 13 02 FF` (MotionSync On) / `... 13 03 FF` (Off) and `81 0A 11 14 pp FF` (set MotionSync max speed, pp = 0x01–0x18 for speeds 1–24) configure this. When MotionSync is on, recalling a preset will adjust the pan/tilt speeds so that zoom and pan/tilt movements complete at the same time, yielding a more synchronized and smooth arrival on the preset.
+* **Motion Sync Feature:** Some newer PTZOptics firmware or models document “PTZ Motion Sync” opcodes, which coordinate pan, tilt, and zoom to start and stop simultaneously for preset recalls. The current Gen-2 model capability specs in this repository do not establish Motion Sync as a built-in profile capability, so typed Motion Sync support is left to custom/evidenced profiles while raw command escape hatches remain available for experiments.
 
 * **Image Processing:** PTZOptics G2/G3/30X cameras support a full set of image processing controls (see Section 8.4): Luminance (`0xA1`, range 0–14), Contrast (`0xA2`, range 0–14), Sharpness (`0x42`, range 0–11), Saturation (range 0–14), Hue (range 0–14), and 2D/3D Noise Reduction. Gamma curve control (`0x5B`, values 0–4) is also supported despite not being listed in the official PTZOptics VISCA command reference — hardware testing confirms both gamma inquiry and set commands work correctly.
 
@@ -484,7 +484,7 @@ Focus,Focus Near Var,81 01 04 08 3p FF,6,Yes,Yes,Yes,p = 0–7
 Focus,Focus Direct,81 01 04 48 0p 0q 0r 0s FF,10,Yes,Yes,Yes,
 Focus,Auto Focus On,81 01 04 38 02 FF,6,Yes,Yes,Yes,
 Focus,Auto Focus Off (Manual),81 01 04 38 03 FF,6,Yes,Yes,Yes,
-Focus,Focus One Push (Snap),81 01 04 38 04 FF,6,No,Yes,Yes,PTZOptics Snap Focus, FR7 Push AF (diff opcode)
+Focus,Focus One Push (Snap),81 01 04 38 04 FF,6,No,No,No,FR7 Push AF uses separate commands below
 Focus,Auto/Manual Toggle,81 01 04 38 10 FF,6,No,Yes,No,PTZOptics specific toggle
 Focus,Focus Mode Inq,81 09 04 38 FF,5,Yes,Yes,Yes,Reply 90 50 02/03 (Auto/Man)
 Focus,Focus Pos Inq,81 09 04 48 FF,5,Yes,Yes,Yes,Reply 90 50 0p0q0r0s FF
@@ -586,9 +586,9 @@ System,V-Flip On (legacy),81 01 04 66 02 FF,6,Yes,Yes,No,
 System,V-Flip Off (legacy),81 01 04 66 03 FF,6,Yes,Yes,No,
 System,Flip (Combined PTZOptics),81 01 04 A4 0p FF,6,No,Yes,No,p=0/1/2/3 Off/H/V/HV
 System,Settings Save (PTZOptics),81 01 04 A5 10 FF,6,No,Yes,No,Save current config
-System,PTZ MotionSync On (PTZOptics),81 0A 11 13 02 FF,6,No,Yes,No,
-System,PTZ MotionSync Off (PTZOptics),81 0A 11 13 03 FF,6,No,Yes,No,
-System,PTZ MotionSync Speed,81 0A 11 14 pp FF,6,No,Yes,No,pp = 01–18 (speed 1–24)
+System,PTZ MotionSync On (PTZOptics),81 0A 11 13 02 FF,6,No,No*,No,Listed in command references for some PTZOptics firmware; not a built-in Gen-2 profile capability
+System,PTZ MotionSync Off (PTZOptics),81 0A 11 13 03 FF,6,No,No*,No,Listed in command references for some PTZOptics firmware; not a built-in Gen-2 profile capability
+System,PTZ MotionSync Speed,81 0A 11 14 pp FF,6,No,No*,No,pp = 01–18; listed in command references for some PTZOptics firmware, not a built-in Gen-2 profile capability
 System,FR7 Speed Mode 24,81 01 7E 04 1B 01 FF,7,No,No,Yes,
 System,FR7 Speed Mode 50,81 01 7E 04 1B 02 FF,7,No,No,Yes,
 System,Menu Display On,81 01 06 06 02 FF,6,Yes,Yes,Yes,
@@ -607,7 +607,7 @@ Streaming,Multicast Off (PTZOptics),81 0B 01 23 02 FF,6,No,Yes,No,
 Streaming,NDI Quality Set (PTZOptics),81 0B 01 01 0p FF,6,No,Yes,No,p=1–4 (Hi,Med,Low,Off)
 ```
 
-> *"Bytes" column indicates total bytes including the terminator `FF`. "Yes/No" in model columns denote whether that model/family supports the command (to the best of current knowledge).*
+> *"Bytes" column indicates total bytes including the terminator `FF`. "Yes/No" in model columns denote whether that model/family supports the command (to the best of current knowledge). `No*` means an opcode appears in command references, but the current model capability specs do not establish it as a built-in profile capability.*
 
 ---
 

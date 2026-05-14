@@ -11,8 +11,8 @@
 //! This feature helps eliminate the jarring effect of sequential movements
 //! by synchronizing all axes to complete their movement simultaneously.
 //!
-//! This feature is primarily available on PtzOptics cameras and other
-//! professional PTZ systems that support coordinated movement control.
+//! This feature is available only for profiles that explicitly implement the
+//! `HasMotionSync` support marker.
 //!
 //! The implementation uses the Mode trait to provide both blocking and async APIs
 //! from a single unified codebase.
@@ -69,8 +69,8 @@ pub trait MotionSyncControl {
     /// - `mode`: The motion sync mode to set (On or Off)
     ///
     /// # Note
-    /// This is primarily a PtzOptics-specific feature, though other professional
-    /// cameras may support similar functionality.
+    /// This is a vendor-specific feature and is only available for profiles
+    /// that explicitly implement the typed Motion Sync support marker.
     ///
     /// # Errors
     /// Returns an error if the camera doesn't support motion sync or the command fails.
@@ -133,7 +133,7 @@ pub trait MotionSyncControl {
 impl<M, P, Tr, Exec> MotionSyncControl for crate::camera::Camera<M, P, Tr, Exec>
 where
     M: Mode,
-    P: crate::capabilities::Profile + Default + crate::capabilities::motion_sync::MotionSync,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasMotionSync,
     Self: ViscaClient<M>,
     Exec: crate::executor::Executor,
 {

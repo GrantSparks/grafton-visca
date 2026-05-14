@@ -11,8 +11,9 @@ use crate::{
             color::ColorControl,
             exposure::ExposureControl,
             focus::{FocusControl, FocusLockControl, PushAFControl},
-            inquiry::{InquiryControl, PanTiltInquiryControl},
+            inquiry::{InquiryControl, NdFilterInquiryControl, PanTiltInquiryControl},
             menu::MenuControl,
+            motion_sync::MotionSyncControl,
             nd_filter::NdFilterControl,
             pan_tilt::PanTiltControl,
             power::PowerControl,
@@ -543,7 +544,7 @@ where
         self.camera.set_focus_near_limit(position)
     }
 
-    /// Trigger one-push auto focus.
+    /// Trigger one-push auto focus when supported by the profile.
     ///
     /// Performs a single auto-focus operation then returns to the previous focus mode.
     pub fn one_push(&self) -> M::Fut<'_, Result<(), Error>>
@@ -1355,7 +1356,7 @@ where
 impl<'a, M, P, Tr, Exec> NdFilterAccessor<'a, M, P, Tr, Exec>
 where
     M: Mode,
-    P: Profile,
+    P: Profile + crate::capabilities::HasNdFilter,
     Exec: Executor,
 {
     #[cfg(feature = "mode-async")]
@@ -1366,7 +1367,7 @@ where
     /// Get the current ND filter position.
     pub fn position(&self) -> M::Fut<'_, Result<crate::command::NdFilterPosition, Error>>
     where
-        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+        Camera<M, P, Tr, Exec>: NdFilterInquiryControl<Mode = M>,
     {
         self.camera.nd_filter_position()
     }
@@ -1374,7 +1375,7 @@ where
     /// Get the ND filter preset setting.
     pub fn preset(&self) -> M::Fut<'_, Result<crate::types::NdFilterPreset, Error>>
     where
-        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+        Camera<M, P, Tr, Exec>: NdFilterInquiryControl<Mode = M>,
     {
         self.camera.nd_filter_preset()
     }
@@ -1434,7 +1435,7 @@ where
 impl<'a, M, P, Tr, Exec> MotionSyncAccessor<'a, M, P, Tr, Exec>
 where
     M: Mode,
-    P: Profile,
+    P: Profile + crate::capabilities::HasMotionSync,
     Exec: Executor,
 {
     #[cfg(feature = "mode-async")]
@@ -1445,7 +1446,7 @@ where
     /// Get the motion sync mode setting.
     pub fn mode(&self) -> M::Fut<'_, Result<crate::command::MotionSyncMode, Error>>
     where
-        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+        Camera<M, P, Tr, Exec>: MotionSyncControl<Mode = M>,
     {
         self.camera.motion_sync_mode()
     }

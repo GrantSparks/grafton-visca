@@ -6,7 +6,7 @@
 //! - Image processing settings (sharpness, saturation, noise reduction)
 //! - System status (power, version, menu state)
 //! - Color settings (gain, tuning, temperature)
-//! - Special features (tally lights, ND filters, motion sync)
+//! - Special features (tally lights, digital PTZ, defog)
 //!
 //! Inquiry operations allow you to read the current state of various camera
 //! parameters without changing them. This is essential for building user
@@ -18,8 +18,8 @@
 use crate::{
     camera::ViscaClient,
     command::{
-        focus::AutoFocusSensitivity, system::MotionSyncMode, ExposureMode, FocusMode, FocusZone,
-        SharpnessMode, WhiteBalanceMode,
+        focus::AutoFocusSensitivity, ExposureMode, FocusMode, FocusZone, SharpnessMode,
+        WhiteBalanceMode,
     },
     mode::Mode,
     Error,
@@ -37,7 +37,7 @@ use crate::{
 /// - **Color**: White balance, color temperature, red/blue gain and tuning
 /// - **Image**: Sharpness, saturation, hue, noise reduction, picture effects
 /// - **System**: Power state, version, menu status, tally lights
-/// - **Special**: ND filters, motion sync, digital PTZ, defog
+/// - **Special**: digital PTZ, defog
 ///
 /// # Examples
 ///
@@ -373,17 +373,6 @@ pub trait InquiryControl {
         &self,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::command::PictureEffectMode, Error>>;
 
-    /// Get the current ND filter position.
-    ///
-    /// Returns the position of the neutral density filter.
-    /// Only available on cameras with built-in ND filters (e.g., Sony FR7).
-    ///
-    /// # Errors
-    /// Returns an error if the inquiry fails, times out, or is not supported.
-    fn nd_filter_position(
-        &self,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::command::NdFilterPosition, Error>>;
-
     /// Get the camera version information.
     ///
     /// Returns detailed version information including model name,
@@ -645,17 +634,6 @@ pub trait InquiryControl {
     /// Returns an error if the inquiry fails or times out.
     fn two_tone_mode_enabled(&self) -> <Self::Mode as Mode>::Fut<'_, Result<bool, Error>>;
 
-    /// Get the ND filter preset setting.
-    ///
-    /// Returns the current ND filter preset number for cameras
-    /// with multiple ND filter configurations.
-    ///
-    /// # Errors
-    /// Returns an error if the inquiry fails or times out.
-    fn nd_filter_preset(
-        &self,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::NdFilterPreset, Error>>;
-
     /// Get the digital mode state.
     ///
     /// Returns whether digital mode is enabled, which may affect
@@ -682,15 +660,6 @@ pub trait InquiryControl {
     /// Returns an error if the inquiry fails or times out.
     fn tally_auto_adjust_enabled(&self) -> <Self::Mode as Mode>::Fut<'_, Result<bool, Error>>;
 
-    /// Get the motion sync mode setting.
-    ///
-    /// Returns the current motion sync mode which affects how
-    /// the camera synchronizes movement with other devices.
-    ///
-    /// # Errors
-    /// Returns an error if the inquiry fails or times out.
-    fn motion_sync_mode(&self) -> <Self::Mode as Mode>::Fut<'_, Result<MotionSyncMode, Error>>;
-
     /// Get the anti-flicker mode setting.
     ///
     /// Returns the current flicker reduction mode (Off, 50Hz, or 60Hz).
@@ -702,6 +671,23 @@ pub trait InquiryControl {
     fn flicker_mode(
         &self,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::command::exposure::AntiFlickerMode, Error>>;
+}
+
+/// ND filter-specific inquiry operations for cameras with typed ND filter support.
+#[grafton_visca_macros::delegate_to_session]
+pub trait NdFilterInquiryControl {
+    /// The mode type for this camera (Async or Blocking).
+    type Mode: Mode;
+
+    /// Get the current ND filter position.
+    fn nd_filter_position(
+        &self,
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::command::NdFilterPosition, Error>>;
+
+    /// Get the ND filter preset setting.
+    fn nd_filter_preset(
+        &self,
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::NdFilterPreset, Error>>;
 }
 
 /// Pan/tilt-specific inquiry operations for cameras.
@@ -912,11 +898,6 @@ where
         self.query(PictureEffectInquiry)
     }
 
-    fn nd_filter_position(&self) -> M::Fut<'_, Result<crate::command::NdFilterPosition, Error>> {
-        use crate::command::inquiry_structs::NdFilterInquiry;
-        self.query(NdFilterInquiry)
-    }
-
     fn version(&self) -> M::Fut<'_, Result<crate::command::VersionInfo, Error>> {
         use crate::command::inquiry_structs::VersionInquiry;
         self.query(VersionInquiry)
@@ -1038,11 +1019,6 @@ where
         self.query(TwoToneModeInquiry)
     }
 
-    fn nd_filter_preset(&self) -> M::Fut<'_, Result<crate::types::NdFilterPreset, Error>> {
-        use crate::command::inquiry_structs::NdFilterPresetInquiry;
-        self.query(NdFilterPresetInquiry)
-    }
-
     fn digital_mode_enabled(&self) -> M::Fut<'_, Result<bool, Error>> {
         use crate::command::inquiry_structs::DigitalInquiry;
         self.query(DigitalInquiry)
@@ -1053,14 +1029,29 @@ where
         self.query(TallyAutoAdjustInquiry)
     }
 
-    fn motion_sync_mode(&self) -> M::Fut<'_, Result<MotionSyncMode, Error>> {
-        use crate::command::inquiry_structs::MotionSyncModeInquiry;
-        self.query(MotionSyncModeInquiry)
-    }
-
     fn flicker_mode(&self) -> M::Fut<'_, Result<crate::command::exposure::AntiFlickerMode, Error>> {
         use crate::command::inquiry_structs::FlickerModeInquiry;
         self.query(FlickerModeInquiry)
+    }
+}
+
+impl<M, P, Tr, Exec> NdFilterInquiryControl for crate::camera::Camera<M, P, Tr, Exec>
+where
+    M: Mode,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasNdFilter,
+    Self: ViscaClient<M>,
+    Exec: crate::executor::Executor,
+{
+    type Mode = M;
+
+    fn nd_filter_position(&self) -> M::Fut<'_, Result<crate::command::NdFilterPosition, Error>> {
+        use crate::command::inquiry_structs::NdFilterInquiry;
+        self.query(NdFilterInquiry)
+    }
+
+    fn nd_filter_preset(&self) -> M::Fut<'_, Result<crate::types::NdFilterPreset, Error>> {
+        use crate::command::inquiry_structs::NdFilterPresetInquiry;
+        self.query(NdFilterPresetInquiry)
     }
 }
 

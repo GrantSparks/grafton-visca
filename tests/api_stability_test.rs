@@ -315,8 +315,8 @@ fn test_core_types_stability() {
 fn test_capability_traits_stability() {
     use grafton_visca::camera::profiles::{GenericVisca, PtzOpticsG2, SonyFR7};
     use grafton_visca::capabilities::{
-        Capabilities, Exposure, Focus, ImageProcessing, InquirySupport, NdFilter, PanTilt, Power,
-        Profile, ProfileMetadata, WhiteBalance, Zoom,
+        Capabilities, Exposure, Focus, HasNdFilter, ImageProcessing, InquirySupport, PanTilt,
+        Power, Profile, ProfileMetadata, WhiteBalance, Zoom,
     };
 
     // Test that capability traits can be used as bounds
@@ -334,7 +334,7 @@ fn test_capability_traits_stability() {
 
     fn test_specialized_bounds<P>()
     where
-        P: Profile + NdFilter, // Only NdFilter since not all profiles have MotionSync
+        P: Profile + HasNdFilter,
     {
     }
 
@@ -347,7 +347,7 @@ fn test_capability_traits_stability() {
     test_advanced_bounds::<SonyFR7>();
     test_advanced_bounds::<GenericVisca>();
 
-    // Only test NdFilter specialization for SonyFR7 which supports it
+    // Only test typed ND filter support for SonyFR7.
     test_specialized_bounds::<SonyFR7>();
 
     assert_eq!(PtzOpticsG2::MODEL_NAME, "PtzOptics G2");
@@ -363,8 +363,8 @@ fn test_capability_traits_stability() {
     assert!(g2_caps.has_basic_features());
     assert!(g2_caps.has_full_inquiry_support());
     assert_eq!(g2_caps.inquiry_support, InquirySupport::Full);
-    assert!(g2_caps.has_motion_sync);
-    assert_eq!(g2_caps.max_motion_sync_speed, Some(24));
+    assert!(!g2_caps.has_motion_sync);
+    assert_eq!(g2_caps.max_motion_sync_speed, None);
     assert!(!g2_caps.has_nd_filter);
     assert!(!g2_caps.has_iris_control);
 

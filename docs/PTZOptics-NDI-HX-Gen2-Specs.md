@@ -55,6 +55,14 @@ This document consolidates (and cross‑checks) the key technical data found in 
 - **Presets:** 255 via serial/IP; IR remote supports 10 presets (0–9)
 - **Preset accuracy:** 0.1°
 
+### Capability boundaries
+
+- The manual/datasheet capability tables do not list camera one-push focus or
+  PTZ Motion Sync as supported Gen-2 model capabilities.
+- The VISCA command-list reference may contain raw opcodes for firmware-specific
+  commands. Treat those as raw command references unless the model capability
+  specs above explicitly establish support.
+
 ### Power and environment
 
 - **Input voltage:** DC 12V (10.8–13.0V) or PoE (802.3af)

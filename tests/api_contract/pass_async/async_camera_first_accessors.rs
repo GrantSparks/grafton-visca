@@ -3,7 +3,7 @@
 use grafton_visca::{
     camera::{CameraConfig, CameraSession, Connect},
     mode::Async,
-    profiles::PtzOpticsG2,
+    profiles::{PtzOpticsG2, SonyFR7},
     runtime::Runtime,
     transport::TransportConfig,
     Error, Executor,
@@ -22,11 +22,16 @@ where
     let _ = session.image();
     let _ = session.presets();
     let _ = session.tally();
-    let _ = session.nd_filter();
-    let _ = session.motion_sync();
     let _ = session.menu();
     let _ = session.system();
     let _ = session.advanced();
+}
+
+fn async_fr7_optional_accessors<Tr, Exec>(session: &CameraSession<Async, SonyFR7, Tr, Exec>)
+where
+    Exec: Executor,
+{
+    let _ = session.nd_filter();
 }
 
 async fn async_connect_contract<R>(runtime: R) -> Result<(), Error>

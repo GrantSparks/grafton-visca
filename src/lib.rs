@@ -323,6 +323,13 @@
 //! // g2.nd_filter().set_mode(NdFilterMode::Clear)?; // Compile error: G2 has no ND filter capability
 //! ```
 //!
+//! Runtime discovery metadata is available for every profile through
+//! `Capabilities::from_profile::<P>()`. Typed optional vendor controls use
+//! separate support markers, so the public API exposes only documented support:
+//! `SonyFR7` has typed ND filter and variable speed controls. Built-in
+//! PTZOptics profiles are not marked for typed Motion Sync from the current
+//! model capability specs.
+//!
 //! ## Transport Implementation
 //!
 //! The library provides transport traits that you can implement for any communication method:
@@ -675,9 +682,10 @@ pub use crate::{
         controls::{
             ColorControl, DirectMenuControl, ExposureCompensationControl, ExposureControl,
             FocusControl, FocusLockControl, ImageProcessingControl, InquiryControl, MenuControl,
-            MotionControl, MotionSyncControl, NdFilterControl, PanTiltControl,
-            PanTiltInquiryControl, PowerControl, PresetsControl, PushAFControl, StreamingControl,
-            SystemControl, TallyControl, VariableSpeedControl, WhiteBalanceControl, ZoomControl,
+            MotionControl, MotionSyncControl, NdFilterControl, NdFilterInquiryControl,
+            PanTiltControl, PanTiltInquiryControl, PowerControl, PresetsControl, PushAFControl,
+            StreamingControl, SystemControl, TallyControl, VariableSpeedControl,
+            WhiteBalanceControl, ZoomControl,
         },
         Camera, CameraBuilder,
     },
