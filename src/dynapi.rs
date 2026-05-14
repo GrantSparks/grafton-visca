@@ -232,7 +232,7 @@ use crate::{
         FocusPosition, PanPosition, PanSpeed, SpeedLevel, TiltPosition, TiltSpeed, ZoomPosition,
         ZoomSpeed,
     },
-    Error, Normalized, ZoomDomain, ZoomPositionExt,
+    Error, Normalized, ZoomDomain,
 };
 
 // ============================================================================
@@ -910,29 +910,6 @@ where
             response_future,
         ))
     }
-
-    /// Execute a command and apply an explicit deadline to its completion response.
-    ///
-    /// The dyn API uses this for methods that expose a per-call timeout but do
-    /// not have a public static `_op` variant. The semantics intentionally match
-    /// `InFlight::await_completion`: the timeout applies to this command's
-    /// response future, not to a later physical idle poll.
-    async fn execute_command_with_timeout<C>(
-        &self,
-        command: C,
-        timeout: Duration,
-    ) -> Result<(), Error>
-    where
-        C: crate::command::ViscaCommand + Send + Sync,
-    {
-        let (_id, response_future) = self.inner.camera.start_command_with_id(&command).await?;
-        self.inner
-            .camera
-            .runtime()
-            .timeout(timeout, response_future)
-            .await?
-            .map(|_| ())
-    }
 }
 
 // Implement RuntimeDyn for the inner camera wrapper
@@ -1027,19 +1004,20 @@ where
 {
     fn pan_tilt_stop(&self) -> BoxFuture<'_, Result<(), Error>> {
         use crate::camera::controls::pan_tilt::PanTiltControl;
-        Box::pin(self.inner.camera.pan_tilt_stop())
+        self.inner.camera.pan_tilt_stop()
     }
 
     fn pan_tilt_home(&self, timeout: Option<Duration>) -> BoxFuture<'_, Result<(), Error>> {
-        Box::pin(async move {
-            if let Some(t) = timeout {
+        match timeout {
+            Some(t) => Box::pin(async move {
                 let handle = self.inner.camera.pan_tilt_home_op().await?;
                 handle.await_completion(t).await
-            } else {
+            }),
+            None => {
                 use crate::camera::controls::pan_tilt::PanTiltControl;
-                self.inner.camera.pan_tilt_home().await
+                self.inner.camera.pan_tilt_home()
             }
-        })
+        }
     }
 
     fn pan_tilt_home_op(&self) -> BoxFuture<'_, Result<InFlightDyn, Error>> {
@@ -1056,22 +1034,22 @@ where
         speed: SpeedLevel,
         timeout: Option<Duration>,
     ) -> BoxFuture<'_, Result<(), Error>> {
-        Box::pin(async move {
-            if let Some(t) = timeout {
+        match timeout {
+            Some(t) => Box::pin(async move {
                 let handle = self
                     .inner
                     .camera
                     .pan_tilt_absolute_op(pan_deg, tilt_deg, speed)
                     .await?;
                 handle.await_completion(t).await
-            } else {
+            }),
+            None => {
                 use crate::camera::controls::pan_tilt::PanTiltControl;
                 self.inner
                     .camera
                     .pan_tilt_absolute(pan_deg, tilt_deg, speed)
-                    .await
             }
-        })
+        }
     }
 
     fn pan_tilt_absolute_op(
@@ -1097,22 +1075,22 @@ where
         speed: SpeedLevel,
         timeout: Option<Duration>,
     ) -> BoxFuture<'_, Result<(), Error>> {
-        Box::pin(async move {
-            if let Some(t) = timeout {
+        match timeout {
+            Some(t) => Box::pin(async move {
                 let handle = self
                     .inner
                     .camera
                     .pan_tilt_relative_op(pan_deg, tilt_deg, speed)
                     .await?;
                 handle.await_completion(t).await
-            } else {
+            }),
+            None => {
                 use crate::camera::controls::pan_tilt::PanTiltControl;
                 self.inner
                     .camera
                     .pan_tilt_relative(pan_deg, tilt_deg, speed)
-                    .await
             }
-        })
+        }
     }
 
     fn pan_tilt_relative_op(
@@ -1138,23 +1116,22 @@ where
         tilt_speed: TiltSpeed,
     ) -> BoxFuture<'_, Result<(), Error>> {
         use crate::camera::controls::pan_tilt::PanTiltControl;
-        Box::pin(
-            self.inner
-                .camera
-                .pan_tilt_move(direction, pan_speed, tilt_speed),
-        )
+        self.inner
+            .camera
+            .pan_tilt_move(direction, pan_speed, tilt_speed)
     }
 
     fn pan_tilt_reset(&self, timeout: Option<Duration>) -> BoxFuture<'_, Result<(), Error>> {
-        Box::pin(async move {
-            if let Some(t) = timeout {
+        match timeout {
+            Some(t) => Box::pin(async move {
                 let handle = self.inner.camera.pan_tilt_reset_op().await?;
                 handle.await_completion(t).await
-            } else {
+            }),
+            None => {
                 use crate::camera::controls::pan_tilt::PanTiltControl;
-                self.inner.camera.pan_tilt_reset().await
+                self.inner.camera.pan_tilt_reset()
             }
-        })
+        }
     }
 
     fn pan_tilt_reset_op(&self) -> BoxFuture<'_, Result<InFlightDyn, Error>> {
@@ -1171,12 +1148,12 @@ where
         tilt: TiltPosition,
     ) -> BoxFuture<'_, Result<(), Error>> {
         use crate::camera::controls::pan_tilt::PanTiltControl;
-        Box::pin(self.inner.camera.pan_tilt_limit_set(corner, pan, tilt))
+        self.inner.camera.pan_tilt_limit_set(corner, pan, tilt)
     }
 
     fn pan_tilt_limit_clear(&self, corner: PanTiltLimitCorner) -> BoxFuture<'_, Result<(), Error>> {
         use crate::camera::controls::pan_tilt::PanTiltControl;
-        Box::pin(self.inner.camera.pan_tilt_limit_clear(corner))
+        self.inner.camera.pan_tilt_limit_clear(corner)
     }
 }
 
@@ -1190,7 +1167,7 @@ where
 {
     fn zoom_stop(&self) -> BoxFuture<'_, Result<(), Error>> {
         use crate::camera::controls::zoom::ZoomControl;
-        Box::pin(self.inner.camera.zoom_stop())
+        self.inner.camera.zoom_stop()
     }
 
     fn zoom_tele(
@@ -1198,19 +1175,16 @@ where
         speed: Option<ZoomSpeed>,
         timeout: Option<Duration>,
     ) -> BoxFuture<'_, Result<(), Error>> {
-        Box::pin(async move {
-            if let Some(t) = timeout {
-                use crate::command::zoom::Zoom;
-                let command = match speed {
-                    Some(speed) => Zoom::TeleVariable(speed),
-                    None => Zoom::TeleStd,
-                };
-                self.execute_command_with_timeout(command, t).await
-            } else {
+        match timeout {
+            Some(t) => Box::pin(async move {
+                let handle = self.inner.camera.zoom_tele_op(speed).await?;
+                handle.await_completion(t).await
+            }),
+            None => {
                 use crate::camera::controls::zoom::ZoomControl;
-                self.inner.camera.zoom_tele(speed).await
+                self.inner.camera.zoom_tele(speed)
             }
-        })
+        }
     }
 
     fn zoom_wide(
@@ -1218,19 +1192,16 @@ where
         speed: Option<ZoomSpeed>,
         timeout: Option<Duration>,
     ) -> BoxFuture<'_, Result<(), Error>> {
-        Box::pin(async move {
-            if let Some(t) = timeout {
-                use crate::command::zoom::Zoom;
-                let command = match speed {
-                    Some(speed) => Zoom::WideVariable(speed),
-                    None => Zoom::WideStd,
-                };
-                self.execute_command_with_timeout(command, t).await
-            } else {
+        match timeout {
+            Some(t) => Box::pin(async move {
+                let handle = self.inner.camera.zoom_wide_op(speed).await?;
+                handle.await_completion(t).await
+            }),
+            None => {
                 use crate::camera::controls::zoom::ZoomControl;
-                self.inner.camera.zoom_wide(speed).await
+                self.inner.camera.zoom_wide(speed)
             }
-        })
+        }
     }
 
     fn set_zoom(
@@ -1238,15 +1209,16 @@ where
         position: ZoomPosition,
         timeout: Option<Duration>,
     ) -> BoxFuture<'_, Result<(), Error>> {
-        Box::pin(async move {
-            if let Some(t) = timeout {
+        match timeout {
+            Some(t) => Box::pin(async move {
                 let handle = self.inner.camera.set_zoom_op(position).await?;
                 handle.await_completion(t).await
-            } else {
+            }),
+            None => {
                 use crate::camera::controls::zoom::ZoomControl;
-                self.inner.camera.set_zoom(position).await
+                self.inner.camera.set_zoom(position)
             }
-        })
+        }
     }
 
     fn set_zoom_op(&self, position: ZoomPosition) -> BoxFuture<'_, Result<InFlightDyn, Error>> {
@@ -1258,7 +1230,7 @@ where
 
     fn set_digital_zoom(&self, enabled: bool) -> BoxFuture<'_, Result<(), Error>> {
         use crate::camera::controls::zoom::ZoomControl;
-        Box::pin(self.inner.camera.set_digital_zoom(enabled))
+        self.inner.camera.set_digital_zoom(enabled)
     }
 
     fn zoom_absolute_normalized(
@@ -1267,33 +1239,20 @@ where
         domain: ZoomDomain,
         timeout: Option<Duration>,
     ) -> BoxFuture<'_, Result<(), Error>> {
-        Box::pin(async move {
-            if let Some(t) = timeout {
-                if domain == ZoomDomain::OpticalPlusDigital && P::DIGITAL_ZOOM_MAX.is_none() {
-                    return Err(Error::FeatureNotSupported {
-                        feature: "Digital zoom",
-                    });
-                }
-
-                let zoom_position = ZoomPosition::from_normalized(
-                    position,
-                    domain,
-                    P::OPTICAL_ZOOM_MAX,
-                    P::DIGITAL_ZOOM_MAX,
-                )?;
-                self.execute_command_with_timeout(
-                    crate::command::zoom::Zoom::Position(zoom_position),
-                    t,
-                )
-                .await
-            } else {
-                use crate::camera::controls::zoom::ZoomControl;
-                self.inner
+        match timeout {
+            Some(t) => Box::pin(async move {
+                let handle = self
+                    .inner
                     .camera
-                    .zoom_absolute_normalized(position, domain)
-                    .await
+                    .zoom_absolute_normalized_op(position, domain)
+                    .await?;
+                handle.await_completion(t).await
+            }),
+            None => {
+                use crate::camera::controls::zoom::ZoomControl;
+                self.inner.camera.zoom_absolute_normalized(position, domain)
             }
-        })
+        }
     }
 }
 
@@ -1307,32 +1266,32 @@ where
 {
     fn focus_auto(&self) -> BoxFuture<'_, Result<(), Error>> {
         use crate::camera::controls::focus::FocusControl;
-        Box::pin(self.inner.camera.focus_auto())
+        self.inner.camera.focus_auto()
     }
 
     fn focus_manual(&self) -> BoxFuture<'_, Result<(), Error>> {
         use crate::camera::controls::focus::FocusControl;
-        Box::pin(self.inner.camera.focus_manual())
+        self.inner.camera.focus_manual()
     }
 
     fn focus_near(&self, speed: SpeedLevel) -> BoxFuture<'_, Result<(), Error>> {
         use crate::camera::controls::focus::FocusControl;
-        Box::pin(self.inner.camera.focus_near(speed))
+        self.inner.camera.focus_near(speed)
     }
 
     fn focus_far(&self, speed: SpeedLevel) -> BoxFuture<'_, Result<(), Error>> {
         use crate::camera::controls::focus::FocusControl;
-        Box::pin(self.inner.camera.focus_far(speed))
+        self.inner.camera.focus_far(speed)
     }
 
     fn focus_stop(&self) -> BoxFuture<'_, Result<(), Error>> {
         use crate::camera::controls::focus::FocusControl;
-        Box::pin(self.inner.camera.focus_stop())
+        self.inner.camera.focus_stop()
     }
 
     fn focus_one_push(&self) -> BoxFuture<'_, Result<(), Error>> {
         use crate::camera::controls::focus::FocusControl;
-        Box::pin(self.inner.camera.focus_one_push())
+        self.inner.camera.focus_one_push()
     }
 
     fn set_focus(
@@ -1340,15 +1299,16 @@ where
         position: FocusPosition,
         timeout: Option<Duration>,
     ) -> BoxFuture<'_, Result<(), Error>> {
-        Box::pin(async move {
-            if let Some(t) = timeout {
+        match timeout {
+            Some(t) => Box::pin(async move {
                 let handle = self.inner.camera.set_focus_op(position).await?;
                 handle.await_completion(t).await
-            } else {
+            }),
+            None => {
                 use crate::camera::controls::focus::FocusControl;
-                self.inner.camera.set_focus(position).await
+                self.inner.camera.set_focus(position)
             }
-        })
+        }
     }
 
     fn set_focus_op(&self, position: FocusPosition) -> BoxFuture<'_, Result<InFlightDyn, Error>> {
@@ -1360,12 +1320,12 @@ where
 
     fn focus_infinity(&self) -> BoxFuture<'_, Result<(), Error>> {
         use crate::camera::controls::focus::FocusControl;
-        Box::pin(self.inner.camera.focus_infinity())
+        self.inner.camera.focus_infinity()
     }
 
     fn set_focus_zone(&self, zone: FocusZone) -> BoxFuture<'_, Result<(), Error>> {
         use crate::camera::controls::focus::FocusControl;
-        Box::pin(self.inner.camera.set_focus_zone(zone))
+        self.inner.camera.set_focus_zone(zone)
     }
 
     fn set_auto_focus_sensitivity(
@@ -1373,12 +1333,12 @@ where
         sensitivity: AutoFocusSensitivity,
     ) -> BoxFuture<'_, Result<(), Error>> {
         use crate::camera::controls::focus::FocusControl;
-        Box::pin(self.inner.camera.set_auto_focus_sensitivity(sensitivity))
+        self.inner.camera.set_auto_focus_sensitivity(sensitivity)
     }
 
     fn set_focus_near_limit(&self, position: FocusPosition) -> BoxFuture<'_, Result<(), Error>> {
         use crate::camera::controls::focus::FocusControl;
-        Box::pin(self.inner.camera.set_focus_near_limit(position))
+        self.inner.camera.set_focus_near_limit(position)
     }
 }
 
@@ -1395,15 +1355,16 @@ where
         preset: PresetNumber,
         timeout: Option<Duration>,
     ) -> BoxFuture<'_, Result<(), Error>> {
-        Box::pin(async move {
-            if let Some(t) = timeout {
+        match timeout {
+            Some(t) => Box::pin(async move {
                 let handle = self.inner.camera.preset_recall_op(preset).await?;
                 handle.await_completion(t).await
-            } else {
+            }),
+            None => {
                 use crate::camera::controls::presets::PresetsControl;
-                self.inner.camera.preset_recall(preset).await
+                self.inner.camera.preset_recall(preset)
             }
-        })
+        }
     }
 
     fn preset_recall_op(&self, preset: PresetNumber) -> BoxFuture<'_, Result<InFlightDyn, Error>> {
@@ -1415,12 +1376,12 @@ where
 
     fn preset_set(&self, preset: PresetNumber) -> BoxFuture<'_, Result<(), Error>> {
         use crate::camera::controls::presets::PresetsControl;
-        Box::pin(self.inner.camera.preset_set(preset))
+        self.inner.camera.preset_set(preset)
     }
 
     fn preset_reset(&self, preset: PresetNumber) -> BoxFuture<'_, Result<(), Error>> {
         use crate::camera::controls::presets::PresetsControl;
-        Box::pin(self.inner.camera.preset_reset(preset))
+        self.inner.camera.preset_reset(preset)
     }
 }
 
@@ -1433,27 +1394,8 @@ where
     Exec: crate::executor::Executor,
 {
     fn stop_all_motion(&self) -> BoxFuture<'_, Result<(), Error>> {
-        use crate::camera::controls::focus::FocusControl;
-        use crate::camera::controls::pan_tilt::PanTiltControl;
-        use crate::camera::controls::zoom::ZoomControl;
-
-        // Get all three stop futures before entering the async block.
-        // This ensures the async block captures the futures (which are Send)
-        // rather than &self (which may not be Sync).
-        let pt_fut = self.inner.camera.pan_tilt_stop();
-        let zoom_fut = self.inner.camera.zoom_stop();
-        let focus_fut = self.inner.camera.focus_stop();
-
-        Box::pin(async move {
-            // Stop all three motion axes, collecting the first error if any.
-            // All stop commands are attempted even if earlier ones fail.
-            let pt_result = pt_fut.await;
-            let zoom_result = zoom_fut.await;
-            let focus_result = focus_fut.await;
-
-            // Return the first error encountered, or Ok(()) if all succeeded
-            pt_result.and(zoom_result).and(focus_result)
-        })
+        use crate::camera::controls::motion::MotionControl;
+        self.inner.camera.stop_all_motion()
     }
 
     fn await_idle(&self, timeout: Duration) -> BoxFuture<'_, Result<(), Error>> {

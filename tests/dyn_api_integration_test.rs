@@ -11,23 +11,128 @@
 mod common;
 
 use std::{
+    alloc::{GlobalAlloc, Layout, System},
+    cell::Cell,
     sync::Arc,
+    sync::Mutex,
     time::{Duration, Instant},
 };
 
 use grafton_visca::{
-    camera::{profiles::PtzOpticsG2, CameraBuilder},
+    camera::{
+        controls::{
+            focus::FocusControl, pan_tilt::PanTiltControl, presets::PresetsControl,
+            zoom::ZoomControl,
+        },
+        profiles::PtzOpticsG2,
+        Camera, CameraBuilder,
+    },
     dynapi::{
         DynCameraControl, DynFocusControl, DynMotionControl, DynPanTiltControl, DynPresetsControl,
         DynZoomControl, IntoDynCamera,
     },
+    mode::Async,
     runtime::TokioRuntime,
     testing::testkit::{helpers, scripted_transport::Step, ScriptedTransport},
+    timeout::TimeoutConfig,
     types::SpeedLevel,
-    Error, PresetNumber, TokioExecutor,
+    Error, Normalized, PresetNumber, TokioExecutor, ZoomDomain,
 };
 
 use crate::common::patterns;
+
+struct CountingAllocator;
+
+static ALLOCATION_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+thread_local! {
+    static COUNTING_ALLOCATIONS: Cell<bool> = const { Cell::new(false) };
+    static ALLOCATION_COUNT: Cell<usize> = const { Cell::new(0) };
+}
+
+#[global_allocator]
+static GLOBAL: CountingAllocator = CountingAllocator;
+
+unsafe impl GlobalAlloc for CountingAllocator {
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        if COUNTING_ALLOCATIONS.try_with(Cell::get).unwrap_or(false) {
+            let _ = ALLOCATION_COUNT.try_with(|count| {
+                count.set(count.get().saturating_add(1));
+            });
+        }
+        unsafe { System.alloc(layout) }
+    }
+
+    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+        unsafe { System.dealloc(ptr, layout) }
+    }
+}
+
+struct AllocationCountingGuard;
+
+impl Drop for AllocationCountingGuard {
+    fn drop(&mut self) {
+        let _ = COUNTING_ALLOCATIONS.try_with(|counting| counting.set(false));
+    }
+}
+
+type TestCamera = Camera<Async, PtzOpticsG2, ScriptedTransport<TokioExecutor>, TokioRuntime>;
+
+fn allocations_during(f: impl FnOnce()) -> usize {
+    let _guard = ALLOCATION_TEST_LOCK
+        .lock()
+        .expect("allocation lock poisoned");
+    ALLOCATION_COUNT.with(|count| count.set(0));
+    COUNTING_ALLOCATIONS.with(|counting| counting.set(true));
+
+    {
+        let _counting_guard = AllocationCountingGuard;
+        f();
+    }
+
+    ALLOCATION_COUNT.with(Cell::get)
+}
+
+fn future_construction_allocations<Fut>(make_future: impl FnOnce() -> Fut) -> usize {
+    allocations_during(|| {
+        let future = make_future();
+        std::hint::black_box(&future);
+    })
+}
+
+fn assert_dyn_future_allocations_match_static<S, D, SFut, DFut>(
+    label: &str,
+    static_call: S,
+    dyn_call: D,
+) where
+    S: FnOnce() -> SFut,
+    D: FnOnce() -> DFut,
+{
+    let static_allocations = future_construction_allocations(static_call);
+    let dyn_allocations = future_construction_allocations(dyn_call);
+
+    assert!(
+        dyn_allocations <= static_allocations,
+        "{label} dyn future construction allocated more than static: dyn={dyn_allocations}, static={static_allocations}"
+    );
+}
+
+async fn new_test_camera(steps: impl Into<Vec<Step>>) -> TestCamera {
+    new_test_camera_with_timeout(steps, TimeoutConfig::default()).await
+}
+
+async fn new_test_camera_with_timeout(
+    steps: impl Into<Vec<Step>>,
+    timeout_config: TimeoutConfig,
+) -> TestCamera {
+    let transport: ScriptedTransport<TokioExecutor> = ScriptedTransport::new(steps);
+    let runtime = TokioRuntime::from_current().expect("Failed to get runtime");
+    CameraBuilder::with_executor(runtime)
+        .timeout_config(timeout_config)
+        .open_async::<PtzOpticsG2, _>(transport)
+        .await
+        .expect("Failed to create camera")
+}
 
 /// Verify that all dyn traits are object-safe by creating trait objects.
 #[test]
@@ -40,6 +145,45 @@ fn test_dyn_traits_are_object_safe() {
     fn _assert_motion_control(_: &dyn DynMotionControl) {}
 
     // This test passes if it compiles - the functions above prove object safety.
+}
+
+/// Direct dyn forwarding should return the static boxed future without adding
+/// an outer boxed adapter at construction time.
+#[tokio::test]
+async fn test_dyn_direct_forwarding_future_construction_allocations_match_static() {
+    let static_camera = new_test_camera(vec![]).await;
+    let dyn_camera = new_test_camera(vec![]).await.into_dyn();
+
+    assert_dyn_future_allocations_match_static(
+        "pan_tilt_stop",
+        || static_camera.pan_tilt_stop(),
+        || dyn_camera.pan_tilt().pan_tilt_stop(),
+    );
+
+    assert_dyn_future_allocations_match_static(
+        "zoom_stop",
+        || static_camera.zoom_stop(),
+        || dyn_camera.zoom().zoom_stop(),
+    );
+
+    assert_dyn_future_allocations_match_static(
+        "focus_auto",
+        || static_camera.focus_auto(),
+        || dyn_camera.focus().focus_auto(),
+    );
+
+    let preset = PresetNumber::new(1).expect("valid preset");
+    assert_dyn_future_allocations_match_static(
+        "preset_set",
+        || static_camera.preset_set(preset),
+        || dyn_camera.presets().preset_set(preset),
+    );
+
+    assert_dyn_future_allocations_match_static(
+        "pan_tilt_home(None)",
+        || static_camera.pan_tilt_home(),
+        || dyn_camera.pan_tilt().pan_tilt_home(None),
+    );
 }
 
 /// Test that DynCamera can be created from a concrete camera and used as a trait object.
@@ -124,6 +268,153 @@ async fn test_dyn_method_explicit_timeout_path_propagates_command_errors() {
     assert!(
         matches!(result, Err(Error::SyntaxError)),
         "camera syntax error should propagate through dyn method timeout path: {result:?}"
+    );
+}
+
+/// Explicit timeout paths for zoom delegate through the static operation helper,
+/// preserving command error propagation for paths that previously built commands
+/// directly in dynapi.rs.
+#[tokio::test]
+async fn test_dyn_zoom_explicit_timeout_path_propagates_command_errors() {
+    let transport: ScriptedTransport<TokioExecutor> =
+        ScriptedTransport::new(vec![helpers::errors::syntax_error(1)]);
+
+    let runtime = TokioRuntime::from_current().expect("Failed to get runtime");
+    let camera = CameraBuilder::with_executor(runtime)
+        .open_async::<PtzOpticsG2, _>(transport)
+        .await
+        .expect("Failed to create camera");
+
+    let dyn_camera = camera.into_dyn();
+    let result = dyn_camera
+        .zoom()
+        .zoom_tele(None, Some(Duration::from_secs(1)))
+        .await;
+
+    assert!(
+        matches!(result, Err(Error::SyntaxError)),
+        "camera syntax error should propagate through dyn zoom timeout path: {result:?}"
+    );
+}
+
+/// Dyn no-timeout calls should use the runtime's default command timeout path,
+/// not an explicit per-call deadline.
+#[tokio::test]
+async fn test_dyn_no_timeout_path_uses_default_command_timeout() {
+    let camera = new_test_camera_with_timeout(
+        vec![Step::OnSend {
+            matches: Some(patterns::pan_tilt::HOME.to_vec()),
+            responses: vec![helpers::ack(1)],
+        }],
+        TimeoutConfig::uniform(Duration::from_millis(50)),
+    )
+    .await;
+
+    let dyn_camera = camera.into_dyn();
+    let started = Instant::now();
+    let result = dyn_camera.pan_tilt().pan_tilt_home(None).await;
+
+    assert!(
+        matches!(result, Err(Error::Timeout)),
+        "missing completion should use default command timeout: {result:?}"
+    );
+    assert!(
+        started.elapsed() < Duration::from_secs(1),
+        "default command timeout should come from TimeoutConfig"
+    );
+}
+
+/// Static and dyn paths should reject the same validation edge cases before
+/// command submission.
+#[tokio::test]
+async fn test_dyn_validation_parity_for_pan_tilt_preset_and_zoom_domain() {
+    let static_camera = new_test_camera(vec![]).await;
+    let dyn_camera = new_test_camera(vec![]).await.into_dyn();
+
+    let static_pan_tilt = static_camera
+        .pan_tilt_absolute(171.0, 0.0, SpeedLevel::Medium)
+        .await;
+    let dyn_pan_tilt = dyn_camera
+        .pan_tilt()
+        .pan_tilt_absolute(171.0, 0.0, SpeedLevel::Medium, None)
+        .await;
+    assert!(
+        matches!(
+            static_pan_tilt,
+            Err(Error::InvalidParameter {
+                parameter: "degrees",
+                ..
+            })
+        ),
+        "static pan/tilt should reject out-of-range degrees: {static_pan_tilt:?}"
+    );
+    assert!(
+        matches!(
+            dyn_pan_tilt,
+            Err(Error::InvalidParameter {
+                parameter: "degrees",
+                ..
+            })
+        ),
+        "dyn pan/tilt should reject out-of-range degrees: {dyn_pan_tilt:?}"
+    );
+
+    let invalid_profile_preset = PresetNumber::new(128).expect("raw preset should be valid");
+    let static_preset = static_camera.preset_recall(invalid_profile_preset).await;
+    let dyn_preset = dyn_camera
+        .presets()
+        .preset_recall(invalid_profile_preset, None)
+        .await;
+    assert!(
+        matches!(
+            static_preset,
+            Err(Error::ParameterOutOfRange {
+                parameter: "preset_number",
+                value: 128,
+                min: 0,
+                max: 127,
+            })
+        ),
+        "static preset should reject profile-invalid preset: {static_preset:?}"
+    );
+    assert!(
+        matches!(
+            dyn_preset,
+            Err(Error::ParameterOutOfRange {
+                parameter: "preset_number",
+                value: 128,
+                min: 0,
+                max: 127,
+            })
+        ),
+        "dyn preset should reject profile-invalid preset: {dyn_preset:?}"
+    );
+
+    let normalized = Normalized::new(0.5).expect("valid normalized value");
+    let static_zoom = static_camera
+        .zoom_absolute_normalized(normalized, ZoomDomain::OpticalPlusDigital)
+        .await;
+    let dyn_zoom = dyn_camera
+        .zoom()
+        .zoom_absolute_normalized(normalized, ZoomDomain::OpticalPlusDigital, None)
+        .await;
+    assert!(
+        matches!(
+            static_zoom,
+            Err(Error::FeatureNotSupported {
+                feature: "Digital zoom"
+            })
+        ),
+        "static zoom should reject unsupported digital zoom domain: {static_zoom:?}"
+    );
+    assert!(
+        matches!(
+            dyn_zoom,
+            Err(Error::FeatureNotSupported {
+                feature: "Digital zoom"
+            })
+        ),
+        "dyn zoom should reject unsupported digital zoom domain: {dyn_zoom:?}"
     );
 }
 

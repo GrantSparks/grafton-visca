@@ -9,7 +9,13 @@
 //! The implementation uses the Mode trait to provide both blocking and async APIs
 //! from a single unified codebase.
 
-use crate::{camera::ViscaClient, mode::Mode, types::ZoomPosition, types::ZoomSpeed, Error};
+use crate::{
+    camera::ViscaClient,
+    command::zoom::Zoom as ZoomCommand,
+    mode::Mode,
+    types::{ZoomPosition, ZoomSpeed},
+    Error,
+};
 
 /// Zoom operations for PTZ cameras.
 ///
@@ -188,6 +194,50 @@ pub trait ZoomControl {
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 }
 
+fn zoom_tele_command(speed: Option<ZoomSpeed>) -> ZoomCommand {
+    match speed {
+        None => ZoomCommand::TeleStd,
+        Some(speed) => ZoomCommand::TeleVariable(speed),
+    }
+}
+
+fn zoom_wide_command(speed: Option<ZoomSpeed>) -> ZoomCommand {
+    match speed {
+        None => ZoomCommand::WideStd,
+        Some(speed) => ZoomCommand::WideVariable(speed),
+    }
+}
+
+fn zoom_position_command<T>(position: T) -> Result<ZoomCommand, Error>
+where
+    T: TryInto<ZoomPosition>,
+    T::Error: Into<Error>,
+{
+    position
+        .try_into()
+        .map(ZoomCommand::Position)
+        .map_err(Into::into)
+}
+
+fn zoom_absolute_normalized_command<P>(
+    position: crate::Normalized,
+    domain: crate::ZoomDomain,
+) -> Result<ZoomCommand, Error>
+where
+    P: crate::capabilities::Profile + Default + crate::capabilities::zoom::Zoom,
+{
+    use crate::ZoomPositionExt;
+
+    if domain == crate::ZoomDomain::OpticalPlusDigital && P::DIGITAL_ZOOM_MAX.is_none() {
+        return Err(Error::FeatureNotSupported {
+            feature: "Digital zoom",
+        });
+    }
+
+    ZoomPosition::from_normalized(position, domain, P::OPTICAL_ZOOM_MAX, P::DIGITAL_ZOOM_MAX)
+        .map(ZoomCommand::Position)
+}
+
 // Single unified implementation for all Camera types!
 impl<M, P, Tr, Exec> ZoomControl for crate::camera::Camera<M, P, Tr, Exec>
 where
@@ -199,24 +249,15 @@ where
     type Mode = M;
 
     fn zoom_stop(&self) -> M::Fut<'_, Result<(), Error>> {
-        use crate::command::zoom::Zoom;
-        self.execute(Zoom::Stop)
+        self.execute(ZoomCommand::Stop)
     }
 
     fn zoom_tele(&self, speed: Option<ZoomSpeed>) -> M::Fut<'_, Result<(), Error>> {
-        use crate::command::zoom::Zoom;
-        match speed {
-            None => self.execute(Zoom::TeleStd),
-            Some(s) => self.execute(Zoom::TeleVariable(s)),
-        }
+        self.execute(zoom_tele_command(speed))
     }
 
     fn zoom_wide(&self, speed: Option<ZoomSpeed>) -> M::Fut<'_, Result<(), Error>> {
-        use crate::command::zoom::Zoom;
-        match speed {
-            None => self.execute(Zoom::WideStd),
-            Some(s) => self.execute(Zoom::WideVariable(s)),
-        }
+        self.execute(zoom_wide_command(speed))
     }
 
     fn set_zoom<T>(&self, position: T) -> M::Fut<'_, Result<(), Error>>
@@ -224,10 +265,9 @@ where
         T: TryInto<ZoomPosition>,
         T::Error: Into<Error>,
     {
-        use crate::command::zoom::Zoom;
-        match position.try_into() {
-            Ok(zoom_pos) => self.execute(Zoom::Position(zoom_pos)),
-            Err(e) => self.error(e.into()),
+        match zoom_position_command(position) {
+            Ok(command) => self.execute(command),
+            Err(e) => self.error(e),
         }
     }
 
@@ -241,24 +281,8 @@ where
         position: crate::Normalized,
         domain: crate::ZoomDomain,
     ) -> M::Fut<'_, Result<(), Error>> {
-        use crate::{command::zoom::Zoom, ZoomPositionExt};
-
-        // Check if digital zoom is supported when OpticalPlusDigital is requested
-        if domain == crate::ZoomDomain::OpticalPlusDigital && P::DIGITAL_ZOOM_MAX.is_none() {
-            return self.error(Error::FeatureNotSupported {
-                feature: "Digital zoom",
-            });
-        }
-
-        // Convert normalized position to zoom position based on domain
-        // Uses profile constants for correct mapping across camera models
-        match ZoomPosition::from_normalized(
-            position,
-            domain,
-            P::OPTICAL_ZOOM_MAX,
-            P::DIGITAL_ZOOM_MAX,
-        ) {
-            Ok(zoom_pos) => self.execute(Zoom::Position(zoom_pos)),
+        match zoom_absolute_normalized_command::<P>(position, domain) {
+            Ok(command) => self.execute(command),
             Err(e) => self.error(e),
         }
     }
@@ -272,6 +296,40 @@ where
     Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
     Exec: crate::executor::Executor + Send + Sync + Clone + 'static,
 {
+    async fn start_zoom_operation(
+        &self,
+        command: ZoomCommand,
+    ) -> Result<crate::camera::inflight::InFlight<'_, crate::camera::inflight::Zoom, P, Exec>, Error>
+    {
+        let (id, response_future) = self.start_command_with_id(&command).await?;
+        Ok(crate::camera::inflight::InFlight::new(
+            id,
+            self.camera_id(),
+            self.runtime(),
+            response_future,
+        ))
+    }
+
+    /// Start zooming in and return an operation handle.
+    #[cfg(feature = "dyn-api")]
+    pub(crate) async fn zoom_tele_op(
+        &self,
+        speed: Option<ZoomSpeed>,
+    ) -> Result<crate::camera::inflight::InFlight<'_, crate::camera::inflight::Zoom, P, Exec>, Error>
+    {
+        self.start_zoom_operation(zoom_tele_command(speed)).await
+    }
+
+    /// Start zooming out and return an operation handle.
+    #[cfg(feature = "dyn-api")]
+    pub(crate) async fn zoom_wide_op(
+        &self,
+        speed: Option<ZoomSpeed>,
+    ) -> Result<crate::camera::inflight::InFlight<'_, crate::camera::inflight::Zoom, P, Exec>, Error>
+    {
+        self.start_zoom_operation(zoom_wide_command(speed)).await
+    }
+
     /// Set zoom to a position and return an operation handle.
     ///
     /// This method accepts any type that can be converted to `ZoomPosition`, providing
@@ -307,18 +365,19 @@ where
         T: TryInto<ZoomPosition>,
         T::Error: Into<Error>,
     {
-        use crate::command::zoom::Zoom;
+        self.start_zoom_operation(zoom_position_command(position)?)
+            .await
+    }
 
-        let zoom_pos = position.try_into().map_err(Into::into)?;
-        let cmd = Zoom::Position(zoom_pos);
-
-        // Use start_command_with_id to get the response future without awaiting it
-        let (id, response_future) = self.start_command_with_id(&cmd).await?;
-        Ok(crate::camera::inflight::InFlight::new(
-            id,
-            self.camera_id(),
-            self.runtime(),
-            response_future,
-        ))
+    /// Set zoom to an absolute normalized position and return an operation handle.
+    #[cfg(feature = "dyn-api")]
+    pub(crate) async fn zoom_absolute_normalized_op(
+        &self,
+        position: crate::Normalized,
+        domain: crate::ZoomDomain,
+    ) -> Result<crate::camera::inflight::InFlight<'_, crate::camera::inflight::Zoom, P, Exec>, Error>
+    {
+        self.start_zoom_operation(zoom_absolute_normalized_command::<P>(position, domain)?)
+            .await
     }
 }
