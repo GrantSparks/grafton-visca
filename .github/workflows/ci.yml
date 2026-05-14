@@ -113,20 +113,34 @@ jobs:
       - name: Ensure ${{ matrix.rust }} toolchain is usable
         shell: bash
         run: |
-          install_cargo_shim() {
+          install_toolchain_shims() {
             local cargo_bin="$1"
-            local shim_dir="$RUNNER_TEMP/rust-cargo-shim"
+            local rustc_bin="$2"
+            local rustdoc_bin="$3"
+            local shim_dir="$RUNNER_TEMP/rust-toolchain-shim"
             mkdir -p "$shim_dir"
             printf '#!/usr/bin/env bash\nexec "%s" "$@"\n' "$cargo_bin" > "$shim_dir/cargo"
+            printf '#!/usr/bin/env bash\nexec "%s" "$@"\n' "$rustc_bin" > "$shim_dir/rustc"
+            printf '#!/usr/bin/env bash\nexec "%s" "$@"\n' "$rustdoc_bin" > "$shim_dir/rustdoc"
             chmod +x "$shim_dir/cargo"
+            chmod +x "$shim_dir/rustc"
+            chmod +x "$shim_dir/rustdoc"
             echo "$shim_dir" >> "$GITHUB_PATH"
+            echo "RUSTC=$rustc_bin" >> "$GITHUB_ENV"
+            echo "RUSTDOC=$rustdoc_bin" >> "$GITHUB_ENV"
           }
 
           if rustup show active-toolchain 2>/dev/null | grep -q "${{ matrix.rust }}" \
             && cargo_bin="$(rustup which --toolchain "${{ matrix.rust }}" cargo 2>/dev/null)" \
-            && "$cargo_bin" --version >/dev/null 2>&1; then
+            && rustc_bin="$(rustup which --toolchain "${{ matrix.rust }}" rustc 2>/dev/null)" \
+            && rustdoc_bin="$(rustup which --toolchain "${{ matrix.rust }}" rustdoc 2>/dev/null)" \
+            && "$cargo_bin" --version >/dev/null 2>&1 \
+            && "$rustc_bin" --version >/dev/null 2>&1 \
+            && "$rustdoc_bin" --version >/dev/null 2>&1; then
             "$cargo_bin" --version
-            install_cargo_shim "$cargo_bin"
+            "$rustc_bin" --version
+            "$rustdoc_bin" --version
+            install_toolchain_shims "$cargo_bin" "$rustc_bin" "$rustdoc_bin"
             exit 0
           fi
           for i in {1..3}; do
@@ -137,8 +151,12 @@ jobs:
             sleep 30
           done
           cargo_bin="$(rustup which --toolchain "${{ matrix.rust }}" cargo)"
+          rustc_bin="$(rustup which --toolchain "${{ matrix.rust }}" rustc)"
+          rustdoc_bin="$(rustup which --toolchain "${{ matrix.rust }}" rustdoc)"
           "$cargo_bin" --version
-          install_cargo_shim "$cargo_bin"
+          "$rustc_bin" --version
+          "$rustdoc_bin" --version
+          install_toolchain_shims "$cargo_bin" "$rustc_bin" "$rustdoc_bin"
 
       # Setup sccache for compiler caching (gracefully handle service outages)
       - name: Setup sccache
