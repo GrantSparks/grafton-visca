@@ -32,6 +32,113 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added contributor guidance for source-backed camera profile capability changes, including metadata/support-marker decisions and required test coverage
 - Raw/custom VISCA command extension APIs remain profile-agnostic escape hatches for advanced integrations
 
+##### Migration Notes
+
+The main semantic change is that optional vendor metadata no longer implies typed API support. Before this change, blanket implementations made support markers follow optional feature traits automatically. After this change, metadata traits (`NdFilterMetadata`, `MotionSyncMetadata`, `VariableSpeedMetadata`) feed runtime discovery, and explicit support markers (`HasNdFilter`, `HasMotionSync`, `HasVariableSpeed`, `HasPushAutoFocus`) are the source of truth for typed controls. The removed blanket implementations had this shape:
+
+```rust
+impl<T: ProfileMetadata + NdFilter> HasNdFilter for T {}
+impl<T: ProfileMetadata + MotionSync> HasMotionSync for T {}
+impl<T: ProfileMetadata + VariableSpeed> HasVariableSpeed for T {}
+```
+
+Profile authors must now opt into typed surfaces deliberately:
+
+```rust
+impl NdFilterMetadata for MyProfile {
+    const ND_MODE: NdFilterMode = NdFilterMode::Variable;
+}
+impl HasNdFilter for MyProfile {}
+```
+
+Method and bound migrations:
+
+```diff
+-use grafton_visca::camera::controls::inquiry::InquiryControl;
++use grafton_visca::camera::controls::inquiry::NdFilterInquiryControl;
++use grafton_visca::capabilities::HasNdFilter;
+
+-where P: Profile + Default, Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>
++where P: Profile + HasNdFilter + Default, Camera<M, P, Tr, Exec>: NdFilterInquiryControl<Mode = M>
+ let position = camera.nd_filter_position().await?;
+```
+
+```diff
+-use grafton_visca::camera::controls::inquiry::InquiryControl;
++use grafton_visca::camera::controls::motion_sync::MotionSyncControl;
++use grafton_visca::capabilities::HasMotionSync;
+
+-where P: Profile + Default, Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>
++where P: Profile + HasMotionSync + Default, Camera<M, P, Tr, Exec>: MotionSyncControl<Mode = M>
+ let mode = camera.motion_sync_mode().await?;
+```
+
+```diff
+ use grafton_visca::camera::controls::variable_speed::VariableSpeedControl;
++use grafton_visca::capabilities::HasVariableSpeed;
+
+-where P: Profile + Default, Camera<M, P, Tr, Exec>: VariableSpeedControl<Mode = M>
++where P: Profile + HasVariableSpeed + Default, Camera<M, P, Tr, Exec>: VariableSpeedControl<Mode = M>
+ camera.set_variable_speed_mode(VariableSpeedMode::Fine50).await?;
+```
+
+Generic wrappers that forwarded every camera operation through one `P: Profile + Default` bound need feature-specific impl blocks or bounds. For example:
+
+```diff
+ impl<P, Tr> CameraWrapper<P, Tr>
+-where P: Profile + Default
++where P: Profile + HasNdFilter + Default
+ {
+     pub async fn nd_position(&self) -> Result<NdFilterPosition, Error> {
+         self.camera.nd_filter().position().await
+     }
+ }
+```
+
+If the old wrapper is left as `P: Profile + Default`, errors will look like:
+
+```text
+error[E0277]: the trait bound `P: HasNdFilter` is not satisfied
+help: consider further restricting type parameter `P` with trait `HasNdFilter`
+```
+
+Downstream `Arc<dyn ...>` facades are the architectural migration point. If a single trait object currently exposes ND filter, Motion Sync, and variable-speed methods for every profile, split the facade into a base trait plus optional capability objects:
+
+```rust
+use grafton_visca::mode::BoxFuture;
+
+pub trait CameraOps: Send + Sync {
+    fn capabilities(&self) -> &Capabilities;
+    fn nd_filter(&self) -> Option<Arc<dyn NdFilterOps>>;
+    fn motion_sync(&self) -> Option<Arc<dyn MotionSyncOps>>;
+    fn variable_speed(&self) -> Option<Arc<dyn VariableSpeedOps>>;
+}
+
+pub trait NdFilterOps: Send + Sync {
+    fn position(&self) -> BoxFuture<'_, Result<NdFilterPosition, Error>>;
+}
+```
+
+The empty support markers are dyn-compatible but are compile-time profile markers, not operation facades. The static control traits are usable with dyn dispatch only when the associated `Mode` is fixed, for example `dyn NdFilterInquiryControl<Mode = Async>`. They are not a replacement for a runtime capability fan-out. For public object-safe facades, use the `dyn-api` feature where it covers the operation, or mirror its boxed-future style. Downstream traits that use `async fn` or RPITIT return types are not dyn-compatible; return `BoxFuture` instead.
+
+Built-in typed support markers after this change:
+
+| Profile | `HasNdFilter` | `HasMotionSync` | `HasVariableSpeed` | `HasPushAutoFocus` |
+| ------- | ------------- | --------------- | ------------------ | ------------------ |
+| `GenericVisca` | no | no | no | no |
+| `PtzOpticsG2` | no | no | no | no |
+| `PtzOpticsG3` | no | no | no | no |
+| `PtzOptics30X` | no | no | no | no |
+| `SonyFR7` | yes | no | yes | yes |
+| `SonyBRCH900` | no | no | no | no |
+| `SonyEVIH100` | no | no | no | no |
+| `SonyBRC300` | no | no | no | no |
+| `NearusBRC300` | no | no | no | no |
+
+Downstream projects can catch this class of breakage with compile-fail fixtures that mirror the crate's `tests/api_contract/fail/*optional*` cases: assert that unsupported built-in profiles cannot call optional typed accessors, and assert that wrappers requiring typed ND or variable speed include `HasNdFilter` or `HasVariableSpeed` bounds. When auditing facade changes, `cargo +nightly rustc -- -Z print-type-sizes` can help confirm that boxed-future or trait-object changes did not accidentally grow hot-path wrapper types.
+
+If this gating model ships in a pre-1.0 release before the final cutover, prefer a staged path with deprecated forwarding aliases or a temporary `--cfg unstable_gates`-style opt-in so downstreams can land generic-bound changes and dyn-facade splits separately.
+
 #### Granular Iris Capability Modelling
 - **BREAKING**: `Exposure::IRIS_RANGE` changed from `Range<u16>` to `Option<Range<u16>>`; downstream `impl Exposure` blocks must wrap their range in `Some(...)` or use `None` for cameras that lack iris control
 - **BREAKING**: `Capabilities::iris_range` changed from `RangeInclusive<u16>` to `Option<RangeInclusive<u16>>`
