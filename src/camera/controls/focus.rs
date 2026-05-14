@@ -158,7 +158,8 @@ pub trait FocusControl {
     ///
     /// # Errors
     /// Returns an error if:
-    /// - The conversion to `FocusPosition` fails (e.g., value out of range)
+    /// - The conversion to `FocusPosition` fails
+    /// - The focus position is outside the selected profile's focus range
     /// - The command fails to send or receive a response
     fn set_focus<T>(&self, position: T) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>
     where
@@ -214,7 +215,8 @@ pub trait FocusControl {
     ///
     /// # Errors
     /// Returns an error if:
-    /// - The conversion to `FocusPosition` fails (e.g., value out of range)
+    /// - The conversion to `FocusPosition` fails
+    /// - The focus position is outside the selected profile's focus range
     /// - The command fails to send or receive a response
     fn set_focus_near_limit<T>(
         &self,
@@ -245,6 +247,36 @@ pub trait FocusControl {
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
     fn focus_snap(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+}
+
+fn validate_focus_position<P>(position: FocusPosition) -> Result<FocusPosition, Error>
+where
+    P: crate::capabilities::Focus + Default,
+{
+    use crate::capabilities::focus::FocusExt;
+
+    P::default().validate_focus_position(position.value())?;
+    Ok(position)
+}
+
+fn focus_position_command<P, T>(position: T) -> Result<Focus, Error>
+where
+    P: crate::capabilities::Focus + Default,
+    T: TryInto<FocusPosition>,
+    T::Error: Into<Error>,
+{
+    let focus_pos = position.try_into().map_err(Into::into)?;
+    validate_focus_position::<P>(focus_pos).map(Focus::Position)
+}
+
+fn focus_near_limit_command<P, T>(position: T) -> Result<FocusNearLimitCommand, Error>
+where
+    P: crate::capabilities::Focus + Default,
+    T: TryInto<FocusPosition>,
+    T::Error: Into<Error>,
+{
+    let focus_pos = position.try_into().map_err(Into::into)?;
+    validate_focus_position::<P>(focus_pos).map(|position| FocusNearLimitCommand { position })
 }
 
 // Single unified implementation for all Camera types!
@@ -309,9 +341,9 @@ where
         T: TryInto<FocusPosition>,
         T::Error: Into<Error>,
     {
-        match position.try_into() {
-            Ok(focus_pos) => self.execute(Focus::Position(focus_pos)),
-            Err(e) => self.error(e.into()),
+        match focus_position_command::<P, T>(position) {
+            Ok(command) => self.execute(command),
+            Err(e) => self.error(e),
         }
     }
 
@@ -335,11 +367,9 @@ where
         T: TryInto<FocusPosition>,
         T::Error: Into<Error>,
     {
-        match position.try_into() {
-            Ok(focus_pos) => self.execute(FocusNearLimitCommand {
-                position: focus_pos,
-            }),
-            Err(e) => self.error(e.into()),
+        match focus_near_limit_command::<P, T>(position) {
+            Ok(command) => self.execute(command),
+            Err(e) => self.error(e),
         }
     }
 
@@ -390,7 +420,8 @@ where
     ///
     /// # Errors
     /// Returns an error if:
-    /// - The conversion to `FocusPosition` fails (e.g., value out of range)
+    /// - The conversion to `FocusPosition` fails
+    /// - The focus position is outside the selected profile's focus range
     /// - The command fails to send
     pub async fn set_focus_op<T>(
         &self,
@@ -400,10 +431,7 @@ where
         T: TryInto<FocusPosition>,
         T::Error: Into<Error>,
     {
-        use crate::command::focus::Focus;
-
-        let focus_pos = position.try_into().map_err(Into::into)?;
-        let cmd = Focus::Position(focus_pos);
+        let cmd = focus_position_command::<P, T>(position)?;
 
         // Use start_command_with_id to get the response future without awaiting it
         let (id, response_future) = self.start_command_with_id(&cmd).await?;

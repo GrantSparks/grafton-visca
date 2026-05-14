@@ -35,7 +35,7 @@ use grafton_visca::{
     runtime::TokioRuntime,
     testing::testkit::{helpers, scripted_transport::Step, ScriptedTransport},
     timeout::TimeoutConfig,
-    types::SpeedLevel,
+    types::{FocusPosition, SpeedLevel},
     Error, Normalized, PresetNumber, TokioExecutor, ZoomDomain,
 };
 
@@ -327,7 +327,7 @@ async fn test_dyn_no_timeout_path_uses_default_command_timeout() {
 /// Static and dyn paths should reject the same validation edge cases before
 /// command submission.
 #[tokio::test]
-async fn test_dyn_validation_parity_for_pan_tilt_preset_and_zoom_domain() {
+async fn test_dyn_validation_parity_for_pan_tilt_focus_preset_and_zoom_domain() {
     let static_camera = new_test_camera(vec![]).await;
     let dyn_camera = new_test_camera(vec![]).await.into_dyn();
 
@@ -357,6 +357,34 @@ async fn test_dyn_validation_parity_for_pan_tilt_preset_and_zoom_domain() {
             })
         ),
         "dyn pan/tilt should reject out-of-range degrees: {dyn_pan_tilt:?}"
+    );
+
+    let invalid_focus = FocusPosition::new(0x0FFF);
+    let static_focus = static_camera.set_focus(invalid_focus).await;
+    let dyn_focus = dyn_camera.focus().set_focus(invalid_focus, None).await;
+    assert!(
+        matches!(
+            static_focus,
+            Err(Error::ValidationError(
+                grafton_visca::capabilities::ValidationError::OutOfRange {
+                    parameter: "focus position",
+                    ..
+                }
+            ))
+        ),
+        "static focus should reject out-of-range focus position: {static_focus:?}"
+    );
+    assert!(
+        matches!(
+            dyn_focus,
+            Err(Error::ValidationError(
+                grafton_visca::capabilities::ValidationError::OutOfRange {
+                    parameter: "focus position",
+                    ..
+                }
+            ))
+        ),
+        "dyn focus should reject out-of-range focus position: {dyn_focus:?}"
     );
 
     let invalid_profile_preset = PresetNumber::new(128).expect("raw preset should be valid");
