@@ -113,20 +113,39 @@ fn test_zero_cost_generic_transports() {
 #[test]
 fn test_control_traits_api_stability() {
     use grafton_visca::camera::controls::{
-        exposure::{ExposureControl, IrisControl},
+        color::{
+            ColorControl, ColorTemperatureControl, OnePushWhiteBalanceControl, RgbGainControl,
+            RgbTuningControl,
+        },
+        exposure::{
+            BacklightCompensationControl, ExposureControl, IrisControl, WideDynamicRangeControl,
+        },
         focus::{
             AutoFocusSensitivityControl, FocusControl, FocusZoneControl, OnePushFocusControl,
             SnapFocusControl,
         },
-        image_processing::ImageProcessingControl,
+        image_processing::{
+            GammaControl, HueControl, ImageFlipControl, ImageFlipModeControl, ImageMirrorControl,
+            ImageProcessingControl, LuminanceControl, NoiseReduction2DControl,
+            NoiseReduction3DControl, PictureEffectControl, SaturationControl,
+        },
         inquiry::{
-            AutoFocusSensitivityInquiryControl, FocusNearLimitInquiryControl,
-            FocusZoneInquiryControl, InquiryControl, IrisInquiryControl,
+            AutoFocusSensitivityInquiryControl, BacklightCompensationInquiryControl,
+            ColorTemperatureInquiryControl, ExposureCompensationInquiryControl,
+            FocusNearLimitInquiryControl, FocusZoneInquiryControl, GammaInquiryControl,
+            HueInquiryControl, ImageFlipInquiryControl, InquiryControl, IrisInquiryControl,
+            LuminanceInquiryControl, NoiseReduction2DInquiryControl,
+            NoiseReduction3DInquiryControl, NoiseReductionInquiryControl,
+            PictureEffectInquiryControl, RgbGainInquiryControl, RgbTuningInquiryControl,
+            SaturationInquiryControl, WideDynamicRangeInquiryControl,
         },
         pan_tilt::PanTiltControl,
         power::PowerControl,
         presets::PresetsControl,
-        white_balance::WhiteBalanceControl,
+        white_balance::{
+            AutoTrackingWhiteBalanceControl, AutoWhiteBalanceSensitivityControl,
+            WhiteBalanceControl,
+        },
         zoom::{DigitalZoomControl, DigitalZoomRangeControl, DirectZoomControl, ZoomControl},
     };
 
@@ -150,10 +169,44 @@ fn test_control_traits_api_stability() {
             + FocusZoneInquiryControl
             + AutoFocusSensitivityInquiryControl
             + IrisInquiryControl
+            + ExposureCompensationInquiryControl
+            + BacklightCompensationInquiryControl
+            + WideDynamicRangeInquiryControl
+            + ColorTemperatureInquiryControl
+            + RgbGainInquiryControl
+            + RgbTuningInquiryControl
+            + SaturationInquiryControl
+            + HueInquiryControl
+            + LuminanceInquiryControl
+            + GammaInquiryControl
+            + ImageFlipInquiryControl
+            + NoiseReductionInquiryControl
+            + NoiseReduction2DInquiryControl
+            + NoiseReduction3DInquiryControl
+            + PictureEffectInquiryControl
             + ExposureControl
             + IrisControl
+            + BacklightCompensationControl
+            + WideDynamicRangeControl
             + WhiteBalanceControl
+            + OnePushWhiteBalanceControl
+            + AutoTrackingWhiteBalanceControl
+            + AutoWhiteBalanceSensitivityControl
             + ImageProcessingControl
+            + ImageFlipControl
+            + ImageMirrorControl
+            + ImageFlipModeControl
+            + SaturationControl
+            + HueControl
+            + LuminanceControl
+            + GammaControl
+            + NoiseReduction2DControl
+            + NoiseReduction3DControl
+            + PictureEffectControl
+            + ColorControl
+            + ColorTemperatureControl
+            + RgbGainControl
+            + RgbTuningControl
     {
     }
 

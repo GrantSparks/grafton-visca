@@ -96,11 +96,21 @@ mod profile_constants {
         WhiteBalanceMode::Manual,
         WhiteBalanceMode::ColorTemperature,
     ];
+
+    /// Sony FR7 white balance modes.
+    pub const SONY_FR7_WB_MODES: &[WhiteBalanceMode] = &[
+        WhiteBalanceMode::Auto,
+        WhiteBalanceMode::Indoor,
+        WhiteBalanceMode::Outdoor,
+        WhiteBalanceMode::ATW,
+        WhiteBalanceMode::OnePush,
+        WhiteBalanceMode::Manual,
+    ];
 }
 
 use self::profile_constants::{
     GENERIC_VISCA_SHUTTER_SPEEDS, PTZ_OPTICS_EXPOSURE_MODES, PTZ_OPTICS_G2_SHUTTER_SPEEDS,
-    PTZ_OPTICS_WB_MODES, STANDARD_EXPOSURE_MODES, STANDARD_WB_MODES,
+    PTZ_OPTICS_WB_MODES, SONY_FR7_WB_MODES, STANDARD_EXPOSURE_MODES, STANDARD_WB_MODES,
 };
 
 /// PtzOptics G2 camera profile.
@@ -228,6 +238,18 @@ impl crate::capabilities::HasWideDynamicRange for PtzOpticsG2 {}
 impl crate::capabilities::HasColorTemperature for PtzOpticsG2 {}
 impl crate::capabilities::HasRgbGain for PtzOpticsG2 {}
 impl crate::capabilities::HasRgbTuning for PtzOpticsG2 {}
+impl crate::capabilities::HasOnePushWhiteBalance for PtzOpticsG2 {}
+impl crate::capabilities::HasAutoWhiteBalanceSensitivity for PtzOpticsG2 {}
+impl crate::capabilities::HasImageFlip for PtzOpticsG2 {}
+impl crate::capabilities::HasImageMirror for PtzOpticsG2 {}
+impl crate::capabilities::HasCombinedImageFlip for PtzOpticsG2 {}
+impl crate::capabilities::HasSaturationControl for PtzOpticsG2 {}
+impl crate::capabilities::HasHueControl for PtzOpticsG2 {}
+impl crate::capabilities::HasLuminanceControl for PtzOpticsG2 {}
+impl crate::capabilities::HasGammaControl for PtzOpticsG2 {}
+impl crate::capabilities::HasNoiseReduction for PtzOpticsG2 {}
+impl crate::capabilities::HasNoiseReduction2D for PtzOpticsG2 {}
+impl crate::capabilities::HasNoiseReduction3D for PtzOpticsG2 {}
 impl NdFilterMetadata for PtzOpticsG2 {}
 impl VariableSpeedMetadata for PtzOpticsG2 {}
 
@@ -324,6 +346,7 @@ impl Presets for GenericVisca {
 impl crate::capabilities::Tally for GenericVisca {}
 impl crate::capabilities::HasIrisControl for GenericVisca {}
 impl crate::capabilities::HasFocusNearLimitInquiry for GenericVisca {}
+impl crate::capabilities::HasOnePushWhiteBalance for GenericVisca {}
 impl MotionSyncMetadata for GenericVisca {}
 impl NdFilterMetadata for GenericVisca {}
 impl VariableSpeedMetadata for GenericVisca {}
@@ -384,7 +407,7 @@ impl Exposure for SonyFR7 {
 }
 
 impl WhiteBalance for SonyFR7 {
-    const WB_MODES: &'static [WhiteBalanceMode] = STANDARD_WB_MODES;
+    const WB_MODES: &'static [WhiteBalanceMode] = SONY_FR7_WB_MODES;
     const SUPPORTS_ONE_PUSH_WB: bool = true;
     const RG_TUNING_RANGE: Option<std::ops::Range<i8>> = Some(-7..8);
     const BG_TUNING_RANGE: Option<std::ops::Range<i8>> = Some(-7..8);
@@ -453,6 +476,17 @@ impl crate::capabilities::HasWideDynamicRange for SonyFR7 {}
 impl crate::capabilities::HasColorTemperature for SonyFR7 {}
 impl crate::capabilities::HasRgbGain for SonyFR7 {}
 impl crate::capabilities::HasRgbTuning for SonyFR7 {}
+impl crate::capabilities::HasOnePushWhiteBalance for SonyFR7 {}
+impl crate::capabilities::HasAutoTrackingWhiteBalance for SonyFR7 {}
+impl crate::capabilities::HasImageFlip for SonyFR7 {}
+impl crate::capabilities::HasImageMirror for SonyFR7 {}
+impl crate::capabilities::HasSaturationControl for SonyFR7 {}
+impl crate::capabilities::HasHueControl for SonyFR7 {}
+impl crate::capabilities::HasGammaControl for SonyFR7 {}
+impl crate::capabilities::HasNoiseReduction for SonyFR7 {}
+impl crate::capabilities::HasNoiseReduction2D for SonyFR7 {}
+impl crate::capabilities::HasNoiseReduction3D for SonyFR7 {}
+impl crate::capabilities::HasPictureEffect for SonyFR7 {}
 impl crate::capabilities::menu_control::HasDirectMenuControl for SonyFR7 {}
 impl crate::capabilities::Tally for SonyFR7 {
     const SUPPORTS_TALLY: bool = true;
@@ -557,6 +591,15 @@ impl crate::capabilities::HasFocusNearLimitInquiry for SonyBRCH900 {}
 impl crate::capabilities::HasBacklightCompensation for SonyBRCH900 {}
 impl crate::capabilities::HasWideDynamicRange for SonyBRCH900 {}
 impl crate::capabilities::HasRgbTuning for SonyBRCH900 {}
+impl crate::capabilities::HasOnePushWhiteBalance for SonyBRCH900 {}
+impl crate::capabilities::HasImageFlip for SonyBRCH900 {}
+impl crate::capabilities::HasImageMirror for SonyBRCH900 {}
+impl crate::capabilities::HasSaturationControl for SonyBRCH900 {}
+impl crate::capabilities::HasGammaControl for SonyBRCH900 {}
+impl crate::capabilities::HasNoiseReduction for SonyBRCH900 {}
+impl crate::capabilities::HasNoiseReduction2D for SonyBRCH900 {}
+impl crate::capabilities::HasNoiseReduction3D for SonyBRCH900 {}
+impl crate::capabilities::HasPictureEffect for SonyBRCH900 {}
 
 /// Sony EVI-H100 camera profile.
 ///
@@ -646,6 +689,11 @@ impl crate::capabilities::HasIrisControl for SonyEVIH100 {}
 impl crate::capabilities::HasFocusNearLimitInquiry for SonyEVIH100 {}
 impl crate::capabilities::HasBacklightCompensation for SonyEVIH100 {}
 impl crate::capabilities::HasRgbTuning for SonyEVIH100 {}
+impl crate::capabilities::HasOnePushWhiteBalance for SonyEVIH100 {}
+impl crate::capabilities::HasImageFlip for SonyEVIH100 {}
+impl crate::capabilities::HasImageMirror for SonyEVIH100 {}
+impl crate::capabilities::HasGammaControl for SonyEVIH100 {}
+impl crate::capabilities::HasNoiseReduction for SonyEVIH100 {}
 impl MotionSyncMetadata for SonyEVIH100 {}
 impl NdFilterMetadata for SonyEVIH100 {}
 impl VariableSpeedMetadata for SonyEVIH100 {}
@@ -824,6 +872,7 @@ impl crate::capabilities::HasDirectZoom for NearusBRC300 {}
 impl crate::capabilities::HasIrisControl for NearusBRC300 {}
 impl crate::capabilities::HasFocusNearLimitInquiry for NearusBRC300 {}
 impl crate::capabilities::HasBacklightCompensation for NearusBRC300 {}
+impl crate::capabilities::HasSaturationControl for NearusBRC300 {}
 impl MotionSyncMetadata for NearusBRC300 {}
 impl NdFilterMetadata for NearusBRC300 {}
 impl VariableSpeedMetadata for NearusBRC300 {}
@@ -935,6 +984,18 @@ impl crate::capabilities::HasWideDynamicRange for PtzOpticsG3 {}
 impl crate::capabilities::HasColorTemperature for PtzOpticsG3 {}
 impl crate::capabilities::HasRgbGain for PtzOpticsG3 {}
 impl crate::capabilities::HasRgbTuning for PtzOpticsG3 {}
+impl crate::capabilities::HasOnePushWhiteBalance for PtzOpticsG3 {}
+impl crate::capabilities::HasAutoWhiteBalanceSensitivity for PtzOpticsG3 {}
+impl crate::capabilities::HasImageFlip for PtzOpticsG3 {}
+impl crate::capabilities::HasImageMirror for PtzOpticsG3 {}
+impl crate::capabilities::HasCombinedImageFlip for PtzOpticsG3 {}
+impl crate::capabilities::HasSaturationControl for PtzOpticsG3 {}
+impl crate::capabilities::HasHueControl for PtzOpticsG3 {}
+impl crate::capabilities::HasLuminanceControl for PtzOpticsG3 {}
+impl crate::capabilities::HasGammaControl for PtzOpticsG3 {}
+impl crate::capabilities::HasNoiseReduction for PtzOpticsG3 {}
+impl crate::capabilities::HasNoiseReduction2D for PtzOpticsG3 {}
+impl crate::capabilities::HasNoiseReduction3D for PtzOpticsG3 {}
 
 impl MotionSyncMetadata for PtzOpticsG3 {}
 impl NdFilterMetadata for PtzOpticsG3 {}
@@ -1047,6 +1108,18 @@ impl crate::capabilities::HasWideDynamicRange for PtzOptics30X {}
 impl crate::capabilities::HasColorTemperature for PtzOptics30X {}
 impl crate::capabilities::HasRgbGain for PtzOptics30X {}
 impl crate::capabilities::HasRgbTuning for PtzOptics30X {}
+impl crate::capabilities::HasOnePushWhiteBalance for PtzOptics30X {}
+impl crate::capabilities::HasAutoWhiteBalanceSensitivity for PtzOptics30X {}
+impl crate::capabilities::HasImageFlip for PtzOptics30X {}
+impl crate::capabilities::HasImageMirror for PtzOptics30X {}
+impl crate::capabilities::HasCombinedImageFlip for PtzOptics30X {}
+impl crate::capabilities::HasSaturationControl for PtzOptics30X {}
+impl crate::capabilities::HasHueControl for PtzOptics30X {}
+impl crate::capabilities::HasLuminanceControl for PtzOptics30X {}
+impl crate::capabilities::HasGammaControl for PtzOptics30X {}
+impl crate::capabilities::HasNoiseReduction for PtzOptics30X {}
+impl crate::capabilities::HasNoiseReduction2D for PtzOptics30X {}
+impl crate::capabilities::HasNoiseReduction3D for PtzOptics30X {}
 
 impl MotionSyncMetadata for PtzOptics30X {}
 impl NdFilterMetadata for PtzOptics30X {}

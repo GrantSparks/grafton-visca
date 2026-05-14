@@ -82,6 +82,15 @@ snap focus methods.
 | PTZOptics snap focus | No built-in profile currently marks this typed capability |
 | Focus zone and AF sensitivity | `SonyFR7` |
 | Focus near-limit inquiry | All built-ins except `PtzOpticsG2` |
+| Backlight compensation | All built-ins except `GenericVisca` |
+| Wide dynamic range | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900` |
+| One-push white balance | `GenericVisca`, `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900`, `SonyEVIH100` |
+| Color temperature controls and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7` |
+| RGB gain controls and inquiries | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7` |
+| RGB tuning controls and inquiries | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900`, `SonyEVIH100` |
+| Flip and mirror controls | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900`, `SonyEVIH100` |
+| 2D/3D noise reduction | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900` |
+| Picture effects | `SonyFR7`, `SonyBRCH900` |
 
 Contributors adding or changing profile capabilities should follow the
 [Camera Profile Support Guide](docs/camera_profile_support.md), which explains

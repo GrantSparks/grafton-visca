@@ -29,16 +29,32 @@ pub mod white_balance;
 pub mod zoom;
 
 pub use self::{
-    color::ColorControl,
-    exposure::{ExposureCompensationControl, ExposureControl, IrisControl},
+    color::{
+        ColorControl, ColorTemperatureControl, OnePushWhiteBalanceControl, RgbGainControl,
+        RgbTuningControl,
+    },
+    exposure::{
+        BacklightCompensationControl, ExposureCompensationControl, ExposureControl, IrisControl,
+        WideDynamicRangeControl,
+    },
     focus::{
         AutoFocusSensitivityControl, FocusControl, FocusLockControl, FocusZoneControl,
         OnePushFocusControl, PushAFControl, SnapFocusControl,
     },
-    image_processing::ImageProcessingControl,
+    image_processing::{
+        GammaControl, HueControl, ImageFlipControl, ImageFlipModeControl, ImageMirrorControl,
+        ImageProcessingControl, LuminanceControl, NoiseReduction2DControl, NoiseReduction3DControl,
+        PictureEffectControl, SaturationControl,
+    },
     inquiry::{
-        AutoFocusSensitivityInquiryControl, FocusNearLimitInquiryControl, FocusZoneInquiryControl,
-        InquiryControl, IrisInquiryControl, NdFilterInquiryControl, PanTiltInquiryControl,
+        AutoFocusSensitivityInquiryControl, BacklightCompensationInquiryControl,
+        ColorTemperatureInquiryControl, ExposureCompensationInquiryControl,
+        FocusNearLimitInquiryControl, FocusZoneInquiryControl, GammaInquiryControl,
+        HueInquiryControl, ImageFlipInquiryControl, InquiryControl, IrisInquiryControl,
+        LuminanceInquiryControl, NdFilterInquiryControl, NoiseReduction2DInquiryControl,
+        NoiseReduction3DInquiryControl, NoiseReductionInquiryControl, PanTiltInquiryControl,
+        PictureEffectInquiryControl, RgbGainInquiryControl, RgbTuningInquiryControl,
+        SaturationInquiryControl, WideDynamicRangeInquiryControl,
     },
     menu::{DirectMenuControl, MenuControl},
     motion::MotionControl,
@@ -51,6 +67,8 @@ pub use self::{
     system::SystemControl,
     tally::TallyControl,
     variable_speed::VariableSpeedControl,
-    white_balance::WhiteBalanceControl,
+    white_balance::{
+        AutoTrackingWhiteBalanceControl, AutoWhiteBalanceSensitivityControl, WhiteBalanceControl,
+    },
     zoom::{DigitalZoomControl, DigitalZoomRangeControl, DirectZoomControl, ZoomControl},
 };

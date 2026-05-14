@@ -164,18 +164,6 @@ pub trait ExposureControl {
     /// Returns an error if the command fails to send or receive a response.
     fn decrease_brightness(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
-    /// Set backlight compensation.
-    ///
-    /// Enables or disables backlight compensation to improve visibility when
-    /// the subject is backlit (strong light source behind the subject).
-    ///
-    /// # Parameters
-    /// - `enabled`: True to enable backlight compensation, false to disable
-    ///
-    /// # Errors
-    /// Returns an error if the command fails to send or receive a response.
-    fn set_backlight(&self, enabled: bool) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
-
     /// Set gain value.
     ///
     /// Sets the sensor gain level. Higher gain values increase image brightness
@@ -230,52 +218,6 @@ pub trait ExposureControl {
     fn set_gain_limit(
         &self,
         limit: crate::types::GainLimit,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
-
-    /// Set dynamic range level.
-    ///
-    /// Adjusts the dynamic range processing to handle high contrast scenes.
-    /// Higher levels provide better detail in both shadows and highlights.
-    ///
-    /// # Parameters
-    /// - `level`: The dynamic range level to set
-    ///
-    /// # Errors
-    /// Returns an error if the command fails to send or receive a response.
-    fn set_dynamic_range(
-        &self,
-        level: crate::types::DynamicRangeLevel,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
-
-    /// Set color temperature value.
-    ///
-    /// Sets the specific color temperature value when white balance is in color temperature mode.
-    ///
-    /// **Important:** The camera's white balance mode must first be set to `ColorTemperature` mode
-    /// using [`WhiteBalanceControl::white_balance_color_temperature`] before calling this method.
-    ///
-    /// # Usage Pattern
-    ///
-    /// ```ignore
-    /// // 1. First, switch to color temperature mode
-    /// camera.white_balance_color_temperature()?;  // or .await? for async
-    ///
-    /// // 2. Then set the specific temperature value
-    /// let temp = ColorTemp::from_kelvin(5600)?;  // Daylight color temp
-    /// camera.set_color_temperature(temp)?;  // or .await? for async
-    /// ```
-    ///
-    /// # Parameters
-    /// - `temp`: The color temperature to set (2500K-8000K range)
-    ///
-    /// # Errors
-    /// Returns an error if the command fails to send or receive a response, or if the
-    /// camera is not in color temperature white balance mode.
-    ///
-    /// [`WhiteBalanceControl::white_balance_color_temperature`]: crate::camera::controls::white_balance::WhiteBalanceControl::white_balance_color_temperature
-    fn set_color_temperature(
-        &self,
-        temp: crate::types::ColorTemp,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set shutter speed.
@@ -412,6 +354,29 @@ pub trait IrisControl {
     fn decrease_iris(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 }
 
+/// Backlight compensation operations for profiles with documented support.
+#[grafton_visca_macros::delegate_to_session]
+pub trait BacklightCompensationControl {
+    /// The mode type for this camera (Async or Blocking).
+    type Mode: Mode;
+
+    /// Enable or disable backlight compensation.
+    fn set_backlight(&self, enabled: bool) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+}
+
+/// Wide dynamic range operations for profiles with documented support.
+#[grafton_visca_macros::delegate_to_session]
+pub trait WideDynamicRangeControl {
+    /// The mode type for this camera (Async or Blocking).
+    type Mode: Mode;
+
+    /// Set dynamic range processing level.
+    fn set_dynamic_range(
+        &self,
+        level: crate::types::DynamicRangeLevel,
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+}
+
 // Single unified implementation for all Camera types!
 impl<M, P, Tr, Exec> ExposureControl for crate::camera::Camera<M, P, Tr, Exec>
 where
@@ -473,11 +438,6 @@ where
         self.execute(cmd)
     }
 
-    fn set_backlight(&self, enabled: bool) -> M::Fut<'_, Result<(), Error>> {
-        let cmd = crate::command::image::BacklightCommand::new(enabled);
-        self.execute(cmd)
-    }
-
     fn set_gain(&self, gain: crate::types::GainLevel) -> M::Fut<'_, Result<(), Error>> {
         let cmd = crate::command::gain::Gain::SetValue(gain);
         self.execute(cmd)
@@ -500,22 +460,6 @@ where
 
     fn set_gain_limit(&self, limit: crate::types::GainLimit) -> M::Fut<'_, Result<(), Error>> {
         let cmd = crate::command::gain::GainLimitCommand { limit };
-        self.execute(cmd)
-    }
-
-    fn set_dynamic_range(
-        &self,
-        level: crate::types::DynamicRangeLevel,
-    ) -> M::Fut<'_, Result<(), Error>> {
-        let cmd = crate::command::exposure::DynamicRange { level };
-        self.execute(cmd)
-    }
-
-    fn set_color_temperature(
-        &self,
-        temp: crate::types::ColorTemp,
-    ) -> M::Fut<'_, Result<(), Error>> {
-        let cmd = crate::command::color::ColorTemperature::SetTemperature(temp);
         self.execute(cmd)
     }
 
@@ -615,6 +559,39 @@ where
 
     fn decrease_iris(&self) -> M::Fut<'_, Result<(), Error>> {
         let cmd = crate::command::exposure::Iris::Down;
+        self.execute(cmd)
+    }
+}
+
+impl<M, P, Tr, Exec> BacklightCompensationControl for crate::camera::Camera<M, P, Tr, Exec>
+where
+    M: Mode,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasBacklightCompensation,
+    Self: ViscaClient<M>,
+    Exec: crate::executor::Executor,
+{
+    type Mode = M;
+
+    fn set_backlight(&self, enabled: bool) -> M::Fut<'_, Result<(), Error>> {
+        let cmd = crate::command::image::BacklightCommand::new(enabled);
+        self.execute(cmd)
+    }
+}
+
+impl<M, P, Tr, Exec> WideDynamicRangeControl for crate::camera::Camera<M, P, Tr, Exec>
+where
+    M: Mode,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasWideDynamicRange,
+    Self: ViscaClient<M>,
+    Exec: crate::executor::Executor,
+{
+    type Mode = M;
+
+    fn set_dynamic_range(
+        &self,
+        level: crate::types::DynamicRangeLevel,
+    ) -> M::Fut<'_, Result<(), Error>> {
+        let cmd = crate::command::exposure::DynamicRange { level };
         self.execute(cmd)
     }
 }

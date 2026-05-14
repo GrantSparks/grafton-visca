@@ -72,40 +72,6 @@ pub trait ImageProcessingControl {
     /// The mode type for this camera (Async or Blocking).
     type Mode: Mode;
 
-    /// Enable image flip.
-    ///
-    /// Flips the image vertically (upside down). This is useful when the camera
-    /// is mounted in an inverted position.
-    ///
-    /// # Errors
-    /// Returns an error if the command fails to send or receive a response.
-    fn enable_flip(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
-
-    /// Disable image flip.
-    ///
-    /// Returns the image to normal (right-side up) orientation.
-    ///
-    /// # Errors
-    /// Returns an error if the command fails to send or receive a response.
-    fn disable_flip(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
-
-    /// Enable horizontal flip (mirror).
-    ///
-    /// Mirrors the image horizontally (left-right reversal). This creates
-    /// a mirror effect where left and right are swapped.
-    ///
-    /// # Errors
-    /// Returns an error if the command fails to send or receive a response.
-    fn enable_horizontal_flip(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
-
-    /// Disable horizontal flip (mirror).
-    ///
-    /// Returns the image to normal (non-mirrored) orientation.
-    ///
-    /// # Errors
-    /// Returns an error if the command fails to send or receive a response.
-    fn disable_horizontal_flip(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
-
     /// Set contrast level.
     ///
     /// Adjusts the difference between light and dark areas in the image.
@@ -186,135 +152,6 @@ pub trait ImageProcessingControl {
     /// Returns an error if the command fails to send or receive a response.
     fn decrease_sharpness(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
-    /// Set saturation level.
-    ///
-    /// Adjusts the intensity and vividness of colors in the image.
-    /// Higher values make colors more vibrant, lower values make them more muted.
-    ///
-    /// # Parameters
-    /// - `level`: The saturation level to set
-    ///
-    /// # Errors
-    /// Returns an error if the command fails to send or receive a response.
-    fn set_saturation(
-        &self,
-        level: SaturationLevel,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
-
-    /// Set hue level.
-    ///
-    /// Shifts the overall color tone of the image. This can be used to
-    /// correct color casts or create artistic color effects.
-    ///
-    /// # Parameters
-    /// - `level`: The hue level to set
-    ///
-    /// # Errors
-    /// Returns an error if the command fails to send or receive a response.
-    fn set_hue(&self, level: HueLevel) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
-
-    /// Set noise reduction 2D level.
-    ///
-    /// Enables spatial noise reduction that processes individual frames
-    /// to reduce grain and artifacts. Higher levels provide more noise
-    /// reduction but may reduce fine detail.
-    ///
-    /// # Parameters
-    /// - `level`: The 2D noise reduction level to set
-    ///
-    /// # Errors
-    /// Returns an error if the command fails to send or receive a response.
-    fn set_noise_reduction_2d(
-        &self,
-        level: NoiseReduction2DLevel,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
-
-    /// Disable noise reduction 2D.
-    ///
-    /// Turns off spatial noise reduction, which may result in more grain
-    /// but preserves maximum image detail.
-    ///
-    /// # Errors
-    /// Returns an error if the command fails to send or receive a response.
-    fn disable_noise_reduction_2d(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
-
-    /// Set noise reduction 3D level.
-    ///
-    /// Enables temporal noise reduction that compares multiple frames
-    /// to reduce noise. This is more effective than 2D reduction but
-    /// may cause motion artifacts with fast movement.
-    ///
-    /// # Parameters
-    /// - `level`: The 3D noise reduction level to set
-    ///
-    /// # Errors
-    /// Returns an error if the command fails to send or receive a response.
-    fn set_noise_reduction_3d(
-        &self,
-        level: NoiseReduction3DLevel,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
-
-    /// Disable noise reduction 3D.
-    ///
-    /// Turns off temporal noise reduction, eliminating potential motion
-    /// artifacts but allowing more noise in the image.
-    ///
-    /// # Errors
-    /// Returns an error if the command fails to send or receive a response.
-    fn disable_noise_reduction_3d(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
-
-    /// Set image flip mode (combined horizontal and vertical).
-    ///
-    /// Sets both horizontal and vertical flip states simultaneously using
-    /// a single command. This is more efficient than setting each direction separately.
-    ///
-    /// # Parameters
-    /// - `mode`: The combined flip mode to set
-    ///
-    /// # Errors
-    /// Returns an error if the command fails to send or receive a response.
-    fn set_image_flip(
-        &self,
-        mode: ImageFlipMode,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
-
-    /// Set luminance (brightness) level.
-    ///
-    /// Adjusts the overall brightness of the image output without
-    /// affecting exposure settings. This is different from exposure
-    /// brightness as it's applied in post-processing.
-    ///
-    /// Use [`InquiryControl::luminance`] to query the current value.
-    ///
-    /// # Parameters
-    /// - `level`: The luminance level to set
-    ///
-    /// # Errors
-    /// Returns an error if the command fails to send or receive a response.
-    ///
-    /// [`InquiryControl::luminance`]: crate::camera::controls::inquiry::InquiryControl::luminance
-    fn set_luminance(
-        &self,
-        level: LuminanceLevel,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
-
-    /// Set gamma curve.
-    ///
-    /// Selects the gamma correction curve for the camera's image output.
-    /// Gamma affects the overall brightness curve and tonal response,
-    /// and is important for multi-camera color matching.
-    ///
-    /// Use [`InquiryControl::gamma`] to query the current value.
-    ///
-    /// # Parameters
-    /// - `level`: The gamma curve to select (0=Standard, 1-4=different curves)
-    ///
-    /// # Errors
-    /// Returns an error if the command fails to send or receive a response.
-    ///
-    /// [`InquiryControl::gamma`]: crate::camera::controls::inquiry::InquiryControl::gamma
-    fn set_gamma(&self, level: GammaLevel) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
-
     /// Enable image freeze.
     ///
     /// Freezes the camera's video output on the last frame. This is useful
@@ -331,40 +168,138 @@ pub trait ImageProcessingControl {
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
     fn disable_freeze(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+}
 
-    /// Enable black and white mode.
-    ///
-    /// Switches the camera output to monochrome (black and white).
-    /// This can be useful for artistic effects or in low-light situations
-    /// where color information is not important.
-    ///
-    /// # Errors
-    /// Returns an error if the command fails to send or receive a response.
+/// Vertical image flip operations for profiles with documented support.
+#[grafton_visca_macros::delegate_to_session]
+pub trait ImageFlipControl {
+    /// The mode type for this camera (Async or Blocking).
+    type Mode: Mode;
+
+    /// Enable vertical image flip.
+    fn enable_flip(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+
+    /// Disable vertical image flip.
+    fn disable_flip(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+}
+
+/// Horizontal image mirror operations for profiles with documented support.
+#[grafton_visca_macros::delegate_to_session]
+pub trait ImageMirrorControl {
+    /// The mode type for this camera (Async or Blocking).
+    type Mode: Mode;
+
+    /// Enable horizontal image mirror.
+    fn enable_horizontal_flip(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+
+    /// Disable horizontal image mirror.
+    fn disable_horizontal_flip(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+}
+
+/// Combined image flip-mode operations for profiles using the combined opcode.
+#[grafton_visca_macros::delegate_to_session]
+pub trait ImageFlipModeControl {
+    /// The mode type for this camera (Async or Blocking).
+    type Mode: Mode;
+
+    /// Set combined horizontal/vertical image flip mode.
+    fn set_image_flip(
+        &self,
+        mode: ImageFlipMode,
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+}
+
+/// Saturation operations for profiles with documented support.
+#[grafton_visca_macros::delegate_to_session]
+pub trait SaturationControl {
+    /// The mode type for this camera (Async or Blocking).
+    type Mode: Mode;
+
+    /// Set saturation level.
+    fn set_saturation(
+        &self,
+        level: SaturationLevel,
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+}
+
+/// Hue operations for profiles with documented support.
+#[grafton_visca_macros::delegate_to_session]
+pub trait HueControl {
+    /// The mode type for this camera (Async or Blocking).
+    type Mode: Mode;
+
+    /// Set hue level.
+    fn set_hue(&self, level: HueLevel) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+}
+
+/// Luminance operations for profiles with documented support.
+#[grafton_visca_macros::delegate_to_session]
+pub trait LuminanceControl {
+    /// The mode type for this camera (Async or Blocking).
+    type Mode: Mode;
+
+    /// Set luminance level.
+    fn set_luminance(
+        &self,
+        level: LuminanceLevel,
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+}
+
+/// Gamma operations for profiles with documented support.
+#[grafton_visca_macros::delegate_to_session]
+pub trait GammaControl {
+    /// The mode type for this camera (Async or Blocking).
+    type Mode: Mode;
+
+    /// Set gamma curve.
+    fn set_gamma(&self, level: GammaLevel) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+}
+
+/// 2D noise-reduction operations for profiles with documented support.
+#[grafton_visca_macros::delegate_to_session]
+pub trait NoiseReduction2DControl {
+    /// The mode type for this camera (Async or Blocking).
+    type Mode: Mode;
+
+    /// Set 2D noise-reduction level.
+    fn set_noise_reduction_2d(
+        &self,
+        level: NoiseReduction2DLevel,
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+
+    /// Disable 2D noise reduction.
+    fn disable_noise_reduction_2d(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+}
+
+/// 3D noise-reduction operations for profiles with documented support.
+#[grafton_visca_macros::delegate_to_session]
+pub trait NoiseReduction3DControl {
+    /// The mode type for this camera (Async or Blocking).
+    type Mode: Mode;
+
+    /// Set 3D noise-reduction level.
+    fn set_noise_reduction_3d(
+        &self,
+        level: NoiseReduction3DLevel,
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+
+    /// Disable 3D noise reduction.
+    fn disable_noise_reduction_3d(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+}
+
+/// Picture-effect operations for profiles with documented support.
+#[grafton_visca_macros::delegate_to_session]
+pub trait PictureEffectControl {
+    /// The mode type for this camera (Async or Blocking).
+    type Mode: Mode;
+
+    /// Enable black-and-white picture effect.
     fn enable_black_white(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
-    /// Disable black and white mode.
-    ///
-    /// Switches the camera output back to full color mode.
-    ///
-    /// # Errors
-    /// Returns an error if the command fails to send or receive a response.
+    /// Disable picture effects.
     fn disable_black_white(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set picture effect mode.
-    ///
-    /// Controls various artistic effects like negative, sepia, sketch, etc.
-    /// The available effects vary by camera model and may include options
-    /// like pastel, mosaic, or other creative filters.
-    ///
-    /// # Parameters
-    /// - `mode`: The picture effect mode to apply
-    ///
-    /// # Note
-    /// Not all effects are supported on all camera models. Check your
-    /// camera documentation for supported effect modes.
-    ///
-    /// # Errors
-    /// Returns an error if the effect is not supported or the command fails.
     fn set_picture_effect(
         &self,
         mode: PictureEffectMode,
@@ -372,10 +307,13 @@ pub trait ImageProcessingControl {
 }
 
 // Single unified implementation for all Camera types!
-impl<M, P, Tr, Exec> ImageProcessingControl for crate::camera::Camera<M, P, Tr, Exec>
+impl<M, P, Tr, Exec> ImageFlipControl for crate::camera::Camera<M, P, Tr, Exec>
 where
     M: Mode,
-    P: crate::capabilities::Profile + ImageProcessingCap + Default,
+    P: crate::capabilities::Profile
+        + ImageProcessingCap
+        + Default
+        + crate::capabilities::HasImageFlip,
     Self: ViscaClient<M>,
     Exec: crate::executor::Executor,
 {
@@ -427,6 +365,19 @@ where
             self.execute(cmd)
         }
     }
+}
+
+impl<M, P, Tr, Exec> ImageMirrorControl for crate::camera::Camera<M, P, Tr, Exec>
+where
+    M: Mode,
+    P: crate::capabilities::Profile
+        + ImageProcessingCap
+        + Default
+        + crate::capabilities::HasImageMirror,
+    Self: ViscaClient<M>,
+    Exec: crate::executor::Executor,
+{
+    type Mode = M;
 
     fn enable_horizontal_flip(&self) -> M::Fut<'_, Result<(), Error>> {
         if P::USES_COMBINED_FLIP_COMMAND {
@@ -469,6 +420,16 @@ where
             self.execute(cmd)
         }
     }
+}
+
+impl<M, P, Tr, Exec> ImageProcessingControl for crate::camera::Camera<M, P, Tr, Exec>
+where
+    M: Mode,
+    P: crate::capabilities::Profile + ImageProcessingCap + Default,
+    Self: ViscaClient<M>,
+    Exec: crate::executor::Executor,
+{
+    type Mode = M;
 
     fn set_contrast(&self, level: ContrastLevel) -> M::Fut<'_, Result<(), Error>> {
         let cmd = crate::command::image::Contrast::new(level);
@@ -511,15 +472,126 @@ where
         self.execute(cmd)
     }
 
+    fn enable_freeze(&self) -> M::Fut<'_, Result<(), Error>> {
+        let cmd = crate::command::flip::ImageFreeze { on: true };
+        self.execute(cmd)
+    }
+
+    fn disable_freeze(&self) -> M::Fut<'_, Result<(), Error>> {
+        let cmd = crate::command::flip::ImageFreeze { on: false };
+        self.execute(cmd)
+    }
+}
+
+impl<M, P, Tr, Exec> ImageFlipModeControl for crate::camera::Camera<M, P, Tr, Exec>
+where
+    M: Mode,
+    P: crate::capabilities::Profile
+        + ImageProcessingCap
+        + Default
+        + crate::capabilities::HasCombinedImageFlip,
+    Self: ViscaClient<M>,
+    Exec: crate::executor::Executor,
+{
+    type Mode = M;
+
+    fn set_image_flip(&self, mode: ImageFlipMode) -> M::Fut<'_, Result<(), Error>> {
+        let cmd = crate::command::image::ImageFlipCombinedCommand::new(mode);
+        let (h, v) = match mode {
+            ImageFlipMode::Off => (false, false),
+            ImageFlipMode::Horizontal => (true, false),
+            ImageFlipMode::Vertical => (false, true),
+            ImageFlipMode::Both => (true, true),
+        };
+        self.execute_updating_cache(cmd, move |cache| {
+            cache.set_flip_state(h, v);
+        })
+    }
+}
+
+impl<M, P, Tr, Exec> SaturationControl for crate::camera::Camera<M, P, Tr, Exec>
+where
+    M: Mode,
+    P: crate::capabilities::Profile
+        + ImageProcessingCap
+        + Default
+        + crate::capabilities::HasSaturationControl,
+    Self: ViscaClient<M>,
+    Exec: crate::executor::Executor,
+{
+    type Mode = M;
+
     fn set_saturation(&self, level: SaturationLevel) -> M::Fut<'_, Result<(), Error>> {
         let cmd = crate::command::color::SaturationCommand::new(level);
         self.execute(cmd)
     }
+}
+
+impl<M, P, Tr, Exec> HueControl for crate::camera::Camera<M, P, Tr, Exec>
+where
+    M: Mode,
+    P: crate::capabilities::Profile
+        + ImageProcessingCap
+        + Default
+        + crate::capabilities::HasHueControl,
+    Self: ViscaClient<M>,
+    Exec: crate::executor::Executor,
+{
+    type Mode = M;
 
     fn set_hue(&self, level: HueLevel) -> M::Fut<'_, Result<(), Error>> {
         let cmd = crate::command::color::HueCommand::new(level);
         self.execute(cmd)
     }
+}
+
+impl<M, P, Tr, Exec> LuminanceControl for crate::camera::Camera<M, P, Tr, Exec>
+where
+    M: Mode,
+    P: crate::capabilities::Profile
+        + ImageProcessingCap
+        + Default
+        + crate::capabilities::HasLuminanceControl,
+    Self: ViscaClient<M>,
+    Exec: crate::executor::Executor,
+{
+    type Mode = M;
+
+    fn set_luminance(&self, level: LuminanceLevel) -> M::Fut<'_, Result<(), Error>> {
+        let cmd = crate::command::image::Luminance::new(level);
+        self.execute(cmd)
+    }
+}
+
+impl<M, P, Tr, Exec> GammaControl for crate::camera::Camera<M, P, Tr, Exec>
+where
+    M: Mode,
+    P: crate::capabilities::Profile
+        + ImageProcessingCap
+        + Default
+        + crate::capabilities::HasGammaControl,
+    Self: ViscaClient<M>,
+    Exec: crate::executor::Executor,
+{
+    type Mode = M;
+
+    fn set_gamma(&self, level: GammaLevel) -> M::Fut<'_, Result<(), Error>> {
+        let cmd = crate::command::image::GammaCommand::new(level);
+        self.execute(cmd)
+    }
+}
+
+impl<M, P, Tr, Exec> NoiseReduction2DControl for crate::camera::Camera<M, P, Tr, Exec>
+where
+    M: Mode,
+    P: crate::capabilities::Profile
+        + ImageProcessingCap
+        + Default
+        + crate::capabilities::HasNoiseReduction2D,
+    Self: ViscaClient<M>,
+    Exec: crate::executor::Executor,
+{
+    type Mode = M;
 
     fn set_noise_reduction_2d(
         &self,
@@ -533,6 +605,19 @@ where
         let cmd = crate::command::image::NoiseReduction2D::off();
         self.execute(cmd)
     }
+}
+
+impl<M, P, Tr, Exec> NoiseReduction3DControl for crate::camera::Camera<M, P, Tr, Exec>
+where
+    M: Mode,
+    P: crate::capabilities::Profile
+        + ImageProcessingCap
+        + Default
+        + crate::capabilities::HasNoiseReduction3D,
+    Self: ViscaClient<M>,
+    Exec: crate::executor::Executor,
+{
+    type Mode = M;
 
     fn set_noise_reduction_3d(
         &self,
@@ -546,41 +631,19 @@ where
         let cmd = crate::command::image::NoiseReduction3D::off();
         self.execute(cmd)
     }
+}
 
-    fn set_image_flip(&self, mode: ImageFlipMode) -> M::Fut<'_, Result<(), Error>> {
-        // Use the combined flip command (PtzOptics A4 opcode)
-        // This is more efficient than sending separate vertical and horizontal commands
-        let cmd = crate::command::image::ImageFlipCombinedCommand::new(mode);
-        let (h, v) = match mode {
-            ImageFlipMode::Off => (false, false),
-            ImageFlipMode::Horizontal => (true, false),
-            ImageFlipMode::Vertical => (false, true),
-            ImageFlipMode::Both => (true, true),
-        };
-        self.execute_updating_cache(cmd, move |cache| {
-            cache.set_flip_state(h, v);
-        })
-    }
-
-    fn set_luminance(&self, level: LuminanceLevel) -> M::Fut<'_, Result<(), Error>> {
-        let cmd = crate::command::image::Luminance::new(level);
-        self.execute(cmd)
-    }
-
-    fn set_gamma(&self, level: GammaLevel) -> M::Fut<'_, Result<(), Error>> {
-        let cmd = crate::command::image::GammaCommand::new(level);
-        self.execute(cmd)
-    }
-
-    fn enable_freeze(&self) -> M::Fut<'_, Result<(), Error>> {
-        let cmd = crate::command::flip::ImageFreeze { on: true };
-        self.execute(cmd)
-    }
-
-    fn disable_freeze(&self) -> M::Fut<'_, Result<(), Error>> {
-        let cmd = crate::command::flip::ImageFreeze { on: false };
-        self.execute(cmd)
-    }
+impl<M, P, Tr, Exec> PictureEffectControl for crate::camera::Camera<M, P, Tr, Exec>
+where
+    M: Mode,
+    P: crate::capabilities::Profile
+        + ImageProcessingCap
+        + Default
+        + crate::capabilities::HasPictureEffect,
+    Self: ViscaClient<M>,
+    Exec: crate::executor::Executor,
+{
+    type Mode = M;
 
     fn enable_black_white(&self) -> M::Fut<'_, Result<(), Error>> {
         let cmd = crate::command::image::PictureEffectCommand {

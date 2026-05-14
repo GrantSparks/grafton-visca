@@ -9,16 +9,33 @@ use std::ops::Deref;
 use crate::{
     camera::{
         controls::{
-            color::ColorControl,
-            exposure::{ExposureCompensationControl, ExposureControl, IrisControl},
+            color::{
+                ColorTemperatureControl, OnePushWhiteBalanceControl, RgbGainControl,
+                RgbTuningControl,
+            },
+            exposure::{
+                BacklightCompensationControl, ExposureCompensationControl, ExposureControl,
+                IrisControl, WideDynamicRangeControl,
+            },
             focus::{
                 AutoFocusSensitivityControl, FocusControl, FocusLockControl, FocusZoneControl,
                 OnePushFocusControl, PushAFControl,
             },
-            image_processing::ImageProcessingControl,
+            image_processing::{
+                GammaControl, HueControl, ImageFlipControl, ImageFlipModeControl,
+                ImageMirrorControl, ImageProcessingControl, LuminanceControl,
+                NoiseReduction2DControl, NoiseReduction3DControl, PictureEffectControl,
+                SaturationControl,
+            },
             inquiry::{
-                FocusNearLimitInquiryControl, FocusZoneInquiryControl, InquiryControl,
-                IrisInquiryControl, NdFilterInquiryControl, PanTiltInquiryControl,
+                BacklightCompensationInquiryControl, ColorTemperatureInquiryControl,
+                ExposureCompensationInquiryControl, FocusNearLimitInquiryControl,
+                FocusZoneInquiryControl, GammaInquiryControl, HueInquiryControl,
+                ImageFlipInquiryControl, InquiryControl, IrisInquiryControl,
+                LuminanceInquiryControl, NdFilterInquiryControl, NoiseReduction2DInquiryControl,
+                NoiseReduction3DInquiryControl, NoiseReductionInquiryControl,
+                PanTiltInquiryControl, PictureEffectInquiryControl, RgbGainInquiryControl,
+                RgbTuningInquiryControl, SaturationInquiryControl, WideDynamicRangeInquiryControl,
             },
             menu::{DirectMenuControl, MenuControl},
             motion_sync::MotionSyncControl,
@@ -30,7 +47,10 @@ use crate::{
             system::SystemControl,
             tally::TallyControl,
             variable_speed::VariableSpeedControl,
-            white_balance::WhiteBalanceControl,
+            white_balance::{
+                AutoTrackingWhiteBalanceControl, AutoWhiteBalanceSensitivityControl,
+                WhiteBalanceControl,
+            },
             zoom::{DigitalZoomControl, DigitalZoomRangeControl, DirectZoomControl, ZoomControl},
         },
         Camera,
@@ -779,20 +799,27 @@ where
     }
 
     /// Get exposure compensation.
-    pub fn compensation(&self) -> Result<crate::types::ExposureCompensationLevel, Error> {
-        self.camera.exposure_compensation()
+    pub fn compensation(&self) -> Result<crate::types::ExposureCompensationLevel, Error>
+    where
+        Camera<Blocking, P, Tr, ()>: ExposureCompensationInquiryControl<Mode = Blocking>,
+    {
+        self.camera.inner.exposure_compensation().block()
     }
 
     /// Check whether exposure compensation is enabled.
-    pub fn compensation_enabled(&self) -> Result<bool, Error> {
-        self.camera.exposure_compensation_enabled()
+    pub fn compensation_enabled(&self) -> Result<bool, Error>
+    where
+        Camera<Blocking, P, Tr, ()>: ExposureCompensationInquiryControl<Mode = Blocking>,
+    {
+        self.camera.inner.exposure_compensation_enabled().block()
     }
 
     /// Get exposure compensation position.
-    pub fn compensation_position(
-        &self,
-    ) -> Result<crate::types::ExposureCompensationPosition, Error> {
-        self.camera.exposure_compensation_position()
+    pub fn compensation_position(&self) -> Result<crate::types::ExposureCompensationPosition, Error>
+    where
+        Camera<Blocking, P, Tr, ()>: ExposureCompensationInquiryControl<Mode = Blocking>,
+    {
+        self.camera.inner.exposure_compensation_position().block()
     }
 
     /// Get iris level.
@@ -859,28 +886,43 @@ where
     }
 
     /// Get red gain.
-    pub fn red_gain(&self) -> Result<crate::types::RedChannel, Error> {
-        self.camera.red_gain()
+    pub fn red_gain(&self) -> Result<crate::types::RedChannel, Error>
+    where
+        Camera<Blocking, P, Tr, ()>: RgbGainInquiryControl<Mode = Blocking>,
+    {
+        self.camera.inner.red_gain().block()
     }
 
     /// Get blue gain.
-    pub fn blue_gain(&self) -> Result<crate::types::BlueChannel, Error> {
-        self.camera.blue_gain()
+    pub fn blue_gain(&self) -> Result<crate::types::BlueChannel, Error>
+    where
+        Camera<Blocking, P, Tr, ()>: RgbGainInquiryControl<Mode = Blocking>,
+    {
+        self.camera.inner.blue_gain().block()
     }
 
     /// Get red tuning.
-    pub fn red_tuning(&self) -> Result<crate::types::RedTuning, Error> {
-        self.camera.red_tuning()
+    pub fn red_tuning(&self) -> Result<crate::types::RedTuning, Error>
+    where
+        Camera<Blocking, P, Tr, ()>: RgbTuningInquiryControl<Mode = Blocking>,
+    {
+        self.camera.inner.red_tuning().block()
     }
 
     /// Get blue tuning.
-    pub fn blue_tuning(&self) -> Result<crate::types::BlueTuning, Error> {
-        self.camera.blue_tuning()
+    pub fn blue_tuning(&self) -> Result<crate::types::BlueTuning, Error>
+    where
+        Camera<Blocking, P, Tr, ()>: RgbTuningInquiryControl<Mode = Blocking>,
+    {
+        self.camera.inner.blue_tuning().block()
     }
 
     /// Get color temperature.
-    pub fn color_temperature(&self) -> Result<crate::types::ColorTemp, Error> {
-        self.camera.color_temperature()
+    pub fn color_temperature(&self) -> Result<crate::types::ColorTemp, Error>
+    where
+        Camera<Blocking, P, Tr, ()>: ColorTemperatureInquiryControl<Mode = Blocking>,
+    {
+        self.camera.inner.color_temperature().block()
     }
 
     /// Set auto white balance.
@@ -899,13 +941,19 @@ where
     }
 
     /// Set one-push white balance mode.
-    pub fn one_push(&self) -> Result<(), Error> {
-        self.camera.white_balance_one_push()
+    pub fn one_push(&self) -> Result<(), Error>
+    where
+        Camera<Blocking, P, Tr, ()>: OnePushWhiteBalanceControl<Mode = Blocking>,
+    {
+        self.camera.inner.white_balance_one_push().block()
     }
 
     /// Set auto-tracing white balance mode.
-    pub fn atw(&self) -> Result<(), Error> {
-        self.camera.white_balance_atw()
+    pub fn atw(&self) -> Result<(), Error>
+    where
+        Camera<Blocking, P, Tr, ()>: AutoTrackingWhiteBalanceControl<Mode = Blocking>,
+    {
+        self.camera.inner.white_balance_atw().block()
     }
 
     /// Set manual white balance.
@@ -914,19 +962,22 @@ where
     }
 
     /// Set color temperature white balance mode.
-    pub fn color_temperature_mode(&self) -> Result<(), Error> {
-        self.camera.white_balance_color_temperature()
+    pub fn color_temperature_mode(&self) -> Result<(), Error>
+    where
+        Camera<Blocking, P, Tr, ()>: ColorTemperatureControl<Mode = Blocking>,
+    {
+        self.camera.inner.white_balance_color_temperature().block()
     }
 }
 
 impl<P, Tr> BlockingWhiteBalanceAccessor<'_, P, Tr>
 where
     P: crate::capabilities::Profile + Default,
-    Camera<Blocking, P, Tr, ()>: ColorControl<Mode = Blocking>,
+    Camera<Blocking, P, Tr, ()>: OnePushWhiteBalanceControl<Mode = Blocking>,
 {
     /// Trigger one-push white balance.
     pub fn one_push_trigger(&self) -> Result<(), Error> {
-        self.camera.one_push_trigger()
+        self.camera.inner.one_push_trigger().block()
     }
 }
 
@@ -949,13 +1000,19 @@ where
     }
 
     /// Get saturation level.
-    pub fn saturation(&self) -> Result<crate::types::SaturationLevel, Error> {
-        self.camera.saturation()
+    pub fn saturation(&self) -> Result<crate::types::SaturationLevel, Error>
+    where
+        Camera<Blocking, P, Tr, ()>: SaturationInquiryControl<Mode = Blocking>,
+    {
+        self.camera.inner.saturation().block()
     }
 
     /// Get hue level.
-    pub fn hue(&self) -> Result<crate::types::HueLevel, Error> {
-        self.camera.hue()
+    pub fn hue(&self) -> Result<crate::types::HueLevel, Error>
+    where
+        Camera<Blocking, P, Tr, ()>: HueInquiryControl<Mode = Blocking>,
+    {
+        self.camera.inner.hue().block()
     }
 
     /// Get contrast level.
@@ -964,13 +1021,19 @@ where
     }
 
     /// Get luminance level.
-    pub fn luminance(&self) -> Result<crate::types::LuminanceLevel, Error> {
-        self.camera.luminance()
+    pub fn luminance(&self) -> Result<crate::types::LuminanceLevel, Error>
+    where
+        Camera<Blocking, P, Tr, ()>: LuminanceInquiryControl<Mode = Blocking>,
+    {
+        self.camera.inner.luminance().block()
     }
 
     /// Get gamma level.
-    pub fn gamma(&self) -> Result<crate::types::GammaLevel, Error> {
-        self.camera.gamma()
+    pub fn gamma(&self) -> Result<crate::types::GammaLevel, Error>
+    where
+        Camera<Blocking, P, Tr, ()>: GammaInquiryControl<Mode = Blocking>,
+    {
+        self.camera.inner.gamma().block()
     }
 
     /// Get sharpness mode.
@@ -979,23 +1042,35 @@ where
     }
 
     /// Check whether black-and-white mode is enabled.
-    pub fn black_white(&self) -> Result<bool, Error> {
-        self.camera.black_white()
+    pub fn black_white(&self) -> Result<bool, Error>
+    where
+        Camera<Blocking, P, Tr, ()>: PictureEffectInquiryControl<Mode = Blocking>,
+    {
+        self.camera.inner.black_white().block()
     }
 
     /// Get black-and-white mode.
-    pub fn black_white_mode(&self) -> Result<crate::command::BlackWhiteMode, Error> {
-        self.camera.black_white_mode()
+    pub fn black_white_mode(&self) -> Result<crate::command::BlackWhiteMode, Error>
+    where
+        Camera<Blocking, P, Tr, ()>: PictureEffectInquiryControl<Mode = Blocking>,
+    {
+        self.camera.inner.black_white_mode().block()
     }
 
     /// Get image flip state.
-    pub fn flip(&self) -> Result<crate::command::FlipState, Error> {
-        self.camera.image_flip()
+    pub fn flip(&self) -> Result<crate::command::FlipState, Error>
+    where
+        Camera<Blocking, P, Tr, ()>: ImageFlipInquiryControl<Mode = Blocking>,
+    {
+        self.camera.inner.image_flip().block()
     }
 
     /// Get flip mode.
-    pub fn flip_mode(&self) -> Result<crate::command::FlipState, Error> {
-        self.camera.flip_mode()
+    pub fn flip_mode(&self) -> Result<crate::command::FlipState, Error>
+    where
+        Camera<Blocking, P, Tr, ()>: ImageFlipInquiryControl<Mode = Blocking>,
+    {
+        self.camera.inner.flip_mode().block()
     }
 
     /// Get resolution mode.
@@ -1004,13 +1079,19 @@ where
     }
 
     /// Get picture effect mode.
-    pub fn picture_effect(&self) -> Result<crate::command::PictureEffectMode, Error> {
-        self.camera.picture_effect()
+    pub fn picture_effect(&self) -> Result<crate::command::PictureEffectMode, Error>
+    where
+        Camera<Blocking, P, Tr, ()>: PictureEffectInquiryControl<Mode = Blocking>,
+    {
+        self.camera.inner.picture_effect().block()
     }
 
     /// Check whether backlight compensation is enabled.
-    pub fn backlight_enabled(&self) -> Result<bool, Error> {
-        self.camera.backlight_enabled()
+    pub fn backlight_enabled(&self) -> Result<bool, Error>
+    where
+        Camera<Blocking, P, Tr, ()>: BacklightCompensationInquiryControl<Mode = Blocking>,
+    {
+        self.camera.inner.backlight_enabled().block()
     }
 
     /// Get defog level.
@@ -1019,48 +1100,75 @@ where
     }
 
     /// Get aggregate noise reduction level.
-    pub fn noise_reduction_level(&self) -> Result<crate::types::NoiseReductionLevel, Error> {
-        self.camera.noise_reduction_level()
+    pub fn noise_reduction_level(&self) -> Result<crate::types::NoiseReductionLevel, Error>
+    where
+        Camera<Blocking, P, Tr, ()>: NoiseReductionInquiryControl<Mode = Blocking>,
+    {
+        self.camera.inner.noise_reduction_level().block()
     }
 
     /// Get 2D noise reduction level.
-    pub fn noise_reduction_2d(&self) -> Result<crate::types::NoiseReduction2DLevel, Error> {
-        self.camera.noise_reduction_2d()
+    pub fn noise_reduction_2d(&self) -> Result<crate::types::NoiseReduction2DLevel, Error>
+    where
+        Camera<Blocking, P, Tr, ()>: NoiseReduction2DInquiryControl<Mode = Blocking>,
+    {
+        self.camera.inner.noise_reduction_2d().block()
     }
 
     /// Get 3D noise reduction level.
-    pub fn noise_reduction_3d(&self) -> Result<crate::types::NoiseReduction3DLevel, Error> {
-        self.camera.noise_reduction_3d()
+    pub fn noise_reduction_3d(&self) -> Result<crate::types::NoiseReduction3DLevel, Error>
+    where
+        Camera<Blocking, P, Tr, ()>: NoiseReduction3DInquiryControl<Mode = Blocking>,
+    {
+        self.camera.inner.noise_reduction_3d().block()
     }
 
     /// Get noise reduction mode.
-    pub fn noise_reduction_mode(&self) -> Result<crate::command::NoiseReductionMode, Error> {
-        self.camera.noise_reduction_mode()
+    pub fn noise_reduction_mode(&self) -> Result<crate::command::NoiseReductionMode, Error>
+    where
+        Camera<Blocking, P, Tr, ()>: NoiseReductionInquiryControl<Mode = Blocking>,
+    {
+        self.camera.inner.noise_reduction_mode().block()
     }
 
     /// Enable vertical image flip.
-    pub fn enable_flip(&self) -> Result<(), Error> {
-        self.camera.enable_flip()
+    pub fn enable_flip(&self) -> Result<(), Error>
+    where
+        Camera<Blocking, P, Tr, ()>: ImageFlipControl<Mode = Blocking>,
+    {
+        self.camera.inner.enable_flip().block()
     }
 
     /// Disable vertical image flip.
-    pub fn disable_flip(&self) -> Result<(), Error> {
-        self.camera.disable_flip()
+    pub fn disable_flip(&self) -> Result<(), Error>
+    where
+        Camera<Blocking, P, Tr, ()>: ImageFlipControl<Mode = Blocking>,
+    {
+        self.camera.inner.disable_flip().block()
     }
 
     /// Enable horizontal image flip.
-    pub fn enable_horizontal_flip(&self) -> Result<(), Error> {
-        self.camera.enable_horizontal_flip()
+    pub fn enable_horizontal_flip(&self) -> Result<(), Error>
+    where
+        Camera<Blocking, P, Tr, ()>: ImageMirrorControl<Mode = Blocking>,
+    {
+        self.camera.inner.enable_horizontal_flip().block()
     }
 
     /// Disable horizontal image flip.
-    pub fn disable_horizontal_flip(&self) -> Result<(), Error> {
-        self.camera.disable_horizontal_flip()
+    pub fn disable_horizontal_flip(&self) -> Result<(), Error>
+    where
+        Camera<Blocking, P, Tr, ()>: ImageMirrorControl<Mode = Blocking>,
+    {
+        self.camera.inner.disable_horizontal_flip().block()
     }
 
     /// Set combined flip mode.
-    pub fn set_flip_mode(&self, mode: crate::command::ImageFlipMode) -> Result<(), Error> {
-        self.camera.set_image_flip(mode)
+    pub fn set_flip_mode(&self, mode: crate::command::ImageFlipMode) -> Result<(), Error>
+    where
+        Camera<Blocking, P, Tr, ()>: ImageFlipModeControl<Mode = Blocking>,
+    {
+        self.camera.inner.set_image_flip(mode).block()
     }
 
     /// Set contrast level.
@@ -1074,18 +1182,27 @@ where
     }
 
     /// Set saturation level.
-    pub fn set_saturation(&self, level: crate::types::SaturationLevel) -> Result<(), Error> {
-        self.camera.set_saturation(level)
+    pub fn set_saturation(&self, level: crate::types::SaturationLevel) -> Result<(), Error>
+    where
+        Camera<Blocking, P, Tr, ()>: SaturationControl<Mode = Blocking>,
+    {
+        self.camera.inner.set_saturation(level).block()
     }
 
     /// Set hue level.
-    pub fn set_hue(&self, level: crate::types::HueLevel) -> Result<(), Error> {
-        self.camera.set_hue(level)
+    pub fn set_hue(&self, level: crate::types::HueLevel) -> Result<(), Error>
+    where
+        Camera<Blocking, P, Tr, ()>: HueControl<Mode = Blocking>,
+    {
+        self.camera.inner.set_hue(level).block()
     }
 
     /// Set luminance level.
-    pub fn set_luminance(&self, level: crate::types::LuminanceLevel) -> Result<(), Error> {
-        self.camera.set_luminance(level)
+    pub fn set_luminance(&self, level: crate::types::LuminanceLevel) -> Result<(), Error>
+    where
+        Camera<Blocking, P, Tr, ()>: LuminanceControl<Mode = Blocking>,
+    {
+        self.camera.inner.set_luminance(level).block()
     }
 
     /// Enable image freeze.
@@ -1099,44 +1216,65 @@ where
     }
 
     /// Enable black-and-white mode.
-    pub fn enable_black_white(&self) -> Result<(), Error> {
-        self.camera.enable_black_white()
+    pub fn enable_black_white(&self) -> Result<(), Error>
+    where
+        Camera<Blocking, P, Tr, ()>: PictureEffectControl<Mode = Blocking>,
+    {
+        self.camera.inner.enable_black_white().block()
     }
 
     /// Disable black-and-white mode.
-    pub fn disable_black_white(&self) -> Result<(), Error> {
-        self.camera.disable_black_white()
+    pub fn disable_black_white(&self) -> Result<(), Error>
+    where
+        Camera<Blocking, P, Tr, ()>: PictureEffectControl<Mode = Blocking>,
+    {
+        self.camera.inner.disable_black_white().block()
     }
 
     /// Set picture effect mode.
-    pub fn set_picture_effect(&self, mode: crate::command::PictureEffectMode) -> Result<(), Error> {
-        self.camera.set_picture_effect(mode)
+    pub fn set_picture_effect(&self, mode: crate::command::PictureEffectMode) -> Result<(), Error>
+    where
+        Camera<Blocking, P, Tr, ()>: PictureEffectControl<Mode = Blocking>,
+    {
+        self.camera.inner.set_picture_effect(mode).block()
     }
 
     /// Set 2D noise reduction level.
     pub fn set_noise_reduction_2d(
         &self,
         level: crate::types::NoiseReduction2DLevel,
-    ) -> Result<(), Error> {
-        self.camera.set_noise_reduction_2d(level)
+    ) -> Result<(), Error>
+    where
+        Camera<Blocking, P, Tr, ()>: NoiseReduction2DControl<Mode = Blocking>,
+    {
+        self.camera.inner.set_noise_reduction_2d(level).block()
     }
 
     /// Disable 2D noise reduction.
-    pub fn disable_noise_reduction_2d(&self) -> Result<(), Error> {
-        self.camera.disable_noise_reduction_2d()
+    pub fn disable_noise_reduction_2d(&self) -> Result<(), Error>
+    where
+        Camera<Blocking, P, Tr, ()>: NoiseReduction2DControl<Mode = Blocking>,
+    {
+        self.camera.inner.disable_noise_reduction_2d().block()
     }
 
     /// Set 3D noise reduction level.
     pub fn set_noise_reduction_3d(
         &self,
         level: crate::types::NoiseReduction3DLevel,
-    ) -> Result<(), Error> {
-        self.camera.set_noise_reduction_3d(level)
+    ) -> Result<(), Error>
+    where
+        Camera<Blocking, P, Tr, ()>: NoiseReduction3DControl<Mode = Blocking>,
+    {
+        self.camera.inner.set_noise_reduction_3d(level).block()
     }
 
     /// Disable 3D noise reduction.
-    pub fn disable_noise_reduction_3d(&self) -> Result<(), Error> {
-        self.camera.disable_noise_reduction_3d()
+    pub fn disable_noise_reduction_3d(&self) -> Result<(), Error>
+    where
+        Camera<Blocking, P, Tr, ()>: NoiseReduction3DControl<Mode = Blocking>,
+    {
+        self.camera.inner.disable_noise_reduction_3d().block()
     }
 }
 
@@ -1409,8 +1547,11 @@ where
     }
 
     /// Check iris control status.
-    pub fn iris_control(&self) -> Result<bool, Error> {
-        self.camera.iris_control()
+    pub fn iris_control(&self) -> Result<bool, Error>
+    where
+        Camera<Blocking, P, Tr, ()>: IrisInquiryControl<Mode = Blocking>,
+    {
+        self.camera.inner.iris_control().block()
     }
 
     /// Check whether digital PTZ is enabled.
@@ -1752,9 +1893,6 @@ where
         /// Decrease brightness.
         fn decrease_brightness() -> ();
 
-        /// Enable/disable backlight.
-        fn set_backlight(enabled: bool) -> ();
-
         /// Set gain level.
         fn set_gain(gain: crate::types::GainLevel) -> ();
 
@@ -1769,9 +1907,6 @@ where
 
         /// Set gain limit.
         fn set_gain_limit(limit: crate::types::GainLimit) -> ();
-
-        /// Set dynamic range level.
-        fn set_dynamic_range(level: crate::types::DynamicRangeLevel) -> ();
 
         /// Set shutter speed.
         fn set_shutter_speed(speed: crate::types::ShutterSpeed) -> ();
@@ -1799,6 +1934,28 @@ where
 
         /// Set brightness directly.
         fn set_brightness_direct(level: crate::types::BrightnessLevel) -> ();
+    }
+}
+
+impl<P, Tr> BlockingClient<P, Tr>
+where
+    Camera<Blocking, P, Tr, ()>: BacklightCompensationControl<Mode = Blocking>,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasBacklightCompensation,
+{
+    impl_blocking_methods! {
+        /// Enable/disable backlight.
+        fn set_backlight(enabled: bool) -> ();
+    }
+}
+
+impl<P, Tr> BlockingClient<P, Tr>
+where
+    Camera<Blocking, P, Tr, ()>: WideDynamicRangeControl<Mode = Blocking>,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasWideDynamicRange,
+{
+    impl_blocking_methods! {
+        /// Set dynamic range level.
+        fn set_dynamic_range(level: crate::types::DynamicRangeLevel) -> ();
     }
 }
 
@@ -1934,18 +2091,50 @@ where
         /// Set outdoor white balance preset.
         fn white_balance_outdoor() -> ();
 
-        /// Set one-push white balance mode.
-        fn white_balance_one_push() -> ();
-
-        /// Set auto tracking white balance.
-        fn white_balance_atw() -> ();
-
         /// Set manual white balance mode.
         fn white_balance_manual() -> ();
+    }
+}
 
+impl<P, Tr> BlockingClient<P, Tr>
+where
+    Camera<Blocking, P, Tr, ()>: OnePushWhiteBalanceControl<Mode = Blocking>,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasOnePushWhiteBalance,
+{
+    impl_blocking_methods! {
+        /// Set one-push white balance mode.
+        fn white_balance_one_push() -> ();
+    }
+}
+
+impl<P, Tr> BlockingClient<P, Tr>
+where
+    Camera<Blocking, P, Tr, ()>: AutoTrackingWhiteBalanceControl<Mode = Blocking>,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasAutoTrackingWhiteBalance,
+{
+    impl_blocking_methods! {
+        /// Set auto tracking white balance.
+        fn white_balance_atw() -> ();
+    }
+}
+
+impl<P, Tr> BlockingClient<P, Tr>
+where
+    Camera<Blocking, P, Tr, ()>: ColorTemperatureControl<Mode = Blocking>,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasColorTemperature,
+{
+    impl_blocking_methods! {
         /// Set color temperature white balance mode.
         fn white_balance_color_temperature() -> ();
+    }
+}
 
+impl<P, Tr> BlockingClient<P, Tr>
+where
+    Camera<Blocking, P, Tr, ()>: AutoWhiteBalanceSensitivityControl<Mode = Blocking>,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasAutoWhiteBalanceSensitivity,
+{
+    impl_blocking_methods! {
         /// Set AWB sensitivity level.
         fn set_awb_sensitivity(sensitivity: crate::command::white_balance::AutoWhiteBalanceSensitivity) -> ();
     }
@@ -2057,18 +2246,26 @@ where
 }
 
 // ============================================================================
-// ColorControl implementation
+// Color subcontrol implementations
 // ============================================================================
 
 impl<P, Tr> BlockingClient<P, Tr>
 where
-    Camera<Blocking, P, Tr, ()>: ColorControl<Mode = Blocking>,
-    P: crate::capabilities::Profile + Default,
+    Camera<Blocking, P, Tr, ()>: OnePushWhiteBalanceControl<Mode = Blocking>,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasOnePushWhiteBalance,
 {
     impl_blocking_methods! {
         /// Trigger one-push white balance.
         fn one_push_trigger() -> ();
+    }
+}
 
+impl<P, Tr> BlockingClient<P, Tr>
+where
+    Camera<Blocking, P, Tr, ()>: ColorTemperatureControl<Mode = Blocking>,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasColorTemperature,
+{
+    impl_blocking_methods! {
         /// Set color temperature.
         fn set_color_temperature(temp: crate::types::ColorTemp) -> ();
 
@@ -2080,7 +2277,15 @@ where
 
         /// Decrease color temperature.
         fn decrease_color_temperature() -> ();
+    }
+}
 
+impl<P, Tr> BlockingClient<P, Tr>
+where
+    Camera<Blocking, P, Tr, ()>: RgbGainControl<Mode = Blocking>,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasRgbGain,
+{
+    impl_blocking_methods! {
         /// Set red gain.
         fn set_red_gain(gain: crate::types::RedChannel) -> ();
 
@@ -2092,7 +2297,15 @@ where
 
         /// Control blue gain (set, reset, increase or decrease).
         fn control_blue_gain(command: crate::command::color::BlueGain) -> ();
+    }
+}
 
+impl<P, Tr> BlockingClient<P, Tr>
+where
+    Camera<Blocking, P, Tr, ()>: RgbTuningControl<Mode = Blocking>,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasRgbTuning,
+{
+    impl_blocking_methods! {
         /// Set red tuning.
         fn set_red_tuning(tuning: crate::types::RedTuning) -> ();
 
@@ -2113,18 +2326,6 @@ where
         + crate::capabilities::image_processing::ImageProcessing,
 {
     impl_blocking_methods! {
-        /// Enable image flip.
-        fn enable_flip() -> ();
-
-        /// Disable image flip.
-        fn disable_flip() -> ();
-
-        /// Enable horizontal flip.
-        fn enable_horizontal_flip() -> ();
-
-        /// Disable horizontal flip.
-        fn disable_horizontal_flip() -> ();
-
         /// Set contrast level.
         fn set_contrast(level: crate::types::ContrastLevel) -> ();
 
@@ -2143,39 +2344,131 @@ where
         /// Decrease sharpness.
         fn decrease_sharpness() -> ();
 
-        /// Set saturation level.
-        fn set_saturation(level: crate::types::SaturationLevel) -> ();
-
-        /// Set hue level.
-        fn set_hue(level: crate::types::HueLevel) -> ();
-
-        /// Set 2D noise reduction level.
-        fn set_noise_reduction_2d(level: crate::types::NoiseReduction2DLevel) -> ();
-
-        /// Disable 2D noise reduction.
-        fn disable_noise_reduction_2d() -> ();
-
-        /// Set 3D noise reduction level.
-        fn set_noise_reduction_3d(level: crate::types::NoiseReduction3DLevel) -> ();
-
-        /// Disable 3D noise reduction.
-        fn disable_noise_reduction_3d() -> ();
-
-        /// Set image flip mode.
-        fn set_image_flip(mode: crate::command::ImageFlipMode) -> ();
-
-        /// Set luminance level.
-        fn set_luminance(level: crate::types::LuminanceLevel) -> ();
-
-        /// Set gamma curve.
-        fn set_gamma(level: crate::types::GammaLevel) -> ();
-
         /// Enable freeze frame.
         fn enable_freeze() -> ();
 
         /// Disable freeze frame.
         fn disable_freeze() -> ();
+    }
+}
 
+impl<P, Tr> BlockingClient<P, Tr>
+where
+    Camera<Blocking, P, Tr, ()>: ImageFlipControl<Mode = Blocking>,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasImageFlip,
+{
+    impl_blocking_methods! {
+        /// Enable image flip.
+        fn enable_flip() -> ();
+
+        /// Disable image flip.
+        fn disable_flip() -> ();
+    }
+}
+
+impl<P, Tr> BlockingClient<P, Tr>
+where
+    Camera<Blocking, P, Tr, ()>: ImageMirrorControl<Mode = Blocking>,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasImageMirror,
+{
+    impl_blocking_methods! {
+        /// Enable horizontal flip.
+        fn enable_horizontal_flip() -> ();
+
+        /// Disable horizontal flip.
+        fn disable_horizontal_flip() -> ();
+    }
+}
+
+impl<P, Tr> BlockingClient<P, Tr>
+where
+    Camera<Blocking, P, Tr, ()>: ImageFlipModeControl<Mode = Blocking>,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasCombinedImageFlip,
+{
+    impl_blocking_methods! {
+        /// Set image flip mode.
+        fn set_image_flip(mode: crate::command::ImageFlipMode) -> ();
+    }
+}
+
+impl<P, Tr> BlockingClient<P, Tr>
+where
+    Camera<Blocking, P, Tr, ()>: SaturationControl<Mode = Blocking>,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasSaturationControl,
+{
+    impl_blocking_methods! {
+        /// Set saturation level.
+        fn set_saturation(level: crate::types::SaturationLevel) -> ();
+    }
+}
+
+impl<P, Tr> BlockingClient<P, Tr>
+where
+    Camera<Blocking, P, Tr, ()>: HueControl<Mode = Blocking>,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasHueControl,
+{
+    impl_blocking_methods! {
+        /// Set hue level.
+        fn set_hue(level: crate::types::HueLevel) -> ();
+    }
+}
+
+impl<P, Tr> BlockingClient<P, Tr>
+where
+    Camera<Blocking, P, Tr, ()>: LuminanceControl<Mode = Blocking>,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasLuminanceControl,
+{
+    impl_blocking_methods! {
+        /// Set luminance level.
+        fn set_luminance(level: crate::types::LuminanceLevel) -> ();
+    }
+}
+
+impl<P, Tr> BlockingClient<P, Tr>
+where
+    Camera<Blocking, P, Tr, ()>: GammaControl<Mode = Blocking>,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasGammaControl,
+{
+    impl_blocking_methods! {
+        /// Set gamma curve.
+        fn set_gamma(level: crate::types::GammaLevel) -> ();
+    }
+}
+
+impl<P, Tr> BlockingClient<P, Tr>
+where
+    Camera<Blocking, P, Tr, ()>: NoiseReduction2DControl<Mode = Blocking>,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasNoiseReduction2D,
+{
+    impl_blocking_methods! {
+        /// Set 2D noise reduction level.
+        fn set_noise_reduction_2d(level: crate::types::NoiseReduction2DLevel) -> ();
+
+        /// Disable 2D noise reduction.
+        fn disable_noise_reduction_2d() -> ();
+    }
+}
+
+impl<P, Tr> BlockingClient<P, Tr>
+where
+    Camera<Blocking, P, Tr, ()>: NoiseReduction3DControl<Mode = Blocking>,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasNoiseReduction3D,
+{
+    impl_blocking_methods! {
+        /// Set 3D noise reduction level.
+        fn set_noise_reduction_3d(level: crate::types::NoiseReduction3DLevel) -> ();
+
+        /// Disable 3D noise reduction.
+        fn disable_noise_reduction_3d() -> ();
+    }
+}
+
+impl<P, Tr> BlockingClient<P, Tr>
+where
+    Camera<Blocking, P, Tr, ()>: PictureEffectControl<Mode = Blocking>,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasPictureEffect,
+{
+    impl_blocking_methods! {
         /// Enable black and white mode.
         fn enable_black_white() -> ();
 
@@ -2300,12 +2593,6 @@ where
         /// Get exposure mode.
         fn exposure_mode() -> crate::command::exposure::ExposureMode;
 
-        /// Get exposure compensation.
-        fn exposure_compensation() -> crate::types::ExposureCompensationLevel;
-
-        /// Get exposure compensation enabled status.
-        fn exposure_compensation_enabled() -> bool;
-
         /// Get shutter value.
         fn shutter() -> crate::types::ShutterSpeed;
 
@@ -2318,59 +2605,20 @@ where
         /// Get white balance mode.
         fn white_balance_mode() -> crate::command::white_balance::WhiteBalanceMode;
 
-        /// Get red gain.
-        fn red_gain() -> crate::types::RedChannel;
-
-        /// Get blue gain.
-        fn blue_gain() -> crate::types::BlueChannel;
-
-        /// Get red tuning.
-        fn red_tuning() -> crate::types::RedTuning;
-
-        /// Get blue tuning.
-        fn blue_tuning() -> crate::types::BlueTuning;
-
-        /// Get color temperature.
-        fn color_temperature() -> crate::types::ColorTemp;
-
-        /// Get gamma value.
-        fn gamma() -> crate::types::GammaLevel;
-
         /// Get brightness.
         fn brightness() -> crate::types::BrightnessLevel;
 
         /// Get sharpness mode.
         fn sharpness_mode() -> crate::command::SharpnessMode;
 
-        /// Get saturation.
-        fn saturation() -> crate::types::SaturationLevel;
-
-        /// Get hue.
-        fn hue() -> crate::types::HueLevel;
-
         /// Get contrast level.
         fn contrast() -> crate::types::ContrastLevel;
-
-        /// Get luminance level.
-        fn luminance() -> crate::types::LuminanceLevel;
-
-        /// Get black and white mode.
-        fn black_white() -> bool;
 
         /// Get resolution.
         fn resolution() -> crate::command::ResolutionMode;
 
-        /// Get picture effect.
-        fn picture_effect() -> crate::command::PictureEffectMode;
-
         /// Get camera version information.
         fn version() -> crate::command::VersionInfo;
-
-        /// Get backlight enabled status.
-        fn backlight_enabled() -> bool;
-
-        /// Get image flip state.
-        fn image_flip() -> crate::command::FlipState;
 
         /// Get focus mode.
         fn focus_mode() -> crate::command::focus::FocusMode;
@@ -2384,14 +2632,8 @@ where
         /// Get night/day mode.
         fn night_day_mode() -> bool;
 
-        /// Get flip mode.
-        fn flip_mode() -> crate::command::FlipState;
-
         /// Get standby enabled status.
         fn standby_enabled() -> bool;
-
-        /// Get iris control status.
-        fn iris_control() -> bool;
 
         /// Get defog level.
         fn defog_level() -> crate::types::DefogLevel;
@@ -2399,32 +2641,14 @@ where
         /// Get digital PTZ enabled status.
         fn digital_ptz_enabled() -> bool;
 
-        /// Get exposure compensation position.
-        fn exposure_compensation_position() -> crate::types::ExposureCompensationPosition;
-
         /// Get auto trace enabled status.
         fn auto_trace_enabled() -> bool;
 
         /// Get focus unlock status.
         fn focus_unlock() -> bool;
 
-        /// Get noise reduction level.
-        fn noise_reduction_level() -> crate::types::NoiseReductionLevel;
-
-        /// Get 2D noise reduction level.
-        fn noise_reduction_2d() -> crate::types::NoiseReduction2DLevel;
-
-        /// Get 3D noise reduction level.
-        fn noise_reduction_3d() -> crate::types::NoiseReduction3DLevel;
-
         /// Get broadcast domain.
         fn broadcast_domain() -> crate::types::BroadcastDomain;
-
-        /// Get noise reduction mode.
-        fn noise_reduction_mode() -> crate::command::NoiseReductionMode;
-
-        /// Get black and white mode.
-        fn black_white_mode() -> crate::command::BlackWhiteMode;
 
         /// Get USB audio enabled status.
         fn usb_audio_enabled() -> bool;
@@ -2437,6 +2661,195 @@ where
 
         /// Get tally auto adjust enabled status.
         fn tally_auto_adjust_enabled() -> bool;
+    }
+}
+
+impl<P, Tr> BlockingClient<P, Tr>
+where
+    Camera<Blocking, P, Tr, ()>: ExposureCompensationInquiryControl<Mode = Blocking>,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasExposureCompensation,
+{
+    impl_blocking_methods! {
+        /// Get exposure compensation.
+        fn exposure_compensation() -> crate::types::ExposureCompensationLevel;
+
+        /// Get exposure compensation enabled status.
+        fn exposure_compensation_enabled() -> bool;
+
+        /// Get exposure compensation position.
+        fn exposure_compensation_position() -> crate::types::ExposureCompensationPosition;
+    }
+}
+
+impl<P, Tr> BlockingClient<P, Tr>
+where
+    Camera<Blocking, P, Tr, ()>: BacklightCompensationInquiryControl<Mode = Blocking>,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasBacklightCompensation,
+{
+    impl_blocking_methods! {
+        /// Get backlight enabled status.
+        fn backlight_enabled() -> bool;
+    }
+}
+
+impl<P, Tr> BlockingClient<P, Tr>
+where
+    Camera<Blocking, P, Tr, ()>: WideDynamicRangeInquiryControl<Mode = Blocking>,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasWideDynamicRange,
+{
+    impl_blocking_methods! {
+        /// Get dynamic range level.
+        fn dynamic_range() -> crate::types::DynamicRangeLevel;
+    }
+}
+
+impl<P, Tr> BlockingClient<P, Tr>
+where
+    Camera<Blocking, P, Tr, ()>: ColorTemperatureInquiryControl<Mode = Blocking>,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasColorTemperature,
+{
+    impl_blocking_methods! {
+        /// Get color temperature.
+        fn color_temperature() -> crate::types::ColorTemp;
+    }
+}
+
+impl<P, Tr> BlockingClient<P, Tr>
+where
+    Camera<Blocking, P, Tr, ()>: RgbGainInquiryControl<Mode = Blocking>,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasRgbGain,
+{
+    impl_blocking_methods! {
+        /// Get red gain.
+        fn red_gain() -> crate::types::RedChannel;
+
+        /// Get blue gain.
+        fn blue_gain() -> crate::types::BlueChannel;
+    }
+}
+
+impl<P, Tr> BlockingClient<P, Tr>
+where
+    Camera<Blocking, P, Tr, ()>: RgbTuningInquiryControl<Mode = Blocking>,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasRgbTuning,
+{
+    impl_blocking_methods! {
+        /// Get red tuning.
+        fn red_tuning() -> crate::types::RedTuning;
+
+        /// Get blue tuning.
+        fn blue_tuning() -> crate::types::BlueTuning;
+    }
+}
+
+impl<P, Tr> BlockingClient<P, Tr>
+where
+    Camera<Blocking, P, Tr, ()>: SaturationInquiryControl<Mode = Blocking>,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasSaturationControl,
+{
+    impl_blocking_methods! {
+        /// Get saturation.
+        fn saturation() -> crate::types::SaturationLevel;
+    }
+}
+
+impl<P, Tr> BlockingClient<P, Tr>
+where
+    Camera<Blocking, P, Tr, ()>: HueInquiryControl<Mode = Blocking>,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasHueControl,
+{
+    impl_blocking_methods! {
+        /// Get hue.
+        fn hue() -> crate::types::HueLevel;
+    }
+}
+
+impl<P, Tr> BlockingClient<P, Tr>
+where
+    Camera<Blocking, P, Tr, ()>: LuminanceInquiryControl<Mode = Blocking>,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasLuminanceControl,
+{
+    impl_blocking_methods! {
+        /// Get luminance level.
+        fn luminance() -> crate::types::LuminanceLevel;
+    }
+}
+
+impl<P, Tr> BlockingClient<P, Tr>
+where
+    Camera<Blocking, P, Tr, ()>: GammaInquiryControl<Mode = Blocking>,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasGammaControl,
+{
+    impl_blocking_methods! {
+        /// Get gamma value.
+        fn gamma() -> crate::types::GammaLevel;
+    }
+}
+
+impl<P, Tr> BlockingClient<P, Tr>
+where
+    Camera<Blocking, P, Tr, ()>: ImageFlipInquiryControl<Mode = Blocking>,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasImageFlip,
+{
+    impl_blocking_methods! {
+        /// Get image flip state.
+        fn image_flip() -> crate::command::FlipState;
+
+        /// Get flip mode.
+        fn flip_mode() -> crate::command::FlipState;
+    }
+}
+
+impl<P, Tr> BlockingClient<P, Tr>
+where
+    Camera<Blocking, P, Tr, ()>: NoiseReductionInquiryControl<Mode = Blocking>,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasNoiseReduction,
+{
+    impl_blocking_methods! {
+        /// Get noise reduction level.
+        fn noise_reduction_level() -> crate::types::NoiseReductionLevel;
+
+        /// Get noise reduction mode.
+        fn noise_reduction_mode() -> crate::command::NoiseReductionMode;
+    }
+}
+
+impl<P, Tr> BlockingClient<P, Tr>
+where
+    Camera<Blocking, P, Tr, ()>: NoiseReduction2DInquiryControl<Mode = Blocking>,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasNoiseReduction2D,
+{
+    impl_blocking_methods! {
+        /// Get 2D noise reduction level.
+        fn noise_reduction_2d() -> crate::types::NoiseReduction2DLevel;
+    }
+}
+
+impl<P, Tr> BlockingClient<P, Tr>
+where
+    Camera<Blocking, P, Tr, ()>: NoiseReduction3DInquiryControl<Mode = Blocking>,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasNoiseReduction3D,
+{
+    impl_blocking_methods! {
+        /// Get 3D noise reduction level.
+        fn noise_reduction_3d() -> crate::types::NoiseReduction3DLevel;
+    }
+}
+
+impl<P, Tr> BlockingClient<P, Tr>
+where
+    Camera<Blocking, P, Tr, ()>: PictureEffectInquiryControl<Mode = Blocking>,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasPictureEffect,
+{
+    impl_blocking_methods! {
+        /// Get black and white mode.
+        fn black_white() -> bool;
+
+        /// Get black and white mode details.
+        fn black_white_mode() -> crate::command::BlackWhiteMode;
+
+        /// Get picture effect.
+        fn picture_effect() -> crate::command::PictureEffectMode;
     }
 }
 
@@ -2468,6 +2881,9 @@ where
     P: crate::capabilities::Profile + Default + crate::capabilities::HasIrisControl,
 {
     impl_blocking_methods! {
+        /// Get iris control status.
+        fn iris_control() -> bool;
+
         /// Get iris value.
         fn iris() -> crate::types::IrisLevel;
     }

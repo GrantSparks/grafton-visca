@@ -256,6 +256,48 @@ pub trait HasRgbGain {}
 /// Marker trait indicating support for red/blue tuning control.
 pub trait HasRgbTuning {}
 
+/// Marker trait indicating support for one-push white balance mode and trigger.
+pub trait HasOnePushWhiteBalance {}
+
+/// Marker trait indicating support for auto-tracking white balance mode.
+pub trait HasAutoTrackingWhiteBalance {}
+
+/// Marker trait indicating support for auto white-balance sensitivity control.
+pub trait HasAutoWhiteBalanceSensitivity {}
+
+/// Marker trait indicating support for vertical image flip control.
+pub trait HasImageFlip {}
+
+/// Marker trait indicating support for horizontal image mirror control.
+pub trait HasImageMirror {}
+
+/// Marker trait indicating support for the combined image flip mode command.
+pub trait HasCombinedImageFlip {}
+
+/// Marker trait indicating support for saturation control and inquiry.
+pub trait HasSaturationControl {}
+
+/// Marker trait indicating support for hue control and inquiry.
+pub trait HasHueControl {}
+
+/// Marker trait indicating support for luminance control and inquiry.
+pub trait HasLuminanceControl {}
+
+/// Marker trait indicating support for gamma control and inquiry.
+pub trait HasGammaControl {}
+
+/// Marker trait indicating support for aggregate noise-reduction inquiry.
+pub trait HasNoiseReduction {}
+
+/// Marker trait indicating support for 2D noise-reduction control and inquiry.
+pub trait HasNoiseReduction2D {}
+
+/// Marker trait indicating support for 3D noise-reduction control and inquiry.
+pub trait HasNoiseReduction3D {}
+
+/// Marker trait indicating support for picture-effect control and inquiry.
+pub trait HasPictureEffect {}
+
 // Specialized blanket implementations for baseline marker traits.
 // These automatically implement the marker trait for any type that implements
 // both ProfileMetadata and the corresponding capability trait.

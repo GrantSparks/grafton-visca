@@ -8,15 +8,26 @@
 use crate::{
     camera::{
         controls::{
-            color::ColorControl,
+            color::{ColorTemperatureControl, OnePushWhiteBalanceControl},
             exposure::{ExposureControl, IrisControl},
             focus::{
                 AutoFocusSensitivityControl, FocusControl, FocusLockControl, FocusZoneControl,
                 OnePushFocusControl, PushAFControl,
             },
+            image_processing::{
+                HueControl, ImageFlipControl, ImageFlipModeControl, ImageMirrorControl,
+                ImageProcessingControl, LuminanceControl, NoiseReduction2DControl,
+                NoiseReduction3DControl, PictureEffectControl, SaturationControl,
+            },
             inquiry::{
-                FocusNearLimitInquiryControl, FocusZoneInquiryControl, InquiryControl,
-                IrisInquiryControl, NdFilterInquiryControl, PanTiltInquiryControl,
+                BacklightCompensationInquiryControl, ColorTemperatureInquiryControl,
+                ExposureCompensationInquiryControl, FocusNearLimitInquiryControl,
+                FocusZoneInquiryControl, GammaInquiryControl, HueInquiryControl,
+                ImageFlipInquiryControl, InquiryControl, IrisInquiryControl,
+                LuminanceInquiryControl, NdFilterInquiryControl, NoiseReduction2DInquiryControl,
+                NoiseReduction3DInquiryControl, NoiseReductionInquiryControl,
+                PanTiltInquiryControl, PictureEffectInquiryControl, RgbGainInquiryControl,
+                RgbTuningInquiryControl, SaturationInquiryControl,
             },
             menu::MenuControl,
             motion_sync::MotionSyncControl,
@@ -26,7 +37,7 @@ use crate::{
             presets::PresetsControl,
             system::SystemControl,
             tally::TallyControl,
-            white_balance::WhiteBalanceControl,
+            white_balance::{AutoTrackingWhiteBalanceControl, WhiteBalanceControl},
             zoom::{DirectZoomControl, ZoomControl},
         },
         Camera,
@@ -583,7 +594,7 @@ where
     /// Get exposure compensation value.
     pub fn compensation(&self) -> M::Fut<'_, Result<crate::types::ExposureCompensationLevel, Error>>
     where
-        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+        Camera<M, P, Tr, Exec>: ExposureCompensationInquiryControl<Mode = M>,
     {
         self.camera.exposure_compensation()
     }
@@ -591,7 +602,7 @@ where
     /// Check if exposure compensation is enabled.
     pub fn compensation_enabled(&self) -> M::Fut<'_, Result<bool, Error>>
     where
-        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+        Camera<M, P, Tr, Exec>: ExposureCompensationInquiryControl<Mode = M>,
     {
         self.camera.exposure_compensation_enabled()
     }
@@ -601,7 +612,7 @@ where
         &self,
     ) -> M::Fut<'_, Result<crate::types::ExposureCompensationPosition, Error>>
     where
-        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+        Camera<M, P, Tr, Exec>: ExposureCompensationInquiryControl<Mode = M>,
     {
         self.camera.exposure_compensation_position()
     }
@@ -693,7 +704,7 @@ where
     /// Get red gain.
     pub fn red_gain(&self) -> M::Fut<'_, Result<crate::types::RedChannel, Error>>
     where
-        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+        Camera<M, P, Tr, Exec>: RgbGainInquiryControl<Mode = M>,
     {
         self.camera.red_gain()
     }
@@ -701,7 +712,7 @@ where
     /// Get blue gain.
     pub fn blue_gain(&self) -> M::Fut<'_, Result<crate::types::BlueChannel, Error>>
     where
-        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+        Camera<M, P, Tr, Exec>: RgbGainInquiryControl<Mode = M>,
     {
         self.camera.blue_gain()
     }
@@ -709,7 +720,7 @@ where
     /// Get red tuning.
     pub fn red_tuning(&self) -> M::Fut<'_, Result<crate::types::RedTuning, Error>>
     where
-        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+        Camera<M, P, Tr, Exec>: RgbTuningInquiryControl<Mode = M>,
     {
         self.camera.red_tuning()
     }
@@ -717,7 +728,7 @@ where
     /// Get blue tuning.
     pub fn blue_tuning(&self) -> M::Fut<'_, Result<crate::types::BlueTuning, Error>>
     where
-        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+        Camera<M, P, Tr, Exec>: RgbTuningInquiryControl<Mode = M>,
     {
         self.camera.blue_tuning()
     }
@@ -725,7 +736,7 @@ where
     /// Get color temperature.
     pub fn color_temperature(&self) -> M::Fut<'_, Result<crate::types::ColorTemp, Error>>
     where
-        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+        Camera<M, P, Tr, Exec>: ColorTemperatureInquiryControl<Mode = M>,
     {
         self.camera.color_temperature()
     }
@@ -757,7 +768,7 @@ where
     /// Set to one-push white balance mode.
     pub fn one_push(&self) -> M::Fut<'_, Result<(), Error>>
     where
-        Camera<M, P, Tr, Exec>: WhiteBalanceControl<Mode = M>,
+        Camera<M, P, Tr, Exec>: OnePushWhiteBalanceControl<Mode = M>,
     {
         self.camera.white_balance_one_push()
     }
@@ -765,7 +776,7 @@ where
     /// Set to auto-tracing white balance mode.
     pub fn atw(&self) -> M::Fut<'_, Result<(), Error>>
     where
-        Camera<M, P, Tr, Exec>: WhiteBalanceControl<Mode = M>,
+        Camera<M, P, Tr, Exec>: AutoTrackingWhiteBalanceControl<Mode = M>,
     {
         self.camera.white_balance_atw()
     }
@@ -781,7 +792,7 @@ where
     /// Set to color temperature white balance mode.
     pub fn color_temperature_mode(&self) -> M::Fut<'_, Result<(), Error>>
     where
-        Camera<M, P, Tr, Exec>: WhiteBalanceControl<Mode = M>,
+        Camera<M, P, Tr, Exec>: ColorTemperatureControl<Mode = M>,
     {
         self.camera.white_balance_color_temperature()
     }
@@ -789,7 +800,7 @@ where
     /// Trigger one-push white balance.
     pub fn one_push_trigger(&self) -> M::Fut<'_, Result<(), Error>>
     where
-        Camera<M, P, Tr, Exec>: ColorControl<Mode = M>,
+        Camera<M, P, Tr, Exec>: OnePushWhiteBalanceControl<Mode = M>,
     {
         self.camera.one_push_trigger()
     }
@@ -817,7 +828,7 @@ where
     /// Get saturation level.
     pub fn saturation(&self) -> M::Fut<'_, Result<crate::types::SaturationLevel, Error>>
     where
-        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+        Camera<M, P, Tr, Exec>: SaturationInquiryControl<Mode = M>,
     {
         self.camera.saturation()
     }
@@ -825,7 +836,7 @@ where
     /// Get hue setting.
     pub fn hue(&self) -> M::Fut<'_, Result<crate::types::HueLevel, Error>>
     where
-        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+        Camera<M, P, Tr, Exec>: HueInquiryControl<Mode = M>,
     {
         self.camera.hue()
     }
@@ -841,7 +852,7 @@ where
     /// Get luminance (brightness) level.
     pub fn luminance(&self) -> M::Fut<'_, Result<crate::types::LuminanceLevel, Error>>
     where
-        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+        Camera<M, P, Tr, Exec>: LuminanceInquiryControl<Mode = M>,
     {
         self.camera.luminance()
     }
@@ -849,7 +860,7 @@ where
     /// Get gamma level.
     pub fn gamma(&self) -> M::Fut<'_, Result<crate::types::GammaLevel, Error>>
     where
-        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+        Camera<M, P, Tr, Exec>: GammaInquiryControl<Mode = M>,
     {
         self.camera.gamma()
     }
@@ -865,7 +876,7 @@ where
     /// Check if black and white mode is enabled.
     pub fn black_white(&self) -> M::Fut<'_, Result<bool, Error>>
     where
-        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+        Camera<M, P, Tr, Exec>: PictureEffectInquiryControl<Mode = M>,
     {
         self.camera.black_white()
     }
@@ -873,7 +884,7 @@ where
     /// Get black and white mode setting.
     pub fn black_white_mode(&self) -> M::Fut<'_, Result<crate::command::BlackWhiteMode, Error>>
     where
-        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+        Camera<M, P, Tr, Exec>: PictureEffectInquiryControl<Mode = M>,
     {
         self.camera.black_white_mode()
     }
@@ -881,7 +892,7 @@ where
     /// Get image flip settings.
     pub fn flip(&self) -> M::Fut<'_, Result<crate::command::FlipState, Error>>
     where
-        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+        Camera<M, P, Tr, Exec>: ImageFlipInquiryControl<Mode = M>,
     {
         self.camera.image_flip()
     }
@@ -889,7 +900,7 @@ where
     /// Get flip mode (combined horizontal/vertical).
     pub fn flip_mode(&self) -> M::Fut<'_, Result<crate::command::FlipState, Error>>
     where
-        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+        Camera<M, P, Tr, Exec>: ImageFlipInquiryControl<Mode = M>,
     {
         self.camera.flip_mode()
     }
@@ -905,7 +916,7 @@ where
     /// Get picture effect mode.
     pub fn picture_effect(&self) -> M::Fut<'_, Result<crate::command::PictureEffectMode, Error>>
     where
-        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+        Camera<M, P, Tr, Exec>: PictureEffectInquiryControl<Mode = M>,
     {
         self.camera.picture_effect()
     }
@@ -913,7 +924,7 @@ where
     /// Check if backlight compensation is enabled.
     pub fn backlight_enabled(&self) -> M::Fut<'_, Result<bool, Error>>
     where
-        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+        Camera<M, P, Tr, Exec>: BacklightCompensationInquiryControl<Mode = M>,
     {
         self.camera.backlight_enabled()
     }
@@ -931,7 +942,7 @@ where
         &self,
     ) -> M::Fut<'_, Result<crate::types::NoiseReductionLevel, Error>>
     where
-        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+        Camera<M, P, Tr, Exec>: NoiseReductionInquiryControl<Mode = M>,
     {
         self.camera.noise_reduction_level()
     }
@@ -941,7 +952,7 @@ where
         &self,
     ) -> M::Fut<'_, Result<crate::types::NoiseReduction2DLevel, Error>>
     where
-        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+        Camera<M, P, Tr, Exec>: NoiseReduction2DInquiryControl<Mode = M>,
     {
         self.camera.noise_reduction_2d()
     }
@@ -951,7 +962,7 @@ where
         &self,
     ) -> M::Fut<'_, Result<crate::types::NoiseReduction3DLevel, Error>>
     where
-        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+        Camera<M, P, Tr, Exec>: NoiseReduction3DInquiryControl<Mode = M>,
     {
         self.camera.noise_reduction_3d()
     }
@@ -961,7 +972,7 @@ where
         &self,
     ) -> M::Fut<'_, Result<crate::command::NoiseReductionMode, Error>>
     where
-        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+        Camera<M, P, Tr, Exec>: NoiseReductionInquiryControl<Mode = M>,
     {
         self.camera.noise_reduction_mode()
     }
@@ -971,40 +982,32 @@ where
     /// Enable image flip.
     pub fn enable_flip(&self) -> M::Fut<'_, Result<(), Error>>
     where
-        Camera<M, P, Tr, Exec>:
-            crate::camera::controls::image_processing::ImageProcessingControl<Mode = M>,
+        Camera<M, P, Tr, Exec>: ImageFlipControl<Mode = M>,
     {
-        use crate::camera::controls::image_processing::ImageProcessingControl;
         self.camera.enable_flip()
     }
 
     /// Disable image flip.
     pub fn disable_flip(&self) -> M::Fut<'_, Result<(), Error>>
     where
-        Camera<M, P, Tr, Exec>:
-            crate::camera::controls::image_processing::ImageProcessingControl<Mode = M>,
+        Camera<M, P, Tr, Exec>: ImageFlipControl<Mode = M>,
     {
-        use crate::camera::controls::image_processing::ImageProcessingControl;
         self.camera.disable_flip()
     }
 
     /// Enable horizontal flip (mirror).
     pub fn enable_horizontal_flip(&self) -> M::Fut<'_, Result<(), Error>>
     where
-        Camera<M, P, Tr, Exec>:
-            crate::camera::controls::image_processing::ImageProcessingControl<Mode = M>,
+        Camera<M, P, Tr, Exec>: ImageMirrorControl<Mode = M>,
     {
-        use crate::camera::controls::image_processing::ImageProcessingControl;
         self.camera.enable_horizontal_flip()
     }
 
     /// Disable horizontal flip (mirror).
     pub fn disable_horizontal_flip(&self) -> M::Fut<'_, Result<(), Error>>
     where
-        Camera<M, P, Tr, Exec>:
-            crate::camera::controls::image_processing::ImageProcessingControl<Mode = M>,
+        Camera<M, P, Tr, Exec>: ImageMirrorControl<Mode = M>,
     {
-        use crate::camera::controls::image_processing::ImageProcessingControl;
         self.camera.disable_horizontal_flip()
     }
 
@@ -1014,20 +1017,16 @@ where
         mode: crate::command::ImageFlipMode,
     ) -> M::Fut<'_, Result<(), Error>>
     where
-        Camera<M, P, Tr, Exec>:
-            crate::camera::controls::image_processing::ImageProcessingControl<Mode = M>,
+        Camera<M, P, Tr, Exec>: ImageFlipModeControl<Mode = M>,
     {
-        use crate::camera::controls::image_processing::ImageProcessingControl;
         self.camera.set_image_flip(mode)
     }
 
     /// Set contrast level.
     pub fn set_contrast(&self, level: crate::types::ContrastLevel) -> M::Fut<'_, Result<(), Error>>
     where
-        Camera<M, P, Tr, Exec>:
-            crate::camera::controls::image_processing::ImageProcessingControl<Mode = M>,
+        Camera<M, P, Tr, Exec>: ImageProcessingControl<Mode = M>,
     {
-        use crate::camera::controls::image_processing::ImageProcessingControl;
         self.camera.set_contrast(level)
     }
 
@@ -1037,10 +1036,8 @@ where
         level: crate::types::SharpnessLevel,
     ) -> M::Fut<'_, Result<(), Error>>
     where
-        Camera<M, P, Tr, Exec>:
-            crate::camera::controls::image_processing::ImageProcessingControl<Mode = M>,
+        Camera<M, P, Tr, Exec>: ImageProcessingControl<Mode = M>,
     {
-        use crate::camera::controls::image_processing::ImageProcessingControl;
         self.camera.set_sharpness(level)
     }
 
@@ -1050,20 +1047,16 @@ where
         level: crate::types::SaturationLevel,
     ) -> M::Fut<'_, Result<(), Error>>
     where
-        Camera<M, P, Tr, Exec>:
-            crate::camera::controls::image_processing::ImageProcessingControl<Mode = M>,
+        Camera<M, P, Tr, Exec>: SaturationControl<Mode = M>,
     {
-        use crate::camera::controls::image_processing::ImageProcessingControl;
         self.camera.set_saturation(level)
     }
 
     /// Set hue level.
     pub fn set_hue(&self, level: crate::types::HueLevel) -> M::Fut<'_, Result<(), Error>>
     where
-        Camera<M, P, Tr, Exec>:
-            crate::camera::controls::image_processing::ImageProcessingControl<Mode = M>,
+        Camera<M, P, Tr, Exec>: HueControl<Mode = M>,
     {
-        use crate::camera::controls::image_processing::ImageProcessingControl;
         self.camera.set_hue(level)
     }
 
@@ -1073,50 +1066,40 @@ where
         level: crate::types::LuminanceLevel,
     ) -> M::Fut<'_, Result<(), Error>>
     where
-        Camera<M, P, Tr, Exec>:
-            crate::camera::controls::image_processing::ImageProcessingControl<Mode = M>,
+        Camera<M, P, Tr, Exec>: LuminanceControl<Mode = M>,
     {
-        use crate::camera::controls::image_processing::ImageProcessingControl;
         self.camera.set_luminance(level)
     }
 
     /// Enable image freeze.
     pub fn freeze(&self) -> M::Fut<'_, Result<(), Error>>
     where
-        Camera<M, P, Tr, Exec>:
-            crate::camera::controls::image_processing::ImageProcessingControl<Mode = M>,
+        Camera<M, P, Tr, Exec>: ImageProcessingControl<Mode = M>,
     {
-        use crate::camera::controls::image_processing::ImageProcessingControl;
         self.camera.enable_freeze()
     }
 
     /// Disable image freeze.
     pub fn unfreeze(&self) -> M::Fut<'_, Result<(), Error>>
     where
-        Camera<M, P, Tr, Exec>:
-            crate::camera::controls::image_processing::ImageProcessingControl<Mode = M>,
+        Camera<M, P, Tr, Exec>: ImageProcessingControl<Mode = M>,
     {
-        use crate::camera::controls::image_processing::ImageProcessingControl;
         self.camera.disable_freeze()
     }
 
     /// Enable black and white mode.
     pub fn enable_black_white(&self) -> M::Fut<'_, Result<(), Error>>
     where
-        Camera<M, P, Tr, Exec>:
-            crate::camera::controls::image_processing::ImageProcessingControl<Mode = M>,
+        Camera<M, P, Tr, Exec>: PictureEffectControl<Mode = M>,
     {
-        use crate::camera::controls::image_processing::ImageProcessingControl;
         self.camera.enable_black_white()
     }
 
     /// Disable black and white mode.
     pub fn disable_black_white(&self) -> M::Fut<'_, Result<(), Error>>
     where
-        Camera<M, P, Tr, Exec>:
-            crate::camera::controls::image_processing::ImageProcessingControl<Mode = M>,
+        Camera<M, P, Tr, Exec>: PictureEffectControl<Mode = M>,
     {
-        use crate::camera::controls::image_processing::ImageProcessingControl;
         self.camera.disable_black_white()
     }
 
@@ -1126,10 +1109,8 @@ where
         mode: crate::command::PictureEffectMode,
     ) -> M::Fut<'_, Result<(), Error>>
     where
-        Camera<M, P, Tr, Exec>:
-            crate::camera::controls::image_processing::ImageProcessingControl<Mode = M>,
+        Camera<M, P, Tr, Exec>: PictureEffectControl<Mode = M>,
     {
-        use crate::camera::controls::image_processing::ImageProcessingControl;
         self.camera.set_picture_effect(mode)
     }
 
@@ -1139,20 +1120,16 @@ where
         level: crate::types::NoiseReduction2DLevel,
     ) -> M::Fut<'_, Result<(), Error>>
     where
-        Camera<M, P, Tr, Exec>:
-            crate::camera::controls::image_processing::ImageProcessingControl<Mode = M>,
+        Camera<M, P, Tr, Exec>: NoiseReduction2DControl<Mode = M>,
     {
-        use crate::camera::controls::image_processing::ImageProcessingControl;
         self.camera.set_noise_reduction_2d(level)
     }
 
     /// Disable noise reduction 2D.
     pub fn disable_noise_reduction_2d(&self) -> M::Fut<'_, Result<(), Error>>
     where
-        Camera<M, P, Tr, Exec>:
-            crate::camera::controls::image_processing::ImageProcessingControl<Mode = M>,
+        Camera<M, P, Tr, Exec>: NoiseReduction2DControl<Mode = M>,
     {
-        use crate::camera::controls::image_processing::ImageProcessingControl;
         self.camera.disable_noise_reduction_2d()
     }
 
@@ -1162,20 +1139,16 @@ where
         level: crate::types::NoiseReduction3DLevel,
     ) -> M::Fut<'_, Result<(), Error>>
     where
-        Camera<M, P, Tr, Exec>:
-            crate::camera::controls::image_processing::ImageProcessingControl<Mode = M>,
+        Camera<M, P, Tr, Exec>: NoiseReduction3DControl<Mode = M>,
     {
-        use crate::camera::controls::image_processing::ImageProcessingControl;
         self.camera.set_noise_reduction_3d(level)
     }
 
     /// Disable noise reduction 3D.
     pub fn disable_noise_reduction_3d(&self) -> M::Fut<'_, Result<(), Error>>
     where
-        Camera<M, P, Tr, Exec>:
-            crate::camera::controls::image_processing::ImageProcessingControl<Mode = M>,
+        Camera<M, P, Tr, Exec>: NoiseReduction3DControl<Mode = M>,
     {
-        use crate::camera::controls::image_processing::ImageProcessingControl;
         self.camera.disable_noise_reduction_3d()
     }
 }
@@ -1589,7 +1562,7 @@ where
     /// Check iris control status.
     pub fn iris_control(&self) -> M::Fut<'_, Result<bool, Error>>
     where
-        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+        Camera<M, P, Tr, Exec>: IrisInquiryControl<Mode = M>,
     {
         self.camera.iris_control()
     }

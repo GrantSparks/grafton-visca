@@ -210,9 +210,9 @@ visca_command! {
     /// Value 0 is typically standard gamma, while values 1-4 select
     /// different gamma curves depending on the camera model.
     ///
-    /// Use [`InquiryControl::gamma`] to query the current value.
+    /// Use [`GammaInquiryControl::gamma`] to query the current value.
     ///
-    /// [`InquiryControl::gamma`]: crate::camera::controls::inquiry::InquiryControl::gamma
+    /// [`GammaInquiryControl::gamma`]: crate::camera::controls::inquiry::GammaInquiryControl::gamma
     pub struct GammaCommand { level: GammaLevel };
     prefix = [0x01, 0x04, 0x5B];
     param = level.value();

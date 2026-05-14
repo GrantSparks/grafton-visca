@@ -168,7 +168,10 @@ jobs:
         with:
           shared-key: "rust-cache-${{ matrix.os }}-${{ matrix.rust }}"
           save-if: ${{ github.ref == 'refs/heads/main' }}
-          cache-targets: true
+          # This job builds many feature combinations in one run. Restoring or
+          # saving target artifacts here can consume tens of GB and exhaust the
+          # hosted runner disk; sccache still covers compiler output.
+          cache-targets: false
           cache-on-failure: true
           cache-all-crates: true
 

@@ -11,11 +11,142 @@ use std::time::Duration;
 
 use grafton_visca::{
     camera::{profiles::GenericVisca, CameraBuilder},
+    capabilities::{
+        exposure::ShutterSpeed, Exposure, Focus, HasBacklightCompensation, HasColorTemperature,
+        HasExposureCompensation, HasHueControl, HasImageFlip, HasIrisControl, HasLuminanceControl,
+        HasNoiseReduction2D, HasNoiseReduction3D, HasSaturationControl, ImageProcessing,
+        InquirySupport, MenuCapability, MotionSyncMetadata, NdFilterMetadata, PanTilt, Power,
+        Presets, ProfileMetadata, Tally, VariableSpeedMetadata, WhiteBalance, Zoom,
+    },
     command::{ExposureMode, FocusMode, WhiteBalanceMode},
     runtime::TokioRuntime,
     testing::camera_simulator::{SimulatorBuilder, ViscaCameraSimulator},
+    transport::RawVisca,
     ResolutionMode,
 };
+
+const SIM_EXPOSURE_MODES: &[ExposureMode] = &[
+    ExposureMode::Auto,
+    ExposureMode::Manual,
+    ExposureMode::Shutter,
+    ExposureMode::Iris,
+    ExposureMode::Bright,
+];
+const SIM_SHUTTER_SPEEDS: &[ShutterSpeed] = &[ShutterSpeed::new("1/60", 0x01)];
+const SIM_WB_MODES: &[WhiteBalanceMode] = &[
+    WhiteBalanceMode::Auto,
+    WhiteBalanceMode::Indoor,
+    WhiteBalanceMode::Outdoor,
+    WhiteBalanceMode::OnePush,
+    WhiteBalanceMode::Manual,
+    WhiteBalanceMode::ColorTemperature,
+];
+
+#[derive(Debug, Default, Clone, Copy)]
+struct SimulatorFullProfile;
+
+impl ProfileMetadata for SimulatorFullProfile {
+    const MODEL_NAME: &'static str = "Simulator Full Profile";
+    const DEFAULT_CAMERA_ID: u8 = 1;
+    type Envelope = RawVisca;
+    const ACK_TIMEOUT: Duration = Duration::from_millis(200);
+    const COMPLETION_TIMEOUT: Duration = Duration::from_millis(10_000);
+    const INQUIRY_SUPPORT: InquirySupport = InquirySupport::Full;
+    const DEFAULT_TCP_PORT: u16 = 5678;
+    const DEFAULT_UDP_PORT: u16 = 1259;
+}
+
+impl PanTilt for SimulatorFullProfile {
+    const PAN_RANGE: std::ops::Range<i16> = -2880..2881;
+    const TILT_RANGE: std::ops::Range<i16> = -1440..1441;
+    const MAX_PAN_SPEED: u8 = 24;
+    const MAX_TILT_SPEED: u8 = 24;
+    const PAN_DEGREES_TO_UNITS: f32 = 16.0;
+    const TILT_DEGREES_TO_UNITS: f32 = 16.0;
+}
+
+impl Zoom for SimulatorFullProfile {
+    const OPTICAL_ZOOM_MAX: u16 = 0xFFFF;
+    const DIGITAL_ZOOM_MAX: Option<u16> = None;
+    const ZOOM_SPEED_RANGE: std::ops::Range<u8> = 0..8;
+    const SUPPORTS_DIRECT_ZOOM: bool = false;
+    const ZOOM_MAGNIFICATION_TO_UNITS: f32 = 1000.0;
+}
+
+impl Power for SimulatorFullProfile {
+    const POWER_ON_TIME: Duration = Duration::from_secs(30);
+    const SUPPORTS_STANDBY: bool = false;
+}
+
+impl MenuCapability for SimulatorFullProfile {}
+
+impl Exposure for SimulatorFullProfile {
+    const EXPOSURE_MODES: &'static [ExposureMode] = SIM_EXPOSURE_MODES;
+    const IRIS_RANGE: Option<std::ops::Range<u16>> = Some(0x00..0x1D);
+    const SHUTTER_SPEEDS: &'static [ShutterSpeed] = SIM_SHUTTER_SPEEDS;
+    const GAIN_RANGE: std::ops::Range<u8> = 0..16;
+    const SUPPORTS_BACKLIGHT_COMP: bool = true;
+    const SUPPORTS_EXPOSURE_COMP: bool = true;
+    const SUPPORTS_WDR: bool = true;
+}
+
+impl WhiteBalance for SimulatorFullProfile {
+    const WB_MODES: &'static [WhiteBalanceMode] = SIM_WB_MODES;
+    const SUPPORTS_ONE_PUSH_WB: bool = true;
+    const RG_TUNING_RANGE: Option<std::ops::Range<i8>> = Some(-7..8);
+    const BG_TUNING_RANGE: Option<std::ops::Range<i8>> = Some(-7..8);
+    const SUPPORTS_COLOR_TEMP: bool = true;
+    const COLOR_TEMP_RANGE: Option<std::ops::Range<u16>> = Some(2800..7500);
+    const SUPPORTS_RGB_GAIN: bool = true;
+    const RED_GAIN_RANGE: Option<std::ops::Range<u8>> = Some(0..255);
+    const BLUE_GAIN_RANGE: Option<std::ops::Range<u8>> = Some(0..255);
+}
+
+impl Focus for SimulatorFullProfile {
+    const FOCUS_NEAR_LIMIT: u16 = 0x1000;
+    const FOCUS_FAR_LIMIT: u16 = 0xE000;
+    const SUPPORTS_AUTO_FOCUS: bool = true;
+    const SUPPORTS_ONE_PUSH_FOCUS: bool = false;
+}
+
+impl ImageProcessing for SimulatorFullProfile {
+    const BRIGHTNESS_RANGE: std::ops::Range<u8> = 0..15;
+    const CONTRAST_RANGE: std::ops::Range<u8> = 0..15;
+    const SHARPNESS_RANGE: std::ops::Range<u8> = 0..15;
+    const SATURATION_RANGE: Option<std::ops::Range<u8>> = Some(0..15);
+    const SUPPORTS_FLIP: bool = true;
+    const SUPPORTS_MIRROR: bool = true;
+    const SUPPORTS_HUE: bool = true;
+    const HUE_RANGE: Option<std::ops::Range<u8>> = Some(0..15);
+    const SUPPORTS_NOISE_REDUCTION: bool = true;
+    const SUPPORTS_2D_NR: bool = true;
+    const SUPPORTS_3D_NR: bool = true;
+    const SUPPORTS_LUMINANCE: bool = true;
+    const LUMINANCE_RANGE: Option<std::ops::Range<u8>> = Some(0..15);
+}
+
+impl Presets for SimulatorFullProfile {
+    const MAX_PRESETS: u8 = 6;
+    const PRESET_SPEED_RANGE: std::ops::Range<u8> = 1..24;
+    const SUPPORTS_PRESET_TOUR: bool = false;
+    const SUPPORTS_PRESET_THUMBNAIL: bool = false;
+}
+
+impl Tally for SimulatorFullProfile {}
+impl MotionSyncMetadata for SimulatorFullProfile {}
+impl NdFilterMetadata for SimulatorFullProfile {}
+impl VariableSpeedMetadata for SimulatorFullProfile {}
+
+impl HasBacklightCompensation for SimulatorFullProfile {}
+impl HasColorTemperature for SimulatorFullProfile {}
+impl HasExposureCompensation for SimulatorFullProfile {}
+impl HasHueControl for SimulatorFullProfile {}
+impl HasImageFlip for SimulatorFullProfile {}
+impl HasIrisControl for SimulatorFullProfile {}
+impl HasLuminanceControl for SimulatorFullProfile {}
+impl HasNoiseReduction2D for SimulatorFullProfile {}
+impl HasNoiseReduction3D for SimulatorFullProfile {}
+impl HasSaturationControl for SimulatorFullProfile {}
 
 /// Test basic power inquiry through the full stack
 #[tokio::test(start_paused = true)]
@@ -107,7 +238,7 @@ async fn test_exposure_inquiries_integration() {
     let simulator = ViscaCameraSimulator::new();
     let runtime = TokioRuntime::from_current().unwrap();
     let camera = CameraBuilder::with_executor(runtime)
-        .open_async::<GenericVisca, _>(simulator)
+        .open_async::<SimulatorFullProfile, _>(simulator)
         .await
         .unwrap();
 
@@ -216,7 +347,7 @@ async fn test_white_balance_color_inquiries_integration() {
     let simulator = ViscaCameraSimulator::new();
     let runtime = TokioRuntime::from_current().unwrap();
     let camera = CameraBuilder::with_executor(runtime)
-        .open_async::<GenericVisca, _>(simulator)
+        .open_async::<SimulatorFullProfile, _>(simulator)
         .await
         .unwrap();
 
@@ -253,7 +384,7 @@ async fn test_image_adjustment_inquiries_integration() {
     let simulator = ViscaCameraSimulator::new();
     let runtime = TokioRuntime::from_current().unwrap();
     let camera = CameraBuilder::with_executor(runtime)
-        .open_async::<GenericVisca, _>(simulator)
+        .open_async::<SimulatorFullProfile, _>(simulator)
         .await
         .unwrap();
 
@@ -321,7 +452,7 @@ async fn test_noise_reduction_inquiries_integration() {
     let simulator = ViscaCameraSimulator::new();
     let runtime = TokioRuntime::from_current().unwrap();
     let camera = CameraBuilder::with_executor(runtime)
-        .open_async::<GenericVisca, _>(simulator)
+        .open_async::<SimulatorFullProfile, _>(simulator)
         .await
         .unwrap();
 
@@ -437,7 +568,7 @@ async fn test_sequential_inquiries() {
     let simulator = ViscaCameraSimulator::new();
     let runtime = TokioRuntime::from_current().unwrap();
     let camera = CameraBuilder::with_executor(runtime)
-        .open_async::<GenericVisca, _>(simulator)
+        .open_async::<SimulatorFullProfile, _>(simulator)
         .await
         .unwrap();
 

@@ -51,11 +51,31 @@ Current built-in sub-capability markers include:
 | Zoom | `HasDigitalZoomToggle` | `DigitalZoomControl::set_digital_zoom` |
 | Zoom | `HasDigitalZoomRange` | `DigitalZoomRangeControl::zoom_absolute_normalized` for digital domains |
 | Exposure | `HasIrisControl` | `IrisControl` and `IrisInquiryControl` |
+| Exposure | `HasBacklightCompensation` | `BacklightCompensationControl` and backlight inquiry |
+| Exposure | `HasWideDynamicRange` | `WideDynamicRangeControl` and dynamic-range inquiry |
+| Exposure | `HasExposureCompensation` | exposure-compensation controls and inquiries |
+| White balance | `HasOnePushWhiteBalance` | one-push white balance mode and trigger |
+| White balance | `HasAutoTrackingWhiteBalance` | ATW white balance mode |
+| White balance | `HasAutoWhiteBalanceSensitivity` | AWB sensitivity control |
+| Color | `HasColorTemperature` | color-temperature mode, setters, and inquiry |
+| Color | `HasRgbGain` | red/blue gain controls and inquiries |
+| Color | `HasRgbTuning` | red/blue tuning controls and inquiries |
 | Focus | `HasOnePushFocus` | `OnePushFocusControl` |
 | Focus | `HasPtzOpticsSnapFocus` | `SnapFocusControl` |
 | Focus | `HasFocusZone` | focus zone controls and inquiry |
 | Focus | `HasAutoFocusSensitivity` | AF sensitivity controls and inquiry |
 | Focus | `HasFocusNearLimitInquiry` | focus near-limit inquiry |
+| Image | `HasImageFlip` | vertical image flip control and inquiry |
+| Image | `HasImageMirror` | horizontal mirror control |
+| Image | `HasCombinedImageFlip` | combined flip-mode command |
+| Image | `HasSaturationControl` | saturation control and inquiry |
+| Image | `HasHueControl` | hue control and inquiry |
+| Image | `HasLuminanceControl` | luminance control and inquiry |
+| Image | `HasGammaControl` | gamma control and inquiry |
+| Image | `HasNoiseReduction` | aggregate noise-reduction inquiries |
+| Image | `HasNoiseReduction2D` | 2D noise-reduction control and inquiry |
+| Image | `HasNoiseReduction3D` | 3D noise-reduction control and inquiry |
+| Image | `HasPictureEffect` | picture-effect control and inquiry |
 
 Raw/custom VISCA command APIs are different. They remain available as escape
 hatches for experiments, unsupported firmware variants, and downstream

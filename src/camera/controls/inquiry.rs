@@ -103,29 +103,6 @@ pub trait InquiryControl {
     /// Returns an error if the inquiry fails or times out.
     fn exposure_mode(&self) -> <Self::Mode as Mode>::Fut<'_, Result<ExposureMode, Error>>;
 
-    /// Get the exposure compensation value.
-    ///
-    /// Returns the current exposure compensation level (-7 to +7).
-    /// Positive values make the image brighter, negative values make it darker.
-    ///
-    /// # Errors
-    /// Returns an error if the inquiry fails or times out.
-    fn exposure_compensation(
-        &self,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::ExposureCompensationLevel, Error>>;
-
-    /// Check if exposure compensation is enabled.
-    ///
-    /// Returns whether exposure compensation is currently active.
-    ///
-    /// # Returns
-    /// - `true` if exposure compensation is enabled
-    /// - `false` if exposure compensation is disabled
-    ///
-    /// # Errors
-    /// Returns an error if the inquiry fails or times out.
-    fn exposure_compensation_enabled(&self) -> <Self::Mode as Mode>::Fut<'_, Result<bool, Error>>;
-
     /// Get the current shutter speed.
     ///
     /// Returns the current shutter speed setting as a typed value.
@@ -161,63 +138,6 @@ pub trait InquiryControl {
     /// Returns an error if the inquiry fails or times out.
     fn white_balance_mode(&self) -> <Self::Mode as Mode>::Fut<'_, Result<WhiteBalanceMode, Error>>;
 
-    /// Get the current red gain.
-    ///
-    /// Returns the red color channel gain adjustment value.
-    /// Used for fine-tuning color balance.
-    ///
-    /// # Errors
-    /// Returns an error if the inquiry fails or times out.
-    fn red_gain(&self) -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::RedChannel, Error>>;
-
-    /// Get the current blue gain.
-    ///
-    /// Returns the blue color channel gain adjustment value.
-    /// Used for fine-tuning color balance.
-    ///
-    /// # Errors
-    /// Returns an error if the inquiry fails or times out.
-    fn blue_gain(&self) -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::BlueChannel, Error>>;
-
-    /// Get the red tuning value.
-    ///
-    /// Returns the red color channel tuning offset (-10 to +10).
-    /// Provides finer control than gain adjustment.
-    ///
-    /// # Errors
-    /// Returns an error if the inquiry fails or times out.
-    fn red_tuning(&self) -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::RedTuning, Error>>;
-
-    /// Get the blue tuning value.
-    ///
-    /// Returns the blue color channel tuning offset (-10 to +10).
-    /// Provides finer control than gain adjustment.
-    ///
-    /// # Errors
-    /// Returns an error if the inquiry fails or times out.
-    fn blue_tuning(&self)
-        -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::BlueTuning, Error>>;
-
-    /// Get the current color temperature in Kelvin.
-    ///
-    /// Returns the color temperature setting which controls
-    /// the overall warmth or coolness of the image.
-    ///
-    /// # Errors
-    /// Returns an error if the inquiry fails or times out.
-    fn color_temperature(
-        &self,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::ColorTemp, Error>>;
-
-    /// Get the gamma level.
-    ///
-    /// Returns the current gamma correction setting which affects
-    /// the overall brightness curve and contrast of the image.
-    ///
-    /// # Errors
-    /// Returns an error if the inquiry fails or times out.
-    fn gamma(&self) -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::GammaLevel, Error>>;
-
     /// Get the brightness level.
     ///
     /// Returns the current brightness adjustment level.
@@ -248,37 +168,6 @@ pub trait InquiryControl {
         &self,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::SharpnessLevel, Error>>;
 
-    /// Get the dynamic range level.
-    ///
-    /// Returns the current dynamic range (wide dynamic range/WDR) level.
-    /// Higher values provide better detail retention in high contrast scenes.
-    ///
-    /// # Errors
-    /// Returns an error if the inquiry fails or times out.
-    fn dynamic_range(
-        &self,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::DynamicRangeLevel, Error>>;
-
-    /// Get the saturation level.
-    ///
-    /// Returns the current color saturation level.
-    /// Higher values make colors more vivid.
-    ///
-    /// # Errors
-    /// Returns an error if the inquiry fails or times out.
-    fn saturation(
-        &self,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::SaturationLevel, Error>>;
-
-    /// Get the hue setting.
-    ///
-    /// Returns the current hue adjustment which shifts
-    /// the overall color tone of the image.
-    ///
-    /// # Errors
-    /// Returns an error if the inquiry fails or times out.
-    fn hue(&self) -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::HueLevel, Error>>;
-
     /// Get the contrast level.
     ///
     /// Returns the current contrast level setting.
@@ -288,30 +177,6 @@ pub trait InquiryControl {
     /// Returns an error if the inquiry fails or times out.
     fn contrast(&self)
         -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::ContrastLevel, Error>>;
-
-    /// Get the luminance (brightness) level.
-    ///
-    /// Returns the current luminance level setting applied in post-processing.
-    /// This is separate from exposure brightness.
-    ///
-    /// # Errors
-    /// Returns an error if the inquiry fails or times out.
-    fn luminance(
-        &self,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::LuminanceLevel, Error>>;
-
-    /// Check if black and white mode is enabled.
-    ///
-    /// Returns whether the camera is currently outputting
-    /// in monochrome (black and white) mode.
-    ///
-    /// # Returns
-    /// - `true` if black and white mode is active
-    /// - `false` if color mode is active
-    ///
-    /// # Errors
-    /// Returns an error if the inquiry fails or times out.
-    fn black_white(&self) -> <Self::Mode as Mode>::Fut<'_, Result<bool, Error>>;
 
     /// Get the current video resolution mode.
     ///
@@ -324,16 +189,6 @@ pub trait InquiryControl {
         &self,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::command::ResolutionMode, Error>>;
 
-    /// Get the current picture effect mode.
-    ///
-    /// Returns the active picture effect (normal, negative, sepia, etc.).
-    ///
-    /// # Errors
-    /// Returns an error if the inquiry fails or times out.
-    fn picture_effect(
-        &self,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::command::PictureEffectMode, Error>>;
-
     /// Get the camera version information.
     ///
     /// Returns detailed version information including model name,
@@ -342,29 +197,6 @@ pub trait InquiryControl {
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
     fn version(&self) -> <Self::Mode as Mode>::Fut<'_, Result<crate::command::VersionInfo, Error>>;
-
-    /// Check if backlight compensation is enabled.
-    ///
-    /// Returns whether backlight compensation is currently active
-    /// to improve visibility when subjects are backlit.
-    ///
-    /// # Returns
-    /// - `true` if backlight compensation is enabled
-    /// - `false` if backlight compensation is disabled
-    ///
-    /// # Errors
-    /// Returns an error if the inquiry fails or times out.
-    fn backlight_enabled(&self) -> <Self::Mode as Mode>::Fut<'_, Result<bool, Error>>;
-
-    /// Get the image flip settings.
-    ///
-    /// Returns the current image orientation settings including
-    /// horizontal and vertical flip states.
-    ///
-    /// # Errors
-    /// Returns an error if the inquiry fails or times out.
-    fn image_flip(&self)
-        -> <Self::Mode as Mode>::Fut<'_, Result<crate::command::FlipState, Error>>;
 
     /// Get the current focus mode.
     ///
@@ -410,15 +242,6 @@ pub trait InquiryControl {
     /// Returns an error if the inquiry fails or times out.
     fn night_day_mode(&self) -> <Self::Mode as Mode>::Fut<'_, Result<bool, Error>>;
 
-    /// Get the current flip mode (combined horizontal/vertical).
-    ///
-    /// Returns the combined image flip state for both horizontal
-    /// and vertical orientations.
-    ///
-    /// # Errors
-    /// Returns an error if the inquiry fails or times out.
-    fn flip_mode(&self) -> <Self::Mode as Mode>::Fut<'_, Result<crate::command::FlipState, Error>>;
-
     /// Get the standby mode status.
     ///
     /// Returns whether the camera is in standby mode.
@@ -430,18 +253,6 @@ pub trait InquiryControl {
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
     fn standby_enabled(&self) -> <Self::Mode as Mode>::Fut<'_, Result<bool, Error>>;
-
-    /// Get the iris control mode.
-    ///
-    /// Returns the current iris control setting.
-    ///
-    /// # Returns
-    /// - `true` if iris control is enabled
-    /// - `false` if iris control is disabled
-    ///
-    /// # Errors
-    /// Returns an error if the inquiry fails or times out.
-    fn iris_control(&self) -> <Self::Mode as Mode>::Fut<'_, Result<bool, Error>>;
 
     /// Get the defog level.
     ///
@@ -465,18 +276,6 @@ pub trait InquiryControl {
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
     fn digital_ptz_enabled(&self) -> <Self::Mode as Mode>::Fut<'_, Result<bool, Error>>;
-
-    /// Get the exposure compensation position.
-    ///
-    /// Returns the detailed position value for exposure compensation
-    /// rather than just the level. This provides higher resolution
-    /// than `exposure_compensation()`.
-    ///
-    /// # Errors
-    /// Returns an error if the inquiry fails or times out.
-    fn exposure_compensation_position(
-        &self,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::ExposureCompensationPosition, Error>>;
 
     /// Get the auto trace mode status.
     ///
@@ -504,38 +303,6 @@ pub trait InquiryControl {
     /// Returns an error if the inquiry fails or times out.
     fn focus_unlock(&self) -> <Self::Mode as Mode>::Fut<'_, Result<bool, Error>>;
 
-    /// Get the noise reduction level.
-    ///
-    /// Returns the current general noise reduction level setting.
-    ///
-    /// # Errors
-    /// Returns an error if the inquiry fails or times out.
-    fn noise_reduction_level(
-        &self,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::NoiseReductionLevel, Error>>;
-
-    /// Get the noise reduction 2D level.
-    ///
-    /// Returns the current spatial (2D) noise reduction level
-    /// which processes individual frames.
-    ///
-    /// # Errors
-    /// Returns an error if the inquiry fails or times out.
-    fn noise_reduction_2d(
-        &self,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::NoiseReduction2DLevel, Error>>;
-
-    /// Get the noise reduction 3D level.
-    ///
-    /// Returns the current temporal (3D) noise reduction level
-    /// which processes across multiple frames.
-    ///
-    /// # Errors
-    /// Returns an error if the inquiry fails or times out.
-    fn noise_reduction_3d(
-        &self,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::NoiseReduction3DLevel, Error>>;
-
     /// Get the broadcast domain setting.
     ///
     /// Returns the current broadcast domain configuration
@@ -546,28 +313,6 @@ pub trait InquiryControl {
     fn broadcast_domain(
         &self,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::BroadcastDomain, Error>>;
-
-    /// Get the noise reduction mode setting.
-    ///
-    /// Returns the current noise reduction mode configuration
-    /// which determines how noise reduction is applied.
-    ///
-    /// # Errors
-    /// Returns an error if the inquiry fails or times out.
-    fn noise_reduction_mode(
-        &self,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::command::NoiseReductionMode, Error>>;
-
-    /// Get the black and white mode setting.
-    ///
-    /// Returns the detailed black and white mode configuration
-    /// rather than just the enabled/disabled state.
-    ///
-    /// # Errors
-    /// Returns an error if the inquiry fails or times out.
-    fn black_white_mode(
-        &self,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::command::BlackWhiteMode, Error>>;
 
     /// Get the USB audio state.
     ///
@@ -691,8 +436,211 @@ pub trait IrisInquiryControl {
     /// The mode type for this camera (Async or Blocking).
     type Mode: Mode;
 
+    /// Get the iris control mode.
+    fn iris_control(&self) -> <Self::Mode as Mode>::Fut<'_, Result<bool, Error>>;
+
     /// Get the current iris value.
     fn iris(&self) -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::IrisLevel, Error>>;
+}
+
+/// Exposure-compensation inquiries for profiles with documented support.
+#[grafton_visca_macros::delegate_to_session]
+pub trait ExposureCompensationInquiryControl {
+    /// The mode type for this camera (Async or Blocking).
+    type Mode: Mode;
+
+    /// Get exposure compensation value.
+    fn exposure_compensation(
+        &self,
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::ExposureCompensationLevel, Error>>;
+
+    /// Check whether exposure compensation is enabled.
+    fn exposure_compensation_enabled(&self) -> <Self::Mode as Mode>::Fut<'_, Result<bool, Error>>;
+
+    /// Get exposure compensation position.
+    fn exposure_compensation_position(
+        &self,
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::ExposureCompensationPosition, Error>>;
+}
+
+/// Backlight compensation inquiry for profiles with documented support.
+#[grafton_visca_macros::delegate_to_session]
+pub trait BacklightCompensationInquiryControl {
+    /// The mode type for this camera (Async or Blocking).
+    type Mode: Mode;
+
+    /// Check whether backlight compensation is enabled.
+    fn backlight_enabled(&self) -> <Self::Mode as Mode>::Fut<'_, Result<bool, Error>>;
+}
+
+/// Wide dynamic range inquiry for profiles with documented support.
+#[grafton_visca_macros::delegate_to_session]
+pub trait WideDynamicRangeInquiryControl {
+    /// The mode type for this camera (Async or Blocking).
+    type Mode: Mode;
+
+    /// Get dynamic range level.
+    fn dynamic_range(
+        &self,
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::DynamicRangeLevel, Error>>;
+}
+
+/// Color-temperature inquiry for profiles with documented support.
+#[grafton_visca_macros::delegate_to_session]
+pub trait ColorTemperatureInquiryControl {
+    /// The mode type for this camera (Async or Blocking).
+    type Mode: Mode;
+
+    /// Get color temperature.
+    fn color_temperature(
+        &self,
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::ColorTemp, Error>>;
+}
+
+/// RGB gain inquiries for profiles with documented support.
+#[grafton_visca_macros::delegate_to_session]
+pub trait RgbGainInquiryControl {
+    /// The mode type for this camera (Async or Blocking).
+    type Mode: Mode;
+
+    /// Get red gain.
+    fn red_gain(&self) -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::RedChannel, Error>>;
+
+    /// Get blue gain.
+    fn blue_gain(&self) -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::BlueChannel, Error>>;
+}
+
+/// RGB tuning inquiries for profiles with documented support.
+#[grafton_visca_macros::delegate_to_session]
+pub trait RgbTuningInquiryControl {
+    /// The mode type for this camera (Async or Blocking).
+    type Mode: Mode;
+
+    /// Get red tuning.
+    fn red_tuning(&self) -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::RedTuning, Error>>;
+
+    /// Get blue tuning.
+    fn blue_tuning(&self)
+        -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::BlueTuning, Error>>;
+}
+
+/// Saturation inquiry for profiles with documented support.
+#[grafton_visca_macros::delegate_to_session]
+pub trait SaturationInquiryControl {
+    /// The mode type for this camera (Async or Blocking).
+    type Mode: Mode;
+
+    /// Get saturation level.
+    fn saturation(
+        &self,
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::SaturationLevel, Error>>;
+}
+
+/// Hue inquiry for profiles with documented support.
+#[grafton_visca_macros::delegate_to_session]
+pub trait HueInquiryControl {
+    /// The mode type for this camera (Async or Blocking).
+    type Mode: Mode;
+
+    /// Get hue level.
+    fn hue(&self) -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::HueLevel, Error>>;
+}
+
+/// Luminance inquiry for profiles with documented support.
+#[grafton_visca_macros::delegate_to_session]
+pub trait LuminanceInquiryControl {
+    /// The mode type for this camera (Async or Blocking).
+    type Mode: Mode;
+
+    /// Get luminance level.
+    fn luminance(
+        &self,
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::LuminanceLevel, Error>>;
+}
+
+/// Gamma inquiry for profiles with documented support.
+#[grafton_visca_macros::delegate_to_session]
+pub trait GammaInquiryControl {
+    /// The mode type for this camera (Async or Blocking).
+    type Mode: Mode;
+
+    /// Get gamma level.
+    fn gamma(&self) -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::GammaLevel, Error>>;
+}
+
+/// Image flip inquiry for profiles with documented support.
+#[grafton_visca_macros::delegate_to_session]
+pub trait ImageFlipInquiryControl {
+    /// The mode type for this camera (Async or Blocking).
+    type Mode: Mode;
+
+    /// Get image flip settings.
+    fn image_flip(&self)
+        -> <Self::Mode as Mode>::Fut<'_, Result<crate::command::FlipState, Error>>;
+
+    /// Get combined flip mode.
+    fn flip_mode(&self) -> <Self::Mode as Mode>::Fut<'_, Result<crate::command::FlipState, Error>>;
+}
+
+/// Aggregate noise-reduction inquiries for profiles with documented support.
+#[grafton_visca_macros::delegate_to_session]
+pub trait NoiseReductionInquiryControl {
+    /// The mode type for this camera (Async or Blocking).
+    type Mode: Mode;
+
+    /// Get aggregate noise reduction level.
+    fn noise_reduction_level(
+        &self,
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::NoiseReductionLevel, Error>>;
+
+    /// Get noise reduction mode.
+    fn noise_reduction_mode(
+        &self,
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::command::NoiseReductionMode, Error>>;
+}
+
+/// 2D noise-reduction inquiry for profiles with documented support.
+#[grafton_visca_macros::delegate_to_session]
+pub trait NoiseReduction2DInquiryControl {
+    /// The mode type for this camera (Async or Blocking).
+    type Mode: Mode;
+
+    /// Get 2D noise-reduction level.
+    fn noise_reduction_2d(
+        &self,
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::NoiseReduction2DLevel, Error>>;
+}
+
+/// 3D noise-reduction inquiry for profiles with documented support.
+#[grafton_visca_macros::delegate_to_session]
+pub trait NoiseReduction3DInquiryControl {
+    /// The mode type for this camera (Async or Blocking).
+    type Mode: Mode;
+
+    /// Get 3D noise-reduction level.
+    fn noise_reduction_3d(
+        &self,
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::NoiseReduction3DLevel, Error>>;
+}
+
+/// Picture-effect inquiries for profiles with documented support.
+#[grafton_visca_macros::delegate_to_session]
+pub trait PictureEffectInquiryControl {
+    /// The mode type for this camera (Async or Blocking).
+    type Mode: Mode;
+
+    /// Check whether black-and-white mode is enabled.
+    fn black_white(&self) -> <Self::Mode as Mode>::Fut<'_, Result<bool, Error>>;
+
+    /// Get black-and-white mode.
+    fn black_white_mode(
+        &self,
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::command::BlackWhiteMode, Error>>;
+
+    /// Get picture effect mode.
+    fn picture_effect(
+        &self,
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::command::PictureEffectMode, Error>>;
 }
 
 /// Pan/tilt-specific inquiry operations for cameras.
@@ -760,18 +708,6 @@ where
         self.query(ExposureModeInquiry)
     }
 
-    fn exposure_compensation(
-        &self,
-    ) -> M::Fut<'_, Result<crate::types::ExposureCompensationLevel, Error>> {
-        use crate::command::inquiry_structs::ExposureCompensationInquiry;
-        self.query(ExposureCompensationInquiry)
-    }
-
-    fn exposure_compensation_enabled(&self) -> M::Fut<'_, Result<bool, Error>> {
-        use crate::command::inquiry_structs::ExposureCompensationModeInquiry;
-        self.query(ExposureCompensationModeInquiry)
-    }
-
     fn shutter(&self) -> M::Fut<'_, Result<crate::types::ShutterSpeed, Error>> {
         use crate::command::inquiry_structs::ShutterInquiry;
         self.query(ShutterInquiry)
@@ -792,36 +728,6 @@ where
         self.query(WhiteBalanceModeInquiry)
     }
 
-    fn red_gain(&self) -> M::Fut<'_, Result<crate::types::RedChannel, Error>> {
-        use crate::command::inquiry_structs::RedGainInquiry;
-        self.query(RedGainInquiry)
-    }
-
-    fn blue_gain(&self) -> M::Fut<'_, Result<crate::types::BlueChannel, Error>> {
-        use crate::command::inquiry_structs::BlueGainInquiry;
-        self.query(BlueGainInquiry)
-    }
-
-    fn red_tuning(&self) -> M::Fut<'_, Result<crate::types::RedTuning, Error>> {
-        use crate::command::inquiry_structs::RedTuningInquiry;
-        self.query(RedTuningInquiry)
-    }
-
-    fn blue_tuning(&self) -> M::Fut<'_, Result<crate::types::BlueTuning, Error>> {
-        use crate::command::inquiry_structs::BlueTuningInquiry;
-        self.query(BlueTuningInquiry)
-    }
-
-    fn color_temperature(&self) -> M::Fut<'_, Result<crate::types::ColorTemp, Error>> {
-        use crate::command::inquiry_structs::ColorTemperatureInquiry;
-        self.query(ColorTemperatureInquiry)
-    }
-
-    fn gamma(&self) -> M::Fut<'_, Result<crate::types::GammaLevel, Error>> {
-        use crate::command::inquiry_structs::GammaInquiry;
-        self.query(GammaInquiry)
-    }
-
     fn brightness(&self) -> M::Fut<'_, Result<crate::types::BrightnessLevel, Error>> {
         use crate::command::inquiry_structs::BrightnessInquiry;
         self.query(BrightnessInquiry)
@@ -837,34 +743,9 @@ where
         self.query(SharpnessPositionInquiry)
     }
 
-    fn dynamic_range(&self) -> M::Fut<'_, Result<crate::types::DynamicRangeLevel, Error>> {
-        use crate::command::inquiry_structs::DynamicRangeInquiry;
-        self.query(DynamicRangeInquiry)
-    }
-
-    fn saturation(&self) -> M::Fut<'_, Result<crate::types::SaturationLevel, Error>> {
-        use crate::command::inquiry_structs::SaturationInquiry;
-        self.query(SaturationInquiry)
-    }
-
-    fn hue(&self) -> M::Fut<'_, Result<crate::types::HueLevel, Error>> {
-        use crate::command::inquiry_structs::HueInquiry;
-        self.query(HueInquiry)
-    }
-
     fn contrast(&self) -> M::Fut<'_, Result<crate::types::ContrastLevel, Error>> {
         use crate::command::inquiry_structs::ContrastInquiry;
         self.query(ContrastInquiry)
-    }
-
-    fn luminance(&self) -> M::Fut<'_, Result<crate::types::LuminanceLevel, Error>> {
-        use crate::command::inquiry_structs::LuminanceInquiry;
-        self.query(LuminanceInquiry)
-    }
-
-    fn black_white(&self) -> M::Fut<'_, Result<bool, Error>> {
-        use crate::command::inquiry_structs::BlackWhiteInquiry;
-        self.query(BlackWhiteInquiry)
     }
 
     fn resolution(&self) -> M::Fut<'_, Result<crate::command::ResolutionMode, Error>> {
@@ -872,24 +753,9 @@ where
         self.query(ResolutionInquiry)
     }
 
-    fn picture_effect(&self) -> M::Fut<'_, Result<crate::command::PictureEffectMode, Error>> {
-        use crate::command::inquiry_structs::PictureEffectInquiry;
-        self.query(PictureEffectInquiry)
-    }
-
     fn version(&self) -> M::Fut<'_, Result<crate::command::VersionInfo, Error>> {
         use crate::command::inquiry_structs::VersionInquiry;
         self.query(VersionInquiry)
-    }
-
-    fn backlight_enabled(&self) -> M::Fut<'_, Result<bool, Error>> {
-        use crate::command::inquiry_structs::BacklightInquiry;
-        self.query(BacklightInquiry)
-    }
-
-    fn image_flip(&self) -> M::Fut<'_, Result<crate::command::FlipState, Error>> {
-        use crate::command::inquiry_structs::ImageFlipInquiry;
-        self.query(ImageFlipInquiry)
     }
 
     fn focus_mode(&self) -> M::Fut<'_, Result<FocusMode, Error>> {
@@ -912,19 +778,9 @@ where
         self.query(NightDayModeInquiry)
     }
 
-    fn flip_mode(&self) -> M::Fut<'_, Result<crate::command::FlipState, Error>> {
-        use crate::command::inquiry_structs::FlipStateInquiry;
-        self.query(FlipStateInquiry)
-    }
-
     fn standby_enabled(&self) -> M::Fut<'_, Result<bool, Error>> {
         use crate::command::inquiry_structs::StandbyInquiry;
         self.query(StandbyInquiry)
-    }
-
-    fn iris_control(&self) -> M::Fut<'_, Result<bool, Error>> {
-        use crate::command::inquiry_structs::IrisControlInquiry;
-        self.query(IrisControlInquiry)
     }
 
     fn defog_level(&self) -> M::Fut<'_, Result<crate::types::DefogLevel, Error>> {
@@ -937,13 +793,6 @@ where
         self.query(DigitalPtzInquiry)
     }
 
-    fn exposure_compensation_position(
-        &self,
-    ) -> M::Fut<'_, Result<crate::types::ExposureCompensationPosition, Error>> {
-        use crate::command::inquiry_structs::ExposureCompensationPositionInquiry;
-        self.query(ExposureCompensationPositionInquiry)
-    }
-
     fn auto_trace_enabled(&self) -> M::Fut<'_, Result<bool, Error>> {
         use crate::command::inquiry_structs::AutoTraceInquiry;
         self.query(AutoTraceInquiry)
@@ -954,38 +803,9 @@ where
         self.query(FocusUnlockInquiry)
     }
 
-    fn noise_reduction_level(
-        &self,
-    ) -> M::Fut<'_, Result<crate::types::NoiseReductionLevel, Error>> {
-        use crate::command::inquiry_structs::NrLevelInquiry;
-        self.query(NrLevelInquiry)
-    }
-
-    fn noise_reduction_2d(&self) -> M::Fut<'_, Result<crate::types::NoiseReduction2DLevel, Error>> {
-        use crate::command::inquiry_structs::NoiseReduction2DInquiry;
-        self.query(NoiseReduction2DInquiry)
-    }
-
-    fn noise_reduction_3d(&self) -> M::Fut<'_, Result<crate::types::NoiseReduction3DLevel, Error>> {
-        use crate::command::inquiry_structs::NoiseReduction3DInquiry;
-        self.query(NoiseReduction3DInquiry)
-    }
-
     fn broadcast_domain(&self) -> M::Fut<'_, Result<crate::types::BroadcastDomain, Error>> {
         use crate::command::inquiry_structs::BroadcastDomainInquiry;
         self.query(BroadcastDomainInquiry)
-    }
-
-    fn noise_reduction_mode(
-        &self,
-    ) -> M::Fut<'_, Result<crate::command::NoiseReductionMode, Error>> {
-        use crate::command::inquiry_structs::NrModeInquiry;
-        self.query(NrModeInquiry)
-    }
-
-    fn black_white_mode(&self) -> M::Fut<'_, Result<crate::command::BlackWhiteMode, Error>> {
-        use crate::command::inquiry_structs::BlackWhiteModeInquiry;
-        self.query(BlackWhiteModeInquiry)
     }
 
     fn usb_audio_enabled(&self) -> M::Fut<'_, Result<bool, Error>> {
@@ -1011,6 +831,279 @@ where
     fn flicker_mode(&self) -> M::Fut<'_, Result<crate::command::exposure::AntiFlickerMode, Error>> {
         use crate::command::inquiry_structs::FlickerModeInquiry;
         self.query(FlickerModeInquiry)
+    }
+}
+
+impl<M, P, Tr, Exec> ExposureCompensationInquiryControl for crate::camera::Camera<M, P, Tr, Exec>
+where
+    M: Mode,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasExposureCompensation,
+    Self: ViscaClient<M>,
+    Exec: crate::executor::Executor,
+{
+    type Mode = M;
+
+    fn exposure_compensation(
+        &self,
+    ) -> M::Fut<'_, Result<crate::types::ExposureCompensationLevel, Error>> {
+        use crate::command::inquiry_structs::ExposureCompensationInquiry;
+        self.query(ExposureCompensationInquiry)
+    }
+
+    fn exposure_compensation_enabled(&self) -> M::Fut<'_, Result<bool, Error>> {
+        use crate::command::inquiry_structs::ExposureCompensationModeInquiry;
+        self.query(ExposureCompensationModeInquiry)
+    }
+
+    fn exposure_compensation_position(
+        &self,
+    ) -> M::Fut<'_, Result<crate::types::ExposureCompensationPosition, Error>> {
+        use crate::command::inquiry_structs::ExposureCompensationPositionInquiry;
+        self.query(ExposureCompensationPositionInquiry)
+    }
+}
+
+impl<M, P, Tr, Exec> BacklightCompensationInquiryControl for crate::camera::Camera<M, P, Tr, Exec>
+where
+    M: Mode,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasBacklightCompensation,
+    Self: ViscaClient<M>,
+    Exec: crate::executor::Executor,
+{
+    type Mode = M;
+
+    fn backlight_enabled(&self) -> M::Fut<'_, Result<bool, Error>> {
+        use crate::command::inquiry_structs::BacklightInquiry;
+        self.query(BacklightInquiry)
+    }
+}
+
+impl<M, P, Tr, Exec> WideDynamicRangeInquiryControl for crate::camera::Camera<M, P, Tr, Exec>
+where
+    M: Mode,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasWideDynamicRange,
+    Self: ViscaClient<M>,
+    Exec: crate::executor::Executor,
+{
+    type Mode = M;
+
+    fn dynamic_range(&self) -> M::Fut<'_, Result<crate::types::DynamicRangeLevel, Error>> {
+        use crate::command::inquiry_structs::DynamicRangeInquiry;
+        self.query(DynamicRangeInquiry)
+    }
+}
+
+impl<M, P, Tr, Exec> ColorTemperatureInquiryControl for crate::camera::Camera<M, P, Tr, Exec>
+where
+    M: Mode,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasColorTemperature,
+    Self: ViscaClient<M>,
+    Exec: crate::executor::Executor,
+{
+    type Mode = M;
+
+    fn color_temperature(&self) -> M::Fut<'_, Result<crate::types::ColorTemp, Error>> {
+        use crate::command::inquiry_structs::ColorTemperatureInquiry;
+        self.query(ColorTemperatureInquiry)
+    }
+}
+
+impl<M, P, Tr, Exec> RgbGainInquiryControl for crate::camera::Camera<M, P, Tr, Exec>
+where
+    M: Mode,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasRgbGain,
+    Self: ViscaClient<M>,
+    Exec: crate::executor::Executor,
+{
+    type Mode = M;
+
+    fn red_gain(&self) -> M::Fut<'_, Result<crate::types::RedChannel, Error>> {
+        use crate::command::inquiry_structs::RedGainInquiry;
+        self.query(RedGainInquiry)
+    }
+
+    fn blue_gain(&self) -> M::Fut<'_, Result<crate::types::BlueChannel, Error>> {
+        use crate::command::inquiry_structs::BlueGainInquiry;
+        self.query(BlueGainInquiry)
+    }
+}
+
+impl<M, P, Tr, Exec> RgbTuningInquiryControl for crate::camera::Camera<M, P, Tr, Exec>
+where
+    M: Mode,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasRgbTuning,
+    Self: ViscaClient<M>,
+    Exec: crate::executor::Executor,
+{
+    type Mode = M;
+
+    fn red_tuning(&self) -> M::Fut<'_, Result<crate::types::RedTuning, Error>> {
+        use crate::command::inquiry_structs::RedTuningInquiry;
+        self.query(RedTuningInquiry)
+    }
+
+    fn blue_tuning(&self) -> M::Fut<'_, Result<crate::types::BlueTuning, Error>> {
+        use crate::command::inquiry_structs::BlueTuningInquiry;
+        self.query(BlueTuningInquiry)
+    }
+}
+
+impl<M, P, Tr, Exec> SaturationInquiryControl for crate::camera::Camera<M, P, Tr, Exec>
+where
+    M: Mode,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasSaturationControl,
+    Self: ViscaClient<M>,
+    Exec: crate::executor::Executor,
+{
+    type Mode = M;
+
+    fn saturation(&self) -> M::Fut<'_, Result<crate::types::SaturationLevel, Error>> {
+        use crate::command::inquiry_structs::SaturationInquiry;
+        self.query(SaturationInquiry)
+    }
+}
+
+impl<M, P, Tr, Exec> HueInquiryControl for crate::camera::Camera<M, P, Tr, Exec>
+where
+    M: Mode,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasHueControl,
+    Self: ViscaClient<M>,
+    Exec: crate::executor::Executor,
+{
+    type Mode = M;
+
+    fn hue(&self) -> M::Fut<'_, Result<crate::types::HueLevel, Error>> {
+        use crate::command::inquiry_structs::HueInquiry;
+        self.query(HueInquiry)
+    }
+}
+
+impl<M, P, Tr, Exec> LuminanceInquiryControl for crate::camera::Camera<M, P, Tr, Exec>
+where
+    M: Mode,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasLuminanceControl,
+    Self: ViscaClient<M>,
+    Exec: crate::executor::Executor,
+{
+    type Mode = M;
+
+    fn luminance(&self) -> M::Fut<'_, Result<crate::types::LuminanceLevel, Error>> {
+        use crate::command::inquiry_structs::LuminanceInquiry;
+        self.query(LuminanceInquiry)
+    }
+}
+
+impl<M, P, Tr, Exec> GammaInquiryControl for crate::camera::Camera<M, P, Tr, Exec>
+where
+    M: Mode,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasGammaControl,
+    Self: ViscaClient<M>,
+    Exec: crate::executor::Executor,
+{
+    type Mode = M;
+
+    fn gamma(&self) -> M::Fut<'_, Result<crate::types::GammaLevel, Error>> {
+        use crate::command::inquiry_structs::GammaInquiry;
+        self.query(GammaInquiry)
+    }
+}
+
+impl<M, P, Tr, Exec> ImageFlipInquiryControl for crate::camera::Camera<M, P, Tr, Exec>
+where
+    M: Mode,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasImageFlip,
+    Self: ViscaClient<M>,
+    Exec: crate::executor::Executor,
+{
+    type Mode = M;
+
+    fn image_flip(&self) -> M::Fut<'_, Result<crate::command::FlipState, Error>> {
+        use crate::command::inquiry_structs::ImageFlipInquiry;
+        self.query(ImageFlipInquiry)
+    }
+
+    fn flip_mode(&self) -> M::Fut<'_, Result<crate::command::FlipState, Error>> {
+        use crate::command::inquiry_structs::FlipStateInquiry;
+        self.query(FlipStateInquiry)
+    }
+}
+
+impl<M, P, Tr, Exec> NoiseReductionInquiryControl for crate::camera::Camera<M, P, Tr, Exec>
+where
+    M: Mode,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasNoiseReduction,
+    Self: ViscaClient<M>,
+    Exec: crate::executor::Executor,
+{
+    type Mode = M;
+
+    fn noise_reduction_level(
+        &self,
+    ) -> M::Fut<'_, Result<crate::types::NoiseReductionLevel, Error>> {
+        use crate::command::inquiry_structs::NrLevelInquiry;
+        self.query(NrLevelInquiry)
+    }
+
+    fn noise_reduction_mode(
+        &self,
+    ) -> M::Fut<'_, Result<crate::command::NoiseReductionMode, Error>> {
+        use crate::command::inquiry_structs::NrModeInquiry;
+        self.query(NrModeInquiry)
+    }
+}
+
+impl<M, P, Tr, Exec> NoiseReduction2DInquiryControl for crate::camera::Camera<M, P, Tr, Exec>
+where
+    M: Mode,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasNoiseReduction2D,
+    Self: ViscaClient<M>,
+    Exec: crate::executor::Executor,
+{
+    type Mode = M;
+
+    fn noise_reduction_2d(&self) -> M::Fut<'_, Result<crate::types::NoiseReduction2DLevel, Error>> {
+        use crate::command::inquiry_structs::NoiseReduction2DInquiry;
+        self.query(NoiseReduction2DInquiry)
+    }
+}
+
+impl<M, P, Tr, Exec> NoiseReduction3DInquiryControl for crate::camera::Camera<M, P, Tr, Exec>
+where
+    M: Mode,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasNoiseReduction3D,
+    Self: ViscaClient<M>,
+    Exec: crate::executor::Executor,
+{
+    type Mode = M;
+
+    fn noise_reduction_3d(&self) -> M::Fut<'_, Result<crate::types::NoiseReduction3DLevel, Error>> {
+        use crate::command::inquiry_structs::NoiseReduction3DInquiry;
+        self.query(NoiseReduction3DInquiry)
+    }
+}
+
+impl<M, P, Tr, Exec> PictureEffectInquiryControl for crate::camera::Camera<M, P, Tr, Exec>
+where
+    M: Mode,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasPictureEffect,
+    Self: ViscaClient<M>,
+    Exec: crate::executor::Executor,
+{
+    type Mode = M;
+
+    fn black_white(&self) -> M::Fut<'_, Result<bool, Error>> {
+        use crate::command::inquiry_structs::BlackWhiteInquiry;
+        self.query(BlackWhiteInquiry)
+    }
+
+    fn black_white_mode(&self) -> M::Fut<'_, Result<crate::command::BlackWhiteMode, Error>> {
+        use crate::command::inquiry_structs::BlackWhiteModeInquiry;
+        self.query(BlackWhiteModeInquiry)
+    }
+
+    fn picture_effect(&self) -> M::Fut<'_, Result<crate::command::PictureEffectMode, Error>> {
+        use crate::command::inquiry_structs::PictureEffectInquiry;
+        self.query(PictureEffectInquiry)
     }
 }
 
@@ -1087,6 +1180,11 @@ where
     Exec: crate::executor::Executor,
 {
     type Mode = M;
+
+    fn iris_control(&self) -> M::Fut<'_, Result<bool, Error>> {
+        use crate::command::inquiry_structs::IrisControlInquiry;
+        self.query(IrisControlInquiry)
+    }
 
     fn iris(&self) -> M::Fut<'_, Result<crate::types::IrisLevel, Error>> {
         use crate::command::inquiry_structs::IrisInquiry;
