@@ -530,6 +530,39 @@ mod tests {
         assert_eq!(encoded.as_slice()[3], 42);
     }
 
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn encoded_command_keeps_derived_inquiries_inline() {
+        use crate::command::bytes::VISCA_TERMINATOR;
+        use crate::command::inquiry_structs::{PowerInquiry, TallyGreenInquiry};
+
+        let power = EncodedCommand::new(&PowerInquiry, CameraId::CAMERA_1).unwrap();
+        assert!(
+            !power.payload.spilled(),
+            "PowerInquiry should fit in EncodedCommand inline storage"
+        );
+        assert_eq!(
+            power.as_slice(),
+            &[0x81, 0x09, 0x04, 0x00, VISCA_TERMINATOR]
+        );
+        assert_eq!(power.kind, CommandKind::Inquiry);
+        assert_eq!(power.category, CommandCategory::Quick);
+        assert_eq!(power.response_type, Some(InquiryKind::Power));
+
+        let tally = EncodedCommand::new(&TallyGreenInquiry, CameraId::CAMERA_1).unwrap();
+        assert!(
+            !tally.payload.spilled(),
+            "TallyGreenInquiry should fit in EncodedCommand inline storage"
+        );
+        assert_eq!(
+            tally.as_slice(),
+            &[0x81, 0x09, 0x7E, 0x04, 0x1A, 0x00, VISCA_TERMINATOR]
+        );
+        assert_eq!(tally.kind, CommandKind::Inquiry);
+        assert_eq!(tally.category, CommandCategory::Quick);
+        assert_eq!(tally.response_type, Some(InquiryKind::TallyGreen));
+    }
+
     /// A command that wraps a vector (heap-allocated, non-Copy).
     ///
     /// This test type verifies that commands with heap-allocated data

@@ -41,7 +41,7 @@ pub(crate) mod encode;
 
 // Re-export command types
 pub use self::{
-    bytes::FixedCommandBytes,
+    bytes::{FixedCommandBytes, VISCA_TERMINATOR},
     color::*,
     encode::{CommandKind, ViscaCommand},
     exposure::*,

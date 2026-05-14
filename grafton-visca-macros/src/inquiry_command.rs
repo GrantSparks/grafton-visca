@@ -24,7 +24,7 @@ pub fn derive_visca_inquiry_impl(input: DeriveInput) -> TokenStream {
 
             // Determine crate path once for consistency
             let is_internal_crate =
-                std::env::var("CARGO_PKG_NAME").unwrap_or_default() == "grafton-visca";
+                std::env::var("CARGO_CRATE_NAME").unwrap_or_default() == "grafton_visca";
             let crate_path = if is_internal_crate {
                 quote! { crate }
             } else {
@@ -40,7 +40,7 @@ pub fn derive_visca_inquiry_impl(input: DeriveInput) -> TokenStream {
             // canonical byte constants so unusual extended inquiries stay exact.
             // Downstream derives cannot access those private constants, so they
             // generate standard VISCA inquiry bytes directly from opcode/subcode.
-            let (max_size_expr, bytes_expr) = if is_internal_crate {
+            let (max_size_expr, write_into_body) = if is_internal_crate {
                 let constant_name = attrs
                         .constant
                         .as_ref()
@@ -49,24 +49,36 @@ pub fn derive_visca_inquiry_impl(input: DeriveInput) -> TokenStream {
                 (
                     quote! { #crate_path::command::bytes::constants::inquiry::#constant_path.len() },
                     quote! {
-                        {
-                            let mut bytes = #crate_path::command::bytes::constants::inquiry::#constant_path.to_vec();
-                            bytes[0] = camera_id.to_address_byte();
-                            bytes
+                        let bytes = #crate_path::command::bytes::constants::inquiry::#constant_path;
+                        let len = bytes.len();
+                        if buffer.len() < len {
+                            return Err(#crate_path::Error::BufferTooSmall {
+                                required: len,
+                                actual: buffer.len(),
+                            });
                         }
+                        buffer[..len].copy_from_slice(bytes);
+                        buffer[0] = camera_id.to_address_byte();
+                        Ok(len)
                     },
                 )
             } else {
                 (
                     quote! { 5 },
                     quote! {
-                        vec![
-                            camera_id.to_address_byte(),
-                            0x09,
-                            #subcategory,
-                            #byte_value,
-                            0xFF,
-                        ]
+                        const LEN: usize = 5;
+                        if buffer.len() < LEN {
+                            return Err(#crate_path::Error::BufferTooSmall {
+                                required: LEN,
+                                actual: buffer.len(),
+                            });
+                        }
+                        buffer[0] = camera_id.to_address_byte();
+                        buffer[1] = 0x09;
+                        buffer[2] = #subcategory;
+                        buffer[3] = #byte_value;
+                        buffer[4] = #crate_path::command::VISCA_TERMINATOR;
+                        Ok(LEN)
                     },
                 )
             };
@@ -99,16 +111,7 @@ pub fn derive_visca_inquiry_impl(input: DeriveInput) -> TokenStream {
                     const TIMEOUT_CATEGORY: #crate_path::timeout::CommandCategory = #crate_path::timeout::CommandCategory::Quick;
 
                     fn write_into(&self, camera_id: #crate_path::CameraId, buffer: &mut [u8]) -> Result<usize, #crate_path::Error> {
-                        let bytes = #bytes_expr;
-                        let len = bytes.len();
-                        if buffer.len() < len {
-                            return Err(#crate_path::Error::BufferTooSmall {
-                                required: len,
-                                actual: buffer.len(),
-                            });
-                        }
-                        buffer[..len].copy_from_slice(&bytes);
-                        Ok(len)
+                        #write_into_body
                     }
 
                     fn response_kind(&self) -> Option<#crate_path::command::InquiryKind> {
@@ -590,5 +593,37 @@ fn parse_type_path(type_str: &str, crate_path: &TokenStream) -> TokenStream {
                 .collect();
             quote! { #crate_path::#(#parts)::* }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn downstream_inquiry_encoding_uses_stack_buffer_and_public_terminator() {
+        let input: DeriveInput = syn::parse_quote! {
+            #[visca(opcode = 0x47, response = "ZoomPosition")]
+            struct CustomZoomInquiry;
+        };
+
+        let tokens = derive_visca_inquiry_impl(input).to_string();
+
+        assert!(
+            !tokens.contains("vec !"),
+            "generated inquiry encoder must not allocate with vec!: {tokens}"
+        );
+        assert!(
+            !tokens.contains("to_vec"),
+            "generated inquiry encoder must not allocate with to_vec(): {tokens}"
+        );
+        assert!(
+            !tokens.contains("0xFF"),
+            "generated downstream inquiry encoder must use VISCA_TERMINATOR: {tokens}"
+        );
+        assert!(
+            tokens.contains("command :: VISCA_TERMINATOR"),
+            "generated downstream inquiry encoder must use the public terminator path: {tokens}"
+        );
     }
 }

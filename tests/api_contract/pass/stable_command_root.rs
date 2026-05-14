@@ -2,6 +2,7 @@ use grafton_visca::{
     command::{
         BoolConvention, CommandKind, FixedCommandBytes, InquiryKind, Nibbles, PanTiltDirection,
         Payload, PresetNumber, Response, ResponseParser, ViscaCommand, Zoom, ZoomPositionInquiry,
+        VISCA_TERMINATOR,
     },
     CameraId, Error,
 };
@@ -17,6 +18,7 @@ fn main() {
     let _ = Payload::new(&[0x02]);
     let _ = InquiryKind::Power;
     let _ = CommandKind::Command;
+    let _ = VISCA_TERMINATOR;
 
     struct CustomCommand;
 
@@ -26,7 +28,14 @@ fn main() {
         const MAX_SIZE: usize = 6;
 
         fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
-            let bytes = [camera_id.to_address_byte(), 0x01, 0x04, 0x00, 0x02, 0xFF];
+            let bytes = [
+                camera_id.to_address_byte(),
+                0x01,
+                0x04,
+                0x00,
+                0x02,
+                VISCA_TERMINATOR,
+            ];
             buffer[..bytes.len()].copy_from_slice(&bytes);
             Ok(bytes.len())
         }

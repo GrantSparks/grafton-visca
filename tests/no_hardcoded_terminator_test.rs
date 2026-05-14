@@ -109,8 +109,10 @@ fn check_directory_recursively(dir: &Path) -> Vec<(String, Vec<(usize, String)>)
 fn test_no_hardcoded_terminators_in_source() {
     let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let src_dir = workspace_root.join("src");
+    let macro_src_dir = workspace_root.join("grafton-visca-macros").join("src");
 
-    let violations = check_directory_recursively(&src_dir);
+    let mut violations = check_directory_recursively(&src_dir);
+    violations.extend(check_directory_recursively(&macro_src_dir));
 
     if !violations.is_empty() {
         let mut error_message = String::from(
@@ -127,7 +129,7 @@ fn test_no_hardcoded_terminators_in_source() {
 
         error_message.push_str(
             "Please replace hardcoded 0xFF with VISCA_TERMINATOR constant.\n\
-             Add 'use crate::command::bytes::VISCA_TERMINATOR;' if needed.\n",
+             Add the appropriate VISCA_TERMINATOR import or public command path if needed.\n",
         );
 
         panic!("{}", error_message);

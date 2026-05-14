@@ -915,10 +915,347 @@ pub struct ContrastInquiry;
 pub struct LuminanceInquiry;
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;
-    use crate::command::bytes::constants;
+    use crate::command::{bytes::constants, InquiryKind, ViscaCommand};
     use crate::macros::test_utils::visca_test;
+    use crate::timeout::CommandCategory;
+    use crate::{CameraId, Error};
+
+    fn assert_inquiry_matches_constant<C>(
+        cmd: C,
+        expected: &[u8],
+        expected_kind: InquiryKind,
+        camera_id: CameraId,
+        name: &str,
+    ) where
+        C: ViscaCommand,
+    {
+        let mut buffer = [0u8; 32];
+        let len = cmd
+            .write_into(camera_id, &mut buffer)
+            .expect("inquiry should encode");
+
+        let mut expected_for_camera = [0u8; 32];
+        expected_for_camera[..expected.len()].copy_from_slice(expected);
+        expected_for_camera[0] = camera_id.to_address_byte();
+
+        assert_eq!(
+            C::MAX_SIZE,
+            expected.len(),
+            "{name} MAX_SIZE must be the exact canonical byte length"
+        );
+        assert_eq!(
+            len,
+            expected.len(),
+            "{name} must report the exact encoded length"
+        );
+        assert_eq!(
+            &buffer[..len],
+            &expected_for_camera[..expected.len()],
+            "{name} must match canonical inquiry bytes for camera {camera_id}"
+        );
+        assert_eq!(
+            cmd.response_kind(),
+            Some(expected_kind),
+            "{name} response kind changed"
+        );
+        assert_eq!(
+            C::TIMEOUT_CATEGORY,
+            CommandCategory::Quick,
+            "{name} timeout category changed"
+        );
+    }
+
+    macro_rules! assert_all_inquiry_constants {
+        ($(($cmd:ident, $constant:expr, $kind:ident)),+ $(,)?) => {
+            #[test]
+            fn all_internal_inquiries_match_canonical_constants_for_all_camera_ids() {
+                for camera_num in 1..=8 {
+                    let camera_id = CameraId::new(camera_num).expect("valid camera id");
+                    $(
+                        assert_inquiry_matches_constant(
+                            $cmd,
+                            $constant,
+                            InquiryKind::$kind,
+                            camera_id,
+                            stringify!($cmd),
+                        );
+                    )+
+                }
+            }
+        };
+    }
+
+    assert_all_inquiry_constants!(
+        (PowerInquiry, constants::inquiry::POWER, Power),
+        (VersionInquiry, constants::inquiry::VERSION, Version),
+        (
+            PanTiltPositionInquiry,
+            constants::inquiry::PAN_TILT_POSITION,
+            PanTiltPosition
+        ),
+        (
+            ZoomPositionInquiry,
+            constants::inquiry::ZOOM_POSITION,
+            ZoomPosition
+        ),
+        (
+            FocusPositionInquiry,
+            constants::inquiry::FOCUS_POSITION,
+            FocusPosition
+        ),
+        (
+            ExposureModeInquiry,
+            constants::inquiry::EXPOSURE_MODE,
+            ExposureMode
+        ),
+        (
+            ExposureCompensationInquiry,
+            constants::inquiry::EXPOSURE_COMPENSATION,
+            ExposureCompensation
+        ),
+        (
+            ExposureCompensationModeInquiry,
+            constants::inquiry::EXPOSURE_COMPENSATION_MODE,
+            ExposureCompensationMode
+        ),
+        (IrisInquiry, constants::inquiry::IRIS, Iris),
+        (ShutterInquiry, constants::inquiry::SHUTTER, Shutter),
+        (BrightnessInquiry, constants::inquiry::BRIGHT, Brightness),
+        (
+            WhiteBalanceModeInquiry,
+            constants::inquiry::WHITE_BALANCE_MODE,
+            WhiteBalanceMode
+        ),
+        (
+            ColorTemperatureInquiry,
+            constants::inquiry::COLOR_TEMPERATURE,
+            ColorTemperature
+        ),
+        (RedGainInquiry, constants::inquiry::RED_GAIN, RedChannel),
+        (BlueGainInquiry, constants::inquiry::BLUE_GAIN, BlueChannel),
+        (
+            SharpnessModeInquiry,
+            constants::inquiry::SHARPNESS_MODE,
+            SharpnessMode
+        ),
+        (
+            SaturationInquiry,
+            constants::inquiry::SATURATION,
+            Saturation
+        ),
+        (HueInquiry, constants::inquiry::HUE, Hue),
+        (GainInquiry, constants::inquiry::GAIN, Gain),
+        (GainLimitInquiry, constants::inquiry::GAIN_LIMIT, GainLimit),
+        (BacklightInquiry, constants::inquiry::BACKLIGHT, Backlight),
+        (ImageFlipInquiry, constants::inquiry::IMAGE_FLIP, FlipState),
+        (
+            BlackWhiteInquiry,
+            constants::inquiry::BLACK_WHITE,
+            BlackWhite
+        ),
+        (
+            NoiseReduction2DInquiry,
+            constants::inquiry::NOISE_REDUCTION_2D,
+            NoiseReduction2D
+        ),
+        (
+            NoiseReduction3DInquiry,
+            constants::inquiry::NOISE_REDUCTION_3D,
+            NoiseReduction3D
+        ),
+        (
+            DynamicRangeInquiry,
+            constants::inquiry::DYNAMIC_RANGE,
+            DynamicRange
+        ),
+        (FocusZoneInquiry, constants::inquiry::FOCUS_ZONE, FocusZone),
+        (
+            AutoFocusSensitivityInquiry,
+            constants::inquiry::AUTO_FOCUS_SENSITIVITY,
+            AutoFocusSensitivity
+        ),
+        (
+            FocusNearLimitInquiry,
+            constants::inquiry::FOCUS_NEAR_LIMIT,
+            FocusNearLimit
+        ),
+        (FocusModeInquiry, constants::inquiry::FOCUS_MODE, FocusMode),
+        (
+            MenuOpenCloseInquiry,
+            constants::inquiry::MENU_OPEN_CLOSE,
+            MenuOpenClose
+        ),
+        (
+            TallyStatusInquiry,
+            constants::inquiry::TALLY_STATUS,
+            TallyStatus
+        ),
+        (
+            ResolutionInquiry,
+            constants::inquiry::RESOLUTION,
+            Resolution
+        ),
+        (
+            NightDayModeInquiry,
+            constants::inquiry::NIGHT_DAY_MODE,
+            NightDayMode
+        ),
+        (NdFilterInquiry, constants::inquiry::ND_FILTER, NdFilter),
+        (
+            PictureEffectInquiry,
+            constants::inquiry::PICTURE_EFFECT,
+            PictureEffect
+        ),
+        (FlipStateInquiry, constants::inquiry::FLIP_MODE, FlipState),
+        (StandbyInquiry, constants::inquiry::STANDBY, Standby),
+        (
+            FocusRangeInquiry,
+            constants::inquiry::FOCUS_RANGE,
+            FocusRange
+        ),
+        (
+            IrisControlInquiry,
+            constants::inquiry::IRIS_CONTROL,
+            IrisControl
+        ),
+        (DefogModeInquiry, constants::inquiry::DEFOG_MODE, DefogMode),
+        (
+            DefogLevelInquiry,
+            constants::inquiry::DEFOG_LEVEL,
+            DefogLevel
+        ),
+        (
+            DigitalPtzInquiry,
+            constants::inquiry::DIGITAL_PTZ,
+            DigitalPtz
+        ),
+        (
+            AutoWhiteBalanceSensitivityInquiry,
+            constants::inquiry::AUTO_WB_SENSITIVITY,
+            AutoWhiteBalanceSensitivity
+        ),
+        (
+            ExposureCompensationPositionInquiry,
+            constants::inquiry::EXPOSURE_COMPENSATION_POSITION,
+            ExposureCompensationPosition
+        ),
+        (RedTuningInquiry, constants::inquiry::RED_TUNING, RedTuning),
+        (
+            BlueTuningInquiry,
+            constants::inquiry::BLUE_TUNING,
+            BlueTuning
+        ),
+        (GammaInquiry, constants::inquiry::GAMMA, Gamma),
+        (AutoTraceInquiry, constants::inquiry::AUTO_TRACE, AutoTrace),
+        (
+            FocusUnlockInquiry,
+            constants::inquiry::FOCUS_UNLOCK,
+            FocusUnlock
+        ),
+        (
+            SharpnessPositionInquiry,
+            constants::inquiry::SHARPNESS_POSITION,
+            SharpnessPosition
+        ),
+        (
+            NrLevelInquiry,
+            constants::inquiry::NR_LEVEL,
+            NoiseReductionLevel
+        ),
+        (
+            BroadcastDomainInquiry,
+            constants::inquiry::BROADCAST_DOMAIN,
+            BroadcastDomain
+        ),
+        (
+            MotionSyncModeInquiry,
+            constants::inquiry::MOTION_SYNC_MODE,
+            MotionSyncMode
+        ),
+        (
+            MotionSyncPresetInquiry,
+            constants::inquiry::MOTION_SYNC_SPEED,
+            MotionSyncPreset
+        ),
+        (
+            NrModeInquiry,
+            constants::inquiry::NR_MODE,
+            NoiseReductionMode
+        ),
+        (
+            NrSpeedInquiry,
+            constants::inquiry::NR_SPEED,
+            NoiseReductionSpeed
+        ),
+        (
+            BlackWhiteModeInquiry,
+            constants::inquiry::BLACK_WHITE_MODE,
+            BlackWhiteMode
+        ),
+        (UsbAudioInquiry, constants::inquiry::USB_AUDIO, UsbAudio),
+        (
+            TwoToneModeInquiry,
+            constants::inquiry::TWO_TONE_MODE,
+            TwoToneMode
+        ),
+        (
+            NdFilterPresetInquiry,
+            constants::inquiry::ND_FILTER_PRESET,
+            NdFilterPreset
+        ),
+        (DigitalInquiry, constants::inquiry::DIGITAL, Digital),
+        (
+            TallyAutoAdjustInquiry,
+            constants::inquiry::TALLY_AUTO_ADJUST,
+            TallyAutoAdjust
+        ),
+        (TallyRedInquiry, constants::inquiry::TALLY_RED, TallyRed),
+        (
+            TallyGreenInquiry,
+            constants::inquiry::TALLY_GREEN,
+            TallyGreen
+        ),
+        (
+            FlickerModeInquiry,
+            constants::inquiry::FLICKER_MODE,
+            FlickerMode
+        ),
+        (ContrastInquiry, constants::inquiry::CONTRAST, Contrast),
+        (
+            LuminanceInquiry,
+            constants::inquiry::LUMINANCE_LEVEL,
+            Luminance
+        ),
+    );
+
+    fn assert_buffer_too_small_is_exact<C>(cmd: C, required: usize)
+    where
+        C: ViscaCommand,
+    {
+        let mut buffer = [0u8; 32];
+        let actual = required - 1;
+        let result = cmd.write_into(CameraId::CAMERA_1, &mut buffer[..actual]);
+
+        assert!(
+            matches!(
+                result,
+                Err(Error::BufferTooSmall {
+                    required: reported_required,
+                    actual: reported_actual,
+                }) if reported_required == required && reported_actual == actual
+            ),
+            "buffer-too-small error should report required={required}, actual={actual}; got {result:?}"
+        );
+    }
+
+    #[test]
+    fn internal_inquiry_buffer_too_small_errors_are_exact() {
+        assert_buffer_too_small_is_exact(PowerInquiry, constants::inquiry::POWER.len());
+        assert_buffer_too_small_is_exact(TallyRedInquiry, constants::inquiry::TALLY_RED.len());
+    }
 
     visca_test!(
         ZoomPositionInquiry,

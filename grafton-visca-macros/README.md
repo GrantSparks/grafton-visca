@@ -17,32 +17,42 @@ This crate provides four macros that work together to create type-safe, efficien
 
 ## ViscaInquiry
 
-Generates complete `Command` trait implementations for inquiry commands, including response parsing.
+Generates complete `ViscaCommand` implementations for inquiry commands, including exact-size,
+zero-allocation `write_into` encoding and optional response parsing.
 
 ### Basic Usage
 
 ```rust
-use grafton_visca_macros::ViscaInquiry;
+use grafton_visca::{command::ViscaCommand, CameraId, ViscaInquiry};
 
 #[derive(ViscaInquiry, Debug, Copy, Clone)]
-#[visca(command = 0x00, response = "Power", inquiry_variant = "Power", parser = "bool")]
+#[visca(opcode = 0x00, response = "Power", parser = "bool")]
 pub struct PowerInquiry;
 
 // For commands with subcategories:
 #[derive(ViscaInquiry, Debug, Copy, Clone)]
-#[visca(command = 0x12, sub_command = 0x06, response = "PanTiltPosition", inquiry_variant = "PanTiltPosition", parser = "pan_tilt")]
+#[visca(opcode = 0x12, subcode = 0x06, response = "PanTiltPosition", parser = "pan_tilt")]
 pub struct PanTiltPositionInquiry;
+
+let mut buffer = [0u8; PowerInquiry::MAX_SIZE];
+let len = PowerInquiry
+    .write_into(CameraId::CAMERA_1, &mut buffer)
+    .expect("inquiry should encode");
+assert_eq!(
+    &buffer[..len],
+    &[0x81, 0x09, 0x04, 0x00, grafton_visca::command::VISCA_TERMINATOR]
+);
 ```
 
 ### Generated Code
 
 The macro generates:
-- `Command` trait implementation
-- `to_bytes()` method returning VISCA command bytes
-- `response_kind()` method returning expected `ResponseType`
-- `command_category()` method returning the category
+- `ViscaCommand` trait implementation
+- exact `MAX_SIZE`
+- `write_into()` for caller-provided buffers
+- `response_kind()` returning the expected `InquiryKind`
 - `parse_response()` method when parser is specified
-- `From` conversion to the `InquiryCommand` enum
+- `ResponseParser` implementation when typed response attributes are specified
 
 ### Parser Types
 
@@ -50,10 +60,11 @@ The macro generates:
 - `"byte"` - Direct byte value
 - `"position"` - 4-nibble position value (converts to u16)
 - `"nibble"` - Extended nibble encoding
-- `"offset"` - Byte value with offset subtraction
 - `"flags"` - Bit flags (for image flip)
 - `"mode"` - Enum value parsing
 - `"pan_tilt"` - Special parser for pan/tilt positions
+- `"last_nibble"` - Last nibble from a nibble-encoded payload
+- `"bool_convention"` - Boolean parsing with an explicit convention
 
 ## ViscaEnum
 
@@ -177,7 +188,7 @@ pub enum ExposureMode {
 }
 
 #[derive(ViscaInquiry, Debug, Copy, Clone)]
-#[visca(command = 0x39, response = "ExposureMode", inquiry_variant = "ExposureMode", parser = "mode")]
+#[visca(opcode = 0x39, response = "ExposureMode", parser = "mode", value_type = "ExposureMode")]
 pub struct ExposureModeInquiry;
 ```
 
@@ -205,8 +216,8 @@ impl ZoomPosition {
 ## Requirements
 
 - Rust 1.80 or later
-- The `response` attribute in `ViscaInquiry` must reference existing `ResponseType` variants
-- The `inquiry_variant` attribute must reference existing `InquiryCommand` enum variants
+- The `response` attribute in `ViscaInquiry` must reference existing `InquiryKind` variants
+- Downstream `ViscaInquiry` derives use the standard five-byte VISCA inquiry form
 - Enums using `ViscaEnum` must have explicit discriminant values
 - All discriminant values must be unique and valid u8 values (0-255)
 
