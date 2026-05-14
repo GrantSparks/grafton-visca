@@ -12,7 +12,7 @@
 
 use crate::{
     camera::ViscaClient,
-    command::{PanTiltDirection, PanTiltLimitCorner},
+    command::{pan_tilt::PanTilt as PanTiltCommand, PanTiltDirection, PanTiltLimitCorner},
     mode::Mode,
     types::{PanPosition, PanSpeed, SpeedLevel, TiltPosition, TiltSpeed},
     units::Degrees,
@@ -160,6 +160,69 @@ pub trait PanTiltControl {
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 }
 
+fn pan_tilt_position_parts<P>(
+    pan: impl Into<Degrees>,
+    tilt: impl Into<Degrees>,
+    speed: SpeedLevel,
+) -> Result<(u16, u16, PanSpeed, TiltSpeed), Error>
+where
+    P: crate::capabilities::PanTilt,
+{
+    let pan_deg = pan.into();
+    let tilt_deg = tilt.into();
+
+    let pan_pos = PanPosition::from_degrees(pan_deg.0)?;
+    let tilt_pos = TiltPosition::from_degrees(tilt_deg.0)?;
+
+    let (pan_u16, tilt_u16) =
+        P::COORDINATE_SYSTEM.to_camera_coords(pan_pos.value(), tilt_pos.value());
+
+    Ok((
+        pan_u16,
+        tilt_u16,
+        PanSpeed::from(speed),
+        TiltSpeed::from(speed),
+    ))
+}
+
+fn pan_tilt_absolute_command<P>(
+    pan: impl Into<Degrees>,
+    tilt: impl Into<Degrees>,
+    speed: SpeedLevel,
+) -> Result<PanTiltCommand, Error>
+where
+    P: crate::capabilities::PanTilt,
+{
+    let (pan_u16, tilt_u16, pan_speed, tilt_speed) =
+        pan_tilt_position_parts::<P>(pan, tilt, speed)?;
+
+    Ok(PanTiltCommand::AbsolutePositionRaw {
+        pan_u16,
+        tilt_u16,
+        pan_speed,
+        tilt_speed,
+    })
+}
+
+fn pan_tilt_relative_command<P>(
+    pan: impl Into<Degrees>,
+    tilt: impl Into<Degrees>,
+    speed: SpeedLevel,
+) -> Result<PanTiltCommand, Error>
+where
+    P: crate::capabilities::PanTilt,
+{
+    let (pan_u16, tilt_u16, pan_speed, tilt_speed) =
+        pan_tilt_position_parts::<P>(pan, tilt, speed)?;
+
+    Ok(PanTiltCommand::RelativePositionRaw {
+        pan_u16,
+        tilt_u16,
+        pan_speed,
+        tilt_speed,
+    })
+}
+
 // Single unified implementation for all Camera types!
 impl<M, P, Tr, Exec> PanTiltControl for crate::camera::Camera<M, P, Tr, Exec>
 where
@@ -171,8 +234,7 @@ where
     type Mode = M;
 
     fn pan_tilt_stop(&self) -> M::Fut<'_, Result<(), Error>> {
-        use crate::command::pan_tilt::PanTilt;
-        let cmd = PanTilt::Move {
+        let cmd = PanTiltCommand::Move {
             direction: PanTiltDirection::Stop,
             pan_speed: PanSpeed::from(SpeedLevel::Medium),
             tilt_speed: TiltSpeed::from(SpeedLevel::Medium),
@@ -181,8 +243,7 @@ where
     }
 
     fn pan_tilt_home(&self) -> M::Fut<'_, Result<(), Error>> {
-        use crate::command::pan_tilt::PanTilt;
-        self.execute(PanTilt::Home)
+        self.execute(PanTiltCommand::Home)
     }
 
     fn pan_tilt_absolute(
@@ -191,35 +252,10 @@ where
         tilt: impl Into<Degrees>,
         speed: SpeedLevel,
     ) -> M::Fut<'_, Result<(), Error>> {
-        use crate::command::pan_tilt::PanTilt;
-
-        // Convert inputs to Degrees
-        let pan_deg = pan.into();
-        let tilt_deg = tilt.into();
-
-        // Convert Degrees to Position and SpeedLevel to individual speeds
-        let pan_pos = match PanPosition::from_degrees(pan_deg.0) {
-            Ok(pos) => pos,
-            Err(e) => return self.error(e),
-        };
-        let tilt_pos = match TiltPosition::from_degrees(tilt_deg.0) {
-            Ok(pos) => pos,
-            Err(e) => return self.error(e),
-        };
-
-        // Convert logical positions to camera coordinates using profile's coordinate system
-        let (pan_u16, tilt_u16) =
-            P::COORDINATE_SYSTEM.to_camera_coords(pan_pos.value(), tilt_pos.value());
-
-        let pan_speed = PanSpeed::from(speed);
-        let tilt_speed = TiltSpeed::from(speed);
-        let cmd = PanTilt::AbsolutePositionRaw {
-            pan_u16,
-            tilt_u16,
-            pan_speed,
-            tilt_speed,
-        };
-        self.execute(cmd)
+        match pan_tilt_absolute_command::<P>(pan, tilt, speed) {
+            Ok(command) => self.execute(command),
+            Err(e) => self.error(e),
+        }
     }
 
     fn pan_tilt_relative(
@@ -228,36 +264,10 @@ where
         tilt: impl Into<Degrees>,
         speed: SpeedLevel,
     ) -> M::Fut<'_, Result<(), Error>> {
-        use crate::command::pan_tilt::PanTilt;
-
-        // Convert inputs to Degrees
-        let pan_deg = pan.into();
-        let tilt_deg = tilt.into();
-
-        // Convert Degrees to Position and SpeedLevel to individual speeds
-        let pan_pos = match PanPosition::from_degrees(pan_deg.0) {
-            Ok(pos) => pos,
-            Err(e) => return self.error(e),
-        };
-        let tilt_pos = match TiltPosition::from_degrees(tilt_deg.0) {
-            Ok(pos) => pos,
-            Err(e) => return self.error(e),
-        };
-
-        // For relative positioning, we still need to convert to camera coordinates
-        // The relative offset is also subject to the coordinate system
-        let (pan_u16, tilt_u16) =
-            P::COORDINATE_SYSTEM.to_camera_coords(pan_pos.value(), tilt_pos.value());
-
-        let pan_speed = PanSpeed::from(speed);
-        let tilt_speed = TiltSpeed::from(speed);
-        let cmd = PanTilt::RelativePositionRaw {
-            pan_u16,
-            tilt_u16,
-            pan_speed,
-            tilt_speed,
-        };
-        self.execute(cmd)
+        match pan_tilt_relative_command::<P>(pan, tilt, speed) {
+            Ok(command) => self.execute(command),
+            Err(e) => self.error(e),
+        }
     }
 
     fn pan_tilt_move(
@@ -266,8 +276,7 @@ where
         pan_speed: PanSpeed,
         tilt_speed: TiltSpeed,
     ) -> M::Fut<'_, Result<(), Error>> {
-        use crate::command::pan_tilt::PanTilt;
-        let cmd = PanTilt::Move {
+        let cmd = PanTiltCommand::Move {
             direction,
             pan_speed,
             tilt_speed,
@@ -276,8 +285,7 @@ where
     }
 
     fn pan_tilt_reset(&self) -> M::Fut<'_, Result<(), Error>> {
-        use crate::command::pan_tilt::PanTilt;
-        self.execute(PanTilt::Reset)
+        self.execute(PanTiltCommand::Reset)
     }
 
     fn pan_tilt_limit_set(
@@ -286,12 +294,10 @@ where
         pan: PanPosition,
         tilt: TiltPosition,
     ) -> M::Fut<'_, Result<(), Error>> {
-        use crate::command::pan_tilt::PanTilt;
-
         // Convert logical positions to camera coordinates using profile's coordinate system
         let (pan_u16, tilt_u16) = P::COORDINATE_SYSTEM.to_camera_coords(pan.value(), tilt.value());
 
-        let cmd = PanTilt::LimitSetRaw {
+        let cmd = PanTiltCommand::LimitSetRaw {
             corner,
             pan_u16,
             tilt_u16,
@@ -303,8 +309,7 @@ where
     }
 
     fn pan_tilt_limit_clear(&self, corner: PanTiltLimitCorner) -> M::Fut<'_, Result<(), Error>> {
-        use crate::command::pan_tilt::PanTilt;
-        let cmd = PanTilt::LimitClear { corner };
+        let cmd = PanTiltCommand::LimitClear { corner };
         // Update the state cache after successful command
         self.execute_updating_cache(cmd, move |cache| {
             cache.clear_pan_tilt_limit(corner);
@@ -320,6 +325,22 @@ where
     Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
     Exec: crate::executor::Executor + Send + Sync + Clone + 'static,
 {
+    async fn start_pan_tilt_operation(
+        &self,
+        command: PanTiltCommand,
+    ) -> Result<
+        crate::camera::inflight::InFlight<'_, crate::camera::inflight::PanTilt, P, Exec>,
+        Error,
+    > {
+        let (id, response_future) = self.start_command_with_id(&command).await?;
+        Ok(crate::camera::inflight::InFlight::new(
+            id,
+            self.camera_id(),
+            self.runtime(),
+            response_future,
+        ))
+    }
+
     /// Move to an absolute pan/tilt position and return an operation handle.
     pub async fn pan_tilt_absolute_op(
         &self,
@@ -330,39 +351,8 @@ where
         crate::camera::inflight::InFlight<'_, crate::camera::inflight::PanTilt, P, Exec>,
         Error,
     > {
-        use crate::command::pan_tilt::PanTilt;
-
-        // Convert inputs to Degrees
-        let pan_deg = pan.into();
-        let tilt_deg = tilt.into();
-
-        // Convert Degrees to Position and SpeedLevel to individual speeds
-        let pan_pos = PanPosition::from_degrees(pan_deg.0)?;
-        let tilt_pos = TiltPosition::from_degrees(tilt_deg.0)?;
-
-        // Convert logical positions to camera coordinates using profile's coordinate system
-        let (pan_u16, tilt_u16) =
-            P::COORDINATE_SYSTEM.to_camera_coords(pan_pos.value(), tilt_pos.value());
-
-        let pan_speed = PanSpeed::from(speed);
-        let tilt_speed = TiltSpeed::from(speed);
-        let cmd = PanTilt::AbsolutePositionRaw {
-            pan_u16,
-            tilt_u16,
-            pan_speed,
-            tilt_speed,
-        };
-
-        // Use start_command_with_id to get the response future without awaiting it
-        let (id, response_future) = self.start_command_with_id(&cmd).await?;
-
-        // Return InFlight handle with the response future
-        Ok(crate::camera::inflight::InFlight::new(
-            id,
-            self.camera_id(),
-            self.runtime(),
-            response_future,
-        ))
+        self.start_pan_tilt_operation(pan_tilt_absolute_command::<P>(pan, tilt, speed)?)
+            .await
     }
 
     /// Move relative to the current position and return an operation handle.
@@ -375,40 +365,8 @@ where
         crate::camera::inflight::InFlight<'_, crate::camera::inflight::PanTilt, P, Exec>,
         Error,
     > {
-        use crate::command::pan_tilt::PanTilt;
-
-        // Convert inputs to Degrees
-        let pan_deg = pan.into();
-        let tilt_deg = tilt.into();
-
-        // Convert Degrees to Position and SpeedLevel to individual speeds
-        let pan_pos = PanPosition::from_degrees(pan_deg.0)?;
-        let tilt_pos = TiltPosition::from_degrees(tilt_deg.0)?;
-
-        // For relative positioning, we still need to convert to camera coordinates
-        // The relative offset is also subject to the coordinate system
-        let (pan_u16, tilt_u16) =
-            P::COORDINATE_SYSTEM.to_camera_coords(pan_pos.value(), tilt_pos.value());
-
-        let pan_speed = PanSpeed::from(speed);
-        let tilt_speed = TiltSpeed::from(speed);
-        let cmd = PanTilt::RelativePositionRaw {
-            pan_u16,
-            tilt_u16,
-            pan_speed,
-            tilt_speed,
-        };
-
-        // Use start_command_with_id to get the response future without awaiting it
-        let (id, response_future) = self.start_command_with_id(&cmd).await?;
-
-        // Return InFlight handle with the response future
-        Ok(crate::camera::inflight::InFlight::new(
-            id,
-            self.camera_id(),
-            self.runtime(),
-            response_future,
-        ))
+        self.start_pan_tilt_operation(pan_tilt_relative_command::<P>(pan, tilt, speed)?)
+            .await
     }
 
     /// Move to the home position and return an operation handle.
@@ -434,18 +392,7 @@ where
         crate::camera::inflight::InFlight<'_, crate::camera::inflight::PanTilt, P, Exec>,
         Error,
     > {
-        use crate::command::pan_tilt::PanTilt;
-
-        // Use start_command_with_id to get the response future without awaiting it
-        let (id, response_future) = self.start_command_with_id(&PanTilt::Home).await?;
-
-        // Return InFlight handle with the response future
-        Ok(crate::camera::inflight::InFlight::new(
-            id,
-            self.camera_id(),
-            self.runtime(),
-            response_future,
-        ))
+        self.start_pan_tilt_operation(PanTiltCommand::Home).await
     }
 
     /// Reset pan/tilt mechanism and return an operation handle.
@@ -471,17 +418,6 @@ where
         crate::camera::inflight::InFlight<'_, crate::camera::inflight::PanTilt, P, Exec>,
         Error,
     > {
-        use crate::command::pan_tilt::PanTilt;
-
-        // Use start_command_with_id to get the response future without awaiting it
-        let (id, response_future) = self.start_command_with_id(&PanTilt::Reset).await?;
-
-        // Return InFlight handle with the response future
-        Ok(crate::camera::inflight::InFlight::new(
-            id,
-            self.camera_id(),
-            self.runtime(),
-            response_future,
-        ))
+        self.start_pan_tilt_operation(PanTiltCommand::Reset).await
     }
 }

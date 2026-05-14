@@ -155,6 +155,17 @@ fn validate_preset<P: Presets>(preset: PresetNumber) -> Result<(), Error> {
     Ok(())
 }
 
+fn preset_command<P: Presets>(
+    action: PresetAction,
+    preset: PresetNumber,
+) -> Result<PresetCommand, Error> {
+    validate_preset::<P>(preset)?;
+    Ok(PresetCommand {
+        action,
+        preset_number: preset,
+    })
+}
+
 // Single unified implementation for all Camera types!
 impl<M, P, Tr, Exec> PresetsControl for crate::camera::Camera<M, P, Tr, Exec>
 where
@@ -166,36 +177,24 @@ where
     type Mode = M;
 
     fn preset_recall(&self, preset: PresetNumber) -> M::Fut<'_, Result<(), Error>> {
-        if let Err(e) = validate_preset::<P>(preset) {
-            return self.error(e);
+        match preset_command::<P>(PresetAction::Recall, preset) {
+            Ok(command) => self.execute(command),
+            Err(e) => self.error(e),
         }
-        let cmd = PresetCommand {
-            action: PresetAction::Recall,
-            preset_number: preset,
-        };
-        self.execute(cmd)
     }
 
     fn preset_set(&self, preset: PresetNumber) -> M::Fut<'_, Result<(), Error>> {
-        if let Err(e) = validate_preset::<P>(preset) {
-            return self.error(e);
+        match preset_command::<P>(PresetAction::Set, preset) {
+            Ok(command) => self.execute(command),
+            Err(e) => self.error(e),
         }
-        let cmd = PresetCommand {
-            action: PresetAction::Set,
-            preset_number: preset,
-        };
-        self.execute(cmd)
     }
 
     fn preset_reset(&self, preset: PresetNumber) -> M::Fut<'_, Result<(), Error>> {
-        if let Err(e) = validate_preset::<P>(preset) {
-            return self.error(e);
+        match preset_command::<P>(PresetAction::Reset, preset) {
+            Ok(command) => self.execute(command),
+            Err(e) => self.error(e),
         }
-        let cmd = PresetCommand {
-            action: PresetAction::Reset,
-            preset_number: preset,
-        };
-        self.execute(cmd)
     }
 
     fn set_preset_recall_speed(
@@ -223,13 +222,7 @@ where
         crate::camera::inflight::InFlight<'_, crate::camera::inflight::Preset, P, Exec>,
         Error,
     > {
-        // Validate preset number against camera's MAX_PRESETS
-        validate_preset::<P>(preset)?;
-
-        let cmd = PresetCommand {
-            action: PresetAction::Recall,
-            preset_number: preset,
-        };
+        let cmd = preset_command::<P>(PresetAction::Recall, preset)?;
 
         // Use start_command_with_id to get the response future without awaiting it
         let (id, response_future) = self.start_command_with_id(&cmd).await?;
