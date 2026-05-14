@@ -1,9 +1,9 @@
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
-use std::alloc::{GlobalAlloc, Layout, System};
-use std::sync::{
-    atomic::{AtomicBool, AtomicUsize, Ordering},
-    Mutex,
+use std::{
+    alloc::{GlobalAlloc, Layout, System},
+    cell::Cell,
+    sync::Mutex,
 };
 
 use grafton_visca::{
@@ -15,17 +15,22 @@ use grafton_visca::{
 
 struct CountingAllocator;
 
-static COUNTING_ALLOCATIONS: AtomicBool = AtomicBool::new(false);
-static ALLOCATION_COUNT: AtomicUsize = AtomicUsize::new(0);
 static ALLOCATION_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+thread_local! {
+    static COUNTING_ALLOCATIONS: Cell<bool> = const { Cell::new(false) };
+    static ALLOCATION_COUNT: Cell<usize> = const { Cell::new(0) };
+}
 
 #[global_allocator]
 static GLOBAL: CountingAllocator = CountingAllocator;
 
 unsafe impl GlobalAlloc for CountingAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        if COUNTING_ALLOCATIONS.load(Ordering::Relaxed) {
-            ALLOCATION_COUNT.fetch_add(1, Ordering::Relaxed);
+        if COUNTING_ALLOCATIONS.try_with(Cell::get).unwrap_or(false) {
+            let _ = ALLOCATION_COUNT.try_with(|count| {
+                count.set(count.get().saturating_add(1));
+            });
         }
         unsafe { System.alloc(layout) }
     }
@@ -35,13 +40,25 @@ unsafe impl GlobalAlloc for CountingAllocator {
     }
 }
 
+struct AllocationCountingGuard;
+
+impl Drop for AllocationCountingGuard {
+    fn drop(&mut self) {
+        let _ = COUNTING_ALLOCATIONS.try_with(|counting| counting.set(false));
+    }
+}
+
 fn allocations_during(f: impl FnOnce()) -> usize {
     let _guard = ALLOCATION_TEST_LOCK.lock().unwrap();
-    ALLOCATION_COUNT.store(0, Ordering::SeqCst);
-    COUNTING_ALLOCATIONS.store(true, Ordering::SeqCst);
-    f();
-    COUNTING_ALLOCATIONS.store(false, Ordering::SeqCst);
-    ALLOCATION_COUNT.load(Ordering::SeqCst)
+    ALLOCATION_COUNT.with(|count| count.set(0));
+    COUNTING_ALLOCATIONS.with(|counting| counting.set(true));
+
+    {
+        let _counting_guard = AllocationCountingGuard;
+        f();
+    }
+
+    ALLOCATION_COUNT.with(Cell::get)
 }
 
 #[derive(Debug, Copy, Clone, ViscaInquiry)]
