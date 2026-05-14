@@ -14,8 +14,9 @@
 use grafton_visca::{
     camera::profiles::{GenericVisca, PtzOpticsG2, SonyFR7},
     capabilities::{
-        nd_filter::NdFilterExt, zoom::ZoomExt, Exposure, HasExposureCompensation, HasFocusLock,
-        HasPushAutoFocus, NdFilter, PanTilt, Presets, ProfileMetadata, WhiteBalance, Zoom,
+        nd_filter::NdFilterMetadataExt, zoom::ZoomExt, Exposure, HasExposureCompensation,
+        HasFocusLock, HasNdFilter, HasPushAutoFocus, HasVariableSpeed, NdFilterMetadata, PanTilt,
+        Presets, ProfileMetadata, WhiteBalance, Zoom,
     },
 };
 
@@ -30,7 +31,14 @@ fn main() {
 
 fn print_profile<P>()
 where
-    P: ProfileMetadata + PanTilt + Zoom + Exposure + WhiteBalance + Presets + NdFilter + Default,
+    P: ProfileMetadata
+        + PanTilt
+        + Zoom
+        + Exposure
+        + WhiteBalance
+        + Presets
+        + NdFilterMetadata
+        + Default,
 {
     let profile = P::default();
 
@@ -84,10 +92,14 @@ fn demonstrate_optional_capability_bounds() {
 
     requires_focus_lock::<PtzOpticsG2>();
     requires_push_af::<SonyFR7>();
+    requires_nd_filter::<SonyFR7>();
+    requires_variable_speed::<SonyFR7>();
     requires_exposure_compensation::<PtzOpticsG2>();
     requires_exposure_compensation::<SonyFR7>();
 
     // These lines intentionally do not compile if uncommented:
+    // requires_nd_filter::<PtzOpticsG2>();
+    // requires_variable_speed::<PtzOpticsG2>();
     // requires_push_af::<PtzOpticsG2>();
     // requires_focus_lock::<SonyFR7>();
 }
@@ -97,6 +109,20 @@ where
     P: ProfileMetadata + HasFocusLock,
 {
     println!("  {} supports focus lock", P::MODEL_NAME);
+}
+
+fn requires_nd_filter<P>()
+where
+    P: ProfileMetadata + HasNdFilter,
+{
+    println!("  {} supports typed ND filter control", P::MODEL_NAME);
+}
+
+fn requires_variable_speed<P>()
+where
+    P: ProfileMetadata + HasVariableSpeed,
+{
+    println!("  {} supports variable speed mode", P::MODEL_NAME);
 }
 
 fn requires_push_af<P>()

@@ -9,6 +9,7 @@ Thank you for your interest in contributing to grafton-visca! This guide will he
 - [Code Style](#code-style)
 - [Safety Guidelines](#safety-guidelines)
 - [Command Development](#command-development)
+- [Camera Profile Support](#camera-profile-support)
 - [Testing](#testing)
 - [Documentation](#documentation)
 - [Pull Request Process](#pull-request-process)
@@ -167,6 +168,24 @@ impl ViscaCommand for MyInquiry {
     }
 }
 ```
+
+## Camera Profile Support
+
+Camera profiles are part of the public type-safety contract. Before adding or
+changing a profile capability, follow the
+[Camera Profile Support Guide](docs/camera_profile_support.md).
+
+The short version:
+
+- Checked-in reference docs and specs are the source of truth.
+- Model-specific capability docs take precedence over generic opcode tables.
+- Runtime metadata traits feed `Capabilities::from_profile::<P>()`.
+- Support marker traits such as `HasNdFilter`, `HasMotionSync`, and
+  `HasVariableSpeed` expose typed APIs and must only be implemented when the
+  source docs establish support.
+- Raw VISCA command APIs remain available for experiments and downstream camera
+  variants, but raw opcode availability does not justify marking a built-in
+  profile as supported.
 
 ## Testing
 

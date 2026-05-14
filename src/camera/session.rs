@@ -779,12 +779,18 @@ where
     }
 
     /// Access ND filter controls and inquiries.
-    pub fn nd_filter(&self) -> crate::camera::accessors::NdFilterAccessor<'_, M, P, Tr, Exec> {
+    pub fn nd_filter(&self) -> crate::camera::accessors::NdFilterAccessor<'_, M, P, Tr, Exec>
+    where
+        P: crate::capabilities::HasNdFilter,
+    {
         crate::camera::accessors::NdFilterAccessor::new(&self.camera)
     }
 
     /// Access motion sync controls and inquiries.
-    pub fn motion_sync(&self) -> crate::camera::accessors::MotionSyncAccessor<'_, M, P, Tr, Exec> {
+    pub fn motion_sync(&self) -> crate::camera::accessors::MotionSyncAccessor<'_, M, P, Tr, Exec>
+    where
+        P: crate::capabilities::HasMotionSync,
+    {
         crate::camera::accessors::MotionSyncAccessor::new(&self.camera)
     }
 

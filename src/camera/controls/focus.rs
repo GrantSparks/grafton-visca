@@ -5,7 +5,7 @@
 //! - Variable speed focus adjustment (near/far)
 //! - Absolute position control and infinity focus
 //! - Focus lock to prevent unwanted changes (vendor-specific: PtzOptics)
-//! - One-push auto focus for quick adjustment
+//! - One-push auto focus for profiles whose metadata reports support
 //! - Push AF for temporary auto focus (vendor-specific: Sony FR7)
 //! - Focus zone configuration for area-specific focusing
 //! - Auto focus sensitivity adjustment
@@ -40,7 +40,8 @@ use crate::{
 ///
 /// - **Auto Focus**: Camera automatically adjusts focus based on scene content
 /// - **Manual Focus**: User has direct control over focus position
-/// - **One-Push AF**: Single auto focus operation then returns to manual
+/// - **One-Push AF**: Single auto focus operation then returns to manual,
+///   when the selected profile reports support
 /// - **Push AF**: Temporary auto focus while button is held
 ///
 /// # Examples
@@ -71,7 +72,8 @@ pub trait FocusControl {
     /// within the configured focus zone.
     ///
     /// # Errors
-    /// Returns an error if the command fails to send or receive a response.
+    /// Returns an error if the selected profile does not report one-push focus
+    /// support, or if the command fails to send or receive a response.
     fn focus_auto(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set manual focus mode.
@@ -294,6 +296,11 @@ where
     }
 
     fn focus_one_push(&self) -> M::Fut<'_, Result<(), Error>> {
+        if !P::SUPPORTS_ONE_PUSH_FOCUS {
+            return self.error(Error::FeatureNotSupported {
+                feature: "one-push focus",
+            });
+        }
         self.execute(Focus::OnePushTrigger)
     }
 
@@ -341,6 +348,11 @@ where
     }
 
     fn focus_snap(&self) -> M::Fut<'_, Result<(), Error>> {
+        if !P::SUPPORTS_ONE_PUSH_FOCUS {
+            return self.error(Error::FeatureNotSupported {
+                feature: "snap focus",
+            });
+        }
         self.execute(Focus::Snap)
     }
 }

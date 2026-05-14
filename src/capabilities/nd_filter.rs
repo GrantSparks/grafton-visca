@@ -1,14 +1,15 @@
-//! Neutral Density (ND) filter capability trait and associated types.
+//! Neutral Density (ND) filter metadata trait and associated types.
 
 use std::borrow::Cow;
 
 use crate::capabilities::ValidationError;
 
-/// Trait for cameras that support ND filter control.
+/// Metadata for a camera profile's ND filter capability.
 ///
-/// This trait defines the constants and capabilities for ND filter operations.
-/// ND filters reduce the amount of light entering the camera without affecting color.
-pub trait NdFilter {
+/// This trait supplies runtime discovery defaults. It does not mean the typed
+/// ND filter control API is available for a profile; use
+/// [`crate::capabilities::HasNdFilter`] for that compile-time support marker.
+pub trait NdFilterMetadata {
     /// ND filter mode determines how the filter operates.
     ///
     /// Default: [`NdFilterMode::None`] — no ND filter available.
@@ -21,8 +22,8 @@ pub trait NdFilter {
     const ND_STEPS: Option<u8> = None;
 }
 
-/// Extension trait that adds validation methods to cameras with ND filter support.
-pub trait NdFilterExt: NdFilter {
+/// Extension trait that adds validation methods to ND filter metadata.
+pub trait NdFilterMetadataExt: NdFilterMetadata {
     /// Validate an ND filter setting based on the camera's ND mode.
     fn validate_nd_filter(&self, value: u8) -> Result<u8, ValidationError> {
         match Self::ND_MODE {
@@ -83,8 +84,7 @@ pub trait NdFilterExt: NdFilter {
     }
 }
 
-// Automatic implementation for all types that support ND filter
-impl<T: NdFilter> NdFilterExt for T {}
+impl<T: NdFilterMetadata> NdFilterMetadataExt for T {}
 
 /// ND filter operating modes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -107,25 +107,25 @@ mod tests {
     use super::*;
 
     struct NoNdCamera;
-    impl NdFilter for NoNdCamera {
+    impl NdFilterMetadata for NoNdCamera {
         const ND_MODE: NdFilterMode = NdFilterMode::None;
         const ND_STEPS: Option<u8> = None;
     }
 
     struct FixedNdCamera;
-    impl NdFilter for FixedNdCamera {
+    impl NdFilterMetadata for FixedNdCamera {
         const ND_MODE: NdFilterMode = NdFilterMode::Fixed(3);
         const ND_STEPS: Option<u8> = None;
     }
 
     struct SteppedNdCamera;
-    impl NdFilter for SteppedNdCamera {
+    impl NdFilterMetadata for SteppedNdCamera {
         const ND_MODE: NdFilterMode = NdFilterMode::Stepped(3);
         const ND_STEPS: Option<u8> = Some(3);
     }
 
     struct VariableNdCamera;
-    impl NdFilter for VariableNdCamera {
+    impl NdFilterMetadata for VariableNdCamera {
         const ND_MODE: NdFilterMode = NdFilterMode::Variable;
         const ND_STEPS: Option<u8> = None;
     }

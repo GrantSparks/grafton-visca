@@ -176,13 +176,13 @@ pub trait HasPower {}
 /// Marker trait indicating support for menu control.
 pub trait HasMenuControl {}
 
-/// Marker trait indicating support for motion sync.
+/// Marker trait indicating typed Motion Sync API support.
 pub trait HasMotionSync {}
 
-/// Marker trait indicating support for variable speed.
+/// Marker trait indicating typed variable speed API support.
 pub trait HasVariableSpeed {}
 
-/// Marker trait indicating support for ND filter.
+/// Marker trait indicating typed ND filter API support.
 pub trait HasNdFilter {}
 
 // Specific feature marker traits
@@ -203,7 +203,7 @@ pub trait HasFocusLock {}
 /// feature primarily supported by Sony cameras.
 pub trait HasPushAutoFocus {}
 
-// Specialized blanket implementations for each marker trait.
+// Specialized blanket implementations for baseline marker traits.
 // These automatically implement the marker trait for any type that implements
 // both ProfileMetadata and the corresponding capability trait.
 
@@ -216,9 +216,6 @@ impl<T: ProfileMetadata + crate::capabilities::ImageProcessing> HasImageProcessi
 impl<T: ProfileMetadata + crate::capabilities::Presets> HasPresets for T {}
 impl<T: ProfileMetadata + crate::capabilities::Power> HasPower for T {}
 impl<T: ProfileMetadata + crate::capabilities::MenuCapability> HasMenuControl for T {}
-impl<T: ProfileMetadata + crate::capabilities::MotionSync> HasMotionSync for T {}
-impl<T: ProfileMetadata + crate::capabilities::VariableSpeed> HasVariableSpeed for T {}
-impl<T: ProfileMetadata + crate::capabilities::NdFilter> HasNdFilter for T {}
 
 #[cfg(test)]
 mod tests {

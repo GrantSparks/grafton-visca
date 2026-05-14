@@ -33,6 +33,15 @@ The maintained examples in `examples/` fall into these categories:
   and keep examples runnable.
 - Keep examples focused. A single example should demonstrate one API path or one
   operational pattern, not a broad hardware tour.
+- When examples demonstrate optional vendor features, use the support-marker
+  bounds for typed controls (`HasNdFilter`, `HasMotionSync`,
+  `HasVariableSpeed`) and metadata traits only for runtime discovery. The
+  maintained typed support matrix is: `SonyFR7` for ND filter and variable
+  speed controls. Built-in PTZOptics profiles are not marked for typed Motion
+  Sync because the current model capability specs do not establish that support.
+- When an example or fixture adds support for a new camera profile capability,
+  follow the [Camera Profile Support Guide](camera_profile_support.md) so the
+  example matches the source-of-truth docs and typed support markers.
 
 ## Release Checks
 

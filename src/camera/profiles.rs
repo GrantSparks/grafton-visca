@@ -7,9 +7,9 @@ use std::{fmt, time::Duration};
 
 use crate::{
     capabilities::{
-        CoordinateSystem, Exposure, Focus, ImageProcessing, MenuCapability, MotionSync, NdFilter,
-        NdFilterMode, PanTilt, Power, Presets, ProfileMetadata, ShutterSpeed, VariableSpeed,
-        WhiteBalance, Zoom,
+        CoordinateSystem, Exposure, Focus, HasNdFilter, HasVariableSpeed, ImageProcessing,
+        MenuCapability, MotionSyncMetadata, NdFilterMetadata, NdFilterMode, PanTilt, Power,
+        Presets, ProfileMetadata, ShutterSpeed, VariableSpeedMetadata, WhiteBalance, Zoom,
     },
     command::exposure::ExposureMode,
     error::Error,
@@ -216,17 +216,14 @@ impl Power for PtzOpticsG2 {
     const SUPPORTS_STANDBY: bool = true;
 }
 
-impl MotionSync for PtzOpticsG2 {
-    const SUPPORTS_MOTION_SYNC: bool = true;
-    const MAX_MOTION_SYNC_SPEED: u8 = 24;
-}
+impl MotionSyncMetadata for PtzOpticsG2 {}
 impl MenuCapability for PtzOpticsG2 {}
 impl crate::capabilities::Tally for PtzOpticsG2 {}
 
 impl crate::capabilities::HasExposureCompensation for PtzOpticsG2 {}
 impl crate::capabilities::HasFocusLock for PtzOpticsG2 {}
-impl NdFilter for PtzOpticsG2 {}
-impl VariableSpeed for PtzOpticsG2 {}
+impl NdFilterMetadata for PtzOpticsG2 {}
+impl VariableSpeedMetadata for PtzOpticsG2 {}
 
 /// Generic VISCA camera profile.
 ///
@@ -319,9 +316,9 @@ impl Presets for GenericVisca {
 }
 
 impl crate::capabilities::Tally for GenericVisca {}
-impl MotionSync for GenericVisca {}
-impl NdFilter for GenericVisca {}
-impl VariableSpeed for GenericVisca {}
+impl MotionSyncMetadata for GenericVisca {}
+impl NdFilterMetadata for GenericVisca {}
+impl VariableSpeedMetadata for GenericVisca {}
 
 /// Sony FR7 camera profile (example with ND filter).
 ///
@@ -364,7 +361,7 @@ impl Focus for SonyFR7 {
     const FOCUS_NEAR_LIMIT: u16 = 0x1000;
     const FOCUS_FAR_LIMIT: u16 = 0xF000;
     const SUPPORTS_AUTO_FOCUS: bool = true;
-    const SUPPORTS_ONE_PUSH_FOCUS: bool = true;
+    const SUPPORTS_ONE_PUSH_FOCUS: bool = false;
     const SUPPORTS_FOCUS_ZONE: bool = true;
     const SUPPORTS_AF_SENSITIVITY: bool = true;
 }
@@ -420,17 +417,19 @@ impl Power for SonyFR7 {
     const SUPPORTS_WAKE_ON_LAN: bool = true;
 }
 
-impl NdFilter for SonyFR7 {
+impl NdFilterMetadata for SonyFR7 {
     const ND_MODE: NdFilterMode = NdFilterMode::Variable;
     const ND_STEPS: Option<u8> = None;
 }
+impl HasNdFilter for SonyFR7 {}
 impl MenuCapability for SonyFR7 {
     const SUPPORTS_DIRECT_CONTROL: bool = true;
 }
 
-impl VariableSpeed for SonyFR7 {
+impl VariableSpeedMetadata for SonyFR7 {
     const SUPPORTS_VARIABLE_SPEED: bool = true;
 }
+impl HasVariableSpeed for SonyFR7 {}
 
 impl crate::capabilities::HasExposureCompensation for SonyFR7 {}
 impl crate::capabilities::HasPushAutoFocus for SonyFR7 {}
@@ -438,7 +437,7 @@ impl crate::capabilities::menu_control::HasDirectMenuControl for SonyFR7 {}
 impl crate::capabilities::Tally for SonyFR7 {
     const SUPPORTS_TALLY: bool = true;
 }
-impl MotionSync for SonyFR7 {}
+impl MotionSyncMetadata for SonyFR7 {}
 
 /// Sony BRC-H900 camera profile.
 ///
@@ -480,7 +479,7 @@ impl Focus for SonyBRCH900 {
     const FOCUS_NEAR_LIMIT: u16 = 0x1000;
     const FOCUS_FAR_LIMIT: u16 = 0xF000;
     const SUPPORTS_AUTO_FOCUS: bool = true;
-    const SUPPORTS_ONE_PUSH_FOCUS: bool = true;
+    const SUPPORTS_ONE_PUSH_FOCUS: bool = false;
 }
 
 impl Exposure for SonyBRCH900 {
@@ -527,9 +526,9 @@ impl MenuCapability for SonyBRCH900 {}
 impl crate::capabilities::Tally for SonyBRCH900 {
     const SUPPORTS_TALLY: bool = true;
 }
-impl MotionSync for SonyBRCH900 {}
-impl NdFilter for SonyBRCH900 {}
-impl VariableSpeed for SonyBRCH900 {}
+impl MotionSyncMetadata for SonyBRCH900 {}
+impl NdFilterMetadata for SonyBRCH900 {}
+impl VariableSpeedMetadata for SonyBRCH900 {}
 
 /// Sony EVI-H100 camera profile.
 ///
@@ -569,7 +568,7 @@ impl Focus for SonyEVIH100 {
     const FOCUS_NEAR_LIMIT: u16 = 0x1000;
     const FOCUS_FAR_LIMIT: u16 = 0xF000;
     const SUPPORTS_AUTO_FOCUS: bool = true;
-    const SUPPORTS_ONE_PUSH_FOCUS: bool = true;
+    const SUPPORTS_ONE_PUSH_FOCUS: bool = false;
 }
 
 impl Exposure for SonyEVIH100 {
@@ -614,9 +613,9 @@ impl ImageProcessing for SonyEVIH100 {
 
 impl MenuCapability for SonyEVIH100 {}
 impl crate::capabilities::Tally for SonyEVIH100 {}
-impl MotionSync for SonyEVIH100 {}
-impl NdFilter for SonyEVIH100 {}
-impl VariableSpeed for SonyEVIH100 {}
+impl MotionSyncMetadata for SonyEVIH100 {}
+impl NdFilterMetadata for SonyEVIH100 {}
+impl VariableSpeedMetadata for SonyEVIH100 {}
 
 /// Sony BRC-300 camera profile.
 ///
@@ -700,9 +699,9 @@ impl ImageProcessing for SonyBRC300 {
 
 impl MenuCapability for SonyBRC300 {}
 impl crate::capabilities::Tally for SonyBRC300 {}
-impl MotionSync for SonyBRC300 {}
-impl NdFilter for SonyBRC300 {}
-impl VariableSpeed for SonyBRC300 {}
+impl MotionSyncMetadata for SonyBRC300 {}
+impl NdFilterMetadata for SonyBRC300 {}
+impl VariableSpeedMetadata for SonyBRC300 {}
 
 /// Nearus BRC-300 camera profile.
 ///
@@ -784,9 +783,9 @@ impl ImageProcessing for NearusBRC300 {
 
 impl MenuCapability for NearusBRC300 {}
 impl crate::capabilities::Tally for NearusBRC300 {}
-impl MotionSync for NearusBRC300 {}
-impl NdFilter for NearusBRC300 {}
-impl VariableSpeed for NearusBRC300 {}
+impl MotionSyncMetadata for NearusBRC300 {}
+impl NdFilterMetadata for NearusBRC300 {}
+impl VariableSpeedMetadata for NearusBRC300 {}
 
 /// PtzOptics G3 camera profile.
 ///
@@ -831,7 +830,7 @@ impl Focus for PtzOpticsG3 {
     const FOCUS_NEAR_LIMIT: u16 = 0x1000;
     const FOCUS_FAR_LIMIT: u16 = 0xF000;
     const SUPPORTS_AUTO_FOCUS: bool = true;
-    const SUPPORTS_ONE_PUSH_FOCUS: bool = true;
+    const SUPPORTS_ONE_PUSH_FOCUS: bool = false;
 }
 
 impl Exposure for PtzOpticsG3 {
@@ -889,12 +888,9 @@ impl crate::capabilities::Tally for PtzOpticsG3 {}
 impl crate::capabilities::HasExposureCompensation for PtzOpticsG3 {}
 impl crate::capabilities::HasFocusLock for PtzOpticsG3 {}
 
-impl MotionSync for PtzOpticsG3 {
-    const SUPPORTS_MOTION_SYNC: bool = true;
-    const MAX_MOTION_SYNC_SPEED: u8 = 24;
-}
-impl NdFilter for PtzOpticsG3 {}
-impl VariableSpeed for PtzOpticsG3 {}
+impl MotionSyncMetadata for PtzOpticsG3 {}
+impl NdFilterMetadata for PtzOpticsG3 {}
+impl VariableSpeedMetadata for PtzOpticsG3 {}
 
 /// PtzOptics 30X camera profile.
 ///
@@ -939,7 +935,7 @@ impl Focus for PtzOptics30X {
     const FOCUS_NEAR_LIMIT: u16 = 0x1000;
     const FOCUS_FAR_LIMIT: u16 = 0xF000;
     const SUPPORTS_AUTO_FOCUS: bool = true;
-    const SUPPORTS_ONE_PUSH_FOCUS: bool = true;
+    const SUPPORTS_ONE_PUSH_FOCUS: bool = false;
 }
 
 impl Exposure for PtzOptics30X {
@@ -997,12 +993,9 @@ impl crate::capabilities::Tally for PtzOptics30X {}
 impl crate::capabilities::HasExposureCompensation for PtzOptics30X {}
 impl crate::capabilities::HasFocusLock for PtzOptics30X {}
 
-impl MotionSync for PtzOptics30X {
-    const SUPPORTS_MOTION_SYNC: bool = true;
-    const MAX_MOTION_SYNC_SPEED: u8 = 24;
-}
-impl NdFilter for PtzOptics30X {}
-impl VariableSpeed for PtzOptics30X {}
+impl MotionSyncMetadata for PtzOptics30X {}
+impl NdFilterMetadata for PtzOptics30X {}
+impl VariableSpeedMetadata for PtzOptics30X {}
 
 /// Preset ID for PtzOptics G2 cameras (0-127).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1694,7 +1687,7 @@ impl fmt::Display for G2Gain {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::capabilities::nd_filter::NdFilterExt;
+    use crate::capabilities::nd_filter::NdFilterMetadataExt;
     use crate::capabilities::pan_tilt::PanTiltExt;
 
     #[test]

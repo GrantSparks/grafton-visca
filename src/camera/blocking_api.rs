@@ -13,7 +13,7 @@ use crate::{
             exposure::{ExposureCompensationControl, ExposureControl},
             focus::{FocusControl, FocusLockControl, PushAFControl},
             image_processing::ImageProcessingControl,
-            inquiry::{InquiryControl, PanTiltInquiryControl},
+            inquiry::{InquiryControl, NdFilterInquiryControl, PanTiltInquiryControl},
             menu::{DirectMenuControl, MenuControl},
             motion_sync::MotionSyncControl,
             nd_filter::NdFilterControl,
@@ -323,12 +323,18 @@ where
     }
 
     /// Access ND filter controls and inquiries.
-    pub fn nd_filter(&self) -> BlockingNdFilterAccessor<'_, P, Tr> {
+    pub fn nd_filter(&self) -> BlockingNdFilterAccessor<'_, P, Tr>
+    where
+        P: crate::capabilities::HasNdFilter,
+    {
         BlockingNdFilterAccessor::new(self)
     }
 
     /// Access motion sync controls and inquiries.
-    pub fn motion_sync(&self) -> BlockingMotionSyncAccessor<'_, P, Tr> {
+    pub fn motion_sync(&self) -> BlockingMotionSyncAccessor<'_, P, Tr>
+    where
+        P: crate::capabilities::HasMotionSync,
+    {
         BlockingMotionSyncAccessor::new(self)
     }
 
@@ -693,7 +699,7 @@ where
         self.camera.set_focus_near_limit(position)
     }
 
-    /// Trigger one-push auto focus.
+    /// Trigger one-push auto focus when supported by the profile.
     pub fn one_push(&self) -> Result<(), Error> {
         self.camera.focus_one_push()
     }
@@ -1294,8 +1300,9 @@ define_blocking_accessor!(
 
 impl<P, Tr> BlockingNdFilterAccessor<'_, P, Tr>
 where
-    P: crate::capabilities::Profile + Default + crate::capabilities::nd_filter::NdFilter,
-    Camera<Blocking, P, Tr, ()>: NdFilterControl<Mode = Blocking> + InquiryControl<Mode = Blocking>,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasNdFilter,
+    Camera<Blocking, P, Tr, ()>:
+        NdFilterControl<Mode = Blocking> + NdFilterInquiryControl<Mode = Blocking>,
 {
     /// Get the current ND filter position.
     pub fn position(&self) -> Result<crate::command::NdFilterPosition, Error> {
@@ -1340,7 +1347,7 @@ define_blocking_accessor!(
 
 impl<P, Tr> BlockingMotionSyncAccessor<'_, P, Tr>
 where
-    P: crate::capabilities::Profile + Default + crate::capabilities::motion_sync::MotionSync,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasMotionSync,
     Camera<Blocking, P, Tr, ()>: MotionSyncControl<Mode = Blocking>,
 {
     /// Get the motion sync mode.
@@ -1544,7 +1551,7 @@ where
         /// Stop focus movement.
         fn focus_stop() -> ();
 
-        /// Trigger one-push auto focus.
+        /// Trigger one-push auto focus when supported by the profile.
         fn focus_one_push() -> ();
 
         /// Set focus position.
@@ -2103,7 +2110,7 @@ where
 impl<P, Tr> BlockingClient<P, Tr>
 where
     Camera<Blocking, P, Tr, ()>: VariableSpeedControl<Mode = Blocking>,
-    P: crate::capabilities::Profile + Default + crate::capabilities::variable_speed::VariableSpeed,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasVariableSpeed,
 {
     impl_blocking_methods! {
         /// Set variable speed mode.
@@ -2118,7 +2125,7 @@ where
 impl<P, Tr> BlockingClient<P, Tr>
 where
     Camera<Blocking, P, Tr, ()>: MotionSyncControl<Mode = Blocking>,
-    P: crate::capabilities::Profile + Default + crate::capabilities::motion_sync::MotionSync,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasMotionSync,
 {
     impl_blocking_methods! {
         /// Set motion sync mode.
@@ -2145,7 +2152,7 @@ where
 impl<P, Tr> BlockingClient<P, Tr>
 where
     Camera<Blocking, P, Tr, ()>: NdFilterControl<Mode = Blocking>,
-    P: crate::capabilities::Profile + Default + crate::capabilities::nd_filter::NdFilter,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasNdFilter,
 {
     impl_blocking_methods! {
         /// Set ND filter mode.
@@ -2260,9 +2267,6 @@ where
         /// Get picture effect.
         fn picture_effect() -> crate::command::PictureEffectMode;
 
-        /// Get ND filter position.
-        fn nd_filter_position() -> crate::command::NdFilterPosition;
-
         /// Get camera version information.
         fn version() -> crate::command::VersionInfo;
 
@@ -2332,14 +2336,29 @@ where
         /// Get two-tone mode enabled status.
         fn two_tone_mode_enabled() -> bool;
 
-        /// Get ND filter preset.
-        fn nd_filter_preset() -> crate::types::NdFilterPreset;
-
         /// Get digital mode enabled status.
         fn digital_mode_enabled() -> bool;
 
         /// Get tally auto adjust enabled status.
         fn tally_auto_adjust_enabled() -> bool;
+    }
+}
+
+// ============================================================================
+// NdFilterInquiryControl implementation
+// ============================================================================
+
+impl<P, Tr> BlockingClient<P, Tr>
+where
+    Camera<Blocking, P, Tr, ()>: NdFilterInquiryControl<Mode = Blocking>,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasNdFilter,
+{
+    impl_blocking_methods! {
+        /// Get ND filter position.
+        fn nd_filter_position() -> crate::command::NdFilterPosition;
+
+        /// Get ND filter preset.
+        fn nd_filter_preset() -> crate::types::NdFilterPreset;
     }
 }
 

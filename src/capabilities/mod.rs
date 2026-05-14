@@ -31,13 +31,13 @@ pub use exposure::Exposure;
 pub use focus::Focus;
 pub use image_processing::ImageProcessing;
 pub use menu_control::{HasDirectMenuControl, MenuCapability};
-pub use motion_sync::MotionSync;
-pub use nd_filter::{NdFilter, NdFilterMode};
+pub use motion_sync::MotionSyncMetadata;
+pub use nd_filter::{NdFilterMetadata, NdFilterMetadataExt, NdFilterMode};
 pub use pan_tilt::PanTilt;
 pub use power::Power;
 pub use presets::Presets;
 pub use tally::Tally;
-pub use variable_speed::VariableSpeed;
+pub use variable_speed::VariableSpeedMetadata;
 pub use white_balance::WhiteBalance;
 pub use zoom::Zoom;
 
@@ -56,9 +56,8 @@ pub use discovery::Capabilities;
 /// Super-trait that encompasses all camera capabilities.
 ///
 /// This trait allows a single generic bound to ensure a type has all the
-/// necessary camera capabilities. It combines metadata with all feature traits,
-/// including optional features like motion sync, ND filter, and variable speed
-/// (which default to "not supported" when not overridden).
+/// necessary camera capabilities. It combines metadata with all baseline
+/// feature traits plus optional-feature metadata for runtime discovery.
 ///
 /// # Example
 /// ```ignore
@@ -82,9 +81,9 @@ pub trait Profile:
     + Power
     + MenuCapability
     + Tally
-    + MotionSync
-    + NdFilter
-    + VariableSpeed
+    + MotionSyncMetadata
+    + NdFilterMetadata
+    + VariableSpeedMetadata
     + Sized
     + Send
     + Sync
@@ -105,9 +104,9 @@ impl<T> Profile for T where
         + Power
         + MenuCapability
         + Tally
-        + MotionSync
-        + NdFilter
-        + VariableSpeed
+        + MotionSyncMetadata
+        + NdFilterMetadata
+        + VariableSpeedMetadata
         + Sized
         + Send
         + Sync

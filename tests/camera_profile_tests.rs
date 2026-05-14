@@ -107,7 +107,7 @@ fn test_profile_capabilities_are_compile_time() {
         // This function can only accept async cameras with ND filter support
         fn _requires_nd_filter_async<P, T, E>(_camera: &AsyncCamera<P, T, E>) -> bool
         where
-            P: Profile + NdFilter,
+            P: Profile + HasNdFilter,
             T: AsyncTransport + Send + Sync + 'static,
             E: Executor + Send + Sync + 'static,
         {
@@ -132,7 +132,7 @@ fn test_profile_capabilities_are_compile_time() {
         // This function can only accept blocking cameras with ND filter support
         fn _requires_nd_filter_blocking<P, T>(_camera: &BlockingCamera<P, T>) -> bool
         where
-            P: Profile + NdFilter,
+            P: Profile + HasNdFilter,
             T: BlockingTransport + Send + Sync + 'static,
         {
             // At compile time, we know this camera supports ND filter
@@ -151,8 +151,8 @@ fn test_profile_capabilities_are_compile_time() {
     }
 
     // These demonstrate compile-time checking:
-    // - SonyFR7 has NdFilter, so it can use requires_nd_filter
-    // - GenericVisca doesn't have NdFilter, so it cannot
+    // - SonyFR7 has typed ND filter support, so it can use requires_nd_filter
+    // - GenericVisca doesn't have typed ND filter support, so it cannot
     // - Both can use requires_only_basic
 }
 
@@ -197,22 +197,22 @@ fn test_profile_traits_composition() {
 #[test]
 fn test_optional_capabilities() {
     // Test which profiles have optional capabilities
-    fn has_nd_filter<T: NdFilter>() {}
-    fn has_motion_sync<T: MotionSync>() {}
-    fn has_variable_speed<T: VariableSpeed>() {}
+    fn has_nd_filter<T: HasNdFilter>() {}
+    fn has_variable_speed<T: HasVariableSpeed>() {}
 
     // These compile:
     has_nd_filter::<grafton_visca::camera::profiles::SonyFR7>();
-    has_motion_sync::<grafton_visca::camera::profiles::PtzOpticsG2>();
-    // Note: SonyFR7 doesn't have MotionSync in the current implementation
+    // Note: SonyFR7 doesn't have typed Motion Sync support.
     has_variable_speed::<grafton_visca::camera::profiles::SonyFR7>();
 
     // These would NOT compile (commented out to keep test passing):
     // has_nd_filter::<grafton_visca::camera::profiles::PtzOpticsG2>();
     // has_nd_filter::<grafton_visca::camera::profiles::GenericVisca>();
-    // has_motion_sync::<grafton_visca::camera::profiles::GenericVisca>();
     // has_variable_speed::<grafton_visca::camera::profiles::PtzOpticsG2>();
     // has_variable_speed::<grafton_visca::camera::profiles::GenericVisca>();
+    //
+    // The API contract compile-fail fixtures cover unsupported Motion Sync
+    // markers for built-in PTZOptics profiles, GenericVisca, and SonyFR7.
 }
 
 #[test]

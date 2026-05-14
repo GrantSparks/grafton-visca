@@ -1,6 +1,6 @@
 //! Simple test to verify compilation succeeds with generic Camera implementation.
 
-use grafton_visca::capabilities::{NdFilter, Profile};
+use grafton_visca::capabilities::{HasNdFilter, Profile};
 
 #[cfg(feature = "mode-async")]
 use grafton_visca::{
@@ -36,7 +36,7 @@ fn test_compile_time_safety() {
     #[cfg(feature = "mode-async")]
     fn _use_nd_filter_async<P, T, E>(_camera: &AsyncCamera<P, T, E>)
     where
-        P: Profile + NdFilter,
+        P: Profile + HasNdFilter,
         T: AsyncTransport + Send + Sync + 'static,
         E: grafton_visca::Executor,
     {
@@ -45,7 +45,7 @@ fn test_compile_time_safety() {
     #[cfg(not(feature = "mode-async"))]
     fn _use_nd_filter_blocking<P, T>(_camera: &BlockingClient<P, T>)
     where
-        P: Profile + NdFilter,
+        P: Profile + HasNdFilter,
     {
     }
 

@@ -55,7 +55,7 @@ fn test_sony_fr7_has_nd_filter() -> Result<(), Error> {
 fn test_compile_time_capability_checking() {
     fn adjust_nd_filter<P, T>(_camera: &grafton_visca::BlockingCamera<P, T>) -> Result<(), Error>
     where
-        P: Profile + NdFilter,
+        P: Profile + HasNdFilter,
         T: grafton_visca::transport::BlockingTransport + Send + Sync + 'static,
     {
         Ok(())
@@ -88,15 +88,6 @@ fn test_generic_functions_with_trait_bounds() {
         Ok(())
     }
 
-    fn motion_sync_control<P>(
-        _camera: &grafton_visca::BlockingCamera<P, ScriptedBlockingTransport>,
-    ) -> Result<(), Error>
-    where
-        P: Profile + MotionSync + Default,
-    {
-        Ok(())
-    }
-
     let g2_transport = ScriptedBlockingTransport::new(vec![
         helpers::auto_respond_step(),
         helpers::auto_respond_step(),
@@ -108,9 +99,6 @@ fn test_generic_functions_with_trait_bounds() {
         (),
     >::new_blocking(g2_transport)
     .unwrap();
-
-    let g2_transport_wrapper = ScriptedBlockingTransport::new(vec![helpers::auto_respond_step()]);
-    let g2_wrapper = PtzOpticsG2Cam::new(g2_transport_wrapper).unwrap();
 
     let fr7_transport = ScriptedBlockingTransport::new(vec![
         helpers::sony_auto_respond_step(),
@@ -142,6 +130,4 @@ fn test_generic_functions_with_trait_bounds() {
     assert!(fr7_result.is_ok());
 
     assert!(basic_control(&mut generic_camera).is_ok());
-
-    assert!(motion_sync_control(&g2_wrapper).is_ok());
 }
