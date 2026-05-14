@@ -5,7 +5,9 @@
 //! optional capability traits. The actual control methods for these capabilities
 //! are provided by their respective trait modules in `src/camera/controls/`.
 
-use crate::capabilities::{MotionSync, NdFilter, NdFilterMode as CapabilityNdFilterMode, Profile};
+use crate::capabilities::{
+    HasMotionSync, HasNdFilter, NdFilterMode as CapabilityNdFilterMode, Profile,
+};
 
 #[cfg(feature = "mode-async")]
 use crate::{camera::Camera, executor::Executor, mode, transport::AsyncTransport};
@@ -16,7 +18,7 @@ use crate::{camera::Camera, mode, transport::BlockingTransport};
 #[cfg(not(feature = "mode-async"))]
 impl<P, Tr> Camera<mode::Blocking, P, Tr, ()>
 where
-    P: Profile + NdFilter,
+    P: Profile + HasNdFilter,
     Tr: BlockingTransport,
 {
     /// Get the ND filter mode from the camera profile.
@@ -35,7 +37,7 @@ where
 #[cfg(not(feature = "mode-async"))]
 impl<P, Tr> Camera<mode::Blocking, P, Tr, ()>
 where
-    P: Profile + MotionSync,
+    P: Profile + HasMotionSync,
     Tr: BlockingTransport,
 {
     /// Check if motion sync is supported.
@@ -55,7 +57,7 @@ where
 #[cfg(feature = "mode-async")]
 impl<P, Tr, Exec> Camera<mode::Async, P, Tr, Exec>
 where
-    P: Profile + NdFilter,
+    P: Profile + HasNdFilter,
     Tr: AsyncTransport,
     Exec: Executor,
 {
@@ -75,7 +77,7 @@ where
 #[cfg(feature = "mode-async")]
 impl<P, Tr, Exec> Camera<mode::Async, P, Tr, Exec>
 where
-    P: Profile + MotionSync,
+    P: Profile + HasMotionSync,
     Tr: AsyncTransport,
     Exec: Executor,
 {
@@ -97,6 +99,6 @@ mod tests {
     #[test]
     fn test_nd_filter_compilation() {
         // This test verifies that ND filter methods are only available for cameras
-        // that implement the NdFilter trait.
+        // that implement the typed ND filter support marker.
     }
 }

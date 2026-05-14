@@ -119,7 +119,9 @@ pub enum Focus {
     /// Snap focus (one-push AF while in manual mode).
     ///
     /// Triggers a single autofocus operation, then returns to manual focus mode.
-    /// **Vendor-Specific**: PTZOptics "Snap Focus" feature.
+    /// **Vendor-Specific**: Some vendor/firmware command references document
+    /// this opcode, but built-in profiles only expose it when their profile
+    /// metadata reports one-push focus support.
     Snap,
 }
 

@@ -330,25 +330,37 @@ impl Capabilities {
         let exposure_modes = P::EXPOSURE_MODES.to_vec();
         let iris_range = P::IRIS_RANGE
             .as_ref()
-            .map(|range| range.start..=(range.end - 1));
-        let gain_range = P::GAIN_RANGE.start..=(P::GAIN_RANGE.end - 1);
+            .map(|range| range.start..=range.end.saturating_sub(1));
+        let gain_range = P::GAIN_RANGE.start..=P::GAIN_RANGE.end.saturating_sub(1);
 
         // Extract white balance capabilities
-        let color_temp_range = P::COLOR_TEMP_RANGE.as_ref().map(|r| r.start..=(r.end - 1));
-        let rg_tuning_range = P::RG_TUNING_RANGE.as_ref().map(|r| r.start..=(r.end - 1));
-        let bg_tuning_range = P::BG_TUNING_RANGE.as_ref().map(|r| r.start..=(r.end - 1));
+        let color_temp_range = P::COLOR_TEMP_RANGE
+            .as_ref()
+            .map(|r| r.start..=r.end.saturating_sub(1));
+        let rg_tuning_range = P::RG_TUNING_RANGE
+            .as_ref()
+            .map(|r| r.start..=r.end.saturating_sub(1));
+        let bg_tuning_range = P::BG_TUNING_RANGE
+            .as_ref()
+            .map(|r| r.start..=r.end.saturating_sub(1));
 
         // Extract image processing capabilities
-        let brightness_range = P::BRIGHTNESS_RANGE.start..=(P::BRIGHTNESS_RANGE.end - 1);
-        let contrast_range = P::CONTRAST_RANGE.start..=(P::CONTRAST_RANGE.end - 1);
-        let sharpness_range = P::SHARPNESS_RANGE.start..=(P::SHARPNESS_RANGE.end - 1);
-        let saturation_range = P::SATURATION_RANGE.as_ref().map(|r| r.start..=(r.end - 1));
-        let hue_range = P::HUE_RANGE.as_ref().map(|r| r.start..=(r.end - 1));
+        let brightness_range =
+            P::BRIGHTNESS_RANGE.start..=P::BRIGHTNESS_RANGE.end.saturating_sub(1);
+        let contrast_range = P::CONTRAST_RANGE.start..=P::CONTRAST_RANGE.end.saturating_sub(1);
+        let sharpness_range = P::SHARPNESS_RANGE.start..=P::SHARPNESS_RANGE.end.saturating_sub(1);
+        let saturation_range = P::SATURATION_RANGE
+            .as_ref()
+            .map(|r| r.start..=r.end.saturating_sub(1));
+        let hue_range = P::HUE_RANGE
+            .as_ref()
+            .map(|r| r.start..=r.end.saturating_sub(1));
 
         // Extract preset capabilities
-        let preset_speed_range = P::PRESET_SPEED_RANGE.start..=(P::PRESET_SPEED_RANGE.end - 1);
+        let preset_speed_range =
+            P::PRESET_SPEED_RANGE.start..=P::PRESET_SPEED_RANGE.end.saturating_sub(1);
 
-        // Extract ND filter capabilities from the NdFilter trait
+        // Extract ND filter capabilities from profile metadata.
         let has_nd_filter = !matches!(P::ND_MODE, crate::capabilities::NdFilterMode::None);
         let nd_filter_type = match P::ND_MODE {
             crate::capabilities::NdFilterMode::None => None,
@@ -357,7 +369,7 @@ impl Capabilities {
             crate::capabilities::NdFilterMode::Variable => Some("Variable ND filter".to_string()),
         };
 
-        // Extract motion sync capabilities from the MotionSync trait
+        // Extract Motion Sync capabilities from profile metadata.
         let has_motion_sync = P::SUPPORTS_MOTION_SYNC;
         let max_motion_sync_speed = if has_motion_sync {
             Some(P::MAX_MOTION_SYNC_SPEED)
@@ -636,7 +648,10 @@ impl Capabilities {
 
 #[cfg(test)]
 mod tests {
-    use crate::camera::profiles::{GenericVisca, PtzOpticsG2, SonyFR7};
+    use crate::camera::profiles::{
+        GenericVisca, NearusBRC300, PtzOptics30X, PtzOpticsG2, PtzOpticsG3, SonyBRC300,
+        SonyBRCH900, SonyEVIH100, SonyFR7,
+    };
 
     use super::*;
 
@@ -670,6 +685,10 @@ mod tests {
 
         assert_eq!(caps.max_presets, 127);
         assert!(!caps.supports_preset_tour);
+        assert!(!caps.has_nd_filter);
+        assert!(!caps.has_motion_sync);
+        assert_eq!(caps.max_motion_sync_speed, None);
+        assert!(!caps.has_variable_speed);
 
         assert!(caps.has_basic_features());
     }
@@ -684,10 +703,16 @@ mod tests {
 
         assert_eq!(caps.max_presets, 255);
         assert!(caps.supports_preset_tour);
+        assert!(!caps.has_one_push_focus);
         assert!(caps.has_focus_zone);
         assert!(caps.has_af_sensitivity);
         assert!(caps.has_focus_near_limit_inquiry);
         assert!(caps.has_rgb_gain);
+        assert!(caps.has_nd_filter);
+        assert_eq!(caps.nd_filter_type.as_deref(), Some("Variable ND filter"));
+        assert!(!caps.has_motion_sync);
+        assert_eq!(caps.max_motion_sync_speed, None);
+        assert!(caps.has_variable_speed);
 
         assert!(caps.has_advanced_features());
     }
@@ -706,7 +731,50 @@ mod tests {
         assert!(caps.has_basic_features());
         // GenericVisca has one-push white balance, which counts as an advanced feature
         assert!(caps.has_one_push_wb);
+        assert!(!caps.has_nd_filter);
+        assert!(!caps.has_motion_sync);
+        assert_eq!(caps.max_motion_sync_speed, None);
+        assert!(!caps.has_variable_speed);
         assert!(caps.has_advanced_features());
+    }
+
+    #[test]
+    fn test_optional_vendor_feature_metadata_matrix() {
+        for caps in [
+            Capabilities::from_profile::<PtzOpticsG2>(),
+            Capabilities::from_profile::<PtzOpticsG3>(),
+            Capabilities::from_profile::<PtzOptics30X>(),
+        ] {
+            assert!(!caps.has_one_push_focus);
+            assert!(!caps.has_nd_filter);
+            assert_eq!(caps.nd_filter_type, None);
+            assert!(!caps.has_motion_sync);
+            assert_eq!(caps.max_motion_sync_speed, None);
+            assert!(!caps.has_variable_speed);
+        }
+
+        let fr7 = Capabilities::from_profile::<SonyFR7>();
+        assert!(fr7.has_nd_filter);
+        assert_eq!(fr7.nd_filter_type.as_deref(), Some("Variable ND filter"));
+        assert!(!fr7.has_one_push_focus);
+        assert!(!fr7.has_motion_sync);
+        assert_eq!(fr7.max_motion_sync_speed, None);
+        assert!(fr7.has_variable_speed);
+
+        for caps in [
+            Capabilities::from_profile::<GenericVisca>(),
+            Capabilities::from_profile::<SonyBRCH900>(),
+            Capabilities::from_profile::<SonyEVIH100>(),
+            Capabilities::from_profile::<SonyBRC300>(),
+            Capabilities::from_profile::<NearusBRC300>(),
+        ] {
+            assert!(!caps.has_one_push_focus);
+            assert!(!caps.has_nd_filter);
+            assert_eq!(caps.nd_filter_type, None);
+            assert!(!caps.has_motion_sync);
+            assert_eq!(caps.max_motion_sync_speed, None);
+            assert!(!caps.has_variable_speed);
+        }
     }
 
     #[test]

@@ -47,19 +47,26 @@ jobs:
         with:
           components: rustfmt
         continue-on-error: true
-        id: nightly-toolchain
 
-      # Fallback: retry with rustup directly if the action fails
-      - name: Retry nightly toolchain installation
-        if: steps.nightly-toolchain.outcome == 'failure'
+      # macOS runners have intermittently left `cargo` resolving to
+      # `rustup-init` after the install action reported success, so verify the
+      # toolchain is actually usable and fall back to a direct rustup install.
+      - name: Ensure nightly toolchain is usable
+        shell: bash
         run: |
+          if rustup component list --toolchain nightly --installed 2>/dev/null | grep -q '^rustfmt' \
+            && cargo +nightly --version >/dev/null 2>&1; then
+            cargo +nightly --version
+            exit 0
+          fi
           for i in {1..3}; do
             echo "Attempt $i of 3..."
             rustup toolchain install nightly --component rustfmt --profile minimal && break
             sleep 30
           done
+          cargo +nightly --version
 
-      - run: cargo fmt --all -- --check
+      - run: cargo +nightly fmt --all -- --check
 
   # Test on minimal platform for feature branches (uses reusable workflow)
   test-minimal:
@@ -99,17 +106,26 @@ jobs:
         with:
           toolchain: ${{ matrix.rust }}
         continue-on-error: true
-        id: matrix-toolchain
 
-      # Fallback: retry with rustup directly if the action fails
-      - name: Retry ${{ matrix.rust }} toolchain installation
-        if: steps.matrix-toolchain.outcome == 'failure'
+      # macOS runners have intermittently left `cargo` resolving to
+      # `rustup-init` after the install action reported success, so verify the
+      # toolchain is actually usable and fall back to a direct rustup install.
+      - name: Ensure ${{ matrix.rust }} toolchain is usable
+        shell: bash
         run: |
+          if rustup show active-toolchain 2>/dev/null | grep -q "${{ matrix.rust }}" \
+            && cargo +${{ matrix.rust }} --version >/dev/null 2>&1; then
+            cargo +${{ matrix.rust }} --version
+            exit 0
+          fi
           for i in {1..3}; do
             echo "Attempt $i of 3..."
-            rustup toolchain install ${{ matrix.rust }} --profile minimal && break
+            rustup toolchain install ${{ matrix.rust }} --profile minimal \
+              && rustup default ${{ matrix.rust }} \
+              && break
             sleep 30
           done
+          cargo +${{ matrix.rust }} --version
 
       # Setup sccache for compiler caching (gracefully handle service outages)
       - name: Setup sccache
@@ -156,17 +172,25 @@ jobs:
         with:
           toolchain: ${{ matrix.rust }}
         continue-on-error: true
-        id: matrix-toolchain
 
-      # Fallback: retry with rustup directly if the action fails
-      - name: Retry ${{ matrix.rust }} toolchain installation
-        if: steps.matrix-toolchain.outcome == 'failure'
+      # Mirror the Unix job's verify-and-fallback so a silently-unusable
+      # toolchain reinstalls before tests run.
+      - name: Ensure ${{ matrix.rust }} toolchain is usable
+        shell: bash
         run: |
+          if rustup show active-toolchain 2>/dev/null | grep -q "${{ matrix.rust }}" \
+            && cargo +${{ matrix.rust }} --version >/dev/null 2>&1; then
+            cargo +${{ matrix.rust }} --version
+            exit 0
+          fi
           for i in {1..3}; do
             echo "Attempt $i of 3..."
-            rustup toolchain install ${{ matrix.rust }} --profile minimal && break
+            rustup toolchain install ${{ matrix.rust }} --profile minimal \
+              && rustup default ${{ matrix.rust }} \
+              && break
             sleep 30
           done
+          cargo +${{ matrix.rust }} --version
 
       # Setup sccache for compiler caching (gracefully handle service outages)
       - name: Setup sccache

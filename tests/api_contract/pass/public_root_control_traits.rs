@@ -1,9 +1,9 @@
 use grafton_visca::{
     ColorControl, DirectMenuControl, ExposureCompensationControl, ExposureControl, FocusControl,
     FocusLockControl, ImageProcessingControl, InquiryControl, MenuControl, MotionControl,
-    MotionSyncControl, NdFilterControl, PanTiltControl, PanTiltInquiryControl, PowerControl,
-    PresetsControl, PushAFControl, StreamingControl, SystemControl, TallyControl,
-    VariableSpeedControl, WhiteBalanceControl, ZoomControl,
+    MotionSyncControl, NdFilterControl, NdFilterInquiryControl, PanTiltControl,
+    PanTiltInquiryControl, PowerControl, PresetsControl, PushAFControl, StreamingControl,
+    SystemControl, TallyControl, VariableSpeedControl, WhiteBalanceControl, ZoomControl,
 };
 
 use core::marker::PhantomData;
@@ -30,6 +30,7 @@ impl<T> RootControlBounds<T> where
         + MotionControl
         + MotionSyncControl
         + NdFilterControl
+        + NdFilterInquiryControl
         + PushAFControl
         + StreamingControl
         + SystemControl

@@ -1,10 +1,11 @@
-//! Motion sync capability trait for PtzOptics cameras.
+//! Motion sync metadata trait for camera profiles.
 
-/// Trait for cameras that support Motion Sync functionality.
+/// Metadata for a camera profile's Motion Sync capability.
 ///
-/// Motion Sync is a PtzOptics-specific feature that coordinates pan, tilt, and zoom
-/// movements for smoother preset recalls.
-pub trait MotionSync {
+/// This trait supplies runtime discovery defaults. It does not mean the typed
+/// Motion Sync control API is available for a profile; use
+/// [`crate::capabilities::HasMotionSync`] for that compile-time support marker.
+pub trait MotionSyncMetadata {
     /// Whether this camera supports motion sync.
     const SUPPORTS_MOTION_SYNC: bool = false;
 

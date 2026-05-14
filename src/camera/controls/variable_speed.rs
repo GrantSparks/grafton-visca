@@ -87,7 +87,7 @@ pub trait VariableSpeedControl {
 impl<M, P, Tr, Exec> VariableSpeedControl for crate::camera::Camera<M, P, Tr, Exec>
 where
     M: Mode,
-    P: crate::capabilities::Profile + Default + crate::capabilities::VariableSpeed,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasVariableSpeed,
     Self: ViscaClient<M>,
     Exec: crate::executor::Executor,
 {

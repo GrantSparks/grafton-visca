@@ -22,6 +22,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **BREAKING**: The unused `MotionGuard` helper and low-level `runtime_demo_lowlevel` example were removed; use explicit camera accessors such as `camera.zoom().stop()` and the high-level `runtime_demo` example instead
 - **BREAKING**: The direct blocking `nd_filter()` inquiry method was removed to reserve `camera.nd_filter()` for the camera-first ND filter accessor; use `camera.nd_filter().position()?`
 
+#### Optional Vendor Control Capability Gates (#518)
+- **BREAKING**: Optional vendor feature traits were split into runtime metadata traits (`NdFilterMetadata`, `MotionSyncMetadata`, `VariableSpeedMetadata`) and explicit typed API support markers (`HasNdFilter`, `HasMotionSync`, `HasVariableSpeed`)
+- **BREAKING**: Unsupported typed vendor controls no longer compile for profiles that only carry unsupported metadata defaults; for example, `PtzOpticsG2.nd_filter()`, `PtzOpticsG2.motion_sync()`, `GenericVisca.motion_sync()`, and `SonyFR7.motion_sync()` are no longer available
+- **BREAKING**: ND filter inquiries were removed from broad all-profile inquiry paths and are now gated with the ND filter support marker through `NdFilterInquiryControl`
+- `Profile` still requires optional-feature metadata so `Capabilities::from_profile::<P>()` can report `has_nd_filter`, `has_motion_sync`, `has_variable_speed`, `nd_filter_type`, and `max_motion_sync_speed` for every built-in profile
+- Built-in typed support markers now follow the documented model capabilities: `SonyFR7` supports typed ND filter and variable speed controls; built-in PTZOptics profiles remain unmarked for typed Motion Sync because the current model capability specs do not establish that support; `GenericVisca` and other built-ins remain unmarked for these optional vendor controls
+- Built-in profiles now report generic `SUPPORTS_ONE_PUSH_FOCUS = false` unless the reference docs establish that exact capability; FR7 still exposes its separate Push AF support through `HasPushAutoFocus`
+- Added contributor guidance for source-backed camera profile capability changes, including metadata/support-marker decisions and required test coverage
+- Raw/custom VISCA command extension APIs remain profile-agnostic escape hatches for advanced integrations
+
 #### Granular Iris Capability Modelling
 - **BREAKING**: `Exposure::IRIS_RANGE` changed from `Range<u16>` to `Option<Range<u16>>`; downstream `impl Exposure` blocks must wrap their range in `Some(...)` or use `None` for cameras that lack iris control
 - **BREAKING**: `Capabilities::iris_range` changed from `RangeInclusive<u16>` to `Option<RangeInclusive<u16>>`
@@ -55,6 +65,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 #### 1.0 API Contract Tests (#512)
 - Expanded the API stability suite from compile-presence checks into explicit 1.0 contract assertions for public value wrappers, profile capabilities, serialization/schema/type-generation features, and runtime/transport-gated public entry points
 - Added feature-specific compile contracts for async camera-first sessions, blocking serial, Tokio serial, `dyn-api`, and `test-utils` so supported feature surfaces fail loudly when their public API drifts
+- Added compile-fail contracts proving unsupported optional vendor controls and support-marker bounds stay unavailable for unsupported profiles
 
 #### Per-Profile Iris and Exposure-Mode Support
 - New `Exposure::EXPOSURE_MODES` associated constant lets each profile declare which exposure modes the hardware accepts (defaults to all five standard modes)
@@ -82,6 +93,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Compatibility-only feature unions are documented separately from supported contract rows, so CI coverage for dependency-graph combinations does not imply additional public API promises
 - CI feature coverage now includes explicit blocking detection, blocking serial, Tokio serial, serde/schemars/ts-rs, dyn-api, and Tokio/smol runtime coexistence entries
 - `dyn-api` is treated as a first-class 1.0 feature with public API contract coverage plus Tokio and smol runtime integration tests
+- README, crate docs, and examples now document the profile-gated vendor control matrix separately from runtime capability metadata
 
 #### PTZOptics Profiles Disable Iris
 - PTZOptics G2, G3, and 30X profiles now set `IRIS_RANGE: None` and exclude `ExposureMode::Iris` from their supported modes, reflecting hardware behaviour observed on real devices

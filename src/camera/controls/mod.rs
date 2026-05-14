@@ -33,7 +33,7 @@ pub use self::{
     exposure::{ExposureCompensationControl, ExposureControl},
     focus::{FocusControl, FocusLockControl, PushAFControl},
     image_processing::ImageProcessingControl,
-    inquiry::{InquiryControl, PanTiltInquiryControl},
+    inquiry::{InquiryControl, NdFilterInquiryControl, PanTiltInquiryControl},
     menu::{DirectMenuControl, MenuControl},
     motion::MotionControl,
     motion_sync::MotionSyncControl,

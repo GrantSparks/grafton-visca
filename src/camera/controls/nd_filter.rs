@@ -155,7 +155,7 @@ pub trait NdFilterControl {
 impl<M, P, Tr, Exec> NdFilterControl for crate::camera::Camera<M, P, Tr, Exec>
 where
     M: Mode,
-    P: crate::capabilities::Profile + Default + crate::capabilities::nd_filter::NdFilter,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasNdFilter,
     Self: ViscaClient<M>,
     Exec: crate::executor::Executor,
 {

@@ -53,6 +53,23 @@ documented rows they combine.
 | `SonyEVIH100`, `SonyBRC300`, `NearusBRC300` | Raw VISCA | Supported through profile capability gates and protocol tests |
 | `SonyBRCH900`, `SonyFR7` | Sony encapsulation | Supported through Sony encapsulation, profile capability gates, and protocol tests |
 
+### Profile-Gated Vendor Controls
+
+Typed vendor-specific controls are exposed only for profiles whose documented
+model capabilities support them. Runtime capability metadata remains available for
+discovery on every profile, and raw command escape hatches remain available for
+custom integrations.
+
+| Typed control surface | Profiles |
+| --------------------- | -------- |
+| ND filter controls and inquiries | `SonyFR7` |
+| Variable speed mode controls | `SonyFR7` |
+| Motion Sync controls and inquiries | Custom/evidenced profiles that explicitly implement `HasMotionSync`; no built-in profile is marked from the current specs |
+
+Contributors adding or changing profile capabilities should follow the
+[Camera Profile Support Guide](docs/camera_profile_support.md), which explains
+how source documents, runtime metadata, and typed support markers fit together.
+
 ### Optional features
 
 | Feature | 1.0 support |
@@ -215,6 +232,7 @@ Port can be omitted in connection strings; the profile default is used.
 - **[API Reference](https://docs.rs/grafton-visca)** — Complete type and method documentation
 - **[Examples](examples/)** — Maintained examples for common scenarios
 - **[Example Policy](docs/examples.md)** — 1.0 examples contract and maintenance rules
+- **[Camera Profile Support Guide](docs/camera_profile_support.md)** — Source-of-truth and testing rules for adding camera capabilities
 - **[CHANGELOG](CHANGELOG.md)** — Version history and migration guides
 
 ### Examples
