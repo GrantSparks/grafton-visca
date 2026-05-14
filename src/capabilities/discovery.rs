@@ -708,6 +708,8 @@ mod tests {
         assert!(caps.has_af_sensitivity);
         assert!(caps.has_focus_near_limit_inquiry);
         assert!(caps.has_rgb_gain);
+        assert!(!caps.has_color_temp);
+        assert_eq!(caps.color_temp_range, None);
         assert!(caps.has_nd_filter);
         assert_eq!(caps.nd_filter_type.as_deref(), Some("Variable ND filter"));
         assert!(!caps.has_motion_sync);
@@ -715,6 +717,26 @@ mod tests {
         assert!(caps.has_variable_speed);
 
         assert!(caps.has_advanced_features());
+    }
+
+    #[test]
+    fn test_color_temperature_profile_metadata_matches_sources() {
+        for caps in [
+            Capabilities::from_profile::<PtzOpticsG2>(),
+            Capabilities::from_profile::<PtzOpticsG3>(),
+            Capabilities::from_profile::<PtzOptics30X>(),
+            Capabilities::from_profile::<SonyBRCH900>(),
+            Capabilities::from_profile::<SonyEVIH100>(),
+        ] {
+            assert!(caps.has_color_temp);
+            assert_eq!(caps.color_temp_range, Some(2500..=8000));
+            assert_eq!(caps.wb_mode_count, 6);
+        }
+
+        let fr7 = Capabilities::from_profile::<SonyFR7>();
+        assert!(!fr7.has_color_temp);
+        assert_eq!(fr7.color_temp_range, None);
+        assert_eq!(fr7.wb_mode_count, 6);
     }
 
     #[test]

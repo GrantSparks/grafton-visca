@@ -148,6 +148,7 @@ If this gating model ships in a pre-1.0 release before the final cutover, prefer
 - `PtzOpticsG2`, `PtzOpticsG3`, and `PtzOptics30X` no longer expose typed VISCA digital zoom toggle, optical-plus-digital zoom positioning, iris controls/inquiry, one-push focus, or snap focus. Their raw command escape hatches remain available.
 - `GenericVisca` no longer exposes typed backlight/WDR, color-temperature, RGB gain/tuning, image flip/mirror, noise-reduction, or picture-effect APIs; those command bytes remain reachable through raw VISCA escape hatches.
 - `SonyFR7` and `SonyBRCH900` expose typed digital zoom and iris APIs through explicit support markers; `GenericVisca`, Sony BRC/EVI, and Nearus profiles retain iris support where their metadata has an iris range.
+- Color-temperature support now follows the checked-in VISCA reference: PTZOptics G2/G3/30X, Sony BRC-H900, and Sony EVI-H100 expose typed color-temperature APIs; Sony FR7 does not.
 - Direct zoom positioning now validates raw positions against the selected profile range before encoding, so a profile without digital zoom support cannot send an out-of-profile digital-range direct zoom command through the typed API.
 - `dyn-api` remains profile-erased and now rejects unsupported digital zoom, one-push focus, focus zone, and AF sensitivity requests before command construction.
 

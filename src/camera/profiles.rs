@@ -84,6 +84,16 @@ mod profile_constants {
         WhiteBalanceMode::Manual,
     ];
 
+    /// Sony VISCA white balance modes for models that document WB Color Temp mode.
+    pub const SONY_COLOR_TEMP_WB_MODES: &[WhiteBalanceMode] = &[
+        WhiteBalanceMode::Auto,
+        WhiteBalanceMode::Indoor,
+        WhiteBalanceMode::Outdoor,
+        WhiteBalanceMode::OnePush,
+        WhiteBalanceMode::Manual,
+        WhiteBalanceMode::ColorTemperature,
+    ];
+
     /// White balance modes for PTZOptics cameras (G2/G3/30X).
     ///
     /// PTZOptics cameras additionally support ColorTemperature mode (0x20)
@@ -110,7 +120,8 @@ mod profile_constants {
 
 use self::profile_constants::{
     GENERIC_VISCA_SHUTTER_SPEEDS, PTZ_OPTICS_EXPOSURE_MODES, PTZ_OPTICS_G2_SHUTTER_SPEEDS,
-    PTZ_OPTICS_WB_MODES, SONY_FR7_WB_MODES, STANDARD_EXPOSURE_MODES, STANDARD_WB_MODES,
+    PTZ_OPTICS_WB_MODES, SONY_COLOR_TEMP_WB_MODES, SONY_FR7_WB_MODES, STANDARD_EXPOSURE_MODES,
+    STANDARD_WB_MODES,
 };
 
 /// PtzOptics G2 camera profile.
@@ -411,8 +422,6 @@ impl WhiteBalance for SonyFR7 {
     const SUPPORTS_ONE_PUSH_WB: bool = true;
     const RG_TUNING_RANGE: Option<std::ops::Range<i8>> = Some(-7..8);
     const BG_TUNING_RANGE: Option<std::ops::Range<i8>> = Some(-7..8);
-    const SUPPORTS_COLOR_TEMP: bool = true;
-    const COLOR_TEMP_RANGE: Option<std::ops::Range<u16>> = Some(2800..7500);
     const SUPPORTS_RGB_GAIN: bool = true;
     const RED_GAIN_RANGE: Option<std::ops::Range<u8>> = Some(0..255);
     const BLUE_GAIN_RANGE: Option<std::ops::Range<u8>> = Some(0..255);
@@ -473,7 +482,6 @@ impl crate::capabilities::HasAutoFocusSensitivity for SonyFR7 {}
 impl crate::capabilities::HasFocusNearLimitInquiry for SonyFR7 {}
 impl crate::capabilities::HasBacklightCompensation for SonyFR7 {}
 impl crate::capabilities::HasWideDynamicRange for SonyFR7 {}
-impl crate::capabilities::HasColorTemperature for SonyFR7 {}
 impl crate::capabilities::HasRgbGain for SonyFR7 {}
 impl crate::capabilities::HasRgbTuning for SonyFR7 {}
 impl crate::capabilities::HasOnePushWhiteBalance for SonyFR7 {}
@@ -545,10 +553,12 @@ impl Exposure for SonyBRCH900 {
 }
 
 impl WhiteBalance for SonyBRCH900 {
-    const WB_MODES: &'static [WhiteBalanceMode] = STANDARD_WB_MODES;
+    const WB_MODES: &'static [WhiteBalanceMode] = SONY_COLOR_TEMP_WB_MODES;
     const SUPPORTS_ONE_PUSH_WB: bool = true;
     const RG_TUNING_RANGE: Option<std::ops::Range<i8>> = Some(-7..8);
     const BG_TUNING_RANGE: Option<std::ops::Range<i8>> = Some(-7..8);
+    const SUPPORTS_COLOR_TEMP: bool = true;
+    const COLOR_TEMP_RANGE: Option<std::ops::Range<u16>> = Some(2500..8001);
 }
 
 impl ImageProcessing for SonyBRCH900 {
@@ -590,6 +600,7 @@ impl crate::capabilities::HasIrisControl for SonyBRCH900 {}
 impl crate::capabilities::HasFocusNearLimitInquiry for SonyBRCH900 {}
 impl crate::capabilities::HasBacklightCompensation for SonyBRCH900 {}
 impl crate::capabilities::HasWideDynamicRange for SonyBRCH900 {}
+impl crate::capabilities::HasColorTemperature for SonyBRCH900 {}
 impl crate::capabilities::HasRgbTuning for SonyBRCH900 {}
 impl crate::capabilities::HasOnePushWhiteBalance for SonyBRCH900 {}
 impl crate::capabilities::HasImageFlip for SonyBRCH900 {}
@@ -651,10 +662,12 @@ impl Exposure for SonyEVIH100 {
 }
 
 impl WhiteBalance for SonyEVIH100 {
-    const WB_MODES: &'static [WhiteBalanceMode] = STANDARD_WB_MODES;
+    const WB_MODES: &'static [WhiteBalanceMode] = SONY_COLOR_TEMP_WB_MODES;
     const SUPPORTS_ONE_PUSH_WB: bool = true;
     const RG_TUNING_RANGE: Option<std::ops::Range<i8>> = Some(-7..8);
     const BG_TUNING_RANGE: Option<std::ops::Range<i8>> = Some(-7..8);
+    const SUPPORTS_COLOR_TEMP: bool = true;
+    const COLOR_TEMP_RANGE: Option<std::ops::Range<u16>> = Some(2500..8001);
 }
 
 impl Presets for SonyEVIH100 {
@@ -688,6 +701,7 @@ impl crate::capabilities::HasDirectZoom for SonyEVIH100 {}
 impl crate::capabilities::HasIrisControl for SonyEVIH100 {}
 impl crate::capabilities::HasFocusNearLimitInquiry for SonyEVIH100 {}
 impl crate::capabilities::HasBacklightCompensation for SonyEVIH100 {}
+impl crate::capabilities::HasColorTemperature for SonyEVIH100 {}
 impl crate::capabilities::HasRgbTuning for SonyEVIH100 {}
 impl crate::capabilities::HasOnePushWhiteBalance for SonyEVIH100 {}
 impl crate::capabilities::HasImageFlip for SonyEVIH100 {}
