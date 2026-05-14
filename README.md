@@ -66,6 +66,23 @@ custom integrations.
 | Variable speed mode controls | `SonyFR7` |
 | Motion Sync controls and inquiries | Custom/evidenced profiles that explicitly implement `HasMotionSync`; no built-in profile is marked from the current specs |
 
+### Profile-Gated Sub-Capabilities
+
+Broad control families are also decomposed when model support differs. For
+example, PTZOptics profiles still expose baseline zoom, exposure, and focus
+controls, but do not expose typed VISCA digital zoom, iris, one-push focus, or
+snap focus methods.
+
+| Typed control surface | Built-in profiles |
+| --------------------- | ----------------- |
+| Direct absolute zoom positioning | All built-ins except `GenericVisca` |
+| VISCA digital zoom toggle and optical-plus-digital positioning | `SonyFR7`, `SonyBRCH900` |
+| Iris control, iris-priority mode, and iris inquiry | `GenericVisca`, `SonyFR7`, `SonyBRCH900`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300` |
+| Standard one-push focus | No built-in profile currently marks this typed capability |
+| PTZOptics snap focus | No built-in profile currently marks this typed capability |
+| Focus zone and AF sensitivity | `SonyFR7` |
+| Focus near-limit inquiry | All built-ins except `PtzOpticsG2` |
+
 Contributors adding or changing profile capabilities should follow the
 [Camera Profile Support Guide](docs/camera_profile_support.md), which explains
 how source documents, runtime metadata, and typed support markers fit together.

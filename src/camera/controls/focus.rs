@@ -117,15 +117,6 @@ pub trait FocusControl {
     /// Returns an error if the command fails to send or receive a response.
     fn focus_stop(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
-    /// Trigger one-push auto focus.
-    ///
-    /// Performs a single auto focus operation to quickly achieve sharp focus,
-    /// then returns to the previous focus mode (typically manual).
-    ///
-    /// # Errors
-    /// Returns an error if the command fails to send or receive a response.
-    fn focus_one_push(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
-
     /// Set focus to a specific position.
     ///
     /// Moves focus directly to the specified absolute position.
@@ -175,33 +166,6 @@ pub trait FocusControl {
     /// Returns an error if the command fails to send or receive a response.
     fn focus_infinity(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
-    /// Set the focus zone.
-    ///
-    /// Determines which area of the image the camera uses for auto focus detection.
-    /// Different zones allow focusing on different parts of the scene.
-    ///
-    /// # Parameters
-    /// - `zone`: The focus detection zone to use
-    ///
-    /// # Errors
-    /// Returns an error if the command fails to send or receive a response.
-    fn set_focus_zone(&self, zone: FocusZone) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
-
-    /// Set auto focus sensitivity.
-    ///
-    /// Controls how responsive the auto focus system is to changes in the scene.
-    /// Higher sensitivity means faster response to scene changes but may cause hunting.
-    ///
-    /// # Parameters
-    /// - `sensitivity`: Auto focus sensitivity level
-    ///
-    /// # Errors
-    /// Returns an error if the command fails to send or receive a response.
-    fn set_auto_focus_sensitivity(
-        &self,
-        sensitivity: AutoFocusSensitivity,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
-
     /// Set the focus near limit.
     ///
     /// Sets the minimum focus distance to prevent the camera from focusing on objects
@@ -235,18 +199,49 @@ pub trait FocusControl {
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
     fn focus_toggle(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+}
 
-    /// Trigger snap focus (one-push AF in manual mode).
-    ///
-    /// Performs a single autofocus operation then returns to manual focus mode.
-    /// This is similar to `focus_one_push` but uses the PTZOptics-specific
-    /// snap focus implementation.
-    ///
-    /// **Vendor-Specific**: PTZOptics cameras only.
-    ///
-    /// # Errors
-    /// Returns an error if the command fails to send or receive a response.
+/// Standard one-push auto-focus for profiles with documented support.
+#[grafton_visca_macros::delegate_to_session]
+pub trait OnePushFocusControl {
+    /// The mode type for this camera (Async or Blocking).
+    type Mode: Mode;
+
+    /// Trigger one-push auto focus.
+    fn focus_one_push(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+}
+
+/// PTZOptics snap focus for profiles with documented support.
+#[grafton_visca_macros::delegate_to_session]
+pub trait SnapFocusControl {
+    /// The mode type for this camera (Async or Blocking).
+    type Mode: Mode;
+
+    /// Trigger snap focus.
     fn focus_snap(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+}
+
+/// Focus zone selection for profiles with documented support.
+#[grafton_visca_macros::delegate_to_session]
+pub trait FocusZoneControl {
+    /// The mode type for this camera (Async or Blocking).
+    type Mode: Mode;
+
+    /// Set the focus zone.
+    fn set_focus_zone(&self, zone: FocusZone) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+}
+
+/// Auto-focus sensitivity control for profiles with documented support.
+#[grafton_visca_macros::delegate_to_session]
+pub trait AutoFocusSensitivityControl {
+    /// The mode type for this camera (Async or Blocking).
+    type Mode: Mode;
+
+    /// Set auto focus sensitivity.
+    fn set_auto_focus_sensitivity(
+        &self,
+        sensitivity: AutoFocusSensitivity,
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 }
 
 fn validate_focus_position<P>(position: FocusPosition) -> Result<FocusPosition, Error>
@@ -327,15 +322,6 @@ where
         self.execute(Focus::Stop)
     }
 
-    fn focus_one_push(&self) -> M::Fut<'_, Result<(), Error>> {
-        if !P::SUPPORTS_ONE_PUSH_FOCUS {
-            return self.error(Error::FeatureNotSupported {
-                feature: "one-push focus",
-            });
-        }
-        self.execute(Focus::OnePushTrigger)
-    }
-
     fn set_focus<T>(&self, position: T) -> M::Fut<'_, Result<(), Error>>
     where
         T: TryInto<FocusPosition>,
@@ -349,17 +335,6 @@ where
 
     fn focus_infinity(&self) -> M::Fut<'_, Result<(), Error>> {
         self.execute(Focus::Infinity)
-    }
-
-    fn set_focus_zone(&self, zone: FocusZone) -> M::Fut<'_, Result<(), Error>> {
-        self.execute(FocusZoneCommand { zone })
-    }
-
-    fn set_auto_focus_sensitivity(
-        &self,
-        sensitivity: AutoFocusSensitivity,
-    ) -> M::Fut<'_, Result<(), Error>> {
-        self.execute(AutoFocusSensitivityCommand { sensitivity })
     }
 
     fn set_focus_near_limit<T>(&self, position: T) -> M::Fut<'_, Result<(), Error>>
@@ -376,14 +351,64 @@ where
     fn focus_toggle(&self) -> M::Fut<'_, Result<(), Error>> {
         self.execute(Focus::Toggle)
     }
+}
+
+impl<M, P, Tr, Exec> OnePushFocusControl for crate::camera::Camera<M, P, Tr, Exec>
+where
+    M: Mode,
+    P: crate::capabilities::Profile + crate::capabilities::HasOnePushFocus + Default,
+    Self: ViscaClient<M>,
+    Exec: crate::executor::Executor,
+{
+    type Mode = M;
+
+    fn focus_one_push(&self) -> M::Fut<'_, Result<(), Error>> {
+        self.execute(Focus::OnePushTrigger)
+    }
+}
+
+impl<M, P, Tr, Exec> SnapFocusControl for crate::camera::Camera<M, P, Tr, Exec>
+where
+    M: Mode,
+    P: crate::capabilities::Profile + crate::capabilities::HasPtzOpticsSnapFocus + Default,
+    Self: ViscaClient<M>,
+    Exec: crate::executor::Executor,
+{
+    type Mode = M;
 
     fn focus_snap(&self) -> M::Fut<'_, Result<(), Error>> {
-        if !P::SUPPORTS_ONE_PUSH_FOCUS {
-            return self.error(Error::FeatureNotSupported {
-                feature: "snap focus",
-            });
-        }
         self.execute(Focus::Snap)
+    }
+}
+
+impl<M, P, Tr, Exec> FocusZoneControl for crate::camera::Camera<M, P, Tr, Exec>
+where
+    M: Mode,
+    P: crate::capabilities::Profile + crate::capabilities::HasFocusZone + Default,
+    Self: ViscaClient<M>,
+    Exec: crate::executor::Executor,
+{
+    type Mode = M;
+
+    fn set_focus_zone(&self, zone: FocusZone) -> M::Fut<'_, Result<(), Error>> {
+        self.execute(FocusZoneCommand { zone })
+    }
+}
+
+impl<M, P, Tr, Exec> AutoFocusSensitivityControl for crate::camera::Camera<M, P, Tr, Exec>
+where
+    M: Mode,
+    P: crate::capabilities::Profile + crate::capabilities::HasAutoFocusSensitivity + Default,
+    Self: ViscaClient<M>,
+    Exec: crate::executor::Executor,
+{
+    type Mode = M;
+
+    fn set_auto_focus_sensitivity(
+        &self,
+        sensitivity: AutoFocusSensitivity,
+    ) -> M::Fut<'_, Result<(), Error>> {
+        self.execute(AutoFocusSensitivityCommand { sensitivity })
     }
 }
 

@@ -58,7 +58,6 @@ inquiry_test!(test_focus_mode, focus_mode);
 
 // === Exposure inquiries ===
 inquiry_test!(test_exposure_mode, exposure_mode);
-inquiry_test!(test_iris, iris);
 inquiry_test!(test_shutter, shutter);
 inquiry_test!(test_gain, gain);
 inquiry_test!(test_gain_limit, gain_limit);
@@ -156,7 +155,6 @@ fn test_all_inquiries_succeed() {
 
     // Exposure
     check!("exposure_mode", camera.exposure_mode());
-    check!("iris", camera.iris());
     check!("shutter", camera.shutter());
     check!("gain", camera.gain());
     check!("gain_limit", camera.gain_limit());

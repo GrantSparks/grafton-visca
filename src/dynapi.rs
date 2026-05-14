@@ -1209,28 +1209,54 @@ where
         position: ZoomPosition,
         timeout: Option<Duration>,
     ) -> BoxFuture<'_, Result<(), Error>> {
+        if !self.capabilities().supports_direct_zoom {
+            return Box::pin(async {
+                Err(Error::FeatureNotSupported {
+                    feature: "direct zoom positioning",
+                })
+            });
+        }
+
         match timeout {
             Some(t) => Box::pin(async move {
-                let handle = self.inner.camera.set_zoom_op(position).await?;
+                let command =
+                    crate::camera::controls::zoom::zoom_position_command::<P, _>(position)?;
+                let handle = self.inner.camera.start_zoom_operation(command).await?;
                 handle.await_completion(t).await
             }),
-            None => {
-                use crate::camera::controls::zoom::ZoomControl;
-                self.inner.camera.set_zoom(position)
-            }
+            None => match crate::camera::controls::zoom::zoom_position_command::<P, _>(position) {
+                Ok(command) => self.inner.camera.execute(command),
+                Err(error) => Box::pin(async move { Err(error) }),
+            },
         }
     }
 
     fn set_zoom_op(&self, position: ZoomPosition) -> BoxFuture<'_, Result<InFlightDyn, Error>> {
         Box::pin(async move {
-            let handle = self.inner.camera.set_zoom_op(position).await?;
+            if !self.capabilities().supports_direct_zoom {
+                return Err(Error::FeatureNotSupported {
+                    feature: "direct zoom positioning",
+                });
+            }
+
+            let command = crate::camera::controls::zoom::zoom_position_command::<P, _>(position)?;
+            let handle = self.inner.camera.start_zoom_operation(command).await?;
             self.erase_inflight(handle, OperationCategory::Zoom)
         })
     }
 
     fn set_digital_zoom(&self, enabled: bool) -> BoxFuture<'_, Result<(), Error>> {
-        use crate::camera::controls::zoom::ZoomControl;
-        self.inner.camera.set_digital_zoom(enabled)
+        if !self.capabilities().has_digital_zoom {
+            return Box::pin(async {
+                Err(Error::FeatureNotSupported {
+                    feature: "digital zoom",
+                })
+            });
+        }
+
+        self.inner
+            .camera
+            .execute(crate::command::zoom::DigitalZoom::new(enabled))
     }
 
     fn zoom_absolute_normalized(
@@ -1239,18 +1265,50 @@ where
         domain: ZoomDomain,
         timeout: Option<Duration>,
     ) -> BoxFuture<'_, Result<(), Error>> {
+        if !self.capabilities().supports_direct_zoom {
+            return Box::pin(async {
+                Err(Error::FeatureNotSupported {
+                    feature: "direct zoom positioning",
+                })
+            });
+        }
+
+        if domain == ZoomDomain::OpticalPlusDigital && !self.capabilities().has_digital_zoom {
+            return Box::pin(async {
+                Err(Error::FeatureNotSupported {
+                    feature: "digital zoom",
+                })
+            });
+        }
+
         match timeout {
             Some(t) => Box::pin(async move {
-                let handle = self
-                    .inner
-                    .camera
-                    .zoom_absolute_normalized_op(position, domain)
-                    .await?;
+                use crate::ZoomPositionExt;
+
+                let zoom = ZoomPosition::from_normalized(
+                    position,
+                    domain,
+                    <P as crate::capabilities::zoom::Zoom>::OPTICAL_ZOOM_MAX,
+                    <P as crate::capabilities::zoom::Zoom>::DIGITAL_ZOOM_MAX,
+                )?;
+                let command = crate::camera::controls::zoom::zoom_position_command::<P, _>(zoom)?;
+                let handle = self.inner.camera.start_zoom_operation(command).await?;
                 handle.await_completion(t).await
             }),
             None => {
-                use crate::camera::controls::zoom::ZoomControl;
-                self.inner.camera.zoom_absolute_normalized(position, domain)
+                use crate::ZoomPositionExt;
+
+                let command = ZoomPosition::from_normalized(
+                    position,
+                    domain,
+                    <P as crate::capabilities::zoom::Zoom>::OPTICAL_ZOOM_MAX,
+                    <P as crate::capabilities::zoom::Zoom>::DIGITAL_ZOOM_MAX,
+                )
+                .and_then(crate::camera::controls::zoom::zoom_position_command::<P, _>);
+                match command {
+                    Ok(command) => self.inner.camera.execute(command),
+                    Err(error) => Box::pin(async move { Err(error) }),
+                }
             }
         }
     }
@@ -1290,8 +1348,17 @@ where
     }
 
     fn focus_one_push(&self) -> BoxFuture<'_, Result<(), Error>> {
-        use crate::camera::controls::focus::FocusControl;
-        self.inner.camera.focus_one_push()
+        if !self.capabilities().has_one_push_focus {
+            return Box::pin(async {
+                Err(Error::FeatureNotSupported {
+                    feature: "one-push focus",
+                })
+            });
+        }
+
+        self.inner
+            .camera
+            .execute(crate::command::focus::Focus::OnePushTrigger)
     }
 
     fn set_focus(
@@ -1324,16 +1391,34 @@ where
     }
 
     fn set_focus_zone(&self, zone: FocusZone) -> BoxFuture<'_, Result<(), Error>> {
-        use crate::camera::controls::focus::FocusControl;
-        self.inner.camera.set_focus_zone(zone)
+        if !self.capabilities().has_focus_zone {
+            return Box::pin(async {
+                Err(Error::FeatureNotSupported {
+                    feature: "focus zone",
+                })
+            });
+        }
+
+        self.inner
+            .camera
+            .execute(crate::command::focus::FocusZoneCommand { zone })
     }
 
     fn set_auto_focus_sensitivity(
         &self,
         sensitivity: AutoFocusSensitivity,
     ) -> BoxFuture<'_, Result<(), Error>> {
-        use crate::camera::controls::focus::FocusControl;
-        self.inner.camera.set_auto_focus_sensitivity(sensitivity)
+        if !self.capabilities().has_af_sensitivity {
+            return Box::pin(async {
+                Err(Error::FeatureNotSupported {
+                    feature: "auto-focus sensitivity",
+                })
+            });
+        }
+
+        self.inner
+            .camera
+            .execute(crate::command::focus::AutoFocusSensitivityCommand { sensitivity })
     }
 
     fn set_focus_near_limit(&self, position: FocusPosition) -> BoxFuture<'_, Result<(), Error>> {

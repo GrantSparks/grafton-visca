@@ -222,6 +222,12 @@ impl crate::capabilities::Tally for PtzOpticsG2 {}
 
 impl crate::capabilities::HasExposureCompensation for PtzOpticsG2 {}
 impl crate::capabilities::HasFocusLock for PtzOpticsG2 {}
+impl crate::capabilities::HasDirectZoom for PtzOpticsG2 {}
+impl crate::capabilities::HasBacklightCompensation for PtzOpticsG2 {}
+impl crate::capabilities::HasWideDynamicRange for PtzOpticsG2 {}
+impl crate::capabilities::HasColorTemperature for PtzOpticsG2 {}
+impl crate::capabilities::HasRgbGain for PtzOpticsG2 {}
+impl crate::capabilities::HasRgbTuning for PtzOpticsG2 {}
 impl NdFilterMetadata for PtzOpticsG2 {}
 impl VariableSpeedMetadata for PtzOpticsG2 {}
 
@@ -316,6 +322,8 @@ impl Presets for GenericVisca {
 }
 
 impl crate::capabilities::Tally for GenericVisca {}
+impl crate::capabilities::HasIrisControl for GenericVisca {}
+impl crate::capabilities::HasFocusNearLimitInquiry for GenericVisca {}
 impl MotionSyncMetadata for GenericVisca {}
 impl NdFilterMetadata for GenericVisca {}
 impl VariableSpeedMetadata for GenericVisca {}
@@ -433,6 +441,18 @@ impl HasVariableSpeed for SonyFR7 {}
 
 impl crate::capabilities::HasExposureCompensation for SonyFR7 {}
 impl crate::capabilities::HasPushAutoFocus for SonyFR7 {}
+impl crate::capabilities::HasDirectZoom for SonyFR7 {}
+impl crate::capabilities::HasDigitalZoomToggle for SonyFR7 {}
+impl crate::capabilities::HasDigitalZoomRange for SonyFR7 {}
+impl crate::capabilities::HasIrisControl for SonyFR7 {}
+impl crate::capabilities::HasFocusZone for SonyFR7 {}
+impl crate::capabilities::HasAutoFocusSensitivity for SonyFR7 {}
+impl crate::capabilities::HasFocusNearLimitInquiry for SonyFR7 {}
+impl crate::capabilities::HasBacklightCompensation for SonyFR7 {}
+impl crate::capabilities::HasWideDynamicRange for SonyFR7 {}
+impl crate::capabilities::HasColorTemperature for SonyFR7 {}
+impl crate::capabilities::HasRgbGain for SonyFR7 {}
+impl crate::capabilities::HasRgbTuning for SonyFR7 {}
 impl crate::capabilities::menu_control::HasDirectMenuControl for SonyFR7 {}
 impl crate::capabilities::Tally for SonyFR7 {
     const SUPPORTS_TALLY: bool = true;
@@ -529,6 +549,14 @@ impl crate::capabilities::Tally for SonyBRCH900 {
 impl MotionSyncMetadata for SonyBRCH900 {}
 impl NdFilterMetadata for SonyBRCH900 {}
 impl VariableSpeedMetadata for SonyBRCH900 {}
+impl crate::capabilities::HasDirectZoom for SonyBRCH900 {}
+impl crate::capabilities::HasDigitalZoomToggle for SonyBRCH900 {}
+impl crate::capabilities::HasDigitalZoomRange for SonyBRCH900 {}
+impl crate::capabilities::HasIrisControl for SonyBRCH900 {}
+impl crate::capabilities::HasFocusNearLimitInquiry for SonyBRCH900 {}
+impl crate::capabilities::HasBacklightCompensation for SonyBRCH900 {}
+impl crate::capabilities::HasWideDynamicRange for SonyBRCH900 {}
+impl crate::capabilities::HasRgbTuning for SonyBRCH900 {}
 
 /// Sony EVI-H100 camera profile.
 ///
@@ -613,6 +641,11 @@ impl ImageProcessing for SonyEVIH100 {
 
 impl MenuCapability for SonyEVIH100 {}
 impl crate::capabilities::Tally for SonyEVIH100 {}
+impl crate::capabilities::HasDirectZoom for SonyEVIH100 {}
+impl crate::capabilities::HasIrisControl for SonyEVIH100 {}
+impl crate::capabilities::HasFocusNearLimitInquiry for SonyEVIH100 {}
+impl crate::capabilities::HasBacklightCompensation for SonyEVIH100 {}
+impl crate::capabilities::HasRgbTuning for SonyEVIH100 {}
 impl MotionSyncMetadata for SonyEVIH100 {}
 impl NdFilterMetadata for SonyEVIH100 {}
 impl VariableSpeedMetadata for SonyEVIH100 {}
@@ -699,6 +732,10 @@ impl ImageProcessing for SonyBRC300 {
 
 impl MenuCapability for SonyBRC300 {}
 impl crate::capabilities::Tally for SonyBRC300 {}
+impl crate::capabilities::HasDirectZoom for SonyBRC300 {}
+impl crate::capabilities::HasIrisControl for SonyBRC300 {}
+impl crate::capabilities::HasFocusNearLimitInquiry for SonyBRC300 {}
+impl crate::capabilities::HasBacklightCompensation for SonyBRC300 {}
 impl MotionSyncMetadata for SonyBRC300 {}
 impl NdFilterMetadata for SonyBRC300 {}
 impl VariableSpeedMetadata for SonyBRC300 {}
@@ -783,6 +820,10 @@ impl ImageProcessing for NearusBRC300 {
 
 impl MenuCapability for NearusBRC300 {}
 impl crate::capabilities::Tally for NearusBRC300 {}
+impl crate::capabilities::HasDirectZoom for NearusBRC300 {}
+impl crate::capabilities::HasIrisControl for NearusBRC300 {}
+impl crate::capabilities::HasFocusNearLimitInquiry for NearusBRC300 {}
+impl crate::capabilities::HasBacklightCompensation for NearusBRC300 {}
 impl MotionSyncMetadata for NearusBRC300 {}
 impl NdFilterMetadata for NearusBRC300 {}
 impl VariableSpeedMetadata for NearusBRC300 {}
@@ -887,6 +928,13 @@ impl MenuCapability for PtzOpticsG3 {}
 impl crate::capabilities::Tally for PtzOpticsG3 {}
 impl crate::capabilities::HasExposureCompensation for PtzOpticsG3 {}
 impl crate::capabilities::HasFocusLock for PtzOpticsG3 {}
+impl crate::capabilities::HasDirectZoom for PtzOpticsG3 {}
+impl crate::capabilities::HasFocusNearLimitInquiry for PtzOpticsG3 {}
+impl crate::capabilities::HasBacklightCompensation for PtzOpticsG3 {}
+impl crate::capabilities::HasWideDynamicRange for PtzOpticsG3 {}
+impl crate::capabilities::HasColorTemperature for PtzOpticsG3 {}
+impl crate::capabilities::HasRgbGain for PtzOpticsG3 {}
+impl crate::capabilities::HasRgbTuning for PtzOpticsG3 {}
 
 impl MotionSyncMetadata for PtzOpticsG3 {}
 impl NdFilterMetadata for PtzOpticsG3 {}
@@ -992,6 +1040,13 @@ impl MenuCapability for PtzOptics30X {}
 impl crate::capabilities::Tally for PtzOptics30X {}
 impl crate::capabilities::HasExposureCompensation for PtzOptics30X {}
 impl crate::capabilities::HasFocusLock for PtzOptics30X {}
+impl crate::capabilities::HasDirectZoom for PtzOptics30X {}
+impl crate::capabilities::HasFocusNearLimitInquiry for PtzOptics30X {}
+impl crate::capabilities::HasBacklightCompensation for PtzOptics30X {}
+impl crate::capabilities::HasWideDynamicRange for PtzOptics30X {}
+impl crate::capabilities::HasColorTemperature for PtzOptics30X {}
+impl crate::capabilities::HasRgbGain for PtzOptics30X {}
+impl crate::capabilities::HasRgbTuning for PtzOptics30X {}
 
 impl MotionSyncMetadata for PtzOptics30X {}
 impl NdFilterMetadata for PtzOptics30X {}

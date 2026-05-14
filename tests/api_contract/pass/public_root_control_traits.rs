@@ -1,9 +1,13 @@
 use grafton_visca::{
-    ColorControl, DirectMenuControl, ExposureCompensationControl, ExposureControl, FocusControl,
-    FocusLockControl, ImageProcessingControl, InquiryControl, MenuControl, MotionControl,
-    MotionSyncControl, NdFilterControl, NdFilterInquiryControl, PanTiltControl,
-    PanTiltInquiryControl, PowerControl, PresetsControl, PushAFControl, StreamingControl,
-    SystemControl, TallyControl, VariableSpeedControl, WhiteBalanceControl, ZoomControl,
+    AutoFocusSensitivityControl, AutoFocusSensitivityInquiryControl, ColorControl,
+    DigitalZoomControl, DigitalZoomRangeControl, DirectMenuControl, DirectZoomControl,
+    ExposureCompensationControl, ExposureControl, FocusControl, FocusLockControl,
+    FocusNearLimitInquiryControl, FocusZoneControl, FocusZoneInquiryControl,
+    ImageProcessingControl, InquiryControl, IrisControl, IrisInquiryControl, MenuControl,
+    MotionControl, MotionSyncControl, NdFilterControl, NdFilterInquiryControl, OnePushFocusControl,
+    PanTiltControl, PanTiltInquiryControl, PowerControl, PresetsControl, PushAFControl,
+    SnapFocusControl, StreamingControl, SystemControl, TallyControl, VariableSpeedControl,
+    WhiteBalanceControl, ZoomControl,
 };
 
 use core::marker::PhantomData;
@@ -13,12 +17,24 @@ struct RootControlBounds<T>(PhantomData<T>);
 impl<T> RootControlBounds<T> where
     T: PowerControl
         + ZoomControl
+        + DirectZoomControl
+        + DigitalZoomControl
+        + DigitalZoomRangeControl
         + FocusControl
+        + OnePushFocusControl
+        + SnapFocusControl
+        + FocusZoneControl
+        + AutoFocusSensitivityControl
         + PanTiltControl
         + PanTiltInquiryControl
         + PresetsControl
         + InquiryControl
+        + FocusNearLimitInquiryControl
+        + FocusZoneInquiryControl
+        + AutoFocusSensitivityInquiryControl
+        + IrisInquiryControl
         + ExposureControl
+        + IrisControl
         + WhiteBalanceControl
         + ImageProcessingControl
         + TallyControl

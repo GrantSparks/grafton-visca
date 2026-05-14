@@ -30,10 +30,16 @@ pub mod zoom;
 
 pub use self::{
     color::ColorControl,
-    exposure::{ExposureCompensationControl, ExposureControl},
-    focus::{FocusControl, FocusLockControl, PushAFControl},
+    exposure::{ExposureCompensationControl, ExposureControl, IrisControl},
+    focus::{
+        AutoFocusSensitivityControl, FocusControl, FocusLockControl, FocusZoneControl,
+        OnePushFocusControl, PushAFControl, SnapFocusControl,
+    },
     image_processing::ImageProcessingControl,
-    inquiry::{InquiryControl, NdFilterInquiryControl, PanTiltInquiryControl},
+    inquiry::{
+        AutoFocusSensitivityInquiryControl, FocusNearLimitInquiryControl, FocusZoneInquiryControl,
+        InquiryControl, IrisInquiryControl, NdFilterInquiryControl, PanTiltInquiryControl,
+    },
     menu::{DirectMenuControl, MenuControl},
     motion::MotionControl,
     motion_sync::MotionSyncControl,
@@ -46,5 +52,5 @@ pub use self::{
     tally::TallyControl,
     variable_speed::VariableSpeedControl,
     white_balance::WhiteBalanceControl,
-    zoom::ZoomControl,
+    zoom::{DigitalZoomControl, DigitalZoomRangeControl, DirectZoomControl, ZoomControl},
 };

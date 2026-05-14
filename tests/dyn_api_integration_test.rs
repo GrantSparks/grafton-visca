@@ -419,27 +419,15 @@ async fn test_dyn_validation_parity_for_pan_tilt_focus_preset_and_zoom_domain() 
     );
 
     let normalized = Normalized::new(0.5).expect("valid normalized value");
-    let static_zoom = static_camera
-        .zoom_absolute_normalized(normalized, ZoomDomain::OpticalPlusDigital)
-        .await;
     let dyn_zoom = dyn_camera
         .zoom()
         .zoom_absolute_normalized(normalized, ZoomDomain::OpticalPlusDigital, None)
         .await;
     assert!(
         matches!(
-            static_zoom,
-            Err(Error::FeatureNotSupported {
-                feature: "Digital zoom"
-            })
-        ),
-        "static zoom should reject unsupported digital zoom domain: {static_zoom:?}"
-    );
-    assert!(
-        matches!(
             dyn_zoom,
             Err(Error::FeatureNotSupported {
-                feature: "Digital zoom"
+                feature: "digital zoom"
             })
         ),
         "dyn zoom should reject unsupported digital zoom domain: {dyn_zoom:?}"

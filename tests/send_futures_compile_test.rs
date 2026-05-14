@@ -6,7 +6,10 @@
 
 #![cfg(feature = "mode-async")]
 
-use grafton_visca::camera::controls::{power::PowerControl, zoom::ZoomControl};
+use grafton_visca::camera::controls::{
+    power::PowerControl,
+    zoom::{DigitalZoomControl, DigitalZoomRangeControl, DirectZoomControl, ZoomControl},
+};
 
 /// Helper function to assert that a future is Send.
 fn assert_send<F>(_f: F)
@@ -59,6 +62,11 @@ impl ZoomControl for MockCamera {
     ) -> <Self::Mode as grafton_visca::mode::Mode>::Fut<'_, Result<(), grafton_visca::Error>> {
         Box::pin(async { Ok(()) })
     }
+}
+
+impl DirectZoomControl for MockCamera {
+    type Mode = grafton_visca::mode::Async;
+
     fn set_zoom<T>(
         &self,
         _position: T,
@@ -69,12 +77,22 @@ impl ZoomControl for MockCamera {
     {
         Box::pin(async { Ok(()) })
     }
+}
+
+impl DigitalZoomControl for MockCamera {
+    type Mode = grafton_visca::mode::Async;
+
     fn set_digital_zoom(
         &self,
         _enabled: bool,
     ) -> <Self::Mode as grafton_visca::mode::Mode>::Fut<'_, Result<(), grafton_visca::Error>> {
         Box::pin(async { Ok(()) })
     }
+}
+
+impl DigitalZoomRangeControl for MockCamera {
+    type Mode = grafton_visca::mode::Async;
+
     fn zoom_absolute_normalized(
         &self,
         _position: grafton_visca::Normalized,

@@ -41,19 +41,6 @@ where
     }
 }
 
-fn ensure_iris_control_supported<P>() -> Result<(), Error>
-where
-    P: crate::capabilities::exposure::Exposure,
-{
-    if P::IRIS_RANGE.is_some() {
-        Ok(())
-    } else {
-        Err(Error::FeatureNotSupported {
-            feature: "Iris control",
-        })
-    }
-}
-
 /// Exposure operations for PTZ cameras.
 ///
 /// This trait provides comprehensive exposure control methods that work seamlessly for both
@@ -130,15 +117,6 @@ pub trait ExposureControl {
     /// Returns an error if the command fails to send or receive a response.
     fn exposure_shutter_priority(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
-    /// Set iris priority exposure mode.
-    ///
-    /// In iris priority mode, you set the iris (aperture) and the camera
-    /// automatically adjusts shutter speed to maintain proper exposure.
-    ///
-    /// # Errors
-    /// Returns an error if the command fails to send or receive a response.
-    fn exposure_iris_priority(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
-
     /// Set brightness priority exposure mode.
     ///
     /// In brightness priority mode, the camera maintains a consistent brightness
@@ -147,46 +125,6 @@ pub trait ExposureControl {
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
     fn exposure_bright_mode(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
-
-    /// Set iris level.
-    ///
-    /// Sets the iris (aperture) to a specific level. Lower values = more closed aperture
-    /// (smaller opening, greater depth of field). Higher values = more open aperture
-    /// (larger opening, shallower depth of field).
-    ///
-    /// # Parameters
-    /// - `level`: The iris level to set
-    ///
-    /// # Errors
-    /// Returns an error if the command fails to send or receive a response.
-    fn set_iris(
-        &self,
-        level: crate::types::IrisLevel,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
-
-    /// Reset iris to default.
-    ///
-    /// Resets the iris to the camera's default level.
-    ///
-    /// # Errors
-    /// Returns an error if the command fails to send or receive a response.
-    fn reset_iris(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
-
-    /// Increase iris (open aperture).
-    ///
-    /// Opens the aperture by one step, allowing more light in and reducing depth of field.
-    ///
-    /// # Errors
-    /// Returns an error if the command fails to send or receive a response.
-    fn increase_iris(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
-
-    /// Decrease iris (close aperture).
-    ///
-    /// Closes the aperture by one step, allowing less light in and increasing depth of field.
-    ///
-    /// # Errors
-    /// Returns an error if the command fails to send or receive a response.
-    fn decrease_iris(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
     /// Set brightness level.
     ///
@@ -449,6 +387,31 @@ pub trait ExposureControl {
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 }
 
+/// Iris operations for profiles with source-backed iris support.
+#[grafton_visca_macros::delegate_to_session]
+pub trait IrisControl {
+    /// The mode type for this camera (Async or Blocking).
+    type Mode: Mode;
+
+    /// Set iris priority exposure mode.
+    fn exposure_iris_priority(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+
+    /// Set iris level.
+    fn set_iris(
+        &self,
+        level: crate::types::IrisLevel,
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+
+    /// Reset iris to default.
+    fn reset_iris(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+
+    /// Increase iris (open aperture).
+    fn increase_iris(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+
+    /// Decrease iris (close aperture).
+    fn decrease_iris(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+}
+
 // Single unified implementation for all Camera types!
 impl<M, P, Tr, Exec> ExposureControl for crate::camera::Camera<M, P, Tr, Exec>
 where
@@ -483,48 +446,8 @@ where
         self.set_exposure_mode(crate::command::exposure::ExposureMode::Shutter)
     }
 
-    fn exposure_iris_priority(&self) -> M::Fut<'_, Result<(), Error>> {
-        self.set_exposure_mode(crate::command::exposure::ExposureMode::Iris)
-    }
-
     fn exposure_bright_mode(&self) -> M::Fut<'_, Result<(), Error>> {
         self.set_exposure_mode(crate::command::exposure::ExposureMode::Bright)
-    }
-
-    fn set_iris(&self, level: crate::types::IrisLevel) -> M::Fut<'_, Result<(), Error>> {
-        if let Err(err) = ensure_iris_control_supported::<P>() {
-            return self.error(err);
-        }
-
-        let cmd = crate::command::exposure::Iris::SetAperture(level);
-        self.execute(cmd)
-    }
-
-    fn reset_iris(&self) -> M::Fut<'_, Result<(), Error>> {
-        if let Err(err) = ensure_iris_control_supported::<P>() {
-            return self.error(err);
-        }
-
-        let cmd = crate::command::exposure::Iris::Reset;
-        self.execute(cmd)
-    }
-
-    fn increase_iris(&self) -> M::Fut<'_, Result<(), Error>> {
-        if let Err(err) = ensure_iris_control_supported::<P>() {
-            return self.error(err);
-        }
-
-        let cmd = crate::command::exposure::Iris::Up;
-        self.execute(cmd)
-    }
-
-    fn decrease_iris(&self) -> M::Fut<'_, Result<(), Error>> {
-        if let Err(err) = ensure_iris_control_supported::<P>() {
-            return self.error(err);
-        }
-
-        let cmd = crate::command::exposure::Iris::Down;
-        self.execute(cmd)
     }
 
     fn set_brightness(
@@ -656,6 +579,46 @@ where
     }
 }
 
+impl<M, P, Tr, Exec> IrisControl for crate::camera::Camera<M, P, Tr, Exec>
+where
+    M: Mode,
+    P: crate::capabilities::Profile
+        + Default
+        + crate::capabilities::exposure::Exposure
+        + crate::capabilities::HasIrisControl,
+    Self: ViscaClient<M>,
+    Exec: crate::executor::Executor,
+{
+    type Mode = M;
+
+    fn exposure_iris_priority(&self) -> M::Fut<'_, Result<(), Error>> {
+        let cmd = crate::command::exposure::ExposureCommand {
+            mode: crate::command::exposure::ExposureMode::Iris,
+        };
+        self.execute(cmd)
+    }
+
+    fn set_iris(&self, level: crate::types::IrisLevel) -> M::Fut<'_, Result<(), Error>> {
+        let cmd = crate::command::exposure::Iris::SetAperture(level);
+        self.execute(cmd)
+    }
+
+    fn reset_iris(&self) -> M::Fut<'_, Result<(), Error>> {
+        let cmd = crate::command::exposure::Iris::Reset;
+        self.execute(cmd)
+    }
+
+    fn increase_iris(&self) -> M::Fut<'_, Result<(), Error>> {
+        let cmd = crate::command::exposure::Iris::Up;
+        self.execute(cmd)
+    }
+
+    fn decrease_iris(&self) -> M::Fut<'_, Result<(), Error>> {
+        let cmd = crate::command::exposure::Iris::Down;
+        self.execute(cmd)
+    }
+}
+
 /// Exposure compensation operations for cameras.
 ///
 /// This trait provides exposure compensation control to fine-tune exposure levels
@@ -780,12 +743,8 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{ensure_exposure_mode_supported, ensure_iris_control_supported};
-    use crate::{
-        camera::profiles::{GenericVisca, PtzOpticsG2},
-        command::exposure::ExposureMode,
-        Error,
-    };
+    use super::ensure_exposure_mode_supported;
+    use crate::{camera::profiles::PtzOpticsG2, command::exposure::ExposureMode, Error};
 
     #[test]
     fn test_ptzoptics_rejects_unsupported_iris_mode() {
@@ -796,22 +755,5 @@ mod tests {
                 feature: "Iris-priority exposure mode"
             })
         ));
-    }
-
-    #[test]
-    fn test_ptzoptics_rejects_unsupported_iris_control() {
-        let result = ensure_iris_control_supported::<PtzOpticsG2>();
-        assert!(matches!(
-            result,
-            Err(Error::FeatureNotSupported {
-                feature: "Iris control"
-            })
-        ));
-    }
-
-    #[test]
-    fn test_generic_visca_keeps_standard_iris_support() {
-        assert!(ensure_exposure_mode_supported::<GenericVisca>(ExposureMode::Iris).is_ok());
-        assert!(ensure_iris_control_supported::<GenericVisca>().is_ok());
     }
 }

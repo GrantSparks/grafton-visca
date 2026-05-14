@@ -203,6 +203,59 @@ pub trait HasFocusLock {}
 /// feature primarily supported by Sony cameras.
 pub trait HasPushAutoFocus {}
 
+/// Marker trait indicating support for direct absolute zoom positioning.
+///
+/// Profiles without this marker may still support continuous tele/wide zoom,
+/// but the high-level typed API will not expose absolute zoom positioning.
+pub trait HasDirectZoom {}
+
+/// Marker trait indicating support for the VISCA digital zoom on/off command.
+///
+/// This marks the explicit enable/disable opcode, not necessarily absolute
+/// zoom positioning into a digital zoom range.
+pub trait HasDigitalZoomToggle {}
+
+/// Marker trait indicating support for absolute zoom positions beyond the
+/// optical zoom range.
+pub trait HasDigitalZoomRange {}
+
+/// Marker trait indicating support for direct iris control and iris-priority
+/// exposure mode.
+pub trait HasIrisControl {}
+
+/// Marker trait indicating support for standard one-push auto focus.
+pub trait HasOnePushFocus {}
+
+/// Marker trait indicating support for PTZOptics snap focus.
+///
+/// Snap focus is modeled separately from standard one-push AF because the
+/// vendor command is not assumed to be semantically identical.
+pub trait HasPtzOpticsSnapFocus {}
+
+/// Marker trait indicating support for focus zone selection.
+pub trait HasFocusZone {}
+
+/// Marker trait indicating support for auto-focus sensitivity adjustment.
+pub trait HasAutoFocusSensitivity {}
+
+/// Marker trait indicating support for the focus near-limit inquiry command.
+pub trait HasFocusNearLimitInquiry {}
+
+/// Marker trait indicating support for backlight compensation control.
+pub trait HasBacklightCompensation {}
+
+/// Marker trait indicating support for wide dynamic range control.
+pub trait HasWideDynamicRange {}
+
+/// Marker trait indicating support for color-temperature white balance control.
+pub trait HasColorTemperature {}
+
+/// Marker trait indicating support for manual red/blue gain control.
+pub trait HasRgbGain {}
+
+/// Marker trait indicating support for red/blue tuning control.
+pub trait HasRgbTuning {}
+
 // Specialized blanket implementations for baseline marker traits.
 // These automatically implement the marker trait for any type that implements
 // both ProfileMetadata and the corresponding capability trait.

@@ -95,25 +95,6 @@ pub trait InquiryControl {
         &self,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::FocusPosition, Error>>;
 
-    /// Get the focus near limit position.
-    ///
-    /// Returns the minimum focus distance setting that prevents
-    /// the camera from focusing on objects too close to the lens.
-    ///
-    /// # Errors
-    /// Returns an error if the inquiry fails or times out.
-    fn focus_near_limit(
-        &self,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::FocusPosition, Error>>;
-
-    /// Get the current focus zone.
-    ///
-    /// Returns which area of the image the camera uses for auto focus detection.
-    ///
-    /// # Errors
-    /// Returns an error if the inquiry fails or times out.
-    fn focus_zone(&self) -> <Self::Mode as Mode>::Fut<'_, Result<FocusZone, Error>>;
-
     /// Get the current exposure mode.
     ///
     /// Returns the active exposure mode (auto, manual, shutter priority, etc.).
@@ -144,15 +125,6 @@ pub trait InquiryControl {
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
     fn exposure_compensation_enabled(&self) -> <Self::Mode as Mode>::Fut<'_, Result<bool, Error>>;
-
-    /// Get the current iris value.
-    ///
-    /// Returns the current iris (aperture) setting. Lower values indicate
-    /// a more closed aperture, higher values indicate a more open aperture.
-    ///
-    /// # Errors
-    /// Returns an error if the inquiry fails or times out.
-    fn iris(&self) -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::IrisLevel, Error>>;
 
     /// Get the current shutter speed.
     ///
@@ -275,17 +247,6 @@ pub trait InquiryControl {
     fn sharpness_level(
         &self,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::SharpnessLevel, Error>>;
-
-    /// Get the auto focus sensitivity.
-    ///
-    /// Returns the current auto focus sensitivity setting (High, Normal, or Low).
-    /// Higher sensitivity provides faster focus response but may be less stable.
-    ///
-    /// # Errors
-    /// Returns an error if the inquiry fails or times out.
-    fn auto_focus_sensitivity(
-        &self,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<AutoFocusSensitivity, Error>>;
 
     /// Get the dynamic range level.
     ///
@@ -690,6 +651,50 @@ pub trait NdFilterInquiryControl {
     ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::NdFilterPreset, Error>>;
 }
 
+/// Focus near-limit inquiry for profiles with documented support.
+#[grafton_visca_macros::delegate_to_session]
+pub trait FocusNearLimitInquiryControl {
+    /// The mode type for this camera (Async or Blocking).
+    type Mode: Mode;
+
+    /// Get the focus near limit position.
+    fn focus_near_limit(
+        &self,
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::FocusPosition, Error>>;
+}
+
+/// Focus zone inquiry for profiles with documented support.
+#[grafton_visca_macros::delegate_to_session]
+pub trait FocusZoneInquiryControl {
+    /// The mode type for this camera (Async or Blocking).
+    type Mode: Mode;
+
+    /// Get the current focus zone.
+    fn focus_zone(&self) -> <Self::Mode as Mode>::Fut<'_, Result<FocusZone, Error>>;
+}
+
+/// Auto-focus sensitivity inquiry for profiles with documented support.
+#[grafton_visca_macros::delegate_to_session]
+pub trait AutoFocusSensitivityInquiryControl {
+    /// The mode type for this camera (Async or Blocking).
+    type Mode: Mode;
+
+    /// Get the auto focus sensitivity.
+    fn auto_focus_sensitivity(
+        &self,
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<AutoFocusSensitivity, Error>>;
+}
+
+/// Iris value inquiry for profiles with documented iris support.
+#[grafton_visca_macros::delegate_to_session]
+pub trait IrisInquiryControl {
+    /// The mode type for this camera (Async or Blocking).
+    type Mode: Mode;
+
+    /// Get the current iris value.
+    fn iris(&self) -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::IrisLevel, Error>>;
+}
+
 /// Pan/tilt-specific inquiry operations for cameras.
 ///
 /// This trait provides pan/tilt position inquiry methods that work seamlessly for both
@@ -750,16 +755,6 @@ where
         self.query(FocusPositionInquiry)
     }
 
-    fn focus_near_limit(&self) -> M::Fut<'_, Result<crate::types::FocusPosition, Error>> {
-        use crate::command::inquiry_structs::FocusNearLimitInquiry;
-        self.query(FocusNearLimitInquiry)
-    }
-
-    fn focus_zone(&self) -> M::Fut<'_, Result<FocusZone, Error>> {
-        use crate::command::inquiry_structs::FocusZoneInquiry;
-        self.query(FocusZoneInquiry)
-    }
-
     fn exposure_mode(&self) -> M::Fut<'_, Result<ExposureMode, Error>> {
         use crate::command::inquiry_structs::ExposureModeInquiry;
         self.query(ExposureModeInquiry)
@@ -775,17 +770,6 @@ where
     fn exposure_compensation_enabled(&self) -> M::Fut<'_, Result<bool, Error>> {
         use crate::command::inquiry_structs::ExposureCompensationModeInquiry;
         self.query(ExposureCompensationModeInquiry)
-    }
-
-    fn iris(&self) -> M::Fut<'_, Result<crate::types::IrisLevel, Error>> {
-        if P::IRIS_RANGE.is_none() {
-            return self.error(Error::FeatureNotSupported {
-                feature: "Iris control",
-            });
-        }
-
-        use crate::command::inquiry_structs::IrisInquiry;
-        self.query(IrisInquiry)
     }
 
     fn shutter(&self) -> M::Fut<'_, Result<crate::types::ShutterSpeed, Error>> {
@@ -851,11 +835,6 @@ where
     fn sharpness_level(&self) -> M::Fut<'_, Result<crate::types::SharpnessLevel, Error>> {
         use crate::command::inquiry_structs::SharpnessPositionInquiry;
         self.query(SharpnessPositionInquiry)
-    }
-
-    fn auto_focus_sensitivity(&self) -> M::Fut<'_, Result<AutoFocusSensitivity, Error>> {
-        use crate::command::inquiry_structs::AutoFocusSensitivityInquiry;
-        self.query(AutoFocusSensitivityInquiry)
     }
 
     fn dynamic_range(&self) -> M::Fut<'_, Result<crate::types::DynamicRangeLevel, Error>> {
@@ -1052,6 +1031,66 @@ where
     fn nd_filter_preset(&self) -> M::Fut<'_, Result<crate::types::NdFilterPreset, Error>> {
         use crate::command::inquiry_structs::NdFilterPresetInquiry;
         self.query(NdFilterPresetInquiry)
+    }
+}
+
+impl<M, P, Tr, Exec> FocusNearLimitInquiryControl for crate::camera::Camera<M, P, Tr, Exec>
+where
+    M: Mode,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasFocusNearLimitInquiry,
+    Self: ViscaClient<M>,
+    Exec: crate::executor::Executor,
+{
+    type Mode = M;
+
+    fn focus_near_limit(&self) -> M::Fut<'_, Result<crate::types::FocusPosition, Error>> {
+        use crate::command::inquiry_structs::FocusNearLimitInquiry;
+        self.query(FocusNearLimitInquiry)
+    }
+}
+
+impl<M, P, Tr, Exec> FocusZoneInquiryControl for crate::camera::Camera<M, P, Tr, Exec>
+where
+    M: Mode,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasFocusZone,
+    Self: ViscaClient<M>,
+    Exec: crate::executor::Executor,
+{
+    type Mode = M;
+
+    fn focus_zone(&self) -> M::Fut<'_, Result<FocusZone, Error>> {
+        use crate::command::inquiry_structs::FocusZoneInquiry;
+        self.query(FocusZoneInquiry)
+    }
+}
+
+impl<M, P, Tr, Exec> AutoFocusSensitivityInquiryControl for crate::camera::Camera<M, P, Tr, Exec>
+where
+    M: Mode,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasAutoFocusSensitivity,
+    Self: ViscaClient<M>,
+    Exec: crate::executor::Executor,
+{
+    type Mode = M;
+
+    fn auto_focus_sensitivity(&self) -> M::Fut<'_, Result<AutoFocusSensitivity, Error>> {
+        use crate::command::inquiry_structs::AutoFocusSensitivityInquiry;
+        self.query(AutoFocusSensitivityInquiry)
+    }
+}
+
+impl<M, P, Tr, Exec> IrisInquiryControl for crate::camera::Camera<M, P, Tr, Exec>
+where
+    M: Mode,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasIrisControl,
+    Self: ViscaClient<M>,
+    Exec: crate::executor::Executor,
+{
+    type Mode = M;
+
+    fn iris(&self) -> M::Fut<'_, Result<crate::types::IrisLevel, Error>> {
+        use crate::command::inquiry_structs::IrisInquiry;
+        self.query(IrisInquiry)
     }
 }
 

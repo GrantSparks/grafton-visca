@@ -9,9 +9,15 @@ use crate::{
     camera::{
         controls::{
             color::ColorControl,
-            exposure::ExposureControl,
-            focus::{FocusControl, FocusLockControl, PushAFControl},
-            inquiry::{InquiryControl, NdFilterInquiryControl, PanTiltInquiryControl},
+            exposure::{ExposureControl, IrisControl},
+            focus::{
+                AutoFocusSensitivityControl, FocusControl, FocusLockControl, FocusZoneControl,
+                OnePushFocusControl, PushAFControl,
+            },
+            inquiry::{
+                FocusNearLimitInquiryControl, FocusZoneInquiryControl, InquiryControl,
+                IrisInquiryControl, NdFilterInquiryControl, PanTiltInquiryControl,
+            },
             menu::MenuControl,
             motion_sync::MotionSyncControl,
             nd_filter::NdFilterControl,
@@ -21,7 +27,7 @@ use crate::{
             system::SystemControl,
             tally::TallyControl,
             white_balance::WhiteBalanceControl,
-            zoom::ZoomControl,
+            zoom::{DirectZoomControl, ZoomControl},
         },
         Camera,
     },
@@ -159,7 +165,7 @@ where
     /// This method accepts any type that can be converted to `ZoomPosition`.
     pub fn set_position<T>(&self, position: T) -> M::Fut<'_, Result<(), Error>>
     where
-        Camera<M, P, Tr, Exec>: ZoomControl<Mode = M>,
+        Camera<M, P, Tr, Exec>: DirectZoomControl<Mode = M>,
         T: TryInto<crate::types::ZoomPosition>,
         T::Error: Into<Error>,
     {
@@ -193,7 +199,7 @@ where
     /// This method accepts any type that can be converted to `ZoomPosition`.
     pub fn absolute<T>(&self, position: T) -> M::Fut<'_, Result<(), Error>>
     where
-        Camera<M, P, Tr, Exec>: ZoomControl<Mode = M>,
+        Camera<M, P, Tr, Exec>: DirectZoomControl<Mode = M>,
         T: TryInto<crate::types::ZoomPosition>,
         T::Error: Into<Error>,
     {
@@ -456,7 +462,7 @@ where
     /// Get focus near limit.
     pub fn near_limit(&self) -> M::Fut<'_, Result<crate::types::FocusPosition, Error>>
     where
-        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+        Camera<M, P, Tr, Exec>: FocusNearLimitInquiryControl<Mode = M>,
     {
         self.camera.focus_near_limit()
     }
@@ -464,7 +470,7 @@ where
     /// Get focus zone.
     pub fn zone(&self) -> M::Fut<'_, Result<crate::command::FocusZone, Error>>
     where
-        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+        Camera<M, P, Tr, Exec>: FocusZoneInquiryControl<Mode = M>,
     {
         self.camera.focus_zone()
     }
@@ -516,7 +522,7 @@ where
     /// Set the focus zone.
     pub fn set_zone(&self, zone: crate::command::FocusZone) -> M::Fut<'_, Result<(), Error>>
     where
-        Camera<M, P, Tr, Exec>: FocusControl<Mode = M>,
+        Camera<M, P, Tr, Exec>: FocusZoneControl<Mode = M>,
     {
         self.camera.set_focus_zone(zone)
     }
@@ -527,7 +533,7 @@ where
         sensitivity: crate::command::AutoFocusSensitivity,
     ) -> M::Fut<'_, Result<(), Error>>
     where
-        Camera<M, P, Tr, Exec>: FocusControl<Mode = M>,
+        Camera<M, P, Tr, Exec>: AutoFocusSensitivityControl<Mode = M>,
     {
         self.camera.set_auto_focus_sensitivity(sensitivity)
     }
@@ -549,7 +555,7 @@ where
     /// Performs a single auto-focus operation then returns to the previous focus mode.
     pub fn one_push(&self) -> M::Fut<'_, Result<(), Error>>
     where
-        Camera<M, P, Tr, Exec>: FocusControl<Mode = M>,
+        Camera<M, P, Tr, Exec>: OnePushFocusControl<Mode = M>,
     {
         self.camera.focus_one_push()
     }
@@ -603,7 +609,7 @@ where
     /// Get iris value.
     pub fn iris(&self) -> M::Fut<'_, Result<crate::types::IrisLevel, Error>>
     where
-        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+        Camera<M, P, Tr, Exec>: IrisInquiryControl<Mode = M>,
     {
         self.camera.iris()
     }
@@ -659,7 +665,7 @@ where
     /// Set to iris priority mode.
     pub fn iris_priority(&self) -> M::Fut<'_, Result<(), Error>>
     where
-        Camera<M, P, Tr, Exec>: ExposureControl<Mode = M>,
+        Camera<M, P, Tr, Exec>: IrisControl<Mode = M>,
     {
         self.camera.exposure_iris_priority()
     }

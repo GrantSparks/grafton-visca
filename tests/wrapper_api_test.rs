@@ -23,7 +23,9 @@ use grafton_visca::{
 #[cfg(not(feature = "mode-async"))]
 #[test]
 fn test_blocking_wrapper_api() {
-    fn _example<P: Profile + Default, T>(camera: &BlockingClient<P, T>) -> Result<(), Error>
+    fn _example<P: Profile + Default + grafton_visca::capabilities::HasDirectZoom, T>(
+        camera: &BlockingClient<P, T>,
+    ) -> Result<(), Error>
     where
         T: BlockingTransport + HasTransportConfig + Send + Sync + 'static,
     {
@@ -39,9 +41,9 @@ fn test_blocking_wrapper_api() {
 #[tokio::test]
 async fn test_async_wrapper_api() {
     async fn example<
-        P: Profile + Default,
+        P: Profile + Default + grafton_visca::capabilities::HasDirectZoom,
         T: AsyncTransport + Send + Sync + 'static,
-        E: Executor,
+        E: Executor + Send + Sync + Clone + 'static,
     >(
         camera: &AsyncCamera<P, T, E>,
     ) -> Result<(), Error> {
@@ -52,7 +54,7 @@ async fn test_async_wrapper_api() {
         Ok(())
     }
 
-    let _ = example::<GenericVisca, TransportHandle<TokioRuntime>, TokioExecutor>;
+    let _ = example::<PtzOpticsG2, TransportHandle<TokioRuntime>, TokioExecutor>;
 }
 
 #[test]

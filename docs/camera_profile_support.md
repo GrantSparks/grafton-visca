@@ -24,17 +24,38 @@ conservative and document the ambiguity.
 
 ## Metadata Versus Typed Support
 
-Optional vendor features use two layers:
+Optional vendor features and profile-specific sub-capabilities use two layers:
 
 | Layer | Meaning | Example |
 | ----- | ------- | ------- |
-| Metadata traits | Runtime discovery facts for `Capabilities::from_profile::<P>()`; unsupported defaults are valid. | `NdFilterMetadata`, `MotionSyncMetadata`, `VariableSpeedMetadata` |
-| Support markers | Compile-time permission for typed control/accessor/inquiry APIs. | `HasNdFilter`, `HasMotionSync`, `HasVariableSpeed` |
+| Metadata traits and constants | Runtime discovery facts for `Capabilities::from_profile::<P>()`; unsupported defaults are valid. | `NdFilterMetadata`, `DIGITAL_ZOOM_MAX`, `IRIS_RANGE`, `SUPPORTS_ONE_PUSH_FOCUS` |
+| Support markers | Compile-time permission for typed control/accessor/inquiry APIs. | `HasNdFilter`, `HasDigitalZoomToggle`, `HasDirectZoom`, `HasIrisControl`, `HasOnePushFocus` |
 
 `Profile` requires metadata traits so discovery can report the same fields for
 every profile. Do not treat those metadata traits as proof of support. Implement
 support markers only when the camera profile's source documents establish that
 the feature exists and the crate has a typed implementation for it.
+
+This split also applies inside broad baseline areas. A profile may support zoom
+tele/wide movement without supporting direct absolute zoom, digital zoom toggle,
+or optical-plus-digital positioning. A profile may support exposure mode and
+gain without iris control. A profile may support basic focus without one-push
+AF, focus zone, AF sensitivity, or focus near-limit inquiry. Model those
+surfaces with precise markers rather than runtime-only guards.
+
+Current built-in sub-capability markers include:
+
+| Area | Marker | Typed surface |
+| ---- | ------ | ------------- |
+| Zoom | `HasDirectZoom` | `DirectZoomControl::set_zoom` and noun/direct blocking equivalents |
+| Zoom | `HasDigitalZoomToggle` | `DigitalZoomControl::set_digital_zoom` |
+| Zoom | `HasDigitalZoomRange` | `DigitalZoomRangeControl::zoom_absolute_normalized` for digital domains |
+| Exposure | `HasIrisControl` | `IrisControl` and `IrisInquiryControl` |
+| Focus | `HasOnePushFocus` | `OnePushFocusControl` |
+| Focus | `HasPtzOpticsSnapFocus` | `SnapFocusControl` |
+| Focus | `HasFocusZone` | focus zone controls and inquiry |
+| Focus | `HasAutoFocusSensitivity` | AF sensitivity controls and inquiry |
+| Focus | `HasFocusNearLimitInquiry` | focus near-limit inquiry |
 
 Raw/custom VISCA command APIs are different. They remain available as escape
 hatches for experiments, unsupported firmware variants, and downstream

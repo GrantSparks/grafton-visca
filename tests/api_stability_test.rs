@@ -113,9 +113,21 @@ fn test_zero_cost_generic_transports() {
 #[test]
 fn test_control_traits_api_stability() {
     use grafton_visca::camera::controls::{
-        exposure::ExposureControl, focus::FocusControl, image_processing::ImageProcessingControl,
-        inquiry::InquiryControl, pan_tilt::PanTiltControl, power::PowerControl,
-        presets::PresetsControl, white_balance::WhiteBalanceControl, zoom::ZoomControl,
+        exposure::{ExposureControl, IrisControl},
+        focus::{
+            AutoFocusSensitivityControl, FocusControl, FocusZoneControl, OnePushFocusControl,
+            SnapFocusControl,
+        },
+        image_processing::ImageProcessingControl,
+        inquiry::{
+            AutoFocusSensitivityInquiryControl, FocusNearLimitInquiryControl,
+            FocusZoneInquiryControl, InquiryControl, IrisInquiryControl,
+        },
+        pan_tilt::PanTiltControl,
+        power::PowerControl,
+        presets::PresetsControl,
+        white_balance::WhiteBalanceControl,
+        zoom::{DigitalZoomControl, DigitalZoomRangeControl, DirectZoomControl, ZoomControl},
     };
 
     struct CoreCameraControls<T>(PhantomData<T>);
@@ -123,11 +135,23 @@ fn test_control_traits_api_stability() {
     impl<T> CoreCameraControls<T> where
         T: PowerControl
             + ZoomControl
+            + DirectZoomControl
+            + DigitalZoomControl
+            + DigitalZoomRangeControl
             + FocusControl
+            + OnePushFocusControl
+            + SnapFocusControl
+            + FocusZoneControl
+            + AutoFocusSensitivityControl
             + PanTiltControl
             + PresetsControl
             + InquiryControl
+            + FocusNearLimitInquiryControl
+            + FocusZoneInquiryControl
+            + AutoFocusSensitivityInquiryControl
+            + IrisInquiryControl
             + ExposureControl
+            + IrisControl
             + WhiteBalanceControl
             + ImageProcessingControl
     {

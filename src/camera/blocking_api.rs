@@ -10,10 +10,16 @@ use crate::{
     camera::{
         controls::{
             color::ColorControl,
-            exposure::{ExposureCompensationControl, ExposureControl},
-            focus::{FocusControl, FocusLockControl, PushAFControl},
+            exposure::{ExposureCompensationControl, ExposureControl, IrisControl},
+            focus::{
+                AutoFocusSensitivityControl, FocusControl, FocusLockControl, FocusZoneControl,
+                OnePushFocusControl, PushAFControl,
+            },
             image_processing::ImageProcessingControl,
-            inquiry::{InquiryControl, NdFilterInquiryControl, PanTiltInquiryControl},
+            inquiry::{
+                FocusNearLimitInquiryControl, FocusZoneInquiryControl, InquiryControl,
+                IrisInquiryControl, NdFilterInquiryControl, PanTiltInquiryControl,
+            },
             menu::{DirectMenuControl, MenuControl},
             motion_sync::MotionSyncControl,
             nd_filter::NdFilterControl,
@@ -25,7 +31,7 @@ use crate::{
             tally::TallyControl,
             variable_speed::VariableSpeedControl,
             white_balance::WhiteBalanceControl,
-            zoom::ZoomControl,
+            zoom::{DigitalZoomControl, DigitalZoomRangeControl, DirectZoomControl, ZoomControl},
         },
         Camera,
     },
@@ -474,10 +480,11 @@ where
     /// Set zoom position directly.
     pub fn set_position<T>(&self, position: T) -> Result<(), Error>
     where
+        Camera<Blocking, P, Tr, ()>: DirectZoomControl<Mode = Blocking>,
         T: TryInto<crate::types::ZoomPosition>,
         T::Error: Into<Error>,
     {
-        self.camera.set_zoom(position)
+        self.camera.inner.set_zoom(position).block()
     }
 
     /// Zoom toward telephoto with variable speed.
@@ -499,6 +506,7 @@ where
     /// Set zoom to an absolute position.
     pub fn absolute<T>(&self, position: T) -> Result<(), Error>
     where
+        Camera<Blocking, P, Tr, ()>: DirectZoomControl<Mode = Blocking>,
         T: TryInto<crate::types::ZoomPosition>,
         T::Error: Into<Error>,
     {
@@ -667,26 +675,41 @@ where
     }
 
     /// Get the focus near limit.
-    pub fn near_limit(&self) -> Result<crate::types::FocusPosition, Error> {
-        self.camera.focus_near_limit()
+    pub fn near_limit(&self) -> Result<crate::types::FocusPosition, Error>
+    where
+        Camera<Blocking, P, Tr, ()>: FocusNearLimitInquiryControl<Mode = Blocking>,
+    {
+        self.camera.inner.focus_near_limit().block()
     }
 
     /// Get the focus zone.
-    pub fn zone(&self) -> Result<crate::command::FocusZone, Error> {
-        self.camera.focus_zone()
+    pub fn zone(&self) -> Result<crate::command::FocusZone, Error>
+    where
+        Camera<Blocking, P, Tr, ()>: FocusZoneInquiryControl<Mode = Blocking>,
+    {
+        self.camera.inner.focus_zone().block()
     }
 
     /// Set the focus zone.
-    pub fn set_zone(&self, zone: crate::command::FocusZone) -> Result<(), Error> {
-        self.camera.set_focus_zone(zone)
+    pub fn set_zone(&self, zone: crate::command::FocusZone) -> Result<(), Error>
+    where
+        Camera<Blocking, P, Tr, ()>: FocusZoneControl<Mode = Blocking>,
+    {
+        self.camera.inner.set_focus_zone(zone).block()
     }
 
     /// Set auto focus sensitivity.
     pub fn set_sensitivity(
         &self,
         sensitivity: crate::command::AutoFocusSensitivity,
-    ) -> Result<(), Error> {
-        self.camera.set_auto_focus_sensitivity(sensitivity)
+    ) -> Result<(), Error>
+    where
+        Camera<Blocking, P, Tr, ()>: AutoFocusSensitivityControl<Mode = Blocking>,
+    {
+        self.camera
+            .inner
+            .set_auto_focus_sensitivity(sensitivity)
+            .block()
     }
 
     /// Set the focus near limit.
@@ -700,8 +723,11 @@ where
     }
 
     /// Trigger one-push auto focus when supported by the profile.
-    pub fn one_push(&self) -> Result<(), Error> {
-        self.camera.focus_one_push()
+    pub fn one_push(&self) -> Result<(), Error>
+    where
+        Camera<Blocking, P, Tr, ()>: OnePushFocusControl<Mode = Blocking>,
+    {
+        self.camera.inner.focus_one_push().block()
     }
 }
 
@@ -770,8 +796,11 @@ where
     }
 
     /// Get iris level.
-    pub fn iris(&self) -> Result<crate::types::IrisLevel, Error> {
-        self.camera.iris()
+    pub fn iris(&self) -> Result<crate::types::IrisLevel, Error>
+    where
+        Camera<Blocking, P, Tr, ()>: IrisInquiryControl<Mode = Blocking>,
+    {
+        self.camera.inner.iris().block()
     }
 
     /// Get shutter speed.
@@ -805,8 +834,11 @@ where
     }
 
     /// Set iris-priority exposure.
-    pub fn iris_priority(&self) -> Result<(), Error> {
-        self.camera.exposure_iris_priority()
+    pub fn iris_priority(&self) -> Result<(), Error>
+    where
+        Camera<Blocking, P, Tr, ()>: IrisControl<Mode = Blocking>,
+    {
+        self.camera.inner.exposure_iris_priority().block()
     }
 }
 
@@ -1460,10 +1492,17 @@ where
         /// When `speed` is `None`, uses standard zoom speed.
         fn zoom_wide(speed: Option<crate::ZoomSpeed>) -> ();
 
-        /// Set digital zoom on or off.
-        fn set_digital_zoom(enabled: bool) -> ();
     }
+}
 
+impl<P, Tr> BlockingClient<P, Tr>
+where
+    Camera<Blocking, P, Tr, ()>: DirectZoomControl<Mode = Blocking>,
+    P: crate::capabilities::Profile
+        + Default
+        + crate::capabilities::zoom::Zoom
+        + crate::capabilities::HasDirectZoom,
+{
     /// Set zoom to an absolute position.
     ///
     /// This method accepts any type that can be converted to `ZoomPosition`, providing
@@ -1505,6 +1544,40 @@ where
         T::Error: Into<Error>,
     {
         self.inner.set_zoom(position).block()
+    }
+}
+
+impl<P, Tr> BlockingClient<P, Tr>
+where
+    Camera<Blocking, P, Tr, ()>: DigitalZoomControl<Mode = Blocking>,
+    P: crate::capabilities::Profile
+        + Default
+        + crate::capabilities::zoom::Zoom
+        + crate::capabilities::HasDigitalZoomToggle,
+{
+    impl_blocking_methods! {
+        /// Set digital zoom on or off.
+        fn set_digital_zoom(enabled: bool) -> ();
+    }
+}
+
+impl<P, Tr> BlockingClient<P, Tr>
+where
+    Camera<Blocking, P, Tr, ()>: DigitalZoomRangeControl<Mode = Blocking>,
+    P: crate::capabilities::Profile
+        + Default
+        + crate::capabilities::zoom::Zoom
+        + crate::capabilities::HasDigitalZoomRange,
+{
+    /// Set zoom to an absolute normalized position within a documented zoom domain.
+    pub fn zoom_absolute_normalized(
+        &self,
+        position: crate::Normalized,
+        domain: crate::ZoomDomain,
+    ) -> Result<(), Error> {
+        self.inner
+            .zoom_absolute_normalized(position, domain)
+            .block()
     }
 }
 
@@ -1551,23 +1624,47 @@ where
         /// Stop focus movement.
         fn focus_stop() -> ();
 
-        /// Trigger one-push auto focus when supported by the profile.
-        fn focus_one_push() -> ();
-
         /// Set focus position.
         fn set_focus(position: crate::types::FocusPosition) -> ();
 
         /// Set focus to infinity.
         fn focus_infinity() -> ();
 
-        /// Set focus zone.
-        fn set_focus_zone(zone: crate::command::focus::FocusZone) -> ();
-
-        /// Set auto focus sensitivity.
-        fn set_auto_focus_sensitivity(sensitivity: crate::command::focus::AutoFocusSensitivity) -> ();
-
         /// Set focus near limit.
         fn set_focus_near_limit(position: crate::types::FocusPosition) -> ();
+    }
+}
+
+impl<P, Tr> BlockingClient<P, Tr>
+where
+    Camera<Blocking, P, Tr, ()>: OnePushFocusControl<Mode = Blocking>,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasOnePushFocus,
+{
+    impl_blocking_methods! {
+        /// Trigger one-push auto focus.
+        fn focus_one_push() -> ();
+    }
+}
+
+impl<P, Tr> BlockingClient<P, Tr>
+where
+    Camera<Blocking, P, Tr, ()>: FocusZoneControl<Mode = Blocking>,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasFocusZone,
+{
+    impl_blocking_methods! {
+        /// Set focus zone.
+        fn set_focus_zone(zone: crate::command::focus::FocusZone) -> ();
+    }
+}
+
+impl<P, Tr> BlockingClient<P, Tr>
+where
+    Camera<Blocking, P, Tr, ()>: AutoFocusSensitivityControl<Mode = Blocking>,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasAutoFocusSensitivity,
+{
+    impl_blocking_methods! {
+        /// Set auto focus sensitivity.
+        fn set_auto_focus_sensitivity(sensitivity: crate::command::focus::AutoFocusSensitivity) -> ();
     }
 }
 
@@ -1640,23 +1737,8 @@ where
         /// Set exposure to shutter priority mode.
         fn exposure_shutter_priority() -> ();
 
-        /// Set exposure to iris priority mode.
-        fn exposure_iris_priority() -> ();
-
         /// Set exposure to bright mode.
         fn exposure_bright_mode() -> ();
-
-        /// Set iris level.
-        fn set_iris(level: crate::types::IrisLevel) -> ();
-
-        /// Reset iris to default.
-        fn reset_iris() -> ();
-
-        /// Increase iris (open).
-        fn increase_iris() -> ();
-
-        /// Decrease iris (close).
-        fn decrease_iris() -> ();
 
         /// Set brightness level.
         fn set_brightness(level: crate::types::BrightnessLevel) -> ();
@@ -1717,6 +1799,29 @@ where
 
         /// Set brightness directly.
         fn set_brightness_direct(level: crate::types::BrightnessLevel) -> ();
+    }
+}
+
+impl<P, Tr> BlockingClient<P, Tr>
+where
+    Camera<Blocking, P, Tr, ()>: IrisControl<Mode = Blocking>,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasIrisControl,
+{
+    impl_blocking_methods! {
+        /// Set exposure to iris priority mode.
+        fn exposure_iris_priority() -> ();
+
+        /// Set iris level.
+        fn set_iris(level: crate::types::IrisLevel) -> ();
+
+        /// Reset iris to default.
+        fn reset_iris() -> ();
+
+        /// Increase iris (open).
+        fn increase_iris() -> ();
+
+        /// Decrease iris (close).
+        fn decrease_iris() -> ();
     }
 }
 
@@ -2192,12 +2297,6 @@ where
         /// Get focus position.
         fn focus_position() -> crate::types::FocusPosition;
 
-        /// Get focus near limit.
-        fn focus_near_limit() -> crate::types::FocusPosition;
-
-        /// Get focus zone.
-        fn focus_zone() -> crate::command::focus::FocusZone;
-
         /// Get exposure mode.
         fn exposure_mode() -> crate::command::exposure::ExposureMode;
 
@@ -2206,9 +2305,6 @@ where
 
         /// Get exposure compensation enabled status.
         fn exposure_compensation_enabled() -> bool;
-
-        /// Get iris value.
-        fn iris() -> crate::types::IrisLevel;
 
         /// Get shutter value.
         fn shutter() -> crate::types::ShutterSpeed;
@@ -2341,6 +2437,39 @@ where
 
         /// Get tally auto adjust enabled status.
         fn tally_auto_adjust_enabled() -> bool;
+    }
+}
+
+impl<P, Tr> BlockingClient<P, Tr>
+where
+    Camera<Blocking, P, Tr, ()>: FocusNearLimitInquiryControl<Mode = Blocking>,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasFocusNearLimitInquiry,
+{
+    impl_blocking_methods! {
+        /// Get focus near limit.
+        fn focus_near_limit() -> crate::types::FocusPosition;
+    }
+}
+
+impl<P, Tr> BlockingClient<P, Tr>
+where
+    Camera<Blocking, P, Tr, ()>: FocusZoneInquiryControl<Mode = Blocking>,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasFocusZone,
+{
+    impl_blocking_methods! {
+        /// Get focus zone.
+        fn focus_zone() -> crate::command::focus::FocusZone;
+    }
+}
+
+impl<P, Tr> BlockingClient<P, Tr>
+where
+    Camera<Blocking, P, Tr, ()>: IrisInquiryControl<Mode = Blocking>,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasIrisControl,
+{
+    impl_blocking_methods! {
+        /// Get iris value.
+        fn iris() -> crate::types::IrisLevel;
     }
 }
 

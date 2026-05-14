@@ -139,6 +139,16 @@ Downstream projects can catch this class of breakage with compile-fail fixtures 
 
 If this gating model ships in a pre-1.0 release before the final cutover, prefer a staged path with deprecated forwarding aliases or a temporary `--cfg unstable_gates`-style opt-in so downstreams can land generic-bound changes and dyn-facade splits separately.
 
+#### Profile Sub-Capability Gates (#521)
+- **BREAKING**: Broad static control traits were decomposed so profile-specific unsupported sub-capabilities no longer compile for built-in profiles that lack source-backed support.
+- **BREAKING**: `ZoomControl` now contains baseline tele/wide/stop only. Direct absolute zoom moved to `DirectZoomControl`, VISCA digital zoom toggle moved to `DigitalZoomControl`, and optical-plus-digital normalized positioning moved to `DigitalZoomRangeControl`.
+- **BREAKING**: Iris-priority mode and iris set/reset/up/down moved from `ExposureControl` to `IrisControl`; iris value inquiry moved from `InquiryControl` to `IrisInquiryControl`.
+- **BREAKING**: One-push focus, PTZOptics snap focus, focus zone, AF sensitivity, and focus near-limit inquiry are now exposed through marker-gated traits instead of the broad focus/inquiry traits.
+- `PtzOpticsG2`, `PtzOpticsG3`, and `PtzOptics30X` no longer expose typed VISCA digital zoom toggle, optical-plus-digital zoom positioning, iris controls/inquiry, one-push focus, or snap focus. Their raw command escape hatches remain available.
+- `SonyFR7` and `SonyBRCH900` expose typed digital zoom and iris APIs through explicit support markers; `GenericVisca`, Sony BRC/EVI, and Nearus profiles retain iris support where their metadata has an iris range.
+- Direct zoom positioning now validates raw positions against the selected profile range before encoding, so a profile without digital zoom support cannot send an out-of-profile digital-range direct zoom command through the typed API.
+- `dyn-api` remains profile-erased and now rejects unsupported digital zoom, one-push focus, focus zone, and AF sensitivity requests before command construction.
+
 #### Granular Iris Capability Modelling
 - **BREAKING**: `Exposure::IRIS_RANGE` changed from `Range<u16>` to `Option<Range<u16>>`; downstream `impl Exposure` blocks must wrap their range in `Some(...)` or use `None` for cameras that lack iris control
 - **BREAKING**: `Capabilities::iris_range` changed from `RangeInclusive<u16>` to `Option<RangeInclusive<u16>>`
