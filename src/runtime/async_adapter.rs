@@ -12,18 +12,22 @@ use crate::{
     camera::inflight::CommandId,
     camera_id::CameraId,
     capabilities::Profile,
-    command::response::{lift_inquiry_for, Response},
+    command::response::Response,
     error::{Error, Result},
     executor::Executor,
-    protocol::response::{decode_basic, BasicKind},
     runtime::core::{
-        PendingCommand, Priority, ReplySource, RetryCommand, SchedulerAction, SchedulerCore,
-        SchedulerEvent, TimeoutKind,
+        PendingCommand, Priority, RetryCommand, SchedulerAction, SchedulerCore, SchedulerEvent,
+        TimeoutKind,
     },
+    runtime::driver::{receive_one, IgnoreReason, ReceiveDisposition},
     timeout::{CommandCategory, TimeoutConfig},
     transport::RetryConfig,
     visca_socket::ViscaSocket,
 };
+
+fn log_ignored_receive(reason: IgnoreReason, sequence: Option<u32>) {
+    trace!(?reason, ?sequence, "VISCA response ignored");
+}
 
 /// Represents an item to be transmitted (command, inquiry, or cancel).
 ///
@@ -449,141 +453,56 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
 
     /// Process a received VISCA response.
     pub async fn process_response(&mut self, payload: &[u8], sequence: Option<u32>) -> Result<()> {
-        // Parse VISCA response type using decode_basic
-        let basic = decode_basic(payload).ok_or_else(|| Error::InvalidResponse {
-            expected: std::borrow::Cow::Borrowed("Valid VISCA response"),
-            actual: payload.to_vec(),
-        })?;
-
-        // Log response classification at trace level
-        use tracing::trace;
-        trace!(
-            kind = ?basic.kind,
-            socket = ?basic.socket,
-            "Decoded VISCA response"
-        );
-
         let now = self.executor.now();
 
-        let event = match basic.kind {
-            BasicKind::Ack => {
-                let cmd_id = sequence.and_then(|seq| self.core.get_command_by_sequence(seq));
-                let source = ReplySource::from_fields(cmd_id, sequence, basic.socket);
-                SchedulerEvent::Ack { source }
-            }
-            BasicKind::Completion => {
-                let cmd_id = sequence.and_then(|seq| self.core.get_command_by_sequence(seq));
-                let response_type = cmd_id.and_then(|id| self.core.get_inquiry_type(id));
-
-                // Handle decode errors inline to avoid timeouts on protocol errors.
-                // If decoding fails but we have a cmd_id, fail the command immediately
-                // instead of propagating the error and leaving the command in-flight.
-                match lift_inquiry_for::<P>(&basic, response_type.as_ref()) {
-                    Ok(response) => {
-                        let source = ReplySource::from_fields(cmd_id, sequence, basic.socket);
-                        SchedulerEvent::Completion { source, response }
+        let event = match receive_one::<P>(&mut self.core, payload, sequence) {
+            ReceiveDisposition::Event(event) => {
+                if let SchedulerEvent::Error { code, source } = &event {
+                    let cmd_id = source.cmd_id();
+                    match *code {
+                        0x03 | 0x04 => self.metrics.busy_errors += 1,
+                        _ => self.metrics.protocol_errors += 1,
                     }
-                    Err(decode_error) => {
-                        if let Some(id) = cmd_id {
-                            // Decode error for an attributed command: fail immediately
-                            self.metrics.protocol_errors += 1;
 
-                            let error = decode_error.with_context("Response decode failed");
-                            if let Some(action) = self.core.fail_after_receive_error(id, error) {
-                                self.apply_action(action);
-                            }
+                    // Log errors appropriately based on severity
+                    // Syntax errors (0x02) and "Not Executable" (0x41) are notable issues
+                    // that likely indicate configuration problems or unsupported commands
+                    if *code == 0x02 || *code == 0x41 {
+                        let inquiry_type = cmd_id
+                            .and_then(|id| self.core.get_inquiry_type(id))
+                            .map(|ty| format!("{:?}", ty));
+
+                        let message = if *code == 0x02 {
+                            "Syntax Error - command likely unsupported by camera"
                         } else {
-                            // No cmd_id attribution: log and drop frame
-                            // (garbled/stale reply we cannot attribute)
-                            use tracing::warn;
-                            warn!(
-                                ?decode_error,
-                                ?sequence,
-                                "Decode error for unattributed Completion, dropping frame"
-                            );
-                        }
-                        return Ok(());
+                            "Command Not Executable in current state"
+                        };
+
+                        tracing::error!(
+                            ?cmd_id,
+                            inquiry_type,
+                            code = format!("0x{:02x}", code),
+                            message
+                        );
                     }
                 }
+                event
             }
-            BasicKind::Error(code) => {
-                match code {
-                    0x03 | 0x04 => self.metrics.busy_errors += 1,
-                    _ => self.metrics.protocol_errors += 1,
+            ReceiveDisposition::AttributedDecodeFailure { id, error } => {
+                self.metrics.protocol_errors += 1;
+                if let Some(action) = self.core.fail_after_receive_error(id, error) {
+                    self.apply_action(action);
                 }
-
-                let mut cmd_id = sequence.and_then(|seq| self.core.get_command_by_sequence(seq));
-
-                // If no cmd_id and no socket, try to resolve inquiry via core (FIFO fallback).
-                // Note: For sequenced transports, this fallback will be blocked by process_event
-                // when sequence is Some but cmd_id is None - the reply will be ignored as stale.
-                if cmd_id.is_none() && basic.socket.is_none() && sequence.is_none() {
-                    use crate::command::response::Payload;
-                    cmd_id = self.core.resolve_inquiry_id(Payload::new(&[]), sequence);
-                }
-
-                // Log errors appropriately based on severity
-                // Syntax errors (0x02) and "Not Executable" (0x41) are notable issues
-                // that likely indicate configuration problems or unsupported commands
-                if code == 0x02 || code == 0x41 {
-                    let inquiry_type = cmd_id
-                        .and_then(|id| self.core.get_inquiry_type(id))
-                        .map(|ty| format!("{:?}", ty));
-
-                    let message = if code == 0x02 {
-                        "Syntax Error - command likely unsupported by camera"
-                    } else {
-                        "Command Not Executable in current state"
-                    };
-
-                    tracing::error!(
-                        ?cmd_id,
-                        inquiry_type,
-                        code = format!("0x{:02x}", code),
-                        message
-                    );
-                }
-
-                let source = ReplySource::from_fields(cmd_id, sequence, basic.socket);
-                SchedulerEvent::Error { source, code }
+                return Ok(());
             }
-            BasicKind::DataReply => {
-                let cmd_id = self.core.resolve_inquiry_id(basic.payload, sequence);
-                let response_type = cmd_id.and_then(|id| self.core.get_inquiry_type(id));
-
-                // Handle decode errors inline to avoid timeouts on protocol errors.
-                // If decoding fails but we have a cmd_id, fail the command immediately
-                // instead of propagating the error and leaving the command in-flight.
-                match lift_inquiry_for::<P>(&basic, response_type.as_ref()) {
-                    Ok(response) => {
-                        // InquiryReply has no socket field, so pass None
-                        let source = ReplySource::from_fields(cmd_id, sequence, None);
-                        SchedulerEvent::InquiryReply { source, response }
-                    }
-                    Err(decode_error) => {
-                        if let Some(id) = cmd_id {
-                            // Decode error for an attributed command: fail immediately
-                            self.metrics.protocol_errors += 1;
-
-                            let error = decode_error.with_context("Response decode failed");
-                            if let Some(action) = self.core.fail_after_receive_error(id, error) {
-                                self.apply_action(action);
-                            }
-                        } else {
-                            // No cmd_id attribution: log and drop frame
-                            // (garbled/stale reply we cannot attribute)
-                            use tracing::warn;
-                            warn!(
-                                ?decode_error,
-                                ?sequence,
-                                "Decode error for unattributed DataReply, dropping frame"
-                            );
-                        }
-                        return Ok(());
-                    }
-                }
+            ReceiveDisposition::Ignored { reason } => {
+                log_ignored_receive(reason, sequence);
+                return Ok(());
             }
-            BasicKind::NetworkChange | BasicKind::Unknown => return Ok(()),
+            ReceiveDisposition::Malformed(error) => {
+                tracing::warn!(?error, ?sequence, "Malformed VISCA response ignored");
+                return Ok(());
+            }
         };
 
         // Process event through core and handle actions
@@ -852,7 +771,7 @@ mod tests {
     ///
     /// This test verifies the fix for issue #428: when an error frame arrives with no socket
     /// and no sequence number (common for raw VISCA inquiry errors), the async adapter should
-    /// use SchedulerCore's resolve_inquiry_id method to attribute the error via FIFO fallback,
+    /// use the shared receive driver to attribute the error via FIFO fallback,
     /// rather than dropping the error.
     #[test]
     fn test_async_error_without_socket_attributes_to_inflight_inquiry() {

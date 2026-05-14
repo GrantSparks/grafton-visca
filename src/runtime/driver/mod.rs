@@ -4,9 +4,13 @@
 //! work across both async and blocking modes, eliminating code duplication
 //! while maintaining zero-cost abstractions through monomorphization.
 
+pub(crate) mod receive;
 pub mod scheduler;
 pub mod send;
 
+#[cfg(feature = "mode-async")]
+pub(crate) use receive::IgnoreReason;
+pub(crate) use receive::{receive_one, ReceiveDisposition};
 pub use scheduler::SchedulerLike;
 pub(crate) use send::send_one;
 

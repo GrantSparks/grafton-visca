@@ -3,6 +3,8 @@
 //! This example does not connect to a camera. It demonstrates the parts of the
 //! public API that can be checked before any I/O happens: profile metadata,
 //! range validation, protocol envelope selection, and optional capability bounds.
+//! It complements the command builder type-state pattern used to guarantee
+//! terminator-safe VISCA byte construction around `VISCA_TERMINATOR`.
 //!
 //! Run with:
 //! ```sh

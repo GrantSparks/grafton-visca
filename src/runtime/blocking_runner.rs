@@ -17,20 +17,14 @@ use crate::{
     camera::inflight::CommandId,
     camera_id::CameraId,
     capabilities::Profile,
-    command::{
-        response::{lift_inquiry_for, Response},
-        CommandKind, ViscaCommand,
-    },
+    command::{response::Response, CommandKind, ViscaCommand},
     error::{Error, Result},
-    protocol::{
-        framer::ProtocolFramer,
-        response::{decode_basic, BasicKind},
-    },
+    protocol::framer::ProtocolFramer,
     runtime::{
-        core::{
-            PendingCommand, Priority, ReplySource, SchedulerAction, SchedulerCore, SchedulerEvent,
+        core::{PendingCommand, Priority, SchedulerAction, SchedulerCore, SchedulerEvent},
+        driver::{
+            receive_one, scheduler::BlockingScheduler, send_one, ReceiveDisposition, SendResult,
         },
-        driver::{scheduler::BlockingScheduler, send_one, SendResult},
     },
     timeout::{Deadline, TimeoutConfig},
     transport::{
@@ -520,104 +514,25 @@ impl<P: Profile> BlockingRunner<P> {
                             }
                         };
 
-                        let basic = match decode_basic(&payload) {
-                            Some(b) => b,
-                            None => {
-                                warn!("Failed to decode VISCA frame: {payload:02X?}");
+                        let event = match receive_one::<P>(&mut self.core, &payload, meta.sequence)
+                        {
+                            ReceiveDisposition::Event(event) => event,
+                            ReceiveDisposition::AttributedDecodeFailure { id, error } => {
+                                if let Some(SchedulerAction::CommandFailed { id, error }) =
+                                    self.core.fail_after_receive_error(id, error)
+                                {
+                                    if id == target_cmd_id {
+                                        return Err(error);
+                                    }
+                                }
                                 continue;
                             }
-                        };
-
-                        let event = match basic.kind {
-                            BasicKind::Ack => {
-                                let socket = basic.socket;
-                                let cmd_id = meta
-                                    .sequence
-                                    .and_then(|seq| self.core.get_command_by_sequence(seq));
-                                debug!("Received ACK for socket {socket:?}, cmd_id {cmd_id:?}");
-                                let source =
-                                    ReplySource::from_fields(cmd_id, meta.sequence, socket);
-                                SchedulerEvent::Ack { source }
+                            ReceiveDisposition::Ignored { reason } => {
+                                trace!(?reason, sequence = ?meta.sequence, "VISCA response ignored");
+                                continue;
                             }
-                            BasicKind::Completion => {
-                                let socket = basic.socket;
-
-                                let cmd_id = if let Some(sequence) = meta.sequence {
-                                    self.core.get_command_by_sequence(sequence)
-                                } else {
-                                    None
-                                };
-
-                                if let Some(cmd_id) = cmd_id {
-                                    if cmd_id == target_cmd_id {
-                                        debug!("Command {cmd_id} completed successfully");
-                                        // Clean up command state before returning
-                                        // (Socket is embedded in phase, freed with command)
-                                        self.core.complete_command(cmd_id);
-                                        let response_type = self.core.get_inquiry_type(cmd_id);
-                                        let response =
-                                            lift_inquiry_for::<P>(&basic, response_type.as_ref())?;
-                                        return Ok(response);
-                                    }
-                                }
-
-                                debug!("Received completion for socket {socket:?}");
-                                let response_type =
-                                    cmd_id.and_then(|id| self.core.get_inquiry_type(id));
-                                let response =
-                                    lift_inquiry_for::<P>(&basic, response_type.as_ref())?;
-                                let source =
-                                    ReplySource::from_fields(cmd_id, meta.sequence, socket);
-                                SchedulerEvent::Completion { source, response }
-                            }
-                            BasicKind::Error(code) => {
-                                let socket = basic.socket;
-                                let mut cmd_id = meta
-                                    .sequence
-                                    .and_then(|seq| self.core.get_command_by_sequence(seq));
-
-                                // Only use FIFO fallback for raw VISCA (no sequence).
-                                // For sequenced transports, process_event will gate the heuristic.
-                                if cmd_id.is_none() && socket.is_none() && meta.sequence.is_none() {
-                                    use crate::command::response::Payload;
-                                    cmd_id = self
-                                        .core
-                                        .resolve_inquiry_id(Payload::new(&[]), meta.sequence);
-                                }
-
-                                debug!(
-                                    "Received error 0x{code:02X} for socket {socket:?}, cmd_id {cmd_id:?}"
-                                );
-                                let source =
-                                    ReplySource::from_fields(cmd_id, meta.sequence, socket);
-                                SchedulerEvent::Error { source, code }
-                            }
-                            BasicKind::DataReply => {
-                                let cmd_id =
-                                    self.core.resolve_inquiry_id(basic.payload, meta.sequence);
-
-                                let response_type =
-                                    cmd_id.and_then(|id| self.core.get_inquiry_type(id));
-
-                                if let Some(cmd_id) = cmd_id {
-                                    if cmd_id == target_cmd_id {
-                                        debug!("Inquiry {cmd_id} completed successfully");
-                                        // Clean up inquiry state before returning
-                                        self.core.complete_inquiry(cmd_id);
-                                        let response =
-                                            lift_inquiry_for::<P>(&basic, response_type.as_ref())?;
-                                        return Ok(response);
-                                    }
-                                }
-
-                                debug!("Received data reply (inquiry response)");
-                                let response =
-                                    lift_inquiry_for::<P>(&basic, response_type.as_ref())?;
-                                // InquiryReply has no socket, so pass None
-                                let source = ReplySource::from_fields(cmd_id, meta.sequence, None);
-                                SchedulerEvent::InquiryReply { source, response }
-                            }
-                            BasicKind::NetworkChange | BasicKind::Unknown => {
+                            ReceiveDisposition::Malformed(error) => {
+                                warn!(?error, sequence = ?meta.sequence, "Malformed VISCA response ignored");
                                 continue;
                             }
                         };
@@ -668,6 +583,7 @@ mod tests {
     use crate::command::encode::ViscaCommand;
     use crate::timeout::CommandCategory;
     use crate::transport::builder::TransportConfig;
+    use std::collections::VecDeque;
 
     /// Helper function to create CommandId from u32 in tests.
     /// Panics if value is 0 (invalid for CommandId).
@@ -788,6 +704,110 @@ mod tests {
         fn transport_config(&self) -> &TransportConfig {
             &self.config
         }
+    }
+
+    struct ReplyTransport {
+        config: TransportConfig,
+        responses: VecDeque<Vec<u8>>,
+        sent: Vec<Vec<u8>>,
+    }
+
+    impl ReplyTransport {
+        fn new(responses: impl Into<Vec<Vec<u8>>>) -> Self {
+            Self {
+                config: TransportConfig::default(),
+                responses: responses.into().into(),
+                sent: Vec::new(),
+            }
+        }
+    }
+
+    impl BlockingTransport for ReplyTransport {
+        fn send_with_kind(&mut self, bytes: &[u8], _kind: CommandKind) -> Result<(), Error> {
+            self.sent.push(bytes.to_vec());
+            Ok(())
+        }
+
+        fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
+            self.recv_into_with_timeout(dst, Duration::ZERO)
+        }
+
+        fn recv_into_with_timeout(
+            &mut self,
+            dst: &mut [u8],
+            _timeout: Duration,
+        ) -> Result<usize, Error> {
+            let Some(response) = self.responses.pop_front() else {
+                return Err(Error::Timeout);
+            };
+
+            let len = response.len().min(dst.len());
+            dst[..len].copy_from_slice(&response[..len]);
+            Ok(len)
+        }
+    }
+
+    impl HasTransportConfig for ReplyTransport {
+        fn transport_config(&self) -> &TransportConfig {
+            &self.config
+        }
+    }
+
+    #[test]
+    fn test_blocking_decode_error_in_data_reply_fails_immediately() {
+        use crate::{command::bytes::VISCA_TERMINATOR, command::response::InquiryKind};
+
+        #[derive(Debug, Clone)]
+        struct PowerInquiry;
+
+        impl ViscaCommand for PowerInquiry {
+            type Response = bool;
+            const MAX_SIZE: usize = 5;
+            const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
+
+            fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
+                buffer[..5].copy_from_slice(&[
+                    camera_id.to_address_byte(),
+                    0x09,
+                    0x04,
+                    0x00,
+                    VISCA_TERMINATOR,
+                ]);
+                Ok(5)
+            }
+
+            fn response_kind(&self) -> Option<InquiryKind> {
+                Some(InquiryKind::Power)
+            }
+        }
+
+        let timeout_config = TimeoutConfig::default();
+        let mut runner = BlockingRunner::<PtzOpticsG2>::new(timeout_config);
+        let mut transport =
+            ReplyTransport::new(vec![vec![0x90, 0x50, 0x01, 0x02, 0x03, VISCA_TERMINATOR]]);
+
+        let error = runner
+            .send_command(&mut transport, &PowerInquiry, CameraId::CAMERA_1)
+            .expect_err("malformed attributed inquiry response should fail immediately");
+
+        assert!(
+            matches!(&error, Error::WithContext { .. }),
+            "Expected receive decode context, got: {error:?}"
+        );
+        if let Error::WithContext { context, source } = error {
+            assert!(
+                context.contains("Response decode failed"),
+                "Error should have receive decode context, got: {context}"
+            );
+            assert!(
+                matches!(
+                    *source,
+                    Error::InvalidParameter { .. } | Error::InvalidResponseLength { .. }
+                ),
+                "Unexpected decode error source: {source:?}"
+            );
+        }
+        assert_eq!(transport.sent.len(), 1);
     }
 
     /// Test that blocking send failures preserve the original error with context.

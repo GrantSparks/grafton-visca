@@ -1526,41 +1526,6 @@ impl SchedulerCore {
         }
     }
 
-    /// Complete an inquiry, cleaning up tracking state.
-    ///
-    /// This should be called when an inquiry response is received and the
-    /// caller is returning early (not going through `process_event`).
-    /// It removes the inquiry from inflight tracking to prevent stale
-    /// command IDs from causing response misrouting.
-    #[cfg(any(not(feature = "mode-async"), test))]
-    pub fn complete_inquiry(&mut self, cmd_id: CommandId) {
-        trace!("Completing inquiry {cmd_id}");
-
-        // Remove from inquiry FIFO order (for raw VISCA correlation)
-        self.inquiries_order.retain(|&id| id != cmd_id);
-
-        // Clean up sequence mappings
-        self.finish_sequence(cmd_id);
-
-        // Remove inquiry state.
-        self.inquiries.remove(&cmd_id);
-    }
-
-    /// Complete a command, cleaning up tracking state.
-    ///
-    /// This should be called when a command completion is received and the
-    /// caller is returning early (not going through `process_event`).
-    #[cfg(any(not(feature = "mode-async"), test))]
-    pub fn complete_command(&mut self, cmd_id: CommandId) {
-        trace!("Completing command {cmd_id}");
-
-        // Clean up sequence mappings
-        self.finish_sequence(cmd_id);
-
-        // Remove command state.
-        self.commands.remove(&cmd_id);
-    }
-
     /// Get the response type for an inquiry from the command state.
     ///
     /// This returns the response type stored in the `InquiryEntry`.
@@ -1569,83 +1534,38 @@ impl SchedulerCore {
         self.inquiries.get(&id).map(|state| state.response_type)
     }
 
-    /// Resolve inquiry ID from a VISCA payload.
+    /// Resolve a raw VISCA inquiry reply using content matching and FIFO fallback.
     ///
-    /// Given optional Sony sequence and a VISCA payload, resolve the cmd_id using:
-    /// (a) Sony sequence maps, (b) content-based matcher for Raw VISCA,
-    /// else (c) FIFO front of inquiries_order.
-    pub fn resolve_inquiry_id(
+    /// This method must only be called for replies without Sony sequence metadata.
+    pub(crate) fn resolve_raw_inquiry_id(
         &self,
         payload: crate::command::response::Payload<'_>,
-        sequence: Option<u32>,
     ) -> Option<CommandId> {
         use tracing::{debug, trace};
 
-        // Format payload as hex for debugging (lazy evaluation)
-        let payload_hex = || {
-            payload
-                .as_slice()
-                .iter()
-                .map(|b| format!("{:02x}", b))
-                .collect::<Vec<_>>()
-                .join(" ")
-        };
+        let mut active_count = 0usize;
+        let mut match_count = 0usize;
+        let mut matched = None;
 
-        // First try sequence-based resolution if available
-        if let Some(seq) = sequence {
-            if let Some(cmd_id) = self.get_command_by_sequence(seq) {
-                // Verify it's an active inquiry awaiting a reply.
-                if self.is_awaiting_inquiry_reply(cmd_id) {
-                    trace!(%cmd_id, sequence = seq, "Resolved inquiry via sequence");
-                    return Some(cmd_id);
-                } else {
-                    // This is unusual - sequence maps to a command but it's not active
-                    debug!(
-                        sequence = seq,
-                        %cmd_id, "Sequence maps to inactive inquiry - will try content matching"
-                    );
-                }
-            } else {
-                trace!(sequence = seq, "Sequence not found in mappings");
-            }
-        }
-
-        // Try content-based matching for raw VISCA
-        // Build a map of active inquiries with their types
-        let active_inquiries: HashMap<CommandId, InquiryKind> = self
+        for (&id, state) in self
             .inquiries
             .iter()
             .filter(|(_, state)| state.phase.is_awaiting_reply())
-            .map(|(&id, state)| (id, state.response_type))
-            .collect();
-
-        trace!(
-            count = active_inquiries.len(),
-            payload = payload_hex(),
-            "Testing payload against active inquiries"
-        );
-
-        // Try parsing the payload against each expected response type
-        let mut matches: Vec<CommandId> = Vec::new();
-
-        for (id, response_type) in active_inquiries.iter() {
-            // Use the existing zero-allocation parser
-            // If parsing succeeds, this inquiry type matches the payload
-            match parse_inquiry_payload(payload.as_slice(), response_type) {
+        {
+            active_count += 1;
+            match parse_inquiry_payload(payload.as_slice(), &state.response_type) {
                 Ok(_) => {
-                    trace!(cmd_id = %id, inquiry_type = ?response_type, "Matched");
-                    matches.push(*id);
+                    trace!(cmd_id = %id, inquiry_type = ?state.response_type, "Matched");
+                    match_count += 1;
+                    matched.get_or_insert(id);
                 }
                 Err(_e) => {
-                    trace!(cmd_id = %id, inquiry_type = ?response_type, "No match");
+                    trace!(cmd_id = %id, inquiry_type = ?state.response_type, "No match");
                 }
             }
         }
 
-        // Remove duplicates (defensive, shouldn't happen with unique IDs)
-        matches.dedup();
-
-        match matches.len() {
+        match match_count {
             0 => {
                 // No match - fall back to FIFO as last resort
                 let fifo_front = self.inquiries_order.front().copied();
@@ -1654,15 +1574,13 @@ impl SchedulerCore {
                 if fifo_front.is_some() {
                     debug!(
                         cmd_id = ?fifo_front,
-                        payload = payload_hex(),
-                        active_count = active_inquiries.len(),
+                        active_count,
                         "Content matching failed, using FIFO fallback"
                     );
-                } else if !active_inquiries.is_empty() {
+                } else if active_count > 0 {
                     // This is unexpected - we have active inquiries but none matched and FIFO is empty
                     debug!(
-                        payload = payload_hex(),
-                        active_count = active_inquiries.len(),
+                        active_count,
                         "No inquiry match and FIFO empty - inquiry may be orphaned"
                     );
                 }
@@ -1670,17 +1588,15 @@ impl SchedulerCore {
             }
             1 => {
                 // Unique match found - this is the expected path, only log at TRACE
-                trace!(cmd_id = %matches[0], "Content match successful");
-                Some(matches[0])
+                trace!(cmd_id = ?matched, "Content match successful");
+                matched
             }
             _ => {
                 // Ambiguous - multiple inquiries match the same payload type
                 // This is unusual and worth logging at DEBUG
                 let fifo_front = self.inquiries_order.front().copied();
                 debug!(
-                    candidates = ?matches,
                     fifo_fallback = ?fifo_front,
-                    payload = payload_hex(),
                     "Ambiguous inquiry match - using FIFO to disambiguate"
                 );
                 fifo_front
@@ -2585,6 +2501,11 @@ impl SchedulerCore {
         self.ignored_unmatched_sequenced_replies
     }
 
+    /// Record a sequenced reply that did not match an active command.
+    pub(crate) fn record_unmatched_sequenced_reply(&mut self) {
+        self.ignored_unmatched_sequenced_replies += 1;
+    }
+
     /// Get socket state for testing.
     ///
     /// Returns (is_free, command_id, category) for the given socket.
@@ -2670,7 +2591,6 @@ impl SchedulerCore {
     /// Unlike send errors, receive errors indicate the camera did receive and process
     /// the command, but the response was malformed or indicated an error condition.
     /// No "Send failed" context is added since the send succeeded.
-    #[cfg(any(feature = "mode-async", test))]
     pub fn fail_after_receive_error(
         &mut self,
         cmd_id: CommandId,
@@ -2923,7 +2843,7 @@ impl SchedulerCore {
     ///
     /// Returns true if the inquiry exists and is awaiting reply.
     #[inline]
-    fn is_awaiting_inquiry_reply(&self, cmd_id: CommandId) -> bool {
+    pub(crate) fn is_awaiting_inquiry_reply(&self, cmd_id: CommandId) -> bool {
         self.inquiries
             .get(&cmd_id)
             .is_some_and(|s| s.phase.is_awaiting_reply())

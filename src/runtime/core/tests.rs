@@ -2911,8 +2911,14 @@ fn test_stale_retry_dropped_after_command_completion() {
     // Verify retry is queued
     assert_eq!(core.retry_queue_depth(), 1);
 
-    // Complete the command (simulating successful response before retry_at)
-    core.complete_command(cmd_id);
+    // Complete the command through the scheduler event path before retry_at.
+    core.process_event(
+        SchedulerEvent::Completion {
+            source: ReplySource::from_fields(Some(cmd_id), None, None),
+            response: Response::Completion { socket: None },
+        },
+        now,
+    );
 
     // Advance time past retry_at and try to get retries
     let retries = core.get_ready_retries(now + Duration::from_millis(200));
@@ -2963,8 +2969,16 @@ fn test_stale_retry_dropped_after_inquiry_completion() {
     let action = core.queue_retry_for_command(cmd_id, now, None);
     assert!(matches!(action, Some(SchedulerAction::RetryCommand { .. })));
 
-    // Complete the inquiry
-    core.complete_inquiry(cmd_id);
+    // Complete the inquiry through the scheduler event path.
+    core.process_event(
+        SchedulerEvent::InquiryReply {
+            source: ReplySource::from_fields(Some(cmd_id), None, None),
+            response: Response::Inquiry(crate::command::InquiryData::ZoomPosition {
+                position: 0x1234,
+            }),
+        },
+        now,
+    );
 
     // Advance time past retry_at and try to get retries
     let retries = core.get_ready_retries(now + Duration::from_millis(200));
@@ -3179,9 +3193,16 @@ fn test_multiple_commands_with_valid_and_stale_retries() {
         assert!(matches!(action, Some(SchedulerAction::RetryCommand { .. })));
     }
 
-    // Complete command 1 and 3, leave 2 active
-    core.complete_command(cmd_id(1));
-    core.complete_command(cmd_id(3));
+    // Complete command 1 and 3 through the scheduler event path, leave 2 active
+    for completed in [cmd_id(1), cmd_id(3)] {
+        core.process_event(
+            SchedulerEvent::Completion {
+                source: ReplySource::from_fields(Some(completed), None, None),
+                response: Response::Completion { socket: None },
+            },
+            now,
+        );
+    }
 
     // Advance time and get retries
     let retries = core.get_ready_retries(now + Duration::from_millis(200));
