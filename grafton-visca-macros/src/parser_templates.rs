@@ -178,7 +178,7 @@ pub fn generate_bit_flags_parser(
 /// Generate a mode enum parser
 pub fn generate_mode_enum_parser(
     response_variant: &Ident,
-    mode_type: &Ident,
+    mode_type: &TokenStream,
     crate_path: &TokenStream,
 ) -> TokenStream {
     // Determine the field name based on the response variant
@@ -233,7 +233,7 @@ pub fn generate_pan_tilt_parser(response_variant: &Ident, crate_path: &TokenStre
 pub fn generate_bool_convention_parser(
     response_variant: &Ident,
     field_name: &Ident,
-    convention: &Ident,
+    convention: &TokenStream,
     crate_path: &TokenStream,
 ) -> TokenStream {
     let param_name = field_name.to_string();
@@ -242,7 +242,7 @@ pub fn generate_bool_convention_parser(
             let payload = #crate_path::command::Payload::new(data);
             let #field_name = payload.parse_bool(
                 #param_name,
-                #crate_path::command::BoolConvention::#convention
+                #convention
             )?;
             Ok(#crate_path::command::InquiryData::#response_variant { #field_name })
         }

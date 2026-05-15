@@ -147,9 +147,9 @@ struct ViscaAttributes {
     response_kind: Option<Ident>,
     parser_type: Option<ParserStrategy>,
     field_name: Option<Ident>,
-    mode_type: Option<Ident>,
-    custom_fn: Option<Ident>,
-    convention: Option<Ident>,
+    mode_type: Option<Type>,
+    custom_fn: Option<Path>,
+    convention: Option<Path>,
     data_variant: Option<Ident>,
     // Typed response attributes for ResponseParser impl generation:
     typed_response: Option<Type>,
@@ -201,9 +201,9 @@ enum ParserStrategy {
 struct ParserInfo {
     parser_type: ParserStrategy,
     field_name: Option<Ident>,
-    mode_type: Option<Ident>,
-    custom_fn: Option<Ident>,
-    convention: Option<Ident>, // OnIs02 or OnIs03 for bool_convention parser
+    mode_type: Option<Type>,
+    custom_fn: Option<Path>,
+    convention: Option<Path>, // OnIs02 or OnIs03 for bool_convention parser
     data_variant: Option<Ident>, // InquiryData variant if different from response (InquiryKind)
 }
 
@@ -239,13 +239,13 @@ fn parse_visca_attributes_from_struct(input: &DeriveInput) -> syn::Result<ViscaA
                     attrs.field_name = Some(parse_ident_value(value, "field")?);
                 } else if meta.path.is_ident("type") || meta.path.is_ident("value_type") {
                     let value = meta.value()?;
-                    attrs.mode_type = Some(parse_ident_value(value, "value_type")?);
+                    attrs.mode_type = Some(parse_type_spec(value)?);
                 } else if meta.path.is_ident("custom_fn") || meta.path.is_ident("parse_with") {
                     let value = meta.value()?;
-                    attrs.custom_fn = Some(parse_ident_value(value, "custom_fn")?);
+                    attrs.custom_fn = Some(parse_path_value(value, "custom_fn")?);
                 } else if meta.path.is_ident("convention") {
                     let value = meta.value()?;
-                    let convention = parse_ident_value(value, "convention")?;
+                    let convention = parse_path_value(value, "convention")?;
                     validate_bool_convention(&convention)?;
                     attrs.convention = Some(convention);
                 } else if meta.path.is_ident("data_variant")
@@ -310,15 +310,19 @@ fn parse_u8_literal(lit: &LitInt) -> syn::Result<u8> {
 }
 
 fn parse_ident_value(input: ParseStream<'_>, name: &str) -> syn::Result<Ident> {
-    let path: Path = input.parse()?;
-    path_last_ident(&path, name, path.span())
+    let ident: Ident = input.parse()?;
+    if input.peek(Token![::]) {
+        return Err(syn::Error::new(
+            input.span(),
+            format!("{name} must be a single identifier"),
+        ));
+    }
+    Ok(ident)
 }
 
-fn path_last_ident(path: &Path, name: &str, span: proc_macro2::Span) -> syn::Result<Ident> {
-    path.segments
-        .last()
-        .map(|segment| segment.ident.clone())
-        .ok_or_else(|| syn::Error::new(span, format!("{name} must not be empty")))
+fn parse_path_value(input: ParseStream<'_>, _name: &str) -> syn::Result<Path> {
+    let path: Path = input.parse()?;
+    Ok(path)
 }
 
 fn parse_type_spec(input: ParseStream<'_>) -> syn::Result<Type> {
@@ -339,13 +343,11 @@ fn parse_ident_list_value(input: ParseStream<'_>) -> syn::Result<Vec<Ident>> {
         return Ok(fields.into_iter().collect());
     }
 
-    let path: Path = input.parse()?;
-    Ok(vec![path_last_ident(&path, "typed_field", path.span())?])
+    Ok(vec![parse_ident_value(input, "typed_field")?])
 }
 
 fn parse_parser_strategy(input: ParseStream<'_>) -> syn::Result<ParserStrategy> {
-    let path: Path = input.parse()?;
-    let ident = path_last_ident(&path, "parser", path.span())?;
+    let ident = parse_ident_value(input, "parser")?;
     let strategy = match ident.to_string().as_str() {
         "Bool" | "bool" => ParserStrategy::Bool,
         "DirectByte" | "direct_byte" => ParserStrategy::DirectByte,
@@ -379,11 +381,18 @@ fn parse_parser_strategy(input: ParseStream<'_>) -> syn::Result<ParserStrategy> 
     Ok(strategy)
 }
 
-fn validate_bool_convention(convention: &Ident) -> syn::Result<()> {
-    match convention.to_string().as_str() {
+fn validate_bool_convention(convention: &Path) -> syn::Result<()> {
+    let Some(variant) = convention.segments.last() else {
+        return Err(syn::Error::new(
+            convention.span(),
+            "convention must not be empty",
+        ));
+    };
+
+    match variant.ident.to_string().as_str() {
         "OnIs02" | "OnIs03" => Ok(()),
         other => Err(syn::Error::new(
-            convention.span(),
+            variant.ident.span(),
             format!("unknown bool convention `{other}`"),
         )),
     }
@@ -511,6 +520,7 @@ fn generate_parser_body(
                 .mode_type
                 .clone()
                 .expect("mode parser requires type attribute");
+            let mode_type = command_type_tokens(&mode_type, crate_path);
             super::parser_templates::generate_mode_enum_parser(
                 response_variant,
                 &mode_type,
@@ -529,6 +539,7 @@ fn generate_parser_body(
                 .convention
                 .clone()
                 .expect("bool_convention parser requires convention attribute (OnIs02 or OnIs03)");
+            let convention = bool_convention_tokens(&convention, crate_path);
             super::parser_templates::generate_bool_convention_parser(
                 &actual_variant,
                 &field_name,
@@ -702,6 +713,45 @@ fn type_spec_tokens(ty: &Type, crate_path: &TokenStream) -> TokenStream {
     type_tokens(ty, crate_path)
 }
 
+fn command_type_tokens(ty: &Type, crate_path: &TokenStream) -> TokenStream {
+    if let Type::Path(type_path) = ty {
+        let path = &type_path.path;
+        if is_explicit_path(path) {
+            quote! { #ty }
+        } else if path.segments.len() == 1 {
+            quote! { #crate_path::command::#path }
+        } else if path
+            .segments
+            .first()
+            .map(|segment| segment.ident == "command")
+            .unwrap_or(false)
+        {
+            quote! { #crate_path::#path }
+        } else {
+            quote! { #ty }
+        }
+    } else {
+        quote! { #ty }
+    }
+}
+
+fn bool_convention_tokens(path: &Path, crate_path: &TokenStream) -> TokenStream {
+    if is_explicit_path(path) {
+        quote! { #path }
+    } else if path.segments.len() == 1 {
+        quote! { #crate_path::command::BoolConvention::#path }
+    } else if path
+        .segments
+        .first()
+        .map(|segment| segment.ident == "BoolConvention")
+        .unwrap_or(false)
+    {
+        quote! { #crate_path::command::#path }
+    } else {
+        quote! { #path }
+    }
+}
+
 fn type_tokens(ty: &Type, crate_path: &TokenStream) -> TokenStream {
     if let Type::Path(type_path) = ty {
         let path = &type_path.path;
@@ -795,6 +845,50 @@ mod tests {
         assert!(
             tokens.contains("unknown parser strategy"),
             "unknown parser strategy should produce a diagnostic: {tokens}"
+        );
+    }
+
+    #[test]
+    fn qualified_mode_type_path_is_preserved() {
+        let input: DeriveInput = syn::parse_quote! {
+            #[visca(
+                opcode = 0x39,
+                response = ExposureMode,
+                parser = Mode,
+                value_type = crate::support::ExposureMode
+            )]
+            struct ModePathInquiry;
+        };
+
+        let tokens = derive_visca_inquiry_impl(input).to_string();
+
+        assert!(
+            tokens.contains("crate :: support :: ExposureMode"),
+            "qualified value_type path should be preserved: {tokens}"
+        );
+        assert!(
+            !tokens.contains("command :: ExposureMode as TryFrom"),
+            "qualified value_type path must not be reduced to its last segment: {tokens}"
+        );
+    }
+
+    #[test]
+    fn qualified_custom_parser_path_is_preserved() {
+        let input: DeriveInput = syn::parse_quote! {
+            #[visca(
+                opcode = 0x00,
+                response = Power,
+                parser = Custom,
+                parse_with = crate::parsers::parse_power
+            )]
+            struct CustomParserInquiry;
+        };
+
+        let tokens = derive_visca_inquiry_impl(input).to_string();
+
+        assert!(
+            tokens.contains("crate :: parsers :: parse_power (data)"),
+            "qualified custom parser path should be preserved: {tokens}"
         );
     }
 }

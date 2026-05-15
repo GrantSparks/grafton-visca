@@ -423,7 +423,7 @@ pub mod system_cmd {
 mod validation_tests {
     use super::*;
     use crate::command::bytes::VISCA_TERMINATOR;
-    use crate::command::{BuiltinInquiryQuery, BUILTIN_INQUIRIES};
+    use crate::command::inquiry_structs::{BuiltinInquiryQuery, BUILTIN_INQUIRIES};
 
     /// This test validates that all constants are correctly formed at compile time.
     /// The visca_bytes! and visca_prefix! macros already perform compile-time validation,

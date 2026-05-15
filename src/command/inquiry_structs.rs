@@ -21,29 +21,55 @@ use crate::timeout::CommandCategory;
 use crate::types::{BroadcastDomain, DefogLevel, ExposureCompensationPosition, NdFilterPreset};
 use crate::{CameraId, Error};
 
-/// How a built-in inquiry participates in command generation.
+/// Type-checked command reference used by test-only invariant metadata.
+#[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BuiltinInquiryQuery {
+pub(crate) struct BuiltinInquiryCommand {
+    name: &'static str,
+    bytes: &'static [u8],
+}
+
+#[cfg(test)]
+impl BuiltinInquiryCommand {
+    pub(crate) const fn name(self) -> &'static str {
+        self.name
+    }
+
+    pub(crate) const fn bytes(self) -> &'static [u8] {
+        self.bytes
+    }
+}
+
+#[cfg(test)]
+pub(crate) trait BuiltinInquiryCommandMarker {
+    const METADATA: BuiltinInquiryCommand;
+}
+
+/// How a built-in inquiry participates in command generation.
+#[cfg(test)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum BuiltinInquiryQuery {
     /// Generates a public zero-sized query command with unique request bytes.
     Queryable,
     /// Decodes responses but intentionally does not generate a query command.
     DecodeOnly,
     /// Generates a query command that is an alias of another command's bytes.
     Alias {
-        /// Canonical command/constant name for the shared request bytes.
-        canonical: &'static str,
+        /// Canonical command for the shared request bytes.
+        canonical: BuiltinInquiryCommand,
     },
     /// Generates a query command with shared bytes but a different typed
     /// interpretation of the same wire response.
     AlternateTypedInterpretation {
-        /// Canonical command/constant name for the shared request bytes.
-        canonical: &'static str,
+        /// Canonical command for the shared request bytes.
+        canonical: BuiltinInquiryCommand,
     },
 }
 
 /// Profile-specific response decoding hook used by a built-in inquiry.
+#[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BuiltinInquiryProfileDecoder {
+pub(crate) enum BuiltinInquiryProfileDecoder {
     /// The normal generated decoder is profile independent.
     Default,
     /// Decode pan/tilt position through the camera profile's coordinate system.
@@ -51,8 +77,9 @@ pub enum BuiltinInquiryProfileDecoder {
 }
 
 /// Profile gate required before a camera-facing accessor is implemented.
+#[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BuiltinInquiryProfileGate {
+pub(crate) enum BuiltinInquiryProfileGate {
     /// The accessor is available for every profile.
     Always,
     /// The accessor requires the named profile support marker.
@@ -63,41 +90,43 @@ pub enum BuiltinInquiryProfileGate {
 }
 
 /// Static metadata for generated camera-facing inquiry accessors.
+#[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct BuiltinInquiryAccessorMetadata {
+pub(crate) struct BuiltinInquiryAccessorMetadata {
     /// Camera control trait exposing the accessor.
-    pub trait_name: &'static str,
+    pub(crate) trait_name: &'static str,
     /// Accessor method name.
-    pub method: &'static str,
+    pub(crate) method: &'static str,
     /// Generated query command used by the accessor.
-    pub command: &'static str,
+    pub(crate) command: BuiltinInquiryCommand,
     /// Typed response returned by the accessor.
-    pub response_type: &'static str,
+    pub(crate) response_type: &'static str,
     /// Profile support required to expose the accessor.
-    pub profile_gate: BuiltinInquiryProfileGate,
+    pub(crate) profile_gate: BuiltinInquiryProfileGate,
 }
 
 /// Static metadata for generated built-in inquiry invariants.
+#[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct BuiltinInquiryMetadata {
+pub(crate) struct BuiltinInquiryMetadata {
     /// Human-readable registry entry name.
-    pub name: &'static str,
+    pub(crate) name: &'static str,
     /// Generated command struct name, if this response is queryable.
-    pub command: Option<&'static str>,
+    pub(crate) command: Option<BuiltinInquiryCommand>,
     /// Response discriminator used by routing and parsing.
-    pub kind: InquiryKind,
+    pub(crate) kind: InquiryKind,
     /// Canonical request bytes, including the VISCA terminator.
-    pub bytes: Option<&'static [u8]>,
+    pub(crate) bytes: Option<&'static [u8]>,
     /// Command-generation classification.
-    pub query: BuiltinInquiryQuery,
+    pub(crate) query: BuiltinInquiryQuery,
     /// Whether this inquiry is vendor-specific rather than baseline VISCA.
-    pub vendor_specific: bool,
+    pub(crate) vendor_specific: bool,
     /// Timeout category used by the generated command.
-    pub timeout_category: CommandCategory,
+    pub(crate) timeout_category: CommandCategory,
     /// Profile-specific decode behavior, if this inquiry needs it.
-    pub profile_decoder: BuiltinInquiryProfileDecoder,
+    pub(crate) profile_decoder: BuiltinInquiryProfileDecoder,
     /// Rationale for aliases, alternate interpretations, and intentional gaps.
-    pub rationale: Option<&'static str>,
+    pub(crate) rationale: Option<&'static str>,
 }
 
 macro_rules! builtin_inquiry_timeout_category {
@@ -109,6 +138,7 @@ macro_rules! builtin_inquiry_timeout_category {
     };
 }
 
+#[cfg(test)]
 macro_rules! builtin_inquiry_profile_decoder {
     () => {
         BuiltinInquiryProfileDecoder::Default
@@ -121,6 +151,7 @@ macro_rules! builtin_inquiry_profile_decoder {
     };
 }
 
+#[cfg(test)]
 macro_rules! builtin_inquiry_profile_gate {
     (none) => {
         BuiltinInquiryProfileGate::Always
@@ -492,29 +523,57 @@ macro_rules! define_inquiry_profile_dispatch {
 }
 
 macro_rules! define_builtin_inquiries {
-    (@accessor_array
-        $(
-            $trait_name:ident {
-                gate: $profile_gate:path;
-                $(
-                    $command:ident => $method:ident : $response_ty:ty;
-                )*
-            }
-        )*
-    ) => {
+    (@accessor_array $($accessor_groups:tt)*) => {
+        define_builtin_inquiries!(@accessor_array_acc [] $($accessor_groups)*)
+    };
+    (@accessor_array_acc [$($items:tt)*]) => {
         &[
-            $(
-                $(
-                    BuiltinInquiryAccessorMetadata {
-                        trait_name: stringify!($trait_name),
-                        method: stringify!($method),
-                        command: stringify!($command),
-                        response_type: stringify!($response_ty),
-                        profile_gate: builtin_inquiry_profile_gate!($profile_gate),
-                    },
-                )*
-            )*
+            $($items)*
         ]
+    };
+    (@accessor_array_acc [$($items:tt)*]
+        $trait_name:ident {
+            gate: none;
+            $(
+                $command:ident => $method:ident : $response_ty:ty;
+            )*
+        }
+        $($rest:tt)*
+    ) => {
+        define_builtin_inquiries!(@accessor_array_acc [
+            $($items)*
+            $(
+                BuiltinInquiryAccessorMetadata {
+                    trait_name: stringify!($trait_name),
+                    method: stringify!($method),
+                    command: <$command as BuiltinInquiryCommandMarker>::METADATA,
+                    response_type: stringify!($response_ty),
+                    profile_gate: builtin_inquiry_profile_gate!(none),
+                },
+            )*
+        ] $($rest)*)
+    };
+    (@accessor_array_acc [$($items:tt)*]
+        $trait_name:ident {
+            gate: $profile_gate:path;
+            $(
+                $command:ident => $method:ident : $response_ty:ty;
+            )*
+        }
+        $($rest:tt)*
+    ) => {
+        define_builtin_inquiries!(@accessor_array_acc [
+            $($items)*
+            $(
+                BuiltinInquiryAccessorMetadata {
+                    trait_name: stringify!($trait_name),
+                    method: stringify!($method),
+                    command: <$command as BuiltinInquiryCommandMarker>::METADATA,
+                    response_type: stringify!($response_ty),
+                    profile_gate: builtin_inquiry_profile_gate!($profile_gate),
+                },
+            )*
+        ] $($rest)*)
     };
     (
         queryable {
@@ -713,15 +772,24 @@ macro_rules! define_builtin_inquiries {
             }
 
             impl_builtin_response_parser!($typed, $struct, $kind);
+
+            #[cfg(test)]
+            impl BuiltinInquiryCommandMarker for $struct {
+                const METADATA: BuiltinInquiryCommand = BuiltinInquiryCommand {
+                    name: stringify!($struct),
+                    bytes: bytes::$bytes_const,
+                };
+            }
         )*
 
         /// Iterable built-in inquiry metadata for invariant tests and internal
         /// consistency checks.
-        pub const BUILTIN_INQUIRIES: &[BuiltinInquiryMetadata] = &[
+        #[cfg(test)]
+        pub(crate) const BUILTIN_INQUIRIES: &[BuiltinInquiryMetadata] = &[
             $(
                 BuiltinInquiryMetadata {
-                    name: stringify!($kind),
-                    command: Some(stringify!($struct)),
+                    name: stringify!($struct),
+                    command: Some(<$struct as BuiltinInquiryCommandMarker>::METADATA),
                     kind: InquiryKind::$kind,
                     bytes: Some(bytes::$bytes_const),
                     query: $query,
@@ -748,7 +816,8 @@ macro_rules! define_builtin_inquiries {
 
         /// Iterable camera-facing inquiry accessor metadata generated from the
         /// same table as the built-in commands.
-        pub const BUILTIN_INQUIRY_ACCESSORS: &[BuiltinInquiryAccessorMetadata] =
+        #[cfg(test)]
+        pub(crate) const BUILTIN_INQUIRY_ACCESSORS: &[BuiltinInquiryAccessorMetadata] =
             define_builtin_inquiries!(@accessor_array $($accessor_groups)*);
 
         #[cfg(test)]
@@ -875,12 +944,115 @@ macro_rules! define_builtin_inquiries {
             #[test]
             fn aliases_and_alternate_interpretations_have_rationale() {
                 for meta in BUILTIN_INQUIRIES {
+                    match meta.query {
+                        BuiltinInquiryQuery::Alias { canonical }
+                        | BuiltinInquiryQuery::AlternateTypedInterpretation { canonical } => {
+                            assert!(meta.rationale.is_some(), "{} needs a rationale", meta.name);
+                            assert_eq!(
+                                meta.bytes,
+                                Some(canonical.bytes()),
+                                "{} must share request bytes with canonical {}",
+                                meta.name,
+                                canonical.name(),
+                            );
+                        }
+                        BuiltinInquiryQuery::Queryable | BuiltinInquiryQuery::DecodeOnly => {}
+                    }
+                }
+            }
+
+            #[test]
+            fn generated_metadata_is_internally_complete() {
+                let mut saw_vendor_specific = false;
+                let mut saw_profile_decoder = false;
+
+                for meta in BUILTIN_INQUIRIES {
+                    assert!(!meta.name.is_empty(), "metadata entry must have a name");
+
+                    if let Some(command) = meta.command {
+                        assert_eq!(
+                            meta.name,
+                            command.name(),
+                            "{} command discriminator must match metadata name",
+                            meta.name,
+                        );
+                        assert_eq!(
+                            meta.bytes,
+                            Some(command.bytes()),
+                            "{} command discriminator must expose canonical bytes",
+                            meta.name,
+                        );
+                    }
+
+                    if meta.vendor_specific {
+                        saw_vendor_specific = true;
+                    }
+
                     if matches!(
-                        meta.query,
-                        BuiltinInquiryQuery::Alias { .. }
-                            | BuiltinInquiryQuery::AlternateTypedInterpretation { .. }
+                        meta.profile_decoder,
+                        BuiltinInquiryProfileDecoder::PanTiltPosition
                     ) {
-                        assert!(meta.rationale.is_some(), "{} needs a rationale", meta.name);
+                        saw_profile_decoder = true;
+                        assert_eq!(meta.kind, InquiryKind::PanTiltPosition);
+                    }
+
+                    assert!(
+                        meta.timeout_category.default_timeout() > std::time::Duration::ZERO,
+                        "{} has an unexpected timeout category",
+                        meta.name,
+                    );
+                }
+
+                assert!(saw_vendor_specific, "vendor-specific inquiries must be modeled");
+                assert!(
+                    saw_profile_decoder,
+                    "profile-aware inquiry decoding must be modeled"
+                );
+            }
+
+            #[test]
+            fn camera_accessor_metadata_is_internally_complete() {
+                assert!(
+                    !BUILTIN_INQUIRY_ACCESSORS.is_empty(),
+                    "camera-facing inquiry accessors must be table-backed",
+                );
+
+                for accessor in BUILTIN_INQUIRY_ACCESSORS {
+                    assert!(
+                        !accessor.trait_name.is_empty(),
+                        "{} must name an accessor trait",
+                        accessor.method,
+                    );
+                    assert!(
+                        !accessor.method.is_empty(),
+                        "{} must name an accessor method",
+                        accessor.trait_name,
+                    );
+                    assert!(
+                        !accessor.response_type.is_empty(),
+                        "{}::{} must name a response type",
+                        accessor.trait_name,
+                        accessor.method,
+                    );
+                    assert_eq!(
+                        accessor.command.bytes().last(),
+                        Some(&crate::command::VISCA_TERMINATOR),
+                        "{}::{} must reference a generated command with canonical bytes",
+                        accessor.trait_name,
+                        accessor.method,
+                    );
+
+                    match accessor.profile_gate {
+                        BuiltinInquiryProfileGate::Always => {}
+                        BuiltinInquiryProfileGate::Capability { marker } => {
+                            let normalized_marker = marker.replace(' ', "");
+                            assert!(
+                                normalized_marker.starts_with("crate::capabilities::Has"),
+                                "{}::{} has an unexpected profile gate marker: {marker}",
+                                accessor.trait_name,
+                                accessor.method,
+                            );
+                        }
                     }
                 }
             }
@@ -1787,7 +1959,9 @@ macro_rules! builtin_inquiry_table {
                 Ok(Response::Inquiry(InquiryData::FlipState { horizontal, vertical }))
             };
             response: false;
-            query: BuiltinInquiryQuery::Alias { canonical: "IMAGE_FLIP" };
+            query: BuiltinInquiryQuery::Alias {
+                canonical: <ImageFlipInquiry as BuiltinInquiryCommandMarker>::METADATA,
+            };
             vendor_specific: true;
             rationale: Some("Public flip-mode accessor intentionally aliases ImageFlipInquiry because both expose CAM_FlipInq.");
             typed: (
@@ -1962,7 +2136,7 @@ macro_rules! builtin_inquiry_table {
             };
             response: true;
             query: BuiltinInquiryQuery::AlternateTypedInterpretation {
-                canonical: "EXPOSURE_COMPENSATION",
+                canonical: <ExposureCompensationInquiry as BuiltinInquiryCommandMarker>::METADATA,
             };
             vendor_specific: false;
             rationale: Some("Same wire query as ExposureCompensationInquiry, exposed as the high-resolution position newtype.");
@@ -1987,7 +2161,9 @@ macro_rules! builtin_inquiry_table {
                 Ok(Response::Inquiry(InquiryData::RedTuning { level }))
             };
             response: true;
-            query: BuiltinInquiryQuery::AlternateTypedInterpretation { canonical: "RED_GAIN" };
+            query: BuiltinInquiryQuery::AlternateTypedInterpretation {
+                canonical: <RedGainInquiry as BuiltinInquiryCommandMarker>::METADATA,
+            };
             vendor_specific: false;
             rationale: Some("Same register as RedGainInquiry, interpreted as signed white-balance tuning.");
             typed: (
@@ -2011,7 +2187,9 @@ macro_rules! builtin_inquiry_table {
                 Ok(Response::Inquiry(InquiryData::BlueTuning { level }))
             };
             response: true;
-            query: BuiltinInquiryQuery::AlternateTypedInterpretation { canonical: "BLUE_GAIN" };
+            query: BuiltinInquiryQuery::AlternateTypedInterpretation {
+                canonical: <BlueGainInquiry as BuiltinInquiryCommandMarker>::METADATA,
+            };
             vendor_specific: false;
             rationale: Some("Same register as BlueGainInquiry, interpreted as signed white-balance tuning.");
             typed: (
@@ -2191,7 +2369,7 @@ macro_rules! builtin_inquiry_table {
             };
             response: true;
             query: BuiltinInquiryQuery::AlternateTypedInterpretation {
-                canonical: "NOISE_REDUCTION_2D",
+                canonical: <NoiseReduction2DInquiry as BuiltinInquiryCommandMarker>::METADATA,
             };
             vendor_specific: false;
             rationale: Some("Same wire query as NoiseReduction2DInquiry, interpreted as aggregate noise-reduction mode.");
@@ -2212,7 +2390,7 @@ macro_rules! builtin_inquiry_table {
             };
             response: true;
             query: BuiltinInquiryQuery::AlternateTypedInterpretation {
-                canonical: "NOISE_REDUCTION_3D",
+                canonical: <NoiseReduction3DInquiry as BuiltinInquiryCommandMarker>::METADATA,
             };
             vendor_specific: false;
             rationale: Some("Same wire query as NoiseReduction3DInquiry, interpreted as aggregate noise-reduction speed.");
@@ -2330,7 +2508,7 @@ macro_rules! builtin_inquiry_table {
             };
             response: true;
             query: BuiltinInquiryQuery::AlternateTypedInterpretation {
-                canonical: "AUTO_WB_SENSITIVITY",
+                canonical: <AutoWhiteBalanceSensitivityInquiry as BuiltinInquiryCommandMarker>::METADATA,
             };
             vendor_specific: true;
             rationale: Some("PTZOptics interprets the same register used by AWB sensitivity as tally auto-adjust state.");
