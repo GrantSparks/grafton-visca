@@ -239,7 +239,7 @@ mod tests {
         camera::profiles::PtzOpticsG2,
         camera_id::CameraId,
         command::{
-            bytes::VISCA_TERMINATOR, encode::EncodedCommand, inquiry_registry::InquiryKind,
+            bytes::VISCA_TERMINATOR, encode::EncodedCommand, inquiry_structs::InquiryKind,
             response::Response, CommandKind, InquiryData,
         },
         runtime::core::{Priority, SchedulerAction},

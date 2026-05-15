@@ -13,7 +13,6 @@ pub(crate) mod focus;
 pub(crate) mod gain;
 pub(crate) mod image;
 pub(crate) mod inquiry;
-pub(crate) mod inquiry_registry;
 pub(crate) mod inquiry_structs; // Internal module for macro-generated inquiry commands
 pub(crate) mod inquiry_types;
 pub(crate) mod menu;
@@ -50,7 +49,7 @@ pub use self::{
     gain::{Gain, GainLimitCommand},
     image::*,
     inquiry::*,
-    inquiry_registry::{InquiryData, InquiryKind},
+    inquiry_structs::{InquiryData, InquiryKind},
     inquiry_types::{FlipState, IrisControl, NightDayMode, TallyStatus, Version},
     menu::*,
     motion_sync::{SetMotionSyncMode, SetMotionSyncPreset},

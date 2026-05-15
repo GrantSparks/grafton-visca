@@ -4,8 +4,8 @@
 //! [`crate::command::inquiry_structs`]. This module re-exports the generated
 //! profile-independent and profile-aware dispatcher entry points.
 
-// Re-export the registry's dispatch as the canonical decoder entry point.
-pub(crate) use crate::command::inquiry_registry::{dispatch, dispatch_for};
+// Re-export the generated dispatchers as the canonical decoder entry points.
+pub(crate) use crate::command::inquiry_structs::{dispatch, dispatch_for};
 
 #[cfg(test)]
 #[allow(clippy::panic)]

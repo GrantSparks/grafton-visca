@@ -6,7 +6,7 @@ use super::{
     decoders::{dispatch, dispatch_for},
     types::Response,
 };
-use crate::command::inquiry_registry::InquiryKind;
+use crate::command::inquiry_structs::InquiryKind;
 use crate::{
     capabilities::{PanTilt, Profile},
     error::Error,

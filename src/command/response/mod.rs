@@ -17,8 +17,8 @@ pub use self::{
     types::Response,
 };
 
-// Re-export InquiryKind from the registry for crate-internal response code.
-pub use crate::command::inquiry_registry::InquiryKind;
+// Re-export InquiryKind from the generated built-in inquiry table.
+pub use crate::command::inquiry_structs::InquiryKind;
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::panic)]

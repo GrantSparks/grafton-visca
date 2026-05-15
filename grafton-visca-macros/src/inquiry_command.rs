@@ -148,7 +148,7 @@ struct ViscaAttributes {
     parser_type: Option<ParserStrategy>,
     field_name: Option<Ident>,
     mode_type: Option<Type>,
-    custom_fn: Option<Path>,
+    parse_with: Option<Path>,
     convention: Option<Path>,
     data_variant: Option<Ident>,
     // Typed response attributes for ResponseParser impl generation:
@@ -164,7 +164,7 @@ impl ViscaAttributes {
             parser_type: *parser_type,
             field_name: self.field_name.clone(),
             mode_type: self.mode_type.clone(),
-            custom_fn: self.custom_fn.clone(),
+            parse_with: self.parse_with.clone(),
             convention: self.convention.clone(),
             data_variant: self.data_variant.clone(),
         })
@@ -202,7 +202,7 @@ struct ParserInfo {
     parser_type: ParserStrategy,
     field_name: Option<Ident>,
     mode_type: Option<Type>,
-    custom_fn: Option<Path>,
+    parse_with: Option<Path>,
     convention: Option<Path>, // OnIs02 or OnIs03 for bool_convention parser
     data_variant: Option<Ident>, // InquiryData variant if different from response (InquiryKind)
 }
@@ -220,11 +220,11 @@ fn parse_visca_attributes_from_struct(input: &DeriveInput) -> syn::Result<ViscaA
                     return Ok(());
                 }
 
-                if meta.path.is_ident("opcode") || meta.path.is_ident("command") {
+                if meta.path.is_ident("opcode") {
                     let value = meta.value()?;
                     let lit: LitInt = value.parse()?;
                     attrs.byte_value = Some(parse_u8_literal(&lit)?);
-                } else if meta.path.is_ident("subcode") || meta.path.is_ident("sub_command") {
+                } else if meta.path.is_ident("subcode") {
                     let value = meta.value()?;
                     let lit: LitInt = value.parse()?;
                     attrs.subcategory = Some(parse_u8_literal(&lit)?);
@@ -237,20 +237,18 @@ fn parse_visca_attributes_from_struct(input: &DeriveInput) -> syn::Result<ViscaA
                 } else if meta.path.is_ident("field") {
                     let value = meta.value()?;
                     attrs.field_name = Some(parse_ident_value(value, "field")?);
-                } else if meta.path.is_ident("type") || meta.path.is_ident("value_type") {
+                } else if meta.path.is_ident("value_type") {
                     let value = meta.value()?;
                     attrs.mode_type = Some(parse_type_spec(value)?);
-                } else if meta.path.is_ident("custom_fn") || meta.path.is_ident("parse_with") {
+                } else if meta.path.is_ident("parse_with") {
                     let value = meta.value()?;
-                    attrs.custom_fn = Some(parse_path_value(value, "custom_fn")?);
+                    attrs.parse_with = Some(parse_path_value(value, "parse_with")?);
                 } else if meta.path.is_ident("convention") {
                     let value = meta.value()?;
                     let convention = parse_path_value(value, "convention")?;
                     validate_bool_convention(&convention)?;
                     attrs.convention = Some(convention);
-                } else if meta.path.is_ident("data_variant")
-                    || meta.path.is_ident("inquiry_variant")
-                {
+                } else if meta.path.is_ident("data_variant") {
                     let value = meta.value()?;
                     attrs.data_variant = Some(parse_ident_value(value, "data_variant")?);
                 } else if meta.path.is_ident("typed_response") {
@@ -262,9 +260,6 @@ fn parse_visca_attributes_from_struct(input: &DeriveInput) -> syn::Result<ViscaA
                 } else if meta.path.is_ident("typed_constructor") {
                     let value = meta.value()?;
                     attrs.typed_constructor = Some(parse_ident_value(value, "typed_constructor")?);
-                } else if meta.path.is_ident("constant") || meta.path.is_ident("bytes_const") {
-                    let value = meta.value()?;
-                    let _ = parse_ident_value(value, "bytes_const")?;
                 } else {
                     return Err(meta.error("unknown visca attribute key"));
                 }
@@ -349,28 +344,28 @@ fn parse_ident_list_value(input: ParseStream<'_>) -> syn::Result<Vec<Ident>> {
 fn parse_parser_strategy(input: ParseStream<'_>) -> syn::Result<ParserStrategy> {
     let ident = parse_ident_value(input, "parser")?;
     let strategy = match ident.to_string().as_str() {
-        "Bool" | "bool" => ParserStrategy::Bool,
-        "DirectByte" | "direct_byte" => ParserStrategy::DirectByte,
-        "Byte" | "byte" => ParserStrategy::Byte,
-        "Position" | "position" => ParserStrategy::Position,
-        "ExtendedNibble" | "extended_nibble" => ParserStrategy::ExtendedNibble,
-        "Nibble" | "nibble" => ParserStrategy::Nibble,
-        "Flags" | "flags" => ParserStrategy::Flags,
-        "BitFlags" | "bit_flags" => ParserStrategy::BitFlags,
-        "Mode" | "mode" => ParserStrategy::Mode,
-        "ModeEnum" | "mode_enum" => ParserStrategy::ModeEnum,
-        "PanTilt" | "pan_tilt" => ParserStrategy::PanTilt,
-        "BoolConvention" | "bool_convention" => ParserStrategy::BoolConvention,
-        "LastNibble" | "last_nibble" => ParserStrategy::LastNibble,
-        "TallyStatus" | "tally_status" => ParserStrategy::TallyStatus,
-        "SharpnessMode" | "sharpness_mode" => ParserStrategy::SharpnessMode,
-        "Gamma" | "gamma" => ParserStrategy::Gamma,
-        "AutoWbSensitivity" | "auto_wb_sensitivity" => ParserStrategy::AutoWbSensitivity,
-        "NdFilter" | "nd_filter" => ParserStrategy::NdFilter,
-        "PictureEffect" | "picture_effect" => ParserStrategy::PictureEffect,
-        "DefogLevel" | "defog_level" => ParserStrategy::DefogLevel,
-        "FocusRange" | "focus_range" => ParserStrategy::FocusRange,
-        "Custom" | "custom" => ParserStrategy::Custom,
+        "Bool" => ParserStrategy::Bool,
+        "DirectByte" => ParserStrategy::DirectByte,
+        "Byte" => ParserStrategy::Byte,
+        "Position" => ParserStrategy::Position,
+        "ExtendedNibble" => ParserStrategy::ExtendedNibble,
+        "Nibble" => ParserStrategy::Nibble,
+        "Flags" => ParserStrategy::Flags,
+        "BitFlags" => ParserStrategy::BitFlags,
+        "Mode" => ParserStrategy::Mode,
+        "ModeEnum" => ParserStrategy::ModeEnum,
+        "PanTilt" => ParserStrategy::PanTilt,
+        "BoolConvention" => ParserStrategy::BoolConvention,
+        "LastNibble" => ParserStrategy::LastNibble,
+        "TallyStatus" => ParserStrategy::TallyStatus,
+        "SharpnessMode" => ParserStrategy::SharpnessMode,
+        "Gamma" => ParserStrategy::Gamma,
+        "AutoWbSensitivity" => ParserStrategy::AutoWbSensitivity,
+        "NdFilter" => ParserStrategy::NdFilter,
+        "PictureEffect" => ParserStrategy::PictureEffect,
+        "DefogLevel" => ParserStrategy::DefogLevel,
+        "FocusRange" => ParserStrategy::FocusRange,
+        "Custom" => ParserStrategy::Custom,
         unknown => {
             return Err(syn::Error::new(
                 ident.span(),
@@ -433,7 +428,7 @@ fn validate_attrs(attrs: &ViscaAttributes, struct_name: &Ident) -> syn::Result<(
                 &mut error,
                 syn::Error::new_spanned(struct_name, "last_nibble parser requires field"),
             ),
-            ParserStrategy::Custom if parser.custom_fn.is_none() => push_error(
+            ParserStrategy::Custom if parser.parse_with.is_none() => push_error(
                 &mut error,
                 syn::Error::new_spanned(struct_name, "custom parser requires parse_with"),
             ),
@@ -613,12 +608,12 @@ fn generate_parser_body(
             )
         }
         ParserStrategy::Custom => {
-            let custom_fn = parser_info
-                .custom_fn
+            let parse_with = parser_info
+                .parse_with
                 .clone()
-                .expect("custom parser requires custom_fn/parse_with attribute");
+                .expect("custom parser requires parse_with attribute");
             quote! {
-                #custom_fn(data)
+                #parse_with(data)
             }
         }
     }
@@ -831,6 +826,51 @@ mod tests {
             tokens.contains("compile_error"),
             "legacy string syntax must fail during macro expansion: {tokens}"
         );
+    }
+
+    #[test]
+    fn lowercase_parser_strategy_is_rejected() {
+        let input: DeriveInput = syn::parse_quote! {
+            #[visca(opcode = 0x00, response = Power, parser = bool)]
+            struct LowercaseParserInquiry;
+        };
+
+        let tokens = derive_visca_inquiry_impl(input).to_string();
+
+        assert!(
+            tokens.contains("unknown parser strategy"),
+            "lowercase parser aliases must not be accepted: {tokens}"
+        );
+    }
+
+    #[test]
+    fn legacy_attribute_key_aliases_are_rejected() {
+        let inputs: [DeriveInput; 4] = [
+            syn::parse_quote! {
+                #[visca(command = 0x00, response = Power)]
+                struct LegacyCommandKeyInquiry;
+            },
+            syn::parse_quote! {
+                #[visca(opcode = 0x00, sub_command = 0x04, response = Power)]
+                struct LegacySubCommandKeyInquiry;
+            },
+            syn::parse_quote! {
+                #[visca(opcode = 0x00, response = Power, parser = Custom, custom_fn = crate::parse)]
+                struct LegacyCustomFnKeyInquiry;
+            },
+            syn::parse_quote! {
+                #[visca(opcode = 0x00, response = Power, inquiry_variant = Power)]
+                struct LegacyInquiryVariantKeyInquiry;
+            },
+        ];
+
+        for input in inputs {
+            let tokens = derive_visca_inquiry_impl(input).to_string();
+            assert!(
+                tokens.contains("unknown visca attribute key"),
+                "legacy key aliases must not be accepted: {tokens}"
+            );
+        }
     }
 
     #[test]

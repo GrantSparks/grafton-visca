@@ -2793,6 +2793,12 @@ macro_rules! builtin_inquiry_table {
             TallyAutoAdjustInquiry => tally_auto_adjust_enabled: bool;
             FlickerModeInquiry => flicker_mode: crate::command::exposure::AntiFlickerMode;
         }
+        TallyControl {
+            gate: none;
+            TallyStatusInquiry => tally_status: crate::command::TallyStatusState;
+            TallyGreenInquiry => green_tally_status: bool;
+            TallyAutoAdjustInquiry => tally_auto_adjust_enabled: bool;
+        }
         ExposureCompensationInquiryControl {
             gate: crate::capabilities::HasExposureCompensation;
             ExposureCompensationInquiry => exposure_compensation: crate::types::ExposureCompensationLevel;
@@ -2865,6 +2871,15 @@ macro_rules! builtin_inquiry_table {
             gate: crate::capabilities::HasNdFilter;
             NdFilterInquiry => nd_filter_position: crate::command::NdFilterPosition;
             NdFilterPresetInquiry => nd_filter_preset: crate::types::NdFilterPreset;
+        }
+        NdFilterControl {
+            gate: crate::capabilities::HasNdFilter;
+            NdFilterInquiry => nd_filter: crate::command::NdFilterPosition;
+        }
+        MotionSyncControl {
+            gate: crate::capabilities::HasMotionSync;
+            MotionSyncModeInquiry => motion_sync_mode: crate::command::MotionSyncMode;
+            MotionSyncPresetInquiry => motion_sync_speed: crate::command::MotionSyncPreset;
         }
         FocusNearLimitInquiryControl {
             gate: crate::capabilities::HasFocusNearLimitInquiry;

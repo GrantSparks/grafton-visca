@@ -19,7 +19,6 @@
 use crate::{
     camera::ViscaClient,
     command::{
-        inquiry_structs::NdFilterInquiry,
         nd_filter::{AutoNdCommand, NdFilterModeCommand, NdFilterStepCommand, NdFilterValue},
         NdFilterMode as CommandNdFilterMode, NdFilterStep,
     },
@@ -151,6 +150,65 @@ pub trait NdFilterControl {
     ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::command::NdFilterPosition, Error>>;
 }
 
+macro_rules! impl_nd_filter_control_inquiry_methods {
+    (
+        queryable { $($query_entries:tt)* }
+        decode_only { $($decode_entries:tt)* }
+        accessors { $($accessor_groups:tt)* }
+    ) => {
+        impl_nd_filter_control_inquiry_methods!(@groups $($accessor_groups)*);
+    };
+    (@groups) => {};
+    (@groups
+        NdFilterControl {
+            gate: none;
+            $(
+                $command:ident => $method:ident : $response_ty:ty;
+            )*
+        }
+        $($rest:tt)*
+    ) => {
+        $(
+            fn $method(&self) -> M::Fut<'_, Result<$response_ty, Error>> {
+                self.query(crate::command::inquiry_structs::$command)
+            }
+        )*
+    };
+    (@groups
+        NdFilterControl {
+            gate: $profile_gate:path;
+            $(
+                $command:ident => $method:ident : $response_ty:ty;
+            )*
+        }
+        $($rest:tt)*
+    ) => {
+        $(
+            fn $method(&self) -> M::Fut<'_, Result<$response_ty, Error>> {
+                self.query(crate::command::inquiry_structs::$command)
+            }
+        )*
+    };
+    (@groups
+        $trait_name:ident {
+            gate: none;
+            $($entries:tt)*
+        }
+        $($rest:tt)*
+    ) => {
+        impl_nd_filter_control_inquiry_methods!(@groups $($rest)*);
+    };
+    (@groups
+        $trait_name:ident {
+            gate: $profile_gate:path;
+            $($entries:tt)*
+        }
+        $($rest:tt)*
+    ) => {
+        impl_nd_filter_control_inquiry_methods!(@groups $($rest)*);
+    };
+}
+
 // Single unified implementation for all Camera types!
 impl<M, P, Tr, Exec> NdFilterControl for crate::camera::Camera<M, P, Tr, Exec>
 where
@@ -198,7 +256,5 @@ where
         self.execute(cmd)
     }
 
-    fn nd_filter(&self) -> M::Fut<'_, Result<crate::command::NdFilterPosition, Error>> {
-        self.query(NdFilterInquiry)
-    }
+    crate::command::inquiry_structs::builtin_inquiry_table!(impl_nd_filter_control_inquiry_methods);
 }

@@ -15,9 +15,6 @@ pub mod power {
 
     /// Power standby command
     pub const STANDBY: &[u8] = &[0x81, 0x01, 0x04, 0x00, 0x03, VISCA_TERMINATOR];
-
-    /// Power inquiry command
-    pub const INQUIRY: &[u8] = &[0x81, 0x09, 0x04, 0x00, VISCA_TERMINATOR];
 }
 
 /// Zoom command patterns
@@ -32,9 +29,6 @@ pub mod zoom {
 
     /// Zoom wide (out) standard speed
     pub const WIDE_STD: &[u8] = &[0x81, 0x01, 0x04, 0x07, 0x03, VISCA_TERMINATOR];
-
-    /// Zoom position inquiry
-    pub const POSITION_INQ: &[u8] = &[0x81, 0x09, 0x04, 0x47, VISCA_TERMINATOR];
 }
 
 /// Pan/Tilt command patterns
@@ -111,9 +105,6 @@ pub mod pan_tilt {
         0x03,
         VISCA_TERMINATOR,
     ];
-
-    /// Pan/tilt position inquiry
-    pub const POSITION_INQ: &[u8] = &[0x81, 0x09, 0x06, 0x12, VISCA_TERMINATOR];
 }
 
 /// Focus command patterns
@@ -131,9 +122,6 @@ pub mod focus {
 
     /// Focus manual
     pub const MANUAL: &[u8] = &[0x81, 0x01, 0x04, 0x38, 0x03, VISCA_TERMINATOR];
-
-    /// Focus position inquiry
-    pub const POSITION_INQ: &[u8] = &[0x81, 0x09, 0x04, 0x48, VISCA_TERMINATOR];
 }
 
 /// Preset command patterns
@@ -206,9 +194,6 @@ pub mod exposure {
 
     /// Iris priority mode
     pub const IRIS_PRIORITY: &[u8] = &[0x81, 0x01, 0x04, 0x39, 0x0B, VISCA_TERMINATOR];
-
-    /// Exposure mode inquiry
-    pub const MODE_INQ: &[u8] = &[0x81, 0x09, 0x04, 0x39, VISCA_TERMINATOR];
 }
 
 /// White balance command patterns
@@ -229,17 +214,11 @@ pub mod white_balance {
 
     /// Manual white balance
     pub const MANUAL: &[u8] = &[0x81, 0x01, 0x04, 0x35, 0x05, VISCA_TERMINATOR];
-
-    /// White balance mode inquiry
-    pub const MODE_INQ: &[u8] = &[0x81, 0x09, 0x04, 0x35, VISCA_TERMINATOR];
 }
 
 /// System command patterns
 pub mod system {
     use super::VISCA_TERMINATOR;
-
-    /// System information inquiry
-    pub const INFO_INQ: &[u8] = &[0x81, 0x09, 0x00, 0x02, VISCA_TERMINATOR];
 
     /// Interface clear (reset)
     pub const IF_CLEAR: &[u8] = &[0x88, 0x01, 0x00, 0x01, VISCA_TERMINATOR];
@@ -249,83 +228,6 @@ pub mod system {
 
     /// Command cancel for socket 2
     pub const CANCEL_2: &[u8] = &[0x81, 0x22, VISCA_TERMINATOR];
-}
-
-/// Inquiry command patterns - all inquiry commands in one place
-pub mod inquiry {
-    use super::VISCA_TERMINATOR;
-
-    /// Power state inquiry
-    pub const POWER: &[u8] = &[0x81, 0x09, 0x04, 0x00, VISCA_TERMINATOR];
-
-    /// Zoom position inquiry
-    pub const ZOOM_POSITION: &[u8] = &[0x81, 0x09, 0x04, 0x47, VISCA_TERMINATOR];
-
-    /// Pan/tilt position inquiry
-    pub const PAN_TILT_POSITION: &[u8] = &[0x81, 0x09, 0x06, 0x12, VISCA_TERMINATOR];
-
-    /// Focus position inquiry
-    pub const FOCUS_POSITION: &[u8] = &[0x81, 0x09, 0x04, 0x48, VISCA_TERMINATOR];
-
-    /// Focus near limit inquiry
-    pub const FOCUS_NEAR_LIMIT: &[u8] = &[0x81, 0x09, 0x04, 0x28, VISCA_TERMINATOR];
-
-    /// Exposure mode inquiry
-    pub const EXPOSURE_MODE: &[u8] = &[0x81, 0x09, 0x04, 0x39, VISCA_TERMINATOR];
-
-    /// White balance mode inquiry
-    pub const WHITE_BALANCE_MODE: &[u8] = &[0x81, 0x09, 0x04, 0x35, VISCA_TERMINATOR];
-
-    /// Anti-flicker mode inquiry
-    pub const ANTI_FLICKER: &[u8] = &[0x81, 0x09, 0x04, 0x23, VISCA_TERMINATOR];
-
-    /// Focus zone inquiry
-    pub const FOCUS_ZONE: &[u8] = &[0x81, 0x09, 0x04, 0x3C, VISCA_TERMINATOR];
-
-    /// Auto focus sensitivity inquiry
-    pub const AUTO_FOCUS_SENSITIVITY: &[u8] = &[0x81, 0x09, 0x04, 0x58, VISCA_TERMINATOR];
-
-    /// Sharpness mode inquiry
-    pub const SHARPNESS_MODE: &[u8] = &[0x81, 0x09, 0x04, 0x42, VISCA_TERMINATOR];
-
-    /// Sharpness value inquiry
-    pub const SHARPNESS: &[u8] = &[0x81, 0x09, 0x04, 0x42, VISCA_TERMINATOR];
-
-    /// Gain limit inquiry
-    pub const GAIN_LIMIT: &[u8] = &[0x81, 0x09, 0x04, 0x2C, VISCA_TERMINATOR];
-
-    /// Red gain inquiry
-    pub const RED_GAIN: &[u8] = &[0x81, 0x09, 0x04, 0x43, VISCA_TERMINATOR];
-
-    /// Blue gain inquiry
-    pub const BLUE_GAIN: &[u8] = &[0x81, 0x09, 0x04, 0x44, VISCA_TERMINATOR];
-
-    /// Exposure compensation mode inquiry
-    pub const EXPOSURE_COMPENSATION_MODE: &[u8] = &[0x81, 0x09, 0x04, 0x3E, VISCA_TERMINATOR];
-
-    /// Exposure compensation value inquiry
-    pub const EXPOSURE_COMPENSATION: &[u8] = &[0x81, 0x09, 0x04, 0x4E, VISCA_TERMINATOR];
-
-    /// Black/white mode inquiry
-    pub const BLACK_WHITE: &[u8] = &[0x81, 0x09, 0x04, 0x3F, VISCA_TERMINATOR];
-
-    /// Image flip inquiry
-    pub const IMAGE_FLIP: &[u8] = &[0x81, 0x09, 0x04, 0x61, VISCA_TERMINATOR];
-
-    /// Backlight compensation inquiry
-    pub const BACKLIGHT: &[u8] = &[0x81, 0x09, 0x04, 0x33, VISCA_TERMINATOR];
-
-    /// Luminance inquiry
-    pub const LUMINANCE: &[u8] = &[0x81, 0x09, 0x04, 0x4D, VISCA_TERMINATOR];
-
-    /// Contrast inquiry
-    pub const CONTRAST: &[u8] = &[0x81, 0x09, 0x04, 0x4C, VISCA_TERMINATOR];
-
-    /// Shutter speed inquiry
-    pub const SHUTTER: &[u8] = &[0x81, 0x09, 0x04, 0x4A, VISCA_TERMINATOR];
-
-    /// Iris position inquiry
-    pub const IRIS: &[u8] = &[0x81, 0x09, 0x04, 0x4B, VISCA_TERMINATOR];
 }
 
 /// Helper function to create power on response
@@ -342,8 +244,6 @@ mod tests {
         // Verify power commands have correct structure
         assert_eq!(power::ON[0] & 0xF0, 0x80); // Command header
         assert_eq!(power::ON[power::ON.len() - 1], 0xFF); // Terminator
-
-        assert_eq!(power::INQUIRY[1], 0x09); // Inquiry type
     }
 
     #[test]

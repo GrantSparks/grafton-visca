@@ -129,6 +129,65 @@ pub trait MotionSyncControl {
     fn motion_sync_speed(&self) -> <Self::Mode as Mode>::Fut<'_, Result<MotionSyncPreset, Error>>;
 }
 
+macro_rules! impl_motion_sync_control_inquiry_methods {
+    (
+        queryable { $($query_entries:tt)* }
+        decode_only { $($decode_entries:tt)* }
+        accessors { $($accessor_groups:tt)* }
+    ) => {
+        impl_motion_sync_control_inquiry_methods!(@groups $($accessor_groups)*);
+    };
+    (@groups) => {};
+    (@groups
+        MotionSyncControl {
+            gate: none;
+            $(
+                $command:ident => $method:ident : $response_ty:ty;
+            )*
+        }
+        $($rest:tt)*
+    ) => {
+        $(
+            fn $method(&self) -> M::Fut<'_, Result<$response_ty, Error>> {
+                self.query(crate::command::inquiry_structs::$command)
+            }
+        )*
+    };
+    (@groups
+        MotionSyncControl {
+            gate: $profile_gate:path;
+            $(
+                $command:ident => $method:ident : $response_ty:ty;
+            )*
+        }
+        $($rest:tt)*
+    ) => {
+        $(
+            fn $method(&self) -> M::Fut<'_, Result<$response_ty, Error>> {
+                self.query(crate::command::inquiry_structs::$command)
+            }
+        )*
+    };
+    (@groups
+        $trait_name:ident {
+            gate: none;
+            $($entries:tt)*
+        }
+        $($rest:tt)*
+    ) => {
+        impl_motion_sync_control_inquiry_methods!(@groups $($rest)*);
+    };
+    (@groups
+        $trait_name:ident {
+            gate: $profile_gate:path;
+            $($entries:tt)*
+        }
+        $($rest:tt)*
+    ) => {
+        impl_motion_sync_control_inquiry_methods!(@groups $($rest)*);
+    };
+}
+
 // Single unified implementation for all Camera types!
 impl<M, P, Tr, Exec> MotionSyncControl for crate::camera::Camera<M, P, Tr, Exec>
 where
@@ -165,13 +224,7 @@ where
         self.execute(cmd)
     }
 
-    fn motion_sync_mode(&self) -> M::Fut<'_, Result<MotionSyncMode, Error>> {
-        use crate::command::inquiry_structs::MotionSyncModeInquiry;
-        self.query(MotionSyncModeInquiry)
-    }
-
-    fn motion_sync_speed(&self) -> M::Fut<'_, Result<MotionSyncPreset, Error>> {
-        use crate::command::inquiry_structs::MotionSyncPresetInquiry;
-        self.query(MotionSyncPresetInquiry)
-    }
+    crate::command::inquiry_structs::builtin_inquiry_table!(
+        impl_motion_sync_control_inquiry_methods
+    );
 }

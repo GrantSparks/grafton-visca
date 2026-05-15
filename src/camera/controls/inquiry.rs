@@ -688,6 +688,60 @@ macro_rules! impl_builtin_camera_inquiry_accessors {
     };
     (@groups) => {};
     (@groups
+        TallyControl {
+            gate: none;
+            $($entries:tt)*
+        }
+        $($rest:tt)*
+    ) => {
+        impl_builtin_camera_inquiry_accessors!(@groups $($rest)*);
+    };
+    (@groups
+        TallyControl {
+            gate: $profile_gate:path;
+            $($entries:tt)*
+        }
+        $($rest:tt)*
+    ) => {
+        impl_builtin_camera_inquiry_accessors!(@groups $($rest)*);
+    };
+    (@groups
+        NdFilterControl {
+            gate: none;
+            $($entries:tt)*
+        }
+        $($rest:tt)*
+    ) => {
+        impl_builtin_camera_inquiry_accessors!(@groups $($rest)*);
+    };
+    (@groups
+        NdFilterControl {
+            gate: $profile_gate:path;
+            $($entries:tt)*
+        }
+        $($rest:tt)*
+    ) => {
+        impl_builtin_camera_inquiry_accessors!(@groups $($rest)*);
+    };
+    (@groups
+        MotionSyncControl {
+            gate: none;
+            $($entries:tt)*
+        }
+        $($rest:tt)*
+    ) => {
+        impl_builtin_camera_inquiry_accessors!(@groups $($rest)*);
+    };
+    (@groups
+        MotionSyncControl {
+            gate: $profile_gate:path;
+            $($entries:tt)*
+        }
+        $($rest:tt)*
+    ) => {
+        impl_builtin_camera_inquiry_accessors!(@groups $($rest)*);
+    };
+    (@groups
         $trait_name:ident {
             gate: none;
             $(

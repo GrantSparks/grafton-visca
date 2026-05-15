@@ -18,12 +18,9 @@
 
 use crate::{
     camera::ViscaClient,
-    command::{
-        inquiry_structs::{TallyAutoAdjustInquiry, TallyGreenInquiry, TallyStatusInquiry},
-        tally::{
-            TallyBrightHi, TallyBrightLo, TallyFlash, TallyGreenOff, TallyGreenOn, TallyOff,
-            TallyOn, TallyRedOff, TallyRedOn,
-        },
+    command::tally::{
+        TallyBrightHi, TallyBrightLo, TallyFlash, TallyGreenOff, TallyGreenOn, TallyOff, TallyOn,
+        TallyRedOff, TallyRedOn,
     },
     mode::Mode,
     Error,
@@ -193,6 +190,65 @@ pub trait TallyControl {
     fn tally_auto_adjust_enabled(&self) -> <Self::Mode as Mode>::Fut<'_, Result<bool, Error>>;
 }
 
+macro_rules! impl_tally_control_inquiry_methods {
+    (
+        queryable { $($query_entries:tt)* }
+        decode_only { $($decode_entries:tt)* }
+        accessors { $($accessor_groups:tt)* }
+    ) => {
+        impl_tally_control_inquiry_methods!(@groups $($accessor_groups)*);
+    };
+    (@groups) => {};
+    (@groups
+        TallyControl {
+            gate: none;
+            $(
+                $command:ident => $method:ident : $response_ty:ty;
+            )*
+        }
+        $($rest:tt)*
+    ) => {
+        $(
+            fn $method(&self) -> M::Fut<'_, Result<$response_ty, Error>> {
+                self.query(crate::command::inquiry_structs::$command)
+            }
+        )*
+    };
+    (@groups
+        TallyControl {
+            gate: $profile_gate:path;
+            $(
+                $command:ident => $method:ident : $response_ty:ty;
+            )*
+        }
+        $($rest:tt)*
+    ) => {
+        $(
+            fn $method(&self) -> M::Fut<'_, Result<$response_ty, Error>> {
+                self.query(crate::command::inquiry_structs::$command)
+            }
+        )*
+    };
+    (@groups
+        $trait_name:ident {
+            gate: none;
+            $($entries:tt)*
+        }
+        $($rest:tt)*
+    ) => {
+        impl_tally_control_inquiry_methods!(@groups $($rest)*);
+    };
+    (@groups
+        $trait_name:ident {
+            gate: $profile_gate:path;
+            $($entries:tt)*
+        }
+        $($rest:tt)*
+    ) => {
+        impl_tally_control_inquiry_methods!(@groups $($rest)*);
+    };
+}
+
 // Single unified implementation for all Camera types!
 impl<M, P, Tr, Exec> TallyControl for crate::camera::Camera<M, P, Tr, Exec>
 where
@@ -239,15 +295,5 @@ where
         self.execute(TallyOff::new())
     }
 
-    fn tally_status(&self) -> M::Fut<'_, Result<crate::command::TallyStatusState, Error>> {
-        self.query(TallyStatusInquiry)
-    }
-
-    fn green_tally_status(&self) -> M::Fut<'_, Result<bool, Error>> {
-        self.query(TallyGreenInquiry)
-    }
-
-    fn tally_auto_adjust_enabled(&self) -> M::Fut<'_, Result<bool, Error>> {
-        self.query(TallyAutoAdjustInquiry)
-    }
+    crate::command::inquiry_structs::builtin_inquiry_table!(impl_tally_control_inquiry_methods);
 }

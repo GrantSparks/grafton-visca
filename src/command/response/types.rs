@@ -3,7 +3,7 @@
 use std::borrow::Cow;
 
 use crate::{
-    command::inquiry_registry::{InquiryData, InquiryKind},
+    command::inquiry_structs::{InquiryData, InquiryKind},
     error::Error,
     ViscaSocket,
 };
