@@ -548,6 +548,25 @@ pub enum SchedulerAction {
     },
 }
 
+/// Result of a cancellation request after scheduler processing.
+#[cfg(any(feature = "mode-async", test))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CancelOutcome {
+    /// A queued command was removed before any VISCA bytes were sent.
+    QueuedRemoved,
+    /// A command awaiting ACK was marked for cancel-on-ACK.
+    MarkedCancelOnAck,
+    /// A socket cancel should be sent immediately.
+    SendCancel {
+        /// Camera ID from the scheduler-owned command state.
+        camera_id: crate::camera_id::CameraId,
+        /// Socket assigned to the executing command.
+        socket: ViscaSocket,
+    },
+    /// The command was already completed, failed, or unknown.
+    NoOp,
+}
+
 /// Kind of timeout that can occur.
 #[cfg(any(feature = "mode-async", test))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -993,12 +1012,54 @@ impl SchedulerCore {
 
     /// Queue a command for execution.
     pub fn queue_command(&mut self, command: PendingCommand) {
+        let id = command.id;
+        let now = command.submitted_at;
+
         // Route based on command kind (derived from EncodedCommand)
         match command.kind() {
             CommandKind::Inquiry => {
+                let response_type = match command.command.response_type {
+                    Some(response_type) => response_type,
+                    None => {
+                        warn!(
+                            %id,
+                            "Ignoring inquiry queued without response_type"
+                        );
+                        return;
+                    }
+                };
+
+                self.commands.remove(&id);
+                self.inquiries.insert(
+                    id,
+                    InquiryEntry {
+                        command: command.command.clone(),
+                        priority: command.priority,
+                        camera_id: command.camera_id,
+                        submitted_at: now,
+                        phase: InquiryPhase::Queued,
+                        attempt: 0,
+                        transport_error: false,
+                        response_type,
+                    },
+                );
                 self.inquiry_queue.push(command);
             }
             CommandKind::Command => {
+                self.inquiries.remove(&id);
+                self.commands.insert(
+                    id,
+                    CommandEntry {
+                        command: command.command.clone(),
+                        priority: command.priority,
+                        camera_id: command.camera_id,
+                        submitted_at: now,
+                        phase: CommandPhase::Queued,
+                        attempt: 0,
+                        transport_error: false,
+                        cancel_requested: false,
+                    },
+                );
                 self.command_queue.push(command);
             }
         }
@@ -1480,49 +1541,82 @@ impl SchedulerCore {
         trace!("Command {cmd_id} cancelled and all state cleaned up");
     }
 
+    /// Remove a command from pending command/inquiry queues.
+    #[cfg(any(feature = "mode-async", test))]
+    fn remove_queued_command(&mut self, cmd_id: CommandId) {
+        let old_cmd_queue = std::mem::take(&mut self.command_queue);
+        for cmd in old_cmd_queue.into_iter() {
+            if cmd.id != cmd_id {
+                self.command_queue.push(cmd);
+            }
+        }
+
+        let old_inq_queue = std::mem::take(&mut self.inquiry_queue);
+        for cmd in old_inq_queue.into_iter() {
+            if cmd.id != cmd_id {
+                self.inquiry_queue.push(cmd);
+            }
+        }
+    }
+
     /// Request cancellation of a command by ID.
     ///
     /// This method implements lifecycle-aware cancel-by-id semantics:
     ///
-    /// - **Command not active**: Returns `None` (no-op, no state retained).
-    /// - **Socket already assigned (Executing phase)**: Returns `Some((camera_id, socket))`
+    /// - **Command not active**: Returns `CancelOutcome::NoOp`.
+    /// - **Queued**: Removes the queued command and returns `CancelOutcome::QueuedRemoved`.
+    /// - **Socket already assigned (Executing phase)**: Returns `CancelOutcome::SendCancel`
     ///   so the caller can send the cancel command immediately.
     /// - **Awaiting ACK (no socket yet)**: Sets `cancel_requested = true` on the command
-    ///   state and returns `None`. The cancel will be emitted as a `SchedulerAction::SendCancel`
-    ///   when the ACK arrives and assigns a socket.
+    ///   state and returns `CancelOutcome::MarkedCancelOnAck`. The cancel will be emitted as
+    ///   a `SchedulerAction::SendCancel` when the ACK arrives and assigns a socket.
     ///
     /// This design eliminates the need for an out-of-band `pending_cancel_ids` map,
     /// ensuring cancels are bounded to command lifetime and cleaned up automatically.
     #[cfg(any(feature = "mode-async", test))]
-    pub fn request_cancel_by_id(
-        &mut self,
-        cmd_id: CommandId,
-    ) -> Option<(crate::camera_id::CameraId, ViscaSocket)> {
+    pub fn request_cancel_by_id(&mut self, cmd_id: CommandId) -> CancelOutcome {
         // Check if the command is active and get its state
-        let state = self.commands.get_mut(&cmd_id)?;
+        let Some(state) = self.commands.get(&cmd_id) else {
+            return CancelOutcome::NoOp;
+        };
 
-        // Get camera_id from the command state
+        // Copy the state needed for the decision so queued removal can mutate
+        // the scheduler without holding the entry borrow.
         let camera_id = state.camera_id;
+        let phase = state.phase;
 
-        // Check if a socket is assigned via phase (Executing variant)
-        if let CommandPhase::Executing { socket, .. } = state.phase {
-            // Socket is assigned - caller should send cancel immediately
-            debug!(
-                %cmd_id,
-                ?socket,
-                ?camera_id,
-                "Cancel requested for command with socket - returning immediately"
-            );
-            Some((camera_id, socket))
-        } else {
-            // Command is active but no socket yet - mark for cancel on ACK
-            state.cancel_requested = true;
-            debug!(
-                %cmd_id,
-                ?camera_id,
-                "Cancel requested for command awaiting ACK - flagged for cancel on socket assignment"
-            );
-            None
+        match phase {
+            CommandPhase::Queued => {
+                debug!(
+                    %cmd_id,
+                    ?camera_id,
+                    "Cancel requested for queued command - removing before send"
+                );
+                self.finish_sequence(cmd_id);
+                self.commands.remove(&cmd_id);
+                self.remove_queued_command(cmd_id);
+                CancelOutcome::QueuedRemoved
+            }
+            CommandPhase::Executing { socket, .. } => {
+                debug!(
+                    %cmd_id,
+                    ?socket,
+                    ?camera_id,
+                    "Cancel requested for command with socket - returning immediately"
+                );
+                CancelOutcome::SendCancel { camera_id, socket }
+            }
+            CommandPhase::AwaitingAck { .. } => {
+                if let Some(state) = self.commands.get_mut(&cmd_id) {
+                    state.cancel_requested = true;
+                }
+                debug!(
+                    %cmd_id,
+                    ?camera_id,
+                    "Cancel requested for command awaiting ACK - flagged for cancel on socket assignment"
+                );
+                CancelOutcome::MarkedCancelOnAck
+            }
         }
     }
 

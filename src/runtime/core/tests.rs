@@ -3738,10 +3738,10 @@ fn test_cancel_requested_before_ack_emits_send_cancel_on_ack() {
     // Request cancel before ACK (no socket assigned yet)
     let result = core.request_cancel_by_id(cmd_id(1));
 
-    // Should return None (cancel deferred, not immediate)
-    assert!(
-        result.is_none(),
-        "request_cancel_by_id should return None for command awaiting ACK"
+    assert_eq!(
+        result,
+        CancelOutcome::MarkedCancelOnAck,
+        "request_cancel_by_id should mark command awaiting ACK for cancel-on-ACK"
     );
 
     // Verify cancel_requested is set
@@ -3820,14 +3820,14 @@ fn test_cancel_requested_after_ack_returns_immediately() {
     // Request cancel after socket is assigned
     let result = core.request_cancel_by_id(cmd_id(2));
 
-    // Should return Some with camera_id and socket
-    assert!(
-        result.is_some(),
-        "request_cancel_by_id should return Some for command with socket"
+    assert_eq!(
+        result,
+        CancelOutcome::SendCancel {
+            camera_id,
+            socket: ViscaSocket::S2
+        },
+        "request_cancel_by_id should return immediate socket cancel for command with socket"
     );
-    let (cam, socket) = result.unwrap();
-    assert_eq!(cam, camera_id, "Camera ID should match");
-    assert_eq!(socket, ViscaSocket::S2, "Socket should be S2");
 
     // cancel_requested should NOT be set (cancel is immediate)
     let state = core.commands.get(&cmd_id(2)).expect("Command should exist");
@@ -3851,9 +3851,10 @@ fn test_cancel_requested_for_inactive_command_is_noop() {
     // Request cancel for non-existent command
     let result = core.request_cancel_by_id(cmd_id(999));
 
-    assert!(
-        result.is_none(),
-        "request_cancel_by_id should return None for inactive command"
+    assert_eq!(
+        result,
+        CancelOutcome::NoOp,
+        "request_cancel_by_id should no-op for inactive command"
     );
 
     // Verify no state was created
@@ -4463,7 +4464,7 @@ fn test_inquiry_entries_do_not_accept_cancel_state() {
 
     // Cancel-by-id is command-only. An inquiry with the same id is not mutated
     // and no command entry is created.
-    assert!(core.request_cancel_by_id(cmd_id(1)).is_none());
+    assert_eq!(core.request_cancel_by_id(cmd_id(1)), CancelOutcome::NoOp);
     assert!(!core.commands.contains_key(&cmd_id(1)));
     assert!(core.inquiries.contains_key(&cmd_id(1)));
 

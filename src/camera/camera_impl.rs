@@ -1004,10 +1004,10 @@ where
     P: Profile,
     Tr: BlockingTransport,
 {
-    /// Close the camera connection gracefully.
+    /// Close the camera connection.
     ///
-    /// This method performs an orderly shutdown of the camera connection,
-    /// ensuring any pending operations are completed before closing.
+    /// This method consumes the camera so no further operations can be started.
+    /// The underlying blocking transport is closed when it is dropped.
     /// The camera object is consumed and cannot be used after this call.
     ///
     /// # Example
@@ -1037,10 +1037,11 @@ where
     Tr: AsyncTransport + Send + Sync + 'static,
     Exec: Executor + Send + Sync + 'static,
 {
-    /// Shutdown the camera connection gracefully.
+    /// Shutdown the camera connection.
     ///
-    /// This method performs an orderly shutdown of the camera connection,
-    /// ensuring any pending operations are completed before closing.
+    /// This method stops accepting new work, fails pending async operations with
+    /// [`Error::RuntimeShutdown`], closes runtime completion subscriptions, and
+    /// then closes the underlying runtime task.
     /// The camera object is consumed and cannot be used after this call.
     ///
     /// # Example
@@ -1055,8 +1056,7 @@ where
     /// ```
     pub async fn shutdown(self) -> Result<(), Error> {
         // Shutdown the runtime handle which will close the transport
-        self.runtime.shutdown().await;
-        Ok(())
+        self.runtime.shutdown().await
     }
 }
 

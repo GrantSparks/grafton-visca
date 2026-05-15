@@ -270,10 +270,10 @@ where
         self.inner.await_axes_idle(axes, timeout)
     }
 
-    /// Close the camera connection gracefully.
+    /// Close the camera connection.
     ///
-    /// This method performs an orderly shutdown of the camera connection,
-    /// ensuring any pending operations are completed before closing.
+    /// This method consumes the camera so no further operations can be started.
+    /// The underlying blocking transport is closed when it is dropped.
     /// The camera object is consumed and cannot be used after this call.
     ///
     /// # Example

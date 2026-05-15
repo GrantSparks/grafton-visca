@@ -159,7 +159,7 @@ async fn test_submission_channel_is_bounded() {
         }
     }
 
-    runtime.shutdown().await;
+    runtime.shutdown().await.expect("runtime shutdown");
 }
 
 /// Test that RuntimeHandle correctly uses max_pending_queue_depth from TransportConfig.
@@ -212,7 +212,7 @@ async fn test_max_pending_queue_depth_is_respected() {
 
     assert!(result.is_ok(), "Command should complete successfully");
 
-    runtime.shutdown().await;
+    runtime.shutdown().await.expect("runtime shutdown");
 }
 
 /// Test that adapter-level admission control still works correctly after channel bounding.
@@ -263,5 +263,5 @@ async fn test_adapter_admission_control_preserved() {
     assert!(result1.is_ok(), "First command should complete");
     assert!(result2.is_ok(), "Second command should complete");
 
-    runtime.shutdown().await;
+    runtime.shutdown().await.expect("runtime shutdown");
 }

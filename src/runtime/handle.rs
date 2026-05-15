@@ -7,7 +7,7 @@ use std::{
     future::Future,
     marker::PhantomData,
     sync::{
-        atomic::{AtomicBool, AtomicU32, Ordering},
+        atomic::{AtomicU32, AtomicU8, Ordering},
         Arc,
     },
     time::Duration,
@@ -21,7 +21,7 @@ use crate::{
     error::{Error, Result},
     executor::Executor,
     runtime::{
-        async_adapter::{CompletionEvent, TxItem},
+        async_adapter::{CompletionEvent, ControlRequest, SubmitRequest, UrgentControlRequest},
         core::Priority,
         loop_task::{runtime_loop_with_config, RuntimeLoopConfig},
     },
@@ -54,16 +54,13 @@ pub struct RuntimeHandle<P: Profile, E: Executor> {
 #[derive(Debug)]
 struct RuntimeHandleInner<P: Profile, E: Executor> {
     /// Channel for submitting commands and inquiries.
-    submit: Sender<TxItem>,
-    /// Flag to track if runtime is shutdown.
-    shutdown: Arc<AtomicBool>,
-    /// Shutdown signal sender using flume for runtime-agnostic signaling.
-    shutdown_tx: Sender<()>,
-    /// Channel for requesting metrics from the runtime.
-    #[cfg(feature = "test-utils")]
-    metrics_tx: Sender<Sender<MetricsSummary>>,
-    /// Channel for requesting completion event subscriptions from the runtime.
-    completions_tx: Sender<Sender<Receiver<CompletionEvent>>>,
+    submit: Sender<SubmitRequest>,
+    /// Channel for urgent control-plane requests that must not wait behind data-plane work.
+    urgent_control: Sender<UrgentControlRequest>,
+    /// Channel for normal control-plane observability and subscription requests.
+    control: Sender<ControlRequest>,
+    /// Runtime lifecycle for fast-fail and error normalization at the handle boundary.
+    lifecycle: Arc<AtomicU8>,
     /// Counter for generating unique command IDs.
     next_command_id: Arc<AtomicU32>,
     /// The executor used for sleep and timeout operations.
@@ -71,6 +68,10 @@ struct RuntimeHandleInner<P: Profile, E: Executor> {
     /// Profile marker (zero-sized type).
     _profile: PhantomData<P>,
 }
+
+const LIFECYCLE_RUNNING: u8 = 0;
+const LIFECYCLE_CLOSING: u8 = 1;
+const LIFECYCLE_TERMINATED: u8 = 2;
 
 impl<P: Profile, E: Executor> Clone for RuntimeHandle<P, E> {
     fn clone(&self) -> Self {
@@ -158,13 +159,10 @@ impl<P: Profile + 'static, E: Executor + Send + Sync + 'static> RuntimeHandle<P,
         // preventing unbounded buffering before the adapter's admission control.
         let (submit_tx, submit_rx) = flume::bounded(tcfg.max_pending_queue_depth.get());
 
-        // Keep other low-volume channels unbounded - they don't carry command traffic
-        #[cfg(feature = "test-utils")]
-        let (metrics_tx, metrics_rx) = flume::unbounded();
-        #[cfg(not(feature = "test-utils"))]
-        let metrics_rx = ();
-        let (completions_tx, completions_rx) = flume::unbounded();
-        let (shutdown_tx, shutdown_rx) = flume::unbounded();
+        // Control-plane traffic is separated from bounded data-plane submission.
+        let (urgent_control_tx, urgent_control_rx) = flume::unbounded();
+        let (control_tx, control_rx) = flume::unbounded();
+        let lifecycle = Arc::new(AtomicU8::new(LIFECYCLE_RUNNING));
 
         let envelope = P::Envelope::new(tcfg.addressing);
         let buffer_manager = BufferManager::new(tcfg.buffer_config);
@@ -199,9 +197,9 @@ impl<P: Profile + 'static, E: Executor + Send + Sync + 'static> RuntimeHandle<P,
             Arc::clone(&executor),
             transport,
             submit_rx,
-            metrics_rx,
-            completions_rx,
-            shutdown_rx,
+            urgent_control_rx,
+            control_rx,
+            Arc::clone(&lifecycle),
             task_executor,
             config,
         );
@@ -209,11 +207,9 @@ impl<P: Profile + 'static, E: Executor + Send + Sync + 'static> RuntimeHandle<P,
         Ok(Self {
             inner: Arc::new(RuntimeHandleInner {
                 submit: submit_tx,
-                shutdown: Arc::new(AtomicBool::new(false)),
-                shutdown_tx,
-                #[cfg(feature = "test-utils")]
-                metrics_tx,
-                completions_tx,
+                urgent_control: urgent_control_tx,
+                control: control_tx,
+                lifecycle,
                 next_command_id: Arc::new(AtomicU32::new(1)),
                 executor,
                 _profile: PhantomData,
@@ -221,24 +217,84 @@ impl<P: Profile + 'static, E: Executor + Send + Sync + 'static> RuntimeHandle<P,
         })
     }
 
-    /// Send a command item to the runtime.
-    pub(crate) async fn command(&self, item: TxItem) -> Result<()> {
-        if self.inner.shutdown.load(Ordering::Relaxed) {
-            return Err(Error::RuntimeShutdown);
+    fn lifecycle_error(&self) -> Option<Error> {
+        match self.inner.lifecycle.load(Ordering::Acquire) {
+            LIFECYCLE_RUNNING => None,
+            LIFECYCLE_CLOSING => Some(Error::RuntimeShutdown),
+            _ => Some(Error::TransportChannelClosed),
         }
+    }
+
+    fn closed_error_from_lifecycle(lifecycle: &AtomicU8) -> Error {
+        match lifecycle.load(Ordering::Acquire) {
+            LIFECYCLE_CLOSING => Error::RuntimeShutdown,
+            _ => Error::ChannelClosed.to_public_error(),
+        }
+    }
+
+    fn normalize_boundary_error(lifecycle: &AtomicU8, error: Error) -> Error {
+        match error {
+            Error::ChannelClosed
+            | Error::ResponseChannelClosed
+            | Error::SocketManagerChannelClosed
+                if lifecycle.load(Ordering::Acquire) == LIFECYCLE_CLOSING =>
+            {
+                Error::RuntimeShutdown
+            }
+            other => other.to_public_error(),
+        }
+    }
+
+    async fn submit_request(
+        &self,
+        request: SubmitRequest,
+        admission_rx: Receiver<Result<()>>,
+    ) -> Result<()> {
+        if let Some(error) = self.lifecycle_error() {
+            return Err(error);
+        }
+
         self.inner
             .submit
-            .send_async(item)
+            .send_async(request)
             .await
-            .map_err(|_| Error::ChannelClosed)
-            .map_err(Error::to_public_error)
+            .map_err(|_| Self::closed_error_from_lifecycle(&self.inner.lifecycle))?;
+
+        admission_rx
+            .recv_async()
+            .await
+            .map_err(|_| Self::closed_error_from_lifecycle(&self.inner.lifecycle))?
+            .map_err(|error| Self::normalize_boundary_error(&self.inner.lifecycle, error))
+    }
+
+    async fn urgent_control_request(
+        &self,
+        request: UrgentControlRequest,
+        reply_rx: Receiver<Result<()>>,
+    ) -> Result<()> {
+        if let Some(error) = self.lifecycle_error() {
+            return Err(error);
+        }
+
+        self.inner
+            .urgent_control
+            .send_async(request)
+            .await
+            .map_err(|_| Self::closed_error_from_lifecycle(&self.inner.lifecycle))?;
+
+        reply_rx
+            .recv_async()
+            .await
+            .map_err(|_| Self::closed_error_from_lifecycle(&self.inner.lifecycle))?
+            .map_err(|error| Self::normalize_boundary_error(&self.inner.lifecycle, error))
     }
 
     /// Cancel a command by its ID.
     ///
     /// This method performs targeted, camera-correct cancellation:
-    /// - For pending commands (not yet ACK'd): Removes from queue without sending VISCA cancel
-    /// - For active commands (ACK'd on a socket): Sends VISCA cancel with correct camera ID
+    /// - For queued commands not yet sent: Removes from the queue without sending VISCA cancel
+    /// - For commands awaiting ACK: Records cancel-on-ACK
+    /// - For executing commands with a socket: Sends VISCA cancel with correct camera ID
     /// - For unknown commands: Returns success (command may have already completed)
     ///
     /// The cancel command is addressed using the provided `camera_id`, ensuring
@@ -258,17 +314,14 @@ impl<P: Profile + 'static, E: Executor + Send + Sync + 'static> RuntimeHandle<P,
     /// the sentinel-value foot-gun where callers could pass invalid IDs (like `0`)
     /// that would never match any command.
     pub async fn cancel(&self, camera_id: CameraId, command_id: CommandId) -> Result<()> {
-        let cancel_item = TxItem::CancelById {
+        let (reply_tx, reply_rx) = flume::bounded(1);
+        let request = UrgentControlRequest::CancelById {
             camera_id,
             id: command_id,
+            reply_tx,
         };
 
-        self.inner
-            .submit
-            .send_async(cancel_item)
-            .await
-            .map_err(|_| Error::ChannelClosed)
-            .map_err(Error::to_public_error)
+        self.urgent_control_request(request, reply_rx).await
     }
 
     /// Cancel all commands on a specific socket.
@@ -283,20 +336,50 @@ impl<P: Profile + 'static, E: Executor + Send + Sync + 'static> RuntimeHandle<P,
     /// # Returns
     /// Ok(()) if the cancel request was processed
     pub async fn cancel_socket(&self, camera_id: CameraId, socket: ViscaSocket) -> Result<()> {
-        let cancel_item = TxItem::Cancel { camera_id, socket };
+        let (reply_tx, reply_rx) = flume::bounded(1);
+        let request = UrgentControlRequest::CancelSocket {
+            camera_id,
+            socket,
+            reply_tx,
+        };
 
-        self.inner
-            .submit
-            .send_async(cancel_item)
-            .await
-            .map_err(|_| Error::ChannelClosed)
-            .map_err(Error::to_public_error)
+        self.urgent_control_request(request, reply_rx).await
     }
 
     /// Shutdown the runtime.
-    pub async fn shutdown(&self) {
-        self.inner.shutdown.store(true, Ordering::Relaxed);
-        let _ = self.inner.shutdown_tx.send_async(()).await;
+    pub async fn shutdown(&self) -> Result<()> {
+        match self.inner.lifecycle.compare_exchange(
+            LIFECYCLE_RUNNING,
+            LIFECYCLE_CLOSING,
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        ) {
+            Ok(_) => {}
+            Err(LIFECYCLE_CLOSING) => return Ok(()),
+            Err(_) => return Err(Error::TransportChannelClosed),
+        }
+
+        let (reply_tx, reply_rx) = flume::bounded(1);
+        let request = UrgentControlRequest::Shutdown { reply_tx };
+
+        if self.inner.urgent_control.send_async(request).await.is_err() {
+            self.inner
+                .lifecycle
+                .store(LIFECYCLE_TERMINATED, Ordering::Release);
+            return Err(Error::ChannelClosed.to_public_error());
+        }
+
+        match reply_rx.recv_async().await {
+            Ok(result) => {
+                result.map_err(|error| Self::normalize_boundary_error(&self.inner.lifecycle, error))
+            }
+            Err(_) => {
+                self.inner
+                    .lifecycle
+                    .store(LIFECYCLE_TERMINATED, Ordering::Release);
+                Err(Error::ChannelClosed.to_public_error())
+            }
+        }
     }
 
     /// Get current metrics from the runtime scheduler.
@@ -305,17 +388,21 @@ impl<P: Profile + 'static, E: Executor + Send + Sync + 'static> RuntimeHandle<P,
     /// command counts, retry statistics, and more.
     #[cfg(feature = "test-utils")]
     pub async fn metrics(&self) -> Result<MetricsSummary> {
-        let (response_tx, response_rx) = flume::bounded(1);
+        if let Some(error) = self.lifecycle_error() {
+            return Err(error);
+        }
+
+        let (reply_tx, reply_rx) = flume::bounded(1);
         self.inner
-            .metrics_tx
-            .send_async(response_tx)
+            .control
+            .send_async(ControlRequest::Metrics { reply_tx })
             .await
-            .map_err(|_| Error::ChannelClosed)?;
-        response_rx
+            .map_err(|_| Self::closed_error_from_lifecycle(&self.inner.lifecycle))?;
+        reply_rx
             .recv_async()
             .await
-            .map_err(|_| Error::ChannelClosed)
-            .map_err(Error::to_public_error)
+            .map_err(|_| Self::closed_error_from_lifecycle(&self.inner.lifecycle))?
+            .map_err(|error| Self::normalize_boundary_error(&self.inner.lifecycle, error))
     }
 
     /// Subscribe to completion events from the runtime.
@@ -337,17 +424,21 @@ impl<P: Profile + 'static, E: Executor + Send + Sync + 'static> RuntimeHandle<P,
     /// If you need lossless event processing, ensure your consumer drains the
     /// receiver faster than events are produced.
     pub async fn subscribe_completions(&self) -> Result<Receiver<CompletionEvent>> {
-        let (response_tx, response_rx) = flume::bounded(1);
+        if let Some(error) = self.lifecycle_error() {
+            return Err(error);
+        }
+
+        let (reply_tx, reply_rx) = flume::bounded(1);
         self.inner
-            .completions_tx
-            .send_async(response_tx)
+            .control
+            .send_async(ControlRequest::SubscribeCompletions { reply_tx })
             .await
-            .map_err(|_| Error::ChannelClosed)?;
-        response_rx
+            .map_err(|_| Self::closed_error_from_lifecycle(&self.inner.lifecycle))?;
+        reply_rx
             .recv_async()
             .await
-            .map_err(|_| Error::ChannelClosed)
-            .map_err(Error::to_public_error)
+            .map_err(|_| Self::closed_error_from_lifecycle(&self.inner.lifecycle))?
+            .map_err(|error| Self::normalize_boundary_error(&self.inner.lifecycle, error))
     }
 
     /// Get a reference to the executor.
@@ -437,24 +528,27 @@ impl<P: Profile + 'static, E: Executor + Send + Sync + 'static> RuntimeHandle<P,
 
         let command_id = self.allocate_command_id();
 
+        let (admission_tx, admission_rx) = flume::bounded(1);
         let (response_tx, response_rx) = flume::bounded(1);
 
-        let item = TxItem::Command {
+        let request = SubmitRequest::Command {
             id: command_id,
             command: prepared_command.clone(),
             priority: priority.unwrap_or(Priority::Normal),
             camera_id,
+            admission_tx,
             response_tx,
         };
 
-        self.command(item).await?;
+        self.submit_request(request, admission_rx).await?;
 
+        let lifecycle = Arc::clone(&self.inner.lifecycle);
         let future = async move {
             response_rx
                 .recv_async()
                 .await
-                .map_err(|_| Error::ChannelClosed)
-                .map_err(Error::to_public_error)?
+                .map_err(|_| RuntimeHandle::<P, E>::closed_error_from_lifecycle(&lifecycle))?
+                .map_err(|error| RuntimeHandle::<P, E>::normalize_boundary_error(&lifecycle, error))
         };
 
         Ok((command_id, future))
@@ -505,22 +599,24 @@ impl<P: Profile + 'static, E: Executor + Send + Sync + 'static> RuntimeHandle<P,
         // but these are not exposed externally since inquiries cannot be canceled.
         let inquiry_id = self.allocate_command_id();
 
+        let (admission_tx, admission_rx) = flume::bounded(1);
         let (response_tx, response_rx) = flume::bounded(1);
 
-        let item = TxItem::Inquiry {
+        let request = SubmitRequest::Inquiry {
             id: inquiry_id,
             command: prepared_command.clone(),
             camera_id,
+            admission_tx,
             response_tx,
         };
 
-        self.command(item).await?;
+        self.submit_request(request, admission_rx).await?;
 
         response_rx
             .recv_async()
             .await
-            .map_err(|_| Error::ChannelClosed)
-            .map_err(Error::to_public_error)?
+            .map_err(|_| Self::closed_error_from_lifecycle(&self.inner.lifecycle))?
+            .map_err(|error| Self::normalize_boundary_error(&self.inner.lifecycle, error))
     }
 
     /// Send a pre-encoded command to the camera.
@@ -567,22 +663,24 @@ impl<P: Profile + 'static, E: Executor + Send + Sync + 'static> RuntimeHandle<P,
         // but these are not exposed externally since inquiries cannot be canceled.
         let inquiry_id = self.allocate_command_id();
 
+        let (admission_tx, admission_rx) = flume::bounded(1);
         let (response_tx, response_rx) = flume::bounded(1);
 
-        let item = TxItem::Inquiry {
+        let request = SubmitRequest::Inquiry {
             id: inquiry_id,
             command: prepared,
             camera_id,
+            admission_tx,
             response_tx,
         };
 
-        self.command(item).await?;
+        self.submit_request(request, admission_rx).await?;
 
         response_rx
             .recv_async()
             .await
-            .map_err(|_| Error::ChannelClosed)
-            .map_err(Error::to_public_error)?
+            .map_err(|_| Self::closed_error_from_lifecycle(&self.inner.lifecycle))?
+            .map_err(|error| Self::normalize_boundary_error(&self.inner.lifecycle, error))
     }
 
     /// Send a pre-encoded command and return a command ID and response future.
@@ -605,24 +703,27 @@ impl<P: Profile + 'static, E: Executor + Send + Sync + 'static> RuntimeHandle<P,
     ) -> Result<(CommandId, impl Future<Output = Result<Response>>)> {
         let command_id = self.allocate_command_id();
 
+        let (admission_tx, admission_rx) = flume::bounded(1);
         let (response_tx, response_rx) = flume::bounded(1);
 
-        let item = TxItem::Command {
+        let request = SubmitRequest::Command {
             id: command_id,
             command: prepared,
             priority: priority.unwrap_or(Priority::Normal),
             camera_id,
+            admission_tx,
             response_tx,
         };
 
-        self.command(item).await?;
+        self.submit_request(request, admission_rx).await?;
 
+        let lifecycle = Arc::clone(&self.inner.lifecycle);
         let future = async move {
             response_rx
                 .recv_async()
                 .await
-                .map_err(|_| Error::ChannelClosed)
-                .map_err(Error::to_public_error)?
+                .map_err(|_| RuntimeHandle::<P, E>::closed_error_from_lifecycle(&lifecycle))?
+                .map_err(|error| RuntimeHandle::<P, E>::normalize_boundary_error(&lifecycle, error))
         };
 
         Ok((command_id, future))
@@ -635,10 +736,10 @@ impl<P: Profile + 'static, E: Executor + Send + Sync + 'static> RuntimeHandle<P,
 fn spawn_runtime_loop<P, T, E>(
     executor: Arc<E>,
     transport: T,
-    submit_rx: Receiver<TxItem>,
-    metrics_rx: crate::runtime::loop_task::MetricsRequestReceiver,
-    completions_rx: Receiver<Sender<Receiver<CompletionEvent>>>,
-    shutdown_rx: Receiver<()>,
+    submit_rx: Receiver<SubmitRequest>,
+    urgent_control_rx: Receiver<UrgentControlRequest>,
+    control_rx: Receiver<ControlRequest>,
+    lifecycle: Arc<AtomicU8>,
     task_executor: Arc<E>,
     config: RuntimeLoopConfig<P::Envelope>,
 ) where
@@ -650,9 +751,8 @@ fn spawn_runtime_loop<P, T, E>(
         match runtime_loop_with_config::<P, T, E>(
             transport,
             submit_rx,
-            metrics_rx,
-            completions_rx,
-            shutdown_rx,
+            urgent_control_rx,
+            control_rx,
             task_executor,
             config,
         )
@@ -666,6 +766,12 @@ fn spawn_runtime_loop<P, T, E>(
                 tracing::error!("Runtime loop exited unexpectedly: {e}");
             }
         }
+        let _ = lifecycle.compare_exchange(
+            LIFECYCLE_RUNNING,
+            LIFECYCLE_TERMINATED,
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        );
     });
 }
 
@@ -674,12 +780,17 @@ impl<P: Profile, E: Executor> Drop for RuntimeHandle<P, E> {
         // Only send shutdown signal if this is the last reference
         if Arc::strong_count(&self.inner) == 1 {
             tracing::trace!("RuntimeHandle::drop -> last reference, sending shutdown");
-            let _ = self.inner.shutdown_tx.send(());
-            self.inner.shutdown.store(true, Ordering::Relaxed);
+            self.inner
+                .lifecycle
+                .store(LIFECYCLE_CLOSING, Ordering::Release);
+            let (reply_tx, _reply_rx) = flume::bounded(1);
+            let _ = self
+                .inner
+                .urgent_control
+                .send(UrgentControlRequest::Shutdown { reply_tx });
         }
 
-        // Note: flume channels don't have a disconnect() method
-        // The channels will be closed when all senders are dropped
-        // The shutdown signal above is the primary mechanism for clean termination
+        // The channels will be closed when all senders are dropped; the shutdown
+        // request above is the primary mechanism for intentional cleanup.
     }
 }

@@ -1,6 +1,6 @@
 //! Main runtime event loop for VISCA communication.
 
-use flume::{Receiver, Sender};
+use flume::Receiver;
 use futures_lite::future;
 use tracing::{debug, error, instrument, trace, warn};
 
@@ -12,8 +12,8 @@ use crate::{
     error::{Error, Result},
     protocol::framer::ProtocolFramer,
     runtime::{
-        async_adapter::{AsyncAdapter, CompletionEvent, TxItem},
-        core::PendingCommand,
+        async_adapter::{AsyncAdapter, ControlRequest, SubmitRequest, UrgentControlRequest},
+        core::{CancelOutcome, PendingCommand},
         driver::send_one,
     },
     timeout::TimeoutConfig,
@@ -22,35 +22,26 @@ use crate::{
     },
 };
 
-#[cfg(feature = "test-utils")]
-use crate::runtime::async_adapter::MetricsSummary;
-
-#[cfg(feature = "test-utils")]
-pub(crate) type MetricsRequestReceiver = Receiver<Sender<MetricsSummary>>;
-#[cfg(not(feature = "test-utils"))]
-pub(crate) type MetricsRequestReceiver = ();
-
 /// Event variants representing all possible wake sources for the runtime loop.
 ///
 /// This enum centralizes all wake sources in a type-safe manner, preventing
 /// future regressions where a new control path might be added but not included
 /// in the wake set.
 enum LoopEvent {
-    /// A command, inquiry, or cancel was submitted.
-    Submit(TxItem),
-    /// A metrics request was received.
-    #[cfg(feature = "test-utils")]
-    Metrics(Sender<MetricsSummary>),
-    /// A completion subscription request was received.
-    SubscribeCompletions(Sender<Receiver<CompletionEvent>>),
+    /// A command or inquiry was submitted.
+    Submit(SubmitRequest),
+    /// An urgent control-plane request was received.
+    UrgentControl(UrgentControlRequest),
+    /// A normal control-plane request was received.
+    Control(ControlRequest),
     /// Data was received from the transport.
     TransportRecv(usize),
     /// Transport receive returned an error.
     TransportErr(Error),
     /// A timer tick occurred (deadline elapsed or idle sleep).
     Tick,
-    /// Shutdown was requested.
-    Shutdown,
+    /// All control senders were dropped without a request/reply shutdown.
+    ImplicitShutdown,
 }
 
 /// Runtime trace logging controlled by RUNTIME_TRACE environment variable
@@ -99,6 +90,113 @@ macro_rules! handle_send_failure {
     };
 }
 
+async fn send_cancel_frame<T, Env>(
+    transport: &mut T,
+    envelope: &Env,
+    send_buf: &mut bytes::BytesMut,
+    camera_id: crate::camera_id::CameraId,
+    socket: crate::ViscaSocket,
+) -> Result<()>
+where
+    T: AsyncTransport,
+    Env: Envelope,
+{
+    let cancel_cmd = CommandCancelCommand::new(socket);
+    let mut temp_buf = [0u8; CommandCancelCommand::MAX_SIZE];
+    let len = cancel_cmd
+        .write_into(camera_id, &mut temp_buf)
+        .map_err(|e| {
+            error!("Failed to encode cancel command: {e}");
+            e
+        })?;
+
+    envelope.frame_into(&temp_buf[..len], CommandKind::Command, send_buf);
+    transport.send(&send_buf[..]).await?;
+    debug!("Sent cancel for socket {socket:?} with camera_id {camera_id:?}");
+    Ok(())
+}
+
+fn reply_or_exit_on_cancel_result<P, T, Ex>(
+    transport: &mut T,
+    adapter: &mut AsyncAdapter<P, Ex>,
+    reply_tx: flume::Sender<Result<()>>,
+    result: Result<()>,
+    context: &str,
+) -> Result<()>
+where
+    P: Profile,
+    T: AsyncTransport,
+    Ex: crate::executor::Executor,
+{
+    match result {
+        Ok(()) => {
+            let _ = reply_tx.send(Ok(()));
+            Ok(())
+        }
+        Err(error) if transport.send_semantics() == SendSemantics::Stream => {
+            let reason = format!("{context}: {error}");
+            error!(
+                send_semantics = ?transport.send_semantics(),
+                reason = %reason,
+                "Stream transport poisoned by cancel send failure"
+            );
+            let failed_count = adapter.poison_transport(reason.clone());
+            debug!(
+                failed_count,
+                "Poisoned transport and failed pending commands"
+            );
+            let _ = reply_tx.send(Err(error));
+            Err(Error::StreamPoisoned {
+                reason: reason.into(),
+            })
+        }
+        Err(error) => {
+            debug!(
+                send_semantics = ?transport.send_semantics(),
+                error = %error,
+                "Datagram cancel send failed - continuing runtime loop"
+            );
+            let _ = reply_tx.send(Err(error));
+            Ok(())
+        }
+    }
+}
+
+fn cleanup_shutdown<P, Ex>(
+    adapter: &mut AsyncAdapter<P, Ex>,
+    submit_rx: &Receiver<SubmitRequest>,
+    urgent_control_rx: &Receiver<UrgentControlRequest>,
+    control_rx: &Receiver<ControlRequest>,
+    reply_tx: Option<flume::Sender<Result<()>>>,
+) where
+    P: Profile,
+    Ex: crate::executor::Executor,
+{
+    let error = Error::RuntimeShutdown;
+
+    let failed_count = adapter.shutdown(error.clone());
+    debug!(
+        failed_count,
+        "Runtime shutdown failed pending command waiters"
+    );
+
+    while let Ok(request) = submit_rx.try_recv() {
+        request.fail(error.clone());
+    }
+
+    while let Ok(request) = urgent_control_rx.try_recv() {
+        request.fail(error.clone());
+    }
+
+    while let Ok(request) = control_rx.try_recv() {
+        request.fail(error.clone());
+    }
+
+    if let Some(reply_tx) = reply_tx {
+        let _ = reply_tx.send(Ok(()));
+    }
+}
+
 /// Configuration for the runtime loop.
 pub struct RuntimeLoopConfig<E: Envelope> {
     pub envelope: E,
@@ -140,15 +238,7 @@ pub struct RuntimeLoopConfig<E: Envelope> {
 #[instrument(
     level = "debug",
     name = "visca_runtime_loop",
-    skip(
-        transport,
-        submit_rx,
-        _metrics_rx,
-        completions_rx,
-        shutdown_rx,
-        executor,
-        config
-    )
+    skip(transport, submit_rx, urgent_control_rx, control_rx, executor, config)
 )]
 pub async fn runtime_loop_with_config<
     P: Profile + 'static,
@@ -156,10 +246,9 @@ pub async fn runtime_loop_with_config<
     Ex: crate::executor::Executor + Send + Sync + 'static,
 >(
     mut transport: T,
-    submit_rx: Receiver<TxItem>,
-    _metrics_rx: MetricsRequestReceiver,
-    completions_rx: Receiver<Sender<Receiver<CompletionEvent>>>,
-    shutdown_rx: Receiver<()>,
+    submit_rx: Receiver<SubmitRequest>,
+    urgent_control_rx: Receiver<UrgentControlRequest>,
+    control_rx: Receiver<ControlRequest>,
     executor: Arc<Ex>,
     config: RuntimeLoopConfig<P::Envelope>,
 ) -> Result<()> {
@@ -200,10 +289,9 @@ pub async fn runtime_loop_with_config<
         let sleep_dur = until.saturating_duration_since(now);
 
         // Await ALL wake sources in a single select point:
-        // - shutdown_rx: shutdown signal
-        // - submit_rx: new commands/inquiries/cancels
-        // - metrics_rx: metrics requests
-        // - completions_rx: completion subscription requests
+        // - urgent_control_rx: shutdown and cancellation
+        // - submit_rx: new commands/inquiries
+        // - control_rx: metrics/subscription requests
         // - transport recv or deadline tick
         //
         // This ensures new submissions/control requests wake the loop immediately,
@@ -225,188 +313,172 @@ pub async fn runtime_loop_with_config<
                 },
             );
 
-            // Race all control channels + shutdown + transport
+            // Race all control channels + transport
             // Use nested races since futures_lite::future::race only takes two futures
-            let shutdown_future = async {
-                let _ = shutdown_rx.recv_async().await;
-                LoopEvent::Shutdown
+            let urgent_control_future = async {
+                match urgent_control_rx.recv_async().await {
+                    Ok(request) => LoopEvent::UrgentControl(request),
+                    Err(_) => LoopEvent::ImplicitShutdown,
+                }
             };
             let submit_future = async {
                 match submit_rx.recv_async().await {
-                    Ok(item) => LoopEvent::Submit(item),
-                    // Channel closed - treat as shutdown
-                    Err(_) => LoopEvent::Shutdown,
+                    Ok(request) => LoopEvent::Submit(request),
+                    // Channel closed - usually means all handles were dropped.
+                    Err(_) => LoopEvent::ImplicitShutdown,
                 }
             };
-            #[cfg(feature = "test-utils")]
-            let metrics_future = async {
-                match _metrics_rx.recv_async().await {
-                    Ok(tx) => LoopEvent::Metrics(tx),
-                    // Channel closed - treat as tick (non-fatal)
-                    Err(_) => LoopEvent::Tick,
-                }
-            };
-            let completions_future = async {
-                match completions_rx.recv_async().await {
-                    Ok(tx) => LoopEvent::SubscribeCompletions(tx),
+            let control_future = async {
+                match control_rx.recv_async().await {
+                    Ok(request) => LoopEvent::Control(request),
                     // Channel closed - treat as tick (non-fatal)
                     Err(_) => LoopEvent::Tick,
                 }
             };
 
             // Combine all futures using nested races
-            // Priority order matters for ties: shutdown > submit > metrics > completions > recv/tick
-            #[cfg(feature = "test-utils")]
-            let control_future = future::race(
-                shutdown_future,
-                future::race(
-                    submit_future,
-                    future::race(
-                        metrics_future,
-                        future::race(completions_future, recv_or_tick),
-                    ),
-                ),
-            );
-            #[cfg(not(feature = "test-utils"))]
-            let control_future = future::race(
-                shutdown_future,
-                future::race(
-                    submit_future,
-                    future::race(completions_future, recv_or_tick),
-                ),
+            // Priority order matters for ties: urgent control > submit > normal control > recv/tick
+            let event_future = future::race(
+                urgent_control_future,
+                future::race(submit_future, future::race(control_future, recv_or_tick)),
             );
 
-            control_future.await
+            event_future.await
         };
 
         runtime_trace!(
             "Event received: {}",
             match &event {
-                LoopEvent::Submit(item) => format!("Submit({:?})", item),
-                #[cfg(feature = "test-utils")]
-                LoopEvent::Metrics(_) => "Metrics".to_string(),
-                LoopEvent::SubscribeCompletions(_) => "SubscribeCompletions".to_string(),
+                LoopEvent::Submit(request) => format!("Submit({:?})", request),
+                LoopEvent::UrgentControl(_) => "UrgentControl".to_string(),
+                LoopEvent::Control(_) => "Control".to_string(),
                 LoopEvent::TransportRecv(n) => format!("TransportRecv({n})"),
                 LoopEvent::TransportErr(_) => "TransportErr".to_string(),
                 LoopEvent::Tick => "Tick".to_string(),
-                LoopEvent::Shutdown => "Shutdown".to_string(),
+                LoopEvent::ImplicitShutdown => "ImplicitShutdown".to_string(),
             }
         );
 
         // Handle the event - note: NO early `continue` statements here
         // All paths fall through to the housekeeping section at the end
         match event {
-            LoopEvent::Shutdown => {
-                debug!("Shutdown event received; exiting runtime loop");
-                runtime_trace!("Shutdown event received; exiting runtime loop cleanly");
+            LoopEvent::ImplicitShutdown => {
+                debug!("Runtime handles dropped; shutting down runtime loop");
+                runtime_trace!("Implicit shutdown received; cleaning up runtime loop");
+                cleanup_shutdown(
+                    &mut adapter,
+                    &submit_rx,
+                    &urgent_control_rx,
+                    &control_rx,
+                    None,
+                );
                 return Ok(());
             }
 
-            LoopEvent::Submit(item) => {
-                match item {
-                    TxItem::Command { .. } | TxItem::Inquiry { .. } => {
-                        adapter.submit(item);
+            LoopEvent::Submit(request) => {
+                adapter.admit_submit(request);
 
-                        // Try to send immediately if possible
-                        if let Some(cmd) = adapter.next_item_to_send() {
-                            if let Err(e) = send_one(
-                                &mut transport,
-                                &executor,
-                                &mut adapter,
-                                cmd,
-                                &config.envelope,
-                                &mut send_buf,
-                                config.write_timeout,
-                            )
-                            .await
-                            {
-                                handle_send_failure!(
-                                    transport,
-                                    adapter,
-                                    e,
-                                    "Send failed during submit"
-                                );
-                            }
-                        }
-                    }
-                    TxItem::Cancel { camera_id, socket } => {
-                        let cancel_cmd = CommandCancelCommand::new(socket);
-                        let mut temp_buf = [0u8; CommandCancelCommand::MAX_SIZE];
-                        let len = cancel_cmd
-                            .write_into(camera_id, &mut temp_buf)
-                            .map_err(|e| {
-                                error!("Failed to encode cancel command: {e}");
-                                e
-                            })?;
-
-                        let kind = CommandKind::Command;
-                        config
-                            .envelope
-                            .frame_into(&temp_buf[..len], kind, &mut send_buf);
-
-                        if let Err(e) = transport.send(&send_buf[..]).await {
-                            handle_send_failure!(
-                                transport,
-                                adapter,
-                                e,
-                                "Failed to send cancel for socket"
-                            );
-                        } else {
-                            debug!(
-                                "Sent cancel for socket {socket:?} with camera_id {camera_id:?}"
-                            );
-                        }
-                    }
-                    TxItem::CancelById { camera_id: _, id } => {
-                        // Route cancel through the scheduler for lifecycle-aware handling.
-                        // The scheduler returns Some((camera_id, socket)) if the command has
-                        // a socket already assigned (send immediately). Otherwise, the cancel
-                        // is either deferred until ACK or a no-op for inactive commands.
-                        if let Some((camera_id, socket)) = adapter.request_cancel_by_id(id) {
-                            let cancel_cmd = CommandCancelCommand::new(socket);
-                            let mut temp_buf = [0u8; CommandCancelCommand::MAX_SIZE];
-                            let len =
-                                cancel_cmd
-                                    .write_into(camera_id, &mut temp_buf)
-                                    .map_err(|e| {
-                                        error!("Failed to encode cancel command: {e}");
-                                        e
-                                    })?;
-
-                            let kind = CommandKind::Command;
-                            config
-                                .envelope
-                                .frame_into(&temp_buf[..len], kind, &mut send_buf);
-
-                            if let Err(e) = transport.send(&send_buf[..]).await {
-                                handle_send_failure!(
-                                    transport,
-                                    adapter,
-                                    e,
-                                    "Failed to send cancel for command"
-                                );
-                            } else {
-                                debug!("Sent cancel for command {id} on socket {socket:?} with camera_id {camera_id:?}");
-                            }
-                        }
-                        // If request_cancel_by_id returns None, either:
-                        // - The command is inactive (completed/timed out/unknown): no-op
-                        // - The command is awaiting ACK: flagged for cancel-on-ACK
+                // Try to send immediately if possible
+                if let Some(cmd) = adapter.next_item_to_send() {
+                    if let Err(e) = send_one(
+                        &mut transport,
+                        &executor,
+                        &mut adapter,
+                        cmd,
+                        &config.envelope,
+                        &mut send_buf,
+                        config.write_timeout,
+                    )
+                    .await
+                    {
+                        handle_send_failure!(transport, adapter, e, "Send failed during submit");
                     }
                 }
                 // Fall through to housekeeping
             }
 
-            #[cfg(feature = "test-utils")]
-            LoopEvent::Metrics(response_tx) => {
-                let summary = adapter.metrics_summary();
-                let _ = response_tx.send(summary);
-                // Fall through to housekeeping
-            }
+            LoopEvent::UrgentControl(request) => match request {
+                UrgentControlRequest::Shutdown { reply_tx } => {
+                    debug!("Shutdown request received; cleaning up runtime loop");
+                    runtime_trace!("Shutdown request received; cleaning up runtime loop");
+                    cleanup_shutdown(
+                        &mut adapter,
+                        &submit_rx,
+                        &urgent_control_rx,
+                        &control_rx,
+                        Some(reply_tx),
+                    );
+                    return Ok(());
+                }
+                UrgentControlRequest::CancelSocket {
+                    camera_id,
+                    socket,
+                    reply_tx,
+                } => {
+                    let result = send_cancel_frame(
+                        &mut transport,
+                        &config.envelope,
+                        &mut send_buf,
+                        camera_id,
+                        socket,
+                    )
+                    .await;
+                    reply_or_exit_on_cancel_result(
+                        &mut transport,
+                        &mut adapter,
+                        reply_tx,
+                        result,
+                        "Failed to send cancel for socket",
+                    )?;
+                }
+                UrgentControlRequest::CancelById {
+                    camera_id,
+                    id,
+                    reply_tx,
+                } => match adapter.request_cancel_by_id(id) {
+                    outcome @ (CancelOutcome::QueuedRemoved
+                    | CancelOutcome::MarkedCancelOnAck
+                    | CancelOutcome::NoOp) => {
+                        trace!(
+                            ?camera_id,
+                            %id,
+                            ?outcome,
+                            "Processed cancel-by-id without immediate socket send"
+                        );
+                        let _ = reply_tx.send(Ok(()));
+                    }
+                    CancelOutcome::SendCancel { camera_id, socket } => {
+                        let result = send_cancel_frame(
+                            &mut transport,
+                            &config.envelope,
+                            &mut send_buf,
+                            camera_id,
+                            socket,
+                        )
+                        .await;
+                        reply_or_exit_on_cancel_result(
+                            &mut transport,
+                            &mut adapter,
+                            reply_tx,
+                            result,
+                            "Failed to send cancel for command",
+                        )?;
+                    }
+                },
+            },
 
-            LoopEvent::SubscribeCompletions(response_tx) => {
-                let completion_rx = adapter.subscribe_completions();
-                let _ = response_tx.send(completion_rx);
+            LoopEvent::Control(request) => {
+                match request {
+                    #[cfg(feature = "test-utils")]
+                    ControlRequest::Metrics { reply_tx } => {
+                        let summary = adapter.metrics_summary();
+                        let _ = reply_tx.send(Ok(summary));
+                    }
+                    ControlRequest::SubscribeCompletions { reply_tx } => {
+                        let completion_rx = adapter.subscribe_completions();
+                        let _ = reply_tx.send(Ok(completion_rx));
+                    }
+                }
                 // Fall through to housekeeping
             }
 

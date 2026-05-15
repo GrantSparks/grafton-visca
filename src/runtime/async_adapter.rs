@@ -16,8 +16,8 @@ use crate::{
     error::{Error, Result},
     executor::Executor,
     runtime::core::{
-        PendingCommand, Priority, RetryCommand, SchedulerAction, SchedulerCore, SchedulerEvent,
-        TimeoutKind,
+        CancelOutcome, PendingCommand, Priority, RetryCommand, SchedulerAction, SchedulerCore,
+        SchedulerEvent, TimeoutKind,
     },
     runtime::driver::{receive_one, IgnoreReason, ReceiveDisposition},
     timeout::{CommandCategory, TimeoutConfig},
@@ -29,7 +29,7 @@ fn log_ignored_receive(reason: IgnoreReason, sequence: Option<u32>) {
     trace!(?reason, ?sequence, "VISCA response ignored");
 }
 
-/// Represents an item to be transmitted (command, inquiry, or cancel).
+/// Data-plane request submitted across the handle-to-runtime boundary.
 ///
 /// # Metadata Consolidation
 ///
@@ -39,10 +39,10 @@ fn log_ignored_receive(reason: IgnoreReason, sequence: Option<u32>) {
 /// - `response_type`: Expected response type for inquiries (via `command.response_type`)
 /// - `kind`: Command vs Inquiry (via `command.kind`)
 ///
-/// This eliminates redundant storage that previously existed in both `TxItem`
+/// This eliminates redundant storage that previously existed in both submit messages
 /// and `EncodedCommand`, making `EncodedCommand` the single source of truth.
 #[derive(Clone)]
-pub(crate) enum TxItem {
+pub(crate) enum SubmitRequest {
     /// A command that requires a socket and expects ACK/Completion.
     Command {
         /// Unique identifier for this command.
@@ -53,6 +53,8 @@ pub(crate) enum TxItem {
         priority: Priority,
         /// Camera ID used to encode the command.
         camera_id: CameraId,
+        /// Admission reply sent once the runtime loop has accepted or rejected the command.
+        admission_tx: Sender<Result<()>>,
         /// Channel to send response back.
         response_tx: Sender<Result<Response>>,
     },
@@ -64,63 +66,136 @@ pub(crate) enum TxItem {
         command: Arc<crate::command::encode::EncodedCommand>,
         /// Camera ID used to encode the inquiry.
         camera_id: CameraId,
+        /// Admission reply sent once the runtime loop has accepted or rejected the inquiry.
+        admission_tx: Sender<Result<()>>,
         /// Channel to send response back.
         response_tx: Sender<Result<Response>>,
     },
-    /// Cancel a command on a specific socket.
-    Cancel {
-        /// Camera ID for addressing the cancel message.
-        camera_id: CameraId,
-        /// Socket to cancel (1 or 2).
-        socket: ViscaSocket,
-    },
-    /// Cancel a command by its ID.
-    CancelById {
-        /// Camera ID for addressing the cancel message.
-        camera_id: CameraId,
-        /// Command ID to cancel.
-        id: CommandId,
-    },
 }
 
-impl std::fmt::Debug for TxItem {
+impl SubmitRequest {
+    /// Reply to a still-unprocessed request with the supplied failure.
+    pub(crate) fn fail(self, error: Error) {
+        match self {
+            SubmitRequest::Command {
+                admission_tx,
+                response_tx,
+                ..
+            }
+            | SubmitRequest::Inquiry {
+                admission_tx,
+                response_tx,
+                ..
+            } => {
+                let _ = admission_tx.send(Err(error.clone()));
+                let _ = response_tx.send(Err(error));
+            }
+        }
+    }
+}
+
+impl std::fmt::Debug for SubmitRequest {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            TxItem::Command {
+            SubmitRequest::Command {
                 id,
                 command,
                 priority,
                 camera_id,
                 ..
             } => f
-                .debug_struct("TxItem::Command")
+                .debug_struct("SubmitRequest::Command")
                 .field("id", id)
                 .field("priority", priority)
                 .field("category", &command.category)
                 .field("camera_id", camera_id)
                 .finish(),
-            TxItem::Inquiry {
+            SubmitRequest::Inquiry {
                 id,
                 command,
                 camera_id,
                 ..
             } => f
-                .debug_struct("TxItem::Inquiry")
+                .debug_struct("SubmitRequest::Inquiry")
                 .field("id", id)
                 .field("category", &command.category)
                 .field("camera_id", camera_id)
                 .field("response_type", &command.response_type)
                 .finish(),
-            TxItem::Cancel { camera_id, socket } => f
-                .debug_struct("TxItem::Cancel")
-                .field("camera_id", camera_id)
-                .field("socket", socket)
-                .finish(),
-            TxItem::CancelById { camera_id, id } => f
-                .debug_struct("TxItem::CancelById")
-                .field("camera_id", camera_id)
-                .field("id", id)
-                .finish(),
+        }
+    }
+}
+
+/// High-priority control-plane requests.
+///
+/// These requests are independent of data-plane backpressure and are selected
+/// before normal observability/subscription traffic in the runtime loop.
+pub(crate) enum UrgentControlRequest {
+    /// Cancel a command by its runtime-assigned command ID.
+    CancelById {
+        /// Camera ID supplied by the caller. The scheduler-owned command state
+        /// remains authoritative once the command is known.
+        camera_id: CameraId,
+        /// Command ID to cancel.
+        id: CommandId,
+        /// Reply sent after the runtime deliberately processes the request.
+        reply_tx: Sender<Result<()>>,
+    },
+    /// Cancel a specific VISCA socket directly.
+    CancelSocket {
+        /// Camera ID for addressing the cancel message.
+        camera_id: CameraId,
+        /// Socket to cancel.
+        socket: ViscaSocket,
+        /// Reply sent after the runtime deliberately handles the request.
+        reply_tx: Sender<Result<()>>,
+    },
+    /// Begin explicit runtime shutdown.
+    Shutdown {
+        /// Reply sent after shutdown cleanup has completed.
+        reply_tx: Sender<Result<()>>,
+    },
+}
+
+impl UrgentControlRequest {
+    /// Fail a queued urgent request during shutdown cleanup.
+    pub(crate) fn fail(self, error: Error) {
+        match self {
+            UrgentControlRequest::CancelById { reply_tx, .. }
+            | UrgentControlRequest::CancelSocket { reply_tx, .. }
+            | UrgentControlRequest::Shutdown { reply_tx } => {
+                let _ = reply_tx.send(Err(error));
+            }
+        }
+    }
+}
+
+/// Normal-priority control-plane requests for observability and subscriptions.
+pub(crate) enum ControlRequest {
+    /// Request a runtime metrics snapshot.
+    #[cfg(feature = "test-utils")]
+    Metrics {
+        /// Reply channel for the metrics snapshot.
+        reply_tx: Sender<Result<MetricsSummary>>,
+    },
+    /// Request a completion-event subscription.
+    SubscribeCompletions {
+        /// Reply channel for the new subscription receiver.
+        reply_tx: Sender<Result<flume::Receiver<CompletionEvent>>>,
+    },
+}
+
+impl ControlRequest {
+    /// Fail a queued normal control request during shutdown cleanup.
+    pub(crate) fn fail(self, error: Error) {
+        match self {
+            #[cfg(feature = "test-utils")]
+            ControlRequest::Metrics { reply_tx } => {
+                let _ = reply_tx.send(Err(error));
+            }
+            ControlRequest::SubscribeCompletions { reply_tx } => {
+                let _ = reply_tx.send(Err(error));
+            }
         }
     }
 }
@@ -259,20 +334,20 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
         self.core.set_min_command_spacing(spacing);
     }
 
-    /// Submit a command or inquiry to the scheduler.
+    /// Admit a command or inquiry into runtime scheduler state.
     ///
-    /// If the pending queue is at capacity, the submission is rejected with a
-    /// [`Error::RuntimeQueueFull`] error sent to the response channel immediately.
-    ///
-    /// Note: Cancel and CancelById operations are never rejected by admission
-    /// control, as they help drain the queue rather than add to it.
-    pub fn submit(&mut self, item: TxItem) {
-        match item {
-            TxItem::Command {
+    /// If the pending queue is at capacity, the request is rejected with
+    /// [`Error::RuntimeQueueFull`] on the admission channel. Admission success
+    /// means the command ID is now represented in scheduler state and can be
+    /// cancelled by ID even before any VISCA bytes are sent.
+    pub fn admit_submit(&mut self, request: SubmitRequest) {
+        match request {
+            SubmitRequest::Command {
                 id,
                 command,
                 priority,
                 camera_id,
+                admission_tx,
                 response_tx,
             } => {
                 // Admission control: reject if at capacity
@@ -282,10 +357,11 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
                         capacity = self.max_pending_queue_depth,
                         "Rejecting command: queue at capacity"
                     );
-                    // Send error directly to response channel (do not insert into response_channels)
-                    let _ = response_tx.send(Err(Error::RuntimeQueueFull {
+                    let error = Error::RuntimeQueueFull {
                         capacity: self.max_pending_queue_depth,
-                    }));
+                    };
+                    let _ = admission_tx.send(Err(error.clone()));
+                    let _ = response_tx.send(Err(error));
                     self.metrics.commands_failed += 1;
                     return;
                 }
@@ -304,11 +380,13 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
                 self.core.queue_command(pending_cmd);
 
                 self.metrics.commands_sent += 1;
+                let _ = admission_tx.send(Ok(()));
             }
-            TxItem::Inquiry {
+            SubmitRequest::Inquiry {
                 id,
                 command,
                 camera_id,
+                admission_tx,
                 response_tx,
             } => {
                 // Admission control: reject if at capacity
@@ -318,10 +396,11 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
                         capacity = self.max_pending_queue_depth,
                         "Rejecting inquiry: queue at capacity"
                     );
-                    // Send error directly to response channel (do not insert into response_channels)
-                    let _ = response_tx.send(Err(Error::RuntimeQueueFull {
+                    let error = Error::RuntimeQueueFull {
                         capacity: self.max_pending_queue_depth,
-                    }));
+                    };
+                    let _ = admission_tx.send(Err(error.clone()));
+                    let _ = response_tx.send(Err(error));
                     self.metrics.commands_failed += 1;
                     return;
                 }
@@ -346,9 +425,7 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
                 self.core.queue_command(pending_cmd);
 
                 self.metrics.commands_sent += 1;
-            }
-            TxItem::Cancel { .. } | TxItem::CancelById { .. } => {
-                // Cancel operations don't need tracking - they're transient
+                let _ = admission_tx.send(Ok(()));
             }
         }
     }
@@ -447,6 +524,26 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
 
         // Clear cancel outbox (no point sending cancels on a poisoned transport)
         self.cancel_outbox.clear();
+
+        failed_count
+    }
+
+    /// Fail all runtime-owned waiters and clear scheduler state during explicit shutdown.
+    pub fn shutdown(&mut self, error: Error) -> usize {
+        debug!(
+            pending_channels = self.response_channels.len(),
+            "Runtime shutdown: failing pending commands and closing subscribers"
+        );
+
+        let failed_count = self.response_channels.len();
+        for (_id, tx) in self.response_channels.drain() {
+            let _ = tx.send(Err(error.clone()));
+            self.metrics.commands_failed += 1;
+        }
+
+        self.core.clear_all();
+        self.cancel_outbox.clear();
+        self.completion_subscribers.clear();
 
         failed_count
     }
@@ -729,8 +826,15 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
     /// If this method returns `Some((camera_id, socket))`, the caller should send
     /// the cancel command to the transport. If it returns `None`, either the command
     /// is inactive or the cancel has been deferred until ACK.
-    pub fn request_cancel_by_id(&mut self, cmd_id: CommandId) -> Option<(CameraId, ViscaSocket)> {
-        self.core.request_cancel_by_id(cmd_id)
+    pub fn request_cancel_by_id(&mut self, cmd_id: CommandId) -> CancelOutcome {
+        let outcome = self.core.request_cancel_by_id(cmd_id);
+        if matches!(outcome, CancelOutcome::QueuedRemoved) {
+            if let Some(tx) = self.response_channels.remove(&cmd_id) {
+                let _ = tx.send(Err(Error::CommandCanceled));
+                self.metrics.commands_failed += 1;
+            }
+        }
+        outcome
     }
 
     /// Drain the cancel outbox, returning all queued cancel requests.
@@ -765,6 +869,11 @@ mod tests {
     /// Panics if value is 0 (invalid for CommandId).
     fn cmd_id(value: u32) -> CommandId {
         CommandId::from_raw(value).expect("test command ID must be non-zero")
+    }
+
+    fn admission_tx() -> Sender<Result<()>> {
+        let (tx, _rx) = flume::bounded(1);
+        tx
     }
 
     /// Test that async adapter delegates unattributed errors to SchedulerCore for FIFO attribution.
@@ -1372,11 +1481,12 @@ mod tests {
             });
 
             let (response_tx, response_rx) = flume::bounded(1);
-            adapter.submit(TxItem::Command {
+            adapter.admit_submit(SubmitRequest::Command {
                 id: cmd_id(i as u32),
                 command: cmd,
                 priority: Priority::Normal,
                 camera_id,
+                admission_tx: admission_tx(),
                 response_tx,
             });
 
@@ -1403,11 +1513,12 @@ mod tests {
         });
 
         let (response_tx, response_rx) = flume::bounded(1);
-        adapter.submit(TxItem::Command {
+        adapter.admit_submit(SubmitRequest::Command {
             id: cmd_id((max_depth + 1) as u32),
             command: cmd,
             priority: Priority::Normal,
             camera_id,
+            admission_tx: admission_tx(),
             response_tx,
         });
 
@@ -1456,11 +1567,12 @@ mod tests {
             });
 
             let (response_tx, _response_rx) = flume::bounded(1);
-            adapter.submit(TxItem::Command {
+            adapter.admit_submit(SubmitRequest::Command {
                 id: cmd_id(i as u32),
                 command: cmd,
                 priority: Priority::Normal,
                 camera_id,
+                admission_tx: admission_tx(),
                 response_tx,
             });
         }
@@ -1481,11 +1593,12 @@ mod tests {
             });
 
             let (response_tx, _response_rx) = flume::bounded(1);
-            adapter.submit(TxItem::Command {
+            adapter.admit_submit(SubmitRequest::Command {
                 id: cmd_id((max_depth + i) as u32),
                 command: cmd,
                 priority: Priority::Normal,
                 camera_id,
+                admission_tx: admission_tx(),
                 response_tx,
             });
         }
@@ -1531,11 +1644,12 @@ mod tests {
             });
 
             let (response_tx, _response_rx) = flume::bounded(1);
-            adapter.submit(TxItem::Command {
+            adapter.admit_submit(SubmitRequest::Command {
                 id: cmd_id(i),
                 command: cmd,
                 priority: Priority::Normal,
                 camera_id,
+                admission_tx: admission_tx(),
                 response_tx,
             });
         }
@@ -1557,10 +1671,11 @@ mod tests {
             });
 
             let (response_tx, _response_rx) = flume::bounded(1);
-            adapter.submit(TxItem::Inquiry {
+            adapter.admit_submit(SubmitRequest::Inquiry {
                 id: cmd_id(i),
                 command: inq,
                 camera_id,
+                admission_tx: admission_tx(),
                 response_tx,
             });
         }
@@ -1600,11 +1715,12 @@ mod tests {
             });
 
             let (response_tx, _response_rx) = flume::bounded(1);
-            adapter.submit(TxItem::Command {
+            adapter.admit_submit(SubmitRequest::Command {
                 id: cmd_id(i as u32),
                 command: cmd,
                 priority: Priority::Normal,
                 camera_id,
+                admission_tx: admission_tx(),
                 response_tx,
             });
         }
@@ -1625,11 +1741,12 @@ mod tests {
             });
 
             let (response_tx, _response_rx) = flume::bounded(1);
-            adapter.submit(TxItem::Command {
+            adapter.admit_submit(SubmitRequest::Command {
                 id: cmd_id((max_depth + i) as u32),
                 command: cmd,
                 priority: Priority::Normal,
                 camera_id,
+                admission_tx: admission_tx(),
                 response_tx,
             });
         }
@@ -1668,10 +1785,11 @@ mod tests {
             });
 
             let (response_tx, _response_rx) = flume::bounded(1);
-            adapter.submit(TxItem::Inquiry {
+            adapter.admit_submit(SubmitRequest::Inquiry {
                 id: cmd_id(i as u32),
                 command: inq,
                 camera_id,
+                admission_tx: admission_tx(),
                 response_tx,
             });
         }
@@ -1685,10 +1803,11 @@ mod tests {
         });
 
         let (response_tx, response_rx) = flume::bounded(1);
-        adapter.submit(TxItem::Inquiry {
+        adapter.admit_submit(SubmitRequest::Inquiry {
             id: cmd_id((max_depth + 1) as u32),
             command: inq,
             camera_id,
+            admission_tx: admission_tx(),
             response_tx,
         });
 

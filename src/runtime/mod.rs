@@ -3,6 +3,26 @@
 //! This module provides the core runtime for VISCA communication,
 //! managing command scheduling, socket allocation, and protocol timing.
 //!
+//! ## Runtime Boundary
+//!
+//! Async handles send command and inquiry traffic over a bounded data-plane
+//! submission channel sized by `TransportConfig::max_pending_queue_depth`.
+//! A command or inquiry is not considered accepted until the runtime loop admits
+//! it into scheduler state and replies on its admission channel. Command IDs are
+//! returned to callers only after that admission point, so ID-based cancellation
+//! is valid immediately.
+//!
+//! Cancellation and shutdown use an urgent control-plane channel that is
+//! independent of data-plane capacity and selected ahead of normal control
+//! traffic. Metrics snapshots and completion subscriptions use a separate normal
+//! control-plane channel, preserving wake-driven liveness without allowing
+//! observability traffic to block shutdown or cancellation.
+//!
+//! Explicit shutdown is immediate: the runtime stops accepting new work, fails
+//! accepted and queued command/inquiry futures with `Error::RuntimeShutdown`,
+//! replies to pending control requests, drops completion subscribers, and then
+//! exits the runtime loop.
+//!
 //! ## Connection Sharing for Multi-Client Applications
 //!
 //! When building applications where multiple clients may control the same physical
