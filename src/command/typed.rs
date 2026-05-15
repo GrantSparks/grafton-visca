@@ -3,10 +3,9 @@
 //! This module defines a `ViscaCommand` trait with an associated `Response`
 //! type that maps a specific command to its parsed, strongly-typed output.
 //!
-//! Initial slice implements typed responses for a few common inquiries:
-//! - `PowerInquiry` -> `bool`
-//! - `PanTiltPositionInquiry` -> `crate::camera::PanTiltPosition`
-//! - `ZoomPositionInquiry` -> `u16`
+//! Built-in inquiry implementations are generated from the internal inquiry
+//! table; downstream inquiry commands can implement this trait directly or use
+//! the `ViscaInquiry` derive with typed response attributes.
 
 use crate::{command::Response, error::Error};
 

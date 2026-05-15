@@ -56,15 +56,15 @@ The macro generates:
 
 ### Parser Types
 
-- `"bool"` - Boolean values (0x02 = true, 0x03 = false)
-- `"byte"` - Direct byte value
-- `"position"` - 4-nibble position value (converts to u16)
-- `"nibble"` - Extended nibble encoding
-- `"flags"` - Bit flags (for image flip)
-- `"mode"` - Enum value parsing
-- `"pan_tilt"` - Special parser for pan/tilt positions
-- `"last_nibble"` - Last nibble from a nibble-encoded payload
-- `"bool_convention"` - Boolean parsing with an explicit convention
+- `Bool` - Boolean values (0x02 = true, 0x03 = false)
+- `Byte` / `DirectByte` - Direct byte value
+- `Position` - 4-nibble position value (converts to u16)
+- `Nibble` / `ExtendedNibble` - Extended nibble encoding
+- `Flags` / `BitFlags` - Bit flags (for image flip)
+- `Mode` / `ModeEnum` - Enum value parsing
+- `PanTilt` - Special parser for pan/tilt positions
+- `LastNibble` - Last nibble from a nibble-encoded payload
+- `BoolConvention` - Boolean parsing with an explicit convention
 
 ## ViscaEnum
 

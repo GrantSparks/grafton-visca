@@ -436,23 +436,33 @@ fn validate_attrs(attrs: &ViscaAttributes, struct_name: &Ident) -> syn::Result<(
         }
     }
 
-    if attrs.typed_response.is_some() && attrs.typed_field.is_none() {
-        push_error(
+    match (&attrs.typed_response, &attrs.typed_field) {
+        (Some(_), None) => push_error(
             &mut error,
             syn::Error::new_spanned(struct_name, "typed_response requires typed_field"),
-        );
+        ),
+        (None, Some(_)) => push_error(
+            &mut error,
+            syn::Error::new_spanned(struct_name, "typed_field requires typed_response"),
+        ),
+        _ => {}
     }
 
+    let constructor_name = attrs
+        .typed_constructor
+        .as_ref()
+        .map(std::string::ToString::to_string);
     if let Some(constructor) = &attrs.typed_constructor {
-        match constructor.to_string().as_str() {
-            "new" | "ok_new" | "new_u8" | "ok_struct" => {}
-            unknown => push_error(
+        match constructor_name.as_deref() {
+            Some("new" | "ok_new" | "new_u8" | "ok_struct") => {}
+            Some(unknown) => push_error(
                 &mut error,
                 syn::Error::new(
                     constructor.span(),
                     format!("unknown typed_constructor `{unknown}`"),
                 ),
             ),
+            None => {}
         }
     }
 
@@ -461,6 +471,26 @@ fn validate_attrs(attrs: &ViscaAttributes, struct_name: &Ident) -> syn::Result<(
             &mut error,
             syn::Error::new_spanned(struct_name, "typed_constructor requires typed_response"),
         );
+    }
+
+    if let Some(field_names) = &attrs.typed_field {
+        match constructor_name.as_deref() {
+            None | Some("new" | "ok_new" | "new_u8") => {
+                if attrs.typed_response.is_some() && field_names.len() != 1 {
+                    let message = match constructor_name.as_deref() {
+                        Some(name) => {
+                            format!("typed_constructor `{name}` requires exactly one typed_field")
+                        }
+                        None => {
+                            "default typed response conversion requires exactly one typed_field"
+                                .to_owned()
+                        }
+                    };
+                    push_error(&mut error, syn::Error::new_spanned(struct_name, message));
+                }
+            }
+            Some("ok_struct") | Some(_) => {}
+        }
     }
 
     if let Some(error) = error {
@@ -930,5 +960,64 @@ mod tests {
             tokens.contains("crate :: parsers :: parse_power (data)"),
             "qualified custom parser path should be preserved: {tokens}"
         );
+    }
+
+    #[test]
+    fn default_typed_response_conversion_rejects_multiple_fields() {
+        let input: DeriveInput = syn::parse_quote! {
+            #[visca(
+                opcode = 0x12,
+                subcode = 0x06,
+                response = PanTiltPosition,
+                typed_response = types::PanTiltPosition,
+                typed_field = (pan, tilt)
+            )]
+            struct MultiFieldDefaultTypedInquiry;
+        };
+
+        let tokens = derive_visca_inquiry_impl(input).to_string();
+
+        assert!(
+            tokens.contains("default typed response conversion requires exactly one typed_field"),
+            "multi-field default conversion must fail during macro expansion: {tokens}"
+        );
+    }
+
+    #[test]
+    fn single_argument_typed_constructors_reject_multiple_fields() {
+        for (constructor, expected) in [
+            (
+                "new",
+                "typed_constructor `new` requires exactly one typed_field",
+            ),
+            (
+                "ok_new",
+                "typed_constructor `ok_new` requires exactly one typed_field",
+            ),
+            (
+                "new_u8",
+                "typed_constructor `new_u8` requires exactly one typed_field",
+            ),
+        ] {
+            let constructor: Ident = syn::parse_str(constructor).unwrap();
+            let input: DeriveInput = syn::parse_quote! {
+                #[visca(
+                    opcode = 0x12,
+                    subcode = 0x06,
+                    response = PanTiltPosition,
+                    typed_response = types::PanTiltPosition,
+                    typed_field = (pan, tilt),
+                    typed_constructor = #constructor
+                )]
+                struct MultiFieldConstructorTypedInquiry;
+            };
+
+            let tokens = derive_visca_inquiry_impl(input).to_string();
+
+            assert!(
+                tokens.contains(expected),
+                "multi-field {constructor} conversion must fail during macro expansion: {tokens}"
+            );
+        }
     }
 }
