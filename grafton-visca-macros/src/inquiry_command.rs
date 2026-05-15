@@ -6,7 +6,10 @@
 
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
-use syn::{parse::ParseStream, spanned::Spanned, DeriveInput, Ident, LitInt, LitStr, Path, Type};
+use syn::{
+    parenthesized, parse::ParseStream, punctuated::Punctuated, spanned::Spanned, DeriveInput,
+    Ident, LitInt, Path, Token, Type,
+};
 
 pub fn derive_visca_inquiry_impl(input: DeriveInput) -> TokenStream {
     match &input.data {
@@ -142,14 +145,14 @@ struct ViscaAttributes {
     byte_value: Option<u8>,
     subcategory: Option<u8>,
     response_kind: Option<Ident>,
-    parser_type: Option<String>,
+    parser_type: Option<ParserStrategy>,
     field_name: Option<Ident>,
     mode_type: Option<Ident>,
     custom_fn: Option<Ident>,
     convention: Option<Ident>,
     data_variant: Option<Ident>,
     // Typed response attributes for ResponseParser impl generation:
-    typed_response: Option<TypeSpec>,
+    typed_response: Option<Type>,
     typed_field: Option<Vec<Ident>>,
     typed_constructor: Option<Ident>,
     typed_is_tuple: bool,
@@ -158,7 +161,7 @@ struct ViscaAttributes {
 impl ViscaAttributes {
     fn parser_info(&self) -> Option<ParserInfo> {
         self.parser_type.as_ref().map(|parser_type| ParserInfo {
-            parser_type: parser_type.clone(),
+            parser_type: *parser_type,
             field_name: self.field_name.clone(),
             mode_type: self.mode_type.clone(),
             custom_fn: self.custom_fn.clone(),
@@ -168,13 +171,35 @@ impl ViscaAttributes {
     }
 }
 
-enum TypeSpec {
-    LegacyString(String),
-    Type(Type),
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ParserStrategy {
+    Bool,
+    DirectByte,
+    Byte,
+    Position,
+    ExtendedNibble,
+    Nibble,
+    Flags,
+    BitFlags,
+    Mode,
+    ModeEnum,
+    PanTilt,
+    BoolConvention,
+    LastNibble,
+    TallyStatus,
+    SharpnessMode,
+    Gamma,
+    AutoWbSensitivity,
+    NdFilter,
+    PictureEffect,
+    DefogLevel,
+    FocusRange,
+    Custom,
 }
 
+#[derive(Clone)]
 struct ParserInfo {
-    parser_type: String,
+    parser_type: ParserStrategy,
     field_name: Option<Ident>,
     mode_type: Option<Ident>,
     custom_fn: Option<Ident>,
@@ -208,10 +233,7 @@ fn parse_visca_attributes_from_struct(input: &DeriveInput) -> syn::Result<ViscaA
                     attrs.response_kind = Some(parse_ident_value(value, "response")?);
                 } else if meta.path.is_ident("parser") {
                     let value = meta.value()?;
-                    let parser = parse_ident_value(value, "parser")?;
-                    let parser_name = parser.to_string();
-                    validate_parser_name(&parser_name, parser.span())?;
-                    attrs.parser_type = Some(parser_name);
+                    attrs.parser_type = Some(parse_parser_strategy(value)?);
                 } else if meta.path.is_ident("field") {
                     let value = meta.value()?;
                     attrs.field_name = Some(parse_ident_value(value, "field")?);
@@ -288,19 +310,6 @@ fn parse_u8_literal(lit: &LitInt) -> syn::Result<u8> {
 }
 
 fn parse_ident_value(input: ParseStream<'_>, name: &str) -> syn::Result<Ident> {
-    if input.peek(LitStr) {
-        let lit: LitStr = input.parse()?;
-        let value = lit.value();
-        if value.contains("::") {
-            let path: Path = syn::parse_str(&value).map_err(|_| {
-                syn::Error::new(lit.span(), format!("{name} must be an identifier or path"))
-            })?;
-            return path_last_ident(&path, name, lit.span());
-        }
-        return syn::parse_str::<Ident>(&value)
-            .map_err(|_| syn::Error::new(lit.span(), format!("{name} must be an identifier")));
-    }
-
     let path: Path = input.parse()?;
     path_last_ident(&path, name, path.span())
 }
@@ -312,66 +321,62 @@ fn path_last_ident(path: &Path, name: &str, span: proc_macro2::Span) -> syn::Res
         .ok_or_else(|| syn::Error::new(span, format!("{name} must not be empty")))
 }
 
-fn parse_type_spec(input: ParseStream<'_>) -> syn::Result<TypeSpec> {
-    if input.peek(LitStr) {
-        let lit: LitStr = input.parse()?;
-        Ok(TypeSpec::LegacyString(lit.value()))
-    } else {
-        Ok(TypeSpec::Type(input.parse()?))
-    }
+fn parse_type_spec(input: ParseStream<'_>) -> syn::Result<Type> {
+    input.parse()
 }
 
 fn parse_ident_list_value(input: ParseStream<'_>) -> syn::Result<Vec<Ident>> {
-    if input.peek(LitStr) {
-        let lit: LitStr = input.parse()?;
-        let mut fields = Vec::new();
-        for field in lit.value().split_whitespace() {
-            fields.push(syn::parse_str::<Ident>(field).map_err(|_| {
-                syn::Error::new(lit.span(), "typed_field must contain Rust identifiers")
-            })?);
-        }
+    if input.peek(syn::token::Paren) {
+        let content;
+        parenthesized!(content in input);
+        let fields = Punctuated::<Ident, Token![,]>::parse_terminated(&content)?;
         if fields.is_empty() {
             return Err(syn::Error::new(
-                lit.span(),
+                content.span(),
                 "typed_field must name at least one field",
             ));
         }
-        return Ok(fields);
+        return Ok(fields.into_iter().collect());
     }
 
     let path: Path = input.parse()?;
     Ok(vec![path_last_ident(&path, "typed_field", path.span())?])
 }
 
-fn validate_parser_name(parser: &str, span: proc_macro2::Span) -> syn::Result<()> {
-    match parser {
-        "bool"
-        | "direct_byte"
-        | "byte"
-        | "position"
-        | "extended_nibble"
-        | "nibble"
-        | "flags"
-        | "bit_flags"
-        | "mode"
-        | "mode_enum"
-        | "pan_tilt"
-        | "bool_convention"
-        | "last_nibble"
-        | "tally_status"
-        | "sharpness_mode"
-        | "gamma"
-        | "auto_wb_sensitivity"
-        | "nd_filter"
-        | "picture_effect"
-        | "defog_level"
-        | "focus_range"
-        | "custom" => Ok(()),
-        _ => Err(syn::Error::new(
-            span,
-            format!("unknown parser strategy `{parser}`"),
-        )),
-    }
+fn parse_parser_strategy(input: ParseStream<'_>) -> syn::Result<ParserStrategy> {
+    let path: Path = input.parse()?;
+    let ident = path_last_ident(&path, "parser", path.span())?;
+    let strategy = match ident.to_string().as_str() {
+        "Bool" | "bool" => ParserStrategy::Bool,
+        "DirectByte" | "direct_byte" => ParserStrategy::DirectByte,
+        "Byte" | "byte" => ParserStrategy::Byte,
+        "Position" | "position" => ParserStrategy::Position,
+        "ExtendedNibble" | "extended_nibble" => ParserStrategy::ExtendedNibble,
+        "Nibble" | "nibble" => ParserStrategy::Nibble,
+        "Flags" | "flags" => ParserStrategy::Flags,
+        "BitFlags" | "bit_flags" => ParserStrategy::BitFlags,
+        "Mode" | "mode" => ParserStrategy::Mode,
+        "ModeEnum" | "mode_enum" => ParserStrategy::ModeEnum,
+        "PanTilt" | "pan_tilt" => ParserStrategy::PanTilt,
+        "BoolConvention" | "bool_convention" => ParserStrategy::BoolConvention,
+        "LastNibble" | "last_nibble" => ParserStrategy::LastNibble,
+        "TallyStatus" | "tally_status" => ParserStrategy::TallyStatus,
+        "SharpnessMode" | "sharpness_mode" => ParserStrategy::SharpnessMode,
+        "Gamma" | "gamma" => ParserStrategy::Gamma,
+        "AutoWbSensitivity" | "auto_wb_sensitivity" => ParserStrategy::AutoWbSensitivity,
+        "NdFilter" | "nd_filter" => ParserStrategy::NdFilter,
+        "PictureEffect" | "picture_effect" => ParserStrategy::PictureEffect,
+        "DefogLevel" | "defog_level" => ParserStrategy::DefogLevel,
+        "FocusRange" | "focus_range" => ParserStrategy::FocusRange,
+        "Custom" | "custom" => ParserStrategy::Custom,
+        unknown => {
+            return Err(syn::Error::new(
+                ident.span(),
+                format!("unknown parser strategy `{unknown}`"),
+            ))
+        }
+    };
+    Ok(strategy)
 }
 
 fn validate_bool_convention(convention: &Ident) -> syn::Result<()> {
@@ -388,12 +393,14 @@ fn validate_attrs(attrs: &ViscaAttributes, struct_name: &Ident) -> syn::Result<(
     let mut error = None;
 
     if let Some(parser) = attrs.parser_info() {
-        match parser.parser_type.as_str() {
-            "mode" | "mode_enum" if parser.mode_type.is_none() => push_error(
-                &mut error,
-                syn::Error::new_spanned(struct_name, "mode parser requires value_type"),
-            ),
-            "bool_convention" => {
+        match parser.parser_type {
+            ParserStrategy::Mode | ParserStrategy::ModeEnum if parser.mode_type.is_none() => {
+                push_error(
+                    &mut error,
+                    syn::Error::new_spanned(struct_name, "mode parser requires value_type"),
+                )
+            }
+            ParserStrategy::BoolConvention => {
                 if parser.field_name.is_none() {
                     push_error(
                         &mut error,
@@ -413,11 +420,11 @@ fn validate_attrs(attrs: &ViscaAttributes, struct_name: &Ident) -> syn::Result<(
                     );
                 }
             }
-            "last_nibble" if parser.field_name.is_none() => push_error(
+            ParserStrategy::LastNibble if parser.field_name.is_none() => push_error(
                 &mut error,
                 syn::Error::new_spanned(struct_name, "last_nibble parser requires field"),
             ),
-            "custom" if parser.custom_fn.is_none() => push_error(
+            ParserStrategy::Custom if parser.custom_fn.is_none() => push_error(
                 &mut error,
                 syn::Error::new_spanned(struct_name, "custom parser requires parse_with"),
             ),
@@ -470,9 +477,11 @@ fn generate_parser_body(
         .clone()
         .unwrap_or_else(|| response_variant.clone());
 
-    match parser_info.parser_type.as_str() {
-        "bool" => super::parser_templates::generate_bool_parser(response_variant, crate_path),
-        "direct_byte" | "byte" => {
+    match parser_info.parser_type {
+        ParserStrategy::Bool => {
+            super::parser_templates::generate_bool_parser(response_variant, crate_path)
+        }
+        ParserStrategy::DirectByte | ParserStrategy::Byte => {
             let field_name = format_ident!("value"); // Default field name
             super::parser_templates::generate_direct_byte_parser(
                 response_variant,
@@ -480,10 +489,10 @@ fn generate_parser_body(
                 crate_path,
             )
         }
-        "position" => {
+        ParserStrategy::Position => {
             super::parser_templates::generate_position_parser(response_variant, crate_path)
         }
-        "extended_nibble" | "nibble" => {
+        ParserStrategy::ExtendedNibble | ParserStrategy::Nibble => {
             let field_name = parser_info
                 .field_name
                 .clone()
@@ -494,10 +503,10 @@ fn generate_parser_body(
                 crate_path,
             )
         }
-        "flags" | "bit_flags" => {
+        ParserStrategy::Flags | ParserStrategy::BitFlags => {
             super::parser_templates::generate_bit_flags_parser(response_variant, crate_path)
         }
-        "mode" | "mode_enum" => {
+        ParserStrategy::Mode | ParserStrategy::ModeEnum => {
             let mode_type = parser_info
                 .mode_type
                 .clone()
@@ -508,10 +517,10 @@ fn generate_parser_body(
                 crate_path,
             )
         }
-        "pan_tilt" => {
+        ParserStrategy::PanTilt => {
             super::parser_templates::generate_pan_tilt_parser(response_variant, crate_path)
         }
-        "bool_convention" => {
+        ParserStrategy::BoolConvention => {
             let field_name = parser_info
                 .field_name
                 .clone()
@@ -527,7 +536,7 @@ fn generate_parser_body(
                 crate_path,
             )
         }
-        "last_nibble" => {
+        ParserStrategy::LastNibble => {
             let field_name = parser_info
                 .field_name
                 .clone()
@@ -538,13 +547,17 @@ fn generate_parser_body(
                 crate_path,
             )
         }
-        "tally_status" => super::parser_templates::generate_tally_status_parser(crate_path),
-        "sharpness_mode" => super::parser_templates::generate_sharpness_mode_parser(crate_path),
-        "gamma" => super::parser_templates::generate_gamma_parser(crate_path),
-        "auto_wb_sensitivity" => {
+        ParserStrategy::TallyStatus => {
+            super::parser_templates::generate_tally_status_parser(crate_path)
+        }
+        ParserStrategy::SharpnessMode => {
+            super::parser_templates::generate_sharpness_mode_parser(crate_path)
+        }
+        ParserStrategy::Gamma => super::parser_templates::generate_gamma_parser(crate_path),
+        ParserStrategy::AutoWbSensitivity => {
             super::parser_templates::generate_auto_wb_sensitivity_parser(crate_path)
         }
-        "nd_filter" => {
+        ParserStrategy::NdFilter => {
             let field_name = format_ident!("position");
             let converter_type = quote! { #crate_path::command::NdFilterPosition };
             super::parser_templates::generate_byte_converter_parser(
@@ -555,7 +568,7 @@ fn generate_parser_body(
                 crate_path,
             )
         }
-        "picture_effect" => {
+        ParserStrategy::PictureEffect => {
             let field_name = format_ident!("effect");
             let converter_type = quote! { #crate_path::command::PictureEffectMode };
             super::parser_templates::generate_byte_converter_parser(
@@ -566,7 +579,7 @@ fn generate_parser_body(
                 crate_path,
             )
         }
-        "defog_level" => {
+        ParserStrategy::DefogLevel => {
             let field_name = format_ident!("level");
             let converter_type = quote! { #crate_path::types::DefogLevel };
             super::parser_templates::generate_byte_converter_parser(
@@ -577,7 +590,7 @@ fn generate_parser_body(
                 crate_path,
             )
         }
-        "focus_range" => {
+        ParserStrategy::FocusRange => {
             let field_name = format_ident!("range");
             let converter_type = quote! { #crate_path::command::FocusRange };
             super::parser_templates::generate_byte_converter_parser(
@@ -588,7 +601,7 @@ fn generate_parser_body(
                 crate_path,
             )
         }
-        "custom" => {
+        ParserStrategy::Custom => {
             let custom_fn = parser_info
                 .custom_fn
                 .clone()
@@ -597,7 +610,6 @@ fn generate_parser_body(
                 #custom_fn(data)
             }
         }
-        _ => unreachable!("parser strategy validated during attribute parsing"),
     }
 }
 
@@ -686,11 +698,8 @@ fn generate_typed_impl(
 }
 
 /// Convert a typed response specification into a generated type path.
-fn type_spec_tokens(type_spec: &TypeSpec, crate_path: &TokenStream) -> TokenStream {
-    match type_spec {
-        TypeSpec::LegacyString(type_str) => parse_type_path_string(type_str, crate_path),
-        TypeSpec::Type(ty) => type_tokens(ty, crate_path),
-    }
+fn type_spec_tokens(ty: &Type, crate_path: &TokenStream) -> TokenStream {
+    type_tokens(ty, crate_path)
 }
 
 fn type_tokens(ty: &Type, crate_path: &TokenStream) -> TokenStream {
@@ -728,26 +737,6 @@ fn is_explicit_path(path: &Path) -> bool {
             .unwrap_or(false)
 }
 
-/// Parse the legacy string type path syntax into a `TokenStream`.
-///
-/// Primitive types (`bool`, `u8`, `u16`, `i8`) are emitted directly.  Relative
-/// paths are prefixed with the resolved crate path for downstream derives.
-fn parse_type_path_string(type_str: &str, crate_path: &TokenStream) -> TokenStream {
-    match type_str {
-        "bool" => quote! { bool },
-        "u8" => quote! { u8 },
-        "u16" => quote! { u16 },
-        "i8" => quote! { i8 },
-        other => {
-            let parts: Vec<Ident> = other
-                .split("::")
-                .map(|s| format_ident!("{}", s.trim()))
-                .collect();
-            quote! { #crate_path::#(#parts)::* }
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -755,7 +744,7 @@ mod tests {
     #[test]
     fn downstream_inquiry_encoding_uses_stack_buffer_and_public_terminator() {
         let input: DeriveInput = syn::parse_quote! {
-            #[visca(opcode = 0x47, response = "ZoomPosition")]
+            #[visca(opcode = 0x47, response = ZoomPosition)]
             struct CustomZoomInquiry;
         };
 
@@ -776,6 +765,36 @@ mod tests {
         assert!(
             tokens.contains("command :: VISCA_TERMINATOR"),
             "generated downstream inquiry encoder must use the public terminator path: {tokens}"
+        );
+    }
+
+    #[test]
+    fn legacy_string_attribute_syntax_is_rejected() {
+        let input: DeriveInput = syn::parse_quote! {
+            #[visca(opcode = 0x00, response = "Power", parser = "bool")]
+            struct LegacyStringInquiry;
+        };
+
+        let tokens = derive_visca_inquiry_impl(input).to_string();
+
+        assert!(
+            tokens.contains("compile_error"),
+            "legacy string syntax must fail during macro expansion: {tokens}"
+        );
+    }
+
+    #[test]
+    fn unknown_parser_strategy_is_rejected() {
+        let input: DeriveInput = syn::parse_quote! {
+            #[visca(opcode = 0x00, response = Power, parser = DefinitelyNotAParser)]
+            struct BadParserInquiry;
+        };
+
+        let tokens = derive_visca_inquiry_impl(input).to_string();
+
+        assert!(
+            tokens.contains("unknown parser strategy"),
+            "unknown parser strategy should produce a diagnostic: {tokens}"
         );
     }
 }

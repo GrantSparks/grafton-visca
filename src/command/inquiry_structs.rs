@@ -14,6 +14,7 @@ use super::resolution::{NdFilterPosition, PictureEffectMode, ResolutionMode};
 use super::response::{BoolConvention, Nibbles, Nibbles4Or8, Payload, Response};
 use super::system::{MotionSyncMode, MotionSyncPreset};
 use super::white_balance::{AutoWhiteBalanceSensitivity, WhiteBalanceMode};
+use crate::capabilities::{PanTilt, Profile};
 use crate::command::{ResponseParser, ViscaCommand};
 use crate::error::format_payload_hex;
 use crate::timeout::CommandCategory;
@@ -40,6 +41,42 @@ pub enum BuiltinInquiryQuery {
     },
 }
 
+/// Profile-specific response decoding hook used by a built-in inquiry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BuiltinInquiryProfileDecoder {
+    /// The normal generated decoder is profile independent.
+    Default,
+    /// Decode pan/tilt position through the camera profile's coordinate system.
+    PanTiltPosition,
+}
+
+/// Profile gate required before a camera-facing accessor is implemented.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BuiltinInquiryProfileGate {
+    /// The accessor is available for every profile.
+    Always,
+    /// The accessor requires the named profile support marker.
+    Capability {
+        /// Profile marker trait required by the accessor impl.
+        marker: &'static str,
+    },
+}
+
+/// Static metadata for generated camera-facing inquiry accessors.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BuiltinInquiryAccessorMetadata {
+    /// Camera control trait exposing the accessor.
+    pub trait_name: &'static str,
+    /// Accessor method name.
+    pub method: &'static str,
+    /// Generated query command used by the accessor.
+    pub command: &'static str,
+    /// Typed response returned by the accessor.
+    pub response_type: &'static str,
+    /// Profile support required to expose the accessor.
+    pub profile_gate: BuiltinInquiryProfileGate,
+}
+
 /// Static metadata for generated built-in inquiry invariants.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BuiltinInquiryMetadata {
@@ -55,8 +92,44 @@ pub struct BuiltinInquiryMetadata {
     pub query: BuiltinInquiryQuery,
     /// Whether this inquiry is vendor-specific rather than baseline VISCA.
     pub vendor_specific: bool,
+    /// Timeout category used by the generated command.
+    pub timeout_category: CommandCategory,
+    /// Profile-specific decode behavior, if this inquiry needs it.
+    pub profile_decoder: BuiltinInquiryProfileDecoder,
     /// Rationale for aliases, alternate interpretations, and intentional gaps.
     pub rationale: Option<&'static str>,
+}
+
+macro_rules! builtin_inquiry_timeout_category {
+    () => {
+        CommandCategory::Quick
+    };
+    ($timeout:expr) => {
+        $timeout
+    };
+}
+
+macro_rules! builtin_inquiry_profile_decoder {
+    () => {
+        BuiltinInquiryProfileDecoder::Default
+    };
+    (default) => {
+        BuiltinInquiryProfileDecoder::Default
+    };
+    (pan_tilt_position) => {
+        BuiltinInquiryProfileDecoder::PanTiltPosition
+    };
+}
+
+macro_rules! builtin_inquiry_profile_gate {
+    (none) => {
+        BuiltinInquiryProfileGate::Always
+    };
+    ($profile_gate:path) => {
+        BuiltinInquiryProfileGate::Capability {
+            marker: stringify!($profile_gate),
+        }
+    };
 }
 
 macro_rules! impl_builtin_response_parser {
@@ -92,6 +165,8 @@ macro_rules! define_inquiry_kind_enum {
             const $bytes_const:ident = [$($byte:expr),+ $(,)?];
             kind: $kind:ident $body:tt;
             decode: |$payload:ident| $decode_body:block;
+            $(profile_decode: $profile_decode:ident;)?
+            $(timeout: $timeout:expr;)?
             response: false;
             query: $query:expr;
             vendor_specific: $vendor_specific:expr;
@@ -108,6 +183,8 @@ macro_rules! define_inquiry_kind_enum {
             const $bytes_const:ident = [$($byte:expr),+ $(,)?];
             kind: $kind:ident $body:tt;
             decode: |$payload:ident| $decode_body:block;
+            $(profile_decode: $profile_decode:ident;)?
+            $(timeout: $timeout:expr;)?
             response: $response:ident;
             query: $query:expr;
             vendor_specific: $vendor_specific:expr;
@@ -171,6 +248,8 @@ macro_rules! define_inquiry_data_enum {
             const $bytes_const:ident = [$($byte:expr),+ $(,)?];
             kind: $kind:ident $body:tt;
             decode: |$payload:ident| $decode_body:block;
+            $(profile_decode: $profile_decode:ident;)?
+            $(timeout: $timeout:expr;)?
             response: false;
             query: $query:expr;
             vendor_specific: $vendor_specific:expr;
@@ -187,6 +266,8 @@ macro_rules! define_inquiry_data_enum {
             const $bytes_const:ident = [$($byte:expr),+ $(,)?];
             kind: $kind:ident $body:tt;
             decode: |$payload:ident| $decode_body:block;
+            $(profile_decode: $profile_decode:ident;)?
+            $(timeout: $timeout:expr;)?
             response: $response:ident;
             query: $query:expr;
             vendor_specific: $vendor_specific:expr;
@@ -251,6 +332,8 @@ macro_rules! define_inquiry_dispatch {
             const $bytes_const:ident = [$($byte:expr),+ $(,)?];
             kind: $kind:ident $body:tt;
             decode: |$payload:ident| $decode_body:block;
+            $(profile_decode: $profile_decode:ident;)?
+            $(timeout: $timeout:expr;)?
             response: false;
             query: $query:expr;
             vendor_specific: $vendor_specific:expr;
@@ -267,6 +350,8 @@ macro_rules! define_inquiry_dispatch {
             const $bytes_const:ident = [$($byte:expr),+ $(,)?];
             kind: $kind:ident $body:tt;
             decode: |$payload:ident| $decode_body:block;
+            $(profile_decode: $profile_decode:ident;)?
+            $(timeout: $timeout:expr;)?
             response: $response:ident;
             query: $query:expr;
             vendor_specific: $vendor_specific:expr;
@@ -322,7 +407,115 @@ macro_rules! define_inquiry_dispatch {
     };
 }
 
+macro_rules! define_inquiry_profile_dispatch {
+    (
+        queryable { $($query_entries:tt)* }
+        decode_only { $($decode_entries:tt)* }
+    ) => {
+        define_inquiry_profile_dispatch!(@query payload [] $($query_entries)*);
+    };
+    (@query $dispatch_payload:ident [$($arms:tt)*]) => {
+        /// Decode an inquiry response with profile-specific hooks described by
+        /// the built-in inquiry table.
+        pub(crate) fn dispatch_for<P: Profile + PanTilt>(
+            kind: InquiryKind,
+            $dispatch_payload: Payload<'_>,
+        ) -> Result<Response, Error> {
+            match kind {
+                $($arms)*
+                _ => dispatch(kind, $dispatch_payload),
+            }
+        }
+    };
+    (@query $dispatch_payload:ident [$($arms:tt)*]
+        $(#[$meta:meta])*
+        $struct:ident => {
+            const $bytes_const:ident = [$($byte:expr),+ $(,)?];
+            kind: $kind:ident $body:tt;
+            decode: |$payload:ident| $decode_body:block;
+            profile_decode: pan_tilt_position;
+            $(timeout: $timeout:expr;)?
+            response: $response:ident;
+            query: $query:expr;
+            vendor_specific: $vendor_specific:expr;
+            rationale: $rationale:expr;
+            typed: $typed:tt;
+        }
+        $($rest:tt)*
+    ) => {
+        define_inquiry_profile_dispatch!(
+            @query $dispatch_payload [
+                $($arms)*
+                InquiryKind::$kind => {
+                    let $payload = $dispatch_payload;
+                    decode_pan_tilt_position_for::<P>($payload)
+                },
+            ]
+            $($rest)*
+        );
+    };
+    (@query $dispatch_payload:ident [$($arms:tt)*]
+        $(#[$meta:meta])*
+        $struct:ident => {
+            const $bytes_const:ident = [$($byte:expr),+ $(,)?];
+            kind: $kind:ident $body:tt;
+            decode: |$payload:ident| $decode_body:block;
+            profile_decode: default;
+            $(timeout: $timeout:expr;)?
+            response: $response:ident;
+            query: $query:expr;
+            vendor_specific: $vendor_specific:expr;
+            rationale: $rationale:expr;
+            typed: $typed:tt;
+        }
+        $($rest:tt)*
+    ) => {
+        define_inquiry_profile_dispatch!(@query $dispatch_payload [$($arms)*] $($rest)*);
+    };
+    (@query $dispatch_payload:ident [$($arms:tt)*]
+        $(#[$meta:meta])*
+        $struct:ident => {
+            const $bytes_const:ident = [$($byte:expr),+ $(,)?];
+            kind: $kind:ident $body:tt;
+            decode: |$payload:ident| $decode_body:block;
+            $(timeout: $timeout:expr;)?
+            response: $response:ident;
+            query: $query:expr;
+            vendor_specific: $vendor_specific:expr;
+            rationale: $rationale:expr;
+            typed: $typed:tt;
+        }
+        $($rest:tt)*
+    ) => {
+        define_inquiry_profile_dispatch!(@query $dispatch_payload [$($arms)*] $($rest)*);
+    };
+}
+
 macro_rules! define_builtin_inquiries {
+    (@accessor_array
+        $(
+            $trait_name:ident {
+                gate: $profile_gate:path;
+                $(
+                    $command:ident => $method:ident : $response_ty:ty;
+                )*
+            }
+        )*
+    ) => {
+        &[
+            $(
+                $(
+                    BuiltinInquiryAccessorMetadata {
+                        trait_name: stringify!($trait_name),
+                        method: stringify!($method),
+                        command: stringify!($command),
+                        response_type: stringify!($response_ty),
+                        profile_gate: builtin_inquiry_profile_gate!($profile_gate),
+                    },
+                )*
+            )*
+        ]
+    };
     (
         queryable {
             $(
@@ -331,6 +524,8 @@ macro_rules! define_builtin_inquiries {
                     const $bytes_const:ident = [$($byte:expr),+ $(,)?];
                     kind: $kind:ident $body:tt;
                     decode: |$payload:ident| $decode_body:block;
+                    $(profile_decode: $profile_decode:ident;)?
+                    $(timeout: $timeout:expr;)?
                     response: $response:ident;
                     query: $query:expr;
                     vendor_specific: $vendor_specific:expr;
@@ -349,6 +544,7 @@ macro_rules! define_builtin_inquiries {
                 }
             )*
         }
+        accessors { $($accessor_groups:tt)* }
     ) => {
         define_inquiry_kind_enum! {
             queryable {
@@ -358,6 +554,8 @@ macro_rules! define_builtin_inquiries {
                         const $bytes_const = [$($byte),+];
                         kind: $kind $body;
                         decode: |$payload| $decode_body;
+                        $(profile_decode: $profile_decode;)?
+                        $(timeout: $timeout;)?
                         response: $response;
                         query: $query;
                         vendor_specific: $vendor_specific;
@@ -386,6 +584,8 @@ macro_rules! define_builtin_inquiries {
                         const $bytes_const = [$($byte),+];
                         kind: $kind $body;
                         decode: |$payload| $decode_body;
+                        $(profile_decode: $profile_decode;)?
+                        $(timeout: $timeout;)?
                         response: $response;
                         query: $query;
                         vendor_specific: $vendor_specific;
@@ -414,6 +614,38 @@ macro_rules! define_builtin_inquiries {
                         const $bytes_const = [$($byte),+];
                         kind: $kind $body;
                         decode: |$payload| $decode_body;
+                        $(profile_decode: $profile_decode;)?
+                        $(timeout: $timeout;)?
+                        response: $response;
+                        query: $query;
+                        vendor_specific: $vendor_specific;
+                        rationale: $rationale;
+                        typed: $typed;
+                    }
+                )*
+            }
+            decode_only {
+                $(
+                    $decode_kind => {
+                        data: $decode_body_shape;
+                        decode: |$decode_payload| $decode_body_block;
+                        vendor_specific: $decode_vendor_specific;
+                        rationale: $decode_rationale;
+                    }
+                )*
+            }
+        }
+
+        define_inquiry_profile_dispatch! {
+            queryable {
+                $(
+                    $(#[$meta])*
+                    $struct => {
+                        const $bytes_const = [$($byte),+];
+                        kind: $kind $body;
+                        decode: |$payload| $decode_body;
+                        $(profile_decode: $profile_decode;)?
+                        $(timeout: $timeout;)?
                         response: $response;
                         query: $query;
                         vendor_specific: $vendor_specific;
@@ -454,7 +686,8 @@ macro_rules! define_builtin_inquiries {
                 type Response = InquiryData;
 
                 const MAX_SIZE: usize = bytes::$bytes_const.len();
-                const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
+                const TIMEOUT_CATEGORY: CommandCategory =
+                    builtin_inquiry_timeout_category!($($timeout)?);
 
                 fn write_into(
                     &self,
@@ -493,6 +726,8 @@ macro_rules! define_builtin_inquiries {
                     bytes: Some(bytes::$bytes_const),
                     query: $query,
                     vendor_specific: $vendor_specific,
+                    timeout_category: builtin_inquiry_timeout_category!($($timeout)?),
+                    profile_decoder: builtin_inquiry_profile_decoder!($($profile_decode)?),
                     rationale: $rationale,
                 },
             )*
@@ -504,10 +739,17 @@ macro_rules! define_builtin_inquiries {
                     bytes: None,
                     query: BuiltinInquiryQuery::DecodeOnly,
                     vendor_specific: $decode_vendor_specific,
+                    timeout_category: CommandCategory::Quick,
+                    profile_decoder: BuiltinInquiryProfileDecoder::Default,
                     rationale: $decode_rationale,
                 },
             )*
         ];
+
+        /// Iterable camera-facing inquiry accessor metadata generated from the
+        /// same table as the built-in commands.
+        pub const BUILTIN_INQUIRY_ACCESSORS: &[BuiltinInquiryAccessorMetadata] =
+            define_builtin_inquiries!(@accessor_array $($accessor_groups)*);
 
         #[cfg(test)]
         mod generated_invariant_tests {
@@ -517,6 +759,7 @@ macro_rules! define_builtin_inquiries {
                 cmd: C,
                 expected: &[u8],
                 expected_kind: InquiryKind,
+                expected_timeout: CommandCategory,
                 camera_id: CameraId,
                 name: &str,
             ) where
@@ -559,7 +802,7 @@ macro_rules! define_builtin_inquiries {
                 );
                 assert_eq!(
                     C::TIMEOUT_CATEGORY,
-                    CommandCategory::Quick,
+                    expected_timeout,
                     "{name} timeout category changed",
                 );
             }
@@ -573,6 +816,7 @@ macro_rules! define_builtin_inquiries {
                             $struct,
                             bytes::$bytes_const,
                             InquiryKind::$kind,
+                            builtin_inquiry_timeout_category!($($timeout)?),
                             camera_id,
                             stringify!($struct),
                         );
@@ -674,7 +918,9 @@ macro_rules! define_builtin_inquiries {
     };
 }
 
-define_builtin_inquiries! {
+macro_rules! builtin_inquiry_table {
+    ($callback:ident) => {
+        $callback! {
     queryable {
         /// Inquiry command to get the current power state of the camera.
         PowerInquiry => {
@@ -744,6 +990,7 @@ define_builtin_inquiries! {
             decode: |payload| {
                 decode_pan_tilt_position(payload)
             };
+            profile_decode: pan_tilt_position;
             response: true;
             query: BuiltinInquiryQuery::Queryable;
             vendor_specific: false;
@@ -2334,7 +2581,142 @@ define_builtin_inquiries! {
             rationale: Some("Night/day switch response is decode-only; public API exposes NightDayModeInquiry.");
         }
     }
+
+    accessors {
+        InquiryControl {
+            gate: none;
+            PowerInquiry => power_state: bool;
+            ZoomPositionInquiry => zoom_position: crate::types::ZoomPosition;
+            FocusPositionInquiry => focus_position: crate::types::FocusPosition;
+            ExposureModeInquiry => exposure_mode: ExposureMode;
+            ShutterInquiry => shutter: crate::types::ShutterSpeed;
+            GainInquiry => gain: crate::types::GainLevel;
+            GainLimitInquiry => gain_limit: crate::types::GainLimit;
+            WhiteBalanceModeInquiry => white_balance_mode: WhiteBalanceMode;
+            BrightnessInquiry => brightness: crate::types::BrightnessLevel;
+            SharpnessModeInquiry => sharpness_mode: SharpnessMode;
+            SharpnessPositionInquiry => sharpness_level: crate::types::SharpnessLevel;
+            ContrastInquiry => contrast: crate::types::ContrastLevel;
+            ResolutionInquiry => resolution: crate::command::ResolutionMode;
+            VersionInquiry => version: crate::command::VersionInfo;
+            FocusModeInquiry => focus_mode: FocusMode;
+            MenuOpenCloseInquiry => menu_status: bool;
+            TallyStatusInquiry => tally_light_status: crate::command::TallyStatusState;
+            NightDayModeInquiry => night_day_mode: bool;
+            StandbyInquiry => standby_enabled: bool;
+            DefogLevelInquiry => defog_level: crate::types::DefogLevel;
+            DigitalPtzInquiry => digital_ptz_enabled: bool;
+            AutoTraceInquiry => auto_trace_enabled: bool;
+            FocusUnlockInquiry => focus_unlock: bool;
+            BroadcastDomainInquiry => broadcast_domain: crate::types::BroadcastDomain;
+            UsbAudioInquiry => usb_audio_enabled: bool;
+            TwoToneModeInquiry => two_tone_mode_enabled: bool;
+            DigitalInquiry => digital_mode_enabled: bool;
+            TallyAutoAdjustInquiry => tally_auto_adjust_enabled: bool;
+            FlickerModeInquiry => flicker_mode: crate::command::exposure::AntiFlickerMode;
+        }
+        ExposureCompensationInquiryControl {
+            gate: crate::capabilities::HasExposureCompensation;
+            ExposureCompensationInquiry => exposure_compensation: crate::types::ExposureCompensationLevel;
+            ExposureCompensationModeInquiry => exposure_compensation_enabled: bool;
+            ExposureCompensationPositionInquiry => exposure_compensation_position: crate::types::ExposureCompensationPosition;
+        }
+        BacklightCompensationInquiryControl {
+            gate: crate::capabilities::HasBacklightCompensation;
+            BacklightInquiry => backlight_enabled: bool;
+        }
+        WideDynamicRangeInquiryControl {
+            gate: crate::capabilities::HasWideDynamicRange;
+            DynamicRangeInquiry => dynamic_range: crate::types::DynamicRangeLevel;
+        }
+        ColorTemperatureInquiryControl {
+            gate: crate::capabilities::HasColorTemperature;
+            ColorTemperatureInquiry => color_temperature: crate::types::ColorTemp;
+        }
+        RgbGainInquiryControl {
+            gate: crate::capabilities::HasRgbGain;
+            RedGainInquiry => red_gain: crate::types::RedChannel;
+            BlueGainInquiry => blue_gain: crate::types::BlueChannel;
+        }
+        RgbTuningInquiryControl {
+            gate: crate::capabilities::HasRgbTuning;
+            RedTuningInquiry => red_tuning: crate::types::RedTuning;
+            BlueTuningInquiry => blue_tuning: crate::types::BlueTuning;
+        }
+        SaturationInquiryControl {
+            gate: crate::capabilities::HasSaturationControl;
+            SaturationInquiry => saturation: crate::types::SaturationLevel;
+        }
+        HueInquiryControl {
+            gate: crate::capabilities::HasHueControl;
+            HueInquiry => hue: crate::types::HueLevel;
+        }
+        LuminanceInquiryControl {
+            gate: crate::capabilities::HasLuminanceControl;
+            LuminanceInquiry => luminance: crate::types::LuminanceLevel;
+        }
+        GammaInquiryControl {
+            gate: crate::capabilities::HasGammaControl;
+            GammaInquiry => gamma: crate::types::GammaLevel;
+        }
+        ImageFlipInquiryControl {
+            gate: crate::capabilities::HasImageFlip;
+            ImageFlipInquiry => image_flip: crate::command::FlipState;
+            FlipStateInquiry => flip_mode: crate::command::FlipState;
+        }
+        NoiseReductionInquiryControl {
+            gate: crate::capabilities::HasNoiseReduction;
+            NrLevelInquiry => noise_reduction_level: crate::types::NoiseReductionLevel;
+            NrModeInquiry => noise_reduction_mode: crate::command::NoiseReductionMode;
+        }
+        NoiseReduction2DInquiryControl {
+            gate: crate::capabilities::HasNoiseReduction2D;
+            NoiseReduction2DInquiry => noise_reduction_2d: crate::types::NoiseReduction2DLevel;
+        }
+        NoiseReduction3DInquiryControl {
+            gate: crate::capabilities::HasNoiseReduction3D;
+            NoiseReduction3DInquiry => noise_reduction_3d: crate::types::NoiseReduction3DLevel;
+        }
+        PictureEffectInquiryControl {
+            gate: crate::capabilities::HasPictureEffect;
+            BlackWhiteInquiry => black_white: bool;
+            BlackWhiteModeInquiry => black_white_mode: crate::command::BlackWhiteMode;
+            PictureEffectInquiry => picture_effect: crate::command::PictureEffectMode;
+        }
+        NdFilterInquiryControl {
+            gate: crate::capabilities::HasNdFilter;
+            NdFilterInquiry => nd_filter_position: crate::command::NdFilterPosition;
+            NdFilterPresetInquiry => nd_filter_preset: crate::types::NdFilterPreset;
+        }
+        FocusNearLimitInquiryControl {
+            gate: crate::capabilities::HasFocusNearLimitInquiry;
+            FocusNearLimitInquiry => focus_near_limit: crate::types::FocusPosition;
+        }
+        FocusZoneInquiryControl {
+            gate: crate::capabilities::HasFocusZone;
+            FocusZoneInquiry => focus_zone: FocusZone;
+        }
+        AutoFocusSensitivityInquiryControl {
+            gate: crate::capabilities::HasAutoFocusSensitivity;
+            AutoFocusSensitivityInquiry => auto_focus_sensitivity: AutoFocusSensitivity;
+        }
+        IrisInquiryControl {
+            gate: crate::capabilities::HasIrisControl;
+            IrisControlInquiry => iris_control: bool;
+            IrisInquiry => iris: crate::types::IrisLevel;
+        }
+        PanTiltInquiryControl {
+            gate: none;
+            PanTiltPositionInquiry => pan_tilt_position: crate::camera::PanTiltPosition;
+        }
+    }
+        }
+    };
 }
+
+pub(crate) use builtin_inquiry_table;
+
+builtin_inquiry_table!(define_builtin_inquiries);
 
 // ============================================================
 // Helper functions
@@ -2389,6 +2771,53 @@ fn decode_pan_tilt_position(payload: Payload<'_>) -> Result<Response, Error> {
         } else {
             0
         };
+        Ok(Response::Inquiry(InquiryData::PanTiltPosition {
+            pan,
+            tilt,
+        }))
+    } else {
+        tracing::debug!(
+            "PanTiltPosition: Payload length {} doesn't match pan/tilt format (expected 8 or 4 bytes)",
+            payload.len()
+        );
+        Err(Error::DecoderNotFound {
+            inquiry_kind: InquiryKind::PanTiltPosition,
+            payload_hex: format_payload_hex(payload.as_slice()),
+        })
+    }
+}
+
+/// Decode PanTiltPosition using the profile's coordinate-system conversion.
+fn decode_pan_tilt_position_for<P: Profile + PanTilt>(
+    payload: Payload<'_>,
+) -> Result<Response, Error> {
+    if payload.len() == 8 {
+        let nibbles = Nibbles::<8>::try_from(payload)?;
+        let pan_u16 = nibbles.u16_quad(0);
+        let tilt_u16 = nibbles.u16_quad(4);
+        let (pan, tilt) = P::COORDINATE_SYSTEM.convert_from_camera_coords(pan_u16, tilt_u16);
+
+        Ok(Response::Inquiry(InquiryData::PanTiltPosition {
+            pan,
+            tilt,
+        }))
+    } else if payload.len() == 4 {
+        tracing::warn!(
+            "PanTiltPosition: Received compact format (4 bytes). Payload: {:02X?}. Treating as home position.",
+            payload.as_slice()
+        );
+        let pan_u16 = if payload.len() >= 2 {
+            ((payload.as_slice()[0] as u16) << 8) | (payload.as_slice()[1] as u16)
+        } else {
+            0x8000
+        };
+        let tilt_u16 = if payload.len() >= 4 {
+            ((payload.as_slice()[2] as u16) << 8) | (payload.as_slice()[3] as u16)
+        } else {
+            0x8000
+        };
+        let (pan, tilt) = P::COORDINATE_SYSTEM.convert_from_camera_coords(pan_u16, tilt_u16);
+
         Ok(Response::Inquiry(InquiryData::PanTiltPosition {
             pan,
             tilt,

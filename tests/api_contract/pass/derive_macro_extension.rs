@@ -4,7 +4,7 @@ use grafton_visca::{
 };
 
 #[derive(Debug, Copy, Clone, ViscaInquiry)]
-#[visca(opcode = 0x00, response = "Power", parser = "bool")]
+#[visca(opcode = 0x00, response = Power, parser = Bool)]
 struct PowerProbeInquiry;
 
 fn main() {

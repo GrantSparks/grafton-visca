@@ -62,7 +62,7 @@ fn allocations_during(f: impl FnOnce()) -> usize {
 }
 
 #[derive(Debug, Copy, Clone, ViscaInquiry)]
-#[visca(opcode = 0x47, response = "ZoomPosition")]
+#[visca(opcode = 0x47, response = ZoomPosition)]
 struct DownstreamZoomPositionInquiry;
 
 #[test]

@@ -1207,3 +1207,106 @@ where
         self.query(PanTiltPositionInquiry)
     }
 }
+
+macro_rules! validate_builtin_camera_inquiry_accessors {
+    (
+        queryable { $($query_entries:tt)* }
+        decode_only { $($decode_entries:tt)* }
+        accessors { $($accessor_groups:tt)* }
+    ) => {
+        validate_builtin_camera_inquiry_accessors!(@groups $($accessor_groups)*);
+    };
+    (@groups) => {};
+    (@groups
+        $trait_name:ident {
+            gate: none;
+            $(
+                $command:ident => $method:ident : $response_ty:ty;
+            )*
+        }
+        $($rest:tt)*
+    ) => {
+        $(
+            validate_builtin_camera_inquiry_accessors!(@one
+                $trait_name,
+                none,
+                $command,
+                $method,
+                $response_ty
+            );
+        )*
+        validate_builtin_camera_inquiry_accessors!(@groups $($rest)*);
+    };
+    (@groups
+        $trait_name:ident {
+            gate: $profile_gate:path;
+            $(
+                $command:ident => $method:ident : $response_ty:ty;
+            )*
+        }
+        $($rest:tt)*
+    ) => {
+        $(
+            validate_builtin_camera_inquiry_accessors!(@one
+                $trait_name,
+                $profile_gate,
+                $command,
+                $method,
+                $response_ty
+            );
+        )*
+        validate_builtin_camera_inquiry_accessors!(@groups $($rest)*);
+    };
+    (@one $trait_name:ident, none, $command:ident, $method:ident, $response_ty:ty) => {
+        const _: () = {
+            #[allow(dead_code)]
+            fn command_response_matches_accessor()
+            where
+                crate::command::inquiry_structs::$command:
+                    crate::command::ViscaCommand + crate::command::ResponseParser<Response = $response_ty>,
+            {
+            }
+
+            #[allow(dead_code)]
+            fn camera_exposes_accessor<M, P, Tr, Exec>()
+            where
+                M: crate::mode::Mode,
+                P: crate::capabilities::Profile + Default,
+                Exec: crate::executor::Executor,
+                crate::camera::Camera<M, P, Tr, Exec>: $trait_name<Mode = M>,
+            {
+                let _method: for<'a> fn(
+                    &'a crate::camera::Camera<M, P, Tr, Exec>,
+                ) -> M::Fut<'a, Result<$response_ty, crate::Error>> =
+                    <crate::camera::Camera<M, P, Tr, Exec> as $trait_name>::$method;
+            }
+        };
+    };
+    (@one $trait_name:ident, $profile_gate:path, $command:ident, $method:ident, $response_ty:ty) => {
+        const _: () = {
+            #[allow(dead_code)]
+            fn command_response_matches_accessor()
+            where
+                crate::command::inquiry_structs::$command:
+                    crate::command::ViscaCommand + crate::command::ResponseParser<Response = $response_ty>,
+            {
+            }
+
+            #[allow(dead_code)]
+            fn camera_exposes_accessor<M, P, Tr, Exec>()
+            where
+                M: crate::mode::Mode,
+                P: crate::capabilities::Profile + Default + $profile_gate,
+                Exec: crate::executor::Executor,
+                crate::camera::Camera<M, P, Tr, Exec>: $trait_name<Mode = M>,
+            {
+                let _method: for<'a> fn(
+                    &'a crate::camera::Camera<M, P, Tr, Exec>,
+                ) -> M::Fut<'a, Result<$response_ty, crate::Error>> =
+                    <crate::camera::Camera<M, P, Tr, Exec> as $trait_name>::$method;
+            }
+        };
+    };
+}
+
+crate::command::inquiry_structs::builtin_inquiry_table!(validate_builtin_camera_inquiry_accessors);

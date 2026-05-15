@@ -54,7 +54,7 @@ pub fn derive_visca_value(input: TokenStream) -> TokenStream {
 /// use grafton_visca::{command::ViscaCommand, CameraId, ViscaInquiry};
 ///
 /// #[derive(ViscaInquiry, Debug, Copy, Clone)]
-/// #[visca(opcode = 0x00, response = "Power")]
+/// #[visca(opcode = 0x00, response = Power)]
 /// struct PowerInquiry;
 ///
 /// let mut buffer = [0u8; PowerInquiry::MAX_SIZE];
@@ -72,27 +72,27 @@ pub fn derive_visca_value(input: TokenStream) -> TokenStream {
 ///
 /// ```rust,ignore
 /// #[derive(ViscaInquiry, Debug, Copy, Clone)]
-/// #[visca(opcode = 0x00, response = "Power", parser = "bool")]
+/// #[visca(opcode = 0x00, response = Power, parser = Bool)]
 /// struct PowerInquiry;
 ///
 /// #[derive(ViscaInquiry, Debug, Copy, Clone)]
-/// #[visca(opcode = 0x47, response = "ZoomPosition", parser = "position")]
+/// #[visca(opcode = 0x47, response = ZoomPosition, parser = Position)]
 /// struct ZoomPositionInquiry;
 ///
 /// #[derive(ViscaInquiry, Debug, Copy, Clone)]
-/// #[visca(opcode = 0x12, subcode = 0x06, response = "PanTiltPosition", parser = "pan_tilt")]
+/// #[visca(opcode = 0x12, subcode = 0x06, response = PanTiltPosition, parser = PanTilt)]
 /// struct PanTiltPositionInquiry;
 ///
 /// #[derive(ViscaInquiry, Debug, Copy, Clone)]
-/// #[visca(opcode = 0x4F, response = "Hue", parser = "last_nibble", field = "hue")]
+/// #[visca(opcode = 0x4F, response = Hue, parser = LastNibble, field = hue)]
 /// struct HueInquiry;
 /// ```
 ///
 /// # Supported Parser Types
 ///
-/// - `"bool"` - Boolean values (0x02 = true, 0x03 = false)
-/// - `"byte"` - Direct byte value
-/// - `"position"` - 4-nibble position value (converts to u16)
+/// - `Bool` - Boolean values (0x02 = true, 0x03 = false)
+/// - `Byte` - Direct byte value
+/// - `Position` - 4-nibble position value (converts to u16)
 /// - `"nibble"` - Extended nibble encoding
 /// - `"flags"` - Bit flags (for image flip)
 /// - `"mode"` - Enum value parsing

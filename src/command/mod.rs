@@ -51,7 +51,11 @@ pub use self::{
     image::*,
     inquiry::*,
     inquiry_registry::{InquiryData, InquiryKind},
-    inquiry_structs::{BuiltinInquiryMetadata, BuiltinInquiryQuery, BUILTIN_INQUIRIES},
+    inquiry_structs::{
+        BuiltinInquiryAccessorMetadata, BuiltinInquiryMetadata, BuiltinInquiryProfileDecoder,
+        BuiltinInquiryProfileGate, BuiltinInquiryQuery, BUILTIN_INQUIRIES,
+        BUILTIN_INQUIRY_ACCESSORS,
+    },
     inquiry_types::{FlipState, IrisControl, NightDayMode, TallyStatus, Version},
     menu::*,
     motion_sync::{SetMotionSyncMode, SetMotionSyncPreset},

@@ -26,12 +26,12 @@ zero-allocation `write_into` encoding and optional response parsing.
 use grafton_visca::{command::ViscaCommand, CameraId, ViscaInquiry};
 
 #[derive(ViscaInquiry, Debug, Copy, Clone)]
-#[visca(opcode = 0x00, response = "Power", parser = "bool")]
+#[visca(opcode = 0x00, response = Power, parser = Bool)]
 pub struct PowerInquiry;
 
 // For commands with subcategories:
 #[derive(ViscaInquiry, Debug, Copy, Clone)]
-#[visca(opcode = 0x12, subcode = 0x06, response = "PanTiltPosition", parser = "pan_tilt")]
+#[visca(opcode = 0x12, subcode = 0x06, response = PanTiltPosition, parser = PanTilt)]
 pub struct PanTiltPositionInquiry;
 
 let mut buffer = [0u8; PowerInquiry::MAX_SIZE];
@@ -188,7 +188,7 @@ pub enum ExposureMode {
 }
 
 #[derive(ViscaInquiry, Debug, Copy, Clone)]
-#[visca(opcode = 0x39, response = "ExposureMode", parser = "mode", value_type = "ExposureMode")]
+#[visca(opcode = 0x39, response = ExposureMode, parser = Mode, value_type = ExposureMode)]
 pub struct ExposureModeInquiry;
 ```
 
