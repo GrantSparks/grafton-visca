@@ -64,10 +64,22 @@ macro_rules! runtime_trace {
 ///
 /// # Usage
 /// ```ignore
-/// handle_send_failure!(transport, adapter, error, "context message");
+/// handle_send_failure!(
+///     transport,
+///     adapter,
+///     boundary_receivers,
+///     error,
+///     "context message"
+/// );
 /// ```
 macro_rules! handle_send_failure {
-    ($transport:expr, $adapter:expr, $error:expr, $context:expr) => {
+    (
+        $transport:expr,
+        $adapter:expr,
+        $boundary_receivers:expr,
+        $error:expr,
+        $context:expr
+    ) => {
         if $transport.send_semantics() == SendSemantics::Stream {
             let reason = format!("{}: {}", $context, $error);
             error!(
@@ -77,9 +89,11 @@ macro_rules! handle_send_failure {
             );
             let failed_count = $adapter.poison_transport(reason.clone());
             debug!(failed_count, "Poisoned transport and failed pending commands");
-            return Err(Error::StreamPoisoned {
+            let runtime_error = Error::StreamPoisoned {
                 reason: reason.into(),
-            });
+            };
+            $boundary_receivers.drain(runtime_error.clone());
+            return Err(runtime_error);
         } else {
             debug!(
                 send_semantics = ?$transport.send_semantics(),
@@ -88,6 +102,41 @@ macro_rules! handle_send_failure {
             );
         }
     };
+}
+
+#[derive(Clone, Copy)]
+struct BoundaryReceivers<'a> {
+    submit: &'a Receiver<SubmitRequest>,
+    urgent_control: &'a Receiver<UrgentControlRequest>,
+    control: &'a Receiver<ControlRequest>,
+}
+
+impl<'a> BoundaryReceivers<'a> {
+    fn new(
+        submit: &'a Receiver<SubmitRequest>,
+        urgent_control: &'a Receiver<UrgentControlRequest>,
+        control: &'a Receiver<ControlRequest>,
+    ) -> Self {
+        Self {
+            submit,
+            urgent_control,
+            control,
+        }
+    }
+
+    fn drain(self, error: Error) {
+        while let Ok(request) = self.submit.try_recv() {
+            request.fail(error.clone());
+        }
+
+        while let Ok(request) = self.urgent_control.try_recv() {
+            request.fail(error.clone());
+        }
+
+        while let Ok(request) = self.control.try_recv() {
+            request.fail(error.clone());
+        }
+    }
 }
 
 async fn send_cancel_frame<T, Env>(
@@ -119,6 +168,7 @@ where
 fn reply_or_exit_on_cancel_result<P, T, Ex>(
     transport: &mut T,
     adapter: &mut AsyncAdapter<P, Ex>,
+    boundary_receivers: BoundaryReceivers<'_>,
     reply_tx: flume::Sender<Result<()>>,
     result: Result<()>,
     context: &str,
@@ -146,9 +196,11 @@ where
                 "Poisoned transport and failed pending commands"
             );
             let _ = reply_tx.send(Err(error));
-            Err(Error::StreamPoisoned {
+            let runtime_error = Error::StreamPoisoned {
                 reason: reason.into(),
-            })
+            };
+            boundary_receivers.drain(runtime_error.clone());
+            Err(runtime_error)
         }
         Err(error) => {
             debug!(
@@ -164,9 +216,7 @@ where
 
 fn cleanup_shutdown<P, Ex>(
     adapter: &mut AsyncAdapter<P, Ex>,
-    submit_rx: &Receiver<SubmitRequest>,
-    urgent_control_rx: &Receiver<UrgentControlRequest>,
-    control_rx: &Receiver<ControlRequest>,
+    boundary_receivers: BoundaryReceivers<'_>,
     reply_tx: Option<flume::Sender<Result<()>>>,
 ) where
     P: Profile,
@@ -180,21 +230,27 @@ fn cleanup_shutdown<P, Ex>(
         "Runtime shutdown failed pending command waiters"
     );
 
-    while let Ok(request) = submit_rx.try_recv() {
-        request.fail(error.clone());
-    }
-
-    while let Ok(request) = urgent_control_rx.try_recv() {
-        request.fail(error.clone());
-    }
-
-    while let Ok(request) = control_rx.try_recv() {
-        request.fail(error.clone());
-    }
+    boundary_receivers.drain(error);
 
     if let Some(reply_tx) = reply_tx {
         let _ = reply_tx.send(Ok(()));
     }
+}
+
+fn cleanup_runtime_termination<P, Ex>(
+    adapter: &mut AsyncAdapter<P, Ex>,
+    boundary_receivers: BoundaryReceivers<'_>,
+    error: Error,
+) where
+    P: Profile,
+    Ex: crate::executor::Executor,
+{
+    let failed_count = adapter.fail_runtime_terminated(error.clone());
+    debug!(
+        failed_count,
+        "Runtime termination failed pending command waiters"
+    );
+    boundary_receivers.drain(error);
 }
 
 /// Configuration for the runtime loop.
@@ -271,6 +327,8 @@ pub async fn runtime_loop_with_config<
         bytes::BytesMut::with_capacity(config.buffer_manager.config().send_buffer_size);
 
     debug!("VISCA runtime started");
+
+    let boundary_receivers = BoundaryReceivers::new(&submit_rx, &urgent_control_rx, &control_rx);
 
     // Default idle sleep duration when no deadlines are pending
     const DEFAULT_IDLE_SLEEP: std::time::Duration = std::time::Duration::from_millis(100);
@@ -365,13 +423,7 @@ pub async fn runtime_loop_with_config<
             LoopEvent::ImplicitShutdown => {
                 debug!("Runtime handles dropped; shutting down runtime loop");
                 runtime_trace!("Implicit shutdown received; cleaning up runtime loop");
-                cleanup_shutdown(
-                    &mut adapter,
-                    &submit_rx,
-                    &urgent_control_rx,
-                    &control_rx,
-                    None,
-                );
+                cleanup_shutdown(&mut adapter, boundary_receivers, None);
                 return Ok(());
             }
 
@@ -391,7 +443,13 @@ pub async fn runtime_loop_with_config<
                     )
                     .await
                     {
-                        handle_send_failure!(transport, adapter, e, "Send failed during submit");
+                        handle_send_failure!(
+                            transport,
+                            adapter,
+                            boundary_receivers,
+                            e,
+                            "Send failed during submit"
+                        );
                     }
                 }
                 // Fall through to housekeeping
@@ -401,13 +459,7 @@ pub async fn runtime_loop_with_config<
                 UrgentControlRequest::Shutdown { reply_tx } => {
                     debug!("Shutdown request received; cleaning up runtime loop");
                     runtime_trace!("Shutdown request received; cleaning up runtime loop");
-                    cleanup_shutdown(
-                        &mut adapter,
-                        &submit_rx,
-                        &urgent_control_rx,
-                        &control_rx,
-                        Some(reply_tx),
-                    );
+                    cleanup_shutdown(&mut adapter, boundary_receivers, Some(reply_tx));
                     return Ok(());
                 }
                 UrgentControlRequest::CancelSocket {
@@ -426,6 +478,7 @@ pub async fn runtime_loop_with_config<
                     reply_or_exit_on_cancel_result(
                         &mut transport,
                         &mut adapter,
+                        boundary_receivers,
                         reply_tx,
                         result,
                         "Failed to send cancel for socket",
@@ -459,6 +512,7 @@ pub async fn runtime_loop_with_config<
                         reply_or_exit_on_cancel_result(
                             &mut transport,
                             &mut adapter,
+                            boundary_receivers,
                             reply_tx,
                             result,
                             "Failed to send cancel for command",
@@ -488,7 +542,7 @@ pub async fn runtime_loop_with_config<
                     let error = Error::ConnectionClosed {
                         reason: Some(std::borrow::Cow::Borrowed("peer closed connection")),
                     };
-                    adapter.fail_runtime_terminated(error.clone());
+                    cleanup_runtime_termination(&mut adapter, boundary_receivers, error.clone());
                     return Err(error);
                 }
 
@@ -557,6 +611,7 @@ pub async fn runtime_loop_with_config<
                         handle_send_failure!(
                             transport,
                             adapter,
+                            boundary_receivers,
                             e,
                             "Send failed while draining pending"
                         );
@@ -585,6 +640,7 @@ pub async fn runtime_loop_with_config<
                         handle_send_failure!(
                             transport,
                             adapter,
+                            boundary_receivers,
                             e,
                             "Failed to send cancel-on-ACK for socket"
                         );
@@ -600,7 +656,7 @@ pub async fn runtime_loop_with_config<
             LoopEvent::TransportErr(e) => {
                 if matches!(e, Error::ConnectionClosed { .. }) {
                     error!("Connection closed by peer; exiting runtime loop");
-                    adapter.fail_runtime_terminated(e.clone());
+                    cleanup_runtime_termination(&mut adapter, boundary_receivers, e.clone());
                     return Err(e);
                 }
 
@@ -661,7 +717,13 @@ pub async fn runtime_loop_with_config<
             )
             .await
             {
-                handle_send_failure!(transport, adapter, e, "Send failed during retry");
+                handle_send_failure!(
+                    transport,
+                    adapter,
+                    boundary_receivers,
+                    e,
+                    "Send failed during retry"
+                );
             }
         }
 
@@ -681,6 +743,7 @@ pub async fn runtime_loop_with_config<
                 handle_send_failure!(
                     transport,
                     adapter,
+                    boundary_receivers,
                     e,
                     "Send failed while draining pending after tick"
                 );

@@ -175,7 +175,7 @@ async fn queued_command_cancel_removes_without_sending_cancel_frame() {
 }
 
 #[tokio::test]
-async fn transport_termination_is_not_reported_as_explicit_shutdown() {
+async fn transport_termination_releases_concurrent_admission_waiter() {
     let executor = Arc::new(TokioExecutor::from_current().unwrap());
     let transport: ScriptedTransport<TokioExecutor> =
         ScriptedTransport::new(vec![Step::InjectError(Error::ConnectionClosed {
@@ -188,10 +188,55 @@ async fn transport_termination_is_not_reported_as_explicit_shutdown() {
             .await
             .expect("runtime should start");
 
+    let admission_result = tokio::time::timeout(
+        Duration::from_secs(1),
+        runtime.send_command_with_id(&Zoom::TeleStd, CameraId::CAMERA_1, None),
+    )
+    .await
+    .expect("admission waiter should not hang if runtime terminates first");
+
+    match admission_result {
+        Ok((_cmd_id, response)) => {
+            let response_result = tokio::time::timeout(Duration::from_secs(1), response)
+                .await
+                .expect("admitted response future should not hang after transport termination");
+            assert!(
+                matches!(response_result, Err(Error::ConnectionClosed { .. })),
+                "admitted command should preserve ConnectionClosed, got {response_result:?}"
+            );
+        }
+        Err(error) => {
+            assert!(
+                !matches!(error, Error::RuntimeShutdown),
+                "unexpected transport termination must not be normalized to RuntimeShutdown: {error:?}"
+            );
+        }
+    }
+}
+
+#[tokio::test]
+async fn admitted_work_failed_by_transport_termination_preserves_cause() {
+    let executor = Arc::new(TokioExecutor::from_current().unwrap());
+    let transport: ScriptedTransport<TokioExecutor> = ScriptedTransport::new(vec![
+        Step::OnSend {
+            matches: None,
+            responses: vec![],
+        },
+        Step::InjectError(Error::ConnectionClosed {
+            reason: Some("peer closed".into()),
+        }),
+    ])
+    .with_executor(executor.clone());
+
+    let runtime: RuntimeHandle<PtzOpticsG2, TokioExecutor> =
+        RuntimeHandle::new(transport, executor)
+            .await
+            .expect("runtime should start");
+
     let (_cmd_id, response) = runtime
         .send_command_with_id(&Zoom::TeleStd, CameraId::CAMERA_1, None)
         .await
-        .expect("command should be admitted");
+        .expect("command should be admitted before the scripted transport error");
 
     let response_result = tokio::time::timeout(Duration::from_secs(1), response)
         .await
