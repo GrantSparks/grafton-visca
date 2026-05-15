@@ -289,6 +289,28 @@ impl<P: Profile + 'static, E: Executor + Send + Sync + 'static> RuntimeHandle<P,
             .map_err(|error| Self::normalize_boundary_error(&self.inner.lifecycle, error))
     }
 
+    async fn control_request<T>(
+        &self,
+        request: ControlRequest,
+        reply_rx: Receiver<Result<T>>,
+    ) -> Result<T> {
+        if let Some(error) = self.lifecycle_error() {
+            return Err(error);
+        }
+
+        self.inner
+            .control
+            .send_async(request)
+            .await
+            .map_err(|_| Self::closed_error_from_lifecycle(&self.inner.lifecycle))?;
+
+        reply_rx
+            .recv_async()
+            .await
+            .map_err(|_| Self::closed_error_from_lifecycle(&self.inner.lifecycle))?
+            .map_err(|error| Self::normalize_boundary_error(&self.inner.lifecycle, error))
+    }
+
     /// Cancel a command by its ID.
     ///
     /// This method performs targeted, camera-correct cancellation:
@@ -388,21 +410,9 @@ impl<P: Profile + 'static, E: Executor + Send + Sync + 'static> RuntimeHandle<P,
     /// command counts, retry statistics, and more.
     #[cfg(feature = "test-utils")]
     pub async fn metrics(&self) -> Result<MetricsSummary> {
-        if let Some(error) = self.lifecycle_error() {
-            return Err(error);
-        }
-
         let (reply_tx, reply_rx) = flume::bounded(1);
-        self.inner
-            .control
-            .send_async(ControlRequest::Metrics { reply_tx })
+        self.control_request(ControlRequest::Metrics { reply_tx }, reply_rx)
             .await
-            .map_err(|_| Self::closed_error_from_lifecycle(&self.inner.lifecycle))?;
-        reply_rx
-            .recv_async()
-            .await
-            .map_err(|_| Self::closed_error_from_lifecycle(&self.inner.lifecycle))?
-            .map_err(|error| Self::normalize_boundary_error(&self.inner.lifecycle, error))
     }
 
     /// Subscribe to completion events from the runtime.
@@ -424,21 +434,9 @@ impl<P: Profile + 'static, E: Executor + Send + Sync + 'static> RuntimeHandle<P,
     /// If you need lossless event processing, ensure your consumer drains the
     /// receiver faster than events are produced.
     pub async fn subscribe_completions(&self) -> Result<Receiver<CompletionEvent>> {
-        if let Some(error) = self.lifecycle_error() {
-            return Err(error);
-        }
-
         let (reply_tx, reply_rx) = flume::bounded(1);
-        self.inner
-            .control
-            .send_async(ControlRequest::SubscribeCompletions { reply_tx })
+        self.control_request(ControlRequest::SubscribeCompletions { reply_tx }, reply_rx)
             .await
-            .map_err(|_| Self::closed_error_from_lifecycle(&self.inner.lifecycle))?;
-        reply_rx
-            .recv_async()
-            .await
-            .map_err(|_| Self::closed_error_from_lifecycle(&self.inner.lifecycle))?
-            .map_err(|error| Self::normalize_boundary_error(&self.inner.lifecycle, error))
     }
 
     /// Get a reference to the executor.
@@ -582,9 +580,9 @@ impl<P: Profile + 'static, E: Executor + Send + Sync + 'static> RuntimeHandle<P,
     ///
     /// # Note
     ///
-    /// Inquiries are not cancelable and do not return a `CommandId`. They complete
-    /// immediately without occupying a VISCA socket. For cancelable operations,
-    /// use [`send_command_with_id`](Self::send_command_with_id).
+    /// Inquiries are not cancelable and do not return a `CommandId`. They do not
+    /// occupy a VISCA socket; for cancelable operations, use
+    /// [`send_command_with_id`](Self::send_command_with_id).
     #[cfg(feature = "test-utils")]
     pub async fn send_inquiry<I>(&self, inquiry: &I, camera_id: CameraId) -> Result<Response>
     where
