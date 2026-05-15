@@ -173,3 +173,41 @@ async fn queued_command_cancel_removes_without_sending_cancel_frame() {
 
     runtime.shutdown().await.expect("runtime shutdown");
 }
+
+#[tokio::test]
+async fn transport_termination_is_not_reported_as_explicit_shutdown() {
+    let executor = Arc::new(TokioExecutor::from_current().unwrap());
+    let transport: ScriptedTransport<TokioExecutor> =
+        ScriptedTransport::new(vec![Step::InjectError(Error::ConnectionClosed {
+            reason: Some("peer closed".into()),
+        })])
+        .with_executor(executor.clone());
+
+    let runtime: RuntimeHandle<PtzOpticsG2, TokioExecutor> =
+        RuntimeHandle::new(transport, executor)
+            .await
+            .expect("runtime should start");
+
+    let (_cmd_id, response) = runtime
+        .send_command_with_id(&Zoom::TeleStd, CameraId::CAMERA_1, None)
+        .await
+        .expect("command should be admitted");
+
+    let response_result = tokio::time::timeout(Duration::from_secs(1), response)
+        .await
+        .expect("response future should not hang after transport termination");
+    assert!(
+        matches!(response_result, Err(Error::ConnectionClosed { .. })),
+        "transport termination should preserve ConnectionClosed, got {response_result:?}"
+    );
+
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    let later_result = runtime
+        .send_command(&Zoom::WideStd, CameraId::CAMERA_1, None)
+        .await;
+    assert!(
+        !matches!(later_result, Err(Error::RuntimeShutdown)),
+        "unexpected transport termination must not be normalized to RuntimeShutdown"
+    );
+}

@@ -778,14 +778,23 @@ impl<P: Profile, E: Executor> Drop for RuntimeHandle<P, E> {
         // Only send shutdown signal if this is the last reference
         if Arc::strong_count(&self.inner) == 1 {
             tracing::trace!("RuntimeHandle::drop -> last reference, sending shutdown");
-            self.inner
-                .lifecycle
-                .store(LIFECYCLE_CLOSING, Ordering::Release);
-            let (reply_tx, _reply_rx) = flume::bounded(1);
-            let _ = self
+            if self
                 .inner
-                .urgent_control
-                .send(UrgentControlRequest::Shutdown { reply_tx });
+                .lifecycle
+                .compare_exchange(
+                    LIFECYCLE_RUNNING,
+                    LIFECYCLE_CLOSING,
+                    Ordering::AcqRel,
+                    Ordering::Acquire,
+                )
+                .is_ok()
+            {
+                let (reply_tx, _reply_rx) = flume::bounded(1);
+                let _ = self
+                    .inner
+                    .urgent_control
+                    .send(UrgentControlRequest::Shutdown { reply_tx });
+            }
         }
 
         // The channels will be closed when all senders are dropped; the shutdown

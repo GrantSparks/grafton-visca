@@ -487,6 +487,25 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
         }
     }
 
+    fn fail_all_pending(&mut self, error: Error) -> usize {
+        debug!(
+            pending_channels = self.response_channels.len(),
+            %error,
+            "Failing all pending commands"
+        );
+
+        let failed_count = self.response_channels.len();
+        for (_id, tx) in self.response_channels.drain() {
+            let _ = tx.send(Err(error.clone()));
+            self.metrics.commands_failed += 1;
+        }
+
+        self.core.clear_all();
+        self.cancel_outbox.clear();
+
+        failed_count
+    }
+
     /// Poison the transport and fail all pending commands.
     ///
     /// This is called when a stream transport (TCP, Serial) experiences a send
@@ -508,24 +527,16 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
             "Poisoning transport: failing all pending commands"
         );
 
-        let error = Error::StreamPoisoned {
-            reason: reason.clone(),
-        };
+        self.fail_all_pending(Error::StreamPoisoned { reason })
+    }
 
-        // Fail all commands that have response channels
-        let failed_count = self.response_channels.len();
-        for (_id, tx) in self.response_channels.drain() {
-            let _ = tx.send(Err(error.clone()));
-            self.metrics.commands_failed += 1;
-        }
-
-        // Clear the scheduler core state
-        self.core.clear_all();
-
-        // Clear cancel outbox (no point sending cancels on a poisoned transport)
-        self.cancel_outbox.clear();
-
-        failed_count
+    /// Fail all pending commands with a runtime termination error.
+    ///
+    /// This is used when the runtime exits for a non-shutdown cause, such as a
+    /// transport close. Pending response futures should observe that cause
+    /// directly rather than an incidental channel closure.
+    pub fn fail_runtime_terminated(&mut self, error: Error) -> usize {
+        self.fail_all_pending(error)
     }
 
     /// Fail all runtime-owned waiters and clear scheduler state during explicit shutdown.

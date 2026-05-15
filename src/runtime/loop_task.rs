@@ -485,9 +485,11 @@ pub async fn runtime_loop_with_config<
             LoopEvent::TransportRecv(n) => {
                 if n == 0 {
                     error!("Connection closed by peer; exiting runtime loop");
-                    return Err(Error::ConnectionClosed {
+                    let error = Error::ConnectionClosed {
                         reason: Some(std::borrow::Cow::Borrowed("peer closed connection")),
-                    });
+                    };
+                    adapter.fail_runtime_terminated(error.clone());
+                    return Err(error);
                 }
 
                 trace!("Received {n} bytes from transport");
@@ -598,6 +600,7 @@ pub async fn runtime_loop_with_config<
             LoopEvent::TransportErr(e) => {
                 if matches!(e, Error::ConnectionClosed { .. }) {
                     error!("Connection closed by peer; exiting runtime loop");
+                    adapter.fail_runtime_terminated(e.clone());
                     return Err(e);
                 }
 
