@@ -132,7 +132,7 @@ The examples use different camera profiles to demonstrate compile-time type safe
 
 Profiles enable compile-time validation of camera capabilities. Commands not supported by a profile won't compile, preventing runtime errors. Optional vendor-specific typed controls are intentionally narrower than runtime metadata: `SonyFR7` exposes ND filter and variable speed controls; built-in PTZOptics profiles are not marked for typed Motion Sync from the current model capability specs.
 
-Profile capability contributions should follow the [Camera Profile Support Guide](../docs/camera_profile_support.md), which defines how source docs, metadata traits, and typed support markers fit together.
+Profile capability contributions should follow the [Camera Profile Support Guide](../docs/camera_profile_support.md) and the [VISCA Protocol Reference](../docs/visca_reference.md), which define how protocol evidence, metadata traits, and typed support markers fit together.
 
 ## Current API Shape
 

@@ -7,8 +7,10 @@ typed control surfaces all match the checked-in source documents.
 
 ## Source Of Truth
 
-Profile support must start from evidence in `docs/` or from a new source
-document added with the change.
+Profile support must start from evidence in the consolidated
+[VISCA protocol reference](visca_reference.md). When a profile change depends on
+new vendor material or hardware validation, update that reference and its source
+register in the same change instead of adding a separate protocol note.
 
 Use this order when sources disagree:
 
@@ -85,7 +87,7 @@ typed support marker.
 
 ## Adding Or Updating A Profile
 
-1. Add or update the source documents in `docs/`.
+1. Add or update the relevant evidence in `docs/visca_reference.md`.
 2. Record any model/firmware limitations near the relevant capability section.
 3. Update the built-in profile registry in `src/camera/profile_registry.rs` from those sources.
 4. Use `false`, `None`, or conservative ranges when the docs do not establish support.
@@ -132,7 +134,7 @@ test in the PR so reviewers know what remains unresolved.
 ## Documentation Checklist
 
 - README support matrix reflects the implemented typed API surface.
-- `docs/visca_unified_reference.md` and model-specific docs explain capability boundaries.
+- `docs/visca_reference.md` explains protocol, model, firmware, and capability boundaries.
 - `examples/type_safe_commands.rs` demonstrates metadata and marker bounds without using unsupported built-in profiles.
 - `CHANGELOG.md` describes breaking changes and migration guidance.
 - Any source conflict is documented near the relevant capability, not only in the PR discussion.

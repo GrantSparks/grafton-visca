@@ -152,6 +152,11 @@ If this gating model ships in a pre-1.0 release before the final cutover, prefer
 - Direct zoom positioning now validates raw positions against the selected profile range before encoding, so a profile without digital zoom support cannot send an out-of-profile digital-range direct zoom command through the typed API.
 - `dyn-api` remains profile-erased and now rejects unsupported digital zoom, one-push focus, focus zone, and AF sensitivity requests before command construction.
 
+#### Built-In Tally Capability Gate (#524)
+- **BREAKING**: Built-in profiles now expose typed tally accessors only when the centralized profile registry grants `HasTally`; `GenericVisca` and PTZOptics profiles no longer compile with `camera.tally()` or direct typed tally inquiry helpers.
+- Sony FR7 and BRC-H900 retain typed tally controls and inquiries through explicit registry-backed `HasTally` support.
+- Raw/custom VISCA command extension APIs remain available for integrations that need to send vendor-specific tally bytes outside the typed support matrix.
+
 #### Granular Iris Capability Modelling
 - **BREAKING**: `Exposure::IRIS_RANGE` changed from `Range<u16>` to `Option<Range<u16>>`; downstream `impl Exposure` blocks must wrap their range in `Some(...)` or use `None` for cameras that lack iris control
 - **BREAKING**: `Capabilities::iris_range` changed from `RangeInclusive<u16>` to `Option<RangeInclusive<u16>>`
@@ -195,6 +200,22 @@ If this gating model ships in a pre-1.0 release before the final cutover, prefer
 
 ### Changed
 
+#### Centralized Built-In Profile Registry (#524)
+- Built-in profile definitions now come from one crate-private typed registry that generates profile structs, capability metadata, typed support marker impls, `ProfileId`, `ProfileGroup`, and registry invariant tests.
+- `Capabilities::from_profile::<P>()`, profile IDs/groups, typed support markers, and README support matrices are mechanically checked against the same registry for every built-in profile.
+- The profile support documentation no longer claims PTZOptics digital zoom support or PTZOptics Motion Sync support that is not established by the checked-in model references.
+- Built-in profile capability changes now require registry evidence for intentionally unsupported optional typed surfaces, reducing the risk of stale hand-written support tables.
+
+#### Built-In Inquiry Metadata Registry Cleanup (#522)
+- Built-in inquiry commands now use one crate-local metadata table as the source of truth for response discriminants, decoded response data, dispatch, zero-sized query command structs, canonical bytes, typed response conversions, and accessor metadata.
+- The built-in inquiry generator now classifies queryable, decode-only, aliased, and alternate-interpretation inquiries explicitly so intentional command-sharing and non-queryable responses are documented in code.
+- Generated inquiry accessors now carry their profile capability gates in metadata, keeping broad inquiry cleanup and optional subcontrol gates aligned with API contract tests.
+- The public `ViscaInquiry` derive macro remains available for downstream extension commands, while built-in inquiries use the internal registry instead of duplicating metadata through the public derive path.
+
+#### Protocol Reference Consolidation
+- Consolidated the PTZOptics, Axis, Sony protocol-resolution, and previous unified VISCA notes into `docs/visca_reference.md`.
+- README, contributor, example, and profile-support documentation now point contributors to the consolidated VISCA reference as the source of protocol evidence for built-in profile changes.
+
 #### Scheduler Command/Inquiry State Split (#508)
 - Runtime scheduler state is now split into distinct command and inquiry entries instead of a shared mixed state bag
 - Commands own ACK, socket, retry, and cancellation state; inquiries own reply correlation, response typing, and inquiry retry state
@@ -218,6 +239,18 @@ If this gating model ships in a pre-1.0 release before the final cutover, prefer
 #### PTZOptics Profiles Disable Iris
 - PTZOptics G2, G3, and 30X profiles now set `IRIS_RANGE: None` and exclude `ExposureMode::Iris` from their supported modes, reflecting hardware behaviour observed on real devices
 - All Sony and generic VISCA profiles retain full iris support unchanged
+
+#### Dependency Refresh
+- Updated dependency requirements for `bytes`, `smallvec`, `serde_with`, `serialport`, `tokio`, and `async-executor`.
+- Removed unused `chrono` and `hex` dependencies from the crate manifest.
+
+### Fixed
+
+#### Runtime Boundary Shutdown Semantics (#523)
+- Async runtime handles now fail new command, inquiry, completion-subscription, and metrics requests immediately with `Error::RuntimeShutdown` after shutdown begins.
+- Explicit runtime shutdown now fails accepted and queued work, replies to pending control requests, drops completion subscribers, and exits the runtime loop without relying on data-plane channel capacity.
+- Cancellation and shutdown requests now use an urgent control path selected ahead of normal control traffic, preserving liveness even when the bounded submission queue is full.
+- Regression coverage now exercises runtime shutdown, termination cleanup, cancellation ID validity after bounded submission, and runtime-boundary behavior across the async control surface.
 
 ## [0.12.0] - 2026-03-22
 

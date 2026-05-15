@@ -106,8 +106,9 @@ snap focus methods.
 | Picture effects | `SonyFR7`, `SonyBRCH900` |
 
 Contributors adding or changing profile capabilities should follow the
-[Camera Profile Support Guide](docs/camera_profile_support.md), which explains
-how source documents, runtime metadata, and typed support markers fit together.
+[Camera Profile Support Guide](docs/camera_profile_support.md) and the
+[VISCA Protocol Reference](docs/visca_reference.md), which explain how protocol
+evidence, runtime metadata, and typed support markers fit together.
 
 ### Optional features
 
@@ -271,7 +272,8 @@ Port can be omitted in connection strings; the profile default is used.
 - **[API Reference](https://docs.rs/grafton-visca)** — Complete type and method documentation
 - **[Examples](examples/)** — Maintained examples for common scenarios
 - **[Example Policy](docs/examples.md)** — 1.0 examples contract and maintenance rules
-- **[Camera Profile Support Guide](docs/camera_profile_support.md)** — Source-of-truth and testing rules for adding camera capabilities
+- **[VISCA Protocol Reference](docs/visca_reference.md)** — Consolidated PTZOptics, Axis, and protocol evidence used for built-in profile decisions
+- **[Camera Profile Support Guide](docs/camera_profile_support.md)** — Workflow and testing rules for adding camera capabilities
 - **[CHANGELOG](CHANGELOG.md)** — Version history and migration guides
 
 ### Examples

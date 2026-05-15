@@ -173,11 +173,14 @@ impl ViscaCommand for MyInquiry {
 
 Camera profiles are part of the public type-safety contract. Before adding or
 changing a profile capability, follow the
-[Camera Profile Support Guide](docs/camera_profile_support.md).
+[Camera Profile Support Guide](docs/camera_profile_support.md) and update the
+[VISCA Protocol Reference](docs/visca_reference.md) when new source evidence is
+needed.
 
 The short version:
 
-- Checked-in reference docs and specs are the source of truth.
+- `docs/visca_reference.md` is the checked-in source of truth for protocol,
+  model, and firmware evidence.
 - Model-specific capability docs take precedence over generic opcode tables.
 - Runtime metadata traits feed `Capabilities::from_profile::<P>()`.
 - Support marker traits such as `HasNdFilter`, `HasMotionSync`, and
