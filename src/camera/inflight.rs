@@ -78,7 +78,8 @@ use core::num::NonZeroU32;
 /// // Cancel the command by its ID
 /// camera.cancel(id).await?;
 ///
-/// // The future will resolve with an error
+/// // Queued commands resolve with CommandCanceled; already-sent commands
+/// // resolve according to the camera's cancel response or later runtime state.
 /// let result = future.await;
 /// assert!(result.is_err());
 /// ```

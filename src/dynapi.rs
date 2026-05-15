@@ -113,7 +113,7 @@
 //! // Method 1: Cancel a specific operation
 //! let handle = pt.pan_tilt_home_op().await?;
 //! // ... decide to cancel ...
-//! handle.cancel().await?;  // Sends VISCA CANCEL command
+//! handle.cancel().await?;  // Requests runtime cancellation
 //!
 //! // Method 2: Emergency stop all motion
 //! camera.motion().stop_all_motion().await?;

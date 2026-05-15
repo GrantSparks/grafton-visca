@@ -774,7 +774,8 @@ where
     /// let (id, future) = camera.start_command_with_id(&cmd).await?;
     /// // Can cancel by ID here
     /// camera.cancel(id).await?;
-    /// // Future will resolve with Err(CommandCanceled)
+    /// // If the command is still queued, the future resolves with Err(CommandCanceled).
+    /// // If it has reached the camera, completion depends on the camera's cancel response.
     /// let result = future.await;
     /// ```
     pub async fn start_command_with_id<C>(
@@ -830,9 +831,13 @@ where
     /// Cancel a command by its ID.
     ///
     /// This cancels a specific command that was submitted with `send_command_with_id`
-    /// or `start_command_with_id`. The command's future will resolve with
-    /// [`Error::CommandCanceled`]. The cancel command is addressed to this camera's
-    /// configured camera ID.
+    /// or `start_command_with_id`. If the command is still queued and no VISCA bytes
+    /// have been sent, its future resolves with [`Error::CommandCanceled`] and no
+    /// cancel frame is emitted. If the command is awaiting ACK or already executing,
+    /// this method returns after the runtime records or sends the cancel request; the
+    /// command future then resolves according to the camera response, timeout,
+    /// shutdown, or transport failure. The cancel command is addressed to this
+    /// camera's configured camera ID.
     ///
     /// # Type Safety
     ///

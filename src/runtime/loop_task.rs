@@ -139,16 +139,19 @@ impl<'a> BoundaryReceivers<'a> {
     }
 }
 
-async fn send_cancel_frame<T, Env>(
+async fn send_cancel_frame<T, Env, Ex>(
     transport: &mut T,
+    executor: &Ex,
     envelope: &Env,
     send_buf: &mut bytes::BytesMut,
     camera_id: crate::camera_id::CameraId,
     socket: crate::ViscaSocket,
+    write_timeout: std::time::Duration,
 ) -> Result<()>
 where
     T: AsyncTransport,
     Env: Envelope,
+    Ex: crate::executor::Executor,
 {
     let cancel_cmd = CommandCancelCommand::new(socket);
     let mut temp_buf = [0u8; CommandCancelCommand::MAX_SIZE];
@@ -160,7 +163,14 @@ where
         })?;
 
     envelope.frame_into(&temp_buf[..len], CommandKind::Command, send_buf);
-    transport.send(&send_buf[..]).await?;
+    future::race(
+        async { transport.send(&send_buf[..]).await.map(|_| ()) },
+        async {
+            executor.sleep(write_timeout).await;
+            Err(Error::Timeout)
+        },
+    )
+    .await?;
     debug!("Sent cancel for socket {socket:?} with camera_id {camera_id:?}");
     Ok(())
 }
@@ -469,10 +479,12 @@ pub async fn runtime_loop_with_config<
                 } => {
                     let result = send_cancel_frame(
                         &mut transport,
+                        &executor,
                         &config.envelope,
                         &mut send_buf,
                         camera_id,
                         socket,
+                        config.write_timeout,
                     )
                     .await;
                     reply_or_exit_on_cancel_result(
@@ -503,10 +515,12 @@ pub async fn runtime_loop_with_config<
                     CancelOutcome::SendCancel { camera_id, socket } => {
                         let result = send_cancel_frame(
                             &mut transport,
+                            &executor,
                             &config.envelope,
                             &mut send_buf,
                             camera_id,
                             socket,
+                            config.write_timeout,
                         )
                         .await;
                         reply_or_exit_on_cancel_result(
@@ -622,31 +636,23 @@ pub async fn runtime_loop_with_config<
                 // (when a cancel was requested before the socket was assigned, and an
                 // ACK subsequently assigned the socket)
                 for (camera_id, socket) in adapter.drain_cancel_outbox() {
-                    let cancel_cmd = CommandCancelCommand::new(socket);
-                    let mut temp_buf = [0u8; CommandCancelCommand::MAX_SIZE];
-                    let len = cancel_cmd
-                        .write_into(camera_id, &mut temp_buf)
-                        .map_err(|e| {
-                            error!("Failed to encode cancel-on-ACK command: {e}");
-                            e
-                        })?;
-
-                    let kind = CommandKind::Command;
-                    config
-                        .envelope
-                        .frame_into(&temp_buf[..len], kind, &mut send_buf);
-
-                    if let Err(e) = transport.send(&send_buf[..]).await {
+                    if let Err(e) = send_cancel_frame(
+                        &mut transport,
+                        &executor,
+                        &config.envelope,
+                        &mut send_buf,
+                        camera_id,
+                        socket,
+                        config.write_timeout,
+                    )
+                    .await
+                    {
                         handle_send_failure!(
                             transport,
                             adapter,
                             boundary_receivers,
                             e,
                             "Failed to send cancel-on-ACK for socket"
-                        );
-                    } else {
-                        debug!(
-                            "Sent cancel-on-ACK for socket {socket:?} with camera_id {camera_id:?}"
                         );
                     }
                 }

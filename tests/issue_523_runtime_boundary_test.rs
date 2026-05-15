@@ -6,8 +6,14 @@
     feature = "test-utils"
 ))]
 
-use std::sync::Arc;
 use std::time::Duration;
+use std::{
+    future::{pending, Future},
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc, Mutex,
+    },
+};
 
 use grafton_visca::{
     camera::profiles::PtzOpticsG2,
@@ -15,8 +21,110 @@ use grafton_visca::{
     runtime::testing::RuntimeHandle,
     testing::testkit::{helpers, ScriptedTransport, Step},
     timeout::CommandCategory,
+    transport::{AsyncTransport, HasTransportConfig, SendSemantics, TransportConfig},
     CameraId, Error, TokioExecutor, ViscaSocket,
 };
+
+struct HangingSendTransport {
+    sent: Arc<Mutex<Vec<Vec<u8>>>>,
+    send_count: Arc<AtomicUsize>,
+    response_tx: flume::Sender<Result<Vec<u8>, Error>>,
+    response_rx: flume::Receiver<Result<Vec<u8>, Error>>,
+    config: TransportConfig,
+    semantics: SendSemantics,
+    hang_from_send: usize,
+    first_send_responses: Vec<Vec<u8>>,
+}
+
+impl HangingSendTransport {
+    fn new(hang_from_send: usize, write_timeout: Duration, semantics: SendSemantics) -> Self {
+        let (response_tx, response_rx) = flume::unbounded();
+        Self {
+            sent: Arc::new(Mutex::new(Vec::new())),
+            send_count: Arc::new(AtomicUsize::new(0)),
+            response_tx,
+            response_rx,
+            config: TransportConfig {
+                write_timeout,
+                ..TransportConfig::default()
+            },
+            semantics,
+            hang_from_send,
+            first_send_responses: Vec::new(),
+        }
+    }
+
+    fn with_first_send_responses(mut self, responses: Vec<Vec<u8>>) -> Self {
+        self.first_send_responses = responses;
+        self
+    }
+
+    fn sent_handle(&self) -> Arc<Mutex<Vec<Vec<u8>>>> {
+        Arc::clone(&self.sent)
+    }
+
+    fn response_sender(&self) -> flume::Sender<Result<Vec<u8>, Error>> {
+        self.response_tx.clone()
+    }
+}
+
+impl AsyncTransport for HangingSendTransport {
+    fn send(&mut self, bytes: &[u8]) -> impl Future<Output = Result<(), Error>> + Send {
+        let bytes = bytes.to_vec();
+        self.sent
+            .lock()
+            .expect("sent transport log mutex poisoned")
+            .push(bytes);
+
+        let send_index = self.send_count.fetch_add(1, Ordering::SeqCst);
+        let should_hang = send_index >= self.hang_from_send;
+        let responses = if send_index == 0 {
+            self.first_send_responses.clone()
+        } else {
+            Vec::new()
+        };
+        let response_tx = self.response_tx.clone();
+
+        async move {
+            if should_hang {
+                pending::<Result<(), Error>>().await
+            } else {
+                for response in responses {
+                    let _ = response_tx.send(Ok(response));
+                }
+                Ok(())
+            }
+        }
+    }
+
+    fn recv_into<'a>(
+        &'a mut self,
+        dst: &'a mut [u8],
+    ) -> impl Future<Output = Result<usize, Error>> + Send {
+        let response_rx = self.response_rx.clone();
+        async move {
+            match response_rx.recv_async().await {
+                Ok(Ok(bytes)) => {
+                    let len = bytes.len().min(dst.len());
+                    dst[..len].copy_from_slice(&bytes[..len]);
+                    Ok(len)
+                }
+                Ok(Err(error)) => Err(error),
+                Err(_) => Err(Error::Timeout),
+            }
+        }
+    }
+
+    fn send_semantics(&self) -> SendSemantics {
+        self.semantics
+    }
+}
+
+impl HasTransportConfig for HangingSendTransport {
+    fn transport_config(&self) -> &TransportConfig {
+        &self.config
+    }
+}
 
 struct PowerInquiry;
 
@@ -172,6 +280,156 @@ async fn queued_command_cancel_removes_without_sending_cancel_frame() {
     );
 
     runtime.shutdown().await.expect("runtime shutdown");
+}
+
+#[tokio::test]
+async fn cancel_socket_send_uses_configured_write_timeout() {
+    let executor = Arc::new(TokioExecutor::from_current().unwrap());
+    let transport = HangingSendTransport::new(0, Duration::from_millis(50), SendSemantics::Stream);
+
+    let runtime: RuntimeHandle<PtzOpticsG2, TokioExecutor> =
+        RuntimeHandle::new(transport, executor)
+            .await
+            .expect("runtime should start");
+
+    let result = tokio::time::timeout(
+        Duration::from_secs(1),
+        runtime.cancel_socket(CameraId::CAMERA_1, ViscaSocket::S1),
+    )
+    .await
+    .expect("cancel_socket should be bounded by write_timeout");
+
+    assert!(
+        matches!(result, Err(Error::Timeout)),
+        "cancel send timeout should be reported to the caller, got {result:?}"
+    );
+}
+
+#[tokio::test]
+async fn cancel_on_ack_send_uses_configured_write_timeout() {
+    let executor = Arc::new(TokioExecutor::from_current().unwrap());
+    let transport = HangingSendTransport::new(1, Duration::from_millis(50), SendSemantics::Stream)
+        .with_first_send_responses(Vec::new());
+    let response_tx = transport.response_sender();
+    let sent = transport.sent_handle();
+
+    let runtime: RuntimeHandle<PtzOpticsG2, TokioExecutor> =
+        RuntimeHandle::new(transport, executor)
+            .await
+            .expect("runtime should start");
+
+    let (cmd_id, response) = runtime
+        .send_command_with_id(&Zoom::TeleStd, CameraId::CAMERA_1, None)
+        .await
+        .expect("command should be admitted");
+
+    runtime
+        .cancel(CameraId::CAMERA_1, cmd_id)
+        .await
+        .expect("awaiting-ACK cancel should be marked");
+    response_tx
+        .send(Ok(helpers::ack(1)))
+        .expect("ACK should be injectable");
+
+    let response_result = tokio::time::timeout(Duration::from_secs(1), response)
+        .await
+        .expect("cancel-on-ACK write timeout should release the response future");
+    assert!(
+        matches!(response_result, Err(Error::StreamPoisoned { .. })),
+        "stream cancel-on-ACK timeout should poison pending work, got {response_result:?}"
+    );
+
+    let sent = sent
+        .lock()
+        .expect("sent transport log mutex poisoned")
+        .clone();
+    assert!(
+        sent.iter().any(|frame| frame.starts_with(&[0x81, 0x21])),
+        "cancel-on-ACK should attempt the VISCA cancel frame: {sent:?}"
+    );
+}
+
+#[tokio::test]
+async fn concurrent_shutdown_waits_for_cleanup_acknowledgement() {
+    let executor = Arc::new(TokioExecutor::from_current().unwrap());
+    let transport = HangingSendTransport::new(0, Duration::from_millis(300), SendSemantics::Stream);
+
+    let runtime: RuntimeHandle<PtzOpticsG2, TokioExecutor> =
+        RuntimeHandle::new(transport, executor)
+            .await
+            .expect("runtime should start");
+
+    let (_cmd_id, _response) = runtime
+        .send_command_with_id(&Zoom::TeleStd, CameraId::CAMERA_1, None)
+        .await
+        .expect("command should be admitted before the stalled send");
+
+    let first_runtime = runtime.clone();
+    let mut first_shutdown = tokio::spawn(async move { first_runtime.shutdown().await });
+    tokio::time::sleep(Duration::from_millis(20)).await;
+
+    let second_runtime = runtime.clone();
+    let mut second_shutdown = tokio::spawn(async move { second_runtime.shutdown().await });
+
+    assert!(
+        tokio::time::timeout(Duration::from_millis(50), &mut second_shutdown)
+            .await
+            .is_err(),
+        "a concurrent shutdown caller must not return before runtime cleanup is acknowledged"
+    );
+
+    let first_result = tokio::time::timeout(Duration::from_secs(2), &mut first_shutdown)
+        .await
+        .expect("first shutdown should complete after stalled send timeout")
+        .expect("first shutdown task should not panic");
+    let second_result = tokio::time::timeout(Duration::from_secs(2), &mut second_shutdown)
+        .await
+        .expect("second shutdown should complete with the shared result")
+        .expect("second shutdown task should not panic");
+
+    assert!(
+        matches!(first_result, Err(Error::StreamPoisoned { .. })),
+        "first shutdown should preserve the stalled stream failure, got {first_result:?}"
+    );
+    assert!(
+        matches!(second_result, Err(Error::StreamPoisoned { .. })),
+        "second shutdown should receive the same cleanup result, got {second_result:?}"
+    );
+}
+
+#[tokio::test]
+async fn shutdown_is_not_blocked_by_metrics_flood() {
+    let executor = Arc::new(TokioExecutor::from_current().unwrap());
+    let transport: ScriptedTransport<TokioExecutor> =
+        ScriptedTransport::new(Vec::<Step>::new()).with_executor(executor.clone());
+
+    let runtime: RuntimeHandle<PtzOpticsG2, TokioExecutor> =
+        RuntimeHandle::new(transport, executor)
+            .await
+            .expect("runtime should start");
+
+    let mut metrics_tasks = Vec::new();
+    for _ in 0..128 {
+        let runtime = runtime.clone();
+        metrics_tasks.push(tokio::spawn(async move { runtime.metrics().await }));
+    }
+    tokio::task::yield_now().await;
+
+    tokio::time::timeout(Duration::from_secs(1), runtime.shutdown())
+        .await
+        .expect("shutdown should not wait behind normal control traffic")
+        .expect("shutdown should complete");
+
+    for task in metrics_tasks {
+        let result = tokio::time::timeout(Duration::from_secs(1), task)
+            .await
+            .expect("metrics waiter should be released by shutdown")
+            .expect("metrics task should not panic");
+        assert!(
+            result.is_ok() || matches!(result, Err(Error::RuntimeShutdown)),
+            "metrics request should either complete before shutdown or fail as shutdown, got {result:?}"
+        );
+    }
 }
 
 #[tokio::test]

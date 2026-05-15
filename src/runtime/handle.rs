@@ -8,7 +8,7 @@ use std::{
     marker::PhantomData,
     sync::{
         atomic::{AtomicU32, AtomicU8, Ordering},
-        Arc,
+        Arc, Mutex,
     },
     time::Duration,
 };
@@ -61,6 +61,8 @@ struct RuntimeHandleInner<P: Profile, E: Executor> {
     control: Sender<ControlRequest>,
     /// Runtime lifecycle for fast-fail and error normalization at the handle boundary.
     lifecycle: Arc<AtomicU8>,
+    /// Shared completion state for explicit shutdown callers.
+    shutdown_completion: Arc<ShutdownCompletion>,
     /// Counter for generating unique command IDs.
     next_command_id: Arc<AtomicU32>,
     /// The executor used for sleep and timeout operations.
@@ -72,6 +74,59 @@ struct RuntimeHandleInner<P: Profile, E: Executor> {
 const LIFECYCLE_RUNNING: u8 = 0;
 const LIFECYCLE_CLOSING: u8 = 1;
 const LIFECYCLE_TERMINATED: u8 = 2;
+
+#[derive(Debug)]
+struct ShutdownCompletion {
+    state: Mutex<ShutdownCompletionState>,
+}
+
+#[derive(Debug, Default)]
+struct ShutdownCompletionState {
+    result: Option<Result<()>>,
+    waiters: Vec<Sender<Result<()>>>,
+}
+
+enum ShutdownSubscription {
+    Complete(Result<()>),
+    Pending(Receiver<Result<()>>),
+}
+
+impl ShutdownCompletion {
+    fn new() -> Self {
+        Self {
+            state: Mutex::new(ShutdownCompletionState::default()),
+        }
+    }
+
+    fn subscribe(&self) -> ShutdownSubscription {
+        let mut state = match self.state.lock() {
+            Ok(state) => state,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        if let Some(result) = &state.result {
+            ShutdownSubscription::Complete(result.clone())
+        } else {
+            let (tx, rx) = flume::bounded(1);
+            state.waiters.push(tx);
+            ShutdownSubscription::Pending(rx)
+        }
+    }
+
+    fn complete(&self, result: Result<()>) {
+        let mut state = match self.state.lock() {
+            Ok(state) => state,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        if state.result.is_some() {
+            return;
+        }
+
+        state.result = Some(result.clone());
+        for waiter in state.waiters.drain(..) {
+            let _ = waiter.send(result.clone());
+        }
+    }
+}
 
 impl<P: Profile, E: Executor> Clone for RuntimeHandle<P, E> {
     fn clone(&self) -> Self {
@@ -163,6 +218,7 @@ impl<P: Profile + 'static, E: Executor + Send + Sync + 'static> RuntimeHandle<P,
         let (urgent_control_tx, urgent_control_rx) = flume::unbounded();
         let (control_tx, control_rx) = flume::unbounded();
         let lifecycle = Arc::new(AtomicU8::new(LIFECYCLE_RUNNING));
+        let shutdown_completion = Arc::new(ShutdownCompletion::new());
 
         let envelope = P::Envelope::new(tcfg.addressing);
         let buffer_manager = BufferManager::new(tcfg.buffer_config);
@@ -210,6 +266,7 @@ impl<P: Profile + 'static, E: Executor + Send + Sync + 'static> RuntimeHandle<P,
                 urgent_control: urgent_control_tx,
                 control: control_tx,
                 lifecycle,
+                shutdown_completion,
                 next_command_id: Arc::new(AtomicU32::new(1)),
                 executor,
                 _profile: PhantomData,
@@ -311,6 +368,37 @@ impl<P: Profile + 'static, E: Executor + Send + Sync + 'static> RuntimeHandle<P,
             .map_err(|error| Self::normalize_boundary_error(&self.inner.lifecycle, error))
     }
 
+    async fn await_shutdown_subscription(&self, subscription: ShutdownSubscription) -> Result<()> {
+        match subscription {
+            ShutdownSubscription::Complete(result) => result,
+            ShutdownSubscription::Pending(reply_rx) => reply_rx
+                .recv_async()
+                .await
+                .map_err(|_| Self::closed_error_from_lifecycle(&self.inner.lifecycle))?,
+        }
+    }
+
+    fn spawn_shutdown_reply_forwarder(&self, reply_rx: Receiver<Result<()>>) {
+        let lifecycle = Arc::clone(&self.inner.lifecycle);
+        let shutdown_completion = Arc::clone(&self.inner.shutdown_completion);
+        self.inner.executor.spawn_bg(async move {
+            let result = match reply_rx.recv_async().await {
+                Ok(result) => result.map_err(|error| {
+                    RuntimeHandle::<P, E>::normalize_boundary_error(&lifecycle, error)
+                }),
+                Err(_) => Err(RuntimeHandle::<P, E>::closed_error_from_lifecycle(
+                    &lifecycle,
+                )),
+            };
+
+            if matches!(&result, Err(error) if !matches!(error, Error::RuntimeShutdown)) {
+                lifecycle.store(LIFECYCLE_TERMINATED, Ordering::Release);
+            }
+
+            shutdown_completion.complete(result);
+        });
+    }
+
     /// Cancel a command by its ID.
     ///
     /// This method performs targeted, camera-correct cancellation:
@@ -370,38 +458,35 @@ impl<P: Profile + 'static, E: Executor + Send + Sync + 'static> RuntimeHandle<P,
 
     /// Shutdown the runtime.
     pub async fn shutdown(&self) -> Result<()> {
-        match self.inner.lifecycle.compare_exchange(
+        let subscription = match self.inner.lifecycle.compare_exchange(
             LIFECYCLE_RUNNING,
             LIFECYCLE_CLOSING,
             Ordering::AcqRel,
             Ordering::Acquire,
         ) {
-            Ok(_) => {}
-            Err(LIFECYCLE_CLOSING) => return Ok(()),
+            Ok(_) => {
+                let subscription = self.inner.shutdown_completion.subscribe();
+                let (reply_tx, reply_rx) = flume::bounded(1);
+                let request = UrgentControlRequest::Shutdown { reply_tx };
+
+                if self.inner.urgent_control.send(request).is_err() {
+                    self.inner
+                        .lifecycle
+                        .store(LIFECYCLE_TERMINATED, Ordering::Release);
+                    self.inner
+                        .shutdown_completion
+                        .complete(Err(Error::ChannelClosed.to_public_error()));
+                } else {
+                    self.spawn_shutdown_reply_forwarder(reply_rx);
+                }
+
+                subscription
+            }
+            Err(LIFECYCLE_CLOSING) => self.inner.shutdown_completion.subscribe(),
             Err(_) => return Err(Error::TransportChannelClosed),
-        }
+        };
 
-        let (reply_tx, reply_rx) = flume::bounded(1);
-        let request = UrgentControlRequest::Shutdown { reply_tx };
-
-        if self.inner.urgent_control.send_async(request).await.is_err() {
-            self.inner
-                .lifecycle
-                .store(LIFECYCLE_TERMINATED, Ordering::Release);
-            return Err(Error::ChannelClosed.to_public_error());
-        }
-
-        match reply_rx.recv_async().await {
-            Ok(result) => {
-                result.map_err(|error| Self::normalize_boundary_error(&self.inner.lifecycle, error))
-            }
-            Err(_) => {
-                self.inner
-                    .lifecycle
-                    .store(LIFECYCLE_TERMINATED, Ordering::Release);
-                Err(Error::ChannelClosed.to_public_error())
-            }
-        }
+        self.await_shutdown_subscription(subscription).await
     }
 
     /// Get current metrics from the runtime scheduler.
