@@ -19,6 +19,8 @@ where
     let _ = session.zoom_absolute_normalized(normalized, ZoomDomain::OpticalPlusDigital);
     let _ = session.exposure().iris_priority();
     let _ = session.set_iris(iris);
+    let _ = session.tally().red_on();
+    let _ = session.tally().status();
     let _ = session.exposure().iris();
     Ok(())
 }
@@ -32,6 +34,7 @@ where
 {
     let _ = session.white_balance().color_temperature_mode();
     let _ = session.set_color_temperature(ColorTemp::from_kelvin(5600)?);
+    let _ = session.tally().red_on();
     let _ = session.white_balance().color_temperature();
     let _ = session.color_temperature();
     Ok(())

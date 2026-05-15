@@ -253,7 +253,7 @@ macro_rules! impl_tally_control_inquiry_methods {
 impl<M, P, Tr, Exec> TallyControl for crate::camera::Camera<M, P, Tr, Exec>
 where
     M: Mode,
-    P: crate::capabilities::Profile + Default,
+    P: crate::capabilities::Profile + crate::capabilities::HasTally + Default,
     Self: ViscaClient<M>,
     Exec: crate::executor::Executor,
 {

@@ -18,9 +18,6 @@ fn use_blocking_camera(
     camera.exposure().auto()?;
     camera.white_balance().auto()?;
     camera.presets().recall(1)?;
-    camera.tally().bright_hi()?;
-    camera.tally().flash()?;
-    camera.tally().off()?;
     camera.system().interface_clear()?;
     Ok(())
 }
@@ -33,6 +30,8 @@ fn use_sony_fr7_nd_filter(
     camera.nd_filter().set_stops(3.0)?;
     camera.nd_filter().step(NdFilterStep::Up)?;
     camera.nd_filter().set_auto(false)?;
+    camera.tally().bright_hi()?;
+    camera.tally().off()?;
     camera.set_variable_speed_mode(VariableSpeedMode::Fine50)?;
     Ok(())
 }

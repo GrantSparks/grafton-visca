@@ -11,6 +11,7 @@ where
 {
     let _ = session.nd_filter();
     let _ = session.motion_sync();
+    let _ = session.tally();
 }
 
 fn generic_session<Tr, Exec>(session: &CameraSession<Async, GenericVisca, Tr, Exec>)
@@ -18,6 +19,7 @@ where
     Exec: Executor,
 {
     let _ = session.motion_sync();
+    let _ = session.tally();
 }
 
 fn sony_fr7_session<Tr, Exec>(session: &CameraSession<Async, SonyFR7, Tr, Exec>)

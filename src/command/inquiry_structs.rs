@@ -2779,7 +2779,6 @@ macro_rules! builtin_inquiry_table {
             VersionInquiry => version: crate::command::VersionInfo;
             FocusModeInquiry => focus_mode: FocusMode;
             MenuOpenCloseInquiry => menu_status: bool;
-            TallyStatusInquiry => tally_light_status: crate::command::TallyStatusState;
             NightDayModeInquiry => night_day_mode: bool;
             StandbyInquiry => standby_enabled: bool;
             DefogLevelInquiry => defog_level: crate::types::DefogLevel;
@@ -2790,11 +2789,10 @@ macro_rules! builtin_inquiry_table {
             UsbAudioInquiry => usb_audio_enabled: bool;
             TwoToneModeInquiry => two_tone_mode_enabled: bool;
             DigitalInquiry => digital_mode_enabled: bool;
-            TallyAutoAdjustInquiry => tally_auto_adjust_enabled: bool;
             FlickerModeInquiry => flicker_mode: crate::command::exposure::AntiFlickerMode;
         }
         TallyControl {
-            gate: none;
+            gate: crate::capabilities::HasTally;
             TallyStatusInquiry => tally_status: crate::command::TallyStatusState;
             TallyGreenInquiry => green_tally_status: bool;
             TallyAutoAdjustInquiry => tally_auto_adjust_enabled: bool;

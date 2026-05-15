@@ -5,4 +5,6 @@ fn main() {
     let camera = camera.unwrap();
     let _ = camera.nd_filter();
     let _ = camera.motion_sync();
+    let _ = camera.tally();
+    let _ = camera.tally_status();
 }

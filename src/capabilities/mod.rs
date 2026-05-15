@@ -29,8 +29,8 @@ pub use profile_metadata::{
     HasMenuControl, HasMotionSync, HasNdFilter, HasNoiseReduction, HasNoiseReduction2D,
     HasNoiseReduction3D, HasOnePushFocus, HasOnePushWhiteBalance, HasPanTilt, HasPictureEffect,
     HasPower, HasPresets, HasPtzOpticsSnapFocus, HasPushAutoFocus, HasRgbGain, HasRgbTuning,
-    HasSaturationControl, HasVariableSpeed, HasWhiteBalance, HasWideDynamicRange, HasZoom,
-    InquirySupport, ProfileMetadata,
+    HasSaturationControl, HasTally, HasVariableSpeed, HasWhiteBalance, HasWideDynamicRange,
+    HasZoom, InquirySupport, ProfileMetadata,
 };
 
 // Re-export all capability traits

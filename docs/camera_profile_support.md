@@ -76,6 +76,7 @@ Current built-in sub-capability markers include:
 | Image | `HasNoiseReduction2D` | 2D noise-reduction control and inquiry |
 | Image | `HasNoiseReduction3D` | 3D noise-reduction control and inquiry |
 | Image | `HasPictureEffect` | picture-effect control and inquiry |
+| Tally | `HasTally` | tally light controls and inquiries |
 
 Raw/custom VISCA command APIs are different. They remain available as escape
 hatches for experiments, unsupported firmware variants, and downstream
@@ -86,10 +87,10 @@ typed support marker.
 
 1. Add or update the source documents in `docs/`.
 2. Record any model/firmware limitations near the relevant capability section.
-3. Implement profile constants in `src/camera/profiles.rs` from those sources.
+3. Update the built-in profile registry in `src/camera/profile_registry.rs` from those sources.
 4. Use `false`, `None`, or conservative ranges when the docs do not establish support.
 5. Implement optional metadata with supported values only when runtime discovery should report support.
-6. Implement optional support markers only when typed APIs are intentionally supported for that profile.
+6. Add optional typed support surfaces to the registry entry only when typed APIs are intentionally supported for that profile.
 7. Add pass API-contract fixtures for newly supported typed surfaces.
 8. Add compile-fail fixtures proving unsupported profiles cannot call those typed surfaces.
 9. Add or update `Capabilities::from_profile` tests for every affected built-in profile.

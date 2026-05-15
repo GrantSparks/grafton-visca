@@ -334,7 +334,10 @@ where
     }
 
     /// Access tally light controls and inquiries.
-    pub fn tally(&self) -> BlockingTallyAccessor<'_, P, Tr> {
+    pub fn tally(&self) -> BlockingTallyAccessor<'_, P, Tr>
+    where
+        P: crate::capabilities::HasTally,
+    {
         BlockingTallyAccessor::new(self)
     }
 
@@ -1311,12 +1314,12 @@ define_blocking_accessor!(
 
 impl<P, Tr> BlockingTallyAccessor<'_, P, Tr>
 where
-    P: crate::capabilities::Profile + Default,
+    P: crate::capabilities::Profile + crate::capabilities::HasTally + Default,
     Camera<Blocking, P, Tr, ()>: TallyControl<Mode = Blocking> + InquiryControl<Mode = Blocking>,
 {
     /// Get tally light status.
     pub fn status(&self) -> Result<crate::command::TallyStatusState, Error> {
-        self.camera.tally_light_status()
+        self.camera.tally_status()
     }
 
     /// Check whether tally auto-adjust is enabled.
@@ -2207,7 +2210,7 @@ where
 impl<P, Tr> BlockingClient<P, Tr>
 where
     Camera<Blocking, P, Tr, ()>: TallyControl<Mode = Blocking>,
-    P: crate::capabilities::Profile + Default,
+    P: crate::capabilities::Profile + crate::capabilities::HasTally + Default,
 {
     impl_blocking_methods! {
         /// Turn on red tally light.
@@ -2242,6 +2245,9 @@ where
 
         /// Get green tally status (FR7 specific).
         fn green_tally_status() -> bool;
+
+        /// Check whether tally auto-adjust is enabled.
+        fn tally_auto_adjust_enabled() -> bool;
     }
 }
 
@@ -2626,9 +2632,6 @@ where
         /// Get menu status.
         fn menu_status() -> bool;
 
-        /// Get tally light status.
-        fn tally_light_status() -> crate::command::TallyStatusState;
-
         /// Get night/day mode.
         fn night_day_mode() -> bool;
 
@@ -2659,8 +2662,6 @@ where
         /// Get digital mode enabled status.
         fn digital_mode_enabled() -> bool;
 
-        /// Get tally auto adjust enabled status.
-        fn tally_auto_adjust_enabled() -> bool;
     }
 }
 

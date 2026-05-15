@@ -13,9 +13,9 @@ pub trait Tally {
 
 /// Extension trait that adds tally-related helper methods.
 pub trait TallyExt: Tally {
-    /// Check if tally is supported (always true for types that implement Tally).
+    /// Check if tally is supported by the profile metadata.
     fn has_tally(&self) -> bool {
-        true
+        Self::SUPPORTS_TALLY
     }
 }
 
@@ -27,7 +27,9 @@ mod tests {
     use super::*;
 
     struct SonyCamera;
-    impl Tally for SonyCamera {}
+    impl Tally for SonyCamera {
+        const SUPPORTS_TALLY: bool = true;
+    }
 
     #[test]
     fn test_tally_support() {

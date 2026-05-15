@@ -185,6 +185,9 @@ pub trait HasVariableSpeed {}
 /// Marker trait indicating typed ND filter API support.
 pub trait HasNdFilter {}
 
+/// Marker trait indicating typed tally light API support.
+pub trait HasTally {}
+
 // Specific feature marker traits
 /// Marker trait indicating support for exposure compensation.
 pub trait HasExposureCompensation {}

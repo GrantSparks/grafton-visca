@@ -425,7 +425,10 @@ where
     }
 
     /// Access tally light controls and inquiries.
-    pub fn tally(&self) -> crate::camera::accessors::TallyAccessor<'_, M, P, Tr, Exec> {
+    pub fn tally(&self) -> crate::camera::accessors::TallyAccessor<'_, M, P, Tr, Exec>
+    where
+        P: crate::capabilities::HasTally,
+    {
         crate::camera::accessors::TallyAccessor::new(self)
     }
 
@@ -555,7 +558,10 @@ where
     }
 
     /// Access tally light controls.
-    pub fn tally(&self) -> crate::camera::accessors::TallyAccessor<'_, M, P, Tr, Exec> {
+    pub fn tally(&self) -> crate::camera::accessors::TallyAccessor<'_, M, P, Tr, Exec>
+    where
+        P: crate::capabilities::HasTally,
+    {
         crate::camera::accessors::TallyAccessor::new(self)
     }
 

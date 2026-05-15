@@ -1227,15 +1227,15 @@ where
     /// Get tally light status.
     pub fn status(&self) -> M::Fut<'_, Result<crate::command::TallyStatusState, Error>>
     where
-        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+        Camera<M, P, Tr, Exec>: TallyControl<Mode = M>,
     {
-        self.camera.tally_light_status()
+        self.camera.tally_status()
     }
 
     /// Check if tally auto adjust is enabled.
     pub fn auto_adjust_enabled(&self) -> M::Fut<'_, Result<bool, Error>>
     where
-        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+        Camera<M, P, Tr, Exec>: TallyControl<Mode = M>,
     {
         self.camera.tally_auto_adjust_enabled()
     }

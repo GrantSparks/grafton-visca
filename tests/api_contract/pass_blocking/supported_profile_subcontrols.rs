@@ -10,6 +10,8 @@ fn use_sony_fr7(camera: BlockingCamera<SonyFR7, BlockingTransportHandle>) -> Res
     camera.zoom_absolute_normalized(Normalized::new(0.75)?, ZoomDomain::OpticalPlusDigital)?;
     camera.exposure().iris_priority()?;
     camera.set_iris(IrisLevel::new(1)?)?;
+    camera.tally().red_on()?;
+    let _ = camera.tally().status()?;
     let _ = camera.exposure().iris()?;
     Ok(())
 }
@@ -23,6 +25,7 @@ fn use_sony_brch900(
     camera.set_iris(IrisLevel::new(1)?)?;
     camera.white_balance().color_temperature_mode()?;
     camera.set_color_temperature(ColorTemp::from_kelvin(5600)?)?;
+    camera.tally().red_on()?;
     let _ = camera.exposure().iris()?;
     let _ = camera.white_balance().color_temperature()?;
     Ok(())

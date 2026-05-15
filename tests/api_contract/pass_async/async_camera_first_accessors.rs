@@ -21,7 +21,6 @@ where
     let _ = session.white_balance();
     let _ = session.image();
     let _ = session.presets();
-    let _ = session.tally();
     let _ = session.menu();
     let _ = session.system();
     let _ = session.advanced();
@@ -32,6 +31,7 @@ where
     Exec: Executor,
 {
     let _ = session.nd_filter();
+    let _ = session.tally();
 }
 
 async fn async_connect_contract<R>(runtime: R) -> Result<(), Error>

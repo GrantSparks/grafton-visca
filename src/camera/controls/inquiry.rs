@@ -218,17 +218,6 @@ pub trait InquiryControl {
     /// Returns an error if the inquiry fails or times out.
     fn menu_status(&self) -> <Self::Mode as Mode>::Fut<'_, Result<bool, Error>>;
 
-    /// Get the tally light status.
-    ///
-    /// Returns the current state of the camera's tally lights
-    /// including both red and green indicators.
-    ///
-    /// # Errors
-    /// Returns an error if the inquiry fails or times out.
-    fn tally_light_status(
-        &self,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::command::TallyStatusState, Error>>;
-
     /// Get the night/day mode status.
     ///
     /// Returns whether the camera is in night mode (for low light conditions)
@@ -352,19 +341,6 @@ pub trait InquiryControl {
     /// # Errors
     /// Returns an error if the inquiry fails or times out.
     fn digital_mode_enabled(&self) -> <Self::Mode as Mode>::Fut<'_, Result<bool, Error>>;
-
-    /// Get the tally auto adjust state.
-    ///
-    /// Returns whether automatic tally light adjustment is enabled,
-    /// which may adjust tally brightness based on conditions.
-    ///
-    /// # Returns
-    /// - `true` if tally auto adjust is enabled
-    /// - `false` if tally auto adjust is disabled
-    ///
-    /// # Errors
-    /// Returns an error if the inquiry fails or times out.
-    fn tally_auto_adjust_enabled(&self) -> <Self::Mode as Mode>::Fut<'_, Result<bool, Error>>;
 
     /// Get the anti-flicker mode setting.
     ///
