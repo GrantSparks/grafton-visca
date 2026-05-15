@@ -327,263 +327,10 @@ pub mod tally {
     pub const TALLY_INQUIRY_PREFIX: &[u8] = visca_prefix![0x81, 0x09, 0x7E, 0x01, 0x0A, 0x00];
 }
 
-/// Inquiry command constants.
-///
-/// These are complete inquiry commands that request status information from the camera.
-/// All inquiry commands use 0x09 as the command type byte (after camera ID).
-///
-/// Note: These constants serve as the authoritative byte sequences for VISCA inquiry commands.
-/// Currently used by tests to validate macro-generated code and by tally commands in production.
+/// Inquiry command constants generated from the built-in inquiry table.
 pub mod inquiry {
-    use super::*;
-
-    // Core status inquiries
-    /// Power status inquiry (on/off/standby).
-    pub const POWER: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x00];
-
-    /// Zoom position inquiry.
-    pub const ZOOM_POSITION: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x47];
-
-    /// Focus position inquiry.
-    pub const FOCUS_POSITION: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x48];
-
-    /// Focus mode inquiry (auto/manual).
-    pub const FOCUS_MODE: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x38];
-
-    /// Auto focus on/off inquiry.
-    #[cfg(test)]
-    pub const AUTO_FOCUS: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x18];
-
-    // Menu and UI inquiries
-    /// Menu open/close status inquiry.
-    ///
-    /// Uses category 0x06 (Pan/Tilt) to match the menu command bytes.
-    /// PTZOptics cameras require category 0x06 for menu operations.
-    pub const MENU_OPEN_CLOSE: &[u8] = visca_bytes![0x81, 0x09, 0x06, 0x06];
-
-    // Tally inquiries
-    /// Red tally light status inquiry (baseline VISCA).
-    ///
-    /// Returns 0x02 for On, 0x03 for Off.
-    pub const TALLY_RED: &[u8] = visca_bytes![0x81, 0x09, 0x7E, 0x01, 0x0A, 0x00];
-
-    /// Green tally status inquiry (Sony FR7 specific).
-    ///
-    /// Returns 0x02 for On, 0x03 for Off.
-    pub const TALLY_GREEN: &[u8] = visca_bytes![0x81, 0x09, 0x7E, 0x04, 0x1A, 0x00];
-
-    /// Combined tally status inquiry (PTZOptics vendor extension).
-    ///
-    /// **Vendor-Specific**: This is a PTZOptics extension, not part of baseline VISCA.
-    /// Returns a 2-byte packed response with red and green tally states.
-    /// For baseline VISCA compliance, use `TALLY_RED` and `TALLY_GREEN` separately.
-    pub const TALLY_STATUS: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0xA8];
-
-    // Image and video settings inquiries
-    /// Resolution inquiry.
-    pub const RESOLUTION: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x63];
-
-    /// Night/Day mode inquiry.
-    pub const NIGHT_DAY_MODE: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x60];
-
-    /// ND filter status inquiry.
-    pub const ND_FILTER: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x64];
-
-    /// Picture effect mode inquiry.
-    pub const PICTURE_EFFECT: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x32];
-
-    /// Flip mode inquiry (combined horizontal/vertical via CAM_FlipInq).
-    ///
-    /// Previously used undocumented opcode 0x65. Now uses 0xA4 (same as IMAGE_FLIP)
-    /// to match the PTZOptics VISCA command reference.
-    pub const FLIP_MODE: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0xA4];
-
-    /// Standby mode inquiry.
-    pub const STANDBY: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x70];
-
-    // Focus and iris inquiries
-    /// Focus range inquiry.
-    pub const FOCUS_RANGE: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x2A];
-
-    /// Iris control mode inquiry.
-    pub const IRIS_CONTROL: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x2B];
-
-    // Image enhancement inquiries
-    /// Defog mode inquiry.
-    pub const DEFOG_MODE: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x37];
-
-    /// Defog level inquiry.
-    pub const DEFOG_LEVEL: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0xA0];
-
-    /// Digital Ptz status inquiry.
-    pub const DIGITAL_PTZ: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x6B];
-
-    // White balance and color inquiries
-    /// Auto white balance sensitivity inquiry.
-    pub const AUTO_WB_SENSITIVITY: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0xA9];
-
-    /// Exposure compensation position inquiry.
-    pub const EXPOSURE_COMPENSATION_POSITION: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x4E];
-
-    /// Red tuning inquiry (white balance).
-    /// Alias for RED_GAIN — both query register 0x04 0x43.
-    pub const RED_TUNING: &[u8] = RED_GAIN;
-
-    /// Blue tuning inquiry (white balance).
-    /// Alias for BLUE_GAIN — both query register 0x04 0x44.
-    pub const BLUE_TUNING: &[u8] = BLUE_GAIN;
-
-    // Image quality inquiries
-    /// Sharpness position inquiry.
-    pub const SHARPNESS_POSITION: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x42];
-
-    /// Noise reduction level inquiry.
-    pub const NR_LEVEL: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x52];
-
-    /// Noise reduction mode inquiry.
-    pub const NR_MODE: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x53];
-
-    /// Noise reduction speed inquiry.
-    pub const NR_SPEED: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x54];
-
-    /// Black and white mode inquiry.
-    pub const BLACK_WHITE_MODE: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x73];
-
-    // System and network inquiries
-    /// Broadcast domain inquiry.
-    pub const BROADCAST_DOMAIN: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x75];
-
-    // Advanced feature inquiries
-    /// Motion sync mode inquiry.
-    pub const MOTION_SYNC_MODE: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x56];
-
-    /// Motion sync speed inquiry.
-    pub const MOTION_SYNC_SPEED: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x57];
-
-    /// Auto trace status inquiry.
-    pub const AUTO_TRACE: &[u8] = visca_bytes![0x81, 0x09, 0x50, 0x09];
-
-    /// Focus unlock status inquiry.
-    pub const FOCUS_UNLOCK: &[u8] = visca_bytes![0x81, 0x09, 0x54, 0x08];
-
-    // Additional inquiry constants for comprehensive coverage
-
-    /// Inquiry command to get the auto-focus sensitivity setting.
-    pub const AUTO_FOCUS_SENSITIVITY: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x58];
-
-    /// Inquiry command to get the backlight compensation mode.
-    pub const BACKLIGHT: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x33];
-
-    /// Inquiry command to get the black and white mode on/off status.
-    pub const BLACK_WHITE: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x01];
-
-    /// Inquiry command to get the current blue gain value.
-    /// Note: Same register as BLUE_TUNING (0x04 0x44); interpretation differs.
-    pub const BLUE_GAIN: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x44];
-
-    /// Inquiry command to get the current brightness adjustment value.
-    pub const BRIGHT: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x4D];
-
-    /// Inquiry command to get the current color temperature value.
-    pub const COLOR_TEMPERATURE: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x20];
-
-    /// Inquiry command to get the digital mode state.
-    pub const DIGITAL: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x7B];
-
-    /// Inquiry command to get the dynamic range mode/level.
-    pub const DYNAMIC_RANGE: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x25];
-
-    /// Inquiry command to get the current exposure compensation value.
-    pub const EXPOSURE_COMPENSATION: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x4E];
-
-    /// Inquiry command to get the exposure compensation mode on/off status.
-    pub const EXPOSURE_COMPENSATION_MODE: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x3E];
-
-    /// Inquiry command to get the current exposure mode setting.
-    pub const EXPOSURE_MODE: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x39];
-
-    /// Inquiry command to get the focus near limit position.
-    pub const FOCUS_NEAR_LIMIT: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x28];
-
-    /// Inquiry command to get the current focus zone selection.
-    pub const FOCUS_ZONE: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x3C];
-
-    /// Inquiry command to get the current gain value.
-    pub const GAIN: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x4C];
-
-    /// Inquiry command to get the current gain limit setting.
-    pub const GAIN_LIMIT: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x2C];
-
-    /// Inquiry command to get the current gamma curve setting.
-    pub const GAMMA: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x5B];
-
-    /// Inquiry command to get the current hue adjustment value.
-    pub const HUE: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x4F];
-
-    /// Inquiry command to get the combined flip state (horizontal + vertical).
-    ///
-    /// Uses CAM_FlipInq (opcode 0xA4) which returns 0x00=Off, 0x01=H, 0x02=V, 0x03=HV.
-    /// This matches the write command (CAM_Flip, also opcode 0xA4).
-    ///
-    /// NOTE: The legacy CAM_PictureFlipInq (opcode 0x66) returns a VISCA boolean
-    /// (0x02=On, 0x03=Off) for vertical flip only — it cannot be parsed as a bitfield.
-    pub const IMAGE_FLIP: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0xA4];
-
-    /// Inquiry command to get the current iris position value.
-    pub const IRIS: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x4B];
-
-    /// Inquiry command to get the ND filter preset setting.
-    pub const ND_FILTER_PRESET: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x66];
-
-    /// Inquiry command to get the 2D noise reduction level.
-    pub const NOISE_REDUCTION_2D: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x53];
-
-    /// Inquiry command to get the 3D noise reduction level.
-    pub const NOISE_REDUCTION_3D: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x54];
-
-    /// Inquiry command to get the current pan/tilt position.
-    pub const PAN_TILT_POSITION: &[u8] = visca_bytes![0x81, 0x09, 0x06, 0x12];
-
-    /// Inquiry command to get the current red gain value.
-    /// Note: Same register as RED_TUNING (0x04 0x43); interpretation differs.
-    pub const RED_GAIN: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x43];
-
-    /// Inquiry command to get the current color saturation level.
-    pub const SATURATION: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x49];
-
-    /// Inquiry command to get the current sharpness mode on/off status.
-    pub const SHARPNESS_MODE: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x05];
-
-    /// Inquiry command to get the current shutter speed setting.
-    pub const SHUTTER: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x4A];
-
-    /// Inquiry command to get the tally auto adjust state.
-    pub const TALLY_AUTO_ADJUST: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0xA9];
-
-    /// Inquiry command to get the two tone mode state.
-    pub const TWO_TONE_MODE: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x74];
-
-    /// Inquiry command to get the USB audio state.
-    pub const USB_AUDIO: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x7A];
-
-    /// Inquiry command to get the camera version information.
-    pub const VERSION: &[u8] = visca_bytes![0x81, 0x09, 0x00, 0x02];
-
-    /// Inquiry command to get the current white balance mode.
-    pub const WHITE_BALANCE_MODE: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x35];
-
-    /// Inquiry command to get the current flicker mode setting.
-    pub const FLICKER_MODE: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0x55];
-
-    /// Inquiry command to get the current contrast level (image processing).
-    ///
-    /// Response format: `y0 50 00 00 0p 0q FF` where `pq` is the contrast position.
-    pub const CONTRAST: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0xA2];
-
-    /// Inquiry command to get the current luminance (brightness) level (image processing).
-    ///
-    /// Response format: `y0 50 00 00 0p 0q FF` where `pq` is the brightness position.
-    pub const LUMINANCE_LEVEL: &[u8] = visca_bytes![0x81, 0x09, 0x04, 0xA1];
+    #[allow(unused_imports)]
+    pub use crate::command::inquiry_structs::bytes::*;
 }
 
 /// Menu command constants.
@@ -676,6 +423,7 @@ pub mod system_cmd {
 mod validation_tests {
     use super::*;
     use crate::command::bytes::VISCA_TERMINATOR;
+    use crate::command::{BuiltinInquiryQuery, BUILTIN_INQUIRIES};
 
     /// This test validates that all constants are correctly formed at compile time.
     /// The visca_bytes! and visca_prefix! macros already perform compile-time validation,
@@ -739,72 +487,52 @@ mod validation_tests {
     /// Test that inquiry constants follow the proper VISCA inquiry format
     #[test]
     fn test_inquiry_format_validation() {
-        use std::collections::HashSet;
-
         // All inquiry commands should:
         // 1. Start with 0x81 (camera ID)
         // 2. Have 0x09 as second byte (inquiry command type)
         // 3. End with 0xFF (terminator)
-        // 4. Be unique (no duplicates)
+        // 4. Duplicate bytes must be explicitly classified in metadata.
 
-        let inquiries = vec![
-            inquiry::POWER,
-            inquiry::ZOOM_POSITION,
-            inquiry::FOCUS_POSITION,
-            inquiry::FOCUS_MODE,
-            inquiry::AUTO_FOCUS,
-            inquiry::MENU_OPEN_CLOSE,
-            inquiry::TALLY_STATUS,
-            inquiry::TALLY_GREEN,
-            inquiry::RESOLUTION,
-            inquiry::NIGHT_DAY_MODE,
-            inquiry::ND_FILTER,
-            inquiry::PICTURE_EFFECT,
-            inquiry::FLIP_MODE,
-            inquiry::STANDBY,
-            inquiry::FOCUS_RANGE,
-            inquiry::IRIS_CONTROL,
-            inquiry::DEFOG_MODE,
-            inquiry::DEFOG_LEVEL,
-            inquiry::DIGITAL_PTZ,
-            inquiry::AUTO_WB_SENSITIVITY,
-            inquiry::EXPOSURE_COMPENSATION_POSITION,
-            inquiry::RED_TUNING,
-            inquiry::BLUE_TUNING,
-            inquiry::SHARPNESS_POSITION,
-            inquiry::NR_LEVEL,
-            inquiry::NR_MODE,
-            inquiry::NR_SPEED,
-            inquiry::BLACK_WHITE_MODE,
-            inquiry::BROADCAST_DOMAIN,
-            inquiry::MOTION_SYNC_MODE,
-            inquiry::MOTION_SYNC_SPEED,
-            inquiry::AUTO_TRACE,
-            inquiry::FOCUS_UNLOCK,
-            inquiry::FLICKER_MODE,
-        ];
+        let mut seen = Vec::new();
 
-        let mut seen = HashSet::new();
-
-        for (idx, &inq) in inquiries.iter().enumerate() {
+        for meta in BUILTIN_INQUIRIES {
+            let Some(inq) = meta.bytes else {
+                continue;
+            };
             // Check format
-            assert_eq!(inq[0], 0x81, "Inquiry {idx} should start with 0x81");
+            assert_eq!(inq[0], 0x81, "Inquiry {} should start with 0x81", meta.name);
             assert_eq!(
                 inq[1], 0x09,
-                "Inquiry {idx} should have 0x09 as second byte"
+                "Inquiry {} should have 0x09 as second byte",
+                meta.name
             );
             assert_eq!(
                 inq[inq.len() - 1],
                 0xFF,
-                "Inquiry {idx} should end with 0xFF"
+                "Inquiry {} should end with 0xFF",
+                meta.name
             );
 
-            // Check uniqueness
-            let key = Vec::from(inq);
-            assert!(
-                seen.insert(key),
-                "Duplicate inquiry constant found at index {idx}"
-            );
+            for (prev_name, prev_query, prev_bytes) in &seen {
+                if *prev_bytes == inq {
+                    let prev_explicit = matches!(
+                        prev_query,
+                        BuiltinInquiryQuery::Alias { .. }
+                            | BuiltinInquiryQuery::AlternateTypedInterpretation { .. }
+                    );
+                    let current_explicit = matches!(
+                        meta.query,
+                        BuiltinInquiryQuery::Alias { .. }
+                            | BuiltinInquiryQuery::AlternateTypedInterpretation { .. }
+                    );
+                    assert!(
+                        prev_explicit || current_explicit,
+                        "Duplicate inquiry bytes for {prev_name} and {} must be explicit",
+                        meta.name
+                    );
+                }
+            }
+            seen.push((meta.name, meta.query, inq));
         }
     }
 

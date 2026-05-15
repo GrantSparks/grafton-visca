@@ -10,9 +10,6 @@
 
 use crate::{command::Response, error::Error};
 
-// Re-export FlipState from inquiry_types since the derive macro expects it here
-pub use crate::command::inquiry_types::FlipState;
-
 /// Trait for commands that can parse responses into strongly-typed values.
 pub trait ResponseParser {
     /// Strongly-typed response for this command.
@@ -46,5 +43,6 @@ pub struct VersionInfo {
     pub max_socket: u8,
 }
 
-// Implementations are derived automatically by the `ViscaInquiry` proc-macro
-// for supported inquiry types.
+// Built-in inquiry implementations are generated from the internal inquiry
+// table. The `ViscaInquiry` proc macro remains available for downstream
+// extension commands.

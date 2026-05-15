@@ -6,7 +6,7 @@
 
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
-use syn::{DeriveInput, Ident};
+use syn::{parse::ParseStream, spanned::Spanned, DeriveInput, Ident, LitInt, LitStr, Path, Type};
 
 pub fn derive_visca_inquiry_impl(input: DeriveInput) -> TokenStream {
     match &input.data {
@@ -14,13 +14,25 @@ pub fn derive_visca_inquiry_impl(input: DeriveInput) -> TokenStream {
             let struct_name = &input.ident;
 
             // Parse visca attributes from the struct
-            let attrs = parse_visca_attributes_from_struct(&input);
+            let attrs = match parse_visca_attributes_from_struct(&input) {
+                Ok(attrs) => attrs,
+                Err(error) => return error.to_compile_error(),
+            };
 
-            // Extract required attributes
-            let response_kind = attrs
-                .response_kind
-                .clone()
-                .expect("visca attribute must have a 'response' value");
+            let mut validation_error = None;
+            let response_kind = match attrs.response_kind.clone() {
+                Some(response_kind) => response_kind,
+                None => {
+                    push_error(
+                        &mut validation_error,
+                        syn::Error::new_spanned(
+                            struct_name,
+                            "visca attribute must have a response value",
+                        ),
+                    );
+                    format_ident!("MissingResponse")
+                }
+            };
 
             // Determine crate path once for consistency
             let is_internal_crate =
@@ -31,60 +43,47 @@ pub fn derive_visca_inquiry_impl(input: DeriveInput) -> TokenStream {
                 quote! { ::grafton_visca }
             };
 
-            let byte_value = attrs
-                .byte_value
-                .expect("visca attribute must have an 'opcode' value");
+            let byte_value = match attrs.byte_value {
+                Some(byte_value) => byte_value,
+                None => {
+                    push_error(
+                        &mut validation_error,
+                        syn::Error::new_spanned(
+                            struct_name,
+                            "visca attribute must have an opcode value",
+                        ),
+                    );
+                    0
+                }
+            };
             let subcategory = attrs.subcategory.unwrap_or(0x04);
+            if let Err(error) = validate_attrs(&attrs, struct_name) {
+                push_error(&mut validation_error, error);
+            }
+            if let Some(error) = validation_error {
+                return error.to_compile_error();
+            }
 
-            // Inside grafton-visca, inquiry structs use the crate's private
-            // canonical byte constants so unusual extended inquiries stay exact.
-            // Downstream derives cannot access those private constants, so they
-            // generate standard VISCA inquiry bytes directly from opcode/subcode.
-            let (max_size_expr, write_into_body) = if is_internal_crate {
-                let constant_name = attrs
-                        .constant
-                        .as_ref()
-                        .expect("visca attribute must have a 'constant' or 'bytes_const' value for internal inquiries");
-                let constant_path = format_ident!("{}", constant_name);
-                (
-                    quote! { #crate_path::command::bytes::constants::inquiry::#constant_path.len() },
-                    quote! {
-                        let bytes = #crate_path::command::bytes::constants::inquiry::#constant_path;
-                        let len = bytes.len();
-                        if buffer.len() < len {
-                            return Err(#crate_path::Error::BufferTooSmall {
-                                required: len,
-                                actual: buffer.len(),
-                            });
-                        }
-                        buffer[..len].copy_from_slice(bytes);
-                        buffer[0] = camera_id.to_address_byte();
-                        Ok(len)
-                    },
-                )
-            } else {
-                (
-                    quote! { 5 },
-                    quote! {
-                        const LEN: usize = 5;
-                        if buffer.len() < LEN {
-                            return Err(#crate_path::Error::BufferTooSmall {
-                                required: LEN,
-                                actual: buffer.len(),
-                            });
-                        }
-                        buffer[0] = camera_id.to_address_byte();
-                        buffer[1] = 0x09;
-                        buffer[2] = #subcategory;
-                        buffer[3] = #byte_value;
-                        buffer[4] = #crate_path::command::VISCA_TERMINATOR;
-                        Ok(LEN)
-                    },
-                )
+            let max_size_expr = quote! { 5 };
+            let write_into_body = quote! {
+                const LEN: usize = 5;
+                if buffer.len() < LEN {
+                    return Err(#crate_path::Error::BufferTooSmall {
+                        required: LEN,
+                        actual: buffer.len(),
+                    });
+                }
+                buffer[0] = camera_id.to_address_byte();
+                buffer[1] = 0x09;
+                buffer[2] = #subcategory;
+                buffer[3] = #byte_value;
+                buffer[4] = #crate_path::command::VISCA_TERMINATOR;
+                Ok(LEN)
             };
 
             // Generate parser implementation if parser info is provided
-            let parse_response_impl = if let Some(parser_info) = &attrs.parser {
+            let parser_info = attrs.parser_info();
+            let parse_response_impl = if let Some(parser_info) = &parser_info {
                 let parser_body = generate_parser_body(&response_kind, parser_info, &crate_path);
                 quote! {
                     impl #struct_name {
@@ -102,7 +101,13 @@ pub fn derive_visca_inquiry_impl(input: DeriveInput) -> TokenStream {
             };
 
             // Optionally generate a typed ResponseParser impl
-            let typed_impl = generate_typed_impl(struct_name, &response_kind, &crate_path, &attrs);
+            let typed_impl = generate_typed_impl(
+                struct_name,
+                &response_kind,
+                &crate_path,
+                &attrs,
+                &parser_info,
+            );
 
             let expanded = quote! {
                 impl #crate_path::command::ViscaCommand for #struct_name {
@@ -137,200 +142,321 @@ struct ViscaAttributes {
     byte_value: Option<u8>,
     subcategory: Option<u8>,
     response_kind: Option<Ident>,
-    parser: Option<ParserInfo>,
-    constant: Option<String>,
+    parser_type: Option<String>,
+    field_name: Option<Ident>,
+    mode_type: Option<Ident>,
+    custom_fn: Option<Ident>,
+    convention: Option<Ident>,
+    data_variant: Option<Ident>,
     // Typed response attributes for ResponseParser impl generation:
-    typed_response: Option<String>,
-    typed_field: Option<String>,
-    typed_constructor: Option<String>,
+    typed_response: Option<TypeSpec>,
+    typed_field: Option<Vec<Ident>>,
+    typed_constructor: Option<Ident>,
     typed_is_tuple: bool,
+}
+
+impl ViscaAttributes {
+    fn parser_info(&self) -> Option<ParserInfo> {
+        self.parser_type.as_ref().map(|parser_type| ParserInfo {
+            parser_type: parser_type.clone(),
+            field_name: self.field_name.clone(),
+            mode_type: self.mode_type.clone(),
+            custom_fn: self.custom_fn.clone(),
+            convention: self.convention.clone(),
+            data_variant: self.data_variant.clone(),
+        })
+    }
+}
+
+enum TypeSpec {
+    LegacyString(String),
+    Type(Type),
 }
 
 struct ParserInfo {
     parser_type: String,
-    field_name: Option<String>,
-    mode_type: Option<String>,
-    custom_fn: Option<String>,
-    convention: Option<String>, // "OnIs02" or "OnIs03" for bool_convention parser
-    data_variant: Option<String>, // InquiryData variant if different from response (InquiryKind)
+    field_name: Option<Ident>,
+    mode_type: Option<Ident>,
+    custom_fn: Option<Ident>,
+    convention: Option<Ident>, // OnIs02 or OnIs03 for bool_convention parser
+    data_variant: Option<Ident>, // InquiryData variant if different from response (InquiryKind)
 }
 
-fn parse_visca_attributes_from_struct(input: &DeriveInput) -> ViscaAttributes {
+fn parse_visca_attributes_from_struct(input: &DeriveInput) -> syn::Result<ViscaAttributes> {
     let mut attrs = ViscaAttributes::default();
+    let mut saw_visca = false;
 
     for attr in &input.attrs {
         if attr.path().is_ident("visca") {
-            // Parse the attribute manually
-            let tokens = attr
-                .parse_args::<proc_macro2::TokenStream>()
-                .expect("Failed to parse visca attribute");
-            let token_str = tokens.to_string();
-
-            // Split by comma and parse each part
-            for part in token_str.split(',') {
-                let part = part.trim();
-
-                // Typed response attributes (must be checked before "response"/"field")
-                if part.contains("typed_response") {
-                    let value = part
-                        .split('=')
-                        .nth(1)
-                        .expect("typed_response must have a value")
-                        .trim()
-                        .trim_matches('"');
-                    attrs.typed_response = Some(value.to_string());
-                } else if part.contains("typed_field") {
-                    let value = part
-                        .split('=')
-                        .nth(1)
-                        .expect("typed_field must have a value")
-                        .trim()
-                        .trim_matches('"');
-                    attrs.typed_field = Some(value.to_string());
-                } else if part.contains("typed_constructor") {
-                    let value = part
-                        .split('=')
-                        .nth(1)
-                        .expect("typed_constructor must have a value")
-                        .trim()
-                        .trim_matches('"');
-                    attrs.typed_constructor = Some(value.to_string());
-                } else if part.contains("typed_is_tuple") {
+            saw_visca = true;
+            attr.parse_nested_meta(|meta| {
+                if meta.path.is_ident("typed_is_tuple") {
                     attrs.typed_is_tuple = true;
-                } else if (part.contains("command") && !part.contains("sub_command"))
-                    || part.contains("opcode")
-                {
-                    let value = part
-                        .split('=')
-                        .nth(1)
-                        .expect("command/opcode must have a value")
-                        .trim();
-                    if value.starts_with("0x") {
-                        attrs.byte_value = Some(
-                            u8::from_str_radix(value.trim_start_matches("0x"), 16)
-                                .expect("command/opcode must be a valid hex u8"),
-                        );
-                    } else {
-                        attrs.byte_value = Some(
-                            value
-                                .parse::<u8>()
-                                .expect("command/opcode must be a valid u8"),
-                        );
-                    }
-                } else if part.contains("response") {
-                    let value = part
-                        .split('=')
-                        .nth(1)
-                        .expect("response must have a value")
-                        .trim()
-                        .trim_matches('"');
-                    // For struct attributes, response should be a simple string
-                    attrs.response_kind = Some(format_ident!("{}", value));
-                } else if part.contains("sub_command") || part.contains("subcode") {
-                    let value = part
-                        .split('=')
-                        .nth(1)
-                        .expect("sub_command/subcode must have a value")
-                        .trim();
-                    if value.starts_with("0x") {
-                        attrs.subcategory = Some(
-                            u8::from_str_radix(value.trim_start_matches("0x"), 16)
-                                .expect("sub_command/subcode must be a valid hex u8"),
-                        );
-                    } else {
-                        attrs.subcategory = Some(
-                            value
-                                .parse::<u8>()
-                                .expect("sub_command/subcode must be a valid u8"),
-                        );
-                    }
-                } else if part.contains("parser") {
-                    let parser_value = part
-                        .split('=')
-                        .nth(1)
-                        .expect("parser must have a value")
-                        .trim()
-                        .trim_matches('"');
-
-                    let parser_info = ParserInfo {
-                        parser_type: parser_value.to_string(),
-                        field_name: None,
-                        mode_type: None,
-                        custom_fn: None,
-                        convention: None,
-                        data_variant: None,
-                    };
-
-                    // Continue parsing for additional parser attributes
-                    attrs.parser = Some(parser_info);
-                } else if part.contains("field") && attrs.parser.is_some() {
-                    let value = part
-                        .split('=')
-                        .nth(1)
-                        .expect("field must have a value")
-                        .trim()
-                        .trim_matches('"');
-                    if let Some(ref mut parser) = attrs.parser {
-                        parser.field_name = Some(value.to_string());
-                    }
-                } else if (part.contains("type") || part.contains("value_type"))
-                    && attrs.parser.is_some()
-                {
-                    let value = part
-                        .split('=')
-                        .nth(1)
-                        .expect("type/value_type must have a value")
-                        .trim()
-                        .trim_matches('"');
-                    if let Some(ref mut parser) = attrs.parser {
-                        parser.mode_type = Some(value.to_string());
-                    }
-                } else if (part.contains("custom_fn") || part.contains("parse_with"))
-                    && attrs.parser.is_some()
-                {
-                    let value = part
-                        .split('=')
-                        .nth(1)
-                        .expect("custom_fn/parse_with must have a value")
-                        .trim()
-                        .trim_matches('"');
-                    if let Some(ref mut parser) = attrs.parser {
-                        parser.custom_fn = Some(value.to_string());
-                    }
-                } else if part.contains("convention") && attrs.parser.is_some() {
-                    let value = part
-                        .split('=')
-                        .nth(1)
-                        .expect("convention must have a value")
-                        .trim()
-                        .trim_matches('"');
-                    if let Some(ref mut parser) = attrs.parser {
-                        parser.convention = Some(value.to_string());
-                    }
-                } else if part.contains("data_variant") && attrs.parser.is_some() {
-                    let value = part
-                        .split('=')
-                        .nth(1)
-                        .expect("data_variant must have a value")
-                        .trim()
-                        .trim_matches('"');
-                    if let Some(ref mut parser) = attrs.parser {
-                        parser.data_variant = Some(value.to_string());
-                    }
-                } else if part.contains("constant") || part.contains("bytes_const") {
-                    let value = part
-                        .split('=')
-                        .nth(1)
-                        .expect("constant/bytes_const must have a value")
-                        .trim()
-                        .trim_matches('"');
-                    attrs.constant = Some(value.to_string());
+                    return Ok(());
                 }
-            }
+
+                if meta.path.is_ident("opcode") || meta.path.is_ident("command") {
+                    let value = meta.value()?;
+                    let lit: LitInt = value.parse()?;
+                    attrs.byte_value = Some(parse_u8_literal(&lit)?);
+                } else if meta.path.is_ident("subcode") || meta.path.is_ident("sub_command") {
+                    let value = meta.value()?;
+                    let lit: LitInt = value.parse()?;
+                    attrs.subcategory = Some(parse_u8_literal(&lit)?);
+                } else if meta.path.is_ident("response") {
+                    let value = meta.value()?;
+                    attrs.response_kind = Some(parse_ident_value(value, "response")?);
+                } else if meta.path.is_ident("parser") {
+                    let value = meta.value()?;
+                    let parser = parse_ident_value(value, "parser")?;
+                    let parser_name = parser.to_string();
+                    validate_parser_name(&parser_name, parser.span())?;
+                    attrs.parser_type = Some(parser_name);
+                } else if meta.path.is_ident("field") {
+                    let value = meta.value()?;
+                    attrs.field_name = Some(parse_ident_value(value, "field")?);
+                } else if meta.path.is_ident("type") || meta.path.is_ident("value_type") {
+                    let value = meta.value()?;
+                    attrs.mode_type = Some(parse_ident_value(value, "value_type")?);
+                } else if meta.path.is_ident("custom_fn") || meta.path.is_ident("parse_with") {
+                    let value = meta.value()?;
+                    attrs.custom_fn = Some(parse_ident_value(value, "custom_fn")?);
+                } else if meta.path.is_ident("convention") {
+                    let value = meta.value()?;
+                    let convention = parse_ident_value(value, "convention")?;
+                    validate_bool_convention(&convention)?;
+                    attrs.convention = Some(convention);
+                } else if meta.path.is_ident("data_variant")
+                    || meta.path.is_ident("inquiry_variant")
+                {
+                    let value = meta.value()?;
+                    attrs.data_variant = Some(parse_ident_value(value, "data_variant")?);
+                } else if meta.path.is_ident("typed_response") {
+                    let value = meta.value()?;
+                    attrs.typed_response = Some(parse_type_spec(value)?);
+                } else if meta.path.is_ident("typed_field") {
+                    let value = meta.value()?;
+                    attrs.typed_field = Some(parse_ident_list_value(value)?);
+                } else if meta.path.is_ident("typed_constructor") {
+                    let value = meta.value()?;
+                    attrs.typed_constructor = Some(parse_ident_value(value, "typed_constructor")?);
+                } else if meta.path.is_ident("constant") || meta.path.is_ident("bytes_const") {
+                    let value = meta.value()?;
+                    let _ = parse_ident_value(value, "bytes_const")?;
+                } else {
+                    return Err(meta.error("unknown visca attribute key"));
+                }
+                Ok(())
+            })?;
         }
     }
 
-    attrs
+    if !saw_visca {
+        return Err(syn::Error::new_spanned(
+            &input.ident,
+            "missing #[visca(...)] attribute",
+        ));
+    }
+
+    Ok(attrs)
+}
+
+fn push_error(target: &mut Option<syn::Error>, error: syn::Error) {
+    if let Some(existing) = target {
+        existing.combine(error);
+    } else {
+        *target = Some(error);
+    }
+}
+
+fn parse_u8_literal(lit: &LitInt) -> syn::Result<u8> {
+    let suffix = lit.suffix();
+    if !suffix.is_empty() {
+        return Err(syn::Error::new(
+            lit.span(),
+            "numeric visca fields must be unsuffixed u8 literals",
+        ));
+    }
+
+    let raw = lit.to_string().replace('_', "");
+    let parsed = if let Some(hex) = raw.strip_prefix("0x").or_else(|| raw.strip_prefix("0X")) {
+        u8::from_str_radix(hex, 16)
+    } else {
+        raw.parse::<u8>()
+    };
+    parsed.map_err(|_| syn::Error::new(lit.span(), "value must fit in u8"))
+}
+
+fn parse_ident_value(input: ParseStream<'_>, name: &str) -> syn::Result<Ident> {
+    if input.peek(LitStr) {
+        let lit: LitStr = input.parse()?;
+        let value = lit.value();
+        if value.contains("::") {
+            let path: Path = syn::parse_str(&value).map_err(|_| {
+                syn::Error::new(lit.span(), format!("{name} must be an identifier or path"))
+            })?;
+            return path_last_ident(&path, name, lit.span());
+        }
+        return syn::parse_str::<Ident>(&value)
+            .map_err(|_| syn::Error::new(lit.span(), format!("{name} must be an identifier")));
+    }
+
+    let path: Path = input.parse()?;
+    path_last_ident(&path, name, path.span())
+}
+
+fn path_last_ident(path: &Path, name: &str, span: proc_macro2::Span) -> syn::Result<Ident> {
+    path.segments
+        .last()
+        .map(|segment| segment.ident.clone())
+        .ok_or_else(|| syn::Error::new(span, format!("{name} must not be empty")))
+}
+
+fn parse_type_spec(input: ParseStream<'_>) -> syn::Result<TypeSpec> {
+    if input.peek(LitStr) {
+        let lit: LitStr = input.parse()?;
+        Ok(TypeSpec::LegacyString(lit.value()))
+    } else {
+        Ok(TypeSpec::Type(input.parse()?))
+    }
+}
+
+fn parse_ident_list_value(input: ParseStream<'_>) -> syn::Result<Vec<Ident>> {
+    if input.peek(LitStr) {
+        let lit: LitStr = input.parse()?;
+        let mut fields = Vec::new();
+        for field in lit.value().split_whitespace() {
+            fields.push(syn::parse_str::<Ident>(field).map_err(|_| {
+                syn::Error::new(lit.span(), "typed_field must contain Rust identifiers")
+            })?);
+        }
+        if fields.is_empty() {
+            return Err(syn::Error::new(
+                lit.span(),
+                "typed_field must name at least one field",
+            ));
+        }
+        return Ok(fields);
+    }
+
+    let path: Path = input.parse()?;
+    Ok(vec![path_last_ident(&path, "typed_field", path.span())?])
+}
+
+fn validate_parser_name(parser: &str, span: proc_macro2::Span) -> syn::Result<()> {
+    match parser {
+        "bool"
+        | "direct_byte"
+        | "byte"
+        | "position"
+        | "extended_nibble"
+        | "nibble"
+        | "flags"
+        | "bit_flags"
+        | "mode"
+        | "mode_enum"
+        | "pan_tilt"
+        | "bool_convention"
+        | "last_nibble"
+        | "tally_status"
+        | "sharpness_mode"
+        | "gamma"
+        | "auto_wb_sensitivity"
+        | "nd_filter"
+        | "picture_effect"
+        | "defog_level"
+        | "focus_range"
+        | "custom" => Ok(()),
+        _ => Err(syn::Error::new(
+            span,
+            format!("unknown parser strategy `{parser}`"),
+        )),
+    }
+}
+
+fn validate_bool_convention(convention: &Ident) -> syn::Result<()> {
+    match convention.to_string().as_str() {
+        "OnIs02" | "OnIs03" => Ok(()),
+        other => Err(syn::Error::new(
+            convention.span(),
+            format!("unknown bool convention `{other}`"),
+        )),
+    }
+}
+
+fn validate_attrs(attrs: &ViscaAttributes, struct_name: &Ident) -> syn::Result<()> {
+    let mut error = None;
+
+    if let Some(parser) = attrs.parser_info() {
+        match parser.parser_type.as_str() {
+            "mode" | "mode_enum" if parser.mode_type.is_none() => push_error(
+                &mut error,
+                syn::Error::new_spanned(struct_name, "mode parser requires value_type"),
+            ),
+            "bool_convention" => {
+                if parser.field_name.is_none() {
+                    push_error(
+                        &mut error,
+                        syn::Error::new_spanned(
+                            struct_name,
+                            "bool_convention parser requires field",
+                        ),
+                    );
+                }
+                if parser.convention.is_none() {
+                    push_error(
+                        &mut error,
+                        syn::Error::new_spanned(
+                            struct_name,
+                            "bool_convention parser requires convention",
+                        ),
+                    );
+                }
+            }
+            "last_nibble" if parser.field_name.is_none() => push_error(
+                &mut error,
+                syn::Error::new_spanned(struct_name, "last_nibble parser requires field"),
+            ),
+            "custom" if parser.custom_fn.is_none() => push_error(
+                &mut error,
+                syn::Error::new_spanned(struct_name, "custom parser requires parse_with"),
+            ),
+            _ => {}
+        }
+    }
+
+    if attrs.typed_response.is_some() && attrs.typed_field.is_none() {
+        push_error(
+            &mut error,
+            syn::Error::new_spanned(struct_name, "typed_response requires typed_field"),
+        );
+    }
+
+    if let Some(constructor) = &attrs.typed_constructor {
+        match constructor.to_string().as_str() {
+            "new" | "ok_new" | "new_u8" | "ok_struct" => {}
+            unknown => push_error(
+                &mut error,
+                syn::Error::new(
+                    constructor.span(),
+                    format!("unknown typed_constructor `{unknown}`"),
+                ),
+            ),
+        }
+    }
+
+    if attrs.typed_response.is_none() && attrs.typed_constructor.is_some() {
+        push_error(
+            &mut error,
+            syn::Error::new_spanned(struct_name, "typed_constructor requires typed_response"),
+        );
+    }
+
+    if let Some(error) = error {
+        Err(error)
+    } else {
+        Ok(())
+    }
 }
 
 fn generate_parser_body(
@@ -341,8 +467,7 @@ fn generate_parser_body(
     // Use data_variant if specified, otherwise use response_variant
     let actual_variant = parser_info
         .data_variant
-        .as_deref()
-        .map(|s| format_ident!("{}", s))
+        .clone()
         .unwrap_or_else(|| response_variant.clone());
 
     match parser_info.parser_type.as_str() {
@@ -361,8 +486,7 @@ fn generate_parser_body(
         "extended_nibble" | "nibble" => {
             let field_name = parser_info
                 .field_name
-                .as_deref()
-                .map(|s| format_ident!("{}", s))
+                .clone()
                 .unwrap_or_else(|| format_ident!("value"));
             super::parser_templates::generate_extended_nibble_parser(
                 response_variant,
@@ -376,8 +500,7 @@ fn generate_parser_body(
         "mode" | "mode_enum" => {
             let mode_type = parser_info
                 .mode_type
-                .as_deref()
-                .map(|s| format_ident!("{}", s))
+                .clone()
                 .expect("mode parser requires type attribute");
             super::parser_templates::generate_mode_enum_parser(
                 response_variant,
@@ -391,13 +514,11 @@ fn generate_parser_body(
         "bool_convention" => {
             let field_name = parser_info
                 .field_name
-                .as_deref()
-                .map(|s| format_ident!("{}", s))
+                .clone()
                 .expect("bool_convention parser requires field attribute");
             let convention = parser_info
                 .convention
-                .as_deref()
-                .map(|s| format_ident!("{}", s))
+                .clone()
                 .expect("bool_convention parser requires convention attribute (OnIs02 or OnIs03)");
             super::parser_templates::generate_bool_convention_parser(
                 &actual_variant,
@@ -409,8 +530,7 @@ fn generate_parser_body(
         "last_nibble" => {
             let field_name = parser_info
                 .field_name
-                .as_deref()
-                .map(|s| format_ident!("{}", s))
+                .clone()
                 .expect("last_nibble parser requires field attribute");
             super::parser_templates::generate_last_nibble_parser(
                 &actual_variant,
@@ -471,22 +591,13 @@ fn generate_parser_body(
         "custom" => {
             let custom_fn = parser_info
                 .custom_fn
-                .as_deref()
-                .map(|s| format_ident!("{}", s))
+                .clone()
                 .expect("custom parser requires custom_fn/parse_with attribute");
             quote! {
                 #custom_fn(data)
             }
         }
-        _ => {
-            let parser_type_str = &parser_info.parser_type;
-            quote! {
-                return Err(#crate_path::Error::InvalidResponse {
-                    expected: ::std::borrow::Cow::Owned(format!("Unknown parser type: {}", #parser_type_str)),
-                    actual: data.to_vec(),
-                })
-            }
-        }
+        _ => unreachable!("parser strategy validated during attribute parsing"),
     }
 }
 
@@ -497,33 +608,27 @@ fn generate_typed_impl(
     response_variant: &Ident,
     crate_path: &TokenStream,
     attrs: &ViscaAttributes,
+    parser_info: &Option<ParserInfo>,
 ) -> TokenStream {
-    let Some(typed_response_str) = &attrs.typed_response else {
+    let Some(typed_response) = &attrs.typed_response else {
         return quote! {};
     };
 
-    let response_type = parse_type_path(typed_response_str, crate_path);
+    let response_type = type_spec_tokens(typed_response, crate_path);
 
     // Use data_variant from parser info if present, otherwise use response_variant
-    let data_variant = attrs
-        .parser
+    let data_variant = parser_info
         .as_ref()
-        .and_then(|p| p.data_variant.as_deref())
-        .map(|s| format_ident!("{}", s))
+        .and_then(|p| p.data_variant.clone())
         .unwrap_or_else(|| response_variant.clone());
 
-    let Some(typed_field_str) = &attrs.typed_field else {
+    let Some(field_names) = &attrs.typed_field else {
         return syn::Error::new_spanned(
             struct_name,
             "typed_response requires typed_field attribute",
         )
         .to_compile_error();
     };
-
-    let field_names: Vec<Ident> = typed_field_str
-        .split_whitespace()
-        .map(|f| format_ident!("{}", f))
-        .collect();
 
     // Generate the destructure pattern
     let destructure = if attrs.typed_is_tuple {
@@ -533,7 +638,11 @@ fn generate_typed_impl(
     };
 
     // Generate the construction expression
-    let construction = match attrs.typed_constructor.as_deref() {
+    let constructor = attrs
+        .typed_constructor
+        .as_ref()
+        .map(std::string::ToString::to_string);
+    let construction = match constructor.as_deref() {
         None => {
             let f = &field_names[0];
             quote! { Ok(#f) }
@@ -576,11 +685,54 @@ fn generate_typed_impl(
     }
 }
 
-/// Parse a type path string into a `TokenStream`.
+/// Convert a typed response specification into a generated type path.
+fn type_spec_tokens(type_spec: &TypeSpec, crate_path: &TokenStream) -> TokenStream {
+    match type_spec {
+        TypeSpec::LegacyString(type_str) => parse_type_path_string(type_str, crate_path),
+        TypeSpec::Type(ty) => type_tokens(ty, crate_path),
+    }
+}
+
+fn type_tokens(ty: &Type, crate_path: &TokenStream) -> TokenStream {
+    if let Type::Path(type_path) = ty {
+        let path = &type_path.path;
+        if is_primitive_path(path) || is_explicit_path(path) {
+            quote! { #ty }
+        } else {
+            quote! { #crate_path::#path }
+        }
+    } else {
+        quote! { #ty }
+    }
+}
+
+fn is_primitive_path(path: &Path) -> bool {
+    path.segments.len() == 1
+        && matches!(
+            path.segments[0].ident.to_string().as_str(),
+            "bool" | "u8" | "u16" | "u32" | "i8" | "i16" | "i32"
+        )
+}
+
+fn is_explicit_path(path: &Path) -> bool {
+    path.leading_colon.is_some()
+        || path
+            .segments
+            .first()
+            .map(|segment| {
+                matches!(
+                    segment.ident.to_string().as_str(),
+                    "crate" | "self" | "super"
+                )
+            })
+            .unwrap_or(false)
+}
+
+/// Parse the legacy string type path syntax into a `TokenStream`.
 ///
-/// Primitive types (`bool`, `u8`, `u16`, `i8`) are emitted directly.
-/// All other paths are prefixed with the resolved crate path.
-fn parse_type_path(type_str: &str, crate_path: &TokenStream) -> TokenStream {
+/// Primitive types (`bool`, `u8`, `u16`, `i8`) are emitted directly.  Relative
+/// paths are prefixed with the resolved crate path for downstream derives.
+fn parse_type_path_string(type_str: &str, crate_path: &TokenStream) -> TokenStream {
     match type_str {
         "bool" => quote! { bool },
         "u8" => quote! { u8 },
