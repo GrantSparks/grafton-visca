@@ -204,7 +204,7 @@ async fn test_position_inquiries_integration() {
         .expect("zoom inquiry should succeed");
     assert_eq!(
         zoom_pos,
-        grafton_visca::types::ZoomPosition::try_from(0.0).unwrap(), // MIN position
+        grafton_visca::types::ZoomPosition::MIN,
         "Zoom should be at minimum"
     );
 
@@ -653,7 +653,7 @@ async fn test_mixed_commands_and_inquiries() {
         .expect("zoom inquiry should succeed");
     assert_eq!(
         zoom_pos,
-        grafton_visca::types::ZoomPosition::try_from(0.0).unwrap(), // MIN position
+        grafton_visca::types::ZoomPosition::MIN,
         "Zoom position should be readable"
     );
 }

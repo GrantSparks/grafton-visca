@@ -610,40 +610,6 @@ impl fmt::Display for FocusPosition {
     }
 }
 
-macro_rules! impl_normalized_conversion {
-    ($type:ty, $min_field:ident, $max_field:ident) => {
-        impl TryFrom<f32> for $type {
-            type Error = Error;
-
-            fn try_from(normalized: f32) -> Result<Self, Self::Error> {
-                if !(0.0..=1.0).contains(&normalized) {
-                    return Err(Error::InvalidParameter {
-                        parameter: "normalized",
-                        value: Cow::Owned(normalized.to_string()),
-                        reason: Cow::Owned(format!(
-                            "normalized {} must be between 0.0 and 1.0",
-                            stringify!($type)
-                        )),
-                    });
-                }
-                let range = Self::$max_field.value() - Self::$min_field.value();
-                let value =
-                    Self::$min_field.value() + (normalized * f32::from(range)).round() as u16;
-                Self::new(value)
-            }
-        }
-
-        impl From<$type> for f32 {
-            fn from(pos: $type) -> Self {
-                let range = <$type>::$max_field.value() - <$type>::$min_field.value();
-                f32::from(pos.value() - <$type>::$min_field.value()) / f32::from(range)
-            }
-        }
-    };
-}
-
-impl_normalized_conversion!(ZoomPosition, MIN, MAX);
-
 /// Color temperature value for white balance control.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -1328,17 +1294,13 @@ mod tests {
     #[test]
     #[allow(clippy::unwrap_used)]
     fn test_ergonomic_conversions() {
-        let zoom_half = ZoomPosition::try_from(0.5f32).unwrap();
-        let normalized: f32 = zoom_half.into();
-        assert!((normalized - 0.5).abs() < 0.01);
+        let zoom_half = ZoomPosition::new(0x4000).unwrap();
+        assert_eq!(zoom_half.value(), 0x4000);
 
-        // FocusPosition normalized conversion has been removed.
-        // Use FocusExt::normalized_to_focus_units(UnitInterval) for profile-aware conversion.
+        // ZoomPosition and FocusPosition normalized command conversions are profile-aware.
+        // Use the control APIs or profile-aware helpers instead of raw value conversions.
 
         let iris = IrisLevel::from(FStop::F2_8);
         assert_eq!(iris.value(), 0x09);
-
-        assert!(ZoomPosition::try_from(-0.1f32).is_err());
-        assert!(ZoomPosition::try_from(1.1f32).is_err());
     }
 }

@@ -14,11 +14,11 @@
 use grafton_visca::{
     camera::profiles::{GenericVisca, PtzOpticsG2, SonyFR7},
     capabilities::{
-        nd_filter::NdFilterMetadataExt, zoom::ZoomExt, Exposure, HasExposureCompensation,
-        HasFocusLock, HasNdFilter, HasPushAutoFocus, HasVariableSpeed, NdFilterMetadata, PanTilt,
-        Presets, ProfileMetadata, WhiteBalance, Zoom,
+        nd_filter::NdFilterMetadataExt, Exposure, HasExposureCompensation, HasFocusLock,
+        HasNdFilter, HasPushAutoFocus, HasVariableSpeed, NdFilterMetadata, PanTilt, Presets,
+        ProfileMetadata, WhiteBalance, Zoom,
     },
-    UnitInterval,
+    zoom_from_normalized, UnitInterval, ZoomDomain,
 };
 
 fn main() {
@@ -73,12 +73,19 @@ where
 }
 
 fn demonstrate_value_validation() {
-    let g2 = PtzOpticsG2;
     let sony = SonyFR7;
 
     println!("Validation");
-    match g2.normalized_to_zoom_units(UnitInterval::new(0.5).expect("literal is in range")) {
-        Ok(units) => println!("  PTZOptics G2 50% zoom: 0x{units:04X}"),
+    match zoom_from_normalized(
+        UnitInterval::new(0.5).expect("literal is in range"),
+        ZoomDomain::Optical,
+        PtzOpticsG2::OPTICAL_ZOOM_MAX,
+        PtzOpticsG2::DIGITAL_ZOOM_MAX,
+    ) {
+        Ok(position) => println!(
+            "  PTZOptics G2 50% optical zoom: 0x{:04X}",
+            position.value()
+        ),
         Err(error) => println!("  PTZOptics G2 zoom validation failed: {error}"),
     }
 

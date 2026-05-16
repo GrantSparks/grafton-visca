@@ -10,7 +10,7 @@ fn main() {
         Exec: Executor + Send + Sync + Clone + 'static,
     {
         let _ = session.set_digital_zoom(true);
-        let _ = session.zoom_absolute_normalized(
+        let _ = session.set_zoom_normalized_in_domain(
             grafton_visca::UnitInterval::new(0.75).unwrap(),
             ZoomDomain::OpticalPlusDigital,
         );

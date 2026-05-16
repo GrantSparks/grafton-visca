@@ -14,7 +14,7 @@ use crate::{
     command::zoom::Zoom as ZoomCommand,
     mode::Mode,
     types::{ZoomPosition, ZoomSpeed},
-    Error,
+    Error, UnitInterval, ZoomDomain,
 };
 
 /// Zoom operations for PTZ cameras.
@@ -115,14 +115,20 @@ pub trait DirectZoomControl {
     /// The mode type for this camera (Async or Blocking).
     type Mode: Mode;
 
-    /// Set zoom to an absolute position.
+    /// Set zoom to an absolute raw VISCA position.
     ///
     /// Values are validated against the selected profile's supported optical
     /// or optical-plus-digital zoom range before any command is encoded.
-    fn set_zoom<T>(&self, position: T) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>
-    where
-        T: TryInto<ZoomPosition>,
-        T::Error: Into<Error>;
+    fn set_zoom(&self, position: ZoomPosition) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+
+    /// Set zoom to a normalized optical position.
+    ///
+    /// This always maps `0.0..=1.0` across the selected profile's documented
+    /// optical zoom range.
+    fn set_zoom_normalized(
+        &self,
+        position: UnitInterval,
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 }
 
 /// VISCA digital zoom toggle for profiles that document the enable/disable opcode.
@@ -141,7 +147,7 @@ pub trait DigitalZoomRangeControl {
     /// The mode type for this camera (Async or Blocking).
     type Mode: Mode;
 
-    /// Set zoom to an absolute normalized position with domain awareness.
+    /// Set zoom to a normalized position in a documented zoom domain.
     ///
     /// This method provides domain-aware zoom control, allowing you to specify
     /// whether the normalized position should map to the optical zoom range only
@@ -156,13 +162,13 @@ pub trait DigitalZoomRangeControl {
     /// use grafton_visca::{ZoomDomain, UnitInterval};
     ///
     /// // Set to 50% of optical zoom range
-    /// camera.zoom_absolute_normalized(
+    /// camera.set_zoom_normalized_in_domain(
     ///     UnitInterval::new(0.5)?,
     ///     ZoomDomain::Optical
     /// )?;
     ///
     /// // Set to 75% of full zoom range (including digital)
-    /// camera.zoom_absolute_normalized(
+    /// camera.set_zoom_normalized_in_domain(
     ///     UnitInterval::new(0.75)?,
     ///     ZoomDomain::OpticalPlusDigital
     /// )?;
@@ -172,10 +178,10 @@ pub trait DigitalZoomRangeControl {
     /// Returns an error if:
     /// - The camera doesn't support digital zoom and OpticalPlusDigital domain is specified
     /// - The command fails to send or receive a response
-    fn zoom_absolute_normalized(
+    fn set_zoom_normalized_in_domain(
         &self,
-        position: crate::UnitInterval,
-        domain: crate::ZoomDomain,
+        position: UnitInterval,
+        domain: ZoomDomain,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 }
 
@@ -193,22 +199,27 @@ fn zoom_wide_command(speed: Option<ZoomSpeed>) -> ZoomCommand {
     }
 }
 
-pub(crate) fn zoom_position_command<P, T>(position: T) -> Result<ZoomCommand, Error>
+pub(crate) fn zoom_position_command<P>(position: ZoomPosition) -> Result<ZoomCommand, Error>
 where
     P: crate::capabilities::Profile + Default + crate::capabilities::zoom::Zoom,
-    T: TryInto<ZoomPosition>,
-    T::Error: Into<Error>,
 {
     use crate::capabilities::zoom::ZoomExt;
 
-    let position = position.try_into().map_err(Into::into)?;
     P::default().validate_zoom_position(position.value())?;
     Ok(ZoomCommand::Position(position))
 }
 
-pub(crate) fn zoom_absolute_normalized_command<P>(
-    position: crate::UnitInterval,
-    domain: crate::ZoomDomain,
+pub(crate) fn zoom_normalized_command<P>(position: UnitInterval) -> Result<ZoomCommand, Error>
+where
+    P: crate::capabilities::Profile + Default + crate::capabilities::zoom::Zoom,
+{
+    zoom_from_normalized_for_profile::<P>(position, ZoomDomain::Optical)
+        .and_then(zoom_position_command::<P>)
+}
+
+pub(crate) fn zoom_normalized_in_domain_command<P>(
+    position: UnitInterval,
+    domain: ZoomDomain,
 ) -> Result<ZoomCommand, Error>
 where
     P: crate::capabilities::Profile
@@ -216,10 +227,17 @@ where
         + crate::capabilities::zoom::Zoom
         + crate::capabilities::HasDigitalZoomRange,
 {
-    use crate::ZoomPositionExt;
+    zoom_from_normalized_for_profile::<P>(position, domain).and_then(zoom_position_command::<P>)
+}
 
-    ZoomPosition::from_normalized(position, domain, P::OPTICAL_ZOOM_MAX, P::DIGITAL_ZOOM_MAX)
-        .map(ZoomCommand::Position)
+pub(crate) fn zoom_from_normalized_for_profile<P>(
+    position: UnitInterval,
+    domain: ZoomDomain,
+) -> Result<ZoomPosition, Error>
+where
+    P: crate::capabilities::Profile + crate::capabilities::zoom::Zoom,
+{
+    crate::zoom_from_normalized(position, domain, P::OPTICAL_ZOOM_MAX, P::DIGITAL_ZOOM_MAX)
 }
 
 // Single unified implementation for all Camera types!
@@ -258,12 +276,15 @@ where
 {
     type Mode = M;
 
-    fn set_zoom<T>(&self, position: T) -> M::Fut<'_, Result<(), Error>>
-    where
-        T: TryInto<ZoomPosition>,
-        T::Error: Into<Error>,
-    {
-        match zoom_position_command::<P, T>(position) {
+    fn set_zoom(&self, position: ZoomPosition) -> M::Fut<'_, Result<(), Error>> {
+        match zoom_position_command::<P>(position) {
+            Ok(command) => self.execute(command),
+            Err(e) => self.error(e),
+        }
+    }
+
+    fn set_zoom_normalized(&self, position: UnitInterval) -> M::Fut<'_, Result<(), Error>> {
+        match zoom_normalized_command::<P>(position) {
             Ok(command) => self.execute(command),
             Err(e) => self.error(e),
         }
@@ -300,12 +321,12 @@ where
 {
     type Mode = M;
 
-    fn zoom_absolute_normalized(
+    fn set_zoom_normalized_in_domain(
         &self,
-        position: crate::UnitInterval,
-        domain: crate::ZoomDomain,
+        position: UnitInterval,
+        domain: ZoomDomain,
     ) -> M::Fut<'_, Result<(), Error>> {
-        match zoom_absolute_normalized_command::<P>(position, domain) {
+        match zoom_normalized_in_domain_command::<P>(position, domain) {
             Ok(command) => self.execute(command),
             Err(e) => self.error(e),
         }
@@ -362,30 +383,63 @@ where
     Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
     Exec: crate::executor::Executor + Send + Sync + Clone + 'static,
 {
-    /// Set zoom to a position and return an operation handle.
-    pub async fn set_zoom_op<T>(
+    /// Set zoom to a raw VISCA position and return an operation handle.
+    pub async fn set_zoom_op(
         &self,
-        position: T,
-    ) -> Result<crate::camera::InFlight<'_, crate::camera::ZoomOperation, P, Exec>, Error>
-    where
-        T: TryInto<ZoomPosition>,
-        T::Error: Into<Error>,
-    {
-        self.start_zoom_operation(zoom_position_command::<P, T>(position)?)
+        position: ZoomPosition,
+    ) -> Result<crate::camera::InFlight<'_, crate::camera::ZoomOperation, P, Exec>, Error> {
+        self.start_zoom_operation(zoom_position_command::<P>(position)?)
+            .await
+    }
+
+    /// Set zoom to a normalized optical position and return an operation handle.
+    pub async fn set_zoom_normalized_op(
+        &self,
+        position: UnitInterval,
+    ) -> Result<crate::camera::InFlight<'_, crate::camera::ZoomOperation, P, Exec>, Error> {
+        self.start_zoom_operation(zoom_normalized_command::<P>(position)?)
+            .await
+    }
+}
+
+#[cfg(feature = "mode-async")]
+impl<P, Tr, Exec> crate::camera::Camera<crate::mode::Async, P, Tr, Exec>
+where
+    P: crate::capabilities::Profile
+        + Default
+        + crate::capabilities::zoom::Zoom
+        + crate::capabilities::HasDirectZoom
+        + crate::capabilities::HasDigitalZoomRange,
+    Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
+    Exec: crate::executor::Executor + Send + Sync + Clone + 'static,
+{
+    /// Set zoom to a normalized position in a documented domain and return an operation handle.
+    pub async fn set_zoom_normalized_in_domain_op(
+        &self,
+        position: UnitInterval,
+        domain: ZoomDomain,
+    ) -> Result<crate::camera::InFlight<'_, crate::camera::ZoomOperation, P, Exec>, Error> {
+        self.start_zoom_operation(zoom_normalized_in_domain_command::<P>(position, domain)?)
             .await
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::zoom_position_command;
+    use super::{
+        zoom_normalized_command, zoom_normalized_in_domain_command, zoom_position_command,
+    };
     use crate::{
-        camera::profiles::PtzOpticsG2, capabilities::ValidationError, types::ZoomPosition, Error,
+        camera::profiles::{PtzOpticsG2, SonyFR7},
+        capabilities::ValidationError,
+        command::{ViscaCommand, VISCA_TERMINATOR},
+        types::ZoomPosition,
+        CameraId, Error, UnitInterval, ZoomDomain,
     };
 
     #[test]
     fn profile_zoom_position_command_rejects_out_of_profile_digital_range() {
-        let result = zoom_position_command::<PtzOpticsG2, _>(ZoomPosition::MAX);
+        let result = zoom_position_command::<PtzOpticsG2>(ZoomPosition::MAX);
 
         assert!(matches!(
             result,
@@ -394,5 +448,77 @@ mod tests {
                 ..
             }))
         ));
+    }
+
+    #[test]
+    fn ptzoptics_g2_optical_normalized_half_encodes_profile_max_half() -> Result<(), Error> {
+        let command = zoom_normalized_command::<PtzOpticsG2>(UnitInterval::new(0.5)?)?;
+        let mut buffer = [0; 16];
+        let len = command.write_into(CameraId::CAMERA_1, &mut buffer)?;
+
+        assert_eq!(
+            &buffer[..len],
+            &[
+                0x81,
+                0x01,
+                0x04,
+                0x47,
+                0x02,
+                0x00,
+                0x00,
+                0x00,
+                VISCA_TERMINATOR
+            ]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn ptzoptics_g2_optical_normalized_one_encodes_optical_max() -> Result<(), Error> {
+        let command = zoom_normalized_command::<PtzOpticsG2>(UnitInterval::ONE)?;
+        let mut buffer = [0; 16];
+        let len = command.write_into(CameraId::CAMERA_1, &mut buffer)?;
+
+        assert_eq!(
+            &buffer[..len],
+            &[
+                0x81,
+                0x01,
+                0x04,
+                0x47,
+                0x04,
+                0x00,
+                0x00,
+                0x00,
+                VISCA_TERMINATOR
+            ]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn sony_fr7_digital_domain_normalized_one_encodes_digital_max() -> Result<(), Error> {
+        let command = zoom_normalized_in_domain_command::<SonyFR7>(
+            UnitInterval::ONE,
+            ZoomDomain::OpticalPlusDigital,
+        )?;
+        let mut buffer = [0; 16];
+        let len = command.write_into(CameraId::CAMERA_1, &mut buffer)?;
+
+        assert_eq!(
+            &buffer[..len],
+            &[
+                0x81,
+                0x01,
+                0x04,
+                0x47,
+                0x07,
+                0x00,
+                0x00,
+                0x00,
+                VISCA_TERMINATOR
+            ]
+        );
+        Ok(())
     }
 }

@@ -1,13 +1,14 @@
 use grafton_visca::{
     profiles::{SonyBRCH900, SonyEVIH100, SonyFR7},
     transport::BlockingTransportHandle,
-    types::{BrightnessLevel, ColorTemp, ContrastLevel, IrisLevel, SharpnessLevel},
+    types::{BrightnessLevel, ColorTemp, ContrastLevel, IrisLevel, SharpnessLevel, ZoomPosition},
     BlockingCamera, Error, UnitInterval, ZoomDomain,
 };
 
 fn use_sony_fr7(camera: BlockingCamera<SonyFR7, BlockingTransportHandle>) -> Result<(), Error> {
     camera.set_digital_zoom(true)?;
-    camera.zoom_absolute_normalized(UnitInterval::new(0.75)?, ZoomDomain::OpticalPlusDigital)?;
+    camera
+        .set_zoom_normalized_in_domain(UnitInterval::new(0.75)?, ZoomDomain::OpticalPlusDigital)?;
     camera.exposure().iris_priority()?;
     camera.set_iris(IrisLevel::new(1)?)?;
     camera.exposure().set_brightness(BrightnessLevel::new(1)?)?;
@@ -26,7 +27,8 @@ fn use_sony_brch900(
     camera: BlockingCamera<SonyBRCH900, BlockingTransportHandle>,
 ) -> Result<(), Error> {
     camera.set_digital_zoom(false)?;
-    camera.zoom_absolute_normalized(UnitInterval::new(0.5)?, ZoomDomain::OpticalPlusDigital)?;
+    camera
+        .set_zoom_normalized_in_domain(UnitInterval::new(0.5)?, ZoomDomain::OpticalPlusDigital)?;
     camera.exposure().iris_priority()?;
     camera.set_iris(IrisLevel::new(1)?)?;
     camera.exposure().set_brightness(BrightnessLevel::new(1)?)?;
@@ -43,6 +45,8 @@ fn use_sony_brch900(
 fn use_ptzoptics_quality(
     camera: BlockingCamera<grafton_visca::profiles::PtzOpticsG2, BlockingTransportHandle>,
 ) -> Result<(), Error> {
+    camera.set_zoom(ZoomPosition::new(0x2000)?)?;
+    camera.set_zoom_normalized(UnitInterval::new(0.5)?)?;
     camera.exposure().iris_priority()?;
     camera.set_iris(IrisLevel::new(1)?)?;
     camera.exposure().bright_mode()?;

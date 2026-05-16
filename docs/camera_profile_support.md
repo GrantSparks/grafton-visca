@@ -49,9 +49,9 @@ Current built-in sub-capability markers include:
 
 | Area | Marker | Typed surface |
 | ---- | ------ | ------------- |
-| Zoom | `HasDirectZoom` | `DirectZoomControl::set_zoom` and noun/direct blocking equivalents |
+| Zoom | `HasDirectZoom` | `DirectZoomControl::set_zoom`, `DirectZoomControl::set_zoom_normalized`, and noun/direct blocking equivalents |
 | Zoom | `HasDigitalZoomToggle` | `DigitalZoomControl::set_digital_zoom` |
-| Zoom | `HasDigitalZoomRange` | `DigitalZoomRangeControl::zoom_absolute_normalized` for digital domains |
+| Zoom | `HasDigitalZoomRange` | `DigitalZoomRangeControl::set_zoom_normalized_in_domain` for digital domains |
 | Exposure | `HasIrisControl` | `IrisControl` and `IrisInquiryControl` |
 | Exposure | `HasBacklightCompensation` | `BacklightCompensationControl` and backlight inquiry |
 | Exposure | `HasWideDynamicRange` | `WideDynamicRangeControl` and dynamic-range inquiry |

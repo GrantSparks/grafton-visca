@@ -274,53 +274,11 @@ impl Fraction {
     }
 }
 
-impl TryFrom<Percentage<f32>> for ZoomPosition {
+impl TryFrom<Raw<u16>> for ZoomPosition {
     type Error = Error;
 
-    fn try_from(percentage: Percentage<f32>) -> Result<Self, Self::Error> {
-        if percentage.0 < 0.0 || percentage.0 > 100.0 {
-            return Err(Error::ParameterOutOfRange {
-                parameter: "zoom percentage",
-                value: percentage.0 as i32,
-                min: 0,
-                max: 100,
-            });
-        }
-        let value = (percentage.0 / 100.0 * 0x7000 as f32) as u16;
-        ZoomPosition::new(value)
-    }
-}
-
-impl TryFrom<UnitInterval> for ZoomPosition {
-    type Error = Error;
-
-    fn try_from(unit_interval: UnitInterval) -> Result<Self, Self::Error> {
-        let value = (unit_interval.value() * 0x7000 as f32) as u16;
-        ZoomPosition::new(value)
-    }
-}
-
-impl TryFrom<Magnification<f32>> for ZoomPosition {
-    type Error = Error;
-
-    fn try_from(magnification: Magnification<f32>) -> Result<Self, Self::Error> {
-        if magnification.0 < 1.0 || magnification.0 > 30.0 {
-            return Err(Error::ParameterOutOfRange {
-                parameter: "zoom magnification",
-                value: magnification.0 as i32,
-                min: 1,
-                max: 30,
-            });
-        }
-        let normalized = (magnification.0 - 1.0) / 29.0;
-        let value = (normalized * 0x7000 as f32) as u16;
-        ZoomPosition::new(value)
-    }
-}
-
-impl From<Raw<u16>> for ZoomPosition {
-    fn from(raw: Raw<u16>) -> Self {
-        ZoomPosition::new(raw.0).unwrap_or(ZoomPosition::MIN)
+    fn try_from(raw: Raw<u16>) -> Result<Self, Self::Error> {
+        ZoomPosition::new(raw.0)
     }
 }
 
@@ -587,18 +545,11 @@ mod tests {
 
     #[test]
     #[allow(clippy::unwrap_used)]
-    fn test_zoom_percentage_conversion() {
-        let percentage = Percentage(50.0);
-        let zoom = ZoomPosition::try_from(percentage).unwrap();
-        assert_eq!(zoom.value(), 0x3800);
+    fn test_raw_zoom_conversion_is_checked() {
+        let zoom = ZoomPosition::try_from(Raw(0x4000_u16)).unwrap();
+        assert_eq!(zoom.value(), 0x4000);
 
-        let percentage = Percentage(0.0);
-        let zoom = ZoomPosition::try_from(percentage).unwrap();
-        assert_eq!(zoom.value(), 0x0000);
-
-        let percentage = Percentage(100.0);
-        let zoom = ZoomPosition::try_from(percentage).unwrap();
-        assert_eq!(zoom.value(), 0x7000);
+        assert!(ZoomPosition::try_from(Raw(0xFFFF_u16)).is_err());
     }
 
     #[test]

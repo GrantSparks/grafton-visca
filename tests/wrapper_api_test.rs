@@ -8,6 +8,7 @@ use grafton_visca::{
 #[cfg(not(feature = "mode-async"))]
 use grafton_visca::{
     transport::{BlockingTransport, HasTransportConfig},
+    types::ZoomPosition,
     units::UnitInterval,
     BlockingCamera, BlockingClient, Error,
 };
@@ -17,7 +18,8 @@ use grafton_visca::{camera::AsyncCamera, transport::AsyncTransport, Executor};
 
 #[cfg(all(feature = "mode-async", feature = "runtime-tokio"))]
 use grafton_visca::{
-    runtime::TransportHandle, units::UnitInterval, Error, TokioExecutor, TokioRuntime,
+    runtime::TransportHandle, types::ZoomPosition, units::UnitInterval, Error, TokioExecutor,
+    TokioRuntime,
 };
 
 #[cfg(not(feature = "mode-async"))]
@@ -32,7 +34,8 @@ fn test_blocking_wrapper_api() {
         camera.zoom_stop()?;
         camera.zoom_tele(None)?;
         camera.zoom_wide(None)?;
-        camera.set_zoom(UnitInterval::new(0.5)?)?;
+        camera.set_zoom(ZoomPosition::new(0x2000)?)?;
+        camera.set_zoom_normalized(UnitInterval::new(0.5)?)?;
         Ok(())
     }
 }
@@ -50,7 +53,14 @@ async fn test_async_wrapper_api() {
         camera.zoom().stop().await?;
         camera.zoom().tele().await?;
         camera.zoom().wide().await?;
-        camera.zoom().absolute(UnitInterval::new(0.5)?).await?;
+        camera
+            .zoom()
+            .set_position(ZoomPosition::new(0x2000)?)
+            .await?;
+        camera
+            .zoom()
+            .set_normalized(UnitInterval::new(0.5)?)
+            .await?;
         Ok(())
     }
 

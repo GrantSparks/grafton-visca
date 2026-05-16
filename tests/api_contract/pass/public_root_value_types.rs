@@ -1,8 +1,7 @@
-use grafton_visca::capabilities::zoom::ZoomExt;
 use grafton_visca::{
-    camera::profiles::PtzOpticsG2,
     command::{BoolConvention, Nibbles, Payload, Response},
-    CachedFlipState, CameraId, PanTiltLimits, StateCache, UnitInterval, ViscaSocket,
+    zoom_from_normalized, CachedFlipState, CameraId, PanTiltLimits, StateCache, UnitInterval,
+    ViscaSocket, ZoomDomain,
 };
 
 fn main() {
@@ -25,9 +24,8 @@ fn main() {
     let root_value = UnitInterval::new(0.5).unwrap();
     let units_value: grafton_visca::units::UnitInterval = root_value;
     assert_eq!(units_value.value(), 0.5);
-    let _ = PtzOpticsG2
-        .normalized_to_zoom_units(root_value)
-        .expect("UnitInterval is accepted by normalized capability helpers");
+    let _ = zoom_from_normalized(root_value, ZoomDomain::Optical, 0x4000, None)
+        .expect("UnitInterval is accepted by profile-aware zoom helpers");
 
     #[cfg(feature = "mode-async")]
     {

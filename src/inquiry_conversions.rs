@@ -4,6 +4,8 @@
 //! to more intuitive representations like degrees and normalized values, as part of the
 //! runtime-agnostic modernization of `grafton-visca`.
 
+use std::borrow::Cow;
+
 use crate::{
     camera::PanTiltPosition,
     types::{PanPosition, TiltPosition, ZoomPosition},
@@ -151,6 +153,10 @@ pub trait ZoomPositionExt {
     /// - `optical_max`: The camera's maximum optical zoom value (from profile)
     /// - `digital_max`: The camera's maximum digital zoom value, if supported
     ///
+    /// # Errors
+    /// Returns an error if the requested domain has no documented maximum, or
+    /// if the raw position exceeds the selected domain maximum.
+    ///
     /// # Returns
     /// A normalized value where:
     /// - 0.0 = wide end (0x0000)
@@ -160,7 +166,7 @@ pub trait ZoomPositionExt {
         domain: ZoomDomain,
         optical_max: u16,
         digital_max: Option<u16>,
-    ) -> UnitInterval;
+    ) -> Result<UnitInterval, crate::Error>;
 
     /// Creates a zoom position from a normalized value (0.0-1.0).
     ///
@@ -186,18 +192,26 @@ impl ZoomPositionExt for ZoomPosition {
         domain: ZoomDomain,
         optical_max: u16,
         digital_max: Option<u16>,
-    ) -> UnitInterval {
-        let max = match domain {
-            ZoomDomain::Optical => optical_max,
-            ZoomDomain::OpticalPlusDigital => digital_max.unwrap_or(optical_max),
-        };
+    ) -> Result<UnitInterval, crate::Error> {
+        let max = zoom_domain_max(domain, optical_max, digital_max)?;
 
         if max == 0 {
-            return UnitInterval::ZERO;
+            return Ok(UnitInterval::ZERO);
         }
 
-        let normalized = (self.value() as f32) / (max as f32);
-        UnitInterval::new(normalized.clamp(0.0, 1.0)).unwrap_or(UnitInterval::ZERO)
+        if self.value() > max {
+            return Err(crate::Error::InvalidParameter {
+                parameter: "zoom position",
+                value: Cow::Owned(format!("{:#06X}", self.value())),
+                reason: Cow::Owned(format!(
+                    "value exceeds {:?} zoom maximum {:#06X}",
+                    domain, max
+                )),
+            });
+        }
+
+        let normalized = f64::from(self.value()) / f64::from(max);
+        UnitInterval::new(normalized as f32)
     }
 
     fn from_normalized(
@@ -216,8 +230,8 @@ impl ZoomPositionExt for () {
         _domain: ZoomDomain,
         _optical_max: u16,
         _digital_max: Option<u16>,
-    ) -> UnitInterval {
-        UnitInterval::ZERO
+    ) -> Result<UnitInterval, crate::Error> {
+        Ok(UnitInterval::ZERO)
     }
 
     fn from_normalized(
@@ -230,6 +244,24 @@ impl ZoomPositionExt for () {
     }
 }
 
+/// Returns the documented raw zoom maximum for a normalization domain.
+///
+/// Optical normalization always uses the profile optical maximum. Digital-domain
+/// normalization requires an explicit digital maximum and never falls back to
+/// the optical range.
+pub fn zoom_domain_max(
+    domain: ZoomDomain,
+    optical_max: u16,
+    digital_max: Option<u16>,
+) -> Result<u16, crate::Error> {
+    match domain {
+        ZoomDomain::Optical => Ok(optical_max),
+        ZoomDomain::OpticalPlusDigital => digital_max.ok_or(crate::Error::FeatureNotSupported {
+            feature: "optical-plus-digital zoom range",
+        }),
+    }
+}
+
 /// Helper function to create a ZoomPosition from normalized value.
 pub fn zoom_from_normalized(
     normalized: UnitInterval,
@@ -237,13 +269,10 @@ pub fn zoom_from_normalized(
     optical_max: u16,
     digital_max: Option<u16>,
 ) -> Result<ZoomPosition, crate::Error> {
-    let max = match domain {
-        ZoomDomain::Optical => optical_max,
-        ZoomDomain::OpticalPlusDigital => digital_max.unwrap_or(optical_max),
-    };
+    let max = zoom_domain_max(domain, optical_max, digital_max)?;
 
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    let raw_value = (normalized.value() * max as f32).round() as u16;
+    let raw_value = (f64::from(normalized.value()) * f64::from(max)).round() as u16;
     ZoomPosition::new(raw_value)
 }
 
@@ -301,12 +330,12 @@ mod tests {
         // Test wide end
         let zoom = ZoomPosition::new(0x0000)?;
         assert_eq!(
-            zoom.normalize_with_max(ZoomDomain::Optical, optical_max, digital_max)
+            zoom.normalize_with_max(ZoomDomain::Optical, optical_max, digital_max)?
                 .value(),
             0.0
         );
         assert_eq!(
-            zoom.normalize_with_max(ZoomDomain::OpticalPlusDigital, optical_max, digital_max)
+            zoom.normalize_with_max(ZoomDomain::OpticalPlusDigital, optical_max, digital_max)?
                 .value(),
             0.0
         );
@@ -314,13 +343,13 @@ mod tests {
         // Test optical telephoto end
         let zoom = ZoomPosition::new(optical_max)?;
         assert_eq!(
-            zoom.normalize_with_max(ZoomDomain::Optical, optical_max, digital_max)
+            zoom.normalize_with_max(ZoomDomain::Optical, optical_max, digital_max)?
                 .value(),
             1.0
         );
         assert!(
             (zoom
-                .normalize_with_max(ZoomDomain::OpticalPlusDigital, optical_max, digital_max)
+                .normalize_with_max(ZoomDomain::OpticalPlusDigital, optical_max, digital_max)?
                 .value()
                 - 0.571)
                 .abs()
@@ -329,13 +358,11 @@ mod tests {
 
         // Test digital telephoto end
         let zoom = ZoomPosition::new(0x7000)?;
-        assert!(
-            zoom.normalize_with_max(ZoomDomain::Optical, optical_max, digital_max)
-                .value()
-                >= 1.0
-        ); // Clamped to 1.0
+        assert!(zoom
+            .normalize_with_max(ZoomDomain::Optical, optical_max, digital_max)
+            .is_err());
         assert_eq!(
-            zoom.normalize_with_max(ZoomDomain::OpticalPlusDigital, optical_max, digital_max)
+            zoom.normalize_with_max(ZoomDomain::OpticalPlusDigital, optical_max, digital_max)?
                 .value(),
             1.0
         );
@@ -343,13 +370,13 @@ mod tests {
         // Test middle position
         let zoom = ZoomPosition::new(0x2000)?;
         assert_eq!(
-            zoom.normalize_with_max(ZoomDomain::Optical, optical_max, digital_max)
+            zoom.normalize_with_max(ZoomDomain::Optical, optical_max, digital_max)?
                 .value(),
             0.5
         );
         assert!(
             (zoom
-                .normalize_with_max(ZoomDomain::OpticalPlusDigital, optical_max, digital_max)
+                .normalize_with_max(ZoomDomain::OpticalPlusDigital, optical_max, digital_max)?
                 .value()
                 - 0.286)
                 .abs()
@@ -382,6 +409,24 @@ mod tests {
         let norm = UnitInterval::new(0.0)?;
         let zoom = zoom_from_normalized(norm, ZoomDomain::Optical, optical_max, digital_max)?;
         assert_eq!(zoom.value(), 0x0000);
+        Ok(())
+    }
+
+    #[test]
+    fn test_zoom_from_normalized_rejects_undocumented_digital_domain() -> Result<(), crate::Error> {
+        let result = zoom_from_normalized(
+            UnitInterval::ONE,
+            ZoomDomain::OpticalPlusDigital,
+            0x4000,
+            None,
+        );
+
+        assert!(matches!(
+            result,
+            Err(crate::Error::FeatureNotSupported {
+                feature: "optical-plus-digital zoom range"
+            })
+        ));
         Ok(())
     }
 

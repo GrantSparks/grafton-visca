@@ -46,14 +46,14 @@ mod blocking {
         }
 
         match camera.zoom().position() {
-            Ok(position) => {
-                let optical = position.normalize_with_max(ZoomDomain::Optical, 0x4000, None);
-                println!(
+            Ok(position) => match position.normalize_with_max(ZoomDomain::Optical, 0x4000, None) {
+                Ok(optical) => println!(
                     "Zoom: 0x{:04X} ({:.1}% optical)",
                     position.value(),
                     optical.value() * 100.0
-                );
-            }
+                ),
+                Err(error) => println!("Zoom normalization failed: {error}"),
+            },
             Err(error) => println!("Zoom inquiry failed: {error}"),
         }
 

@@ -160,7 +160,7 @@ async fn producer_consumer_pattern(camera_addr: &str) -> Result<()> {
                     Command::Zoom(level) => {
                         println!("  Executing: Zoom to {:.0}%", level * 100.0);
                         if let Ok(position) = UnitInterval::new(level) {
-                            let _ = cam.zoom().absolute(position).await;
+                            let _ = cam.zoom().set_normalized(position).await;
                             let _ = cam.await_zoom_idle(Duration::from_secs(5)).await;
                         }
                     }

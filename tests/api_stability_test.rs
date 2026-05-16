@@ -205,6 +205,7 @@ fn test_control_traits_api_stability() {
 fn test_public_value_type_contracts() {
     use grafton_visca::{
         types::{ColorTemp, FocusPosition, PanSpeed, TiltSpeed, ZoomPosition, ZoomSpeed},
+        units::Raw,
         Error, SpeedLevel,
     };
 
@@ -226,13 +227,17 @@ fn test_public_value_type_contracts() {
         }
     ));
 
-    let zoom_half = ZoomPosition::try_from(0.5_f32)
-        .expect("normalized zoom 0.5 should map into the stable VISCA range");
-    assert_eq!(zoom_half.value(), 0x4000);
-    assert_eq!(f32::from(ZoomPosition::MIN), 0.0);
-    assert_eq!(f32::from(ZoomPosition::MAX), 1.0);
-    assert!(ZoomPosition::try_from(-0.1_f32).is_err());
-    assert!(ZoomPosition::try_from(1.1_f32).is_err());
+    let zoom_raw = ZoomPosition::new(0x4000).expect("raw zoom is in the VISCA range");
+    assert_eq!(zoom_raw.value(), 0x4000);
+    assert_eq!(ZoomPosition::MIN.value(), 0x0000);
+    assert_eq!(ZoomPosition::MAX.value(), 0x7FFF);
+    assert_eq!(
+        ZoomPosition::try_from(Raw(0x4000_u16))
+            .expect("raw zoom wrapper is checked")
+            .value(),
+        0x4000
+    );
+    assert!(ZoomPosition::try_from(Raw(0xFFFF_u16)).is_err());
 
     let focus = FocusPosition::new(0x1234);
     assert_eq!(focus.value(), 0x1234);

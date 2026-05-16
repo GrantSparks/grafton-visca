@@ -39,7 +39,7 @@ use crate::{
             system::SystemControl,
             tally::TallyControl,
             white_balance::{AutoTrackingWhiteBalanceControl, WhiteBalanceControl},
-            zoom::{DirectZoomControl, ZoomControl},
+            zoom::{DigitalZoomRangeControl, DirectZoomControl, ZoomControl},
         },
         Camera,
     },
@@ -172,16 +172,35 @@ where
         self.camera.zoom_stop()
     }
 
-    /// Set zoom position directly.
-    ///
-    /// This method accepts any type that can be converted to `ZoomPosition`.
-    pub fn set_position<T>(&self, position: T) -> M::Fut<'_, Result<(), Error>>
+    /// Set zoom position directly from raw VISCA units.
+    pub fn set_position(
+        &self,
+        position: crate::types::ZoomPosition,
+    ) -> M::Fut<'_, Result<(), Error>>
     where
         Camera<M, P, Tr, Exec>: DirectZoomControl<Mode = M>,
-        T: TryInto<crate::types::ZoomPosition>,
-        T::Error: Into<Error>,
     {
         self.camera.set_zoom(position)
+    }
+
+    /// Set zoom to a normalized optical position.
+    pub fn set_normalized(&self, position: crate::UnitInterval) -> M::Fut<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: DirectZoomControl<Mode = M>,
+    {
+        self.camera.set_zoom_normalized(position)
+    }
+
+    /// Set zoom to a normalized position in a documented zoom domain.
+    pub fn set_normalized_in_domain(
+        &self,
+        position: crate::UnitInterval,
+        domain: crate::ZoomDomain,
+    ) -> M::Fut<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: DigitalZoomRangeControl<Mode = M>,
+    {
+        self.camera.set_zoom_normalized_in_domain(position, domain)
     }
 
     /// Zoom to telephoto (zoom in) with variable speed.
@@ -204,18 +223,6 @@ where
         S: Into<crate::ZoomSpeed>,
     {
         self.camera.zoom_wide(Some(speed.into()))
-    }
-
-    /// Set zoom to absolute position.
-    ///
-    /// This method accepts any type that can be converted to `ZoomPosition`.
-    pub fn absolute<T>(&self, position: T) -> M::Fut<'_, Result<(), Error>>
-    where
-        Camera<M, P, Tr, Exec>: DirectZoomControl<Mode = M>,
-        T: TryInto<crate::types::ZoomPosition>,
-        T::Error: Into<Error>,
-    {
-        self.camera.set_zoom(position)
     }
 }
 

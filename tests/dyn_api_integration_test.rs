@@ -20,6 +20,7 @@ use std::{
 
 use grafton_visca::{
     camera::{profiles::PtzOpticsG2, Camera, CameraBuilder},
+    command::VISCA_TERMINATOR,
     dynapi::{
         DynCameraControl, DynFocusControl, DynMotionControl, DynPanTiltControl, DynPresetsControl,
         DynZoomControl, IntoDynCamera,
@@ -415,7 +416,7 @@ async fn test_dyn_validation_parity_for_pan_tilt_focus_preset_and_zoom_domain() 
     let normalized = UnitInterval::new(0.5).expect("valid normalized value");
     let dyn_zoom = dyn_camera
         .zoom()
-        .zoom_absolute_normalized(normalized, ZoomDomain::OpticalPlusDigital, None)
+        .set_zoom_normalized_in_domain(normalized, ZoomDomain::OpticalPlusDigital, None)
         .await;
     assert!(
         matches!(
@@ -425,6 +426,45 @@ async fn test_dyn_validation_parity_for_pan_tilt_focus_preset_and_zoom_domain() 
             })
         ),
         "dyn zoom should reject unsupported digital zoom domain: {dyn_zoom:?}"
+    );
+}
+
+#[tokio::test]
+async fn test_dyn_zoom_normalized_optical_encodes_profile_aware_position() {
+    let transport: ScriptedTransport<TokioExecutor> =
+        ScriptedTransport::new(vec![helpers::command_response(
+            vec![
+                0x81,
+                0x01,
+                0x04,
+                0x47,
+                0x02,
+                0x00,
+                0x00,
+                0x00,
+                VISCA_TERMINATOR,
+            ],
+            1,
+        )]);
+
+    let runtime = TokioRuntime::from_current().expect("Failed to get runtime");
+    let camera = CameraBuilder::with_executor(runtime)
+        .open_async::<PtzOpticsG2, _>(transport)
+        .await
+        .expect("Failed to create camera");
+    let dyn_camera = camera.into_dyn();
+
+    let result = dyn_camera
+        .zoom()
+        .set_zoom_normalized(
+            UnitInterval::new(0.5).expect("valid normalized value"),
+            None,
+        )
+        .await;
+
+    assert!(
+        result.is_ok(),
+        "dyn optical normalized zoom should succeed: {result:?}"
     );
 }
 

@@ -42,12 +42,12 @@ mod blocking {
                 let optical_max = 0x4000u16;
                 let digital_max = Some(0x7000u16);
                 let optical =
-                    zoom_pos.normalize_with_max(ZoomDomain::Optical, optical_max, digital_max);
+                    zoom_pos.normalize_with_max(ZoomDomain::Optical, optical_max, digital_max)?;
                 let full = zoom_pos.normalize_with_max(
                     ZoomDomain::OpticalPlusDigital,
                     optical_max,
                     digital_max,
-                );
+                )?;
 
                 println!("Zoom: 0x{raw_value:04X}");
                 println!("  Optical zoom: {:.1}%", optical.value() * 100.0);

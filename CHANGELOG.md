@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking Changes
 
+#### Profile-Aware Direct Zoom Positioning (#529)
+- **BREAKING**: Direct zoom setters now distinguish raw and normalized command paths. `set_zoom` accepts only a checked raw `ZoomPosition`; use `set_zoom_normalized(UnitInterval)` for optical normalized zoom and `set_zoom_normalized_in_domain(UnitInterval, ZoomDomain)` for documented optical-plus-digital ranges.
+- **BREAKING**: Profile-independent `ZoomPosition` conversions from `f32`, `UnitInterval`, `Percentage`, and `Magnification` were removed. `Raw<u16>` conversion is now checked through `TryFrom<Raw<u16>>` and invalid raw values return an error instead of falling back to minimum zoom.
+- Normalized zoom command conversion is now profile-aware, uses each profile's optical or digital maximum explicitly, and never falls back from `OpticalPlusDigital` to optical-only when no digital range is documented.
+- Blocking, async, accessor, `_op`, and dyn-api zoom surfaces now share the same raw, optical-normalized, and domain-normalized semantics.
+
 #### 1.0 Low-Level API Hardening (#528)
 - **BREAKING**: Camera implementation submodules are no longer public extension points. Import the supported camera surface from `grafton_visca::camera` (`Connect`, `Camera`, `CameraBuilder`, `CameraConfig`, `TransportKind`, `TransportOptions`, `CommandId`, and operation/in-flight handle types) and import static control traits from the crate root, for example `grafton_visca::{PowerControl, ZoomControl}`.
 - **BREAKING**: `Normalized` was removed in favor of the checked `UnitInterval` value type. Use `UnitInterval::new(value)?`, `UnitInterval::try_from(value)?`, `UnitInterval::ZERO`, or `UnitInterval::ONE`; invalid, NaN, and infinite values are rejected instead of being constructible through a public tuple field.
@@ -692,7 +698,7 @@ The zoom and focus APIs have been simplified by removing unit-specific method na
 
 **What Changed:**
 
-- `zoom_absolute()` and `set_zoom_position()` → `set_zoom<T>()`
+- `zoom_absolute()` and `set_zoom_position()` → `set_zoom<T>()` in 0.9.0; this zoom API was later replaced by the profile-aware 1.0 direct zoom contract.
 - `set_focus()` updated to accept generic types via `TryInto<FocusPosition>`
 - `set_focus_near_limit()` updated to accept generic types
 - `set_zoom_op()` and `set_focus_op()` async operation methods updated similarly
@@ -704,12 +710,9 @@ The zoom and focus APIs have been simplified by removing unit-specific method na
 camera.zoom_absolute(ZoomPosition::new(0x4000)?)?;
 camera.set_zoom_position(0x4000)?;
 
-// After (0.9.0) - multiple ways to set zoom
-camera.set_zoom(Percentage(50.0))?;           // 50% of range
-camera.set_zoom(Normalized(0.5))?;            // Normalized 0.0-1.0
-camera.set_zoom(Magnification(10.0))?;        // 10x magnification
-camera.set_zoom(Raw(0x4000))?;                // Raw VISCA value
-camera.set_zoom(ZoomPosition::new(0x4000)?)?; // Explicit position
+// After the 1.0 zoom contract
+camera.set_zoom(ZoomPosition::new(0x4000)?)?; // Raw VISCA position
+camera.set_zoom_normalized(UnitInterval::new(0.5)?)?; // Optical normalized position
 
 // Focus works similarly
 camera.set_focus(Percentage(75.0))?;
@@ -908,8 +911,8 @@ New `inquiry_conversions` module provides helpers for converting raw VISCA value
 
 ```rust
 use grafton_visca::{
-    inquiry_conversions::{PanTiltPositionRaw, PanTiltPositionDeg, ZoomDomain, Normalized},
-    ZoomPositionExt,
+    inquiry_conversions::{PanTiltPositionRaw, PanTiltPositionDeg, ZoomDomain},
+    UnitInterval, ZoomPositionExt,
 };
 
 // Convert raw pan/tilt to degrees
@@ -918,12 +921,12 @@ let deg = raw.as_degrees();  // ~85° pan, ~45° tilt
 
 // Domain-aware zoom normalization
 let zoom_pos = camera.inquiry().zoom_position().await?;
-let optical_norm = zoom_pos.normalize(ZoomDomain::Optical);  // 0.0-1.0 for optical range
-let full_norm = zoom_pos.normalize(ZoomDomain::OpticalPlusDigital);  // 0.0-1.0 for full range
+let optical_norm = zoom_pos.normalize_with_max(ZoomDomain::Optical, 0x4000, Some(0x7000))?;
+let full_norm = zoom_pos.normalize_with_max(ZoomDomain::OpticalPlusDigital, 0x4000, Some(0x7000))?;
 
 // Create zoom position from normalized value
-let zoom = zoom_from_normalized(Normalized(0.5), ZoomDomain::Optical)?;
-camera.zoom_absolute(zoom)?;
+let zoom = zoom_from_normalized(UnitInterval::new(0.5)?, ZoomDomain::Optical, 0x4000, Some(0x7000))?;
+camera.set_zoom(zoom)?;
 ```
 
 Types added:
@@ -1674,13 +1677,11 @@ let normalized_full = (zoom_pos.value() as f32) / 0x7000 as f32;
 use grafton_visca::ZoomPositionExt;
 
 let zoom_pos = camera.inquiry().zoom_position().await?;
-let optical_norm = zoom_pos.normalize(ZoomDomain::Optical);  // 0.0-1.0
-let full_norm = zoom_pos.normalize(ZoomDomain::OpticalPlusDigital);  // 0.0-1.0
+let optical_norm = zoom_pos.normalize_with_max(ZoomDomain::Optical, 0x4000, Some(0x7000))?;
+let full_norm = zoom_pos.normalize_with_max(ZoomDomain::OpticalPlusDigital, 0x4000, Some(0x7000))?;
 
 // Set zoom from normalized value
-camera.zoom_absolute(
-    zoom_from_normalized(Normalized(0.5), ZoomDomain::Optical)?
-).await?;
+camera.set_zoom_normalized(UnitInterval::new(0.5)?).await?;
 ```
 
 #### Health Checks

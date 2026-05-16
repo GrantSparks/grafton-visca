@@ -704,8 +704,15 @@ pub trait DynZoomControl: Send + Sync {
     /// Set digital zoom on or off.
     fn set_digital_zoom(&self, enabled: bool) -> BoxFuture<'_, Result<(), Error>>;
 
-    /// Set zoom to an absolute normalized position with domain awareness.
-    fn zoom_absolute_normalized(
+    /// Set zoom to a normalized optical position.
+    fn set_zoom_normalized(
+        &self,
+        position: UnitInterval,
+        timeout: Option<Duration>,
+    ) -> BoxFuture<'_, Result<(), Error>>;
+
+    /// Set zoom to a normalized position in a documented zoom domain.
+    fn set_zoom_normalized_in_domain(
         &self,
         position: UnitInterval,
         domain: ZoomDomain,
@@ -1220,12 +1227,11 @@ where
 
         match timeout {
             Some(t) => Box::pin(async move {
-                let command =
-                    crate::camera::controls::zoom::zoom_position_command::<P, _>(position)?;
+                let command = crate::camera::controls::zoom::zoom_position_command::<P>(position)?;
                 let handle = self.inner.camera.start_zoom_operation(command).await?;
                 handle.await_completion(t).await
             }),
-            None => match crate::camera::controls::zoom::zoom_position_command::<P, _>(position) {
+            None => match crate::camera::controls::zoom::zoom_position_command::<P>(position) {
                 Ok(command) => self.inner.camera.execute(command),
                 Err(error) => Box::pin(async move { Err(error) }),
             },
@@ -1240,7 +1246,7 @@ where
                 });
             }
 
-            let command = crate::camera::controls::zoom::zoom_position_command::<P, _>(position)?;
+            let command = crate::camera::controls::zoom::zoom_position_command::<P>(position)?;
             let handle = self.inner.camera.start_zoom_operation(command).await?;
             self.erase_inflight(handle, OperationCategory::Zoom)
         })
@@ -1260,7 +1266,34 @@ where
             .execute(crate::command::zoom::DigitalZoom::new(enabled))
     }
 
-    fn zoom_absolute_normalized(
+    fn set_zoom_normalized(
+        &self,
+        position: UnitInterval,
+        timeout: Option<Duration>,
+    ) -> BoxFuture<'_, Result<(), Error>> {
+        if !self.capabilities().supports_direct_zoom {
+            return Box::pin(async {
+                Err(Error::FeatureNotSupported {
+                    feature: "direct zoom positioning",
+                })
+            });
+        }
+
+        match timeout {
+            Some(t) => Box::pin(async move {
+                let command =
+                    crate::camera::controls::zoom::zoom_normalized_command::<P>(position)?;
+                let handle = self.inner.camera.start_zoom_operation(command).await?;
+                handle.await_completion(t).await
+            }),
+            None => match crate::camera::controls::zoom::zoom_normalized_command::<P>(position) {
+                Ok(command) => self.inner.camera.execute(command),
+                Err(error) => Box::pin(async move { Err(error) }),
+            },
+        }
+    }
+
+    fn set_zoom_normalized_in_domain(
         &self,
         position: UnitInterval,
         domain: ZoomDomain,
@@ -1284,28 +1317,18 @@ where
 
         match timeout {
             Some(t) => Box::pin(async move {
-                use crate::ZoomPositionExt;
-
-                let zoom = ZoomPosition::from_normalized(
-                    position,
-                    domain,
-                    <P as crate::capabilities::zoom::Zoom>::OPTICAL_ZOOM_MAX,
-                    <P as crate::capabilities::zoom::Zoom>::DIGITAL_ZOOM_MAX,
+                let zoom = crate::camera::controls::zoom::zoom_from_normalized_for_profile::<P>(
+                    position, domain,
                 )?;
-                let command = crate::camera::controls::zoom::zoom_position_command::<P, _>(zoom)?;
+                let command = crate::camera::controls::zoom::zoom_position_command::<P>(zoom)?;
                 let handle = self.inner.camera.start_zoom_operation(command).await?;
                 handle.await_completion(t).await
             }),
             None => {
-                use crate::ZoomPositionExt;
-
-                let command = ZoomPosition::from_normalized(
-                    position,
-                    domain,
-                    <P as crate::capabilities::zoom::Zoom>::OPTICAL_ZOOM_MAX,
-                    <P as crate::capabilities::zoom::Zoom>::DIGITAL_ZOOM_MAX,
+                let command = crate::camera::controls::zoom::zoom_from_normalized_for_profile::<P>(
+                    position, domain,
                 )
-                .and_then(crate::camera::controls::zoom::zoom_position_command::<P, _>);
+                .and_then(crate::camera::controls::zoom::zoom_position_command::<P>);
                 match command {
                     Ok(command) => self.inner.camera.execute(command),
                     Err(error) => Box::pin(async move { Err(error) }),

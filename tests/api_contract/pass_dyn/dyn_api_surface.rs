@@ -9,7 +9,8 @@ use grafton_visca::{
         DynZoomControl, InFlightDyn, IntoDynCamera,
     },
     mode::BoxFuture,
-    Error, StateCache,
+    types::ZoomPosition,
+    Error, StateCache, UnitInterval, ZoomDomain,
 };
 
 fn assert_dyn_camera_surface(camera: &dyn DynCameraControl) {
@@ -30,6 +31,19 @@ fn assert_dyn_motion_surface(motion: &dyn DynMotionControl) {
     let _: BoxFuture<'_, Result<(), Error>> = motion.await_focus_idle(Duration::from_secs(1));
 }
 
+fn assert_dyn_zoom_surface(zoom: &dyn DynZoomControl) {
+    let _: BoxFuture<'_, Result<(), Error>> =
+        zoom.set_zoom(ZoomPosition::MIN, Some(Duration::from_secs(1)));
+    let _: BoxFuture<'_, Result<InFlightDyn, Error>> = zoom.set_zoom_op(ZoomPosition::MIN);
+    let _: BoxFuture<'_, Result<(), Error>> =
+        zoom.set_zoom_normalized(UnitInterval::ZERO, Some(Duration::from_secs(1)));
+    let _: BoxFuture<'_, Result<(), Error>> = zoom.set_zoom_normalized_in_domain(
+        UnitInterval::ONE,
+        ZoomDomain::OpticalPlusDigital,
+        Some(Duration::from_secs(1)),
+    );
+}
+
 fn assert_into_dyn<T: IntoDynCamera>() {}
 
 fn main() {
@@ -38,4 +52,5 @@ fn main() {
     let _: PhantomData<fn(&dyn DynCameraControl)> = PhantomData;
     let _ = assert_dyn_camera_surface;
     let _ = assert_dyn_motion_surface;
+    let _ = assert_dyn_zoom_surface;
 }

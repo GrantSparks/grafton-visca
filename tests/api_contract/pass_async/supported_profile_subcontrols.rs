@@ -4,7 +4,7 @@ use grafton_visca::{
     profiles::{PtzOpticsG2, SonyBRCH900, SonyEVIH100, SonyFR7},
     types::{BrightnessLevel, ColorTemp, ContrastLevel, IrisLevel, SharpnessLevel},
     ColorTemperatureControl, ColorTemperatureInquiryControl, DigitalZoomControl,
-    DigitalZoomRangeControl, Error, Executor, IrisControl, ZoomDomain,
+    DigitalZoomRangeControl, DirectZoomControl, Error, Executor, IrisControl, ZoomDomain,
 };
 
 fn use_sony_fr7<Tr, Exec>(session: &CameraSession<Async, SonyFR7, Tr, Exec>) -> Result<(), Error>
@@ -16,7 +16,7 @@ where
     let iris = IrisLevel::new(1)?;
 
     let _ = session.set_digital_zoom(true);
-    let _ = session.zoom_absolute_normalized(normalized, ZoomDomain::OpticalPlusDigital);
+    let _ = session.set_zoom_normalized_in_domain(normalized, ZoomDomain::OpticalPlusDigital);
     let _ = session.exposure().iris_priority();
     let _ = session.set_iris(iris);
     let _ = session.exposure().set_brightness(BrightnessLevel::new(1)?);
@@ -68,7 +68,10 @@ where
     Exec: Executor + Send + Sync + Clone + 'static,
 {
     let iris = IrisLevel::new(1)?;
+    let normalized = grafton_visca::UnitInterval::new(0.5)?;
 
+    let _ = session.set_zoom(grafton_visca::types::ZoomPosition::new(0x2000)?);
+    let _ = session.set_zoom_normalized(normalized);
     let _ = session.exposure().iris_priority();
     let _ = session.set_iris(iris);
     let _ = session.exposure().bright_mode();

@@ -75,7 +75,7 @@ use crate::{
 /// use grafton_visca::{
 ///     Error,
 ///     camera::{Connect, profiles::PtzOpticsG2},
-///     units::UnitInterval,
+///     types::ZoomPosition,
 /// };
 ///
 /// fn main() -> Result<(), Error> {
@@ -84,7 +84,7 @@ use crate::{
 ///     // Direct Result<T, Error> returns - no .block() needed.
 ///     camera.power().on()?;
 ///     camera.zoom().stop()?;
-///     camera.zoom().set_position(UnitInterval::new(0.5)?)?;
+///     camera.zoom().set_position(ZoomPosition::new(0x2000)?)?;
 ///
 ///     Ok(())
 /// }
@@ -501,14 +501,35 @@ where
         self.camera.zoom_stop()
     }
 
-    /// Set zoom position directly.
-    pub fn set_position<T>(&self, position: T) -> Result<(), Error>
+    /// Set zoom position directly from raw VISCA units.
+    pub fn set_position(&self, position: crate::types::ZoomPosition) -> Result<(), Error>
     where
         Camera<Blocking, P, Tr, ()>: DirectZoomControl<Mode = Blocking>,
-        T: TryInto<crate::types::ZoomPosition>,
-        T::Error: Into<Error>,
     {
         self.camera.inner.set_zoom(position).block()
+    }
+
+    /// Set zoom to a normalized optical position.
+    pub fn set_normalized(&self, position: crate::UnitInterval) -> Result<(), Error>
+    where
+        Camera<Blocking, P, Tr, ()>: DirectZoomControl<Mode = Blocking>,
+    {
+        self.camera.inner.set_zoom_normalized(position).block()
+    }
+
+    /// Set zoom to a normalized position in a documented zoom domain.
+    pub fn set_normalized_in_domain(
+        &self,
+        position: crate::UnitInterval,
+        domain: crate::ZoomDomain,
+    ) -> Result<(), Error>
+    where
+        Camera<Blocking, P, Tr, ()>: DigitalZoomRangeControl<Mode = Blocking>,
+    {
+        self.camera
+            .inner
+            .set_zoom_normalized_in_domain(position, domain)
+            .block()
     }
 
     /// Zoom toward telephoto with variable speed.
@@ -525,16 +546,6 @@ where
         S: Into<crate::ZoomSpeed>,
     {
         self.camera.zoom_wide(Some(speed.into()))
-    }
-
-    /// Set zoom to an absolute position.
-    pub fn absolute<T>(&self, position: T) -> Result<(), Error>
-    where
-        Camera<Blocking, P, Tr, ()>: DirectZoomControl<Mode = Blocking>,
-        T: TryInto<crate::types::ZoomPosition>,
-        T::Error: Into<Error>,
-    {
-        self.set_position(position)
     }
 }
 
@@ -1708,47 +1719,26 @@ where
         + crate::capabilities::zoom::Zoom
         + crate::capabilities::HasDirectZoom,
 {
-    /// Set zoom to an absolute position.
-    ///
-    /// This method accepts any type that can be converted to `ZoomPosition`, providing
-    /// a flexible API for setting zoom using different units:
-    ///
-    /// - `Percentage(50.0)` - Set zoom to 50% of range
-    /// - `UnitInterval::new(0.5)?` - Set zoom to 0.5 (equivalent to 50%)
-    /// - `Magnification(10.0)` - Set zoom to 10x magnification
-    /// - `Raw(0x4000)` - Set zoom to raw VISCA value
-    /// - `ZoomPosition` - Set zoom to specific position directly
-    ///
-    /// # Arguments
-    /// * `position` - Target zoom position (accepts multiple types via `TryInto<ZoomPosition>`)
+    /// Set zoom to an absolute raw VISCA position.
     ///
     /// # Examples
     /// ```ignore
-    /// use grafton_visca::units::{Percentage, Magnification, UnitInterval, Raw};
+    /// use grafton_visca::types::ZoomPosition;
     ///
-    /// // Using percentage
-    /// camera.set_zoom(Percentage(50.0))?;
-    ///
-    /// // Using magnification
-    /// camera.set_zoom(Magnification(10.0))?;
-    ///
-    /// // Using normalized value
-    /// camera.set_zoom(UnitInterval::new(0.5)?)?;
-    ///
-    /// // Using raw value
-    /// camera.set_zoom(Raw(0x4000_u16))?;
+    /// camera.set_zoom(ZoomPosition::new(0x4000)?)?;
     /// ```
     ///
     /// # Errors
     /// Returns an error if:
-    /// - The conversion to `ZoomPosition` fails (e.g., value out of range)
+    /// - The raw position exceeds the selected profile's documented range
     /// - The command fails to send or receive a response
-    pub fn set_zoom<T>(&self, position: T) -> Result<(), Error>
-    where
-        T: TryInto<crate::types::ZoomPosition>,
-        T::Error: Into<Error>,
-    {
+    pub fn set_zoom(&self, position: crate::types::ZoomPosition) -> Result<(), Error> {
         self.inner.set_zoom(position).block()
+    }
+
+    /// Set zoom to a normalized optical position.
+    pub fn set_zoom_normalized(&self, position: crate::UnitInterval) -> Result<(), Error> {
+        self.inner.set_zoom_normalized(position).block()
     }
 }
 
@@ -1774,14 +1764,14 @@ where
         + crate::capabilities::zoom::Zoom
         + crate::capabilities::HasDigitalZoomRange,
 {
-    /// Set zoom to an absolute normalized position within a documented zoom domain.
-    pub fn zoom_absolute_normalized(
+    /// Set zoom to a normalized position within a documented zoom domain.
+    pub fn set_zoom_normalized_in_domain(
         &self,
         position: crate::UnitInterval,
         domain: crate::ZoomDomain,
     ) -> Result<(), Error> {
         self.inner
-            .zoom_absolute_normalized(position, domain)
+            .set_zoom_normalized_in_domain(position, domain)
             .block()
     }
 }
