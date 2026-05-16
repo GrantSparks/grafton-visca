@@ -450,7 +450,8 @@ fn test_capability_traits_stability() {
     assert!(!g2_caps.has_motion_sync);
     assert_eq!(g2_caps.max_motion_sync_speed, None);
     assert!(!g2_caps.has_nd_filter);
-    assert!(!g2_caps.has_iris_control);
+    assert!(g2_caps.has_iris_control);
+    assert!(g2_caps.has_picture_effect);
 
     let fr7_caps = Capabilities::from_profile::<SonyFR7>();
     assert_eq!(fr7_caps.model_name, "Sony FR7");

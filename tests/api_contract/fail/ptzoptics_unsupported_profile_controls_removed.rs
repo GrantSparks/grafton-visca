@@ -1,6 +1,6 @@
 use grafton_visca::{
-    profiles::PtzOpticsG2, transport::BlockingTransportHandle, types::IrisLevel, BlockingCamera,
-    Normalized, ZoomDomain,
+    profiles::PtzOpticsG2, transport::BlockingTransportHandle, BlockingCamera, Normalized,
+    ZoomDomain,
 };
 
 fn main() {
@@ -12,8 +12,5 @@ fn main() {
         Normalized::new(0.75).unwrap(),
         ZoomDomain::OpticalPlusDigital,
     );
-    let _ = camera.exposure().iris_priority();
-    let _ = camera.exposure().iris();
-    let _ = camera.set_iris(IrisLevel::new(1).unwrap());
     let _ = camera.focus().one_push();
 }

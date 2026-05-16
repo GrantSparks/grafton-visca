@@ -709,16 +709,11 @@ where
 #[cfg(test)]
 mod tests {
     use super::ensure_exposure_mode_supported;
-    use crate::{camera::profiles::PtzOpticsG2, command::exposure::ExposureMode, Error};
+    use crate::{camera::profiles::PtzOpticsG2, command::exposure::ExposureMode};
 
     #[test]
-    fn test_ptzoptics_rejects_unsupported_iris_mode() {
+    fn test_ptzoptics_accepts_reference_backed_iris_mode() {
         let result = ensure_exposure_mode_supported::<PtzOpticsG2>(ExposureMode::Iris);
-        assert!(matches!(
-            result,
-            Err(Error::FeatureNotSupported {
-                feature: "Iris-priority exposure mode"
-            })
-        ));
+        assert!(result.is_ok());
     }
 }

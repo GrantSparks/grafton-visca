@@ -658,7 +658,12 @@ macro_rules! __define_builtin_profiles {
 
             /// Returns whether this profile supports TCP transport.
             pub const fn supports_tcp(&self) -> bool {
-                true
+                match self {
+                    $(ProfileId::$id => !matches!(
+                        profile_registry::EnvelopeKind::$envelope_kind,
+                        profile_registry::EnvelopeKind::SonyEncapsulated
+                    ),)*
+                }
             }
 
             /// Returns whether this profile supports UDP transport.
@@ -725,7 +730,9 @@ macro_rules! __define_builtin_profiles {
 
             /// Returns whether this profile group supports TCP transport.
             pub const fn supports_tcp(&self) -> bool {
-                true
+                match self {
+                    $(ProfileGroup::$group => !$group_sony,)*
+                }
             }
 
             /// Returns whether this profile group supports UDP transport.
@@ -909,6 +916,16 @@ macro_rules! __define_builtin_profiles {
                     P::SHARPNESS_RANGE.is_some(),
                     "{id:?} sharpness marker and metadata must match"
                 );
+                assert_eq!(
+                    facts.has_typed_support(profile_registry::TypedSupportSurface::IrisControl),
+                    P::IRIS_RANGE.is_some(),
+                    "{id:?} iris marker and metadata must match"
+                );
+                assert_eq!(
+                    facts.has_typed_support(profile_registry::TypedSupportSurface::PictureEffect),
+                    P::SUPPORTS_PICTURE_EFFECT,
+                    "{id:?} picture-effect marker and metadata must match"
+                );
 
                 assert_eq!(caps.model_name, P::MODEL_NAME);
                 assert_eq!(caps.default_camera_id, P::DEFAULT_CAMERA_ID);
@@ -1058,10 +1075,13 @@ macro_rules! __define_builtin_profiles {
                         facts.evidence.iter().any(|item| item.key == "digital_zoom"),
                         "{id:?} must document why digital zoom typed support is absent"
                     );
-                    assert!(
-                        facts.evidence.iter().any(|item| item.key == "iris"),
-                        "{id:?} must document why iris typed support is absent"
-                    );
+                    if !facts.has_typed_support(profile_registry::TypedSupportSurface::IrisControl)
+                    {
+                        assert!(
+                            facts.evidence.iter().any(|item| item.key == "iris"),
+                            "{id:?} must document why iris typed support is absent"
+                        );
+                    }
                 }
             }
 
@@ -1080,9 +1100,15 @@ macro_rules! __define_builtin_profiles {
                     assert_eq!(P::OPTICAL_ZOOM_MAX, 0x4000);
                     assert_eq!(P::DIGITAL_ZOOM_MAX, None);
                     assert!(P::SUPPORTS_DIRECT_ZOOM);
+                    assert!(P::IRIS_RANGE.is_some());
+                    assert!(
+                        P::EXPOSURE_MODES
+                            .contains(&$crate::command::exposure::ExposureMode::Iris)
+                    );
                     assert!(P::SUPPORTS_FOCUS_ZONE);
                     assert!(!P::SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY);
                     assert_eq!(P::MAX_PRESETS, 127);
+                    assert!(P::SUPPORTS_PICTURE_EFFECT);
                     assert!(!P::SUPPORTS_PRESET_TOUR);
                 }
 
@@ -1097,6 +1123,10 @@ macro_rules! __define_builtin_profiles {
                 ] {
                     let facts = id.registry_facts();
                     assert!(facts.has_typed_support(profile_registry::TypedSupportSurface::FocusZone));
+                    assert!(facts
+                        .has_typed_support(profile_registry::TypedSupportSurface::IrisControl));
+                    assert!(facts
+                        .has_typed_support(profile_registry::TypedSupportSurface::PictureEffect));
                     assert!(!facts.has_typed_support(
                         profile_registry::TypedSupportSurface::FocusNearLimitInquiry
                     ));
@@ -1456,7 +1486,7 @@ macro_rules! define_builtin_profiles {
                     },
                     exposure: {
                         modes: profile_constants::PTZ_OPTICS_EXPOSURE_MODES,
-                        iris_range: None,
+                        iris_range: Some(0x00..0x0D),
                         shutter_speeds: profile_constants::PTZ_OPTICS_G2_SHUTTER_SPEEDS,
                         gain_range: 0..8,
                         brightness_range: Some(0..18),
@@ -1488,7 +1518,7 @@ macro_rules! define_builtin_profiles {
                         nr_2d: true,
                         nr_3d: true,
                         luminance: true,
-                        picture_effect: false,
+                        picture_effect: true,
                         luminance_range: Some(0..15),
                         combined_flip: true,
                         save_after_flip: true,
@@ -1522,6 +1552,7 @@ macro_rules! define_builtin_profiles {
                         BrightnessControl,
                         FocusLock,
                         DirectZoom,
+                        IrisControl,
                         FocusZone,
                         BacklightCompensation,
                         WideDynamicRange,
@@ -1542,10 +1573,10 @@ macro_rules! define_builtin_profiles {
                         NoiseReduction,
                         NoiseReduction2D,
                         NoiseReduction3D,
+                        PictureEffect,
                     ],
                     evidence: [
                         ("digital_zoom", "Hardware rejects VISCA digital zoom control on tested G2 firmware."),
-                        ("iris", "PTZOptics G2 rejects iris-priority and direct iris commands."),
                     ],
                 }
 
@@ -1603,7 +1634,7 @@ macro_rules! define_builtin_profiles {
                     },
                     exposure: {
                         modes: profile_constants::PTZ_OPTICS_EXPOSURE_MODES,
-                        iris_range: None,
+                        iris_range: Some(0x00..0x0D),
                         shutter_speeds: profile_constants::PTZ_OPTICS_G2_SHUTTER_SPEEDS,
                         gain_range: 0..8,
                         brightness_range: Some(0..18),
@@ -1635,7 +1666,7 @@ macro_rules! define_builtin_profiles {
                         nr_2d: true,
                         nr_3d: true,
                         luminance: true,
-                        picture_effect: false,
+                        picture_effect: true,
                         luminance_range: Some(0..15),
                         combined_flip: true,
                         save_after_flip: true,
@@ -1669,6 +1700,7 @@ macro_rules! define_builtin_profiles {
                         BrightnessControl,
                         FocusLock,
                         DirectZoom,
+                        IrisControl,
                         FocusZone,
                         BacklightCompensation,
                         WideDynamicRange,
@@ -1689,10 +1721,10 @@ macro_rules! define_builtin_profiles {
                         NoiseReduction,
                         NoiseReduction2D,
                         NoiseReduction3D,
+                        PictureEffect,
                     ],
                     evidence: [
                         ("digital_zoom", "PTZOptics built-ins keep VISCA digital zoom unavailable until model-specific evidence exists."),
-                        ("iris", "PTZOptics family exposure support omits iris-priority and direct iris control."),
                         ("preset_limit", "Raw PTZOptics VISCA preset commands are limited to the documented 0-127 range until values above 0x7F are target-tested."),
                     ],
                 }
@@ -1751,7 +1783,7 @@ macro_rules! define_builtin_profiles {
                     },
                     exposure: {
                         modes: profile_constants::PTZ_OPTICS_EXPOSURE_MODES,
-                        iris_range: None,
+                        iris_range: Some(0x00..0x0D),
                         shutter_speeds: profile_constants::PTZ_OPTICS_G2_SHUTTER_SPEEDS,
                         gain_range: 0..8,
                         brightness_range: Some(0..18),
@@ -1783,7 +1815,7 @@ macro_rules! define_builtin_profiles {
                         nr_2d: true,
                         nr_3d: true,
                         luminance: true,
-                        picture_effect: false,
+                        picture_effect: true,
                         luminance_range: Some(0..15),
                         combined_flip: true,
                         save_after_flip: true,
@@ -1817,6 +1849,7 @@ macro_rules! define_builtin_profiles {
                         BrightnessControl,
                         FocusLock,
                         DirectZoom,
+                        IrisControl,
                         FocusZone,
                         BacklightCompensation,
                         WideDynamicRange,
@@ -1837,10 +1870,10 @@ macro_rules! define_builtin_profiles {
                         NoiseReduction,
                         NoiseReduction2D,
                         NoiseReduction3D,
+                        PictureEffect,
                     ],
                     evidence: [
                         ("digital_zoom", "The Axis 0x7AC0 digital endpoint is not applied to PTZOptics; the 30X raw VISCA profile keeps the standard 0x4000 optical endpoint and no typed digital zoom."),
-                        ("iris", "PTZOptics family exposure support omits iris-priority and direct iris control."),
                         ("preset_limit", "Raw PTZOptics VISCA preset commands are limited to the documented 0-127 range until values above 0x7F are target-tested."),
                     ],
                 }

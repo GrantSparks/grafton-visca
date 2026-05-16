@@ -160,9 +160,12 @@ If this gating model ships in a pre-1.0 release before the final cutover, prefer
 - **BREAKING**: Iris-priority mode and iris set/reset/up/down moved from `ExposureControl` to `IrisControl`; iris value inquiry moved from `InquiryControl` to `IrisInquiryControl`.
 - **BREAKING**: One-push focus, PTZOptics snap focus, focus zone, AF sensitivity, and focus near-limit inquiry are now exposed through marker-gated traits instead of the broad focus/inquiry traits.
 - **BREAKING**: Backlight, WDR/dynamic range, exposure-compensation inquiries, one-push white balance, ATW, AWB sensitivity, color temperature, RGB gain/tuning, flip/mirror, saturation, hue, luminance, gamma, noise reduction, and picture effects moved out of broad exposure/color/white-balance/image/inquiry traits into marker-gated subcontrol traits.
-- `PtzOpticsG2`, `PtzOpticsG3`, and `PtzOptics30X` no longer expose typed VISCA digital zoom toggle, optical-plus-digital zoom positioning, iris controls/inquiry, one-push focus, or snap focus. Their raw command escape hatches remain available.
+- `PtzOpticsG2`, `PtzOpticsG3`, and `PtzOptics30X` no longer expose typed VISCA digital zoom toggle, optical-plus-digital zoom positioning, one-push focus, or snap focus. Their raw command escape hatches remain available.
 - `GenericVisca` no longer exposes typed backlight/WDR, color-temperature, RGB gain/tuning, image flip/mirror, noise-reduction, or picture-effect APIs; those command bytes remain reachable through raw VISCA escape hatches.
-- `SonyFR7` and `SonyBRCH900` expose typed digital zoom and iris APIs through explicit support markers; `GenericVisca`, Sony BRC/EVI, and Nearus profiles retain iris support where their metadata has an iris range.
+- `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, and `SonyBRCH900` expose typed iris APIs through explicit support markers; `GenericVisca`, Sony BRC/EVI, and Nearus profiles retain iris support where their metadata has an iris range.
+- `PtzOpticsG2`, `PtzOpticsG3`, and `PtzOptics30X` now expose typed picture-effect controls for the validated VISCA picture-effect command family.
+- `PictureEffectCommand` now sends only source-backed named modes (`Off` and `BlackAndWhite`); use `PictureEffectMode::Unknown(value)` for model-specific raw picture-effect values.
+- Sony-encapsulated profiles now report `supports_tcp() == false`; the consolidated reference validates Sony VISCA-over-IP over UDP `52381`.
 - Color-temperature support now follows the checked-in VISCA reference: PTZOptics G2/G3/30X, Sony BRC-H900, and Sony EVI-H100 expose typed color-temperature APIs; Sony FR7 does not.
 - Direct zoom positioning now validates raw positions against the selected profile range before encoding, so a profile without digital zoom support cannot send an out-of-profile digital-range direct zoom command through the typed API.
 - PTZOptics G2/G3/30X profiles now expose the validated AF zone command and inquiry, while PTZOptics G3/30X no longer expose focus-near-limit inquiry support that is not validated for PTZOptics in the consolidated reference.
@@ -292,9 +295,9 @@ the aggregate into a base trait plus capability-specific extension traits.
 - `dyn-api` is treated as a first-class 1.0 feature with public API contract coverage plus Tokio and smol runtime integration tests
 - README, crate docs, and examples now document the profile-gated vendor control matrix separately from runtime capability metadata
 
-#### PTZOptics Profiles Disable Iris
-- PTZOptics G2, G3, and 30X profiles now set `IRIS_RANGE: None` and exclude `ExposureMode::Iris` from their supported modes, reflecting hardware behaviour observed on real devices
-- All Sony and generic VISCA profiles retain full iris support unchanged
+#### PTZOptics Profiles Follow Reference-Backed Iris Support
+- PTZOptics G2, G3, and 30X profiles now set `IRIS_RANGE: Some(0x00..0x0D)` and include `ExposureMode::Iris`, matching the consolidated reference's iris-priority, direct iris, and iris inquiry rows
+- Sony and generic VISCA profiles retain their existing iris support unchanged
 
 #### Dependency Refresh
 - Updated dependency requirements for `bytes`, `smallvec`, `serde_with`, `serialport`, `tokio`, and `async-executor`.

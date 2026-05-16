@@ -107,16 +107,31 @@ pub enum PictureEffectMode {
     /// Normal operation (no effect).
     Off,
     /// Negative image effect.
+    ///
+    /// Not validated for built-in profiles; `PictureEffectCommand` rejects this
+    /// named mode unless a future profile adds source-backed value mapping.
     Negative,
     /// Black and white effect.
     BlackAndWhite,
     /// Sepia tone effect.
+    ///
+    /// Not validated for built-in profiles; `PictureEffectCommand` rejects this
+    /// named mode unless a future profile adds source-backed value mapping.
     Sepia,
     /// Sketch effect.
+    ///
+    /// Not validated for built-in profiles; `PictureEffectCommand` rejects this
+    /// named mode unless a future profile adds source-backed value mapping.
     Sketch,
     /// Emboss effect.
+    ///
+    /// Not validated for built-in profiles; `PictureEffectCommand` rejects this
+    /// named mode unless a future profile adds source-backed value mapping.
     Emboss,
     /// Mosaic effect.
+    ///
+    /// Not validated for built-in profiles; `PictureEffectCommand` rejects this
+    /// named mode unless a future profile adds source-backed value mapping.
     Mosaic,
     /// Unknown or camera-specific effect.
     Unknown(u8),
@@ -132,11 +147,10 @@ impl PictureEffectMode {
     /// The corresponding PictureEffectMode variant
     pub fn from_byte(effect: u8) -> Self {
         match effect {
-            0x00 => PictureEffectMode::Off,
+            0x00 | 0x02 => PictureEffectMode::Off,
             0x01 => PictureEffectMode::Negative,
-            0x02 => PictureEffectMode::BlackAndWhite,
             0x03 => PictureEffectMode::Sepia,
-            0x04 => PictureEffectMode::Sketch,
+            0x04 => PictureEffectMode::BlackAndWhite,
             0x05 => PictureEffectMode::Emboss,
             0x06 => PictureEffectMode::Mosaic,
             _ => PictureEffectMode::Unknown(effect),
@@ -162,7 +176,7 @@ impl PictureEffectMode {
         match self {
             PictureEffectMode::Off => 0x00,
             PictureEffectMode::Negative => 0x01,
-            PictureEffectMode::BlackAndWhite => 0x02,
+            PictureEffectMode::BlackAndWhite => 0x04,
             PictureEffectMode::Sepia => 0x03,
             PictureEffectMode::Sketch => 0x04,
             PictureEffectMode::Emboss => 0x05,
@@ -316,6 +330,12 @@ mod tests {
             PictureEffectMode::BlackAndWhite.description(),
             "Black & White"
         );
+        assert_eq!(PictureEffectMode::from_byte(0x02), PictureEffectMode::Off);
+        assert_eq!(
+            PictureEffectMode::from_byte(0x04),
+            PictureEffectMode::BlackAndWhite
+        );
+        assert_eq!(PictureEffectMode::BlackAndWhite.as_byte(), 0x04);
         assert_eq!(
             PictureEffectMode::Unknown(0xFF).description(),
             "Unknown picture effect"

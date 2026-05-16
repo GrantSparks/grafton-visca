@@ -337,16 +337,58 @@ impl ImageFlipCombinedCommand {
     }
 }
 
-visca_command! {
-        /// Command to set picture effect mode.
-    ///
-    /// Controls various artistic effects like negative, sepia, sketch, etc.
-    /// Note that not all effects are supported on all camera models.
-    pub struct PictureEffectCommand { mode: PictureEffectMode };
-    prefix = [0x01, 0x04, 0x63];
-    param = mode.as_byte();
-    max_param_size = 1;
-    category = CommandCategory::Quick;
+/// Command to set picture effect mode.
+///
+/// The built-in reference validates the standard off command and PTZOptics
+/// black-and-white command. Use `PictureEffectMode::Unknown(value)` for raw
+/// model-specific picture-effect values outside that source-backed surface.
+#[derive(Debug, Copy, Clone)]
+pub struct PictureEffectCommand {
+    /// Picture-effect mode to send.
+    pub mode: PictureEffectMode,
+}
+
+impl ViscaCommand for PictureEffectCommand {
+    type Response = ();
+    const MAX_SIZE: usize = 6;
+    const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
+
+    fn write_into(
+        &self,
+        camera_id: crate::camera_id::CameraId,
+        buffer: &mut [u8],
+    ) -> Result<usize, Error> {
+        use crate::command::bytes::ConstCommandBuilder;
+
+        let effect = match self.mode {
+            PictureEffectMode::Off => 0x00,
+            PictureEffectMode::BlackAndWhite => 0x04,
+            PictureEffectMode::Unknown(value) => value,
+            PictureEffectMode::Negative
+            | PictureEffectMode::Sepia
+            | PictureEffectMode::Sketch
+            | PictureEffectMode::Emboss
+            | PictureEffectMode::Mosaic => {
+                return Err(Error::InvalidParameter {
+                    parameter: "mode",
+                    value: Cow::Owned(format!("{:?}", self.mode)),
+                    reason: Cow::Borrowed(
+                        "picture effect mode is not validated for built-in VISCA profiles; use Unknown(value) for model-specific raw values",
+                    ),
+                });
+            }
+        };
+
+        let mut builder = ConstCommandBuilder::<6>::new();
+        builder.push_mut(camera_id.to_address_byte());
+        builder.append_mut(&[0x01, 0x04, 0x63]);
+        builder.push_mut(effect);
+        builder.terminate().build_into(buffer)
+    }
+
+    fn response_kind(&self) -> Option<InquiryKind> {
+        None
+    }
 }
 
 #[cfg(test)]
@@ -656,57 +698,46 @@ mod tests {
 
     visca_test!(
         PictureEffectCommand,
-        test_picture_effect_negative,
-        PictureEffectCommand {
-            mode: PictureEffectMode::Negative
-        },
-        &[0x81, 0x01, 0x04, 0x63, 0x01, VISCA_TERMINATOR]
-    );
-
-    visca_test!(
-        PictureEffectCommand,
         test_picture_effect_black_white,
         PictureEffectCommand {
             mode: PictureEffectMode::BlackAndWhite
-        },
-        &[0x81, 0x01, 0x04, 0x63, 0x02, VISCA_TERMINATOR]
-    );
-
-    visca_test!(
-        PictureEffectCommand,
-        test_picture_effect_sepia,
-        PictureEffectCommand {
-            mode: PictureEffectMode::Sepia
-        },
-        &[0x81, 0x01, 0x04, 0x63, 0x03, VISCA_TERMINATOR]
-    );
-
-    visca_test!(
-        PictureEffectCommand,
-        test_picture_effect_sketch,
-        PictureEffectCommand {
-            mode: PictureEffectMode::Sketch
         },
         &[0x81, 0x01, 0x04, 0x63, 0x04, VISCA_TERMINATOR]
     );
 
     visca_test!(
         PictureEffectCommand,
-        test_picture_effect_emboss,
+        test_picture_effect_unknown_raw_value,
         PictureEffectCommand {
-            mode: PictureEffectMode::Emboss
+            mode: PictureEffectMode::Unknown(0x05)
         },
         &[0x81, 0x01, 0x04, 0x63, 0x05, VISCA_TERMINATOR]
     );
 
-    visca_test!(
-        PictureEffectCommand,
-        test_picture_effect_mosaic,
-        PictureEffectCommand {
-            mode: PictureEffectMode::Mosaic
-        },
-        &[0x81, 0x01, 0x04, 0x63, 0x06, VISCA_TERMINATOR]
-    );
+    #[test]
+    fn test_picture_effect_rejects_unvalidated_named_modes() {
+        for mode in [
+            PictureEffectMode::Negative,
+            PictureEffectMode::Sepia,
+            PictureEffectMode::Sketch,
+            PictureEffectMode::Emboss,
+            PictureEffectMode::Mosaic,
+        ] {
+            let cmd = PictureEffectCommand { mode };
+            let mut buffer = [0; PictureEffectCommand::MAX_SIZE];
+            let error = match cmd.write_into(crate::camera_id::CameraId::default(), &mut buffer) {
+                Err(error) => error,
+                Ok(size) => panic!("unvalidated named picture effect encoded {size} bytes"),
+            };
+            assert!(matches!(
+                error,
+                Error::InvalidParameter {
+                    parameter: "mode",
+                    ..
+                }
+            ));
+        }
+    }
 
     #[test]
     fn test_picture_effect_properties() {

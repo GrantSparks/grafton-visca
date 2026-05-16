@@ -25,8 +25,10 @@ fn use_ptzoptics_g2(
     camera.set_image_flip(ImageFlipMode::Both)?;
     camera.set_noise_reduction_2d(NoiseReduction2DLevel::new(1)?)?;
     camera.set_noise_reduction_3d(NoiseReduction3DLevel::new(1)?)?;
+    camera.set_picture_effect(PictureEffectMode::BlackAndWhite)?;
     let _ = camera.white_balance().red_gain()?;
     let _ = camera.image().noise_reduction_2d()?;
+    let _ = camera.image().picture_effect()?;
     Ok(())
 }
 

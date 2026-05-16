@@ -43,10 +43,13 @@ fn use_sony_brch900(
 fn use_ptzoptics_quality(
     camera: BlockingCamera<grafton_visca::profiles::PtzOpticsG2, BlockingTransportHandle>,
 ) -> Result<(), Error> {
+    camera.exposure().iris_priority()?;
+    camera.set_iris(IrisLevel::new(1)?)?;
     camera.exposure().bright_mode()?;
     camera.exposure().set_brightness(BrightnessLevel::new(1)?)?;
     camera.image().set_contrast(ContrastLevel::new(1)?)?;
     camera.image().set_sharpness(SharpnessLevel::new(1)?)?;
+    let _ = camera.exposure().iris()?;
     let _ = camera.exposure().brightness()?;
     let _ = camera.image().contrast()?;
     let _ = camera.image().sharpness_mode()?;

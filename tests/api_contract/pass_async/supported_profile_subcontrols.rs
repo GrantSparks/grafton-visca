@@ -67,10 +67,15 @@ where
     Tr: grafton_visca::transport::AsyncTransport + Send + Sync + 'static,
     Exec: Executor + Send + Sync + Clone + 'static,
 {
+    let iris = IrisLevel::new(1)?;
+
+    let _ = session.exposure().iris_priority();
+    let _ = session.set_iris(iris);
     let _ = session.exposure().bright_mode();
     let _ = session.exposure().set_brightness(BrightnessLevel::new(1)?);
     let _ = session.image().set_contrast(ContrastLevel::new(1)?);
     let _ = session.image().set_sharpness(SharpnessLevel::new(1)?);
+    let _ = session.exposure().iris();
     let _ = session.exposure().brightness();
     let _ = session.image().contrast();
     let _ = session.image().sharpness_mode();

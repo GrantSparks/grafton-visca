@@ -53,12 +53,11 @@ mod profile_constants {
         ExposureMode::Bright,
     ];
 
-    /// PTZOptics profiles omit iris-priority mode because tested firmware rejects
-    /// direct iris commands.
     pub const PTZ_OPTICS_EXPOSURE_MODES: &[ExposureMode] = &[
         ExposureMode::Auto,
         ExposureMode::Manual,
         ExposureMode::Shutter,
+        ExposureMode::Iris,
         ExposureMode::Bright,
     ];
 
@@ -316,15 +315,15 @@ mod tests {
 
     #[test]
     fn test_profile_group_transport_support() {
-        for group in &[
-            ProfileGroup::GenericVisca,
-            ProfileGroup::PtzOpticsG2,
-            ProfileGroup::SonyProfessional,
-        ] {
+        for group in &[ProfileGroup::GenericVisca, ProfileGroup::PtzOpticsG2] {
             assert!(group.supports_tcp());
             assert!(group.supports_udp());
             assert!(group.supports_serial());
         }
+
+        assert!(!ProfileGroup::SonyProfessional.supports_tcp());
+        assert!(ProfileGroup::SonyProfessional.supports_udp());
+        assert!(ProfileGroup::SonyProfessional.supports_serial());
     }
 
     #[test]
@@ -337,7 +336,7 @@ mod tests {
     #[test]
     fn test_profile_transport_support() {
         for profile in ProfileId::all() {
-            assert!(profile.supports_tcp());
+            assert_eq!(profile.supports_tcp(), !profile.uses_sony_encapsulation());
             assert!(profile.supports_udp());
             assert!(profile.supports_serial());
         }

@@ -1,6 +1,6 @@
 use grafton_visca::{
-    camera::CameraSession, mode::Async, profiles::PtzOpticsG2, types::IrisLevel,
-    DigitalZoomControl, DigitalZoomRangeControl, Executor, IrisControl, ZoomDomain,
+    camera::CameraSession, mode::Async, profiles::PtzOpticsG2, DigitalZoomControl,
+    DigitalZoomRangeControl, Executor, ZoomDomain,
 };
 
 fn main() {
@@ -14,8 +14,6 @@ fn main() {
             grafton_visca::Normalized::new(0.75).unwrap(),
             ZoomDomain::OpticalPlusDigital,
         );
-        let _ = session.exposure().iris_priority();
-        let _ = session.set_iris(IrisLevel::new(1).unwrap());
         let _ = session.focus().one_push();
     }
 

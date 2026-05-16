@@ -30,7 +30,7 @@ crate::visca_range_type! {
     /// Valid range: 0 to 255 (0x00 to 0xFF).
     /// Note: Actual valid range depends on camera model:
     /// - PtzOptics G2: 0-127
-    /// - PtzOptics G3: 0-255
+    /// - PtzOptics G3: 0-127 for raw VISCA until values above 0x7F are target-tested
     /// - Sony FR7: 0-255
     /// - Sony EVI-H100: 0-6
     /// Camera-specific validation is performed when sending commands.

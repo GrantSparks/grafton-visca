@@ -692,9 +692,9 @@ mod tests {
         assert!(caps.has_focus_zone);
         assert!(!caps.has_af_sensitivity);
         assert!(!caps.has_focus_near_limit_inquiry);
-        assert!(!caps.has_iris_control);
-        assert!(!caps.supports_exposure_mode(ExposureMode::Iris));
-        assert_eq!(caps.iris_range, None);
+        assert!(caps.has_iris_control);
+        assert!(caps.supports_exposure_mode(ExposureMode::Iris));
+        assert_eq!(caps.iris_range, Some(0..=12));
         assert!(caps.has_rgb_gain);
 
         assert_eq!(caps.max_presets, 127);
@@ -707,6 +707,7 @@ mod tests {
         assert!(caps.has_image_processing);
         assert_eq!(caps.contrast_range, Some(0..=14));
         assert_eq!(caps.sharpness_range, Some(0..=15));
+        assert!(caps.has_picture_effect);
 
         assert!(caps.has_basic_features());
     }

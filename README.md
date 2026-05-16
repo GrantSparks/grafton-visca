@@ -72,14 +72,14 @@ custom integrations.
 
 Broad control families are also decomposed when model support differs. For
 example, PTZOptics profiles still expose baseline zoom, exposure, and focus
-controls, but do not expose typed VISCA digital zoom, iris, one-push focus, or
-snap focus methods.
+controls, but do not expose typed VISCA digital zoom, one-push focus, or snap
+focus methods.
 
 | Typed control surface | Built-in profiles |
 | --------------------- | ----------------- |
 | Direct absolute zoom positioning | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300` |
 | VISCA digital zoom toggle and optical-plus-digital positioning | `SonyFR7`, `SonyBRCH900` |
-| Iris control, iris-priority mode, and iris inquiry | `SonyFR7`, `SonyBRCH900`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300`, `GenericVisca` |
+| Iris control, iris-priority mode, and iris inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300`, `GenericVisca` |
 | Standard one-push focus | No built-in profile currently marks this typed capability |
 | PTZOptics snap focus | No built-in profile currently marks this typed capability |
 | Focus lock | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
@@ -107,7 +107,7 @@ snap focus methods.
 | Gamma control and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900`, `SonyEVIH100` |
 | Aggregate noise-reduction inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900`, `SonyEVIH100` |
 | 2D/3D noise reduction | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900` |
-| Picture effects | `SonyFR7`, `SonyBRCH900` |
+| Picture effects | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900` |
 
 Contributors adding or changing profile capabilities should follow the
 [Camera Profile Support Guide](docs/camera_profile_support.md) and the
@@ -265,8 +265,8 @@ Profiles define protocol format and default ports:
 | `SonyEVIH100`       | Raw VISCA          |     5678 |     1259 |
 | `SonyBRC300`         | Raw VISCA          |     5678 |     1259 |
 | `NearusBRC300`       | Raw VISCA          |     5678 |     1259 |
-| `SonyBRCH900`        | Sony encapsulation |    52381 |    52381 |
-| `SonyFR7`            | Sony encapsulation |    52381 |    52381 |
+| `SonyBRCH900`        | Sony encapsulation |      n/a |    52381 |
+| `SonyFR7`            | Sony encapsulation |      n/a |    52381 |
 
 Port can be omitted in connection strings; the profile default is used.
 
