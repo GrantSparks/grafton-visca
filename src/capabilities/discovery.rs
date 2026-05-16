@@ -4,7 +4,10 @@
 //! camera capabilities at runtime, complementing the compile-time
 //! trait-based capability system.
 
-use std::ops::{Range, RangeInclusive};
+use std::{
+    borrow::Cow,
+    ops::{Range, RangeInclusive},
+};
 
 use super::profile_metadata::InquirySupport;
 use crate::command::exposure::ExposureMode;
@@ -603,21 +606,52 @@ impl Capabilities {
     /// # Arguments
     /// * `magnification` - Desired zoom magnification (must be >= 1.0)
     ///
-    /// # Returns
-    /// The zoom position in VISCA units. Values below 1.0 are clamped to 0 units.
+    /// # Errors
+    /// Returns an error if the magnification is not finite, is below 1.0, or
+    /// maps past the documented optical or optical-plus-digital zoom range.
     ///
     /// # Example
     /// ```ignore
     /// let caps = Capabilities::from_profile::<PtzOpticsG2>();
-    /// let units = caps.magnification_to_zoom_units(10.0);
+    /// let units = caps.magnification_to_zoom_units(10.0)?;
     /// println!("10x zoom = 0x{:04X} units", units); // ~0x2000
     /// ```
-    #[must_use]
-    pub fn magnification_to_zoom_units(&self, magnification: f32) -> u16 {
-        if magnification <= 1.0 {
-            return 0;
+    pub fn magnification_to_zoom_units(&self, magnification: f32) -> Result<u16, crate::Error> {
+        if !magnification.is_finite() {
+            return Err(crate::Error::InvalidParameter {
+                parameter: "zoom magnification",
+                value: Cow::Owned(magnification.to_string()),
+                reason: Cow::Borrowed("value must be finite"),
+            });
         }
-        ((magnification - 1.0) * self.zoom_magnification_to_units) as u16
+
+        if magnification < 1.0 {
+            return Err(crate::Error::InvalidParameter {
+                parameter: "zoom magnification",
+                value: Cow::Owned(magnification.to_string()),
+                reason: Cow::Borrowed("value must be at least 1.0x"),
+            });
+        }
+
+        let max_units = self
+            .zoom_range_digital
+            .as_ref()
+            .map_or(*self.zoom_range_optical.end(), |range| *range.end());
+        let units =
+            (f64::from(magnification - 1.0) * f64::from(self.zoom_magnification_to_units)).round();
+
+        if !units.is_finite() || units > f64::from(max_units) {
+            return Err(crate::Error::InvalidParameter {
+                parameter: "zoom magnification",
+                value: Cow::Owned(magnification.to_string()),
+                reason: Cow::Owned(format!(
+                    "resulting zoom units exceed documented maximum {max_units:#06X}"
+                )),
+            });
+        }
+
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        Ok(units as u16)
     }
 
     /// Returns a summary of key capabilities as a formatted string.
@@ -920,11 +954,11 @@ mod tests {
     }
 
     #[test]
-    fn test_zoom_unit_conversions() {
+    fn test_zoom_unit_conversions() -> Result<(), crate::Error> {
         let caps = Capabilities::from_profile::<PtzOpticsG2>();
 
         // 1x magnification = 0 units
-        let units = caps.magnification_to_zoom_units(1.0);
+        let units = caps.magnification_to_zoom_units(1.0)?;
         assert_eq!(units, 0, "1x magnification should be 0 units");
 
         // 0 units = 1x magnification
@@ -936,7 +970,7 @@ mod tests {
 
         // Round-trip conversion
         let original_mag = 10.0;
-        let units = caps.magnification_to_zoom_units(original_mag);
+        let units = caps.magnification_to_zoom_units(original_mag)?;
         let recovered_mag = caps.zoom_units_to_magnification(units);
         assert!(
             (recovered_mag - original_mag).abs() < 0.1,
@@ -951,15 +985,21 @@ mod tests {
             (max_mag - expected_max).abs() < 0.01,
             "Max units should give max magnification"
         );
+        Ok(())
     }
 
     #[test]
     fn test_magnification_to_units_edge_cases() {
         let caps = Capabilities::from_profile::<PtzOpticsG2>();
 
-        // Values below 1.0 should clamp to 0
-        assert_eq!(caps.magnification_to_zoom_units(0.5), 0);
-        assert_eq!(caps.magnification_to_zoom_units(0.0), 0);
-        assert_eq!(caps.magnification_to_zoom_units(-1.0), 0);
+        // Values below 1.0 are invalid and must not silently clamp to wide.
+        assert!(caps.magnification_to_zoom_units(0.5).is_err());
+        assert!(caps.magnification_to_zoom_units(0.0).is_err());
+        assert!(caps.magnification_to_zoom_units(-1.0).is_err());
+        assert!(caps.magnification_to_zoom_units(f32::NAN).is_err());
+        assert!(caps.magnification_to_zoom_units(f32::INFINITY).is_err());
+        assert!(caps
+            .magnification_to_zoom_units(caps.max_combined_zoom() + 1.0)
+            .is_err());
     }
 }

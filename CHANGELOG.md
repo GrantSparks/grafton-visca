@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 #### Profile-Aware Direct Zoom Positioning (#529)
 - **BREAKING**: Direct zoom setters now distinguish raw and normalized command paths. `set_zoom` accepts only a checked raw `ZoomPosition`; use `set_zoom_normalized(UnitInterval)` for optical normalized zoom and `set_zoom_normalized_in_domain(UnitInterval, ZoomDomain)` for documented optical-plus-digital ranges.
 - **BREAKING**: Profile-independent `ZoomPosition` conversions from `f32`, `UnitInterval`, `Percentage`, and `Magnification` were removed. `Raw<u16>` conversion is now checked through `TryFrom<Raw<u16>>` and invalid raw values return an error instead of falling back to minimum zoom.
+- **BREAKING**: `Capabilities::magnification_to_zoom_units` now returns `Result<u16, Error>` and rejects non-finite, below-1.0x, and out-of-range magnifications instead of silently clamping invalid values to wide zoom.
 - Normalized zoom command conversion is now profile-aware, uses each profile's optical or digital maximum explicitly, and never falls back from `OpticalPlusDigital` to optical-only when no digital range is documented.
 - Blocking, async, accessor, `_op`, and dyn-api zoom surfaces now share the same raw, optical-normalized, and domain-normalized semantics.
 
