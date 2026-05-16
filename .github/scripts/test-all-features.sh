@@ -33,6 +33,36 @@ run_test() {
     echo ""
 }
 
+run_expected_unknown_feature() {
+    local description="$1"
+    local command="$2"
+    local output
+    local status
+
+    echo -e "${YELLOW}Testing expected failure: ${description}${NC}"
+    set +e
+    output=$(eval "$command" 2>&1)
+    status=$?
+    set -e
+
+    if [ "$status" -eq 0 ]; then
+        echo -e "${RED}✗ ${description} unexpectedly succeeded${NC}"
+        exit 1
+    fi
+
+    case "$output" in
+        *"does not contain this feature: mode-blocking"*)
+            echo -e "${GREEN}✓ ${description} failed with Cargo's unknown-feature error${NC}"
+            ;;
+        *)
+            echo "$output"
+            echo -e "${RED}✗ ${description} failed for the wrong reason${NC}"
+            exit 1
+            ;;
+    esac
+    echo ""
+}
+
 clean_target_checkpoint() {
     local description="$1"
 
@@ -53,6 +83,17 @@ run_test "default features" \
 # Test no default features (blocking mode)
 run_test "no default features (blocking mode)" \
     "cargo test --no-default-features"
+
+# Assert the removed blocking marker feature stays removed. These should fail
+# with Cargo's unknown-feature error rather than compiling any public surface.
+run_expected_unknown_feature "mode-blocking feature is rejected" \
+    "cargo check --no-default-features --features mode-blocking"
+
+run_expected_unknown_feature "mode-async + mode-blocking is rejected" \
+    "cargo check --no-default-features --features mode-async,mode-blocking"
+
+run_expected_unknown_feature "runtime-tokio + mode-blocking is rejected" \
+    "cargo check --no-default-features --features runtime-tokio,mode-blocking"
 
 # Test mode-async feature (runtime-agnostic)
 run_test "mode-async feature (runtime-agnostic)" \
@@ -136,6 +177,7 @@ echo "Feature Matrix Coverage:"
 echo "------------------------"
 echo "✓ Default features"
 echo "✓ Blocking mode (no features)"
+echo "✓ Removed mode-blocking feature rejected"
 echo "✓ Mode-async (runtime-agnostic)"
 echo "✓ Tokio runtime"
 echo "✓ Smol runtime"

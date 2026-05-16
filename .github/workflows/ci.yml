@@ -498,8 +498,8 @@ jobs:
             fi
           done
 
-          # Check all features (lib only)
-          cargo clippy --lib --all-features -- -D warnings
+          # Check all features across every target.
+          cargo clippy --all-targets --all-features -- -D warnings
 
           # Check the macro crate
           cargo clippy -p grafton-visca-macros --all-targets -- -D warnings
