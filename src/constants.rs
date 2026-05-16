@@ -22,9 +22,8 @@ const PAN_MAX: i16 = 2448;
 const TILT_MIN: i16 = -432;
 const TILT_MAX: i16 = 1296;
 const ZOOM_MIN: u16 = 0x0000;
-const ZOOM_MAX_12X: u16 = 0x4000;
-const ZOOM_MAX_20X: u16 = 0x7000;
-const ZOOM_MAX_30X: u16 = 0x7AC0;
+const ZOOM_MAX_OPTICAL: u16 = 0x4000;
+const ZOOM_MAX_SONY_DIGITAL: u16 = 0x7000;
 const PAN_SPEED_MAX: u8 = 0x18;
 const TILT_SPEED_MAX: u8 = 0x14;
 const ZOOM_SPEED_MAX: u8 = 0x07;
@@ -41,9 +40,10 @@ impl CameraVariant {
 
     const fn zoom_range(self) -> (u16, u16) {
         match self {
-            Self::PtzOpticsG2 | Self::PtzOpticsG3 | Self::SonyFR7 => (ZOOM_MIN, ZOOM_MAX_20X),
-            Self::PtzOptics30X => (ZOOM_MIN, ZOOM_MAX_30X),
-            Self::Unknown => (ZOOM_MIN, ZOOM_MAX_12X),
+            Self::SonyFR7 => (ZOOM_MIN, ZOOM_MAX_SONY_DIGITAL),
+            Self::PtzOpticsG2 | Self::PtzOpticsG3 | Self::PtzOptics30X | Self::Unknown => {
+                (ZOOM_MIN, ZOOM_MAX_OPTICAL)
+            }
         }
     }
 }

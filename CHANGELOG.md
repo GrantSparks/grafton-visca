@@ -150,6 +150,9 @@ If this gating model ships in a pre-1.0 release before the final cutover, prefer
 - `SonyFR7` and `SonyBRCH900` expose typed digital zoom and iris APIs through explicit support markers; `GenericVisca`, Sony BRC/EVI, and Nearus profiles retain iris support where their metadata has an iris range.
 - Color-temperature support now follows the checked-in VISCA reference: PTZOptics G2/G3/30X, Sony BRC-H900, and Sony EVI-H100 expose typed color-temperature APIs; Sony FR7 does not.
 - Direct zoom positioning now validates raw positions against the selected profile range before encoding, so a profile without digital zoom support cannot send an out-of-profile digital-range direct zoom command through the typed API.
+- PTZOptics G2/G3/30X profiles now expose the validated AF zone command and inquiry, while PTZOptics G3/30X no longer expose focus-near-limit inquiry support that is not validated for PTZOptics in the consolidated reference.
+- PTZOptics raw VISCA preset validation now uses the documented `0-127` command-table range for G2/G3/30X; higher serial/IP preset capacity remains an out-of-band device capability until raw VISCA values above `0x7F` are target-tested.
+- PTZOptics30X direct zoom validation now uses the standard `0x4000` optical endpoint instead of the Axis-only `0x7AC0` digital endpoint.
 - `dyn-api` remains profile-erased and now rejects unsupported digital zoom, one-push focus, focus zone, and AF sensitivity requests before command construction.
 
 #### Built-In Tally Capability Gate (#524)

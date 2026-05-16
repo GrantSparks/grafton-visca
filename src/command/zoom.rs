@@ -224,8 +224,8 @@ mod tests {
     }
 
     #[test]
-    fn test_zoom_position_encoding_digital_g2_max() {
-        // PtzOpticsG2 digital max = 0x7000
+    fn test_zoom_position_encoding_digital_range_value() {
+        // Some profiles with validated digital zoom ranges use values above 0x4000.
         let pos = ZoomPosition::new(0x7000).unwrap();
         let bytes = encode_zoom(&Zoom::Position(pos));
         // 0x7000 = nibbles: 7, 0, 0, 0
@@ -246,8 +246,8 @@ mod tests {
     }
 
     #[test]
-    fn test_zoom_position_encoding_30x_optical_max() {
-        // PtzOptics30X optical max = 0x7AC0
+    fn test_zoom_position_encoding_high_profile_range_value() {
+        // Preserve all nibbles for profile-specific high endpoints such as Axis 0x7AC0.
         let pos = ZoomPosition::new(0x7AC0).unwrap();
         let bytes = encode_zoom(&Zoom::Position(pos));
         // 0x7AC0 = nibbles: 7, A, C, 0

@@ -119,7 +119,9 @@ impl PanTiltPositionDeg {
 /// Zoom domain for normalization.
 ///
 /// Determines how zoom values are normalized to 0.0-1.0 range.
-/// The actual max values are profile-specific (e.g., 0x4000 optical for G2, 0x7AC0 for 30X).
+/// The actual max values are profile-specific (e.g., 0x4000 optical for
+/// PTZOptics raw VISCA profiles, higher endpoints only for profiles with
+/// validated digital zoom ranges).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]

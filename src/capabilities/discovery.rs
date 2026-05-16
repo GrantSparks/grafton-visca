@@ -675,7 +675,7 @@ mod tests {
 
         assert!(caps.has_auto_focus);
         assert!(!caps.has_one_push_focus);
-        assert!(!caps.has_focus_zone);
+        assert!(caps.has_focus_zone);
         assert!(!caps.has_af_sensitivity);
         assert!(!caps.has_focus_near_limit_inquiry);
         assert!(!caps.has_iris_control);

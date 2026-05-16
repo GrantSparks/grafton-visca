@@ -937,6 +937,44 @@ macro_rules! __define_builtin_profiles {
             }
 
             #[test]
+            fn ptzoptics_profiles_follow_consolidated_reference_boundaries() {
+                fn assert_ptzoptics_raw_profile<P>()
+                where
+                    P: $crate::capabilities::Profile + Default,
+                {
+                    assert_eq!(P::DEFAULT_TCP_PORT, 5678);
+                    assert_eq!(P::DEFAULT_UDP_PORT, 1259);
+                    assert_eq!(P::PAN_RANGE, -2448..2449);
+                    assert_eq!(P::TILT_RANGE, -432..1297);
+                    assert_eq!(P::MAX_PAN_SPEED, 24);
+                    assert_eq!(P::MAX_TILT_SPEED, 20);
+                    assert_eq!(P::OPTICAL_ZOOM_MAX, 0x4000);
+                    assert_eq!(P::DIGITAL_ZOOM_MAX, None);
+                    assert!(P::SUPPORTS_DIRECT_ZOOM);
+                    assert!(P::SUPPORTS_FOCUS_ZONE);
+                    assert!(!P::SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY);
+                    assert_eq!(P::MAX_PRESETS, 127);
+                    assert!(!P::SUPPORTS_PRESET_TOUR);
+                }
+
+                assert_ptzoptics_raw_profile::<PtzOpticsG2>();
+                assert_ptzoptics_raw_profile::<PtzOpticsG3>();
+                assert_ptzoptics_raw_profile::<PtzOptics30X>();
+
+                for id in [
+                    ProfileId::PtzOpticsG2,
+                    ProfileId::PtzOpticsG3,
+                    ProfileId::PtzOptics30X,
+                ] {
+                    let facts = id.registry_facts();
+                    assert!(facts.has_typed_support(profile_registry::TypedSupportSurface::FocusZone));
+                    assert!(!facts.has_typed_support(
+                        profile_registry::TypedSupportSurface::FocusNearLimitInquiry
+                    ));
+                }
+            }
+
+            #[test]
             fn typed_support_registry_covers_declared_surface_vocabulary() {
                 for facts in BUILTIN_PROFILE_FACTS {
                     for surface in facts.typed_support {
@@ -1056,18 +1094,15 @@ macro_rules! __define_builtin_profiles {
                     "Push auto focus",
                     profile_registry::TypedSupportSurface::PushAutoFocus,
                 );
-                assert_eq!(
-                    registry_profile_type_names_for(
-                        profile_registry::TypedSupportSurface::FocusZone
-                    ),
-                    registry_profile_type_names_for(
-                        profile_registry::TypedSupportSurface::AutoFocusSensitivity
-                    )
+                assert_row(
+                    readme,
+                    "Focus zone",
+                    profile_registry::TypedSupportSurface::FocusZone,
                 );
                 assert_row(
                     readme,
-                    "Focus zone and AF sensitivity",
-                    profile_registry::TypedSupportSurface::FocusZone,
+                    "Auto focus sensitivity",
+                    profile_registry::TypedSupportSurface::AutoFocusSensitivity,
                 );
                 assert_row(
                     readme,
@@ -1259,7 +1294,7 @@ macro_rules! define_builtin_profiles {
                         far_limit: 0xF000,
                         auto_focus: true,
                         one_push: false,
-                        focus_zone: false,
+                        focus_zone: true,
                         max_speed: 7,
                         af_sensitivity: false,
                         near_limit_inquiry: false,
@@ -1331,6 +1366,7 @@ macro_rules! define_builtin_profiles {
                         ExposureCompensation,
                         FocusLock,
                         DirectZoom,
+                        FocusZone,
                         BacklightCompensation,
                         WideDynamicRange,
                         ColorTemperature,
@@ -1362,7 +1398,7 @@ macro_rules! define_builtin_profiles {
                     id_attrs: [],
                     group: PtzOpticsG2,
                     vendor: "PtzOptics",
-                    description: "Latest generation PTZ camera with enhanced features and 255 presets",
+                    description: "Latest generation PTZ camera using the conservative raw VISCA preset range",
                     envelope: $crate::transport::RawVisca,
                     envelope_kind: RawVisca,
                     metadata: {
@@ -1402,10 +1438,10 @@ macro_rules! define_builtin_profiles {
                         far_limit: 0xF000,
                         auto_focus: true,
                         one_push: false,
-                        focus_zone: false,
+                        focus_zone: true,
                         max_speed: 7,
                         af_sensitivity: false,
-                        near_limit_inquiry: true,
+                        near_limit_inquiry: false,
                     },
                     exposure: {
                         modes: profile_constants::PTZ_OPTICS_EXPOSURE_MODES,
@@ -1449,9 +1485,9 @@ macro_rules! define_builtin_profiles {
                         gamma_range: Some(0..5),
                     },
                     presets: {
-                        max: 255,
+                        max: 127,
                         speed_range: 1..25,
-                        tour: true,
+                        tour: false,
                         recall_delay_ms: 0,
                         thumbnail: false,
                         names: false,
@@ -1474,7 +1510,7 @@ macro_rules! define_builtin_profiles {
                         ExposureCompensation,
                         FocusLock,
                         DirectZoom,
-                        FocusNearLimitInquiry,
+                        FocusZone,
                         BacklightCompensation,
                         WideDynamicRange,
                         ColorTemperature,
@@ -1496,6 +1532,7 @@ macro_rules! define_builtin_profiles {
                     evidence: [
                         ("digital_zoom", "PTZOptics built-ins keep VISCA digital zoom unavailable until model-specific evidence exists."),
                         ("iris", "PTZOptics family exposure support omits iris-priority and direct iris control."),
+                        ("preset_limit", "Raw PTZOptics VISCA preset commands are limited to the documented 0-127 range until values above 0x7F are target-tested."),
                     ],
                 }
 
@@ -1534,22 +1571,22 @@ macro_rules! define_builtin_profiles {
                         coordinate_system: $crate::capabilities::CoordinateSystem::SignedCentered,
                     },
                     zoom: {
-                        optical_max: 0x7AC0,
+                        optical_max: 0x4000,
                         digital_max: None,
                         speed_range: 0..8,
                         supports_direct: true,
                         supports_variable: true,
-                        magnification_to_units: 1043.0,
+                        magnification_to_units: 565.0,
                     },
                     focus: {
                         near_limit: 0x1000,
                         far_limit: 0xF000,
                         auto_focus: true,
                         one_push: false,
-                        focus_zone: false,
+                        focus_zone: true,
                         max_speed: 7,
                         af_sensitivity: false,
-                        near_limit_inquiry: true,
+                        near_limit_inquiry: false,
                     },
                     exposure: {
                         modes: profile_constants::PTZ_OPTICS_EXPOSURE_MODES,
@@ -1593,7 +1630,7 @@ macro_rules! define_builtin_profiles {
                         gamma_range: Some(0..5),
                     },
                     presets: {
-                        max: 100,
+                        max: 127,
                         speed_range: 1..25,
                         tour: false,
                         recall_delay_ms: 0,
@@ -1618,7 +1655,7 @@ macro_rules! define_builtin_profiles {
                         ExposureCompensation,
                         FocusLock,
                         DirectZoom,
-                        FocusNearLimitInquiry,
+                        FocusZone,
                         BacklightCompensation,
                         WideDynamicRange,
                         ColorTemperature,
@@ -1638,8 +1675,9 @@ macro_rules! define_builtin_profiles {
                         NoiseReduction3D,
                     ],
                     evidence: [
-                        ("digital_zoom", "The 30X profile models 0x7AC0 as optical range, not typed VISCA digital zoom."),
+                        ("digital_zoom", "The Axis 0x7AC0 digital endpoint is not applied to PTZOptics; the 30X raw VISCA profile keeps the standard 0x4000 optical endpoint and no typed digital zoom."),
                         ("iris", "PTZOptics family exposure support omits iris-priority and direct iris control."),
+                        ("preset_limit", "Raw PTZOptics VISCA preset commands are limited to the documented 0-127 range until values above 0x7F are target-tested."),
                     ],
                 }
 
