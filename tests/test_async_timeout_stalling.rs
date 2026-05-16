@@ -15,10 +15,10 @@ use std::time::Duration;
 
 #[cfg(feature = "runtime-tokio")]
 use grafton_visca::{
-    camera::{controls::zoom::ZoomControl, profiles::PtzOpticsG2},
+    camera::profiles::PtzOpticsG2,
     testing::testkit::{ScriptedTransport, Step},
     timeout::TimeoutConfig,
-    Error,
+    Error, ZoomControl,
 };
 
 /// Minimal standalone repro test for timeout stalling.
@@ -47,13 +47,12 @@ async fn test_command_timeout_completes_deterministically() {
         .build();
 
     // Create camera with timeout configuration
-    let camera = grafton_visca::camera::builder::CameraBuilder::<TokioExecutor>::with_executor(
-        executor.clone(),
-    )
-    .timeout_config(timeout_config)
-    .open_async::<PtzOpticsG2, _>(transport)
-    .await
-    .expect("Failed to create camera");
+    let camera =
+        grafton_visca::camera::CameraBuilder::<TokioExecutor>::with_executor(executor.clone())
+            .timeout_config(timeout_config)
+            .open_async::<PtzOpticsG2, _>(transport)
+            .await
+            .expect("Failed to create camera");
 
     // Send a command that will timeout
     let result = camera.zoom_stop().await;
@@ -99,13 +98,12 @@ async fn test_multiple_timeouts_no_starvation() {
         .ack_timeout(Duration::from_millis(80))
         .build();
 
-    let camera = grafton_visca::camera::builder::CameraBuilder::<TokioExecutor>::with_executor(
-        executor.clone(),
-    )
-    .timeout_config(timeout_config)
-    .open_async::<PtzOpticsG2, _>(transport)
-    .await
-    .expect("Failed to create camera");
+    let camera =
+        grafton_visca::camera::CameraBuilder::<TokioExecutor>::with_executor(executor.clone())
+            .timeout_config(timeout_config)
+            .open_async::<PtzOpticsG2, _>(transport)
+            .await
+            .expect("Failed to create camera");
 
     // Send multiple commands that will timeout
     // Create both futures - they will both be submitted when awaited
@@ -147,13 +145,12 @@ async fn test_shutdown_with_pending_timeouts() {
         .ack_timeout(Duration::from_millis(5000)) // Long timeout
         .build();
 
-    let camera = grafton_visca::camera::builder::CameraBuilder::<TokioExecutor>::with_executor(
-        executor.clone(),
-    )
-    .timeout_config(timeout_config)
-    .open_async::<PtzOpticsG2, _>(transport)
-    .await
-    .expect("Failed to create camera");
+    let camera =
+        grafton_visca::camera::CameraBuilder::<TokioExecutor>::with_executor(executor.clone())
+            .timeout_config(timeout_config)
+            .open_async::<PtzOpticsG2, _>(transport)
+            .await
+            .expect("Failed to create camera");
 
     // Start a command that would timeout after 5 seconds
     // Drop the future immediately to avoid borrowing issues

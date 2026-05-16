@@ -157,7 +157,6 @@ pub enum ColorTemperature {
 }
 
 impl ViscaCommand for ColorTemperature {
-    type Response = ();
     const MAX_SIZE: usize = 8;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
@@ -230,7 +229,6 @@ pub enum RedGain {
 }
 
 impl ViscaCommand for RedGain {
-    type Response = ();
     const MAX_SIZE: usize = 9;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
@@ -301,7 +299,6 @@ pub enum BlueGain {
 }
 
 impl ViscaCommand for BlueGain {
-    type Response = ();
     const MAX_SIZE: usize = 9;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 

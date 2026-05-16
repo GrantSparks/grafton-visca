@@ -63,7 +63,6 @@ pub(crate) struct PresetRecallSpeedCommand {
 }
 
 impl ViscaCommand for PresetRecallSpeedCommand {
-    type Response = ();
     const MAX_SIZE: usize = 6;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
@@ -98,7 +97,6 @@ pub(crate) struct PresetCommand {
 impl PresetCommand {}
 
 impl ViscaCommand for PresetCommand {
-    type Response = ();
     const MAX_SIZE: usize = 7;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Preset;
 

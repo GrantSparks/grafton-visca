@@ -60,7 +60,6 @@ pub enum Zoom {
 }
 
 impl ViscaCommand for Zoom {
-    type Response = ();
     const MAX_SIZE: usize = 10;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Movement;
 
@@ -142,7 +141,6 @@ impl DigitalZoom {
 }
 
 impl ViscaCommand for DigitalZoom {
-    type Response = ();
     const MAX_SIZE: usize = 6;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 

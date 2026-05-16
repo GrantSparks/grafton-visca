@@ -2,7 +2,7 @@ use grafton_visca::{
     command::{NdFilterMode, NdFilterStep, VariableSpeedMode},
     profiles::{PtzOpticsG2, SonyFR7},
     transport::BlockingTransportHandle,
-    units::{Degrees, Normalized},
+    units::{Degrees, UnitInterval},
     BlockingCamera, Error, SpeedLevel,
 };
 
@@ -10,7 +10,7 @@ fn use_blocking_camera(
     camera: BlockingCamera<PtzOpticsG2, BlockingTransportHandle>,
 ) -> Result<(), Error> {
     camera.power().on()?;
-    camera.zoom().set_position(Normalized(0.5))?;
+    camera.zoom().set_position(UnitInterval::new(0.5)?)?;
     camera
         .pan_tilt()
         .absolute(Degrees(0.0), Degrees(0.0), SpeedLevel::Medium)?;

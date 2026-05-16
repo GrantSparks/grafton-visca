@@ -114,7 +114,6 @@ pub fn derive_visca_inquiry_impl(input: DeriveInput) -> TokenStream {
 
             let expanded = quote! {
                 impl #crate_path::command::ViscaCommand for #struct_name {
-                    type Response = #crate_path::command::InquiryData;
                     const MAX_SIZE: usize = #max_size_expr;
                     const TIMEOUT_CATEGORY: #crate_path::timeout::CommandCategory = #crate_path::timeout::CommandCategory::Quick;
 

@@ -53,10 +53,16 @@
 //!   timeout, retry, keepalive, camera ID, or serial settings.
 //! - Use accessor-style controls such as `camera.power().on()` and
 //!   `camera.pan_tilt().position()` for normal operation.
+//! - Import generic control traits from the crate root, for example
+//!   [`PowerControl`] and [`ZoomControl`]; camera implementation submodules are
+//!   internal.
 //! - Use [`CameraBuilder`] only when you already own a custom transport and
 //!   need to attach it to the camera runtime.
-//! - Use [`command`] only as the raw VISCA escape hatch for custom commands not
-//!   represented by a typed accessor.
+//! - Use [`UnitInterval`] for normalized `0.0..=1.0` control values and
+//!   [`CameraId`] for configured VISCA camera addresses.
+//! - Use [`command::ViscaCommand`] as the raw VISCA escape hatch for custom
+//!   command encoding, and [`command::ResponseParser`] for typed custom inquiry
+//!   responses.
 //!
 //! ## Serialization Support
 //!
@@ -96,7 +102,7 @@
 //!
 //! ```rust
 //! # #[cfg(feature = "serde")] {
-//! use grafton_visca::camera::config::TransportOptions;
+//! use grafton_visca::camera::TransportOptions;
 //! use grafton_visca::camera::profiles::ProfileId;
 //!
 //! // Serialize camera profile
@@ -694,10 +700,10 @@ pub use crate::{
     },
     error::{Error, ErrorKind, Result},
     inquiry_conversions::{
-        zoom_from_normalized, Normalized, PanTiltPositionDeg, PanTiltPositionRaw, ZoomDomain,
-        ZoomPositionExt,
+        zoom_from_normalized, PanTiltPositionDeg, PanTiltPositionRaw, ZoomDomain, ZoomPositionExt,
     },
     types::{Coarse, FocusSpeed, MotionSyncSpeed, SpeedLevel, ZoomSpeed},
+    units::UnitInterval,
     visca_socket::ViscaSocket,
 };
 

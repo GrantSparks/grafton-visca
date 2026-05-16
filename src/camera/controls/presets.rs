@@ -218,17 +218,14 @@ where
     pub async fn preset_recall_op(
         &self,
         preset: PresetNumber,
-    ) -> Result<
-        crate::camera::inflight::InFlight<'_, crate::camera::inflight::Preset, P, Exec>,
-        Error,
-    > {
+    ) -> Result<crate::camera::InFlight<'_, crate::camera::PresetOperation, P, Exec>, Error> {
         let cmd = preset_command::<P>(PresetAction::Recall, preset)?;
 
         // Use start_command_with_id to get the response future without awaiting it
         let (id, response_future) = self.start_command_with_id(&cmd).await?;
 
         // Return InFlight handle with the response future
-        Ok(crate::camera::inflight::InFlight::new(
+        Ok(crate::camera::InFlight::new(
             id,
             self.camera_id(),
             self.runtime(),

@@ -123,7 +123,7 @@ fn test_cancel_socket_directly() {
         let camera_clone = camera.clone();
         use grafton_visca::Executor;
         executor_clone.spawn_bg(async move {
-            use grafton_visca::camera::controls::pan_tilt::PanTiltControl;
+            use grafton_visca::PanTiltControl;
             let _ = camera_clone
                 .pan_tilt_move(
                     PanTiltDirection::UpRight,

@@ -54,7 +54,6 @@ pub struct NdFilterModeCommand {
 }
 
 impl ViscaCommand for NdFilterModeCommand {
-    type Response = ();
     const MAX_SIZE: usize = 7;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
@@ -96,7 +95,6 @@ pub struct NdFilterValue {
 }
 
 impl ViscaCommand for NdFilterValue {
-    type Response = ();
     const MAX_SIZE: usize = 9;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
@@ -187,7 +185,6 @@ pub struct NdFilterStepCommand {
 }
 
 impl ViscaCommand for NdFilterStepCommand {
-    type Response = ();
     const MAX_SIZE: usize = 7;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
@@ -237,7 +234,6 @@ impl AutoNdCommand {
 }
 
 impl ViscaCommand for AutoNdCommand {
-    type Response = ();
     const MAX_SIZE: usize = 7;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 

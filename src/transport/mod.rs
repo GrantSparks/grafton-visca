@@ -91,6 +91,7 @@ use std::{
 /// The runtime queries this via `send_semantics()` on send errors to decide
 /// whether to poison the transport (Stream) or continue (Datagram).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum SendSemantics {
     /// Byte-stream transport (TCP, Serial).
     ///
@@ -172,6 +173,7 @@ pub use envelope::{Envelope, FrameMeta, RawVisca, SonyEncapsulated};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[non_exhaustive]
 pub enum BackoffStrategy {
     /// Constant delay between retries.
     ///

@@ -35,7 +35,6 @@ pub enum Gain {
 
 // Manual implementation to add model validation
 impl ViscaCommand for Gain {
-    type Response = ();
     const MAX_SIZE: usize = 9;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 

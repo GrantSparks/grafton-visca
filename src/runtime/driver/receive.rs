@@ -9,7 +9,7 @@ use std::borrow::Cow;
 use tracing::{debug, trace, warn};
 
 use crate::{
-    camera::inflight::CommandId,
+    camera::CommandId,
     capabilities::Profile,
     command::response::{lift_inquiry_for, Payload},
     error::Error,

@@ -20,11 +20,17 @@ pub struct Degrees<T = f32>(pub T);
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ViscaUnits<T>(pub T);
 
-/// Normalized position (0.0 to 1.0 or -1.0 to 1.0).
-#[derive(Debug, Clone, Copy, PartialEq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+/// Checked unit interval value (`0.0..=1.0`).
+///
+/// This is the canonical public type for normalized camera positions such as
+/// zoom position. It rejects values outside the unit interval as well as `NaN`
+/// and infinities.
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub struct Normalized<T = f32>(pub T);
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
+pub struct UnitInterval(
+    #[cfg_attr(feature = "schemars", validate(range(min = 0.0, max = 1.0)))] f32,
+);
 
 /// Percentage value (0.0 to 100.0).
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -121,33 +127,79 @@ impl<T> ViscaUnits<T> {
     }
 }
 
-impl<T> Normalized<T> {
-    /// Create a new normalized position.
-    pub fn new(value: T) -> Self {
-        Self(value)
+impl UnitInterval {
+    /// The lower bound of the unit interval.
+    pub const ZERO: Self = Self(0.0);
+
+    /// The upper bound of the unit interval.
+    pub const ONE: Self = Self(1.0);
+
+    /// Create a new unit interval value.
+    ///
+    /// # Errors
+    /// Returns an error if `value` is outside `0.0..=1.0`, `NaN`, or infinite.
+    pub fn new(value: f32) -> Result<Self, Error> {
+        if !value.is_finite() || !(0.0..=1.0).contains(&value) {
+            return Err(Error::InvalidParameter {
+                parameter: "unit_interval",
+                value: Cow::Owned(value.to_string()),
+                reason: Cow::Borrowed("Value must be finite and between 0.0 and 1.0"),
+            });
+        }
+        Ok(Self(value))
     }
 
     /// Get the inner value.
     #[must_use]
-    pub fn value(&self) -> &T {
-        &self.0
+    pub const fn value(self) -> f32 {
+        self.0
     }
 
     /// Consume and return the inner value.
-    pub fn into_inner(self) -> T {
+    #[must_use]
+    pub const fn into_inner(self) -> f32 {
         self.0
     }
-}
 
-impl From<f32> for Normalized<f32> {
-    fn from(value: f32) -> Self {
-        Self(value)
+    /// Converts to percentage (0-100).
+    #[must_use]
+    pub fn to_percentage(self) -> u8 {
+        (self.0 * 100.0).round() as u8
     }
 }
 
-impl From<f64> for Normalized<f64> {
-    fn from(value: f64) -> Self {
-        Self(value)
+impl TryFrom<f32> for UnitInterval {
+    type Error = Error;
+
+    fn try_from(value: f32) -> Result<Self, Self::Error> {
+        Self::new(value)
+    }
+}
+
+impl From<UnitInterval> for f32 {
+    fn from(value: UnitInterval) -> Self {
+        value.0
+    }
+}
+
+#[cfg(feature = "serde")]
+impl serde::Serialize for UnitInterval {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_f32(self.0)
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de> serde::Deserialize<'de> for UnitInterval {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = <f32 as serde::Deserialize>::deserialize(deserializer)?;
+        Self::new(value).map_err(serde::de::Error::custom)
     }
 }
 
@@ -239,19 +291,11 @@ impl TryFrom<Percentage<f32>> for ZoomPosition {
     }
 }
 
-impl TryFrom<Normalized<f32>> for ZoomPosition {
+impl TryFrom<UnitInterval> for ZoomPosition {
     type Error = Error;
 
-    fn try_from(normalized: Normalized<f32>) -> Result<Self, Self::Error> {
-        if normalized.0 < 0.0 || normalized.0 > 1.0 {
-            return Err(Error::ParameterOutOfRange {
-                parameter: "zoom normalized",
-                value: (normalized.0 * 100.0) as i32,
-                min: 0,
-                max: 100,
-            });
-        }
-        let value = (normalized.0 * 0x7000 as f32) as u16;
+    fn try_from(unit_interval: UnitInterval) -> Result<Self, Self::Error> {
+        let value = (unit_interval.value() * 0x7000 as f32) as u16;
         ZoomPosition::new(value)
     }
 }

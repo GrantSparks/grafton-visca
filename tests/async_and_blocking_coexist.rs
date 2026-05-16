@@ -28,9 +28,8 @@ fn test_async_mode_compile() {
 #[cfg(not(feature = "mode-async"))]
 #[test]
 fn test_blocking_traits_available() {
-    use grafton_visca::camera::controls::{
-        focus::FocusControl, inquiry::InquiryControl, pan_tilt::PanTiltControl,
-        power::PowerControl, presets::PresetsControl, zoom::ZoomControl,
+    use grafton_visca::{
+        FocusControl, InquiryControl, PanTiltControl, PowerControl, PresetsControl, ZoomControl,
     };
 
     fn _uses_blocking_traits<T>()
@@ -48,9 +47,8 @@ fn test_blocking_traits_available() {
 #[cfg(feature = "mode-async")]
 #[test]
 fn test_async_traits_with_feature() {
-    use grafton_visca::camera::controls::{
-        focus::FocusControl, inquiry::InquiryControl, pan_tilt::PanTiltControl,
-        power::PowerControl, presets::PresetsControl, zoom::ZoomControl,
+    use grafton_visca::{
+        FocusControl, InquiryControl, PanTiltControl, PowerControl, PresetsControl, ZoomControl,
     };
 
     fn _uses_async_traits<T>()
@@ -82,8 +80,8 @@ fn test_preludes_per_mode() {
         use grafton_visca::runtime_adapters::tokio::TcpTransport as AsyncTcp;
         // The async prelude doesn't export type aliases like PtzOpticsG2Cam
         // Instead, we use runtime-specific aliases or construct the type directly
-        use grafton_visca::camera::builder::async_cameras::TokioCamera;
-        type _AsyncG2 = TokioCamera<async_prelude::PtzOpticsG2, AsyncTcp>;
+        use grafton_visca::{AsyncCamera, TokioExecutor};
+        type _AsyncG2 = AsyncCamera<async_prelude::PtzOpticsG2, AsyncTcp, TokioExecutor>;
         let _ = core::any::type_name::<_AsyncG2>();
     }
 }

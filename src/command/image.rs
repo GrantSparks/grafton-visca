@@ -94,7 +94,6 @@ pub enum Sharpness {
 }
 
 impl ViscaCommand for Sharpness {
-    type Response = ();
     const MAX_SIZE: usize = 9;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Custom;
 
@@ -212,7 +211,7 @@ visca_command! {
     ///
     /// Use [`GammaInquiryControl::gamma`] to query the current value.
     ///
-    /// [`GammaInquiryControl::gamma`]: crate::camera::controls::inquiry::GammaInquiryControl::gamma
+    /// [`GammaInquiryControl::gamma`]: crate::GammaInquiryControl::gamma
     pub struct GammaCommand { level: GammaLevel };
     prefix = [0x01, 0x04, 0x5B];
     param = level.value();
@@ -349,7 +348,6 @@ pub struct PictureEffectCommand {
 }
 
 impl ViscaCommand for PictureEffectCommand {
-    type Response = ();
     const MAX_SIZE: usize = 6;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 

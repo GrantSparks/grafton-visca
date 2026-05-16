@@ -123,6 +123,7 @@ pub enum ErrorKind {
 /// }
 /// ```
 #[derive(ThisError, Debug, Clone)]
+#[non_exhaustive]
 pub enum Error {
     /// Failed to establish connection to the camera.
     #[error("Connection failed to {addr}: {source}")]
@@ -468,7 +469,7 @@ pub enum Error {
         /// Built-in profile that rejected the transport.
         profile: crate::camera::profiles::ProfileId,
         /// Selected transport kind.
-        transport: crate::camera::config::TransportKind,
+        transport: crate::camera::TransportKind,
     },
 
     /// Runtime is required for async operations but was not provided.

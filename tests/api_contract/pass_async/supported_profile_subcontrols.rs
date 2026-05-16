@@ -12,7 +12,7 @@ where
     Tr: grafton_visca::transport::AsyncTransport + Send + Sync + 'static,
     Exec: Executor + Send + Sync + Clone + 'static,
 {
-    let normalized = grafton_visca::Normalized::new(0.75)?;
+    let normalized = grafton_visca::UnitInterval::new(0.75)?;
     let iris = IrisLevel::new(1)?;
 
     let _ = session.set_digital_zoom(true);

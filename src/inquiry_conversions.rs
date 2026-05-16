@@ -7,7 +7,7 @@
 use crate::{
     camera::PanTiltPosition,
     types::{PanPosition, TiltPosition, ZoomPosition},
-    units::Degrees,
+    units::{Degrees, UnitInterval},
 };
 
 /// Represents a pan/tilt position in raw VISCA units.
@@ -139,51 +139,6 @@ pub enum ZoomDomain {
     OpticalPlusDigital,
 }
 
-/// Normalized value between 0.0 and 1.0.
-///
-/// Used for representing positions and levels as percentages.
-#[derive(Debug, Clone, Copy, PartialEq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub struct Normalized(pub f32);
-
-impl Normalized {
-    /// Creates a new normalized value with validation.
-    ///
-    /// # Errors
-    /// Returns an error if the value is outside 0.0-1.0 range.
-    pub fn new(value: f32) -> Result<Self, crate::Error> {
-        use std::borrow::Cow;
-
-        if !(0.0..=1.0).contains(&value) {
-            return Err(crate::Error::InvalidParameter {
-                parameter: "normalized",
-                value: Cow::Owned(value.to_string()),
-                reason: Cow::Borrowed("Value must be between 0.0 and 1.0"),
-            });
-        }
-        Ok(Self(value))
-    }
-
-    /// Gets the inner value (0.0-1.0).
-    pub fn value(&self) -> f32 {
-        self.0
-    }
-
-    /// Converts to percentage (0-100).
-    pub fn to_percentage(&self) -> u8 {
-        (self.0 * 100.0).round() as u8
-    }
-}
-
-impl TryFrom<f32> for Normalized {
-    type Error = crate::Error;
-
-    fn try_from(value: f32) -> Result<Self, Self::Error> {
-        Self::new(value)
-    }
-}
-
 /// Extension trait for ZoomPosition to add profile-aware normalization.
 pub trait ZoomPositionExt {
     /// Normalizes the zoom position to 0.0-1.0 range based on the specified domain.
@@ -205,7 +160,7 @@ pub trait ZoomPositionExt {
         domain: ZoomDomain,
         optical_max: u16,
         digital_max: Option<u16>,
-    ) -> Normalized;
+    ) -> UnitInterval;
 
     /// Creates a zoom position from a normalized value (0.0-1.0).
     ///
@@ -218,7 +173,7 @@ pub trait ZoomPositionExt {
     /// # Errors
     /// Returns an error if the normalized value is outside 0.0-1.0 range.
     fn from_normalized(
-        normalized: Normalized,
+        normalized: UnitInterval,
         domain: ZoomDomain,
         optical_max: u16,
         digital_max: Option<u16>,
@@ -231,23 +186,22 @@ impl ZoomPositionExt for ZoomPosition {
         domain: ZoomDomain,
         optical_max: u16,
         digital_max: Option<u16>,
-    ) -> Normalized {
+    ) -> UnitInterval {
         let max = match domain {
             ZoomDomain::Optical => optical_max,
             ZoomDomain::OpticalPlusDigital => digital_max.unwrap_or(optical_max),
         };
 
         if max == 0 {
-            return Normalized(0.0);
+            return UnitInterval::ZERO;
         }
 
         let normalized = (self.value() as f32) / (max as f32);
-        // Clamp to 0.0-1.0 to handle any edge cases
-        Normalized(normalized.clamp(0.0, 1.0))
+        UnitInterval::new(normalized.clamp(0.0, 1.0)).unwrap_or(UnitInterval::ZERO)
     }
 
     fn from_normalized(
-        normalized: Normalized,
+        normalized: UnitInterval,
         domain: ZoomDomain,
         optical_max: u16,
         digital_max: Option<u16>,
@@ -262,12 +216,12 @@ impl ZoomPositionExt for () {
         _domain: ZoomDomain,
         _optical_max: u16,
         _digital_max: Option<u16>,
-    ) -> Normalized {
-        Normalized(0.0)
+    ) -> UnitInterval {
+        UnitInterval::ZERO
     }
 
     fn from_normalized(
-        normalized: Normalized,
+        normalized: UnitInterval,
         domain: ZoomDomain,
         optical_max: u16,
         digital_max: Option<u16>,
@@ -278,7 +232,7 @@ impl ZoomPositionExt for () {
 
 /// Helper function to create a ZoomPosition from normalized value.
 pub fn zoom_from_normalized(
-    normalized: Normalized,
+    normalized: UnitInterval,
     domain: ZoomDomain,
     optical_max: u16,
     digital_max: Option<u16>,
@@ -410,12 +364,12 @@ mod tests {
         let digital_max: Option<u16> = Some(0x7000);
 
         // Test optical domain
-        let norm = Normalized::new(0.5)?;
+        let norm = UnitInterval::new(0.5)?;
         let zoom = zoom_from_normalized(norm, ZoomDomain::Optical, optical_max, digital_max)?;
         assert_eq!(zoom.value(), 0x2000);
 
         // Test digital domain
-        let norm = Normalized::new(1.0)?;
+        let norm = UnitInterval::new(1.0)?;
         let zoom = zoom_from_normalized(
             norm,
             ZoomDomain::OpticalPlusDigital,
@@ -425,22 +379,25 @@ mod tests {
         assert_eq!(zoom.value(), 0x7000);
 
         // Test edge cases
-        let norm = Normalized::new(0.0)?;
+        let norm = UnitInterval::new(0.0)?;
         let zoom = zoom_from_normalized(norm, ZoomDomain::Optical, optical_max, digital_max)?;
         assert_eq!(zoom.value(), 0x0000);
         Ok(())
     }
 
     #[test]
-    fn test_normalized_validation() -> Result<(), crate::Error> {
-        assert!(Normalized::new(0.0).is_ok());
-        assert!(Normalized::new(0.5).is_ok());
-        assert!(Normalized::new(1.0).is_ok());
+    fn test_unit_interval_validation() -> Result<(), crate::Error> {
+        assert!(UnitInterval::new(0.0).is_ok());
+        assert!(UnitInterval::new(0.5).is_ok());
+        assert!(UnitInterval::new(1.0).is_ok());
 
-        assert!(Normalized::new(-0.1).is_err());
-        assert!(Normalized::new(1.1).is_err());
+        assert!(UnitInterval::new(-0.1).is_err());
+        assert!(UnitInterval::new(1.1).is_err());
+        assert!(UnitInterval::new(f32::NAN).is_err());
+        assert!(UnitInterval::new(f32::INFINITY).is_err());
+        assert!(UnitInterval::new(f32::NEG_INFINITY).is_err());
 
-        let norm = Normalized::new(0.75)?;
+        let norm = UnitInterval::new(0.75)?;
         assert_eq!(norm.to_percentage(), 75);
         Ok(())
     }

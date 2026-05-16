@@ -9,7 +9,7 @@ use tracing::{debug, trace};
 use std::{collections::HashMap, collections::VecDeque, sync::Arc, time::Instant};
 
 use crate::{
-    camera::inflight::CommandId,
+    camera::CommandId,
     camera_id::CameraId,
     capabilities::Profile,
     command::response::Response,

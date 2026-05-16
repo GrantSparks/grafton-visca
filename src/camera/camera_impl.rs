@@ -378,58 +378,56 @@ where
     // Accessor methods for noun-based control trait access
 
     /// Access power-related controls and inquiries.
-    pub fn power(&self) -> crate::camera::accessors::PowerAccessor<'_, M, P, Tr, Exec> {
-        crate::camera::accessors::PowerAccessor::new(self)
+    pub fn power(&self) -> crate::camera::PowerAccessor<'_, M, P, Tr, Exec> {
+        crate::camera::PowerAccessor::new(self)
     }
 
     /// Access zoom-related controls and inquiries.
-    pub fn zoom(&self) -> crate::camera::accessors::ZoomAccessor<'_, M, P, Tr, Exec> {
-        crate::camera::accessors::ZoomAccessor::new(self)
+    pub fn zoom(&self) -> crate::camera::ZoomAccessor<'_, M, P, Tr, Exec> {
+        crate::camera::ZoomAccessor::new(self)
     }
 
     /// Access system-related controls and inquiries.
-    pub fn system(&self) -> crate::camera::accessors::SystemAccessor<'_, M, P, Tr, Exec> {
-        crate::camera::accessors::SystemAccessor::new(self)
+    pub fn system(&self) -> crate::camera::SystemAccessor<'_, M, P, Tr, Exec> {
+        crate::camera::SystemAccessor::new(self)
     }
 
     /// Access pan/tilt-related controls and inquiries.
-    pub fn pan_tilt(&self) -> crate::camera::accessors::PanTiltAccessor<'_, M, P, Tr, Exec> {
-        crate::camera::accessors::PanTiltAccessor::new(self)
+    pub fn pan_tilt(&self) -> crate::camera::PanTiltAccessor<'_, M, P, Tr, Exec> {
+        crate::camera::PanTiltAccessor::new(self)
     }
 
     /// Access focus-related controls and inquiries.
-    pub fn focus(&self) -> crate::camera::accessors::FocusAccessor<'_, M, P, Tr, Exec> {
-        crate::camera::accessors::FocusAccessor::new(self)
+    pub fn focus(&self) -> crate::camera::FocusAccessor<'_, M, P, Tr, Exec> {
+        crate::camera::FocusAccessor::new(self)
     }
 
     /// Access exposure-related controls and inquiries.
-    pub fn exposure(&self) -> crate::camera::accessors::ExposureAccessor<'_, M, P, Tr, Exec> {
-        crate::camera::accessors::ExposureAccessor::new(self)
+    pub fn exposure(&self) -> crate::camera::ExposureAccessor<'_, M, P, Tr, Exec> {
+        crate::camera::ExposureAccessor::new(self)
     }
 
     /// Access white balance controls and inquiries.
-    pub fn white_balance(
-        &self,
-    ) -> crate::camera::accessors::WhiteBalanceAccessor<'_, M, P, Tr, Exec> {
-        crate::camera::accessors::WhiteBalanceAccessor::new(self)
+    pub fn white_balance(&self) -> crate::camera::WhiteBalanceAccessor<'_, M, P, Tr, Exec> {
+        crate::camera::WhiteBalanceAccessor::new(self)
     }
 
     /// Access image processing controls and inquiries.
-    pub fn image(&self) -> crate::camera::accessors::ImageAccessor<'_, M, P, Tr, Exec> {
-        crate::camera::accessors::ImageAccessor::new(self)
+    pub fn image(&self) -> crate::camera::ImageAccessor<'_, M, P, Tr, Exec> {
+        crate::camera::ImageAccessor::new(self)
     }
 
     /// Access preset-related controls.
-    pub fn presets(&self) -> crate::camera::accessors::PresetsAccessor<'_, M, P, Tr, Exec> {
-        crate::camera::accessors::PresetsAccessor::new(self)
+    pub fn presets(&self) -> crate::camera::PresetsAccessor<'_, M, P, Tr, Exec> {
+        crate::camera::PresetsAccessor::new(self)
     }
 
     /// Access tally light controls and inquiries.
-    pub fn tally(&self) -> crate::camera::accessors::TallyAccessor<'_, M, P, Tr, Exec>
+    pub fn tally(&self) -> crate::camera::TallyAccessor<'_, M, P, Tr, Exec>
     where
         P: crate::capabilities::HasTally,
     {
-        crate::camera::accessors::TallyAccessor::new(self)
+        crate::camera::TallyAccessor::new(self)
     }
 
     /// Access the state cache for write-only properties.
@@ -516,63 +514,61 @@ where
     // Accessor methods for noun-based control trait access
 
     /// Access power-related controls and inquiries.
-    pub fn power(&self) -> crate::camera::accessors::PowerAccessor<'_, M, P, Tr, Exec> {
-        crate::camera::accessors::PowerAccessor::new(self)
+    pub fn power(&self) -> crate::camera::PowerAccessor<'_, M, P, Tr, Exec> {
+        crate::camera::PowerAccessor::new(self)
     }
 
     /// Access zoom-related controls and inquiries.
-    pub fn zoom(&self) -> crate::camera::accessors::ZoomAccessor<'_, M, P, Tr, Exec> {
-        crate::camera::accessors::ZoomAccessor::new(self)
+    pub fn zoom(&self) -> crate::camera::ZoomAccessor<'_, M, P, Tr, Exec> {
+        crate::camera::ZoomAccessor::new(self)
     }
 
     /// Access pan/tilt-related controls and inquiries.
-    pub fn pan_tilt(&self) -> crate::camera::accessors::PanTiltAccessor<'_, M, P, Tr, Exec> {
-        crate::camera::accessors::PanTiltAccessor::new(self)
+    pub fn pan_tilt(&self) -> crate::camera::PanTiltAccessor<'_, M, P, Tr, Exec> {
+        crate::camera::PanTiltAccessor::new(self)
     }
 
     /// Access focus-related controls and inquiries.
-    pub fn focus(&self) -> crate::camera::accessors::FocusAccessor<'_, M, P, Tr, Exec> {
-        crate::camera::accessors::FocusAccessor::new(self)
+    pub fn focus(&self) -> crate::camera::FocusAccessor<'_, M, P, Tr, Exec> {
+        crate::camera::FocusAccessor::new(self)
     }
 
     /// Access exposure-related controls and inquiries.
-    pub fn exposure(&self) -> crate::camera::accessors::ExposureAccessor<'_, M, P, Tr, Exec> {
-        crate::camera::accessors::ExposureAccessor::new(self)
+    pub fn exposure(&self) -> crate::camera::ExposureAccessor<'_, M, P, Tr, Exec> {
+        crate::camera::ExposureAccessor::new(self)
     }
 
     /// Access white balance controls.
-    pub fn white_balance(
-        &self,
-    ) -> crate::camera::accessors::WhiteBalanceAccessor<'_, M, P, Tr, Exec> {
-        crate::camera::accessors::WhiteBalanceAccessor::new(self)
+    pub fn white_balance(&self) -> crate::camera::WhiteBalanceAccessor<'_, M, P, Tr, Exec> {
+        crate::camera::WhiteBalanceAccessor::new(self)
     }
 
     /// Access menu navigation controls.
-    pub fn menu(&self) -> crate::camera::accessors::MenuAccessor<'_, M, P, Tr, Exec> {
-        crate::camera::accessors::MenuAccessor::new(self)
+    pub fn menu(&self) -> crate::camera::MenuAccessor<'_, M, P, Tr, Exec> {
+        crate::camera::MenuAccessor::new(self)
     }
 
     /// Access preset controls.
-    pub fn presets(&self) -> crate::camera::accessors::PresetsAccessor<'_, M, P, Tr, Exec> {
-        crate::camera::accessors::PresetsAccessor::new(self)
+    pub fn presets(&self) -> crate::camera::PresetsAccessor<'_, M, P, Tr, Exec> {
+        crate::camera::PresetsAccessor::new(self)
     }
 
     /// Access tally light controls.
-    pub fn tally(&self) -> crate::camera::accessors::TallyAccessor<'_, M, P, Tr, Exec>
+    pub fn tally(&self) -> crate::camera::TallyAccessor<'_, M, P, Tr, Exec>
     where
         P: crate::capabilities::HasTally,
     {
-        crate::camera::accessors::TallyAccessor::new(self)
+        crate::camera::TallyAccessor::new(self)
     }
 
     /// Access system-related controls and inquiries.
-    pub fn system(&self) -> crate::camera::accessors::SystemAccessor<'_, M, P, Tr, Exec> {
-        crate::camera::accessors::SystemAccessor::new(self)
+    pub fn system(&self) -> crate::camera::SystemAccessor<'_, M, P, Tr, Exec> {
+        crate::camera::SystemAccessor::new(self)
     }
 
     /// Access image-related controls and inquiries.
-    pub fn image(&self) -> crate::camera::accessors::ImageAccessor<'_, M, P, Tr, Exec> {
-        crate::camera::accessors::ImageAccessor::new(self)
+    pub fn image(&self) -> crate::camera::ImageAccessor<'_, M, P, Tr, Exec> {
+        crate::camera::ImageAccessor::new(self)
     }
 
     /// Access the state cache for write-only properties.
@@ -723,7 +719,7 @@ where
     ///
     /// # Type Safety
     ///
-    /// The returned [`CommandId`](crate::camera::inflight::CommandId) is guaranteed
+    /// The returned [`CommandId`](crate::camera::CommandId) is guaranteed
     /// to be valid and non-zero. It can be used with [`cancel`](Self::cancel) to
     /// cancel the command.
     pub fn send_command_with_id<'a, C>(
@@ -731,7 +727,7 @@ where
         command: &'a C,
     ) -> <crate::mode::Async as Mode>::Fut<
         'static,
-        Result<(crate::camera::inflight::CommandId, crate::command::Response), Error>,
+        Result<(crate::camera::CommandId, crate::command::Response), Error>,
     >
     where
         C: ViscaCommand,
@@ -775,7 +771,7 @@ where
     ///
     /// # Example
     /// ```rust,ignore
-    /// use grafton_visca::camera::inflight::CommandId;
+    /// use grafton_visca::camera::CommandId;
     ///
     /// let (id, future) = camera.start_command_with_id(&cmd).await?;
     /// // Can cancel by ID here
@@ -789,7 +785,7 @@ where
         command: &C,
     ) -> Result<
         (
-            crate::camera::inflight::CommandId,
+            crate::camera::CommandId,
             Pin<Box<dyn Future<Output = Result<crate::command::Response, Error>> + Send + 'static>>,
         ),
         Error,
@@ -847,10 +843,10 @@ where
     ///
     /// # Type Safety
     ///
-    /// This method only accepts [`CommandId`](crate::camera::inflight::CommandId)
+    /// This method only accepts [`CommandId`](crate::camera::CommandId)
     /// values returned by the library, preventing the sentinel-value foot-gun where
     /// callers could pass invalid IDs that would never match any command.
-    pub async fn cancel(&self, command_id: crate::camera::inflight::CommandId) -> Result<(), Error>
+    pub async fn cancel(&self, command_id: crate::camera::CommandId) -> Result<(), Error>
     where
         Tr: AsyncTransport + Send + Sync,
         Exec: Executor + Send + Sync + Clone,

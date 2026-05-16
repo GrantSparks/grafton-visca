@@ -15,17 +15,17 @@
 //! - `Tr`: Transport type (TCP, UDP, or Serial)
 //! - `Exec`: Runtime executor (for async mode)
 
-pub mod accessors;
-pub mod builder;
+mod accessors;
+mod builder;
 mod camera_impl;
 pub(crate) mod capabilities;
-pub mod config;
-pub mod controls;
-pub mod convenience;
-pub mod inflight;
+mod config;
+pub(crate) mod controls;
+mod convenience;
+mod inflight;
 mod movement;
 pub mod profiles;
-pub mod session;
+mod session;
 
 #[cfg(not(feature = "mode-async"))]
 mod blocking_api;
@@ -35,12 +35,20 @@ pub use blocking_api::BlockingClient;
 // Re-export the camera type (the actual implementation)
 pub use camera_impl::Camera;
 
-// Re-export CommandId for easy access
-pub use inflight::CommandId;
+// Re-export accessor and operation types that appear in public signatures.
+pub use accessors::*;
+pub use inflight::{
+    CommandId, Focus as FocusOperation, PanTilt as PanTiltOperation, Preset as PresetOperation,
+    Zoom as ZoomOperation,
+};
+#[cfg(feature = "mode-async")]
+pub use inflight::{InFlight, ResponseFuture};
 
 // Re-export new API types
 pub use config::{CameraConfig, TransportKind, TransportOptions};
-pub use session::CameraSession;
+pub use session::{
+    CameraSession, Closed as ClosedSessionState, ClosedSession, Open as OpenSessionState, RawSender,
+};
 
 // Re-export convenience methods for quick connection
 pub use convenience::{

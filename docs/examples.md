@@ -22,6 +22,11 @@ The maintained examples in `examples/` fall into these categories:
 - Use `CameraConfig` for standard transport policy: timeouts, retries, TCP
   keepalive, queue depth, and camera ID.
 - Use `CameraBuilder` only when the caller already owns the transport.
+- Import public camera construction/session types from `grafton_visca::camera`
+  and static control traits from the crate root; do not teach private
+  implementation submodules under `camera`.
+- Use checked value constructors in examples, such as `UnitInterval::new(...)`
+  and `CameraConfig::try_camera_id(...)`, when values come from user input.
 - Default examples should be read-only where possible.
 - Examples that move hardware must make that behavior explicit in the command
   line or in the operation name.
@@ -54,6 +59,7 @@ cargo check --examples
 cargo check --examples --features runtime-tokio
 cargo check --examples --features runtime-smol
 cargo check --example serial_async_demo --features runtime-tokio,transport-serial-tokio
+cargo test api_contracts --all-features
 ```
 
 Lab validation tools can be run separately against a known camera bench:

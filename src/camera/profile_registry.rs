@@ -822,13 +822,13 @@ macro_rules! __define_builtin_profiles {
             /// Returns whether this profile supports the selected standard transport.
             pub const fn supports_transport(
                 &self,
-                transport: $crate::camera::config::TransportKind,
+                transport: $crate::camera::TransportKind,
             ) -> bool {
                 match transport {
-                    $crate::camera::config::TransportKind::Tcp => self.supports_tcp(),
-                    $crate::camera::config::TransportKind::Udp => self.supports_udp(),
-                    $crate::camera::config::TransportKind::Serial => self.supports_serial(),
-                    $crate::camera::config::TransportKind::Custom => true,
+                    $crate::camera::TransportKind::Tcp => self.supports_tcp(),
+                    $crate::camera::TransportKind::Udp => self.supports_udp(),
+                    $crate::camera::TransportKind::Serial => self.supports_serial(),
+                    $crate::camera::TransportKind::Custom => true,
                 }
             }
 

@@ -1,9 +1,15 @@
 #[cfg(not(feature = "mode-async"))]
 use grafton_visca::profiles::SonyFR7;
 use grafton_visca::{
-    camera::{CameraConfig, Connect, TcpConnectBuilder, UdpConnectBuilder},
+    camera::{
+        AwaitConfig, Camera, CameraBuilder, CameraConfig, CameraSession, CommandId, Connect,
+        FocusAccessor, FocusOperation, PanTiltAccessor, PanTiltOperation, PowerAccessor,
+        PresetOperation, TcpConnectBuilder, TransportKind, TransportOptions, UdpConnectBuilder,
+        ZoomAccessor, ZoomOperation,
+    },
     profiles::PtzOpticsG2,
     transport::{RetryConfig, TransportConfig},
+    CameraId,
 };
 
 fn main() {
@@ -16,9 +22,55 @@ fn main() {
         .timeouts(Default::default())
         .retry_config(RetryConfig::default())
         .transport_config(TransportConfig::default())
-        .camera_id(1)
+        .try_camera_id(1)
         .unwrap();
     let _ = config.clone();
+    let _ = CameraConfig::<PtzOpticsG2>::tcp("127.0.0.1").camera_id(CameraId::CAMERA_1);
+    let _ = CameraBuilder::new()
+        .camera_id(CameraId::CAMERA_1)
+        .try_camera_id(1)
+        .unwrap();
+    let _ = TransportKind::Tcp;
+    let _ = TransportOptions::tcp("127.0.0.1");
+    let _ = core::any::TypeId::of::<AwaitConfig>();
+    let _ = core::any::TypeId::of::<CommandId>();
+    let _ = core::any::TypeId::of::<PanTiltOperation>();
+    let _ = core::any::TypeId::of::<ZoomOperation>();
+    let _ = core::any::TypeId::of::<FocusOperation>();
+    let _ = core::any::TypeId::of::<PresetOperation>();
+
+    #[cfg(not(feature = "mode-async"))]
+    {
+        type Mode = grafton_visca::mode::Blocking;
+        type Transport = grafton_visca::transport::BlockingTransportHandle;
+        let _ = core::any::TypeId::of::<Camera<Mode, PtzOpticsG2, Transport, ()>>();
+        let _ = core::any::TypeId::of::<CameraSession<Mode, PtzOpticsG2, Transport, ()>>();
+        let _ = core::any::TypeId::of::<PowerAccessor<'static, Mode, PtzOpticsG2, Transport, ()>>();
+        let _ = core::any::TypeId::of::<ZoomAccessor<'static, Mode, PtzOpticsG2, Transport, ()>>();
+        let _ =
+            core::any::TypeId::of::<PanTiltAccessor<'static, Mode, PtzOpticsG2, Transport, ()>>();
+        let _ = core::any::TypeId::of::<FocusAccessor<'static, Mode, PtzOpticsG2, Transport, ()>>();
+    }
+
+    #[cfg(all(feature = "mode-async", feature = "runtime-tokio"))]
+    {
+        type Mode = grafton_visca::mode::Async;
+        type Transport = grafton_visca::runtime::TransportHandle<grafton_visca::TokioRuntime>;
+        type Exec = grafton_visca::TokioRuntime;
+        let _ = core::any::TypeId::of::<Camera<Mode, PtzOpticsG2, Transport, Exec>>();
+        let _ = core::any::TypeId::of::<CameraSession<Mode, PtzOpticsG2, Transport, Exec>>();
+        let _ =
+            core::any::TypeId::of::<PowerAccessor<'static, Mode, PtzOpticsG2, Transport, Exec>>();
+        let _ =
+            core::any::TypeId::of::<ZoomAccessor<'static, Mode, PtzOpticsG2, Transport, Exec>>();
+        let _ =
+            core::any::TypeId::of::<PanTiltAccessor<'static, Mode, PtzOpticsG2, Transport, Exec>>();
+        let _ =
+            core::any::TypeId::of::<FocusAccessor<'static, Mode, PtzOpticsG2, Transport, Exec>>();
+        let _ = core::any::TypeId::of::<
+            grafton_visca::camera::InFlight<'static, ZoomOperation, PtzOpticsG2, Exec>,
+        >();
+    }
 
     #[cfg(not(feature = "mode-async"))]
     {

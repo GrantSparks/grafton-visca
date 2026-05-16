@@ -742,8 +742,6 @@ macro_rules! define_builtin_inquiries {
             pub struct $struct;
 
             impl ViscaCommand for $struct {
-                type Response = InquiryData;
-
                 const MAX_SIZE: usize = bytes::$bytes_const.len();
                 const TIMEOUT_CATEGORY: CommandCategory =
                     builtin_inquiry_timeout_category!($($timeout)?);

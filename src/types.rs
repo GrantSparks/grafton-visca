@@ -621,7 +621,7 @@ macro_rules! impl_normalized_conversion {
                         parameter: "normalized",
                         value: Cow::Owned(normalized.to_string()),
                         reason: Cow::Owned(format!(
-                            "Normalized {} must be between 0.0 and 1.0",
+                            "normalized {} must be between 0.0 and 1.0",
                             stringify!($type)
                         )),
                     });

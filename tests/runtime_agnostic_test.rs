@@ -6,7 +6,7 @@
 #![cfg(feature = "mode-async")]
 
 #[cfg(all(feature = "runtime-tokio", feature = "test-utils"))]
-use grafton_visca::camera::{controls::power::PowerControl, CameraBuilder};
+use grafton_visca::{camera::CameraBuilder, PowerControl};
 
 #[cfg(not(feature = "runtime-tokio"))]
 #[test]

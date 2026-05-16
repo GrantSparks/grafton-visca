@@ -13,6 +13,7 @@ use crate::{
 /// Represents all possible responses from the camera including acknowledgments,
 /// completions, errors, and inquiry data.
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum Response {
     /// Acknowledgment that the command was received and is being processed
     CmdAck {

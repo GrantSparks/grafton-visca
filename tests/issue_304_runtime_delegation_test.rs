@@ -15,15 +15,12 @@
 use std::time::Duration;
 
 use grafton_visca::{
-    camera::{
-        controls::{inquiry::InquiryControl, zoom::ZoomControl},
-        profiles::PtzOpticsG2,
-    },
+    camera::profiles::PtzOpticsG2,
     testing::testkit::{
         deterministic_executor::DeterministicExecutor, helpers, ScriptedTransport, Step,
     },
     timeout::TimeoutConfig,
-    Error, Executor,
+    Error, Executor, InquiryControl, ZoomControl,
 };
 
 /// Test that async Camera properly delegates to runtime.
@@ -42,13 +39,12 @@ fn test_async_camera_uses_runtime() {
     // Create camera - this should create a RuntimeHandle internally
     let exec = executor.clone();
     executor.block_on(async move {
-        let camera =
-            grafton_visca::camera::builder::CameraBuilder::<DeterministicExecutor>::with_executor(
-                exec.clone(),
-            )
-            .open_async::<PtzOpticsG2, _>(transport)
-            .await
-            .unwrap();
+        let camera = grafton_visca::camera::CameraBuilder::<DeterministicExecutor>::with_executor(
+            exec.clone(),
+        )
+        .open_async::<PtzOpticsG2, _>(transport)
+        .await
+        .unwrap();
 
         let result = camera.zoom_stop().await;
         assert!(result.is_ok(), "Command failed: {:?}", result);
@@ -85,14 +81,13 @@ fn test_timeout_config_passed_to_runtime() {
         // 1. The CameraBuilder properly accepts timeout_config
         // 2. The timeout config is passed to RuntimeHandle creation
         // 3. The camera operates correctly with custom timeout settings
-        let camera =
-            grafton_visca::camera::builder::CameraBuilder::<DeterministicExecutor>::with_executor(
-                exec.clone(),
-            )
-            .timeout_config(custom_timeout)
-            .open_async::<PtzOpticsG2, _>(transport)
-            .await
-            .unwrap();
+        let camera = grafton_visca::camera::CameraBuilder::<DeterministicExecutor>::with_executor(
+            exec.clone(),
+        )
+        .timeout_config(custom_timeout)
+        .open_async::<PtzOpticsG2, _>(transport)
+        .await
+        .unwrap();
 
         // Execute a command to verify the runtime is working with the custom timeout
         let result = camera.zoom_stop().await;
@@ -127,13 +122,12 @@ fn test_command_cancellation_through_runtime() {
 
     let exec = executor.clone();
     executor.block_on(async move {
-        let camera =
-            grafton_visca::camera::builder::CameraBuilder::<DeterministicExecutor>::with_executor(
-                exec.clone(),
-            )
-            .open_async::<PtzOpticsG2, _>(transport)
-            .await
-            .unwrap();
+        let camera = grafton_visca::camera::CameraBuilder::<DeterministicExecutor>::with_executor(
+            exec.clone(),
+        )
+        .open_async::<PtzOpticsG2, _>(transport)
+        .await
+        .unwrap();
 
         use grafton_visca::command::Zoom;
         let (cmd_id, future) = camera
@@ -175,13 +169,12 @@ fn test_inquiry_through_runtime() {
 
     let exec = executor.clone();
     executor.block_on(async move {
-        let camera =
-            grafton_visca::camera::builder::CameraBuilder::<DeterministicExecutor>::with_executor(
-                exec.clone(),
-            )
-            .open_async::<PtzOpticsG2, _>(transport)
-            .await
-            .unwrap();
+        let camera = grafton_visca::camera::CameraBuilder::<DeterministicExecutor>::with_executor(
+            exec.clone(),
+        )
+        .open_async::<PtzOpticsG2, _>(transport)
+        .await
+        .unwrap();
 
         let result = camera.power_state().await;
         assert!(result.is_ok(), "Inquiry failed: {:?}", result);
@@ -210,13 +203,12 @@ fn test_transport_error_propagation() {
 
     let exec = executor.clone();
     executor.block_on(async move {
-        let camera =
-            grafton_visca::camera::builder::CameraBuilder::<DeterministicExecutor>::with_executor(
-                exec.clone(),
-            )
-            .open_async::<PtzOpticsG2, _>(transport)
-            .await
-            .unwrap();
+        let camera = grafton_visca::camera::CameraBuilder::<DeterministicExecutor>::with_executor(
+            exec.clone(),
+        )
+        .open_async::<PtzOpticsG2, _>(transport)
+        .await
+        .unwrap();
 
         let result = camera.zoom_stop().await;
         assert!(result.is_err(), "Command should have failed");

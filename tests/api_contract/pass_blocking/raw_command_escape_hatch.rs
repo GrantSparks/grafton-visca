@@ -9,8 +9,6 @@ use grafton_visca::{
 struct CustomCommand;
 
 impl ViscaCommand for CustomCommand {
-    type Response = ();
-
     const MAX_SIZE: usize = 6;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 

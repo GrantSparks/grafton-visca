@@ -30,7 +30,6 @@ impl SetMotionSyncMode {
 }
 
 impl ViscaCommand for SetMotionSyncMode {
-    type Response = ();
     const MAX_SIZE: usize = 6;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
@@ -97,7 +96,6 @@ impl SetMotionSyncPreset {
 }
 
 impl ViscaCommand for SetMotionSyncPreset {
-    type Response = ();
     const MAX_SIZE: usize = 6;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 

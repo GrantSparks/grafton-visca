@@ -14,7 +14,7 @@ use std::{
 };
 
 use crate::{
-    camera::inflight::CommandId,
+    camera::CommandId,
     camera_id::CameraId,
     capabilities::Profile,
     command::{response::Response, CommandKind, ViscaCommand},
@@ -622,7 +622,6 @@ mod tests {
         }
 
         impl ViscaCommand for TestCmd {
-            type Response = ();
             const MAX_SIZE: usize = 6;
             const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
@@ -761,7 +760,6 @@ mod tests {
         struct PowerInquiry;
 
         impl ViscaCommand for PowerInquiry {
-            type Response = bool;
             const MAX_SIZE: usize = 5;
             const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
@@ -830,7 +828,6 @@ mod tests {
         }
 
         impl ViscaCommand for TestCmd {
-            type Response = ();
             const MAX_SIZE: usize = 6;
             const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
@@ -909,7 +906,6 @@ mod tests {
         }
 
         impl ViscaCommand for TestCmd {
-            type Response = ();
             const MAX_SIZE: usize = 6;
             const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
@@ -1097,7 +1093,6 @@ mod tests {
         }
 
         impl ViscaCommand for TestCmd {
-            type Response = ();
             const MAX_SIZE: usize = 6;
             const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
@@ -1222,7 +1217,6 @@ mod tests {
         }
 
         impl ViscaCommand for TestCmd {
-            type Response = ();
             const MAX_SIZE: usize = 6;
             const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
@@ -1303,7 +1297,6 @@ mod tests {
         }
 
         impl ViscaCommand for TestCmd {
-            type Response = ();
             const MAX_SIZE: usize = 6;
             const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
@@ -1398,7 +1391,6 @@ mod tests {
         }
 
         impl ViscaCommand for TestCmd {
-            type Response = ();
             const MAX_SIZE: usize = 6;
             const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 

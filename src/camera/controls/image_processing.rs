@@ -46,7 +46,7 @@ pub trait ContrastControl {
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
     ///
-    /// [`ContrastInquiryControl::contrast`]: crate::camera::controls::inquiry::ContrastInquiryControl::contrast
+    /// [`ContrastInquiryControl::contrast`]: crate::ContrastInquiryControl::contrast
     fn set_contrast(
         &self,
         level: ContrastLevel,
@@ -75,8 +75,8 @@ pub trait SharpnessControl {
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.
     ///
-    /// [`SharpnessInquiryControl::sharpness_level`]: crate::camera::controls::inquiry::SharpnessInquiryControl::sharpness_level
-    /// [`SharpnessInquiryControl::sharpness_mode`]: crate::camera::controls::inquiry::SharpnessInquiryControl::sharpness_mode
+    /// [`SharpnessInquiryControl::sharpness_level`]: crate::SharpnessInquiryControl::sharpness_level
+    /// [`SharpnessInquiryControl::sharpness_mode`]: crate::SharpnessInquiryControl::sharpness_mode
     fn set_sharpness(
         &self,
         level: SharpnessLevel,

@@ -14,7 +14,7 @@ use std::{
 };
 
 use crate::{
-    camera::inflight::CommandId,
+    camera::CommandId,
     camera_id::CameraId,
     capabilities::Profile,
     command::{encode::EncodedCommand, response::Response},

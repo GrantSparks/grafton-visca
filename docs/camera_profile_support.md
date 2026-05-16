@@ -140,7 +140,9 @@ runtime feature detection, or a split trait when a capability is not universal.
 Raw/custom VISCA command APIs are different. They remain available as escape
 hatches for experiments, unsupported firmware variants, and downstream
 integrations. Raw command availability must not be used to justify a built-in
-typed support marker.
+typed support marker. `ViscaCommand` describes encoding and command/inquiry
+kind only; typed custom inquiries add response typing by implementing
+`ResponseParser`.
 
 ## Adding Or Updating A Profile
 
@@ -194,4 +196,6 @@ test in the PR so reviewers know what remains unresolved.
 - `docs/visca_reference.md` explains protocol, model, firmware, and capability boundaries.
 - `examples/type_safe_commands.rs` demonstrates metadata and marker bounds without using unsupported built-in profiles.
 - `CHANGELOG.md` describes breaking changes and migration guidance.
+- Public examples and snippets use root control trait imports, `camera` module
+  re-exports, checked `UnitInterval` values, and checked camera ID conversion.
 - Any source conflict is documented near the relevant capability, not only in the PR discussion.

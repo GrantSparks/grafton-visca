@@ -75,7 +75,7 @@ use crate::{
 /// use grafton_visca::{
 ///     Error,
 ///     camera::{Connect, profiles::PtzOpticsG2},
-///     units::Normalized,
+///     units::UnitInterval,
 /// };
 ///
 /// fn main() -> Result<(), Error> {
@@ -84,7 +84,7 @@ use crate::{
 ///     // Direct Result<T, Error> returns - no .block() needed.
 ///     camera.power().on()?;
 ///     camera.zoom().stop()?;
-///     camera.zoom().set_position(Normalized(0.5))?;
+///     camera.zoom().set_position(UnitInterval::new(0.5)?)?;
 ///
 ///     Ok(())
 /// }
@@ -1714,7 +1714,7 @@ where
     /// a flexible API for setting zoom using different units:
     ///
     /// - `Percentage(50.0)` - Set zoom to 50% of range
-    /// - `Normalized(0.5)` - Set zoom to 0.5 (equivalent to 50%)
+    /// - `UnitInterval::new(0.5)?` - Set zoom to 0.5 (equivalent to 50%)
     /// - `Magnification(10.0)` - Set zoom to 10x magnification
     /// - `Raw(0x4000)` - Set zoom to raw VISCA value
     /// - `ZoomPosition` - Set zoom to specific position directly
@@ -1724,7 +1724,7 @@ where
     ///
     /// # Examples
     /// ```ignore
-    /// use grafton_visca::units::{Percentage, Magnification, Normalized, Raw};
+    /// use grafton_visca::units::{Percentage, Magnification, UnitInterval, Raw};
     ///
     /// // Using percentage
     /// camera.set_zoom(Percentage(50.0))?;
@@ -1733,7 +1733,7 @@ where
     /// camera.set_zoom(Magnification(10.0))?;
     ///
     /// // Using normalized value
-    /// camera.set_zoom(Normalized(0.5))?;
+    /// camera.set_zoom(UnitInterval::new(0.5)?)?;
     ///
     /// // Using raw value
     /// camera.set_zoom(Raw(0x4000_u16))?;
@@ -1777,7 +1777,7 @@ where
     /// Set zoom to an absolute normalized position within a documented zoom domain.
     pub fn zoom_absolute_normalized(
         &self,
-        position: crate::Normalized,
+        position: crate::UnitInterval,
         domain: crate::ZoomDomain,
     ) -> Result<(), Error> {
         self.inner

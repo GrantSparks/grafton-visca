@@ -110,43 +110,25 @@ fn test_zero_cost_generic_transports() {
 /// Test that async control traits maintain stable public signatures.
 #[test]
 fn test_control_traits_api_stability() {
-    use grafton_visca::camera::controls::{
-        color::{
-            ColorControl, ColorTemperatureControl, OnePushWhiteBalanceControl, RgbGainControl,
-            RgbTuningControl,
-        },
-        exposure::{
-            BacklightCompensationControl, BrightnessControl, ExposureControl, IrisControl,
-            WideDynamicRangeControl,
-        },
-        focus::{
-            AutoFocusSensitivityControl, FocusControl, FocusZoneControl, OnePushFocusControl,
-            SnapFocusControl,
-        },
-        image_processing::{
-            ContrastControl, GammaControl, HueControl, ImageFlipControl, ImageFlipModeControl,
-            ImageMirrorControl, LuminanceControl, NoiseReduction2DControl, NoiseReduction3DControl,
-            PictureEffectControl, SaturationControl, SharpnessControl,
-        },
-        inquiry::{
-            AutoFocusSensitivityInquiryControl, BacklightCompensationInquiryControl,
-            BrightnessInquiryControl, ColorTemperatureInquiryControl, ContrastInquiryControl,
-            ExposureCompensationInquiryControl, FocusNearLimitInquiryControl,
-            FocusZoneInquiryControl, GammaInquiryControl, HueInquiryControl,
-            ImageFlipInquiryControl, InquiryControl, IrisInquiryControl, LuminanceInquiryControl,
-            NoiseReduction2DInquiryControl, NoiseReduction3DInquiryControl,
-            NoiseReductionInquiryControl, PictureEffectInquiryControl, RgbGainInquiryControl,
-            RgbTuningInquiryControl, SaturationInquiryControl, SharpnessInquiryControl,
-            WideDynamicRangeInquiryControl,
-        },
-        pan_tilt::PanTiltControl,
-        power::PowerControl,
-        presets::PresetsControl,
-        white_balance::{
-            AutoTrackingWhiteBalanceControl, AutoWhiteBalanceSensitivityControl,
-            WhiteBalanceControl,
-        },
-        zoom::{DigitalZoomControl, DigitalZoomRangeControl, DirectZoomControl, ZoomControl},
+    use grafton_visca::{
+        AutoFocusSensitivityControl, AutoFocusSensitivityInquiryControl,
+        AutoTrackingWhiteBalanceControl, AutoWhiteBalanceSensitivityControl,
+        BacklightCompensationControl, BacklightCompensationInquiryControl, BrightnessControl,
+        BrightnessInquiryControl, ColorControl, ColorTemperatureControl,
+        ColorTemperatureInquiryControl, ContrastControl, ContrastInquiryControl,
+        DigitalZoomControl, DigitalZoomRangeControl, DirectZoomControl,
+        ExposureCompensationInquiryControl, ExposureControl, FocusControl,
+        FocusNearLimitInquiryControl, FocusZoneControl, FocusZoneInquiryControl, GammaControl,
+        GammaInquiryControl, HueControl, HueInquiryControl, ImageFlipControl,
+        ImageFlipInquiryControl, ImageFlipModeControl, ImageMirrorControl, InquiryControl,
+        IrisControl, IrisInquiryControl, LuminanceControl, LuminanceInquiryControl,
+        NoiseReduction2DControl, NoiseReduction2DInquiryControl, NoiseReduction3DControl,
+        NoiseReduction3DInquiryControl, NoiseReductionInquiryControl, OnePushFocusControl,
+        OnePushWhiteBalanceControl, PanTiltControl, PictureEffectControl,
+        PictureEffectInquiryControl, PowerControl, PresetsControl, RgbGainControl,
+        RgbGainInquiryControl, RgbTuningControl, RgbTuningInquiryControl, SaturationControl,
+        SaturationInquiryControl, SharpnessControl, SharpnessInquiryControl, SnapFocusControl,
+        WhiteBalanceControl, WideDynamicRangeControl, WideDynamicRangeInquiryControl, ZoomControl,
     };
 
     struct CoreCameraControls<T>(PhantomData<T>);
@@ -465,7 +447,7 @@ fn test_capability_traits_stability() {
 #[cfg(feature = "serde")]
 fn test_serde_public_contract() {
     use grafton_visca::{
-        camera::{config::TransportOptions, profiles::ProfileId},
+        camera::{profiles::ProfileId, TransportOptions},
         PresetNumber, SpeedLevel,
     };
 
@@ -500,7 +482,7 @@ fn test_serde_public_contract() {
 #[cfg(feature = "schemars")]
 fn test_schemars_public_contract() {
     use grafton_visca::{
-        camera::{config::TransportOptions, profiles::ProfileId},
+        camera::{profiles::ProfileId, TransportOptions},
         capabilities::Capabilities,
         PresetNumber,
     };
@@ -516,7 +498,7 @@ fn test_schemars_public_contract() {
 #[cfg(feature = "ts-rs")]
 fn test_ts_rs_public_contract() {
     use grafton_visca::{
-        camera::{config::TransportOptions, profiles::ProfileId},
+        camera::{profiles::ProfileId, TransportOptions},
         PanTiltDirection, PresetNumber, SpeedLevel,
     };
     use ts_rs::{Config, TS};
@@ -545,7 +527,7 @@ fn test_ts_rs_public_contract() {
 #[cfg(feature = "mode-async")]
 #[test]
 fn test_async_trait_method_signatures() {
-    use grafton_visca::{camera::controls::power::PowerControl, Error};
+    use grafton_visca::{Error, PowerControl};
     use std::future::Future;
 
     // Mock implementation to test trait signatures
@@ -685,8 +667,6 @@ fn test_raw_command_extension_contract() {
     struct CustomCommand;
 
     impl ViscaCommand for CustomCommand {
-        type Response = ();
-
         const MAX_SIZE: usize = 6;
         const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 

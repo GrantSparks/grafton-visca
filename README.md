@@ -12,10 +12,10 @@ A pure Rust library for controlling PTZ cameras via the VISCA protocol. Supports
 ## 1.0 Support Matrix
 
 The 1.0 contract is the camera-first API, the documented transport/runtime
-configuration types, the root-level raw command extension surface, and the
-optional feature surfaces listed below. Hardware validation is narrower than
-software support: the library contract is tested automatically, while
-device-specific firmware quirks are handled as reproducible bugs.
+configuration types, root-level control trait and raw command extension
+surfaces, and the optional feature surfaces listed below. Hardware validation is
+narrower than software support: the library contract is tested automatically,
+while device-specific firmware quirks are handled as reproducible bugs.
 
 The rows below are the support promise. CI also includes compatibility checks
 for feature unions that can appear in downstream dependency graphs; those checks
@@ -32,7 +32,7 @@ documented rows they combine.
 | smol async | `runtime-smol`, `SmolRuntime`, smol TCP/UDP adapters | `cargo test --no-default-features --features runtime-smol` |
 | Runtime coexistence | `runtime-tokio` and `runtime-smol` may be enabled together; camera construction still chooses one runtime explicitly | `cargo check --no-default-features --features runtime-tokio,runtime-smol` |
 | Dynamic API | `dyn-api` object-safe camera traits for async cameras, with runtime capabilities, command-completion timeouts, and cancellable in-flight handles | `cargo test --no-default-features --features runtime-tokio,dyn-api,test-utils --test dyn_api_integration_test`, `cargo test --no-default-features --features runtime-smol,dyn-api,test-utils --test dyn_api_smol_integration_test` |
-| Raw command extension | Custom command and inquiry implementations through `grafton_visca::command::{ViscaCommand, CommandKind, InquiryKind, ResponseParser}` plus root command value re-exports | API contract tests |
+| Raw command extension | Custom command and inquiry implementations through `grafton_visca::command::{ViscaCommand, CommandKind, InquiryKind, ResponseParser}` plus root command value re-exports. `ViscaCommand` covers encoding and command kind; typed inquiry responses are supplied by `ResponseParser`. | API contract tests |
 
 ### Transports
 
@@ -140,7 +140,7 @@ matrix fit together.
 - **Multi-runtime support** — Pluggable adapters for Tokio and smol
 - **Type-safe profiles** — Compile-time protocol selection (raw VISCA vs Sony encapsulation) with capability-based APIs
 - **Flexible transports** — TCP, UDP, and serial (RS-232/422) with configurable timeouts, retries, and TCP keepalive
-- **Ergonomic API** — One-line connection helpers, intuitive unit types (`Degrees`, `Percentage`), built-in inquiry conversions
+- **Ergonomic API** — One-line connection helpers, checked unit types (`Degrees`, `Percentage`, `UnitInterval`), built-in inquiry conversions
 - **Optional serialization** — Serde and JSON Schema support for all types
 - **Zero-allocation hot path** — Stack-allocated command buffers for standard VISCA commands
 
@@ -195,6 +195,20 @@ For smol, enable `runtime-smol` and use `SmolRuntime`.
 
 ---
 
+## Public API Boundaries
+
+- Use `grafton_visca::camera::{Connect, CameraConfig, CameraBuilder, Camera}`
+  for camera construction and session types. Implementation submodules under
+  `camera` are internal.
+- Import static control traits from the crate root, for example
+  `grafton_visca::{PowerControl, ZoomControl}`.
+- Use `UnitInterval::new(value)?` or `UnitInterval::try_from(value)?` for
+  normalized `0.0..=1.0` control values.
+- Use `CameraId` with `camera_id(...)`, or `try_camera_id(u8)` when converting
+  a raw VISCA camera number from configuration.
+
+---
+
 ## Installation
 
 ```toml
@@ -228,11 +242,15 @@ grafton-visca = { version = "1", features = ["runtime-tokio", "transport-serial-
 use grafton_visca::camera::CameraConfig;
 use grafton_visca::profiles::PtzOpticsG2;
 use grafton_visca::transport::TransportConfig;
+use grafton_visca::CameraId;
 use std::time::Duration;
 
 let config = CameraConfig::<PtzOpticsG2>::tcp("192.168.0.110")
+    .camera_id(CameraId::CAMERA_1)
     .transport_config(TransportConfig {
-        tcp_keepalive: Some(grafton_visca::transport::TcpKeepaliveConfig::new(Duration::from_secs(30))),
+        tcp_keepalive: Some(grafton_visca::transport::TcpKeepaliveConfig::new(
+            Duration::from_secs(30),
+        )),
         ..TransportConfig::default()
     });
 ```

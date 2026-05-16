@@ -34,7 +34,6 @@ impl AddressSetCommand {
 }
 
 impl ViscaCommand for AddressSetCommand {
-    type Response = ();
     const MAX_SIZE: usize = 4;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
@@ -76,7 +75,6 @@ impl InterfaceClearCommand {
 }
 
 impl ViscaCommand for InterfaceClearCommand {
-    type Response = ();
     const MAX_SIZE: usize = 5;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
@@ -141,7 +139,6 @@ pub(crate) struct CommandCancelCommand {
 }
 
 impl ViscaCommand for CommandCancelCommand {
-    type Response = ();
     const MAX_SIZE: usize = 3;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
@@ -204,7 +201,6 @@ impl Default for SettingsSaveCommand {
 }
 
 impl ViscaCommand for SettingsSaveCommand {
-    type Response = ();
     const MAX_SIZE: usize = 6;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 

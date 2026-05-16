@@ -1,7 +1,6 @@
 //! Typed VISCA command responses.
 //!
-//! This module defines a `ViscaCommand` trait with an associated `Response`
-//! type that maps a specific command to its parsed, strongly-typed output.
+//! This module defines typed response parsing for inquiry commands.
 //!
 //! Built-in inquiry implementations are generated from the internal inquiry
 //! table; downstream inquiry commands can implement this trait directly or use

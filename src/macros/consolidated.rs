@@ -40,7 +40,6 @@ macro_rules! visca_command {
         pub struct $name;
 
         impl $crate::command::ViscaCommand for $name {
-            type Response = ();
             const MAX_SIZE: usize = { [$($byte),*].len() + 2 }; // +2 for camera_id and terminator
             const TIMEOUT_CATEGORY: $crate::timeout::CommandCategory = $category;
 
@@ -94,7 +93,6 @@ macro_rules! visca_command {
         }
 
         impl $crate::command::ViscaCommand for $name {
-            type Response = ();
             const MAX_SIZE: usize = 1 + [$($byte),*].len() + $max_param_size + 1;
             const TIMEOUT_CATEGORY: $crate::timeout::CommandCategory = $category;
 

@@ -5,11 +5,10 @@
 
 #[cfg(feature = "test-utils")]
 use grafton_visca::{
-    camera::controls::{power::PowerControl, zoom::ZoomControl},
     capabilities::*,
     prelude::blocking::{GenericVisca, PtzOpticsG2, PtzOpticsG2Cam, SonyFR7, SonyFR7Cam},
     testing::testkit::{helpers, ScriptedBlockingTransport},
-    Error,
+    Error, PowerControl, ZoomControl,
 };
 
 #[cfg(feature = "test-utils")]

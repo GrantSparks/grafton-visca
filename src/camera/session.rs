@@ -52,7 +52,6 @@ impl<'a> RawBytesRef<'a> {
 }
 
 impl ViscaCommand for RawBytesRef<'_> {
-    type Response = ();
     const MAX_SIZE: usize = 256; // Allow reasonably sized raw commands
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Custom;
 
@@ -502,83 +501,65 @@ where
     }
 
     /// Access power-related controls and inquiries.
-    pub fn power(
-        &self,
-    ) -> crate::camera::accessors::PowerAccessor<'_, crate::mode::Blocking, P, Tr, ()> {
-        crate::camera::accessors::PowerAccessor::new(&self.camera)
+    pub fn power(&self) -> crate::camera::PowerAccessor<'_, crate::mode::Blocking, P, Tr, ()> {
+        crate::camera::PowerAccessor::new(&self.camera)
     }
 
     /// Access zoom-related controls and inquiries.
-    pub fn zoom(
-        &self,
-    ) -> crate::camera::accessors::ZoomAccessor<'_, crate::mode::Blocking, P, Tr, ()> {
-        crate::camera::accessors::ZoomAccessor::new(&self.camera)
+    pub fn zoom(&self) -> crate::camera::ZoomAccessor<'_, crate::mode::Blocking, P, Tr, ()> {
+        crate::camera::ZoomAccessor::new(&self.camera)
     }
 
     /// Access pan/tilt-related controls and inquiries.
-    pub fn pan_tilt(
-        &self,
-    ) -> crate::camera::accessors::PanTiltAccessor<'_, crate::mode::Blocking, P, Tr, ()> {
-        crate::camera::accessors::PanTiltAccessor::new(&self.camera)
+    pub fn pan_tilt(&self) -> crate::camera::PanTiltAccessor<'_, crate::mode::Blocking, P, Tr, ()> {
+        crate::camera::PanTiltAccessor::new(&self.camera)
     }
 
     /// Access focus-related controls and inquiries.
-    pub fn focus(
-        &self,
-    ) -> crate::camera::accessors::FocusAccessor<'_, crate::mode::Blocking, P, Tr, ()> {
-        crate::camera::accessors::FocusAccessor::new(&self.camera)
+    pub fn focus(&self) -> crate::camera::FocusAccessor<'_, crate::mode::Blocking, P, Tr, ()> {
+        crate::camera::FocusAccessor::new(&self.camera)
     }
 
     /// Access exposure-related controls and inquiries.
     pub fn exposure(
         &self,
-    ) -> crate::camera::accessors::ExposureAccessor<'_, crate::mode::Blocking, P, Tr, ()> {
-        crate::camera::accessors::ExposureAccessor::new(&self.camera)
+    ) -> crate::camera::ExposureAccessor<'_, crate::mode::Blocking, P, Tr, ()> {
+        crate::camera::ExposureAccessor::new(&self.camera)
     }
 
     /// Access white balance controls.
     pub fn white_balance(
         &self,
-    ) -> crate::camera::accessors::WhiteBalanceAccessor<'_, crate::mode::Blocking, P, Tr, ()> {
-        crate::camera::accessors::WhiteBalanceAccessor::new(&self.camera)
+    ) -> crate::camera::WhiteBalanceAccessor<'_, crate::mode::Blocking, P, Tr, ()> {
+        crate::camera::WhiteBalanceAccessor::new(&self.camera)
     }
 
     /// Access menu navigation controls.
-    pub fn menu(
-        &self,
-    ) -> crate::camera::accessors::MenuAccessor<'_, crate::mode::Blocking, P, Tr, ()> {
-        crate::camera::accessors::MenuAccessor::new(&self.camera)
+    pub fn menu(&self) -> crate::camera::MenuAccessor<'_, crate::mode::Blocking, P, Tr, ()> {
+        crate::camera::MenuAccessor::new(&self.camera)
     }
 
     /// Access preset controls.
-    pub fn presets(
-        &self,
-    ) -> crate::camera::accessors::PresetsAccessor<'_, crate::mode::Blocking, P, Tr, ()> {
-        crate::camera::accessors::PresetsAccessor::new(&self.camera)
+    pub fn presets(&self) -> crate::camera::PresetsAccessor<'_, crate::mode::Blocking, P, Tr, ()> {
+        crate::camera::PresetsAccessor::new(&self.camera)
     }
 
     /// Access tally light controls.
-    pub fn tally(
-        &self,
-    ) -> crate::camera::accessors::TallyAccessor<'_, crate::mode::Blocking, P, Tr, ()>
+    pub fn tally(&self) -> crate::camera::TallyAccessor<'_, crate::mode::Blocking, P, Tr, ()>
     where
         P: crate::capabilities::HasTally,
     {
-        crate::camera::accessors::TallyAccessor::new(&self.camera)
+        crate::camera::TallyAccessor::new(&self.camera)
     }
 
     /// Access system-related controls and inquiries.
-    pub fn system(
-        &self,
-    ) -> crate::camera::accessors::SystemAccessor<'_, crate::mode::Blocking, P, Tr, ()> {
-        crate::camera::accessors::SystemAccessor::new(&self.camera)
+    pub fn system(&self) -> crate::camera::SystemAccessor<'_, crate::mode::Blocking, P, Tr, ()> {
+        crate::camera::SystemAccessor::new(&self.camera)
     }
 
     /// Access image-related controls and inquiries.
-    pub fn image(
-        &self,
-    ) -> crate::camera::accessors::ImageAccessor<'_, crate::mode::Blocking, P, Tr, ()> {
-        crate::camera::accessors::ImageAccessor::new(&self.camera)
+    pub fn image(&self) -> crate::camera::ImageAccessor<'_, crate::mode::Blocking, P, Tr, ()> {
+        crate::camera::ImageAccessor::new(&self.camera)
     }
 }
 
@@ -730,84 +711,82 @@ where
     Exec: Executor,
 {
     /// Access power-related controls and inquiries.
-    pub fn power(&self) -> crate::camera::accessors::PowerAccessor<'_, M, P, Tr, Exec> {
-        crate::camera::accessors::PowerAccessor::new(&self.camera)
+    pub fn power(&self) -> crate::camera::PowerAccessor<'_, M, P, Tr, Exec> {
+        crate::camera::PowerAccessor::new(&self.camera)
     }
 
     /// Access zoom-related controls and inquiries.
-    pub fn zoom(&self) -> crate::camera::accessors::ZoomAccessor<'_, M, P, Tr, Exec> {
-        crate::camera::accessors::ZoomAccessor::new(&self.camera)
+    pub fn zoom(&self) -> crate::camera::ZoomAccessor<'_, M, P, Tr, Exec> {
+        crate::camera::ZoomAccessor::new(&self.camera)
     }
 
     /// Access system-related controls and inquiries.
-    pub fn system(&self) -> crate::camera::accessors::SystemAccessor<'_, M, P, Tr, Exec> {
-        crate::camera::accessors::SystemAccessor::new(&self.camera)
+    pub fn system(&self) -> crate::camera::SystemAccessor<'_, M, P, Tr, Exec> {
+        crate::camera::SystemAccessor::new(&self.camera)
     }
 
     /// Access pan/tilt-related controls and inquiries.
-    pub fn pan_tilt(&self) -> crate::camera::accessors::PanTiltAccessor<'_, M, P, Tr, Exec> {
-        crate::camera::accessors::PanTiltAccessor::new(&self.camera)
+    pub fn pan_tilt(&self) -> crate::camera::PanTiltAccessor<'_, M, P, Tr, Exec> {
+        crate::camera::PanTiltAccessor::new(&self.camera)
     }
 
     /// Access focus-related controls and inquiries.
-    pub fn focus(&self) -> crate::camera::accessors::FocusAccessor<'_, M, P, Tr, Exec> {
-        crate::camera::accessors::FocusAccessor::new(&self.camera)
+    pub fn focus(&self) -> crate::camera::FocusAccessor<'_, M, P, Tr, Exec> {
+        crate::camera::FocusAccessor::new(&self.camera)
     }
 
     /// Access exposure-related controls and inquiries.
-    pub fn exposure(&self) -> crate::camera::accessors::ExposureAccessor<'_, M, P, Tr, Exec> {
-        crate::camera::accessors::ExposureAccessor::new(&self.camera)
+    pub fn exposure(&self) -> crate::camera::ExposureAccessor<'_, M, P, Tr, Exec> {
+        crate::camera::ExposureAccessor::new(&self.camera)
     }
 
     /// Access white balance controls and inquiries.
-    pub fn white_balance(
-        &self,
-    ) -> crate::camera::accessors::WhiteBalanceAccessor<'_, M, P, Tr, Exec> {
-        crate::camera::accessors::WhiteBalanceAccessor::new(&self.camera)
+    pub fn white_balance(&self) -> crate::camera::WhiteBalanceAccessor<'_, M, P, Tr, Exec> {
+        crate::camera::WhiteBalanceAccessor::new(&self.camera)
     }
 
     /// Access image processing controls and inquiries.
-    pub fn image(&self) -> crate::camera::accessors::ImageAccessor<'_, M, P, Tr, Exec> {
-        crate::camera::accessors::ImageAccessor::new(&self.camera)
+    pub fn image(&self) -> crate::camera::ImageAccessor<'_, M, P, Tr, Exec> {
+        crate::camera::ImageAccessor::new(&self.camera)
     }
 
     /// Access preset-related controls.
-    pub fn presets(&self) -> crate::camera::accessors::PresetsAccessor<'_, M, P, Tr, Exec> {
-        crate::camera::accessors::PresetsAccessor::new(&self.camera)
+    pub fn presets(&self) -> crate::camera::PresetsAccessor<'_, M, P, Tr, Exec> {
+        crate::camera::PresetsAccessor::new(&self.camera)
     }
 
     /// Access tally light controls and inquiries.
-    pub fn tally(&self) -> crate::camera::accessors::TallyAccessor<'_, M, P, Tr, Exec>
+    pub fn tally(&self) -> crate::camera::TallyAccessor<'_, M, P, Tr, Exec>
     where
         P: crate::capabilities::HasTally,
     {
-        crate::camera::accessors::TallyAccessor::new(&self.camera)
+        crate::camera::TallyAccessor::new(&self.camera)
     }
 
     /// Access ND filter controls and inquiries.
-    pub fn nd_filter(&self) -> crate::camera::accessors::NdFilterAccessor<'_, M, P, Tr, Exec>
+    pub fn nd_filter(&self) -> crate::camera::NdFilterAccessor<'_, M, P, Tr, Exec>
     where
         P: crate::capabilities::HasNdFilter,
     {
-        crate::camera::accessors::NdFilterAccessor::new(&self.camera)
+        crate::camera::NdFilterAccessor::new(&self.camera)
     }
 
     /// Access motion sync controls and inquiries.
-    pub fn motion_sync(&self) -> crate::camera::accessors::MotionSyncAccessor<'_, M, P, Tr, Exec>
+    pub fn motion_sync(&self) -> crate::camera::MotionSyncAccessor<'_, M, P, Tr, Exec>
     where
         P: crate::capabilities::HasMotionSync,
     {
-        crate::camera::accessors::MotionSyncAccessor::new(&self.camera)
+        crate::camera::MotionSyncAccessor::new(&self.camera)
     }
 
     /// Access menu controls and inquiries.
-    pub fn menu(&self) -> crate::camera::accessors::MenuAccessor<'_, M, P, Tr, Exec> {
-        crate::camera::accessors::MenuAccessor::new(&self.camera)
+    pub fn menu(&self) -> crate::camera::MenuAccessor<'_, M, P, Tr, Exec> {
+        crate::camera::MenuAccessor::new(&self.camera)
     }
 
     /// Access advanced settings inquiries.
-    pub fn advanced(&self) -> crate::camera::accessors::AdvancedAccessor<'_, M, P, Tr, Exec> {
-        crate::camera::accessors::AdvancedAccessor::new(&self.camera)
+    pub fn advanced(&self) -> crate::camera::AdvancedAccessor<'_, M, P, Tr, Exec> {
+        crate::camera::AdvancedAccessor::new(&self.camera)
     }
 }
 

@@ -129,8 +129,6 @@ impl HasTransportConfig for HangingSendTransport {
 struct PowerInquiry;
 
 impl ViscaCommand for PowerInquiry {
-    type Response = ();
-
     const MAX_SIZE: usize = 5;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 

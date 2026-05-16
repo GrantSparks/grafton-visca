@@ -23,8 +23,6 @@ fn main() {
     struct CustomCommand;
 
     impl ViscaCommand for CustomCommand {
-        type Response = ();
-
         const MAX_SIZE: usize = 6;
 
         fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {

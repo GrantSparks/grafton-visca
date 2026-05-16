@@ -309,7 +309,6 @@ impl PanTilt {
 }
 
 impl ViscaCommand for PanTilt {
-    type Response = ();
     const MAX_SIZE: usize = 15;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Movement;
 

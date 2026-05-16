@@ -328,12 +328,9 @@ where
     async fn start_pan_tilt_operation(
         &self,
         command: PanTiltCommand,
-    ) -> Result<
-        crate::camera::inflight::InFlight<'_, crate::camera::inflight::PanTilt, P, Exec>,
-        Error,
-    > {
+    ) -> Result<crate::camera::InFlight<'_, crate::camera::PanTiltOperation, P, Exec>, Error> {
         let (id, response_future) = self.start_command_with_id(&command).await?;
-        Ok(crate::camera::inflight::InFlight::new(
+        Ok(crate::camera::InFlight::new(
             id,
             self.camera_id(),
             self.runtime(),
@@ -347,10 +344,7 @@ where
         pan: impl Into<Degrees>,
         tilt: impl Into<Degrees>,
         speed: SpeedLevel,
-    ) -> Result<
-        crate::camera::inflight::InFlight<'_, crate::camera::inflight::PanTilt, P, Exec>,
-        Error,
-    > {
+    ) -> Result<crate::camera::InFlight<'_, crate::camera::PanTiltOperation, P, Exec>, Error> {
         self.start_pan_tilt_operation(pan_tilt_absolute_command::<P>(pan, tilt, speed)?)
             .await
     }
@@ -361,10 +355,7 @@ where
         pan: impl Into<Degrees>,
         tilt: impl Into<Degrees>,
         speed: SpeedLevel,
-    ) -> Result<
-        crate::camera::inflight::InFlight<'_, crate::camera::inflight::PanTilt, P, Exec>,
-        Error,
-    > {
+    ) -> Result<crate::camera::InFlight<'_, crate::camera::PanTiltOperation, P, Exec>, Error> {
         self.start_pan_tilt_operation(pan_tilt_relative_command::<P>(pan, tilt, speed)?)
             .await
     }
@@ -388,10 +379,7 @@ where
     /// Returns an error if the command fails to send.
     pub async fn pan_tilt_home_op(
         &self,
-    ) -> Result<
-        crate::camera::inflight::InFlight<'_, crate::camera::inflight::PanTilt, P, Exec>,
-        Error,
-    > {
+    ) -> Result<crate::camera::InFlight<'_, crate::camera::PanTiltOperation, P, Exec>, Error> {
         self.start_pan_tilt_operation(PanTiltCommand::Home).await
     }
 
@@ -414,10 +402,7 @@ where
     /// Returns an error if the command fails to send.
     pub async fn pan_tilt_reset_op(
         &self,
-    ) -> Result<
-        crate::camera::inflight::InFlight<'_, crate::camera::inflight::PanTilt, P, Exec>,
-        Error,
-    > {
+    ) -> Result<crate::camera::InFlight<'_, crate::camera::PanTiltOperation, P, Exec>, Error> {
         self.start_pan_tilt_operation(PanTiltCommand::Reset).await
     }
 }

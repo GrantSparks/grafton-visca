@@ -1,6 +1,6 @@
 use grafton_visca::{
     command::{BoolConvention, Nibbles, Payload, Response},
-    CachedFlipState, CameraId, PanTiltLimits, StateCache, ViscaSocket,
+    CachedFlipState, CameraId, PanTiltLimits, StateCache, UnitInterval, ViscaSocket,
 };
 
 fn main() {
@@ -20,4 +20,19 @@ fn main() {
         .parse_bool("contract", BoolConvention::OnIs02)
         .unwrap();
     let _ = Nibbles::<4>::try_from(Payload::new(&[0, 1, 2, 3])).unwrap();
+    let root_value = UnitInterval::new(0.5).unwrap();
+    let units_value: grafton_visca::units::UnitInterval = root_value;
+    assert_eq!(units_value.value(), 0.5);
+
+    #[cfg(feature = "mode-async")]
+    {
+        let prelude_value: grafton_visca::prelude::r#async::UnitInterval = root_value;
+        assert_eq!(prelude_value.value(), 0.5);
+    }
+
+    #[cfg(not(feature = "mode-async"))]
+    {
+        let prelude_value: grafton_visca::prelude::blocking::UnitInterval = root_value;
+        assert_eq!(prelude_value.value(), 0.5);
+    }
 }

@@ -11,7 +11,7 @@ fn main() {
     {
         let _ = session.set_digital_zoom(true);
         let _ = session.zoom_absolute_normalized(
-            grafton_visca::Normalized::new(0.75).unwrap(),
+            grafton_visca::UnitInterval::new(0.75).unwrap(),
             ZoomDomain::OpticalPlusDigital,
         );
         let _ = session.focus().one_push();

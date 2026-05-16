@@ -5,7 +5,7 @@ mod timeout_config_tests {
     use std::time::Duration;
 
     use grafton_visca::{
-        camera::builder::CameraBuilder,
+        camera::CameraBuilder,
         testing::testkit::DeterministicExecutor,
         timeout::{CommandCategory, TimeoutConfig},
     };

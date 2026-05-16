@@ -50,8 +50,8 @@ mod blocking {
                 );
 
                 println!("Zoom: 0x{raw_value:04X}");
-                println!("  Optical zoom: {:.1}%", optical.0 * 100.0);
-                println!("  Full range: {:.1}%", full.0 * 100.0);
+                println!("  Optical zoom: {:.1}%", optical.value() * 100.0);
+                println!("  Full range: {:.1}%", full.value() * 100.0);
             }
             Err(error) => println!("Zoom inquiry failed: {error}"),
         }

@@ -14,9 +14,9 @@ use grafton_visca::{
 #[cfg(all(feature = "runtime-tokio", feature = "test-utils"))]
 #[tokio::test(start_paused = true)]
 async fn test_operations_work_with_default_runtime() {
-    use grafton_visca::camera::controls::{pan_tilt::PanTiltControl, zoom::ZoomControl};
     use grafton_visca::camera::{profiles::PtzOpticsG2, CameraBuilder};
     use grafton_visca::runtime::TokioRuntime;
+    use grafton_visca::{PanTiltControl, ZoomControl};
 
     // Create transport for integration test with paused time
     let transport: ScriptedTransport<TokioExecutor> = ScriptedTransport::new(vec![
@@ -48,9 +48,9 @@ async fn test_operations_work_with_default_runtime() {
 #[cfg(all(feature = "runtime-tokio", feature = "test-utils"))]
 #[tokio::test(start_paused = true)]
 async fn test_operations_succeed_with_explicit_runtime() {
-    use grafton_visca::camera::controls::zoom::ZoomControl;
     use grafton_visca::camera::{profiles::PtzOpticsG2, CameraBuilder};
     use grafton_visca::runtime::TokioRuntime;
+    use grafton_visca::ZoomControl;
 
     let transport: ScriptedTransport<TokioExecutor> = ScriptedTransport::new(vec![
         helpers::standard_command_response(1), // ACK + Completion for socket 1
@@ -92,8 +92,8 @@ async fn test_custom_runtime_works() {
 #[cfg(all(feature = "runtime-tokio", feature = "test-utils"))]
 #[tokio::test(start_paused = true)]
 async fn test_movement_detection_works_with_default_runtime() {
-    use grafton_visca::camera::controls::{pan_tilt::PanTiltControl, zoom::ZoomControl};
     use grafton_visca::camera::{profiles::PtzOpticsG2, CameraBuilder};
+    use grafton_visca::{PanTiltControl, ZoomControl};
 
     // Create TokioExecutor for integration test with paused time
     let executor =
@@ -123,8 +123,8 @@ async fn test_movement_detection_works_with_default_runtime() {
 #[cfg(all(feature = "runtime-tokio", feature = "test-utils"))]
 #[tokio::test(start_paused = true)]
 async fn test_power_operations_work_with_default_runtime() {
-    use grafton_visca::camera::controls::{focus::FocusControl, zoom::ZoomControl};
     use grafton_visca::camera::{profiles::PtzOpticsG2, CameraBuilder};
+    use grafton_visca::{FocusControl, ZoomControl};
 
     // Create TokioExecutor for integration test with paused time
     let executor =

@@ -16,7 +16,7 @@ use std::{
 };
 
 use crate::{
-    camera::inflight::CommandId,
+    camera::CommandId,
     command::{
         encode::EncodedCommand,
         response::{parse_inquiry_payload, InquiryKind, Response},

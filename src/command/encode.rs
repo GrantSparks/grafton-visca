@@ -101,7 +101,6 @@ fn check_command_structure(buffer: &[u8], len: usize) -> Result<(), Error> {
 /// struct MyCommand;
 ///
 /// impl ViscaCommand for MyCommand {
-///     type Response = ();
 ///     const MAX_SIZE: usize = 6;
 ///     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 ///
@@ -128,9 +127,6 @@ fn check_command_structure(buffer: &[u8], len: usize) -> Result<(), Error> {
 /// }
 /// ```
 pub trait ViscaCommand: Send + Sync {
-    /// The type of response expected from this command.
-    type Response;
-
     /// Maximum size in bytes that this command can encode to.
     const MAX_SIZE: usize;
 
@@ -351,7 +347,6 @@ mod tests {
     struct DummyInvalidAddr;
 
     impl ViscaCommand for DummyInvalidAddr {
-        type Response = ();
         const MAX_SIZE: usize = 2;
         const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
@@ -369,7 +364,6 @@ mod tests {
     struct DummyTooShort;
 
     impl ViscaCommand for DummyTooShort {
-        type Response = ();
         const MAX_SIZE: usize = 2;
         const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
@@ -387,7 +381,6 @@ mod tests {
     struct DummyMissingTerminator;
 
     impl ViscaCommand for DummyMissingTerminator {
-        type Response = ();
         const MAX_SIZE: usize = 3;
         const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
@@ -423,7 +416,6 @@ mod tests {
         struct DummyValid;
 
         impl ViscaCommand for DummyValid {
-            type Response = ();
             const MAX_SIZE: usize = 6;
             const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
@@ -492,7 +484,6 @@ mod tests {
     // EncodedCommand::new doesn't require Clone on the command type.
 
     impl ViscaCommand for NonCloneCommand {
-        type Response = ();
         const MAX_SIZE: usize = 6;
         const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
@@ -576,7 +567,6 @@ mod tests {
     // EncodedCommand::new doesn't require Clone on heap-backed commands.
 
     impl ViscaCommand for HeapCommand {
-        type Response = ();
         const MAX_SIZE: usize = 32;
         const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Custom;
 

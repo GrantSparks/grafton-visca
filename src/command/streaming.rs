@@ -39,7 +39,6 @@ impl From<MulticastStreaming> for MulticastStreamingInternal {
 }
 
 impl crate::command::ViscaCommand for MulticastStreaming {
-    type Response = ();
     const MAX_SIZE: usize = 8; // Conservative estimate
     const TIMEOUT_CATEGORY: crate::timeout::CommandCategory =
         crate::timeout::CommandCategory::Network;
@@ -82,7 +81,6 @@ pub struct SetNdiQuality {
 }
 
 impl crate::command::ViscaCommand for SetNdiQuality {
-    type Response = ();
     const MAX_SIZE: usize = 8; // Conservative estimate
     const TIMEOUT_CATEGORY: crate::timeout::CommandCategory =
         crate::timeout::CommandCategory::Network;
@@ -130,7 +128,6 @@ pub enum UsbAudio {
 }
 
 impl crate::command::ViscaCommand for UsbAudio {
-    type Response = ();
     const MAX_SIZE: usize = 7;
     const TIMEOUT_CATEGORY: crate::timeout::CommandCategory =
         crate::timeout::CommandCategory::Quick;

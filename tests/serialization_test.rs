@@ -16,17 +16,18 @@ fn test_preset_number_serialization() {
 
 #[cfg(all(feature = "serde", feature = "schemars"))]
 #[test]
-fn test_normalized_serialization() {
-    use grafton_visca::units::Normalized;
+fn test_unit_interval_serialization() {
+    use grafton_visca::units::UnitInterval;
 
-    let normalized = Normalized::new(0.75_f32);
+    let normalized = UnitInterval::new(0.75_f32).expect("valid unit interval");
 
     let json = serde_json::to_string(&normalized).expect("Serialization failed");
     assert_eq!(json, "0.75");
 
-    let deserialized: Normalized<f32> =
-        serde_json::from_str(&json).expect("Deserialization failed");
-    assert_eq!(deserialized.value(), &0.75_f32);
+    let deserialized: UnitInterval = serde_json::from_str(&json).expect("Deserialization failed");
+    assert_eq!(deserialized.value(), 0.75_f32);
+    assert!(serde_json::from_str::<UnitInterval>("-0.1").is_err());
+    assert!(serde_json::from_str::<UnitInterval>("1.1").is_err());
 }
 
 #[cfg(all(feature = "serde", feature = "schemars"))]
@@ -47,13 +48,13 @@ fn test_degrees_serialization() {
 #[test]
 fn test_schema_generation() {
     use grafton_visca::{
-        units::{Degrees, Normalized},
+        units::{Degrees, UnitInterval},
         PresetNumber,
     };
     use schemars::schema_for;
 
     // Verify schema can be generated
     let _preset_schema = schema_for!(PresetNumber);
-    let _normalized_schema = schema_for!(Normalized<f32>);
+    let _normalized_schema = schema_for!(UnitInterval);
     let _degrees_schema = schema_for!(Degrees<f32>);
 }

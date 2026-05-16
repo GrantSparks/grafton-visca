@@ -4,7 +4,7 @@
 //! the async adapter and blocking scheduler core, providing a unified
 //! interface for command state management.
 
-use crate::{camera::inflight::CommandId, runtime::core::PendingCommand};
+use crate::{camera::CommandId, runtime::core::PendingCommand};
 
 /// Runtime-neutral scheduler abstraction.
 ///

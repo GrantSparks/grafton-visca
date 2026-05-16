@@ -16,6 +16,7 @@ use crate::Error;
 
 /// Categories of VISCA commands with different timeout requirements.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum CommandCategory {
     /// Quick commands like inquiry, power status (1-2 seconds).
     Quick,

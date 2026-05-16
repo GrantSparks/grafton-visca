@@ -9,7 +9,7 @@
 use ts_rs::{Config, TS};
 
 use grafton_visca::{
-    camera::{config::TransportOptions, profiles::ProfileId},
+    camera::{profiles::ProfileId, TransportOptions},
     types::{SpeedLevel, ZoomPosition},
     PanTiltDirection, PresetNumber,
 };

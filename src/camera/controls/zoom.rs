@@ -148,22 +148,22 @@ pub trait DigitalZoomRangeControl {
     /// or include digital zoom as well.
     ///
     /// # Arguments
-    /// * `position` - Normalized position (0.0 = wide, 1.0 = full telephoto for the domain)
+    /// * `position` - UnitInterval position (0.0 = wide, 1.0 = full telephoto for the domain)
     /// * `domain` - The zoom domain to use (Optical or OpticalPlusDigital)
     ///
     /// # Examples
     /// ```ignore
-    /// use grafton_visca::{ZoomDomain, Normalized};
+    /// use grafton_visca::{ZoomDomain, UnitInterval};
     ///
     /// // Set to 50% of optical zoom range
     /// camera.zoom_absolute_normalized(
-    ///     Normalized::new(0.5)?,
+    ///     UnitInterval::new(0.5)?,
     ///     ZoomDomain::Optical
     /// )?;
     ///
     /// // Set to 75% of full zoom range (including digital)
     /// camera.zoom_absolute_normalized(
-    ///     Normalized::new(0.75)?,
+    ///     UnitInterval::new(0.75)?,
     ///     ZoomDomain::OpticalPlusDigital
     /// )?;
     /// ```
@@ -174,7 +174,7 @@ pub trait DigitalZoomRangeControl {
     /// - The command fails to send or receive a response
     fn zoom_absolute_normalized(
         &self,
-        position: crate::Normalized,
+        position: crate::UnitInterval,
         domain: crate::ZoomDomain,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 }
@@ -207,7 +207,7 @@ where
 }
 
 pub(crate) fn zoom_absolute_normalized_command<P>(
-    position: crate::Normalized,
+    position: crate::UnitInterval,
     domain: crate::ZoomDomain,
 ) -> Result<ZoomCommand, Error>
 where
@@ -302,7 +302,7 @@ where
 
     fn zoom_absolute_normalized(
         &self,
-        position: crate::Normalized,
+        position: crate::UnitInterval,
         domain: crate::ZoomDomain,
     ) -> M::Fut<'_, Result<(), Error>> {
         match zoom_absolute_normalized_command::<P>(position, domain) {
@@ -323,10 +323,9 @@ where
     pub(crate) async fn start_zoom_operation(
         &self,
         command: ZoomCommand,
-    ) -> Result<crate::camera::inflight::InFlight<'_, crate::camera::inflight::Zoom, P, Exec>, Error>
-    {
+    ) -> Result<crate::camera::InFlight<'_, crate::camera::ZoomOperation, P, Exec>, Error> {
         let (id, response_future) = self.start_command_with_id(&command).await?;
-        Ok(crate::camera::inflight::InFlight::new(
+        Ok(crate::camera::InFlight::new(
             id,
             self.camera_id(),
             self.runtime(),
@@ -339,8 +338,7 @@ where
     pub(crate) async fn zoom_tele_op(
         &self,
         speed: Option<ZoomSpeed>,
-    ) -> Result<crate::camera::inflight::InFlight<'_, crate::camera::inflight::Zoom, P, Exec>, Error>
-    {
+    ) -> Result<crate::camera::InFlight<'_, crate::camera::ZoomOperation, P, Exec>, Error> {
         self.start_zoom_operation(zoom_tele_command(speed)).await
     }
 
@@ -349,8 +347,7 @@ where
     pub(crate) async fn zoom_wide_op(
         &self,
         speed: Option<ZoomSpeed>,
-    ) -> Result<crate::camera::inflight::InFlight<'_, crate::camera::inflight::Zoom, P, Exec>, Error>
-    {
+    ) -> Result<crate::camera::InFlight<'_, crate::camera::ZoomOperation, P, Exec>, Error> {
         self.start_zoom_operation(zoom_wide_command(speed)).await
     }
 }
@@ -369,7 +366,7 @@ where
     pub async fn set_zoom_op<T>(
         &self,
         position: T,
-    ) -> Result<crate::camera::inflight::InFlight<'_, crate::camera::inflight::Zoom, P, Exec>, Error>
+    ) -> Result<crate::camera::InFlight<'_, crate::camera::ZoomOperation, P, Exec>, Error>
     where
         T: TryInto<ZoomPosition>,
         T::Error: Into<Error>,

@@ -51,7 +51,7 @@ mod blocking {
                 println!(
                     "Zoom: 0x{:04X} ({:.1}% optical)",
                     position.value(),
-                    optical.0 * 100.0
+                    optical.value() * 100.0
                 );
             }
             Err(error) => println!("Zoom inquiry failed: {error}"),

@@ -26,6 +26,7 @@ use crate::{
 )]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
+#[non_exhaustive]
 pub enum TransportKind {
     /// TCP network transport.
     Tcp,
@@ -57,6 +58,7 @@ impl std::fmt::Display for TransportKind {
 )]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
+#[non_exhaustive]
 pub enum TransportOptions {
     /// TCP connection with address.
     #[cfg_attr(feature = "serde", serde(rename = "TCP"))]
@@ -295,9 +297,17 @@ where
     }
 
     /// Set camera VISCA address.
-    pub fn camera_id(mut self, id: u8) -> Result<Self, Error> {
-        self.camera_id = CameraId::new(id)?;
-        Ok(self)
+    pub fn camera_id(mut self, id: CameraId) -> Self {
+        self.camera_id = id;
+        self
+    }
+
+    /// Set camera VISCA address from a raw numeric ID.
+    ///
+    /// # Errors
+    /// Returns an error if `id` is outside the supported VISCA camera ID range.
+    pub fn try_camera_id(self, id: u8) -> Result<Self, Error> {
+        Ok(self.camera_id(CameraId::new(id)?))
     }
 
     fn defaulted_buffer_config(&self, transport_default: BufferConfig) -> BufferConfig {
@@ -365,9 +375,6 @@ where
     }
 }
 
-// Convenience alias for cleaner API
-pub use CameraConfig as Config;
-
 // Implementation of open methods
 #[cfg(feature = "mode-async")]
 impl<P> CameraConfig<P>
@@ -398,12 +405,7 @@ where
         &self,
         runtime: R,
     ) -> Result<
-        crate::camera::session::CameraSession<
-            crate::mode::Async,
-            P,
-            crate::runtime::TransportHandle<R>,
-            R,
-        >,
+        crate::camera::CameraSession<crate::mode::Async, P, crate::runtime::TransportHandle<R>, R>,
         Error,
     >
     where
@@ -468,7 +470,7 @@ where
         }
 
         // Wrap in session
-        Ok(crate::camera::session::CameraSession::new(camera))
+        Ok(crate::camera::CameraSession::new(camera))
     }
 
     /// Open an async serial camera session using the configuration.
@@ -495,12 +497,7 @@ where
         &self,
         runtime: R,
     ) -> Result<
-        crate::camera::session::CameraSession<
-            crate::mode::Async,
-            P,
-            crate::runtime::TransportHandle<R>,
-            R,
-        >,
+        crate::camera::CameraSession<crate::mode::Async, P, crate::runtime::TransportHandle<R>, R>,
         Error,
     >
     where
@@ -537,7 +534,7 @@ where
                 }
 
                 // Wrap in session
-                Ok(crate::camera::session::CameraSession::new(camera))
+                Ok(crate::camera::CameraSession::new(camera))
             }
             _ => Err(Error::InvalidState(
                 "open_serial_async requires serial transport configuration".into(),

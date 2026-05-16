@@ -1,5 +1,5 @@
 use grafton_visca::{
-    profiles::PtzOpticsG2, transport::BlockingTransportHandle, BlockingCamera, Normalized,
+    profiles::PtzOpticsG2, transport::BlockingTransportHandle, BlockingCamera, UnitInterval,
     ZoomDomain,
 };
 
@@ -9,7 +9,7 @@ fn main() {
 
     let _ = camera.set_digital_zoom(true);
     let _ = camera.zoom_absolute_normalized(
-        Normalized::new(0.75).unwrap(),
+        UnitInterval::new(0.75).unwrap(),
         ZoomDomain::OpticalPlusDigital,
     );
     let _ = camera.focus().one_push();

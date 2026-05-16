@@ -42,7 +42,6 @@ impl SetVariableSpeedMode {
 }
 
 impl ViscaCommand for SetVariableSpeedMode {
-    type Response = ();
     const MAX_SIZE: usize = 7;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 

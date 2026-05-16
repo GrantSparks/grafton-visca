@@ -76,7 +76,6 @@ pub enum ExposureCompensation {
 }
 
 impl ViscaCommand for ExposureCompensation {
-    type Response = ();
     const MAX_SIZE: usize = 9;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
@@ -174,7 +173,6 @@ pub enum Iris {
 }
 
 impl ViscaCommand for Iris {
-    type Response = ();
     const MAX_SIZE: usize = 9;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
@@ -236,7 +234,6 @@ pub enum Shutter {
 }
 
 impl ViscaCommand for Shutter {
-    type Response = ();
     const MAX_SIZE: usize = 9;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
@@ -296,7 +293,6 @@ pub enum Brightness {
 }
 
 impl ViscaCommand for Brightness {
-    type Response = ();
     const MAX_SIZE: usize = 9;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 

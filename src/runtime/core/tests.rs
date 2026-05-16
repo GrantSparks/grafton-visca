@@ -26,7 +26,6 @@ struct TestCommandQuick {
 }
 
 impl crate::command::encode::ViscaCommand for TestCommandQuick {
-    type Response = ();
     const MAX_SIZE: usize = 16;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
@@ -48,7 +47,6 @@ struct TestCommandMovement {
 }
 
 impl crate::command::encode::ViscaCommand for TestCommandMovement {
-    type Response = ();
     const MAX_SIZE: usize = 16;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Movement;
 
@@ -102,7 +100,6 @@ fn create_test_command(
 struct TestInquiryHelper;
 
 impl crate::command::encode::ViscaCommand for TestInquiryHelper {
-    type Response = ();
     const MAX_SIZE: usize = 5;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
@@ -232,7 +229,6 @@ fn test_inquiry_does_not_consume_sockets() {
     #[derive(Clone)]
     struct TestInquiry;
     impl crate::command::encode::ViscaCommand for TestInquiry {
-        type Response = ();
         const MAX_SIZE: usize = 5;
         const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
         fn write_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
@@ -259,7 +255,6 @@ fn test_inquiry_does_not_consume_sockets() {
     #[derive(Clone)]
     struct TestCmd1;
     impl crate::command::encode::ViscaCommand for TestCmd1 {
-        type Response = ();
         const MAX_SIZE: usize = 6;
         const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Movement;
         fn write_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
@@ -284,7 +279,6 @@ fn test_inquiry_does_not_consume_sockets() {
     #[derive(Clone)]
     struct TestCmd2;
     impl crate::command::encode::ViscaCommand for TestCmd2 {
-        type Response = ();
         const MAX_SIZE: usize = 6;
         const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Movement;
         fn write_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
@@ -364,7 +358,6 @@ fn test_inquiry_reply_handling() {
     #[derive(Debug, Clone)]
     struct TestInquiryCmd;
     impl crate::command::encode::ViscaCommand for TestInquiryCmd {
-        type Response = ();
         const MAX_SIZE: usize = 5;
         const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
         fn write_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
@@ -436,7 +429,6 @@ fn test_raw_visca_inquiry_ordering() {
     #[derive(Debug, Clone)]
     struct TestInquiry1;
     impl crate::command::encode::ViscaCommand for TestInquiry1 {
-        type Response = ();
         const MAX_SIZE: usize = 5;
         const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
         fn write_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
@@ -455,7 +447,6 @@ fn test_raw_visca_inquiry_ordering() {
     #[derive(Debug, Clone)]
     struct TestInquiry2;
     impl crate::command::encode::ViscaCommand for TestInquiry2 {
-        type Response = ();
         const MAX_SIZE: usize = 5;
         const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
         fn write_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
@@ -474,7 +465,6 @@ fn test_raw_visca_inquiry_ordering() {
     #[derive(Debug, Clone)]
     struct TestInquiry3;
     impl crate::command::encode::ViscaCommand for TestInquiry3 {
-        type Response = ();
         const MAX_SIZE: usize = 5;
         const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
         fn write_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
@@ -542,7 +532,6 @@ fn test_sony_sequence_attribution() {
     #[derive(Debug, Clone)]
     struct TestCmd1;
     impl crate::command::encode::ViscaCommand for TestCmd1 {
-        type Response = ();
         const MAX_SIZE: usize = 6;
         const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Movement;
         fn write_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
@@ -562,7 +551,6 @@ fn test_sony_sequence_attribution() {
     #[derive(Debug, Clone)]
     struct TestCmd2;
     impl crate::command::encode::ViscaCommand for TestCmd2 {
-        type Response = ();
         const MAX_SIZE: usize = 6;
         const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Movement;
         fn write_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
@@ -1741,7 +1729,6 @@ fn test_command_kind_preserved_through_retries() {
     #[derive(Debug, Clone)]
     struct TestCommand;
     impl crate::command::encode::ViscaCommand for TestCommand {
-        type Response = ();
         const MAX_SIZE: usize = 6;
         const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Movement;
 
@@ -1799,7 +1786,6 @@ fn test_command_kind_preserved_through_retries() {
     #[derive(Debug, Clone)]
     struct TestInquiry;
     impl crate::command::encode::ViscaCommand for TestInquiry {
-        type Response = ();
         const MAX_SIZE: usize = 6;
         const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 

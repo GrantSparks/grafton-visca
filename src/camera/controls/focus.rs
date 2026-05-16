@@ -126,7 +126,7 @@ pub trait FocusControl {
     /// a flexible API for setting focus using different units:
     ///
     /// - `Percentage(50.0)` - Set focus to 50% of range
-    /// - `Normalized(0.5)` - Set focus to 0.5 (equivalent to 50%)
+    /// - `UnitInterval::new(0.5)?` - Set focus to 0.5 (equivalent to 50%)
     /// - `Raw(0x8000)` - Set focus to raw VISCA value
     /// - `FocusPosition` - Set focus to specific position directly
     ///
@@ -135,13 +135,13 @@ pub trait FocusControl {
     ///
     /// # Examples
     /// ```ignore
-    /// use grafton_visca::units::{Percentage, Normalized, Raw};
+    /// use grafton_visca::units::{Percentage, UnitInterval, Raw};
     ///
     /// // Using percentage
     /// camera.set_focus(Percentage(50.0))?;
     ///
     /// // Using normalized value
-    /// camera.set_focus(Normalized(0.5))?;
+    /// camera.set_focus(UnitInterval::new(0.5)?)?;
     ///
     /// // Using raw value
     /// camera.set_focus(Raw(0x8000_u16))?;
@@ -431,7 +431,7 @@ where
     ///
     /// # Examples
     /// ```ignore
-    /// use grafton_visca::units::{Percentage, Normalized};
+    /// use grafton_visca::units::{Percentage, UnitInterval};
     /// use std::time::Duration;
     ///
     /// // Using percentage
@@ -439,7 +439,7 @@ where
     /// handle.await_completion(Duration::from_secs(5)).await?;
     ///
     /// // Using normalized value
-    /// let handle = camera.set_focus_op(Normalized(0.5)).await?;
+    /// let handle = camera.set_focus_op(UnitInterval::new(0.5)?).await?;
     /// handle.await_completion(Duration::from_secs(5)).await?;
     /// ```
     ///
@@ -451,7 +451,7 @@ where
     pub async fn set_focus_op<T>(
         &self,
         position: T,
-    ) -> Result<crate::camera::inflight::InFlight<'_, crate::camera::inflight::Focus, P, Exec>, Error>
+    ) -> Result<crate::camera::InFlight<'_, crate::camera::FocusOperation, P, Exec>, Error>
     where
         T: TryInto<FocusPosition>,
         T::Error: Into<Error>,
@@ -462,7 +462,7 @@ where
         let (id, response_future) = self.start_command_with_id(&cmd).await?;
 
         // Return InFlight handle with the response future
-        Ok(crate::camera::inflight::InFlight::new(
+        Ok(crate::camera::InFlight::new(
             id,
             self.camera_id(),
             self.runtime(),

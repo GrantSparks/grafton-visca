@@ -194,6 +194,20 @@ impl CameraBuilder<()> {
             _phantom: std::marker::PhantomData,
         }
     }
+
+    /// Set the camera ID.
+    pub fn camera_id(mut self, id: CameraId) -> Self {
+        self.camera_id = id;
+        self
+    }
+
+    /// Set the camera ID from a raw numeric value.
+    ///
+    /// # Errors
+    /// Returns an error if `id` is outside the supported VISCA camera ID range.
+    pub fn try_camera_id(self, id: u8) -> Result<Self, Error> {
+        Ok(self.camera_id(CameraId::new(id)?))
+    }
 }
 
 impl Default for CameraBuilder<()> {
@@ -224,6 +238,14 @@ where
     pub fn camera_id(mut self, id: CameraId) -> Self {
         self.camera_id = id;
         self
+    }
+
+    /// Set the camera ID from a raw numeric value.
+    ///
+    /// # Errors
+    /// Returns an error if `id` is outside the supported VISCA camera ID range.
+    pub fn try_camera_id(self, id: u8) -> Result<Self, Error> {
+        Ok(self.camera_id(CameraId::new(id)?))
     }
 
     /// Set the timeout configuration.
@@ -429,36 +451,6 @@ impl CameraBuilder<()> {
 
         Ok(crate::BlockingClient::from_camera(camera))
     }
-}
-
-/// Type aliases for common camera configurations with executors.
-#[cfg(all(feature = "mode-async", feature = "runtime-tokio"))]
-pub mod async_cameras {
-    use crate::camera::Camera;
-    use crate::mode;
-
-    /// A camera using the Tokio executor.
-    pub type TokioCamera<P, T> = Camera<mode::Async, P, T, crate::executor::TokioExecutor>;
-}
-
-/// Type aliases for smol camera configurations.
-#[cfg(all(feature = "mode-async", feature = "runtime-smol"))]
-pub mod smol_cameras {
-    use crate::camera::Camera;
-    use crate::mode;
-
-    /// A camera using the smol executor.
-    pub type SmolCamera<P, T> = Camera<mode::Async, P, T, crate::executor::SmolExecutor>;
-}
-
-/// Type aliases for blocking cameras.
-#[cfg(not(feature = "mode-async"))]
-pub mod blocking_cameras {
-    use crate::camera::Camera;
-    use crate::mode;
-
-    /// A blocking camera (no executor needed).
-    pub type BlockingCamera<P, T> = Camera<mode::Blocking, P, T, ()>;
 }
 
 #[cfg(test)]

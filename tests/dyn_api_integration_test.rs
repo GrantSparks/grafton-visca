@@ -19,14 +19,7 @@ use std::{
 };
 
 use grafton_visca::{
-    camera::{
-        controls::{
-            focus::FocusControl, pan_tilt::PanTiltControl, presets::PresetsControl,
-            zoom::ZoomControl,
-        },
-        profiles::PtzOpticsG2,
-        Camera, CameraBuilder,
-    },
+    camera::{profiles::PtzOpticsG2, Camera, CameraBuilder},
     dynapi::{
         DynCameraControl, DynFocusControl, DynMotionControl, DynPanTiltControl, DynPresetsControl,
         DynZoomControl, IntoDynCamera,
@@ -36,7 +29,8 @@ use grafton_visca::{
     testing::testkit::{helpers, scripted_transport::Step, ScriptedTransport},
     timeout::TimeoutConfig,
     types::{FocusPosition, SpeedLevel},
-    Error, Normalized, PresetNumber, TokioExecutor, ZoomDomain,
+    Error, FocusControl, PanTiltControl, PresetNumber, PresetsControl, TokioExecutor, UnitInterval,
+    ZoomControl, ZoomDomain,
 };
 
 use crate::common::patterns;
@@ -418,7 +412,7 @@ async fn test_dyn_validation_parity_for_pan_tilt_focus_preset_and_zoom_domain() 
         "dyn preset should reject profile-invalid preset: {dyn_preset:?}"
     );
 
-    let normalized = Normalized::new(0.5).expect("valid normalized value");
+    let normalized = UnitInterval::new(0.5).expect("valid normalized value");
     let dyn_zoom = dyn_camera
         .zoom()
         .zoom_absolute_normalized(normalized, ZoomDomain::OpticalPlusDigital, None)

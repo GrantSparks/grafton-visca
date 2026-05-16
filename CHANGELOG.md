@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking Changes
 
+#### 1.0 Low-Level API Hardening (#528)
+- **BREAKING**: Camera implementation submodules are no longer public extension points. Import the supported camera surface from `grafton_visca::camera` (`Connect`, `Camera`, `CameraBuilder`, `CameraConfig`, `TransportKind`, `TransportOptions`, `CommandId`, and operation/in-flight handle types) and import static control traits from the crate root, for example `grafton_visca::{PowerControl, ZoomControl}`.
+- **BREAKING**: `Normalized` was removed in favor of the checked `UnitInterval` value type. Use `UnitInterval::new(value)?`, `UnitInterval::try_from(value)?`, `UnitInterval::ZERO`, or `UnitInterval::ONE`; invalid, NaN, and infinite values are rejected instead of being constructible through a public tuple field.
+- **BREAKING**: `ViscaCommand::Response` was removed. Custom commands now implement only command encoding and kind metadata through `ViscaCommand`; typed custom inquiries implement `ResponseParser` for response typing and parsing.
+- **BREAKING**: `CameraConfig::camera_id` and `CameraBuilder::camera_id` now accept `CameraId`. Use `try_camera_id(u8)` when converting a raw VISCA camera number from configuration or user input.
+- **BREAKING**: Public extension enums that may grow after 1.0 are marked `#[non_exhaustive]`, including `Error`, command `Response`, transport policy enums, timeout categories, and dyn-api operation categories. Downstream exhaustive matches need a wildcard arm.
+- API contract tests now cover the intentional public camera exports, hidden low-level camera modules, removal of `Normalized`, removal of `ViscaCommand::Response`, checked camera ID builders, and root-level control trait import paths.
+
 #### Image Quality Profile Gates (#526)
 - **BREAKING**: Removed the broad `ImageProcessingControl` typed bucket. Contrast and sharpness now use `ContrastControl` and `SharpnessControl`; unsupported profiles no longer compile for those setters or matching inquiries.
 - **BREAKING**: Exposure brightness moved out of image-processing metadata. Use `BrightnessControl` / `BrightnessInquiryControl` and `Capabilities::exposure_brightness_range`; image luminance remains on `LuminanceControl` / `HasLuminanceControl`.
@@ -27,8 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 #### Public API Freeze and Camera-First Convergence (#509, #510)
 - **BREAKING**: Blocking camera construction now returns the ergonomic `BlockingClient<P, Tr>` surface consistently; `CameraConfig::open_blocking()`, `CameraConfig::open_serial_blocking()`, blocking `CameraBuilder::open()`, and `CameraBuilder::build_blocking()` no longer expose the raw mode-generic camera type
 - **BREAKING**: `BlockingCamera<P, Tr>` now aliases `BlockingClient<P, Tr>`, making noun accessors such as `camera.power().on()?` and `camera.pan_tilt().home()?` the canonical blocking API
-- **BREAKING**: Root-level control trait re-exports such as `grafton_visca::PowerControl` and `grafton_visca::ZoomControl` were removed from the public 1.0 surface; advanced trait-generic code should import them from `grafton_visca::camera::controls::*`
-- **BREAKING**: Camera implementation modules are no longer public extension points; `camera::camera_impl`, `camera::movement`, and `camera::capabilities` were hidden behind the stable top-level camera exports
+- **BREAKING**: Low-level camera implementation modules are no longer public extension points; camera construction/session types remain available through `grafton_visca::camera`, and static control traits remain available through root-level re-exports such as `grafton_visca::PowerControl` and `grafton_visca::ZoomControl`
 - **BREAKING**: Runtime scheduler internals are no longer part of the production public API; `runtime::RuntimeHandle`, `runtime::Priority`, and scheduler submodules are hidden, with test-only hooks available under `runtime::testing` when `test-utils` is enabled
 - **BREAKING**: Transport implementation modules such as `transport::builder`, `transport::buffer`, `transport::blocking_transport`, `transport::address`, and `transport::envelope` are hidden; supported transport configuration and extension types are re-exported from `grafton_visca::transport`
 - **BREAKING**: The `command::encode` implementation module is hidden; raw command extensions should import `ViscaCommand`, `CommandKind`, and `InquiryKind` from `grafton_visca::command`
@@ -69,9 +76,11 @@ impl HasNdFilter for MyProfile {}
 Method and bound migrations:
 
 ```diff
--use grafton_visca::camera::controls::inquiry::InquiryControl;
-+use grafton_visca::camera::controls::inquiry::NdFilterInquiryControl;
-+use grafton_visca::capabilities::HasNdFilter;
+-use grafton_visca::InquiryControl;
++use grafton_visca::{
++    capabilities::HasNdFilter,
++    NdFilterInquiryControl,
++};
 
 -where P: Profile + Default, Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>
 +where P: Profile + HasNdFilter + Default, Camera<M, P, Tr, Exec>: NdFilterInquiryControl<Mode = M>
@@ -79,9 +88,11 @@ Method and bound migrations:
 ```
 
 ```diff
--use grafton_visca::camera::controls::inquiry::InquiryControl;
-+use grafton_visca::camera::controls::motion_sync::MotionSyncControl;
-+use grafton_visca::capabilities::HasMotionSync;
+-use grafton_visca::InquiryControl;
++use grafton_visca::{
++    capabilities::HasMotionSync,
++    MotionSyncControl,
++};
 
 -where P: Profile + Default, Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>
 +where P: Profile + HasMotionSync + Default, Camera<M, P, Tr, Exec>: MotionSyncControl<Mode = M>
@@ -89,8 +100,11 @@ Method and bound migrations:
 ```
 
 ```diff
- use grafton_visca::camera::controls::variable_speed::VariableSpeedControl;
-+use grafton_visca::capabilities::HasVariableSpeed;
+-use grafton_visca::VariableSpeedControl;
++use grafton_visca::{
++    capabilities::HasVariableSpeed,
++    VariableSpeedControl,
++};
 
 -where P: Profile + Default, Camera<M, P, Tr, Exec>: VariableSpeedControl<Mode = M>
 +where P: Profile + HasVariableSpeed + Default, Camera<M, P, Tr, Exec>: VariableSpeedControl<Mode = M>
@@ -186,7 +200,7 @@ If this gating model ships in a pre-1.0 release before the final cutover, prefer
 Before:
 
 ```rust
-use grafton_visca::camera::controls::inquiry::InquiryControl;
+use grafton_visca::InquiryControl;
 
 where
     P: Profile + Default,
@@ -199,8 +213,8 @@ where
 After:
 
 ```rust
-use grafton_visca::camera::controls::tally::TallyControl;
 use grafton_visca::capabilities::HasTally;
+use grafton_visca::TallyControl;
 
 where
     P: Profile + HasTally + Default,
@@ -244,7 +258,7 @@ the aggregate into a base trait plus capability-specific extension traits.
 - Added blocking noun accessors for power, zoom, pan/tilt, focus, exposure, white balance, image processing, presets, tally, system, menu, ND filter, motion sync, and advanced inquiries
 - Blocking accessors return `Result<T, Error>` directly, eliminating `.block()` from the canonical blocking flow while preserving async accessor parity
 - Added missing white-balance accessor operations for one-push mode, ATW mode, and color-temperature mode
-- Added compile-time API contract coverage for the frozen camera-first construction path, blocking accessor surface, command-root extension API, hidden implementation modules, `test-utils` gating, and removal of root-level control trait re-exports
+- Added compile-time API contract coverage for the frozen camera-first construction path, blocking accessor surface, root-level control trait re-exports, command-root extension API, hidden implementation modules, and `test-utils` gating
 
 #### 1.0 API Contract Tests (#512)
 - Expanded the API stability suite from compile-presence checks into explicit 1.0 contract assertions for public value wrappers, profile capabilities, serialization/schema/type-generation features, and runtime/transport-gated public entry points

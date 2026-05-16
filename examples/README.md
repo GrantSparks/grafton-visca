@@ -6,6 +6,8 @@ Preferred usage:
 - Use `Connect` for simple blocking and async camera connections.
 - Use `CameraConfig` when a standard TCP, UDP, or serial connection needs explicit timeouts, retry policy, keepalive, or camera ID.
 - Use `CameraBuilder` only when you already own a custom transport and need to attach it to a camera.
+- Import camera construction/session types from `grafton_visca::camera` and generic control traits from the crate root.
+- Use checked public value types such as `UnitInterval::new(...)` and `CameraId`/`try_camera_id(...)` instead of raw normalized floats or raw camera ID setters.
 - Treat raw transport, protocol, and lab-validation programs as advanced integration/reference material.
 
 Example quality bar:

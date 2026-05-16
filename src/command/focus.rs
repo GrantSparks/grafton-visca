@@ -109,7 +109,6 @@ pub enum Focus {
 }
 
 impl ViscaCommand for Focus {
-    type Response = ();
     const MAX_SIZE: usize = 9;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Movement;
 
@@ -322,7 +321,6 @@ pub enum FocusLock {
 }
 
 impl ViscaCommand for FocusLock {
-    type Response = ();
     const MAX_SIZE: usize = 6;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
@@ -372,7 +370,6 @@ pub enum PushAF {
 }
 
 impl ViscaCommand for PushAF {
-    type Response = ();
     const MAX_SIZE: usize = 8;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 

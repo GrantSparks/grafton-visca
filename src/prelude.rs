@@ -85,7 +85,7 @@ pub mod r#async {
     };
     // Type-safe parameter types for camera control
     pub use crate::types::{FStop, IrisLevel, PanSpeed, ShutterSpeed, SpeedLevel, TiltSpeed};
-    pub use crate::units::{Degrees, Normalized, Percentage, Raw};
+    pub use crate::units::{Degrees, Percentage, Raw, UnitInterval};
 
     // Runtime support for async operations
     #[cfg(feature = "runtime-smol")]
@@ -122,7 +122,7 @@ pub mod blocking {
     };
     // Type-safe parameter types for camera control
     pub use crate::types::{FStop, IrisLevel, PanSpeed, ShutterSpeed, SpeedLevel, TiltSpeed};
-    pub use crate::units::{Degrees, Normalized, Percentage, Raw};
+    pub use crate::units::{Degrees, Percentage, Raw, UnitInterval};
 
     // Type aliases for signatures in applications that need named blocking
     // camera types. Construction should still go through Connect or CameraConfig.

@@ -6,9 +6,8 @@
 
 #![cfg(feature = "mode-async")]
 
-use grafton_visca::camera::controls::{
-    power::PowerControl,
-    zoom::{DigitalZoomControl, DigitalZoomRangeControl, DirectZoomControl, ZoomControl},
+use grafton_visca::{
+    DigitalZoomControl, DigitalZoomRangeControl, DirectZoomControl, PowerControl, ZoomControl,
 };
 
 /// Helper function to assert that a future is Send.
@@ -95,7 +94,7 @@ impl DigitalZoomRangeControl for MockCamera {
 
     fn zoom_absolute_normalized(
         &self,
-        _position: grafton_visca::Normalized,
+        _position: grafton_visca::UnitInterval,
         _domain: grafton_visca::inquiry_conversions::ZoomDomain,
     ) -> <Self::Mode as grafton_visca::mode::Mode>::Fut<'_, Result<(), grafton_visca::Error>> {
         Box::pin(async { Ok(()) })
@@ -122,7 +121,7 @@ fn test_zoom_control_futures_are_send() {
     assert_send(camera.zoom_tele(Some(grafton_visca::types::ZoomSpeed::new(1).unwrap())));
     assert_send(camera.zoom_wide(Some(grafton_visca::types::ZoomSpeed::new(1).unwrap())));
     // Test set_zoom with various input types
-    assert_send(camera.set_zoom(grafton_visca::units::Normalized::new(0.5)));
+    assert_send(camera.set_zoom(grafton_visca::units::UnitInterval::new(0.5).unwrap()));
     assert_send(camera.set_zoom(grafton_visca::types::ZoomPosition::new(0x4000).unwrap()));
     assert_send(camera.set_zoom(grafton_visca::units::Percentage::new(50.0)));
     assert_send(camera.set_zoom(grafton_visca::units::Magnification::new(10.0)));

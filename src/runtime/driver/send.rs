@@ -7,7 +7,7 @@ use tracing::{debug, error, trace};
 
 use super::{hex_bytes, SchedulerLike};
 use crate::{
-    camera::inflight::CommandId,
+    camera::CommandId,
     command::CommandKind,
     runtime::core::{PendingCommand, SchedulerAction},
     transport::envelope::Envelope,

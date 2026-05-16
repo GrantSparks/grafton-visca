@@ -24,15 +24,11 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use grafton_visca::{
-    camera::{
-        controls::{pan_tilt::PanTiltControl, zoom::ZoomControl},
-        profiles::PtzOpticsG2,
-        CameraBuilder,
-    },
+    camera::{profiles::PtzOpticsG2, CameraBuilder},
     runtime::testing::RuntimeHandle,
     testing::testkit::{helpers, ScriptedTransport, Step},
     timeout::TimeoutConfig,
-    Error, TokioExecutor,
+    Error, PanTiltControl, TokioExecutor, ZoomControl,
 };
 
 /// Test 1: Submission wakes loop during long deadline sleep

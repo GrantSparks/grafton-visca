@@ -221,7 +221,7 @@ use std::{
 };
 
 use crate::{
-    camera::inflight::{CommandId, ResponseFuture},
+    camera::{CommandId, ResponseFuture},
     command::{
         focus::{AutoFocusSensitivity, FocusZone},
         pan_tilt::{PanTiltDirection, PanTiltLimitCorner},
@@ -232,7 +232,7 @@ use crate::{
         FocusPosition, PanPosition, PanSpeed, SpeedLevel, TiltPosition, TiltSpeed, ZoomPosition,
         ZoomSpeed,
     },
-    Error, Normalized, ZoomDomain,
+    Error, UnitInterval, ZoomDomain,
 };
 
 // ============================================================================
@@ -244,6 +244,7 @@ use crate::{
 /// This enum identifies the semantic category of a camera operation. It is
 /// exposed for diagnostics and telemetry on [`InFlightDyn`] handles.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum OperationCategory {
     /// Pan/tilt movement operations.
     PanTilt,
@@ -499,7 +500,7 @@ pub trait DynCameraControl: Send + Sync {
 ///
 /// This trait provides unified motion control operations, allowing you to stop
 /// all camera motion with a single method call. It mirrors the static
-/// [`MotionControl`](crate::camera::controls::motion::MotionControl) trait but with object-safe signatures.
+/// [`MotionControl`](crate::MotionControl) trait but with object-safe signatures.
 ///
 /// # Example
 ///
@@ -706,7 +707,7 @@ pub trait DynZoomControl: Send + Sync {
     /// Set zoom to an absolute normalized position with domain awareness.
     fn zoom_absolute_normalized(
         &self,
-        position: Normalized,
+        position: UnitInterval,
         domain: ZoomDomain,
         timeout: Option<Duration>,
     ) -> BoxFuture<'_, Result<(), Error>>;
@@ -898,7 +899,7 @@ where
     /// Convert a static in-flight handle into the type-erased dyn handle.
     fn erase_inflight<C>(
         &self,
-        handle: crate::camera::inflight::InFlight<'_, C, P, Exec>,
+        handle: crate::camera::InFlight<'_, C, P, Exec>,
         category: OperationCategory,
     ) -> Result<InFlightDyn, Error> {
         let (id, camera_id, response_future) = handle.into_parts()?;
@@ -1261,7 +1262,7 @@ where
 
     fn zoom_absolute_normalized(
         &self,
-        position: Normalized,
+        position: UnitInterval,
         domain: ZoomDomain,
         timeout: Option<Duration>,
     ) -> BoxFuture<'_, Result<(), Error>> {
@@ -1479,7 +1480,7 @@ where
     Exec: crate::executor::Executor,
 {
     fn stop_all_motion(&self) -> BoxFuture<'_, Result<(), Error>> {
-        use crate::camera::controls::motion::MotionControl;
+        use crate::MotionControl;
         self.inner.camera.stop_all_motion()
     }
 
