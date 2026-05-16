@@ -19,7 +19,6 @@ use proc_macro::TokenStream;
 /// - `MIN` and `MAX` constants when bounds are specified
 /// - `TryFrom` and `From` trait implementations
 /// - `Display` implementation with configurable formatting
-/// - Model-specific validation when `model_constraints` is specified
 ///
 /// # Attributes
 ///
@@ -28,7 +27,6 @@ use proc_macro::TokenStream;
 /// - `valid_values` - List of valid values (alternative to min/max)
 /// - `display_format` - Display format: "hex", "binary", or "decimal" (default)
 /// - `display_prefix` - Optional prefix for display output
-/// - `model_constraints` - Camera models that require validation (e.g., "PTZOpticsG2")
 ///
 /// # Example
 ///
@@ -42,10 +40,7 @@ use proc_macro::TokenStream;
 /// struct PowerState(u8);
 ///
 /// #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
-/// #[visca_value(
-///     valid_values = "[0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07]",
-///     model_constraints = "PTZOpticsG2"
-/// )]
+/// #[visca_value(valid_values = "[0x00, 0x01, 0x02, 0x03]")]
 /// struct Gain(u8);
 /// ```
 pub fn derive_visca_value(input: TokenStream) -> TokenStream {
@@ -81,11 +76,9 @@ pub fn derive_visca_value(input: TokenStream) -> TokenStream {
     let mut valid_values = None;
     let mut display_format = "decimal";
     let mut display_prefix = "";
-    let mut model_constraints = None;
-
     for attr in &input.attrs {
         if attr.path().is_ident("visca_value") {
-            let _ = attr.parse_nested_meta(|meta| {
+            if let Err(error) = attr.parse_nested_meta(|meta| {
                 if meta.path.is_ident("min") {
                     let value: syn::LitStr = meta.value()?.parse()?;
                     min_value = Some(value.value());
@@ -111,11 +104,14 @@ pub fn derive_visca_value(input: TokenStream) -> TokenStream {
                     let value: syn::LitStr = meta.value()?.parse()?;
                     display_prefix = Box::leak(value.value().into_boxed_str());
                 } else if meta.path.is_ident("model_constraints") {
-                    let value: syn::LitStr = meta.value()?.parse()?;
-                    model_constraints = Some(value.value());
+                    return Err(meta.error(
+                        "`model_constraints` was removed; use profile capability validation",
+                    ));
                 }
                 Ok(())
-            });
+            }) {
+                return error.to_compile_error().into();
+            }
         }
     }
 
@@ -236,59 +232,9 @@ pub fn derive_visca_value(input: TokenStream) -> TokenStream {
         }
     };
 
-    // Generate model-specific validation method if constraints are provided
-    let model_validation = if let Some(constraints) = &model_constraints {
-        // Parse model constraints - format: "PTZOpticsG2" or "PTZOpticsG2|PTZOpticsG3"
-        let models: Vec<&str> = constraints.split('|').collect();
-        let model_checks = models
-            .iter()
-            .map(|model| {
-                let model_ident = quote::format_ident!("{}", model);
-                quote! {
-                    crate::constants::CameraVariant::#model_ident
-                }
-            })
-            .collect::<Vec<_>>();
-
-        // Generate the G2_VALID_VALUES constant for backwards compatibility
-        let g2_constant = if models.contains(&"PTZOpticsG2") {
-            if let Some(ref values) = valid_values {
-                let values_tokens: proc_macro2::TokenStream =
-                    values.parse().unwrap_or_else(|_| quote! { &[] });
-                quote! {
-                    /// Valid values for PTZOptics G2 cameras.
-                    pub const G2_VALID_VALUES: &'static [#inner_type] = &#values_tokens;
-                }
-            } else {
-                quote! {}
-            }
-        } else {
-            quote! {}
-        };
-
-        quote! {
-            #g2_constant
-
-            /// Validate the value for a specific camera model.
-            ///
-            /// # Errors
-            /// Returns an error if the value is not valid for the given camera model.
-            pub fn validate_for_model(&self, model: crate::constants::CameraVariant) -> Result<(), crate::Error> {
-                if matches!(model, #(#model_checks)|*) {
-                    // Re-run validation for this model
-                    Self::new(self.value())?;
-                }
-                Ok(())
-            }
-        }
-    } else {
-        quote! {}
-    };
-
     let expanded = quote! {
         impl #name {
             #constants
-            #model_validation
 
             /// Create a new value with validation.
             ///

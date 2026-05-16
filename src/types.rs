@@ -12,8 +12,7 @@ use crate::{error::Error, units::Percentage, ViscaValue};
 #[visca_value(
     valid_values = "[0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07]",
     display_format = "hex",
-    display_prefix = "Gain Level",
-    model_constraints = "PtzOpticsG2"
+    display_prefix = "Gain Level"
 )]
 pub struct GainLevel(u8);
 
@@ -25,8 +24,7 @@ pub struct GainLevel(u8);
 #[visca_value(
     valid_values = "[0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xA, 0xB, 0xC, 0xD, 0xE, 0xF]",
     display_format = "hex",
-    display_prefix = "Gain Limit",
-    model_constraints = "PtzOpticsG2"
+    display_prefix = "Gain Limit"
 )]
 pub struct GainLimit(u8);
 
@@ -76,8 +74,7 @@ pub trait IntoIrisLevel {
 #[visca_value(
     valid_values = "[0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C]",
     display_format = "hex",
-    display_prefix = "Iris",
-    model_constraints = "PtzOpticsG2"
+    display_prefix = "Iris"
 )]
 pub struct IrisLevel(u8);
 
@@ -118,8 +115,7 @@ impl From<FStop> for IrisLevel {
 #[visca_value(
     valid_values = "[0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10, 0x11]",
     display_format = "hex",
-    display_prefix = "Shutter",
-    model_constraints = "PtzOpticsG2"
+    display_prefix = "Shutter"
 )]
 pub struct ShutterSpeed(u16);
 
@@ -131,8 +127,7 @@ pub struct ShutterSpeed(u16);
 #[visca_value(
     valid_values = "[0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10, 0x11]",
     display_format = "hex",
-    display_prefix = "Brightness",
-    model_constraints = "PtzOpticsG2"
+    display_prefix = "Brightness"
 )]
 pub struct BrightnessLevel(u16);
 
@@ -143,8 +138,7 @@ pub struct BrightnessLevel(u16);
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[visca_value(
     valid_values = "[0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F]",
-    display_prefix = "Sharpness",
-    model_constraints = "PtzOpticsG2"
+    display_prefix = "Sharpness"
 )]
 pub struct SharpnessLevel(u8);
 
@@ -155,8 +149,7 @@ pub struct SharpnessLevel(u8);
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[visca_value(
     valid_values = "[0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xA, 0xB, 0xC, 0xD, 0xE]",
-    display_prefix = "Luminance",
-    model_constraints = "PtzOpticsG2"
+    display_prefix = "Luminance"
 )]
 pub struct LuminanceLevel(u8);
 
@@ -167,8 +160,7 @@ pub struct LuminanceLevel(u8);
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[visca_value(
     valid_values = "[0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xA, 0xB, 0xC, 0xD, 0xE]",
-    display_prefix = "Contrast",
-    model_constraints = "PtzOpticsG2"
+    display_prefix = "Contrast"
 )]
 pub struct ContrastLevel(u8);
 
@@ -179,8 +171,7 @@ pub struct ContrastLevel(u8);
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[visca_value(
     valid_values = "[0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8]",
-    display_prefix = "Dynamic Range",
-    model_constraints = "PtzOpticsG2"
+    display_prefix = "Dynamic Range"
 )]
 pub struct DynamicRangeLevel(u8);
 
@@ -547,18 +538,6 @@ pub enum NdiQuality {
 pub struct ZoomPosition(u16);
 
 impl ZoomPosition {
-    /// Creates a zoom position with model-specific validation.
-    ///
-    /// This constructor validates the position against the specific camera model's
-    /// zoom range limits.
-    ///
-    /// # Errors
-    /// Returns an error if the position is outside the model's zoom range.
-    pub fn new_for_model(value: u16, model: crate::CameraVariant) -> Result<Self, Error> {
-        crate::constants::validate_zoom_position(value, model)?;
-        Self::new(value)
-    }
-
     /// Get normalized position against a given maximum [0.0, 1.0].
     ///
     /// This is profile-aware: pass the profile's optical or digital zoom max
@@ -744,116 +723,6 @@ impl SaturationLevel {
     pub fn to_percentage(self) -> u8 {
         60 + (self.0 * 10)
     }
-
-    /// Creates a new `SaturationLevel` with model-specific validation.
-    ///
-    /// Currently uses universal VISCA ranges, but the model parameter is available
-    /// for future model-specific refinements.
-    ///
-    /// # Errors
-    /// Returns an error if the level is outside the model's saturation range.
-    pub fn new_for_model(level: u8, model: crate::CameraVariant) -> Result<Self, Error> {
-        crate::constants::validate_saturation_level(level, model)?;
-        Self::new(level)
-    }
-}
-
-impl HueLevel {
-    /// Creates a new `HueLevel` with model-specific validation.
-    ///
-    /// Currently uses universal VISCA ranges, but the model parameter is available
-    /// for future model-specific refinements.
-    ///
-    /// # Errors
-    /// Returns an error if the level is outside the model's hue range.
-    pub fn new_for_model(level: u8, model: crate::CameraVariant) -> Result<Self, Error> {
-        crate::constants::validate_hue_level(level, model)?;
-        Self::new(level)
-    }
-}
-
-impl GainLevel {
-    /// Creates a new `GainLevel` with model-specific validation.
-    ///
-    /// Currently uses universal VISCA ranges, but the model parameter is available
-    /// for future model-specific refinements.
-    ///
-    /// # Errors
-    /// Returns an error if the level is outside the model's gain range.
-    pub fn new_for_model(level: u8, model: crate::CameraVariant) -> Result<Self, Error> {
-        crate::constants::validate_gain_level(level, model)?;
-        Self::new(level)
-    }
-}
-
-impl IrisLevel {
-    /// Creates a new `IrisLevel` with model-specific validation.
-    ///
-    /// Currently uses universal VISCA ranges, but the model parameter is available
-    /// for future model-specific refinements.
-    ///
-    /// # Errors
-    /// Returns an error if the level is outside the model's iris range.
-    pub fn new_for_model(level: u8, model: crate::CameraVariant) -> Result<Self, Error> {
-        crate::constants::validate_iris_level(level, model)?;
-        Self::new(level)
-    }
-}
-
-impl ShutterSpeed {
-    /// Creates a new `ShutterSpeed` with model-specific validation.
-    ///
-    /// Currently uses universal VISCA ranges, but the model parameter is available
-    /// for future model-specific refinements.
-    ///
-    /// # Errors
-    /// Returns an error if the speed is outside the model's shutter speed range.
-    pub fn new_for_model(speed: u16, model: crate::CameraVariant) -> Result<Self, Error> {
-        crate::constants::validate_shutter_speed(speed, model)?;
-        Self::new(speed)
-    }
-}
-
-impl BrightnessLevel {
-    /// Creates a new `BrightnessLevel` with model-specific validation.
-    ///
-    /// Currently uses universal VISCA ranges, but the model parameter is available
-    /// for future model-specific refinements.
-    ///
-    /// # Errors
-    /// Returns an error if the level is outside the model's brightness range.
-    pub fn new_for_model(level: u16, model: crate::CameraVariant) -> Result<Self, Error> {
-        crate::constants::validate_brightness_level(level, model)?;
-        Self::new(level)
-    }
-}
-
-impl ContrastLevel {
-    /// Creates a new `ContrastLevel` with model-specific validation.
-    ///
-    /// Currently uses universal VISCA ranges, but the model parameter is available
-    /// for future model-specific refinements.
-    ///
-    /// # Errors
-    /// Returns an error if the level is outside the model's contrast range.
-    pub fn new_for_model(level: u8, model: crate::CameraVariant) -> Result<Self, Error> {
-        crate::constants::validate_contrast_level(level, model)?;
-        Self::new(level)
-    }
-}
-
-impl SharpnessLevel {
-    /// Creates a new `SharpnessLevel` with model-specific validation.
-    ///
-    /// Currently uses universal VISCA ranges, but the model parameter is available
-    /// for future model-specific refinements.
-    ///
-    /// # Errors
-    /// Returns an error if the level is outside the model's sharpness range.
-    pub fn new_for_model(level: u8, model: crate::CameraVariant) -> Result<Self, Error> {
-        crate::constants::validate_sharpness_level(level, model)?;
-        Self::new(level)
-    }
 }
 
 /// Hue level for color adjustment.
@@ -910,18 +779,6 @@ impl PanPosition {
     /// Center pan position (no horizontal offset).
     pub const CENTER: Self = Self(0);
 
-    /// Creates a pan position with model-specific validation.
-    ///
-    /// This constructor validates the position against the specific camera model's
-    /// pan range limits.
-    ///
-    /// # Errors
-    /// Returns an error if the position is outside the model's pan range.
-    pub fn new_for_model(value: i16, model: crate::CameraVariant) -> Result<Self, Error> {
-        crate::constants::validate_pan_position(value, model)?;
-        Ok(Self(value))
-    }
-
     /// Converts this pan position to degrees (-170° to +170°).
     #[must_use]
     pub fn to_degrees(self) -> f32 {
@@ -962,18 +819,6 @@ pub struct TiltPosition(i16);
 impl TiltPosition {
     /// Center tilt position (no vertical offset).
     pub const CENTER: Self = Self(0);
-
-    /// Creates a tilt position with model-specific validation.
-    ///
-    /// This constructor validates the position against the specific camera model's
-    /// tilt range limits.
-    ///
-    /// # Errors
-    /// Returns an error if the position is outside the model's tilt range.
-    pub fn new_for_model(value: i16, model: crate::CameraVariant) -> Result<Self, Error> {
-        crate::constants::validate_tilt_position(value, model)?;
-        Ok(Self(value))
-    }
 
     /// Converts this tilt position to degrees.
     ///
@@ -1026,21 +871,6 @@ pub struct PanSpeed(u8);
 impl PanSpeed {
     /// Zero pan speed (stopped).
     pub const ZERO: Self = Self(0x00);
-
-    /// Creates a pan speed with model-specific validation.
-    ///
-    /// This constructor validates the speed against the specific camera model's
-    /// pan speed limits. Different camera models may have different maximum
-    /// speed capabilities.
-    ///
-    /// # Errors
-    /// Returns an error if the speed exceeds the model's maximum pan speed.
-    pub fn new_for_model(value: u8, _model: crate::CameraVariant) -> Result<Self, Error> {
-        // For now, use the same validation for all models
-        // In the future, this could check model-specific limits
-        crate::constants::validate_pan_speed(value)?;
-        Ok(Self(value))
-    }
 }
 
 impl From<SpeedLevel> for PanSpeed {
@@ -1082,21 +912,6 @@ pub struct TiltSpeed(u8);
 impl TiltSpeed {
     /// Zero tilt speed (stopped).
     pub const ZERO: Self = Self(0x00);
-
-    /// Creates a tilt speed with model-specific validation.
-    ///
-    /// This constructor validates the speed against the specific camera model's
-    /// tilt speed limits. Different camera models may have different maximum
-    /// speed capabilities.
-    ///
-    /// # Errors
-    /// Returns an error if the speed exceeds the model's maximum tilt speed.
-    pub fn new_for_model(value: u8, _model: crate::CameraVariant) -> Result<Self, Error> {
-        // For now, use the same validation for all models
-        // In the future, this could check model-specific limits
-        crate::constants::validate_tilt_speed(value)?;
-        Ok(Self(value))
-    }
 }
 
 impl From<SpeedLevel> for TiltSpeed {
@@ -1141,21 +956,6 @@ pub struct ZoomSpeed(u8);
 impl ZoomSpeed {
     /// Zero zoom speed (stopped).
     pub const ZERO: Self = Self(0x00);
-
-    /// Creates a zoom speed with model-specific validation.
-    ///
-    /// This constructor validates the speed against the specific camera model's
-    /// zoom speed limits. Different camera models may have different maximum
-    /// speed capabilities.
-    ///
-    /// # Errors
-    /// Returns an error if the speed exceeds the model's maximum zoom speed.
-    pub fn new_for_model(value: u8, _model: crate::CameraVariant) -> Result<Self, Error> {
-        // For now, use the same validation for all models
-        // In the future, this could check model-specific limits
-        crate::constants::validate_zoom_speed(value)?;
-        Self::new(value)
-    }
 }
 
 impl From<SpeedLevel> for ZoomSpeed {
@@ -1223,28 +1023,6 @@ pub struct FocusSpeed(u8);
 impl FocusSpeed {
     /// Zero focus speed (stopped).
     pub const ZERO: Self = Self(0x00);
-
-    /// Creates a focus speed with model-specific validation.
-    ///
-    /// This constructor validates the speed against the specific camera model's
-    /// focus speed limits. Different camera models may have different maximum
-    /// speed capabilities.
-    ///
-    /// # Errors
-    /// Returns an error if the speed exceeds the model's maximum focus speed.
-    pub fn new_for_model(value: u8, _model: crate::CameraVariant) -> Result<Self, Error> {
-        // For now, use the same validation for all models
-        // In the future, this could check model-specific limits
-        if value > Self::MAX.value() {
-            return Err(Error::ParameterOutOfRange {
-                parameter: "focus_speed",
-                value: i32::from(value),
-                min: i32::from(Self::MIN.value()),
-                max: i32::from(Self::MAX.value()),
-            });
-        }
-        Self::new(value)
-    }
 }
 
 impl From<SpeedLevel> for FocusSpeed {
@@ -1562,18 +1340,5 @@ mod tests {
 
         assert!(ZoomPosition::try_from(-0.1f32).is_err());
         assert!(ZoomPosition::try_from(1.1f32).is_err());
-    }
-
-    #[test]
-    fn test_sharpness_level_new_for_model_accepts_ptzoptics_extended_range() {
-        assert!(matches!(
-            SharpnessLevel::new_for_model(0x0F, crate::CameraVariant::PtzOpticsG2),
-            Ok(level) if level.value() == 0x0F
-        ));
-    }
-
-    #[test]
-    fn test_sharpness_level_new_for_model_rejects_values_above_ptzoptics_range() {
-        assert!(SharpnessLevel::new_for_model(0x10, crate::CameraVariant::PtzOpticsG2).is_err());
     }
 }

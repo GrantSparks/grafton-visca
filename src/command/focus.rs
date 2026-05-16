@@ -64,23 +64,6 @@ crate::visca_range_type! {
     }
 }
 
-impl FocusSpeed {
-    /// Creates a focus speed with model-specific validation.
-    ///
-    /// This constructor validates the speed against the specific camera model's
-    /// focus speed limits. Different camera models may have different maximum
-    /// speed capabilities.
-    ///
-    /// # Errors
-    /// Returns an error if the speed exceeds the model's maximum focus speed.
-    pub fn new_for_model(value: u8, _model: crate::CameraVariant) -> Result<Self, Error> {
-        // For now, use the same validation for all models
-        // In the future, this could check model-specific limits
-        crate::constants::validate_focus_speed(value)?;
-        Self::new(value)
-    }
-}
-
 impl From<SpeedLevel> for FocusSpeed {
     fn from(level: SpeedLevel) -> Self {
         Self(level.to_focus_speed())

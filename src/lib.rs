@@ -151,18 +151,6 @@
 //! assert_eq!(zoom.value(), 6); // Fast = 6 for zoom
 //! ```
 //!
-//! ### Model-Specific Validation
-//! For precise control, use model-aware constructors that validate against
-//! specific camera capabilities:
-//! ```ignore
-//! use grafton_visca::{types::{PanPosition, TiltSpeed}, CameraVariant};
-//!
-//! // Model-specific validation for PTZOptics G2
-//! let model = CameraVariant::PtzOpticsG2;
-//! let pan = PanPosition::new_for_model(2000, model)?;  // Validates against G2 pan range
-//! let speed = TiltSpeed::new_for_model(18, model)?;    // Validates against G2 tilt speed
-//! ```
-//!
 //! ### Profile-Based Compile-Time Safety
 //! Camera profiles carry model-specific limits and capabilities at compile time:
 //! ```ignore
@@ -185,9 +173,8 @@
 //!
 //! This multi-layered approach ensures:
 //! - Early error detection at construction time
-//! - Model-specific precision when needed
 //! - Conservative defaults for generic usage
-//! - Zero-cost abstractions through compile-time validation
+//! - Profile-specific precision through compile-time validation
 //!
 //! ## Quick Start
 //!
@@ -711,7 +698,6 @@ pub use crate::{
         MotionSyncPreset, NdFilterMode, NdFilterPosition, PanTiltDirection, PanTiltLimitCorner,
         PictureEffectMode, PresetNumber, ResolutionMode, WhiteBalanceMode,
     },
-    constants::CameraVariant,
     error::{Error, ErrorKind, Result},
     inquiry_conversions::{
         zoom_from_normalized, Normalized, PanTiltPositionDeg, PanTiltPositionRaw, ZoomDomain,
@@ -776,8 +762,6 @@ pub mod capabilities;
 /// This module is the stable low-level extension surface for custom commands,
 /// typed response parsing, and integrations that need raw VISCA command control.
 pub mod command;
-
-mod constants;
 
 /// Inquiry conversion utilities for raw to user-friendly values
 pub mod inquiry_conversions;
