@@ -157,8 +157,46 @@ If this gating model ships in a pre-1.0 release before the final cutover, prefer
 
 #### Built-In Tally Capability Gate (#524)
 - **BREAKING**: Built-in profiles now expose typed tally accessors only when the centralized profile registry grants `HasTally`; `GenericVisca` and PTZOptics profiles no longer compile with `camera.tally()` or direct typed tally inquiry helpers.
+- **BREAKING**: Tally control traits now require `P: HasTally`; generic callers must add `grafton_visca::capabilities::HasTally` when they intentionally target tally-capable profiles.
+- **BREAKING**: The former `InquiryControl::tally_light_status` path was removed; use `TallyControl::tally_status` or the camera-first `camera.tally().status()` accessor, both gated by `HasTally`.
 - Sony FR7 and BRC-H900 retain typed tally controls and inquiries through explicit registry-backed `HasTally` support.
 - Raw/custom VISCA command extension APIs remain available for integrations that need to send vendor-specific tally bytes outside the typed support matrix.
+- Added a profile-first capability marker matrix to `docs/camera_profile_support.md` so downstreams can see which built-in profiles implement `HasTally` and other typed support markers.
+
+##### Migration Notes
+
+Before:
+
+```rust
+use grafton_visca::camera::controls::inquiry::InquiryControl;
+
+where
+    P: Profile + Default,
+    Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+{
+    let status = camera.tally_light_status().await?;
+}
+```
+
+After:
+
+```rust
+use grafton_visca::camera::controls::tally::TallyControl;
+use grafton_visca::capabilities::HasTally;
+
+where
+    P: Profile + HasTally + Default,
+    Camera<M, P, Tr, Exec>: TallyControl<Mode = M>,
+{
+    let status = camera.tally_status().await?;
+    // or: let status = camera.tally().status().await?;
+}
+```
+
+Capability-gated control traits cannot be required by a heterogeneous dyn-erased
+aggregate unless every profile behind that aggregate implements the marker. Use
+optional accessors, runtime feature detection through `Capabilities`, or split
+the aggregate into a base trait plus capability-specific extension traits.
 
 #### Granular Iris Capability Modelling
 - **BREAKING**: `Exposure::IRIS_RANGE` changed from `Range<u16>` to `Option<Range<u16>>`; downstream `impl Exposure` blocks must wrap their range in `Some(...)` or use `None` for cameras that lack iris control

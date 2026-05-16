@@ -109,7 +109,8 @@ snap focus methods.
 Contributors adding or changing profile capabilities should follow the
 [Camera Profile Support Guide](docs/camera_profile_support.md) and the
 [VISCA Protocol Reference](docs/visca_reference.md), which explain how protocol
-evidence, runtime metadata, and typed support markers fit together.
+evidence, runtime metadata, typed support markers, and the profile-first marker
+matrix fit together.
 
 ### Optional features
 

@@ -756,6 +756,78 @@ macro_rules! __define_builtin_profiles {
         }
 
         #[cfg(test)]
+        fn typed_support_marker_trait_name(
+            surface: profile_registry::TypedSupportSurface,
+        ) -> &'static str {
+            match surface {
+                profile_registry::TypedSupportSurface::DirectZoom => "HasDirectZoom",
+                profile_registry::TypedSupportSurface::DigitalZoomToggle => {
+                    "HasDigitalZoomToggle"
+                }
+                profile_registry::TypedSupportSurface::DigitalZoomRange => "HasDigitalZoomRange",
+                profile_registry::TypedSupportSurface::IrisControl => "HasIrisControl",
+                profile_registry::TypedSupportSurface::OnePushFocus => "HasOnePushFocus",
+                profile_registry::TypedSupportSurface::PtzOpticsSnapFocus => {
+                    "HasPtzOpticsSnapFocus"
+                }
+                profile_registry::TypedSupportSurface::FocusLock => "HasFocusLock",
+                profile_registry::TypedSupportSurface::PushAutoFocus => "HasPushAutoFocus",
+                profile_registry::TypedSupportSurface::FocusZone => "HasFocusZone",
+                profile_registry::TypedSupportSurface::AutoFocusSensitivity => {
+                    "HasAutoFocusSensitivity"
+                }
+                profile_registry::TypedSupportSurface::FocusNearLimitInquiry => {
+                    "HasFocusNearLimitInquiry"
+                }
+                profile_registry::TypedSupportSurface::BacklightCompensation => {
+                    "HasBacklightCompensation"
+                }
+                profile_registry::TypedSupportSurface::WideDynamicRange => "HasWideDynamicRange",
+                profile_registry::TypedSupportSurface::ExposureCompensation => {
+                    "HasExposureCompensation"
+                }
+                profile_registry::TypedSupportSurface::OnePushWhiteBalance => {
+                    "HasOnePushWhiteBalance"
+                }
+                profile_registry::TypedSupportSurface::AutoTrackingWhiteBalance => {
+                    "HasAutoTrackingWhiteBalance"
+                }
+                profile_registry::TypedSupportSurface::AutoWhiteBalanceSensitivity => {
+                    "HasAutoWhiteBalanceSensitivity"
+                }
+                profile_registry::TypedSupportSurface::ColorTemperature => "HasColorTemperature",
+                profile_registry::TypedSupportSurface::RgbGain => "HasRgbGain",
+                profile_registry::TypedSupportSurface::RgbTuning => "HasRgbTuning",
+                profile_registry::TypedSupportSurface::ImageFlip => "HasImageFlip",
+                profile_registry::TypedSupportSurface::ImageMirror => "HasImageMirror",
+                profile_registry::TypedSupportSurface::CombinedImageFlip => "HasCombinedImageFlip",
+                profile_registry::TypedSupportSurface::SaturationControl => "HasSaturationControl",
+                profile_registry::TypedSupportSurface::HueControl => "HasHueControl",
+                profile_registry::TypedSupportSurface::LuminanceControl => "HasLuminanceControl",
+                profile_registry::TypedSupportSurface::GammaControl => "HasGammaControl",
+                profile_registry::TypedSupportSurface::NoiseReduction => "HasNoiseReduction",
+                profile_registry::TypedSupportSurface::NoiseReduction2D => "HasNoiseReduction2D",
+                profile_registry::TypedSupportSurface::NoiseReduction3D => "HasNoiseReduction3D",
+                profile_registry::TypedSupportSurface::PictureEffect => "HasPictureEffect",
+                profile_registry::TypedSupportSurface::Tally => "HasTally",
+                profile_registry::TypedSupportSurface::DirectMenu => "HasDirectMenuControl",
+                profile_registry::TypedSupportSurface::NdFilter => "HasNdFilter",
+                profile_registry::TypedSupportSurface::VariableSpeed => "HasVariableSpeed",
+                profile_registry::TypedSupportSurface::MotionSync => "HasMotionSync",
+            }
+        }
+
+        #[cfg(test)]
+        fn registry_marker_names_for_profile(id: ProfileId) -> String {
+            id.registry_facts()
+                .typed_support
+                .iter()
+                .map(|surface| format!("`{}`", typed_support_marker_trait_name(*surface)))
+                .collect::<Vec<_>>()
+                .join("<br>")
+        }
+
+        #[cfg(test)]
         mod registry_tests {
             use super::*;
 
@@ -1215,6 +1287,17 @@ macro_rules! __define_builtin_profiles {
                     "Picture effects",
                     profile_registry::TypedSupportSurface::PictureEffect,
                 );
+            }
+
+            #[test]
+            fn camera_profile_support_marker_matrix_matches_registry() {
+                let guide = include_str!("../../docs/camera_profile_support.md");
+
+                for facts in BUILTIN_PROFILE_FACTS {
+                    let markers = registry_marker_names_for_profile(facts.id);
+                    let row = format!("| `{}` | {markers} |", facts.type_name);
+                    assert!(guide.contains(&row), "missing profile marker row: {row}");
+                }
             }
         }
     };

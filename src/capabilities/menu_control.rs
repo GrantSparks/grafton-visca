@@ -18,4 +18,9 @@ pub trait MenuCapability {
 /// This trait is implemented for camera profiles that support advanced
 /// direct menu control commands beyond basic navigation. Currently,
 /// only the Sony FR7 supports this feature.
+#[diagnostic::on_unimplemented(
+    message = "profile `{Self}` does not declare direct menu control support",
+    label = "profile `{Self}` does not implement `HasDirectMenuControl`",
+    note = "see the built-in marker matrix in docs/camera_profile_support.md; add this bound only for profiles with source-backed typed support"
+)]
 pub trait HasDirectMenuControl: MenuCapability {}

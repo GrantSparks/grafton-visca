@@ -189,6 +189,9 @@ The short version:
 - Raw VISCA command APIs remain available for experiments and downstream camera
   variants, but raw opcode availability does not justify marking a built-in
   profile as supported.
+- Land capability and registry refactors atomically. Path-dependency consumers
+  should not observe a half-applied tree where profile modules, generated macros,
+  and marker impls disagree.
 
 ## Testing
 

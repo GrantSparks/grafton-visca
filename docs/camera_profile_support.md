@@ -79,6 +79,33 @@ Current built-in sub-capability markers include:
 | Image | `HasNoiseReduction3D` | 3D noise-reduction control and inquiry |
 | Image | `HasPictureEffect` | picture-effect control and inquiry |
 | Tally | `HasTally` | tally light controls and inquiries |
+| Menu | `HasDirectMenuControl` | direct menu controls |
+| ND filter | `HasNdFilter` | ND filter controls and inquiries |
+| Variable speed | `HasVariableSpeed` | variable speed mode controls |
+| Motion Sync | `HasMotionSync` | Motion Sync controls and inquiries |
+
+## Built-In Profile Marker Matrix
+
+The table below lists the optional typed support markers emitted for each
+built-in profile by the registry. Baseline metadata may still exist for every
+profile so runtime discovery can return a complete `Capabilities` value; these
+markers are the compile-time contract for typed accessors and control traits.
+
+Do not add one of these markers to a heterogeneous `dyn` aggregate unless every
+profile behind that aggregate implements the marker. Use optional accessors,
+runtime feature detection, or a split trait when a capability is not universal.
+
+| Profile | Typed support markers |
+| ------- | --------------------- |
+| `PtzOpticsG2` | `HasExposureCompensation`<br>`HasFocusLock`<br>`HasDirectZoom`<br>`HasFocusZone`<br>`HasBacklightCompensation`<br>`HasWideDynamicRange`<br>`HasColorTemperature`<br>`HasRgbGain`<br>`HasRgbTuning`<br>`HasOnePushWhiteBalance`<br>`HasAutoWhiteBalanceSensitivity`<br>`HasImageFlip`<br>`HasImageMirror`<br>`HasCombinedImageFlip`<br>`HasSaturationControl`<br>`HasHueControl`<br>`HasLuminanceControl`<br>`HasGammaControl`<br>`HasNoiseReduction`<br>`HasNoiseReduction2D`<br>`HasNoiseReduction3D` |
+| `PtzOpticsG3` | `HasExposureCompensation`<br>`HasFocusLock`<br>`HasDirectZoom`<br>`HasFocusZone`<br>`HasBacklightCompensation`<br>`HasWideDynamicRange`<br>`HasColorTemperature`<br>`HasRgbGain`<br>`HasRgbTuning`<br>`HasOnePushWhiteBalance`<br>`HasAutoWhiteBalanceSensitivity`<br>`HasImageFlip`<br>`HasImageMirror`<br>`HasCombinedImageFlip`<br>`HasSaturationControl`<br>`HasHueControl`<br>`HasLuminanceControl`<br>`HasGammaControl`<br>`HasNoiseReduction`<br>`HasNoiseReduction2D`<br>`HasNoiseReduction3D` |
+| `PtzOptics30X` | `HasExposureCompensation`<br>`HasFocusLock`<br>`HasDirectZoom`<br>`HasFocusZone`<br>`HasBacklightCompensation`<br>`HasWideDynamicRange`<br>`HasColorTemperature`<br>`HasRgbGain`<br>`HasRgbTuning`<br>`HasOnePushWhiteBalance`<br>`HasAutoWhiteBalanceSensitivity`<br>`HasImageFlip`<br>`HasImageMirror`<br>`HasCombinedImageFlip`<br>`HasSaturationControl`<br>`HasHueControl`<br>`HasLuminanceControl`<br>`HasGammaControl`<br>`HasNoiseReduction`<br>`HasNoiseReduction2D`<br>`HasNoiseReduction3D` |
+| `SonyFR7` | `HasExposureCompensation`<br>`HasPushAutoFocus`<br>`HasDirectZoom`<br>`HasDigitalZoomToggle`<br>`HasDigitalZoomRange`<br>`HasIrisControl`<br>`HasFocusZone`<br>`HasAutoFocusSensitivity`<br>`HasFocusNearLimitInquiry`<br>`HasBacklightCompensation`<br>`HasWideDynamicRange`<br>`HasRgbGain`<br>`HasRgbTuning`<br>`HasOnePushWhiteBalance`<br>`HasAutoTrackingWhiteBalance`<br>`HasImageFlip`<br>`HasImageMirror`<br>`HasSaturationControl`<br>`HasHueControl`<br>`HasGammaControl`<br>`HasNoiseReduction`<br>`HasNoiseReduction2D`<br>`HasNoiseReduction3D`<br>`HasPictureEffect`<br>`HasTally`<br>`HasDirectMenuControl`<br>`HasNdFilter`<br>`HasVariableSpeed` |
+| `SonyBRCH900` | `HasDirectZoom`<br>`HasDigitalZoomToggle`<br>`HasDigitalZoomRange`<br>`HasIrisControl`<br>`HasFocusNearLimitInquiry`<br>`HasBacklightCompensation`<br>`HasWideDynamicRange`<br>`HasColorTemperature`<br>`HasRgbTuning`<br>`HasOnePushWhiteBalance`<br>`HasImageFlip`<br>`HasImageMirror`<br>`HasSaturationControl`<br>`HasGammaControl`<br>`HasNoiseReduction`<br>`HasNoiseReduction2D`<br>`HasNoiseReduction3D`<br>`HasPictureEffect`<br>`HasTally` |
+| `SonyEVIH100` | `HasDirectZoom`<br>`HasIrisControl`<br>`HasFocusNearLimitInquiry`<br>`HasBacklightCompensation`<br>`HasColorTemperature`<br>`HasRgbTuning`<br>`HasOnePushWhiteBalance`<br>`HasImageFlip`<br>`HasImageMirror`<br>`HasGammaControl`<br>`HasNoiseReduction` |
+| `SonyBRC300` | `HasDirectZoom`<br>`HasIrisControl`<br>`HasFocusNearLimitInquiry`<br>`HasBacklightCompensation` |
+| `NearusBRC300` | `HasDirectZoom`<br>`HasIrisControl`<br>`HasFocusNearLimitInquiry`<br>`HasBacklightCompensation`<br>`HasSaturationControl` |
+| `GenericVisca` | `HasIrisControl`<br>`HasFocusNearLimitInquiry`<br>`HasOnePushWhiteBalance` |
 
 Raw/custom VISCA command APIs are different. They remain available as escape
 hatches for experiments, unsupported firmware variants, and downstream
