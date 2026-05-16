@@ -71,7 +71,7 @@ If you're new to the library, start with these examples in order:
 2. Update the IP address in the examples to match your camera (default: `192.168.0.110`)
 3. Verify the port number; defaults vary by camera model:
    - PTZOptics cameras: TCP port `5678`, UDP port `1259`
-   - Sony cameras: TCP port `52381`, UDP port `52381`
+   - Sony professional profiles: UDP port `52381`; TCP is not a supported standard construction path
    - The selected profile will provide the default port when you omit it
 
 Most user-facing examples accept a camera address as the first positional argument. Some also read `VISCA_CAMERA_ADDR` or `CAMERA_IP`; check the example header for the exact input.
@@ -146,9 +146,7 @@ let blocking = Connect::open_tcp_blocking::<PtzOpticsG2>("192.168.0.110")?;
 let is_on = blocking.power().state()?;
 
 let runtime = TokioRuntime::from_current()?;
-let async_camera = CameraConfig::<PtzOpticsG2>::new()
-    .tcp()
-    .address("192.168.0.110")
+let async_camera = CameraConfig::<PtzOpticsG2>::tcp("192.168.0.110")
     .transport_config(TransportConfig {
         tcp_keepalive: Some(TcpKeepaliveConfig::default()),
         ..TransportConfig::default()

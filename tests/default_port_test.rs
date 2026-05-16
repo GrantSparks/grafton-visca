@@ -4,7 +4,7 @@
 mod tests {
     use grafton_visca::{
         camera::Connect,
-        profiles::{GenericVisca, PtzOpticsG2, SonyFR7},
+        profiles::{GenericVisca, PtzOpticsG2, SonyEVIH100, SonyFR7},
     };
 
     #[test]
@@ -43,11 +43,11 @@ mod tests {
             .open::<PtzOpticsG2>();
         assert!(result.is_err());
 
-        // SonyFR7 also uses default TCP port 5678
+        // Raw Sony VISCA profiles use default TCP port 5678
         let result = Connect::builder()
             .tcp("192.168.1.102")
             .with_default_port()
-            .open::<SonyFR7>();
+            .open::<SonyEVIH100>();
         assert!(result.is_err());
     }
 
@@ -61,7 +61,7 @@ mod tests {
             .open::<GenericVisca>();
         assert!(result.is_ok());
 
-        // SonyFR7 also uses default UDP port 1259
+        // SonyFR7 uses Sony encapsulated UDP port 52381
         let result = Connect::builder()
             .udp("192.168.1.103")
             .with_default_port()

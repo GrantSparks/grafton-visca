@@ -19,9 +19,7 @@
 //!
 //! // Preferred application path.
 //! let runtime = TokioRuntime::from_current()?;
-//! let camera = CameraConfig::<PtzOpticsG2>::new()
-//!     .tcp()
-//!     .address("192.168.0.110")
+//! let camera = CameraConfig::<PtzOpticsG2>::tcp("192.168.0.110")
 //!     .open_async(runtime)
 //!     .await?;
 //!

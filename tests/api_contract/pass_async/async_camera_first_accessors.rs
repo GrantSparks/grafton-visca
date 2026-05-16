@@ -56,9 +56,7 @@ async fn configured_async_contract<R>(runtime: R) -> Result<(), Error>
 where
     R: Runtime + Clone,
 {
-    let camera = CameraConfig::<PtzOpticsG2>::new()
-        .tcp()
-        .address("192.168.0.110")
+    let camera = CameraConfig::<PtzOpticsG2>::tcp("192.168.0.110")
         .transport_config(TransportConfig::default())
         .open_async(runtime)
         .await?;

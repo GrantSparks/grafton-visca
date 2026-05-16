@@ -83,13 +83,11 @@ mod blocking {
     }
 
     fn camera_config(args: &Args) -> CameraConfig<PtzOpticsG2> {
-        let config =
-            CameraConfig::<PtzOpticsG2>::new().transport_config(transport_config(args.transport));
-
         match args.transport {
-            TransportKind::Tcp => config.tcp().address(&args.address),
-            TransportKind::Udp => config.udp().address(&args.address),
+            TransportKind::Tcp => CameraConfig::<PtzOpticsG2>::tcp(&args.address),
+            TransportKind::Udp => CameraConfig::<PtzOpticsG2>::udp(&args.address),
         }
+        .transport_config(transport_config(args.transport))
     }
 
     fn power_label(is_on: bool) -> &'static str {

@@ -53,8 +53,6 @@ impl ProfileMetadata for SimulatorFullProfile {
     const ACK_TIMEOUT: Duration = Duration::from_millis(200);
     const COMPLETION_TIMEOUT: Duration = Duration::from_millis(10_000);
     const INQUIRY_SUPPORT: InquirySupport = InquirySupport::Full;
-    const DEFAULT_TCP_PORT: u16 = 5678;
-    const DEFAULT_UDP_PORT: u16 = 1259;
 }
 
 impl PanTilt for SimulatorFullProfile {

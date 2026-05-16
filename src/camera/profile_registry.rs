@@ -13,6 +13,21 @@ pub(crate) enum EnvelopeKind {
 
 #[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct NetworkTransportFacts {
+    pub(crate) default_port: u16,
+    pub(crate) envelope: EnvelopeKind,
+    pub(crate) evidence: Option<&'static str>,
+}
+
+#[cfg(test)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct SerialTransportFacts {
+    pub(crate) envelope: EnvelopeKind,
+    pub(crate) evidence: Option<&'static str>,
+}
+
+#[cfg(test)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TypedSupportSurface {
     DirectZoom,
     DigitalZoomToggle,
@@ -115,8 +130,9 @@ pub(crate) struct BuiltinProfileFacts {
     pub(crate) vendor: &'static str,
     pub(crate) description: &'static str,
     pub(crate) envelope: EnvelopeKind,
-    pub(crate) default_tcp_port: u16,
-    pub(crate) default_udp_port: u16,
+    pub(crate) tcp: Option<NetworkTransportFacts>,
+    pub(crate) udp: Option<NetworkTransportFacts>,
+    pub(crate) serial: Option<SerialTransportFacts>,
     pub(crate) default_camera_id: u8,
     pub(crate) inquiry_support: crate::capabilities::InquirySupport,
     pub(crate) typed_support: &'static [TypedSupportSurface],
@@ -128,6 +144,120 @@ impl BuiltinProfileFacts {
     pub(crate) fn has_typed_support(self, surface: TypedSupportSurface) -> bool {
         self.typed_support.contains(&surface)
     }
+}
+
+macro_rules! __transport_is_supported {
+    (none) => {
+        false
+    };
+    ({ $($fields:tt)* }) => {
+        true
+    };
+}
+
+macro_rules! __transport_default_port {
+    (none) => {
+        None
+    };
+    ({
+        default_port: $default_port:expr,
+        envelope_kind: $envelope_kind:ident
+        $(, evidence: $evidence:literal)?
+        $(,)?
+    }) => {
+        Some($default_port)
+    };
+}
+
+macro_rules! __transport_evidence {
+    () => {
+        None
+    };
+    ($evidence:literal) => {
+        Some($evidence)
+    };
+}
+
+macro_rules! __network_transport_facts {
+    (none) => {
+        None
+    };
+    ({
+        default_port: $default_port:expr,
+        envelope_kind: $envelope_kind:ident
+        $(, evidence: $evidence:literal)?
+        $(,)?
+    }) => {
+        Some(profile_registry::NetworkTransportFacts {
+            default_port: $default_port,
+            envelope: profile_registry::EnvelopeKind::$envelope_kind,
+            evidence: __transport_evidence!($($evidence)?),
+        })
+    };
+}
+
+macro_rules! __serial_transport_facts {
+    (none) => {
+        None
+    };
+    ({
+        envelope_kind: $envelope_kind:ident
+        $(, evidence: $evidence:literal)?
+        $(,)?
+    }) => {
+        Some(profile_registry::SerialTransportFacts {
+            envelope: profile_registry::EnvelopeKind::$envelope_kind,
+            evidence: __transport_evidence!($($evidence)?),
+        })
+    };
+}
+
+macro_rules! __impl_supports_tcp {
+    ($profile:ty, none) => {};
+    (
+        $profile:ty,
+        {
+            default_port: $default_port:expr,
+            envelope_kind: $envelope_kind:ident
+            $(, evidence: $evidence:literal)?
+            $(,)?
+        }
+    ) => {
+        impl $crate::capabilities::SupportsTcp for $profile {
+            const DEFAULT_TCP_PORT: u16 = $default_port;
+        }
+    };
+}
+
+macro_rules! __impl_supports_udp {
+    ($profile:ty, none) => {};
+    (
+        $profile:ty,
+        {
+            default_port: $default_port:expr,
+            envelope_kind: $envelope_kind:ident
+            $(, evidence: $evidence:literal)?
+            $(,)?
+        }
+    ) => {
+        impl $crate::capabilities::SupportsUdp for $profile {
+            const DEFAULT_UDP_PORT: u16 = $default_port;
+        }
+    };
+}
+
+macro_rules! __impl_supports_serial {
+    ($profile:ty, none) => {};
+    (
+        $profile:ty,
+        {
+            envelope_kind: $envelope_kind:ident
+            $(, evidence: $evidence:literal)?
+            $(,)?
+        }
+    ) => {
+        impl $crate::capabilities::SupportsSerial for $profile {}
+    };
 }
 
 macro_rules! __impl_typed_support_marker {
@@ -259,6 +389,11 @@ macro_rules! __define_builtin_profiles {
                     display: $group_display:literal,
                     inquiry_support: $group_inquiry:expr,
                     uses_sony_encapsulation: $group_sony:expr,
+                    transport: {
+                        tcp: $group_tcp:expr,
+                        udp: $group_udp:expr,
+                        serial: $group_serial:expr $(,)?
+                    },
                     profiles: [$( $group_profile:ident ),* $(,)?],
                 }
             )*
@@ -275,6 +410,11 @@ macro_rules! __define_builtin_profiles {
                     description: $description:literal,
                     envelope: $envelope:ty,
                     envelope_kind: $envelope_kind:ident,
+                    transport: {
+                        tcp: $tcp:tt,
+                        udp: $udp:tt,
+                        serial: $serial:tt $(,)?
+                    },
                     metadata: {
                         model_name: $model_name:literal,
                         default_camera_id: $default_camera_id:expr,
@@ -283,8 +423,6 @@ macro_rules! __define_builtin_profiles {
                         busy_timeout_ms: $busy_timeout_ms:expr,
                         inquiry_support: $inquiry_support:expr,
                         supports_operation_complete: $supports_operation_complete:expr,
-                        default_tcp_port: $default_tcp_port:expr,
-                        default_udp_port: $default_udp_port:expr,
                         min_inquiry_spacing_ms: $min_inquiry_spacing_ms:expr,
                         min_command_spacing_ms: $min_command_spacing_ms:expr,
                     },
@@ -404,6 +542,8 @@ macro_rules! __define_builtin_profiles {
             pub struct $profile;
 
             impl $crate::capabilities::ProfileMetadata for $profile {
+                const PROFILE_ID: Option<$crate::camera::profiles::ProfileId> =
+                    Some($crate::camera::profiles::ProfileId::$id);
                 const MODEL_NAME: &'static str = $model_name;
                 const DEFAULT_CAMERA_ID: u8 = $default_camera_id;
                 type Envelope = $envelope;
@@ -415,8 +555,6 @@ macro_rules! __define_builtin_profiles {
                     std::time::Duration::from_millis($busy_timeout_ms);
                 const INQUIRY_SUPPORT: $crate::capabilities::InquirySupport = $inquiry_support;
                 const SUPPORTS_OPERATION_COMPLETE: bool = $supports_operation_complete;
-                const DEFAULT_TCP_PORT: u16 = $default_tcp_port;
-                const DEFAULT_UDP_PORT: u16 = $default_udp_port;
                 const MIN_INQUIRY_SPACING: std::time::Duration =
                     std::time::Duration::from_millis($min_inquiry_spacing_ms);
                 const MIN_COMMAND_SPACING: std::time::Duration =
@@ -547,6 +685,9 @@ macro_rules! __define_builtin_profiles {
                 const SUPPORTS_VARIABLE_SPEED: bool = $supports_variable_speed;
             }
 
+            __impl_supports_tcp!($profile, $tcp);
+            __impl_supports_udp!($profile, $udp);
+            __impl_supports_serial!($profile, $serial);
             $(__impl_typed_support_marker!($support for $profile);)*
         )*
 
@@ -588,8 +729,9 @@ macro_rules! __define_builtin_profiles {
                     vendor: $vendor,
                     description: $description,
                     envelope: profile_registry::EnvelopeKind::$envelope_kind,
-                    default_tcp_port: $default_tcp_port,
-                    default_udp_port: $default_udp_port,
+                    tcp: __network_transport_facts!($tcp),
+                    udp: __network_transport_facts!($udp),
+                    serial: __serial_transport_facts!($serial),
                     default_camera_id: $default_camera_id,
                     inquiry_support: $inquiry_support,
                     typed_support: &[
@@ -613,17 +755,17 @@ macro_rules! __define_builtin_profiles {
                 }
             }
 
-            /// Returns the default TCP port for this profile.
-            pub const fn default_tcp_port(&self) -> u16 {
+            /// Returns the default TCP port for this profile when TCP is supported.
+            pub const fn default_tcp_port(&self) -> Option<u16> {
                 match self {
-                    $(ProfileId::$id => $default_tcp_port,)*
+                    $(ProfileId::$id => __transport_default_port!($tcp),)*
                 }
             }
 
-            /// Returns the default UDP port for this profile.
-            pub const fn default_udp_port(&self) -> u16 {
+            /// Returns the default UDP port for this profile when UDP is supported.
+            pub const fn default_udp_port(&self) -> Option<u16> {
                 match self {
-                    $(ProfileId::$id => $default_udp_port,)*
+                    $(ProfileId::$id => __transport_default_port!($udp),)*
                 }
             }
 
@@ -659,21 +801,35 @@ macro_rules! __define_builtin_profiles {
             /// Returns whether this profile supports TCP transport.
             pub const fn supports_tcp(&self) -> bool {
                 match self {
-                    $(ProfileId::$id => !matches!(
-                        profile_registry::EnvelopeKind::$envelope_kind,
-                        profile_registry::EnvelopeKind::SonyEncapsulated
-                    ),)*
+                    $(ProfileId::$id => __transport_is_supported!($tcp),)*
                 }
             }
 
             /// Returns whether this profile supports UDP transport.
             pub const fn supports_udp(&self) -> bool {
-                true
+                match self {
+                    $(ProfileId::$id => __transport_is_supported!($udp),)*
+                }
             }
 
             /// Returns whether this profile supports serial (RS-232/RS-422) transport.
             pub const fn supports_serial(&self) -> bool {
-                true
+                match self {
+                    $(ProfileId::$id => __transport_is_supported!($serial),)*
+                }
+            }
+
+            /// Returns whether this profile supports the selected standard transport.
+            pub const fn supports_transport(
+                &self,
+                transport: $crate::camera::config::TransportKind,
+            ) -> bool {
+                match transport {
+                    $crate::camera::config::TransportKind::Tcp => self.supports_tcp(),
+                    $crate::camera::config::TransportKind::Udp => self.supports_udp(),
+                    $crate::camera::config::TransportKind::Serial => self.supports_serial(),
+                    $crate::camera::config::TransportKind::Custom => true,
+                }
             }
 
             /// Returns a vendor identifier for this profile.
@@ -731,18 +887,22 @@ macro_rules! __define_builtin_profiles {
             /// Returns whether this profile group supports TCP transport.
             pub const fn supports_tcp(&self) -> bool {
                 match self {
-                    $(ProfileGroup::$group => !$group_sony,)*
+                    $(ProfileGroup::$group => $group_tcp,)*
                 }
             }
 
             /// Returns whether this profile group supports UDP transport.
             pub const fn supports_udp(&self) -> bool {
-                true
+                match self {
+                    $(ProfileGroup::$group => $group_udp,)*
+                }
             }
 
             /// Returns whether this profile group supports serial transport.
             pub const fn supports_serial(&self) -> bool {
-                true
+                match self {
+                    $(ProfileGroup::$group => $group_serial,)*
+                }
             }
 
             /// Returns the level of VISCA inquiry command support for this profile group.
@@ -871,10 +1031,11 @@ macro_rules! __define_builtin_profiles {
                 assert_eq!(facts.display_name, id.display_name());
                 assert_eq!(facts.vendor, id.vendor());
                 assert_eq!(facts.description, id.description());
-                assert_eq!(facts.default_tcp_port, P::DEFAULT_TCP_PORT);
-                assert_eq!(facts.default_tcp_port, id.default_tcp_port());
-                assert_eq!(facts.default_udp_port, P::DEFAULT_UDP_PORT);
-                assert_eq!(facts.default_udp_port, id.default_udp_port());
+                assert_eq!(facts.tcp.map(|facts| facts.default_port), id.default_tcp_port());
+                assert_eq!(facts.udp.map(|facts| facts.default_port), id.default_udp_port());
+                assert_eq!(facts.tcp.is_some(), id.supports_tcp());
+                assert_eq!(facts.udp.is_some(), id.supports_udp());
+                assert_eq!(facts.serial.is_some(), id.supports_serial());
                 assert_eq!(facts.default_camera_id, P::DEFAULT_CAMERA_ID);
                 assert_eq!(facts.default_camera_id, id.default_camera_id());
                 assert_eq!(facts.inquiry_support, P::INQUIRY_SUPPORT);
@@ -929,8 +1090,8 @@ macro_rules! __define_builtin_profiles {
 
                 assert_eq!(caps.model_name, P::MODEL_NAME);
                 assert_eq!(caps.default_camera_id, P::DEFAULT_CAMERA_ID);
-                assert_eq!(caps.default_tcp_port, P::DEFAULT_TCP_PORT);
-                assert_eq!(caps.default_udp_port, P::DEFAULT_UDP_PORT);
+                assert_eq!(caps.default_tcp_port, id.default_tcp_port());
+                assert_eq!(caps.default_udp_port, id.default_udp_port());
                 assert_eq!(caps.pan_speed, 1..=P::MAX_PAN_SPEED);
                 assert_eq!(caps.tilt_speed, 1..=P::MAX_TILT_SPEED);
                 assert_eq!(caps.pan_range, P::PAN_RANGE.start..=(P::PAN_RANGE.end - 1));
@@ -1089,10 +1250,20 @@ macro_rules! __define_builtin_profiles {
             fn ptzoptics_profiles_follow_consolidated_reference_boundaries() {
                 fn assert_ptzoptics_raw_profile<P>()
                 where
-                    P: $crate::capabilities::Profile + Default,
+                    P: $crate::capabilities::Profile
+                        + $crate::capabilities::SupportsTcp
+                        + $crate::capabilities::SupportsUdp
+                        + $crate::capabilities::SupportsSerial
+                        + Default,
                 {
-                    assert_eq!(P::DEFAULT_TCP_PORT, 5678);
-                    assert_eq!(P::DEFAULT_UDP_PORT, 1259);
+                    assert_eq!(
+                        <P as $crate::capabilities::SupportsTcp>::DEFAULT_TCP_PORT,
+                        5678
+                    );
+                    assert_eq!(
+                        <P as $crate::capabilities::SupportsUdp>::DEFAULT_UDP_PORT,
+                        1259
+                    );
                     assert_eq!(P::PAN_RANGE, -2448..2449);
                     assert_eq!(P::TILT_RANGE, -432..1297);
                     assert_eq!(P::MAX_PAN_SPEED, 24);
@@ -1399,6 +1570,26 @@ macro_rules! __define_builtin_profiles {
                     let markers = registry_marker_names_for_profile(facts.id);
                     let row = format!("| `{}` | {markers} |", facts.type_name);
                     assert!(guide.contains(&row), "missing profile marker row: {row}");
+
+                    let tcp = facts
+                        .tcp
+                        .map(|transport| transport.default_port.to_string())
+                        .unwrap_or_else(|| "n/a".to_string());
+                    let udp = facts
+                        .udp
+                        .map(|transport| transport.default_port.to_string())
+                        .unwrap_or_else(|| "n/a".to_string());
+                    let serial = if facts.serial.is_some() { "yes" } else { "no" };
+                    let envelope = if facts.envelope == profile_registry::EnvelopeKind::SonyEncapsulated {
+                        "Sony encapsulated UDP"
+                    } else {
+                        "Raw VISCA"
+                    };
+                    let row = format!(
+                        "| `{}` | {tcp} | {udp} | {serial} | {envelope} |",
+                        facts.type_name
+                    );
+                    assert!(guide.contains(&row), "missing profile transport row: {row}");
                 }
             }
         }
@@ -1414,6 +1605,7 @@ macro_rules! define_builtin_profiles {
                     display: "Generic VISCA",
                     inquiry_support: $crate::capabilities::InquirySupport::Partial,
                     uses_sony_encapsulation: false,
+                    transport: { tcp: true, udp: true, serial: true },
                     profiles: [GenericVisca, SonyBrc300, SonyEviH100, NearusBrc300],
                 }
                 group PtzOpticsG2 {
@@ -1421,6 +1613,7 @@ macro_rules! define_builtin_profiles {
                     display: "PtzOptics Series",
                     inquiry_support: $crate::capabilities::InquirySupport::Full,
                     uses_sony_encapsulation: false,
+                    transport: { tcp: true, udp: true, serial: true },
                     profiles: [PtzOpticsG2, PtzOpticsG3, PtzOptics30X],
                 }
                 group SonyProfessional {
@@ -1428,6 +1621,7 @@ macro_rules! define_builtin_profiles {
                     display: "Sony Professional",
                     inquiry_support: $crate::capabilities::InquirySupport::Full,
                     uses_sony_encapsulation: true,
+                    transport: { tcp: false, udp: true, serial: false },
                     profiles: [SonyFr7, SonyBrcH900],
                 }
             }
@@ -1442,6 +1636,11 @@ macro_rules! define_builtin_profiles {
                     description: "20x optical zoom PTZ camera with 128 presets",
                     envelope: $crate::transport::RawVisca,
                     envelope_kind: RawVisca,
+                    transport: {
+                        tcp: { default_port: 5678, envelope_kind: RawVisca },
+                        udp: { default_port: 1259, envelope_kind: RawVisca },
+                        serial: { envelope_kind: RawVisca },
+                    },
                     metadata: {
                         model_name: "PtzOptics G2",
                         default_camera_id: 1,
@@ -1450,8 +1649,6 @@ macro_rules! define_builtin_profiles {
                         busy_timeout_ms: 0,
                         inquiry_support: $crate::capabilities::InquirySupport::Full,
                         supports_operation_complete: true,
-                        default_tcp_port: 5678,
-                        default_udp_port: 1259,
                         min_inquiry_spacing_ms: 150,
                         min_command_spacing_ms: 100,
                     },
@@ -1590,6 +1787,11 @@ macro_rules! define_builtin_profiles {
                     description: "Latest generation PTZ camera using the conservative raw VISCA preset range",
                     envelope: $crate::transport::RawVisca,
                     envelope_kind: RawVisca,
+                    transport: {
+                        tcp: { default_port: 5678, envelope_kind: RawVisca },
+                        udp: { default_port: 1259, envelope_kind: RawVisca },
+                        serial: { envelope_kind: RawVisca },
+                    },
                     metadata: {
                         model_name: "PtzOptics G3",
                         default_camera_id: 1,
@@ -1598,8 +1800,6 @@ macro_rules! define_builtin_profiles {
                         busy_timeout_ms: 0,
                         inquiry_support: $crate::capabilities::InquirySupport::Full,
                         supports_operation_complete: true,
-                        default_tcp_port: 5678,
-                        default_udp_port: 1259,
                         min_inquiry_spacing_ms: 150,
                         min_command_spacing_ms: 100,
                     },
@@ -1739,6 +1939,11 @@ macro_rules! define_builtin_profiles {
                     description: "High-end 30x optical zoom PTZ camera with extended optical range",
                     envelope: $crate::transport::RawVisca,
                     envelope_kind: RawVisca,
+                    transport: {
+                        tcp: { default_port: 5678, envelope_kind: RawVisca },
+                        udp: { default_port: 1259, envelope_kind: RawVisca },
+                        serial: { envelope_kind: RawVisca },
+                    },
                     metadata: {
                         model_name: "PtzOptics 30X",
                         default_camera_id: 1,
@@ -1747,8 +1952,6 @@ macro_rules! define_builtin_profiles {
                         busy_timeout_ms: 0,
                         inquiry_support: $crate::capabilities::InquirySupport::Full,
                         supports_operation_complete: true,
-                        default_tcp_port: 5678,
-                        default_udp_port: 1259,
                         min_inquiry_spacing_ms: 150,
                         min_command_spacing_ms: 100,
                     },
@@ -1888,6 +2091,15 @@ macro_rules! define_builtin_profiles {
                     description: "Professional cinema camera with variable ND filter and full feature set",
                     envelope: $crate::transport::SonyEncapsulated,
                     envelope_kind: SonyEncapsulated,
+                    transport: {
+                        tcp: none,
+                        udp: {
+                            default_port: 52381,
+                            envelope_kind: SonyEncapsulated,
+                            evidence: "Sony VISCA-over-IP uses UDP 52381 with Sony's 8-byte encapsulation header.",
+                        },
+                        serial: none,
+                    },
                     metadata: {
                         model_name: "Sony FR7",
                         default_camera_id: 1,
@@ -1896,8 +2108,6 @@ macro_rules! define_builtin_profiles {
                         busy_timeout_ms: 240,
                         inquiry_support: $crate::capabilities::InquirySupport::Full,
                         supports_operation_complete: false,
-                        default_tcp_port: 52381,
-                        default_udp_port: 52381,
                         min_inquiry_spacing_ms: 35,
                         min_command_spacing_ms: 35,
                     },
@@ -2042,6 +2252,15 @@ macro_rules! define_builtin_profiles {
                     description: "Professional PTZ camera with advanced image processing and 100 presets",
                     envelope: $crate::transport::SonyEncapsulated,
                     envelope_kind: SonyEncapsulated,
+                    transport: {
+                        tcp: none,
+                        udp: {
+                            default_port: 52381,
+                            envelope_kind: SonyEncapsulated,
+                            evidence: "Sony VISCA-over-IP uses UDP 52381 with Sony's 8-byte encapsulation header.",
+                        },
+                        serial: none,
+                    },
                     metadata: {
                         model_name: "Sony BRC-H900",
                         default_camera_id: 1,
@@ -2050,8 +2269,6 @@ macro_rules! define_builtin_profiles {
                         busy_timeout_ms: 0,
                         inquiry_support: $crate::capabilities::InquirySupport::Full,
                         supports_operation_complete: false,
-                        default_tcp_port: 52381,
-                        default_udp_port: 52381,
                         min_inquiry_spacing_ms: 35,
                         min_command_spacing_ms: 35,
                     },
@@ -2186,6 +2403,11 @@ macro_rules! define_builtin_profiles {
                     description: "Compact HD PTZ camera with basic feature set",
                     envelope: $crate::transport::RawVisca,
                     envelope_kind: RawVisca,
+                    transport: {
+                        tcp: { default_port: 5678, envelope_kind: RawVisca },
+                        udp: { default_port: 1259, envelope_kind: RawVisca },
+                        serial: { envelope_kind: RawVisca },
+                    },
                     metadata: {
                         model_name: "Sony EVI-H100",
                         default_camera_id: 1,
@@ -2194,8 +2416,6 @@ macro_rules! define_builtin_profiles {
                         busy_timeout_ms: 0,
                         inquiry_support: $crate::capabilities::InquirySupport::Partial,
                         supports_operation_complete: false,
-                        default_tcp_port: 5678,
-                        default_udp_port: 1259,
                         min_inquiry_spacing_ms: 0,
                         min_command_spacing_ms: 0,
                     },
@@ -2317,6 +2537,11 @@ macro_rules! define_builtin_profiles {
                     description: "Legacy PTZ camera with unsigned coordinate system",
                     envelope: $crate::transport::RawVisca,
                     envelope_kind: RawVisca,
+                    transport: {
+                        tcp: { default_port: 5678, envelope_kind: RawVisca },
+                        udp: { default_port: 1259, envelope_kind: RawVisca },
+                        serial: { envelope_kind: RawVisca },
+                    },
                     metadata: {
                         model_name: "Sony BRC-300",
                         default_camera_id: 1,
@@ -2325,8 +2550,6 @@ macro_rules! define_builtin_profiles {
                         busy_timeout_ms: 0,
                         inquiry_support: $crate::capabilities::InquirySupport::Partial,
                         supports_operation_complete: false,
-                        default_tcp_port: 5678,
-                        default_udp_port: 1259,
                         min_inquiry_spacing_ms: 0,
                         min_command_spacing_ms: 0,
                     },
@@ -2441,6 +2664,11 @@ macro_rules! define_builtin_profiles {
                     description: "Rebranded Sony BRC-300 with image processing features",
                     envelope: $crate::transport::RawVisca,
                     envelope_kind: RawVisca,
+                    transport: {
+                        tcp: { default_port: 5678, envelope_kind: RawVisca },
+                        udp: { default_port: 1259, envelope_kind: RawVisca },
+                        serial: { envelope_kind: RawVisca },
+                    },
                     metadata: {
                         model_name: "Nearus BRC-300",
                         default_camera_id: 1,
@@ -2449,8 +2677,6 @@ macro_rules! define_builtin_profiles {
                         busy_timeout_ms: 0,
                         inquiry_support: $crate::capabilities::InquirySupport::Partial,
                         supports_operation_complete: false,
-                        default_tcp_port: 5678,
-                        default_udp_port: 1259,
                         min_inquiry_spacing_ms: 0,
                         min_command_spacing_ms: 0,
                     },
@@ -2566,6 +2792,11 @@ macro_rules! define_builtin_profiles {
                     description: "Conservative profile for unknown VISCA-compatible cameras",
                     envelope: $crate::transport::RawVisca,
                     envelope_kind: RawVisca,
+                    transport: {
+                        tcp: { default_port: 5678, envelope_kind: RawVisca },
+                        udp: { default_port: 1259, envelope_kind: RawVisca },
+                        serial: { envelope_kind: RawVisca },
+                    },
                     metadata: {
                         model_name: "Generic VISCA Camera",
                         default_camera_id: 1,
@@ -2574,8 +2805,6 @@ macro_rules! define_builtin_profiles {
                         busy_timeout_ms: 0,
                         inquiry_support: $crate::capabilities::InquirySupport::Partial,
                         supports_operation_complete: false,
-                        default_tcp_port: 5678,
-                        default_udp_port: 1259,
                         min_inquiry_spacing_ms: 0,
                         min_command_spacing_ms: 0,
                     },

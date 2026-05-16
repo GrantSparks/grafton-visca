@@ -177,13 +177,9 @@ fn test_camera_retry_behavior() {
 /// Test standard camera configuration transport types.
 #[test]
 fn test_camera_config_transport_types() {
-    let _udp_config = CameraConfig::<PtzOpticsG2>::new()
-        .udp()
-        .address("192.168.0.110");
+    let _udp_config = CameraConfig::<PtzOpticsG2>::udp("192.168.0.110");
 
-    let _tcp_config = CameraConfig::<PtzOpticsG2>::new()
-        .tcp()
-        .address("192.168.0.110")
+    let _tcp_config = CameraConfig::<PtzOpticsG2>::tcp("192.168.0.110")
         .transport_config(TransportConfig::default());
 }
 
@@ -228,10 +224,8 @@ fn test_connect_connection_methods() {
 /// Test that camera configuration flow works end-to-end
 #[test]
 fn test_complete_camera_configuration_flow() {
-    let _config = CameraConfig::<PtzOpticsG2>::new()
-        .tcp()
-        .address("127.0.0.1")
-        .transport_config(TransportConfig::default());
+    let _config =
+        CameraConfig::<PtzOpticsG2>::tcp("127.0.0.1").transport_config(TransportConfig::default());
 
     let _connect_result = Connect::open_tcp_blocking::<PtzOpticsG2>("127.0.0.1:65535");
     // Will fail to connect, but should compile successfully

@@ -70,10 +70,8 @@ fn test_transport_builder_api_stability() {
         let _tcp_connect_builder = Connect::builder().tcp("127.0.0.1").with_default_port();
         let _udp_connect_builder = Connect::builder().udp("127.0.0.1:1259");
 
-        let _camera_config = CameraConfig::<PtzOpticsG2>::new()
-            .tcp()
-            .address("127.0.0.1")
-            .transport_config(TransportConfig {
+        let _camera_config =
+            CameraConfig::<PtzOpticsG2>::tcp("127.0.0.1").transport_config(TransportConfig {
                 tcp_keepalive: Some(TcpKeepaliveConfig::for_visca_long_lived_tcp()),
                 ..TransportConfig::default()
             });
@@ -400,7 +398,7 @@ fn test_capability_traits_stability() {
     use grafton_visca::camera::profiles::{GenericVisca, PtzOpticsG2, SonyFR7};
     use grafton_visca::capabilities::{
         Capabilities, Exposure, Focus, HasNdFilter, ImageProcessing, InquirySupport, PanTilt,
-        Power, Profile, ProfileMetadata, WhiteBalance, Zoom,
+        Power, Profile, ProfileMetadata, SupportsTcp, SupportsUdp, WhiteBalance, Zoom,
     };
 
     // Test that capability traits can be used as bounds
@@ -436,10 +434,10 @@ fn test_capability_traits_stability() {
 
     assert_eq!(PtzOpticsG2::MODEL_NAME, "PtzOptics G2");
     assert_eq!(PtzOpticsG2::DEFAULT_CAMERA_ID, 1);
-    assert_eq!(PtzOpticsG2::DEFAULT_TCP_PORT, 5678);
-    assert_eq!(PtzOpticsG2::DEFAULT_UDP_PORT, 1259);
-    assert_eq!(GenericVisca::DEFAULT_TCP_PORT, 5678);
-    assert_eq!(GenericVisca::DEFAULT_UDP_PORT, 1259);
+    assert_eq!(<PtzOpticsG2 as SupportsTcp>::DEFAULT_TCP_PORT, 5678);
+    assert_eq!(<PtzOpticsG2 as SupportsUdp>::DEFAULT_UDP_PORT, 1259);
+    assert_eq!(<GenericVisca as SupportsTcp>::DEFAULT_TCP_PORT, 5678);
+    assert_eq!(<GenericVisca as SupportsUdp>::DEFAULT_UDP_PORT, 1259);
     assert_eq!(SonyFR7::DEFAULT_CAMERA_ID, 1);
 
     let g2_caps = Capabilities::from_profile::<PtzOpticsG2>();
@@ -459,8 +457,8 @@ fn test_capability_traits_stability() {
     assert!(fr7_caps.has_advanced_features());
     assert!(fr7_caps.has_nd_filter);
     assert!(fr7_caps.supports_wake_on_lan);
-    assert_eq!(fr7_caps.default_tcp_port, 52381);
-    assert_eq!(fr7_caps.default_udp_port, 52381);
+    assert_eq!(fr7_caps.default_tcp_port, None);
+    assert_eq!(fr7_caps.default_udp_port, Some(52381));
 }
 
 #[test]

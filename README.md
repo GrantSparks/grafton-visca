@@ -230,9 +230,7 @@ use grafton_visca::profiles::PtzOpticsG2;
 use grafton_visca::transport::TransportConfig;
 use std::time::Duration;
 
-let config = CameraConfig::<PtzOpticsG2>::new()
-    .tcp()
-    .address("192.168.0.110")
+let config = CameraConfig::<PtzOpticsG2>::tcp("192.168.0.110")
     .transport_config(TransportConfig {
         tcp_keepalive: Some(grafton_visca::transport::TcpKeepaliveConfig::new(Duration::from_secs(30))),
         ..TransportConfig::default()
@@ -256,7 +254,7 @@ let config = CameraConfig::<PtzOpticsG2>::new()
 
 ## Camera Profiles
 
-Profiles define protocol format and default ports:
+Profiles define protocol format, supported standard transports, and default ports:
 
 | Profile              | Protocol           | TCP Port | UDP Port |
 | -------------------- | ------------------ | -------: | -------: |
@@ -268,7 +266,10 @@ Profiles define protocol format and default ports:
 | `SonyBRCH900`        | Sony encapsulation |      n/a |    52381 |
 | `SonyFR7`            | Sony encapsulation |      n/a |    52381 |
 
-Port can be omitted in connection strings; the profile default is used.
+Port can be omitted for supported network transports; the profile default for
+that transport is used. Unsupported profile/transport pairs are rejected by the
+typed constructors at compile time and by deserialized/runtime configurations
+before any socket or serial device is opened.
 
 ---
 

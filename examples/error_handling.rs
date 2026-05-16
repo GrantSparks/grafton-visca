@@ -67,15 +67,12 @@ async fn connect_and_query(address: &str) {
     println!("\nConnection check:");
     println!("  Address: {address}");
 
-    let config = CameraConfig::<PtzOpticsG2>::new()
-        .tcp()
-        .address(address)
-        .transport_config(TransportConfig {
-            connect_timeout: Duration::from_secs(3),
-            read_timeout: Duration::from_secs(2),
-            write_timeout: Duration::from_secs(2),
-            ..TransportConfig::default()
-        });
+    let config = CameraConfig::<PtzOpticsG2>::tcp(address).transport_config(TransportConfig {
+        connect_timeout: Duration::from_secs(3),
+        read_timeout: Duration::from_secs(2),
+        write_timeout: Duration::from_secs(2),
+        ..TransportConfig::default()
+    });
 
     let runtime = match TokioRuntime::from_current() {
         Ok(runtime) => runtime,

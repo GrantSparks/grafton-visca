@@ -41,10 +41,16 @@ where
         + Default,
 {
     let profile = P::default();
+    let tcp_port = P::PROFILE_ID
+        .and_then(|id| id.default_tcp_port())
+        .map_or_else(|| "n/a".to_string(), |port| port.to_string());
+    let udp_port = P::PROFILE_ID
+        .and_then(|id| id.default_udp_port())
+        .map_or_else(|| "n/a".to_string(), |port| port.to_string());
 
     println!("{}", P::MODEL_NAME);
-    println!("  TCP default port: {}", P::DEFAULT_TCP_PORT);
-    println!("  UDP default port: {}", P::DEFAULT_UDP_PORT);
+    println!("  TCP default port: {tcp_port}");
+    println!("  UDP default port: {udp_port}");
     println!("  Inquiry support: {:?}", P::INQUIRY_SUPPORT);
     println!(
         "  Pan range: {}..{} VISCA units",

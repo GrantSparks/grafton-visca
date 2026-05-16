@@ -323,7 +323,7 @@ mod tests {
 
         assert!(!ProfileGroup::SonyProfessional.supports_tcp());
         assert!(ProfileGroup::SonyProfessional.supports_udp());
-        assert!(ProfileGroup::SonyProfessional.supports_serial());
+        assert!(!ProfileGroup::SonyProfessional.supports_serial());
     }
 
     #[test]
@@ -336,9 +336,12 @@ mod tests {
     #[test]
     fn test_profile_transport_support() {
         for profile in ProfileId::all() {
-            assert_eq!(profile.supports_tcp(), !profile.uses_sony_encapsulation());
+            let sony_encapsulated = profile.uses_sony_encapsulation();
+            assert_eq!(profile.supports_tcp(), !sony_encapsulated);
             assert!(profile.supports_udp());
-            assert!(profile.supports_serial());
+            assert_eq!(profile.supports_serial(), !sony_encapsulated);
+            assert_eq!(profile.default_tcp_port().is_some(), profile.supports_tcp());
+            assert_eq!(profile.default_udp_port().is_some(), profile.supports_udp());
         }
     }
 

@@ -8,6 +8,7 @@ use std::marker::PhantomData;
 
 use crate::{
     camera_id::CameraId,
+    capabilities::{Profile, SupportsSerial, SupportsTcp, SupportsUdp},
     error::Error,
     timeout::TimeoutConfig,
     transport::{
@@ -15,6 +16,37 @@ use crate::{
         builder::{AddressingMode, TransportConfig},
     },
 };
+
+/// Standard transport kind used for profile compatibility validation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(rename_all = "kebab-case")
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
+pub enum TransportKind {
+    /// TCP network transport.
+    Tcp,
+    /// UDP network transport.
+    Udp,
+    /// Serial transport.
+    Serial,
+    /// Custom transport with no standard transport kind.
+    Custom,
+}
+
+impl std::fmt::Display for TransportKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Tcp => write!(f, "TCP"),
+            Self::Udp => write!(f, "UDP"),
+            Self::Serial => write!(f, "serial"),
+            Self::Custom => write!(f, "custom"),
+        }
+    }
+}
 
 /// Transport configuration options.
 #[derive(Debug, Clone)]
@@ -50,6 +82,29 @@ pub enum TransportOptions {
 }
 
 impl TransportOptions {
+    /// Returns the selected transport kind.
+    pub const fn kind(&self) -> TransportKind {
+        match self {
+            Self::Tcp { .. } => TransportKind::Tcp,
+            Self::Udp { .. } => TransportKind::Udp,
+            Self::Serial { .. } => TransportKind::Serial,
+            Self::Custom => TransportKind::Custom,
+        }
+    }
+
+    /// Validate this transport selection against built-in profile registry facts.
+    pub fn validate_for_profile(
+        &self,
+        profile: crate::camera::profiles::ProfileId,
+    ) -> Result<(), Error> {
+        let transport = self.kind();
+        if profile.supports_transport(transport) {
+            Ok(())
+        } else {
+            Err(Error::UnsupportedTransport { profile, transport })
+        }
+    }
+
     /// Create TCP transport options.
     pub fn tcp(address: impl Into<String>) -> Self {
         Self::Tcp {
@@ -85,9 +140,7 @@ impl TransportOptions {
 /// use grafton_visca::timeout::TimeoutConfig;
 /// use grafton_visca::runtime::TokioRuntime;
 ///
-/// let config = CameraConfig::<PtzOpticsG2>::new()
-///     .tcp()
-///     .address("192.168.0.110")
+/// let config = CameraConfig::<PtzOpticsG2>::tcp("192.168.0.110")
 ///     .timeouts(TimeoutConfig::balanced());
 ///
 /// // Configuration is pure data and can be cloned
@@ -108,6 +161,8 @@ impl TransportOptions {
 pub struct CameraConfig<P> {
     /// Transport configuration.
     pub(crate) transport: TransportOptions,
+    /// Default network port selected by the typed constructor or registry facts.
+    pub(crate) network_default_port: Option<u16>,
     /// Command timeout configuration.
     pub(crate) timeouts: TimeoutConfig,
     /// Transport configuration for the underlying connection.
@@ -120,16 +175,17 @@ pub struct CameraConfig<P> {
 
 impl<P> CameraConfig<P>
 where
-    P: crate::capabilities::Profile + Default,
+    P: Profile + Default,
 {
     /// Create a new camera configuration for the specified profile.
     ///
-    /// This initializes configuration with profile defaults.
+    /// This initializes non-transport configuration with profile defaults.
+    /// Select a standard transport explicitly with [`CameraConfig::tcp`],
+    /// [`CameraConfig::udp`], or [`CameraConfig::serial`].
     pub fn new() -> Self {
         Self {
-            transport: TransportOptions::Tcp {
-                address: format!("192.168.0.100:{}", P::DEFAULT_TCP_PORT),
-            },
+            transport: TransportOptions::Custom,
+            network_default_port: None,
             timeouts: TimeoutConfig::default(),
             transport_config: TransportConfig::default(),
             camera_id: CameraId::new(P::DEFAULT_CAMERA_ID).unwrap_or_default(),
@@ -142,11 +198,46 @@ where
     /// # Example
     ///
     /// ```ignore
-    /// let config = CameraConfig::<SonyFR7>::new()
-    ///     .address("192.168.0.108");
+    /// let config = CameraConfig::<SonyFR7>::udp("192.168.0.108");
     /// ```
     pub fn for_camera() -> Self {
         Self::new()
+    }
+
+    /// Create a TCP camera configuration.
+    pub fn tcp(address: impl Into<String>) -> Self
+    where
+        P: SupportsTcp,
+    {
+        Self::new().with_transport(
+            TransportOptions::tcp(address),
+            Some(<P as SupportsTcp>::DEFAULT_TCP_PORT),
+        )
+    }
+
+    /// Create a UDP camera configuration.
+    pub fn udp(address: impl Into<String>) -> Self
+    where
+        P: SupportsUdp,
+    {
+        Self::new().with_transport(
+            TransportOptions::udp(address),
+            Some(<P as SupportsUdp>::DEFAULT_UDP_PORT),
+        )
+    }
+
+    /// Create a serial camera configuration.
+    pub fn serial(port: impl Into<String>, baud_rate: u32) -> Self
+    where
+        P: SupportsSerial,
+    {
+        Self::new().with_transport(TransportOptions::serial(port, baud_rate), None)
+    }
+
+    fn with_transport(mut self, transport: TransportOptions, default_port: Option<u16>) -> Self {
+        self.transport = transport;
+        self.network_default_port = default_port;
+        self
     }
 
     /// Set the connection address.
@@ -165,71 +256,22 @@ where
     pub fn address(mut self, address: impl Into<String>) -> Self {
         let addr = address.into();
 
-        // Determine default port based on transport type
-        let default_port = match &self.transport {
-            TransportOptions::Tcp { .. } => P::DEFAULT_TCP_PORT,
-            TransportOptions::Udp { .. } => P::DEFAULT_UDP_PORT,
-            _ => P::DEFAULT_TCP_PORT,
-        };
-
-        // Use centralized canonicalization (handles IPv6 bracketing and default port)
-        let final_addr =
-            match crate::transport::address::canonicalize_endpoint(&addr, Some(default_port)) {
-                Ok(canonical) => canonical,
-                Err(_) => {
-                    // Preserve nonstandard endpoint strings so the eventual
-                    // transport connection reports the concrete resolution error.
-                    if addr.contains(':') {
-                        addr
-                    } else {
-                        format!("{addr}:{default_port}")
-                    }
-                }
-            };
-
         // Update transport with new address, preserving transport type
         self.transport = match self.transport {
-            TransportOptions::Tcp { .. } => TransportOptions::tcp(final_addr),
-            TransportOptions::Udp { .. } => TransportOptions::udp(final_addr),
+            TransportOptions::Tcp { .. } => TransportOptions::tcp(addr),
+            TransportOptions::Udp { .. } => TransportOptions::udp(addr),
             other => other,
         };
         self
     }
 
-    /// Use TCP transport.
-    pub fn tcp(mut self) -> Self {
-        if let TransportOptions::Tcp { address } | TransportOptions::Udp { address } =
-            &self.transport
-        {
-            self.transport = TransportOptions::tcp(address.clone());
-        } else {
-            self.transport =
-                TransportOptions::tcp(format!("192.168.0.100:{}", P::DEFAULT_TCP_PORT));
-        }
-        self
-    }
-
-    /// Use UDP transport.
-    pub fn udp(mut self) -> Self {
-        if let TransportOptions::Tcp { address } | TransportOptions::Udp { address } =
-            &self.transport
-        {
-            self.transport = TransportOptions::udp(address.clone());
-        } else {
-            self.transport =
-                TransportOptions::udp(format!("192.168.0.100:{}", P::DEFAULT_UDP_PORT));
-        }
-        self
-    }
-
-    /// Use serial transport.
-    pub fn serial(mut self, port: impl Into<String>, baud_rate: u32) -> Self {
-        self.transport = TransportOptions::serial(port, baud_rate);
-        self
-    }
-
     /// Set custom transport options.
     pub fn transport(mut self, transport: TransportOptions) -> Self {
+        self.network_default_port = match transport.kind() {
+            TransportKind::Tcp => P::PROFILE_ID.and_then(|profile| profile.default_tcp_port()),
+            TransportKind::Udp => P::PROFILE_ID.and_then(|profile| profile.default_udp_port()),
+            TransportKind::Serial | TransportKind::Custom => None,
+        };
         self.transport = transport;
         self
     }
@@ -282,6 +324,14 @@ where
         }
     }
 
+    /// Validate this configuration before any transport I/O.
+    pub fn validate(&self) -> Result<(), Error> {
+        if let Some(profile) = P::PROFILE_ID {
+            self.transport.validate_for_profile(profile)?;
+        }
+        Ok(())
+    }
+
     #[cfg(any(
         feature = "transport-serial-tokio",
         all(not(feature = "mode-async"), feature = "transport-serial")
@@ -308,7 +358,7 @@ where
 
 impl<P> Default for CameraConfig<P>
 where
-    P: crate::capabilities::Profile + Default,
+    P: Profile + Default,
 {
     fn default() -> Self {
         Self::new()
@@ -322,7 +372,7 @@ pub use CameraConfig as Config;
 #[cfg(feature = "mode-async")]
 impl<P> CameraConfig<P>
 where
-    P: crate::capabilities::Profile + Default,
+    P: Profile + Default,
 {
     /// Open an async camera session using the configuration.
     ///
@@ -340,9 +390,7 @@ where
     /// use grafton_visca::runtime::TokioRuntime;
     ///
     /// let runtime = TokioRuntime::from_current()?;
-    /// let config = CameraConfig::<PtzOpticsG2>::new()
-    ///     .tcp()
-    ///     .address("192.168.0.110");
+    /// let config = CameraConfig::<PtzOpticsG2>::tcp("192.168.0.110");
     ///
     /// let session = config.open_async(runtime).await?;
     /// ```
@@ -363,13 +411,15 @@ where
     {
         use crate::runtime::TransportHandle;
 
+        self.validate()?;
+
         // Create transport based on configuration
         let transport = match &self.transport {
             TransportOptions::Tcp { address } => {
                 // Canonicalize address at the connection boundary (handles IPv6 bracketing)
                 let canonical_addr = crate::transport::address::canonicalize_endpoint(
                     address,
-                    Some(P::DEFAULT_TCP_PORT),
+                    self.network_default_port,
                 )?;
                 let tcp = runtime
                     .connect_tcp(&canonical_addr, self.tcp_transport_config())
@@ -380,7 +430,7 @@ where
                 // Canonicalize address at the connection boundary (handles IPv6 bracketing)
                 let canonical_addr = crate::transport::address::canonicalize_endpoint(
                     address,
-                    Some(P::DEFAULT_UDP_PORT),
+                    self.network_default_port,
                 )?;
                 let udp = runtime
                     .connect_udp(&canonical_addr, self.udp_transport_config())
@@ -436,8 +486,7 @@ where
     /// use grafton_visca::runtime::TokioRuntime;
     ///
     /// let runtime = TokioRuntime::from_current()?;
-    /// let config = CameraConfig::<PtzOpticsG2>::new()
-    ///     .serial("/dev/ttyUSB0", 9600);
+    /// let config = CameraConfig::<PtzOpticsG2>::serial("/dev/ttyUSB0", 9600);
     ///
     /// let session = config.open_serial_async(runtime).await?;
     /// ```
@@ -459,6 +508,8 @@ where
             + crate::runtime::RuntimeSerial<SerialTransport = crate::transport::tokio::serial::Serial>,
     {
         use crate::runtime::TransportHandle;
+
+        self.validate()?;
 
         match &self.transport {
             TransportOptions::Serial { port, baud_rate } => {
@@ -498,7 +549,7 @@ where
 #[cfg(not(feature = "mode-async"))]
 impl<P> CameraConfig<P>
 where
-    P: crate::capabilities::Profile + Default,
+    P: Profile + Default,
 {
     /// Open a blocking camera session using the configuration.
     ///
@@ -510,9 +561,7 @@ where
     /// ```ignore
     /// use grafton_visca::camera::{CameraConfig, profiles::PtzOpticsG2};
     ///
-    /// let config = CameraConfig::<PtzOpticsG2>::new()
-    ///     .tcp()
-    ///     .address("192.168.0.110");
+    /// let config = CameraConfig::<PtzOpticsG2>::tcp("192.168.0.110");
     ///
     /// let camera = config.open_blocking()?;
     /// ```
@@ -521,13 +570,15 @@ where
     ) -> Result<crate::BlockingClient<P, crate::transport::BlockingTransportHandle>, Error> {
         use crate::transport::blocking::{Tcp, Udp};
 
+        self.validate()?;
+
         // Create transport based on configuration
         let transport = match &self.transport {
             TransportOptions::Tcp { address } => {
                 // Canonicalize address at the connection boundary (handles IPv6 bracketing)
                 let canonical_addr = crate::transport::address::canonicalize_endpoint(
                     address,
-                    Some(P::DEFAULT_TCP_PORT),
+                    self.network_default_port,
                 )?;
                 let tcp = Tcp::connect_with_config(&canonical_addr, self.tcp_transport_config())?;
                 crate::transport::BlockingTransportHandle::Tcp(tcp)
@@ -536,7 +587,7 @@ where
                 // Canonicalize address at the connection boundary (handles IPv6 bracketing)
                 let canonical_addr = crate::transport::address::canonicalize_endpoint(
                     address,
-                    Some(P::DEFAULT_UDP_PORT),
+                    self.network_default_port,
                 )?;
                 let udp = Udp::connect_with_config(&canonical_addr, self.udp_transport_config())?;
                 crate::transport::BlockingTransportHandle::Udp(udp)
@@ -581,8 +632,7 @@ where
     /// ```ignore
     /// use grafton_visca::camera::{CameraConfig, profiles::PtzOpticsG2};
     ///
-    /// let config = CameraConfig::<PtzOpticsG2>::new()
-    ///     .serial("/dev/ttyUSB0", 9600);
+    /// let config = CameraConfig::<PtzOpticsG2>::serial("/dev/ttyUSB0", 9600);
     ///
     /// let camera = config.open_serial_blocking()?;
     /// ```
@@ -590,6 +640,8 @@ where
     pub fn open_serial_blocking(
         &self,
     ) -> Result<crate::BlockingClient<P, crate::transport::BlockingTransportHandle>, Error> {
+        self.validate()?;
+
         match &self.transport {
             TransportOptions::Serial { port, baud_rate } => {
                 // Create serial config from transport options

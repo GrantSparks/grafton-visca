@@ -39,11 +39,13 @@ pub use camera_impl::Camera;
 pub use inflight::CommandId;
 
 // Re-export new API types
-pub use config::{CameraConfig, TransportOptions};
+pub use config::{CameraConfig, TransportKind, TransportOptions};
 pub use session::CameraSession;
 
 // Re-export convenience methods for quick connection
-pub use convenience::{Connect, ConnectBuilder};
+pub use convenience::{
+    Connect, ConnectBuilder, SerialConnectBuilder, TcpConnectBuilder, UdpConnectBuilder,
+};
 
 // Type aliases for easier usage
 /// Async camera type alias for easier usage.

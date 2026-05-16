@@ -3,54 +3,49 @@
 //! This module provides simple, one-line methods to quickly connect to cameras
 //! with sensible defaults.
 
-use crate::{capabilities::Profile, error::Error};
+use crate::{
+    capabilities::{Profile, SupportsTcp, SupportsUdp},
+    error::Error,
+};
 
 #[cfg(any(feature = "mode-async", feature = "transport-serial"))]
 use crate::camera::config::CameraConfig;
 #[cfg(feature = "mode-async")]
 use crate::camera::CameraSession;
+#[cfg(any(feature = "transport-serial", feature = "transport-serial-tokio"))]
+use crate::capabilities::SupportsSerial;
 
 /// Convenience methods for connecting to cameras with one-liner setup.
 #[derive(Debug, Clone, Copy)]
 pub struct Connect;
 
-/// Builder for creating high-level camera connections with runtime-neutral configuration.
-///
-/// This builder is the configured form of the primary `Connect` path. It
-/// supports TCP, UDP, and serial selection without exposing transport internals.
-///
-/// # Example
-/// ```rust,ignore
-/// use grafton_visca::camera::{Connect, profiles::PtzOpticsG2};
-///
-/// // Simple TCP connection with default port
-/// let cam = Connect::builder()
-///     .tcp("192.168.0.10")
-///     .with_default_port()  // Uses PtzOpticsG2::DEFAULT_TCP_PORT (5678)
-///     .open::<PtzOpticsG2>()
-///     .await?;
-///
-/// // UDP with explicit port
-/// let cam = Connect::builder()
-///     .udp("192.168.0.10:1259")
-///     .open::<GenericVisca>()
-///     .await?;
-/// ```
+/// Initial builder for creating high-level camera connections.
+#[derive(Debug, Clone, Copy)]
+pub struct ConnectBuilder;
+
+/// TCP-selected connection builder.
 #[derive(Debug, Clone)]
-pub struct ConnectBuilder {
-    transport_type: Option<TransportType>,
-    address: Option<String>,
-    serial_port: Option<String>,
-    baud_rate: Option<u32>,
+pub struct TcpConnectBuilder {
+    address: String,
     use_default_port: bool,
 }
 
-/// Transport type selection.
-#[derive(Debug, Clone, Copy)]
-enum TransportType {
-    Tcp,
-    Udp,
-    Serial,
+/// UDP-selected connection builder.
+#[derive(Debug, Clone)]
+pub struct UdpConnectBuilder {
+    address: String,
+    use_default_port: bool,
+}
+
+/// Serial-selected connection builder.
+#[derive(Debug, Clone)]
+#[cfg_attr(
+    not(any(feature = "transport-serial", feature = "transport-serial-tokio")),
+    allow(dead_code)
+)]
+pub struct SerialConnectBuilder {
+    port: String,
+    baud_rate: u32,
 }
 
 #[cfg(feature = "mode-async")]
@@ -60,7 +55,7 @@ impl Connect {
     /// Connects to the camera using TCP with the profile's default protocol style.
     ///
     /// Note: The async runtime implementation handles adding the profile's
-    /// DEFAULT_TCP_PORT if no port is specified in the address.
+    /// default TCP port if no port is specified in the address.
     ///
     /// # Example
     ///
@@ -73,7 +68,7 @@ impl Connect {
     /// // With explicit port
     /// let cam = Connect::open_tcp_async::<PtzOpticsG2, _>("192.168.0.110:5678", runtime.clone()).await?;
     ///
-    /// // Without port - runtime adds PtzOpticsG2::DEFAULT_TCP_PORT (5678)
+    /// // Without port - runtime adds PtzOpticsG2's TCP default (5678)
     /// let cam = Connect::open_tcp_async::<PtzOpticsG2, _>("192.168.0.110", runtime).await?;
     /// ```
     pub async fn open_tcp_async<P, R>(
@@ -81,14 +76,10 @@ impl Connect {
         runtime: R,
     ) -> Result<CameraSession<crate::mode::Async, P, crate::runtime::TransportHandle<R>, R>, Error>
     where
-        P: Profile + Default,
+        P: Profile + SupportsTcp + Default,
         R: crate::runtime::Runtime,
     {
-        CameraConfig::<P>::new()
-            .tcp()
-            .address(addr)
-            .open_async(runtime)
-            .await
+        CameraConfig::<P>::tcp(addr).open_async(runtime).await
     }
 
     /// Open a UDP async camera connection.
@@ -96,7 +87,7 @@ impl Connect {
     /// Connects to the camera using UDP with the profile's default protocol style.
     ///
     /// Note: The async runtime implementation handles adding the profile's
-    /// DEFAULT_UDP_PORT if no port is specified in the address.
+    /// default UDP port if no port is specified in the address.
     ///
     /// # Example
     ///
@@ -109,7 +100,7 @@ impl Connect {
     /// // With explicit port
     /// let cam = Connect::open_udp_async::<GenericVisca, _>("192.168.0.110:1259", runtime.clone()).await?;
     ///
-    /// // Without port - runtime adds GenericVisca::DEFAULT_UDP_PORT (1259)
+    /// // Without port - runtime adds GenericVisca's UDP default (1259)
     /// let cam = Connect::open_udp_async::<GenericVisca, _>("192.168.0.110", runtime).await?;
     /// ```
     pub async fn open_udp_async<P, R>(
@@ -117,14 +108,10 @@ impl Connect {
         runtime: R,
     ) -> Result<CameraSession<crate::mode::Async, P, crate::runtime::TransportHandle<R>, R>, Error>
     where
-        P: Profile + Default,
+        P: Profile + SupportsUdp + Default,
         R: crate::runtime::Runtime,
     {
-        CameraConfig::<P>::new()
-            .udp()
-            .address(addr)
-            .open_async(runtime)
-            .await
+        CameraConfig::<P>::udp(addr).open_async(runtime).await
     }
 
     /// Open a serial async camera connection.
@@ -156,12 +143,11 @@ impl Connect {
         runtime: R,
     ) -> Result<CameraSession<crate::mode::Async, P, crate::runtime::TransportHandle<R>, R>, Error>
     where
-        P: Profile + Default,
+        P: Profile + SupportsSerial + Default,
         R: crate::runtime::Runtime
             + crate::runtime::RuntimeSerial<SerialTransport = crate::transport::tokio::serial::Serial>,
     {
-        CameraConfig::<P>::new()
-            .serial(port, baud_rate)
+        CameraConfig::<P>::serial(port, baud_rate)
             .open_serial_async(runtime)
             .await
     }
@@ -174,7 +160,7 @@ impl Connect {
     /// Connects to the camera using TCP with the profile's default protocol style.
     /// Returns a camera using BlockingTransportHandle for zero-cost operation.
     ///
-    /// If no port is specified in the address, the profile's DEFAULT_TCP_PORT will be used.
+    /// If no port is specified in the address, the profile's TCP default will be used.
     /// IPv6 addresses are properly canonicalized (e.g., `2001:db8::1:5678` becomes `[2001:db8::1]:5678`).
     ///
     /// # Example
@@ -185,7 +171,7 @@ impl Connect {
     /// // With explicit port
     /// let cam = Connect::open_tcp_blocking::<PtzOpticsG2>("192.168.0.110:5678")?;
     ///
-    /// // Without port - uses PtzOpticsG2::DEFAULT_TCP_PORT (5678)
+    /// // Without port - uses PtzOpticsG2's TCP default (5678)
     /// let cam = Connect::open_tcp_blocking::<PtzOpticsG2>("192.168.0.110")?;
     ///
     /// // IPv6 with explicit port (canonicalized automatically)
@@ -195,12 +181,12 @@ impl Connect {
         addr: impl Into<String>,
     ) -> Result<crate::BlockingClient<P, crate::transport::BlockingTransportHandle>, Error>
     where
-        P: Profile + Default,
+        P: Profile + SupportsTcp + Default,
     {
         // Canonicalize the address (handles IPv6 bracketing and default port)
         let canonical_addr = crate::transport::address::canonicalize_endpoint(
             &addr.into(),
-            Some(P::DEFAULT_TCP_PORT),
+            Some(<P as SupportsTcp>::DEFAULT_TCP_PORT),
         )?;
 
         let tcp = crate::transport::blocking::tcp::Tcp::connect(&canonical_addr)?;
@@ -214,7 +200,7 @@ impl Connect {
     /// Connects to the camera using UDP with the profile's default protocol style.
     /// Returns a camera using BlockingTransportHandle for zero-cost operation.
     ///
-    /// If no port is specified in the address, the profile's DEFAULT_UDP_PORT will be used.
+    /// If no port is specified in the address, the profile's UDP default will be used.
     /// IPv6 addresses are properly canonicalized (e.g., `2001:db8::1:1259` becomes `[2001:db8::1]:1259`).
     ///
     /// # Example
@@ -225,7 +211,7 @@ impl Connect {
     /// // With explicit port
     /// let cam = Connect::open_udp_blocking::<GenericVisca>("192.168.0.110:1259")?;
     ///
-    /// // Without port - uses GenericVisca::DEFAULT_UDP_PORT (1259)
+    /// // Without port - uses GenericVisca's UDP default (1259)
     /// let cam = Connect::open_udp_blocking::<GenericVisca>("192.168.0.110")?;
     ///
     /// // IPv6 with explicit port (canonicalized automatically)
@@ -235,12 +221,12 @@ impl Connect {
         addr: impl Into<String>,
     ) -> Result<crate::BlockingClient<P, crate::transport::BlockingTransportHandle>, Error>
     where
-        P: Profile + Default,
+        P: Profile + SupportsUdp + Default,
     {
         // Canonicalize the address (handles IPv6 bracketing and default port)
         let canonical_addr = crate::transport::address::canonicalize_endpoint(
             &addr.into(),
-            Some(P::DEFAULT_UDP_PORT),
+            Some(<P as SupportsUdp>::DEFAULT_UDP_PORT),
         )?;
 
         let udp = crate::transport::blocking::udp::Udp::connect(&canonical_addr)?;
@@ -273,11 +259,9 @@ impl Connect {
         baud_rate: u32,
     ) -> Result<crate::BlockingClient<P, crate::transport::BlockingTransportHandle>, Error>
     where
-        P: Profile + Default,
+        P: Profile + SupportsSerial + Default,
     {
-        CameraConfig::<P>::new()
-            .serial(port, baud_rate)
-            .open_serial_blocking()
+        CameraConfig::<P>::serial(port, baud_rate).open_serial_blocking()
     }
 }
 
@@ -300,13 +284,7 @@ impl Connect {
     ///     .await?;
     /// ```
     pub fn builder() -> ConnectBuilder {
-        ConnectBuilder {
-            transport_type: None,
-            address: None,
-            serial_port: None,
-            baud_rate: None,
-            use_default_port: false,
-        }
+        ConnectBuilder
     }
 }
 
@@ -319,10 +297,11 @@ impl ConnectBuilder {
     ///   - IP with port: "192.168.0.10:5678"
     ///   - Hostname: "camera.local"
     ///   - Hostname with port: "camera.local:5678"
-    pub fn tcp(mut self, addr: impl Into<String>) -> Self {
-        self.transport_type = Some(TransportType::Tcp);
-        self.address = Some(addr.into());
-        self
+    pub fn tcp(self, addr: impl Into<String>) -> TcpConnectBuilder {
+        TcpConnectBuilder {
+            address: addr.into(),
+            use_default_port: false,
+        }
     }
 
     /// Configure UDP transport.
@@ -333,10 +312,11 @@ impl ConnectBuilder {
     ///   - IP with port: "192.168.0.10:1259"
     ///   - Hostname: "camera.local"
     ///   - Hostname with port: "camera.local:1259"
-    pub fn udp(mut self, addr: impl Into<String>) -> Self {
-        self.transport_type = Some(TransportType::Udp);
-        self.address = Some(addr.into());
-        self
+    pub fn udp(self, addr: impl Into<String>) -> UdpConnectBuilder {
+        UdpConnectBuilder {
+            address: addr.into(),
+            use_default_port: false,
+        }
     }
 
     /// Configure serial transport.
@@ -344,229 +324,136 @@ impl ConnectBuilder {
     /// # Arguments
     /// * `port` - The serial port path (e.g., "/dev/ttyUSB0" on Unix, "COM1" on Windows)
     /// * `baud_rate` - The baud rate (typically 9600 or 38400 for VISCA)
-    pub fn serial(mut self, port: impl Into<String>, baud_rate: u32) -> Self {
-        self.transport_type = Some(TransportType::Serial);
-        self.serial_port = Some(port.into());
-        self.baud_rate = Some(baud_rate);
-        self
+    pub fn serial(self, port: impl Into<String>, baud_rate: u32) -> SerialConnectBuilder {
+        SerialConnectBuilder {
+            port: port.into(),
+            baud_rate,
+        }
     }
+}
 
-    /// Use the profile's default port if no port was specified in the address.
-    ///
-    /// This uses the camera profile's DEFAULT_TCP_PORT or DEFAULT_UDP_PORT
-    /// constant depending on the transport type.
-    ///
-    /// # Example
-    /// ```rust,ignore
-    /// use grafton_visca::Connect;
-    /// use grafton_visca::camera::profiles::PtzOpticsG2;
-    ///
-    /// // Will use PtzOpticsG2::DEFAULT_TCP_PORT (5678)
-    /// let cam = Connect::builder()
-    ///     .tcp("192.168.0.10")
-    ///     .with_default_port()
-    ///     .open::<PtzOpticsG2>()?;
-    /// ```
+impl TcpConnectBuilder {
+    /// Use the selected profile's default TCP port if no port was specified.
     pub fn with_default_port(mut self) -> Self {
         self.use_default_port = true;
         self
     }
 
-    /// Open a blocking camera connection with the configured settings.
-    ///
-    /// This method connects to the camera using the specified transport
-    /// and profile, returning a blocking camera client.
-    ///
-    /// IPv6 addresses are properly canonicalized (e.g., `2001:db8::1:5678` becomes `[2001:db8::1]:5678`).
-    ///
-    /// # Type Parameters
-    /// * `P` - The camera profile to use
-    ///
-    /// # Errors
-    /// Returns an error if:
-    /// - No transport was configured
-    /// - The connection fails
-    /// - The address is invalid
+    fn canonical_address<P>(&self) -> Result<String, Error>
+    where
+        P: SupportsTcp,
+    {
+        let default_port = self
+            .use_default_port
+            .then_some(<P as SupportsTcp>::DEFAULT_TCP_PORT);
+        crate::transport::address::canonicalize_endpoint(&self.address, default_port)
+    }
+
+    /// Open a blocking TCP camera connection with the configured settings.
     #[cfg(not(feature = "mode-async"))]
     pub fn open<P>(
         self,
     ) -> Result<crate::BlockingClient<P, crate::transport::BlockingTransportHandle>, Error>
     where
-        P: Profile + Default,
+        P: Profile + SupportsTcp + Default,
     {
-        let transport_type = self.transport_type.ok_or_else(|| {
-            Error::InvalidState(
-                "No transport configured. Use .tcp(), .udp(), or .serial() first.".into(),
-            )
-        })?;
-
-        match transport_type {
-            TransportType::Tcp | TransportType::Udp => {
-                let address = self
-                    .address
-                    .ok_or_else(|| Error::InvalidState("No address configured".into()))?;
-
-                // Determine default port based on transport type and use_default_port flag
-                let default_port = if self.use_default_port {
-                    Some(match transport_type {
-                        TransportType::Tcp => P::DEFAULT_TCP_PORT,
-                        TransportType::Udp => P::DEFAULT_UDP_PORT,
-                        _ => unreachable!(),
-                    })
-                } else {
-                    None
-                };
-
-                // Canonicalize the address (handles IPv6 bracketing and default port)
-                let canonical_addr =
-                    crate::transport::address::canonicalize_endpoint(&address, default_port)?;
-
-                let transport = match transport_type {
-                    TransportType::Tcp => {
-                        let tcp = crate::transport::blocking::tcp::Tcp::connect(&canonical_addr)?;
-                        crate::transport::BlockingTransportHandle::Tcp(tcp)
-                    }
-                    TransportType::Udp => {
-                        let udp = crate::transport::blocking::udp::Udp::connect(&canonical_addr)?;
-                        crate::transport::BlockingTransportHandle::Udp(udp)
-                    }
-                    _ => unreachable!(),
-                };
-
-                let camera = crate::camera::Camera::new_blocking(transport)?;
-                Ok(crate::BlockingClient::from_camera(camera))
-            }
-            #[cfg(feature = "transport-serial")]
-            TransportType::Serial => {
-                let port = self
-                    .serial_port
-                    .ok_or_else(|| Error::InvalidState("No serial port configured".into()))?;
-                let baud_rate = self
-                    .baud_rate
-                    .ok_or_else(|| Error::InvalidState("No baud rate configured".into()))?;
-
-                CameraConfig::<P>::new()
-                    .serial(port, baud_rate)
-                    .open_serial_blocking()
-            }
-            #[cfg(not(feature = "transport-serial"))]
-            TransportType::Serial => Err(Error::NotSupported),
-        }
+        let canonical_addr = self.canonical_address::<P>()?;
+        let tcp = crate::transport::blocking::tcp::Tcp::connect(&canonical_addr)?;
+        let transport = crate::transport::BlockingTransportHandle::Tcp(tcp);
+        let camera = crate::camera::Camera::new_blocking(transport)?;
+        Ok(crate::BlockingClient::from_camera(camera))
     }
 
-    /// Open an async camera connection with the configured settings.
-    ///
-    /// This method connects to the camera using the specified transport,
-    /// profile, and runtime, returning an async camera session.
-    ///
-    /// IPv6 addresses are properly canonicalized (e.g., `2001:db8::1:5678` becomes `[2001:db8::1]:5678`).
-    ///
-    /// Note: For serial transport, the runtime must also implement `RuntimeSerial`.
-    ///
-    /// # Type Parameters
-    /// * `P` - The camera profile to use
-    /// * `R` - The runtime to use
-    ///
-    /// # Errors
-    /// Returns an error if:
-    /// - No transport was configured
-    /// - The connection fails
-    /// - The address is invalid
-    /// - Serial transport is selected but runtime doesn't implement RuntimeSerial
+    /// Open an async TCP camera connection with the configured settings.
     #[cfg(feature = "mode-async")]
     pub async fn open<P, R>(
         self,
         runtime: R,
     ) -> Result<CameraSession<crate::mode::Async, P, crate::runtime::TransportHandle<R>, R>, Error>
     where
-        P: Profile + Default,
+        P: Profile + SupportsTcp + Default,
         R: crate::runtime::Runtime,
     {
-        let transport_type = self.transport_type.ok_or_else(|| {
-            Error::InvalidState(
-                "No transport configured. Use .tcp(), .udp(), or .serial() first.".into(),
-            )
-        })?;
+        let canonical_addr = self.canonical_address::<P>()?;
+        CameraConfig::<P>::tcp(canonical_addr)
+            .open_async(runtime)
+            .await
+    }
+}
 
-        match transport_type {
-            TransportType::Tcp | TransportType::Udp => {
-                let address = self
-                    .address
-                    .ok_or_else(|| Error::InvalidState("No address configured".into()))?;
-
-                // Determine default port based on transport type and use_default_port flag
-                let default_port = if self.use_default_port {
-                    Some(match transport_type {
-                        TransportType::Tcp => P::DEFAULT_TCP_PORT,
-                        TransportType::Udp => P::DEFAULT_UDP_PORT,
-                        _ => unreachable!(),
-                    })
-                } else {
-                    None
-                };
-
-                // Canonicalize the address (handles IPv6 bracketing and default port)
-                let canonical_addr =
-                    crate::transport::address::canonicalize_endpoint(&address, default_port)?;
-
-                // Use CameraConfig for consistency
-                let config = match transport_type {
-                    TransportType::Tcp => CameraConfig::<P>::new().tcp().address(canonical_addr),
-                    TransportType::Udp => CameraConfig::<P>::new().udp().address(canonical_addr),
-                    _ => unreachable!(),
-                };
-
-                config.open_async(runtime).await
-            }
-            TransportType::Serial => {
-                // Serial transport requires RuntimeSerial trait which we can't enforce here
-                // Users should use open_serial_async directly for serial connections
-                Err(Error::InvalidState(
-                    "Serial transport requires RuntimeSerial trait. Use open_serial_async() method instead.".into()
-                ))
-            }
-        }
+impl UdpConnectBuilder {
+    /// Use the selected profile's default UDP port if no port was specified.
+    pub fn with_default_port(mut self) -> Self {
+        self.use_default_port = true;
+        self
     }
 
-    /// Open an async serial camera connection with the configured settings.
-    ///
-    /// This is a specialized method for serial connections that requires
-    /// the runtime to implement `RuntimeSerial`.
-    ///
-    /// # Type Parameters
-    /// * `P` - The camera profile to use
-    /// * `R` - The runtime to use (must implement RuntimeSerial)
-    ///
-    /// # Errors
-    /// Returns an error if:
-    /// - Transport type is not Serial
-    /// - Serial port or baud rate was not configured
-    /// - The connection fails
-    #[cfg(all(feature = "mode-async", feature = "transport-serial-tokio"))]
-    pub async fn open_serial_async<P, R>(
+    fn canonical_address<P>(&self) -> Result<String, Error>
+    where
+        P: SupportsUdp,
+    {
+        let default_port = self
+            .use_default_port
+            .then_some(<P as SupportsUdp>::DEFAULT_UDP_PORT);
+        crate::transport::address::canonicalize_endpoint(&self.address, default_port)
+    }
+
+    /// Open a blocking UDP camera connection with the configured settings.
+    #[cfg(not(feature = "mode-async"))]
+    pub fn open<P>(
+        self,
+    ) -> Result<crate::BlockingClient<P, crate::transport::BlockingTransportHandle>, Error>
+    where
+        P: Profile + SupportsUdp + Default,
+    {
+        let canonical_addr = self.canonical_address::<P>()?;
+        let udp = crate::transport::blocking::udp::Udp::connect(&canonical_addr)?;
+        let transport = crate::transport::BlockingTransportHandle::Udp(udp);
+        let camera = crate::camera::Camera::new_blocking(transport)?;
+        Ok(crate::BlockingClient::from_camera(camera))
+    }
+
+    /// Open an async UDP camera connection with the configured settings.
+    #[cfg(feature = "mode-async")]
+    pub async fn open<P, R>(
         self,
         runtime: R,
     ) -> Result<CameraSession<crate::mode::Async, P, crate::runtime::TransportHandle<R>, R>, Error>
     where
-        P: Profile + Default,
+        P: Profile + SupportsUdp + Default,
+        R: crate::runtime::Runtime,
+    {
+        let canonical_addr = self.canonical_address::<P>()?;
+        CameraConfig::<P>::udp(canonical_addr)
+            .open_async(runtime)
+            .await
+    }
+}
+
+impl SerialConnectBuilder {
+    /// Open a blocking serial camera connection with the configured settings.
+    #[cfg(all(not(feature = "mode-async"), feature = "transport-serial"))]
+    pub fn open<P>(
+        self,
+    ) -> Result<crate::BlockingClient<P, crate::transport::BlockingTransportHandle>, Error>
+    where
+        P: Profile + SupportsSerial + Default,
+    {
+        CameraConfig::<P>::serial(self.port, self.baud_rate).open_serial_blocking()
+    }
+
+    /// Open an async serial camera connection with the configured settings.
+    #[cfg(all(feature = "mode-async", feature = "transport-serial-tokio"))]
+    pub async fn open<P, R>(
+        self,
+        runtime: R,
+    ) -> Result<CameraSession<crate::mode::Async, P, crate::runtime::TransportHandle<R>, R>, Error>
+    where
+        P: Profile + SupportsSerial + Default,
         R: crate::runtime::Runtime
             + crate::runtime::RuntimeSerial<SerialTransport = crate::transport::tokio::serial::Serial>,
     {
-        if !matches!(self.transport_type, Some(TransportType::Serial)) {
-            return Err(Error::InvalidState(
-                "open_serial_async() requires serial transport. Use .serial() first.".into(),
-            ));
-        }
-
-        let port = self
-            .serial_port
-            .ok_or_else(|| Error::InvalidState("No serial port configured".into()))?;
-        let baud_rate = self
-            .baud_rate
-            .ok_or_else(|| Error::InvalidState("No baud rate configured".into()))?;
-
-        CameraConfig::<P>::new()
-            .serial(port, baud_rate)
+        CameraConfig::<P>::serial(self.port, self.baud_rate)
             .open_serial_async(runtime)
             .await
     }

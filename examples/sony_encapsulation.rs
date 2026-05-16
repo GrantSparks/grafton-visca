@@ -30,7 +30,7 @@ async fn main() -> Result<(), Error> {
     println!("Address: {address}");
 
     let runtime = TokioRuntime::from_current()?;
-    let camera = Connect::open_tcp_async::<SonyFR7, _>(&address, runtime).await?;
+    let camera = Connect::open_udp_async::<SonyFR7, _>(&address, runtime).await?;
 
     match camera.power().state().await {
         Ok(is_on) => println!("Power: {}", if is_on { "on" } else { "off" }),

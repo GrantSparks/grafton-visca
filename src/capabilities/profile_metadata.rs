@@ -71,6 +71,10 @@ pub enum InquirySupport {
 /// its name, default address, and timing requirements. Protocol framing is
 /// determined at compile-time through the Envelope associated type.
 pub trait ProfileMetadata {
+    /// Built-in profile identifier, when this profile is one of the registry
+    /// backed profiles shipped by the crate.
+    const PROFILE_ID: Option<crate::camera::profiles::ProfileId> = None;
+
     /// Camera model name for display/logging.
     const MODEL_NAME: &'static str;
 
@@ -108,12 +112,6 @@ pub trait ProfileMetadata {
     /// When true, movement detection can use event-driven completion instead of polling.
     const SUPPORTS_OPERATION_COMPLETE: bool = false;
 
-    /// Default TCP port for this camera profile.
-    const DEFAULT_TCP_PORT: u16;
-
-    /// Default UDP port for this camera profile.
-    const DEFAULT_UDP_PORT: u16;
-
     /// Minimum time spacing between consecutive inquiry sends.
     ///
     /// Some cameras (e.g., PTZOptics) cannot process inquiries faster than
@@ -145,6 +143,36 @@ pub trait ProfileMetadata {
     /// Default: Duration::ZERO (no artificial spacing)
     const MIN_COMMAND_SPACING: Duration = Duration::from_millis(0);
 }
+
+/// Marker trait indicating that a profile supports standard TCP construction.
+#[diagnostic::on_unimplemented(
+    message = "profile `{Self}` does not support TCP transport construction",
+    label = "profile `{Self}` does not implement `SupportsTcp`",
+    note = "use a transport supported by the selected profile; built-in profile transport support is registry-backed"
+)]
+pub trait SupportsTcp {
+    /// Default TCP port for this profile.
+    const DEFAULT_TCP_PORT: u16;
+}
+
+/// Marker trait indicating that a profile supports standard UDP construction.
+#[diagnostic::on_unimplemented(
+    message = "profile `{Self}` does not support UDP transport construction",
+    label = "profile `{Self}` does not implement `SupportsUdp`",
+    note = "use a transport supported by the selected profile; built-in profile transport support is registry-backed"
+)]
+pub trait SupportsUdp {
+    /// Default UDP port for this profile.
+    const DEFAULT_UDP_PORT: u16;
+}
+
+/// Marker trait indicating that a profile supports standard serial construction.
+#[diagnostic::on_unimplemented(
+    message = "profile `{Self}` does not support serial transport construction",
+    label = "profile `{Self}` does not implement `SupportsSerial`",
+    note = "serial support is modeled separately from IP transport support; use only source-backed serial profiles"
+)]
+pub trait SupportsSerial {}
 
 // Marker traits for compile-time capability detection.
 // These traits have no methods - they just mark a type as having a capability.
@@ -628,8 +656,6 @@ mod tests {
         type Envelope = crate::transport::RawVisca;
         const ACK_TIMEOUT: Duration = Duration::from_millis(100);
         const COMPLETION_TIMEOUT: Duration = Duration::from_millis(5000);
-        const DEFAULT_TCP_PORT: u16 = 5678;
-        const DEFAULT_UDP_PORT: u16 = 1259;
     }
 
     #[test]

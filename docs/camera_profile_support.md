@@ -87,6 +87,27 @@ Current built-in sub-capability markers include:
 | Variable speed | `HasVariableSpeed` | variable speed mode controls |
 | Motion Sync | `HasMotionSync` | Motion Sync controls and inquiries |
 
+## Built-In Transport Matrix
+
+Transport support is registry data, not an inference from the profile-wide
+protocol envelope. Standard constructors use `SupportsTcp`, `SupportsUdp`, and
+`SupportsSerial` marker traits so unsupported profile/transport pairs do not
+compile. Runtime or deserialized `TransportOptions` values are validated against
+the same registry before address resolution, socket creation, serial opening, or
+protocol startup.
+
+| Profile | TCP default | UDP default | Serial | Standard envelope |
+| ------- | ----------: | ----------: | ------ | ----------------- |
+| `PtzOpticsG2` | 5678 | 1259 | yes | Raw VISCA |
+| `PtzOpticsG3` | 5678 | 1259 | yes | Raw VISCA |
+| `PtzOptics30X` | 5678 | 1259 | yes | Raw VISCA |
+| `SonyFR7` | n/a | 52381 | no | Sony encapsulated UDP |
+| `SonyBRCH900` | n/a | 52381 | no | Sony encapsulated UDP |
+| `SonyEVIH100` | 5678 | 1259 | yes | Raw VISCA |
+| `SonyBRC300` | 5678 | 1259 | yes | Raw VISCA |
+| `NearusBRC300` | 5678 | 1259 | yes | Raw VISCA |
+| `GenericVisca` | 5678 | 1259 | yes | Raw VISCA |
+
 ## Built-In Profile Marker Matrix
 
 The table below lists the optional typed support markers emitted for each
@@ -119,7 +140,7 @@ typed support marker.
 
 1. Add or update the relevant evidence in `docs/visca_reference.md`.
 2. Record any model/firmware limitations near the relevant capability section.
-3. Update the built-in profile registry in `src/camera/profile_registry.rs` from those sources.
+3. Update the built-in profile registry in `src/camera/profile_registry.rs` from those sources, including transport support and default ports.
 4. Use `false`, `None`, or conservative ranges when the docs do not establish support.
 5. Implement optional metadata with supported values only when runtime discovery should report support.
 6. Add optional typed support surfaces to the registry entry only when typed APIs are intentionally supported for that profile.

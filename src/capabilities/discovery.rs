@@ -58,11 +58,11 @@ pub struct Capabilities {
     pub default_camera_id: u8,
 
     // Network configuration
-    /// Default TCP port for this camera model.
-    pub default_tcp_port: u16,
+    /// Default TCP port for this camera model, if TCP is supported.
+    pub default_tcp_port: Option<u16>,
 
-    /// Default UDP port for this camera model.
-    pub default_udp_port: u16,
+    /// Default UDP port for this camera model, if UDP is supported.
+    pub default_udp_port: Option<u16>,
 
     // Pan/Tilt capabilities
     /// Whether camera supports pan/tilt movement.
@@ -397,8 +397,8 @@ impl Capabilities {
             default_camera_id: P::DEFAULT_CAMERA_ID,
 
             // Network configuration
-            default_tcp_port: P::DEFAULT_TCP_PORT,
-            default_udp_port: P::DEFAULT_UDP_PORT,
+            default_tcp_port: P::PROFILE_ID.and_then(|profile| profile.default_tcp_port()),
+            default_udp_port: P::PROFILE_ID.and_then(|profile| profile.default_udp_port()),
 
             // Pan/Tilt capabilities
             has_pan_tilt: true, // All cameras in Profile have pan/tilt
@@ -675,8 +675,8 @@ mod tests {
 
         assert_eq!(caps.model_name, "PtzOptics G2");
         assert_eq!(caps.default_camera_id, 1);
-        assert_eq!(caps.default_tcp_port, 5678);
-        assert_eq!(caps.default_udp_port, 1259);
+        assert_eq!(caps.default_tcp_port, Some(5678));
+        assert_eq!(caps.default_udp_port, Some(1259));
 
         assert!(caps.has_pan_tilt);
         assert_eq!(caps.pan_speed, 1..=24);
@@ -717,8 +717,8 @@ mod tests {
         let caps = Capabilities::from_profile::<SonyFR7>();
 
         assert_eq!(caps.model_name, "Sony FR7");
-        assert_eq!(caps.default_tcp_port, 52381);
-        assert_eq!(caps.default_udp_port, 52381);
+        assert_eq!(caps.default_tcp_port, None);
+        assert_eq!(caps.default_udp_port, Some(52381));
 
         assert_eq!(caps.max_presets, 255);
         assert!(caps.supports_preset_tour);

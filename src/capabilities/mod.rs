@@ -31,7 +31,7 @@ pub use profile_metadata::{
     HasOnePushWhiteBalance, HasPanTilt, HasPictureEffect, HasPower, HasPresets,
     HasPtzOpticsSnapFocus, HasPushAutoFocus, HasRgbGain, HasRgbTuning, HasSaturationControl,
     HasSharpnessControl, HasTally, HasVariableSpeed, HasWhiteBalance, HasWideDynamicRange, HasZoom,
-    InquirySupport, ProfileMetadata,
+    InquirySupport, ProfileMetadata, SupportsSerial, SupportsTcp, SupportsUdp,
 };
 
 // Re-export all capability traits

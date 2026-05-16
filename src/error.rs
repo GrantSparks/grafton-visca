@@ -462,6 +462,15 @@ pub enum Error {
         reason: &'static str,
     },
 
+    /// Selected standard transport is unsupported for the selected built-in profile.
+    #[error("Profile {profile} does not support {transport} transport")]
+    UnsupportedTransport {
+        /// Built-in profile that rejected the transport.
+        profile: crate::camera::profiles::ProfileId,
+        /// Selected transport kind.
+        transport: crate::camera::config::TransportKind,
+    },
+
     /// Runtime is required for async operations but was not provided.
     #[error("No runtime configured for async operations")]
     MissingRuntime,
@@ -565,6 +574,7 @@ impl Error {
             | Self::InquiryNotCancelable { .. }
             | Self::InvalidAddress { .. }
             | Self::TransportMismatch { .. } => ErrorKind::InvalidParameter,
+            Self::UnsupportedTransport { .. } => ErrorKind::Unsupported,
 
             // Busy: transient contention
             Self::CameraBusy

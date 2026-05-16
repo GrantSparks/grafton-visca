@@ -270,9 +270,7 @@
 //!
 //! fn main() -> Result<(), Error> {
 //!     smol::block_on(async {
-//!         let config = CameraConfig::<PtzOpticsG2>::new()
-//!             .tcp()
-//!             .address("192.168.0.110")
+//!         let config = CameraConfig::<PtzOpticsG2>::tcp("192.168.0.110")
 //!             .transport_config(TransportConfig {
 //!                 tcp_keepalive: Some(TcpKeepaliveConfig::new(Duration::from_secs(30))),
 //!                 ..TransportConfig::default()
@@ -303,7 +301,7 @@
 //! ```ignore
 //! use grafton_visca::prelude::blocking::*;
 //!
-//! let sony = Connect::open_tcp_blocking::<SonyFR7>("192.168.0.110")?;
+//! let sony = Connect::open_udp_blocking::<SonyFR7>("192.168.0.110")?;
 //! sony.nd_filter().set_mode(NdFilterMode::Clear)?;
 //!
 //! let g2 = Connect::open_tcp_blocking::<PtzOpticsG2>("192.168.0.111")?;
@@ -580,18 +578,14 @@
 //! // For async mode
 //! use grafton_visca::runtime::TokioRuntime;
 //! let runtime = TokioRuntime::from_current()?;
-//! let camera = CameraConfig::<PtzOpticsG2>::new()
-//!     .tcp()
-//!     .address("192.168.0.110")
+//! let camera = CameraConfig::<PtzOpticsG2>::tcp("192.168.0.110")
 //!     .timeouts(config)
 //!     .open_async(runtime)
 //!     .await?;
 //!
 //! // For blocking mode (when async feature is disabled)
 //! #[cfg(not(feature = "mode-async"))]
-//! let camera = CameraConfig::<PtzOpticsG2>::new()
-//!     .tcp()
-//!     .address("192.168.0.110")
+//! let camera = CameraConfig::<PtzOpticsG2>::tcp("192.168.0.110")
 //!     .timeouts(config)
 //!     .open_blocking()?;
 //! ```

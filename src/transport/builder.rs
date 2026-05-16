@@ -22,9 +22,7 @@
 //! # #[cfg(feature = "runtime-tokio")]
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! let runtime = TokioRuntime::from_current()?;
-//! let config = CameraConfig::<GenericVisca>::new()
-//!     .tcp()
-//!     .address("192.168.0.110:5678")
+//! let config = CameraConfig::<GenericVisca>::tcp("192.168.0.110:5678")
 //!     .transport_config(TransportConfig {
 //!         tcp_keepalive: Some(TcpKeepaliveConfig::default()),
 //!         ..TransportConfig::default()
