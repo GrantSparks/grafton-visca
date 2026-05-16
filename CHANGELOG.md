@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking Changes
 
+#### Exclusive API Mode Selection (#525)
+- **BREAKING**: Removed the misleading public `mode-blocking` feature. Blocking is now documented as the baseline build when `mode-async` is not enabled.
+- Builds that request `mode-blocking` now fail with Cargo's unknown-feature error, including combinations such as `mode-async,mode-blocking` or `runtime-tokio,mode-blocking`.
+- The supported feature matrix now validates blocking with `cargo test --no-default-features`; async remains selected through `mode-async`, `runtime-tokio`, or `runtime-smol`.
+- API contract tests now cover the intentional exclusive public surfaces: blocking types and construction methods are unavailable in async builds, and async types and construction methods are unavailable in blocking builds.
+
 #### Public API Freeze and Camera-First Convergence (#509, #510)
 - **BREAKING**: Blocking camera construction now returns the ergonomic `BlockingClient<P, Tr>` surface consistently; `CameraConfig::open_blocking()`, `CameraConfig::open_serial_blocking()`, blocking `CameraBuilder::open()`, and `CameraBuilder::build_blocking()` no longer expose the raw mode-generic camera type
 - **BREAKING**: `BlockingCamera<P, Tr>` now aliases `BlockingClient<P, Tr>`, making noun accessors such as `camera.power().on()?` and `camera.pan_tilt().home()?` the canonical blocking API
@@ -2294,7 +2300,7 @@ camera.pan_tilt_home()?;
 - Protocol framing happens at the last possible moment
 
 #### Runtime-Agnostic Architecture
-- Blocking and async modes selected via feature flags (`mode-blocking`, `mode-async`)
+- Blocking is the baseline no-async build; async mode is selected with `mode-async`
 - No runtime required for blocking mode
 - Multiple async runtimes supported (tokio, async-std, smol) with automatic selection
 - Executor abstraction allows runtime switching without code changes
@@ -2372,7 +2378,7 @@ default = ["async", "tokio", "tcp", "udp"]
 
 // New: Simple mode selection
 [features]
-default = ["mode-blocking"]  # or ["mode-async", "tokio"]
+default = []  # blocking baseline; enable async/runtime features for async builds
 ```
 
 #### API Access

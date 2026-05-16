@@ -375,7 +375,7 @@
 //! ### Feature Flags
 //!
 //! - `mode-async` - Enables async support without any specific runtime. You must provide your own runtime.
-//! - `mode-blocking` - Explicit feature flag for blocking mode (blocking is always available, this is for feature detection).
+//! - Blocking API - Baseline API when `mode-async` is not enabled.
 //! - `runtime-tokio` - Enables async with built-in Tokio runtime support (implies `mode-async`).
 //! - `runtime-smol` - Enables async with built-in smol runtime support (implies `mode-async`).
 //! - `transport-serial` - Enables serial port support for blocking mode.

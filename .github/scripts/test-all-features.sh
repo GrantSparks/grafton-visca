@@ -54,10 +54,6 @@ run_test "default features" \
 run_test "no default features (blocking mode)" \
     "cargo test --no-default-features"
 
-# Test explicit blocking feature detection
-run_test "mode-blocking feature (blocking mode)" \
-    "cargo test --no-default-features --features mode-blocking"
-
 # Test mode-async feature (runtime-agnostic)
 run_test "mode-async feature (runtime-agnostic)" \
     "cargo test --no-default-features --features mode-async"
@@ -140,7 +136,6 @@ echo "Feature Matrix Coverage:"
 echo "------------------------"
 echo "✓ Default features"
 echo "✓ Blocking mode (no features)"
-echo "✓ Explicit mode-blocking feature"
 echo "✓ Mode-async (runtime-agnostic)"
 echo "✓ Tokio runtime"
 echo "✓ Smol runtime"

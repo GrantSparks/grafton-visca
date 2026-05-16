@@ -17,9 +17,6 @@ pub fn active_grafton_visca_features() -> Vec<&'static str> {
     if cfg!(feature = "mode-async") {
         features.push("mode-async");
     }
-    if cfg!(feature = "mode-blocking") {
-        features.push("mode-blocking");
-    }
     if cfg!(feature = "runtime-tokio") {
         features.push("runtime-tokio");
     }

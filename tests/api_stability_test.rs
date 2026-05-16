@@ -783,6 +783,12 @@ fn test_public_compile_time_api_contracts() {
 fn test_internal_api_contracts_do_not_compile() {
     let mut fixture_dirs = vec!["tests/api_contract/fail"];
 
+    if cfg!(feature = "mode-async") {
+        fixture_dirs.push("tests/api_contract/fail_async_mode");
+    } else {
+        fixture_dirs.push("tests/api_contract/fail_blocking_mode");
+    }
+
     if cfg!(feature = "runtime-tokio") {
         fixture_dirs.push("tests/api_contract/fail_async");
     }

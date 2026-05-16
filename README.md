@@ -26,7 +26,7 @@ documented rows they combine.
 
 | Area | Supported 1.0 contract | Automated validation |
 | ---- | ---------------------- | -------------------- |
-| Blocking API | Default build with no enabled features, plus `mode-blocking` for cfg-based downstream detection | `cargo test --no-default-features`, `cargo test --no-default-features --features mode-blocking` |
+| Blocking API | Baseline build when `mode-async` is not enabled | `cargo test --no-default-features` |
 | Runtime-agnostic async | `mode-async` with caller-provided executor/runtime | `cargo test --no-default-features --features mode-async` |
 | Tokio async | `runtime-tokio`, `TokioRuntime`, Tokio TCP/UDP adapters | `cargo test --no-default-features --features runtime-tokio` |
 | smol async | `runtime-smol`, `SmolRuntime`, smol TCP/UDP adapters | `cargo test --no-default-features --features runtime-smol` |

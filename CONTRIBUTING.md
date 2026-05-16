@@ -35,7 +35,6 @@ bash .github/scripts/test-all-features.sh
 # Or run individual matrix entries while iterating
 cargo test
 cargo test --no-default-features
-cargo test --no-default-features --features mode-blocking
 cargo test --no-default-features --features mode-async
 cargo test --no-default-features --features runtime-tokio
 cargo test --no-default-features --features runtime-smol

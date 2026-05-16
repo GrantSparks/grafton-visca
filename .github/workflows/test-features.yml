@@ -68,7 +68,6 @@ jobs:
               echo "Running minimal test suite..."
               # Test key configurations for feature branches
               cargo test --no-default-features --verbose
-              cargo test --no-default-features --features mode-blocking --verbose
               cargo test --no-default-features --features mode-async --verbose
               cargo test --no-default-features --features runtime-tokio --verbose
               cargo test --no-default-features --features test-utils --verbose
@@ -82,7 +81,6 @@ jobs:
               # Test all feature combinations
               cargo test --verbose
               cargo test --no-default-features --verbose
-              cargo test --no-default-features --features mode-blocking --verbose
               cargo test --no-default-features --features mode-async --verbose
               cargo test --no-default-features --features runtime-tokio --verbose
               cargo test --no-default-features --features runtime-smol --verbose

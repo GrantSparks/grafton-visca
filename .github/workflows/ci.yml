@@ -194,7 +194,7 @@ jobs:
         features:
           - ""  # default features
           - "no-default"
-          - "mode-blocking"
+          - "mode-async"
           - "runtime-tokio"
           - "runtime-smol"
     runs-on: windows-latest
@@ -281,7 +281,6 @@ jobs:
       matrix:
         features:
           - ""  # no features
-          - "mode-blocking"
           - "mode-async"
           - "runtime-tokio"
           - "runtime-smol"
@@ -472,7 +471,6 @@ jobs:
 
           features=(
             ""
-            "mode-blocking"
             "mode-async"
             "runtime-tokio"
             "runtime-smol"
