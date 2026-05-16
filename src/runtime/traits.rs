@@ -122,6 +122,7 @@ pub trait RuntimeSerial: Runtime {
 /// ```
 #[cfg(feature = "mode-async")]
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum TransportHandle<R: Runtime> {
     /// TCP transport for this runtime.
     Tcp(R::TcpTransport),

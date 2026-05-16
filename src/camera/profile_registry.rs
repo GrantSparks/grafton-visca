@@ -697,6 +697,7 @@ macro_rules! __define_builtin_profiles {
         #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
         #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
         #[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
+        #[non_exhaustive]
         pub enum ProfileGroup {
             $(
                 #[doc = $group_doc]
@@ -710,6 +711,7 @@ macro_rules! __define_builtin_profiles {
         #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
         #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
         #[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
+        #[non_exhaustive]
         pub enum ProfileId {
             $(
                 #[doc = $id_doc]

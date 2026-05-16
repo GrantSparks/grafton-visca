@@ -30,6 +30,7 @@ use crate::{
 /// ```
 #[cfg(not(feature = "mode-async"))]
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum BlockingTransportHandle {
     /// TCP transport for blocking mode.
     Tcp(crate::transport::blocking::Tcp),

@@ -1,8 +1,6 @@
 //! Focus capability trait and associated types.
 
-use std::borrow::Cow;
-
-use crate::capabilities::ValidationError;
+use crate::{capabilities::ValidationError, UnitInterval};
 
 /// Trait for cameras that support focus control.
 ///
@@ -60,24 +58,23 @@ pub trait FocusExt: Focus {
         speed.min(Self::MAX_FOCUS_SPEED)
     }
 
-    /// Convert normalized focus (0.0=near, 1.0=far) to VISCA units.
-    fn normalized_to_focus_units(&self, normalized: f32) -> Result<u16, ValidationError> {
-        if !(0.0..=1.0).contains(&normalized) {
-            return Err(ValidationError::InvalidValue {
-                parameter: "normalized focus",
-                message: Cow::Borrowed("Must be between 0.0 and 1.0"),
-            });
-        }
-
+    /// Convert a normalized focus position to VISCA units.
+    fn normalized_to_focus_units(&self, normalized: UnitInterval) -> Result<u16, ValidationError> {
         let range = Self::FOCUS_FAR_LIMIT - Self::FOCUS_NEAR_LIMIT;
-        let position = Self::FOCUS_NEAR_LIMIT + (normalized * range as f32) as u16;
+        let position = Self::FOCUS_NEAR_LIMIT + (normalized.value() * range as f32) as u16;
         Ok(position)
     }
 
-    /// Convert VISCA units to normalized focus (0.0=near, 1.0=far).
-    fn focus_units_to_normalized(&self, units: u16) -> f32 {
+    /// Convert VISCA units to a normalized focus position.
+    fn focus_units_to_normalized(&self, units: u16) -> Result<UnitInterval, ValidationError> {
+        self.validate_focus_position(units)?;
         let range = Self::FOCUS_FAR_LIMIT - Self::FOCUS_NEAR_LIMIT;
-        (units - Self::FOCUS_NEAR_LIMIT) as f32 / range as f32
+        UnitInterval::new((units - Self::FOCUS_NEAR_LIMIT) as f32 / range as f32).map_err(|_| {
+            ValidationError::InvalidValue {
+                parameter: "focus position",
+                message: "could not convert VISCA units to a unit interval".into(),
+            }
+        })
     }
 
     /// Check if auto focus is available.
@@ -128,22 +125,25 @@ mod tests {
 
         assert_eq!(
             camera
-                .normalized_to_focus_units(0.0)
+                .normalized_to_focus_units(UnitInterval::ZERO)
                 .expect("0.0 is valid normalized value"),
             0x1000
         );
         assert_eq!(
             camera
-                .normalized_to_focus_units(1.0)
+                .normalized_to_focus_units(UnitInterval::ONE)
                 .expect("1.0 is valid normalized value"),
             0xF000
         );
 
         // Test round trip
         let pos = camera
-            .normalized_to_focus_units(0.5)
+            .normalized_to_focus_units(UnitInterval::new(0.5).expect("0.5 is valid"))
             .expect("0.5 is valid normalized value");
-        let normalized = camera.focus_units_to_normalized(pos);
-        assert!((normalized - 0.5).abs() < 0.01);
+        let normalized = camera
+            .focus_units_to_normalized(pos)
+            .expect("valid focus units convert to a unit interval");
+        assert!((normalized.value() - 0.5).abs() < 0.01);
+        assert!(camera.focus_units_to_normalized(0x0FFF).is_err());
     }
 }

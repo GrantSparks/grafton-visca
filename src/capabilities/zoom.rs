@@ -2,7 +2,7 @@
 
 use std::{borrow::Cow, ops::Range};
 
-use crate::capabilities::ValidationError;
+use crate::{capabilities::ValidationError, UnitInterval};
 
 /// Trait for cameras that support zoom operations.
 ///
@@ -61,23 +61,22 @@ pub trait ZoomExt: Zoom {
         position > Self::OPTICAL_ZOOM_MAX
     }
 
-    /// Convert normalized zoom (0.0-1.0) to VISCA units.
-    fn normalized_to_zoom_units(&self, normalized: f32) -> Result<u16, ValidationError> {
-        if !(0.0..=1.0).contains(&normalized) {
-            return Err(ValidationError::InvalidValue {
-                parameter: "normalized zoom",
-                message: Cow::Borrowed("Must be between 0.0 and 1.0"),
-            });
-        }
-
+    /// Convert a normalized zoom position to VISCA units.
+    fn normalized_to_zoom_units(&self, normalized: UnitInterval) -> Result<u16, ValidationError> {
         let max = Self::DIGITAL_ZOOM_MAX.unwrap_or(Self::OPTICAL_ZOOM_MAX);
-        Ok((normalized * max as f32) as u16)
+        Ok((normalized.value() * max as f32) as u16)
     }
 
-    /// Convert VISCA units to normalized zoom (0.0-1.0).
-    fn zoom_units_to_normalized(&self, units: u16) -> f32 {
+    /// Convert VISCA units to a normalized zoom position.
+    fn zoom_units_to_normalized(&self, units: u16) -> Result<UnitInterval, ValidationError> {
+        self.validate_zoom_position(units)?;
         let max = Self::DIGITAL_ZOOM_MAX.unwrap_or(Self::OPTICAL_ZOOM_MAX);
-        (units as f32) / (max as f32)
+        UnitInterval::new((units as f32) / (max as f32)).map_err(|_| {
+            ValidationError::InvalidValue {
+                parameter: "zoom position",
+                message: "could not convert VISCA units to a unit interval".into(),
+            }
+        })
     }
 
     /// Convert magnification (e.g., 5.0 for 5x) to VISCA units.
@@ -140,17 +139,23 @@ mod tests {
 
         assert_eq!(
             camera
-                .normalized_to_zoom_units(0.0)
+                .normalized_to_zoom_units(UnitInterval::ZERO)
                 .expect("0.0 is valid normalized value"),
             0
         );
         assert_eq!(
             camera
-                .normalized_to_zoom_units(1.0)
+                .normalized_to_zoom_units(UnitInterval::ONE)
                 .expect("1.0 is valid normalized value"),
             0x7000
         );
-        assert!(camera.normalized_to_zoom_units(1.1).is_err());
+        assert!(camera.zoom_units_to_normalized(0x8000).is_err());
+        assert_eq!(
+            camera
+                .zoom_units_to_normalized(0x3800)
+                .expect("in-range VISCA units convert to a unit interval"),
+            UnitInterval::new(0.5).expect("0.5 is valid")
+        );
     }
 
     #[test]

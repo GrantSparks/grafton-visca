@@ -4,6 +4,7 @@ use std::{borrow::Cow, fmt};
 
 /// Errors that can occur during parameter validation.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum ValidationError {
     /// Parameter is out of the valid range.
     OutOfRange {

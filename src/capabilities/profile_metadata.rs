@@ -33,12 +33,16 @@ use std::time::Duration;
 ///     InquirySupport::None => {
 ///         // Camera does not support inquiry commands
 ///     }
+///     _ => {
+///         // Future inquiry support categories should be handled conservatively
+///     }
 /// }
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
+#[non_exhaustive]
 pub enum InquirySupport {
     /// Full inquiry support — all documented VISCA inquiry commands work correctly.
     ///

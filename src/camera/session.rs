@@ -92,10 +92,9 @@ impl ViscaCommand for RawBytesRef<'_> {
 /// use grafton_visca::camera::{CameraConfig, profiles::PtzOpticsG2};
 ///
 /// // Create and use a session
-/// let config = CameraConfig::for::<PtzOpticsG2>()
-///     .address("192.168.0.110");
+/// let config = CameraConfig::<PtzOpticsG2>::tcp("192.168.0.110");
 ///
-/// let session = config.open_async(&runtime).await?;
+/// let session = config.open_async(runtime).await?;
 ///
 /// // Use the camera
 /// session.power().on().await?;

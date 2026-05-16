@@ -18,6 +18,7 @@ use grafton_visca::{
         HasFocusLock, HasNdFilter, HasPushAutoFocus, HasVariableSpeed, NdFilterMetadata, PanTilt,
         Presets, ProfileMetadata, WhiteBalance, Zoom,
     },
+    UnitInterval,
 };
 
 fn main() {
@@ -76,13 +77,13 @@ fn demonstrate_value_validation() {
     let sony = SonyFR7;
 
     println!("Validation");
-    match g2.normalized_to_zoom_units(0.5) {
+    match g2.normalized_to_zoom_units(UnitInterval::new(0.5).expect("literal is in range")) {
         Ok(units) => println!("  PTZOptics G2 50% zoom: 0x{units:04X}"),
         Err(error) => println!("  PTZOptics G2 zoom validation failed: {error}"),
     }
 
-    match g2.normalized_to_zoom_units(1.25) {
-        Ok(units) => println!("  Unexpected zoom validation success: 0x{units:04X}"),
+    match UnitInterval::new(1.25) {
+        Ok(value) => println!("  Unexpected zoom validation success: {value:?}"),
         Err(error) => println!("  Out-of-range zoom rejected: {error}"),
     }
 

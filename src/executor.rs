@@ -12,6 +12,7 @@ use crate::Error;
 
 /// Error type for executor operations.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum ExecError {
     /// Task was cancelled or panicked.
     #[error("Task execution failed: {0}")]

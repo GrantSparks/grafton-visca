@@ -1333,7 +1333,7 @@ mod tests {
         assert!((normalized - 0.5).abs() < 0.01);
 
         // FocusPosition normalized conversion has been removed.
-        // Use FocusExt::normalized_to_focus_units() for profile-aware conversion.
+        // Use FocusExt::normalized_to_focus_units(UnitInterval) for profile-aware conversion.
 
         let iris = IrisLevel::from(FStop::F2_8);
         assert_eq!(iris.value(), 0x09);
