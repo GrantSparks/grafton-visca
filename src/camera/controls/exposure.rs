@@ -117,53 +117,6 @@ pub trait ExposureControl {
     /// Returns an error if the command fails to send or receive a response.
     fn exposure_shutter_priority(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
-    /// Set brightness priority exposure mode.
-    ///
-    /// In brightness priority mode, the camera maintains a consistent brightness
-    /// level by automatically adjusting exposure parameters.
-    ///
-    /// # Errors
-    /// Returns an error if the command fails to send or receive a response.
-    fn exposure_bright_mode(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
-
-    /// Set brightness level.
-    ///
-    /// Sets the overall brightness level of the image output.
-    ///
-    /// # Parameters
-    /// - `level`: The brightness level to set
-    ///
-    /// # Errors
-    /// Returns an error if the command fails to send or receive a response.
-    fn set_brightness(
-        &self,
-        level: crate::types::BrightnessLevel,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
-
-    /// Reset brightness to default.
-    ///
-    /// Resets the brightness to the camera's default level.
-    ///
-    /// # Errors
-    /// Returns an error if the command fails to send or receive a response.
-    fn reset_brightness(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
-
-    /// Increase brightness.
-    ///
-    /// Increases the brightness level by one step.
-    ///
-    /// # Errors
-    /// Returns an error if the command fails to send or receive a response.
-    fn increase_brightness(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
-
-    /// Decrease brightness.
-    ///
-    /// Decreases the brightness level by one step.
-    ///
-    /// # Errors
-    /// Returns an error if the command fails to send or receive a response.
-    fn decrease_brightness(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
-
     /// Set gain value.
     ///
     /// Sets the sensor gain level. Higher gain values increase image brightness
@@ -296,21 +249,6 @@ pub trait ExposureControl {
     /// Returns an error if the command fails to send or receive a response.
     fn disable_auto_slow_shutter(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 
-    /// Set brightness using direct mode.
-    ///
-    /// Sets brightness level using direct command mode rather than
-    /// incremental adjustments.
-    ///
-    /// # Parameters
-    /// - `level`: The brightness level to set directly
-    ///
-    /// # Errors
-    /// Returns an error if the command fails to send or receive a response.
-    fn set_brightness_direct(
-        &self,
-        level: crate::types::BrightnessLevel,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
-
     /// Set anti-flicker mode.
     ///
     /// Controls the camera's flicker reduction to match the local AC power frequency.
@@ -326,6 +264,40 @@ pub trait ExposureControl {
     fn set_anti_flicker_mode(
         &self,
         mode: crate::command::exposure::AntiFlickerMode,
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+}
+
+/// Exposure brightness operations for profiles with documented bright control support.
+///
+/// This is the VISCA exposure bright/bright-direct surface, distinct from
+/// image luminance.
+#[grafton_visca_macros::delegate_to_session]
+pub trait BrightnessControl {
+    /// The mode type for this camera (Async or Blocking).
+    type Mode: Mode;
+
+    /// Set brightness priority exposure mode.
+    fn exposure_bright_mode(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+
+    /// Set exposure brightness level.
+    fn set_brightness(
+        &self,
+        level: crate::types::BrightnessLevel,
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+
+    /// Reset exposure brightness to default.
+    fn reset_brightness(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+
+    /// Increase exposure brightness.
+    fn increase_brightness(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+
+    /// Decrease exposure brightness.
+    fn decrease_brightness(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+
+    /// Set exposure brightness using direct mode.
+    fn set_brightness_direct(
+        &self,
+        level: crate::types::BrightnessLevel,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 }
 
@@ -411,33 +383,6 @@ where
         self.set_exposure_mode(crate::command::exposure::ExposureMode::Shutter)
     }
 
-    fn exposure_bright_mode(&self) -> M::Fut<'_, Result<(), Error>> {
-        self.set_exposure_mode(crate::command::exposure::ExposureMode::Bright)
-    }
-
-    fn set_brightness(
-        &self,
-        level: crate::types::BrightnessLevel,
-    ) -> M::Fut<'_, Result<(), Error>> {
-        let cmd = crate::command::exposure::Brightness::SetLevel(level);
-        self.execute(cmd)
-    }
-
-    fn reset_brightness(&self) -> M::Fut<'_, Result<(), Error>> {
-        let cmd = crate::command::exposure::Brightness::Reset;
-        self.execute(cmd)
-    }
-
-    fn increase_brightness(&self) -> M::Fut<'_, Result<(), Error>> {
-        let cmd = crate::command::exposure::Brightness::Up;
-        self.execute(cmd)
-    }
-
-    fn decrease_brightness(&self) -> M::Fut<'_, Result<(), Error>> {
-        let cmd = crate::command::exposure::Brightness::Down;
-        self.execute(cmd)
-    }
-
     fn set_gain(&self, gain: crate::types::GainLevel) -> M::Fut<'_, Result<(), Error>> {
         let cmd = crate::command::gain::Gain::SetValue(gain);
         self.execute(cmd)
@@ -506,19 +451,62 @@ where
         self.execute_updating_cache(cmd, |cache| cache.set_auto_slow_shutter(false))
     }
 
-    fn set_brightness_direct(
-        &self,
-        level: crate::types::BrightnessLevel,
-    ) -> M::Fut<'_, Result<(), Error>> {
-        let cmd = crate::command::exposure::Brightness::Direct(level);
-        self.execute(cmd)
-    }
-
     fn set_anti_flicker_mode(
         &self,
         mode: crate::command::exposure::AntiFlickerMode,
     ) -> M::Fut<'_, Result<(), Error>> {
         let cmd = crate::command::exposure::AntiFlickerCommand::new(mode);
+        self.execute(cmd)
+    }
+}
+
+impl<M, P, Tr, Exec> BrightnessControl for crate::camera::Camera<M, P, Tr, Exec>
+where
+    M: Mode,
+    P: crate::capabilities::Profile
+        + Default
+        + crate::capabilities::exposure::Exposure
+        + crate::capabilities::HasBrightnessControl,
+    Self: ViscaClient<M>,
+    Exec: crate::executor::Executor,
+{
+    type Mode = M;
+
+    fn exposure_bright_mode(&self) -> M::Fut<'_, Result<(), Error>> {
+        let cmd = crate::command::exposure::ExposureCommand {
+            mode: crate::command::exposure::ExposureMode::Bright,
+        };
+        self.execute(cmd)
+    }
+
+    fn set_brightness(
+        &self,
+        level: crate::types::BrightnessLevel,
+    ) -> M::Fut<'_, Result<(), Error>> {
+        let cmd = crate::command::exposure::Brightness::SetLevel(level);
+        self.execute(cmd)
+    }
+
+    fn reset_brightness(&self) -> M::Fut<'_, Result<(), Error>> {
+        let cmd = crate::command::exposure::Brightness::Reset;
+        self.execute(cmd)
+    }
+
+    fn increase_brightness(&self) -> M::Fut<'_, Result<(), Error>> {
+        let cmd = crate::command::exposure::Brightness::Up;
+        self.execute(cmd)
+    }
+
+    fn decrease_brightness(&self) -> M::Fut<'_, Result<(), Error>> {
+        let cmd = crate::command::exposure::Brightness::Down;
+        self.execute(cmd)
+    }
+
+    fn set_brightness_direct(
+        &self,
+        level: crate::types::BrightnessLevel,
+    ) -> M::Fut<'_, Result<(), Error>> {
+        let cmd = crate::command::exposure::Brightness::Direct(level);
         self.execute(cmd)
     }
 }

@@ -287,6 +287,15 @@ profile_capability_marker! {
 }
 
 profile_capability_marker! {
+    /// Marker trait indicating support for VISCA exposure brightness control and inquiry.
+    pub trait HasBrightnessControl {
+        message: "profile `{Self}` does not declare exposure brightness support",
+        label: "profile `{Self}` does not implement `HasBrightnessControl`",
+        note: "see the built-in marker matrix in docs/camera_profile_support.md; add this bound only for profiles with source-backed typed support",
+    }
+}
+
+profile_capability_marker! {
     /// Marker trait indicating support for focus lock.
     ///
     /// Focus lock prevents any focus changes while enabled, useful for
@@ -508,6 +517,24 @@ profile_capability_marker! {
     pub trait HasSaturationControl {
         message: "profile `{Self}` does not declare saturation control support",
         label: "profile `{Self}` does not implement `HasSaturationControl`",
+        note: "see the built-in marker matrix in docs/camera_profile_support.md; add this bound only for profiles with source-backed typed support",
+    }
+}
+
+profile_capability_marker! {
+    /// Marker trait indicating support for contrast control and inquiry.
+    pub trait HasContrastControl {
+        message: "profile `{Self}` does not declare contrast control support",
+        label: "profile `{Self}` does not implement `HasContrastControl`",
+        note: "see the built-in marker matrix in docs/camera_profile_support.md; add this bound only for profiles with source-backed typed support",
+    }
+}
+
+profile_capability_marker! {
+    /// Marker trait indicating support for sharpness control and inquiry.
+    pub trait HasSharpnessControl {
+        message: "profile `{Self}` does not declare sharpness control support",
+        label: "profile `{Self}` does not implement `HasSharpnessControl`",
         note: "see the built-in marker matrix in docs/camera_profile_support.md; add this bound only for profiles with source-backed typed support",
     }
 }

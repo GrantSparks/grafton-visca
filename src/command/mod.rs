@@ -44,7 +44,7 @@ pub use self::{
     color::*,
     encode::{CommandKind, ViscaCommand},
     exposure::*,
-    flip::Flip,
+    flip::{Flip, ImageFreeze},
     focus::*,
     gain::{Gain, GainLimitCommand},
     image::*,

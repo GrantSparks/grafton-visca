@@ -1,22 +1,24 @@
 use grafton_visca::{
     AutoFocusSensitivityControl, AutoFocusSensitivityInquiryControl,
     AutoTrackingWhiteBalanceControl, AutoWhiteBalanceSensitivityControl,
-    BacklightCompensationControl, BacklightCompensationInquiryControl, ColorControl,
-    ColorTemperatureControl, ColorTemperatureInquiryControl, DigitalZoomControl,
+    BacklightCompensationControl, BacklightCompensationInquiryControl, BrightnessControl,
+    BrightnessInquiryControl, ColorControl, ColorTemperatureControl,
+    ColorTemperatureInquiryControl, ContrastControl, ContrastInquiryControl, DigitalZoomControl,
     DigitalZoomRangeControl, DirectMenuControl, DirectZoomControl, ExposureCompensationControl,
     ExposureCompensationInquiryControl, ExposureControl, FocusControl, FocusLockControl,
     FocusNearLimitInquiryControl, FocusZoneControl, FocusZoneInquiryControl, GammaControl,
     GammaInquiryControl, HueControl, HueInquiryControl, ImageFlipControl, ImageFlipInquiryControl,
-    ImageFlipModeControl, ImageMirrorControl, ImageProcessingControl, InquiryControl, IrisControl,
-    IrisInquiryControl, LuminanceControl, LuminanceInquiryControl, MenuControl, MotionControl,
-    MotionSyncControl, NdFilterControl, NdFilterInquiryControl, NoiseReduction2DControl,
+    ImageFlipModeControl, ImageMirrorControl, InquiryControl, IrisControl, IrisInquiryControl,
+    LuminanceControl, LuminanceInquiryControl, MenuControl, MotionControl, MotionSyncControl,
+    NdFilterControl, NdFilterInquiryControl, NoiseReduction2DControl,
     NoiseReduction2DInquiryControl, NoiseReduction3DControl, NoiseReduction3DInquiryControl,
     NoiseReductionInquiryControl, OnePushFocusControl, OnePushWhiteBalanceControl, PanTiltControl,
     PanTiltInquiryControl, PictureEffectControl, PictureEffectInquiryControl, PowerControl,
     PresetsControl, PushAFControl, RgbGainControl, RgbGainInquiryControl, RgbTuningControl,
-    RgbTuningInquiryControl, SaturationControl, SaturationInquiryControl, SnapFocusControl,
-    StreamingControl, SystemControl, TallyControl, VariableSpeedControl, WhiteBalanceControl,
-    WideDynamicRangeControl, WideDynamicRangeInquiryControl, ZoomControl,
+    RgbTuningInquiryControl, SaturationControl, SaturationInquiryControl, SharpnessControl,
+    SharpnessInquiryControl, SnapFocusControl, StreamingControl, SystemControl, TallyControl,
+    VariableSpeedControl, WhiteBalanceControl, WideDynamicRangeControl,
+    WideDynamicRangeInquiryControl, ZoomControl,
 };
 
 use core::marker::PhantomData;
@@ -38,19 +40,24 @@ impl<T> RootControlBounds<T> where
         + PanTiltInquiryControl
         + PresetsControl
         + InquiryControl
+        + BrightnessInquiryControl
+        + ContrastInquiryControl
+        + SharpnessInquiryControl
         + FocusNearLimitInquiryControl
         + FocusZoneInquiryControl
         + AutoFocusSensitivityInquiryControl
         + IrisInquiryControl
         + ExposureControl
         + IrisControl
+        + BrightnessControl
         + BacklightCompensationControl
         + WideDynamicRangeControl
         + WhiteBalanceControl
         + OnePushWhiteBalanceControl
         + AutoTrackingWhiteBalanceControl
         + AutoWhiteBalanceSensitivityControl
-        + ImageProcessingControl
+        + ContrastControl
+        + SharpnessControl
         + ImageFlipControl
         + ImageMirrorControl
         + ImageFlipModeControl

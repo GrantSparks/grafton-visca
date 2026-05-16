@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking Changes
 
+#### Image Quality Profile Gates (#526)
+- **BREAKING**: Removed the broad `ImageProcessingControl` typed bucket. Contrast and sharpness now use `ContrastControl` and `SharpnessControl`; unsupported profiles no longer compile for those setters or matching inquiries.
+- **BREAKING**: Exposure brightness moved out of image-processing metadata. Use `BrightnessControl` / `BrightnessInquiryControl` and `Capabilities::exposure_brightness_range`; image luminance remains on `LuminanceControl` / `HasLuminanceControl`.
+- **BREAKING**: `ImageProcessing::CONTRAST_RANGE` and `ImageProcessing::SHARPNESS_RANGE` are now `Option<Range<u8>>`; downstream profile impls should use `Some(range)` for source-backed controls and `None` when unsupported.
+- **BREAKING**: `set_sharpness_mode`, typed image-freeze helpers, and ungated brightness/contrast/sharpness inquiry methods were removed from broad public traits. Raw `command::ImageFreeze` remains available for custom integrations.
+- Runtime discovery now reports unsupported brightness, contrast, and sharpness ranges as `None` and computes `has_image_processing` from source-backed image-processing metadata instead of hardcoding `true`.
+- Built-in profiles no longer use empty `0..0` range sentinels. `SonyEVIH100`, `SonyBRC300`, `NearusBRC300`, and `GenericVisca` do not expose typed contrast/sharpness APIs unless source-backed metadata is added.
+- PTZOptics sharpness command encoding now accepts the profile-supported `0x00..=0x0F` range instead of rejecting values above `0x0B`.
+
 #### Exclusive API Mode Selection (#525)
 - **BREAKING**: Removed the misleading public `mode-blocking` feature. Blocking is now documented as the baseline build when `mode-async` is not enabled.
 - Builds that request `mode-blocking` now fail with Cargo's unknown-feature error, including combinations such as `mode-async,mode-blocking` or `runtime-tokio,mode-blocking`.
@@ -444,13 +453,13 @@ the aggregate into a base trait plus capability-specific extension traits.
 
 #### Gamma Curve Control (#499)
 - `GammaCommand` — sets gamma curve via VISCA command `81 01 04 5B 0p FF` (p=0 Standard, 1-4 different gamma curves)
-- `set_gamma(level: GammaLevel)` on `ImageProcessingControl` trait with full doc comments cross-referencing `InquiryControl::gamma`
+- `set_gamma(level: GammaLevel)` on `GammaControl` trait with full doc comments cross-referencing `GammaInquiryControl::gamma`
 - Blocking API `set_gamma()` method on `BlockingClient`
 - `SUPPORTS_GAMMA: bool` and `GAMMA_RANGE: Option<Range<u8>>` on `ImageProcessing` capability trait (defaults to unsupported)
 - `validate_gamma()` on `ImageProcessingExt` for profile-aware validation
 - `image::GAMMA_PREFIX` byte constant
 - Gamma support enabled for PtzOpticsG2, PtzOpticsG3, PtzOptics30X, SonyFR7, SonyBRCH900, SonyEVIH100 (range 0-4)
-- Completes the get/set pair: existing `InquiryControl::gamma()` (inquiry) + new `ImageProcessingControl::set_gamma()` (control)
+- Completes the get/set pair: `GammaInquiryControl::gamma()` (inquiry) + `GammaControl::set_gamma()` (control)
 - **Hardware-validated**: Gamma inquiry and set commands confirmed working on PTZOptics G2 (undocumented in official PTZOptics VISCA reference)
 
 #### Hardware Control Tests

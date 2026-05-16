@@ -86,9 +86,9 @@ pub enum Sharpness {
     Up,
     /// Decrease sharpness by one step.
     Down,
-    /// Set sharpness to specific value (0-11).
+    /// Set sharpness to specific value (0-15).
     SetLevel {
-        /// Sharpness value (0 = minimum, 11 = maximum).
+        /// Sharpness value (0 = minimum, 15 = maximum).
         value: u8,
     },
 }
@@ -147,11 +147,11 @@ impl ViscaCommand for Sharpness {
                     .build_into(buffer)
             }
             Self::SetLevel { value } => {
-                if *value > 11 {
+                if *value > 15 {
                     return Err(Error::InvalidParameter {
                         parameter: "value",
                         value: Cow::Owned(value.to_string()),
-                        reason: Cow::Borrowed("Sharpness value must be in the range 0..=11"),
+                        reason: Cow::Borrowed("Sharpness value must be in the range 0..=15"),
                     });
                 }
                 let mut builder = ConstCommandBuilder::<9>::new();
@@ -806,6 +806,22 @@ mod tests {
             VISCA_TERMINATOR
         ]
     );
+    visca_test!(
+        Sharpness,
+        test_sharpness_level_15,
+        Sharpness::SetLevel { value: 15 },
+        &[
+            0x81,
+            0x01,
+            0x04,
+            0x42,
+            0x00,
+            0x00,
+            0x00,
+            0x0F,
+            VISCA_TERMINATOR
+        ]
+    );
 
     #[test]
     fn test_sharpness_valid_values() {
@@ -1044,7 +1060,7 @@ mod tests {
             .map(|b| b.to_vec())
             .is_ok());
 
-        let cmd = Sharpness::SetLevel { value: 11 };
+        let cmd = Sharpness::SetLevel { value: 15 };
         assert!(cmd
             .to_bytes(crate::camera_id::CameraId::CAMERA_1)
             .map(|b| b.to_vec())
@@ -1103,6 +1119,14 @@ mod tests {
             .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
         assert_eq!(bytes[6], 0x00); // High nibble
         assert_eq!(bytes[7], 0x05); // Low nibble
+
+        let cmd = Sharpness::SetLevel { value: 0x0F };
+        let bytes = cmd
+            .to_bytes(crate::camera_id::CameraId::CAMERA_1)
+            .map(|b| b.to_vec())
+            .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
+        assert_eq!(bytes[6], 0x00);
+        assert_eq!(bytes[7], 0x0F);
     }
 
     #[test]

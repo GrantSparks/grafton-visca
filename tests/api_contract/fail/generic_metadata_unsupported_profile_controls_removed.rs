@@ -2,7 +2,10 @@ use grafton_visca::{
     command::{ImageFlipMode, PictureEffectMode},
     profiles::GenericVisca,
     transport::BlockingTransportHandle,
-    types::{ColorTemp, DynamicRangeLevel, NoiseReduction2DLevel, RedChannel, RedTuning},
+    types::{
+        BrightnessLevel, ColorTemp, ContrastLevel, DynamicRangeLevel, NoiseReduction2DLevel,
+        RedChannel, RedTuning, SharpnessLevel,
+    },
     BlockingCamera,
 };
 
@@ -19,7 +22,13 @@ fn main() {
     let _ = camera.set_image_flip(ImageFlipMode::Both);
     let _ = camera.set_noise_reduction_2d(NoiseReduction2DLevel::new(1).unwrap());
     let _ = camera.set_picture_effect(PictureEffectMode::BlackAndWhite);
+    let _ = camera.set_brightness(BrightnessLevel::new(1).unwrap());
+    let _ = camera.set_contrast(ContrastLevel::new(1).unwrap());
+    let _ = camera.set_sharpness(SharpnessLevel::new(1).unwrap());
 
+    let _ = camera.exposure().brightness();
+    let _ = camera.image().contrast();
+    let _ = camera.image().sharpness_level();
     let _ = camera.white_balance().red_gain();
     let _ = camera.white_balance().color_temperature();
     let _ = camera.image().flip();

@@ -12,9 +12,10 @@ use std::time::Duration;
 use grafton_visca::{
     camera::{profiles::GenericVisca, CameraBuilder},
     capabilities::{
-        exposure::ShutterSpeed, Exposure, Focus, HasBacklightCompensation, HasColorTemperature,
-        HasExposureCompensation, HasHueControl, HasImageFlip, HasIrisControl, HasLuminanceControl,
-        HasNoiseReduction2D, HasNoiseReduction3D, HasSaturationControl, ImageProcessing,
+        exposure::ShutterSpeed, Exposure, Focus, HasBacklightCompensation, HasBrightnessControl,
+        HasColorTemperature, HasContrastControl, HasExposureCompensation, HasHueControl,
+        HasImageFlip, HasIrisControl, HasLuminanceControl, HasNoiseReduction2D,
+        HasNoiseReduction3D, HasSaturationControl, HasSharpnessControl, ImageProcessing,
         InquirySupport, MenuCapability, MotionSyncMetadata, NdFilterMetadata, PanTilt, Power,
         Presets, ProfileMetadata, Tally, VariableSpeedMetadata, WhiteBalance, Zoom,
     },
@@ -85,6 +86,7 @@ impl Exposure for SimulatorFullProfile {
     const IRIS_RANGE: Option<std::ops::Range<u16>> = Some(0x00..0x1D);
     const SHUTTER_SPEEDS: &'static [ShutterSpeed] = SIM_SHUTTER_SPEEDS;
     const GAIN_RANGE: std::ops::Range<u8> = 0..16;
+    const BRIGHTNESS_RANGE: Option<std::ops::Range<u16>> = Some(0..18);
     const SUPPORTS_BACKLIGHT_COMP: bool = true;
     const SUPPORTS_EXPOSURE_COMP: bool = true;
     const SUPPORTS_WDR: bool = true;
@@ -110,9 +112,8 @@ impl Focus for SimulatorFullProfile {
 }
 
 impl ImageProcessing for SimulatorFullProfile {
-    const BRIGHTNESS_RANGE: std::ops::Range<u8> = 0..15;
-    const CONTRAST_RANGE: std::ops::Range<u8> = 0..15;
-    const SHARPNESS_RANGE: std::ops::Range<u8> = 0..15;
+    const CONTRAST_RANGE: Option<std::ops::Range<u8>> = Some(0..15);
+    const SHARPNESS_RANGE: Option<std::ops::Range<u8>> = Some(0..15);
     const SATURATION_RANGE: Option<std::ops::Range<u8>> = Some(0..15);
     const SUPPORTS_FLIP: bool = true;
     const SUPPORTS_MIRROR: bool = true;
@@ -138,7 +139,9 @@ impl NdFilterMetadata for SimulatorFullProfile {}
 impl VariableSpeedMetadata for SimulatorFullProfile {}
 
 impl HasBacklightCompensation for SimulatorFullProfile {}
+impl HasBrightnessControl for SimulatorFullProfile {}
 impl HasColorTemperature for SimulatorFullProfile {}
+impl HasContrastControl for SimulatorFullProfile {}
 impl HasExposureCompensation for SimulatorFullProfile {}
 impl HasHueControl for SimulatorFullProfile {}
 impl HasImageFlip for SimulatorFullProfile {}
@@ -147,6 +150,7 @@ impl HasLuminanceControl for SimulatorFullProfile {}
 impl HasNoiseReduction2D for SimulatorFullProfile {}
 impl HasNoiseReduction3D for SimulatorFullProfile {}
 impl HasSaturationControl for SimulatorFullProfile {}
+impl HasSharpnessControl for SimulatorFullProfile {}
 
 /// Test basic power inquiry through the full stack
 #[tokio::test(start_paused = true)]
@@ -298,7 +302,7 @@ async fn test_exposure_inquiries_integration() {
 
     // Test brightness inquiry
     let brightness = camera
-        .image()
+        .exposure()
         .brightness()
         .await
         .expect("brightness inquiry should succeed");

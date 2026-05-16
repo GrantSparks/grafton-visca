@@ -4,19 +4,17 @@ use std::ops::Range;
 
 use crate::capabilities::ValidationError;
 
-/// Trait for cameras that support image processing adjustments.
+/// Trait for cameras that report image-processing metadata.
 ///
-/// This trait defines the constants and capabilities for image quality settings
-/// including brightness, contrast, sharpness, saturation, and image orientation.
+/// This trait defines runtime metadata for image quality settings including
+/// contrast, sharpness, saturation, and image orientation. Optional ranges use
+/// `None` for unsupported profile surfaces; supported ranges must be non-empty.
 pub trait ImageProcessing {
-    /// Valid range for brightness adjustment.
-    const BRIGHTNESS_RANGE: Range<u8>;
+    /// Valid range for contrast adjustment, if supported.
+    const CONTRAST_RANGE: Option<Range<u8>>;
 
-    /// Valid range for contrast adjustment.
-    const CONTRAST_RANGE: Range<u8>;
-
-    /// Valid range for sharpness adjustment.
-    const SHARPNESS_RANGE: Range<u8>;
+    /// Valid range for sharpness adjustment, if supported.
+    const SHARPNESS_RANGE: Option<Range<u8>>;
 
     /// Valid range for saturation adjustment.
     /// None if not supported.
@@ -76,45 +74,31 @@ pub trait ImageProcessing {
 
 /// Extension trait that adds validation methods to cameras with image processing support.
 pub trait ImageProcessingExt: ImageProcessing {
-    /// Validate brightness value.
-    fn validate_brightness(&self, value: u8) -> Result<u8, ValidationError> {
-        if Self::BRIGHTNESS_RANGE.contains(&value) {
-            Ok(value)
-        } else {
-            Err(ValidationError::OutOfRange {
-                parameter: "brightness",
-                value: value as f64,
-                min: Self::BRIGHTNESS_RANGE.start as f64,
-                max: (Self::BRIGHTNESS_RANGE.end - 1) as f64,
-            })
-        }
-    }
-
     /// Validate contrast value.
     fn validate_contrast(&self, value: u8) -> Result<u8, ValidationError> {
-        if Self::CONTRAST_RANGE.contains(&value) {
-            Ok(value)
-        } else {
-            Err(ValidationError::OutOfRange {
+        match Self::CONTRAST_RANGE {
+            Some(ref range) if range.contains(&value) => Ok(value),
+            Some(ref range) => Err(ValidationError::OutOfRange {
                 parameter: "contrast",
                 value: value as f64,
-                min: Self::CONTRAST_RANGE.start as f64,
-                max: (Self::CONTRAST_RANGE.end - 1) as f64,
-            })
+                min: range.start as f64,
+                max: (range.end - 1) as f64,
+            }),
+            None => Err(ValidationError::NotSupported("contrast")),
         }
     }
 
     /// Validate sharpness value.
     fn validate_sharpness(&self, value: u8) -> Result<u8, ValidationError> {
-        if Self::SHARPNESS_RANGE.contains(&value) {
-            Ok(value)
-        } else {
-            Err(ValidationError::OutOfRange {
+        match Self::SHARPNESS_RANGE {
+            Some(ref range) if range.contains(&value) => Ok(value),
+            Some(ref range) => Err(ValidationError::OutOfRange {
                 parameter: "sharpness",
                 value: value as f64,
-                min: Self::SHARPNESS_RANGE.start as f64,
-                max: (Self::SHARPNESS_RANGE.end - 1) as f64,
-            })
+                min: range.start as f64,
+                max: (range.end - 1) as f64,
+            }),
+            None => Err(ValidationError::NotSupported("sharpness")),
         }
     }
 
@@ -214,9 +198,8 @@ mod tests {
     struct TestCamera;
 
     impl ImageProcessing for TestCamera {
-        const BRIGHTNESS_RANGE: Range<u8> = 0..16;
-        const CONTRAST_RANGE: Range<u8> = 0..16;
-        const SHARPNESS_RANGE: Range<u8> = 0..16;
+        const CONTRAST_RANGE: Option<Range<u8>> = Some(0..16);
+        const SHARPNESS_RANGE: Option<Range<u8>> = Some(0..16);
         const SATURATION_RANGE: Option<Range<u8>> = Some(0..16);
         const SUPPORTS_FLIP: bool = true;
         const SUPPORTS_MIRROR: bool = true;
@@ -225,12 +208,12 @@ mod tests {
     }
 
     #[test]
-    fn test_brightness_validation() {
+    fn test_contrast_validation() {
         let camera = TestCamera;
 
-        assert!(camera.validate_brightness(0).is_ok());
-        assert!(camera.validate_brightness(15).is_ok());
-        assert!(camera.validate_brightness(16).is_err());
+        assert!(camera.validate_contrast(0).is_ok());
+        assert!(camera.validate_contrast(15).is_ok());
+        assert!(camera.validate_contrast(16).is_err());
     }
 
     #[test]

@@ -28,6 +28,7 @@ pub(crate) enum TypedSupportSurface {
     BacklightCompensation,
     WideDynamicRange,
     ExposureCompensation,
+    BrightnessControl,
     OnePushWhiteBalance,
     AutoTrackingWhiteBalance,
     AutoWhiteBalanceSensitivity,
@@ -37,6 +38,8 @@ pub(crate) enum TypedSupportSurface {
     ImageFlip,
     ImageMirror,
     CombinedImageFlip,
+    ContrastControl,
+    SharpnessControl,
     SaturationControl,
     HueControl,
     LuminanceControl,
@@ -68,6 +71,7 @@ pub(crate) const ALL_TYPED_SUPPORT_SURFACES: &[TypedSupportSurface] = &[
     TypedSupportSurface::BacklightCompensation,
     TypedSupportSurface::WideDynamicRange,
     TypedSupportSurface::ExposureCompensation,
+    TypedSupportSurface::BrightnessControl,
     TypedSupportSurface::OnePushWhiteBalance,
     TypedSupportSurface::AutoTrackingWhiteBalance,
     TypedSupportSurface::AutoWhiteBalanceSensitivity,
@@ -77,6 +81,8 @@ pub(crate) const ALL_TYPED_SUPPORT_SURFACES: &[TypedSupportSurface] = &[
     TypedSupportSurface::ImageFlip,
     TypedSupportSurface::ImageMirror,
     TypedSupportSurface::CombinedImageFlip,
+    TypedSupportSurface::ContrastControl,
+    TypedSupportSurface::SharpnessControl,
     TypedSupportSurface::SaturationControl,
     TypedSupportSurface::HueControl,
     TypedSupportSurface::LuminanceControl,
@@ -167,6 +173,9 @@ macro_rules! __impl_typed_support_marker {
     (ExposureCompensation for $profile:ty) => {
         impl $crate::capabilities::HasExposureCompensation for $profile {}
     };
+    (BrightnessControl for $profile:ty) => {
+        impl $crate::capabilities::HasBrightnessControl for $profile {}
+    };
     (OnePushWhiteBalance for $profile:ty) => {
         impl $crate::capabilities::HasOnePushWhiteBalance for $profile {}
     };
@@ -193,6 +202,12 @@ macro_rules! __impl_typed_support_marker {
     };
     (CombinedImageFlip for $profile:ty) => {
         impl $crate::capabilities::HasCombinedImageFlip for $profile {}
+    };
+    (ContrastControl for $profile:ty) => {
+        impl $crate::capabilities::HasContrastControl for $profile {}
+    };
+    (SharpnessControl for $profile:ty) => {
+        impl $crate::capabilities::HasSharpnessControl for $profile {}
     };
     (SaturationControl for $profile:ty) => {
         impl $crate::capabilities::HasSaturationControl for $profile {}
@@ -307,6 +322,7 @@ macro_rules! __define_builtin_profiles {
                         iris_range: $iris_range:expr,
                         shutter_speeds: $shutter_speeds:expr,
                         gain_range: $gain_range:expr,
+                        brightness_range: $brightness_range:expr,
                         backlight_comp: $supports_backlight_comp:expr,
                         exposure_comp: $supports_exposure_comp:expr,
                         exposure_comp_range: $exposure_comp_range:expr,
@@ -324,7 +340,6 @@ macro_rules! __define_builtin_profiles {
                         blue_gain_range: $blue_gain_range:expr,
                     },
                     image: {
-                        brightness_range: $brightness_range:expr,
                         contrast_range: $contrast_range:expr,
                         sharpness_range: $sharpness_range:expr,
                         saturation_range: $saturation_range:expr,
@@ -449,6 +464,7 @@ macro_rules! __define_builtin_profiles {
                 const SHUTTER_SPEEDS: &'static [$crate::capabilities::ShutterSpeed] =
                     $shutter_speeds;
                 const GAIN_RANGE: std::ops::Range<u8> = $gain_range;
+                const BRIGHTNESS_RANGE: Option<std::ops::Range<u16>> = $brightness_range;
                 const SUPPORTS_BACKLIGHT_COMP: bool = $supports_backlight_comp;
                 const SUPPORTS_EXPOSURE_COMP: bool = $supports_exposure_comp;
                 const EXPOSURE_COMP_RANGE: std::ops::Range<i8> = $exposure_comp_range;
@@ -468,9 +484,8 @@ macro_rules! __define_builtin_profiles {
             }
 
             impl $crate::capabilities::ImageProcessing for $profile {
-                const BRIGHTNESS_RANGE: std::ops::Range<u8> = $brightness_range;
-                const CONTRAST_RANGE: std::ops::Range<u8> = $contrast_range;
-                const SHARPNESS_RANGE: std::ops::Range<u8> = $sharpness_range;
+                const CONTRAST_RANGE: Option<std::ops::Range<u8>> = $contrast_range;
+                const SHARPNESS_RANGE: Option<std::ops::Range<u8>> = $sharpness_range;
                 const SATURATION_RANGE: Option<std::ops::Range<u8>> = $saturation_range;
                 const SUPPORTS_FLIP: bool = $supports_flip;
                 const SUPPORTS_MIRROR: bool = $supports_mirror;
@@ -786,6 +801,7 @@ macro_rules! __define_builtin_profiles {
                 profile_registry::TypedSupportSurface::ExposureCompensation => {
                     "HasExposureCompensation"
                 }
+                profile_registry::TypedSupportSurface::BrightnessControl => "HasBrightnessControl",
                 profile_registry::TypedSupportSurface::OnePushWhiteBalance => {
                     "HasOnePushWhiteBalance"
                 }
@@ -801,6 +817,8 @@ macro_rules! __define_builtin_profiles {
                 profile_registry::TypedSupportSurface::ImageFlip => "HasImageFlip",
                 profile_registry::TypedSupportSurface::ImageMirror => "HasImageMirror",
                 profile_registry::TypedSupportSurface::CombinedImageFlip => "HasCombinedImageFlip",
+                profile_registry::TypedSupportSurface::ContrastControl => "HasContrastControl",
+                profile_registry::TypedSupportSurface::SharpnessControl => "HasSharpnessControl",
                 profile_registry::TypedSupportSurface::SaturationControl => "HasSaturationControl",
                 profile_registry::TypedSupportSurface::HueControl => "HasHueControl",
                 profile_registry::TypedSupportSurface::LuminanceControl => "HasLuminanceControl",
@@ -858,6 +876,39 @@ macro_rules! __define_builtin_profiles {
                     facts.envelope == profile_registry::EnvelopeKind::SonyEncapsulated,
                     id.uses_sony_encapsulation()
                 );
+                if let Some(range) = P::BRIGHTNESS_RANGE {
+                    assert!(
+                        range.start < range.end,
+                        "{id:?} exposure brightness metadata must be non-empty"
+                    );
+                }
+                if let Some(range) = P::CONTRAST_RANGE {
+                    assert!(
+                        range.start < range.end,
+                        "{id:?} contrast metadata must be non-empty"
+                    );
+                }
+                if let Some(range) = P::SHARPNESS_RANGE {
+                    assert!(
+                        range.start < range.end,
+                        "{id:?} sharpness metadata must be non-empty"
+                    );
+                }
+                assert_eq!(
+                    facts.has_typed_support(profile_registry::TypedSupportSurface::BrightnessControl),
+                    P::BRIGHTNESS_RANGE.is_some(),
+                    "{id:?} exposure brightness marker and metadata must match"
+                );
+                assert_eq!(
+                    facts.has_typed_support(profile_registry::TypedSupportSurface::ContrastControl),
+                    P::CONTRAST_RANGE.is_some(),
+                    "{id:?} contrast marker and metadata must match"
+                );
+                assert_eq!(
+                    facts.has_typed_support(profile_registry::TypedSupportSurface::SharpnessControl),
+                    P::SHARPNESS_RANGE.is_some(),
+                    "{id:?} sharpness marker and metadata must match"
+                );
 
                 assert_eq!(caps.model_name, P::MODEL_NAME);
                 assert_eq!(caps.default_camera_id, P::DEFAULT_CAMERA_ID);
@@ -898,6 +949,12 @@ macro_rules! __define_builtin_profiles {
                 );
                 assert_eq!(caps.gain_range, P::GAIN_RANGE.start..=P::GAIN_RANGE.end - 1);
                 assert_eq!(caps.shutter_speed_count, P::SHUTTER_SPEEDS.len());
+                assert_eq!(
+                    caps.exposure_brightness_range,
+                    P::BRIGHTNESS_RANGE
+                        .as_ref()
+                        .map(|range| range.start..=range.end - 1)
+                );
                 assert_eq!(caps.has_one_push_wb, P::SUPPORTS_ONE_PUSH_WB);
                 assert_eq!(caps.has_color_temp, P::SUPPORTS_COLOR_TEMP);
                 assert_eq!(
@@ -915,16 +972,16 @@ macro_rules! __define_builtin_profiles {
                 assert_eq!(caps.has_rgb_gain, P::SUPPORTS_RGB_GAIN);
                 assert_eq!(caps.wb_mode_count, P::WB_MODES.len());
                 assert_eq!(
-                    caps.brightness_range,
-                    P::BRIGHTNESS_RANGE.start..=P::BRIGHTNESS_RANGE.end.saturating_sub(1)
-                );
-                assert_eq!(
                     caps.contrast_range,
-                    P::CONTRAST_RANGE.start..=P::CONTRAST_RANGE.end.saturating_sub(1)
+                    P::CONTRAST_RANGE
+                        .as_ref()
+                        .map(|range| range.start..=range.end - 1)
                 );
                 assert_eq!(
                     caps.sharpness_range,
-                    P::SHARPNESS_RANGE.start..=P::SHARPNESS_RANGE.end.saturating_sub(1)
+                    P::SHARPNESS_RANGE
+                        .as_ref()
+                        .map(|range| range.start..=range.end - 1)
                 );
                 assert_eq!(
                     caps.saturation_range,
@@ -1198,6 +1255,11 @@ macro_rules! __define_builtin_profiles {
                 );
                 assert_row(
                     readme,
+                    "Exposure brightness control and inquiry",
+                    profile_registry::TypedSupportSurface::BrightnessControl,
+                );
+                assert_row(
+                    readme,
                     "One-push white balance",
                     profile_registry::TypedSupportSurface::OnePushWhiteBalance,
                 );
@@ -1243,6 +1305,16 @@ macro_rules! __define_builtin_profiles {
                     readme,
                     "Combined image flip mode",
                     profile_registry::TypedSupportSurface::CombinedImageFlip,
+                );
+                assert_row(
+                    readme,
+                    "Contrast control and inquiry",
+                    profile_registry::TypedSupportSurface::ContrastControl,
+                );
+                assert_row(
+                    readme,
+                    "Sharpness control and inquiry",
+                    profile_registry::TypedSupportSurface::SharpnessControl,
                 );
                 assert_row(
                     readme,
@@ -1387,6 +1459,7 @@ macro_rules! define_builtin_profiles {
                         iris_range: None,
                         shutter_speeds: profile_constants::PTZ_OPTICS_G2_SHUTTER_SPEEDS,
                         gain_range: 0..8,
+                        brightness_range: Some(0..18),
                         backlight_comp: true,
                         exposure_comp: true,
                         exposure_comp_range: -7..8,
@@ -1404,9 +1477,8 @@ macro_rules! define_builtin_profiles {
                         blue_gain_range: None,
                     },
                     image: {
-                        brightness_range: 0..18,
-                        contrast_range: 0..15,
-                        sharpness_range: 0..16,
+                        contrast_range: Some(0..15),
+                        sharpness_range: Some(0..16),
                         saturation_range: Some(0..15),
                         flip: true,
                         mirror: true,
@@ -1447,6 +1519,7 @@ macro_rules! define_builtin_profiles {
                     variable_speed: { supported: false },
                     typed_support: [
                         ExposureCompensation,
+                        BrightnessControl,
                         FocusLock,
                         DirectZoom,
                         FocusZone,
@@ -1460,6 +1533,8 @@ macro_rules! define_builtin_profiles {
                         ImageFlip,
                         ImageMirror,
                         CombinedImageFlip,
+                        ContrastControl,
+                        SharpnessControl,
                         SaturationControl,
                         HueControl,
                         LuminanceControl,
@@ -1531,6 +1606,7 @@ macro_rules! define_builtin_profiles {
                         iris_range: None,
                         shutter_speeds: profile_constants::PTZ_OPTICS_G2_SHUTTER_SPEEDS,
                         gain_range: 0..8,
+                        brightness_range: Some(0..18),
                         backlight_comp: true,
                         exposure_comp: true,
                         exposure_comp_range: -7..8,
@@ -1548,9 +1624,8 @@ macro_rules! define_builtin_profiles {
                         blue_gain_range: None,
                     },
                     image: {
-                        brightness_range: 0..18,
-                        contrast_range: 0..15,
-                        sharpness_range: 0..16,
+                        contrast_range: Some(0..15),
+                        sharpness_range: Some(0..16),
                         saturation_range: Some(0..15),
                         flip: true,
                         mirror: true,
@@ -1591,6 +1666,7 @@ macro_rules! define_builtin_profiles {
                     variable_speed: { supported: false },
                     typed_support: [
                         ExposureCompensation,
+                        BrightnessControl,
                         FocusLock,
                         DirectZoom,
                         FocusZone,
@@ -1604,6 +1680,8 @@ macro_rules! define_builtin_profiles {
                         ImageFlip,
                         ImageMirror,
                         CombinedImageFlip,
+                        ContrastControl,
+                        SharpnessControl,
                         SaturationControl,
                         HueControl,
                         LuminanceControl,
@@ -1676,6 +1754,7 @@ macro_rules! define_builtin_profiles {
                         iris_range: None,
                         shutter_speeds: profile_constants::PTZ_OPTICS_G2_SHUTTER_SPEEDS,
                         gain_range: 0..8,
+                        brightness_range: Some(0..18),
                         backlight_comp: true,
                         exposure_comp: true,
                         exposure_comp_range: -7..8,
@@ -1693,9 +1772,8 @@ macro_rules! define_builtin_profiles {
                         blue_gain_range: None,
                     },
                     image: {
-                        brightness_range: 0..18,
-                        contrast_range: 0..15,
-                        sharpness_range: 0..16,
+                        contrast_range: Some(0..15),
+                        sharpness_range: Some(0..16),
                         saturation_range: Some(0..15),
                         flip: true,
                         mirror: true,
@@ -1736,6 +1814,7 @@ macro_rules! define_builtin_profiles {
                     variable_speed: { supported: false },
                     typed_support: [
                         ExposureCompensation,
+                        BrightnessControl,
                         FocusLock,
                         DirectZoom,
                         FocusZone,
@@ -1749,6 +1828,8 @@ macro_rules! define_builtin_profiles {
                         ImageFlip,
                         ImageMirror,
                         CombinedImageFlip,
+                        ContrastControl,
+                        SharpnessControl,
                         SaturationControl,
                         HueControl,
                         LuminanceControl,
@@ -1821,6 +1902,7 @@ macro_rules! define_builtin_profiles {
                         iris_range: Some(0x00..0x1F),
                         shutter_speeds: profile_constants::PTZ_OPTICS_G2_SHUTTER_SPEEDS,
                         gain_range: 0..16,
+                        brightness_range: Some(0..18),
                         backlight_comp: true,
                         exposure_comp: true,
                         exposure_comp_range: -7..8,
@@ -1838,9 +1920,8 @@ macro_rules! define_builtin_profiles {
                         blue_gain_range: Some(0..255),
                     },
                     image: {
-                        brightness_range: 0..18,
-                        contrast_range: 0..15,
-                        sharpness_range: 0..15,
+                        contrast_range: Some(0..15),
+                        sharpness_range: Some(0..15),
                         saturation_range: Some(0..15),
                         flip: true,
                         mirror: true,
@@ -1881,6 +1962,7 @@ macro_rules! define_builtin_profiles {
                     variable_speed: { supported: true },
                     typed_support: [
                         ExposureCompensation,
+                        BrightnessControl,
                         PushAutoFocus,
                         DirectZoom,
                         DigitalZoomToggle,
@@ -1897,6 +1979,8 @@ macro_rules! define_builtin_profiles {
                         AutoTrackingWhiteBalance,
                         ImageFlip,
                         ImageMirror,
+                        ContrastControl,
+                        SharpnessControl,
                         SaturationControl,
                         HueControl,
                         GammaControl,
@@ -1972,6 +2056,7 @@ macro_rules! define_builtin_profiles {
                         iris_range: Some(0x00..0x1F),
                         shutter_speeds: profile_constants::GENERIC_VISCA_SHUTTER_SPEEDS,
                         gain_range: 0..16,
+                        brightness_range: Some(0..18),
                         backlight_comp: true,
                         exposure_comp: false,
                         exposure_comp_range: -7..8,
@@ -1989,9 +2074,8 @@ macro_rules! define_builtin_profiles {
                         blue_gain_range: None,
                     },
                     image: {
-                        brightness_range: 0..18,
-                        contrast_range: 0..15,
-                        sharpness_range: 0..15,
+                        contrast_range: Some(0..15),
+                        sharpness_range: Some(0..15),
                         saturation_range: Some(0..15),
                         flip: true,
                         mirror: true,
@@ -2031,6 +2115,7 @@ macro_rules! define_builtin_profiles {
                     nd_filter: { mode: $crate::capabilities::NdFilterMode::None, steps: None },
                     variable_speed: { supported: false },
                     typed_support: [
+                        BrightnessControl,
                         DirectZoom,
                         DigitalZoomToggle,
                         DigitalZoomRange,
@@ -2043,6 +2128,8 @@ macro_rules! define_builtin_profiles {
                         OnePushWhiteBalance,
                         ImageFlip,
                         ImageMirror,
+                        ContrastControl,
+                        SharpnessControl,
                         SaturationControl,
                         GammaControl,
                         NoiseReduction,
@@ -2113,6 +2200,7 @@ macro_rules! define_builtin_profiles {
                         iris_range: Some(0x00..0x1C),
                         shutter_speeds: profile_constants::GENERIC_VISCA_SHUTTER_SPEEDS,
                         gain_range: 0..8,
+                        brightness_range: None,
                         backlight_comp: true,
                         exposure_comp: false,
                         exposure_comp_range: -7..8,
@@ -2130,9 +2218,8 @@ macro_rules! define_builtin_profiles {
                         blue_gain_range: None,
                     },
                     image: {
-                        brightness_range: 0..0,
-                        contrast_range: 0..0,
-                        sharpness_range: 0..0,
+                        contrast_range: None,
+                        sharpness_range: None,
                         saturation_range: None,
                         flip: true,
                         mirror: true,
@@ -2244,6 +2331,7 @@ macro_rules! define_builtin_profiles {
                         iris_range: Some(0x00..0x11),
                         shutter_speeds: profile_constants::GENERIC_VISCA_SHUTTER_SPEEDS,
                         gain_range: 0..7,
+                        brightness_range: None,
                         backlight_comp: true,
                         exposure_comp: false,
                         exposure_comp_range: -7..8,
@@ -2261,9 +2349,8 @@ macro_rules! define_builtin_profiles {
                         blue_gain_range: None,
                     },
                     image: {
-                        brightness_range: 0..0,
-                        contrast_range: 0..0,
-                        sharpness_range: 0..0,
+                        contrast_range: None,
+                        sharpness_range: None,
                         saturation_range: None,
                         flip: false,
                         mirror: false,
@@ -2368,6 +2455,7 @@ macro_rules! define_builtin_profiles {
                         iris_range: Some(0x00..0x11),
                         shutter_speeds: profile_constants::GENERIC_VISCA_SHUTTER_SPEEDS,
                         gain_range: 0..7,
+                        brightness_range: None,
                         backlight_comp: true,
                         exposure_comp: false,
                         exposure_comp_range: -7..8,
@@ -2385,9 +2473,8 @@ macro_rules! define_builtin_profiles {
                         blue_gain_range: None,
                     },
                     image: {
-                        brightness_range: 0..16,
-                        contrast_range: 0..16,
-                        sharpness_range: 0..16,
+                        contrast_range: None,
+                        sharpness_range: None,
                         saturation_range: Some(0..16),
                         flip: false,
                         mirror: false,
@@ -2493,6 +2580,7 @@ macro_rules! define_builtin_profiles {
                         iris_range: Some(0x00..0x1C),
                         shutter_speeds: profile_constants::GENERIC_VISCA_SHUTTER_SPEEDS,
                         gain_range: 0..8,
+                        brightness_range: None,
                         backlight_comp: false,
                         exposure_comp: false,
                         exposure_comp_range: -7..8,
@@ -2510,9 +2598,8 @@ macro_rules! define_builtin_profiles {
                         blue_gain_range: None,
                     },
                     image: {
-                        brightness_range: 0..15,
-                        contrast_range: 0..15,
-                        sharpness_range: 0..15,
+                        contrast_range: None,
+                        sharpness_range: None,
                         saturation_range: None,
                         flip: false,
                         mirror: false,

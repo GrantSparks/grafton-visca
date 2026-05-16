@@ -28,6 +28,12 @@ pub trait Exposure {
     /// Valid range for gain values.
     const GAIN_RANGE: Range<u8>;
 
+    /// Valid range for VISCA exposure bright/bright-direct values, if supported.
+    ///
+    /// This is the exposure bright control (`0x04 0x0D` / `0x04 0x4D`), not
+    /// image luminance (`0x04 0xA1`).
+    const BRIGHTNESS_RANGE: Option<Range<u16>> = None;
+
     /// Whether camera supports backlight compensation.
     const SUPPORTS_BACKLIGHT_COMP: bool;
 
@@ -82,6 +88,24 @@ pub trait ExposureExt: Exposure {
                 value: gain as f64,
                 min: Self::GAIN_RANGE.start as f64,
                 max: (Self::GAIN_RANGE.end - 1) as f64,
+            })
+        }
+    }
+
+    /// Validate exposure brightness value is within range.
+    fn validate_brightness(&self, brightness: u16) -> Result<u16, ValidationError> {
+        let range = Self::BRIGHTNESS_RANGE
+            .as_ref()
+            .ok_or(ValidationError::NotSupported("exposure brightness"))?;
+
+        if range.contains(&brightness) {
+            Ok(brightness)
+        } else {
+            Err(ValidationError::OutOfRange {
+                parameter: "exposure brightness",
+                value: brightness as f64,
+                min: range.start as f64,
+                max: (range.end - 1) as f64,
             })
         }
     }
@@ -187,6 +211,7 @@ mod tests {
         const IRIS_RANGE: Option<Range<u16>> = Some(0x00..0x1D);
         const SHUTTER_SPEEDS: &'static [ShutterSpeed] = TEST_SHUTTER_SPEEDS;
         const GAIN_RANGE: Range<u8> = 0..16;
+        const BRIGHTNESS_RANGE: Option<Range<u16>> = Some(0..18);
         const SUPPORTS_BACKLIGHT_COMP: bool = true;
         const SUPPORTS_EXPOSURE_COMP: bool = true;
     }
@@ -198,6 +223,7 @@ mod tests {
         const IRIS_RANGE: Option<Range<u16>> = None;
         const SHUTTER_SPEEDS: &'static [ShutterSpeed] = TEST_SHUTTER_SPEEDS;
         const GAIN_RANGE: Range<u8> = 0..16;
+        const BRIGHTNESS_RANGE: Option<Range<u16>> = None;
         const SUPPORTS_BACKLIGHT_COMP: bool = true;
     }
 
@@ -229,6 +255,21 @@ mod tests {
         let camera = NoIrisCamera;
         assert!(!camera.supports_exposure_mode(ExposureMode::Iris));
         assert!(!camera.supports_iris_control());
+    }
+
+    #[test]
+    fn test_brightness_validation() {
+        let camera = TestCamera;
+
+        assert!(camera.validate_brightness(0).is_ok());
+        assert!(camera.validate_brightness(17).is_ok());
+        assert!(camera.validate_brightness(18).is_err());
+
+        let camera = NoIrisCamera;
+        assert_eq!(
+            camera.validate_brightness(0),
+            Err(ValidationError::NotSupported("exposure brightness"))
+        );
     }
 
     #[test]

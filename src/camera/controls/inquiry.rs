@@ -138,46 +138,6 @@ pub trait InquiryControl {
     /// Returns an error if the inquiry fails or times out.
     fn white_balance_mode(&self) -> <Self::Mode as Mode>::Fut<'_, Result<WhiteBalanceMode, Error>>;
 
-    /// Get the brightness level.
-    ///
-    /// Returns the current brightness adjustment level.
-    /// This is separate from exposure brightness.
-    ///
-    /// # Errors
-    /// Returns an error if the inquiry fails or times out.
-    fn brightness(
-        &self,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::BrightnessLevel, Error>>;
-
-    /// Get the sharpness mode.
-    ///
-    /// Returns the current sharpness mode setting (auto or manual).
-    ///
-    /// # Errors
-    /// Returns an error if the inquiry fails or times out.
-    fn sharpness_mode(&self) -> <Self::Mode as Mode>::Fut<'_, Result<SharpnessMode, Error>>;
-
-    /// Get the sharpness level.
-    ///
-    /// Returns the current sharpness level setting.
-    /// Higher values increase edge enhancement/sharpening.
-    ///
-    /// # Errors
-    /// Returns an error if the inquiry fails or times out.
-    fn sharpness_level(
-        &self,
-    ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::SharpnessLevel, Error>>;
-
-    /// Get the contrast level.
-    ///
-    /// Returns the current contrast level setting.
-    /// Higher values increase the difference between light and dark areas.
-    ///
-    /// # Errors
-    /// Returns an error if the inquiry fails or times out.
-    fn contrast(&self)
-        -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::ContrastLevel, Error>>;
-
     /// Get the current video resolution mode.
     ///
     /// Returns the current video resolution setting.
@@ -353,6 +313,44 @@ pub trait InquiryControl {
     fn flicker_mode(
         &self,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::command::exposure::AntiFlickerMode, Error>>;
+}
+
+/// Exposure brightness inquiry for profiles with documented support.
+#[grafton_visca_macros::delegate_to_session]
+pub trait BrightnessInquiryControl {
+    /// The mode type for this camera (Async or Blocking).
+    type Mode: Mode;
+
+    /// Get the current exposure brightness level.
+    fn brightness(
+        &self,
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::BrightnessLevel, Error>>;
+}
+
+/// Contrast inquiry for profiles with documented support.
+#[grafton_visca_macros::delegate_to_session]
+pub trait ContrastInquiryControl {
+    /// The mode type for this camera (Async or Blocking).
+    type Mode: Mode;
+
+    /// Get the current contrast level.
+    fn contrast(&self)
+        -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::ContrastLevel, Error>>;
+}
+
+/// Sharpness inquiries for profiles with documented support.
+#[grafton_visca_macros::delegate_to_session]
+pub trait SharpnessInquiryControl {
+    /// The mode type for this camera (Async or Blocking).
+    type Mode: Mode;
+
+    /// Get the current sharpness mode.
+    fn sharpness_mode(&self) -> <Self::Mode as Mode>::Fut<'_, Result<SharpnessMode, Error>>;
+
+    /// Get the current sharpness level.
+    fn sharpness_level(
+        &self,
+    ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::types::SharpnessLevel, Error>>;
 }
 
 /// ND filter-specific inquiry operations for cameras with typed ND filter support.

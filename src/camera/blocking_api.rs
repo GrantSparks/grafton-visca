@@ -14,28 +14,29 @@ use crate::{
                 RgbTuningControl,
             },
             exposure::{
-                BacklightCompensationControl, ExposureCompensationControl, ExposureControl,
-                IrisControl, WideDynamicRangeControl,
+                BacklightCompensationControl, BrightnessControl, ExposureCompensationControl,
+                ExposureControl, IrisControl, WideDynamicRangeControl,
             },
             focus::{
                 AutoFocusSensitivityControl, FocusControl, FocusLockControl, FocusZoneControl,
                 OnePushFocusControl, PushAFControl,
             },
             image_processing::{
-                GammaControl, HueControl, ImageFlipControl, ImageFlipModeControl,
-                ImageMirrorControl, ImageProcessingControl, LuminanceControl,
-                NoiseReduction2DControl, NoiseReduction3DControl, PictureEffectControl,
-                SaturationControl,
+                ContrastControl, GammaControl, HueControl, ImageFlipControl, ImageFlipModeControl,
+                ImageMirrorControl, LuminanceControl, NoiseReduction2DControl,
+                NoiseReduction3DControl, PictureEffectControl, SaturationControl, SharpnessControl,
             },
             inquiry::{
-                BacklightCompensationInquiryControl, ColorTemperatureInquiryControl,
+                BacklightCompensationInquiryControl, BrightnessInquiryControl,
+                ColorTemperatureInquiryControl, ContrastInquiryControl,
                 ExposureCompensationInquiryControl, FocusNearLimitInquiryControl,
                 FocusZoneInquiryControl, GammaInquiryControl, HueInquiryControl,
                 ImageFlipInquiryControl, InquiryControl, IrisInquiryControl,
                 LuminanceInquiryControl, NdFilterInquiryControl, NoiseReduction2DInquiryControl,
                 NoiseReduction3DInquiryControl, NoiseReductionInquiryControl,
                 PanTiltInquiryControl, PictureEffectInquiryControl, RgbGainInquiryControl,
-                RgbTuningInquiryControl, SaturationInquiryControl, WideDynamicRangeInquiryControl,
+                RgbTuningInquiryControl, SaturationInquiryControl, SharpnessInquiryControl,
+                WideDynamicRangeInquiryControl,
             },
             menu::{DirectMenuControl, MenuControl},
             motion_sync::MotionSyncControl,
@@ -848,6 +849,14 @@ where
         self.camera.gain_limit()
     }
 
+    /// Get exposure brightness.
+    pub fn brightness(&self) -> Result<crate::types::BrightnessLevel, Error>
+    where
+        Camera<Blocking, P, Tr, ()>: BrightnessInquiryControl<Mode = Blocking>,
+    {
+        self.camera.inner.brightness().block()
+    }
+
     /// Set auto exposure.
     pub fn auto(&self) -> Result<(), Error> {
         self.camera.exposure_auto()
@@ -861,6 +870,54 @@ where
     /// Set shutter-priority exposure.
     pub fn shutter_priority(&self) -> Result<(), Error> {
         self.camera.exposure_shutter_priority()
+    }
+
+    /// Set brightness-priority exposure mode.
+    pub fn bright_mode(&self) -> Result<(), Error>
+    where
+        Camera<Blocking, P, Tr, ()>: BrightnessControl<Mode = Blocking>,
+    {
+        self.camera.inner.exposure_bright_mode().block()
+    }
+
+    /// Set exposure brightness level.
+    pub fn set_brightness(&self, level: crate::types::BrightnessLevel) -> Result<(), Error>
+    where
+        Camera<Blocking, P, Tr, ()>: BrightnessControl<Mode = Blocking>,
+    {
+        self.camera.inner.set_brightness(level).block()
+    }
+
+    /// Reset exposure brightness.
+    pub fn reset_brightness(&self) -> Result<(), Error>
+    where
+        Camera<Blocking, P, Tr, ()>: BrightnessControl<Mode = Blocking>,
+    {
+        self.camera.inner.reset_brightness().block()
+    }
+
+    /// Increase exposure brightness.
+    pub fn increase_brightness(&self) -> Result<(), Error>
+    where
+        Camera<Blocking, P, Tr, ()>: BrightnessControl<Mode = Blocking>,
+    {
+        self.camera.inner.increase_brightness().block()
+    }
+
+    /// Decrease exposure brightness.
+    pub fn decrease_brightness(&self) -> Result<(), Error>
+    where
+        Camera<Blocking, P, Tr, ()>: BrightnessControl<Mode = Blocking>,
+    {
+        self.camera.inner.decrease_brightness().block()
+    }
+
+    /// Set exposure brightness using direct mode.
+    pub fn set_brightness_direct(&self, level: crate::types::BrightnessLevel) -> Result<(), Error>
+    where
+        Camera<Blocking, P, Tr, ()>: BrightnessControl<Mode = Blocking>,
+    {
+        self.camera.inner.set_brightness_direct(level).block()
     }
 
     /// Set iris-priority exposure.
@@ -994,14 +1051,8 @@ where
     P: crate::capabilities::Profile
         + Default
         + crate::capabilities::image_processing::ImageProcessing,
-    Camera<Blocking, P, Tr, ()>:
-        ImageProcessingControl<Mode = Blocking> + InquiryControl<Mode = Blocking>,
+    Camera<Blocking, P, Tr, ()>: InquiryControl<Mode = Blocking>,
 {
-    /// Get brightness level.
-    pub fn brightness(&self) -> Result<crate::types::BrightnessLevel, Error> {
-        self.camera.brightness()
-    }
-
     /// Get saturation level.
     pub fn saturation(&self) -> Result<crate::types::SaturationLevel, Error>
     where
@@ -1019,8 +1070,11 @@ where
     }
 
     /// Get contrast level.
-    pub fn contrast(&self) -> Result<crate::types::ContrastLevel, Error> {
-        self.camera.contrast()
+    pub fn contrast(&self) -> Result<crate::types::ContrastLevel, Error>
+    where
+        Camera<Blocking, P, Tr, ()>: ContrastInquiryControl<Mode = Blocking>,
+    {
+        self.camera.inner.contrast().block()
     }
 
     /// Get luminance level.
@@ -1040,8 +1094,19 @@ where
     }
 
     /// Get sharpness mode.
-    pub fn sharpness_mode(&self) -> Result<crate::command::SharpnessMode, Error> {
-        self.camera.sharpness_mode()
+    pub fn sharpness_mode(&self) -> Result<crate::command::SharpnessMode, Error>
+    where
+        Camera<Blocking, P, Tr, ()>: SharpnessInquiryControl<Mode = Blocking>,
+    {
+        self.camera.inner.sharpness_mode().block()
+    }
+
+    /// Get sharpness level.
+    pub fn sharpness_level(&self) -> Result<crate::types::SharpnessLevel, Error>
+    where
+        Camera<Blocking, P, Tr, ()>: SharpnessInquiryControl<Mode = Blocking>,
+    {
+        self.camera.inner.sharpness_level().block()
     }
 
     /// Check whether black-and-white mode is enabled.
@@ -1175,13 +1240,19 @@ where
     }
 
     /// Set contrast level.
-    pub fn set_contrast(&self, level: crate::types::ContrastLevel) -> Result<(), Error> {
-        self.camera.set_contrast(level)
+    pub fn set_contrast(&self, level: crate::types::ContrastLevel) -> Result<(), Error>
+    where
+        Camera<Blocking, P, Tr, ()>: ContrastControl<Mode = Blocking>,
+    {
+        self.camera.inner.set_contrast(level).block()
     }
 
     /// Set sharpness level.
-    pub fn set_sharpness(&self, level: crate::types::SharpnessLevel) -> Result<(), Error> {
-        self.camera.set_sharpness(level)
+    pub fn set_sharpness(&self, level: crate::types::SharpnessLevel) -> Result<(), Error>
+    where
+        Camera<Blocking, P, Tr, ()>: SharpnessControl<Mode = Blocking>,
+    {
+        self.camera.inner.set_sharpness(level).block()
     }
 
     /// Set saturation level.
@@ -1206,16 +1277,6 @@ where
         Camera<Blocking, P, Tr, ()>: LuminanceControl<Mode = Blocking>,
     {
         self.camera.inner.set_luminance(level).block()
-    }
-
-    /// Enable image freeze.
-    pub fn freeze(&self) -> Result<(), Error> {
-        self.camera.enable_freeze()
-    }
-
-    /// Disable image freeze.
-    pub fn unfreeze(&self) -> Result<(), Error> {
-        self.camera.disable_freeze()
     }
 
     /// Enable black-and-white mode.
@@ -1881,21 +1942,6 @@ where
         /// Set exposure to shutter priority mode.
         fn exposure_shutter_priority() -> ();
 
-        /// Set exposure to bright mode.
-        fn exposure_bright_mode() -> ();
-
-        /// Set brightness level.
-        fn set_brightness(level: crate::types::BrightnessLevel) -> ();
-
-        /// Reset brightness to default.
-        fn reset_brightness() -> ();
-
-        /// Increase brightness.
-        fn increase_brightness() -> ();
-
-        /// Decrease brightness.
-        fn decrease_brightness() -> ();
-
         /// Set gain level.
         fn set_gain(gain: crate::types::GainLevel) -> ();
 
@@ -1935,7 +1981,31 @@ where
         /// Disable auto slow shutter.
         fn disable_auto_slow_shutter() -> ();
 
-        /// Set brightness directly.
+    }
+}
+
+impl<P, Tr> BlockingClient<P, Tr>
+where
+    Camera<Blocking, P, Tr, ()>: BrightnessControl<Mode = Blocking>,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasBrightnessControl,
+{
+    impl_blocking_methods! {
+        /// Set exposure to bright mode.
+        fn exposure_bright_mode() -> ();
+
+        /// Set exposure brightness level.
+        fn set_brightness(level: crate::types::BrightnessLevel) -> ();
+
+        /// Reset exposure brightness to default.
+        fn reset_brightness() -> ();
+
+        /// Increase exposure brightness.
+        fn increase_brightness() -> ();
+
+        /// Decrease exposure brightness.
+        fn decrease_brightness() -> ();
+
+        /// Set exposure brightness directly.
         fn set_brightness_direct(level: crate::types::BrightnessLevel) -> ();
     }
 }
@@ -2321,25 +2391,28 @@ where
 }
 
 // ============================================================================
-// ImageProcessingControl implementation
+// Image quality subcontrol implementations
 // ============================================================================
 
 impl<P, Tr> BlockingClient<P, Tr>
 where
-    Camera<Blocking, P, Tr, ()>: ImageProcessingControl<Mode = Blocking>,
-    P: crate::capabilities::Profile
-        + Default
-        + crate::capabilities::image_processing::ImageProcessing,
+    Camera<Blocking, P, Tr, ()>: ContrastControl<Mode = Blocking>,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasContrastControl,
 {
     impl_blocking_methods! {
         /// Set contrast level.
         fn set_contrast(level: crate::types::ContrastLevel) -> ();
+    }
+}
 
+impl<P, Tr> BlockingClient<P, Tr>
+where
+    Camera<Blocking, P, Tr, ()>: SharpnessControl<Mode = Blocking>,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasSharpnessControl,
+{
+    impl_blocking_methods! {
         /// Set sharpness level.
         fn set_sharpness(level: crate::types::SharpnessLevel) -> ();
-
-        /// Set sharpness mode.
-        fn set_sharpness_mode(mode: crate::command::SharpnessMode) -> ();
 
         /// Reset sharpness.
         fn reset_sharpness() -> ();
@@ -2349,12 +2422,6 @@ where
 
         /// Decrease sharpness.
         fn decrease_sharpness() -> ();
-
-        /// Enable freeze frame.
-        fn enable_freeze() -> ();
-
-        /// Disable freeze frame.
-        fn disable_freeze() -> ();
     }
 }
 
@@ -2611,15 +2678,6 @@ where
         /// Get white balance mode.
         fn white_balance_mode() -> crate::command::white_balance::WhiteBalanceMode;
 
-        /// Get brightness.
-        fn brightness() -> crate::types::BrightnessLevel;
-
-        /// Get sharpness mode.
-        fn sharpness_mode() -> crate::command::SharpnessMode;
-
-        /// Get contrast level.
-        fn contrast() -> crate::types::ContrastLevel;
-
         /// Get resolution.
         fn resolution() -> crate::command::ResolutionMode;
 
@@ -2662,6 +2720,42 @@ where
         /// Get digital mode enabled status.
         fn digital_mode_enabled() -> bool;
 
+    }
+}
+
+impl<P, Tr> BlockingClient<P, Tr>
+where
+    Camera<Blocking, P, Tr, ()>: BrightnessInquiryControl<Mode = Blocking>,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasBrightnessControl,
+{
+    impl_blocking_methods! {
+        /// Get exposure brightness.
+        fn brightness() -> crate::types::BrightnessLevel;
+    }
+}
+
+impl<P, Tr> BlockingClient<P, Tr>
+where
+    Camera<Blocking, P, Tr, ()>: ContrastInquiryControl<Mode = Blocking>,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasContrastControl,
+{
+    impl_blocking_methods! {
+        /// Get contrast level.
+        fn contrast() -> crate::types::ContrastLevel;
+    }
+}
+
+impl<P, Tr> BlockingClient<P, Tr>
+where
+    Camera<Blocking, P, Tr, ()>: SharpnessInquiryControl<Mode = Blocking>,
+    P: crate::capabilities::Profile + Default + crate::capabilities::HasSharpnessControl,
+{
+    impl_blocking_methods! {
+        /// Get sharpness mode.
+        fn sharpness_mode() -> crate::command::SharpnessMode;
+
+        /// Get sharpness level.
+        fn sharpness_level() -> crate::types::SharpnessLevel;
     }
 }
 

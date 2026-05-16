@@ -1,8 +1,8 @@
 use grafton_visca::{
     camera::CameraSession,
     mode::Async,
-    profiles::{SonyBRCH900, SonyEVIH100, SonyFR7},
-    types::{ColorTemp, IrisLevel},
+    profiles::{PtzOpticsG2, SonyBRCH900, SonyEVIH100, SonyFR7},
+    types::{BrightnessLevel, ColorTemp, ContrastLevel, IrisLevel, SharpnessLevel},
     ColorTemperatureControl, ColorTemperatureInquiryControl, DigitalZoomControl,
     DigitalZoomRangeControl, Error, Executor, IrisControl, ZoomDomain,
 };
@@ -19,6 +19,12 @@ where
     let _ = session.zoom_absolute_normalized(normalized, ZoomDomain::OpticalPlusDigital);
     let _ = session.exposure().iris_priority();
     let _ = session.set_iris(iris);
+    let _ = session.exposure().set_brightness(BrightnessLevel::new(1)?);
+    let _ = session.image().set_contrast(ContrastLevel::new(1)?);
+    let _ = session.image().set_sharpness(SharpnessLevel::new(1)?);
+    let _ = session.exposure().brightness();
+    let _ = session.image().contrast();
+    let _ = session.image().sharpness_level();
     let _ = session.tally().red_on();
     let _ = session.tally().status();
     let _ = session.exposure().iris();
@@ -51,6 +57,24 @@ where
     let _ = session.set_color_temperature(ColorTemp::from_kelvin(5600)?);
     let _ = session.white_balance().color_temperature();
     let _ = session.color_temperature();
+    Ok(())
+}
+
+fn use_ptzoptics_quality<Tr, Exec>(
+    session: &CameraSession<Async, PtzOpticsG2, Tr, Exec>,
+) -> Result<(), Error>
+where
+    Tr: grafton_visca::transport::AsyncTransport + Send + Sync + 'static,
+    Exec: Executor + Send + Sync + Clone + 'static,
+{
+    let _ = session.exposure().bright_mode();
+    let _ = session.exposure().set_brightness(BrightnessLevel::new(1)?);
+    let _ = session.image().set_contrast(ContrastLevel::new(1)?);
+    let _ = session.image().set_sharpness(SharpnessLevel::new(1)?);
+    let _ = session.exposure().brightness();
+    let _ = session.image().contrast();
+    let _ = session.image().sharpness_mode();
+    let _ = session.image().sharpness_level();
     Ok(())
 }
 

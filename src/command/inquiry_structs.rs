@@ -2771,10 +2771,6 @@ macro_rules! builtin_inquiry_table {
             GainInquiry => gain: crate::types::GainLevel;
             GainLimitInquiry => gain_limit: crate::types::GainLimit;
             WhiteBalanceModeInquiry => white_balance_mode: WhiteBalanceMode;
-            BrightnessInquiry => brightness: crate::types::BrightnessLevel;
-            SharpnessModeInquiry => sharpness_mode: SharpnessMode;
-            SharpnessPositionInquiry => sharpness_level: crate::types::SharpnessLevel;
-            ContrastInquiry => contrast: crate::types::ContrastLevel;
             ResolutionInquiry => resolution: crate::command::ResolutionMode;
             VersionInquiry => version: crate::command::VersionInfo;
             FocusModeInquiry => focus_mode: FocusMode;
@@ -2790,6 +2786,19 @@ macro_rules! builtin_inquiry_table {
             TwoToneModeInquiry => two_tone_mode_enabled: bool;
             DigitalInquiry => digital_mode_enabled: bool;
             FlickerModeInquiry => flicker_mode: crate::command::exposure::AntiFlickerMode;
+        }
+        BrightnessInquiryControl {
+            gate: crate::capabilities::HasBrightnessControl;
+            BrightnessInquiry => brightness: crate::types::BrightnessLevel;
+        }
+        ContrastInquiryControl {
+            gate: crate::capabilities::HasContrastControl;
+            ContrastInquiry => contrast: crate::types::ContrastLevel;
+        }
+        SharpnessInquiryControl {
+            gate: crate::capabilities::HasSharpnessControl;
+            SharpnessModeInquiry => sharpness_mode: SharpnessMode;
+            SharpnessPositionInquiry => sharpness_level: crate::types::SharpnessLevel;
         }
         TallyControl {
             gate: crate::capabilities::HasTally;

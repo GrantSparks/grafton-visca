@@ -786,11 +786,18 @@ The items in this appendix are **not** accepted as fully validated implementatio
 
 ## A.3 Sharpness / aperture direct range on PTZOptics
 
-**Current treatment:** The packet `81 01 04 42 00 00 0p 0q FF` is accepted. The full numeric range is not universally promoted.
+**Current treatment:** PTZOptics built-in profiles expose typed sharpness over
+`0x00–0x0F` and encode `81 01 04 42 00 00 0p 0q FF` for that full range.
+Profiles without source-backed sharpness support do not expose the typed
+sharpness control or inquiry accessors.
 
-**Why it remains open:** Uploaded patched notes report hardware acceptance of `0x00–0x0F`, while some documentation uses narrower or unspecified ranges. Treat the wider range as hardware-profile-specific rather than a global Gen‑2 guarantee.
+**Why the scope stays profile-specific:** Uploaded patched notes report hardware
+acceptance of `0x00–0x0F`, while some generic documentation uses narrower or
+unspecified ranges. The wider range is therefore PTZOptics-profile metadata, not
+a global VISCA default.
 
-**Validation needed:** Sweep `0x00–0x0F` on each supported firmware family and record the resulting inquiry value from `81 09 04 42 FF`.
+**Validation needed:** Sweep `0x00–0x0F` on additional supported firmware
+families and record the resulting inquiry value from `81 09 04 42 FF`.
 
 **Helpful sources:**
 

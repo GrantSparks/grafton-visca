@@ -4,10 +4,22 @@
 //! camera capabilities at runtime, complementing the compile-time
 //! trait-based capability system.
 
-use std::ops::RangeInclusive;
+use std::ops::{Range, RangeInclusive};
 
 use super::profile_metadata::InquirySupport;
 use crate::command::exposure::ExposureMode;
+
+fn inclusive_u8_range(range: &Range<u8>) -> RangeInclusive<u8> {
+    range.start..=range.end - 1
+}
+
+fn inclusive_u16_range(range: &Range<u16>) -> RangeInclusive<u16> {
+    range.start..=range.end - 1
+}
+
+fn inclusive_i8_range(range: &Range<i8>) -> RangeInclusive<i8> {
+    range.start..=range.end - 1
+}
 
 /// Structured capabilities response for runtime feature discovery.
 ///
@@ -164,6 +176,12 @@ pub struct Capabilities {
     /// Number of supported shutter speeds.
     pub shutter_speed_count: usize,
 
+    /// VISCA exposure bright range, if supported.
+    ///
+    /// This is the exposure brightness/bright-direct surface, not image
+    /// luminance.
+    pub exposure_brightness_range: Option<RangeInclusive<u16>>,
+
     // White balance capabilities
     /// Whether camera supports white balance control.
     pub has_white_balance: bool,
@@ -193,14 +211,11 @@ pub struct Capabilities {
     /// Whether camera supports image processing features.
     pub has_image_processing: bool,
 
-    /// Brightness adjustment range.
-    pub brightness_range: RangeInclusive<u8>,
+    /// Contrast adjustment range, if supported.
+    pub contrast_range: Option<RangeInclusive<u8>>,
 
-    /// Contrast adjustment range.
-    pub contrast_range: RangeInclusive<u8>,
-
-    /// Sharpness adjustment range.
-    pub sharpness_range: RangeInclusive<u8>,
+    /// Sharpness adjustment range, if supported.
+    pub sharpness_range: Option<RangeInclusive<u8>>,
 
     /// Saturation adjustment range if supported.
     pub saturation_range: Option<RangeInclusive<u8>>,
@@ -328,33 +343,32 @@ impl Capabilities {
         // Extract exposure capabilities
         let has_iris_control = P::IRIS_RANGE.is_some();
         let exposure_modes = P::EXPOSURE_MODES.to_vec();
-        let iris_range = P::IRIS_RANGE
-            .as_ref()
-            .map(|range| range.start..=range.end.saturating_sub(1));
+        let iris_range = P::IRIS_RANGE.as_ref().map(inclusive_u16_range);
         let gain_range = P::GAIN_RANGE.start..=P::GAIN_RANGE.end.saturating_sub(1);
+        let exposure_brightness_range = P::BRIGHTNESS_RANGE.as_ref().map(inclusive_u16_range);
 
         // Extract white balance capabilities
-        let color_temp_range = P::COLOR_TEMP_RANGE
-            .as_ref()
-            .map(|r| r.start..=r.end.saturating_sub(1));
-        let rg_tuning_range = P::RG_TUNING_RANGE
-            .as_ref()
-            .map(|r| r.start..=r.end.saturating_sub(1));
-        let bg_tuning_range = P::BG_TUNING_RANGE
-            .as_ref()
-            .map(|r| r.start..=r.end.saturating_sub(1));
+        let color_temp_range = P::COLOR_TEMP_RANGE.as_ref().map(inclusive_u16_range);
+        let rg_tuning_range = P::RG_TUNING_RANGE.as_ref().map(inclusive_i8_range);
+        let bg_tuning_range = P::BG_TUNING_RANGE.as_ref().map(inclusive_i8_range);
 
         // Extract image processing capabilities
-        let brightness_range =
-            P::BRIGHTNESS_RANGE.start..=P::BRIGHTNESS_RANGE.end.saturating_sub(1);
-        let contrast_range = P::CONTRAST_RANGE.start..=P::CONTRAST_RANGE.end.saturating_sub(1);
-        let sharpness_range = P::SHARPNESS_RANGE.start..=P::SHARPNESS_RANGE.end.saturating_sub(1);
-        let saturation_range = P::SATURATION_RANGE
-            .as_ref()
-            .map(|r| r.start..=r.end.saturating_sub(1));
-        let hue_range = P::HUE_RANGE
-            .as_ref()
-            .map(|r| r.start..=r.end.saturating_sub(1));
+        let contrast_range = P::CONTRAST_RANGE.as_ref().map(inclusive_u8_range);
+        let sharpness_range = P::SHARPNESS_RANGE.as_ref().map(inclusive_u8_range);
+        let saturation_range = P::SATURATION_RANGE.as_ref().map(inclusive_u8_range);
+        let hue_range = P::HUE_RANGE.as_ref().map(inclusive_u8_range);
+        let has_image_processing = contrast_range.is_some()
+            || sharpness_range.is_some()
+            || saturation_range.is_some()
+            || hue_range.is_some()
+            || P::SUPPORTS_FLIP
+            || P::SUPPORTS_MIRROR
+            || P::SUPPORTS_NOISE_REDUCTION
+            || P::SUPPORTS_2D_NR
+            || P::SUPPORTS_3D_NR
+            || P::SUPPORTS_PICTURE_EFFECT
+            || P::SUPPORTS_GAMMA
+            || P::SUPPORTS_LUMINANCE;
 
         // Extract preset capabilities
         let preset_speed_range =
@@ -426,6 +440,7 @@ impl Capabilities {
             iris_range,
             gain_range,
             shutter_speed_count: P::SHUTTER_SPEEDS.len(),
+            exposure_brightness_range,
 
             // White balance capabilities
             has_white_balance: true, // All cameras have white balance
@@ -438,8 +453,7 @@ impl Capabilities {
             wb_mode_count: P::WB_MODES.len(),
 
             // Image processing capabilities
-            has_image_processing: true, // All cameras have some image processing
-            brightness_range,
+            has_image_processing,
             contrast_range,
             sharpness_range,
             saturation_range,
@@ -689,6 +703,10 @@ mod tests {
         assert!(!caps.has_motion_sync);
         assert_eq!(caps.max_motion_sync_speed, None);
         assert!(!caps.has_variable_speed);
+        assert_eq!(caps.exposure_brightness_range, Some(0..=17));
+        assert!(caps.has_image_processing);
+        assert_eq!(caps.contrast_range, Some(0..=14));
+        assert_eq!(caps.sharpness_range, Some(0..=15));
 
         assert!(caps.has_basic_features());
     }
@@ -715,6 +733,10 @@ mod tests {
         assert!(!caps.has_motion_sync);
         assert_eq!(caps.max_motion_sync_speed, None);
         assert!(caps.has_variable_speed);
+        assert_eq!(caps.exposure_brightness_range, Some(0..=17));
+        assert!(caps.has_image_processing);
+        assert_eq!(caps.contrast_range, Some(0..=14));
+        assert_eq!(caps.sharpness_range, Some(0..=14));
 
         assert!(caps.has_advanced_features());
     }
@@ -750,7 +772,11 @@ mod tests {
         assert!(caps.has_iris_control);
         assert!(caps.supports_exposure_mode(ExposureMode::Iris));
 
-        assert!(caps.has_basic_features());
+        assert!(!caps.has_image_processing);
+        assert_eq!(caps.exposure_brightness_range, None);
+        assert_eq!(caps.contrast_range, None);
+        assert_eq!(caps.sharpness_range, None);
+        assert!(!caps.has_basic_features());
         // GenericVisca has one-push white balance, which counts as an advanced feature
         assert!(caps.has_one_push_wb);
         assert!(!caps.has_nd_filter);
@@ -758,6 +784,23 @@ mod tests {
         assert_eq!(caps.max_motion_sync_speed, None);
         assert!(!caps.has_variable_speed);
         assert!(caps.has_advanced_features());
+    }
+
+    #[test]
+    fn test_unsupported_quality_ranges_are_none() {
+        for caps in [
+            Capabilities::from_profile::<SonyEVIH100>(),
+            Capabilities::from_profile::<SonyBRC300>(),
+            Capabilities::from_profile::<NearusBRC300>(),
+            Capabilities::from_profile::<GenericVisca>(),
+        ] {
+            assert_eq!(caps.exposure_brightness_range, None);
+            assert_eq!(caps.contrast_range, None);
+            assert_eq!(caps.sharpness_range, None);
+        }
+
+        assert!(Capabilities::from_profile::<SonyEVIH100>().has_image_processing);
+        assert!(!Capabilities::from_profile::<SonyBRC300>().has_image_processing);
     }
 
     #[test]

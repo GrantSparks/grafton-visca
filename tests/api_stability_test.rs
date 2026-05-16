@@ -118,26 +118,28 @@ fn test_control_traits_api_stability() {
             RgbTuningControl,
         },
         exposure::{
-            BacklightCompensationControl, ExposureControl, IrisControl, WideDynamicRangeControl,
+            BacklightCompensationControl, BrightnessControl, ExposureControl, IrisControl,
+            WideDynamicRangeControl,
         },
         focus::{
             AutoFocusSensitivityControl, FocusControl, FocusZoneControl, OnePushFocusControl,
             SnapFocusControl,
         },
         image_processing::{
-            GammaControl, HueControl, ImageFlipControl, ImageFlipModeControl, ImageMirrorControl,
-            ImageProcessingControl, LuminanceControl, NoiseReduction2DControl,
-            NoiseReduction3DControl, PictureEffectControl, SaturationControl,
+            ContrastControl, GammaControl, HueControl, ImageFlipControl, ImageFlipModeControl,
+            ImageMirrorControl, LuminanceControl, NoiseReduction2DControl, NoiseReduction3DControl,
+            PictureEffectControl, SaturationControl, SharpnessControl,
         },
         inquiry::{
             AutoFocusSensitivityInquiryControl, BacklightCompensationInquiryControl,
-            ColorTemperatureInquiryControl, ExposureCompensationInquiryControl,
-            FocusNearLimitInquiryControl, FocusZoneInquiryControl, GammaInquiryControl,
-            HueInquiryControl, ImageFlipInquiryControl, InquiryControl, IrisInquiryControl,
-            LuminanceInquiryControl, NoiseReduction2DInquiryControl,
-            NoiseReduction3DInquiryControl, NoiseReductionInquiryControl,
-            PictureEffectInquiryControl, RgbGainInquiryControl, RgbTuningInquiryControl,
-            SaturationInquiryControl, WideDynamicRangeInquiryControl,
+            BrightnessInquiryControl, ColorTemperatureInquiryControl, ContrastInquiryControl,
+            ExposureCompensationInquiryControl, FocusNearLimitInquiryControl,
+            FocusZoneInquiryControl, GammaInquiryControl, HueInquiryControl,
+            ImageFlipInquiryControl, InquiryControl, IrisInquiryControl, LuminanceInquiryControl,
+            NoiseReduction2DInquiryControl, NoiseReduction3DInquiryControl,
+            NoiseReductionInquiryControl, PictureEffectInquiryControl, RgbGainInquiryControl,
+            RgbTuningInquiryControl, SaturationInquiryControl, SharpnessInquiryControl,
+            WideDynamicRangeInquiryControl,
         },
         pan_tilt::PanTiltControl,
         power::PowerControl,
@@ -165,6 +167,9 @@ fn test_control_traits_api_stability() {
             + PanTiltControl
             + PresetsControl
             + InquiryControl
+            + BrightnessInquiryControl
+            + ContrastInquiryControl
+            + SharpnessInquiryControl
             + FocusNearLimitInquiryControl
             + FocusZoneInquiryControl
             + AutoFocusSensitivityInquiryControl
@@ -185,6 +190,7 @@ fn test_control_traits_api_stability() {
             + NoiseReduction3DInquiryControl
             + PictureEffectInquiryControl
             + ExposureControl
+            + BrightnessControl
             + IrisControl
             + BacklightCompensationControl
             + WideDynamicRangeControl
@@ -192,7 +198,8 @@ fn test_control_traits_api_stability() {
             + OnePushWhiteBalanceControl
             + AutoTrackingWhiteBalanceControl
             + AutoWhiteBalanceSensitivityControl
-            + ImageProcessingControl
+            + ContrastControl
+            + SharpnessControl
             + ImageFlipControl
             + ImageMirrorControl
             + ImageFlipModeControl

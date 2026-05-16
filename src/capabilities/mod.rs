@@ -22,15 +22,16 @@ pub mod zoom;
 mod profile_metadata;
 pub use profile_metadata::{
     HasAutoFocusSensitivity, HasAutoTrackingWhiteBalance, HasAutoWhiteBalanceSensitivity,
-    HasBacklightCompensation, HasColorTemperature, HasCombinedImageFlip, HasDigitalZoomRange,
-    HasDigitalZoomToggle, HasDirectZoom, HasExposure, HasExposureCompensation, HasFocus,
-    HasFocusLock, HasFocusNearLimitInquiry, HasFocusZone, HasGammaControl, HasHueControl,
-    HasImageFlip, HasImageMirror, HasImageProcessing, HasIrisControl, HasLuminanceControl,
-    HasMenuControl, HasMotionSync, HasNdFilter, HasNoiseReduction, HasNoiseReduction2D,
-    HasNoiseReduction3D, HasOnePushFocus, HasOnePushWhiteBalance, HasPanTilt, HasPictureEffect,
-    HasPower, HasPresets, HasPtzOpticsSnapFocus, HasPushAutoFocus, HasRgbGain, HasRgbTuning,
-    HasSaturationControl, HasTally, HasVariableSpeed, HasWhiteBalance, HasWideDynamicRange,
-    HasZoom, InquirySupport, ProfileMetadata,
+    HasBacklightCompensation, HasBrightnessControl, HasColorTemperature, HasCombinedImageFlip,
+    HasContrastControl, HasDigitalZoomRange, HasDigitalZoomToggle, HasDirectZoom, HasExposure,
+    HasExposureCompensation, HasFocus, HasFocusLock, HasFocusNearLimitInquiry, HasFocusZone,
+    HasGammaControl, HasHueControl, HasImageFlip, HasImageMirror, HasImageProcessing,
+    HasIrisControl, HasLuminanceControl, HasMenuControl, HasMotionSync, HasNdFilter,
+    HasNoiseReduction, HasNoiseReduction2D, HasNoiseReduction3D, HasOnePushFocus,
+    HasOnePushWhiteBalance, HasPanTilt, HasPictureEffect, HasPower, HasPresets,
+    HasPtzOpticsSnapFocus, HasPushAutoFocus, HasRgbGain, HasRgbTuning, HasSaturationControl,
+    HasSharpnessControl, HasTally, HasVariableSpeed, HasWhiteBalance, HasWideDynamicRange, HasZoom,
+    InquirySupport, ProfileMetadata,
 };
 
 // Re-export all capability traits

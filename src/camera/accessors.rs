@@ -9,25 +9,26 @@ use crate::{
     camera::{
         controls::{
             color::{ColorTemperatureControl, OnePushWhiteBalanceControl},
-            exposure::{ExposureControl, IrisControl},
+            exposure::{BrightnessControl, ExposureControl, IrisControl},
             focus::{
                 AutoFocusSensitivityControl, FocusControl, FocusLockControl, FocusZoneControl,
                 OnePushFocusControl, PushAFControl,
             },
             image_processing::{
-                HueControl, ImageFlipControl, ImageFlipModeControl, ImageMirrorControl,
-                ImageProcessingControl, LuminanceControl, NoiseReduction2DControl,
-                NoiseReduction3DControl, PictureEffectControl, SaturationControl,
+                ContrastControl, HueControl, ImageFlipControl, ImageFlipModeControl,
+                ImageMirrorControl, LuminanceControl, NoiseReduction2DControl,
+                NoiseReduction3DControl, PictureEffectControl, SaturationControl, SharpnessControl,
             },
             inquiry::{
-                BacklightCompensationInquiryControl, ColorTemperatureInquiryControl,
+                BacklightCompensationInquiryControl, BrightnessInquiryControl,
+                ColorTemperatureInquiryControl, ContrastInquiryControl,
                 ExposureCompensationInquiryControl, FocusNearLimitInquiryControl,
                 FocusZoneInquiryControl, GammaInquiryControl, HueInquiryControl,
                 ImageFlipInquiryControl, InquiryControl, IrisInquiryControl,
                 LuminanceInquiryControl, NdFilterInquiryControl, NoiseReduction2DInquiryControl,
                 NoiseReduction3DInquiryControl, NoiseReductionInquiryControl,
                 PanTiltInquiryControl, PictureEffectInquiryControl, RgbGainInquiryControl,
-                RgbTuningInquiryControl, SaturationInquiryControl,
+                RgbTuningInquiryControl, SaturationInquiryControl, SharpnessInquiryControl,
             },
             menu::MenuControl,
             motion_sync::MotionSyncControl,
@@ -649,6 +650,14 @@ where
         self.camera.gain_limit()
     }
 
+    /// Get exposure brightness level.
+    pub fn brightness(&self) -> M::Fut<'_, Result<crate::types::BrightnessLevel, Error>>
+    where
+        Camera<M, P, Tr, Exec>: BrightnessInquiryControl<Mode = M>,
+    {
+        self.camera.brightness()
+    }
+
     /// Set to auto exposure mode.
     pub fn auto(&self) -> M::Fut<'_, Result<(), Error>>
     where
@@ -671,6 +680,60 @@ where
         Camera<M, P, Tr, Exec>: ExposureControl<Mode = M>,
     {
         self.camera.exposure_shutter_priority()
+    }
+
+    /// Set to brightness-priority exposure mode.
+    pub fn bright_mode(&self) -> M::Fut<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: BrightnessControl<Mode = M>,
+    {
+        self.camera.exposure_bright_mode()
+    }
+
+    /// Set exposure brightness level.
+    pub fn set_brightness(
+        &self,
+        level: crate::types::BrightnessLevel,
+    ) -> M::Fut<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: BrightnessControl<Mode = M>,
+    {
+        self.camera.set_brightness(level)
+    }
+
+    /// Reset exposure brightness.
+    pub fn reset_brightness(&self) -> M::Fut<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: BrightnessControl<Mode = M>,
+    {
+        self.camera.reset_brightness()
+    }
+
+    /// Increase exposure brightness.
+    pub fn increase_brightness(&self) -> M::Fut<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: BrightnessControl<Mode = M>,
+    {
+        self.camera.increase_brightness()
+    }
+
+    /// Decrease exposure brightness.
+    pub fn decrease_brightness(&self) -> M::Fut<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: BrightnessControl<Mode = M>,
+    {
+        self.camera.decrease_brightness()
+    }
+
+    /// Set exposure brightness using direct mode.
+    pub fn set_brightness_direct(
+        &self,
+        level: crate::types::BrightnessLevel,
+    ) -> M::Fut<'_, Result<(), Error>>
+    where
+        Camera<M, P, Tr, Exec>: BrightnessControl<Mode = M>,
+    {
+        self.camera.set_brightness_direct(level)
     }
 
     /// Set to iris priority mode.
@@ -817,14 +880,6 @@ where
     P: Profile,
     Exec: Executor,
 {
-    /// Get brightness level.
-    pub fn brightness(&self) -> M::Fut<'_, Result<crate::types::BrightnessLevel, Error>>
-    where
-        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
-    {
-        self.camera.brightness()
-    }
-
     /// Get saturation level.
     pub fn saturation(&self) -> M::Fut<'_, Result<crate::types::SaturationLevel, Error>>
     where
@@ -844,7 +899,7 @@ where
     /// Get contrast level.
     pub fn contrast(&self) -> M::Fut<'_, Result<crate::types::ContrastLevel, Error>>
     where
-        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+        Camera<M, P, Tr, Exec>: ContrastInquiryControl<Mode = M>,
     {
         self.camera.contrast()
     }
@@ -868,9 +923,17 @@ where
     /// Get sharpness mode.
     pub fn sharpness_mode(&self) -> M::Fut<'_, Result<crate::command::SharpnessMode, Error>>
     where
-        Camera<M, P, Tr, Exec>: InquiryControl<Mode = M>,
+        Camera<M, P, Tr, Exec>: SharpnessInquiryControl<Mode = M>,
     {
         self.camera.sharpness_mode()
+    }
+
+    /// Get sharpness level.
+    pub fn sharpness_level(&self) -> M::Fut<'_, Result<crate::types::SharpnessLevel, Error>>
+    where
+        Camera<M, P, Tr, Exec>: SharpnessInquiryControl<Mode = M>,
+    {
+        self.camera.sharpness_level()
     }
 
     /// Check if black and white mode is enabled.
@@ -1025,7 +1088,7 @@ where
     /// Set contrast level.
     pub fn set_contrast(&self, level: crate::types::ContrastLevel) -> M::Fut<'_, Result<(), Error>>
     where
-        Camera<M, P, Tr, Exec>: ImageProcessingControl<Mode = M>,
+        Camera<M, P, Tr, Exec>: ContrastControl<Mode = M>,
     {
         self.camera.set_contrast(level)
     }
@@ -1036,7 +1099,7 @@ where
         level: crate::types::SharpnessLevel,
     ) -> M::Fut<'_, Result<(), Error>>
     where
-        Camera<M, P, Tr, Exec>: ImageProcessingControl<Mode = M>,
+        Camera<M, P, Tr, Exec>: SharpnessControl<Mode = M>,
     {
         self.camera.set_sharpness(level)
     }
@@ -1069,22 +1132,6 @@ where
         Camera<M, P, Tr, Exec>: LuminanceControl<Mode = M>,
     {
         self.camera.set_luminance(level)
-    }
-
-    /// Enable image freeze.
-    pub fn freeze(&self) -> M::Fut<'_, Result<(), Error>>
-    where
-        Camera<M, P, Tr, Exec>: ImageProcessingControl<Mode = M>,
-    {
-        self.camera.enable_freeze()
-    }
-
-    /// Disable image freeze.
-    pub fn unfreeze(&self) -> M::Fut<'_, Result<(), Error>>
-    where
-        Camera<M, P, Tr, Exec>: ImageProcessingControl<Mode = M>,
-    {
-        self.camera.disable_freeze()
     }
 
     /// Enable black and white mode.

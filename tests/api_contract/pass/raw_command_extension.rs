@@ -1,5 +1,5 @@
 use grafton_visca::{
-    command::{CommandKind, FixedCommandBytes, InquiryKind, ViscaCommand},
+    command::{CommandKind, FixedCommandBytes, ImageFreeze, InquiryKind, ViscaCommand},
     timeout::CommandCategory,
     CameraId, Error,
 };
@@ -35,4 +35,5 @@ fn main() {
     let encoded: FixedCommandBytes<2> = command.to_fixed_bytes::<2>(CameraId::CAMERA_1).unwrap();
     assert_eq!(encoded.as_slice(), &[0x81, 0xFF]);
     assert_eq!(command.command_kind(), CommandKind::Command);
+    let _raw_freeze_command = ImageFreeze::on();
 }

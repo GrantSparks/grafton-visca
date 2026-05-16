@@ -3,7 +3,10 @@ use grafton_visca::{
     command::{ImageFlipMode, PictureEffectMode},
     mode::Async,
     profiles::GenericVisca,
-    types::{ColorTemp, DynamicRangeLevel, NoiseReduction2DLevel, RedChannel, RedTuning},
+    types::{
+        BrightnessLevel, ColorTemp, ContrastLevel, DynamicRangeLevel, NoiseReduction2DLevel,
+        RedChannel, RedTuning, SharpnessLevel,
+    },
     BacklightCompensationControl, ColorTemperatureControl, Executor, RgbGainControl,
     RgbTuningControl, WideDynamicRangeControl,
 };
@@ -25,6 +28,16 @@ where
     let _ = session
         .image()
         .set_picture_effect(PictureEffectMode::BlackAndWhite);
+    let _ = session
+        .exposure()
+        .set_brightness(BrightnessLevel::new(1).unwrap());
+    let _ = session.image().set_contrast(ContrastLevel::new(1).unwrap());
+    let _ = session
+        .image()
+        .set_sharpness(SharpnessLevel::new(1).unwrap());
+    let _ = session.exposure().brightness();
+    let _ = session.image().contrast();
+    let _ = session.image().sharpness_level();
     let _ = session.white_balance().red_gain();
     let _ = session.image().flip();
 }

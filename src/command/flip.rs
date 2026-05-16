@@ -50,6 +50,26 @@ visca_command! {
     category = CommandCategory::Quick;
 }
 
+impl ImageFreeze {
+    /// Create an image-freeze command.
+    #[must_use]
+    pub const fn new(on: bool) -> Self {
+        Self { on }
+    }
+
+    /// Create a command that freezes the current image frame.
+    #[must_use]
+    pub const fn on() -> Self {
+        Self::new(true)
+    }
+
+    /// Create a command that resumes live image output.
+    #[must_use]
+    pub const fn off() -> Self {
+        Self::new(false)
+    }
+}
+
 #[cfg(test)]
 #[allow(
     clippy::unwrap_used,
