@@ -119,6 +119,10 @@ impl HasTransportConfig for SerialTransport {
     fn transport_config(&self) -> &TransportConfig {
         &self.transport_config
     }
+
+    fn standard_transport_kind(&self) -> Option<crate::camera::TransportKind> {
+        Some(crate::camera::TransportKind::Serial)
+    }
 }
 
 impl BlockingTransport for SerialTransport {

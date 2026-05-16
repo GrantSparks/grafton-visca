@@ -5,6 +5,10 @@
 //! configured TCP, UDP, or serial sessions. `CameraBuilder` is the advanced
 //! escape hatch for integrations that already own a custom transport and need
 //! to attach explicit timeout, retry, camera ID, or executor settings.
+//! When an advanced path receives one of this crate's known TCP, UDP, or serial
+//! transport handles, profile/transport compatibility is still validated before
+//! protocol startup. Custom transports that do not expose a standard transport
+//! kind remain unchecked by design.
 //!
 //! # Supported Runtimes
 //!
@@ -63,6 +67,28 @@ pub struct CameraBuilder<E = ()> {
     executor: Option<Arc<E>>,
     #[cfg(not(feature = "mode-async"))]
     _phantom: std::marker::PhantomData<E>,
+}
+
+fn validate_known_standard_transport<P, T>(transport: &T) -> Result<(), Error>
+where
+    P: Profile,
+    T: crate::transport::HasTransportConfig + ?Sized,
+{
+    let Some(kind) = transport.standard_transport_kind() else {
+        return Ok(());
+    };
+    let Some(profile) = P::PROFILE_ID else {
+        return Ok(());
+    };
+
+    if profile.supports_transport(kind) {
+        Ok(())
+    } else {
+        Err(Error::UnsupportedTransport {
+            profile,
+            transport: kind,
+        })
+    }
 }
 
 /// Builder with async transport attached (BYO transport pattern).
@@ -127,6 +153,8 @@ where
         let executor = self.executor.ok_or_else(|| {
             Error::InvalidState("No executor configured. Use CameraBuilder::with_executor() with a runtime like TokioRuntime::from_current()".into())
         })?;
+
+        validate_known_standard_transport::<P, _>(&self.transport)?;
 
         // Create camera using the profile's envelope type with explicit configs
         let mut camera = Camera::new_async_with_config(
@@ -269,6 +297,8 @@ where
             Error::InvalidState("Executor not configured for async camera".into())
         })?;
 
+        validate_known_standard_transport::<P, _>(&transport)?;
+
         // Create camera using the profile's envelope type with explicit configs
         let mut camera = Camera::<mode::Async, P, T, E>::new_async_with_config(
             transport,
@@ -340,6 +370,8 @@ where
     pub fn open(
         self,
     ) -> Result<crate::BlockingClient<P, crate::transport::BlockingTransportHandle>, Error> {
+        validate_known_standard_transport::<P, _>(&self.transport)?;
+
         // Create camera using the profile's envelope type
         crate::BlockingClient::new(self.transport)
     }
@@ -382,6 +414,8 @@ impl CameraBuilder<()> {
         P: Profile + Default,
         T: BlockingTransport + crate::transport::HasTransportConfig + Send + 'static,
     {
+        validate_known_standard_transport::<P, _>(&transport)?;
+
         // Get retry config from transport for consistency with default behavior
         let retry_config = transport.transport_config().retry_config;
 

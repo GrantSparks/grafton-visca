@@ -96,6 +96,12 @@ compile. Runtime or deserialized `TransportOptions` values are validated against
 the same registry before address resolution, socket creation, serial opening, or
 protocol startup.
 
+Advanced `CameraBuilder` paths are for caller-owned transports. Built-in
+TCP/UDP/serial transport handles still expose their standard transport kind and
+are validated against the same registry before protocol startup. Custom
+transports that do not expose a standard kind remain an intentional unchecked
+escape hatch for simulators and downstream integrations.
+
 | Profile | TCP default | UDP default | Serial | Standard envelope |
 | ------- | ----------: | ----------: | ------ | ----------------- |
 | `PtzOpticsG2` | 5678 | 1259 | yes | Raw VISCA |

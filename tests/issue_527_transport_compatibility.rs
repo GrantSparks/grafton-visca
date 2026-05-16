@@ -3,10 +3,13 @@
 use grafton_visca::{
     camera::{
         profiles::{ProfileId, SonyFR7},
-        CameraConfig, TransportKind, TransportOptions,
+        CameraBuilder, CameraConfig, TransportKind, TransportOptions,
     },
+    transport::Transport,
     Error,
 };
+
+use std::{net::TcpListener, thread};
 
 #[test]
 fn dynamic_tcp_for_sony_fr7_fails_before_address_resolution() {
@@ -41,6 +44,42 @@ fn dynamic_transport_validation_reports_profile_and_transport() {
             transport: TransportKind::Serial,
         }
     ));
+}
+
+#[test]
+fn known_byo_tcp_handle_for_sony_fr7_is_validated_before_protocol_startup() {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind local TCP listener");
+    let addr = listener.local_addr().expect("read local listener address");
+    let accept_thread = thread::spawn(move || {
+        let _ = listener.accept();
+    });
+
+    let transport = Transport::tcp()
+        .address(addr.to_string())
+        .build_blocking()
+        .expect("local TCP transport should connect");
+
+    let result = CameraBuilder::from_transport_handle(transport)
+        .profile::<SonyFR7>()
+        .open();
+
+    let error = match result {
+        Err(error) => error,
+        Ok(camera) => {
+            let _ = camera.close();
+            panic!("SonyFR7 over a known TCP BYO transport should be rejected");
+        }
+    };
+
+    assert!(matches!(
+        error,
+        Error::UnsupportedTransport {
+            profile: ProfileId::SonyFr7,
+            transport: TransportKind::Tcp,
+        }
+    ));
+
+    accept_thread.join().expect("accept thread should finish");
 }
 
 #[test]

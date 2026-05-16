@@ -99,6 +99,15 @@ impl HasTransportConfig for BlockingTransportHandle {
             BlockingTransportHandle::Serial(transport) => transport.transport_config(),
         }
     }
+
+    fn standard_transport_kind(&self) -> Option<crate::camera::TransportKind> {
+        Some(match self {
+            BlockingTransportHandle::Tcp(_) => crate::camera::TransportKind::Tcp,
+            BlockingTransportHandle::Udp(_) => crate::camera::TransportKind::Udp,
+            #[cfg(feature = "transport-serial")]
+            BlockingTransportHandle::Serial(_) => crate::camera::TransportKind::Serial,
+        })
+    }
 }
 
 /// Blocking transport for VISCA communication.
@@ -222,6 +231,13 @@ pub trait BlockingTransport: Send {
 pub trait HasTransportConfig {
     /// Get the transport configuration.
     fn transport_config(&self) -> &TransportConfig;
+
+    /// Return the standard transport kind when this is a built-in TCP, UDP, or
+    /// serial transport. Custom transports leave this as `None` so advanced
+    /// BYO paths remain explicit unchecked escape hatches.
+    fn standard_transport_kind(&self) -> Option<crate::camera::TransportKind> {
+        None
+    }
 }
 
 // Blanket implementation for references, enabling HRTB bounds like `for<'a> &'a T: HasTransportConfig`
@@ -229,5 +245,10 @@ impl<T: HasTransportConfig + ?Sized> HasTransportConfig for &T {
     #[inline]
     fn transport_config(&self) -> &TransportConfig {
         (*self).transport_config()
+    }
+
+    #[inline]
+    fn standard_transport_kind(&self) -> Option<crate::camera::TransportKind> {
+        (*self).standard_transport_kind()
     }
 }

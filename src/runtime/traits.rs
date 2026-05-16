@@ -166,6 +166,15 @@ impl<R: Runtime> HasTransportConfig for TransportHandle<R> {
             TransportHandle::Serial(transport) => transport.transport_config(),
         }
     }
+
+    fn standard_transport_kind(&self) -> Option<crate::camera::TransportKind> {
+        Some(match self {
+            TransportHandle::Tcp(_) => crate::camera::TransportKind::Tcp,
+            TransportHandle::Udp(_) => crate::camera::TransportKind::Udp,
+            #[cfg(feature = "transport-serial-tokio")]
+            TransportHandle::Serial(_) => crate::camera::TransportKind::Serial,
+        })
+    }
 }
 
 // Tokio runtime implementation

@@ -60,4 +60,8 @@ impl<S: AsyncDatagram> HasTransportConfig for Udp<S> {
     fn transport_config(&self) -> &TransportConfig {
         &self.config
     }
+
+    fn standard_transport_kind(&self) -> Option<crate::camera::TransportKind> {
+        Some(crate::camera::TransportKind::Udp)
+    }
 }
