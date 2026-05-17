@@ -1,4 +1,7 @@
-#![cfg(feature = "test-utils")]
+#![cfg(all(
+    feature = "test-utils",
+    any(not(feature = "mode-async"), feature = "runtime-tokio")
+))]
 
 use grafton_visca::{
     command::{

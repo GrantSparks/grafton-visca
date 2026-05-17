@@ -1041,23 +1041,32 @@ mod timeout_manager_tests {
     #[test]
     fn test_deadline() {
         let timeout = Duration::from_millis(100);
-        let deadline = Deadline::from_timeout(timeout);
+        let now = Instant::now();
+        let deadline = Deadline::from_timeout_at(now, timeout);
 
-        assert!(!deadline.is_expired());
+        assert!(!deadline.is_expired_at(now));
         assert_eq!(deadline.timeout, timeout);
+        assert_eq!(deadline.remaining_at(now), timeout);
+        assert_eq!(deadline.elapsed_at(now), Duration::ZERO);
 
-        // Small delay
-        thread::sleep(Duration::from_millis(10));
+        let during_timeout = now + Duration::from_millis(10);
+        assert!(!deadline.is_expired_at(during_timeout));
+        assert_eq!(
+            deadline.remaining_at(during_timeout),
+            Duration::from_millis(90)
+        );
+        assert_eq!(
+            deadline.elapsed_at(during_timeout),
+            Duration::from_millis(10)
+        );
 
-        assert!(!deadline.is_expired());
-        assert!(deadline.remaining() < timeout);
-        assert!(deadline.elapsed() > Duration::ZERO);
+        let at_deadline = now + timeout;
+        assert!(!deadline.is_expired_at(at_deadline));
+        assert_eq!(deadline.remaining_at(at_deadline), Duration::ZERO);
 
-        // Wait for expiration
-        thread::sleep(Duration::from_millis(150));
-
-        assert!(deadline.is_expired());
-        assert_eq!(deadline.remaining(), Duration::ZERO);
+        let after_deadline = at_deadline + Duration::from_nanos(1);
+        assert!(deadline.is_expired_at(after_deadline));
+        assert_eq!(deadline.remaining_at(after_deadline), Duration::ZERO);
     }
 
     #[test]
