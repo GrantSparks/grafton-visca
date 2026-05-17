@@ -1,3 +1,5 @@
+#![allow(unused_imports)]
+
 #[cfg(not(feature = "mode-async"))]
 use grafton_visca::profiles::SonyFR7;
 use grafton_visca::{
