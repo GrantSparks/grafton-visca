@@ -4,7 +4,7 @@
 //! When in 50-step mode, pan/tilt speed values can range from 1-50 for finer control.
 
 use crate::{
-    command::{bytes::builder::ConstCommandBuilder, encode::ViscaCommand, InquiryKind},
+    command::{bytes::builder::ConstCommandBuilder, encode::ViscaCommand},
     error::Error,
     timeout::CommandCategory,
 };
@@ -62,10 +62,6 @@ impl ViscaCommand for SetVariableSpeedMode {
             .push(mode_byte)
             .terminate()
             .build_into(buffer)
-    }
-
-    fn response_kind(&self) -> Option<InquiryKind> {
-        None
     }
 }
 

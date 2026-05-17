@@ -140,9 +140,9 @@ runtime feature detection, or a split trait when a capability is not universal.
 Raw/custom VISCA command APIs are different. They remain available as escape
 hatches for experiments, unsupported firmware variants, and downstream
 integrations. Raw command availability must not be used to justify a built-in
-typed support marker. `ViscaCommand` describes encoding and command/inquiry
-kind only; typed custom inquiries add response typing by implementing
-`ResponseParser`.
+typed support marker. `ViscaCommand` describes encoding plus `CommandBehavior`
+response routing; typed custom inquiries add response typing by implementing
+`ResponseParser` and may receive raw payloads with `InquiryResponseSpec::Raw`.
 
 ## Adding Or Updating A Profile
 

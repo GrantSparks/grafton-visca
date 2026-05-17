@@ -4,7 +4,7 @@
 //! including white balance tuning, saturation, and hue adjustments.
 
 use crate::{
-    command::{bytes::ConstCommandBuilder, encode::ViscaCommand, response::InquiryKind},
+    command::{bytes::ConstCommandBuilder, encode::ViscaCommand},
     error::Error,
     timeout::CommandCategory,
     types::{BlueTuning, HueLevel, RedTuning, SaturationLevel},
@@ -200,10 +200,6 @@ impl ViscaCommand for ColorTemperature {
             }
         }
     }
-
-    fn response_kind(&self) -> Option<InquiryKind> {
-        None
-    }
 }
 
 /// Red Channel Direct command (different from tuning).
@@ -269,10 +265,6 @@ impl ViscaCommand for RedGain {
                 builder.terminate().build_into(buffer)
             }
         }
-    }
-
-    fn response_kind(&self) -> Option<InquiryKind> {
-        None
     }
 }
 
@@ -343,10 +335,6 @@ impl ViscaCommand for BlueGain {
             }
         }
     }
-
-    fn response_kind(&self) -> Option<InquiryKind> {
-        None
-    }
 }
 
 #[cfg(test)]
@@ -383,7 +371,7 @@ mod tests {
             assert_eq!(bytes[6], 0x00);
             assert_eq!(bytes[7], (level + 10) as u8);
             assert_eq!(bytes[8], 0xFF);
-            assert!(cmd.response_kind().is_none());
+            assert!(cmd.behavior().command_kind() == crate::command::CommandKind::Command);
             assert!(matches!(cmd.timeout_class(), CommandCategory::Quick));
         }
 
@@ -407,7 +395,7 @@ mod tests {
             assert_eq!(bytes[6], 0x00);
             assert_eq!(bytes[7], (level + 10) as u8);
             assert_eq!(bytes[8], 0xFF);
-            assert!(cmd.response_kind().is_none());
+            assert!(cmd.behavior().command_kind() == crate::command::CommandKind::Command);
             assert!(matches!(cmd.timeout_class(), CommandCategory::Quick));
         }
 
@@ -440,7 +428,7 @@ mod tests {
                     VISCA_TERMINATOR
                 ]
             );
-            assert!(cmd.response_kind().is_none());
+            assert!(cmd.behavior().command_kind() == crate::command::CommandKind::Command);
             assert!(matches!(cmd.timeout_class(), CommandCategory::Quick));
         }
 
@@ -472,7 +460,7 @@ mod tests {
                     VISCA_TERMINATOR
                 ]
             );
-            assert!(cmd.response_kind().is_none());
+            assert!(cmd.behavior().command_kind() == crate::command::CommandKind::Command);
             assert!(matches!(cmd.timeout_class(), CommandCategory::Quick));
         }
 

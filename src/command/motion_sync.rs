@@ -6,8 +6,7 @@
 
 use crate::{
     command::{
-        bytes::builder::ConstCommandBuilder, encode::ViscaCommand, InquiryKind, MotionSyncMode,
-        MotionSyncPreset,
+        bytes::builder::ConstCommandBuilder, encode::ViscaCommand, MotionSyncMode, MotionSyncPreset,
     },
     error::Error,
     timeout::CommandCategory,
@@ -47,10 +46,6 @@ impl ViscaCommand for SetMotionSyncMode {
             .push(mode_byte)
             .terminate()
             .build_into(buffer)
-    }
-
-    fn response_kind(&self) -> Option<InquiryKind> {
-        None // Command response, not inquiry
     }
 }
 
@@ -112,10 +107,6 @@ impl ViscaCommand for SetMotionSyncPreset {
             .push(self.speed)
             .terminate()
             .build_into(buffer)
-    }
-
-    fn response_kind(&self) -> Option<InquiryKind> {
-        None // Command response, not inquiry
     }
 }
 

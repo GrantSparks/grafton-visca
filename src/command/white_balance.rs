@@ -251,13 +251,13 @@ mod tests {
         let cmd = WhiteBalanceCommand {
             mode: WhiteBalanceMode::Auto,
         };
-        assert!(cmd.response_kind().is_none());
+        assert!(cmd.behavior().command_kind() == crate::command::CommandKind::Command);
 
         // Test with different modes
         let cmd = WhiteBalanceCommand {
             mode: WhiteBalanceMode::ColorTemperature,
         };
-        assert!(cmd.response_kind().is_none());
+        assert!(cmd.behavior().command_kind() == crate::command::CommandKind::Command);
     }
 
     #[test]

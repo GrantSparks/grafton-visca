@@ -5,6 +5,7 @@
 use super::*;
 use crate::command::bytes::VISCA_TERMINATOR;
 use crate::command::encode::EncodedCommand;
+use crate::command::{CommandBehavior, InquiryKind, InquiryResponseSpec};
 use crate::transport::{BackoffStrategy, RetryAttempt, RetryConfig};
 use crate::CameraId;
 use crate::Error;
@@ -22,7 +23,7 @@ fn cmd_id(value: u32) -> CommandId {
 #[derive(Debug, Clone)]
 struct TestCommandQuick {
     bytes: Vec<u8>,
-    response_type: Option<InquiryKind>,
+    behavior: CommandBehavior,
 }
 
 impl crate::command::encode::ViscaCommand for TestCommandQuick {
@@ -35,15 +36,15 @@ impl crate::command::encode::ViscaCommand for TestCommandQuick {
         Ok(len)
     }
 
-    fn response_kind(&self) -> Option<InquiryKind> {
-        self.response_type
+    fn behavior(&self) -> CommandBehavior {
+        self.behavior
     }
 }
 
 #[derive(Debug, Clone)]
 struct TestCommandMovement {
     bytes: Vec<u8>,
-    response_type: Option<InquiryKind>,
+    behavior: CommandBehavior,
 }
 
 impl crate::command::encode::ViscaCommand for TestCommandMovement {
@@ -56,8 +57,8 @@ impl crate::command::encode::ViscaCommand for TestCommandMovement {
         Ok(len)
     }
 
-    fn response_kind(&self) -> Option<InquiryKind> {
-        self.response_type
+    fn behavior(&self) -> CommandBehavior {
+        self.behavior
     }
 }
 
@@ -68,27 +69,21 @@ fn create_test_command(
     category: CommandCategory,
     camera_id: CameraId,
 ) -> Arc<EncodedCommand> {
+    let behavior = response_type.map_or(CommandBehavior::Command, |kind| {
+        CommandBehavior::Inquiry(InquiryResponseSpec::Builtin(kind))
+    });
     let command = match category {
         CommandCategory::Quick => {
-            let cmd = TestCommandQuick {
-                bytes,
-                response_type,
-            };
+            let cmd = TestCommandQuick { bytes, behavior };
             EncodedCommand::new(&cmd, camera_id).unwrap()
         }
         CommandCategory::Movement => {
-            let cmd = TestCommandMovement {
-                bytes,
-                response_type,
-            };
+            let cmd = TestCommandMovement { bytes, behavior };
             EncodedCommand::new(&cmd, camera_id).unwrap()
         }
         _ => {
             // Default to Quick for other categories in tests
-            let cmd = TestCommandQuick {
-                bytes,
-                response_type,
-            };
+            let cmd = TestCommandQuick { bytes, behavior };
             EncodedCommand::new(&cmd, camera_id).unwrap()
         }
     };
@@ -113,8 +108,8 @@ impl crate::command::encode::ViscaCommand for TestInquiryHelper {
         Ok(5)
     }
 
-    fn response_kind(&self) -> Option<InquiryKind> {
-        Some(InquiryKind::Power)
+    fn behavior(&self) -> CommandBehavior {
+        CommandBehavior::Inquiry(InquiryResponseSpec::Builtin(InquiryKind::Power))
     }
 }
 
@@ -239,8 +234,8 @@ fn test_inquiry_does_not_consume_sockets() {
             buffer[4] = VISCA_TERMINATOR;
             Ok(5)
         }
-        fn response_kind(&self) -> Option<InquiryKind> {
-            Some(InquiryKind::Power)
+        fn behavior(&self) -> CommandBehavior {
+            CommandBehavior::Inquiry(InquiryResponseSpec::Builtin(InquiryKind::Power))
         }
     }
     impl std::fmt::Debug for TestInquiry {
@@ -266,9 +261,6 @@ fn test_inquiry_does_not_consume_sockets() {
             buffer[5] = VISCA_TERMINATOR;
             Ok(6)
         }
-        fn response_kind(&self) -> Option<InquiryKind> {
-            None
-        }
     }
     impl std::fmt::Debug for TestCmd1 {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -289,9 +281,6 @@ fn test_inquiry_does_not_consume_sockets() {
             buffer[4] = 0x03;
             buffer[5] = VISCA_TERMINATOR;
             Ok(6)
-        }
-        fn response_kind(&self) -> Option<InquiryKind> {
-            None
         }
     }
     impl std::fmt::Debug for TestCmd2 {
@@ -368,8 +357,8 @@ fn test_inquiry_reply_handling() {
             buffer[4] = VISCA_TERMINATOR;
             Ok(5)
         }
-        fn response_kind(&self) -> Option<InquiryKind> {
-            Some(InquiryKind::Power)
+        fn behavior(&self) -> CommandBehavior {
+            CommandBehavior::Inquiry(InquiryResponseSpec::Builtin(InquiryKind::Power))
         }
     }
 
@@ -439,8 +428,8 @@ fn test_raw_visca_inquiry_ordering() {
             buffer[4] = VISCA_TERMINATOR;
             Ok(5)
         }
-        fn response_kind(&self) -> Option<InquiryKind> {
-            Some(InquiryKind::Power)
+        fn behavior(&self) -> CommandBehavior {
+            CommandBehavior::Inquiry(InquiryResponseSpec::Builtin(InquiryKind::Power))
         }
     }
 
@@ -457,8 +446,8 @@ fn test_raw_visca_inquiry_ordering() {
             buffer[4] = VISCA_TERMINATOR;
             Ok(5)
         }
-        fn response_kind(&self) -> Option<InquiryKind> {
-            Some(InquiryKind::ZoomPosition)
+        fn behavior(&self) -> CommandBehavior {
+            CommandBehavior::Inquiry(InquiryResponseSpec::Builtin(InquiryKind::ZoomPosition))
         }
     }
 
@@ -475,8 +464,8 @@ fn test_raw_visca_inquiry_ordering() {
             buffer[4] = VISCA_TERMINATOR;
             Ok(5)
         }
-        fn response_kind(&self) -> Option<InquiryKind> {
-            Some(InquiryKind::Power)
+        fn behavior(&self) -> CommandBehavior {
+            CommandBehavior::Inquiry(InquiryResponseSpec::Builtin(InquiryKind::Power))
         }
     }
 
@@ -543,9 +532,6 @@ fn test_sony_sequence_attribution() {
             buffer[5] = VISCA_TERMINATOR;
             Ok(6)
         }
-        fn response_kind(&self) -> Option<InquiryKind> {
-            None
-        }
     }
 
     #[derive(Debug, Clone)]
@@ -561,9 +547,6 @@ fn test_sony_sequence_attribution() {
             buffer[4] = 0x03;
             buffer[5] = VISCA_TERMINATOR;
             Ok(6)
-        }
-        fn response_kind(&self) -> Option<InquiryKind> {
-            None
         }
     }
 
@@ -1742,10 +1725,6 @@ fn test_command_kind_preserved_through_retries() {
             buffer[5] = VISCA_TERMINATOR;
             Ok(6)
         }
-
-        fn response_kind(&self) -> Option<InquiryKind> {
-            None // This is a command, not an inquiry
-        }
     }
 
     let test_command = Arc::new(EncodedCommand::new(&TestCommand, CameraId::CAMERA_1).unwrap());
@@ -1799,8 +1778,8 @@ fn test_command_kind_preserved_through_retries() {
             Ok(6)
         }
 
-        fn response_kind(&self) -> Option<InquiryKind> {
-            Some(InquiryKind::Power) // This is an inquiry
+        fn behavior(&self) -> CommandBehavior {
+            CommandBehavior::Inquiry(InquiryResponseSpec::Builtin(InquiryKind::Power))
         }
     }
 
@@ -1847,21 +1826,18 @@ fn test_inquiry_bypasses_socket_gate() {
     // Create two commands and one inquiry
     let command1 = Arc::new(EncodedCommand {
         payload: SmallVec::from_slice(&[0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]),
-        kind: CommandKind::Command,
+        behavior: CommandBehavior::Command,
         category: CommandCategory::Movement,
-        response_type: None,
     });
     let command2 = Arc::new(EncodedCommand {
         payload: SmallVec::from_slice(&[0x01, 0x04, 0x00, 0x03, VISCA_TERMINATOR]),
-        kind: CommandKind::Command,
+        behavior: CommandBehavior::Command,
         category: CommandCategory::Movement,
-        response_type: None,
     });
     let inquiry = Arc::new(EncodedCommand {
         payload: SmallVec::from_slice(&[0x01, 0x09, 0x04, 0x47, VISCA_TERMINATOR]),
-        kind: CommandKind::Inquiry,
+        behavior: CommandBehavior::Inquiry(InquiryResponseSpec::Builtin(InquiryKind::ZoomPosition)),
         category: CommandCategory::Quick,
-        response_type: Some(InquiryKind::ZoomPosition),
     });
 
     // Queue both commands
@@ -1957,6 +1933,43 @@ fn test_inquiry_bypasses_socket_gate() {
 }
 
 #[test]
+fn test_scheduler_accepts_raw_inquiry_response_spec() {
+    let mut core = SchedulerCore::new(TimeoutConfig::default());
+    let now = Instant::now();
+    let raw_inquiry = Arc::new(EncodedCommand {
+        payload: SmallVec::from_slice(&[0x81, 0x09, 0x7E, 0x55, VISCA_TERMINATOR]),
+        behavior: CommandBehavior::Inquiry(InquiryResponseSpec::Raw),
+        category: CommandCategory::Quick,
+    });
+
+    core.queue_command(PendingCommand {
+        id: cmd_id(530),
+        command: raw_inquiry.clone(),
+        priority: Priority::Normal,
+        camera_id: CameraId::CAMERA_1,
+        submitted_at: now,
+    });
+
+    let pending = core
+        .next_item_to_send(now)
+        .expect("raw inquiry should be queued for send");
+    assert_eq!(pending.kind(), CommandKind::Inquiry);
+    core.start_inquiry(
+        pending.id,
+        pending.command,
+        pending.priority,
+        pending.camera_id,
+        now,
+    );
+
+    assert_eq!(
+        core.get_inquiry_response_spec(cmd_id(530)),
+        Some(InquiryResponseSpec::Raw)
+    );
+    assert!(core.is_command_pending(cmd_id(530)));
+}
+
+#[test]
 fn test_inquiry_pipeline_limit() {
     // Test that inquiries respect the max_inquiries_inflight limit
     let mut core = SchedulerCore::new(TimeoutConfig::default());
@@ -1965,9 +1978,8 @@ fn test_inquiry_pipeline_limit() {
 
     let inquiry = Arc::new(EncodedCommand {
         payload: SmallVec::from_slice(&[0x01, 0x09, 0x04, 0x47, VISCA_TERMINATOR]),
-        kind: CommandKind::Inquiry,
+        behavior: CommandBehavior::Inquiry(InquiryResponseSpec::Builtin(InquiryKind::ZoomPosition)),
         category: CommandCategory::Quick,
-        response_type: Some(InquiryKind::ZoomPosition),
     });
 
     // Queue 3 inquiries
@@ -2031,15 +2043,13 @@ fn test_mixed_priority_queue_ordering() {
 
     let command = Arc::new(EncodedCommand {
         payload: SmallVec::from_slice(&[0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]),
-        kind: CommandKind::Command,
+        behavior: CommandBehavior::Command,
         category: CommandCategory::Movement,
-        response_type: None,
     });
     let inquiry = Arc::new(EncodedCommand {
         payload: SmallVec::from_slice(&[0x01, 0x09, 0x04, 0x47, VISCA_TERMINATOR]),
-        kind: CommandKind::Inquiry,
+        behavior: CommandBehavior::Inquiry(InquiryResponseSpec::Builtin(InquiryKind::ZoomPosition)),
         category: CommandCategory::Quick,
-        response_type: Some(InquiryKind::ZoomPosition),
     });
 
     // Queue items with different priorities
@@ -2106,15 +2116,13 @@ fn test_high_priority_command_not_starved_by_normal_inquiries() {
 
     let command = Arc::new(EncodedCommand {
         payload: SmallVec::from_slice(&[0x01, 0x04, 0x3F, 0x01, 0x05, VISCA_TERMINATOR]),
-        kind: CommandKind::Command,
+        behavior: CommandBehavior::Command,
         category: CommandCategory::Movement,
-        response_type: None,
     });
     let inquiry = Arc::new(EncodedCommand {
         payload: SmallVec::from_slice(&[0x01, 0x09, 0x04, 0x47, VISCA_TERMINATOR]),
-        kind: CommandKind::Inquiry,
+        behavior: CommandBehavior::Inquiry(InquiryResponseSpec::Builtin(InquiryKind::ZoomPosition)),
         category: CommandCategory::Quick,
-        response_type: Some(InquiryKind::ZoomPosition),
     });
 
     // Simulate a burst of Normal-priority polling inquiries (typical background load)
@@ -2163,15 +2171,13 @@ fn test_equal_priority_prefers_inquiry_for_socket_efficiency() {
 
     let command = Arc::new(EncodedCommand {
         payload: SmallVec::from_slice(&[0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]),
-        kind: CommandKind::Command,
+        behavior: CommandBehavior::Command,
         category: CommandCategory::Movement,
-        response_type: None,
     });
     let inquiry = Arc::new(EncodedCommand {
         payload: SmallVec::from_slice(&[0x01, 0x09, 0x04, 0x47, VISCA_TERMINATOR]),
-        kind: CommandKind::Inquiry,
+        behavior: CommandBehavior::Inquiry(InquiryResponseSpec::Builtin(InquiryKind::ZoomPosition)),
         category: CommandCategory::Quick,
-        response_type: Some(InquiryKind::ZoomPosition),
     });
 
     // Queue command first, then inquiry (both Normal priority)
@@ -2217,15 +2223,13 @@ fn test_immediate_error_without_ack_maps_to_most_recent_pending_command() {
     let camera_id = CameraId::CAMERA_1;
     let cmd1 = Arc::new(EncodedCommand {
         payload: SmallVec::from_slice(&[0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]),
-        kind: CommandKind::Command,
+        behavior: CommandBehavior::Command,
         category: CommandCategory::Quick,
-        response_type: None,
     });
     let cmd2 = Arc::new(EncodedCommand {
         payload: SmallVec::from_slice(&[0x81, 0x01, 0x04, 0x10, 0x05, VISCA_TERMINATOR]), // One Push Trigger
-        kind: CommandKind::Command,
+        behavior: CommandBehavior::Command,
         category: CommandCategory::Quick,
-        response_type: None,
     });
 
     core.register_pending_ack(cmd_id(1), cmd1, Priority::Normal, camera_id, now);
@@ -2270,18 +2274,16 @@ fn test_error_without_socket_prefers_inflight_inquiry() {
     // Start an inquiry (front of FIFO)
     let inq = Arc::new(EncodedCommand {
         payload: SmallVec::from_slice(&[0x81, 0x09, 0x04, 0x35, VISCA_TERMINATOR]), // WB Mode Inquiry
-        kind: CommandKind::Inquiry,
-        category: CommandCategory::Quick,
-        response_type: Some(InquiryKind::Power), // any kind
+        behavior: CommandBehavior::Inquiry(InquiryResponseSpec::Builtin(InquiryKind::Power)),
+        category: CommandCategory::Quick, // any kind
     });
     core.start_inquiry(cmd_id(42), inq, Priority::Normal, camera_id, now);
 
     // Also have a pending ACK command in the background
     let cmd = Arc::new(EncodedCommand {
         payload: SmallVec::from_slice(&[0x81, 0x01, 0x04, 0x00, 0x03, VISCA_TERMINATOR]),
-        kind: CommandKind::Command,
+        behavior: CommandBehavior::Command,
         category: CommandCategory::Movement,
-        response_type: None,
     });
     core.register_pending_ack(cmd_id(99), cmd, Priority::Normal, camera_id, now);
 
@@ -2681,9 +2683,8 @@ fn test_inquiry_spacing_blocks_too_fast_inquiries() {
 
     let inquiry = Arc::new(EncodedCommand {
         payload: SmallVec::from_slice(&[0x01, 0x09, 0x04, 0x47, VISCA_TERMINATOR]),
-        kind: CommandKind::Inquiry,
+        behavior: CommandBehavior::Inquiry(InquiryResponseSpec::Builtin(InquiryKind::ZoomPosition)),
         category: CommandCategory::Quick,
-        response_type: Some(InquiryKind::ZoomPosition),
     });
 
     // Queue 2 inquiries
@@ -2750,16 +2751,14 @@ fn test_inquiry_spacing_allows_commands_while_blocking() {
 
     let inquiry = Arc::new(EncodedCommand {
         payload: SmallVec::from_slice(&[0x01, 0x09, 0x04, 0x47, VISCA_TERMINATOR]),
-        kind: CommandKind::Inquiry,
+        behavior: CommandBehavior::Inquiry(InquiryResponseSpec::Builtin(InquiryKind::ZoomPosition)),
         category: CommandCategory::Quick,
-        response_type: Some(InquiryKind::ZoomPosition),
     });
 
     let command = Arc::new(EncodedCommand {
         payload: SmallVec::from_slice(&[0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]),
-        kind: CommandKind::Command,
+        behavior: CommandBehavior::Command,
         category: CommandCategory::Movement,
-        response_type: None,
     });
 
     // Send first inquiry
@@ -2818,9 +2817,8 @@ fn test_inquiry_spacing_zero_means_no_delay() {
 
     let inquiry = Arc::new(EncodedCommand {
         payload: SmallVec::from_slice(&[0x01, 0x09, 0x04, 0x47, VISCA_TERMINATOR]),
-        kind: CommandKind::Inquiry,
+        behavior: CommandBehavior::Inquiry(InquiryResponseSpec::Builtin(InquiryKind::ZoomPosition)),
         category: CommandCategory::Quick,
-        response_type: Some(InquiryKind::ZoomPosition),
     });
 
     // Queue 3 inquiries
@@ -3415,9 +3413,8 @@ fn test_late_inquiry_reply_sequenced() {
 
     let inquiry = Arc::new(EncodedCommand {
         payload: SmallVec::from_slice(&[0x81, 0x09, 0x04, 0x47, VISCA_TERMINATOR]),
-        kind: CommandKind::Inquiry,
+        behavior: CommandBehavior::Inquiry(InquiryResponseSpec::Builtin(InquiryKind::ZoomPosition)),
         category: CommandCategory::Quick,
-        response_type: Some(InquiryKind::ZoomPosition),
     });
 
     // Start an inquiry (adds to FIFO)

@@ -10,7 +10,7 @@ use crate::{
     camera::Camera,
     camera_id::CameraId,
     capabilities::Profile,
-    command::{CommandKind, InquiryKind, ResponseParser, ViscaCommand},
+    command::{CommandBehavior, CommandKind, InquiryResponseSpec, ResponseParser, ViscaCommand},
     error::Error,
     mode::Mode,
     timeout::CommandCategory,
@@ -67,12 +67,11 @@ impl ViscaCommand for RawBytesRef<'_> {
         Ok(len)
     }
 
-    fn response_kind(&self) -> Option<InquiryKind> {
-        None
-    }
-
-    fn command_kind(&self) -> CommandKind {
-        self.kind
+    fn behavior(&self) -> CommandBehavior {
+        match self.kind {
+            CommandKind::Command => CommandBehavior::Command,
+            CommandKind::Inquiry => CommandBehavior::Inquiry(InquiryResponseSpec::Raw),
+        }
     }
 }
 

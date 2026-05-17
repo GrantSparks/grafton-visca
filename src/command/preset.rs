@@ -4,7 +4,7 @@
 //! `PtzOptics` G2 cameras support up to 128 presets (0-127).
 
 use crate::{
-    command::{bytes::builder::ConstCommandBuilder, encode::ViscaCommand, InquiryKind},
+    command::{bytes::builder::ConstCommandBuilder, encode::ViscaCommand},
     error::Error,
     timeout::CommandCategory,
 };
@@ -79,10 +79,6 @@ impl ViscaCommand for PresetRecallSpeedCommand {
             .terminate()
             .build_into(buffer)
     }
-
-    fn response_kind(&self) -> Option<InquiryKind> {
-        None
-    }
 }
 
 /// Command to manage camera presets.
@@ -113,10 +109,6 @@ impl ViscaCommand for PresetCommand {
             .push(self.preset_number.value())
             .terminate()
             .build_into(buffer)
-    }
-
-    fn response_kind(&self) -> Option<InquiryKind> {
-        None
     }
 }
 
@@ -213,7 +205,7 @@ mod tests {
             preset_number: PresetNumber::new(0)
                 .unwrap_or_else(|e| panic!("Valid preset number: {e:?}")),
         };
-        assert!(cmd.response_kind().is_none());
+        assert!(cmd.behavior().command_kind() == crate::command::CommandKind::Command);
     }
 
     #[test]

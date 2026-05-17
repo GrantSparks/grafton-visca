@@ -641,7 +641,10 @@ where
         use std::sync::Arc;
 
         let camera_id = self.camera_id;
-        let is_inquiry = matches!(command.command_kind(), crate::command::CommandKind::Inquiry);
+        let is_inquiry = matches!(
+            command.behavior().command_kind(),
+            crate::command::CommandKind::Inquiry
+        );
 
         // Eager preparation: encode the command before creating the future.
         // This eliminates the Clone requirement by capturing Arc<EncodedCommand>
@@ -738,7 +741,10 @@ where
         use std::sync::Arc;
 
         let camera_id = self.camera_id;
-        let is_inquiry = matches!(command.command_kind(), crate::command::CommandKind::Inquiry);
+        let is_inquiry = matches!(
+            command.behavior().command_kind(),
+            crate::command::CommandKind::Inquiry
+        );
         let prepared = EncodedCommand::new(command, camera_id);
         let runtime = self.runtime.clone();
 
@@ -799,7 +805,10 @@ where
         use std::sync::Arc;
 
         let camera_id = self.camera_id;
-        let is_inquiry = matches!(command.command_kind(), crate::command::CommandKind::Inquiry);
+        let is_inquiry = matches!(
+            command.behavior().command_kind(),
+            crate::command::CommandKind::Inquiry
+        );
 
         if is_inquiry {
             // Inquiries cannot be canceled - reject with clear error

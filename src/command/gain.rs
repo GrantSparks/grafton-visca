@@ -4,7 +4,7 @@
 //! including manual gain adjustment, gain limit control, and anti-flicker settings.
 
 use crate::{
-    command::{bytes::builder::ConstCommandBuilder, encode::ViscaCommand, response::InquiryKind},
+    command::{bytes::builder::ConstCommandBuilder, encode::ViscaCommand},
     error::Error,
     timeout::CommandCategory,
     types::{GainLevel, GainLimit},
@@ -75,10 +75,6 @@ impl ViscaCommand for Gain {
                 .build_into(buffer)
             }
         }
-    }
-
-    fn response_kind(&self) -> Option<InquiryKind> {
-        None
     }
 }
 
@@ -206,19 +202,25 @@ mod tests {
 
     #[test]
     fn test_response_types() {
-        assert!(Gain::Reset.response_kind().is_none());
-        assert!(Gain::Up.response_kind().is_none());
-        assert!(Gain::Down.response_kind().is_none());
-        assert!(Gain::SetValue(
-            GainLevel::new(0x05).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
-        )
-        .response_kind()
-        .is_none());
-        assert!(GainLimitCommand::new(
-            GainLimit::new(0x03).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
-        )
-        .response_kind()
-        .is_none());
+        assert!(Gain::Reset.behavior().command_kind() == crate::command::CommandKind::Command);
+        assert!(Gain::Up.behavior().command_kind() == crate::command::CommandKind::Command);
+        assert!(Gain::Down.behavior().command_kind() == crate::command::CommandKind::Command);
+        assert!(
+            Gain::SetValue(
+                GainLevel::new(0x05).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
+            )
+            .behavior()
+            .command_kind()
+                == crate::command::CommandKind::Command
+        );
+        assert!(
+            GainLimitCommand::new(
+                GainLimit::new(0x03).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
+            )
+            .behavior()
+            .command_kind()
+                == crate::command::CommandKind::Command
+        );
     }
 
     #[test]

@@ -630,10 +630,6 @@ mod tests {
                 buffer[..len].copy_from_slice(&self.bytes);
                 Ok(len)
             }
-
-            fn response_kind(&self) -> Option<crate::command::response::InquiryKind> {
-                None
-            }
         }
 
         let camera_id = CameraId::CAMERA_1;
@@ -754,7 +750,11 @@ mod tests {
 
     #[test]
     fn test_blocking_decode_error_in_data_reply_fails_immediately() {
-        use crate::{command::bytes::VISCA_TERMINATOR, command::response::InquiryKind};
+        use crate::{
+            command::bytes::VISCA_TERMINATOR,
+            command::response::InquiryKind,
+            command::{CommandBehavior, InquiryResponseSpec},
+        };
 
         #[derive(Debug, Clone)]
         struct PowerInquiry;
@@ -774,8 +774,8 @@ mod tests {
                 Ok(5)
             }
 
-            fn response_kind(&self) -> Option<InquiryKind> {
-                Some(InquiryKind::Power)
+            fn behavior(&self) -> CommandBehavior {
+                CommandBehavior::Inquiry(InquiryResponseSpec::Builtin(InquiryKind::Power))
             }
         }
 
@@ -835,10 +835,6 @@ mod tests {
                 let len = self.bytes.len();
                 buffer[..len].copy_from_slice(&self.bytes);
                 Ok(len)
-            }
-
-            fn response_kind(&self) -> Option<crate::command::response::InquiryKind> {
-                None
             }
         }
 
@@ -913,10 +909,6 @@ mod tests {
                 let len = self.bytes.len();
                 buffer[..len].copy_from_slice(&self.bytes);
                 Ok(len)
-            }
-
-            fn response_kind(&self) -> Option<crate::command::response::InquiryKind> {
-                None
             }
         }
 
@@ -1101,10 +1093,6 @@ mod tests {
                 buffer[..len].copy_from_slice(&self.bytes);
                 Ok(len)
             }
-
-            fn response_kind(&self) -> Option<crate::command::response::InquiryKind> {
-                None
-            }
         }
 
         // Queue a command to create scheduler state
@@ -1225,10 +1213,6 @@ mod tests {
                 buffer[..len].copy_from_slice(&self.bytes);
                 Ok(len)
             }
-
-            fn response_kind(&self) -> Option<crate::command::response::InquiryKind> {
-                None
-            }
         }
 
         let mut transport = FailingStreamTransport::new();
@@ -1304,10 +1288,6 @@ mod tests {
                 let len = self.bytes.len();
                 buffer[..len].copy_from_slice(&self.bytes);
                 Ok(len)
-            }
-
-            fn response_kind(&self) -> Option<crate::command::response::InquiryKind> {
-                None
             }
         }
 
@@ -1398,10 +1378,6 @@ mod tests {
                 let len = self.bytes.len();
                 buffer[..len].copy_from_slice(&self.bytes);
                 Ok(len)
-            }
-
-            fn response_kind(&self) -> Option<crate::command::response::InquiryKind> {
-                None
             }
         }
 

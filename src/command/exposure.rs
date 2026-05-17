@@ -6,7 +6,7 @@
 use grafton_visca_macros::ViscaEnum;
 
 use crate::{
-    command::{encode::ViscaCommand, response::InquiryKind},
+    command::encode::ViscaCommand,
     error::Error,
     timeout::CommandCategory,
     types::{
@@ -125,10 +125,6 @@ impl ViscaCommand for ExposureCompensation {
             }
         }
     }
-
-    fn response_kind(&self) -> Option<InquiryKind> {
-        None
-    }
 }
 
 visca_command! {
@@ -209,10 +205,6 @@ impl ViscaCommand for Iris {
             }
         }
     }
-
-    fn response_kind(&self) -> Option<InquiryKind> {
-        None
-    }
 }
 
 /// Commands for controlling shutter speed values.
@@ -269,10 +261,6 @@ impl ViscaCommand for Shutter {
                     .build_into(buffer)
             }
         }
-    }
-
-    fn response_kind(&self) -> Option<InquiryKind> {
-        None
     }
 }
 
@@ -337,10 +325,6 @@ impl ViscaCommand for Brightness {
                     .build_into(buffer)
             }
         }
-    }
-
-    fn response_kind(&self) -> Option<InquiryKind> {
-        None
     }
 }
 
@@ -1114,20 +1098,32 @@ mod tests {
 
     #[test]
     fn test_response_types() {
-        assert!(ExposureCommand {
-            mode: ExposureMode::Auto
-        }
-        .response_kind()
-        .is_none());
-        assert!(ExposureCompensation::On.response_kind().is_none());
-        assert!(DynamicRange::new(
-            DynamicRangeLevel::new(5).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
-        )
-        .response_kind()
-        .is_none());
-        assert!(Iris::Reset.response_kind().is_none());
-        assert!(Shutter::Reset.response_kind().is_none());
-        assert!(Brightness::Reset.response_kind().is_none());
+        assert!(
+            ExposureCommand {
+                mode: ExposureMode::Auto
+            }
+            .behavior()
+            .command_kind()
+                == crate::command::CommandKind::Command
+        );
+        assert!(
+            ExposureCompensation::On.behavior().command_kind()
+                == crate::command::CommandKind::Command
+        );
+        assert!(
+            DynamicRange::new(
+                DynamicRangeLevel::new(5)
+                    .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
+            )
+            .behavior()
+            .command_kind()
+                == crate::command::CommandKind::Command
+        );
+        assert!(Iris::Reset.behavior().command_kind() == crate::command::CommandKind::Command);
+        assert!(Shutter::Reset.behavior().command_kind() == crate::command::CommandKind::Command);
+        assert!(
+            Brightness::Reset.behavior().command_kind() == crate::command::CommandKind::Command
+        );
     }
 
     visca_test!(

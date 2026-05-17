@@ -50,7 +50,7 @@ The macro generates:
 - `ViscaCommand` trait implementation
 - exact `MAX_SIZE`
 - `write_into()` for caller-provided buffers
-- `response_kind()` returning the expected `InquiryKind`
+- `behavior()` returning built-in or raw inquiry response routing metadata
 - `parse_response()` method when parser is specified
 - `ResponseParser` implementation when typed response attributes are specified
 
@@ -216,7 +216,7 @@ impl ZoomPosition {
 ## Requirements
 
 - Rust 1.80 or later
-- The `response` attribute in `ViscaInquiry` must reference existing `InquiryKind` variants
+- The `response` attribute in `ViscaInquiry` must reference existing `InquiryKind` variants, or `Raw` for a raw custom inquiry whose `ResponseParser` is implemented manually
 - Downstream `ViscaInquiry` derives use the standard five-byte VISCA inquiry form
 - Enums using `ViscaEnum` must have explicit discriminant values
 - All discriminant values must be unique and valid u8 values (0-255)

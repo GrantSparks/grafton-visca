@@ -1,14 +1,14 @@
 use grafton_visca::{
     command::{
-        CommandKind, FixedCommandBytes, ImageFreeze, InquiryKind, Response, ResponseParser,
-        ViscaCommand,
+        CommandBehavior, CommandKind, FixedCommandBytes, ImageFreeze, InquiryResponseSpec,
+        Response, ResponseParser, ViscaCommand,
     },
     timeout::CommandCategory,
     CameraId, Error,
 };
 
 struct CustomCommand;
-struct CustomPowerInquiry;
+struct VendorStatusInquiry;
 
 impl ViscaCommand for CustomCommand {
     const MAX_SIZE: usize = 2;
@@ -26,13 +26,9 @@ impl ViscaCommand for CustomCommand {
         buffer[1] = 0xFF;
         Ok(Self::MAX_SIZE)
     }
-
-    fn response_kind(&self) -> Option<InquiryKind> {
-        None
-    }
 }
 
-impl ViscaCommand for CustomPowerInquiry {
+impl ViscaCommand for VendorStatusInquiry {
     const MAX_SIZE: usize = 5;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
@@ -48,17 +44,21 @@ impl ViscaCommand for CustomPowerInquiry {
         Ok(bytes.len())
     }
 
-    fn response_kind(&self) -> Option<InquiryKind> {
-        Some(InquiryKind::Power)
+    fn behavior(&self) -> CommandBehavior {
+        CommandBehavior::Inquiry(InquiryResponseSpec::Raw)
     }
 }
 
-impl ResponseParser for CustomPowerInquiry {
-    type Response = bool;
+impl ResponseParser for VendorStatusInquiry {
+    type Response = u8;
 
     fn from_response(resp: Response) -> Result<Self::Response, Error> {
         match resp {
-            Response::Inquiry(grafton_visca::command::InquiryData::Power { on }) => Ok(on),
+            Response::RawInquiry(payload) => payload
+                .as_slice()
+                .first()
+                .copied()
+                .ok_or(Error::UnexpectedResponseType),
             Response::Error(error) => Err(error),
             _ => Err(Error::UnexpectedResponseType),
         }
@@ -69,7 +69,14 @@ fn main() {
     let command = CustomCommand;
     let encoded: FixedCommandBytes<2> = command.to_fixed_bytes::<2>(CameraId::CAMERA_1).unwrap();
     assert_eq!(encoded.as_slice(), &[0x81, 0xFF]);
-    assert_eq!(command.command_kind(), CommandKind::Command);
-    assert_eq!(CustomPowerInquiry.command_kind(), CommandKind::Inquiry);
+    assert_eq!(command.behavior().command_kind(), CommandKind::Command);
+    assert_eq!(
+        VendorStatusInquiry.behavior(),
+        CommandBehavior::Inquiry(InquiryResponseSpec::Raw)
+    );
+    assert_eq!(
+        VendorStatusInquiry.behavior().command_kind(),
+        CommandKind::Inquiry
+    );
     let _raw_freeze_command = ImageFreeze::on();
 }

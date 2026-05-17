@@ -2,11 +2,40 @@
 
 use std::borrow::Cow;
 
+use smallvec::SmallVec;
+
 use crate::{
     command::inquiry_structs::{InquiryData, InquiryKind},
     error::Error,
     ViscaSocket,
 };
+
+const INLINE_RAW_INQUIRY_PAYLOAD_SIZE: usize = 24;
+
+/// Raw VISCA data payload returned by a custom inquiry.
+///
+/// The payload is the bytes after the VISCA data-reply header (`90 50`) and
+/// before the frame terminator (`FF`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RawInquiryPayload {
+    bytes: SmallVec<[u8; INLINE_RAW_INQUIRY_PAYLOAD_SIZE]>,
+}
+
+impl RawInquiryPayload {
+    /// Create a raw inquiry payload by copying bytes into inline-backed storage.
+    #[inline]
+    pub(crate) fn from_slice(payload: &[u8]) -> Self {
+        Self {
+            bytes: SmallVec::from_slice(payload),
+        }
+    }
+
+    /// Return the raw VISCA data payload bytes.
+    #[inline]
+    pub fn as_slice(&self) -> &[u8] {
+        self.bytes.as_slice()
+    }
+}
 
 /// Response from a VISCA command.
 ///
@@ -29,6 +58,8 @@ pub enum Response {
     Error(Error),
     /// Inquiry command response containing requested data
     Inquiry(InquiryData),
+    /// Raw custom inquiry response containing the VISCA data payload.
+    RawInquiry(RawInquiryPayload),
     /// Unknown response format with type information and raw data
     Unknown {
         /// The response type that could not be parsed
@@ -50,6 +81,7 @@ impl Response {
             Response::CmdAck { .. } => Err(Error::CommandPending), // ACK means command is queued, not completed
             Response::Error(e) => Err(e),
             Response::Inquiry(_) => Ok(()), // Inquiry responses are success
+            Response::RawInquiry(_) => Ok(()), // Raw inquiry responses are success
             Response::Unknown { data, .. } => Err(Error::InvalidResponse {
                 expected: Cow::Borrowed("Known response type"),
                 actual: data,

@@ -12,7 +12,10 @@ use crate::{
 use crate::camera::config::CameraConfig;
 #[cfg(feature = "mode-async")]
 use crate::camera::CameraSession;
-#[cfg(any(feature = "transport-serial", feature = "transport-serial-tokio"))]
+#[cfg(any(
+    all(not(feature = "mode-async"), feature = "transport-serial"),
+    all(feature = "mode-async", feature = "transport-serial-tokio")
+))]
 use crate::capabilities::SupportsSerial;
 
 /// Convenience methods for connecting to cameras with one-liner setup.
@@ -40,7 +43,10 @@ pub struct UdpConnectBuilder {
 /// Serial-selected connection builder.
 #[derive(Debug, Clone)]
 #[cfg_attr(
-    not(any(feature = "transport-serial", feature = "transport-serial-tokio")),
+    not(any(
+        all(not(feature = "mode-async"), feature = "transport-serial"),
+        all(feature = "mode-async", feature = "transport-serial-tokio")
+    )),
     allow(dead_code)
 )]
 pub struct SerialConnectBuilder {

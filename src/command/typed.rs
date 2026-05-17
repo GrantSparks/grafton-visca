@@ -3,8 +3,9 @@
 //! This module defines typed response parsing for inquiry commands.
 //!
 //! Built-in inquiry implementations are generated from the internal inquiry
-//! table; downstream inquiry commands can implement this trait directly or use
-//! the `ViscaInquiry` derive with typed response attributes.
+//! table; downstream inquiry commands can implement this trait directly for
+//! raw custom payloads or use the `ViscaInquiry` derive with built-in typed
+//! response attributes.
 
 use crate::{command::Response, error::Error};
 
@@ -43,4 +44,4 @@ pub struct VersionInfo {
 
 // Built-in inquiry implementations are generated from the internal inquiry
 // table. The `ViscaInquiry` proc macro remains available for downstream
-// extension commands.
+// extension commands, while raw custom inquiry payloads use manual parsers.

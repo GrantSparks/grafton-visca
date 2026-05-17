@@ -51,10 +51,6 @@ impl crate::command::ViscaCommand for MulticastStreaming {
         let internal: MulticastStreamingInternal = (*self).into();
         internal.write_into(camera_id, buffer)
     }
-
-    fn response_kind(&self) -> Option<crate::command::InquiryKind> {
-        MulticastStreamingInternal { enabled: true }.response_kind()
-    }
 }
 
 visca_command! {
@@ -94,13 +90,6 @@ impl crate::command::ViscaCommand for SetNdiQuality {
             quality: self.quality,
         };
         internal.write_into(camera_id, buffer)
-    }
-
-    fn response_kind(&self) -> Option<crate::command::InquiryKind> {
-        NdiQualityCommandInternal {
-            quality: self.quality,
-        }
-        .response_kind()
     }
 }
 
@@ -147,10 +136,6 @@ impl crate::command::ViscaCommand for UsbAudio {
             })
             .terminate();
         builder.build_into(buffer)
-    }
-
-    fn response_kind(&self) -> Option<crate::command::InquiryKind> {
-        None
     }
 }
 

@@ -66,10 +66,6 @@ impl crate::command::ViscaCommand for MenuNavigate {
         };
         builder.terminate().build_into(buffer)
     }
-
-    fn response_kind(&self) -> Option<crate::command::InquiryKind> {
-        None
-    }
 }
 
 /// Menu navigation command for cursor movement.
@@ -167,10 +163,6 @@ impl crate::command::ViscaCommand for DirectMenuControl {
         builder.push_mut(self.control1);
         builder.push_mut(self.control2);
         builder.terminate().build_into(buffer)
-    }
-
-    fn response_kind(&self) -> Option<crate::command::InquiryKind> {
-        None
     }
 }
 

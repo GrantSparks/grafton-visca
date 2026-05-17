@@ -36,8 +36,8 @@ fn log_ignored_receive(reason: IgnoreReason, sequence: Option<u32>) {
 /// The `command` field contains an `Arc<EncodedCommand>` which stores all
 /// metadata needed for scheduling and timeout handling:
 /// - `category`: Timeout category (via `command.category`)
-/// - `response_type`: Expected response type for inquiries (via `command.response_type`)
-/// - `kind`: Command vs Inquiry (via `command.kind`)
+/// - inquiry response routing metadata (via `command.behavior`)
+/// - command vs inquiry behavior (via `command.behavior`)
 ///
 /// This eliminates redundant storage that previously existed in both submit messages
 /// and `EncodedCommand`, making `EncodedCommand` the single source of truth.
@@ -62,7 +62,7 @@ pub(crate) enum SubmitRequest {
     Inquiry {
         /// Unique identifier for this inquiry.
         id: CommandId,
-        /// The pre-encoded command to send (contains category, response_type, and kind).
+        /// The pre-encoded command to send (contains category and behavior).
         command: Arc<crate::command::encode::EncodedCommand>,
         /// Camera ID used to encode the inquiry.
         camera_id: CameraId,
@@ -120,7 +120,7 @@ impl std::fmt::Debug for SubmitRequest {
                 .field("id", id)
                 .field("category", &command.category)
                 .field("camera_id", camera_id)
-                .field("response_type", &command.response_type)
+                .field("behavior", &command.behavior)
                 .finish(),
         }
     }
@@ -408,12 +408,12 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
                 self.response_channels.insert(id, response_tx);
 
                 // Queue inquiry in core with Low priority.
-                // response_type is stored in EncodedCommand and copied into
+                // Behavior is stored in EncodedCommand and copied into
                 // InquiryEntry when the inquiry is started.
                 // Inquiries are typically used for polling/status checks, so they should
                 // not block user-initiated commands. This prevents command starvation when
                 // polling generates many inquiries that timeout/retry (GitHub issue #381).
-                // Category and kind are derived from EncodedCommand.
+                // Category and behavior are derived from EncodedCommand.
                 let now = self.executor.now();
                 let pending_cmd = PendingCommand {
                     id,
@@ -576,8 +576,8 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
                     // Syntax errors (0x02) and "Not Executable" (0x41) are notable issues
                     // that likely indicate configuration problems or unsupported commands
                     if *code == 0x02 || *code == 0x41 {
-                        let inquiry_type = cmd_id
-                            .and_then(|id| self.core.get_inquiry_type(id))
+                        let response_spec = cmd_id
+                            .and_then(|id| self.core.get_inquiry_response_spec(id))
                             .map(|ty| format!("{:?}", ty));
 
                         let message = if *code == 0x02 {
@@ -588,7 +588,7 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
 
                         tracing::error!(
                             ?cmd_id,
-                            inquiry_type,
+                            response_spec,
                             code = format!("0x{:02x}", code),
                             message
                         );
@@ -867,8 +867,8 @@ mod tests {
     use crate::{
         camera::profiles::PtzOpticsG2,
         command::{
-            bytes::VISCA_TERMINATOR, encode::EncodedCommand, response::InquiryKind, CommandKind,
-            Response,
+            bytes::VISCA_TERMINATOR, encode::EncodedCommand, response::InquiryKind,
+            CommandBehavior, InquiryResponseSpec, Response,
         },
         testing::testkit::deterministic_executor::DeterministicExecutor,
         transport::builder::DEFAULT_MAX_PENDING_QUEUE_DEPTH,
@@ -911,9 +911,8 @@ mod tests {
 
         let inq = Arc::new(EncodedCommand {
             payload: SmallVec::from_slice(&[0x81, 0x09, 0x04, 0x35, VISCA_TERMINATOR]), // WB Mode Inquiry
-            kind: CommandKind::Inquiry,
+            behavior: CommandBehavior::Inquiry(InquiryResponseSpec::Builtin(InquiryKind::Power)),
             category: CommandCategory::Quick,
-            response_type: Some(InquiryKind::Power),
         });
 
         adapter.core.start_inquiry(
@@ -979,13 +978,12 @@ mod tests {
         // Create an inquiry expecting a Power response (which requires exactly 1 byte)
         let inq = Arc::new(EncodedCommand {
             payload: SmallVec::from_slice(&[0x81, 0x09, 0x04, 0x00, VISCA_TERMINATOR]),
-            kind: CommandKind::Inquiry,
+            behavior: CommandBehavior::Inquiry(InquiryResponseSpec::Builtin(InquiryKind::Power)),
             category: CommandCategory::Quick,
-            response_type: Some(InquiryKind::Power),
         });
 
         // Start the inquiry in the scheduler
-        // The inquiry type comes from EncodedCommand.response_type (set above)
+        // The inquiry response spec comes from EncodedCommand.behavior (set above)
         adapter.core.start_inquiry(
             cmd_id(99),
             inq.clone(),
@@ -1123,9 +1121,8 @@ mod tests {
         // Create a command
         let cmd = Arc::new(EncodedCommand {
             payload: SmallVec::from_slice(&[0x81, 0x01, 0x04, 0x07, 0x02, VISCA_TERMINATOR]), // Zoom Stop
-            kind: CommandKind::Command,
+            behavior: CommandBehavior::Command,
             category: CommandCategory::Quick,
-            response_type: None,
         });
 
         // Register the command as pending ACK
@@ -1194,9 +1191,8 @@ mod tests {
             let id = cmd_id(raw_id);
             let cmd = Arc::new(EncodedCommand {
                 payload: SmallVec::from_slice(&[0x81, 0x01, 0x04, 0x07, 0x02, VISCA_TERMINATOR]),
-                kind: CommandKind::Command,
+                behavior: CommandBehavior::Command,
                 category: CommandCategory::Quick,
-                response_type: None,
             });
 
             adapter
@@ -1486,9 +1482,8 @@ mod tests {
         for i in 1..=max_depth {
             let cmd = Arc::new(EncodedCommand {
                 payload: SmallVec::from_slice(&[0x81, 0x01, 0x04, 0x07, 0x02, VISCA_TERMINATOR]),
-                kind: CommandKind::Command,
+                behavior: CommandBehavior::Command,
                 category: CommandCategory::Quick,
-                response_type: None,
             });
 
             let (response_tx, response_rx) = flume::bounded(1);
@@ -1518,9 +1513,8 @@ mod tests {
         // Try to submit one more - should be rejected
         let cmd = Arc::new(EncodedCommand {
             payload: SmallVec::from_slice(&[0x81, 0x01, 0x04, 0x07, 0x02, VISCA_TERMINATOR]),
-            kind: CommandKind::Command,
+            behavior: CommandBehavior::Command,
             category: CommandCategory::Quick,
-            response_type: None,
         });
 
         let (response_tx, response_rx) = flume::bounded(1);
@@ -1572,9 +1566,8 @@ mod tests {
         for i in 1..=max_depth {
             let cmd = Arc::new(EncodedCommand {
                 payload: SmallVec::from_slice(&[0x81, 0x01, 0x04, 0x07, 0x02, VISCA_TERMINATOR]),
-                kind: CommandKind::Command,
+                behavior: CommandBehavior::Command,
                 category: CommandCategory::Quick,
-                response_type: None,
             });
 
             let (response_tx, _response_rx) = flume::bounded(1);
@@ -1598,9 +1591,8 @@ mod tests {
         for i in 1..=10 {
             let cmd = Arc::new(EncodedCommand {
                 payload: SmallVec::from_slice(&[0x81, 0x01, 0x04, 0x07, 0x02, VISCA_TERMINATOR]),
-                kind: CommandKind::Command,
+                behavior: CommandBehavior::Command,
                 category: CommandCategory::Quick,
-                response_type: None,
             });
 
             let (response_tx, _response_rx) = flume::bounded(1);
@@ -1649,9 +1641,8 @@ mod tests {
         for i in 1..=5 {
             let cmd = Arc::new(EncodedCommand {
                 payload: SmallVec::from_slice(&[0x81, 0x01, 0x04, 0x07, 0x02, VISCA_TERMINATOR]),
-                kind: CommandKind::Command,
+                behavior: CommandBehavior::Command,
                 category: CommandCategory::Quick,
-                response_type: None,
             });
 
             let (response_tx, _response_rx) = flume::bounded(1);
@@ -1676,9 +1667,10 @@ mod tests {
         for i in 6..=8 {
             let inq = Arc::new(EncodedCommand {
                 payload: SmallVec::from_slice(&[0x81, 0x09, 0x04, 0x47, VISCA_TERMINATOR]),
-                kind: CommandKind::Inquiry,
+                behavior: CommandBehavior::Inquiry(InquiryResponseSpec::Builtin(
+                    InquiryKind::Power,
+                )),
                 category: CommandCategory::Quick,
-                response_type: Some(InquiryKind::Power),
             });
 
             let (response_tx, _response_rx) = flume::bounded(1);
@@ -1720,9 +1712,8 @@ mod tests {
         for i in 1..=max_depth {
             let cmd = Arc::new(EncodedCommand {
                 payload: SmallVec::from_slice(&[0x81, 0x01, 0x04, 0x07, 0x02, VISCA_TERMINATOR]),
-                kind: CommandKind::Command,
+                behavior: CommandBehavior::Command,
                 category: CommandCategory::Quick,
-                response_type: None,
             });
 
             let (response_tx, _response_rx) = flume::bounded(1);
@@ -1746,9 +1737,8 @@ mod tests {
         for i in 1..=5 {
             let cmd = Arc::new(EncodedCommand {
                 payload: SmallVec::from_slice(&[0x81, 0x01, 0x04, 0x07, 0x02, VISCA_TERMINATOR]),
-                kind: CommandKind::Command,
+                behavior: CommandBehavior::Command,
                 category: CommandCategory::Quick,
-                response_type: None,
             });
 
             let (response_tx, _response_rx) = flume::bounded(1);
@@ -1790,9 +1780,10 @@ mod tests {
         for i in 1..=max_depth {
             let inq = Arc::new(EncodedCommand {
                 payload: SmallVec::from_slice(&[0x81, 0x09, 0x04, 0x47, VISCA_TERMINATOR]),
-                kind: CommandKind::Inquiry,
+                behavior: CommandBehavior::Inquiry(InquiryResponseSpec::Builtin(
+                    InquiryKind::Power,
+                )),
                 category: CommandCategory::Quick,
-                response_type: Some(InquiryKind::Power),
             });
 
             let (response_tx, _response_rx) = flume::bounded(1);
@@ -1808,9 +1799,8 @@ mod tests {
         // Try to submit one more inquiry
         let inq = Arc::new(EncodedCommand {
             payload: SmallVec::from_slice(&[0x81, 0x09, 0x04, 0x47, VISCA_TERMINATOR]),
-            kind: CommandKind::Inquiry,
+            behavior: CommandBehavior::Inquiry(InquiryResponseSpec::Builtin(InquiryKind::Power)),
             category: CommandCategory::Quick,
-            response_type: Some(InquiryKind::Power),
         });
 
         let (response_tx, response_rx) = flume::bounded(1);

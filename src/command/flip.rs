@@ -171,10 +171,10 @@ mod tests {
     fn test_response_type_none() {
         // Flip commands don't expect a response beyond ACK/completion
         let cmd_on = ImageFlip { flip: Flip::On };
-        assert!(cmd_on.response_kind().is_none());
+        assert!(cmd_on.behavior().command_kind() == crate::command::CommandKind::Command);
 
         let cmd_off = ImageFlip { flip: Flip::Off };
-        assert!(cmd_off.response_kind().is_none());
+        assert!(cmd_off.behavior().command_kind() == crate::command::CommandKind::Command);
     }
 
     #[test]
@@ -182,7 +182,7 @@ mod tests {
         // Verify ImageFlip implements ViscaCommand trait
         let cmd = ImageFlip { flip: Flip::On };
         assert!(cmd.to_bytes(CameraId::CAMERA_1).map(|b| b.to_vec()).is_ok());
-        assert!(cmd.response_kind().is_none());
+        assert!(cmd.behavior().command_kind() == crate::command::CommandKind::Command);
         assert!(matches!(cmd.timeout_class(), CommandCategory::Quick));
     }
 

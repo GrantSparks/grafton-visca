@@ -1,5 +1,5 @@
 use grafton_visca::{
-    command::{InquiryKind, Response, ViscaCommand},
+    command::{Response, ViscaCommand},
     profiles::PtzOpticsG2,
     timeout::CommandCategory,
     transport::BlockingTransportHandle,
@@ -29,10 +29,6 @@ impl ViscaCommand for CustomCommand {
             0xFF,
         ]);
         Ok(Self::MAX_SIZE)
-    }
-
-    fn response_kind(&self) -> Option<InquiryKind> {
-        None
     }
 }
 

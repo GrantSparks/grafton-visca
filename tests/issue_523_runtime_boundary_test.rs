@@ -17,7 +17,9 @@ use std::{
 
 use grafton_visca::{
     camera::profiles::PtzOpticsG2,
-    command::{InquiryKind, ViscaCommand, Zoom, VISCA_TERMINATOR},
+    command::{
+        CommandBehavior, InquiryKind, InquiryResponseSpec, ViscaCommand, Zoom, VISCA_TERMINATOR,
+    },
     runtime::testing::RuntimeHandle,
     testing::testkit::{helpers, ScriptedTransport, Step},
     timeout::CommandCategory,
@@ -150,8 +152,8 @@ impl ViscaCommand for PowerInquiry {
         Ok(Self::MAX_SIZE)
     }
 
-    fn response_kind(&self) -> Option<InquiryKind> {
-        Some(InquiryKind::Power)
+    fn behavior(&self) -> CommandBehavior {
+        CommandBehavior::Inquiry(InquiryResponseSpec::Builtin(InquiryKind::Power))
     }
 }
 

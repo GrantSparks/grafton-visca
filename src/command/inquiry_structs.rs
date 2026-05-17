@@ -15,7 +15,7 @@ use super::response::{BoolConvention, Nibbles, Nibbles4Or8, Payload, Response};
 use super::system::{MotionSyncMode, MotionSyncPreset};
 use super::white_balance::{AutoWhiteBalanceSensitivity, WhiteBalanceMode};
 use crate::capabilities::{PanTilt, Profile};
-use crate::command::{ResponseParser, ViscaCommand};
+use crate::command::{CommandBehavior, InquiryResponseSpec, ResponseParser, ViscaCommand};
 use crate::error::format_payload_hex;
 use crate::timeout::CommandCategory;
 use crate::types::{BroadcastDomain, DefogLevel, ExposureCompensationPosition, NdFilterPreset};
@@ -764,8 +764,8 @@ macro_rules! define_builtin_inquiries {
                     Ok(len)
                 }
 
-                fn response_kind(&self) -> Option<InquiryKind> {
-                    Some(InquiryKind::$kind)
+                fn behavior(&self) -> CommandBehavior {
+                    CommandBehavior::Inquiry(InquiryResponseSpec::Builtin(InquiryKind::$kind))
                 }
             }
 
@@ -863,9 +863,11 @@ macro_rules! define_builtin_inquiries {
                     "{name} must contain exactly one terminator",
                 );
                 assert_eq!(
-                    cmd.response_kind(),
-                    Some(expected_kind),
-                    "{name} response kind changed",
+                    cmd.behavior(),
+                    crate::command::CommandBehavior::Inquiry(
+                        crate::command::InquiryResponseSpec::Builtin(expected_kind),
+                    ),
+                    "{name} inquiry behavior changed",
                 );
                 assert_eq!(
                     C::TIMEOUT_CATEGORY,

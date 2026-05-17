@@ -1,8 +1,8 @@
 use grafton_visca::{
     command::{
-        BoolConvention, CommandKind, FixedCommandBytes, InquiryKind, Nibbles, PanTiltDirection,
-        Payload, PresetNumber, Response, ResponseParser, ViscaCommand, Zoom, ZoomPositionInquiry,
-        VISCA_TERMINATOR,
+        BoolConvention, CommandBehavior, CommandKind, FixedCommandBytes, InquiryKind,
+        InquiryResponseSpec, Nibbles, PanTiltDirection, Payload, PresetNumber, RawInquiryPayload,
+        Response, ResponseParser, ViscaCommand, Zoom, ZoomPositionInquiry, VISCA_TERMINATOR,
     },
     CameraId, Error,
 };
@@ -18,6 +18,7 @@ fn main() {
     let _ = Payload::new(&[0x02]);
     let _ = InquiryKind::Power;
     let _ = CommandKind::Command;
+    let _ = CommandBehavior::Inquiry(InquiryResponseSpec::Raw);
     let _ = VISCA_TERMINATOR;
 
     struct CustomCommand;
@@ -37,13 +38,10 @@ fn main() {
             buffer[..bytes.len()].copy_from_slice(&bytes);
             Ok(bytes.len())
         }
-
-        fn response_kind(&self) -> Option<InquiryKind> {
-            None
-        }
     }
 
     fn _assert_parser<T: ResponseParser>() {}
 
     let _encoded: FixedCommandBytes<6> = CustomCommand.to_fixed_bytes(CameraId::CAMERA_1).unwrap();
+    let _ = core::any::TypeId::of::<RawInquiryPayload>();
 }

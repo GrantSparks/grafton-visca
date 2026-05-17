@@ -13,7 +13,7 @@
 use grafton_visca_macros::ViscaEnum;
 
 use crate::{
-    command::{encode::ViscaCommand, InquiryKind},
+    command::encode::ViscaCommand,
     error::Error,
     timeout::CommandCategory,
     types::{FocusPosition, SpeedLevel},
@@ -190,10 +190,6 @@ impl ViscaCommand for Focus {
             }
         }
     }
-
-    fn response_kind(&self) -> Option<InquiryKind> {
-        None
-    }
 }
 
 /// Focus Zone selection (baseline VISCA).
@@ -345,10 +341,6 @@ impl ViscaCommand for FocusLock {
             .terminate()
             .build_into(buffer)
     }
-
-    fn response_kind(&self) -> Option<InquiryKind> {
-        None
-    }
 }
 
 /// Push AF command.
@@ -390,10 +382,6 @@ impl ViscaCommand for PushAF {
             .with_camera_id(camera_id)
             .terminate()
             .build_into(buffer)
-    }
-
-    fn response_kind(&self) -> Option<InquiryKind> {
-        None
     }
 }
 

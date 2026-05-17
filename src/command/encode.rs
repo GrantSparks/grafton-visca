@@ -23,6 +23,47 @@ pub enum CommandKind {
     Inquiry,
 }
 
+/// Complete command behavior metadata used by the runtime.
+///
+/// This is the single source of truth for whether a VISCA request is an action
+/// command or an inquiry, and for how inquiry data replies should be routed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommandBehavior {
+    /// A command that performs an action and returns ACK/Completion.
+    Command,
+    /// An inquiry that returns a data reply routed by the included response spec.
+    Inquiry(InquiryResponseSpec),
+}
+
+impl CommandBehavior {
+    /// Return the VISCA transport command kind derived from this behavior.
+    #[inline]
+    pub const fn command_kind(self) -> CommandKind {
+        match self {
+            Self::Command => CommandKind::Command,
+            Self::Inquiry(_) => CommandKind::Inquiry,
+        }
+    }
+
+    /// Return the inquiry response spec when this behavior is an inquiry.
+    #[inline]
+    pub const fn inquiry_response_spec(self) -> Option<InquiryResponseSpec> {
+        match self {
+            Self::Command => None,
+            Self::Inquiry(spec) => Some(spec),
+        }
+    }
+}
+
+/// Routing metadata for inquiry data replies.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InquiryResponseSpec {
+    /// Decode the reply through the built-in, profile-aware inquiry decoder.
+    Builtin(InquiryKind),
+    /// Deliver the raw VISCA data payload to the command's `ResponseParser`.
+    Raw,
+}
+
 /// Checks that a VISCA command buffer has the proper terminator.
 ///
 /// This function ensures that commands are properly terminated with 0xFF,
@@ -120,10 +161,7 @@ fn check_command_structure(buffer: &[u8], len: usize) -> Result<(), Error> {
 ///         Ok(6)
 ///     }
 ///
-///     fn response_kind(&self) -> Option<InquiryKind> {
-///         // Return None for action commands, Some(...) for inquiries
-///         None
-///     }
+///     // Action commands use the default CommandBehavior::Command behavior.
 /// }
 /// ```
 pub trait ViscaCommand: Send + Sync {
@@ -238,22 +276,16 @@ pub trait ViscaCommand: Send + Sync {
         Ok(buf.freeze())
     }
 
-    /// Returns the expected response kind for this command.
+    /// Returns the complete behavior and response routing metadata for this command.
     ///
-    /// - Returns `None` for action commands that only receive ACK/Completion
-    /// - Returns `Some(InquiryKind::...)` for inquiry commands that receive data
-    fn response_kind(&self) -> Option<InquiryKind>;
-
-    /// Returns the command kind based on the response type.
-    ///
-    /// Commands with a response type are inquiries; others are commands.
+    /// Action commands use the default [`CommandBehavior::Command`] behavior.
+    /// Built-in inquiries should return
+    /// `CommandBehavior::Inquiry(InquiryResponseSpec::Builtin(...))`.
+    /// Custom inquiries that parse their own data replies should return
+    /// `CommandBehavior::Inquiry(InquiryResponseSpec::Raw)`.
     #[inline(always)]
-    fn command_kind(&self) -> CommandKind {
-        if self.response_kind().is_some() {
-            CommandKind::Inquiry
-        } else {
-            CommandKind::Command
-        }
+    fn behavior(&self) -> CommandBehavior {
+        CommandBehavior::Command
     }
 }
 
@@ -273,12 +305,10 @@ pub(crate) struct EncodedCommand {
     /// The encoded VISCA bytes stored inline for zero-allocation.
     /// Uses SmallVec with inline capacity of 24 bytes (covers most commands).
     pub(crate) payload: SmallVec<[u8; INLINE_COMMAND_SIZE]>,
-    /// The command kind (Command or Inquiry).
-    pub(crate) kind: CommandKind,
+    /// Complete command behavior and inquiry response routing metadata.
+    pub(crate) behavior: CommandBehavior,
     /// The timeout category for this command.
     pub(crate) category: CommandCategory,
-    /// The expected response type for inquiry commands.
-    pub(crate) response_type: Option<InquiryKind>,
 }
 
 impl EncodedCommand {
@@ -319,15 +349,13 @@ impl EncodedCommand {
         payload.truncate(len);
 
         // Extract metadata from the command
-        let kind = cmd.command_kind();
+        let behavior = cmd.behavior();
         let category = C::TIMEOUT_CATEGORY;
-        let response_type = cmd.response_kind();
 
         Ok(Self {
             payload,
-            kind,
+            behavior,
             category,
-            response_type,
         })
     }
 
@@ -337,6 +365,12 @@ impl EncodedCommand {
     #[inline]
     pub(crate) fn as_slice(&self) -> &[u8] {
         &self.payload
+    }
+
+    /// Get the transport command kind derived from stored behavior metadata.
+    #[inline]
+    pub(crate) fn kind(&self) -> CommandKind {
+        self.behavior.command_kind()
     }
 }
 
@@ -355,10 +389,6 @@ mod tests {
             buffer[1] = crate::command::bytes::VISCA_TERMINATOR;
             Ok(2)
         }
-
-        fn response_kind(&self) -> Option<InquiryKind> {
-            None
-        }
     }
 
     struct DummyTooShort;
@@ -371,10 +401,6 @@ mod tests {
             buffer[0] = camera_id.to_address_byte();
             // Intentionally omit terminator and return len 1
             Ok(1)
-        }
-
-        fn response_kind(&self) -> Option<InquiryKind> {
-            None
         }
     }
 
@@ -389,10 +415,6 @@ mod tests {
             buffer[1] = 0x01;
             buffer[2] = 0x02; // Missing terminator
             Ok(3)
-        }
-
-        fn response_kind(&self) -> Option<InquiryKind> {
-            None
         }
     }
 
@@ -426,10 +448,6 @@ mod tests {
                 buffer[3] = 0x00;
                 buffer[4] = crate::command::bytes::VISCA_TERMINATOR;
                 Ok(5)
-            }
-
-            fn response_kind(&self) -> Option<InquiryKind> {
-                None
             }
         }
 
@@ -495,10 +513,6 @@ mod tests {
             buffer[4] = crate::command::bytes::VISCA_TERMINATOR;
             Ok(5)
         }
-
-        fn response_kind(&self) -> Option<InquiryKind> {
-            None
-        }
     }
 
     #[test]
@@ -536,9 +550,12 @@ mod tests {
             power.as_slice(),
             &[0x81, 0x09, 0x04, 0x00, VISCA_TERMINATOR]
         );
-        assert_eq!(power.kind, CommandKind::Inquiry);
+        assert_eq!(power.kind(), CommandKind::Inquiry);
         assert_eq!(power.category, CommandCategory::Quick);
-        assert_eq!(power.response_type, Some(InquiryKind::Power));
+        assert_eq!(
+            power.behavior.inquiry_response_spec(),
+            Some(InquiryResponseSpec::Builtin(InquiryKind::Power))
+        );
 
         let tally = EncodedCommand::new(&TallyGreenInquiry, CameraId::CAMERA_1).unwrap();
         assert!(
@@ -549,9 +566,46 @@ mod tests {
             tally.as_slice(),
             &[0x81, 0x09, 0x7E, 0x04, 0x1A, 0x00, VISCA_TERMINATOR]
         );
-        assert_eq!(tally.kind, CommandKind::Inquiry);
+        assert_eq!(tally.kind(), CommandKind::Inquiry);
         assert_eq!(tally.category, CommandCategory::Quick);
-        assert_eq!(tally.response_type, Some(InquiryKind::TallyGreen));
+        assert_eq!(
+            tally.behavior.inquiry_response_spec(),
+            Some(InquiryResponseSpec::Builtin(InquiryKind::TallyGreen))
+        );
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn encoded_command_stores_complete_behavior_for_raw_inquiry() {
+        struct RawStatusInquiry;
+
+        impl ViscaCommand for RawStatusInquiry {
+            const MAX_SIZE: usize = 5;
+            const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
+
+            fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
+                buffer[..5].copy_from_slice(&[
+                    camera_id.to_address_byte(),
+                    0x09,
+                    0x7E,
+                    0x55,
+                    crate::command::bytes::VISCA_TERMINATOR,
+                ]);
+                Ok(5)
+            }
+
+            fn behavior(&self) -> CommandBehavior {
+                CommandBehavior::Inquiry(InquiryResponseSpec::Raw)
+            }
+        }
+
+        let encoded = EncodedCommand::new(&RawStatusInquiry, CameraId::CAMERA_1).unwrap();
+        assert_eq!(encoded.kind(), CommandKind::Inquiry);
+        assert_eq!(
+            encoded.behavior,
+            CommandBehavior::Inquiry(InquiryResponseSpec::Raw)
+        );
+        assert!(!encoded.payload.spilled());
     }
 
     /// A command that wraps a vector (heap-allocated, non-Copy).
@@ -580,10 +634,6 @@ mod tests {
             buffer[2..2 + self.data.len()].copy_from_slice(&self.data);
             buffer[2 + self.data.len()] = crate::command::bytes::VISCA_TERMINATOR;
             Ok(len)
-        }
-
-        fn response_kind(&self) -> Option<InquiryKind> {
-            None
         }
     }
 

@@ -32,7 +32,7 @@ documented rows they combine.
 | smol async | `runtime-smol`, `SmolRuntime`, smol TCP/UDP adapters | `cargo test --no-default-features --features runtime-smol` |
 | Runtime coexistence | `runtime-tokio` and `runtime-smol` may be enabled together; camera construction still chooses one runtime explicitly | `cargo check --no-default-features --features runtime-tokio,runtime-smol` |
 | Dynamic API | `dyn-api` object-safe camera traits for async cameras, with runtime capabilities, command-completion timeouts, and cancellable in-flight handles | `cargo test --no-default-features --features runtime-tokio,dyn-api,test-utils --test dyn_api_integration_test`, `cargo test --no-default-features --features runtime-smol,dyn-api,test-utils --test dyn_api_smol_integration_test` |
-| Raw command extension | Custom command and inquiry implementations through `grafton_visca::command::{ViscaCommand, CommandKind, InquiryKind, ResponseParser}` plus root command value re-exports. `ViscaCommand` covers encoding and command kind; typed inquiry responses are supplied by `ResponseParser`. | API contract tests |
+| Raw command extension | Custom command and inquiry implementations through `grafton_visca::command::{ViscaCommand, CommandBehavior, InquiryResponseSpec, InquiryKind, ResponseParser}` plus root command value re-exports. `ViscaCommand` covers encoding and response routing; typed built-in and raw inquiry responses are supplied by `ResponseParser`. | API contract tests |
 
 ### Transports
 

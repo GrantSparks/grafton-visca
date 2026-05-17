@@ -18,8 +18,8 @@ use std::{
 use crate::{
     camera::CommandId,
     command::{
-        encode::EncodedCommand,
-        response::{parse_inquiry_payload, InquiryKind, Response},
+        encode::{EncodedCommand, InquiryResponseSpec},
+        response::{parse_inquiry_payload, Response},
         CommandKind,
     },
     timeout::{CommandCategory, TimeoutConfig},
@@ -117,7 +117,7 @@ impl InquiryPhase {
 ///
 /// The `command` field contains an `Arc<EncodedCommand>` which stores:
 /// - `category`: Timeout category (via `command.category`)
-/// - `kind`: Command vs Inquiry (via `command.kind`)
+/// - `kind`: Command vs Inquiry (via `command.behavior`)
 ///
 /// These are accessed via helper methods, making `EncodedCommand` the single
 /// source of truth and eliminating redundant storage.
@@ -182,8 +182,8 @@ pub struct InquiryEntry {
     pub attempt: u32,
     /// Whether last failure was a transport error.
     pub transport_error: bool,
-    /// Required response type used for inquiry reply correlation.
-    pub response_type: InquiryKind,
+    /// Required response routing metadata used for inquiry reply correlation.
+    pub response_spec: InquiryResponseSpec,
 }
 
 impl InquiryEntry {
@@ -331,13 +331,13 @@ impl ViscaError {
 /// # Metadata Consolidation
 ///
 /// The `command` field contains an `Arc<EncodedCommand>` which stores
-/// `category` and `kind`. These are accessed via helper methods rather
+/// `category` and behavior. These are accessed via helper methods rather
 /// than redundant fields.
 #[derive(Clone)]
 pub struct RetryCommand {
     /// Command ID (type-safe, non-zero).
     pub id: CommandId,
-    /// The pre-encoded command to retry (contains category and kind).
+    /// The pre-encoded command to retry (contains category and behavior).
     pub command: Arc<EncodedCommand>,
     /// Command priority.
     pub priority: Priority,
@@ -356,7 +356,7 @@ impl RetryCommand {
     #[cfg(any(not(feature = "mode-async"), test))]
     #[inline]
     pub fn kind(&self) -> CommandKind {
-        self.command.kind
+        self.command.kind()
     }
 }
 
@@ -396,7 +396,7 @@ impl std::fmt::Debug for RetryCommand {
             .field("priority", &self.priority)
             .field("category", &self.command.category)
             .field("camera_id", &self.camera_id)
-            .field("kind", &self.command.kind)
+            .field("kind", &self.command.kind())
             .field("attempt", &self.attempt)
             .field("max_retries", &self.max_retries)
             .field("retry_at", &self.retry_at)
@@ -421,8 +421,8 @@ struct RetryState {
 /// The `command` field contains an `Arc<EncodedCommand>` which stores all
 /// command metadata including:
 /// - `category`: Timeout category (via `command.category`)
-/// - `kind`: Command vs Inquiry (via `command.kind`)
-/// - `response_type`: Expected response type for inquiries (via `command.response_type`)
+/// - `kind`: Command vs Inquiry (via `command.behavior`)
+/// - inquiry response routing metadata (via `command.behavior`)
 ///
 /// This makes `EncodedCommand` the single source of truth for command metadata,
 /// eliminating redundant storage and potential for divergence.
@@ -430,7 +430,7 @@ struct RetryState {
 pub struct PendingCommand {
     /// Unique identifier for this command (type-safe, non-zero).
     pub id: CommandId,
-    /// The pre-encoded command to send (contains category, kind, and response_type).
+    /// The pre-encoded command to send (contains category and behavior).
     pub command: Arc<EncodedCommand>,
     /// Priority level for scheduling.
     pub priority: Priority,
@@ -444,7 +444,7 @@ impl PendingCommand {
     /// Get the command kind (Command or Inquiry).
     #[inline]
     pub fn kind(&self) -> CommandKind {
-        self.command.kind
+        self.command.kind()
     }
 }
 
@@ -456,7 +456,7 @@ impl std::fmt::Debug for PendingCommand {
             .field("category", &self.command.category)
             .field("camera_id", &self.camera_id)
             .field("submitted_at", &self.submitted_at)
-            .field("kind", &self.command.kind)
+            .field("kind", &self.command.kind())
             .finish()
     }
 }
@@ -1016,19 +1016,8 @@ impl SchedulerCore {
         let now = command.submitted_at;
 
         // Route based on command kind (derived from EncodedCommand)
-        match command.kind() {
-            CommandKind::Inquiry => {
-                let response_type = match command.command.response_type {
-                    Some(response_type) => response_type,
-                    None => {
-                        warn!(
-                            %id,
-                            "Ignoring inquiry queued without response_type"
-                        );
-                        return;
-                    }
-                };
-
+        match command.command.behavior {
+            crate::command::CommandBehavior::Inquiry(response_spec) => {
                 self.commands.remove(&id);
                 self.inquiries.insert(
                     id,
@@ -1040,12 +1029,12 @@ impl SchedulerCore {
                         phase: InquiryPhase::Queued,
                         attempt: 0,
                         transport_error: false,
-                        response_type,
+                        response_spec,
                     },
                 );
                 self.inquiry_queue.push(command);
             }
-            CommandKind::Command => {
+            crate::command::CommandBehavior::Command => {
                 self.inquiries.remove(&id);
                 self.commands.insert(
                     id,
@@ -1198,7 +1187,7 @@ impl SchedulerCore {
     ///
     /// # Arguments
     /// - `id`: Command ID (type-safe, non-zero)
-    /// - `command`: Pre-encoded command (contains category, kind, response_type)
+    /// - `command`: Pre-encoded command (contains category and behavior)
     /// - `priority`: Scheduling priority
     /// - `camera_id`: Target camera
     /// - `now`: Current timestamp
@@ -1213,10 +1202,10 @@ impl SchedulerCore {
         camera_id: crate::camera_id::CameraId,
         now: Instant,
     ) {
-        if command.kind != CommandKind::Command {
+        if command.kind() != CommandKind::Command {
             warn!(
                 %id,
-                kind = ?command.kind,
+                kind = ?command.kind(),
                 "Ignoring non-command passed to register_pending_ack"
             );
             return;
@@ -1620,12 +1609,12 @@ impl SchedulerCore {
         }
     }
 
-    /// Get the response type for an inquiry from the command state.
+    /// Get the response routing spec for an inquiry from the command state.
     ///
-    /// This returns the response type stored in the `InquiryEntry`.
-    /// Returns `None` if the command doesn't exist or has no response type.
-    pub fn get_inquiry_type(&self, id: CommandId) -> Option<InquiryKind> {
-        self.inquiries.get(&id).map(|state| state.response_type)
+    /// This returns the response spec stored in the `InquiryEntry`.
+    /// Returns `None` if the command doesn't exist or is not an active inquiry.
+    pub fn get_inquiry_response_spec(&self, id: CommandId) -> Option<InquiryResponseSpec> {
+        self.inquiries.get(&id).map(|state| state.response_spec)
     }
 
     /// Resolve a raw VISCA inquiry reply using content matching and FIFO fallback.
@@ -1647,14 +1636,25 @@ impl SchedulerCore {
             .filter(|(_, state)| state.phase.is_awaiting_reply())
         {
             active_count += 1;
-            match parse_inquiry_payload(payload.as_slice(), &state.response_type) {
-                Ok(_) => {
-                    trace!(cmd_id = %id, inquiry_type = ?state.response_type, "Matched");
-                    match_count += 1;
-                    matched.get_or_insert(id);
+            match state.response_spec {
+                InquiryResponseSpec::Builtin(kind) => {
+                    match parse_inquiry_payload(payload.as_slice(), &kind) {
+                        Ok(_) => {
+                            trace!(cmd_id = %id, response_spec = ?state.response_spec, "Matched");
+                            match_count += 1;
+                            matched.get_or_insert(id);
+                        }
+                        Err(_e) => {
+                            trace!(cmd_id = %id, response_spec = ?state.response_spec, "No match");
+                        }
+                    }
                 }
-                Err(_e) => {
-                    trace!(cmd_id = %id, inquiry_type = ?state.response_type, "No match");
+                InquiryResponseSpec::Raw => {
+                    trace!(
+                        cmd_id = %id,
+                        response_spec = ?state.response_spec,
+                        "Skipping content match for raw inquiry"
+                    );
                 }
             }
         }
@@ -2006,7 +2006,7 @@ impl SchedulerCore {
             if elapsed > timeout {
                 warn!(
                     %cmd_id,
-                    inquiry_type = ?state.response_type,
+                    response_spec = ?state.response_spec,
                     timeout = ?timeout,
                     elapsed = ?elapsed,
                     "Inquiry timed out"
@@ -2466,7 +2466,7 @@ impl SchedulerCore {
 
     /// Start tracking an inquiry (no socket allocation).
     ///
-    /// Category, kind, and response_type are derived from the `EncodedCommand`,
+    /// Category, kind, and response routing are derived from the `EncodedCommand`,
     /// ensuring consistency and eliminating the possibility of mismatched metadata.
     ///
     /// This method uses upsert semantics to preserve retry state across resends:
@@ -2482,13 +2482,12 @@ impl SchedulerCore {
         camera_id: crate::camera_id::CameraId,
         now: Instant,
     ) {
-        let response_type = match (command.kind, command.response_type) {
-            (CommandKind::Inquiry, Some(response_type)) => response_type,
-            _ => {
+        let response_spec = match command.behavior.inquiry_response_spec() {
+            Some(response_spec) => response_spec,
+            None => {
                 warn!(
                     %id,
-                    kind = ?command.kind,
-                    response_type = ?command.response_type,
+                    behavior = ?command.behavior,
                     "Ignoring invalid inquiry entry"
                 );
                 return;
@@ -2505,13 +2504,13 @@ impl SchedulerCore {
             existing.priority = priority;
             existing.camera_id = camera_id;
             existing.phase = InquiryPhase::AwaitingReply { sent_at: now };
-            existing.response_type = response_type;
+            existing.response_spec = response_spec;
             // Note: preserve attempt, transport_error, and submitted_at
             // Category and kind come from command, so no update needed
 
             trace!(
                 %id,
-                inquiry_type = ?existing.response_type,
+                response_spec = ?existing.response_spec,
                 attempt = existing.attempt,
                 "Updated existing inquiry state for resend"
             );
@@ -2525,13 +2524,13 @@ impl SchedulerCore {
                 phase: InquiryPhase::AwaitingReply { sent_at: now },
                 attempt: 0,
                 transport_error: false,
-                response_type,
+                response_spec,
             };
             self.inquiries.insert(id, state);
 
             trace!(
                 %id,
-                inquiry_type = ?response_type,
+                response_spec = ?response_spec,
                 "Created new inquiry state"
             );
         }

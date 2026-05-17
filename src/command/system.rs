@@ -13,7 +13,7 @@
 use grafton_visca_macros::ViscaEnum;
 
 use crate::{
-    command::{bytes::VISCA_TERMINATOR, encode::ViscaCommand, response::InquiryKind},
+    command::{bytes::VISCA_TERMINATOR, encode::ViscaCommand},
     error::Error,
     timeout::CommandCategory,
     ViscaSocket,
@@ -54,10 +54,6 @@ impl ViscaCommand for AddressSetCommand {
         buffer[3] = VISCA_TERMINATOR;
         Ok(4)
     }
-
-    fn response_kind(&self) -> Option<InquiryKind> {
-        None
-    }
 }
 
 /// Command to clear the interface (broadcast, serial only).
@@ -95,10 +91,6 @@ impl ViscaCommand for InterfaceClearCommand {
         buffer[3] = 0x01;
         buffer[4] = VISCA_TERMINATOR;
         Ok(5)
-    }
-
-    fn response_kind(&self) -> Option<InquiryKind> {
-        None
     }
 }
 
@@ -157,10 +149,6 @@ impl ViscaCommand for CommandCancelCommand {
         buffer[1] = self.socket.as_cancel_byte();
         buffer[2] = VISCA_TERMINATOR;
         Ok(3)
-    }
-
-    fn response_kind(&self) -> Option<InquiryKind> {
-        None
     }
 }
 
@@ -223,10 +211,6 @@ impl ViscaCommand for SettingsSaveCommand {
         buffer[5] = VISCA_TERMINATOR;
         Ok(6)
     }
-
-    fn response_kind(&self) -> Option<InquiryKind> {
-        None
-    }
 }
 
 #[cfg(test)]
@@ -274,19 +258,19 @@ mod tests {
     #[test]
     fn test_response_type_and_timeout() {
         let cmd = AddressSetCommand::new();
-        assert!(cmd.response_kind().is_none());
+        assert!(cmd.behavior().command_kind() == crate::command::CommandKind::Command);
         assert_eq!(cmd.timeout_class(), CommandCategory::Quick);
 
         let cmd = InterfaceClearCommand::new();
-        assert!(cmd.response_kind().is_none());
+        assert!(cmd.behavior().command_kind() == crate::command::CommandKind::Command);
         assert_eq!(cmd.timeout_class(), CommandCategory::Quick);
 
         let cmd = CommandCancelCommand::new(ViscaSocket::S1);
-        assert!(cmd.response_kind().is_none());
+        assert!(cmd.behavior().command_kind() == crate::command::CommandKind::Command);
         assert_eq!(cmd.timeout_class(), CommandCategory::Quick);
 
         let cmd = SettingsSaveCommand::new();
-        assert!(cmd.response_kind().is_none());
+        assert!(cmd.behavior().command_kind() == crate::command::CommandKind::Command);
         assert_eq!(cmd.timeout_class(), CommandCategory::Quick);
     }
 

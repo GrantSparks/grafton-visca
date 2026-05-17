@@ -10,11 +10,11 @@ mod types;
 
 #[cfg(test)]
 pub(crate) use self::lift::lift_inquiry;
-pub(crate) use self::lift::lift_inquiry_for;
+pub(crate) use self::lift::lift_response_for_spec;
 pub use self::{
     lift::parse_inquiry_payload,
     payload::{BoolConvention, Nibbles, Nibbles4Or8, Payload},
-    types::Response,
+    types::{RawInquiryPayload, Response},
 };
 
 // Re-export InquiryKind from the generated built-in inquiry table.
@@ -48,6 +48,12 @@ mod tests {
         let response = vec![0x90, 0x41, VISCA_TERMINATOR];
         let result = Response::parse_with_type(&response, &InquiryKind::Power).unwrap();
         assert!(matches!(result, Response::CmdAck { .. }));
+    }
+
+    #[test]
+    fn raw_inquiry_response_is_success() {
+        let response = Response::RawInquiry(RawInquiryPayload::from_slice(&[0x12, 0x34]));
+        assert!(response.into_result().is_ok());
     }
 
     #[test]

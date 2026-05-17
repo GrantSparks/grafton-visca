@@ -61,8 +61,8 @@
 //! - Use [`UnitInterval`] for normalized `0.0..=1.0` control values and
 //!   [`CameraId`] for configured VISCA camera addresses.
 //! - Use [`command::ViscaCommand`] as the raw VISCA escape hatch for custom
-//!   command encoding, and [`command::ResponseParser`] for typed custom inquiry
-//!   responses.
+//!   command encoding and behavior metadata, and [`command::ResponseParser`] for
+//!   typed built-in or raw custom inquiry responses.
 //!
 //! ## Serialization Support
 //!

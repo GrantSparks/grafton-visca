@@ -693,10 +693,6 @@ fn test_raw_command_extension_contract() {
             ]);
             Ok(Self::MAX_SIZE)
         }
-
-        fn response_kind(&self) -> Option<grafton_visca::command::InquiryKind> {
-            None
-        }
     }
 
     let command = CustomCommand;
@@ -705,7 +701,7 @@ fn test_raw_command_extension_contract() {
         .expect("custom command should encode");
     assert_eq!(encoded.as_slice(), &[0x81, 0x01, 0x04, 0x00, 0x02, 0xFF]);
     assert_eq!(
-        command.command_kind(),
+        command.behavior().command_kind(),
         grafton_visca::command::CommandKind::Command
     );
 }

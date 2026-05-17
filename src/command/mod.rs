@@ -42,7 +42,7 @@ pub(crate) mod encode;
 pub use self::{
     bytes::{FixedCommandBytes, VISCA_TERMINATOR},
     color::*,
-    encode::{CommandKind, ViscaCommand},
+    encode::{CommandBehavior, CommandKind, InquiryResponseSpec, ViscaCommand},
     exposure::*,
     flip::{Flip, ImageFreeze},
     focus::*,
@@ -58,7 +58,7 @@ pub use self::{
     power::*,
     preset::*,
     resolution::{NdFilterPosition, PictureEffectMode, ResolutionMode},
-    response::{BoolConvention, Nibbles, Nibbles4Or8, Payload, Response},
+    response::{BoolConvention, Nibbles, Nibbles4Or8, Payload, RawInquiryPayload, Response},
     streaming::{MulticastStreaming, SetNdiQuality, UsbAudio},
     system::{MotionSyncMode, MotionSyncPreset, SettingsSaveCommand},
     tally::{

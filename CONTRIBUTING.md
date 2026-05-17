@@ -162,8 +162,8 @@ impl ViscaCommand for MyInquiry {
         // Use CommandBuilder for safe construction
     }
 
-    fn response_kind(&self) -> Option<InquiryKind> {
-        Some(InquiryKind::MyInquiry)
+    fn behavior(&self) -> CommandBehavior {
+        CommandBehavior::Inquiry(InquiryResponseSpec::Builtin(InquiryKind::MyInquiry))
     }
 }
 ```

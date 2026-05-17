@@ -45,8 +45,8 @@ pub fn derive_visca_value(input: TokenStream) -> TokenStream {
 ///
 /// This macro eliminates boilerplate by automatically generating the `ViscaCommand`
 /// implementation with exact `MAX_SIZE`, zero-allocation `write_into()`, and
-/// `response_kind()` returning the expected `InquiryKind`. When parser attributes
-/// are provided, it also generates a `parse_response()` method.
+/// `behavior()` returning inquiry response routing metadata. When parser attributes
+/// are provided for a built-in response, it also generates a `parse_response()` method.
 ///
 /// # Basic Usage
 ///
@@ -103,7 +103,8 @@ pub fn derive_visca_value(input: TokenStream) -> TokenStream {
 /// # Requirements
 ///
 /// - The struct must have the `#[visca(...)]` attribute with required fields
-/// - The `response` attribute must reference an existing `InquiryKind` variant
+/// - The `response` attribute must reference an existing `InquiryKind` variant,
+///   or `Raw` for a raw custom inquiry that implements `ResponseParser` manually
 /// - Downstream derives use the standard five-byte inquiry form
 /// - The struct should implement `Debug`, `Copy`, and `Clone` for full compatibility
 #[proc_macro_derive(ViscaInquiry, attributes(visca))]

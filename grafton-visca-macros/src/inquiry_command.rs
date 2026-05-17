@@ -84,8 +84,17 @@ pub fn derive_visca_inquiry_impl(input: DeriveInput) -> TokenStream {
                 Ok(LEN)
             };
 
-            // Generate parser implementation if parser info is provided
             let parser_info = attrs.parser_info();
+            let raw_response = response_kind == "Raw";
+            if raw_response && (parser_info.is_some() || attrs.typed_response.is_some()) {
+                return syn::Error::new_spanned(
+                    struct_name,
+                    "response = Raw does not support generated built-in parsers; implement ResponseParser manually",
+                )
+                .to_compile_error();
+            }
+
+            // Generate parser implementation if parser info is provided
             let parse_response_impl = if let Some(parser_info) = &parser_info {
                 let parser_body = generate_parser_body(&response_kind, parser_info, &crate_path);
                 quote! {
@@ -112,6 +121,22 @@ pub fn derive_visca_inquiry_impl(input: DeriveInput) -> TokenStream {
                 &parser_info,
             );
 
+            let behavior_expr = if raw_response {
+                quote! {
+                    #crate_path::command::CommandBehavior::Inquiry(
+                        #crate_path::command::InquiryResponseSpec::Raw,
+                    )
+                }
+            } else {
+                quote! {
+                    #crate_path::command::CommandBehavior::Inquiry(
+                        #crate_path::command::InquiryResponseSpec::Builtin(
+                            #crate_path::command::InquiryKind::#response_kind,
+                        ),
+                    )
+                }
+            };
+
             let expanded = quote! {
                 impl #crate_path::command::ViscaCommand for #struct_name {
                     const MAX_SIZE: usize = #max_size_expr;
@@ -121,8 +146,8 @@ pub fn derive_visca_inquiry_impl(input: DeriveInput) -> TokenStream {
                         #write_into_body
                     }
 
-                    fn response_kind(&self) -> Option<#crate_path::command::InquiryKind> {
-                        Some(#crate_path::command::InquiryKind::#response_kind)
+                    fn behavior(&self) -> #crate_path::command::CommandBehavior {
+                        #behavior_expr
                     }
                 }
 

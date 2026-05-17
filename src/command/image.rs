@@ -9,7 +9,7 @@ use grafton_visca_macros::ViscaEnum;
 use std::borrow::Cow;
 
 use crate::{
-    command::{encode::ViscaCommand, resolution::PictureEffectMode, InquiryKind},
+    command::{encode::ViscaCommand, resolution::PictureEffectMode},
     error::Error,
     timeout::CommandCategory,
     types::{
@@ -162,10 +162,6 @@ impl ViscaCommand for Sharpness {
                     .build_into(buffer)
             }
         }
-    }
-
-    fn response_kind(&self) -> Option<InquiryKind> {
-        None
     }
 }
 
@@ -383,10 +379,6 @@ impl ViscaCommand for PictureEffectCommand {
         builder.push_mut(effect);
         builder.terminate().build_into(buffer)
     }
-
-    fn response_kind(&self) -> Option<InquiryKind> {
-        None
-    }
 }
 
 #[cfg(test)]
@@ -421,7 +413,7 @@ mod tests {
     #[test]
     fn test_backlight_command_properties() {
         let cmd = BacklightCommand::new(true);
-        assert!(cmd.response_kind().is_none());
+        assert!(cmd.behavior().command_kind() == crate::command::CommandKind::Command);
         assert!(matches!(cmd.timeout_class(), CommandCategory::Quick));
     }
 
@@ -456,7 +448,7 @@ mod tests {
     #[test]
     fn test_noise_reduction_2d_properties() {
         let cmd = NoiseReduction2D::off();
-        assert!(cmd.response_kind().is_none());
+        assert!(cmd.behavior().command_kind() == crate::command::CommandKind::Command);
         assert!(matches!(cmd.timeout_class(), CommandCategory::Custom));
     }
 
@@ -491,7 +483,7 @@ mod tests {
     #[test]
     fn test_noise_reduction_3d_properties() {
         let cmd = NoiseReduction3D::off();
-        assert!(cmd.response_kind().is_none());
+        assert!(cmd.behavior().command_kind() == crate::command::CommandKind::Command);
         assert!(matches!(cmd.timeout_class(), CommandCategory::Custom));
     }
 
@@ -526,7 +518,7 @@ mod tests {
     #[test]
     fn test_image_flip_properties() {
         let cmd = ImageFlipCombinedCommand::new(ImageFlipMode::Off);
-        assert!(cmd.response_kind().is_none());
+        assert!(cmd.behavior().command_kind() == crate::command::CommandKind::Command);
         assert!(matches!(cmd.timeout_class(), CommandCategory::Custom));
     }
 
@@ -574,12 +566,24 @@ mod tests {
     #[test]
     fn test_response_type_none() {
         // Verify all commands return None for response_type
-        assert!(BacklightCommand::new(true).response_kind().is_none());
-        assert!(NoiseReduction2D::off().response_kind().is_none());
-        assert!(NoiseReduction3D::off().response_kind().is_none());
-        assert!(ImageFlipCombinedCommand::new(ImageFlipMode::Off)
-            .response_kind()
-            .is_none());
+        assert!(
+            BacklightCommand::new(true).behavior().command_kind()
+                == crate::command::CommandKind::Command
+        );
+        assert!(
+            NoiseReduction2D::off().behavior().command_kind()
+                == crate::command::CommandKind::Command
+        );
+        assert!(
+            NoiseReduction3D::off().behavior().command_kind()
+                == crate::command::CommandKind::Command
+        );
+        assert!(
+            ImageFlipCombinedCommand::new(ImageFlipMode::Off)
+                .behavior()
+                .command_kind()
+                == crate::command::CommandKind::Command
+        );
     }
 
     #[test]
@@ -742,7 +746,7 @@ mod tests {
         let cmd = PictureEffectCommand {
             mode: PictureEffectMode::Off,
         };
-        assert!(cmd.response_kind().is_none());
+        assert!(cmd.behavior().command_kind() == crate::command::CommandKind::Command);
         assert!(matches!(cmd.timeout_class(), CommandCategory::Quick));
     }
 
@@ -763,7 +767,7 @@ mod tests {
     #[test]
     fn test_sharpness_properties() {
         let cmd = Sharpness::Mode(SharpnessMode::Auto);
-        assert!(cmd.response_kind().is_none());
+        assert!(cmd.behavior().command_kind() == crate::command::CommandKind::Command);
         assert!(matches!(cmd.timeout_class(), CommandCategory::Custom));
     }
 
@@ -921,7 +925,7 @@ mod tests {
     #[test]
     fn test_luminance_properties() {
         let cmd = Luminance::new(LuminanceLevel::new(7).unwrap());
-        assert!(cmd.response_kind().is_none());
+        assert!(cmd.behavior().command_kind() == crate::command::CommandKind::Command);
         assert!(matches!(cmd.timeout_class(), CommandCategory::Quick));
     }
 
@@ -989,7 +993,7 @@ mod tests {
     #[test]
     fn test_contrast_properties() {
         let cmd = Contrast::new(ContrastLevel::new(7).unwrap());
-        assert!(cmd.response_kind().is_none());
+        assert!(cmd.behavior().command_kind() == crate::command::CommandKind::Command);
         assert!(matches!(cmd.timeout_class(), CommandCategory::Quick));
     }
 
@@ -1027,7 +1031,7 @@ mod tests {
     #[test]
     fn test_gamma_properties() {
         let cmd = GammaCommand::new(GammaLevel::new(0).unwrap());
-        assert!(cmd.response_kind().is_none());
+        assert!(cmd.behavior().command_kind() == crate::command::CommandKind::Command);
         assert!(matches!(cmd.timeout_class(), CommandCategory::Custom));
     }
 
@@ -1161,28 +1165,43 @@ mod tests {
     #[test]
     fn test_response_type_none_extended() {
         // Verify all commands return None for response_type
-        assert!(Sharpness::Reset.response_kind().is_none());
-        assert!(Sharpness::Mode(SharpnessMode::Auto)
-            .response_kind()
-            .is_none());
-        assert!(Sharpness::Up.response_kind().is_none());
-        assert!(Sharpness::Down.response_kind().is_none());
-        assert!(Sharpness::SetLevel { value: 5 }.response_kind().is_none());
-        assert!(Luminance::new(
-            LuminanceLevel::new(7).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
-        )
-        .response_kind()
-        .is_none());
-        assert!(Contrast::new(
-            ContrastLevel::new(7).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
-        )
-        .response_kind()
-        .is_none());
-        assert!(GammaCommand::new(
-            GammaLevel::new(2).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
-        )
-        .response_kind()
-        .is_none());
+        assert!(Sharpness::Reset.behavior().command_kind() == crate::command::CommandKind::Command);
+        assert!(
+            Sharpness::Mode(SharpnessMode::Auto)
+                .behavior()
+                .command_kind()
+                == crate::command::CommandKind::Command
+        );
+        assert!(Sharpness::Up.behavior().command_kind() == crate::command::CommandKind::Command);
+        assert!(Sharpness::Down.behavior().command_kind() == crate::command::CommandKind::Command);
+        assert!(
+            Sharpness::SetLevel { value: 5 }.behavior().command_kind()
+                == crate::command::CommandKind::Command
+        );
+        assert!(
+            Luminance::new(
+                LuminanceLevel::new(7).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
+            )
+            .behavior()
+            .command_kind()
+                == crate::command::CommandKind::Command
+        );
+        assert!(
+            Contrast::new(
+                ContrastLevel::new(7).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
+            )
+            .behavior()
+            .command_kind()
+                == crate::command::CommandKind::Command
+        );
+        assert!(
+            GammaCommand::new(
+                GammaLevel::new(2).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
+            )
+            .behavior()
+            .command_kind()
+                == crate::command::CommandKind::Command
+        );
     }
 
     #[test]

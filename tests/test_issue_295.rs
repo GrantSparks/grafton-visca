@@ -1,8 +1,11 @@
 //! Test for issue #295: TallyGreenInquiry bug fix
 //! This verifies that TallyGreenInquiry is correctly classified as an inquiry
-//! both by its type metadata (response_type()) and by the new command_kind() method.
+//! by its complete command behavior metadata.
 
-use grafton_visca::command::{CommandKind, PowerInquiry, PowerOn, TallyGreenInquiry, ViscaCommand};
+use grafton_visca::command::{
+    CommandBehavior, CommandKind, InquiryKind, InquiryResponseSpec, PowerInquiry, PowerOn,
+    TallyGreenInquiry, ViscaCommand,
+};
 
 #[test]
 fn test_tally_green_inquiry_is_detected_as_inquiry() {
@@ -18,35 +21,29 @@ fn test_tally_green_inquiry_is_detected_as_inquiry() {
     // Verify that the command has the inquiry byte pattern (0x09 at position 1)
     assert_eq!(buffer[1], 0x09, "Second byte should be 0x09 for inquiry");
 
-    // Verify that the type metadata correctly identifies it as an inquiry (bug fixed)
-    let response_type = grafton_visca::command::ViscaCommand::response_kind(&inquiry);
-    assert!(
-        response_type.is_some(),
-        "TallyGreenInquiry should return Some(response_type) for inquiries"
-    );
-
-    // Verify that command_kind() correctly returns Inquiry
-    let command_kind = grafton_visca::command::ViscaCommand::command_kind(&inquiry);
-    assert!(
-        matches!(command_kind, grafton_visca::command::CommandKind::Inquiry),
-        "TallyGreenInquiry should be classified as CommandKind::Inquiry"
+    assert_eq!(
+        inquiry.behavior(),
+        CommandBehavior::Inquiry(InquiryResponseSpec::Builtin(InquiryKind::TallyGreen))
     );
 }
 
-// Test that other inquiry commands work correctly with command_kind()
+// Test that other inquiry commands work correctly with behavior-derived CommandKind.
 #[test]
 fn test_command_kind_for_inquiries_and_commands() {
     // Test an inquiry command
     let power_inquiry = PowerInquiry;
     assert!(
-        matches!(power_inquiry.command_kind(), CommandKind::Inquiry),
+        matches!(
+            power_inquiry.behavior().command_kind(),
+            CommandKind::Inquiry
+        ),
         "PowerInquiry should be CommandKind::Inquiry"
     );
 
     // Test a regular command
     let power_on = PowerOn::new();
     assert!(
-        matches!(power_on.command_kind(), CommandKind::Command),
+        matches!(power_on.behavior().command_kind(), CommandKind::Command),
         "PowerOn should be CommandKind::Command"
     );
 }

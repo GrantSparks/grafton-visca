@@ -14,7 +14,6 @@ use crate::{
     command::{
         bytes::{constants, ConstCommandBuilder},
         encode::ViscaCommand,
-        InquiryKind,
     },
     error::Error,
     timeout::CommandCategory,
@@ -69,10 +68,6 @@ impl ViscaCommand for NdFilterModeCommand {
             .terminate()
             .build_into(buffer)
     }
-
-    fn response_kind(&self) -> Option<InquiryKind> {
-        None
-    }
 }
 
 impl NdFilterModeCommand {
@@ -109,10 +104,6 @@ impl ViscaCommand for NdFilterValue {
             .with_camera_id(camera_id)
             .terminate()
             .build_into(buffer)
-    }
-
-    fn response_kind(&self) -> Option<InquiryKind> {
-        None
     }
 }
 
@@ -200,10 +191,6 @@ impl ViscaCommand for NdFilterStepCommand {
             .terminate()
             .build_into(buffer)
     }
-
-    fn response_kind(&self) -> Option<InquiryKind> {
-        None
-    }
 }
 
 impl NdFilterStepCommand {
@@ -248,10 +235,6 @@ impl ViscaCommand for AutoNdCommand {
             .with_camera_id(camera_id)
             .terminate()
             .build_into(buffer)
-    }
-
-    fn response_kind(&self) -> Option<InquiryKind> {
-        None
     }
 }
 

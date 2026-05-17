@@ -11,7 +11,7 @@ use tracing::{debug, trace, warn};
 use crate::{
     camera::CommandId,
     capabilities::Profile,
-    command::response::{lift_inquiry_for, Payload},
+    command::response::{lift_response_for_spec, Payload},
     error::Error,
     protocol::response::{decode_basic, BasicKind, BasicResponse},
     runtime::core::{ReplySource, SchedulerCore, SchedulerEvent},
@@ -100,9 +100,9 @@ fn classify_completion<P: Profile>(
         return ReceiveDisposition::Ignored { reason };
     }
 
-    let response_type = cmd_id.and_then(|id| core.get_inquiry_type(id));
+    let response_spec = cmd_id.and_then(|id| core.get_inquiry_response_spec(id));
 
-    match lift_inquiry_for::<P>(basic, response_type.as_ref()) {
+    match lift_response_for_spec::<P>(basic, response_spec.as_ref()) {
         Ok(response) => {
             let source = ReplySource::from_fields(cmd_id, sequence, basic.socket);
             ReceiveDisposition::Event(SchedulerEvent::Completion { source, response })
@@ -169,13 +169,13 @@ fn classify_data_reply<P: Profile>(
         };
     };
 
-    let Some(response_type) = core.get_inquiry_type(cmd_id) else {
+    let Some(response_spec) = core.get_inquiry_response_spec(cmd_id) else {
         return ReceiveDisposition::Ignored {
             reason: IgnoreReason::UnexpectedDataReply { id: cmd_id },
         };
     };
 
-    match lift_inquiry_for::<P>(basic, Some(&response_type)) {
+    match lift_response_for_spec::<P>(basic, Some(&response_spec)) {
         Ok(response) => {
             let source = ReplySource::from_fields(Some(cmd_id), sequence, None);
             ReceiveDisposition::Event(SchedulerEvent::InquiryReply { source, response })
@@ -240,7 +240,7 @@ mod tests {
         camera_id::CameraId,
         command::{
             bytes::VISCA_TERMINATOR, encode::EncodedCommand, inquiry_structs::InquiryKind,
-            response::Response, CommandKind, InquiryData,
+            response::Response, CommandBehavior, InquiryData, InquiryResponseSpec,
         },
         runtime::core::{Priority, SchedulerAction},
         timeout::{CommandCategory, TimeoutConfig},
@@ -254,18 +254,24 @@ mod tests {
     fn command() -> Arc<EncodedCommand> {
         Arc::new(EncodedCommand {
             payload: SmallVec::from_slice(&[0x81, 0x01, 0x04, 0x00, 0x03, VISCA_TERMINATOR]),
-            kind: CommandKind::Command,
+            behavior: CommandBehavior::Command,
             category: CommandCategory::Movement,
-            response_type: None,
         })
     }
 
     fn inquiry(kind: InquiryKind) -> Arc<EncodedCommand> {
         Arc::new(EncodedCommand {
             payload: SmallVec::from_slice(&[0x81, 0x09, 0x04, 0x00, VISCA_TERMINATOR]),
-            kind: CommandKind::Inquiry,
+            behavior: CommandBehavior::Inquiry(InquiryResponseSpec::Builtin(kind)),
             category: CommandCategory::Quick,
-            response_type: Some(kind),
+        })
+    }
+
+    fn raw_inquiry() -> Arc<EncodedCommand> {
+        Arc::new(EncodedCommand {
+            payload: SmallVec::from_slice(&[0x81, 0x09, 0x7E, 0x55, VISCA_TERMINATOR]),
+            behavior: CommandBehavior::Inquiry(InquiryResponseSpec::Raw),
+            category: CommandCategory::Quick,
         })
     }
 
@@ -273,6 +279,16 @@ mod tests {
         core.start_inquiry(
             id,
             inquiry(kind),
+            Priority::Normal,
+            CameraId::CAMERA_1,
+            Instant::now(),
+        );
+    }
+
+    fn start_raw_inquiry(core: &mut SchedulerCore, id: CommandId) {
+        core.start_inquiry(
+            id,
+            raw_inquiry(),
             Priority::Normal,
             CameraId::CAMERA_1,
             Instant::now(),
@@ -453,6 +469,30 @@ mod tests {
     }
 
     #[test]
+    fn matched_sony_raw_data_reply_uses_sequence_attribution() {
+        let mut core = SchedulerCore::new(TimeoutConfig::default());
+        start_raw_inquiry(&mut core, cmd_id(8));
+        core.register_sequence(cmd_id(8), 808);
+
+        let disposition = receive_one::<PtzOpticsG2>(
+            &mut core,
+            &[0x90, 0x50, 0x7A, 0x7B, VISCA_TERMINATOR],
+            Some(808),
+        );
+
+        match disposition {
+            ReceiveDisposition::Event(SchedulerEvent::InquiryReply { source, response }) => {
+                assert_eq!(source.cmd_id(), Some(cmd_id(8)));
+                match response {
+                    Response::RawInquiry(payload) => assert_eq!(payload.as_slice(), &[0x7A, 0x7B]),
+                    other => panic!("expected raw inquiry response, got {other:?}"),
+                }
+            }
+            other => panic!("expected raw inquiry event, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn stale_sony_data_reply_does_not_consume_raw_inquiry() {
         let mut core = SchedulerCore::new(TimeoutConfig::default());
         let now = Instant::now();
@@ -481,6 +521,41 @@ mod tests {
             matches!(
                 action,
                 SchedulerAction::CommandComplete { id, .. } if *id == cmd_id(1)
+            )
+        }));
+    }
+
+    #[test]
+    fn stale_sony_raw_data_reply_does_not_consume_raw_fifo() {
+        let mut core = SchedulerCore::new(TimeoutConfig::default());
+        let now = Instant::now();
+        start_raw_inquiry(&mut core, cmd_id(1));
+
+        let stale =
+            receive_one::<PtzOpticsG2>(&mut core, &[0x90, 0x50, 0x7A, VISCA_TERMINATOR], Some(999));
+
+        assert!(matches!(
+            stale,
+            ReceiveDisposition::Ignored {
+                reason: IgnoreReason::UnmatchedSequence { sequence: 999 }
+            }
+        ));
+        assert!(core.is_command_pending(cmd_id(1)));
+
+        let valid =
+            receive_one::<PtzOpticsG2>(&mut core, &[0x90, 0x50, 0x7B, VISCA_TERMINATOR], None);
+        let ReceiveDisposition::Event(event) = valid else {
+            panic!("expected valid raw inquiry event, got {valid:?}");
+        };
+        let actions = core.process_event(event, now);
+        assert!(actions.iter().any(|action| {
+            matches!(
+                action,
+                SchedulerAction::CommandComplete {
+                    id,
+                    response: Response::RawInquiry(payload),
+                    ..
+                } if *id == cmd_id(1) && payload.as_slice() == [0x7B]
             )
         }));
     }
@@ -545,6 +620,50 @@ mod tests {
                 ));
             }
             other => panic!("expected content-matched inquiry event, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn raw_data_reply_builtin_match_skips_raw_inquiry_before_fifo() {
+        let mut core = SchedulerCore::new(TimeoutConfig::default());
+        start_raw_inquiry(&mut core, cmd_id(1));
+        start_inquiry(&mut core, cmd_id(2), InquiryKind::Power);
+
+        let disposition =
+            receive_one::<PtzOpticsG2>(&mut core, &[0x90, 0x50, 0x02, VISCA_TERMINATOR], None);
+
+        match disposition {
+            ReceiveDisposition::Event(SchedulerEvent::InquiryReply { source, response }) => {
+                assert_eq!(source.cmd_id(), Some(cmd_id(2)));
+                assert!(matches!(
+                    response,
+                    Response::Inquiry(InquiryData::Power { on: true })
+                ));
+            }
+            other => panic!("expected built-in content-matched inquiry event, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn raw_data_reply_for_raw_inquiry_uses_fifo_when_unsequenced() {
+        let mut core = SchedulerCore::new(TimeoutConfig::default());
+        start_raw_inquiry(&mut core, cmd_id(5));
+
+        let disposition = receive_one::<PtzOpticsG2>(
+            &mut core,
+            &[0x90, 0x50, 0x33, 0x44, VISCA_TERMINATOR],
+            None,
+        );
+
+        match disposition {
+            ReceiveDisposition::Event(SchedulerEvent::InquiryReply { source, response }) => {
+                assert_eq!(source.cmd_id(), Some(cmd_id(5)));
+                match response {
+                    Response::RawInquiry(payload) => assert_eq!(payload.as_slice(), &[0x33, 0x44]),
+                    other => panic!("expected raw inquiry response, got {other:?}"),
+                }
+            }
+            other => panic!("expected FIFO-attributed raw inquiry event, got {other:?}"),
         }
     }
 
