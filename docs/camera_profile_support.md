@@ -38,6 +38,14 @@ every profile. Do not treat those metadata traits as proof of support. Implement
 support markers only when the camera profile's source documents establish that
 the feature exists and the crate has a typed implementation for it.
 
+The runtime equivalent of the marker contract is `TypedSupportSet`.
+`ProfileTypedSupport::TYPED_SUPPORT` records the optional typed surfaces a
+profile exposes, and `Capabilities::supports_typed(...)` is the dyn-api
+permission check for those surfaces. Built-in profiles derive marker impls and
+`TYPED_SUPPORT` from the same `typed_support: [...]` registry list. Custom
+profiles must keep optional marker impls and `TYPED_SUPPORT` in sync; do not use
+metadata constants as a fallback permission source.
+
 This split also applies inside broad baseline areas. A profile may support zoom
 tele/wide movement without supporting direct absolute zoom, digital zoom toggle,
 or optical-plus-digital positioning. A profile may support exposure mode and
@@ -121,9 +129,10 @@ built-in profile by the registry. Baseline metadata may still exist for every
 profile so runtime discovery can return a complete `Capabilities` value; these
 markers are the compile-time contract for typed accessors and control traits.
 
-Do not add one of these markers to a heterogeneous `dyn` aggregate unless every
-profile behind that aggregate implements the marker. Use optional accessors,
-runtime feature detection, or a split trait when a capability is not universal.
+Do not add one of these markers to a heterogeneous typed aggregate unless every
+profile behind that aggregate implements the marker. For `dyn-api` cameras, use
+`camera.capabilities().supports_typed(TypedSupportSurface::...)` before calling
+optional typed operations when a capability is not universal.
 
 | Profile | Typed support markers |
 | ------- | --------------------- |
@@ -151,7 +160,7 @@ response routing; typed custom inquiries add response typing by implementing
 3. Update the built-in profile registry in `src/camera/profile_registry.rs` from those sources, including transport support and default ports.
 4. Use `false`, `None`, or conservative ranges when the docs do not establish support.
 5. Implement optional metadata with supported values only when runtime discovery should report support.
-6. Add optional typed support surfaces to the registry entry only when typed APIs are intentionally supported for that profile.
+6. Add optional typed support surfaces to the registry entry only when typed APIs are intentionally supported for that profile; the registry emits both marker impls and the runtime `TypedSupportSet`.
 7. Add pass API-contract fixtures for newly supported typed surfaces.
 8. Add compile-fail fixtures proving unsupported profiles cannot call those typed surfaces.
 9. Add or update `Capabilities::from_profile` tests for every affected built-in profile.
@@ -161,7 +170,7 @@ response routing; typed custom inquiries add response typing by implementing
 
 | Situation | Profile metadata | Support marker | Notes |
 | --------- | ---------------- | -------------- | ----- |
-| Model docs say the feature exists and typed APIs exist | Supported value | Implement marker | Add pass and runtime discovery tests. |
+| Model docs say the feature exists and typed APIs exist | Supported value | Implement marker and include the matching `TypedSupportSurface` | Add pass and runtime discovery tests. |
 | Model docs say the feature does not exist | Unsupported default | No marker | Add compile-fail coverage if the typed API could be accidentally exposed. |
 | Command list has an opcode but model capability docs do not list support | Unsupported default | No marker | Document the ambiguity; raw commands remain available. |
 | Hardware testing proves support not shown in a manual | Supported value if reproducible | Implement marker only if typed API is intentional | Add model, firmware, test setup, and protocol evidence to docs. |

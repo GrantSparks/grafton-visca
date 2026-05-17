@@ -9,7 +9,9 @@ use std::{
     ops::{Range, RangeInclusive},
 };
 
-use super::profile_metadata::InquirySupport;
+use super::{
+    profile_metadata::InquirySupport, ProfileTypedSupport, TypedSupportSet, TypedSupportSurface,
+};
 use crate::command::exposure::ExposureMode;
 
 fn inclusive_u8_range(range: &Range<u8>) -> RangeInclusive<u8> {
@@ -96,7 +98,12 @@ pub struct Capabilities {
     /// Whether camera supports zoom operations.
     pub has_zoom: bool,
 
-    /// Whether camera supports digital zoom beyond optical.
+    /// Whether profile metadata reports digital zoom beyond optical.
+    ///
+    /// This is not permission to call typed digital zoom APIs; use
+    /// [`supports_typed`](Self::supports_typed) with
+    /// [`TypedSupportSurface::DigitalZoomToggle`] or
+    /// [`TypedSupportSurface::DigitalZoomRange`] for that.
     pub has_digital_zoom: bool,
 
     /// Optical zoom range in VISCA units (0x0000 to max).
@@ -108,7 +115,11 @@ pub struct Capabilities {
     /// Valid zoom speed range (typically 0-7).
     pub zoom_speed: RangeInclusive<u8>,
 
-    /// Whether camera supports direct zoom positioning.
+    /// Whether profile metadata reports direct zoom positioning.
+    ///
+    /// This is not permission to call typed direct zoom APIs; use
+    /// [`supports_typed`](Self::supports_typed) with
+    /// [`TypedSupportSurface::DirectZoom`] for that.
     pub supports_direct_zoom: bool,
 
     /// Whether camera supports variable speed zoom.
@@ -133,7 +144,11 @@ pub struct Capabilities {
     /// Whether camera supports auto-focus mode.
     pub has_auto_focus: bool,
 
-    /// Whether camera supports one-push auto-focus.
+    /// Whether profile metadata reports one-push auto-focus.
+    ///
+    /// This is not permission to call the typed one-push focus API; use
+    /// [`supports_typed`](Self::supports_typed) with
+    /// [`TypedSupportSurface::OnePushFocus`] for that.
     pub has_one_push_focus: bool,
 
     /// Focus position range in VISCA units.
@@ -142,10 +157,18 @@ pub struct Capabilities {
     /// Valid focus speed range.
     pub focus_speed: RangeInclusive<u8>,
 
-    /// Whether camera supports focus zone selection.
+    /// Whether profile metadata reports focus zone selection.
+    ///
+    /// This is not permission to call typed focus zone APIs; use
+    /// [`supports_typed`](Self::supports_typed) with
+    /// [`TypedSupportSurface::FocusZone`] for that.
     pub has_focus_zone: bool,
 
-    /// Whether camera supports auto focus sensitivity adjustment.
+    /// Whether profile metadata reports auto focus sensitivity adjustment.
+    ///
+    /// This is not permission to call typed AF sensitivity APIs; use
+    /// [`supports_typed`](Self::supports_typed) with
+    /// [`TypedSupportSurface::AutoFocusSensitivity`] for that.
     pub has_af_sensitivity: bool,
 
     /// Whether camera supports the focus near limit inquiry command.
@@ -310,6 +333,15 @@ pub struct Capabilities {
 
     /// Whether camera sends operation complete messages.
     pub supports_operation_complete: bool,
+
+    /// Optional typed API surfaces this profile is permitted to expose.
+    ///
+    /// This is the runtime permission source for dyn-api optional typed
+    /// operations. Metadata fields such as [`has_digital_zoom`](Self::has_digital_zoom)
+    /// and [`supports_direct_zoom`](Self::supports_direct_zoom) remain physical
+    /// or protocol discovery facts and are not typed API permission checks.
+    #[cfg_attr(feature = "schemars", schemars(with = "Vec<TypedSupportSurface>"))]
+    pub typed_support: TypedSupportSet,
 }
 
 impl Capabilities {
@@ -495,7 +527,15 @@ impl Capabilities {
             // Protocol features
             inquiry_support: P::INQUIRY_SUPPORT,
             supports_operation_complete: P::SUPPORTS_OPERATION_COMPLETE,
+
+            typed_support: <P as ProfileTypedSupport>::TYPED_SUPPORT,
         }
+    }
+
+    /// Returns true if this profile permits the requested typed API surface.
+    #[must_use]
+    pub const fn supports_typed(&self, surface: TypedSupportSurface) -> bool {
+        self.typed_support.contains(surface)
     }
 
     /// Returns true if the camera supports all VISCA inquiry commands.
@@ -696,12 +736,107 @@ impl Capabilities {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use crate::camera::profiles::{
         GenericVisca, NearusBRC300, PtzOptics30X, PtzOpticsG2, PtzOpticsG3, SonyBRC300,
         SonyBRCH900, SonyEVIH100, SonyFR7,
     };
+    use crate::capabilities::{
+        exposure::ShutterSpeed, Exposure, Focus, ImageProcessing, MenuCapability,
+        MotionSyncMetadata, NdFilterMetadata, PanTilt, Power, Presets, ProfileMetadata,
+        ProfileTypedSupport, Tally, VariableSpeedMetadata, WhiteBalance, Zoom,
+    };
+    use crate::command::exposure::ExposureMode;
+    use crate::transport::RawVisca;
+    use crate::WhiteBalanceMode;
 
     use super::*;
+
+    const SYNTHETIC_EXPOSURE_MODES: &[ExposureMode] = &[ExposureMode::Auto];
+    const SYNTHETIC_SHUTTER_SPEEDS: &[ShutterSpeed] = &[ShutterSpeed::new("1/60", 0x01)];
+    const SYNTHETIC_WB_MODES: &[WhiteBalanceMode] = &[WhiteBalanceMode::Auto];
+
+    #[derive(Debug, Default, Clone, Copy)]
+    struct MetadataEnabledNoTypedSupport;
+
+    impl ProfileMetadata for MetadataEnabledNoTypedSupport {
+        const MODEL_NAME: &'static str = "Metadata Enabled Without Typed Support";
+        const DEFAULT_CAMERA_ID: u8 = 1;
+        type Envelope = RawVisca;
+        const ACK_TIMEOUT: Duration = Duration::from_millis(100);
+        const COMPLETION_TIMEOUT: Duration = Duration::from_millis(1_000);
+    }
+
+    impl PanTilt for MetadataEnabledNoTypedSupport {
+        const PAN_RANGE: Range<i16> = -1700..1701;
+        const TILT_RANGE: Range<i16> = -300..901;
+        const MAX_PAN_SPEED: u8 = 24;
+        const MAX_TILT_SPEED: u8 = 20;
+        const PAN_DEGREES_TO_UNITS: f32 = 10.0;
+        const TILT_DEGREES_TO_UNITS: f32 = 10.0;
+    }
+
+    impl Zoom for MetadataEnabledNoTypedSupport {
+        const OPTICAL_ZOOM_MAX: u16 = 0x4000;
+        const DIGITAL_ZOOM_MAX: Option<u16> = Some(0x7000);
+        const ZOOM_SPEED_RANGE: Range<u8> = 0..8;
+        const SUPPORTS_DIRECT_ZOOM: bool = true;
+        const ZOOM_MAGNIFICATION_TO_UNITS: f32 = 862.3;
+    }
+
+    impl Focus for MetadataEnabledNoTypedSupport {
+        const FOCUS_NEAR_LIMIT: u16 = 0x1000;
+        const FOCUS_FAR_LIMIT: u16 = 0xF000;
+        const SUPPORTS_AUTO_FOCUS: bool = true;
+        const SUPPORTS_ONE_PUSH_FOCUS: bool = true;
+        const SUPPORTS_FOCUS_ZONE: bool = true;
+        const SUPPORTS_AF_SENSITIVITY: bool = true;
+    }
+
+    impl Exposure for MetadataEnabledNoTypedSupport {
+        const EXPOSURE_MODES: &'static [ExposureMode] = SYNTHETIC_EXPOSURE_MODES;
+        const IRIS_RANGE: Option<Range<u16>> = None;
+        const SHUTTER_SPEEDS: &'static [ShutterSpeed] = SYNTHETIC_SHUTTER_SPEEDS;
+        const GAIN_RANGE: Range<u8> = 0..16;
+        const SUPPORTS_BACKLIGHT_COMP: bool = false;
+    }
+
+    impl WhiteBalance for MetadataEnabledNoTypedSupport {
+        const WB_MODES: &'static [WhiteBalanceMode] = SYNTHETIC_WB_MODES;
+        const SUPPORTS_ONE_PUSH_WB: bool = false;
+        const RG_TUNING_RANGE: Option<Range<i8>> = None;
+        const BG_TUNING_RANGE: Option<Range<i8>> = None;
+    }
+
+    impl ImageProcessing for MetadataEnabledNoTypedSupport {
+        const CONTRAST_RANGE: Option<Range<u8>> = None;
+        const SHARPNESS_RANGE: Option<Range<u8>> = None;
+        const SATURATION_RANGE: Option<Range<u8>> = None;
+        const SUPPORTS_FLIP: bool = false;
+        const SUPPORTS_MIRROR: bool = false;
+    }
+
+    impl Presets for MetadataEnabledNoTypedSupport {
+        const MAX_PRESETS: u8 = 6;
+        const PRESET_SPEED_RANGE: Range<u8> = 1..24;
+        const SUPPORTS_PRESET_TOUR: bool = false;
+    }
+
+    impl Power for MetadataEnabledNoTypedSupport {
+        const POWER_ON_TIME: Duration = Duration::from_secs(5);
+        const SUPPORTS_STANDBY: bool = false;
+    }
+
+    impl MenuCapability for MetadataEnabledNoTypedSupport {}
+    impl Tally for MetadataEnabledNoTypedSupport {}
+    impl MotionSyncMetadata for MetadataEnabledNoTypedSupport {}
+    impl NdFilterMetadata for MetadataEnabledNoTypedSupport {}
+    impl VariableSpeedMetadata for MetadataEnabledNoTypedSupport {}
+
+    impl ProfileTypedSupport for MetadataEnabledNoTypedSupport {
+        const TYPED_SUPPORT: TypedSupportSet = TypedSupportSet::EMPTY;
+    }
 
     #[test]
     fn test_capabilities_from_ptzoptics_g2() {
@@ -774,6 +909,49 @@ mod tests {
         assert_eq!(caps.sharpness_range, Some(0..=14));
 
         assert!(caps.has_advanced_features());
+    }
+
+    #[test]
+    fn test_typed_support_discovery_for_built_in_profiles() {
+        let g2 = Capabilities::from_profile::<PtzOpticsG2>();
+        assert_eq!(
+            g2.typed_support,
+            <PtzOpticsG2 as ProfileTypedSupport>::TYPED_SUPPORT
+        );
+        assert!(g2.supports_typed(TypedSupportSurface::DirectZoom));
+        assert!(g2.supports_typed(TypedSupportSurface::FocusZone));
+        assert!(!g2.supports_typed(TypedSupportSurface::DigitalZoomToggle));
+        assert!(!g2.supports_typed(TypedSupportSurface::DigitalZoomRange));
+
+        let fr7 = Capabilities::from_profile::<SonyFR7>();
+        assert_eq!(
+            fr7.typed_support,
+            <SonyFR7 as ProfileTypedSupport>::TYPED_SUPPORT
+        );
+        assert!(fr7.supports_typed(TypedSupportSurface::DirectZoom));
+        assert!(fr7.supports_typed(TypedSupportSurface::DigitalZoomToggle));
+        assert!(fr7.supports_typed(TypedSupportSurface::DigitalZoomRange));
+        assert!(fr7.supports_typed(TypedSupportSurface::FocusZone));
+        assert!(fr7.supports_typed(TypedSupportSurface::AutoFocusSensitivity));
+    }
+
+    #[test]
+    fn test_metadata_enabled_profile_reports_typed_support_independently() {
+        let caps = Capabilities::from_profile::<MetadataEnabledNoTypedSupport>();
+
+        assert!(caps.supports_direct_zoom);
+        assert!(caps.has_digital_zoom);
+        assert!(caps.has_one_push_focus);
+        assert!(caps.has_focus_zone);
+        assert!(caps.has_af_sensitivity);
+
+        assert!(caps.typed_support.is_empty());
+        assert!(!caps.supports_typed(TypedSupportSurface::DirectZoom));
+        assert!(!caps.supports_typed(TypedSupportSurface::DigitalZoomToggle));
+        assert!(!caps.supports_typed(TypedSupportSurface::DigitalZoomRange));
+        assert!(!caps.supports_typed(TypedSupportSurface::OnePushFocus));
+        assert!(!caps.supports_typed(TypedSupportSurface::FocusZone));
+        assert!(!caps.supports_typed(TypedSupportSurface::AutoFocusSensitivity));
     }
 
     #[test]

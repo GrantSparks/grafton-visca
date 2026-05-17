@@ -19,8 +19,12 @@ use std::{
 };
 
 use grafton_visca::{
-    camera::{profiles::PtzOpticsG2, Camera, CameraBuilder},
-    command::VISCA_TERMINATOR,
+    camera::{
+        profiles::{PtzOpticsG2, SonyFR7},
+        Camera, CameraBuilder,
+    },
+    capabilities::{Profile, TypedSupportSurface},
+    command::{FocusZone, VISCA_TERMINATOR},
     dynapi::{
         DynCameraControl, DynFocusControl, DynMotionControl, DynPanTiltControl, DynPresetsControl,
         DynZoomControl, IntoDynCamera,
@@ -29,12 +33,15 @@ use grafton_visca::{
     runtime::TokioRuntime,
     testing::testkit::{helpers, scripted_transport::Step, ScriptedTransport},
     timeout::TimeoutConfig,
-    types::{FocusPosition, SpeedLevel},
-    Error, FocusControl, PanTiltControl, PresetNumber, PresetsControl, TokioExecutor, UnitInterval,
-    ZoomControl, ZoomDomain,
+    types::{FocusPosition, SpeedLevel, ZoomPosition},
+    AutoFocusSensitivity, Error, FocusControl, PanTiltControl, PresetNumber, PresetsControl,
+    TokioExecutor, UnitInterval, ZoomControl, ZoomDomain,
 };
 
-use crate::common::patterns;
+use crate::common::{
+    patterns,
+    profile_fixtures::{DirectZoomOnlyTypedSupport, MetadataEnabledNoTypedSupport},
+};
 
 struct CountingAllocator;
 
@@ -72,6 +79,7 @@ impl Drop for AllocationCountingGuard {
 }
 
 type TestCamera = Camera<Async, PtzOpticsG2, ScriptedTransport<TokioExecutor>, TokioRuntime>;
+type ProfileTestCamera<P> = Camera<Async, P, ScriptedTransport<TokioExecutor>, TokioRuntime>;
 
 fn allocations_during(f: impl FnOnce()) -> usize {
     let _guard = ALLOCATION_TEST_LOCK
@@ -125,6 +133,17 @@ async fn new_test_camera_with_timeout(
     CameraBuilder::with_executor(runtime)
         .timeout_config(timeout_config)
         .open_async::<PtzOpticsG2, _>(transport)
+        .await
+        .expect("Failed to create camera")
+}
+
+async fn new_profile_camera<P>(transport: ScriptedTransport<TokioExecutor>) -> ProfileTestCamera<P>
+where
+    P: Profile + Default,
+{
+    let runtime = TokioRuntime::from_current().expect("Failed to get runtime");
+    CameraBuilder::with_executor(runtime)
+        .open_async::<P, _>(transport)
         .await
         .expect("Failed to create camera")
 }
@@ -212,6 +231,284 @@ async fn test_dyn_camera_creation_and_capability_accessors() {
     let _ = camera_control.focus();
     let _ = camera_control.presets();
     let _ = camera_control.motion();
+}
+
+#[tokio::test]
+async fn test_dyn_typed_support_discovery_matches_runtime_gates() {
+    let dyn_camera = new_test_camera(vec![]).await.into_dyn();
+    let caps = dyn_camera.capabilities();
+
+    assert!(caps.supports_typed(TypedSupportSurface::DirectZoom));
+    assert!(caps.supports_typed(TypedSupportSurface::FocusZone));
+    assert!(!caps.supports_typed(TypedSupportSurface::DigitalZoomToggle));
+    assert!(!caps.supports_typed(TypedSupportSurface::DigitalZoomRange));
+}
+
+#[tokio::test]
+async fn test_dyn_metadata_alone_does_not_grant_typed_permissions() {
+    let transport = ScriptedTransport::new(vec![]);
+    let sent = transport.clone();
+    let camera = new_profile_camera::<MetadataEnabledNoTypedSupport>(transport).await;
+    let dyn_camera = camera.into_dyn();
+    let caps = dyn_camera.capabilities();
+
+    assert!(caps.supports_direct_zoom);
+    assert!(caps.has_digital_zoom);
+    assert!(caps.has_one_push_focus);
+    assert!(caps.has_focus_zone);
+    assert!(caps.has_af_sensitivity);
+    assert!(caps.typed_support.is_empty());
+
+    let zoom_position = ZoomPosition::new(0x2000).expect("valid raw zoom position");
+    let normalized = UnitInterval::new(0.5).expect("valid normalized value");
+
+    let set_zoom = dyn_camera.zoom().set_zoom(zoom_position, None).await;
+    assert!(
+        matches!(
+            set_zoom,
+            Err(Error::FeatureNotSupported {
+                feature: "direct zoom positioning"
+            })
+        ),
+        "metadata-only direct zoom should be rejected: {set_zoom:?}"
+    );
+
+    let set_zoom_op = dyn_camera.zoom().set_zoom_op(zoom_position).await;
+    assert!(
+        matches!(
+            set_zoom_op,
+            Err(Error::FeatureNotSupported {
+                feature: "direct zoom positioning"
+            })
+        ),
+        "metadata-only direct zoom op should be rejected"
+    );
+
+    let normalized_zoom = dyn_camera
+        .zoom()
+        .set_zoom_normalized(normalized, None)
+        .await;
+    assert!(
+        matches!(
+            normalized_zoom,
+            Err(Error::FeatureNotSupported {
+                feature: "direct zoom positioning"
+            })
+        ),
+        "metadata-only normalized direct zoom should be rejected: {normalized_zoom:?}"
+    );
+
+    let digital_zoom = dyn_camera.zoom().set_digital_zoom(true).await;
+    assert!(
+        matches!(
+            digital_zoom,
+            Err(Error::FeatureNotSupported {
+                feature: "digital zoom"
+            })
+        ),
+        "metadata-only digital zoom toggle should be rejected: {digital_zoom:?}"
+    );
+
+    let one_push = dyn_camera.focus().focus_one_push().await;
+    assert!(
+        matches!(
+            one_push,
+            Err(Error::FeatureNotSupported {
+                feature: "one-push focus"
+            })
+        ),
+        "metadata-only one-push focus should be rejected: {one_push:?}"
+    );
+
+    let focus_zone = dyn_camera.focus().set_focus_zone(FocusZone::Center).await;
+    assert!(
+        matches!(
+            focus_zone,
+            Err(Error::FeatureNotSupported {
+                feature: "focus zone"
+            })
+        ),
+        "metadata-only focus zone should be rejected: {focus_zone:?}"
+    );
+
+    let af_sensitivity = dyn_camera
+        .focus()
+        .set_auto_focus_sensitivity(AutoFocusSensitivity::Normal)
+        .await;
+    assert!(
+        matches!(
+            af_sensitivity,
+            Err(Error::FeatureNotSupported {
+                feature: "auto-focus sensitivity"
+            })
+        ),
+        "metadata-only auto-focus sensitivity should be rejected: {af_sensitivity:?}"
+    );
+
+    assert!(
+        sent.sent().is_empty(),
+        "unsupported typed dyn calls must not submit commands"
+    );
+}
+
+#[tokio::test]
+async fn test_dyn_digital_zoom_range_requires_typed_range_support() {
+    let transport = ScriptedTransport::new(vec![]);
+    let sent = transport.clone();
+    let camera = new_profile_camera::<DirectZoomOnlyTypedSupport>(transport).await;
+    let dyn_camera = camera.into_dyn();
+    let caps = dyn_camera.capabilities();
+
+    assert!(caps.supports_direct_zoom);
+    assert!(caps.has_digital_zoom);
+    assert!(caps.supports_typed(TypedSupportSurface::DirectZoom));
+    assert!(!caps.supports_typed(TypedSupportSurface::DigitalZoomRange));
+
+    let result = dyn_camera
+        .zoom()
+        .set_zoom_normalized_in_domain(
+            UnitInterval::new(0.5).expect("valid normalized value"),
+            ZoomDomain::OpticalPlusDigital,
+            None,
+        )
+        .await;
+
+    assert!(
+        matches!(
+            result,
+            Err(Error::FeatureNotSupported {
+                feature: "digital zoom"
+            })
+        ),
+        "digital zoom range requires typed support even when metadata exists: {result:?}"
+    );
+    assert!(
+        sent.sent().is_empty(),
+        "unsupported digital range call must not submit a command"
+    );
+}
+
+#[tokio::test]
+async fn test_dyn_sony_fr7_supported_typed_zoom_and_focus_surfaces_succeed() {
+    let transport = ScriptedTransport::new(vec![
+        helpers::sony_auto_respond_step(),
+        helpers::sony_auto_respond_step(),
+        helpers::sony_auto_respond_step(),
+        helpers::sony_auto_respond_step(),
+    ]);
+    let sent = transport.clone();
+    let camera = new_profile_camera::<SonyFR7>(transport).await;
+    let dyn_camera = camera.into_dyn();
+    let caps = dyn_camera.capabilities();
+
+    assert!(caps.supports_typed(TypedSupportSurface::DigitalZoomToggle));
+    assert!(caps.supports_typed(TypedSupportSurface::DigitalZoomRange));
+    assert!(caps.supports_typed(TypedSupportSurface::FocusZone));
+    assert!(caps.supports_typed(TypedSupportSurface::AutoFocusSensitivity));
+
+    dyn_camera
+        .zoom()
+        .set_digital_zoom(true)
+        .await
+        .expect("SonyFR7 digital zoom toggle should be supported");
+    dyn_camera
+        .zoom()
+        .set_zoom_normalized_in_domain(
+            UnitInterval::new(0.5).expect("valid normalized value"),
+            ZoomDomain::OpticalPlusDigital,
+            None,
+        )
+        .await
+        .expect("SonyFR7 optical-plus-digital zoom should be supported");
+    dyn_camera
+        .focus()
+        .set_focus_zone(FocusZone::Center)
+        .await
+        .expect("SonyFR7 focus zone should be supported");
+    dyn_camera
+        .focus()
+        .set_auto_focus_sensitivity(AutoFocusSensitivity::Normal)
+        .await
+        .expect("SonyFR7 AF sensitivity should be supported");
+
+    assert_eq!(
+        sent.sent().len(),
+        4,
+        "each supported SonyFR7 dyn typed call should submit one command"
+    );
+}
+
+#[tokio::test]
+async fn test_dyn_ptzoptics_g2_supported_direct_zoom_and_focus_zone_succeed() {
+    let transport = ScriptedTransport::new(vec![
+        helpers::auto_respond_step(),
+        helpers::auto_respond_step(),
+    ]);
+    let sent = transport.clone();
+    let camera = new_profile_camera::<PtzOpticsG2>(transport).await;
+    let dyn_camera = camera.into_dyn();
+
+    dyn_camera
+        .zoom()
+        .set_zoom(
+            ZoomPosition::new(0x2000).expect("valid raw zoom position"),
+            None,
+        )
+        .await
+        .expect("PtzOpticsG2 direct zoom should be supported");
+    dyn_camera
+        .focus()
+        .set_focus_zone(FocusZone::Center)
+        .await
+        .expect("PtzOpticsG2 focus zone should be supported");
+
+    assert_eq!(
+        sent.sent().len(),
+        2,
+        "each supported PtzOpticsG2 dyn typed call should submit one command"
+    );
+}
+
+#[tokio::test]
+async fn test_dyn_ptzoptics_g2_rejects_unsupported_digital_zoom_surfaces() {
+    let transport = ScriptedTransport::new(vec![]);
+    let sent = transport.clone();
+    let camera = new_profile_camera::<PtzOpticsG2>(transport).await;
+    let dyn_camera = camera.into_dyn();
+
+    let toggle = dyn_camera.zoom().set_digital_zoom(true).await;
+    assert!(
+        matches!(
+            toggle,
+            Err(Error::FeatureNotSupported {
+                feature: "digital zoom"
+            })
+        ),
+        "PtzOpticsG2 digital zoom toggle should be rejected: {toggle:?}"
+    );
+
+    let range = dyn_camera
+        .zoom()
+        .set_zoom_normalized_in_domain(
+            UnitInterval::new(0.5).expect("valid normalized value"),
+            ZoomDomain::OpticalPlusDigital,
+            None,
+        )
+        .await;
+    assert!(
+        matches!(
+            range,
+            Err(Error::FeatureNotSupported {
+                feature: "digital zoom"
+            })
+        ),
+        "PtzOpticsG2 digital zoom range should be rejected: {range:?}"
+    );
+
+    assert!(
+        sent.sent().is_empty(),
+        "unsupported PtzOpticsG2 digital zoom calls must not submit commands"
+    );
 }
 
 /// Test pan/tilt operations through the dyn-api without timeout.

@@ -17,7 +17,8 @@ use grafton_visca::{
         HasImageFlip, HasIrisControl, HasLuminanceControl, HasNoiseReduction2D,
         HasNoiseReduction3D, HasSaturationControl, HasSharpnessControl, ImageProcessing,
         InquirySupport, MenuCapability, MotionSyncMetadata, NdFilterMetadata, PanTilt, Power,
-        Presets, ProfileMetadata, Tally, VariableSpeedMetadata, WhiteBalance, Zoom,
+        Presets, ProfileMetadata, ProfileTypedSupport, Tally, TypedSupportSet,
+        VariableSpeedMetadata, WhiteBalance, Zoom,
     },
     command::{ExposureMode, FocusMode, WhiteBalanceMode},
     runtime::TokioRuntime,
@@ -135,6 +136,24 @@ impl Tally for SimulatorFullProfile {}
 impl MotionSyncMetadata for SimulatorFullProfile {}
 impl NdFilterMetadata for SimulatorFullProfile {}
 impl VariableSpeedMetadata for SimulatorFullProfile {}
+
+impl ProfileTypedSupport for SimulatorFullProfile {
+    const TYPED_SUPPORT: TypedSupportSet = TypedSupportSet::from_surfaces(&[
+        grafton_visca::capabilities::TypedSupportSurface::BacklightCompensation,
+        grafton_visca::capabilities::TypedSupportSurface::BrightnessControl,
+        grafton_visca::capabilities::TypedSupportSurface::ColorTemperature,
+        grafton_visca::capabilities::TypedSupportSurface::ContrastControl,
+        grafton_visca::capabilities::TypedSupportSurface::ExposureCompensation,
+        grafton_visca::capabilities::TypedSupportSurface::HueControl,
+        grafton_visca::capabilities::TypedSupportSurface::ImageFlip,
+        grafton_visca::capabilities::TypedSupportSurface::IrisControl,
+        grafton_visca::capabilities::TypedSupportSurface::LuminanceControl,
+        grafton_visca::capabilities::TypedSupportSurface::NoiseReduction2D,
+        grafton_visca::capabilities::TypedSupportSurface::NoiseReduction3D,
+        grafton_visca::capabilities::TypedSupportSurface::SaturationControl,
+        grafton_visca::capabilities::TypedSupportSurface::SharpnessControl,
+    ]);
+}
 
 impl HasBacklightCompensation for SimulatorFullProfile {}
 impl HasBrightnessControl for SimulatorFullProfile {}

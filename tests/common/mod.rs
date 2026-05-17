@@ -9,6 +9,7 @@ pub mod compile_fail;
 pub mod helpers;
 pub mod macros;
 pub mod patterns;
+pub mod profile_fixtures;
 pub mod protocol_validator;
 pub mod response_builder;
 pub mod test_fixtures;

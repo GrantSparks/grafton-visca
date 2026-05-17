@@ -28,93 +28,6 @@ pub(crate) struct SerialTransportFacts {
 
 #[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum TypedSupportSurface {
-    DirectZoom,
-    DigitalZoomToggle,
-    DigitalZoomRange,
-    IrisControl,
-    OnePushFocus,
-    PtzOpticsSnapFocus,
-    FocusLock,
-    PushAutoFocus,
-    FocusZone,
-    AutoFocusSensitivity,
-    FocusNearLimitInquiry,
-    BacklightCompensation,
-    WideDynamicRange,
-    ExposureCompensation,
-    BrightnessControl,
-    OnePushWhiteBalance,
-    AutoTrackingWhiteBalance,
-    AutoWhiteBalanceSensitivity,
-    ColorTemperature,
-    RgbGain,
-    RgbTuning,
-    ImageFlip,
-    ImageMirror,
-    CombinedImageFlip,
-    ContrastControl,
-    SharpnessControl,
-    SaturationControl,
-    HueControl,
-    LuminanceControl,
-    GammaControl,
-    NoiseReduction,
-    NoiseReduction2D,
-    NoiseReduction3D,
-    PictureEffect,
-    Tally,
-    DirectMenu,
-    NdFilter,
-    VariableSpeed,
-    MotionSync,
-}
-
-#[cfg(test)]
-pub(crate) const ALL_TYPED_SUPPORT_SURFACES: &[TypedSupportSurface] = &[
-    TypedSupportSurface::DirectZoom,
-    TypedSupportSurface::DigitalZoomToggle,
-    TypedSupportSurface::DigitalZoomRange,
-    TypedSupportSurface::IrisControl,
-    TypedSupportSurface::OnePushFocus,
-    TypedSupportSurface::PtzOpticsSnapFocus,
-    TypedSupportSurface::FocusLock,
-    TypedSupportSurface::PushAutoFocus,
-    TypedSupportSurface::FocusZone,
-    TypedSupportSurface::AutoFocusSensitivity,
-    TypedSupportSurface::FocusNearLimitInquiry,
-    TypedSupportSurface::BacklightCompensation,
-    TypedSupportSurface::WideDynamicRange,
-    TypedSupportSurface::ExposureCompensation,
-    TypedSupportSurface::BrightnessControl,
-    TypedSupportSurface::OnePushWhiteBalance,
-    TypedSupportSurface::AutoTrackingWhiteBalance,
-    TypedSupportSurface::AutoWhiteBalanceSensitivity,
-    TypedSupportSurface::ColorTemperature,
-    TypedSupportSurface::RgbGain,
-    TypedSupportSurface::RgbTuning,
-    TypedSupportSurface::ImageFlip,
-    TypedSupportSurface::ImageMirror,
-    TypedSupportSurface::CombinedImageFlip,
-    TypedSupportSurface::ContrastControl,
-    TypedSupportSurface::SharpnessControl,
-    TypedSupportSurface::SaturationControl,
-    TypedSupportSurface::HueControl,
-    TypedSupportSurface::LuminanceControl,
-    TypedSupportSurface::GammaControl,
-    TypedSupportSurface::NoiseReduction,
-    TypedSupportSurface::NoiseReduction2D,
-    TypedSupportSurface::NoiseReduction3D,
-    TypedSupportSurface::PictureEffect,
-    TypedSupportSurface::Tally,
-    TypedSupportSurface::DirectMenu,
-    TypedSupportSurface::NdFilter,
-    TypedSupportSurface::VariableSpeed,
-    TypedSupportSurface::MotionSync,
-];
-
-#[cfg(test)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ProfileEvidence {
     pub(crate) key: &'static str,
     pub(crate) rationale: &'static str,
@@ -135,14 +48,17 @@ pub(crate) struct BuiltinProfileFacts {
     pub(crate) serial: Option<SerialTransportFacts>,
     pub(crate) default_camera_id: u8,
     pub(crate) inquiry_support: crate::capabilities::InquirySupport,
-    pub(crate) typed_support: &'static [TypedSupportSurface],
+    pub(crate) typed_support: crate::capabilities::TypedSupportSet,
     pub(crate) evidence: &'static [ProfileEvidence],
 }
 
 #[cfg(test)]
 impl BuiltinProfileFacts {
-    pub(crate) fn has_typed_support(self, surface: TypedSupportSurface) -> bool {
-        self.typed_support.contains(&surface)
+    pub(crate) fn has_typed_support(
+        self,
+        surface: crate::capabilities::TypedSupportSurface,
+    ) -> bool {
+        self.typed_support.contains(surface)
     }
 }
 
@@ -685,6 +601,13 @@ macro_rules! __define_builtin_profiles {
                 const SUPPORTS_VARIABLE_SPEED: bool = $supports_variable_speed;
             }
 
+            impl $crate::capabilities::ProfileTypedSupport for $profile {
+                const TYPED_SUPPORT: $crate::capabilities::TypedSupportSet =
+                    $crate::capabilities::TypedSupportSet::from_surfaces(&[
+                        $($crate::capabilities::TypedSupportSurface::$support,)*
+                    ]);
+            }
+
             __impl_supports_tcp!($profile, $tcp);
             __impl_supports_udp!($profile, $udp);
             __impl_supports_serial!($profile, $serial);
@@ -736,9 +659,7 @@ macro_rules! __define_builtin_profiles {
                     serial: __serial_transport_facts!($serial),
                     default_camera_id: $default_camera_id,
                     inquiry_support: $inquiry_support,
-                    typed_support: &[
-                        $(profile_registry::TypedSupportSurface::$support,)*
-                    ],
+                    typed_support: <$profile as $crate::capabilities::ProfileTypedSupport>::TYPED_SUPPORT,
                     evidence: &[
                         $(profile_registry::ProfileEvidence {
                             key: $evidence_key,
@@ -929,7 +850,7 @@ macro_rules! __define_builtin_profiles {
 
         #[cfg(test)]
         fn registry_profile_type_names_for(
-            surface: profile_registry::TypedSupportSurface,
+            surface: $crate::capabilities::TypedSupportSurface,
         ) -> String {
             BUILTIN_PROFILE_FACTS
                 .iter()
@@ -941,77 +862,67 @@ macro_rules! __define_builtin_profiles {
 
         #[cfg(test)]
         fn typed_support_marker_trait_name(
-            surface: profile_registry::TypedSupportSurface,
+            surface: $crate::capabilities::TypedSupportSurface,
         ) -> &'static str {
             match surface {
-                profile_registry::TypedSupportSurface::DirectZoom => "HasDirectZoom",
-                profile_registry::TypedSupportSurface::DigitalZoomToggle => {
+                $crate::capabilities::TypedSupportSurface::DirectZoom => "HasDirectZoom",
+                $crate::capabilities::TypedSupportSurface::DigitalZoomToggle => {
                     "HasDigitalZoomToggle"
                 }
-                profile_registry::TypedSupportSurface::DigitalZoomRange => "HasDigitalZoomRange",
-                profile_registry::TypedSupportSurface::IrisControl => "HasIrisControl",
-                profile_registry::TypedSupportSurface::OnePushFocus => "HasOnePushFocus",
-                profile_registry::TypedSupportSurface::PtzOpticsSnapFocus => {
+                $crate::capabilities::TypedSupportSurface::DigitalZoomRange => "HasDigitalZoomRange",
+                $crate::capabilities::TypedSupportSurface::IrisControl => "HasIrisControl",
+                $crate::capabilities::TypedSupportSurface::OnePushFocus => "HasOnePushFocus",
+                $crate::capabilities::TypedSupportSurface::PtzOpticsSnapFocus => {
                     "HasPtzOpticsSnapFocus"
                 }
-                profile_registry::TypedSupportSurface::FocusLock => "HasFocusLock",
-                profile_registry::TypedSupportSurface::PushAutoFocus => "HasPushAutoFocus",
-                profile_registry::TypedSupportSurface::FocusZone => "HasFocusZone",
-                profile_registry::TypedSupportSurface::AutoFocusSensitivity => {
+                $crate::capabilities::TypedSupportSurface::FocusLock => "HasFocusLock",
+                $crate::capabilities::TypedSupportSurface::PushAutoFocus => "HasPushAutoFocus",
+                $crate::capabilities::TypedSupportSurface::FocusZone => "HasFocusZone",
+                $crate::capabilities::TypedSupportSurface::AutoFocusSensitivity => {
                     "HasAutoFocusSensitivity"
                 }
-                profile_registry::TypedSupportSurface::FocusNearLimitInquiry => {
+                $crate::capabilities::TypedSupportSurface::FocusNearLimitInquiry => {
                     "HasFocusNearLimitInquiry"
                 }
-                profile_registry::TypedSupportSurface::BacklightCompensation => {
+                $crate::capabilities::TypedSupportSurface::BacklightCompensation => {
                     "HasBacklightCompensation"
                 }
-                profile_registry::TypedSupportSurface::WideDynamicRange => "HasWideDynamicRange",
-                profile_registry::TypedSupportSurface::ExposureCompensation => {
+                $crate::capabilities::TypedSupportSurface::WideDynamicRange => "HasWideDynamicRange",
+                $crate::capabilities::TypedSupportSurface::ExposureCompensation => {
                     "HasExposureCompensation"
                 }
-                profile_registry::TypedSupportSurface::BrightnessControl => "HasBrightnessControl",
-                profile_registry::TypedSupportSurface::OnePushWhiteBalance => {
+                $crate::capabilities::TypedSupportSurface::BrightnessControl => "HasBrightnessControl",
+                $crate::capabilities::TypedSupportSurface::OnePushWhiteBalance => {
                     "HasOnePushWhiteBalance"
                 }
-                profile_registry::TypedSupportSurface::AutoTrackingWhiteBalance => {
+                $crate::capabilities::TypedSupportSurface::AutoTrackingWhiteBalance => {
                     "HasAutoTrackingWhiteBalance"
                 }
-                profile_registry::TypedSupportSurface::AutoWhiteBalanceSensitivity => {
+                $crate::capabilities::TypedSupportSurface::AutoWhiteBalanceSensitivity => {
                     "HasAutoWhiteBalanceSensitivity"
                 }
-                profile_registry::TypedSupportSurface::ColorTemperature => "HasColorTemperature",
-                profile_registry::TypedSupportSurface::RgbGain => "HasRgbGain",
-                profile_registry::TypedSupportSurface::RgbTuning => "HasRgbTuning",
-                profile_registry::TypedSupportSurface::ImageFlip => "HasImageFlip",
-                profile_registry::TypedSupportSurface::ImageMirror => "HasImageMirror",
-                profile_registry::TypedSupportSurface::CombinedImageFlip => "HasCombinedImageFlip",
-                profile_registry::TypedSupportSurface::ContrastControl => "HasContrastControl",
-                profile_registry::TypedSupportSurface::SharpnessControl => "HasSharpnessControl",
-                profile_registry::TypedSupportSurface::SaturationControl => "HasSaturationControl",
-                profile_registry::TypedSupportSurface::HueControl => "HasHueControl",
-                profile_registry::TypedSupportSurface::LuminanceControl => "HasLuminanceControl",
-                profile_registry::TypedSupportSurface::GammaControl => "HasGammaControl",
-                profile_registry::TypedSupportSurface::NoiseReduction => "HasNoiseReduction",
-                profile_registry::TypedSupportSurface::NoiseReduction2D => "HasNoiseReduction2D",
-                profile_registry::TypedSupportSurface::NoiseReduction3D => "HasNoiseReduction3D",
-                profile_registry::TypedSupportSurface::PictureEffect => "HasPictureEffect",
-                profile_registry::TypedSupportSurface::Tally => "HasTally",
-                profile_registry::TypedSupportSurface::DirectMenu => "HasDirectMenuControl",
-                profile_registry::TypedSupportSurface::NdFilter => "HasNdFilter",
-                profile_registry::TypedSupportSurface::VariableSpeed => "HasVariableSpeed",
-                profile_registry::TypedSupportSurface::MotionSync => "HasMotionSync",
+                $crate::capabilities::TypedSupportSurface::ColorTemperature => "HasColorTemperature",
+                $crate::capabilities::TypedSupportSurface::RgbGain => "HasRgbGain",
+                $crate::capabilities::TypedSupportSurface::RgbTuning => "HasRgbTuning",
+                $crate::capabilities::TypedSupportSurface::ImageFlip => "HasImageFlip",
+                $crate::capabilities::TypedSupportSurface::ImageMirror => "HasImageMirror",
+                $crate::capabilities::TypedSupportSurface::CombinedImageFlip => "HasCombinedImageFlip",
+                $crate::capabilities::TypedSupportSurface::ContrastControl => "HasContrastControl",
+                $crate::capabilities::TypedSupportSurface::SharpnessControl => "HasSharpnessControl",
+                $crate::capabilities::TypedSupportSurface::SaturationControl => "HasSaturationControl",
+                $crate::capabilities::TypedSupportSurface::HueControl => "HasHueControl",
+                $crate::capabilities::TypedSupportSurface::LuminanceControl => "HasLuminanceControl",
+                $crate::capabilities::TypedSupportSurface::GammaControl => "HasGammaControl",
+                $crate::capabilities::TypedSupportSurface::NoiseReduction => "HasNoiseReduction",
+                $crate::capabilities::TypedSupportSurface::NoiseReduction2D => "HasNoiseReduction2D",
+                $crate::capabilities::TypedSupportSurface::NoiseReduction3D => "HasNoiseReduction3D",
+                $crate::capabilities::TypedSupportSurface::PictureEffect => "HasPictureEffect",
+                $crate::capabilities::TypedSupportSurface::Tally => "HasTally",
+                $crate::capabilities::TypedSupportSurface::DirectMenu => "HasDirectMenuControl",
+                $crate::capabilities::TypedSupportSurface::NdFilter => "HasNdFilter",
+                $crate::capabilities::TypedSupportSurface::VariableSpeed => "HasVariableSpeed",
+                $crate::capabilities::TypedSupportSurface::MotionSync => "HasMotionSync",
             }
-        }
-
-        #[cfg(test)]
-        fn registry_marker_names_for_profile(id: ProfileId) -> String {
-            id.registry_facts()
-                .typed_support
-                .iter()
-                .map(|surface| format!("`{}`", typed_support_marker_trait_name(*surface)))
-                .collect::<Vec<_>>()
-                .join("<br>")
         }
 
         #[cfg(test)]
@@ -1043,6 +954,10 @@ macro_rules! __define_builtin_profiles {
                 assert_eq!(facts.inquiry_support, P::INQUIRY_SUPPORT);
                 assert_eq!(facts.inquiry_support, id.inquiry_support());
                 assert_eq!(
+                    facts.typed_support,
+                    <P as $crate::capabilities::ProfileTypedSupport>::TYPED_SUPPORT
+                );
+                assert_eq!(
                     facts.envelope == profile_registry::EnvelopeKind::SonyEncapsulated,
                     id.uses_sony_encapsulation()
                 );
@@ -1065,27 +980,27 @@ macro_rules! __define_builtin_profiles {
                     );
                 }
                 assert_eq!(
-                    facts.has_typed_support(profile_registry::TypedSupportSurface::BrightnessControl),
+                    facts.has_typed_support($crate::capabilities::TypedSupportSurface::BrightnessControl),
                     P::BRIGHTNESS_RANGE.is_some(),
                     "{id:?} exposure brightness marker and metadata must match"
                 );
                 assert_eq!(
-                    facts.has_typed_support(profile_registry::TypedSupportSurface::ContrastControl),
+                    facts.has_typed_support($crate::capabilities::TypedSupportSurface::ContrastControl),
                     P::CONTRAST_RANGE.is_some(),
                     "{id:?} contrast marker and metadata must match"
                 );
                 assert_eq!(
-                    facts.has_typed_support(profile_registry::TypedSupportSurface::SharpnessControl),
+                    facts.has_typed_support($crate::capabilities::TypedSupportSurface::SharpnessControl),
                     P::SHARPNESS_RANGE.is_some(),
                     "{id:?} sharpness marker and metadata must match"
                 );
                 assert_eq!(
-                    facts.has_typed_support(profile_registry::TypedSupportSurface::IrisControl),
+                    facts.has_typed_support($crate::capabilities::TypedSupportSurface::IrisControl),
                     P::IRIS_RANGE.is_some(),
                     "{id:?} iris marker and metadata must match"
                 );
                 assert_eq!(
-                    facts.has_typed_support(profile_registry::TypedSupportSurface::PictureEffect),
+                    facts.has_typed_support($crate::capabilities::TypedSupportSurface::PictureEffect),
                     P::SUPPORTS_PICTURE_EFFECT,
                     "{id:?} picture-effect marker and metadata must match"
                 );
@@ -1200,6 +1115,10 @@ macro_rules! __define_builtin_profiles {
                 assert_eq!(caps.has_variable_speed, P::SUPPORTS_VARIABLE_SPEED);
                 assert_eq!(caps.inquiry_support, P::INQUIRY_SUPPORT);
                 assert_eq!(caps.supports_operation_complete, P::SUPPORTS_OPERATION_COMPLETE);
+                assert_eq!(
+                    caps.typed_support,
+                    <P as $crate::capabilities::ProfileTypedSupport>::TYPED_SUPPORT
+                );
             }
 
             #[test]
@@ -1238,7 +1157,7 @@ macro_rules! __define_builtin_profiles {
                         facts.evidence.iter().any(|item| item.key == "digital_zoom"),
                         "{id:?} must document why digital zoom typed support is absent"
                     );
-                    if !facts.has_typed_support(profile_registry::TypedSupportSurface::IrisControl)
+                    if !facts.has_typed_support($crate::capabilities::TypedSupportSurface::IrisControl)
                     {
                         assert!(
                             facts.evidence.iter().any(|item| item.key == "iris"),
@@ -1295,13 +1214,13 @@ macro_rules! __define_builtin_profiles {
                     ProfileId::PtzOptics30X,
                 ] {
                     let facts = id.registry_facts();
-                    assert!(facts.has_typed_support(profile_registry::TypedSupportSurface::FocusZone));
+                    assert!(facts.has_typed_support($crate::capabilities::TypedSupportSurface::FocusZone));
                     assert!(facts
-                        .has_typed_support(profile_registry::TypedSupportSurface::IrisControl));
+                        .has_typed_support($crate::capabilities::TypedSupportSurface::IrisControl));
                     assert!(facts
-                        .has_typed_support(profile_registry::TypedSupportSurface::PictureEffect));
+                        .has_typed_support($crate::capabilities::TypedSupportSurface::PictureEffect));
                     assert!(!facts.has_typed_support(
-                        profile_registry::TypedSupportSurface::FocusNearLimitInquiry
+                        $crate::capabilities::TypedSupportSurface::FocusNearLimitInquiry
                     ));
                 }
             }
@@ -1309,21 +1228,21 @@ macro_rules! __define_builtin_profiles {
             #[test]
             fn typed_support_registry_covers_declared_surface_vocabulary() {
                 for facts in BUILTIN_PROFILE_FACTS {
-                    for surface in facts.typed_support {
+                    for surface in facts.typed_support.iter() {
                         assert!(
-                            profile_registry::ALL_TYPED_SUPPORT_SURFACES.contains(surface),
+                            $crate::capabilities::TypedSupportSurface::ALL.contains(&surface),
                             "{surface:?} is not in ALL_TYPED_SUPPORT_SURFACES"
                         );
                     }
                 }
 
-                for surface in profile_registry::ALL_TYPED_SUPPORT_SURFACES {
-                    let profiles = registry_profile_type_names_for(*surface);
+                for surface in $crate::capabilities::TypedSupportSurface::ALL {
+                    let profiles = registry_profile_type_names_for(surface);
                     if matches!(
                         surface,
-                        profile_registry::TypedSupportSurface::OnePushFocus
-                            | profile_registry::TypedSupportSurface::PtzOpticsSnapFocus
-                            | profile_registry::TypedSupportSurface::MotionSync
+                        $crate::capabilities::TypedSupportSurface::OnePushFocus
+                            | $crate::capabilities::TypedSupportSurface::PtzOpticsSnapFocus
+                            | $crate::capabilities::TypedSupportSurface::MotionSync
                     ) {
                         assert!(
                             profiles.is_empty(),
@@ -1345,7 +1264,7 @@ macro_rules! __define_builtin_profiles {
                 fn assert_row(
                     readme: &str,
                     label: &str,
-                    surface: profile_registry::TypedSupportSurface,
+                    surface: $crate::capabilities::TypedSupportSurface,
                 ) {
                     let profiles = registry_profile_type_names_for(surface);
                     let row = format!("| {label} | {profiles} |");
@@ -1360,22 +1279,22 @@ macro_rules! __define_builtin_profiles {
                 assert_row(
                     readme,
                     "ND filter controls and inquiries",
-                    profile_registry::TypedSupportSurface::NdFilter,
+                    $crate::capabilities::TypedSupportSurface::NdFilter,
                 );
                 assert_row(
                     readme,
                     "Variable speed mode controls",
-                    profile_registry::TypedSupportSurface::VariableSpeed,
+                    $crate::capabilities::TypedSupportSurface::VariableSpeed,
                 );
                 assert_row(
                     readme,
                     "Tally controls and inquiries",
-                    profile_registry::TypedSupportSurface::Tally,
+                    $crate::capabilities::TypedSupportSurface::Tally,
                 );
                 assert_row(
                     readme,
                     "Direct menu controls",
-                    profile_registry::TypedSupportSurface::DirectMenu,
+                    $crate::capabilities::TypedSupportSurface::DirectMenu,
                 );
                 assert_literal_row(
                     readme,
@@ -1386,25 +1305,25 @@ macro_rules! __define_builtin_profiles {
                 assert_row(
                     readme,
                     "Direct absolute zoom positioning",
-                    profile_registry::TypedSupportSurface::DirectZoom,
+                    $crate::capabilities::TypedSupportSurface::DirectZoom,
                 );
                 assert_eq!(
                     registry_profile_type_names_for(
-                        profile_registry::TypedSupportSurface::DigitalZoomToggle
+                        $crate::capabilities::TypedSupportSurface::DigitalZoomToggle
                     ),
                     registry_profile_type_names_for(
-                        profile_registry::TypedSupportSurface::DigitalZoomRange
+                        $crate::capabilities::TypedSupportSurface::DigitalZoomRange
                     )
                 );
                 assert_row(
                     readme,
                     "VISCA digital zoom toggle and optical-plus-digital positioning",
-                    profile_registry::TypedSupportSurface::DigitalZoomToggle,
+                    $crate::capabilities::TypedSupportSurface::DigitalZoomToggle,
                 );
                 assert_row(
                     readme,
                     "Iris control, iris-priority mode, and iris inquiry",
-                    profile_registry::TypedSupportSurface::IrisControl,
+                    $crate::capabilities::TypedSupportSurface::IrisControl,
                 );
                 assert_literal_row(
                     readme,
@@ -1419,148 +1338,148 @@ macro_rules! __define_builtin_profiles {
                 assert_row(
                     readme,
                     "Focus lock",
-                    profile_registry::TypedSupportSurface::FocusLock,
+                    $crate::capabilities::TypedSupportSurface::FocusLock,
                 );
                 assert_row(
                     readme,
                     "Push auto focus",
-                    profile_registry::TypedSupportSurface::PushAutoFocus,
+                    $crate::capabilities::TypedSupportSurface::PushAutoFocus,
                 );
                 assert_row(
                     readme,
                     "Focus zone",
-                    profile_registry::TypedSupportSurface::FocusZone,
+                    $crate::capabilities::TypedSupportSurface::FocusZone,
                 );
                 assert_row(
                     readme,
                     "Auto focus sensitivity",
-                    profile_registry::TypedSupportSurface::AutoFocusSensitivity,
+                    $crate::capabilities::TypedSupportSurface::AutoFocusSensitivity,
                 );
                 assert_row(
                     readme,
                     "Focus near-limit inquiry",
-                    profile_registry::TypedSupportSurface::FocusNearLimitInquiry,
+                    $crate::capabilities::TypedSupportSurface::FocusNearLimitInquiry,
                 );
                 assert_row(
                     readme,
                     "Backlight compensation",
-                    profile_registry::TypedSupportSurface::BacklightCompensation,
+                    $crate::capabilities::TypedSupportSurface::BacklightCompensation,
                 );
                 assert_row(
                     readme,
                     "Wide dynamic range",
-                    profile_registry::TypedSupportSurface::WideDynamicRange,
+                    $crate::capabilities::TypedSupportSurface::WideDynamicRange,
                 );
                 assert_row(
                     readme,
                     "Exposure compensation",
-                    profile_registry::TypedSupportSurface::ExposureCompensation,
+                    $crate::capabilities::TypedSupportSurface::ExposureCompensation,
                 );
                 assert_row(
                     readme,
                     "Exposure brightness control and inquiry",
-                    profile_registry::TypedSupportSurface::BrightnessControl,
+                    $crate::capabilities::TypedSupportSurface::BrightnessControl,
                 );
                 assert_row(
                     readme,
                     "One-push white balance",
-                    profile_registry::TypedSupportSurface::OnePushWhiteBalance,
+                    $crate::capabilities::TypedSupportSurface::OnePushWhiteBalance,
                 );
                 assert_row(
                     readme,
                     "Auto-tracking white balance",
-                    profile_registry::TypedSupportSurface::AutoTrackingWhiteBalance,
+                    $crate::capabilities::TypedSupportSurface::AutoTrackingWhiteBalance,
                 );
                 assert_row(
                     readme,
                     "Auto white-balance sensitivity",
-                    profile_registry::TypedSupportSurface::AutoWhiteBalanceSensitivity,
+                    $crate::capabilities::TypedSupportSurface::AutoWhiteBalanceSensitivity,
                 );
                 assert_row(
                     readme,
                     "Color temperature controls and inquiry",
-                    profile_registry::TypedSupportSurface::ColorTemperature,
+                    $crate::capabilities::TypedSupportSurface::ColorTemperature,
                 );
                 assert_row(
                     readme,
                     "RGB gain controls and inquiries",
-                    profile_registry::TypedSupportSurface::RgbGain,
+                    $crate::capabilities::TypedSupportSurface::RgbGain,
                 );
                 assert_row(
                     readme,
                     "RGB tuning controls and inquiries",
-                    profile_registry::TypedSupportSurface::RgbTuning,
+                    $crate::capabilities::TypedSupportSurface::RgbTuning,
                 );
                 assert_eq!(
                     registry_profile_type_names_for(
-                        profile_registry::TypedSupportSurface::ImageFlip
+                        $crate::capabilities::TypedSupportSurface::ImageFlip
                     ),
                     registry_profile_type_names_for(
-                        profile_registry::TypedSupportSurface::ImageMirror
+                        $crate::capabilities::TypedSupportSurface::ImageMirror
                     )
                 );
                 assert_row(
                     readme,
                     "Flip and mirror controls",
-                    profile_registry::TypedSupportSurface::ImageFlip,
+                    $crate::capabilities::TypedSupportSurface::ImageFlip,
                 );
                 assert_row(
                     readme,
                     "Combined image flip mode",
-                    profile_registry::TypedSupportSurface::CombinedImageFlip,
+                    $crate::capabilities::TypedSupportSurface::CombinedImageFlip,
                 );
                 assert_row(
                     readme,
                     "Contrast control and inquiry",
-                    profile_registry::TypedSupportSurface::ContrastControl,
+                    $crate::capabilities::TypedSupportSurface::ContrastControl,
                 );
                 assert_row(
                     readme,
                     "Sharpness control and inquiry",
-                    profile_registry::TypedSupportSurface::SharpnessControl,
+                    $crate::capabilities::TypedSupportSurface::SharpnessControl,
                 );
                 assert_row(
                     readme,
                     "Saturation control and inquiry",
-                    profile_registry::TypedSupportSurface::SaturationControl,
+                    $crate::capabilities::TypedSupportSurface::SaturationControl,
                 );
                 assert_row(
                     readme,
                     "Hue control and inquiry",
-                    profile_registry::TypedSupportSurface::HueControl,
+                    $crate::capabilities::TypedSupportSurface::HueControl,
                 );
                 assert_row(
                     readme,
                     "Luminance control and inquiry",
-                    profile_registry::TypedSupportSurface::LuminanceControl,
+                    $crate::capabilities::TypedSupportSurface::LuminanceControl,
                 );
                 assert_row(
                     readme,
                     "Gamma control and inquiry",
-                    profile_registry::TypedSupportSurface::GammaControl,
+                    $crate::capabilities::TypedSupportSurface::GammaControl,
                 );
                 assert_row(
                     readme,
                     "Aggregate noise-reduction inquiry",
-                    profile_registry::TypedSupportSurface::NoiseReduction,
+                    $crate::capabilities::TypedSupportSurface::NoiseReduction,
                 );
                 assert_eq!(
                     registry_profile_type_names_for(
-                        profile_registry::TypedSupportSurface::NoiseReduction2D
+                        $crate::capabilities::TypedSupportSurface::NoiseReduction2D
                     ),
                     registry_profile_type_names_for(
-                        profile_registry::TypedSupportSurface::NoiseReduction3D
+                        $crate::capabilities::TypedSupportSurface::NoiseReduction3D
                     )
                 );
                 assert_row(
                     readme,
                     "2D/3D noise reduction",
-                    profile_registry::TypedSupportSurface::NoiseReduction2D,
+                    $crate::capabilities::TypedSupportSurface::NoiseReduction2D,
                 );
                 assert_row(
                     readme,
                     "Picture effects",
-                    profile_registry::TypedSupportSurface::PictureEffect,
+                    $crate::capabilities::TypedSupportSurface::PictureEffect,
                 );
             }
 
@@ -1569,9 +1488,26 @@ macro_rules! __define_builtin_profiles {
                 let guide = include_str!("../../docs/camera_profile_support.md");
 
                 for facts in BUILTIN_PROFILE_FACTS {
-                    let markers = registry_marker_names_for_profile(facts.id);
-                    let row = format!("| `{}` | {markers} |", facts.type_name);
-                    assert!(guide.contains(&row), "missing profile marker row: {row}");
+                    let prefix = format!("| `{}` | ", facts.type_name);
+                    let row = guide
+                        .lines()
+                        .find(|line| line.starts_with(&prefix) && line.contains("Has"));
+                    assert!(
+                        row.is_some(),
+                        "missing profile marker row for {}",
+                        facts.type_name
+                    );
+                    let row = row.unwrap_or("");
+                    for surface in $crate::capabilities::TypedSupportSurface::ALL {
+                        let marker = format!("`{}`", typed_support_marker_trait_name(surface));
+                        assert_eq!(
+                            row.contains(&marker),
+                            facts.has_typed_support(surface),
+                            "{:?} marker matrix mismatch for {}",
+                            facts.id,
+                            typed_support_marker_trait_name(surface)
+                        );
+                    }
 
                     let tcp = facts
                         .tcp

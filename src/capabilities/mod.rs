@@ -14,6 +14,7 @@ pub mod pan_tilt;
 pub mod power;
 pub mod presets;
 pub mod tally;
+mod typed_support;
 pub mod variable_speed;
 pub mod white_balance;
 pub mod zoom;
@@ -33,6 +34,7 @@ pub use profile_metadata::{
     HasSharpnessControl, HasTally, HasVariableSpeed, HasWhiteBalance, HasWideDynamicRange, HasZoom,
     InquirySupport, ProfileMetadata, SupportsSerial, SupportsTcp, SupportsUdp,
 };
+pub use typed_support::{ProfileTypedSupport, TypedSupportSet, TypedSupportSurface};
 
 // Re-export all capability traits
 pub use exposure::Exposure;
@@ -92,6 +94,7 @@ pub trait Profile:
     + MotionSyncMetadata
     + NdFilterMetadata
     + VariableSpeedMetadata
+    + ProfileTypedSupport
     + Sized
     + Send
     + Sync
@@ -115,6 +118,7 @@ impl<T> Profile for T where
         + MotionSyncMetadata
         + NdFilterMetadata
         + VariableSpeedMetadata
+        + ProfileTypedSupport
         + Sized
         + Send
         + Sync

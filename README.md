@@ -75,6 +75,12 @@ example, PTZOptics profiles still expose baseline zoom, exposure, and focus
 controls, but do not expose typed VISCA digital zoom, one-push focus, or snap
 focus methods.
 
+Dynamic callers get the same marker-derived permission model through
+`Capabilities::typed_support` and `Capabilities::supports_typed(...)`. Metadata
+fields such as `has_digital_zoom` and `supports_direct_zoom` remain runtime
+discovery facts; use typed support checks before calling optional dyn typed
+operations.
+
 | Typed control surface | Built-in profiles |
 | --------------------- | ----------------- |
 | Direct absolute zoom positioning | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300` |

@@ -429,12 +429,18 @@ impl std::fmt::Debug for InFlightDyn {
 /// # Example
 ///
 /// ```ignore
-/// use grafton_visca::dynapi::DynCameraControl;
+/// use grafton_visca::{
+///     capabilities::TypedSupportSurface,
+///     dynapi::DynCameraControl,
+/// };
 ///
 /// async fn demo(camera: &dyn DynCameraControl) -> Result<(), Error> {
 ///     let caps = camera.capabilities();
 ///     if caps.has_zoom {
 ///         camera.zoom().zoom_tele(None, None).await?;
+///     }
+///     if caps.supports_typed(TypedSupportSurface::DirectZoom) {
+///         camera.zoom().set_zoom_normalized(UnitInterval::new(0.5)?, None).await?;
 ///     }
 ///     Ok(())
 /// }
@@ -1217,7 +1223,10 @@ where
         position: ZoomPosition,
         timeout: Option<Duration>,
     ) -> BoxFuture<'_, Result<(), Error>> {
-        if !self.capabilities().supports_direct_zoom {
+        if !self
+            .capabilities()
+            .supports_typed(crate::capabilities::TypedSupportSurface::DirectZoom)
+        {
             return Box::pin(async {
                 Err(Error::FeatureNotSupported {
                     feature: "direct zoom positioning",
@@ -1240,7 +1249,10 @@ where
 
     fn set_zoom_op(&self, position: ZoomPosition) -> BoxFuture<'_, Result<InFlightDyn, Error>> {
         Box::pin(async move {
-            if !self.capabilities().supports_direct_zoom {
+            if !self
+                .capabilities()
+                .supports_typed(crate::capabilities::TypedSupportSurface::DirectZoom)
+            {
                 return Err(Error::FeatureNotSupported {
                     feature: "direct zoom positioning",
                 });
@@ -1253,7 +1265,10 @@ where
     }
 
     fn set_digital_zoom(&self, enabled: bool) -> BoxFuture<'_, Result<(), Error>> {
-        if !self.capabilities().has_digital_zoom {
+        if !self
+            .capabilities()
+            .supports_typed(crate::capabilities::TypedSupportSurface::DigitalZoomToggle)
+        {
             return Box::pin(async {
                 Err(Error::FeatureNotSupported {
                     feature: "digital zoom",
@@ -1271,7 +1286,10 @@ where
         position: UnitInterval,
         timeout: Option<Duration>,
     ) -> BoxFuture<'_, Result<(), Error>> {
-        if !self.capabilities().supports_direct_zoom {
+        if !self
+            .capabilities()
+            .supports_typed(crate::capabilities::TypedSupportSurface::DirectZoom)
+        {
             return Box::pin(async {
                 Err(Error::FeatureNotSupported {
                     feature: "direct zoom positioning",
@@ -1299,7 +1317,10 @@ where
         domain: ZoomDomain,
         timeout: Option<Duration>,
     ) -> BoxFuture<'_, Result<(), Error>> {
-        if !self.capabilities().supports_direct_zoom {
+        if !self
+            .capabilities()
+            .supports_typed(crate::capabilities::TypedSupportSurface::DirectZoom)
+        {
             return Box::pin(async {
                 Err(Error::FeatureNotSupported {
                     feature: "direct zoom positioning",
@@ -1307,7 +1328,11 @@ where
             });
         }
 
-        if domain == ZoomDomain::OpticalPlusDigital && !self.capabilities().has_digital_zoom {
+        if domain == ZoomDomain::OpticalPlusDigital
+            && !self
+                .capabilities()
+                .supports_typed(crate::capabilities::TypedSupportSurface::DigitalZoomRange)
+        {
             return Box::pin(async {
                 Err(Error::FeatureNotSupported {
                     feature: "digital zoom",
@@ -1372,7 +1397,10 @@ where
     }
 
     fn focus_one_push(&self) -> BoxFuture<'_, Result<(), Error>> {
-        if !self.capabilities().has_one_push_focus {
+        if !self
+            .capabilities()
+            .supports_typed(crate::capabilities::TypedSupportSurface::OnePushFocus)
+        {
             return Box::pin(async {
                 Err(Error::FeatureNotSupported {
                     feature: "one-push focus",
@@ -1415,7 +1443,10 @@ where
     }
 
     fn set_focus_zone(&self, zone: FocusZone) -> BoxFuture<'_, Result<(), Error>> {
-        if !self.capabilities().has_focus_zone {
+        if !self
+            .capabilities()
+            .supports_typed(crate::capabilities::TypedSupportSurface::FocusZone)
+        {
             return Box::pin(async {
                 Err(Error::FeatureNotSupported {
                     feature: "focus zone",
@@ -1432,7 +1463,10 @@ where
         &self,
         sensitivity: AutoFocusSensitivity,
     ) -> BoxFuture<'_, Result<(), Error>> {
-        if !self.capabilities().has_af_sensitivity {
+        if !self
+            .capabilities()
+            .supports_typed(crate::capabilities::TypedSupportSurface::AutoFocusSensitivity)
+        {
             return Box::pin(async {
                 Err(Error::FeatureNotSupported {
                     feature: "auto-focus sensitivity",
