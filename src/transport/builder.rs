@@ -321,8 +321,10 @@ impl NetTransportBuilder {
 
     /// Set the address to connect to.
     ///
-    /// This can be a hostname with port (e.g., "camera.local:5678")
-    /// or an IP address with port (e.g., "192.168.0.110:5678").
+    /// This builder has no profile default port, so the address must include an
+    /// explicit port. Use a hostname with port (e.g., `"camera.local:5678"`), an
+    /// IPv4 address with port (e.g., `"192.168.0.110:5678"`), or bracketed IPv6
+    /// with port (e.g., `"[::1]:5678"`).
     pub fn address(mut self, address: impl Into<String>) -> Self {
         self.address = Some(address.into());
         self

@@ -163,7 +163,7 @@ mod smol_runtime_tests {
 mod tokio_transport_connect_tests {
     use std::time::Duration;
 
-    use grafton_visca::{runtime_adapters::tokio::UdpTransport, transport::TransportConfig};
+    use grafton_visca::{runtime_adapters::tokio::UdpTransport, transport::TransportConfig, Error};
 
     /// Test that UDP transport connection completes successfully with a local address.
     ///
@@ -219,13 +219,21 @@ mod tokio_transport_connect_tests {
             // Expected - the address is non-routable
         }
     }
+
+    #[tokio::test]
+    async fn test_udp_transport_connect_with_config_rejects_missing_port() {
+        let result =
+            UdpTransport::connect_with_config("127.0.0.1", TransportConfig::default()).await;
+
+        assert!(matches!(result, Err(Error::InvalidAddress { .. })));
+    }
 }
 
 #[cfg(all(feature = "runtime-smol", not(feature = "runtime-tokio")))]
 mod smol_transport_connect_tests {
     use std::time::Duration;
 
-    use grafton_visca::{runtime_adapters::smol::UdpTransport, transport::TransportConfig};
+    use grafton_visca::{runtime_adapters::smol::UdpTransport, transport::TransportConfig, Error};
 
     fn run_smol<F: std::future::Future>(f: F) -> F::Output {
         smol::block_on(f)
@@ -249,6 +257,16 @@ mod smol_transport_connect_tests {
                 result.is_ok(),
                 "UDP transport should connect successfully to local address"
             );
+        });
+    }
+
+    #[test]
+    fn test_udp_transport_connect_with_config_rejects_missing_port() {
+        run_smol(async {
+            let result =
+                UdpTransport::connect_with_config("127.0.0.1", TransportConfig::default()).await;
+
+            assert!(matches!(result, Err(Error::InvalidAddress { .. })));
         });
     }
 }

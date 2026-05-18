@@ -167,7 +167,7 @@ impl Connect {
     /// Returns a camera using BlockingTransportHandle for zero-cost operation.
     ///
     /// If no port is specified in the address, the profile's TCP default will be used.
-    /// IPv6 addresses are properly canonicalized (e.g., `2001:db8::1:5678` becomes `[2001:db8::1]:5678`).
+    /// Bare IPv6 may use that default port; explicit IPv6 ports require brackets.
     ///
     /// # Example
     ///
@@ -180,7 +180,7 @@ impl Connect {
     /// // Without port - uses PtzOpticsG2's TCP default (5678)
     /// let cam = Connect::open_tcp_blocking::<PtzOpticsG2>("192.168.0.110")?;
     ///
-    /// // IPv6 with explicit port (canonicalized automatically)
+    /// // IPv6 with explicit port
     /// let cam = Connect::open_tcp_blocking::<PtzOpticsG2>("[::1]:5678")?;
     /// ```
     pub fn open_tcp_blocking<P>(
@@ -207,7 +207,7 @@ impl Connect {
     /// Returns a camera using BlockingTransportHandle for zero-cost operation.
     ///
     /// If no port is specified in the address, the profile's UDP default will be used.
-    /// IPv6 addresses are properly canonicalized (e.g., `2001:db8::1:1259` becomes `[2001:db8::1]:1259`).
+    /// Bare IPv6 may use that default port; explicit IPv6 ports require brackets.
     ///
     /// # Example
     ///
@@ -220,7 +220,7 @@ impl Connect {
     /// // Without port - uses GenericVisca's UDP default (1259)
     /// let cam = Connect::open_udp_blocking::<GenericVisca>("192.168.0.110")?;
     ///
-    /// // IPv6 with explicit port (canonicalized automatically)
+    /// // IPv6 with explicit port
     /// let cam = Connect::open_udp_blocking::<GenericVisca>("[::1]:1259")?;
     /// ```
     pub fn open_udp_blocking<P>(

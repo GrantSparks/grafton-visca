@@ -47,6 +47,8 @@ pub trait Runtime: Executor + Clone + Send + Sync + 'static {
     ///
     /// This method creates a TCP transport using the runtime's specific
     /// implementation. The transport is configured with the provided settings.
+    /// Runtime connectors have no profile default port, so `addr` must include
+    /// an explicit port. Explicit IPv6 ports require brackets.
     async fn connect_tcp(
         &self,
         addr: &str,
@@ -57,6 +59,8 @@ pub trait Runtime: Executor + Clone + Send + Sync + 'static {
     ///
     /// This method creates a UDP transport using the runtime's specific
     /// implementation. The transport is configured with the provided settings.
+    /// Runtime connectors have no profile default port, so `addr` must include
+    /// an explicit port. Explicit IPv6 ports require brackets.
     async fn connect_udp(
         &self,
         addr: &str,
