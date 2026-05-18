@@ -219,27 +219,27 @@ For smol, enable `runtime-smol` and use `SmolRuntime`.
 
 ```toml
 [dependencies]
-grafton-visca = "1"
+grafton-visca = "0.13"
 ```
 
 ### Common configurations
 
 ```toml
 # Runtime-agnostic async (bring your own executor)
-grafton-visca = { version = "1", features = ["mode-async"] }
+grafton-visca = { version = "0.13", features = ["mode-async"] }
 
 # Async with Tokio
-grafton-visca = { version = "1", features = ["runtime-tokio"] }
+grafton-visca = { version = "0.13", features = ["runtime-tokio"] }
 tokio = { version = "1", features = ["full"] }
 
 # With serialization
-grafton-visca = { version = "1", features = ["serde"] }
+grafton-visca = { version = "0.13", features = ["serde"] }
 
 # Serial transport (blocking)
-grafton-visca = { version = "1", features = ["transport-serial"] }
+grafton-visca = { version = "0.13", features = ["transport-serial"] }
 
 # Serial transport (Tokio)
-grafton-visca = { version = "1", features = ["runtime-tokio", "transport-serial-tokio"] }
+grafton-visca = { version = "0.13", features = ["runtime-tokio", "transport-serial-tokio"] }
 ```
 
 ### Configuring Standard Transport Behavior

@@ -10,7 +10,15 @@ repository.workspace = true
 homepage.workspace = true
 categories = ["multimedia"]
 keywords = ["ptz", "camera", "visca", "video", "macros"]
-exclude = ["target/", ".gitignore", ".github/", ".vscode/"]
+exclude = [
+    "target/",
+    ".gitignore",
+    ".github/",
+    ".vscode/",
+    ".claude/",
+    ".git-hooks/",
+    ".pre-commit-config.yaml",
+]
 readme = "README.md"
 
 [lib]
