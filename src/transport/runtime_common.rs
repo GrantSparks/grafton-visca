@@ -103,7 +103,9 @@ macro_rules! declare_net_transport {
                     config: TransportConfig,
                 ) -> Result<Self, Error> {
                     let tcp_config = TcpConnectionConfig::from(config);
-                    let stream = $tcp_connect(address, tcp_config).await?;
+                    let canonical_addr =
+                        $crate::transport::address::canonicalize_endpoint(address, None)?;
+                    let stream = $tcp_connect(&canonical_addr, tcp_config).await?;
 
                     Ok(Self::new(stream, config))
                 }
@@ -237,7 +239,9 @@ macro_rules! declare_net_transport {
                     config: TransportConfig,
                 ) -> Result<Self, Error> {
                     let udp_config = UdpSocketConfig::from(config);
-                    let socket = $udp_connect(address, udp_config).await?;
+                    let canonical_addr =
+                        $crate::transport::address::canonicalize_endpoint(address, None)?;
+                    let socket = $udp_connect(&canonical_addr, udp_config).await?;
 
                     Ok(Self::new(socket, config))
                 }
@@ -307,7 +311,9 @@ macro_rules! declare_net_transport {
                     config: TransportConfig,
                 ) -> Result<Self, Error> {
                     let tcp_config = TcpConnectionConfig::from(config);
-                    let stream = $tcp_connect(address, tcp_config).await?;
+                    let canonical_addr =
+                        $crate::transport::address::canonicalize_endpoint(address, None)?;
+                    let stream = $tcp_connect(&canonical_addr, tcp_config).await?;
                     Ok(Self::new(stream, config))
                 }
 
@@ -441,7 +447,9 @@ macro_rules! declare_net_transport {
                     config: TransportConfig,
                 ) -> Result<Self, Error> {
                     let udp_config = UdpSocketConfig::from(config);
-                    let socket = $udp_connect(address, udp_config).await?;
+                    let canonical_addr =
+                        $crate::transport::address::canonicalize_endpoint(address, None)?;
+                    let socket = $udp_connect(&canonical_addr, udp_config).await?;
 
                     Ok(Self::new(socket, config))
                 }

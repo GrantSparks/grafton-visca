@@ -5,7 +5,7 @@ use std::{net::UdpSocket, time::Duration};
 use crate::{
     command::CommandKind,
     transport::{
-        address::AddressResolver,
+        address::{canonicalize_endpoint, AddressResolver},
         buffer::BufferConfig,
         builder::{AddressingMode, TransportConfig},
         BlockingTransport, HasTransportConfig, SendSemantics,
@@ -28,7 +28,8 @@ impl Udp {
     ///
     /// This method resolves hostnames and supports both IPv4 and IPv6 addresses.
     /// The socket will bind to the appropriate unspecified address based on the
-    /// target address family.
+    /// target address family. The address must include an explicit port; explicit
+    /// IPv6 ports require brackets.
     pub fn connect(address: &str) -> Result<Self, Error> {
         let config = TransportConfig {
             read_timeout: Duration::from_secs(5),
@@ -43,10 +44,13 @@ impl Udp {
     /// Connect with a full configuration.
     ///
     /// This method provides full control over connection and socket parameters.
+    /// The address must include an explicit port.
     pub fn connect_with_config(address: &str, config: TransportConfig) -> Result<Self, Error> {
+        let canonical_addr = canonicalize_endpoint(address, None)?;
+
         // Use the common address resolver
         let resolver = AddressResolver::new();
-        let target_addr = resolver.resolve_first(address)?;
+        let target_addr = resolver.resolve_first(&canonical_addr)?;
 
         // Bind to the appropriate unspecified address based on target family
         let bind_addr = resolver.bind_address_for(&target_addr);

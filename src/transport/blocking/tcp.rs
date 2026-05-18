@@ -9,7 +9,7 @@ use std::{
 use crate::{
     command::CommandKind,
     transport::{
-        address::AddressResolver,
+        address::{canonicalize_endpoint, AddressResolver},
         builder::{AddressingMode, TransportConfig},
         socket_options::apply_tcp_socket_options,
         BlockingTransport, HasTransportConfig,
@@ -41,6 +41,8 @@ impl Tcp {
     /// Connect to a TCP endpoint.
     ///
     /// This method resolves hostnames and supports both IPv4 and IPv6 addresses.
+    /// The address must include an explicit port; explicit IPv6 ports require
+    /// brackets.
     pub fn connect(address: &str) -> Result<Self, Error> {
         Self::connect_timeout(address, Duration::from_secs(5))
     }
@@ -49,7 +51,7 @@ impl Tcp {
     ///
     /// This method resolves hostnames and supports both IPv4 and IPv6 addresses.
     /// It will try each resolved address in order until one succeeds or the
-    /// overall timeout is reached.
+    /// overall timeout is reached. The address must include an explicit port.
     pub fn connect_timeout(address: &str, timeout: Duration) -> Result<Self, Error> {
         let config = TransportConfig {
             connect_timeout: timeout,
@@ -65,12 +67,14 @@ impl Tcp {
     /// Connect with a full configuration.
     ///
     /// This method provides full control over connection and socket parameters.
+    /// The address must include an explicit port.
     pub fn connect_with_config(address: &str, config: TransportConfig) -> Result<Self, Error> {
+        let canonical_addr = canonicalize_endpoint(address, None)?;
         let deadline = Instant::now() + config.connect_timeout;
 
         // Use the common address resolver
         let resolver = AddressResolver::new();
-        let addrs = resolver.resolve(address)?;
+        let addrs = resolver.resolve(&canonical_addr)?;
 
         let mut last_error = None;
 

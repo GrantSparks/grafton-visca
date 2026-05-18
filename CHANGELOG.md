@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking Changes
 
+#### Unambiguous Network Endpoint Parsing (#534)
+- **BREAKING**: Bare IPv6 literals are no longer interpreted as host-plus-port endpoints. `2001:db8::1:5678` is treated as the IPv6 host `2001:db8::1:5678`; with a profile/default port it canonicalizes to `[2001:db8::1:5678]:<default>`.
+- Explicit IPv6 ports now require brackets, for example `[2001:db8::1]:5678`. Missing ports without a profile/default port now return `Error::InvalidAddress` before DNS or socket work.
+- Low-level TCP/UDP transport constructors and runtime adapter connectors now use the same endpoint grammar as camera-first connection paths. IPv6 zone identifiers are rejected explicitly.
+
 #### Profile-Aware Direct Zoom Positioning (#529)
 - **BREAKING**: Direct zoom setters now distinguish raw and normalized command paths. `set_zoom` accepts only a checked raw `ZoomPosition`; use `set_zoom_normalized(UnitInterval)` for optical normalized zoom and `set_zoom_normalized_in_domain(UnitInterval, ZoomDomain)` for documented optical-plus-digital ranges.
 - **BREAKING**: Profile-independent `ZoomPosition` conversions from `f32`, `UnitInterval`, `Percentage`, and `Magnification` were removed. `Raw<u16>` conversion is now checked through `TryFrom<Raw<u16>>` and invalid raw values return an error instead of falling back to minimum zoom.

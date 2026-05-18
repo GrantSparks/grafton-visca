@@ -15,7 +15,7 @@ use std::{
 use grafton_visca::{
     camera::{profiles::PtzOpticsG2, CameraConfig, Connect},
     transport::{Transport, TransportConfig},
-    CameraBuilder,
+    CameraBuilder, Error,
 };
 
 /// Test that the camera-first API creates a TCP camera with proper configuration
@@ -92,6 +92,43 @@ fn test_camera_creates_configured_udp_camera() {
 
     // Test basic camera creation is working
     // Note: More detailed communication testing would require protocol-aware mock server
+}
+
+/// Test that CameraConfig uses the same explicit endpoint grammar at open time.
+#[test]
+fn test_camera_config_opens_configured_tcp_camera() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    thread::spawn(move || {
+        let _ = listener.accept();
+    });
+
+    thread::sleep(Duration::from_millis(50));
+
+    let camera_result = CameraConfig::<PtzOpticsG2>::tcp(addr.to_string()).open_blocking();
+
+    assert!(
+        camera_result.is_ok(),
+        "CameraConfig should open TCP cameras with explicit endpoints"
+    );
+}
+
+/// Test that low-level public transport builders reject missing ports before I/O.
+#[test]
+fn test_low_level_transport_builders_require_explicit_ports() {
+    fn is_invalid_address<T>(result: &Result<T, Error>) -> bool {
+        matches!(result, Err(Error::InvalidAddress { .. }))
+    }
+
+    let tcp_result = Transport::tcp().address("127.0.0.1").build_blocking();
+    assert!(is_invalid_address(&tcp_result));
+
+    let udp_result = Transport::udp().address("127.0.0.1").build_blocking();
+    assert!(is_invalid_address(&udp_result));
+
+    let bare_ipv6_result = Transport::udp().address("::1").build_blocking();
+    assert!(is_invalid_address(&bare_ipv6_result));
 }
 
 /// Test advanced camera construction through CameraBuilder.
