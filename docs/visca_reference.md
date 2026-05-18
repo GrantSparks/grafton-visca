@@ -22,7 +22,7 @@ Information that is plausible but not fully validated is not mixed into the main
 
 ### 1.1 Revision notes for this final version
 
-This version implements the gap report recommendations by adding complete Axis camera-command coverage, the Axis focus-near-limit and shutter tables, the PTZOptics inquiry and block-inquiry references, missing PTZOptics extension commands, expanded implementation guardrails, product/spec appendices, explicit Pelco-D/Pelco-P scoping, and exact uploaded-source filenames.
+This version implements the gap report recommendations by adding complete Axis camera-command coverage, the Axis focus-near-limit and shutter tables, the PTZOptics inquiry and block-inquiry references, missing PTZOptics extension commands, expanded implementation guardrails, and product/spec appendices.
 
 ### Source hierarchy used
 
@@ -670,7 +670,7 @@ Sony’s EVI-H100S/H100V technical manual confirms:
 | 21 | PTZOptics legacy flip rows | Document `04 61` and `04 66` as source-table rows but prefer combined `04 A4` for Gen‑2 implementation. | Medium-high |
 | 22 | PTZOptics tally/reboot rows from broader unified guide | Keep as Appendix A validation candidates rather than baseline commands until hardware-tested. | Medium |
 | 23 | Product/spec details | Include stream, interface, dimensions, packaging, and box-content tables in Appendix B rather than mixing them into protocol rows. | High |
-| 24 | Pelco-D/Pelco-P | Explicitly scope out of the VISCA main reference; preserve source traceability and compact serial-reference notes in Appendix A.12 and Appendix D. | High |
+| 24 | Pelco-D/Pelco-P | Explicitly scope out of the VISCA main reference; preserve source traceability and compact serial-reference notes in Appendix A.12. | High |
 | 25 | Broader unified-guide model sections | Background only until each model is validated against primary manuals. | High |
 
 ## 11. Implementation guardrails
@@ -942,9 +942,6 @@ Recommended minimum target tests:
 
 **Why they are not mixed into the main command tables:** The main reference is organized around VISCA packet semantics, VISCA transaction behavior, VISCA-over-IP transport distinctions, and VISCA opcode conflicts. Pelco-D and Pelco-P have different frame formats, checksums, addressing, and command semantics. Including the full Pelco tables in the main reference would blur the protocol boundary.
 
-**Traceability note:** The attached PTZOptics command source includes Pelco-D and Pelco-P tables for movement, zoom, focus, preset set/clear/call, autofocus/manual focus, and pan/tilt/zoom position queries. Use those tables only when implementing a Pelco protocol path, not when implementing VISCA TCP/UDP or Sony VISCA-over-IP.
-
-
 # Appendix B — PTZOptics Gen‑2 product/spec detail tables
 
 This appendix keeps product/spec data consolidated without expanding the main VISCA command sections.
@@ -1036,72 +1033,3 @@ This appendix keeps product/spec data consolidated without expanding the main VI
 | U2 | `PTZOptics-NDI-HX-Gen2-Specs(1).md` | Consolidated PT12X/PT20X/PT30X specs, streaming tables, interface details, dimensions, package contents, and cross-document PTZOptics validation notes. |
 | U3 | `axis_visca-interface-api-description(2).md` | Patched Axis API text including corrected absolute zoom command, Axis-only ranges, focus-near-limit table, red/blue gain, exposure/shutter rows, shutter-speed table, and Axis inquiries. |
 | U4 | `visca_unified_reference(2).md` | Broad unified guide; used only as background except where cross-validated. Non-PTZOptics/non-Axis sections remain unvalidated unless supported by primary sources. |
-
-# Appendix D — Pelco-D and Pelco-P compact serial reference
-
-This appendix preserves the PTZOptics Gen‑2 manual’s Pelco-D/Pelco-P serial rows at a compact level. These rows are **not VISCA** and must not be sent on raw VISCA TCP/UDP ports or Sony VISCA-over-IP. Use them only on a configured serial Pelco-D or Pelco-P control path.
-
-## D.1 Pelco-D frame shape
-
-| Field | Meaning |
-|---|---|
-| Byte 1 | `0xFF` sync byte. |
-| Byte 2 | Camera address. |
-| Byte 3 | Command byte 1. |
-| Byte 4 | Command byte 2. |
-| Byte 5 | Data 1, often pan speed or high byte. |
-| Byte 6 | Data 2, often tilt speed, preset ID, or low byte. |
-| Byte 7 | `SUM` checksum. |
-
-| Function | Pelco-D bytes |
-|---|---|
-| Up | `0xFF Address 0x00 0x08 PanSpeed TiltSpeed SUM` |
-| Down | `0xFF Address 0x00 0x10 PanSpeed TiltSpeed SUM` |
-| Left | `0xFF Address 0x00 0x04 PanSpeed TiltSpeed SUM` |
-| Right | `0xFF Address 0x00 0x02 PanSpeed TiltSpeed SUM` |
-| Zoom In | `0xFF Address 0x00 0x20 0x00 0x00 SUM` |
-| Zoom Out | `0xFF Address 0x00 0x40 0x00 0x00 SUM` |
-| Focus Far | `0xFF Address 0x00 0x80 0x00 0x00 SUM` |
-| Focus Near | `0xFF Address 0x01 0x00 0x00 0x00 SUM` |
-| Set Preset | `0xFF Address 0x00 0x03 0x00 PresetID SUM` |
-| Clear Preset | `0xFF Address 0x00 0x05 0x00 PresetID SUM` |
-| Call Preset | `0xFF Address 0x00 0x07 0x00 PresetID SUM` |
-| Auto Focus | `0xFF Address 0x00 0x2B 0x00 0x01 SUM` |
-| Manual Focus | `0xFF Address 0x00 0x2B 0x00 0x02 SUM` |
-| Query Pan Position | `0xFF Address 0x00 0x51 0x00 0x00 SUM` |
-| Query Tilt Position | `0xFF Address 0x00 0x53 0x00 0x00 SUM` |
-| Query Zoom Position | `0xFF Address 0x00 0x55 0x00 0x00 SUM` |
-| Position-query response shape | `0xFF Address 0x00 0x59/0x5B/0x5D ValueHigh ValueLow SUM` for pan/tilt/zoom respectively. |
-
-## D.2 Pelco-P frame shape
-
-| Field | Meaning |
-|---|---|
-| Byte 1 | `0xA0` sync byte. |
-| Byte 2 | Camera address. |
-| Byte 3 | Command byte 1. |
-| Byte 4 | Command byte 2. |
-| Byte 5 | Data 1, often pan speed or high byte. |
-| Byte 6 | Data 2, often tilt speed, preset ID, or low byte. |
-| Byte 7 | `0xAF` terminator. |
-| Byte 8 | `XOR` checksum. |
-
-| Function | Pelco-P bytes |
-|---|---|
-| Up | `0xA0 Address 0x00 0x08 PanSpeed TiltSpeed 0xAF XOR` |
-| Down | `0xA0 Address 0x00 0x10 PanSpeed TiltSpeed 0xAF XOR` |
-| Left | `0xA0 Address 0x00 0x04 PanSpeed TiltSpeed 0xAF XOR` |
-| Right | `0xA0 Address 0x00 0x02 PanSpeed TiltSpeed 0xAF XOR` |
-| Zoom In | `0xA0 Address 0x00 0x20 0x00 0x00 0xAF XOR` |
-| Zoom Out | `0xA0 Address 0x00 0x40 0x00 0x00 0xAF XOR` |
-| Focus Far | `0xA0 Address 0x00 0x80 0x00 0x00 0xAF XOR` |
-| Focus Near | `0xA0 Address 0x01 0x00 0x00 0x00 0xAF XOR` |
-| Set Preset | `0xA0 Address 0x00 0x03 0x00 PresetID 0xAF XOR` |
-| Clear Preset | `0xA0 Address 0x00 0x05 0x00 PresetID 0xAF XOR` |
-| Call Preset | `0xA0 Address 0x00 0x07 0x00 PresetID 0xAF XOR` |
-| Auto Focus | `0xA0 Address 0x00 0x2B 0x00 0x01 0xAF XOR` |
-| Manual Focus | `0xA0 Address 0x00 0x2B 0x00 0x02 0xAF XOR` |
-| Query Pan Position | `0xA0 Address 0x00 0x51 0x00 0x00 0xAF XOR` |
-| Query Tilt Position | `0xA0 Address 0x00 0x53 0x00 0x00 0xAF XOR` |
-| Query Zoom Position | `0xA0 Address 0x00 0x55 0x00 0x00 0xAF XOR` |
-| Position-query response shape | `0xA0 Address 0x00 0x59/0x5B/0x5D ValueHigh ValueLow 0xAF XOR` for pan/tilt/zoom respectively. |
