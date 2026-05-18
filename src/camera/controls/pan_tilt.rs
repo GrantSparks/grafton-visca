@@ -12,6 +12,7 @@
 
 use crate::{
     camera::ViscaClient,
+    capabilities::ValidationError,
     command::{pan_tilt::PanTilt as PanTiltCommand, PanTiltDirection, PanTiltLimitCorner},
     mode::Mode,
     types::{PanPosition, PanSpeed, SpeedLevel, TiltPosition, TiltSpeed},
@@ -174,15 +175,80 @@ where
     let pan_pos = PanPosition::from_degrees(pan_deg.0)?;
     let tilt_pos = TiltPosition::from_degrees(tilt_deg.0)?;
 
+    validate_pan_position::<P>(pan_pos.value())?;
+    validate_tilt_position::<P>(tilt_pos.value())?;
+
     let (pan_u16, tilt_u16) =
         P::COORDINATE_SYSTEM.to_camera_coords(pan_pos.value(), tilt_pos.value());
 
-    Ok((
-        pan_u16,
-        tilt_u16,
-        PanSpeed::from(speed),
-        TiltSpeed::from(speed),
-    ))
+    let pan_speed = PanSpeed::from(speed);
+    let tilt_speed = TiltSpeed::from(speed);
+    validate_pan_tilt_speed::<P>(pan_speed, tilt_speed)?;
+
+    Ok((pan_u16, tilt_u16, pan_speed, tilt_speed))
+}
+
+fn validate_pan_position<P>(pan: i16) -> Result<(), Error>
+where
+    P: crate::capabilities::PanTilt,
+{
+    if P::PAN_RANGE.contains(pan) {
+        Ok(())
+    } else {
+        Err(ValidationError::OutOfRange {
+            parameter: "pan",
+            value: f64::from(pan),
+            min: f64::from(P::PAN_RANGE.min()),
+            max: f64::from(P::PAN_RANGE.max()),
+        }
+        .into())
+    }
+}
+
+fn validate_tilt_position<P>(tilt: i16) -> Result<(), Error>
+where
+    P: crate::capabilities::PanTilt,
+{
+    if P::TILT_RANGE.contains(tilt) {
+        Ok(())
+    } else {
+        Err(ValidationError::OutOfRange {
+            parameter: "tilt",
+            value: f64::from(tilt),
+            min: f64::from(P::TILT_RANGE.min()),
+            max: f64::from(P::TILT_RANGE.max()),
+        }
+        .into())
+    }
+}
+
+fn validate_pan_tilt_speed<P>(pan_speed: PanSpeed, tilt_speed: TiltSpeed) -> Result<(), Error>
+where
+    P: crate::capabilities::PanTilt,
+{
+    let pan_speed = pan_speed.value();
+    if !(1..=P::MAX_PAN_SPEED).contains(&pan_speed) {
+        return Err(ValidationError::OutOfRange {
+            parameter: "pan speed",
+            value: f64::from(pan_speed),
+            min: 1.0,
+            max: f64::from(P::MAX_PAN_SPEED),
+        }
+        .into());
+    }
+
+    let tilt_speed = tilt_speed.value();
+    if !(1..=P::MAX_TILT_SPEED).contains(&tilt_speed) {
+        return Err(ValidationError::OutOfRange {
+            parameter: "tilt speed",
+            value: f64::from(tilt_speed),
+            min: 1.0,
+            max: f64::from(P::MAX_TILT_SPEED),
+        }
+        .into());
+    }
+
+    Ok(())
 }
 
 fn pan_tilt_absolute_command<P>(
@@ -276,6 +342,10 @@ where
         pan_speed: PanSpeed,
         tilt_speed: TiltSpeed,
     ) -> M::Fut<'_, Result<(), Error>> {
+        if let Err(err) = validate_pan_tilt_speed::<P>(pan_speed, tilt_speed) {
+            return self.error(err);
+        }
+
         let cmd = PanTiltCommand::Move {
             direction,
             pan_speed,
@@ -294,6 +364,12 @@ where
         pan: PanPosition,
         tilt: TiltPosition,
     ) -> M::Fut<'_, Result<(), Error>> {
+        if let Err(err) = validate_pan_position::<P>(pan.value())
+            .and_then(|()| validate_tilt_position::<P>(tilt.value()))
+        {
+            return self.error(err);
+        }
+
         // Convert logical positions to camera coordinates using profile's coordinate system
         let (pan_u16, tilt_u16) = P::COORDINATE_SYSTEM.to_camera_coords(pan.value(), tilt.value());
 

@@ -12,9 +12,9 @@ use std::time::Duration;
 use grafton_visca::{
     camera::{profiles::GenericVisca, CameraBuilder},
     capabilities::{
-        exposure::ShutterSpeed, Exposure, Focus, HasBacklightCompensation, HasBrightnessControl,
-        HasColorTemperature, HasContrastControl, HasExposureCompensation, HasHueControl,
-        HasImageFlip, HasIrisControl, HasLuminanceControl, HasNoiseReduction2D,
+        exposure::ShutterSpeed, CapabilityRange, Exposure, Focus, HasBacklightCompensation,
+        HasBrightnessControl, HasColorTemperature, HasContrastControl, HasExposureCompensation,
+        HasHueControl, HasImageFlip, HasIrisControl, HasLuminanceControl, HasNoiseReduction2D,
         HasNoiseReduction3D, HasSaturationControl, HasSharpnessControl, ImageProcessing,
         InquirySupport, MenuCapability, MotionSyncMetadata, NdFilterMetadata, PanTilt, Power,
         Presets, ProfileMetadata, ProfileTypedSupport, Tally, TypedSupportSet,
@@ -57,8 +57,8 @@ impl ProfileMetadata for SimulatorFullProfile {
 }
 
 impl PanTilt for SimulatorFullProfile {
-    const PAN_RANGE: std::ops::Range<i16> = -2880..2881;
-    const TILT_RANGE: std::ops::Range<i16> = -1440..1441;
+    const PAN_RANGE: CapabilityRange<i16> = CapabilityRange::<i16>::new(-2880, 2880);
+    const TILT_RANGE: CapabilityRange<i16> = CapabilityRange::<i16>::new(-1440, 1440);
     const MAX_PAN_SPEED: u8 = 24;
     const MAX_TILT_SPEED: u8 = 24;
     const PAN_DEGREES_TO_UNITS: f32 = 16.0;
@@ -68,7 +68,7 @@ impl PanTilt for SimulatorFullProfile {
 impl Zoom for SimulatorFullProfile {
     const OPTICAL_ZOOM_MAX: u16 = 0xFFFF;
     const DIGITAL_ZOOM_MAX: Option<u16> = None;
-    const ZOOM_SPEED_RANGE: std::ops::Range<u8> = 0..8;
+    const ZOOM_SPEED_RANGE: CapabilityRange<u8> = CapabilityRange::<u8>::new(0, 7);
     const SUPPORTS_DIRECT_ZOOM: bool = false;
     const ZOOM_MAGNIFICATION_TO_UNITS: f32 = 1000.0;
 }
@@ -82,10 +82,10 @@ impl MenuCapability for SimulatorFullProfile {}
 
 impl Exposure for SimulatorFullProfile {
     const EXPOSURE_MODES: &'static [ExposureMode] = SIM_EXPOSURE_MODES;
-    const IRIS_RANGE: Option<std::ops::Range<u16>> = Some(0x00..0x1D);
+    const IRIS_RANGE: Option<CapabilityRange<u16>> = Some(CapabilityRange::<u16>::new(0x00, 0x1C));
     const SHUTTER_SPEEDS: &'static [ShutterSpeed] = SIM_SHUTTER_SPEEDS;
-    const GAIN_RANGE: std::ops::Range<u8> = 0..16;
-    const BRIGHTNESS_RANGE: Option<std::ops::Range<u16>> = Some(0..18);
+    const GAIN_RANGE: CapabilityRange<u8> = CapabilityRange::<u8>::new(0, 15);
+    const BRIGHTNESS_RANGE: Option<CapabilityRange<u16>> = Some(CapabilityRange::<u16>::new(0, 17));
     const SUPPORTS_BACKLIGHT_COMP: bool = true;
     const SUPPORTS_EXPOSURE_COMP: bool = true;
     const SUPPORTS_WDR: bool = true;
@@ -94,13 +94,16 @@ impl Exposure for SimulatorFullProfile {
 impl WhiteBalance for SimulatorFullProfile {
     const WB_MODES: &'static [WhiteBalanceMode] = SIM_WB_MODES;
     const SUPPORTS_ONE_PUSH_WB: bool = true;
-    const RG_TUNING_RANGE: Option<std::ops::Range<i8>> = Some(-7..8);
-    const BG_TUNING_RANGE: Option<std::ops::Range<i8>> = Some(-7..8);
+    const RG_TUNING_RANGE: Option<CapabilityRange<i8>> = Some(CapabilityRange::<i8>::new(-7, 7));
+    const BG_TUNING_RANGE: Option<CapabilityRange<i8>> = Some(CapabilityRange::<i8>::new(-7, 7));
     const SUPPORTS_COLOR_TEMP: bool = true;
-    const COLOR_TEMP_RANGE: Option<std::ops::Range<u16>> = Some(2800..7500);
+    const COLOR_TEMP_RANGE: Option<CapabilityRange<u16>> =
+        Some(CapabilityRange::<u16>::new(2800, 7499));
     const SUPPORTS_RGB_GAIN: bool = true;
-    const RED_GAIN_RANGE: Option<std::ops::Range<u8>> = Some(0..255);
-    const BLUE_GAIN_RANGE: Option<std::ops::Range<u8>> = Some(0..255);
+    const RED_GAIN_RANGE: Option<CapabilityRange<u8>> =
+        Some(CapabilityRange::<u8>::new(0x00, 0xFF));
+    const BLUE_GAIN_RANGE: Option<CapabilityRange<u8>> =
+        Some(CapabilityRange::<u8>::new(0x00, 0xFF));
 }
 
 impl Focus for SimulatorFullProfile {
@@ -111,23 +114,23 @@ impl Focus for SimulatorFullProfile {
 }
 
 impl ImageProcessing for SimulatorFullProfile {
-    const CONTRAST_RANGE: Option<std::ops::Range<u8>> = Some(0..15);
-    const SHARPNESS_RANGE: Option<std::ops::Range<u8>> = Some(0..15);
-    const SATURATION_RANGE: Option<std::ops::Range<u8>> = Some(0..15);
+    const CONTRAST_RANGE: Option<CapabilityRange<u8>> = Some(CapabilityRange::<u8>::new(0, 14));
+    const SHARPNESS_RANGE: Option<CapabilityRange<u8>> = Some(CapabilityRange::<u8>::new(0, 14));
+    const SATURATION_RANGE: Option<CapabilityRange<u8>> = Some(CapabilityRange::<u8>::new(0, 14));
     const SUPPORTS_FLIP: bool = true;
     const SUPPORTS_MIRROR: bool = true;
     const SUPPORTS_HUE: bool = true;
-    const HUE_RANGE: Option<std::ops::Range<u8>> = Some(0..15);
+    const HUE_RANGE: Option<CapabilityRange<u8>> = Some(CapabilityRange::<u8>::new(0, 14));
     const SUPPORTS_NOISE_REDUCTION: bool = true;
     const SUPPORTS_2D_NR: bool = true;
     const SUPPORTS_3D_NR: bool = true;
     const SUPPORTS_LUMINANCE: bool = true;
-    const LUMINANCE_RANGE: Option<std::ops::Range<u8>> = Some(0..15);
+    const LUMINANCE_RANGE: Option<CapabilityRange<u8>> = Some(CapabilityRange::<u8>::new(0, 14));
 }
 
 impl Presets for SimulatorFullProfile {
     const MAX_PRESETS: u8 = 6;
-    const PRESET_SPEED_RANGE: std::ops::Range<u8> = 1..24;
+    const PRESET_SPEED_RANGE: CapabilityRange<u8> = CapabilityRange::<u8>::new(1, 23);
     const SUPPORTS_PRESET_TOUR: bool = false;
     const SUPPORTS_PRESET_THUMBNAIL: bool = false;
 }

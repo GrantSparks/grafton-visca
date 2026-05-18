@@ -4,27 +4,12 @@
 //! camera capabilities at runtime, complementing the compile-time
 //! trait-based capability system.
 
-use std::{
-    borrow::Cow,
-    ops::{Range, RangeInclusive},
-};
+use std::{borrow::Cow, ops::RangeInclusive};
 
 use super::{
     profile_metadata::InquirySupport, ProfileTypedSupport, TypedSupportSet, TypedSupportSurface,
 };
 use crate::command::exposure::ExposureMode;
-
-fn inclusive_u8_range(range: &Range<u8>) -> RangeInclusive<u8> {
-    range.start..=range.end - 1
-}
-
-fn inclusive_u16_range(range: &Range<u16>) -> RangeInclusive<u16> {
-    range.start..=range.end - 1
-}
-
-fn inclusive_i8_range(range: &Range<i8>) -> RangeInclusive<i8> {
-    range.start..=range.end - 1
-}
 
 /// Structured capabilities response for runtime feature discovery.
 ///
@@ -193,6 +178,9 @@ pub struct Capabilities {
     /// Whether camera supports exposure compensation.
     pub has_exposure_comp: bool,
 
+    /// Exposure compensation range, if supported.
+    pub exposure_comp_range: Option<RangeInclusive<i8>>,
+
     /// Iris range in VISCA units, if iris control is supported.
     pub iris_range: Option<RangeInclusive<u16>>,
 
@@ -230,6 +218,12 @@ pub struct Capabilities {
     /// Whether camera supports manual RGB gain control (red/blue gain inquiries).
     pub has_rgb_gain: bool,
 
+    /// Red gain range if supported.
+    pub red_gain_range: Option<RangeInclusive<u8>>,
+
+    /// Blue gain range if supported.
+    pub blue_gain_range: Option<RangeInclusive<u8>>,
+
     /// Number of white balance modes supported.
     pub wb_mode_count: usize,
 
@@ -248,6 +242,12 @@ pub struct Capabilities {
 
     /// Hue adjustment range if supported.
     pub hue_range: Option<RangeInclusive<u8>>,
+
+    /// Image luminance range if supported.
+    pub luminance_range: Option<RangeInclusive<u8>>,
+
+    /// Gamma curve range if supported.
+    pub gamma_range: Option<RangeInclusive<u8>>,
 
     /// Whether camera supports image flip.
     pub supports_flip: bool,
@@ -354,15 +354,15 @@ impl Capabilities {
         P: crate::capabilities::Profile,
     {
         // Extract pan/tilt capabilities
-        let pan_min_deg = P::PAN_RANGE.start as f32 / P::PAN_DEGREES_TO_UNITS;
-        let pan_max_deg = (P::PAN_RANGE.end - 1) as f32 / P::PAN_DEGREES_TO_UNITS;
-        let tilt_min_deg = P::TILT_RANGE.start as f32 / P::TILT_DEGREES_TO_UNITS;
-        let tilt_max_deg = (P::TILT_RANGE.end - 1) as f32 / P::TILT_DEGREES_TO_UNITS;
+        let pan_min_deg = P::PAN_RANGE.min() as f32 / P::PAN_DEGREES_TO_UNITS;
+        let pan_max_deg = P::PAN_RANGE.max() as f32 / P::PAN_DEGREES_TO_UNITS;
+        let tilt_min_deg = P::TILT_RANGE.min() as f32 / P::TILT_DEGREES_TO_UNITS;
+        let tilt_max_deg = P::TILT_RANGE.max() as f32 / P::TILT_DEGREES_TO_UNITS;
 
         let pan_speed = 1..=P::MAX_PAN_SPEED;
         let tilt_speed = 1..=P::MAX_TILT_SPEED;
-        let pan_range = P::PAN_RANGE.start..=(P::PAN_RANGE.end - 1);
-        let tilt_range = P::TILT_RANGE.start..=(P::TILT_RANGE.end - 1);
+        let pan_range = P::PAN_RANGE.as_inclusive();
+        let tilt_range = P::TILT_RANGE.as_inclusive();
         let pan_range_degrees = pan_min_deg..=pan_max_deg;
         let tilt_range_degrees = tilt_min_deg..=tilt_max_deg;
         let pan_tilt_simultaneous = P::PAN_TILT_SIMULTANEOUS;
@@ -373,29 +373,37 @@ impl Capabilities {
 
         // Extract focus capabilities
         let focus_range = P::FOCUS_NEAR_LIMIT..=P::FOCUS_FAR_LIMIT;
-        let focus_speed = 0..=7; // Standard VISCA focus speed range
+        let focus_speed = 0..=P::MAX_FOCUS_SPEED;
 
         // Extract exposure capabilities
         let has_iris_control = P::IRIS_RANGE.is_some();
         let exposure_modes = P::EXPOSURE_MODES.to_vec();
-        let iris_range = P::IRIS_RANGE.as_ref().map(inclusive_u16_range);
-        let gain_range = P::GAIN_RANGE.start..=P::GAIN_RANGE.end.saturating_sub(1);
-        let exposure_brightness_range = P::BRIGHTNESS_RANGE.as_ref().map(inclusive_u16_range);
+        let iris_range = P::IRIS_RANGE.map(|range| range.as_inclusive());
+        let gain_range = P::GAIN_RANGE.as_inclusive();
+        let exposure_brightness_range = P::BRIGHTNESS_RANGE.map(|range| range.as_inclusive());
+        let exposure_comp_range =
+            P::SUPPORTS_EXPOSURE_COMP.then(|| P::EXPOSURE_COMP_RANGE.as_inclusive());
 
         // Extract white balance capabilities
-        let color_temp_range = P::COLOR_TEMP_RANGE.as_ref().map(inclusive_u16_range);
-        let rg_tuning_range = P::RG_TUNING_RANGE.as_ref().map(inclusive_i8_range);
-        let bg_tuning_range = P::BG_TUNING_RANGE.as_ref().map(inclusive_i8_range);
+        let color_temp_range = P::COLOR_TEMP_RANGE.map(|range| range.as_inclusive());
+        let rg_tuning_range = P::RG_TUNING_RANGE.map(|range| range.as_inclusive());
+        let bg_tuning_range = P::BG_TUNING_RANGE.map(|range| range.as_inclusive());
+        let red_gain_range = P::RED_GAIN_RANGE.map(|range| range.as_inclusive());
+        let blue_gain_range = P::BLUE_GAIN_RANGE.map(|range| range.as_inclusive());
 
         // Extract image processing capabilities
-        let contrast_range = P::CONTRAST_RANGE.as_ref().map(inclusive_u8_range);
-        let sharpness_range = P::SHARPNESS_RANGE.as_ref().map(inclusive_u8_range);
-        let saturation_range = P::SATURATION_RANGE.as_ref().map(inclusive_u8_range);
-        let hue_range = P::HUE_RANGE.as_ref().map(inclusive_u8_range);
+        let contrast_range = P::CONTRAST_RANGE.map(|range| range.as_inclusive());
+        let sharpness_range = P::SHARPNESS_RANGE.map(|range| range.as_inclusive());
+        let saturation_range = P::SATURATION_RANGE.map(|range| range.as_inclusive());
+        let hue_range = P::HUE_RANGE.map(|range| range.as_inclusive());
+        let luminance_range = P::LUMINANCE_RANGE.map(|range| range.as_inclusive());
+        let gamma_range = P::GAMMA_RANGE.map(|range| range.as_inclusive());
         let has_image_processing = contrast_range.is_some()
             || sharpness_range.is_some()
             || saturation_range.is_some()
             || hue_range.is_some()
+            || luminance_range.is_some()
+            || gamma_range.is_some()
             || P::SUPPORTS_FLIP
             || P::SUPPORTS_MIRROR
             || P::SUPPORTS_NOISE_REDUCTION
@@ -406,8 +414,7 @@ impl Capabilities {
             || P::SUPPORTS_LUMINANCE;
 
         // Extract preset capabilities
-        let preset_speed_range =
-            P::PRESET_SPEED_RANGE.start..=P::PRESET_SPEED_RANGE.end.saturating_sub(1);
+        let preset_speed_range = P::PRESET_SPEED_RANGE.as_inclusive();
 
         // Extract ND filter capabilities from profile metadata.
         let has_nd_filter = !matches!(P::ND_MODE, crate::capabilities::NdFilterMode::None);
@@ -450,7 +457,7 @@ impl Capabilities {
             has_digital_zoom,
             zoom_range_optical: 0x0000..=P::OPTICAL_ZOOM_MAX,
             zoom_range_digital,
-            zoom_speed: P::ZOOM_SPEED_RANGE.start..=(P::ZOOM_SPEED_RANGE.end - 1),
+            zoom_speed: P::ZOOM_SPEED_RANGE.as_inclusive(),
             supports_direct_zoom: P::SUPPORTS_DIRECT_ZOOM,
             supports_variable_zoom: P::SUPPORTS_VARIABLE_ZOOM,
             zoom_magnification_to_units: P::ZOOM_MAGNIFICATION_TO_UNITS,
@@ -472,6 +479,7 @@ impl Capabilities {
             has_backlight_comp: P::SUPPORTS_BACKLIGHT_COMP,
             has_wdr: P::SUPPORTS_WDR,
             has_exposure_comp: P::SUPPORTS_EXPOSURE_COMP,
+            exposure_comp_range,
             iris_range,
             gain_range,
             shutter_speed_count: P::SHUTTER_SPEEDS.len(),
@@ -485,6 +493,8 @@ impl Capabilities {
             rg_tuning_range,
             bg_tuning_range,
             has_rgb_gain: P::SUPPORTS_RGB_GAIN,
+            red_gain_range,
+            blue_gain_range,
             wb_mode_count: P::WB_MODES.len(),
 
             // Image processing capabilities
@@ -493,6 +503,8 @@ impl Capabilities {
             sharpness_range,
             saturation_range,
             hue_range,
+            luminance_range,
+            gamma_range,
             supports_flip: P::SUPPORTS_FLIP,
             supports_mirror: P::SUPPORTS_MIRROR,
             has_noise_reduction: P::SUPPORTS_NOISE_REDUCTION,
@@ -743,7 +755,7 @@ mod tests {
         SonyBRCH900, SonyEVIH100, SonyFR7,
     };
     use crate::capabilities::{
-        exposure::ShutterSpeed, Exposure, Focus, ImageProcessing, MenuCapability,
+        exposure::ShutterSpeed, CapabilityRange, Exposure, Focus, ImageProcessing, MenuCapability,
         MotionSyncMetadata, NdFilterMetadata, PanTilt, Power, Presets, ProfileMetadata,
         ProfileTypedSupport, Tally, VariableSpeedMetadata, WhiteBalance, Zoom,
     };
@@ -769,8 +781,8 @@ mod tests {
     }
 
     impl PanTilt for MetadataEnabledNoTypedSupport {
-        const PAN_RANGE: Range<i16> = -1700..1701;
-        const TILT_RANGE: Range<i16> = -300..901;
+        const PAN_RANGE: CapabilityRange<i16> = CapabilityRange::<i16>::new(-1700, 1700);
+        const TILT_RANGE: CapabilityRange<i16> = CapabilityRange::<i16>::new(-300, 900);
         const MAX_PAN_SPEED: u8 = 24;
         const MAX_TILT_SPEED: u8 = 20;
         const PAN_DEGREES_TO_UNITS: f32 = 10.0;
@@ -780,7 +792,7 @@ mod tests {
     impl Zoom for MetadataEnabledNoTypedSupport {
         const OPTICAL_ZOOM_MAX: u16 = 0x4000;
         const DIGITAL_ZOOM_MAX: Option<u16> = Some(0x7000);
-        const ZOOM_SPEED_RANGE: Range<u8> = 0..8;
+        const ZOOM_SPEED_RANGE: CapabilityRange<u8> = CapabilityRange::<u8>::new(0, 7);
         const SUPPORTS_DIRECT_ZOOM: bool = true;
         const ZOOM_MAGNIFICATION_TO_UNITS: f32 = 862.3;
     }
@@ -796,30 +808,30 @@ mod tests {
 
     impl Exposure for MetadataEnabledNoTypedSupport {
         const EXPOSURE_MODES: &'static [ExposureMode] = SYNTHETIC_EXPOSURE_MODES;
-        const IRIS_RANGE: Option<Range<u16>> = None;
+        const IRIS_RANGE: Option<CapabilityRange<u16>> = None;
         const SHUTTER_SPEEDS: &'static [ShutterSpeed] = SYNTHETIC_SHUTTER_SPEEDS;
-        const GAIN_RANGE: Range<u8> = 0..16;
+        const GAIN_RANGE: CapabilityRange<u8> = CapabilityRange::<u8>::new(0, 15);
         const SUPPORTS_BACKLIGHT_COMP: bool = false;
     }
 
     impl WhiteBalance for MetadataEnabledNoTypedSupport {
         const WB_MODES: &'static [WhiteBalanceMode] = SYNTHETIC_WB_MODES;
         const SUPPORTS_ONE_PUSH_WB: bool = false;
-        const RG_TUNING_RANGE: Option<Range<i8>> = None;
-        const BG_TUNING_RANGE: Option<Range<i8>> = None;
+        const RG_TUNING_RANGE: Option<CapabilityRange<i8>> = None;
+        const BG_TUNING_RANGE: Option<CapabilityRange<i8>> = None;
     }
 
     impl ImageProcessing for MetadataEnabledNoTypedSupport {
-        const CONTRAST_RANGE: Option<Range<u8>> = None;
-        const SHARPNESS_RANGE: Option<Range<u8>> = None;
-        const SATURATION_RANGE: Option<Range<u8>> = None;
+        const CONTRAST_RANGE: Option<CapabilityRange<u8>> = None;
+        const SHARPNESS_RANGE: Option<CapabilityRange<u8>> = None;
+        const SATURATION_RANGE: Option<CapabilityRange<u8>> = None;
         const SUPPORTS_FLIP: bool = false;
         const SUPPORTS_MIRROR: bool = false;
     }
 
     impl Presets for MetadataEnabledNoTypedSupport {
         const MAX_PRESETS: u8 = 6;
-        const PRESET_SPEED_RANGE: Range<u8> = 1..24;
+        const PRESET_SPEED_RANGE: CapabilityRange<u8> = CapabilityRange::<u8>::new(1, 23);
         const SUPPORTS_PRESET_TOUR: bool = false;
     }
 
@@ -864,7 +876,10 @@ mod tests {
         assert!(caps.has_iris_control);
         assert!(caps.supports_exposure_mode(ExposureMode::Iris));
         assert_eq!(caps.iris_range, Some(0..=12));
+        assert_eq!(caps.exposure_comp_range, Some(-7..=7));
         assert!(caps.has_rgb_gain);
+        assert_eq!(caps.red_gain_range, None);
+        assert_eq!(caps.blue_gain_range, None);
 
         assert_eq!(caps.max_presets, 127);
         assert!(!caps.supports_preset_tour);
@@ -876,6 +891,8 @@ mod tests {
         assert!(caps.has_image_processing);
         assert_eq!(caps.contrast_range, Some(0..=14));
         assert_eq!(caps.sharpness_range, Some(0..=15));
+        assert_eq!(caps.luminance_range, Some(0..=14));
+        assert_eq!(caps.gamma_range, Some(0..=4));
         assert!(caps.has_picture_effect);
 
         assert!(caps.has_basic_features());
@@ -896,6 +913,9 @@ mod tests {
         assert!(caps.has_af_sensitivity);
         assert!(caps.has_focus_near_limit_inquiry);
         assert!(caps.has_rgb_gain);
+        assert_eq!(caps.red_gain_range, Some(0..=0xFF));
+        assert_eq!(caps.blue_gain_range, Some(0..=0xFF));
+        assert_eq!(caps.exposure_comp_range, Some(-7..=7));
         assert!(!caps.has_color_temp);
         assert_eq!(caps.color_temp_range, None);
         assert!(caps.has_nd_filter);
@@ -907,6 +927,7 @@ mod tests {
         assert!(caps.has_image_processing);
         assert_eq!(caps.contrast_range, Some(0..=14));
         assert_eq!(caps.sharpness_range, Some(0..=14));
+        assert_eq!(caps.gamma_range, Some(0..=4));
 
         assert!(caps.has_advanced_features());
     }
@@ -987,8 +1008,11 @@ mod tests {
 
         assert!(!caps.has_image_processing);
         assert_eq!(caps.exposure_brightness_range, None);
+        assert_eq!(caps.exposure_comp_range, None);
         assert_eq!(caps.contrast_range, None);
         assert_eq!(caps.sharpness_range, None);
+        assert_eq!(caps.luminance_range, None);
+        assert_eq!(caps.gamma_range, None);
         assert!(!caps.has_basic_features());
         // GenericVisca has one-push white balance, which counts as an advanced feature
         assert!(caps.has_one_push_wb);

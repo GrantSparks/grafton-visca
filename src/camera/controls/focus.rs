@@ -297,7 +297,7 @@ where
         let cmd = if focus_speed_val == 0 {
             Focus::Near
         } else {
-            match FocusSpeed::new(focus_speed_val.min(7)) {
+            match FocusSpeed::new(focus_speed_val.min(P::MAX_FOCUS_SPEED)) {
                 Ok(focus_speed) => Focus::NearWithSpeed(focus_speed),
                 Err(e) => return self.error(e),
             }
@@ -310,7 +310,7 @@ where
         let cmd = if focus_speed_val == 0 {
             Focus::Far
         } else {
-            match FocusSpeed::new(focus_speed_val.min(7)) {
+            match FocusSpeed::new(focus_speed_val.min(P::MAX_FOCUS_SPEED)) {
                 Ok(focus_speed) => Focus::FarWithSpeed(focus_speed),
                 Err(e) => return self.error(e),
             }

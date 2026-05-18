@@ -2,9 +2,9 @@ use std::time::Duration;
 
 use grafton_visca::{
     capabilities::{
-        exposure::ShutterSpeed, Exposure, Focus, HasDirectZoom, ImageProcessing, InquirySupport,
-        MenuCapability, MotionSyncMetadata, NdFilterMetadata, PanTilt, Power, Presets,
-        ProfileMetadata, ProfileTypedSupport, Tally, TypedSupportSet, TypedSupportSurface,
+        exposure::ShutterSpeed, CapabilityRange, Exposure, Focus, HasDirectZoom, ImageProcessing,
+        InquirySupport, MenuCapability, MotionSyncMetadata, NdFilterMetadata, PanTilt, Power,
+        Presets, ProfileMetadata, ProfileTypedSupport, Tally, TypedSupportSet, TypedSupportSurface,
         VariableSpeedMetadata, WhiteBalance, Zoom,
     },
     command::ExposureMode,
@@ -37,8 +37,8 @@ macro_rules! synthetic_profile {
         }
 
         impl PanTilt for $profile {
-            const PAN_RANGE: std::ops::Range<i16> = -1700..1701;
-            const TILT_RANGE: std::ops::Range<i16> = -300..901;
+            const PAN_RANGE: CapabilityRange<i16> = CapabilityRange::<i16>::new(-1700, 1700);
+            const TILT_RANGE: CapabilityRange<i16> = CapabilityRange::<i16>::new(-300, 900);
             const MAX_PAN_SPEED: u8 = 24;
             const MAX_TILT_SPEED: u8 = 20;
             const PAN_DEGREES_TO_UNITS: f32 = 10.0;
@@ -48,7 +48,7 @@ macro_rules! synthetic_profile {
         impl Zoom for $profile {
             const OPTICAL_ZOOM_MAX: u16 = 0x4000;
             const DIGITAL_ZOOM_MAX: Option<u16> = Some(0x7000);
-            const ZOOM_SPEED_RANGE: std::ops::Range<u8> = 0..8;
+            const ZOOM_SPEED_RANGE: CapabilityRange<u8> = CapabilityRange::<u8>::new(0, 7);
             const SUPPORTS_DIRECT_ZOOM: bool = true;
             const ZOOM_MAGNIFICATION_TO_UNITS: f32 = 862.3;
         }
@@ -64,30 +64,30 @@ macro_rules! synthetic_profile {
 
         impl Exposure for $profile {
             const EXPOSURE_MODES: &'static [ExposureMode] = EXPOSURE_MODES;
-            const IRIS_RANGE: Option<std::ops::Range<u16>> = None;
+            const IRIS_RANGE: Option<CapabilityRange<u16>> = None;
             const SHUTTER_SPEEDS: &'static [ShutterSpeed] = SHUTTER_SPEEDS;
-            const GAIN_RANGE: std::ops::Range<u8> = 0..16;
+            const GAIN_RANGE: CapabilityRange<u8> = CapabilityRange::<u8>::new(0, 15);
             const SUPPORTS_BACKLIGHT_COMP: bool = false;
         }
 
         impl WhiteBalance for $profile {
             const WB_MODES: &'static [WhiteBalanceMode] = WB_MODES;
             const SUPPORTS_ONE_PUSH_WB: bool = false;
-            const RG_TUNING_RANGE: Option<std::ops::Range<i8>> = None;
-            const BG_TUNING_RANGE: Option<std::ops::Range<i8>> = None;
+            const RG_TUNING_RANGE: Option<CapabilityRange<i8>> = None;
+            const BG_TUNING_RANGE: Option<CapabilityRange<i8>> = None;
         }
 
         impl ImageProcessing for $profile {
-            const CONTRAST_RANGE: Option<std::ops::Range<u8>> = None;
-            const SHARPNESS_RANGE: Option<std::ops::Range<u8>> = None;
-            const SATURATION_RANGE: Option<std::ops::Range<u8>> = None;
+            const CONTRAST_RANGE: Option<CapabilityRange<u8>> = None;
+            const SHARPNESS_RANGE: Option<CapabilityRange<u8>> = None;
+            const SATURATION_RANGE: Option<CapabilityRange<u8>> = None;
             const SUPPORTS_FLIP: bool = false;
             const SUPPORTS_MIRROR: bool = false;
         }
 
         impl Presets for $profile {
             const MAX_PRESETS: u8 = 6;
-            const PRESET_SPEED_RANGE: std::ops::Range<u8> = 1..24;
+            const PRESET_SPEED_RANGE: CapabilityRange<u8> = CapabilityRange::<u8>::new(1, 23);
             const SUPPORTS_PRESET_TOUR: bool = false;
         }
 

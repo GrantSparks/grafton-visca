@@ -71,6 +71,12 @@ macro_rules! __transport_is_supported {
     };
 }
 
+macro_rules! range {
+    ($ty:ty, $min:expr, $max:expr) => {
+        $crate::capabilities::CapabilityRange::<$ty>::new($min, $max)
+    };
+}
+
 macro_rules! __transport_default_port {
     (none) => {
         None
@@ -478,8 +484,8 @@ macro_rules! __define_builtin_profiles {
             }
 
             impl $crate::capabilities::PanTilt for $profile {
-                const PAN_RANGE: std::ops::Range<i16> = $pan_range;
-                const TILT_RANGE: std::ops::Range<i16> = $tilt_range;
+                const PAN_RANGE: $crate::capabilities::CapabilityRange<i16> = $pan_range;
+                const TILT_RANGE: $crate::capabilities::CapabilityRange<i16> = $tilt_range;
                 const MAX_PAN_SPEED: u8 = $max_pan_speed;
                 const MAX_TILT_SPEED: u8 = $max_tilt_speed;
                 const PAN_TILT_SIMULTANEOUS: bool = $pan_tilt_simultaneous;
@@ -493,7 +499,7 @@ macro_rules! __define_builtin_profiles {
             impl $crate::capabilities::Zoom for $profile {
                 const OPTICAL_ZOOM_MAX: u16 = $optical_zoom_max;
                 const DIGITAL_ZOOM_MAX: Option<u16> = $digital_zoom_max;
-                const ZOOM_SPEED_RANGE: std::ops::Range<u8> = $zoom_speed_range;
+                const ZOOM_SPEED_RANGE: $crate::capabilities::CapabilityRange<u8> = $zoom_speed_range;
                 const SUPPORTS_DIRECT_ZOOM: bool = $supports_direct_zoom;
                 const SUPPORTS_VARIABLE_ZOOM: bool = $supports_variable_zoom;
                 const ZOOM_MAGNIFICATION_TO_UNITS: f32 = $zoom_magnification_to_units;
@@ -514,52 +520,52 @@ macro_rules! __define_builtin_profiles {
             impl $crate::capabilities::Exposure for $profile {
                 const EXPOSURE_MODES: &'static [$crate::command::exposure::ExposureMode] =
                     $exposure_modes;
-                const IRIS_RANGE: Option<std::ops::Range<u16>> = $iris_range;
+                const IRIS_RANGE: Option<$crate::capabilities::CapabilityRange<u16>> = $iris_range;
                 const SHUTTER_SPEEDS: &'static [$crate::capabilities::ShutterSpeed] =
                     $shutter_speeds;
-                const GAIN_RANGE: std::ops::Range<u8> = $gain_range;
-                const BRIGHTNESS_RANGE: Option<std::ops::Range<u16>> = $brightness_range;
+                const GAIN_RANGE: $crate::capabilities::CapabilityRange<u8> = $gain_range;
+                const BRIGHTNESS_RANGE: Option<$crate::capabilities::CapabilityRange<u16>> = $brightness_range;
                 const SUPPORTS_BACKLIGHT_COMP: bool = $supports_backlight_comp;
                 const SUPPORTS_EXPOSURE_COMP: bool = $supports_exposure_comp;
-                const EXPOSURE_COMP_RANGE: std::ops::Range<i8> = $exposure_comp_range;
+                const EXPOSURE_COMP_RANGE: $crate::capabilities::CapabilityRange<i8> = $exposure_comp_range;
                 const SUPPORTS_WDR: bool = $supports_wdr;
             }
 
             impl $crate::capabilities::WhiteBalance for $profile {
                 const WB_MODES: &'static [$crate::WhiteBalanceMode] = $wb_modes;
                 const SUPPORTS_ONE_PUSH_WB: bool = $supports_one_push_wb;
-                const RG_TUNING_RANGE: Option<std::ops::Range<i8>> = $rg_tuning_range;
-                const BG_TUNING_RANGE: Option<std::ops::Range<i8>> = $bg_tuning_range;
+                const RG_TUNING_RANGE: Option<$crate::capabilities::CapabilityRange<i8>> = $rg_tuning_range;
+                const BG_TUNING_RANGE: Option<$crate::capabilities::CapabilityRange<i8>> = $bg_tuning_range;
                 const SUPPORTS_COLOR_TEMP: bool = $supports_color_temp;
-                const COLOR_TEMP_RANGE: Option<std::ops::Range<u16>> = $color_temp_range;
+                const COLOR_TEMP_RANGE: Option<$crate::capabilities::CapabilityRange<u16>> = $color_temp_range;
                 const SUPPORTS_RGB_GAIN: bool = $supports_rgb_gain;
-                const RED_GAIN_RANGE: Option<std::ops::Range<u8>> = $red_gain_range;
-                const BLUE_GAIN_RANGE: Option<std::ops::Range<u8>> = $blue_gain_range;
+                const RED_GAIN_RANGE: Option<$crate::capabilities::CapabilityRange<u8>> = $red_gain_range;
+                const BLUE_GAIN_RANGE: Option<$crate::capabilities::CapabilityRange<u8>> = $blue_gain_range;
             }
 
             impl $crate::capabilities::ImageProcessing for $profile {
-                const CONTRAST_RANGE: Option<std::ops::Range<u8>> = $contrast_range;
-                const SHARPNESS_RANGE: Option<std::ops::Range<u8>> = $sharpness_range;
-                const SATURATION_RANGE: Option<std::ops::Range<u8>> = $saturation_range;
+                const CONTRAST_RANGE: Option<$crate::capabilities::CapabilityRange<u8>> = $contrast_range;
+                const SHARPNESS_RANGE: Option<$crate::capabilities::CapabilityRange<u8>> = $sharpness_range;
+                const SATURATION_RANGE: Option<$crate::capabilities::CapabilityRange<u8>> = $saturation_range;
                 const SUPPORTS_FLIP: bool = $supports_flip;
                 const SUPPORTS_MIRROR: bool = $supports_mirror;
                 const SUPPORTS_HUE: bool = $supports_hue;
-                const HUE_RANGE: Option<std::ops::Range<u8>> = $hue_range;
+                const HUE_RANGE: Option<$crate::capabilities::CapabilityRange<u8>> = $hue_range;
                 const SUPPORTS_NOISE_REDUCTION: bool = $supports_noise_reduction;
                 const SUPPORTS_2D_NR: bool = $supports_2d_nr;
                 const SUPPORTS_3D_NR: bool = $supports_3d_nr;
                 const SUPPORTS_LUMINANCE: bool = $supports_luminance;
                 const SUPPORTS_PICTURE_EFFECT: bool = $supports_picture_effect;
-                const LUMINANCE_RANGE: Option<std::ops::Range<u8>> = $luminance_range;
+                const LUMINANCE_RANGE: Option<$crate::capabilities::CapabilityRange<u8>> = $luminance_range;
                 const USES_COMBINED_FLIP_COMMAND: bool = $uses_combined_flip_command;
                 const REQUIRES_SETTINGS_SAVE_FOR_FLIP: bool = $requires_settings_save_for_flip;
                 const SUPPORTS_GAMMA: bool = $supports_gamma;
-                const GAMMA_RANGE: Option<std::ops::Range<u8>> = $gamma_range;
+                const GAMMA_RANGE: Option<$crate::capabilities::CapabilityRange<u8>> = $gamma_range;
             }
 
             impl $crate::capabilities::Presets for $profile {
                 const MAX_PRESETS: u8 = $max_presets;
-                const PRESET_SPEED_RANGE: std::ops::Range<u8> = $preset_speed_range;
+                const PRESET_SPEED_RANGE: $crate::capabilities::CapabilityRange<u8> = $preset_speed_range;
                 const SUPPORTS_PRESET_TOUR: bool = $supports_preset_tour;
                 const PRESET_RECALL_DELAY: std::time::Duration =
                     std::time::Duration::from_millis($preset_recall_delay_ms);
@@ -961,24 +967,93 @@ macro_rules! __define_builtin_profiles {
                     facts.envelope == profile_registry::EnvelopeKind::SonyEncapsulated,
                     id.uses_sony_encapsulation()
                 );
+                assert!(P::PAN_RANGE.min() <= P::PAN_RANGE.max(), "{id:?} pan metadata must be non-empty");
+                assert!(
+                    P::TILT_RANGE.min() <= P::TILT_RANGE.max(),
+                    "{id:?} tilt metadata must be non-empty"
+                );
+                assert!(
+                    P::ZOOM_SPEED_RANGE.min() <= P::ZOOM_SPEED_RANGE.max(),
+                    "{id:?} zoom-speed metadata must be non-empty"
+                );
+                if let Some(range) = P::IRIS_RANGE {
+                    assert!(range.min() <= range.max(), "{id:?} iris metadata must be non-empty");
+                }
+                assert!(
+                    P::GAIN_RANGE.min() <= P::GAIN_RANGE.max(),
+                    "{id:?} gain metadata must be non-empty"
+                );
                 if let Some(range) = P::BRIGHTNESS_RANGE {
                     assert!(
-                        range.start < range.end,
+                        range.min() <= range.max(),
                         "{id:?} exposure brightness metadata must be non-empty"
                     );
                 }
-                if let Some(range) = P::CONTRAST_RANGE {
+                assert!(
+                    P::EXPOSURE_COMP_RANGE.min() <= P::EXPOSURE_COMP_RANGE.max(),
+                    "{id:?} exposure-compensation metadata must be non-empty"
+                );
+                if let Some(range) = P::RG_TUNING_RANGE {
                     assert!(
-                        range.start < range.end,
-                        "{id:?} contrast metadata must be non-empty"
+                        range.min() <= range.max(),
+                        "{id:?} red tuning metadata must be non-empty"
                     );
+                }
+                if let Some(range) = P::BG_TUNING_RANGE {
+                    assert!(
+                        range.min() <= range.max(),
+                        "{id:?} blue tuning metadata must be non-empty"
+                    );
+                }
+                if let Some(range) = P::COLOR_TEMP_RANGE {
+                    assert!(
+                        range.min() <= range.max(),
+                        "{id:?} color-temperature metadata must be non-empty"
+                    );
+                }
+                if let Some(range) = P::RED_GAIN_RANGE {
+                    assert!(
+                        range.min() <= range.max(),
+                        "{id:?} red gain metadata must be non-empty"
+                    );
+                }
+                if let Some(range) = P::BLUE_GAIN_RANGE {
+                    assert!(
+                        range.min() <= range.max(),
+                        "{id:?} blue gain metadata must be non-empty"
+                    );
+                }
+                if let Some(range) = P::CONTRAST_RANGE {
+                    assert!(range.min() <= range.max(), "{id:?} contrast metadata must be non-empty");
                 }
                 if let Some(range) = P::SHARPNESS_RANGE {
                     assert!(
-                        range.start < range.end,
+                        range.min() <= range.max(),
                         "{id:?} sharpness metadata must be non-empty"
                     );
                 }
+                if let Some(range) = P::SATURATION_RANGE {
+                    assert!(
+                        range.min() <= range.max(),
+                        "{id:?} saturation metadata must be non-empty"
+                    );
+                }
+                if let Some(range) = P::HUE_RANGE {
+                    assert!(range.min() <= range.max(), "{id:?} hue metadata must be non-empty");
+                }
+                if let Some(range) = P::LUMINANCE_RANGE {
+                    assert!(
+                        range.min() <= range.max(),
+                        "{id:?} luminance metadata must be non-empty"
+                    );
+                }
+                if let Some(range) = P::GAMMA_RANGE {
+                    assert!(range.min() <= range.max(), "{id:?} gamma metadata must be non-empty");
+                }
+                assert!(
+                    P::PRESET_SPEED_RANGE.min() <= P::PRESET_SPEED_RANGE.max(),
+                    "{id:?} preset-speed metadata must be non-empty"
+                );
                 assert_eq!(
                     facts.has_typed_support($crate::capabilities::TypedSupportSurface::BrightnessControl),
                     P::BRIGHTNESS_RANGE.is_some(),
@@ -1011,8 +1086,8 @@ macro_rules! __define_builtin_profiles {
                 assert_eq!(caps.default_udp_port, id.default_udp_port());
                 assert_eq!(caps.pan_speed, 1..=P::MAX_PAN_SPEED);
                 assert_eq!(caps.tilt_speed, 1..=P::MAX_TILT_SPEED);
-                assert_eq!(caps.pan_range, P::PAN_RANGE.start..=(P::PAN_RANGE.end - 1));
-                assert_eq!(caps.tilt_range, P::TILT_RANGE.start..=(P::TILT_RANGE.end - 1));
+                assert_eq!(caps.pan_range, P::PAN_RANGE.as_inclusive());
+                assert_eq!(caps.tilt_range, P::TILT_RANGE.as_inclusive());
                 assert_eq!(caps.pan_tilt_simultaneous, P::PAN_TILT_SIMULTANEOUS);
                 assert_eq!(caps.has_digital_zoom, P::DIGITAL_ZOOM_MAX.is_some());
                 assert_eq!(caps.zoom_range_optical, 0..=P::OPTICAL_ZOOM_MAX);
@@ -1020,13 +1095,13 @@ macro_rules! __define_builtin_profiles {
                     caps.zoom_range_digital,
                     P::DIGITAL_ZOOM_MAX.map(|max| P::OPTICAL_ZOOM_MAX..=max)
                 );
-                assert_eq!(caps.zoom_speed, P::ZOOM_SPEED_RANGE.start..=(P::ZOOM_SPEED_RANGE.end - 1));
+                assert_eq!(caps.zoom_speed, P::ZOOM_SPEED_RANGE.as_inclusive());
                 assert_eq!(caps.supports_direct_zoom, P::SUPPORTS_DIRECT_ZOOM);
                 assert_eq!(caps.supports_variable_zoom, P::SUPPORTS_VARIABLE_ZOOM);
                 assert_eq!(caps.has_auto_focus, P::SUPPORTS_AUTO_FOCUS);
                 assert_eq!(caps.has_one_push_focus, P::SUPPORTS_ONE_PUSH_FOCUS);
                 assert_eq!(caps.focus_range, P::FOCUS_NEAR_LIMIT..=P::FOCUS_FAR_LIMIT);
-                assert_eq!(caps.focus_speed, 0..=7);
+                assert_eq!(caps.focus_speed, 0..=P::MAX_FOCUS_SPEED);
                 assert_eq!(caps.has_focus_zone, P::SUPPORTS_FOCUS_ZONE);
                 assert_eq!(caps.has_af_sensitivity, P::SUPPORTS_AF_SENSITIVITY);
                 assert_eq!(
@@ -1040,51 +1115,65 @@ macro_rules! __define_builtin_profiles {
                 assert_eq!(caps.has_exposure_comp, P::SUPPORTS_EXPOSURE_COMP);
                 assert_eq!(
                     caps.iris_range,
-                    P::IRIS_RANGE.as_ref().map(|range| range.start..=range.end - 1)
+                    P::IRIS_RANGE.map(|range| range.as_inclusive())
                 );
-                assert_eq!(caps.gain_range, P::GAIN_RANGE.start..=P::GAIN_RANGE.end - 1);
+                assert_eq!(caps.gain_range, P::GAIN_RANGE.as_inclusive());
                 assert_eq!(caps.shutter_speed_count, P::SHUTTER_SPEEDS.len());
                 assert_eq!(
                     caps.exposure_brightness_range,
-                    P::BRIGHTNESS_RANGE
-                        .as_ref()
-                        .map(|range| range.start..=range.end - 1)
+                    P::BRIGHTNESS_RANGE.map(|range| range.as_inclusive())
+                );
+                assert_eq!(
+                    caps.exposure_comp_range,
+                    P::SUPPORTS_EXPOSURE_COMP.then(|| P::EXPOSURE_COMP_RANGE.as_inclusive())
                 );
                 assert_eq!(caps.has_one_push_wb, P::SUPPORTS_ONE_PUSH_WB);
                 assert_eq!(caps.has_color_temp, P::SUPPORTS_COLOR_TEMP);
                 assert_eq!(
                     caps.color_temp_range,
-                    P::COLOR_TEMP_RANGE.as_ref().map(|range| range.start..=range.end - 1)
+                    P::COLOR_TEMP_RANGE.map(|range| range.as_inclusive())
                 );
                 assert_eq!(
                     caps.rg_tuning_range,
-                    P::RG_TUNING_RANGE.as_ref().map(|range| range.start..=range.end - 1)
+                    P::RG_TUNING_RANGE.map(|range| range.as_inclusive())
                 );
                 assert_eq!(
                     caps.bg_tuning_range,
-                    P::BG_TUNING_RANGE.as_ref().map(|range| range.start..=range.end - 1)
+                    P::BG_TUNING_RANGE.map(|range| range.as_inclusive())
                 );
                 assert_eq!(caps.has_rgb_gain, P::SUPPORTS_RGB_GAIN);
+                assert_eq!(
+                    caps.red_gain_range,
+                    P::RED_GAIN_RANGE.map(|range| range.as_inclusive())
+                );
+                assert_eq!(
+                    caps.blue_gain_range,
+                    P::BLUE_GAIN_RANGE.map(|range| range.as_inclusive())
+                );
                 assert_eq!(caps.wb_mode_count, P::WB_MODES.len());
                 assert_eq!(
                     caps.contrast_range,
-                    P::CONTRAST_RANGE
-                        .as_ref()
-                        .map(|range| range.start..=range.end - 1)
+                    P::CONTRAST_RANGE.map(|range| range.as_inclusive())
                 );
                 assert_eq!(
                     caps.sharpness_range,
-                    P::SHARPNESS_RANGE
-                        .as_ref()
-                        .map(|range| range.start..=range.end - 1)
+                    P::SHARPNESS_RANGE.map(|range| range.as_inclusive())
                 );
                 assert_eq!(
                     caps.saturation_range,
-                    P::SATURATION_RANGE.as_ref().map(|range| range.start..=range.end - 1)
+                    P::SATURATION_RANGE.map(|range| range.as_inclusive())
                 );
                 assert_eq!(
                     caps.hue_range,
-                    P::HUE_RANGE.as_ref().map(|range| range.start..=range.end - 1)
+                    P::HUE_RANGE.map(|range| range.as_inclusive())
+                );
+                assert_eq!(
+                    caps.luminance_range,
+                    P::LUMINANCE_RANGE.map(|range| range.as_inclusive())
+                );
+                assert_eq!(
+                    caps.gamma_range,
+                    P::GAMMA_RANGE.map(|range| range.as_inclusive())
                 );
                 assert_eq!(caps.supports_flip, P::SUPPORTS_FLIP);
                 assert_eq!(caps.supports_mirror, P::SUPPORTS_MIRROR);
@@ -1098,7 +1187,7 @@ macro_rules! __define_builtin_profiles {
                 assert_eq!(caps.max_presets, P::MAX_PRESETS);
                 assert_eq!(
                     caps.preset_speed_range,
-                    P::PRESET_SPEED_RANGE.start..=P::PRESET_SPEED_RANGE.end - 1
+                    P::PRESET_SPEED_RANGE.as_inclusive()
                 );
                 assert_eq!(caps.supports_preset_tour, P::SUPPORTS_PRESET_TOUR);
                 assert_eq!(caps.supports_preset_thumbnail, P::SUPPORTS_PRESET_THUMBNAIL);
@@ -1185,8 +1274,8 @@ macro_rules! __define_builtin_profiles {
                         <P as $crate::capabilities::SupportsUdp>::DEFAULT_UDP_PORT,
                         1259
                     );
-                    assert_eq!(P::PAN_RANGE, -2448..2449);
-                    assert_eq!(P::TILT_RANGE, -432..1297);
+                    assert_eq!(P::PAN_RANGE, range!(i16, -2448, 2448));
+                    assert_eq!(P::TILT_RANGE, range!(i16, -432, 1296));
                     assert_eq!(P::MAX_PAN_SPEED, 24);
                     assert_eq!(P::MAX_TILT_SPEED, 20);
                     assert_eq!(P::OPTICAL_ZOOM_MAX, 0x4000);
@@ -1591,8 +1680,8 @@ macro_rules! define_builtin_profiles {
                         min_command_spacing_ms: 100,
                     },
                     pan_tilt: {
-                        pan_range: -2448..2449,
-                        tilt_range: -432..1297,
+                        pan_range: range!(i16, -2448, 2448),
+                        tilt_range: range!(i16, -432, 1296),
                         max_pan_speed: 24,
                         max_tilt_speed: 20,
                         simultaneous: true,
@@ -1604,7 +1693,7 @@ macro_rules! define_builtin_profiles {
                     zoom: {
                         optical_max: 0x4000,
                         digital_max: None,
-                        speed_range: 0..8,
+                        speed_range: range!(u8, 0, 7),
                         supports_direct: true,
                         supports_variable: true,
                         magnification_to_units: 862.3,
@@ -1621,48 +1710,48 @@ macro_rules! define_builtin_profiles {
                     },
                     exposure: {
                         modes: profile_constants::PTZ_OPTICS_EXPOSURE_MODES,
-                        iris_range: Some(0x00..0x0D),
+                        iris_range: Some(range!(u16, 0x00, 0x0C)),
                         shutter_speeds: profile_constants::PTZ_OPTICS_G2_SHUTTER_SPEEDS,
-                        gain_range: 0..8,
-                        brightness_range: Some(0..18),
+                        gain_range: range!(u8, 0, 7),
+                        brightness_range: Some(range!(u16, 0, 17)),
                         backlight_comp: true,
                         exposure_comp: true,
-                        exposure_comp_range: -7..8,
+                        exposure_comp_range: range!(i8, -7, 7),
                         wdr: true,
                     },
                     white_balance: {
                         modes: profile_constants::PTZ_OPTICS_WB_MODES,
                         one_push: true,
-                        rg_tuning_range: Some(-10..11),
-                        bg_tuning_range: Some(-10..11),
+                        rg_tuning_range: Some(range!(i8, -10, 10)),
+                        bg_tuning_range: Some(range!(i8, -10, 10)),
                         color_temp: true,
-                        color_temp_range: Some(2500..8001),
+                        color_temp_range: Some(range!(u16, 2500, 8000)),
                         rgb_gain: true,
                         red_gain_range: None,
                         blue_gain_range: None,
                     },
                     image: {
-                        contrast_range: Some(0..15),
-                        sharpness_range: Some(0..16),
-                        saturation_range: Some(0..15),
+                        contrast_range: Some(range!(u8, 0, 14)),
+                        sharpness_range: Some(range!(u8, 0, 15)),
+                        saturation_range: Some(range!(u8, 0, 14)),
                         flip: true,
                         mirror: true,
                         hue: true,
-                        hue_range: Some(0..15),
+                        hue_range: Some(range!(u8, 0, 14)),
                         noise_reduction: true,
                         nr_2d: true,
                         nr_3d: true,
                         luminance: true,
                         picture_effect: true,
-                        luminance_range: Some(0..15),
+                        luminance_range: Some(range!(u8, 0, 14)),
                         combined_flip: true,
                         save_after_flip: true,
                         gamma: true,
-                        gamma_range: Some(0..5),
+                        gamma_range: Some(range!(u8, 0, 4)),
                     },
                     presets: {
                         max: 127,
-                        speed_range: 1..25,
+                        speed_range: range!(u8, 1, 24),
                         tour: false,
                         recall_delay_ms: 0,
                         thumbnail: false,
@@ -1742,8 +1831,8 @@ macro_rules! define_builtin_profiles {
                         min_command_spacing_ms: 100,
                     },
                     pan_tilt: {
-                        pan_range: -2448..2449,
-                        tilt_range: -432..1297,
+                        pan_range: range!(i16, -2448, 2448),
+                        tilt_range: range!(i16, -432, 1296),
                         max_pan_speed: 24,
                         max_tilt_speed: 20,
                         simultaneous: true,
@@ -1755,7 +1844,7 @@ macro_rules! define_builtin_profiles {
                     zoom: {
                         optical_max: 0x4000,
                         digital_max: None,
-                        speed_range: 0..8,
+                        speed_range: range!(u8, 0, 7),
                         supports_direct: true,
                         supports_variable: true,
                         magnification_to_units: 862.3,
@@ -1772,48 +1861,48 @@ macro_rules! define_builtin_profiles {
                     },
                     exposure: {
                         modes: profile_constants::PTZ_OPTICS_EXPOSURE_MODES,
-                        iris_range: Some(0x00..0x0D),
+                        iris_range: Some(range!(u16, 0x00, 0x0C)),
                         shutter_speeds: profile_constants::PTZ_OPTICS_G2_SHUTTER_SPEEDS,
-                        gain_range: 0..8,
-                        brightness_range: Some(0..18),
+                        gain_range: range!(u8, 0, 7),
+                        brightness_range: Some(range!(u16, 0, 17)),
                         backlight_comp: true,
                         exposure_comp: true,
-                        exposure_comp_range: -7..8,
+                        exposure_comp_range: range!(i8, -7, 7),
                         wdr: true,
                     },
                     white_balance: {
                         modes: profile_constants::PTZ_OPTICS_WB_MODES,
                         one_push: true,
-                        rg_tuning_range: Some(-10..11),
-                        bg_tuning_range: Some(-10..11),
+                        rg_tuning_range: Some(range!(i8, -10, 10)),
+                        bg_tuning_range: Some(range!(i8, -10, 10)),
                         color_temp: true,
-                        color_temp_range: Some(2500..8001),
+                        color_temp_range: Some(range!(u16, 2500, 8000)),
                         rgb_gain: true,
                         red_gain_range: None,
                         blue_gain_range: None,
                     },
                     image: {
-                        contrast_range: Some(0..15),
-                        sharpness_range: Some(0..16),
-                        saturation_range: Some(0..15),
+                        contrast_range: Some(range!(u8, 0, 14)),
+                        sharpness_range: Some(range!(u8, 0, 15)),
+                        saturation_range: Some(range!(u8, 0, 14)),
                         flip: true,
                         mirror: true,
                         hue: true,
-                        hue_range: Some(0..15),
+                        hue_range: Some(range!(u8, 0, 14)),
                         noise_reduction: true,
                         nr_2d: true,
                         nr_3d: true,
                         luminance: true,
                         picture_effect: true,
-                        luminance_range: Some(0..15),
+                        luminance_range: Some(range!(u8, 0, 14)),
                         combined_flip: true,
                         save_after_flip: true,
                         gamma: true,
-                        gamma_range: Some(0..5),
+                        gamma_range: Some(range!(u8, 0, 4)),
                     },
                     presets: {
                         max: 127,
-                        speed_range: 1..25,
+                        speed_range: range!(u8, 1, 24),
                         tour: false,
                         recall_delay_ms: 0,
                         thumbnail: false,
@@ -1894,8 +1983,8 @@ macro_rules! define_builtin_profiles {
                         min_command_spacing_ms: 100,
                     },
                     pan_tilt: {
-                        pan_range: -2448..2449,
-                        tilt_range: -432..1297,
+                        pan_range: range!(i16, -2448, 2448),
+                        tilt_range: range!(i16, -432, 1296),
                         max_pan_speed: 24,
                         max_tilt_speed: 20,
                         simultaneous: true,
@@ -1907,7 +1996,7 @@ macro_rules! define_builtin_profiles {
                     zoom: {
                         optical_max: 0x4000,
                         digital_max: None,
-                        speed_range: 0..8,
+                        speed_range: range!(u8, 0, 7),
                         supports_direct: true,
                         supports_variable: true,
                         magnification_to_units: 565.0,
@@ -1924,48 +2013,48 @@ macro_rules! define_builtin_profiles {
                     },
                     exposure: {
                         modes: profile_constants::PTZ_OPTICS_EXPOSURE_MODES,
-                        iris_range: Some(0x00..0x0D),
+                        iris_range: Some(range!(u16, 0x00, 0x0C)),
                         shutter_speeds: profile_constants::PTZ_OPTICS_G2_SHUTTER_SPEEDS,
-                        gain_range: 0..8,
-                        brightness_range: Some(0..18),
+                        gain_range: range!(u8, 0, 7),
+                        brightness_range: Some(range!(u16, 0, 17)),
                         backlight_comp: true,
                         exposure_comp: true,
-                        exposure_comp_range: -7..8,
+                        exposure_comp_range: range!(i8, -7, 7),
                         wdr: true,
                     },
                     white_balance: {
                         modes: profile_constants::PTZ_OPTICS_WB_MODES,
                         one_push: true,
-                        rg_tuning_range: Some(-10..11),
-                        bg_tuning_range: Some(-10..11),
+                        rg_tuning_range: Some(range!(i8, -10, 10)),
+                        bg_tuning_range: Some(range!(i8, -10, 10)),
                         color_temp: true,
-                        color_temp_range: Some(2500..8001),
+                        color_temp_range: Some(range!(u16, 2500, 8000)),
                         rgb_gain: true,
                         red_gain_range: None,
                         blue_gain_range: None,
                     },
                     image: {
-                        contrast_range: Some(0..15),
-                        sharpness_range: Some(0..16),
-                        saturation_range: Some(0..15),
+                        contrast_range: Some(range!(u8, 0, 14)),
+                        sharpness_range: Some(range!(u8, 0, 15)),
+                        saturation_range: Some(range!(u8, 0, 14)),
                         flip: true,
                         mirror: true,
                         hue: true,
-                        hue_range: Some(0..15),
+                        hue_range: Some(range!(u8, 0, 14)),
                         noise_reduction: true,
                         nr_2d: true,
                         nr_3d: true,
                         luminance: true,
                         picture_effect: true,
-                        luminance_range: Some(0..15),
+                        luminance_range: Some(range!(u8, 0, 14)),
                         combined_flip: true,
                         save_after_flip: true,
                         gamma: true,
-                        gamma_range: Some(0..5),
+                        gamma_range: Some(range!(u8, 0, 4)),
                     },
                     presets: {
                         max: 127,
-                        speed_range: 1..25,
+                        speed_range: range!(u8, 1, 24),
                         tour: false,
                         recall_delay_ms: 0,
                         thumbnail: false,
@@ -2050,8 +2139,8 @@ macro_rules! define_builtin_profiles {
                         min_command_spacing_ms: 35,
                     },
                     pan_tilt: {
-                        pan_range: -2700..2701,
-                        tilt_range: -300..1201,
+                        pan_range: range!(i16, -2700, 2700),
+                        tilt_range: range!(i16, -300, 1200),
                         max_pan_speed: 24,
                         max_tilt_speed: 24,
                         simultaneous: true,
@@ -2063,7 +2152,7 @@ macro_rules! define_builtin_profiles {
                     zoom: {
                         optical_max: 0x4000,
                         digital_max: Some(0x7000),
-                        speed_range: 0..8,
+                        speed_range: range!(u8, 0, 7),
                         supports_direct: true,
                         supports_variable: true,
                         magnification_to_units: 1000.0,
@@ -2080,34 +2169,34 @@ macro_rules! define_builtin_profiles {
                     },
                     exposure: {
                         modes: profile_constants::STANDARD_EXPOSURE_MODES,
-                        iris_range: Some(0x00..0x1F),
+                        iris_range: Some(range!(u16, 0x00, 0x1E)),
                         shutter_speeds: profile_constants::PTZ_OPTICS_G2_SHUTTER_SPEEDS,
-                        gain_range: 0..16,
-                        brightness_range: Some(0..18),
+                        gain_range: range!(u8, 0, 15),
+                        brightness_range: Some(range!(u16, 0, 17)),
                         backlight_comp: true,
                         exposure_comp: true,
-                        exposure_comp_range: -7..8,
+                        exposure_comp_range: range!(i8, -7, 7),
                         wdr: true,
                     },
                     white_balance: {
                         modes: profile_constants::SONY_FR7_WB_MODES,
                         one_push: true,
-                        rg_tuning_range: Some(-7..8),
-                        bg_tuning_range: Some(-7..8),
+                        rg_tuning_range: Some(range!(i8, -7, 7)),
+                        bg_tuning_range: Some(range!(i8, -7, 7)),
                         color_temp: false,
                         color_temp_range: None,
                         rgb_gain: true,
-                        red_gain_range: Some(0..255),
-                        blue_gain_range: Some(0..255),
+                        red_gain_range: Some(range!(u8, 0x00, 0xFF)),
+                        blue_gain_range: Some(range!(u8, 0x00, 0xFF)),
                     },
                     image: {
-                        contrast_range: Some(0..15),
-                        sharpness_range: Some(0..15),
-                        saturation_range: Some(0..15),
+                        contrast_range: Some(range!(u8, 0, 14)),
+                        sharpness_range: Some(range!(u8, 0, 14)),
+                        saturation_range: Some(range!(u8, 0, 14)),
                         flip: true,
                         mirror: true,
                         hue: true,
-                        hue_range: Some(0..15),
+                        hue_range: Some(range!(u8, 0, 14)),
                         noise_reduction: true,
                         nr_2d: true,
                         nr_3d: true,
@@ -2117,11 +2206,11 @@ macro_rules! define_builtin_profiles {
                         combined_flip: false,
                         save_after_flip: false,
                         gamma: true,
-                        gamma_range: Some(0..5),
+                        gamma_range: Some(range!(u8, 0, 4)),
                     },
                     presets: {
                         max: 255,
-                        speed_range: 1..25,
+                        speed_range: range!(u8, 1, 24),
                         tour: true,
                         recall_delay_ms: 0,
                         thumbnail: true,
@@ -2211,8 +2300,8 @@ macro_rules! define_builtin_profiles {
                         min_command_spacing_ms: 35,
                     },
                     pan_tilt: {
-                        pan_range: -2700..2701,
-                        tilt_range: -300..1201,
+                        pan_range: range!(i16, -2700, 2700),
+                        tilt_range: range!(i16, -300, 1200),
                         max_pan_speed: 24,
                         max_tilt_speed: 24,
                         simultaneous: true,
@@ -2224,7 +2313,7 @@ macro_rules! define_builtin_profiles {
                     zoom: {
                         optical_max: 0x4000,
                         digital_max: Some(0x7000),
-                        speed_range: 0..8,
+                        speed_range: range!(u8, 0, 7),
                         supports_direct: true,
                         supports_variable: true,
                         magnification_to_units: 862.3,
@@ -2241,30 +2330,30 @@ macro_rules! define_builtin_profiles {
                     },
                     exposure: {
                         modes: profile_constants::STANDARD_EXPOSURE_MODES,
-                        iris_range: Some(0x00..0x1F),
+                        iris_range: Some(range!(u16, 0x00, 0x1E)),
                         shutter_speeds: profile_constants::GENERIC_VISCA_SHUTTER_SPEEDS,
-                        gain_range: 0..16,
-                        brightness_range: Some(0..18),
+                        gain_range: range!(u8, 0, 15),
+                        brightness_range: Some(range!(u16, 0, 17)),
                         backlight_comp: true,
                         exposure_comp: false,
-                        exposure_comp_range: -7..8,
+                        exposure_comp_range: range!(i8, -7, 7),
                         wdr: true,
                     },
                     white_balance: {
                         modes: profile_constants::SONY_COLOR_TEMP_WB_MODES,
                         one_push: true,
-                        rg_tuning_range: Some(-7..8),
-                        bg_tuning_range: Some(-7..8),
+                        rg_tuning_range: Some(range!(i8, -7, 7)),
+                        bg_tuning_range: Some(range!(i8, -7, 7)),
                         color_temp: true,
-                        color_temp_range: Some(2500..8001),
+                        color_temp_range: Some(range!(u16, 2500, 8000)),
                         rgb_gain: false,
                         red_gain_range: None,
                         blue_gain_range: None,
                     },
                     image: {
-                        contrast_range: Some(0..15),
-                        sharpness_range: Some(0..15),
-                        saturation_range: Some(0..15),
+                        contrast_range: Some(range!(u8, 0, 14)),
+                        sharpness_range: Some(range!(u8, 0, 14)),
+                        saturation_range: Some(range!(u8, 0, 14)),
                         flip: true,
                         mirror: true,
                         hue: false,
@@ -2278,11 +2367,11 @@ macro_rules! define_builtin_profiles {
                         combined_flip: false,
                         save_after_flip: false,
                         gamma: true,
-                        gamma_range: Some(0..5),
+                        gamma_range: Some(range!(u8, 0, 4)),
                     },
                     presets: {
                         max: 100,
-                        speed_range: 1..25,
+                        speed_range: range!(u8, 1, 24),
                         tour: true,
                         recall_delay_ms: 0,
                         thumbnail: false,
@@ -2358,8 +2447,8 @@ macro_rules! define_builtin_profiles {
                         min_command_spacing_ms: 0,
                     },
                     pan_tilt: {
-                        pan_range: -1440..1441,
-                        tilt_range: -480..481,
+                        pan_range: range!(i16, -1440, 1440),
+                        tilt_range: range!(i16, -480, 480),
                         max_pan_speed: 18,
                         max_tilt_speed: 18,
                         simultaneous: true,
@@ -2371,7 +2460,7 @@ macro_rules! define_builtin_profiles {
                     zoom: {
                         optical_max: 0x4000,
                         digital_max: None,
-                        speed_range: 0..8,
+                        speed_range: range!(u8, 0, 7),
                         supports_direct: true,
                         supports_variable: true,
                         magnification_to_units: 862.3,
@@ -2388,22 +2477,22 @@ macro_rules! define_builtin_profiles {
                     },
                     exposure: {
                         modes: profile_constants::STANDARD_EXPOSURE_MODES,
-                        iris_range: Some(0x00..0x1C),
+                        iris_range: Some(range!(u16, 0x00, 0x1B)),
                         shutter_speeds: profile_constants::GENERIC_VISCA_SHUTTER_SPEEDS,
-                        gain_range: 0..8,
+                        gain_range: range!(u8, 0, 7),
                         brightness_range: None,
                         backlight_comp: true,
                         exposure_comp: false,
-                        exposure_comp_range: -7..8,
+                        exposure_comp_range: range!(i8, -7, 7),
                         wdr: false,
                     },
                     white_balance: {
                         modes: profile_constants::SONY_COLOR_TEMP_WB_MODES,
                         one_push: true,
-                        rg_tuning_range: Some(-7..8),
-                        bg_tuning_range: Some(-7..8),
+                        rg_tuning_range: Some(range!(i8, -7, 7)),
+                        bg_tuning_range: Some(range!(i8, -7, 7)),
                         color_temp: true,
-                        color_temp_range: Some(2500..8001),
+                        color_temp_range: Some(range!(u16, 2500, 8000)),
                         rgb_gain: false,
                         red_gain_range: None,
                         blue_gain_range: None,
@@ -2425,11 +2514,11 @@ macro_rules! define_builtin_profiles {
                         combined_flip: false,
                         save_after_flip: false,
                         gamma: true,
-                        gamma_range: Some(0..5),
+                        gamma_range: Some(range!(u8, 0, 4)),
                     },
                     presets: {
                         max: 6,
-                        speed_range: 1..20,
+                        speed_range: range!(u8, 1, 19),
                         tour: false,
                         recall_delay_ms: 0,
                         thumbnail: false,
@@ -2492,8 +2581,8 @@ macro_rules! define_builtin_profiles {
                         min_command_spacing_ms: 0,
                     },
                     pan_tilt: {
-                        pan_range: -1170..1171,
-                        tilt_range: -390..391,
+                        pan_range: range!(i16, -1170, 1170),
+                        tilt_range: range!(i16, -390, 390),
                         max_pan_speed: 18,
                         max_tilt_speed: 17,
                         simultaneous: true,
@@ -2505,7 +2594,7 @@ macro_rules! define_builtin_profiles {
                     zoom: {
                         optical_max: 0x1068,
                         digital_max: None,
-                        speed_range: 0..8,
+                        speed_range: range!(u8, 0, 7),
                         supports_direct: true,
                         supports_variable: true,
                         magnification_to_units: 455.1,
@@ -2522,13 +2611,13 @@ macro_rules! define_builtin_profiles {
                     },
                     exposure: {
                         modes: profile_constants::STANDARD_EXPOSURE_MODES,
-                        iris_range: Some(0x00..0x11),
+                        iris_range: Some(range!(u16, 0x00, 0x10)),
                         shutter_speeds: profile_constants::GENERIC_VISCA_SHUTTER_SPEEDS,
-                        gain_range: 0..7,
+                        gain_range: range!(u8, 0, 6),
                         brightness_range: None,
                         backlight_comp: true,
                         exposure_comp: false,
-                        exposure_comp_range: -7..8,
+                        exposure_comp_range: range!(i8, -7, 7),
                         wdr: false,
                     },
                     white_balance: {
@@ -2563,7 +2652,7 @@ macro_rules! define_builtin_profiles {
                     },
                     presets: {
                         max: 16,
-                        speed_range: 1..18,
+                        speed_range: range!(u8, 1, 17),
                         tour: false,
                         recall_delay_ms: 0,
                         thumbnail: false,
@@ -2619,8 +2708,8 @@ macro_rules! define_builtin_profiles {
                         min_command_spacing_ms: 0,
                     },
                     pan_tilt: {
-                        pan_range: -1170..1171,
-                        tilt_range: -390..391,
+                        pan_range: range!(i16, -1170, 1170),
+                        tilt_range: range!(i16, -390, 390),
                         max_pan_speed: 18,
                         max_tilt_speed: 17,
                         simultaneous: true,
@@ -2632,7 +2721,7 @@ macro_rules! define_builtin_profiles {
                     zoom: {
                         optical_max: 0x1068,
                         digital_max: None,
-                        speed_range: 0..8,
+                        speed_range: range!(u8, 0, 7),
                         supports_direct: true,
                         supports_variable: true,
                         magnification_to_units: 455.1,
@@ -2649,13 +2738,13 @@ macro_rules! define_builtin_profiles {
                     },
                     exposure: {
                         modes: profile_constants::STANDARD_EXPOSURE_MODES,
-                        iris_range: Some(0x00..0x11),
+                        iris_range: Some(range!(u16, 0x00, 0x10)),
                         shutter_speeds: profile_constants::GENERIC_VISCA_SHUTTER_SPEEDS,
-                        gain_range: 0..7,
+                        gain_range: range!(u8, 0, 6),
                         brightness_range: None,
                         backlight_comp: true,
                         exposure_comp: false,
-                        exposure_comp_range: -7..8,
+                        exposure_comp_range: range!(i8, -7, 7),
                         wdr: false,
                     },
                     white_balance: {
@@ -2672,7 +2761,7 @@ macro_rules! define_builtin_profiles {
                     image: {
                         contrast_range: None,
                         sharpness_range: None,
-                        saturation_range: Some(0..16),
+                        saturation_range: Some(range!(u8, 0, 15)),
                         flip: false,
                         mirror: false,
                         hue: false,
@@ -2690,7 +2779,7 @@ macro_rules! define_builtin_profiles {
                     },
                     presets: {
                         max: 16,
-                        speed_range: 1..18,
+                        speed_range: range!(u8, 1, 17),
                         tour: false,
                         recall_delay_ms: 0,
                         thumbnail: false,
@@ -2747,8 +2836,8 @@ macro_rules! define_builtin_profiles {
                         min_command_spacing_ms: 0,
                     },
                     pan_tilt: {
-                        pan_range: -2880..2881,
-                        tilt_range: -1440..1441,
+                        pan_range: range!(i16, -2880, 2880),
+                        tilt_range: range!(i16, -1440, 1440),
                         max_pan_speed: 24,
                         max_tilt_speed: 24,
                         simultaneous: true,
@@ -2760,7 +2849,7 @@ macro_rules! define_builtin_profiles {
                     zoom: {
                         optical_max: 0xFFFF,
                         digital_max: None,
-                        speed_range: 0..8,
+                        speed_range: range!(u8, 0, 7),
                         supports_direct: false,
                         supports_variable: true,
                         magnification_to_units: 1000.0,
@@ -2777,13 +2866,13 @@ macro_rules! define_builtin_profiles {
                     },
                     exposure: {
                         modes: profile_constants::STANDARD_EXPOSURE_MODES,
-                        iris_range: Some(0x00..0x1C),
+                        iris_range: Some(range!(u16, 0x00, 0x1B)),
                         shutter_speeds: profile_constants::GENERIC_VISCA_SHUTTER_SPEEDS,
-                        gain_range: 0..8,
+                        gain_range: range!(u8, 0, 7),
                         brightness_range: None,
                         backlight_comp: false,
                         exposure_comp: false,
-                        exposure_comp_range: -7..8,
+                        exposure_comp_range: range!(i8, -7, 7),
                         wdr: false,
                     },
                     white_balance: {
@@ -2818,7 +2907,7 @@ macro_rules! define_builtin_profiles {
                     },
                     presets: {
                         max: 6,
-                        speed_range: 1..24,
+                        speed_range: range!(u8, 1, 23),
                         tour: false,
                         recall_delay_ms: 0,
                         thumbnail: false,

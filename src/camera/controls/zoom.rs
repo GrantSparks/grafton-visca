@@ -185,17 +185,46 @@ pub trait DigitalZoomRangeControl {
     ) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 }
 
-fn zoom_tele_command(speed: Option<ZoomSpeed>) -> ZoomCommand {
-    match speed {
-        None => ZoomCommand::TeleStd,
-        Some(speed) => ZoomCommand::TeleVariable(speed),
+fn validate_zoom_speed<P>(speed: ZoomSpeed) -> Result<(), Error>
+where
+    P: crate::capabilities::zoom::Zoom,
+{
+    if P::ZOOM_SPEED_RANGE.contains(speed.value()) {
+        Ok(())
+    } else {
+        Err(crate::capabilities::ValidationError::OutOfRange {
+            parameter: "zoom speed",
+            value: f64::from(speed.value()),
+            min: f64::from(P::ZOOM_SPEED_RANGE.min()),
+            max: f64::from(P::ZOOM_SPEED_RANGE.max()),
+        }
+        .into())
     }
 }
 
-fn zoom_wide_command(speed: Option<ZoomSpeed>) -> ZoomCommand {
+fn zoom_tele_command<P>(speed: Option<ZoomSpeed>) -> Result<ZoomCommand, Error>
+where
+    P: crate::capabilities::zoom::Zoom,
+{
     match speed {
-        None => ZoomCommand::WideStd,
-        Some(speed) => ZoomCommand::WideVariable(speed),
+        None => Ok(ZoomCommand::TeleStd),
+        Some(speed) => {
+            validate_zoom_speed::<P>(speed)?;
+            Ok(ZoomCommand::TeleVariable(speed))
+        }
+    }
+}
+
+fn zoom_wide_command<P>(speed: Option<ZoomSpeed>) -> Result<ZoomCommand, Error>
+where
+    P: crate::capabilities::zoom::Zoom,
+{
+    match speed {
+        None => Ok(ZoomCommand::WideStd),
+        Some(speed) => {
+            validate_zoom_speed::<P>(speed)?;
+            Ok(ZoomCommand::WideVariable(speed))
+        }
     }
 }
 
@@ -255,11 +284,17 @@ where
     }
 
     fn zoom_tele(&self, speed: Option<ZoomSpeed>) -> M::Fut<'_, Result<(), Error>> {
-        self.execute(zoom_tele_command(speed))
+        match zoom_tele_command::<P>(speed) {
+            Ok(command) => self.execute(command),
+            Err(err) => self.error(err),
+        }
     }
 
     fn zoom_wide(&self, speed: Option<ZoomSpeed>) -> M::Fut<'_, Result<(), Error>> {
-        self.execute(zoom_wide_command(speed))
+        match zoom_wide_command::<P>(speed) {
+            Ok(command) => self.execute(command),
+            Err(err) => self.error(err),
+        }
     }
 }
 
@@ -360,7 +395,8 @@ where
         &self,
         speed: Option<ZoomSpeed>,
     ) -> Result<crate::camera::InFlight<'_, crate::camera::ZoomOperation, P, Exec>, Error> {
-        self.start_zoom_operation(zoom_tele_command(speed)).await
+        self.start_zoom_operation(zoom_tele_command::<P>(speed)?)
+            .await
     }
 
     /// Start zooming out and return an operation handle.
@@ -369,7 +405,8 @@ where
         &self,
         speed: Option<ZoomSpeed>,
     ) -> Result<crate::camera::InFlight<'_, crate::camera::ZoomOperation, P, Exec>, Error> {
-        self.start_zoom_operation(zoom_wide_command(speed)).await
+        self.start_zoom_operation(zoom_wide_command::<P>(speed)?)
+            .await
     }
 }
 

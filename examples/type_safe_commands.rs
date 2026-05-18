@@ -55,13 +55,13 @@ where
     println!("  Inquiry support: {:?}", P::INQUIRY_SUPPORT);
     println!(
         "  Pan range: {}..{} VISCA units",
-        P::PAN_RANGE.start,
-        P::PAN_RANGE.end - 1
+        P::PAN_RANGE.min(),
+        P::PAN_RANGE.max()
     );
     println!(
         "  Tilt range: {}..{} VISCA units",
-        P::TILT_RANGE.start,
-        P::TILT_RANGE.end - 1
+        P::TILT_RANGE.min(),
+        P::TILT_RANGE.max()
     );
     println!("  Optical zoom max: 0x{:04X}", P::OPTICAL_ZOOM_MAX);
     println!("  Digital zoom max: {:?}", P::DIGITAL_ZOOM_MAX);

@@ -1,8 +1,8 @@
 //! Pan/Tilt capability trait and associated types.
 
-use std::{ops::Range, time::Duration};
+use std::time::Duration;
 
-use crate::capabilities::{CoordinateSystem, ValidationError};
+use crate::capabilities::{CapabilityRange, CoordinateSystem, ValidationError};
 
 /// Trait for cameras that support pan and tilt movement.
 ///
@@ -11,11 +11,11 @@ use crate::capabilities::{CoordinateSystem, ValidationError};
 pub trait PanTilt {
     /// Valid range for pan position in VISCA units.
     /// Typically maps to degrees based on camera model.
-    const PAN_RANGE: Range<i16>;
+    const PAN_RANGE: CapabilityRange<i16>;
 
     /// Valid range for tilt position in VISCA units.
     /// Typically maps to degrees based on camera model.
-    const TILT_RANGE: Range<i16>;
+    const TILT_RANGE: CapabilityRange<i16>;
 
     /// Maximum pan speed (0x01-0x18 for most cameras).
     const MAX_PAN_SPEED: u8;
@@ -48,28 +48,28 @@ pub trait PanTilt {
 pub trait PanTiltExt: PanTilt {
     /// Validate a pan position is within range.
     fn validate_pan(&self, pan: i16) -> Result<i16, ValidationError> {
-        if Self::PAN_RANGE.contains(&pan) {
+        if Self::PAN_RANGE.contains(pan) {
             Ok(pan)
         } else {
             Err(ValidationError::OutOfRange {
                 parameter: "pan",
                 value: pan as f64,
-                min: Self::PAN_RANGE.start as f64,
-                max: (Self::PAN_RANGE.end - 1) as f64,
+                min: Self::PAN_RANGE.min() as f64,
+                max: Self::PAN_RANGE.max() as f64,
             })
         }
     }
 
     /// Validate a tilt position is within range.
     fn validate_tilt(&self, tilt: i16) -> Result<i16, ValidationError> {
-        if Self::TILT_RANGE.contains(&tilt) {
+        if Self::TILT_RANGE.contains(tilt) {
             Ok(tilt)
         } else {
             Err(ValidationError::OutOfRange {
                 parameter: "tilt",
                 value: tilt as f64,
-                min: Self::TILT_RANGE.start as f64,
-                max: (Self::TILT_RANGE.end - 1) as f64,
+                min: Self::TILT_RANGE.min() as f64,
+                max: Self::TILT_RANGE.max() as f64,
             })
         }
     }
@@ -115,8 +115,8 @@ mod tests {
     struct TestCamera;
 
     impl PanTilt for TestCamera {
-        const PAN_RANGE: Range<i16> = -170..171;
-        const TILT_RANGE: Range<i16> = -30..91;
+        const PAN_RANGE: CapabilityRange<i16> = CapabilityRange::<i16>::new(-170, 170);
+        const TILT_RANGE: CapabilityRange<i16> = CapabilityRange::<i16>::new(-30, 90);
         const MAX_PAN_SPEED: u8 = 24;
         const MAX_TILT_SPEED: u8 = 24;
         const PAN_DEGREES_TO_UNITS: f32 = 100.0;

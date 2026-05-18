@@ -14,7 +14,7 @@
 //! The implementation uses the Mode trait to provide both blocking and async APIs
 //! from a single unified codebase.
 
-use crate::{camera::ViscaClient, mode::Mode, Error};
+use crate::{camera::ViscaClient, capabilities::exposure::ExposureExt, mode::Mode, Error};
 
 fn exposure_mode_feature(mode: crate::command::exposure::ExposureMode) -> &'static str {
     match mode {
@@ -384,6 +384,10 @@ where
     }
 
     fn set_gain(&self, gain: crate::types::GainLevel) -> M::Fut<'_, Result<(), Error>> {
+        if let Err(err) = P::default().validate_gain(gain.value()) {
+            return self.error(err.into());
+        }
+
         let cmd = crate::command::gain::Gain::SetValue(gain);
         self.execute(cmd)
     }
@@ -483,6 +487,10 @@ where
         &self,
         level: crate::types::BrightnessLevel,
     ) -> M::Fut<'_, Result<(), Error>> {
+        if let Err(err) = P::default().validate_brightness(level.value()) {
+            return self.error(err.into());
+        }
+
         let cmd = crate::command::exposure::Brightness::SetLevel(level);
         self.execute(cmd)
     }
@@ -506,6 +514,10 @@ where
         &self,
         level: crate::types::BrightnessLevel,
     ) -> M::Fut<'_, Result<(), Error>> {
+        if let Err(err) = P::default().validate_brightness(level.value()) {
+            return self.error(err.into());
+        }
+
         let cmd = crate::command::exposure::Brightness::Direct(level);
         self.execute(cmd)
     }
@@ -531,6 +543,10 @@ where
     }
 
     fn set_iris(&self, level: crate::types::IrisLevel) -> M::Fut<'_, Result<(), Error>> {
+        if let Err(err) = P::default().validate_iris(u16::from(level.value())) {
+            return self.error(err.into());
+        }
+
         let cmd = crate::command::exposure::Iris::SetAperture(level);
         self.execute(cmd)
     }
@@ -696,6 +712,10 @@ where
     }
 
     fn set_exposure_compensation_level(&self, level: i8) -> M::Fut<'_, Result<(), Error>> {
+        if let Err(err) = P::default().validate_exposure_comp(level) {
+            return self.error(err.into());
+        }
+
         match crate::types::ExposureCompensationLevel::try_from(level) {
             Ok(comp_level) => {
                 let cmd = crate::command::exposure::ExposureCompensation::SetLevel(comp_level);

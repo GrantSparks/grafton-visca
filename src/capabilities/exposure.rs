@@ -1,8 +1,11 @@
 //! Exposure capability trait and associated types.
 
-use std::{borrow::Cow, ops::Range};
+use std::borrow::Cow;
 
-use crate::{capabilities::ValidationError, command::exposure::ExposureMode};
+use crate::{
+    capabilities::{CapabilityRange, ValidationError},
+    command::exposure::ExposureMode,
+};
 
 /// Trait for cameras that support exposure control.
 ///
@@ -19,20 +22,20 @@ pub trait Exposure {
     ];
 
     /// Valid range for iris values in VISCA units, if iris control is supported.
-    const IRIS_RANGE: Option<Range<u16>>;
+    const IRIS_RANGE: Option<CapabilityRange<u16>>;
 
     /// Supported shutter speeds as VISCA values.
     /// Each camera model has specific supported speeds.
     const SHUTTER_SPEEDS: &'static [ShutterSpeed];
 
     /// Valid range for gain values.
-    const GAIN_RANGE: Range<u8>;
+    const GAIN_RANGE: CapabilityRange<u8>;
 
     /// Valid range for VISCA exposure bright/bright-direct values, if supported.
     ///
     /// This is the exposure bright control (`0x04 0x0D` / `0x04 0x4D`), not
     /// image luminance (`0x04 0xA1`).
-    const BRIGHTNESS_RANGE: Option<Range<u16>> = None;
+    const BRIGHTNESS_RANGE: Option<CapabilityRange<u16>> = None;
 
     /// Whether camera supports backlight compensation.
     const SUPPORTS_BACKLIGHT_COMP: bool;
@@ -42,7 +45,7 @@ pub trait Exposure {
 
     /// Range for exposure compensation if supported.
     /// Typically -7 to +7 in steps.
-    const EXPOSURE_COMP_RANGE: Range<i8> = -7..8;
+    const EXPOSURE_COMP_RANGE: CapabilityRange<i8> = CapabilityRange::<i8>::new(-7, 7);
 
     /// Whether camera supports wide dynamic range.
     const SUPPORTS_WDR: bool = false;
@@ -66,28 +69,28 @@ pub trait ExposureExt: Exposure {
             .as_ref()
             .ok_or(ValidationError::NotSupported("Iris control"))?;
 
-        if range.contains(&iris) {
+        if range.contains(iris) {
             Ok(iris)
         } else {
             Err(ValidationError::OutOfRange {
                 parameter: "iris",
                 value: iris as f64,
-                min: range.start as f64,
-                max: (range.end - 1) as f64,
+                min: range.min() as f64,
+                max: range.max() as f64,
             })
         }
     }
 
     /// Validate gain value is within range.
     fn validate_gain(&self, gain: u8) -> Result<u8, ValidationError> {
-        if Self::GAIN_RANGE.contains(&gain) {
+        if Self::GAIN_RANGE.contains(gain) {
             Ok(gain)
         } else {
             Err(ValidationError::OutOfRange {
                 parameter: "gain",
                 value: gain as f64,
-                min: Self::GAIN_RANGE.start as f64,
-                max: (Self::GAIN_RANGE.end - 1) as f64,
+                min: Self::GAIN_RANGE.min() as f64,
+                max: Self::GAIN_RANGE.max() as f64,
             })
         }
     }
@@ -98,14 +101,14 @@ pub trait ExposureExt: Exposure {
             .as_ref()
             .ok_or(ValidationError::NotSupported("exposure brightness"))?;
 
-        if range.contains(&brightness) {
+        if range.contains(brightness) {
             Ok(brightness)
         } else {
             Err(ValidationError::OutOfRange {
                 parameter: "exposure brightness",
                 value: brightness as f64,
-                min: range.start as f64,
-                max: (range.end - 1) as f64,
+                min: range.min() as f64,
+                max: range.max() as f64,
             })
         }
     }
@@ -135,14 +138,14 @@ pub trait ExposureExt: Exposure {
     /// The compile-time check is enforced by requiring HasExposureCompensation marker trait
     /// on the methods that use exposure compensation.
     fn validate_exposure_comp(&self, value: i8) -> Result<i8, ValidationError> {
-        if Self::EXPOSURE_COMP_RANGE.contains(&value) {
+        if Self::EXPOSURE_COMP_RANGE.contains(value) {
             Ok(value)
         } else {
             Err(ValidationError::OutOfRange {
                 parameter: "exposure compensation",
                 value: value as f64,
-                min: Self::EXPOSURE_COMP_RANGE.start as f64,
-                max: (Self::EXPOSURE_COMP_RANGE.end - 1) as f64,
+                min: Self::EXPOSURE_COMP_RANGE.min() as f64,
+                max: Self::EXPOSURE_COMP_RANGE.max() as f64,
             })
         }
     }
@@ -156,12 +159,12 @@ pub trait ExposureExt: Exposure {
         // This is camera-specific and would need proper calibration
         // This is a simplified example
         let iris = match fstop {
-            f if f <= 1.8 => range.end - 1,
-            f if f >= 11.0 => range.start,
+            f if f <= 1.8 => range.max(),
+            f if f >= 11.0 => range.min(),
             f => {
-                let width = range.end - range.start;
+                let width = range.max() - range.min();
                 let normalized = 1.0 - ((f - 1.8) / (11.0 - 1.8));
-                range.start + (normalized * width as f32) as u16
+                range.min() + (normalized * width as f32) as u16
             }
         };
 
@@ -208,10 +211,12 @@ mod tests {
     struct TestCamera;
 
     impl Exposure for TestCamera {
-        const IRIS_RANGE: Option<Range<u16>> = Some(0x00..0x1D);
+        const IRIS_RANGE: Option<CapabilityRange<u16>> =
+            Some(CapabilityRange::<u16>::new(0x00, 0x1C));
         const SHUTTER_SPEEDS: &'static [ShutterSpeed] = TEST_SHUTTER_SPEEDS;
-        const GAIN_RANGE: Range<u8> = 0..16;
-        const BRIGHTNESS_RANGE: Option<Range<u16>> = Some(0..18);
+        const GAIN_RANGE: CapabilityRange<u8> = CapabilityRange::<u8>::new(0, 15);
+        const BRIGHTNESS_RANGE: Option<CapabilityRange<u16>> =
+            Some(CapabilityRange::<u16>::new(0, 17));
         const SUPPORTS_BACKLIGHT_COMP: bool = true;
         const SUPPORTS_EXPOSURE_COMP: bool = true;
     }
@@ -220,10 +225,10 @@ mod tests {
 
     impl Exposure for NoIrisCamera {
         const EXPOSURE_MODES: &'static [ExposureMode] = &[ExposureMode::Auto, ExposureMode::Manual];
-        const IRIS_RANGE: Option<Range<u16>> = None;
+        const IRIS_RANGE: Option<CapabilityRange<u16>> = None;
         const SHUTTER_SPEEDS: &'static [ShutterSpeed] = TEST_SHUTTER_SPEEDS;
-        const GAIN_RANGE: Range<u8> = 0..16;
-        const BRIGHTNESS_RANGE: Option<Range<u16>> = None;
+        const GAIN_RANGE: CapabilityRange<u8> = CapabilityRange::<u8>::new(0, 15);
+        const BRIGHTNESS_RANGE: Option<CapabilityRange<u16>> = None;
         const SUPPORTS_BACKLIGHT_COMP: bool = true;
     }
 

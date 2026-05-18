@@ -1,8 +1,8 @@
 //! Zoom capability trait and associated types.
 
-use std::{borrow::Cow, ops::Range};
+use std::borrow::Cow;
 
-use crate::capabilities::ValidationError;
+use crate::capabilities::{CapabilityRange, ValidationError};
 
 /// Trait for cameras that support zoom operations.
 ///
@@ -19,7 +19,7 @@ pub trait Zoom {
 
     /// Valid range for variable zoom speed.
     /// Usually 0-7 where 0 is slowest, 7 is fastest.
-    const ZOOM_SPEED_RANGE: Range<u8>;
+    const ZOOM_SPEED_RANGE: CapabilityRange<u8>;
 
     /// Whether camera supports direct zoom positioning.
     /// If false, zoom must be achieved through zoom in/out commands.
@@ -53,7 +53,7 @@ pub trait ZoomExt: Zoom {
 
     /// Validate and clamp zoom speed to valid range.
     fn validate_zoom_speed(&self, speed: u8) -> u8 {
-        speed.clamp(Self::ZOOM_SPEED_RANGE.start, Self::ZOOM_SPEED_RANGE.end - 1)
+        Self::ZOOM_SPEED_RANGE.clamp(speed)
     }
 
     /// Check if position is in digital zoom range.
@@ -100,7 +100,7 @@ mod tests {
     impl Zoom for TestCamera {
         const OPTICAL_ZOOM_MAX: u16 = 0x4000;
         const DIGITAL_ZOOM_MAX: Option<u16> = Some(0x7000);
-        const ZOOM_SPEED_RANGE: Range<u8> = 0..8;
+        const ZOOM_SPEED_RANGE: CapabilityRange<u8> = CapabilityRange::<u8>::new(0, 7);
         const ZOOM_MAGNIFICATION_TO_UNITS: f32 = 862.3; // (0x4000 - 1) / 19 for 20x zoom
     }
 
