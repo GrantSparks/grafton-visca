@@ -1,8 +1,8 @@
 //! Preset capability trait and associated types.
 
-use std::{ops::Range, time::Duration};
+use std::time::Duration;
 
-use crate::capabilities::ValidationError;
+use crate::capabilities::{CapabilityRange, ValidationError};
 
 /// Trait for cameras that support preset positions.
 ///
@@ -13,7 +13,7 @@ pub trait Presets {
     const MAX_PRESETS: u8;
 
     /// Valid range for preset movement speed.
-    const PRESET_SPEED_RANGE: Range<u8>;
+    const PRESET_SPEED_RANGE: CapabilityRange<u8>;
 
     /// Whether camera supports preset tour functionality.
     const SUPPORTS_PRESET_TOUR: bool;
@@ -51,14 +51,14 @@ pub trait PresetsExt: Presets {
 
     /// Validate preset recall speed.
     fn validate_preset_speed(&self, speed: u8) -> Result<u8, ValidationError> {
-        if Self::PRESET_SPEED_RANGE.contains(&speed) {
+        if Self::PRESET_SPEED_RANGE.contains(speed) {
             Ok(speed)
         } else {
             Err(ValidationError::OutOfRange {
                 parameter: "preset speed",
                 value: speed as f64,
-                min: Self::PRESET_SPEED_RANGE.start as f64,
-                max: (Self::PRESET_SPEED_RANGE.end - 1) as f64,
+                min: Self::PRESET_SPEED_RANGE.min() as f64,
+                max: Self::PRESET_SPEED_RANGE.max() as f64,
             })
         }
     }
@@ -133,7 +133,7 @@ mod tests {
 
     impl Presets for TestCamera {
         const MAX_PRESETS: u8 = 89;
-        const PRESET_SPEED_RANGE: Range<u8> = 1..25;
+        const PRESET_SPEED_RANGE: CapabilityRange<u8> = CapabilityRange::<u8>::new(1, 24);
         const SUPPORTS_PRESET_TOUR: bool = true;
         const PRESET_RECALL_DELAY: Duration = Duration::from_millis(100);
     }

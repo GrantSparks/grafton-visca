@@ -16,7 +16,7 @@
 
 use crate::{
     camera::ViscaClient,
-    capabilities::ImageProcessing as ImageProcessingCap,
+    capabilities::{image_processing::ImageProcessingExt, ImageProcessing as ImageProcessingCap},
     command::{ImageFlipMode, PictureEffectMode},
     mode::Mode,
     types::{
@@ -372,6 +372,10 @@ where
     type Mode = M;
 
     fn set_contrast(&self, level: ContrastLevel) -> M::Fut<'_, Result<(), Error>> {
+        if let Err(err) = P::default().validate_contrast(level.value()) {
+            return self.error(err.into());
+        }
+
         let cmd = crate::command::image::Contrast::new(level);
         self.execute(cmd)
     }
@@ -390,6 +394,10 @@ where
     type Mode = M;
 
     fn set_sharpness(&self, level: SharpnessLevel) -> M::Fut<'_, Result<(), Error>> {
+        if let Err(err) = P::default().validate_sharpness(level.value()) {
+            return self.error(err.into());
+        }
+
         let cmd = crate::command::image::Sharpness::SetLevel {
             value: level.value(),
         };
@@ -451,6 +459,10 @@ where
     type Mode = M;
 
     fn set_saturation(&self, level: SaturationLevel) -> M::Fut<'_, Result<(), Error>> {
+        if let Err(err) = P::default().validate_saturation(level.value()) {
+            return self.error(err.into());
+        }
+
         let cmd = crate::command::color::SaturationCommand::new(level);
         self.execute(cmd)
     }
@@ -469,6 +481,10 @@ where
     type Mode = M;
 
     fn set_hue(&self, level: HueLevel) -> M::Fut<'_, Result<(), Error>> {
+        if let Err(err) = P::default().validate_hue(level.value()) {
+            return self.error(err.into());
+        }
+
         let cmd = crate::command::color::HueCommand::new(level);
         self.execute(cmd)
     }
@@ -487,6 +503,10 @@ where
     type Mode = M;
 
     fn set_luminance(&self, level: LuminanceLevel) -> M::Fut<'_, Result<(), Error>> {
+        if let Err(err) = P::default().validate_luminance(level.value()) {
+            return self.error(err.into());
+        }
+
         let cmd = crate::command::image::Luminance::new(level);
         self.execute(cmd)
     }
@@ -505,6 +525,10 @@ where
     type Mode = M;
 
     fn set_gamma(&self, level: GammaLevel) -> M::Fut<'_, Result<(), Error>> {
+        if let Err(err) = P::default().validate_gamma(level.value()) {
+            return self.error(err.into());
+        }
+
         let cmd = crate::command::image::GammaCommand::new(level);
         self.execute(cmd)
     }

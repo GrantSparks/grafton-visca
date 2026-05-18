@@ -1,8 +1,6 @@
 //! Image processing capability trait and associated types.
 
-use std::ops::Range;
-
-use crate::capabilities::ValidationError;
+use crate::capabilities::{CapabilityRange, ValidationError};
 
 /// Trait for cameras that report image-processing metadata.
 ///
@@ -11,14 +9,14 @@ use crate::capabilities::ValidationError;
 /// `None` for unsupported profile surfaces; supported ranges must be non-empty.
 pub trait ImageProcessing {
     /// Valid range for contrast adjustment, if supported.
-    const CONTRAST_RANGE: Option<Range<u8>>;
+    const CONTRAST_RANGE: Option<CapabilityRange<u8>>;
 
     /// Valid range for sharpness adjustment, if supported.
-    const SHARPNESS_RANGE: Option<Range<u8>>;
+    const SHARPNESS_RANGE: Option<CapabilityRange<u8>>;
 
     /// Valid range for saturation adjustment.
     /// None if not supported.
-    const SATURATION_RANGE: Option<Range<u8>>;
+    const SATURATION_RANGE: Option<CapabilityRange<u8>>;
 
     /// Whether camera supports image flip (vertical).
     const SUPPORTS_FLIP: bool;
@@ -30,7 +28,7 @@ pub trait ImageProcessing {
     const SUPPORTS_HUE: bool = false;
 
     /// Hue adjustment range if supported.
-    const HUE_RANGE: Option<Range<u8>> = None;
+    const HUE_RANGE: Option<CapabilityRange<u8>> = None;
 
     /// Whether camera supports noise reduction.
     const SUPPORTS_NOISE_REDUCTION: bool = false;
@@ -48,7 +46,7 @@ pub trait ImageProcessing {
     const SUPPORTS_PICTURE_EFFECT: bool = false;
 
     /// Luminance range if supported.
-    const LUMINANCE_RANGE: Option<Range<u8>> = None;
+    const LUMINANCE_RANGE: Option<CapabilityRange<u8>> = None;
 
     /// Whether camera uses the combined flip command (0xA4) instead of legacy commands (0x61/0x66).
     ///
@@ -69,7 +67,7 @@ pub trait ImageProcessing {
     const SUPPORTS_GAMMA: bool = false;
 
     /// Valid range for gamma curve selection, if supported.
-    const GAMMA_RANGE: Option<Range<u8>> = None;
+    const GAMMA_RANGE: Option<CapabilityRange<u8>> = None;
 }
 
 /// Extension trait that adds validation methods to cameras with image processing support.
@@ -77,12 +75,12 @@ pub trait ImageProcessingExt: ImageProcessing {
     /// Validate contrast value.
     fn validate_contrast(&self, value: u8) -> Result<u8, ValidationError> {
         match Self::CONTRAST_RANGE {
-            Some(ref range) if range.contains(&value) => Ok(value),
+            Some(range) if range.contains(value) => Ok(value),
             Some(ref range) => Err(ValidationError::OutOfRange {
                 parameter: "contrast",
                 value: value as f64,
-                min: range.start as f64,
-                max: (range.end - 1) as f64,
+                min: range.min() as f64,
+                max: range.max() as f64,
             }),
             None => Err(ValidationError::NotSupported("contrast")),
         }
@@ -91,12 +89,12 @@ pub trait ImageProcessingExt: ImageProcessing {
     /// Validate sharpness value.
     fn validate_sharpness(&self, value: u8) -> Result<u8, ValidationError> {
         match Self::SHARPNESS_RANGE {
-            Some(ref range) if range.contains(&value) => Ok(value),
+            Some(range) if range.contains(value) => Ok(value),
             Some(ref range) => Err(ValidationError::OutOfRange {
                 parameter: "sharpness",
                 value: value as f64,
-                min: range.start as f64,
-                max: (range.end - 1) as f64,
+                min: range.min() as f64,
+                max: range.max() as f64,
             }),
             None => Err(ValidationError::NotSupported("sharpness")),
         }
@@ -105,12 +103,12 @@ pub trait ImageProcessingExt: ImageProcessing {
     /// Validate saturation value.
     fn validate_saturation(&self, value: u8) -> Result<u8, ValidationError> {
         match Self::SATURATION_RANGE {
-            Some(ref range) if range.contains(&value) => Ok(value),
+            Some(range) if range.contains(value) => Ok(value),
             Some(ref range) => Err(ValidationError::OutOfRange {
                 parameter: "saturation",
                 value: value as f64,
-                min: range.start as f64,
-                max: (range.end - 1) as f64,
+                min: range.min() as f64,
+                max: range.max() as f64,
             }),
             None => Err(ValidationError::NotSupported("saturation")),
         }
@@ -121,12 +119,12 @@ pub trait ImageProcessingExt: ImageProcessing {
     /// Returns `NotSupported` error if `HUE_RANGE` is `None`.
     fn validate_hue(&self, value: u8) -> Result<u8, ValidationError> {
         match Self::HUE_RANGE {
-            Some(ref range) if range.contains(&value) => Ok(value),
+            Some(range) if range.contains(value) => Ok(value),
             Some(ref range) => Err(ValidationError::OutOfRange {
                 parameter: "hue",
                 value: value as f64,
-                min: range.start as f64,
-                max: (range.end - 1) as f64,
+                min: range.min() as f64,
+                max: range.max() as f64,
             }),
             None => Err(ValidationError::NotSupported("hue")),
         }
@@ -137,12 +135,12 @@ pub trait ImageProcessingExt: ImageProcessing {
     /// Returns `NotSupported` error if `LUMINANCE_RANGE` is `None`.
     fn validate_luminance(&self, value: u8) -> Result<u8, ValidationError> {
         match Self::LUMINANCE_RANGE {
-            Some(ref range) if range.contains(&value) => Ok(value),
+            Some(range) if range.contains(value) => Ok(value),
             Some(ref range) => Err(ValidationError::OutOfRange {
                 parameter: "luminance",
                 value: value as f64,
-                min: range.start as f64,
-                max: (range.end - 1) as f64,
+                min: range.min() as f64,
+                max: range.max() as f64,
             }),
             None => Err(ValidationError::NotSupported("luminance")),
         }
@@ -153,12 +151,12 @@ pub trait ImageProcessingExt: ImageProcessing {
     /// Note: This method should only be called on profiles that support gamma.
     fn validate_gamma(&self, value: u8) -> Result<u8, ValidationError> {
         match Self::GAMMA_RANGE {
-            Some(ref range) if range.contains(&value) => Ok(value),
+            Some(range) if range.contains(value) => Ok(value),
             Some(ref range) => Err(ValidationError::OutOfRange {
                 parameter: "gamma",
                 value: value as f64,
-                min: range.start as f64,
-                max: (range.end - 1) as f64,
+                min: range.min() as f64,
+                max: range.max() as f64,
             }),
             None => Err(ValidationError::NotSupported("gamma")),
         }
@@ -198,13 +196,15 @@ mod tests {
     struct TestCamera;
 
     impl ImageProcessing for TestCamera {
-        const CONTRAST_RANGE: Option<Range<u8>> = Some(0..16);
-        const SHARPNESS_RANGE: Option<Range<u8>> = Some(0..16);
-        const SATURATION_RANGE: Option<Range<u8>> = Some(0..16);
+        const CONTRAST_RANGE: Option<CapabilityRange<u8>> = Some(CapabilityRange::<u8>::new(0, 15));
+        const SHARPNESS_RANGE: Option<CapabilityRange<u8>> =
+            Some(CapabilityRange::<u8>::new(0, 15));
+        const SATURATION_RANGE: Option<CapabilityRange<u8>> =
+            Some(CapabilityRange::<u8>::new(0, 15));
         const SUPPORTS_FLIP: bool = true;
         const SUPPORTS_MIRROR: bool = true;
         const SUPPORTS_HUE: bool = true;
-        const HUE_RANGE: Option<Range<u8>> = Some(0..15);
+        const HUE_RANGE: Option<CapabilityRange<u8>> = Some(CapabilityRange::<u8>::new(0, 14));
     }
 
     #[test]

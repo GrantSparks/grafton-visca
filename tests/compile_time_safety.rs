@@ -26,8 +26,8 @@ fn test_profile_constants() {
     assert_eq!(SonyFR7::MODEL_NAME, "Sony FR7");
     assert_eq!(GenericVisca::MODEL_NAME, "Generic VISCA Camera");
 
-    assert_eq!(PtzOpticsG2::ZOOM_SPEED_RANGE, 0..8);
-    assert_eq!(SonyFR7::ZOOM_SPEED_RANGE, 0..8);
+    assert_eq!(PtzOpticsG2::ZOOM_SPEED_RANGE.as_inclusive(), 0..=7);
+    assert_eq!(SonyFR7::ZOOM_SPEED_RANGE.as_inclusive(), 0..=7);
 
     assert_eq!(PtzOpticsG2::MAX_PAN_SPEED, 24);
     assert_eq!(SonyFR7::MAX_PAN_SPEED, 24);

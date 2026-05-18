@@ -22,7 +22,7 @@
 
 use crate::{
     camera::ViscaClient,
-    capabilities::presets::Presets,
+    capabilities::presets::{Presets, PresetsExt},
     command::preset::{PresetAction, PresetCommand, PresetNumber},
     mode::Mode,
     Error,
@@ -201,6 +201,10 @@ where
         &self,
         speed: crate::command::preset::PresetRecallSpeed,
     ) -> M::Fut<'_, Result<(), Error>> {
+        if let Err(err) = P::default().validate_preset_speed(speed.value()) {
+            return self.error(err.into());
+        }
+
         let cmd = crate::command::preset::PresetRecallSpeedCommand { speed };
         self.execute(cmd)
     }

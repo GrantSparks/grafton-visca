@@ -17,6 +17,7 @@
 
 use crate::{
     camera::ViscaClient,
+    capabilities::white_balance::WhiteBalanceExt,
     command::color::{
         BlueGain, BlueTuningCommand, ColorTemperature, OnePushTriggerCommand, RedGain,
         RedTuningCommand,
@@ -195,6 +196,10 @@ where
     }
 
     fn set_color_temperature(&self, temp: ColorTemp) -> M::Fut<'_, Result<(), Error>> {
+        if let Err(err) = P::default().validate_color_temp(temp.to_kelvin()) {
+            return self.error(err.into());
+        }
+
         self.execute(ColorTemperature::SetTemperature(temp))
     }
 
@@ -221,6 +226,10 @@ where
     type Mode = M;
 
     fn set_red_gain(&self, gain: RedChannel) -> M::Fut<'_, Result<(), Error>> {
+        if let Err(err) = P::default().validate_red_gain(gain.value()) {
+            return self.error(err.into());
+        }
+
         self.execute(RedGain::SetValue(gain))
     }
 
@@ -229,6 +238,10 @@ where
     }
 
     fn set_blue_gain(&self, gain: BlueChannel) -> M::Fut<'_, Result<(), Error>> {
+        if let Err(err) = P::default().validate_blue_gain(gain.value()) {
+            return self.error(err.into());
+        }
+
         self.execute(BlueGain::SetValue(gain))
     }
 
@@ -247,10 +260,18 @@ where
     type Mode = M;
 
     fn set_red_tuning(&self, tuning: RedTuning) -> M::Fut<'_, Result<(), Error>> {
+        if let Err(err) = P::default().validate_rg_tuning(tuning.value()) {
+            return self.error(err.into());
+        }
+
         self.execute(RedTuningCommand::new(tuning))
     }
 
     fn set_blue_tuning(&self, tuning: BlueTuning) -> M::Fut<'_, Result<(), Error>> {
+        if let Err(err) = P::default().validate_bg_tuning(tuning.value()) {
+            return self.error(err.into());
+        }
+
         self.execute(BlueTuningCommand::new(tuning))
     }
 }
