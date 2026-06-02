@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Classified syntax errors on inquiry responses as transient camera responses and logged them at warning level, while preserving error-level logging for command-side syntax errors.
+
 ## [0.13.0] - 2026-05-18
 
 ### Breaking Changes
