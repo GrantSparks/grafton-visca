@@ -7,6 +7,9 @@
 
 A pure Rust library for controlling PTZ cameras via the VISCA protocol. Supports blocking and async APIs with built-in runtime adapters (Tokio and smol), TCP/UDP/serial transports, and type-safe camera profiles.
 
+> **Read the 1.0 release announcement**
+> Learn how `grafton-visca` brings camera-first APIs, profile-gated controls, and runtime-agnostic PTZ camera control to Rust: [grafton-visca 1.0: Type-safe control of PTZ cameras in Rust](https://blog.grafton.ai/grafton-visca-1-0-type-safe-control-of-ptz-cameras-in-rust-d027e6f9802f)
+
 ---
 
 ## 1.0 Support Matrix
@@ -219,27 +222,27 @@ For smol, enable `runtime-smol` and use `SmolRuntime`.
 
 ```toml
 [dependencies]
-grafton-visca = "0.13"
+grafton-visca = "1"
 ```
 
 ### Common configurations
 
 ```toml
 # Runtime-agnostic async (bring your own executor)
-grafton-visca = { version = "0.13", features = ["mode-async"] }
+grafton-visca = { version = "1", features = ["mode-async"] }
 
 # Async with Tokio
-grafton-visca = { version = "0.13", features = ["runtime-tokio"] }
+grafton-visca = { version = "1", features = ["runtime-tokio"] }
 tokio = { version = "1", features = ["full"] }
 
 # With serialization
-grafton-visca = { version = "0.13", features = ["serde"] }
+grafton-visca = { version = "1", features = ["serde"] }
 
 # Serial transport (blocking)
-grafton-visca = { version = "0.13", features = ["transport-serial"] }
+grafton-visca = { version = "1", features = ["transport-serial"] }
 
 # Serial transport (Tokio)
-grafton-visca = { version = "0.13", features = ["runtime-tokio", "transport-serial-tokio"] }
+grafton-visca = { version = "1", features = ["runtime-tokio", "transport-serial-tokio"] }
 ```
 
 ### Configuring Standard Transport Behavior

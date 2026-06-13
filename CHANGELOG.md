@@ -7,8 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-06-13
+
+### Changed
+- Refocused the README, crate root documentation, and examples index around the
+  stable camera-first 1.0 adoption path, with exhaustive support and protocol
+  details routed to dedicated reference docs.
+- Clarified that author hardware validation for the 1.0 built-in profiles is
+  limited to PTZOptics brand cameras; other built-in profiles are source-backed
+  and should be validated against target hardware and firmware.
+- Expanded the release documentation checklist to include rustdoc and doctest
+  verification across default and common optional feature sets.
+
 ### Fixed
-- Classified syntax errors on inquiry responses as transient camera responses and logged them at warning level, while preserving error-level logging for command-side syntax errors.
+- Classified syntax errors on inquiry responses as transient camera responses
+  and logged them at warning level, while preserving error-level logging for
+  command-side syntax errors.
 
 ## [0.13.0] - 2026-05-18
 

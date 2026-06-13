@@ -227,8 +227,8 @@ This crate follows the same versioning as the main `grafton-visca` crate. Always
 
 ```toml
 [dependencies]
-grafton-visca = "0.12"
-grafton-visca-macros = "0.12"
+grafton-visca = "1"
+grafton-visca-macros = "1"
 ```
 
 ## License
