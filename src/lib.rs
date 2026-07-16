@@ -70,7 +70,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! grafton-visca = { version = "*", features = ["serde", "schemars"] }
+//! grafton-visca = { version = "1", features = ["serde", "schemars"] }
 //! ```
 //!
 //! With these features enabled, you can serialize/deserialize all value types directly:
@@ -239,7 +239,7 @@
 //! ```ignore
 //! // Multiple runtime features can coexist, but runtime selection is explicit.
 //! [dependencies]
-//! grafton-visca = { version = "*", features = ["runtime-tokio", "runtime-smol"] }
+//! grafton-visca = { version = "1", features = ["runtime-tokio", "runtime-smol"] }
 //!
 //! use grafton_visca::{
 //!     Error,
@@ -411,11 +411,11 @@
 //! ```toml
 //! [dependencies]
 //! # Single runtime:
-//! grafton-visca = { version = "*", features = ["runtime-tokio"] }
-//! grafton-visca = { version = "*", features = ["runtime-smol"] }
+//! grafton-visca = { version = "1", features = ["runtime-tokio"] }
+//! grafton-visca = { version = "1", features = ["runtime-smol"] }
 //!
 //! # Multiple runtimes (choose executor at construction time):
-//! grafton-visca = { version = "*", features = ["runtime-tokio", "runtime-smol"] }
+//! grafton-visca = { version = "1", features = ["runtime-tokio", "runtime-smol"] }
 //! ```
 //!
 //! Then pass the runtime explicitly, either through `Connect` for quick setup or

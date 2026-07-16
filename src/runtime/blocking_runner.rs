@@ -200,6 +200,31 @@ impl<P: Profile> BlockingRunner<P> {
             }
         }
 
+        let cmd_id = self.start_command(command, camera_id)?;
+
+        self.run_until_complete(transport, cmd_id, deadline)
+    }
+
+    /// Queue a command for sending without pumping the scheduler loop.
+    ///
+    /// This allocates a [`CommandId`], encodes the command, and enqueues it in
+    /// the scheduler core. It performs **no** transport I/O — nothing is sent
+    /// and nothing is awaited. Call [`await_command`](Self::await_command) (or
+    /// the all-in-one [`send_command`](Self::send_command)) afterwards to drive
+    /// the command to completion.
+    ///
+    /// Splitting submission from completion is what makes a genuine blocking
+    /// operation handle possible: the caller can obtain the command's id here,
+    /// then decide separately when (and for how long) to block waiting for it.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the command cannot be encoded.
+    pub fn start_command(
+        &mut self,
+        command: &impl ViscaCommand,
+        camera_id: CameraId,
+    ) -> Result<CommandId> {
         // Allocate a unique command ID, skipping zero on wraparound
         let cmd_id = loop {
             let id = self.next_id.fetch_add(1, Ordering::SeqCst);
@@ -217,18 +242,55 @@ impl<P: Profile> BlockingRunner<P> {
             })?,
         );
 
-        let now = Instant::now();
         let pending_cmd = PendingCommand {
             id: cmd_id,
-            command: prepared_cmd.clone(),
+            command: prepared_cmd,
             priority: Priority::Normal,
             camera_id,
-            submitted_at: now,
+            submitted_at: Instant::now(),
         };
 
         self.core.queue_command(pending_cmd);
 
-        self.run_until_complete(transport, cmd_id, deadline)
+        Ok(cmd_id)
+    }
+
+    /// Drive the scheduler synchronously until `target_cmd_id` completes.
+    ///
+    /// This is the completion half of the [`start_command`](Self::start_command)
+    /// /`await_command` split. It runs the scheduler loop on the **caller's
+    /// thread** — no async executor is involved — sending the queued command and
+    /// blocking until the camera reports completion, the command fails, or the
+    /// optional `deadline` is exceeded (`Error::Timeout`).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the command fails, the deadline expires, or the
+    /// transport reports a fatal condition.
+    pub fn await_command<T: BlockingTransport + HasTransportConfig>(
+        &mut self,
+        transport: &mut T,
+        target_cmd_id: CommandId,
+        deadline: Option<Deadline>,
+    ) -> Result<Response> {
+        if let Some(ref d) = deadline {
+            if d.is_expired() {
+                self.core.cancel_command(target_cmd_id);
+                return Err(Error::Timeout);
+            }
+        }
+
+        self.run_until_complete(transport, target_cmd_id, deadline)
+    }
+
+    /// Cancel a queued or in-flight command by id.
+    ///
+    /// If the command is still queued (no bytes sent), it is dropped from the
+    /// scheduler core and its completion wait resolves as canceled. If it has
+    /// already been sent, this clears the tracked state; the camera-side effect
+    /// depends on the protocol.
+    pub fn cancel(&mut self, target_cmd_id: CommandId) {
+        self.core.cancel_command(target_cmd_id);
     }
 
     /// Update the timeout configuration.
@@ -656,6 +718,50 @@ mod tests {
         if let Some(cmd) = next {
             assert_eq!(cmd.id, cmd_id(1));
         }
+    }
+
+    /// `start_command` queues a command (assigning an id) without any I/O, and
+    /// `cancel` removes it from the scheduler so nothing is left to send. This is
+    /// the submit/cancel half of the split that backs `BlockingInFlight`.
+    #[test]
+    fn test_start_command_queues_then_cancel_dequeues() {
+        use crate::command::bytes::VISCA_TERMINATOR;
+
+        #[derive(Debug, Clone)]
+        struct TestCmd {
+            bytes: Vec<u8>,
+        }
+
+        impl ViscaCommand for TestCmd {
+            const MAX_SIZE: usize = 6;
+            const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
+
+            fn write_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
+                let len = self.bytes.len();
+                buffer[..len].copy_from_slice(&self.bytes);
+                Ok(len)
+            }
+        }
+
+        let mut runner = BlockingRunner::<PtzOpticsG2>::new(TimeoutConfig::default());
+        let test_cmd = TestCmd {
+            bytes: vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR],
+        };
+
+        // start_command queues and returns a non-zero id, performing no I/O.
+        let id = runner
+            .start_command(&test_cmd, CameraId::CAMERA_1)
+            .expect("start_command should queue the command");
+        assert!(id.get() >= 1);
+
+        // cancel removes the queued command: nothing is left to send.
+        runner.cancel(id);
+
+        let now = Instant::now();
+        assert!(
+            runner.core.next_item_to_send(now).is_none(),
+            "cancel should dequeue the pending command"
+        );
     }
 
     /// Mock transport that fails on send for testing send failure propagation.

@@ -85,6 +85,8 @@ pub fn assert_compile_fail_fixtures(fixture_dirs: &[&str], crate_features: &[&st
         )
     });
 
+    prefetch_contract_dependencies(&crate_root, &work_root, crate_features);
+
     for (index, fixture) in fixtures.iter().enumerate() {
         assert_fixture_does_not_compile(&crate_root, &work_root, index, fixture, crate_features);
     }
@@ -118,6 +120,54 @@ fn collect_fixtures(crate_root: &Path, fixture_dirs: &[&str]) -> Vec<PathBuf> {
 
     fixtures.sort();
     fixtures
+}
+
+fn prefetch_contract_dependencies(crate_root: &Path, work_root: &Path, crate_features: &[&str]) {
+    let prefetch_dir = work_root.join("prefetch-dependencies");
+    let prefetch_src_dir = prefetch_dir.join("src");
+    fs::create_dir_all(&prefetch_src_dir).unwrap_or_else(|error| {
+        panic!(
+            "failed to create compile-fail dependency prefetch dir {}: {error}",
+            prefetch_src_dir.display()
+        )
+    });
+    fs::write(
+        prefetch_dir.join("Cargo.toml"),
+        case_manifest(crate_root, 0, "prefetch-dependencies", crate_features),
+    )
+    .unwrap_or_else(|error| {
+        panic!(
+            "failed to write compile-fail dependency prefetch manifest {}: {error}",
+            prefetch_dir.display()
+        )
+    });
+    fs::write(prefetch_src_dir.join("lib.rs"), "").unwrap_or_else(|error| {
+        panic!(
+            "failed to write compile-fail dependency prefetch source {}: {error}",
+            prefetch_src_dir.display()
+        )
+    });
+
+    let mut command = Command::new(cargo_executable());
+    command
+        .arg("fetch")
+        .arg("--quiet")
+        .arg("--manifest-path")
+        .arg(prefetch_dir.join("Cargo.toml"))
+        .env("CARGO_HTTP_MULTIPLEXING", "false")
+        .env("CARGO_NET_RETRY", "10");
+
+    let output = command.output().unwrap_or_else(|error| {
+        panic!("failed to prefetch dependencies for compile-fail fixtures: {error}")
+    });
+
+    if !output.status.success() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        panic!(
+            "failed to prefetch dependencies for compile-fail fixtures\nstdout:\n{stdout}\nstderr:\n{stderr}"
+        );
+    }
 }
 
 fn assert_fixture_does_not_compile(
@@ -161,6 +211,7 @@ fn assert_fixture_does_not_compile(
 
     let output = Command::new(cargo_executable())
         .arg("check")
+        .arg("--offline")
         .arg("--quiet")
         .arg("--manifest-path")
         .arg(case_dir.join("Cargo.toml"))

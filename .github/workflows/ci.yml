@@ -19,7 +19,7 @@ name: Rust CI/CD
 on:
   push:
     branches: ["main", "feature/*"]
-    tags: ["*"]
+    tags: ["v*"]
   pull_request:
     branches: ["main"]
   workflow_dispatch:
@@ -653,8 +653,9 @@ jobs:
           RUSTC_WRAPPER: ""  # Disable sccache for packaging
         run: |
           echo "Running package check for release tag..."
-          # Only check the macros crate can be packaged
-          # The main crate check happens in the publish job after macros is published
+          # The main crate depends on the same-version macro crate from the
+          # registry, so it can only be verified after the macro crate has been
+          # published and indexed.
           cargo package -p grafton-visca-macros --no-verify
 
       # Build validation for non-releases
@@ -743,9 +744,14 @@ jobs:
       - name: Wait for crates.io indexing
         run: sleep 30
 
+      - name: Publish main crate dry run
+        env:
+          RUSTC_WRAPPER: ""  # Disable sccache for packaging
+        run: cargo publish -p grafton-visca --dry-run
+
       # Publish main crate
       - name: Publish grafton-visca to crates.io
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_TOKEN }}
           RUSTC_WRAPPER: ""  # Disable sccache for packaging
-        run: cargo publish
+        run: cargo publish -p grafton-visca

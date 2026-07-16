@@ -219,21 +219,17 @@ where
     Exec: crate::executor::Executor + Send + Sync + Clone + 'static,
 {
     /// Recall a preset position and return an operation handle.
+    #[deprecated(
+        since = "1.1.0",
+        note = "use `submit(cmd)` (or the noun-scoped `submit_*` helper) and drive the returned handle with `await_applied` / `await_settled`; the `_op` methods are removed in 2.0"
+    )]
     pub async fn preset_recall_op(
         &self,
         preset: PresetNumber,
     ) -> Result<crate::camera::InFlight<'_, crate::camera::PresetOperation, P, Exec>, Error> {
         let cmd = preset_command::<P>(PresetAction::Recall, preset)?;
 
-        // Use start_command_with_id to get the response future without awaiting it
-        let (id, response_future) = self.start_command_with_id(&cmd).await?;
-
-        // Return InFlight handle with the response future
-        Ok(crate::camera::InFlight::new(
-            id,
-            self.camera_id(),
-            self.runtime(),
-            response_future,
-        ))
+        self.submit_op::<crate::camera::PresetOperation, _>(&cmd, crate::camera::OpKind::Targeted)
+            .await
     }
 }

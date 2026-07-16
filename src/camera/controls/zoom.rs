@@ -379,14 +379,10 @@ where
     pub(crate) async fn start_zoom_operation(
         &self,
         command: ZoomCommand,
+        kind: crate::camera::OpKind,
     ) -> Result<crate::camera::InFlight<'_, crate::camera::ZoomOperation, P, Exec>, Error> {
-        let (id, response_future) = self.start_command_with_id(&command).await?;
-        Ok(crate::camera::InFlight::new(
-            id,
-            self.camera_id(),
-            self.runtime(),
-            response_future,
-        ))
+        self.submit_op::<crate::camera::ZoomOperation, _>(&command, kind)
+            .await
     }
 
     /// Start zooming in and return an operation handle.
@@ -395,8 +391,12 @@ where
         &self,
         speed: Option<ZoomSpeed>,
     ) -> Result<crate::camera::InFlight<'_, crate::camera::ZoomOperation, P, Exec>, Error> {
-        self.start_zoom_operation(zoom_tele_command::<P>(speed)?)
-            .await
+        // Continuous drive: no well-defined settled state.
+        self.start_zoom_operation(
+            zoom_tele_command::<P>(speed)?,
+            crate::camera::OpKind::Continuous,
+        )
+        .await
     }
 
     /// Start zooming out and return an operation handle.
@@ -405,8 +405,12 @@ where
         &self,
         speed: Option<ZoomSpeed>,
     ) -> Result<crate::camera::InFlight<'_, crate::camera::ZoomOperation, P, Exec>, Error> {
-        self.start_zoom_operation(zoom_wide_command::<P>(speed)?)
-            .await
+        // Continuous drive: no well-defined settled state.
+        self.start_zoom_operation(
+            zoom_wide_command::<P>(speed)?,
+            crate::camera::OpKind::Continuous,
+        )
+        .await
     }
 }
 
@@ -421,21 +425,35 @@ where
     Exec: crate::executor::Executor + Send + Sync + Clone + 'static,
 {
     /// Set zoom to a raw VISCA position and return an operation handle.
+    #[deprecated(
+        since = "1.1.0",
+        note = "use `submit(cmd)` (or the noun-scoped `submit_*` helper) and drive the returned handle with `await_applied` / `await_settled`; the `_op` methods are removed in 2.0"
+    )]
     pub async fn set_zoom_op(
         &self,
         position: ZoomPosition,
     ) -> Result<crate::camera::InFlight<'_, crate::camera::ZoomOperation, P, Exec>, Error> {
-        self.start_zoom_operation(zoom_position_command::<P>(position)?)
-            .await
+        self.start_zoom_operation(
+            zoom_position_command::<P>(position)?,
+            crate::camera::OpKind::Targeted,
+        )
+        .await
     }
 
     /// Set zoom to a normalized optical position and return an operation handle.
+    #[deprecated(
+        since = "1.1.0",
+        note = "use `submit(cmd)` (or the noun-scoped `submit_*` helper) and drive the returned handle with `await_applied` / `await_settled`; the `_op` methods are removed in 2.0"
+    )]
     pub async fn set_zoom_normalized_op(
         &self,
         position: UnitInterval,
     ) -> Result<crate::camera::InFlight<'_, crate::camera::ZoomOperation, P, Exec>, Error> {
-        self.start_zoom_operation(zoom_normalized_command::<P>(position)?)
-            .await
+        self.start_zoom_operation(
+            zoom_normalized_command::<P>(position)?,
+            crate::camera::OpKind::Targeted,
+        )
+        .await
     }
 }
 
@@ -451,13 +469,20 @@ where
     Exec: crate::executor::Executor + Send + Sync + Clone + 'static,
 {
     /// Set zoom to a normalized position in a documented domain and return an operation handle.
+    #[deprecated(
+        since = "1.1.0",
+        note = "use `submit(cmd)` (or the noun-scoped `submit_*` helper) and drive the returned handle with `await_applied` / `await_settled`; the `_op` methods are removed in 2.0"
+    )]
     pub async fn set_zoom_normalized_in_domain_op(
         &self,
         position: UnitInterval,
         domain: ZoomDomain,
     ) -> Result<crate::camera::InFlight<'_, crate::camera::ZoomOperation, P, Exec>, Error> {
-        self.start_zoom_operation(zoom_normalized_in_domain_command::<P>(position, domain)?)
-            .await
+        self.start_zoom_operation(
+            zoom_normalized_in_domain_command::<P>(position, domain)?,
+            crate::camera::OpKind::Targeted,
+        )
+        .await
     }
 }
 
