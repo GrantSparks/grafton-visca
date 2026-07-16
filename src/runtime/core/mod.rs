@@ -5,7 +5,7 @@
 //! on async runtimes or channels.
 
 use smallvec::SmallVec;
-use tracing::{debug, trace, warn};
+use tracing::{debug, error, trace, warn};
 
 use std::{
     cell::Cell,
@@ -353,7 +353,7 @@ pub struct RetryCommand {
 
 impl RetryCommand {
     /// Get the command kind (Command or Inquiry).
-    #[cfg(any(not(feature = "mode-async"), test))]
+    #[cfg(test)]
     #[inline]
     pub fn kind(&self) -> CommandKind {
         self.command.kind()
@@ -412,6 +412,21 @@ struct RetryState {
     attempt: u32,
     transport_error: bool,
     category: CommandCategory,
+}
+
+/// Outcome of the scheduler's contextual retry classification for a VISCA
+/// protocol error attributed to an active command or inquiry.
+enum RetryDecision {
+    /// Queue a bounded retry through the existing retry/backoff machinery.
+    ///
+    /// `inquiry_syntax` is `true` only for the narrow transient inquiry-side
+    /// `0x02` case, which additionally arms the inquiry-class cooldown.
+    Retry {
+        /// Whether this is a transient inquiry-side syntax error.
+        inquiry_syntax: bool,
+    },
+    /// Fail terminally with this error; no retry is queued.
+    Fail(Error),
 }
 
 /// Priority queue item wrapper for commands.
@@ -932,6 +947,10 @@ pub struct SchedulerCore {
     min_command_spacing: Duration,
     /// When the last command (of any kind) was sent (for spacing enforcement).
     last_command_sent: Option<Instant>,
+    /// Deadline until which inquiry sends are held back after a transient
+    /// inquiry-side syntax error, letting an overloaded camera recover before
+    /// the failed inquiry is resent or another queued inquiry is dispatched.
+    inquiry_cooldown_until: Option<Instant>,
     /// Counter for ignored unmatched sequenced replies.
     ///
     /// Tracks the number of times a sequenced reply (ACK, Completion, Error, InquiryReply)
@@ -977,6 +996,7 @@ impl SchedulerCore {
             last_inquiry_sent: None,
             min_command_spacing: Duration::ZERO,
             last_command_sent: None,
+            inquiry_cooldown_until: None,
             ignored_unmatched_sequenced_replies: 0,
         }
     }
@@ -1110,6 +1130,15 @@ impl SchedulerCore {
         // Check command spacing requirement (applies to all send types)
         if !self.check_command_spacing(now) {
             return false;
+        }
+
+        // Honor the inquiry-class cooldown armed after a transient inquiry
+        // syntax error. This backs off the whole inquiry class (the failed
+        // inquiry and any other queued inquiries) without pausing commands.
+        if let Some(until) = self.inquiry_cooldown_until {
+            if now < until {
+                return false;
+            }
         }
 
         // Count inquiry entries by phase.
@@ -1771,36 +1800,51 @@ impl SchedulerCore {
                 }
             }
             SchedulerEvent::Error { source, code } => {
-                let error = ViscaError::from_byte(code);
-
                 // Resolve which command this error belongs to using ReplySource
                 let resolved_cmd_id = self.resolve_command_for_error(&source, code);
 
                 if let Some(cmd_id) = resolved_cmd_id {
-                    // Check if this is an inquiry via phase
-                    let is_inquiry = self.is_awaiting_inquiry_reply(cmd_id);
-
-                    if is_inquiry {
-                        // Remove from inquiry FIFO order
+                    // An attributed inquiry error leaves the FIFO attribution
+                    // order; a queued retry re-adds it exactly once on resend.
+                    if self.is_awaiting_inquiry_reply(cmd_id) {
                         self.inquiries_order.retain(|&id| id != cmd_id);
                     }
 
-                    let should_retry = self.should_retry_command(cmd_id, &error, now);
-
-                    if should_retry {
-                        if let Some(retry_action) = self.queue_retry_for_command(cmd_id, now, None)
-                        {
-                            actions.push(retry_action);
+                    match self.classify_error_retry(cmd_id, code, now) {
+                        RetryDecision::Retry { inquiry_syntax } => {
+                            if let Some(retry_action) =
+                                self.queue_retry_for_command(cmd_id, now, None)
+                            {
+                                if inquiry_syntax {
+                                    // Bounded transient inquiry-side syntax error:
+                                    // arm the inquiry-class cooldown for the backoff
+                                    // window and log at warning level.
+                                    let attempt = self.active_attempt(cmd_id).unwrap_or(0);
+                                    let delay = self.retry_delay_for(attempt, None);
+                                    self.arm_inquiry_cooldown(now + delay);
+                                    warn!(
+                                        %cmd_id,
+                                        response_spec = ?self.get_inquiry_response_spec(cmd_id),
+                                        attempt,
+                                        ?delay,
+                                        "Transient inquiry syntax error (0x02); scheduler will retry with backoff"
+                                    );
+                                }
+                                actions.push(retry_action);
+                            }
                         }
-                    } else {
-                        // Clean up and fail the command
-                        self.finish_sequence(cmd_id);
-                        self.commands.remove(&cmd_id);
-                        self.inquiries.remove(&cmd_id);
-                        actions.push(SchedulerAction::CommandFailed {
-                            id: cmd_id,
-                            error: Error::from_code(code),
-                        });
+                        RetryDecision::Fail(error) => {
+                            // Command-side and exhausted-inquiry syntax errors are
+                            // terminal; log 0x02 at error level to distinguish an
+                            // unsupported command from a transient inquiry response.
+                            if code == 0x02 {
+                                error!(%cmd_id, code = "0x02", "Terminal syntax error: {error}");
+                            }
+                            self.finish_sequence(cmd_id);
+                            self.commands.remove(&cmd_id);
+                            self.inquiries.remove(&cmd_id);
+                            actions.push(SchedulerAction::CommandFailed { id: cmd_id, error });
+                        }
                     }
                 } else if source.allows_heuristic_fallback() {
                     // Raw VISCA: as a last resort, never drop protocol errors on the floor.
@@ -2120,6 +2164,45 @@ impl SchedulerCore {
         ready
     }
 
+    /// Move retries whose backoff has elapsed back onto the normal send queues
+    /// so they are dispatched through [`next_item_to_send`](Self::next_item_to_send),
+    /// subjecting them to the same profile pacing and capacity gates as fresh
+    /// sends (command/inquiry spacing, socket and in-flight limits, and the
+    /// inquiry cooldown). This prevents ready retries from bypassing pacing.
+    ///
+    /// Returns the number of retries promoted. Stale retries (command completed,
+    /// superseded attempt, or no longer in `Queued` phase) are dropped by
+    /// [`get_ready_retries`](Self::get_ready_retries) and never promoted. The
+    /// promoted entry keeps its incremented `attempt` and original `submitted_at`;
+    /// resend re-adds it to the inquiry FIFO order exactly once.
+    pub fn promote_ready_retries(&mut self, now: Instant) -> usize {
+        let ready = self.get_ready_retries(now);
+        let promoted = ready.len();
+        for retry in ready {
+            let submitted_at = self.active_submitted_at(retry.id).unwrap_or(retry.retry_at);
+            let pending = PendingCommand {
+                id: retry.id,
+                command: retry.command,
+                priority: retry.priority,
+                camera_id: retry.camera_id,
+                submitted_at,
+            };
+            match pending.command.behavior {
+                crate::command::CommandBehavior::Inquiry(_) => self.inquiry_queue.push(pending),
+                crate::command::CommandBehavior::Command => self.command_queue.push(pending),
+            }
+        }
+        promoted
+    }
+
+    /// Original submission time of an active command or inquiry, if tracked.
+    fn active_submitted_at(&self, cmd_id: CommandId) -> Option<Instant> {
+        self.commands
+            .get(&cmd_id)
+            .map(|state| state.submitted_at)
+            .or_else(|| self.inquiries.get(&cmd_id).map(|state| state.submitted_at))
+    }
+
     /// Get the next deadline for time-based operations.
     ///
     /// Uses active command and inquiry state to find the earliest deadline among:
@@ -2165,6 +2248,14 @@ impl SchedulerCore {
             if let Some(last_sent) = self.last_inquiry_sent {
                 let next_inquiry_eligible = last_sent + self.min_inquiry_spacing;
                 Self::update_earliest(&mut earliest, next_inquiry_eligible);
+            }
+        }
+
+        // Inquiry cooldown deadline (when the inquiry class is released after a
+        // transient syntax error). Only relevant while inquiries are waiting.
+        if !self.inquiry_queue.is_empty() {
+            if let Some(until) = self.inquiry_cooldown_until {
+                Self::update_earliest(&mut earliest, until);
             }
         }
 
@@ -2622,28 +2713,103 @@ impl SchedulerCore {
         (true, None, None)
     }
 
-    fn should_retry_command(&self, cmd_id: CommandId, error: &ViscaError, now: Instant) -> bool {
+    /// Returns `true` if another retry is permitted by both the category retry
+    /// budget and `RetryConfig::max_retry_duration` (measured from original
+    /// submission).
+    fn within_retry_bounds(
+        &self,
+        attempt: u32,
+        category: CommandCategory,
+        submitted_at: Instant,
+        now: Instant,
+    ) -> bool {
+        let max_retries = self.retry_budget.for_category(category);
+        let within_duration =
+            now.duration_since(submitted_at) < self.retry_config.max_retry_duration;
+        attempt < max_retries && within_duration
+    }
+
+    /// Contextual, scheduler-owned retry classification for an attributed VISCA
+    /// protocol error.
+    ///
+    /// This is the single decision point for whether a protocol error retries
+    /// or fails terminally, and which error to surface when it fails. It keeps
+    /// `Error::SyntaxError.is_retryable()` `false`: the narrow transient
+    /// inquiry-side `0x02` case is recognised here from the raw code plus live
+    /// entry context (entry kind, response spec, lifecycle phase), never by
+    /// broadening public error retryability.
+    ///
+    /// Rules:
+    /// - Command-side errors: only the standard retryable codes (buffer full,
+    ///   and `0x41` for movement/preset) retry; everything else — including
+    ///   `0x02` — is terminal and diagnostic.
+    /// - Inquiry-side errors: standard retryable codes retry as usual; a `0x02`
+    ///   on a `Builtin` inquiry still awaiting its reply is treated as a
+    ///   transient overload signal and retried within budget, then fails as a
+    ///   contextual `SyntaxError` once exhausted. `Raw` inquiries stay terminal
+    ///   so genuine malformed-byte bugs are not hidden.
+    fn classify_error_retry(&self, cmd_id: CommandId, code: u8, now: Instant) -> RetryDecision {
+        let error = ViscaError::from_byte(code);
+
         if let Some(state) = self.commands.get(&cmd_id) {
-            if error.is_retryable(Some(state.category())) {
-                let max_retries = self.retry_budget.for_category(state.category());
-                let within_duration =
-                    now.duration_since(state.submitted_at) < self.retry_config.max_retry_duration;
-                state.attempt < max_retries && within_duration
-            } else {
-                false
+            let category = state.category();
+            if error.is_retryable(Some(category))
+                && self.within_retry_bounds(state.attempt, category, state.submitted_at, now)
+            {
+                return RetryDecision::Retry {
+                    inquiry_syntax: false,
+                };
             }
-        } else {
-            self.inquiries.get(&cmd_id).is_some_and(|state| {
-                if error.is_retryable(Some(state.category())) {
-                    let max_retries = self.retry_budget.for_category(state.category());
-                    let within_duration = now.duration_since(state.submitted_at)
-                        < self.retry_config.max_retry_duration;
-                    state.attempt < max_retries && within_duration
-                } else {
-                    false
-                }
-            })
+            return RetryDecision::Fail(Error::from_code(code));
         }
+
+        if let Some(state) = self.inquiries.get(&cmd_id) {
+            let category = state.category();
+            let within_bounds =
+                self.within_retry_bounds(state.attempt, category, state.submitted_at, now);
+
+            if error.is_retryable(Some(category)) {
+                return if within_bounds {
+                    RetryDecision::Retry {
+                        inquiry_syntax: false,
+                    }
+                } else {
+                    RetryDecision::Fail(Error::from_code(code))
+                };
+            }
+
+            if code == 0x02
+                && matches!(state.response_spec, InquiryResponseSpec::Builtin(_))
+                && state.phase.is_awaiting_reply()
+            {
+                return if within_bounds {
+                    RetryDecision::Retry {
+                        inquiry_syntax: true,
+                    }
+                } else {
+                    // Exhausted by count or duration: surface a syntax error
+                    // with context so retry exhaustion is distinguishable from a
+                    // first-attempt syntax error, while staying non-retryable.
+                    RetryDecision::Fail(
+                        Error::SyntaxError
+                            .with_context("inquiry syntax-error retry budget exhausted"),
+                    )
+                };
+            }
+
+            return RetryDecision::Fail(Error::from_code(code));
+        }
+
+        // No active entry (already cleaned up): nothing to retry.
+        RetryDecision::Fail(Error::from_code(code))
+    }
+
+    /// Extend the inquiry-class cooldown so it lasts at least until `until`.
+    fn arm_inquiry_cooldown(&mut self, until: Instant) {
+        self.inquiry_cooldown_until = Some(match self.inquiry_cooldown_until {
+            Some(existing) => existing.max(until),
+            None => until,
+        });
     }
 
     /// Handle a send failure by immediately failing the command.
@@ -2711,6 +2877,21 @@ impl SchedulerCore {
         }
     }
 
+    /// Compute the backoff delay for a given (1-based) retry attempt.
+    ///
+    /// When `delay_exponent_cap` is `Some(cap)`, the attempt number used for the
+    /// delay calculation is capped at `cap + 1` so the backoff exponent does not
+    /// exceed `cap`. Shared by the retry queue and the inquiry cooldown so both
+    /// derive identical timings from a single source.
+    fn retry_delay_for(&self, new_attempt: u32, delay_exponent_cap: Option<u32>) -> Duration {
+        let delay_attempt = match delay_exponent_cap {
+            Some(cap) => new_attempt.min(cap + 1),
+            None => new_attempt,
+        };
+        let retry_attempt = RetryAttempt::new(delay_attempt).unwrap_or(RetryAttempt::FIRST);
+        self.retry_config.calculate_delay(retry_attempt, None)
+    }
+
     /// Queue a command for retry based on the retry configuration.
     ///
     /// If `delay_exponent_cap` is `Some(cap)`, the backoff exponent is capped at `cap`
@@ -2755,16 +2936,8 @@ impl SchedulerCore {
         // Update retry count in active state
         self.set_active_attempt(cmd_id, new_attempt);
 
-        // Calculate backoff delay using RetryConfig
-        // new_attempt is 1-based (state.attempt starts at 0, we added 1 above)
-        // When delay_exponent_cap is set, cap the attempt number used for delay
-        // calculation so the exponent doesn't exceed the cap.
-        let delay_attempt = match delay_exponent_cap {
-            Some(cap) => new_attempt.min(cap + 1),
-            None => new_attempt,
-        };
-        let retry_attempt = RetryAttempt::new(delay_attempt).unwrap_or(RetryAttempt::FIRST);
-        let delay = self.retry_config.calculate_delay(retry_attempt, None);
+        // Calculate backoff delay using RetryConfig (new_attempt is 1-based).
+        let delay = self.retry_delay_for(new_attempt, delay_exponent_cap);
 
         let retry_cmd = RetryCommand {
             id: cmd_id,
@@ -2919,6 +3092,7 @@ impl SchedulerCore {
         self.last_logged_idle.set(false);
         self.last_inquiry_sent = None;
         self.last_command_sent = None;
+        self.inquiry_cooldown_until = None;
     }
 
     /// Check if a command is in the AwaitingAck phase.

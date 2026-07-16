@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+#### Bounded Contextual Retry for Transient Inquiry Syntax Errors (#536)
+
+- A VISCA `0x02` Syntax Error attributed to an **active built-in inquiry** is now
+  treated as a transient camera-overload signal and retried by the scheduler with
+  bounded backoff, reusing the existing per-category retry budget, backoff, and
+  `RetryConfig::max_retry_duration`. Previously such inquiries failed immediately.
+  This is a **narrow, contextual** retry — not general syntax-error retryability:
+  - Command-side `0x02` remains terminal and fails immediately with
+    `Error::SyntaxError`, with no retry queued.
+  - Raw custom inquiries (`InquiryResponseSpec::Raw`) remain terminal by default,
+    so malformed custom bytes are not hidden by silent retries.
+  - `Error::SyntaxError.is_retryable()` is unchanged (still `false`); the decision
+    lives in a single scheduler-owned classifier keyed on the raw error code plus
+    live entry context (entry kind, response spec, lifecycle phase).
+  - When the retry budget or max retry duration is exhausted, the operation fails
+    with `SyntaxError` (wrapped in context), never a generic `Timeout`.
+- Retry dispatch now re-enters the scheduler's normal send path instead of being
+  sent directly by the runtime loops, so ready retries honor profile send pacing
+  (`MIN_COMMAND_SPACING`, `MIN_INQUIRY_SPACING`), the max in-flight inquiry limit,
+  and command socket capacity — for **all** retries, not just syntax-error retries.
+- A retryable inquiry `0x02` also applies an inquiry-class cooldown, delaying the
+  failed inquiry's resend and any other queued inquiry for the backoff window
+  without pausing command traffic.
+
 ## [1.1.0] - 2026-07-16
 
 ### Added

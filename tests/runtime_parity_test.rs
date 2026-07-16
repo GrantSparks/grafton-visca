@@ -159,49 +159,136 @@ mod parity_tests {
         });
     }
 
-    // Test error handling parity
+    // Command-side syntax error (0x02) must surface to the caller as a terminal
+    // error, on both runtimes. (Inquiry-side 0x02 is transient; see the retry
+    // tests below.)
     #[cfg(feature = "runtime-tokio")]
     #[tokio::test]
-    async fn test_tokio_error_handling() {
+    async fn test_tokio_command_syntax_error_is_terminal() {
         use grafton_visca::TokioExecutor;
         let executor = Arc::new(TokioExecutor::from_handle(tokio::runtime::Handle::current()));
         let transport: ScriptedTransport<TokioExecutor> =
             ScriptedTransport::new(vec![Step::OnSend {
-                matches: Some(vec![0x81, 0x09, 0x04, 0x00, 0xFF]),
-                responses: vec![vec![0x90, 0x60, 0x02, 0xFF]], // Error response
+                matches: Some(vec![0x81, 0x01, 0x04, 0x00, 0x03, 0xFF]), // Power off command
+                responses: vec![vec![0x90, 0x60, 0x02, 0xFF]],           // Syntax error
             }])
             .with_executor(executor.clone());
 
         let camera = CameraBuilder::<TokioExecutor>::with_executor(executor)
-            .open_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport)
+            .open_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport.clone())
             .await
             .expect("Failed to create camera");
 
-        let result = camera.power().state().await;
-        assert!(result.is_err(), "Expected error from error response");
+        let result = camera.power().off().await;
+        assert!(result.is_err(), "Command-side 0x02 must fail terminally");
+        assert_eq!(
+            transport.sent().len(),
+            1,
+            "Command-side 0x02 must not be retried"
+        );
     }
 
     #[cfg(feature = "runtime-smol")]
     #[test]
-    fn test_smol_error_handling() {
+    fn test_smol_command_syntax_error_is_terminal() {
         use grafton_visca::SmolExecutor;
 
         smol::block_on(async {
             let executor = Arc::new(SmolExecutor::new());
             let transport: ScriptedTransport<SmolExecutor> =
                 ScriptedTransport::new(vec![Step::OnSend {
-                    matches: Some(vec![0x81, 0x09, 0x04, 0x00, 0xFF]),
-                    responses: vec![vec![0x90, 0x60, 0x02, 0xFF]], // Error response
+                    matches: Some(vec![0x81, 0x01, 0x04, 0x00, 0x03, 0xFF]),
+                    responses: vec![vec![0x90, 0x60, 0x02, 0xFF]],
                 }])
                 .with_executor(executor.clone());
 
             let camera = CameraBuilder::<SmolExecutor>::with_executor(executor)
-                .open_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport)
+                .open_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport.clone())
                 .await
                 .expect("Failed to create camera");
 
-            let result = camera.power().state().await;
-            assert!(result.is_err(), "Expected error from error response");
+            let result = camera.power().off().await;
+            assert!(result.is_err(), "Command-side 0x02 must fail terminally");
+            assert_eq!(transport.sent().len(), 1);
+        });
+    }
+
+    // Issue #536: a transient inquiry-side 0x02 is retried by the scheduler and
+    // the original operation still succeeds once the camera answers, on both
+    // runtimes. Exactly one resend occurs, and it is delayed by the profile's
+    // inquiry pacing (PtzOpticsG2 MIN_INQUIRY_SPACING = 150ms).
+    #[cfg(feature = "runtime-tokio")]
+    #[tokio::test]
+    async fn test_tokio_inquiry_syntax_error_retries_then_succeeds() {
+        use grafton_visca::testing::testkit::scripted_transport::helpers;
+        use grafton_visca::TokioExecutor;
+        use std::time::Instant;
+
+        let executor = Arc::new(TokioExecutor::from_handle(tokio::runtime::Handle::current()));
+        let transport: ScriptedTransport<TokioExecutor> =
+            ScriptedTransport::new(helpers::syntax_error_then_inquiry_success(
+                vec![0x81, 0x09, 0x04, 0x00, 0xFF], // Power inquiry
+                vec![0x90, 0x50, 0x02, 0xFF],       // Power on
+            ))
+            .with_executor(executor.clone());
+
+        let camera = CameraBuilder::<TokioExecutor>::with_executor(executor)
+            .open_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport.clone())
+            .await
+            .expect("Failed to create camera");
+
+        let started = Instant::now();
+        let power_status = camera
+            .power()
+            .state()
+            .await
+            .expect("inquiry should succeed after a transient 0x02 retry");
+        let elapsed = started.elapsed();
+
+        assert!(power_status, "expected power on after retry");
+        assert_eq!(
+            transport.sent().len(),
+            2,
+            "expected exactly one resend after the transient 0x02"
+        );
+        assert!(
+            elapsed >= std::time::Duration::from_millis(140),
+            "resend must honor profile inquiry pacing (elapsed = {elapsed:?})"
+        );
+    }
+
+    #[cfg(feature = "runtime-smol")]
+    #[test]
+    fn test_smol_inquiry_syntax_error_retries_then_succeeds() {
+        use grafton_visca::testing::testkit::scripted_transport::helpers;
+        use grafton_visca::SmolExecutor;
+
+        smol::block_on(async {
+            let executor = Arc::new(SmolExecutor::new());
+            let transport: ScriptedTransport<SmolExecutor> =
+                ScriptedTransport::new(helpers::syntax_error_then_inquiry_success(
+                    vec![0x81, 0x09, 0x04, 0x00, 0xFF],
+                    vec![0x90, 0x50, 0x02, 0xFF],
+                ))
+                .with_executor(executor.clone());
+
+            let camera = CameraBuilder::<SmolExecutor>::with_executor(executor)
+                .open_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport.clone())
+                .await
+                .expect("Failed to create camera");
+
+            let power_status = camera
+                .power()
+                .state()
+                .await
+                .expect("inquiry should succeed after a transient 0x02 retry");
+
+            assert!(power_status, "expected power on after retry");
+            assert_eq!(
+                transport.sent().len(),
+                2,
+                "expected exactly one resend after the transient 0x02"
+            );
         });
     }
 }

@@ -2467,8 +2467,8 @@ fn test_max_retry_duration_queue_retry_for_command() {
 }
 
 #[test]
-fn test_max_retry_duration_should_retry_command() {
-    // Test that should_retry_command respects max_retry_duration
+fn test_max_retry_duration_classify_error_retry() {
+    // Test that classify_error_retry respects max_retry_duration
     let timeout_config = TimeoutConfig::default();
     let retry_config = RetryConfig {
         max_retries: 10,
@@ -2484,19 +2484,23 @@ fn test_max_retry_duration_should_retry_command() {
     // Register a command
     core.register_pending_ack(cmd_id(1), cmd, Priority::Normal, CameraId::CAMERA_1, start);
 
-    // Create a retryable error (0x41 = CommandNotExecutable, retryable for Movement)
-    let error = ViscaError::from_byte(0x41);
-
-    // Should retry within duration
+    // 0x41 = CommandNotExecutable, retryable for Movement.
+    // Should retry within duration.
     assert!(
-        core.should_retry_command(cmd_id(1), &error, start + Duration::from_millis(50)),
-        "Expected should_retry_command=true within duration"
+        matches!(
+            core.classify_error_retry(cmd_id(1), 0x41, start + Duration::from_millis(50)),
+            RetryDecision::Retry { .. }
+        ),
+        "Expected Retry within duration"
     );
 
-    // Should NOT retry after duration exceeded
+    // Should NOT retry after duration exceeded.
     assert!(
-        !core.should_retry_command(cmd_id(1), &error, start + Duration::from_millis(150)),
-        "Expected should_retry_command=false after duration exceeded"
+        matches!(
+            core.classify_error_retry(cmd_id(1), 0x41, start + Duration::from_millis(150)),
+            RetryDecision::Fail(_)
+        ),
+        "Expected Fail after duration exceeded"
     );
 }
 
@@ -2664,12 +2668,14 @@ fn test_retry_config_should_retry_method_parity() {
     let cmd = make_duration_test_cmd(CommandCategory::Movement);
     core.register_pending_ack(cmd_id(1), cmd, Priority::Normal, CameraId::CAMERA_1, start);
 
-    let error = ViscaError::from_byte(0x41); // Retryable for Movement
-
+    // 0x41 is retryable for Movement.
     // Note: SchedulerCore uses category-based budgets which differ from raw max_retries
     // Movement category uses base max_retries (3), so behavior should align
     assert!(
-        core.should_retry_command(cmd_id(1), &error, start),
+        matches!(
+            core.classify_error_retry(cmd_id(1), 0x41, start),
+            RetryDecision::Retry { .. }
+        ),
         "SchedulerCore should align with RetryConfig at start"
     );
 }
@@ -5186,4 +5192,546 @@ fn test_exponent_cap_parameter_in_queue_retry() {
         }
         other => panic!("Expected RetryCommand action, got {:?}", other),
     }
+}
+
+// ============================================================================
+// Issue #536: Bounded contextual retry for transient inquiry-side 0x02 errors
+// ============================================================================
+//
+// These tests exercise the scheduler-owned retry classification and the
+// inquiry-class cooldown. They assert that a *built-in* inquiry `0x02` retries
+// with bounded backoff while command-side and raw-inquiry `0x02` stay terminal,
+// that retry exhaustion surfaces syntax-error semantics (never a generic
+// `Timeout`), and that retry dispatch honors profile pacing/capacity.
+
+/// Build an inquiry `EncodedCommand` with an explicit response spec and category.
+fn make_issue536_inquiry(
+    spec: InquiryResponseSpec,
+    category: CommandCategory,
+) -> Arc<EncodedCommand> {
+    Arc::new(EncodedCommand {
+        payload: SmallVec::from_slice(&[0x81, 0x09, 0x00, 0x02, VISCA_TERMINATOR]),
+        behavior: CommandBehavior::Inquiry(spec),
+        category,
+    })
+}
+
+/// Build a plain command `EncodedCommand`.
+fn make_issue536_command(category: CommandCategory) -> Arc<EncodedCommand> {
+    Arc::new(EncodedCommand {
+        payload: SmallVec::from_slice(&[0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]),
+        behavior: CommandBehavior::Command,
+        category,
+    })
+}
+
+/// An attributed VISCA `0x02` syntax error for the given command id.
+fn syntax_error_for(id: CommandId) -> SchedulerEvent {
+    SchedulerEvent::Error {
+        source: ReplySource::from_fields(Some(id), None, None),
+        code: 0x02,
+    }
+}
+
+/// True if `err` is `SyntaxError`, including when wrapped in context.
+fn is_syntax_error(err: &Error) -> bool {
+    match err {
+        Error::SyntaxError => true,
+        Error::WithContext { source, .. } => is_syntax_error(source),
+        _ => false,
+    }
+}
+
+/// Drive one retry resend (promote the ready retry and start it), as the
+/// runtime loop would, returning the resend timestamp used.
+fn resend_ready_inquiry(core: &mut SchedulerCore, id: CommandId, at: Instant) {
+    assert_eq!(
+        core.promote_ready_retries(at),
+        1,
+        "expected exactly one ready retry to promote"
+    );
+    let pending = core
+        .next_item_to_send(at)
+        .expect("promoted retry should be sendable");
+    assert_eq!(pending.id, id);
+    core.start_inquiry(
+        id,
+        pending.command.clone(),
+        pending.priority,
+        pending.camera_id,
+        at,
+    );
+}
+
+fn issue536_config(max_retries: u32, base: Duration, max_dur: Duration) -> RetryConfig {
+    RetryConfig {
+        max_retries,
+        base_retry_delay: base,
+        max_retry_duration: max_dur,
+        backoff_strategy: BackoffStrategy::Constant,
+    }
+}
+
+#[test]
+fn test_builtin_inquiry_syntax_error_queues_retry() {
+    let mut core = SchedulerCore::with_retry_config(
+        TimeoutConfig::default(),
+        issue536_config(3, Duration::from_millis(10), Duration::from_secs(30)),
+    );
+    let now = Instant::now();
+    let inq = make_issue536_inquiry(
+        InquiryResponseSpec::Builtin(InquiryKind::Power),
+        CommandCategory::Quick,
+    );
+    core.start_inquiry(cmd_id(1), inq, Priority::Normal, CameraId::CAMERA_1, now);
+    assert!(core.inquiries_order.contains(&cmd_id(1)));
+
+    let actions = core.process_event(syntax_error_for(cmd_id(1)), now);
+    assert_eq!(actions.len(), 1);
+    assert!(
+        matches!(actions[0], SchedulerAction::RetryCommand { .. }),
+        "built-in inquiry 0x02 should queue a retry, got {:?}",
+        actions[0]
+    );
+
+    let state = core.inquiries.get(&cmd_id(1)).expect("inquiry retained");
+    assert_eq!(state.attempt, 1, "attempt incremented exactly once");
+    assert!(matches!(state.phase, InquiryPhase::Queued));
+    assert!(
+        !core.inquiries_order.contains(&cmd_id(1)),
+        "removed from FIFO order while queued for retry"
+    );
+    assert_eq!(core.retry_queue_depth(), 1);
+
+    // The public error contract must be unchanged.
+    assert!(!Error::SyntaxError.is_retryable());
+}
+
+#[test]
+fn test_builtin_inquiry_syntax_retry_then_reply_completes() {
+    let mut core = SchedulerCore::with_retry_config(
+        TimeoutConfig::default(),
+        issue536_config(3, Duration::from_millis(10), Duration::from_secs(30)),
+    );
+    let now = Instant::now();
+    let inq = make_issue536_inquiry(
+        InquiryResponseSpec::Builtin(InquiryKind::Power),
+        CommandCategory::Quick,
+    );
+    core.start_inquiry(cmd_id(1), inq, Priority::Normal, CameraId::CAMERA_1, now);
+
+    // Transient 0x02 -> retry queued.
+    let actions = core.process_event(syntax_error_for(cmd_id(1)), now);
+    assert!(matches!(actions[0], SchedulerAction::RetryCommand { .. }));
+
+    // Backoff elapses; the retry re-enters the send path and is resent.
+    let resend_at = now + Duration::from_millis(20);
+    resend_ready_inquiry(&mut core, cmd_id(1), resend_at);
+    assert!(core.is_awaiting_inquiry_reply(cmd_id(1)));
+    assert!(core.inquiries_order.contains(&cmd_id(1)));
+
+    // A valid reply now completes the SAME command id.
+    let reply = SchedulerEvent::InquiryReply {
+        source: ReplySource::from_fields(Some(cmd_id(1)), None, None),
+        response: Response::Inquiry(crate::command::InquiryData::Power { on: true }),
+    };
+    let actions = core.process_event(reply, resend_at);
+    assert_eq!(actions.len(), 1);
+    match &actions[0] {
+        SchedulerAction::CommandComplete { id, .. } => assert_eq!(*id, cmd_id(1)),
+        other => panic!("expected CommandComplete, got {other:?}"),
+    }
+    assert!(!core.is_command_pending(cmd_id(1)));
+    assert!(!core.inquiries_order.contains(&cmd_id(1)));
+}
+
+#[test]
+fn test_command_side_syntax_error_fails_terminally() {
+    let mut core = SchedulerCore::with_retry_config(
+        TimeoutConfig::default(),
+        issue536_config(3, Duration::from_millis(10), Duration::from_secs(30)),
+    );
+    let now = Instant::now();
+    let cmd = make_issue536_command(CommandCategory::Quick);
+    core.register_pending_ack(cmd_id(1), cmd, Priority::Normal, CameraId::CAMERA_1, now);
+
+    let actions = core.process_event(syntax_error_for(cmd_id(1)), now);
+    assert_eq!(actions.len(), 1);
+    match &actions[0] {
+        SchedulerAction::CommandFailed { id, error } => {
+            assert_eq!(*id, cmd_id(1));
+            assert!(matches!(error, Error::SyntaxError), "got {error:?}");
+        }
+        other => panic!("expected terminal CommandFailed, got {other:?}"),
+    }
+    assert_eq!(
+        core.retry_queue_depth(),
+        0,
+        "command 0x02 must not queue a retry"
+    );
+    assert!(!core.is_command_pending(cmd_id(1)));
+}
+
+#[test]
+fn test_raw_inquiry_syntax_error_fails_terminally() {
+    let mut core = SchedulerCore::with_retry_config(
+        TimeoutConfig::default(),
+        issue536_config(3, Duration::from_millis(10), Duration::from_secs(30)),
+    );
+    let now = Instant::now();
+    let inq = make_issue536_inquiry(InquiryResponseSpec::Raw, CommandCategory::Quick);
+    core.start_inquiry(cmd_id(1), inq, Priority::Normal, CameraId::CAMERA_1, now);
+
+    let actions = core.process_event(syntax_error_for(cmd_id(1)), now);
+    assert_eq!(actions.len(), 1);
+    match &actions[0] {
+        SchedulerAction::CommandFailed { id, error } => {
+            assert_eq!(*id, cmd_id(1));
+            assert!(matches!(error, Error::SyntaxError), "got {error:?}");
+        }
+        other => panic!("expected terminal CommandFailed, got {other:?}"),
+    }
+    assert_eq!(
+        core.retry_queue_depth(),
+        0,
+        "raw inquiry 0x02 must not queue a retry"
+    );
+    assert!(!core.is_awaiting_inquiry_reply(cmd_id(1)));
+}
+
+#[test]
+fn test_inquiry_syntax_retry_count_exhaustion_returns_syntax_error() {
+    // Movement budget == base max_retries (2), giving a small, exact budget.
+    let mut core = SchedulerCore::with_retry_config(
+        TimeoutConfig::default(),
+        issue536_config(2, Duration::from_millis(5), Duration::from_secs(30)),
+    );
+    let now = Instant::now();
+    let inq = make_issue536_inquiry(
+        InquiryResponseSpec::Builtin(InquiryKind::Power),
+        CommandCategory::Movement,
+    );
+    core.start_inquiry(cmd_id(1), inq, Priority::Normal, CameraId::CAMERA_1, now);
+
+    let mut t = now;
+    // Two retries are permitted (attempt 0->1, 1->2).
+    for expected_attempt in 1..=2u32 {
+        let actions = core.process_event(syntax_error_for(cmd_id(1)), t);
+        assert!(
+            matches!(actions[0], SchedulerAction::RetryCommand { .. }),
+            "attempt {expected_attempt} should retry"
+        );
+        assert_eq!(
+            core.inquiries.get(&cmd_id(1)).unwrap().attempt,
+            expected_attempt
+        );
+        t += Duration::from_millis(10);
+        resend_ready_inquiry(&mut core, cmd_id(1), t);
+    }
+
+    // Third 0x02 exceeds the budget -> terminal SyntaxError (NOT Timeout).
+    let actions = core.process_event(syntax_error_for(cmd_id(1)), t);
+    assert_eq!(actions.len(), 1);
+    match &actions[0] {
+        SchedulerAction::CommandFailed { id, error } => {
+            assert_eq!(*id, cmd_id(1));
+            assert!(
+                is_syntax_error(error),
+                "expected syntax semantics, got {error:?}"
+            );
+            assert!(
+                !matches!(error, Error::Timeout),
+                "must not degrade to Timeout"
+            );
+            assert!(!error.is_retryable());
+        }
+        other => panic!("expected terminal CommandFailed, got {other:?}"),
+    }
+    assert!(!core.is_command_pending(cmd_id(1)));
+}
+
+#[test]
+fn test_inquiry_syntax_max_duration_exhaustion_returns_syntax_error() {
+    let mut core = SchedulerCore::with_retry_config(
+        TimeoutConfig::default(),
+        issue536_config(10, Duration::from_millis(10), Duration::from_millis(100)),
+    );
+    let now = Instant::now();
+    let inq = make_issue536_inquiry(
+        InquiryResponseSpec::Builtin(InquiryKind::Power),
+        CommandCategory::Quick,
+    );
+    core.start_inquiry(cmd_id(1), inq, Priority::Normal, CameraId::CAMERA_1, now);
+
+    // Within the duration budget -> retry.
+    let actions = core.process_event(syntax_error_for(cmd_id(1)), now + Duration::from_millis(40));
+    assert!(matches!(actions[0], SchedulerAction::RetryCommand { .. }));
+    resend_ready_inquiry(&mut core, cmd_id(1), now + Duration::from_millis(60));
+
+    // Past max_retry_duration (measured from original submission) -> terminal.
+    let actions = core.process_event(
+        syntax_error_for(cmd_id(1)),
+        now + Duration::from_millis(150),
+    );
+    assert_eq!(actions.len(), 1);
+    match &actions[0] {
+        SchedulerAction::CommandFailed { id, error } => {
+            assert_eq!(*id, cmd_id(1));
+            assert!(
+                is_syntax_error(error),
+                "expected syntax semantics, got {error:?}"
+            );
+            assert!(
+                !matches!(error, Error::Timeout),
+                "must not degrade to Timeout"
+            );
+        }
+        other => panic!("expected terminal CommandFailed, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_inquiry_syntax_retry_preserves_attempt_submitted_at_and_spec() {
+    let mut core = SchedulerCore::with_retry_config(
+        TimeoutConfig::default(),
+        issue536_config(3, Duration::from_millis(10), Duration::from_secs(30)),
+    );
+    let now = Instant::now();
+    let inq = make_issue536_inquiry(
+        InquiryResponseSpec::Builtin(InquiryKind::Power),
+        CommandCategory::Quick,
+    );
+    core.start_inquiry(cmd_id(1), inq, Priority::Normal, CameraId::CAMERA_1, now);
+    let original_submitted_at = core.inquiries.get(&cmd_id(1)).unwrap().submitted_at;
+
+    core.process_event(syntax_error_for(cmd_id(1)), now + Duration::from_millis(5));
+
+    let state = core.inquiries.get(&cmd_id(1)).unwrap();
+    assert_eq!(state.attempt, 1, "attempt incremented exactly once");
+    assert_eq!(
+        state.submitted_at, original_submitted_at,
+        "submitted_at preserved so max_retry_duration measures from first submission"
+    );
+    assert!(matches!(
+        state.response_spec,
+        InquiryResponseSpec::Builtin(InquiryKind::Power)
+    ));
+}
+
+#[test]
+fn test_inquiry_syntax_retry_fifo_has_no_duplicates() {
+    let mut core = SchedulerCore::with_retry_config(
+        TimeoutConfig::default(),
+        issue536_config(3, Duration::from_millis(10), Duration::from_secs(30)),
+    );
+    let now = Instant::now();
+    let inq = make_issue536_inquiry(
+        InquiryResponseSpec::Builtin(InquiryKind::Power),
+        CommandCategory::Quick,
+    );
+    core.start_inquiry(cmd_id(1), inq, Priority::Normal, CameraId::CAMERA_1, now);
+    assert_eq!(core.inquiries_order.len(), 1);
+
+    core.process_event(syntax_error_for(cmd_id(1)), now);
+    assert!(!core.inquiries_order.contains(&cmd_id(1)));
+    assert_eq!(core.inquiries_order.len(), 0);
+
+    resend_ready_inquiry(&mut core, cmd_id(1), now + Duration::from_millis(20));
+    assert_eq!(
+        core.inquiries_order
+            .iter()
+            .filter(|&&x| x == cmd_id(1))
+            .count(),
+        1,
+        "resend re-adds to FIFO exactly once"
+    );
+    assert_eq!(core.inquiries_order.len(), 1);
+}
+
+#[test]
+fn test_inquiry_syntax_retry_waits_for_backoff() {
+    let mut core = SchedulerCore::with_retry_config(
+        TimeoutConfig::default(),
+        issue536_config(3, Duration::from_millis(100), Duration::from_secs(30)),
+    );
+    let now = Instant::now();
+    let inq = make_issue536_inquiry(
+        InquiryResponseSpec::Builtin(InquiryKind::Power),
+        CommandCategory::Quick,
+    );
+    core.start_inquiry(cmd_id(1), inq, Priority::Normal, CameraId::CAMERA_1, now);
+    core.process_event(syntax_error_for(cmd_id(1)), now);
+
+    // Before the computed backoff delay, the retry cannot be dispatched.
+    assert_eq!(
+        core.promote_ready_retries(now + Duration::from_millis(50)),
+        0
+    );
+    assert!(core
+        .next_item_to_send(now + Duration::from_millis(50))
+        .is_none());
+
+    // Once the backoff elapses it becomes ready.
+    assert_eq!(
+        core.promote_ready_retries(now + Duration::from_millis(100)),
+        1
+    );
+}
+
+#[test]
+fn test_inquiry_syntax_retry_applies_inquiry_cooldown() {
+    // base_retry_delay drives both the backoff and the inquiry cooldown (100ms).
+    let mut core = SchedulerCore::with_retry_config(
+        TimeoutConfig::default(),
+        issue536_config(3, Duration::from_millis(100), Duration::from_secs(30)),
+    );
+    let now = Instant::now();
+
+    // Inquiry A in flight; inquiry B queued behind it.
+    let inq_a = make_issue536_inquiry(
+        InquiryResponseSpec::Builtin(InquiryKind::Power),
+        CommandCategory::Quick,
+    );
+    let inq_b = make_issue536_inquiry(
+        InquiryResponseSpec::Builtin(InquiryKind::Power),
+        CommandCategory::Quick,
+    );
+    core.start_inquiry(cmd_id(1), inq_a, Priority::Normal, CameraId::CAMERA_1, now);
+    core.queue_command(PendingCommand {
+        id: cmd_id(2),
+        command: inq_b,
+        priority: Priority::Normal,
+        camera_id: CameraId::CAMERA_1,
+        submitted_at: now,
+    });
+
+    // A reports a transient 0x02: the inquiry class is put on cooldown.
+    core.process_event(syntax_error_for(cmd_id(1)), now);
+
+    // Neither the retried inquiry nor the queued inquiry B may send yet.
+    assert!(!core.can_send_inquiry(now));
+    assert!(core.next_item_to_send(now).is_none());
+    assert!(!core.can_send_inquiry(now + Duration::from_millis(99)));
+
+    // The cooldown is reflected in the scheduler's next deadline.
+    assert_eq!(
+        core.next_deadline(now),
+        Some(now + Duration::from_millis(100))
+    );
+
+    // After the cooldown, queued inquiry B becomes sendable.
+    assert!(core.can_send_inquiry(now + Duration::from_millis(100)));
+    let pending = core
+        .next_item_to_send(now + Duration::from_millis(100))
+        .expect("inquiry B should send once cooldown clears");
+    assert_eq!(pending.id, cmd_id(2));
+}
+
+#[test]
+fn test_inquiry_cooldown_does_not_pause_commands() {
+    let mut core = SchedulerCore::with_retry_config(
+        TimeoutConfig::default(),
+        issue536_config(3, Duration::from_millis(100), Duration::from_secs(30)),
+    );
+    let now = Instant::now();
+    let inq = make_issue536_inquiry(
+        InquiryResponseSpec::Builtin(InquiryKind::Power),
+        CommandCategory::Quick,
+    );
+    core.start_inquiry(cmd_id(1), inq, Priority::Normal, CameraId::CAMERA_1, now);
+    core.process_event(syntax_error_for(cmd_id(1)), now);
+
+    // Commands are governed by command pacing/capacity only, not the inquiry cooldown.
+    core.queue_command(PendingCommand {
+        id: cmd_id(2),
+        command: make_issue536_command(CommandCategory::Quick),
+        priority: Priority::Normal,
+        camera_id: CameraId::CAMERA_1,
+        submitted_at: now,
+    });
+    assert!(
+        core.can_send_command(now),
+        "inquiry cooldown must not pause commands"
+    );
+    let pending = core
+        .next_item_to_send(now)
+        .expect("command should send during inquiry cooldown");
+    assert_eq!(pending.id, cmd_id(2));
+}
+
+#[test]
+fn test_inquiry_syntax_retry_respects_min_command_spacing() {
+    let mut core = SchedulerCore::with_retry_config(
+        TimeoutConfig::default(),
+        issue536_config(3, Duration::from_millis(10), Duration::from_secs(30)),
+    );
+    core.set_min_command_spacing(Duration::from_millis(200));
+    let now = Instant::now();
+    let inq = make_issue536_inquiry(
+        InquiryResponseSpec::Builtin(InquiryKind::Power),
+        CommandCategory::Quick,
+    );
+    core.start_inquiry(cmd_id(1), inq, Priority::Normal, CameraId::CAMERA_1, now);
+    core.process_event(syntax_error_for(cmd_id(1)), now);
+
+    // Backoff (10ms) has elapsed, but command spacing (200ms since last send)
+    // still blocks the resend.
+    let t = now + Duration::from_millis(50);
+    assert_eq!(core.promote_ready_retries(t), 1);
+    assert!(!core.can_send_inquiry(t));
+    assert!(core.next_item_to_send(t).is_none());
+
+    // Once command spacing is satisfied, the promoted retry can be sent.
+    let t2 = now + Duration::from_millis(200);
+    let pending = core
+        .next_item_to_send(t2)
+        .expect("retry should send once command spacing clears");
+    assert_eq!(pending.id, cmd_id(1));
+}
+
+#[test]
+fn test_stale_sequenced_syntax_error_is_ignored() {
+    let mut core = SchedulerCore::with_retry_config(
+        TimeoutConfig::default(),
+        issue536_config(3, Duration::from_millis(10), Duration::from_secs(30)),
+    );
+    let now = Instant::now();
+    let inq = make_issue536_inquiry(
+        InquiryResponseSpec::Builtin(InquiryKind::Power),
+        CommandCategory::Quick,
+    );
+    core.start_inquiry(cmd_id(1), inq, Priority::Normal, CameraId::CAMERA_1, now);
+    let ignored_before = core.ignored_unmatched_sequenced_replies();
+
+    // A sequenced 0x02 that matches no active command must be dropped without
+    // any FIFO or temporal fallback, and must not consume the in-flight inquiry.
+    let stale = SchedulerEvent::Error {
+        source: ReplySource::Sequenced {
+            sequence: 9999,
+            socket: None,
+        },
+        code: 0x02,
+    };
+    let actions = core.process_event(stale, now);
+    assert!(
+        actions.is_empty(),
+        "stale sequenced error must produce no actions"
+    );
+    assert_eq!(
+        core.ignored_unmatched_sequenced_replies(),
+        ignored_before + 1
+    );
+    assert_eq!(
+        core.retry_queue_depth(),
+        0,
+        "no retry from a stale sequenced error"
+    );
+    assert!(
+        core.is_awaiting_inquiry_reply(cmd_id(1)),
+        "inquiry untouched"
+    );
+    assert!(
+        core.inquiries_order.contains(&cmd_id(1)),
+        "FIFO attribution intact"
+    );
 }
