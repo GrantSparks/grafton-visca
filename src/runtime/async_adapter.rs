@@ -16,8 +16,8 @@ use crate::{
     error::{Error, Result},
     executor::Executor,
     runtime::core::{
-        CancelOutcome, PendingCommand, Priority, RetryCommand, SchedulerAction, SchedulerCore,
-        SchedulerEvent, TimeoutKind,
+        CancelOutcome, PendingCommand, Priority, SchedulerAction, SchedulerCore, SchedulerEvent,
+        TimeoutKind,
     },
     runtime::driver::{receive_one, IgnoreReason, ReceiveDisposition},
     timeout::{CommandCategory, TimeoutConfig},
@@ -572,38 +572,17 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
                         _ => self.metrics.protocol_errors += 1,
                     }
 
-                    // Log errors appropriately based on severity. A Syntax
-                    // Error on an inquiry can be a transient camera response
-                    // while the camera is busy moving; command-side syntax
-                    // errors are stronger evidence of an unsupported command.
-                    if *code == 0x02 || *code == 0x41 {
-                        let response_spec = cmd_id
-                            .and_then(|id| self.core.get_inquiry_response_spec(id))
-                            .map(|ty| format!("{:?}", ty));
-
-                        let message = if *code == 0x02 && response_spec.is_some() {
-                            "Syntax Error on inquiry - transient camera response; caller may retry"
-                        } else if *code == 0x02 {
-                            "Syntax Error - command likely unsupported by camera"
-                        } else {
+                    // Syntax-error (0x02) diagnostics — transient inquiry retry
+                    // vs. terminal command syntax error — are emitted
+                    // authoritatively by the scheduler core so the blocking and
+                    // async paths log identically. Only the contextual 0x41 note
+                    // is logged here.
+                    if *code == 0x41 {
+                        tracing::error!(
+                            ?cmd_id,
+                            code = "0x41",
                             "Command Not Executable in current state"
-                        };
-
-                        if *code == 0x02 && response_spec.is_some() {
-                            tracing::warn!(
-                                ?cmd_id,
-                                response_spec,
-                                code = format!("0x{:02x}", code),
-                                message
-                            );
-                        } else {
-                            tracing::error!(
-                                ?cmd_id,
-                                response_spec,
-                                code = format!("0x{:02x}", code),
-                                message
-                            );
-                        }
+                        );
                     }
                 }
                 event
@@ -754,10 +733,12 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
         Ok(())
     }
 
-    /// Get retries that are ready to send.
-    pub fn get_ready_retries(&mut self) -> Vec<RetryCommand> {
+    /// Promote retries whose backoff has elapsed back onto the send queues so
+    /// they are dispatched through `next_item_to_send` (pacing/capacity gated),
+    /// rather than sent directly. Returns the number of retries promoted.
+    pub fn promote_ready_retries(&mut self) -> usize {
         let now = self.executor.now();
-        self.core.get_ready_retries(now)
+        self.core.promote_ready_retries(now)
     }
 
     /// Get the next deadline for time-based operations.

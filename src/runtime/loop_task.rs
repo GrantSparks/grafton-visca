@@ -13,7 +13,7 @@ use crate::{
     protocol::framer::ProtocolFramer,
     runtime::{
         async_adapter::{AsyncAdapter, ControlRequest, SubmitRequest, UrgentControlRequest},
-        core::{CancelOutcome, PendingCommand},
+        core::CancelOutcome,
         driver::send_one,
     },
     timeout::TimeoutConfig,
@@ -695,45 +695,12 @@ pub async fn runtime_loop_with_config<
             adapter.pending_ack_count()
         );
 
-        // Process any newly ready retries
-        let ready_retries = adapter.get_ready_retries();
-        for retry in ready_retries {
-            debug!(
-                "Processing retry for command {} (attempt {})",
-                retry.id, retry.attempt
-            );
+        // Promote any retries whose backoff has elapsed back onto the send
+        // queues so the drain below dispatches them through the same pacing and
+        // capacity gates as fresh sends, rather than bypassing them.
+        adapter.promote_ready_retries();
 
-            // Category and kind are derived from EncodedCommand
-            let pending_cmd = PendingCommand {
-                id: retry.id,
-                command: retry.command,
-                priority: retry.priority,
-                camera_id: retry.camera_id,
-                submitted_at: executor.now(),
-            };
-
-            if let Err(e) = send_one(
-                &mut transport,
-                &executor,
-                &mut adapter,
-                pending_cmd,
-                &config.envelope,
-                &mut send_buf,
-                config.write_timeout,
-            )
-            .await
-            {
-                handle_send_failure!(
-                    transport,
-                    adapter,
-                    boundary_receivers,
-                    e,
-                    "Send failed during retry"
-                );
-            }
-        }
-
-        // Try to send any queued items
+        // Try to send any queued items (fresh sends and promoted retries alike).
         while let Some(cmd) = adapter.next_item_to_send() {
             if let Err(e) = send_one(
                 &mut transport,

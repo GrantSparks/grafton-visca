@@ -727,6 +727,26 @@ pub mod helpers {
         ]
     }
 
+    /// Create a transient inquiry SYNTAX ERROR (0x02) followed by a successful
+    /// data reply on resend (issue #536).
+    ///
+    /// The first send of an inquiry matching `pattern` receives a `0x02` syntax
+    /// error (no socket assignment, per VISCA immediate-error framing); the
+    /// resend receives `data`. This models a camera that briefly reports `0x02`
+    /// for an inquiry while overloaded and then answers correctly.
+    pub fn syntax_error_then_inquiry_success(pattern: Vec<u8>, data: Vec<u8>) -> Vec<Step> {
+        vec![
+            Step::OnSend {
+                matches: Some(pattern.clone()),
+                responses: vec![vec![0x90, 0x60, 0x02, VISCA_TERMINATOR]],
+            },
+            Step::OnSend {
+                matches: Some(pattern),
+                responses: vec![data], // No ACK for inquiries per VISCA spec
+            },
+        ]
+    }
+
     /// Create a sequence of BUFFER FULL responses followed by success
     pub fn buffer_full_sequence_then_success(socket: u8, full_count: usize) -> Vec<Step> {
         let mut steps = Vec::new();

@@ -17,7 +17,7 @@ use crate::{
     camera::CommandId,
     camera_id::CameraId,
     capabilities::Profile,
-    command::{response::Response, CommandKind, ViscaCommand},
+    command::{response::Response, ViscaCommand},
     error::{Error, Result},
     protocol::framer::ProtocolFramer,
     runtime::{
@@ -400,7 +400,21 @@ impl<P: Profile> BlockingRunner<P> {
 
             let now = Instant::now();
 
-            if let Some(cmd) = self.core.next_item_to_send(now) {
+            // Promote any retries whose backoff has elapsed back onto the send
+            // queues so they are dispatched through the same pacing/capacity
+            // gates as fresh sends (profile spacing, socket/in-flight limits,
+            // inquiry cooldown) rather than bypassing them.
+            self.core.promote_ready_retries(now);
+
+            // Drain everything currently sendable (fresh sends and promoted
+            // retries alike). `next_item_to_send` returns `None` as soon as a
+            // pacing or capacity gate blocks, so this naturally stops at the
+            // profile's spacing boundaries.
+            loop {
+                let Some(cmd) = self.core.next_item_to_send(now) else {
+                    break;
+                };
+
                 let mut scheduler = BlockingScheduler {
                     core: &mut self.core,
                     now,
@@ -446,72 +460,9 @@ impl<P: Profile> BlockingRunner<P> {
                                 return Err(error);
                             }
                         }
-                        continue;
-                    }
-                }
-            }
-
-            let ready_retries = self.core.get_ready_retries(now);
-            for retry in ready_retries {
-                let kind = retry.kind();
-
-                let mut scheduler = BlockingScheduler {
-                    core: &mut self.core,
-                    now,
-                };
-
-                let write_timeout = transport.transport_config().write_timeout;
-
-                let pending_cmd = PendingCommand {
-                    id: retry.id,
-                    command: retry.command.clone(),
-                    priority: retry.priority,
-                    camera_id: retry.camera_id,
-                    submitted_at: now,
-                };
-
-                match send_one(
-                    transport,
-                    &mut scheduler,
-                    pending_cmd,
-                    &self.envelope,
-                    &mut send_buf,
-                    write_timeout,
-                ) {
-                    SendResult::Ok => {
-                        debug!(
-                            "Sent retry for {} {retry_id} (attempt {attempt})",
-                            if kind == CommandKind::Inquiry {
-                                "inquiry"
-                            } else {
-                                "command"
-                            },
-                            retry_id = retry.id,
-                            attempt = retry.attempt
-                        );
-                    }
-                    SendResult::Err { error, action } => {
-                        debug!("Send retry operation failed: {error:?}");
-                        // For stream transports, a send failure poisons the transport
-                        if transport.send_semantics() == SendSemantics::Stream {
-                            let reason = format!("Send failed during retry: {error}");
-                            tracing::error!(
-                                send_semantics = ?transport.send_semantics(),
-                                reason = %reason,
-                                "Stream transport poisoned - failing command and exiting"
-                            );
-                            self.core.clear_all();
-                            return Err(Error::StreamPoisoned {
-                                reason: reason.into(),
-                            });
-                        }
-                        // For datagram transports, check if this failure is for our target command
-                        if let Some(SchedulerAction::CommandFailed { id, error }) = action {
-                            if id == target_cmd_id {
-                                return Err(error);
-                            }
-                        }
-                        continue;
+                        // Stop draining and fall through to timeout/receive
+                        // handling; remaining sendable items are retried next loop.
+                        break;
                     }
                 }
             }
@@ -643,6 +594,7 @@ mod tests {
     use super::*;
     use crate::camera::profiles::PtzOpticsG2;
     use crate::command::encode::ViscaCommand;
+    use crate::command::CommandKind;
     use crate::timeout::CommandCategory;
     use crate::transport::builder::TransportConfig;
     use std::collections::VecDeque;
