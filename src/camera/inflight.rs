@@ -155,7 +155,7 @@ pub struct Preset;
 /// - [`OpKind::Continuous`] — a continuous drive or an instantaneous stop, where
 ///   "physical motion ended" is not a well-defined event (continuous `tele`/
 ///   `wide` zoom, directional pan/tilt, or a `stop`). For these, `await_settled`
-///   returns [`Error::NotSupported`](crate::Error::NotSupported).
+///   returns [`Error::NotSupported`].
 ///
 /// In Phase 1 this distinction is carried as runtime data on the handle. Phase 2
 /// promotes it into the marker type `C` so a wrong `await_settled` call becomes a

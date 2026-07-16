@@ -858,7 +858,7 @@ where
     ///
     /// Like [`submit`](Self::submit) but the handle is marked
     /// [continuous](crate::camera::OpKind::Continuous): `await_settled` returns
-    /// [`Error::NotSupported`](crate::Error::NotSupported) because there is no
+    /// [`Error::NotSupported`] because there is no
     /// well-defined physical-settle event for a continuous drive or a stop.
     ///
     /// # Errors
@@ -1043,7 +1043,7 @@ where
     ///
     /// Like [`submit`](Self::submit) but the handle is marked
     /// [continuous](crate::camera::OpKind::Continuous): `await_settled` returns
-    /// [`Error::NotSupported`](crate::Error::NotSupported) because there is no
+    /// [`Error::NotSupported`] because there is no
     /// well-defined physical-settle event for a continuous drive or a stop.
     ///
     /// # Errors
