@@ -553,7 +553,7 @@ where
     /// * `Err(Error::Timeout)` - Deadline exceeded before completing check
     /// * `Err(...)` - Communication or parse error
     pub fn is_moving_axes_with_deadline(
-        &mut self,
+        &self,
         axes: Axes,
         deadline: Deadline,
         tolerance: &MovementTolerance,
@@ -689,6 +689,34 @@ where
         }
 
         Ok(pt_moving || zoom_moving || focus_moving)
+    }
+
+    /// Poll the given axes until they stop moving or the deadline elapses.
+    ///
+    /// Crate-internal helper backing
+    /// [`BlockingInFlight::await_settled`](crate::camera::BlockingInFlight::await_settled)
+    /// on profiles that do not emit an operation-complete message. Runs entirely
+    /// on the caller's thread using position inquiries.
+    ///
+    /// # Errors
+    /// Returns [`Error::Timeout`] if motion does not settle before `deadline`, or
+    /// a communication / parse error otherwise.
+    pub(crate) fn await_axes_settled(&self, axes: Axes, deadline: Deadline) -> Result<(), Error> {
+        if axes.is_empty() {
+            return Ok(());
+        }
+        let tolerance = MovementTolerance::default();
+        loop {
+            if deadline.is_expired() {
+                return Err(Error::Timeout);
+            }
+            if !self.is_moving_axes_with_deadline(axes, deadline, &tolerance)? {
+                return Ok(());
+            }
+            // Space out samples; the inquiry round-trips already add latency, but
+            // a short sleep avoids hammering the camera on fast links.
+            std::thread::sleep(Duration::from_millis(50));
+        }
     }
 
     /// Wait for movement completion using an [`AwaitConfig`].

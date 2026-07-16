@@ -827,6 +827,80 @@ where
         Ok((id, future))
     }
 
+    /// Submit a command and return a genuine async operation handle.
+    ///
+    /// This is the async half of the mode-honest `submit` primitive. It enqueues
+    /// the command and returns an [`InFlight`](crate::camera::InFlight) handle
+    /// bound to that exact command's response, without awaiting completion. Drive
+    /// it with `await_applied` / `await_settled`, or `cancel` / `detach` it.
+    ///
+    /// The handle is treated as a [targeted](crate::camera::OpKind::Targeted)
+    /// operation; use [`submit_continuous`](Self::submit_continuous) for a
+    /// continuous drive or a stop.
+    ///
+    /// # Errors
+    /// Returns an error if the command cannot be submitted (for example, an
+    /// inquiry, which is not cancelable).
+    pub async fn submit<C>(
+        &self,
+        command: &C,
+    ) -> Result<crate::camera::InFlight<'_, (), P, Exec>, Error>
+    where
+        C: ViscaCommand,
+        Tr: AsyncTransport + Send + Sync,
+        Exec: Executor + Send + Sync + Clone,
+    {
+        self.submit_op::<(), C>(command, crate::camera::OpKind::Targeted)
+            .await
+    }
+
+    /// Submit a continuous drive or stop command and return an async handle.
+    ///
+    /// Like [`submit`](Self::submit) but the handle is marked
+    /// [continuous](crate::camera::OpKind::Continuous): `await_settled` returns
+    /// [`Error::NotSupported`](crate::Error::NotSupported) because there is no
+    /// well-defined physical-settle event for a continuous drive or a stop.
+    ///
+    /// # Errors
+    /// Returns an error if the command cannot be submitted.
+    pub async fn submit_continuous<C>(
+        &self,
+        command: &C,
+    ) -> Result<crate::camera::InFlight<'_, (), P, Exec>, Error>
+    where
+        C: ViscaCommand,
+        Tr: AsyncTransport + Send + Sync,
+        Exec: Executor + Send + Sync + Clone,
+    {
+        self.submit_op::<(), C>(command, crate::camera::OpKind::Continuous)
+            .await
+    }
+
+    /// Shared submission primitive: enqueue a command and build a typed handle.
+    ///
+    /// This is the single implementation underlying [`submit`](Self::submit), the
+    /// noun-scoped `submit_*` helpers, and the (deprecated) `_op` methods, so none
+    /// of them duplicate the enqueue-and-wrap logic.
+    pub(crate) async fn submit_op<Cat, C>(
+        &self,
+        command: &C,
+        kind: crate::camera::OpKind,
+    ) -> Result<crate::camera::InFlight<'_, Cat, P, Exec>, Error>
+    where
+        C: ViscaCommand,
+        Tr: AsyncTransport + Send + Sync,
+        Exec: Executor + Send + Sync + Clone,
+    {
+        let (id, response_future) = self.start_command_with_id(command).await?;
+        Ok(crate::camera::InFlight::new(
+            id,
+            self.camera_id(),
+            self.runtime(),
+            response_future,
+            kind,
+        ))
+    }
+
     /// Cancel all commands on a specific socket.
     ///
     /// This method sends a cancel command to the specified VISCA socket,
@@ -932,6 +1006,110 @@ where
 
         let response = self.send_command(&command).block();
         std::future::ready(response.and_then(crate::command::Response::into_result))
+    }
+
+    /// Submit a movement/actuation command and return a genuine blocking handle.
+    ///
+    /// This is the blocking half of the mode-honest `submit` primitive: it queues
+    /// the command with the runner (allocating its id) but performs **no**
+    /// transport I/O. Use the returned [`BlockingInFlight`](crate::camera::BlockingInFlight)
+    /// to decide when to block for completion (`await_applied` / `await_settled`),
+    /// to `cancel`, or to `detach`.
+    ///
+    /// The handle is treated as a [targeted](crate::camera::OpKind::Targeted)
+    /// operation whose settle is observed across all axes; use
+    /// [`submit_continuous`](Self::submit_continuous) for a continuous drive or a
+    /// stop.
+    ///
+    /// # Errors
+    /// Returns an error if the command cannot be encoded or the runner is busy.
+    pub fn submit<C>(
+        &self,
+        command: &C,
+    ) -> Result<crate::camera::BlockingInFlight<'_, C, P, Tr>, Error>
+    where
+        C: ViscaCommand,
+    {
+        let id = self.submit_command(command)?;
+        Ok(crate::camera::BlockingInFlight::new(
+            id,
+            self,
+            crate::camera::OpKind::Targeted,
+            crate::camera::Axes::ALL,
+        ))
+    }
+
+    /// Submit a continuous drive or stop command and return a blocking handle.
+    ///
+    /// Like [`submit`](Self::submit) but the handle is marked
+    /// [continuous](crate::camera::OpKind::Continuous): `await_settled` returns
+    /// [`Error::NotSupported`](crate::Error::NotSupported) because there is no
+    /// well-defined physical-settle event for a continuous drive or a stop.
+    ///
+    /// # Errors
+    /// Returns an error if the command cannot be encoded or the runner is busy.
+    pub fn submit_continuous<C>(
+        &self,
+        command: &C,
+    ) -> Result<crate::camera::BlockingInFlight<'_, C, P, Tr>, Error>
+    where
+        C: ViscaCommand,
+    {
+        let id = self.submit_command(command)?;
+        Ok(crate::camera::BlockingInFlight::new(
+            id,
+            self,
+            crate::camera::OpKind::Continuous,
+            crate::camera::Axes::NONE,
+        ))
+    }
+
+    /// Queue a command with the blocking runner without pumping I/O.
+    ///
+    /// Crate-internal primitive shared by [`submit`](Self::submit) and the
+    /// noun-scoped blocking `submit_*` helpers.
+    pub(crate) fn submit_command<C>(&self, command: &C) -> Result<crate::camera::CommandId, Error>
+    where
+        C: ViscaCommand,
+    {
+        let mut runner = self
+            .blocking_runner
+            .try_borrow_mut()
+            .map_err(|_| Error::TransportBusy)?;
+        runner.start_command(command, self.camera_id)
+    }
+
+    /// Drive a specific queued command to its protocol completion, synchronously.
+    ///
+    /// Crate-internal; backs [`BlockingInFlight::await_applied`](crate::camera::BlockingInFlight::await_applied).
+    pub(crate) fn await_command_applied(
+        &self,
+        id: crate::camera::CommandId,
+        deadline: Option<crate::timeout::Deadline>,
+    ) -> Result<(), Error> {
+        let transport_cell = self.transport();
+        let mut transport = transport_cell
+            .try_borrow_mut()
+            .map_err(|_| Error::TransportBusy)?;
+        let mut runner = self
+            .blocking_runner
+            .try_borrow_mut()
+            .map_err(|_| Error::TransportBusy)?;
+        runner
+            .await_command(&mut *transport, id, deadline)
+            .and_then(crate::command::Response::into_result)
+    }
+
+    /// Cancel a specific queued/in-flight command by id.
+    ///
+    /// Crate-internal; backs [`BlockingInFlight::cancel`](crate::camera::BlockingInFlight::cancel).
+    pub(crate) fn cancel_command_id(&self, id: crate::camera::CommandId) -> Result<(), Error> {
+        let mut runner = self
+            .blocking_runner
+            .try_borrow_mut()
+            .map_err(|_| Error::TransportBusy)?;
+        runner.cancel(id);
+        Ok(())
     }
 
     /// Send a typed command and return the response.

@@ -1,5 +1,11 @@
 //! Dynamic trait object API with per-operation timeout support.
 //!
+// The hand-written dyn facade still bridges to the static `_op` methods, which
+// are deprecated in favour of `submit` (issue #539, Phase 1). It is slated for
+// descriptor-driven code generation in a follow-up pass; until then, silence the
+// internal deprecation warnings its bridging calls would otherwise emit.
+#![allow(deprecated)]
+//!
 //! This module provides object-safe trait definitions for runtime polymorphism
 //! with cameras. Unlike the static `Camera<M, P, Tr, Exec>` type, these traits
 //! can be used with `dyn` dispatch, enabling heterogeneous collections of cameras
@@ -1025,7 +1031,7 @@ where
         match timeout {
             Some(t) => Box::pin(async move {
                 let handle = self.inner.camera.pan_tilt_home_op().await?;
-                handle.await_completion(t).await
+                handle.await_applied(t).await
             }),
             None => {
                 use crate::camera::controls::pan_tilt::PanTiltControl;
@@ -1055,7 +1061,7 @@ where
                     .camera
                     .pan_tilt_absolute_op(pan_deg, tilt_deg, speed)
                     .await?;
-                handle.await_completion(t).await
+                handle.await_applied(t).await
             }),
             None => {
                 use crate::camera::controls::pan_tilt::PanTiltControl;
@@ -1096,7 +1102,7 @@ where
                     .camera
                     .pan_tilt_relative_op(pan_deg, tilt_deg, speed)
                     .await?;
-                handle.await_completion(t).await
+                handle.await_applied(t).await
             }),
             None => {
                 use crate::camera::controls::pan_tilt::PanTiltControl;
@@ -1139,7 +1145,7 @@ where
         match timeout {
             Some(t) => Box::pin(async move {
                 let handle = self.inner.camera.pan_tilt_reset_op().await?;
-                handle.await_completion(t).await
+                handle.await_applied(t).await
             }),
             None => {
                 use crate::camera::controls::pan_tilt::PanTiltControl;
@@ -1192,7 +1198,7 @@ where
         match timeout {
             Some(t) => Box::pin(async move {
                 let handle = self.inner.camera.zoom_tele_op(speed).await?;
-                handle.await_completion(t).await
+                handle.await_applied(t).await
             }),
             None => {
                 use crate::camera::controls::zoom::ZoomControl;
@@ -1209,7 +1215,7 @@ where
         match timeout {
             Some(t) => Box::pin(async move {
                 let handle = self.inner.camera.zoom_wide_op(speed).await?;
-                handle.await_completion(t).await
+                handle.await_applied(t).await
             }),
             None => {
                 use crate::camera::controls::zoom::ZoomControl;
@@ -1237,8 +1243,12 @@ where
         match timeout {
             Some(t) => Box::pin(async move {
                 let command = crate::camera::controls::zoom::zoom_position_command::<P>(position)?;
-                let handle = self.inner.camera.start_zoom_operation(command).await?;
-                handle.await_completion(t).await
+                let handle = self
+                    .inner
+                    .camera
+                    .start_zoom_operation(command, crate::camera::OpKind::Targeted)
+                    .await?;
+                handle.await_applied(t).await
             }),
             None => match crate::camera::controls::zoom::zoom_position_command::<P>(position) {
                 Ok(command) => self.inner.camera.execute(command),
@@ -1259,7 +1269,11 @@ where
             }
 
             let command = crate::camera::controls::zoom::zoom_position_command::<P>(position)?;
-            let handle = self.inner.camera.start_zoom_operation(command).await?;
+            let handle = self
+                .inner
+                .camera
+                .start_zoom_operation(command, crate::camera::OpKind::Targeted)
+                .await?;
             self.erase_inflight(handle, OperationCategory::Zoom)
         })
     }
@@ -1301,8 +1315,12 @@ where
             Some(t) => Box::pin(async move {
                 let command =
                     crate::camera::controls::zoom::zoom_normalized_command::<P>(position)?;
-                let handle = self.inner.camera.start_zoom_operation(command).await?;
-                handle.await_completion(t).await
+                let handle = self
+                    .inner
+                    .camera
+                    .start_zoom_operation(command, crate::camera::OpKind::Targeted)
+                    .await?;
+                handle.await_applied(t).await
             }),
             None => match crate::camera::controls::zoom::zoom_normalized_command::<P>(position) {
                 Ok(command) => self.inner.camera.execute(command),
@@ -1346,8 +1364,12 @@ where
                     position, domain,
                 )?;
                 let command = crate::camera::controls::zoom::zoom_position_command::<P>(zoom)?;
-                let handle = self.inner.camera.start_zoom_operation(command).await?;
-                handle.await_completion(t).await
+                let handle = self
+                    .inner
+                    .camera
+                    .start_zoom_operation(command, crate::camera::OpKind::Targeted)
+                    .await?;
+                handle.await_applied(t).await
             }),
             None => {
                 let command = crate::camera::controls::zoom::zoom_from_normalized_for_profile::<P>(
@@ -1421,7 +1443,7 @@ where
         match timeout {
             Some(t) => Box::pin(async move {
                 let handle = self.inner.camera.set_focus_op(position).await?;
-                handle.await_completion(t).await
+                handle.await_applied(t).await
             }),
             None => {
                 use crate::camera::controls::focus::FocusControl;
@@ -1501,7 +1523,7 @@ where
         match timeout {
             Some(t) => Box::pin(async move {
                 let handle = self.inner.camera.preset_recall_op(preset).await?;
-                handle.await_completion(t).await
+                handle.await_applied(t).await
             }),
             None => {
                 use crate::camera::controls::presets::PresetsControl;

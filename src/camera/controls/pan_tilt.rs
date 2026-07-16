@@ -405,16 +405,18 @@ where
         &self,
         command: PanTiltCommand,
     ) -> Result<crate::camera::InFlight<'_, crate::camera::PanTiltOperation, P, Exec>, Error> {
-        let (id, response_future) = self.start_command_with_id(&command).await?;
-        Ok(crate::camera::InFlight::new(
-            id,
-            self.camera_id(),
-            self.runtime(),
-            response_future,
-        ))
+        self.submit_op::<crate::camera::PanTiltOperation, _>(
+            &command,
+            crate::camera::OpKind::Targeted,
+        )
+        .await
     }
 
     /// Move to an absolute pan/tilt position and return an operation handle.
+    #[deprecated(
+        since = "1.1.0",
+        note = "use `submit(cmd)` (or the noun-scoped `submit_*` helper) and drive the returned handle with `await_applied` / `await_settled`; the `_op` methods are removed in 2.0"
+    )]
     pub async fn pan_tilt_absolute_op(
         &self,
         pan: impl Into<Degrees>,
@@ -426,6 +428,10 @@ where
     }
 
     /// Move relative to the current position and return an operation handle.
+    #[deprecated(
+        since = "1.1.0",
+        note = "use `submit(cmd)` (or the noun-scoped `submit_*` helper) and drive the returned handle with `await_applied` / `await_settled`; the `_op` methods are removed in 2.0"
+    )]
     pub async fn pan_tilt_relative_op(
         &self,
         pan: impl Into<Degrees>,
@@ -453,6 +459,10 @@ where
     ///
     /// # Errors
     /// Returns an error if the command fails to send.
+    #[deprecated(
+        since = "1.1.0",
+        note = "use `submit(cmd)` (or the noun-scoped `submit_*` helper) and drive the returned handle with `await_applied` / `await_settled`; the `_op` methods are removed in 2.0"
+    )]
     pub async fn pan_tilt_home_op(
         &self,
     ) -> Result<crate::camera::InFlight<'_, crate::camera::PanTiltOperation, P, Exec>, Error> {
@@ -476,6 +486,10 @@ where
     ///
     /// # Errors
     /// Returns an error if the command fails to send.
+    #[deprecated(
+        since = "1.1.0",
+        note = "use `submit(cmd)` (or the noun-scoped `submit_*` helper) and drive the returned handle with `await_applied` / `await_settled`; the `_op` methods are removed in 2.0"
+    )]
     pub async fn pan_tilt_reset_op(
         &self,
     ) -> Result<crate::camera::InFlight<'_, crate::camera::PanTiltOperation, P, Exec>, Error> {

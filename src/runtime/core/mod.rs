@@ -2234,10 +2234,9 @@ impl SchedulerCore {
         // Extract metadata before cleanup
         let (category, camera_id) = if let Some(state) = self.commands.get(&cmd_id) {
             (state.category(), state.camera_id)
-        } else if let Some(state) = self.inquiries.get(&cmd_id) {
-            (state.category(), state.camera_id)
         } else {
-            return None;
+            let state = self.inquiries.get(&cmd_id)?;
+            (state.category(), state.camera_id)
         };
 
         // Clean up sequence mappings

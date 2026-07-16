@@ -49,6 +49,12 @@ use crate::{
     executor::Executor, Result,
 };
 
+#[cfg(not(feature = "mode-async"))]
+use core::{marker::PhantomData, time::Duration};
+
+#[cfg(not(feature = "mode-async"))]
+use crate::{capabilities::Profile, error::Error, Result};
+
 use core::num::NonZeroU32;
 
 /// Opaque, type-safe identifier for in-flight commands.
@@ -139,6 +145,29 @@ pub struct Focus;
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Preset;
 
+/// Whether an operation has a well-defined *settled* (physical-motion-ended) state.
+///
+/// This distinguishes the two shapes of movement command that share a handle:
+///
+/// - [`OpKind::Targeted`] — a move that reaches a destination and physically
+///   settles (absolute/relative/home/reset, set-position, preset recall).
+///   `await_settled` is meaningful for these.
+/// - [`OpKind::Continuous`] — a continuous drive or an instantaneous stop, where
+///   "physical motion ended" is not a well-defined event (continuous `tele`/
+///   `wide` zoom, directional pan/tilt, or a `stop`). For these, `await_settled`
+///   returns [`Error::NotSupported`](crate::Error::NotSupported).
+///
+/// In Phase 1 this distinction is carried as runtime data on the handle. Phase 2
+/// promotes it into the marker type `C` so a wrong `await_settled` call becomes a
+/// compile error.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OpKind {
+    /// A targeted move that reaches a destination and physically settles.
+    Targeted,
+    /// A continuous drive or an instantaneous stop with no well-defined settle.
+    Continuous,
+}
+
 /// Type alias for boxed response futures returned by `start_command_with_id`.
 #[cfg(feature = "mode-async")]
 pub type ResponseFuture = Pin<Box<dyn Future<Output = Result<Response, Error>> + Send + 'static>>;
@@ -161,6 +190,7 @@ pub type ResponseFuture = Pin<Box<dyn Future<Output = Result<Response, Error>> +
 /// - `P`: Camera profile type
 /// - `Exec`: Async executor type
 #[cfg(feature = "mode-async")]
+#[must_use = "an InFlight handle does nothing unless you await_applied/await_settled, cancel, or detach it (dropping it detaches: the already-dispatched command keeps running, it is not stopped)"]
 pub struct InFlight<'a, C, P, Exec>
 where
     P: Profile,
@@ -173,8 +203,10 @@ where
     /// Runtime that owns the in-flight command.
     runtime: &'a crate::runtime::RuntimeHandle<P, Exec>,
     /// The response future that completes when the camera reports completion.
-    /// Wrapped in Mutex to allow `await_completion` to take ownership.
+    /// Wrapped in Mutex to allow `await_applied` to take ownership.
     response_future: Mutex<Option<ResponseFuture>>,
+    /// Whether this operation has a well-defined settled state.
+    kind: OpKind,
     /// Zero-sized marker for the category.
     _c: PhantomData<C>,
 }
@@ -198,12 +230,14 @@ where
         camera_id: CameraId,
         runtime: &'a crate::runtime::RuntimeHandle<P, Exec>,
         response_future: ResponseFuture,
+        kind: OpKind,
     ) -> Self {
         Self {
             id,
             camera_id,
             runtime,
             response_future: Mutex::new(Some(response_future)),
+            kind,
             _c: PhantomData,
         }
     }
@@ -228,30 +262,28 @@ where
         self.runtime.cancel(self.camera_id, self.id).await
     }
 
-    /// Wait for this operation to complete.
+    /// Block (asynchronously) until the command is *applied*.
     ///
-    /// This method awaits the response future stored in this handle, which
-    /// completes when the camera sends a VISCA completion message. The timeout
-    /// parameter controls how long to wait for the camera's response.
-    ///
-    /// # Arguments
-    ///
-    /// - `timeout`: Maximum time to wait for completion
+    /// This awaits the response future stored in this handle, which completes
+    /// when the camera has accepted and protocol-completed the command. It is
+    /// available on **every** handle, including continuous drives and stops — a
+    /// deadman `STOP` uses exactly this. The `timeout` bounds how long to wait
+    /// for the camera's response.
     ///
     /// # Returns
     ///
-    /// - `Ok(())` if the operation completed within the timeout
-    /// - `Err(Error::Timeout)` if the timeout elapsed before completion
+    /// - `Ok(())` if the command was applied within the timeout
+    /// - `Err(Error::Timeout)` if the timeout elapsed first
     /// - `Err(Error::*)` for other communication or camera errors
     ///
     /// # Errors
     ///
     /// Returns an error if:
     /// - The wait times out (`Error::Timeout`)
-    /// - This method is called more than once (`Error::InvalidState`)
+    /// - This method (or `await_settled`) is called more than once (`Error::InvalidState`)
     /// - The internal mutex is poisoned (`Error::LockPoisoned`)
     /// - Other communication or camera errors occur
-    pub async fn await_completion(&self, timeout: Duration) -> Result<()> {
+    pub async fn await_applied(&self, timeout: Duration) -> Result<()> {
         // Take the response future from the mutex (can only be awaited once)
         let future = self
             .response_future
@@ -259,10 +291,64 @@ where
             .ok()
             .ok_or(Error::LockPoisoned("InFlight response_future"))?
             .take()
-            .ok_or_else(|| Error::InvalidState("await_completion called more than once".into()))?;
+            .ok_or_else(|| Error::InvalidState("await_applied called more than once".into()))?;
 
         // Use the executor's timeout mechanism to enforce the deadline
         self.runtime.timeout(timeout, future).await?.map(|_| ())
+    }
+
+    /// Deprecated alias for [`await_applied`](Self::await_applied).
+    ///
+    /// Renamed to make the *applied* vs *settled* completion distinction
+    /// explicit. This shim delegates with zero duplicated logic.
+    #[deprecated(
+        since = "1.1.0",
+        note = "renamed to `await_applied` to distinguish applied vs settled completion; this alias will be removed in 2.0"
+    )]
+    pub async fn await_completion(&self, timeout: Duration) -> Result<()> {
+        self.await_applied(timeout).await
+    }
+
+    /// Explicitly detach: give up the handle without awaiting or canceling.
+    ///
+    /// This is the intentional fire-and-forget escape hatch. The already-
+    /// dispatched command keeps running on the camera; only this handle's ability
+    /// to observe completion or cancel it is discarded. Semantically identical to
+    /// dropping the handle, but explicit (and it silences the `#[must_use]` lint).
+    #[inline]
+    pub fn detach(self) {
+        // Nothing to do: dropping the handle performs no cancellation, matching
+        // the documented drop == detach rule (never auto-stop).
+    }
+
+    /// Block (asynchronously) until physical motion has *settled*.
+    ///
+    /// This is meaningful only for targeted moves (absolute/relative/home/reset,
+    /// set-position, preset recall). On profiles that report
+    /// [`SUPPORTS_OPERATION_COMPLETE`], the operation-complete message *is* the
+    /// settled signal, so this is equivalent to
+    /// [`await_applied`](Self::await_applied).
+    ///
+    /// [`SUPPORTS_OPERATION_COMPLETE`]: crate::capabilities::ProfileMetadata::SUPPORTS_OPERATION_COMPLETE
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::NotSupported`] if this handle represents a continuous
+    /// drive or a stop (there is no well-defined settled state); [`Error::Timeout`]
+    /// on deadline; other communication / camera errors otherwise.
+    ///
+    /// # Phase 1 limitation
+    ///
+    /// On profiles **without** an operation-complete message this resolves when
+    /// the command is *applied*; for a strict position-based settle, follow up
+    /// with [`Camera::await_axes_idle`](crate::camera::Camera::await_axes_idle).
+    /// A handle-internal position poll (as already implemented for blocking mode)
+    /// is planned alongside the finer targeted/continuous markers.
+    pub async fn await_settled(&self, timeout: Duration) -> Result<()> {
+        if self.kind == OpKind::Continuous {
+            return Err(Error::NotSupported);
+        }
+        self.await_applied(timeout).await
     }
 
     /// Consume this handle and return the parts needed for type-erased handling.
@@ -291,6 +377,181 @@ where
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("InFlight")
             .field("id", &self.id)
+            .field("category", &std::any::type_name::<C>())
+            .finish()
+    }
+}
+
+/// A genuine, synchronous handle to an in-flight blocking command.
+///
+/// This is the blocking-mode counterpart to the async `InFlight` handle. It is
+/// returned by [`Camera::submit`](crate::camera::Camera::submit) (and the
+/// noun-scoped blocking `submit_*` helpers) and provides the same *mode-honest*
+/// surface as the async handle — `await_applied`, `await_settled`, `cancel`,
+/// `detach` — but every method runs **synchronously on the caller's thread**. No
+/// async executor is ever spun up: `await_applied` drives the blocking runner's
+/// `run_until_complete` loop directly.
+///
+/// # Completion semantics
+///
+/// - [`await_applied`](Self::await_applied) resolves when the camera has accepted
+///   and protocol-completed the command. This is what a deadman `STOP` or a
+///   continuous drive uses.
+/// - [`await_settled`](Self::await_settled) resolves when physical motion has
+///   ended — via the operation-complete message on profiles that support it,
+///   otherwise via position polling. It is meaningful only for
+///   [`OpKind::Targeted`] handles; on a continuous/stop handle it returns
+///   [`Error::NotSupported`].
+///
+/// # Safety / lifecycle
+///
+/// The handle is `#[must_use]`: dropping it without `await_applied`,
+/// `await_settled`, `cancel`, or `detach` triggers a lint. **Dropping never
+/// stops the command** — drop is equivalent to [`detach`](Self::detach): the
+/// queued command is left to be flushed by the next blocking operation. Use
+/// [`cancel`](Self::cancel) to discard it instead.
+#[cfg(not(feature = "mode-async"))]
+#[must_use = "a BlockingInFlight handle does nothing unless you await_applied/await_settled, cancel, or detach it (dropping leaves the command queued, it does not stop it)"]
+pub struct BlockingInFlight<'a, C, P, Tr>
+where
+    P: Profile + Default,
+    Tr: crate::transport::BlockingTransport + crate::transport::HasTransportConfig + Send + 'static,
+{
+    /// The command ID assigned by the blocking runner.
+    id: CommandId,
+    /// The camera that owns the runner and transport this command lives in.
+    camera: &'a crate::camera::Camera<crate::mode::Blocking, P, Tr, ()>,
+    /// Whether this operation has a well-defined settled state.
+    kind: OpKind,
+    /// Axes to poll for a position-based settle (used when the profile has no
+    /// operation-complete message).
+    axes: crate::camera::Axes,
+    /// Zero-sized marker for the category.
+    _c: PhantomData<C>,
+}
+
+#[cfg(not(feature = "mode-async"))]
+impl<'a, C, P, Tr> BlockingInFlight<'a, C, P, Tr>
+where
+    P: Profile + Default,
+    Tr: crate::transport::BlockingTransport + crate::transport::HasTransportConfig + Send + 'static,
+{
+    /// Create a new blocking handle. Crate-internal; built by `Camera::submit`.
+    #[inline]
+    pub(crate) fn new(
+        id: CommandId,
+        camera: &'a crate::camera::Camera<crate::mode::Blocking, P, Tr, ()>,
+        kind: OpKind,
+        axes: crate::camera::Axes,
+    ) -> Self {
+        Self {
+            id,
+            camera,
+            kind,
+            axes,
+            _c: PhantomData,
+        }
+    }
+
+    /// Get the command ID assigned by the runner.
+    #[inline]
+    #[must_use]
+    pub fn id(&self) -> CommandId {
+        self.id
+    }
+
+    /// Block until the camera has accepted and protocol-completed the command.
+    ///
+    /// This drives the blocking runner synchronously on the caller's thread until
+    /// the command completes or `timeout` elapses. It is available on every
+    /// handle, including continuous drives and stops.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Timeout`] if the deadline elapses, or a communication /
+    /// camera error otherwise.
+    pub fn await_applied(self, timeout: Duration) -> Result<()> {
+        let deadline = crate::timeout::Deadline::from_timeout(timeout);
+        self.camera.await_command_applied(self.id, Some(deadline))
+    }
+
+    /// Cancel this command via the runner.
+    ///
+    /// If the command is still queued (nothing sent yet), it is discarded and its
+    /// completion resolves as canceled.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::TransportBusy`] if the runner is concurrently borrowed.
+    pub fn cancel(self) -> Result<()> {
+        self.camera.cancel_command_id(self.id)
+    }
+
+    /// Explicitly detach: give up the handle without waiting or canceling.
+    ///
+    /// This is the intentional fire-and-forget escape hatch. The queued command
+    /// is left in place to be flushed by the next blocking operation; it is not
+    /// stopped. Semantically identical to dropping the handle, but explicit (and
+    /// silences the `#[must_use]` lint).
+    #[inline]
+    pub fn detach(self) {
+        // Nothing to do: the command stays queued in the runner. Dropping `self`
+        // performs no cancellation, matching the documented drop == detach rule.
+    }
+}
+
+#[cfg(not(feature = "mode-async"))]
+impl<C, P, Tr> BlockingInFlight<'_, C, P, Tr>
+where
+    P: Profile + Default + crate::capabilities::ProfileMetadata,
+    Tr: crate::transport::BlockingTransport + crate::transport::HasTransportConfig + Send + 'static,
+{
+    /// Block until physical motion has ended.
+    ///
+    /// On profiles that report [`SUPPORTS_OPERATION_COMPLETE`], the operation
+    /// completion message *is* the settled signal, so this is equivalent to
+    /// [`await_applied`](Self::await_applied). On profiles without it, this first
+    /// waits for the command to be applied and then polls the relevant axis
+    /// positions until they stop changing (or `timeout` elapses).
+    ///
+    /// [`SUPPORTS_OPERATION_COMPLETE`]: crate::capabilities::ProfileMetadata::SUPPORTS_OPERATION_COMPLETE
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::NotSupported`] if this handle represents a continuous
+    /// drive or a stop (there is no well-defined settled state). Returns
+    /// [`Error::Timeout`] if motion does not settle within `timeout`, or a
+    /// communication / camera error otherwise.
+    pub fn await_settled(self, timeout: Duration) -> Result<()> {
+        if self.kind == OpKind::Continuous {
+            return Err(Error::NotSupported);
+        }
+
+        let deadline = crate::timeout::Deadline::from_timeout(timeout);
+
+        // Applied first: reach the protocol completion for this exact command.
+        self.camera.await_command_applied(self.id, Some(deadline))?;
+
+        // On operation-complete profiles, "applied" already means "settled".
+        if P::SUPPORTS_OPERATION_COMPLETE {
+            return Ok(());
+        }
+
+        // Otherwise fall back to position polling on the affected axes.
+        self.camera.await_axes_settled(self.axes, deadline)
+    }
+}
+
+#[cfg(not(feature = "mode-async"))]
+impl<C, P, Tr> std::fmt::Debug for BlockingInFlight<'_, C, P, Tr>
+where
+    P: Profile + Default,
+    Tr: crate::transport::BlockingTransport + crate::transport::HasTransportConfig + Send + 'static,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BlockingInFlight")
+            .field("id", &self.id)
+            .field("kind", &self.kind)
             .field("category", &std::any::type_name::<C>())
             .finish()
     }

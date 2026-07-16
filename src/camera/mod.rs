@@ -37,9 +37,11 @@ pub use camera_impl::Camera;
 
 // Re-export accessor and operation types that appear in public signatures.
 pub use accessors::*;
+#[cfg(not(feature = "mode-async"))]
+pub use inflight::BlockingInFlight;
 pub use inflight::{
-    CommandId, Focus as FocusOperation, PanTilt as PanTiltOperation, Preset as PresetOperation,
-    Zoom as ZoomOperation,
+    CommandId, Focus as FocusOperation, OpKind, PanTilt as PanTiltOperation,
+    Preset as PresetOperation, Zoom as ZoomOperation,
 };
 #[cfg(feature = "mode-async")]
 pub use inflight::{InFlight, ResponseFuture};
