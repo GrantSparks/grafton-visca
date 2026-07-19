@@ -210,7 +210,7 @@ where
     }
 }
 
-// Separate implementation for async-mode _op methods on async Camera
+// Profile-aware 1.x compatibility shim for the concrete async Camera.
 #[cfg(feature = "mode-async")]
 impl<P, Tr, Exec> crate::camera::Camera<crate::mode::Async, P, Tr, Exec>
 where
@@ -219,9 +219,13 @@ where
     Exec: crate::executor::Executor + Send + Sync + Clone + 'static,
 {
     /// Recall a preset position and return an operation handle.
+    ///
+    /// This remains the profile-validating handle-producing preset path
+    /// throughout 1.x; there is no public profile-aware preset command builder
+    /// to pass to `submit`. Its replacement is part of the 2.0 operation redesign.
     #[deprecated(
         since = "1.1.0",
-        note = "use `submit(cmd)` and drive the returned handle with `await_applied` / `await_settled`; the `_op` methods are removed in 2.0"
+        note = "profile-aware 1.x compatibility shim retained until the 2.0 operation redesign; there is no equivalent public preset command builder in 1.x"
     )]
     pub async fn preset_recall_op(
         &self,

@@ -122,7 +122,7 @@ run_test "runtime-smol + test-utils" \
 run_test "#539 blocking operation handles" \
     "cargo test --no-default-features --features test-utils --test issue_539_blocking_handle_test"
 
-run_test "#539 runtime-agnostic async contracts" \
+run_test "#539 mode-async command-metadata contracts" \
     "cargo test --no-default-features --features mode-async,test-utils --test issue_539_async_handle_test"
 
 run_test "#539 Tokio operation handles" \

@@ -190,7 +190,7 @@ cargo test --no-default-features --features test-utils --test compile_time_safet
 cargo clippy --all-targets --all-features -- -D warnings
 ```
 
-Before merging 1.0 contract work, run the declared matrix:
+Before merging 1.x contract work, run the declared matrix:
 
 ```sh
 bash .github/scripts/test-all-features.sh

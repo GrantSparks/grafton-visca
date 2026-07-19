@@ -4,7 +4,7 @@ error: unused `InFlight` that must be used
 12 |     camera.submit(&PanTilt::Home).await.expect("submission");
    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
-   = note: this operation handle should be awaited, cancelled, or explicitly detached; dropping it detaches the already-dispatched command
+   = note: this operation handle should be awaited, cancelled, or explicitly detached; dropping it leaves the submitted command scheduler-owned
 note: the lint level is defined here
   --> tests/api_contract/fail_must_use_async/ignored_operation_handle.rs:1:9
    |

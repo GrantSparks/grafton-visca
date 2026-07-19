@@ -412,7 +412,7 @@ where
     }
 }
 
-// Separate implementation for async-mode _op methods on async Camera
+// Profile-aware 1.x compatibility shims for the concrete async Camera.
 #[cfg(feature = "mode-async")]
 impl<P, Tr, Exec> crate::camera::Camera<crate::mode::Async, P, Tr, Exec>
 where
@@ -422,26 +422,13 @@ where
 {
     /// Set focus to a specific position and return an operation handle.
     ///
-    /// This method accepts any type that can be converted to `FocusPosition`, providing
-    /// a flexible API for setting focus using different units. Returns an `InFlight`
-    /// handle for fine-grained control over timeouts and cancellation.
+    /// This method accepts any type that can be converted to `FocusPosition` and
+    /// applies profile-aware range validation before submission. It remains the
+    /// ergonomic handle-producing conversion path throughout 1.x. If an
+    /// equivalent command has already been profile-validated, prefer `submit`.
     ///
     /// # Arguments
     /// * `position` - Target focus position (accepts multiple types via `TryInto<FocusPosition>`)
-    ///
-    /// # Examples
-    /// ```ignore
-    /// use grafton_visca::units::{Percentage, UnitInterval};
-    /// use std::time::Duration;
-    ///
-    /// // Using percentage
-    /// let handle = camera.set_focus_op(Percentage(50.0)).await?;
-    /// handle.await_applied(Duration::from_secs(5)).await?;
-    ///
-    /// // Using normalized value
-    /// let handle = camera.set_focus_op(UnitInterval::new(0.5)?).await?;
-    /// handle.await_applied(Duration::from_secs(5)).await?;
-    /// ```
     ///
     /// # Errors
     /// Returns an error if:
@@ -450,7 +437,7 @@ where
     /// - The command fails to send
     #[deprecated(
         since = "1.1.0",
-        note = "use `submit(cmd)` and drive the returned handle with `await_applied` / `await_settled`; the `_op` methods are removed in 2.0"
+        note = "profile-aware 1.x compatibility shim; prefer `submit(cmd)` only when the equivalent command is already profile-validated; this method is removed in the 2.0 operation redesign"
     )]
     pub async fn set_focus_op<T>(
         &self,

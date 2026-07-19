@@ -1,190 +1,132 @@
-//! Runtime-agnostic async example showing how to bring your own runtime.
+//! Runnable custom [`Executor`](grafton_visca::Executor) adapter.
 //!
-//! This example demonstrates:
-//! 1. How to implement the Executor trait for a custom runtime
-//! 2. How to use the library without depending on any specific runtime
-//! 3. How to create your own AsyncTransport implementation
+//! This deliberately small reference uses one OS thread per spawned task,
+//! `pollster` to drive futures, and `async-io` for timers. It favors clarity over
+//! scalability while exercising every timing/task primitive that a
+//! caller-provided grafton-visca executor must implement.
 //!
-//! The library provides built-in executors for common runtimes:
-//! - tokio (with --features runtime-tokio)
-//! - smol (with --features runtime-smol)
-//!
-//! But you can use ANY runtime by implementing the Executor trait!
+//! A real camera integration would pass `CustomExecutor` to
+//! `CameraBuilder::with_executor` together with a caller-owned `AsyncTransport`,
+//! then drive application futures with `CustomExecutor::block_on`. Production
+//! integrations should adapt their existing runtime instead of creating a thread
+//! for every spawned task.
 //!
 //! Run with:
 //! ```sh
 //! cargo run --example runtime_agnostic --features mode-async
-//! cargo run --example runtime_agnostic --features runtime-tokio
 //! ```
 
-fn main() {
-    use std::{future::Future, pin::Pin, time::Duration};
+use std::{future::Future, pin::Pin, time::Duration};
 
-    use grafton_visca::{Error, Executor};
+use grafton_visca::{Error, ExecError, Executor};
 
-    println!("🎥 Runtime-Agnostic Camera Control Demo");
-    println!("========================================");
-    println!();
+/// Minimal executor adapter built from runtime-neutral async crates.
+#[derive(Debug, Clone, Copy)]
+struct CustomExecutor;
 
-    // Show which runtime features are enabled
-    #[cfg(feature = "runtime-tokio")]
-    println!("✅ Tokio runtime support enabled");
+impl CustomExecutor {
+    fn new() -> Self {
+        Self
+    }
+}
 
-    #[cfg(feature = "runtime-smol")]
-    println!("✅ smol runtime support enabled");
+impl Executor for CustomExecutor {
+    type Join<T>
+        = Pin<Box<dyn Future<Output = Result<T, ExecError>> + Send + 'static>>
+    where
+        T: Send + 'static;
 
-    println!();
+    // The spawned task is explicitly detached below, so no extra token is needed.
+    type Detach = ();
 
-    // Example: Implement a custom executor for your runtime
-    // This shows the minimal interface you need to implement
-    #[derive(Debug, Clone)]
-    struct MyCustomExecutor;
-
-    impl Executor for MyCustomExecutor {
-        type Join<T>
-            = Pin<Box<dyn Future<Output = Result<T, grafton_visca::ExecError>> + Send + 'static>>
-        where
-            T: Send + 'static;
-
-        type Detach = ();
-
-        fn spawn_with_detach<F>(&self, future: F) -> (Self::Join<F::Output>, Self::Detach)
-        where
-            F: Future + Send + 'static,
-            F::Output: Send + 'static,
-        {
-            // For this demo, we return a stub
-            drop(future);
-            (
-                Box::pin(async {
-                    Err(grafton_visca::ExecError::TaskFailed(
-                        "Demo executor - implement spawn_with_detach() for your runtime".into(),
-                    ))
-                }),
-                (),
-            )
+    fn spawn_with_detach<F>(&self, future: F) -> (Self::Join<F::Output>, Self::Detach)
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        let (result_tx, result_rx) = flume::bounded(1);
+        let spawn_error_tx = result_tx.clone();
+        let spawn_result = std::thread::Builder::new()
+            .name("grafton-visca-custom-executor".to_string())
+            .spawn(move || {
+                let result = pollster::block_on(future);
+                let _ = result_tx.send(Ok(result));
+            });
+        if let Err(error) = spawn_result {
+            let _ = spawn_error_tx.send(Err(ExecError::TaskFailed(error.to_string())));
         }
 
-        fn block_on<F: Future>(&self, future: F) -> F::Output {
-            // For this demo, we panic
-            drop(future);
-            panic!("Demo executor - implement block_on() for your runtime")
-        }
+        let join = async move {
+            result_rx
+                .recv_async()
+                .await
+                .map_err(|error| ExecError::JoinFailed(error.to_string()))?
+        };
 
-        #[allow(clippy::manual_async_fn)]
-        fn sleep(&self, duration: Duration) -> impl Future<Output = ()> + Send + '_ {
-            // For this demo, we return immediately
-            async move {
-                println!("  Would sleep for {:?}", duration);
-            }
-        }
+        (Box::pin(join), ())
+    }
 
-        #[allow(clippy::manual_async_fn)]
-        fn timeout<'a, F, T>(
-            &'a self,
-            duration: Duration,
-            future: F,
-        ) -> impl Future<Output = Result<T, Error>> + Send + 'a
-        where
-            F: Future<Output = T> + Send + 'a,
-            T: Send + 'a,
-        {
-            // For this demo, we return timeout error
-            async move {
-                let _ = (duration, future);
+    fn block_on<F>(&self, future: F) -> F::Output
+    where
+        F: Future,
+    {
+        pollster::block_on(future)
+    }
+
+    #[allow(clippy::manual_async_fn)]
+    fn sleep(&self, duration: Duration) -> impl Future<Output = ()> + Send + '_ {
+        async move {
+            async_io::Timer::after(duration).await;
+        }
+    }
+
+    #[allow(clippy::manual_async_fn)]
+    fn timeout<'a, F, T>(
+        &'a self,
+        duration: Duration,
+        future: F,
+    ) -> impl Future<Output = Result<T, Error>> + Send + 'a
+    where
+        F: Future<Output = T> + Send + 'a,
+        T: Send + 'a,
+    {
+        async move {
+            futures_lite::future::race(async move { Ok(future.await) }, async move {
+                async_io::Timer::after(duration).await;
                 Err(Error::Timeout)
-            }
+            })
+            .await
+        }
+    }
+}
+
+fn main() -> Result<(), Error> {
+    let executor = CustomExecutor::new();
+
+    let task = executor.spawn(async { 6_u8 * 7 });
+    let answer = executor.block_on(task).map_err(Error::from)?;
+    println!("spawn/join result: {answer}");
+
+    executor.block_on(executor.sleep(Duration::from_millis(5)));
+    println!("sleep completed");
+
+    let quick =
+        executor.block_on(executor.timeout(Duration::from_millis(50), async { "ready" }))?;
+    println!("quick timeout-wrapped future: {quick}");
+
+    let timed_out = executor.block_on(executor.timeout(Duration::from_millis(5), async {
+        async_io::Timer::after(Duration::from_millis(50)).await;
+    }));
+    match timed_out {
+        Err(Error::Timeout) => println!("slow future timed out as expected"),
+        Err(error) => return Err(error),
+        Ok(()) => {
+            return Err(Error::InvalidState(
+                "custom executor timeout completed unexpectedly".into(),
+            ));
         }
     }
 
-    // Demonstrate using different runtime executors
-    #[cfg(feature = "runtime-tokio")]
-    {
-        use grafton_visca::TokioExecutor;
-
-        println!("Using Tokio executor:");
-        if let Ok(_executor) = TokioExecutor::from_current() {
-            println!("  ✅ Created TokioExecutor from current runtime");
-        } else {
-            println!("  Creating TokioExecutor outside of runtime context");
-            let rt = tokio::runtime::Runtime::new().unwrap();
-            let _guard = rt.enter();
-            let executor = TokioExecutor::from_current().unwrap();
-            println!("  ✅ Created TokioExecutor after entering runtime");
-            let _ = executor;
-        }
-    }
-
-    #[cfg(feature = "runtime-smol")]
-    {
-        use grafton_visca::SmolExecutor;
-
-        println!("Using smol executor:");
-        let executor = SmolExecutor::new();
-        println!("  ✅ Created SmolExecutor");
-        let _ = executor;
-    }
-
-    // Create an instance of your custom executor
-    let my_executor = MyCustomExecutor;
-    println!("\n✅ Created custom executor implementation");
-
-    // Example: How to create your own AsyncTransport
-    println!("\n📡 Custom AsyncTransport Example:");
-    println!("```rust");
-    println!("use grafton_visca::transport::AsyncTransport;");
-    println!("use bytes::Bytes;");
-    println!();
-    println!("struct MyCustomTransport {{ /* your fields */ }}");
-    println!();
-    println!("impl AsyncTransport for MyCustomTransport {{");
-    println!("    async fn send(&self, bytes: &[u8]) -> Result<()> {{");
-    println!("        // Send bytes using your async I/O");
-    println!("        Ok(())");
-    println!("    }}");
-    println!();
-    println!("    async fn recv(&self) -> Result<Bytes> {{");
-    println!("        // Receive response using your async I/O");
-    println!("        Ok(Bytes::new())");
-    println!("    }}");
-    println!("}}");
-    println!("```");
-
-    // Show how it all comes together
-    println!("\n🔧 Putting It All Together:");
-    println!("```rust");
-    println!("// Create your transport");
-    println!("let transport = MyCustomTransport::new();");
-    println!();
-    println!("// Create your executor");
-    println!("let executor = MyCustomExecutor;");
-    println!();
-    println!("// Build the camera with your components");
-    println!("let camera = CameraBuilder::with_executor(executor)");
-    println!("    .from_transport(transport)");
-    println!("    .profile::<PtzOpticsG2>()");
-    println!("    .open_async()");
-    println!("    .await?;");
-    println!();
-    println!("// Use the camera - all async operations use YOUR runtime!");
-    println!("let power_is_on = camera.power().state().await?;");
-    println!("let zoom = camera.zoom().position().await?;");
-    println!("```");
-
-    println!("\n📚 Key Benefits:");
-    println!("✅ No forced runtime dependency");
-    println!("✅ Works with ANY async runtime (tokio, smol, embassy, etc.)");
-    println!("✅ Can integrate with embedded async runtimes");
-    println!("✅ Full control over async execution");
-
-    println!("\n💡 Tips:");
-    println!("- Start with a provided executor (runtime-tokio) to test");
-    println!("- Look at TokioExecutor source for implementation example");
-    println!("- The spawn_with_detach() method is used for background tasks");
-    println!("- The timeout() method is critical for camera operations");
-
-    // Show that we can reference the executor
-    let _ = my_executor;
-
-    println!("\n✅ Example completed successfully!");
+    println!("custom Executor contract exercised successfully");
+    Ok(())
 }

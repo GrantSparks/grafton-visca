@@ -1,4 +1,4 @@
-//! Public API contract tests for the 1.0 surface.
+//! Public API contract tests for the 1.x surface.
 //!
 //! These tests intentionally assert stable behavior and exported entry points.
 //! Changes here should reflect an explicit public contract decision.

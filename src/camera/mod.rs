@@ -1,6 +1,6 @@
 //! Camera-first, profile-centric VISCA API.
 //!
-//! The primary 1.0 construction path is [`crate::camera::Connect`] for simple TCP, UDP,
+//! The primary 1.x construction path is [`crate::camera::Connect`] for simple TCP, UDP,
 //! and serial sessions, or [`crate::camera::CameraConfig`] when standard transports need explicit
 //! configuration. Once connected, use noun accessors such as
 //! `camera.power().on()` and `camera.zoom().position()`.

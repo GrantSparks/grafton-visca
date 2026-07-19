@@ -11,13 +11,18 @@
 //! ```
 
 #[cfg(not(feature = "mode-async"))]
+mod support;
+
+#[cfg(not(feature = "mode-async"))]
 mod blocking {
-    use std::{env, time::Duration};
+    use std::{env, io, time::Duration};
 
     use grafton_visca::{
         camera::{profiles::PtzOpticsG2, CameraConfig},
         transport::{BackoffStrategy, RetryConfig, TcpKeepaliveConfig, TransportConfig},
     };
+
+    use super::support::finish_session;
 
     #[derive(Debug, Clone, Copy)]
     enum TransportKind {
@@ -41,26 +46,60 @@ mod blocking {
     }
 
     impl Args {
-        fn parse() -> Self {
+        fn parse() -> Result<Self, io::Error> {
             let mut address = None;
-            let mut transport = TransportKind::Tcp;
+            let mut transport = None;
 
             for arg in env::args().skip(1) {
                 match arg.as_str() {
-                    "--udp" => transport = TransportKind::Udp,
-                    "--tcp" => transport = TransportKind::Tcp,
+                    "--udp" => select_transport(&mut transport, TransportKind::Udp)?,
+                    "--tcp" => select_transport(&mut transport, TransportKind::Tcp)?,
+                    "-h" | "--help" => return Err(io::Error::other(usage())),
+                    _ if arg.starts_with('-') => {
+                        return Err(invalid_input(format!(
+                            "unknown option `{arg}`\n{}",
+                            usage()
+                        )));
+                    }
                     _ if address.is_none() => address = Some(arg),
-                    _ => {}
+                    _ => {
+                        return Err(invalid_input(format!(
+                            "unexpected extra argument `{arg}`\n{}",
+                            usage()
+                        )));
+                    }
                 }
             }
 
-            Self {
+            Ok(Self {
                 address: address
                     .or_else(|| env::var("VISCA_CAMERA_ADDR").ok())
                     .unwrap_or_else(|| "192.168.0.110".to_string()),
-                transport,
-            }
+                transport: transport.unwrap_or(TransportKind::Tcp),
+            })
         }
+    }
+
+    fn select_transport(
+        selected: &mut Option<TransportKind>,
+        requested: TransportKind,
+    ) -> Result<(), io::Error> {
+        if selected.is_some() {
+            return Err(invalid_input(format!(
+                "select exactly one of --tcp or --udp\n{}",
+                usage()
+            )));
+        }
+        *selected = Some(requested);
+        Ok(())
+    }
+
+    fn invalid_input(message: impl Into<String>) -> io::Error {
+        io::Error::new(io::ErrorKind::InvalidInput, message.into())
+    }
+
+    fn usage() -> &'static str {
+        "usage: cargo run --example transport_builder_demo -- [address] [--tcp|--udp]"
     }
 
     fn transport_config(kind: TransportKind) -> TransportConfig {
@@ -98,16 +137,18 @@ mod blocking {
         }
     }
 
-    pub fn main() -> grafton_visca::Result<()> {
+    pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         let _ = tracing_subscriber::fmt::try_init();
 
-        let args = Args::parse();
+        let args = Args::parse()?;
         println!("Configured connection example");
         println!("Address: {}", args.address);
         println!("Transport: {}", args.transport.label());
 
         let camera = camera_config(&args).open_blocking()?;
-        let power = camera.power().state()?;
+        let power_result = camera.power().state();
+        let close_result = camera.close();
+        let power = finish_session(power_result, close_result)?;
 
         println!("Connected. Power is {}.", power_label(power));
         Ok(())
@@ -115,7 +156,7 @@ mod blocking {
 }
 
 #[cfg(not(feature = "mode-async"))]
-fn main() -> grafton_visca::Result<()> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     blocking::main()
 }
 

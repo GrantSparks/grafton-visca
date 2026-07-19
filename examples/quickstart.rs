@@ -10,13 +10,18 @@
 //! ```
 
 #[cfg(not(feature = "mode-async"))]
+mod support;
+
+#[cfg(not(feature = "mode-async"))]
 mod blocking {
-    use std::{env, thread::sleep, time::Duration};
+    use std::{env, io, thread::sleep, time::Duration};
 
     use grafton_visca::{
         camera::{profiles::PtzOpticsG2, Connect},
         Error,
     };
+
+    use super::support::finish_session;
 
     #[derive(Debug)]
     struct Args {
@@ -25,25 +30,41 @@ mod blocking {
     }
 
     impl Args {
-        fn parse() -> Self {
+        fn parse() -> Result<Self, io::Error> {
             let mut address = None;
             let mut move_camera = false;
 
             for arg in env::args().skip(1) {
                 match arg.as_str() {
                     "--move" => move_camera = true,
+                    "-h" | "--help" => return Err(io::Error::other(usage())),
+                    _ if arg.starts_with('-') => {
+                        return Err(io::Error::new(
+                            io::ErrorKind::InvalidInput,
+                            format!("unknown option `{arg}`\n{}", usage()),
+                        ));
+                    }
                     _ if address.is_none() => address = Some(arg),
-                    _ => {}
+                    _ => {
+                        return Err(io::Error::new(
+                            io::ErrorKind::InvalidInput,
+                            format!("unexpected extra argument `{arg}`\n{}", usage()),
+                        ));
+                    }
                 }
             }
 
-            Self {
+            Ok(Self {
                 address: address
                     .or_else(|| env::var("VISCA_CAMERA_ADDR").ok())
                     .unwrap_or_else(|| "192.168.0.110".to_string()),
                 move_camera,
-            }
+            })
         }
+    }
+
+    fn usage() -> &'static str {
+        "usage: cargo run --example quickstart -- [address] [--move]"
     }
 
     fn power_label(is_on: bool) -> &'static str {
@@ -54,41 +75,55 @@ mod blocking {
         }
     }
 
-    pub fn main() -> Result<(), Error> {
+    pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         let _ = tracing_subscriber::fmt::try_init();
 
-        let args = Args::parse();
+        let args = Args::parse()?;
         println!("Blocking quickstart");
         println!("Address: {}", args.address);
 
         let mut camera = Connect::open_tcp_blocking::<PtzOpticsG2>(&args.address)?;
+        let run_result = (|| -> Result<(), Error> {
+            let power = camera.power().state()?;
+            println!("Power: {}", power_label(power));
 
-        let power = camera.power().state()?;
-        println!("Power: {}", power_label(power));
+            let position = camera.zoom().position()?;
+            println!("Zoom position: 0x{:04X}", position.value());
 
-        match camera.zoom().position() {
-            Ok(position) => println!("Zoom position: 0x{:04X}", position.value()),
-            Err(error) => println!("Zoom position inquiry failed: {error}"),
-        }
+            if args.move_camera {
+                println!("Running short zoom movement.");
+                let start_result = camera.zoom().tele();
+                if start_result.is_ok() {
+                    sleep(Duration::from_millis(250));
+                }
 
-        if args.move_camera {
-            println!("Running short zoom movement.");
-            camera.zoom().tele()?;
-            sleep(Duration::from_millis(250));
-            camera.zoom().stop()?;
-            camera.await_zoom_idle(Duration::from_secs(2))?;
-            println!("Zoom stopped.");
-        } else {
-            println!("No movement requested. Pass --move to run a short zoom command.");
-        }
+                // Once movement starts, always attempt STOP before propagating
+                // its result or waiting for the axis to become idle.
+                let stop_result = camera.zoom().stop();
+                if start_result.is_err() {
+                    if let Err(error) = &stop_result {
+                        eprintln!("The safety STOP also failed: {error}");
+                    }
+                }
+                start_result?;
+                stop_result?;
+                camera.await_zoom_idle(Duration::from_secs(2))?;
+                println!("Zoom stopped.");
+            } else {
+                println!("No movement requested. Pass --move to run a short zoom command.");
+            }
 
-        camera.close()?;
+            Ok(())
+        })();
+        let close_result = camera.close();
+
+        finish_session(run_result, close_result)?;
         Ok(())
     }
 }
 
 #[cfg(not(feature = "mode-async"))]
-fn main() -> grafton_visca::Result<()> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     blocking::main()
 }
 

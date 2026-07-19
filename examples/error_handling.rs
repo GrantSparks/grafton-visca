@@ -8,7 +8,9 @@
 //! cargo run --example error_handling --features runtime-tokio -- 192.168.0.110
 //! ```
 
-use std::{borrow::Cow, time::Duration};
+mod support;
+
+use std::{borrow::Cow, env, io, time::Duration};
 
 use grafton_visca::{
     camera::{profiles::PtzOpticsG2, CameraConfig},
@@ -17,6 +19,8 @@ use grafton_visca::{
     Error,
 };
 
+use support::finish_session;
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _ = tracing_subscriber::fmt()
@@ -24,16 +28,38 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_target(false)
         .try_init();
 
-    let address = std::env::args()
-        .nth(1)
-        .or_else(|| std::env::var("VISCA_CAMERA_ADDR").ok())
-        .unwrap_or_else(|| "192.168.0.110".to_string());
+    let address = address()?;
 
     println!("VISCA error handling example");
     classify_common_errors();
-    connect_and_query(&address).await;
+    connect_and_query(&address).await?;
 
     Ok(())
+}
+
+fn address() -> Result<String, io::Error> {
+    let mut values = env::args().skip(1);
+    let address = match values.next() {
+        Some(value) if value.starts_with('-') => {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("unknown option `{value}`"),
+            ));
+        }
+        Some(value) => value,
+        None => env::var("VISCA_CAMERA_ADDR").unwrap_or_else(|_| "192.168.0.110".to_string()),
+    };
+
+    if let Some(extra) = values.next() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!(
+                "unexpected extra argument `{extra}`\nusage: cargo run --example error_handling --features runtime-tokio -- [address]"
+            ),
+        ));
+    }
+
+    Ok(address)
 }
 
 fn classify_common_errors() {
@@ -63,7 +89,7 @@ fn classify_common_errors() {
     }
 }
 
-async fn connect_and_query(address: &str) {
+async fn connect_and_query(address: &str) -> Result<(), Error> {
     println!("\nConnection check:");
     println!("  Address: {address}");
 
@@ -74,31 +100,28 @@ async fn connect_and_query(address: &str) {
         ..TransportConfig::default()
     });
 
-    let runtime = match TokioRuntime::from_current() {
-        Ok(runtime) => runtime,
-        Err(error) => {
-            println!("  Runtime unavailable: {error}");
-            return;
-        }
-    };
-
-    match config.open_async(runtime).await {
-        Ok(camera) => {
-            match camera.power().state().await {
-                Ok(is_on) => println!(
-                    "  Connected. Power is {}.",
-                    if is_on { "on" } else { "off" }
-                ),
-                Err(error) => println!("  Connected, but power inquiry failed: {error}"),
-            }
-            let _ = camera.close().await;
-        }
+    let runtime = TokioRuntime::from_current()?;
+    let camera = match config.open_async(runtime).await {
+        Ok(camera) => camera,
         Err(error) => {
             println!("  Connection failed: {error}");
             println!("  retryable={}", error.is_retryable());
             if let Some(delay) = error.suggested_retry_delay() {
                 println!("  suggested retry delay: {delay:?}");
             }
+            return Err(error);
         }
+    };
+
+    let inquiry_result = camera.power().state().await;
+    match &inquiry_result {
+        Ok(is_on) => println!(
+            "  Connected. Power is {}.",
+            if *is_on { "on" } else { "off" }
+        ),
+        Err(error) => println!("  Connected, but power inquiry failed: {error}"),
     }
+    let close_result = camera.close().await;
+
+    finish_session(inquiry_result.map(|_| ()), close_result)
 }

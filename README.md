@@ -12,13 +12,18 @@ A pure Rust library for controlling PTZ cameras via the VISCA protocol. Supports
 
 ---
 
-## 1.0 Support Matrix
+## 1.x Support Matrix
 
-The 1.0 contract is the camera-first API, the documented transport/runtime
+The 1.x contract is the camera-first API, the documented transport/runtime
 configuration types, root-level control trait and raw command extension
 surfaces, and the optional feature surfaces listed below. Hardware validation is
 narrower than software support: the library contract is tested automatically,
 while device-specific firmware quirks are handled as reproducible bugs.
+
+The upcoming 1.x release keeps the 1.0 camera-first surface stable while
+completing the additive operation-handle model across blocking, async, and
+dynamic use. Concrete async `_op` methods remain compatibility shims throughout
+1.x; their coherent typed replacement is intentionally deferred to 2.0.
 
 The rows below are the support promise. CI also includes compatibility checks
 for feature unions that can appear in downstream dependency graphs; those checks
@@ -27,19 +32,19 @@ documented rows they combine.
 
 ### APIs and runtimes
 
-| Area | Supported 1.0 contract | Automated validation |
+| Area | Supported 1.x contract | Automated validation |
 | ---- | ---------------------- | -------------------- |
 | Blocking API | Baseline build when `mode-async` is not enabled | `cargo test --no-default-features` |
 | Runtime-agnostic async | `mode-async` with caller-provided executor/runtime | `cargo test --no-default-features --features mode-async` |
 | Tokio async | `runtime-tokio`, `TokioRuntime`, Tokio TCP/UDP adapters | `cargo test --no-default-features --features runtime-tokio` |
 | smol async | `runtime-smol`, `SmolRuntime`, smol TCP/UDP adapters | `cargo test --no-default-features --features runtime-smol` |
 | Runtime coexistence | `runtime-tokio` and `runtime-smol` may be enabled together; camera construction still chooses one runtime explicitly | `cargo check --no-default-features --features runtime-tokio,runtime-smol` |
-| Dynamic API | `dyn-api` object-safe camera traits for async cameras, with runtime capabilities, command-completion timeouts, and cancellable in-flight handles | `cargo test --no-default-features --features runtime-tokio,dyn-api,test-utils --test dyn_api_integration_test`, `cargo test --no-default-features --features runtime-smol,dyn-api,test-utils --test dyn_api_smol_integration_test` |
+| Dynamic API | `dyn-api` object-safe camera traits for async cameras, with runtime capabilities and in-flight handles supporting applied/settled waits, cancellation, and detach | `cargo test --no-default-features --features runtime-tokio,dyn-api,test-utils --test dyn_api_integration_test`, `cargo test --no-default-features --features runtime-smol,dyn-api,test-utils --test dyn_api_smol_integration_test` |
 | Raw command extension | Custom command and inquiry implementations through `grafton_visca::command::{ViscaCommand, CommandBehavior, InquiryResponseSpec, InquiryKind, ResponseParser}` plus root command value re-exports. `ViscaCommand` covers encoding and response routing; typed built-in and raw inquiry responses are supplied by `ResponseParser`. | API contract tests |
 
 ### Transports
 
-| Transport | Supported 1.0 contract | Automated validation |
+| Transport | Supported 1.x contract | Automated validation |
 | --------- | ---------------------- | -------------------- |
 | TCP | Blocking, Tokio, and smol camera connections through `Connect`, `CameraConfig`, and transport config types | Runtime matrix above |
 | UDP | Blocking, Tokio, and smol camera connections through `Connect`, `CameraConfig`, and transport config types | Runtime matrix above |
@@ -49,7 +54,7 @@ documented rows they combine.
 
 ### Profiles
 
-| Profile family | Protocol | 1.0 support |
+| Profile family | Protocol | 1.x support |
 | -------------- | -------- | ----------- |
 | `GenericVisca` | Raw VISCA | Supported baseline profile with conservative capabilities |
 | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` | Raw VISCA | Supported; G2/G3 TCP and UDP behavior is hardware-validated |
@@ -126,12 +131,12 @@ matrix fit together.
 
 ### Optional features
 
-| Feature | 1.0 support |
+| Feature | 1.x support |
 | ------- | ----------- |
 | `serde` | Stable serialization/deserialization for public value and configuration types |
 | `schemars` | Stable JSON Schema generation for serde-backed public types |
 | `ts-rs` | Stable TypeScript type generation for supported exported types |
-| `dyn-api` | Stable object-safe async camera traits with command timeout and cancellation support |
+| `dyn-api` | Stable object-safe async camera traits with applied/settled waits, command timeouts, cancellation, and detach |
 | `test-utils` | Stable deterministic test transports, executors, and Tokio camera simulator under `grafton_visca::testing`; `runtime-tokio` alone does not expose test helpers |
 
 ### Compatibility-only checks
@@ -210,37 +215,66 @@ Ordinary noun methods remain the simplest command-completion surface. When a
 caller needs a per-command deadline, cancellation, or a physical settle signal,
 submit a built-in movement command and drive its operation handle explicitly.
 
-```rust,ignore
+`submit` manages lifecycle; it does not add profile capability or range
+validation beyond the command's own checks. Prefer typed noun controls for
+profile-validated ergonomic input. Built-in commands provide exact completion
+metadata. In 1.x, custom commands without metadata use a conservative targeted,
+all-axes fallback; use `submit_continuous` for a custom applied-only command.
+
+```rust
 use std::time::Duration;
 use grafton_visca::{camera::Connect, command::{PanTilt, Zoom}, profiles::PtzOpticsG2};
 
-let cam = Connect::open_tcp_blocking::<PtzOpticsG2>("192.168.0.110")?;
+fn move_home() -> Result<(), grafton_visca::Error> {
+    let cam = Connect::open_tcp_blocking::<PtzOpticsG2>("192.168.0.110")?;
 
-// Blocking submit performs the initial synchronous dispatch before returning.
-cam.submit(&PanTilt::Home)?
-    .await_settled(Duration::from_secs(20))?;
+    // Blocking submit performs initial synchronous dispatch before returning.
+    cam.submit(&PanTilt::Home)?
+        .await_settled(Duration::from_secs(20))?;
 
-// A stop/continuous command has no meaningful settled state; wait for it to be
-// accepted and protocol-completed instead.
-cam.submit(&Zoom::Stop)?
-    .await_applied(Duration::from_secs(2))?;
+    // Applied-only commands have no meaningful settled state.
+    cam.submit(&Zoom::Stop)?
+        .await_applied(Duration::from_secs(2))?;
+
+    cam.close()
+}
 ```
 
 The async form has the same vocabulary and awaits submission and terminal
 operations:
 
-```rust,ignore
-let handle = cam.submit(&PanTilt::Home).await?;
-handle.await_settled(Duration::from_secs(20)).await?;
+```rust
+use std::time::Duration;
+use grafton_visca::{camera::Connect, command::PanTilt, profiles::PtzOpticsG2, runtime::TokioRuntime};
+
+async fn move_home() -> Result<(), grafton_visca::Error> {
+    let runtime = TokioRuntime::from_current()?;
+    let cam = Connect::open_tcp_async::<PtzOpticsG2, _>(
+        "192.168.0.110",
+        runtime,
+    ).await?;
+
+    let handle = cam.submit(&PanTilt::Home).await?;
+    handle.await_settled(Duration::from_secs(20)).await?;
+
+    cam.close().await?;
+    Ok(())
+}
 ```
 
 - `await_applied` means the exact command was accepted and protocol-completed.
 - `await_settled` additionally means targeted physical motion ended. Profiles
   with an operation-complete signal use it; other profiles poll only the affected
   axes under the same total deadline.
-- `cancel` requests ID/socket-safe protocol cancellation.
-- `detach` is explicit fire-and-forget. Dropping a handle has the same non-canceling
-  behavior; `#[must_use]` warns only when a returned handle is ignored directly.
+- `cancel` requests scheduler-owned, ID/socket-safe cancellation. Success means
+  the request was recorded or sent; it does not prove physical motion stopped.
+- `detach` is explicit fire-and-forget. Dropping a handle has the same
+  non-canceling behavior; the submitted command remains scheduler-owned and may
+  still be dispatched and complete. `#[must_use]` warns only when a returned
+  handle is ignored directly.
+
+See the maintained [blocking](examples/operation_handles.rs) and
+[Tokio](examples/operation_handles_async.rs) examples for complete programs.
 
 ---
 
@@ -344,7 +378,7 @@ before any socket or serial device is opened.
 
 - **[API Reference](https://docs.rs/grafton-visca)** — Complete type and method documentation
 - **[Examples](examples/)** — Maintained examples for common scenarios
-- **[Example Policy](docs/examples.md)** — 1.0 examples contract and maintenance rules
+- **[Example Policy](docs/examples.md)** — 1.x examples contract and maintenance rules
 - **[VISCA Protocol Reference](docs/visca_reference.md)** — Consolidated PTZOptics, Axis, and protocol evidence used for built-in profile decisions
 - **[Camera Profile Support Guide](docs/camera_profile_support.md)** — Workflow and testing rules for adding camera capabilities
 - **[CHANGELOG](CHANGELOG.md)** — Version history and migration guides
@@ -356,12 +390,14 @@ before any socket or serial device is opened.
 | Blocking quickstart | `cargo run --example quickstart -- 192.168.0.110` |
 | Blocking quickstart with movement | `cargo run --example quickstart -- 192.168.0.110 --move` |
 | Async quickstart (Tokio) | `cargo run --example quickstart_async --features runtime-tokio -- 192.168.0.110` |
-| Inquiry quickstart | `cargo run --example inquiry_quickstart` |
+| Blocking operation handles | `cargo run --example operation_handles -- 192.168.0.110` |
+| Async operation handles (Tokio) | `cargo run --example operation_handles_async --features runtime-tokio -- 192.168.0.110` |
+| Inquiry quickstart | `cargo run --example inquiry_quickstart -- 192.168.0.110` |
 | Configured transport policy | `cargo run --example transport_builder_demo -- 192.168.0.110` |
 | Caller-owned transport | `cargo run --example builder_api -- 192.168.0.110:1259` |
 | Preset recall | `cargo run --example preset_demo -- 192.168.0.110 recall 1` |
-| Error handling | `cargo run --example error_handling --features runtime-tokio` |
-| Serial (async) | `cargo run --example serial_async_demo --features runtime-tokio,transport-serial-tokio` |
+| Error handling | `cargo run --example error_handling --features runtime-tokio -- 192.168.0.110` |
+| Serial (async) | `cargo run --example serial_async_demo --features runtime-tokio,transport-serial-tokio -- /dev/ttyUSB0 1` |
 
 ---
 

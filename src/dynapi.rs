@@ -58,8 +58,8 @@
 //!
 //! # Timeout Behavior
 //!
-//! Movement methods that accept an optional `timeout` parameter use it as a
-//! deadline for the command's own VISCA completion response:
+//! Result-returning movement methods that accept an optional `timeout` use it as
+//! a deadline for the command's own VISCA completion response:
 //!
 //! - **`None`**: Uses the camera's default `TimeoutConfig` for the command category.
 //!   This is the recommended option for most use cases.
@@ -68,9 +68,10 @@
 //!   The wait resolves when the camera reports completion or an error for the
 //!   command. It does not infer physical movement completion from idle polling.
 //!
-//! To wait for physical motion to settle, use
-//! [`DynMotionControl::await_idle`](crate::dynapi::DynMotionControl::await_idle)
-//! or the axis-specific idle wait methods after issuing the command.
+//! The dyn `_op` variants are the object-safe 1.x handle surface. Their
+//! `InFlightDyn` values provide exact `await_applied` and physical
+//! `await_settled` waits. Use `DynMotionControl::await_idle` for category-wide
+//! checks or motion for which no handle was retained.
 //!
 //! ```ignore
 //! use std::time::Duration;
@@ -80,6 +81,12 @@
 //!
 //! // Use explicit 30-second timeout for this operation
 //! pt.pan_tilt_home(Some(Duration::from_secs(30))).await?;
+//!
+//! // Retain a handle when physical settling matters
+//! pt.pan_tilt_home_op()
+//!     .await?
+//!     .await_settled(Duration::from_secs(30))
+//!     .await?;
 //! ```
 //!
 //! # Drop and Cancellation Semantics
@@ -145,7 +152,8 @@
 //! | Cancel specific command | `InFlightDyn::cancel()` |
 //! | Emergency stop all motion | `DynMotionControl::stop_all_motion()` |
 //! | Timeout on specific operation | Pass `timeout` parameter to method |
-//! | Wait for physical idle | `camera.motion().await_idle(timeout)` |
+//! | Wait for one targeted operation to settle | `handle.await_settled(timeout)` |
+//! | Wait for category-wide physical idle | `camera.motion().await_idle(timeout)` |
 //! | Graceful shutdown | `stop_all_motion()`, then drop camera |
 //!
 //! # Capability Detection
@@ -205,6 +213,8 @@
 //! - An additional command-completion `timeout: Option<Duration>` parameter for
 //!   movement methods where per-call deadlines are useful
 //! - Structured runtime capability discovery through `DynCameraControl::capabilities()`
+//! - `_op` methods as the non-deprecated, object-safe 1.x handle entry points;
+//!   concrete `Camera::*_op` compatibility shims are a separate deprecated surface
 //!
 //! # Available Traits
 //!
@@ -330,9 +340,10 @@ pub(crate) trait RuntimeDyn: Send + Sync {
 
 /// Type-erased operation handle for dyn-api.
 ///
-/// This handle provides the same functionality as `InFlight<C, T>` but without
-/// generic type parameters, making it object-safe and suitable for use with
-/// trait objects.
+/// This handle provides the same lifecycle vocabulary as static `InFlight`
+/// without generic type parameters, making it object-safe and suitable for use
+/// with trait objects. Its targeted-versus-applied-only behavior remains
+/// command-derived runtime metadata throughout 1.x.
 ///
 /// # Example
 ///
@@ -353,7 +364,7 @@ pub(crate) trait RuntimeDyn: Send + Sync {
 /// }
 /// ```
 #[cfg(feature = "dyn-api")]
-#[must_use = "this dynamic operation handle should be awaited, cancelled, or explicitly detached; dropping it detaches the already-dispatched command"]
+#[must_use = "this dynamic operation handle should be awaited, cancelled, or explicitly detached; dropping it leaves the submitted command scheduler-owned"]
 pub struct InFlightDyn {
     /// The command ID assigned by the runtime.
     id: CommandId,
@@ -420,6 +431,10 @@ impl InFlightDyn {
     ///
     /// The cancel message is addressed to the camera ID that was used when
     /// this command was originally sent, ensuring correct multi-camera behavior.
+    /// Queued commands may be removed without a frame; commands with an assigned
+    /// socket use the protocol cancel path. `Ok(())` means the request was
+    /// recorded or sent, not that the camera acknowledged it or physical motion
+    /// stopped. The handle remains available for its one-shot response wait.
     ///
     /// # Errors
     ///
@@ -430,7 +445,8 @@ impl InFlightDyn {
 
     /// Wait for this exact command to be accepted and protocol-completed.
     ///
-    /// This is a one-shot wait. A second wait through `await_applied`,
+    /// This is a one-shot wait. Once it starts—including when it times out—the
+    /// exact response future is consumed. A second wait through `await_applied`,
     /// `await_settled`, or [`await_completion`](Self::await_completion) returns
     /// [`Error::InvalidState`].
     pub fn await_applied(&self, timeout: Duration) -> BoxFuture<'_, Result<(), Error>> {
@@ -458,9 +474,10 @@ impl InFlightDyn {
     ///
     /// # Errors
     ///
-    /// Returns [`Error::NotSupported`] for continuous drives and stops, without
-    /// consuming the handle's response wait. Returns [`Error::Timeout`] when the
-    /// combined completion and settling budget expires.
+    /// Returns [`Error::NotSupported`] for any applied-only operation, without
+    /// consuming the handle's response wait. Once a supported wait starts,
+    /// including when it times out, the response wait is consumed. Returns
+    /// [`Error::Timeout`] when the combined completion and settling budget expires.
     pub fn await_settled(&self, timeout: Duration) -> BoxFuture<'_, Result<(), Error>> {
         Box::pin(async move {
             if self.metadata.kind == crate::camera::OpKind::Continuous {
@@ -476,9 +493,9 @@ impl InFlightDyn {
 
     /// Wait for this operation's command response to complete.
     ///
-    /// This compatibility name retains the original 1.0 dyn API. New code should
+    /// This 1.x compatibility alias retains the original dyn API. New code should
     /// use [`await_applied`](Self::await_applied) to state the completion level
-    /// explicitly.
+    /// explicitly. The alias is planned for removal in 2.0.
     ///
     /// This uses the same response future as the static `InFlight` API. It
     /// resolves when the camera reports completion or an error for this command.
@@ -501,10 +518,11 @@ impl InFlightDyn {
         self.await_applied_named(timeout, "await_completion")
     }
 
-    /// Explicitly detach this already-dispatched command.
+    /// Explicitly detach this submitted command.
     ///
     /// Detaching discards this handle's ability to observe completion or request
-    /// cancellation. It never stops physical movement.
+    /// cancellation. The command remains scheduler-owned and may still be
+    /// dispatched and complete. Detach never stops physical movement.
     #[inline]
     pub fn detach(self) {
         // Drop is detach for async operation handles.
@@ -666,12 +684,13 @@ pub trait DynMotionControl: Send + Sync {
 
 /// Object-safe pan/tilt control trait.
 ///
-/// All movement methods accept an optional timeout parameter. When `None`,
+/// Result-returning movement methods accept an optional timeout parameter. When `None`,
 /// the default timeout from `TimeoutConfig` is used. When `Some(duration)`,
 /// that specific timeout is applied to the operation.
 ///
-/// The `_op` variants return an [`InFlightDyn`] handle for fine-grained control
-/// over timeouts and cancellation.
+/// The non-deprecated dyn `_op` variants are the object-safe 1.x handle surface.
+/// They return [`InFlightDyn`] for applied/settled waits, cancellation, and
+/// detach. This is distinct from the deprecated concrete-camera `_op` shims.
 pub trait DynPanTiltControl: Send + Sync {
     /// Stop all pan/tilt movement immediately.
     fn pan_tilt_stop(&self) -> BoxFuture<'_, Result<(), Error>>;
@@ -681,8 +700,8 @@ pub trait DynPanTiltControl: Send + Sync {
 
     /// Move to the home position and return an operation handle.
     ///
-    /// This is the `_op` variant that returns an [`InFlightDyn`] handle for
-    /// fine-grained control over timeouts and cancellation.
+    /// This object-safe 1.x handle variant returns [`InFlightDyn`] for exact
+    /// applied/settled waits, cancellation, and detach.
     ///
     /// # Example
     ///
@@ -777,8 +796,8 @@ pub trait DynPanTiltControl: Send + Sync {
 
 /// Object-safe zoom control trait.
 ///
-/// The `_op` variants return an [`InFlightDyn`] handle for fine-grained control
-/// over timeouts and cancellation.
+/// The non-deprecated dyn `_op` variants are the object-safe 1.x handle surface
+/// and return [`InFlightDyn`] for applied/settled waits, cancellation, and detach.
 pub trait DynZoomControl: Send + Sync {
     /// Stop any zoom operation currently in progress.
     fn zoom_stop(&self) -> BoxFuture<'_, Result<(), Error>>;
@@ -831,8 +850,8 @@ pub trait DynZoomControl: Send + Sync {
 
 /// Object-safe focus control trait.
 ///
-/// The `_op` variants return an [`InFlightDyn`] handle for fine-grained control
-/// over timeouts and cancellation.
+/// The non-deprecated dyn `_op` variants are the object-safe 1.x handle surface
+/// and return [`InFlightDyn`] for applied/settled waits, cancellation, and detach.
 pub trait DynFocusControl: Send + Sync {
     /// Set auto focus mode.
     fn focus_auto(&self) -> BoxFuture<'_, Result<(), Error>>;
@@ -883,8 +902,8 @@ pub trait DynFocusControl: Send + Sync {
 
 /// Object-safe preset control trait.
 ///
-/// The `_op` variants return an [`InFlightDyn`] handle for fine-grained control
-/// over timeouts and cancellation.
+/// The non-deprecated dyn `_op` variants are the object-safe 1.x handle surface
+/// and return [`InFlightDyn`] for applied/settled waits, cancellation, and detach.
 pub trait DynPresetsControl: Send + Sync {
     /// Recall a preset position.
     fn preset_recall(

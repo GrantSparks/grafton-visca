@@ -2,18 +2,19 @@
 
 [![Crates.io](https://img.shields.io/crates/v/grafton-visca-macros.svg)](https://crates.io/crates/grafton-visca-macros)
 [![Documentation](https://docs.rs/grafton-visca-macros/badge.svg)](https://docs.rs/grafton-visca-macros)
-[![License](https://img.shields.io/crates/l/grafton-visca-macros.svg)](../LICENSE-MIT)
+[![License](https://img.shields.io/crates/l/grafton-visca-macros.svg)](https://github.com/GrantSparks/grafton-visca#license)
 
 Procedural macros for the grafton-visca crate, providing derive macros to eliminate boilerplate in VISCA protocol implementations.
 
 ## Overview
 
-This crate provides four macros that work together to create type-safe, efficient VISCA protocol implementations:
+This crate provides three downstream derive macros for type-safe VISCA protocol
+implementations and one attribute macro used internally by the main crate:
 
 - **`ViscaInquiry`** - Generate inquiry command implementations with parser support
 - **`ViscaEnum`** - Automatic enum/u8 conversions for protocol values
 - **`ViscaValue`** - Value wrapper types with VISCA encoding
-- **`delegate_to_session`** - Auto-generate CameraSession forwarding implementations
+- **`delegate_to_session`** - Internal main-crate maintenance macro that generates `CameraSession` forwarding implementations
 
 ## ViscaInquiry
 
@@ -135,7 +136,11 @@ The macro generates methods for:
 
 ## delegate_to_session
 
-Attribute macro for auto-generating CameraSession forwarding implementations.
+This attribute macro is an implementation tool for the matching
+`grafton-visca` source tree. It auto-generates `CameraSession` forwarding
+implementations for the main crate's control traits. It is public only because
+procedural macros cannot be scoped crate-private; downstream applications should
+not build APIs around it.
 
 ### Usage
 
@@ -146,8 +151,8 @@ use grafton_visca_macros::delegate_to_session;
 pub trait ZoomControl {
     type Mode: Mode;
 
-    fn zoom_stop(&self) -> <Self::Mode as Mode>::Ret<'_, Result<(), Error>>;
-    fn zoom_tele_std(&self) -> <Self::Mode as Mode>::Ret<'_, Result<(), Error>>;
+    fn zoom_stop(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+    fn zoom_tele_std(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
     // ... more methods
 }
 ```
@@ -156,11 +161,11 @@ The macro generates forwarding implementations that delegate from `CameraSession
 
 ## Integration with grafton-visca
 
-These macros are re-exported by the main grafton-visca crate:
+The supported downstream derive macros are re-exported by the main
+`grafton-visca` crate:
 
 ```rust
 use grafton_visca::{ViscaInquiry, ViscaEnum, ViscaValue};
-use grafton_visca::camera::delegate_to_session;
 ```
 
 ## Benefits
@@ -215,7 +220,7 @@ impl ZoomPosition {
 
 ## Requirements
 
-- Rust 1.80 or later
+- Rust 1.88 or later
 - The `response` attribute in `ViscaInquiry` must reference existing `InquiryKind` variants, or `Raw` for a raw custom inquiry whose `ResponseParser` is implemented manually
 - Downstream `ViscaInquiry` derives use the standard five-byte VISCA inquiry form
 - Enums using `ViscaEnum` must have explicit discriminant values
@@ -223,14 +228,23 @@ impl ZoomPosition {
 
 ## Version Compatibility
 
-This crate follows the same versioning as the main `grafton-visca` crate. Always use matching versions:
+This crate follows the same versioning as the main `grafton-visca` crate. Most
+users need only the derives re-exported by the main crate. Direct macro-crate
+users must use matching versions:
 
 ```toml
 [dependencies]
-grafton-visca = "1"
-grafton-visca-macros = "1"
+grafton-visca = "=1.1.0"
+grafton-visca-macros = "=1.1.0"
 ```
+
+During a release, this macro crate is published and indexed before the
+same-version main crate. See the repository's `RELEASING.md` for the guarded
+two-crate sequence.
 
 ## License
 
-Licensed under MIT OR Apache-2.0 dual license. See the LICENSE-MIT and LICENSE-APACHE files in the repository root.
+Licensed under MIT OR Apache-2.0 dual license. See
+[LICENSE-MIT](https://github.com/GrantSparks/grafton-visca/blob/main/LICENSE-MIT)
+and
+[LICENSE-APACHE](https://github.com/GrantSparks/grafton-visca/blob/main/LICENSE-APACHE).

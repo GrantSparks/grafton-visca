@@ -368,7 +368,7 @@ where
     }
 }
 
-// Separate implementation for async-mode _op methods on async Camera
+// Profile-aware 1.x compatibility shims for the concrete async Camera.
 #[cfg(feature = "mode-async")]
 impl<P, Tr, Exec> crate::camera::Camera<crate::mode::Async, P, Tr, Exec>
 where
@@ -402,7 +402,7 @@ where
     /// Set zoom to a raw VISCA position and return an operation handle.
     #[deprecated(
         since = "1.1.0",
-        note = "use `submit(cmd)` and drive the returned handle with `await_applied` / `await_settled`; the `_op` methods are removed in 2.0"
+        note = "profile-aware 1.x compatibility shim; prefer `submit(cmd)` only when the equivalent command is already profile-validated; this method is removed in the 2.0 operation redesign"
     )]
     pub async fn set_zoom_op(
         &self,
@@ -415,7 +415,7 @@ where
     /// Set zoom to a normalized optical position and return an operation handle.
     #[deprecated(
         since = "1.1.0",
-        note = "use `submit(cmd)` and drive the returned handle with `await_applied` / `await_settled`; the `_op` methods are removed in 2.0"
+        note = "profile-aware 1.x compatibility shim; prefer `submit(cmd)` only when the equivalent command is already profile-validated; this method is removed in the 2.0 operation redesign"
     )]
     pub async fn set_zoom_normalized_op(
         &self,
@@ -440,7 +440,7 @@ where
     /// Set zoom to a normalized position in a documented domain and return an operation handle.
     #[deprecated(
         since = "1.1.0",
-        note = "use `submit(cmd)` and drive the returned handle with `await_applied` / `await_settled`; the `_op` methods are removed in 2.0"
+        note = "profile-aware 1.x compatibility shim; prefer `submit(cmd)` only when the equivalent command is already profile-validated; this method is removed in the 2.0 operation redesign"
     )]
     pub async fn set_zoom_normalized_in_domain_op(
         &self,

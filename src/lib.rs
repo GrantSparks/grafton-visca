@@ -32,19 +32,19 @@
 //! - **Camera-first API Architecture**: `Connect` and noun accessors across blocking and async modes
 //! - **Type-Safe Camera Profiles**: Compile-time validation with camera-specific profiles
 //! - **Feature-Gated Methods**: Choose blocking or async at compile time with zero runtime overhead
-//! - **Multi-Runtime Support**: Tokio and smol can coexist with priority-based selection
-//! - **Complete Command Coverage**: Full VISCA protocol support across all camera types
+//! - **Multi-Runtime Support**: Tokio and smol can coexist with explicit runtime selection
+//! - **Profile-Gated Command Coverage**: Typed controls follow documented model support
 //! - **Profile-Aware Conversions**: Automatic unit conversions based on camera model
 //! - **Comprehensive Inquiry**: Query camera state for all supported features
 //! - **Transport Abstraction**: TCP, UDP, Serial, and custom transport implementations
 //! - **Configuration APIs**: `CameraConfig` for standard transports and `CameraBuilder` for custom transports
 //! - **Unified Error Handling**: Consistent error mapping across all transport types
 //! - **Configurable Timeouts**: Per-category timeout configuration for different command types
-//! - **Command Cancellation**: Cancel specific commands or entire socket operations
-//! - **Async Completion Tracking**: Wait for camera movements to complete with await methods
+//! - **Mode-Honest Operation Handles**: Exact applied waits, physical settled waits,
+//!   cancellation, and detach across blocking, async, and dynamic APIs
 //! - **Serialization Support**: Optional serde/schemars integration for all value types
 //!
-//! ## 1.0 API Shape
+//! ## 1.x API Shape
 //!
 //! The primary API is camera-first:
 //!
@@ -196,12 +196,12 @@
 //!     // Create camera using convenience Connect helper
 //!     let camera = Connect::open_tcp_blocking::<PtzOpticsG2>("192.168.0.110")?;
 //!
-//!     // Use accessor-style API
-//!     camera.power().on()?;
-//!     camera.zoom().tele()?;
-//!     camera.pan_tilt().home()?;
+//!     // Quick starts are read-only by default.
+//!     let is_on = camera.power().state()?;
+//!     let zoom = camera.zoom().position()?;
+//!     println!("Power: {is_on}, zoom: 0x{:04X}", zoom.value());
 //!
-//!     Ok(())
+//!     camera.close()
 //! }
 //! ```
 //!
@@ -210,7 +210,7 @@
 //! use grafton_visca::{
 //!     camera::Connect,
 //!     camera::profiles::PtzOpticsG2,
-//!     runtime::{Runtime, TokioRuntime},
+//!     runtime::TokioRuntime,
 //!     Error,
 //! };
 //!
@@ -223,14 +223,11 @@
 //!         runtime
 //!     ).await?;
 //!
-//!     // Use accessor-style API with async
-//!     camera.power().on().await?;
-//!     camera.zoom().tele().await?;
-//!     camera.pan_tilt().home().await?;
+//!     let is_on = camera.power().state().await?;
+//!     let zoom = camera.zoom().position().await?;
+//!     println!("Power: {is_on}, zoom: 0x{:04X}", zoom.value());
 //!
-//!     // Wait for movements to complete
-//!     camera.await_idle().await?;
-//!
+//!     camera.close().await?;
 //!     Ok(())
 //! }
 //! ```
@@ -256,9 +253,10 @@
 //!         )
 //!             .await?;
 //!
-//!         camera.power().on().await?;
-//!         camera.zoom().tele().await?;
+//!         let is_on = camera.power().state().await?;
+//!         println!("Power: {is_on}");
 //!
+//!         camera.close().await?;
 //!         Ok(())
 //!     })
 //! }
@@ -284,14 +282,36 @@
 //!
 //!         let camera = config.open_async(SmolRuntime::new()).await?;
 //!
-//!         camera.power().on().await?;
-//!         camera.pan_tilt().home().await?;
-//!         camera.zoom().tele().await?;
+//!         let is_on = camera.power().state().await?;
+//!         println!("Power: {is_on}");
 //!
+//!         camera.close().await?;
 //!         Ok(())
 //!     })
 //! }
 //! ```
+//!
+//! ### Bounded Operation Handles
+//!
+//! Ordinary noun methods are the simplest command-completion API. Use `submit`
+//! when one command needs an exact deadline, cancellation, detach, or a physical
+//! settle signal:
+//!
+//! ```ignore
+//! use std::time::Duration;
+//! use grafton_visca::{camera::Connect, command::{PanTilt, Zoom}, profiles::PtzOpticsG2};
+//!
+//! let camera = Connect::open_tcp_blocking::<PtzOpticsG2>("192.168.0.110")?;
+//! camera.submit(&PanTilt::Home)?
+//!     .await_settled(Duration::from_secs(20))?;
+//! camera.submit(&Zoom::Stop)?
+//!     .await_applied(Duration::from_secs(2))?;
+//! camera.close()?;
+//! ```
+//!
+//! `submit` manages lifecycle; it does not add profile capability or range
+//! validation beyond the command's own checks. Prefer typed noun controls for
+//! profile-sensitive ergonomic input.
 //!
 //! ## Camera Profiles
 //!
@@ -391,20 +411,12 @@
 //!
 //! ### Runtime Requirements for Async
 //!
-//! **The async API REQUIRES a runtime to be configured.** Without a runtime, ALL async operations
-//! will fail with: `Error::InvalidState("No runtime configured for async operations")`.
+//! Async camera types always carry an executor/runtime selected at construction,
+//! so a camera cannot be created in an unconfigured runtime state. The runtime
+//! owns background scheduling, timing, transport I/O, and settle polling.
+//! There are two supported construction strategies:
 //!
-//! The runtime is essential for:
-//! - **Timeout handling** - All camera commands have configurable timeouts
-//! - **Power sequences** - Power on/off operations require delays
-//! - **Movement detection** - Polling for pan/tilt/zoom completion
-//! - **Background tasks** - Socket manager for concurrent operations
-//!
-//! ### Runtime Requirements for Async
-//!
-//! You have multiple options for configuring a runtime:
-//!
-//! #### Option 1: Use built-in runtime support (Easiest)
+//! #### Option 1: Use a built-in runtime adapter
 //!
 //! Choose your runtime(s) and enable the corresponding feature(s) in `Cargo.toml`:
 //!
@@ -418,8 +430,7 @@
 //! grafton-visca = { version = "1", features = ["runtime-tokio", "runtime-smol"] }
 //! ```
 //!
-//! Then pass the runtime explicitly, either through `Connect` for quick setup or
-//! `CameraBuilder::with_executor(...)` for advanced BYO-transport flows:
+//! Pass the runtime explicitly through `Connect` or `CameraConfig`:
 //!
 //! ```ignore
 //! // Tokio
@@ -433,91 +444,16 @@
 //! let camera = Connect::open_tcp_async::<PtzOpticsG2, _>("192.168.0.110", runtime).await?;
 //! ```
 //!
-//! #### Option 2: Provide your own runtime (Advanced)
+//! #### Option 2: Provide an executor and transport adapter
 //!
-//! For complete runtime independence, implement `Executor` and attach your own
-//! async transport with `CameraBuilder::from_transport(...)`:
+//! For complete runtime independence, implement `Executor` and
+//! `transport::AsyncTransport` plus `transport::HasTransportConfig`, then
+//! attach them with `CameraBuilder::with_executor`. The executor must provide
+//! real spawn, detach, sleep, timeout, and clock behavior from one coherent
+//! runtime; placeholder or mixed-runtime implementations are not valid.
 //!
-//! ```ignore
-//! use grafton_visca::{
-//!     CameraBuilder, Error, ExecError, Executor,
-//!     camera::profiles::PtzOpticsG2,
-//! };
-//! use std::{future::Future, pin::Pin, time::Duration};
-//!
-//! #[derive(Debug, Clone)]
-//! struct MyExecutor;
-//!
-//! impl Executor for MyExecutor {
-//!     type Join<T> = Pin<Box<dyn Future<Output = Result<T, ExecError>> + Send + 'static>>
-//!     where T: Send + 'static;
-//!
-//!     type Detach = ();
-//!
-//!     fn spawn_with_detach<F>(&self, fut: F) -> (Self::Join<F::Output>, Self::Detach)
-//!     where
-//!         F: Future + Send + 'static,
-//!         F::Output: Send + 'static,
-//!     {
-//!         // Spawn on your runtime here
-//!     }
-//!
-//!     fn block_on<F: Future>(&self, fut: F) -> F::Output {
-//!         todo!()
-//!     }
-//!
-//!     fn sleep(&self, duration: Duration) -> impl Future<Output = ()> + Send + '_ {
-//!         async move {
-//!             let _ = duration;
-//!         }
-//!     }
-//!
-//!     fn timeout<'a, F, T>(
-//!         &'a self,
-//!         duration: Duration,
-//!         fut: F,
-//!     ) -> impl Future<Output = Result<T, Error>> + Send + 'a
-//!     where
-//!         F: Future<Output = T> + Send + 'a,
-//!         T: Send + 'a,
-//!     {
-//!         async move {
-//!             let _ = duration;
-//!             Ok(fut.await)
-//!         }
-//!     }
-//! }
-//!
-//! async fn main() -> Result<(), Error> {
-//!     let transport = MyAsyncTransport::connect("192.168.0.110:5678").await?;
-//!     let camera = CameraBuilder::with_executor(MyExecutor)
-//!         .from_transport(transport)
-//!         .profile::<PtzOpticsG2>()
-//!         .open_async()
-//!         .await?;
-//!
-//!     camera.power().on().await?;
-//!     Ok(())
-//! }
-//! ```
-//!
-//! See `examples/runtime_agnostic.rs` for a complete end-to-end example.
-//!
-//! ### Common Runtime Errors and Solutions
-//!
-//! #### Error: `InvalidState("No runtime configured for async operations")`
-//! **Cause:** You're using async mode but haven't configured a runtime.
-//! **Solution:** Either:
-//! - Enable `runtime-tokio` and pass `TokioRuntime::from_current()?` to `Connect` or `CameraConfig`
-//! - Use `CameraBuilder::with_executor()` only when attaching your own transport/runtime implementation
-//!
-//! #### Error: `InvalidState("Operation requires runtime for timeout handling")`
-//! **Cause:** The operation needs timeout support but no runtime is available.
-//! **Solution:** Same as above - configure a runtime.
-//!
-//! #### Error: Socket manager initialization issues
-//! **Cause:** The socket manager requires a runtime to spawn background tasks.
-//! **Solution:** Ensure your runtime's `Spawner` implementation is working correctly.
+//! See `examples/runtime_agnostic.rs` for a runnable executor-contract example
+//! and [`CameraBuilder`] for the advanced caller-owned transport path.
 //!
 //! ### Blocking vs Async Mode
 //!

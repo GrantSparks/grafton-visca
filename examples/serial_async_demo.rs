@@ -1,101 +1,125 @@
-//! Async Serial VISCA Demo
+//! Read-only Tokio serial VISCA example.
 //!
-//! This example demonstrates async serial communication with VISCA cameras
-//! using the new async serial transport implementation.
+//! The example builds a [`CameraConfig`](grafton_visca::camera::CameraConfig),
+//! validates the requested VISCA camera ID before opening the device, performs
+//! two inquiries, and explicitly closes the session on both inquiry success and
+//! failure.
 //!
-//! Usage:
-//!   cargo run --example serial_async_demo --features "runtime-tokio" [port] [camera_address]
+//! Run with the example's exact required features:
+//! ```sh
+//! cargo run --example serial_async_demo \
+//!   --features runtime-tokio,transport-serial-tokio -- [port] [camera_id]
+//! ```
 //!
-//! The example will:
-//! 1. Connect to the camera using async serial transport
-//! 2. Send I/F Clear and optionally Address Set commands
-//! 3. Send some basic commands to verify operation
+//! The defaults are `/dev/ttyUSB0` at 9600 baud and camera ID 1.
 
 use std::env;
 
 use grafton_visca::{
-    camera::{profiles::GenericVisca, Connect},
+    camera::{profiles::GenericVisca, CameraConfig},
     runtime::TokioRuntime,
     Error,
 };
 
+#[derive(Debug)]
+struct Args {
+    port: String,
+    camera_id: u8,
+}
+
+impl Args {
+    fn parse() -> Result<Self, Error> {
+        let mut args = env::args().skip(1);
+        let port = match args.next() {
+            Some(value) if value.starts_with('-') => {
+                return Err(Error::InvalidParameter {
+                    parameter: "arguments",
+                    value: value.into(),
+                    reason: "unknown option; expected [port] [camera_id]".into(),
+                });
+            }
+            Some(value) => value,
+            None => "/dev/ttyUSB0".to_string(),
+        };
+        let camera_id = match args.next() {
+            Some(raw) => raw.parse::<u8>().map_err(|_| Error::InvalidParameter {
+                parameter: "camera_id",
+                value: raw.into(),
+                reason: "expected a numeric VISCA camera ID in 1..=8".into(),
+            })?,
+            None => 1,
+        };
+
+        if let Some(extra) = args.next() {
+            return Err(Error::InvalidParameter {
+                parameter: "arguments",
+                value: extra.into(),
+                reason: "unexpected extra argument; expected [port] [camera_id]".into(),
+            });
+        }
+
+        Ok(Self { port, camera_id })
+    }
+}
+
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    tracing_subscriber::fmt::init();
+async fn main() -> Result<(), Error> {
+    let _ = tracing_subscriber::fmt::try_init();
+    let args = Args::parse()?;
 
-    println!("Async Serial VISCA Demo");
-    println!("This example demonstrates async serial communication with VISCA cameras.\n");
+    println!("Tokio serial VISCA example");
+    println!("Port: {}", args.port);
+    println!("Baud rate: 9600");
+    println!("Camera ID: {}", args.camera_id);
 
-    let args: Vec<String> = env::args().collect();
-    let port = args.get(1).map(|s| s.as_str()).unwrap_or("/dev/ttyUSB0");
-    let camera_address = args.get(2).and_then(|s| s.parse::<u8>().ok()).unwrap_or(1);
-
-    println!("Serial port: {port}");
-    println!("Camera address: {camera_address}");
-    println!("Connecting to camera...\n");
-
-    // Create camera using the new unified serial API
+    let config = CameraConfig::<GenericVisca>::serial(args.port.clone(), 9600)
+        .try_camera_id(args.camera_id)?;
     let runtime = TokioRuntime::from_current()?;
+    let camera = config.open_serial_async(runtime).await.map_err(|error| {
+        error.context(format!(
+            "failed to open VISCA camera {} on serial port {}",
+            args.camera_id, args.port
+        ))
+    })?;
 
-    match Connect::open_serial_async::<GenericVisca, _>(port, 9600, runtime).await {
-        Ok(camera) => {
-            println!("✅ Serial Transport Connected!");
-            println!("✓ Camera session established");
+    println!("Serial camera session established; running read-only inquiries.");
+    let inquiry_result = async {
+        let version = camera
+            .system()
+            .version()
+            .await
+            .map_err(|error| error.with_context("serial version inquiry failed"))?;
+        println!("Version: {version:?}");
 
-            println!("\n🔍 Testing basic camera operations...");
+        let power = camera
+            .power()
+            .state()
+            .await
+            .map_err(|error| error.with_context("serial power inquiry failed"))?;
+        println!("Power: {}", if power { "on" } else { "standby" });
 
-            match camera.system().version().await {
-                Ok(version) => {
-                    println!("✓ Version Inquiry: {version:?}");
-                }
-                Err(e) => {
-                    println!("⚠ Version inquiry failed: {e}");
-                }
-            }
+        Ok::<(), Error>(())
+    }
+    .await;
 
-            match camera.power().state().await {
-                Ok(power_state) => {
-                    println!("✓ Power State: {power_state}");
-                }
-                Err(e) => {
-                    println!("⚠ Power inquiry failed: {e}");
-                }
-            }
+    // Close before propagating an inquiry error so the example demonstrates a
+    // complete session lifecycle even when the camera rejects an inquiry.
+    let close_result = camera
+        .close()
+        .await
+        .map(|_| ())
+        .map_err(|error| error.with_context("failed to close serial camera session"));
 
-            println!("\n✅ Async serial communication successful!");
-            println!("The camera is now connected and operational via async serial transport.");
+    match (inquiry_result, close_result) {
+        (Ok(()), Ok(())) => {
+            println!("Read-only serial checks completed and the session was closed.");
+            Ok(())
         }
-        Err(Error::TransportError(e)) if e.to_string().contains("No such file") => {
-            println!("❌ Serial Port Not Found: {port}");
-            println!("\nTroubleshooting:");
-            println!("• Verify the serial port exists and is accessible");
-            println!("• Check if the camera is connected and powered on");
-            println!("• Try different port paths:");
-            println!("  Linux:   /dev/ttyUSB0, /dev/ttyACM0, /dev/serial/by-id/...");
-            println!("  macOS:   /dev/cu.usbserial-..., /dev/cu.usbmodem-...");
-            println!("  Windows: COM1, COM2, etc.");
-            println!("• Ensure proper serial port permissions (may need sudo or group membership)");
-        }
-        Err(Error::TransportError(e)) if e.to_string().contains("Permission denied") => {
-            println!("❌ Permission Denied: {port}");
-            println!("\nTroubleshooting:");
-            println!("• Add your user to the dialout group: sudo usermod -a -G dialout $USER");
-            println!("• Then log out and log back in");
-            println!("• Or run with sudo (not recommended for regular use)");
-        }
-        Err(e) => {
-            println!("❌ Unexpected error: {e}");
+        (Err(inquiry_error), Ok(())) => Err(inquiry_error),
+        (Ok(()), Err(close_error)) => Err(close_error),
+        (Err(inquiry_error), Err(close_error)) => {
+            eprintln!("The session also failed to close cleanly: {close_error}");
+            Err(inquiry_error)
         }
     }
-
-    println!("\n📚 About Async Serial VISCA:");
-    println!("This implementation provides RS-232/422 support for async runtimes.");
-    println!("Features:");
-    println!("• Full async/await support using tokio-serial");
-    println!("• Automatic I/F Clear during connection establishment");
-    println!("• Optional Address Set for multi-camera daisy chains");
-    println!("• Proper VISCA framing with camera address insertion");
-    println!("• Configurable timeouts and retry policies");
-
-    Ok(())
 }

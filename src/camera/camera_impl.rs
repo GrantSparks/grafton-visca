@@ -763,11 +763,13 @@ where
         })
     }
 
-    /// Send a command and return immediately with ID and response future.
+    /// Submit a command and return its ID and response future after queue acceptance.
     ///
     /// This method allows for mid-flight cancellation by returning the command ID
-    /// immediately along with a future that can be awaited separately. This is useful
-    /// for scenarios where you need to cancel a command while it's still in progress.
+    /// with a future that can be awaited separately. This is useful for scenarios
+    /// where you need to cancel a command while it is still in progress. Awaiting
+    /// this method includes runtime queue acceptance; it does not guarantee that
+    /// the transport send has already occurred.
     ///
     /// # Errors
     ///
@@ -818,7 +820,7 @@ where
         // Eager preparation: encode before async operations
         let prepared_command = Arc::new(EncodedCommand::new(command, camera_id)?);
 
-        // Return the ID and future directly without awaiting
+        // Await scheduler acceptance, then return the ID and response future.
         let (id, fut) = self
             .runtime
             .send_command_with_id_prepared(prepared_command, camera_id, None)
@@ -834,11 +836,15 @@ where
     /// bound to that exact command's response, without awaiting completion. Drive
     /// it with `await_applied` / `await_settled`, or `cancel` / `detach` it.
     ///
-    /// Built-in commands derive targeted-vs-continuous semantics and affected
+    /// Built-in commands derive targeted-versus-applied-only semantics and affected
     /// axes from the command itself. Custom commands without operation metadata
     /// retain the additive 1.1 fallback of targeted motion across all axes. Use
     /// [`submit_continuous`](Self::submit_continuous) to explicitly classify a
-    /// custom continuous drive or stop.
+    /// custom applied-only command.
+    ///
+    /// `submit` manages command lifecycle; it does not add profile capability or
+    /// range validation beyond the command's own encoding checks. Prefer typed
+    /// noun controls when converting ergonomic, profile-sensitive inputs.
     ///
     /// # Errors
     /// Returns an error if the command cannot be submitted (for example, an
@@ -860,12 +866,13 @@ where
         self.submit_op::<(), C>(command, metadata).await
     }
 
-    /// Submit a continuous drive or stop command and return an async handle.
+    /// Submit a custom applied-only command and return an async handle.
     ///
     /// Like [`submit`](Self::submit) but the handle is marked
-    /// [continuous](crate::camera::OpKind::Continuous): `await_settled` returns
+    /// [applied-only](crate::camera::OpKind::Continuous): `await_settled` returns
     /// [`Error::NotSupported`] because there is no
-    /// well-defined physical-settle event for a continuous drive or a stop.
+    /// well-defined physical-settle event. Built-in commands already provide
+    /// exact metadata and should normally use [`submit`](Self::submit).
     ///
     /// # Errors
     /// Returns an error if the command cannot be submitted.
@@ -1030,14 +1037,19 @@ where
     /// decide when to block for completion (`await_applied` / `await_settled`),
     /// to `cancel`, or to `detach`.
     ///
-    /// Built-in commands derive targeted-vs-continuous semantics and affected
+    /// Built-in commands derive targeted-versus-applied-only semantics and affected
     /// axes from the command itself. Custom commands without operation metadata
     /// retain the additive 1.1 fallback of targeted motion across all axes. Use
     /// [`submit_continuous`](Self::submit_continuous) to explicitly classify a
-    /// custom continuous drive or stop.
+    /// custom applied-only command.
+    ///
+    /// `submit` manages command lifecycle; it does not add profile capability or
+    /// range validation beyond the command's own encoding checks. Prefer typed
+    /// noun controls when converting ergonomic, profile-sensitive inputs.
     ///
     /// # Errors
-    /// Returns an error if the command cannot be encoded or the runner is busy.
+    /// Returns an error if the command is an inquiry, cannot be encoded or
+    /// initially dispatched, or the runner is busy.
     pub fn submit<C>(
         &self,
         command: &C,
@@ -1059,12 +1071,13 @@ where
         ))
     }
 
-    /// Submit a continuous drive or stop command and return a blocking handle.
+    /// Submit a custom applied-only command and return a blocking handle.
     ///
     /// Like [`submit`](Self::submit) but the handle is marked
-    /// [continuous](crate::camera::OpKind::Continuous): `await_settled` returns
+    /// [applied-only](crate::camera::OpKind::Continuous): `await_settled` returns
     /// [`Error::NotSupported`] because there is no
-    /// well-defined physical-settle event for a continuous drive or a stop.
+    /// well-defined physical-settle event. Built-in commands already provide
+    /// exact metadata and should normally use [`submit`](Self::submit).
     ///
     /// # Errors
     /// Returns an error if the command cannot be encoded or the runner is busy.

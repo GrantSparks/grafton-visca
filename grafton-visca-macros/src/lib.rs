@@ -9,7 +9,6 @@
 
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
-#![doc(html_root_url = "https://docs.rs/grafton-visca/0.5.0")]
 
 use syn::{parse_macro_input, DeriveInput};
 
@@ -190,11 +189,11 @@ pub fn derive_visca_enum(input: TokenStream) -> TokenStream {
     TokenStream::from(visca_enum::derive_visca_enum_impl(input))
 }
 
-/// Attribute macro for auto-generating CameraSession forwarding implementations
+/// Internal attribute macro for generating `CameraSession` forwarding implementations.
 ///
-/// This macro eliminates boilerplate by automatically generating forwarding
-/// implementations of control traits for `CameraSession`, which simply delegate
-/// to the inner `Camera` instance with proper error handling.
+/// This macro is public only because procedural macros cannot be scoped
+/// crate-private. It is an implementation tool for the matching main
+/// `grafton-visca` crate, not a stable downstream extension API.
 ///
 /// # Usage
 ///
@@ -207,8 +206,8 @@ pub fn derive_visca_enum(input: TokenStream) -> TokenStream {
 /// pub trait ZoomControl {
 ///     type Mode: Mode;
 ///
-///     fn zoom_stop(&self) -> <Self::Mode as Mode>::Ret<'_, Result<(), Error>>;
-///     fn zoom_tele_std(&self) -> <Self::Mode as Mode>::Ret<'_, Result<(), Error>>;
+///     fn zoom_stop(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
+///     fn zoom_tele_std(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
 ///     // ... more methods
 /// }
 /// ```
@@ -221,20 +220,18 @@ pub fn derive_visca_enum(input: TokenStream) -> TokenStream {
 ///    - Forwards calls from `CameraSession<M, P, Tr, Exec>` to the inner camera
 ///    - Preserves the generic Mode type `M`
 ///
-/// 2. **Blocking variant** (when `feature != "async"`):
+/// 2. **Blocking variant** (when `feature != "mode-async"`):
 ///    - Forwards calls from `CameraSession<Blocking, P, Tr, ()>` to the inner camera
 ///    - Uses the concrete `Blocking` mode type
 ///
-/// Each forwarding method:
-/// - Guards access with `.as_ref().expect("Cannot access camera after session is closed")`
-/// - Adds `#[inline]` for optimization
-/// - Adds `#[allow(clippy::expect_used)]` to suppress lints
-/// - Preserves all original method attributes and documentation
+/// Each forwarding method uses the open session's `camera()`/`camera_mut()`
+/// accessor, adds `#[inline]`, and preserves the original method attributes and
+/// documentation.
 ///
 /// # Requirements
 ///
 /// - The trait must have a `type Mode: Mode` associated type
-/// - Methods should use `<Self::Mode as Mode>::Ret<'_, T>` for return types
+/// - Methods should use `<Self::Mode as Mode>::Fut<'_, T>` for return types
 /// - The trait should be implemented for `Camera` (the actual logic)
 ///
 /// # Benefits

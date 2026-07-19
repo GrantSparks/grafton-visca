@@ -292,8 +292,10 @@ pub trait ViscaCommand: Send + Sync {
     ///
     /// Built-in actuation commands override this so every API surface derives
     /// targeted-vs-applied-only behavior and affected axes from the command
-    /// itself. Custom commands may opt in; `None` preserves the low-level 1.1
-    /// `submit` fallback for commands without metadata.
+    /// itself. Custom commands may override this 1.x compatibility hook; `None`
+    /// preserves the conservative targeted/all-axes `submit` fallback. The hook
+    /// is hidden because the metadata shape is part of the planned 2.0 operation
+    /// redesign rather than a long-term extension contract.
     #[doc(hidden)]
     #[inline]
     fn operation_metadata(&self) -> Option<crate::camera::OperationMetadata> {

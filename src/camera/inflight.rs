@@ -1,7 +1,8 @@
-//! Typed operation handles for long-running camera commands.
+//! Operation handles for camera commands with explicit lifecycle control.
 //!
-//! This module provides `InFlight<C>` handles that are returned by long-running
-//! control methods (like pan/tilt, zoom, focus movements). These handles enable:
+//! [`Camera::submit`](crate::camera::Camera::submit) is the primary 1.x producer
+//! of async handles; blocking cameras expose the same submission vocabulary.
+//! These handles enable:
 //!
 //! - **Socket-safe cancellation**: Cancel commands by ID without needing to know
 //!   which socket they're using. The runtime handles socket resolution automatically.
@@ -11,10 +12,11 @@
 //!
 //! # Design
 //!
-//! The design uses zero-sized type (ZST) markers to preserve the command category
-//! in the type system while the handle stores the command's own response future.
-//! Cancellation stays ID-based, and completion waits are tied to the exact VISCA
-//! response channel returned when the command was submitted.
+//! The primary `submit` path uses `C = ()`. Zero-sized category markers remain
+//! for concrete `_op` compatibility shims and dyn erasure/telemetry. In 1.x,
+//! applied-versus-settled behavior comes from command-derived runtime metadata,
+//! not from the category marker. Cancellation stays ID-based, and completion
+//! waits are tied to the exact VISCA response channel returned at submission.
 //!
 //! # Example
 //!
@@ -71,13 +73,13 @@ use core::num::NonZeroU32;
 ///
 /// # Obtaining a CommandId
 ///
-/// `CommandId`s are returned by async camera methods such as `Camera::start_command_with_id`
-/// and `InFlight::id` (requires `mode-async` feature).
+/// IDs are exposed by `InFlight::id` and async `Camera::start_command_with_id`
+/// when `mode-async` is enabled, and by `BlockingInFlight::id` in blocking mode.
 ///
 /// # Cancellation
 ///
-/// Use the returned `CommandId` with `Camera::cancel` to cancel a running command
-/// (requires `mode-async` feature).
+/// Async callers may pass the ID to `Camera::cancel`. Both handle types also
+/// provide their mode-specific `cancel` operation.
 ///
 /// # Example
 ///
@@ -156,10 +158,10 @@ pub struct Preset;
 /// - [`OpKind::Targeted`] — a move that reaches a destination and physically
 ///   settles (absolute/relative/home/reset, set-position, preset recall).
 ///   `await_settled` is meaningful for these.
-/// - [`OpKind::Continuous`] — a continuous drive or an instantaneous stop, where
-///   "physical motion ended" is not a well-defined event (continuous `tele`/
-///   `wide` zoom, directional pan/tilt, or a `stop`). For these, `await_settled`
-///   returns [`Error::NotSupported`].
+/// - [`OpKind::Continuous`] — the 1.x name for any applied-only operation with no
+///   meaningful physical-settle state. This includes continuous drives, stops,
+///   instantaneous triggers, and configuration commands. For these,
+///   `await_settled` returns [`Error::NotSupported`].
 ///
 /// Throughout 1.x this distinction is runtime data on the handle. The planned
 /// 2.0 typed consuming-handle design can promote it into the type system so an
@@ -168,7 +170,7 @@ pub struct Preset;
 pub enum OpKind {
     /// A targeted move that reaches a destination and physically settles.
     Targeted,
-    /// A continuous drive or an instantaneous stop with no well-defined settle.
+    /// An applied-only operation with no well-defined physical-settle state.
     Continuous,
 }
 
@@ -224,7 +226,7 @@ pub(crate) trait AsyncSettleWaiter: Send + Sync {
 #[cfg(feature = "mode-async")]
 pub type ResponseFuture = Pin<Box<dyn Future<Output = Result<Response, Error>> + Send + 'static>>;
 
-/// A typed handle to an in-flight camera command.
+/// A handle to a submitted async camera command.
 ///
 /// This handle provides:
 /// - **Command ID access** for debugging and telemetry
@@ -238,11 +240,11 @@ pub type ResponseFuture = Pin<Box<dyn Future<Output = Result<Response, Error>> +
 /// # Type Parameters
 ///
 /// - `'a`: Lifetime of the camera/session reference
-/// - `C`: Category marker (PanTilt, Zoom, Focus, or Preset)
+/// - `C`: Compatibility category marker; primary `submit` handles use `()`
 /// - `P`: Camera profile type
 /// - `Exec`: Async executor type
 #[cfg(feature = "mode-async")]
-#[must_use = "this operation handle should be awaited, cancelled, or explicitly detached; dropping it detaches the already-dispatched command"]
+#[must_use = "this operation handle should be awaited, cancelled, or explicitly detached; dropping it leaves the submitted command scheduler-owned"]
 pub struct InFlight<'a, C, P, Exec>
 where
     P: Profile,
@@ -326,6 +328,12 @@ where
     ///
     /// # Errors
     ///
+    /// Queued commands may be removed without a protocol frame. Once a command
+    /// has a socket, the scheduler emits the socket-specific cancel request.
+    /// `Ok(())` means the request was recorded or sent; it is not camera
+    /// acknowledgement and does not prove physical motion stopped. This method
+    /// borrows the handle, so its exact response may still be awaited.
+    ///
     /// Returns an error if the cancellation request cannot be sent to the runtime.
     pub async fn cancel(&self) -> Result<()> {
         self.runtime.cancel(self.camera_id, self.id).await
@@ -338,6 +346,10 @@ where
     /// available on **every** handle, including continuous drives and stops — a
     /// deadman `STOP` uses exactly this. The `timeout` bounds how long to wait
     /// for the camera's response.
+    ///
+    /// The response wait is one-shot. Once this method starts—including when it
+    /// times out—the exact response future is consumed and another completion
+    /// wait returns [`Error::InvalidState`].
     ///
     /// # Returns
     ///
@@ -379,9 +391,10 @@ where
     /// Explicitly detach: give up the handle without awaiting or canceling.
     ///
     /// This is the intentional fire-and-forget escape hatch. The already-
-    /// dispatched command keeps running on the camera; only this handle's ability
-    /// to observe completion or cancel it is discarded. Semantically identical to
-    /// dropping the handle, but explicit (and it silences the `#[must_use]` lint).
+    /// submitted command remains scheduler-owned and may still be dispatched and
+    /// complete; only this handle's ability to observe completion or cancel it is
+    /// discarded. Semantically identical to dropping the handle, but explicit
+    /// (and it silences the `#[must_use]` lint).
     #[inline]
     pub fn detach(self) {
         // Nothing to do: dropping the handle performs no cancellation, matching
@@ -396,14 +409,17 @@ where
     /// settled signal, so this is equivalent to
     /// [`await_applied`](Self::await_applied). Profiles without that signal poll
     /// only the affected axes, using the remainder of the same timeout budget.
+    /// The response wait is one-shot once settling begins, including on timeout.
+    /// An early [`Error::NotSupported`] for an applied-only operation does not
+    /// consume that response wait, so `await_applied` remains available.
     ///
     /// [`SUPPORTS_OPERATION_COMPLETE`]: crate::capabilities::ProfileMetadata::SUPPORTS_OPERATION_COMPLETE
     ///
     /// # Errors
     ///
-    /// Returns [`Error::NotSupported`] if this handle represents a continuous
-    /// drive or a stop (there is no well-defined settled state); [`Error::Timeout`]
-    /// on deadline; other communication / camera errors otherwise.
+    /// Returns [`Error::NotSupported`] if this handle represents an applied-only
+    /// operation (there is no well-defined settled state); [`Error::Timeout`] on
+    /// deadline; other communication / camera errors otherwise.
     ///
     pub async fn await_settled(&self, timeout: Duration) -> Result<()> {
         if self.kind == OpKind::Continuous {
@@ -447,7 +463,7 @@ where
             .response_future
             .into_inner()
             .map_err(|_| Error::LockPoisoned("InFlight response_future"))?
-            .ok_or_else(|| Error::InvalidState("await_completion called more than once".into()))?;
+            .ok_or_else(|| Error::InvalidState("completion wait called more than once".into()))?;
 
         Ok((
             self.id,
@@ -494,7 +510,7 @@ where
 /// - [`await_settled`](Self::await_settled) resolves when physical motion has
 ///   ended — via the operation-complete message on profiles that support it,
 ///   otherwise via position polling. It is meaningful only for
-///   [`OpKind::Targeted`] handles; on a continuous/stop handle it returns
+///   [`OpKind::Targeted`] handles; on any applied-only handle it returns
 ///   [`Error::NotSupported`].
 ///
 /// # Safety / lifecycle
@@ -559,7 +575,7 @@ where
     ///
     /// This drives the blocking runner synchronously on the caller's thread until
     /// the command completes or `timeout` elapses. It is available on every
-    /// handle, including continuous drives and stops.
+    /// handle, including every applied-only operation.
     ///
     /// # Errors
     ///
@@ -579,10 +595,15 @@ where
     ///
     /// Before ACK, cancellation is deferred until the scheduler learns the
     /// command's socket. After ACK, the socket cancel is sent immediately.
+    /// `Ok(())` means the cancellation was recorded or sent; it is not camera
+    /// acknowledgement and does not prove physical motion stopped. Blocking
+    /// cancellation consumes the handle.
     ///
     /// # Errors
     ///
-    /// Returns [`Error::TransportBusy`] if the runner is concurrently borrowed.
+    /// Returns [`Error::TransportBusy`] if the runner is concurrently borrowed,
+    /// or a transport error if an immediately eligible cancel frame cannot be
+    /// sent.
     pub fn cancel(self) -> Result<()> {
         self.camera.cancel_command_id(self.id)
     }
@@ -630,8 +651,8 @@ where
     ///
     /// # Errors
     ///
-    /// Returns [`Error::NotSupported`] if this handle represents a continuous
-    /// drive or a stop (there is no well-defined settled state). Returns
+    /// Returns [`Error::NotSupported`] if this handle represents an applied-only
+    /// operation (there is no well-defined settled state). Returns
     /// [`Error::Timeout`] if motion does not settle within `timeout`, or a
     /// communication / camera error otherwise.
     pub fn await_settled(self, timeout: Duration) -> Result<()> {
