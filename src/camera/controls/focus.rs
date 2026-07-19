@@ -254,7 +254,7 @@ where
     Ok(position)
 }
 
-fn focus_position_command<P, T>(position: T) -> Result<Focus, Error>
+pub(crate) fn focus_position_command<P, T>(position: T) -> Result<Focus, Error>
 where
     P: crate::capabilities::Focus + Default,
     T: TryInto<FocusPosition>,
@@ -302,7 +302,7 @@ where
                 Err(e) => return self.error(e),
             }
         };
-        self.execute(cmd)
+        self.execute_operation(cmd)
     }
 
     fn focus_far(&self, speed: SpeedLevel) -> M::Fut<'_, Result<(), Error>> {
@@ -315,11 +315,11 @@ where
                 Err(e) => return self.error(e),
             }
         };
-        self.execute(cmd)
+        self.execute_operation(cmd)
     }
 
     fn focus_stop(&self) -> M::Fut<'_, Result<(), Error>> {
-        self.execute(Focus::Stop)
+        self.execute_operation(Focus::Stop)
     }
 
     fn set_focus<T>(&self, position: T) -> M::Fut<'_, Result<(), Error>>
@@ -328,13 +328,13 @@ where
         T::Error: Into<Error>,
     {
         match focus_position_command::<P, T>(position) {
-            Ok(command) => self.execute(command),
+            Ok(command) => self.execute_operation(command),
             Err(e) => self.error(e),
         }
     }
 
     fn focus_infinity(&self) -> M::Fut<'_, Result<(), Error>> {
-        self.execute(Focus::Infinity)
+        self.execute_operation(Focus::Infinity)
     }
 
     fn set_focus_near_limit<T>(&self, position: T) -> M::Fut<'_, Result<(), Error>>
@@ -436,11 +436,11 @@ where
     ///
     /// // Using percentage
     /// let handle = camera.set_focus_op(Percentage(50.0)).await?;
-    /// handle.await_completion(Duration::from_secs(5)).await?;
+    /// handle.await_applied(Duration::from_secs(5)).await?;
     ///
     /// // Using normalized value
     /// let handle = camera.set_focus_op(UnitInterval::new(0.5)?).await?;
-    /// handle.await_completion(Duration::from_secs(5)).await?;
+    /// handle.await_applied(Duration::from_secs(5)).await?;
     /// ```
     ///
     /// # Errors
@@ -450,7 +450,7 @@ where
     /// - The command fails to send
     #[deprecated(
         since = "1.1.0",
-        note = "use `submit(cmd)` (or the noun-scoped `submit_*` helper) and drive the returned handle with `await_applied` / `await_settled`; the `_op` methods are removed in 2.0"
+        note = "use `submit(cmd)` and drive the returned handle with `await_applied` / `await_settled`; the `_op` methods are removed in 2.0"
     )]
     pub async fn set_focus_op<T>(
         &self,
@@ -462,7 +462,10 @@ where
     {
         let cmd = focus_position_command::<P, T>(position)?;
 
-        self.submit_op::<crate::camera::FocusOperation, _>(&cmd, crate::camera::OpKind::Targeted)
+        let metadata = crate::command::ViscaCommand::operation_metadata(&cmd).ok_or_else(|| {
+            Error::InvalidState("built-in focus operation is missing metadata".into())
+        })?;
+        self.submit_op::<crate::camera::FocusOperation, _>(&cmd, metadata)
             .await
     }
 }

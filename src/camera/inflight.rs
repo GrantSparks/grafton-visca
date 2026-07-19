@@ -19,20 +19,24 @@
 //! # Example
 //!
 //! ```ignore
-//! use grafton_visca::{camera::Connect, camera::profiles::PtzOpticsG2};
+//! use grafton_visca::{
+//!     camera::{Connect, profiles::PtzOpticsG2},
+//!     command::PanTilt,
+//! };
 //! use std::time::Duration;
 //!
 //! # async fn example() -> Result<(), grafton_visca::Error> {
 //! let camera = Connect::open_tcp_async::<PtzOpticsG2, _>("192.168.0.110", runtime).await?;
 //!
-//! // Start a pan/tilt operation and get a typed handle
-//! let handle = camera.pan_tilt().pan_tilt_absolute_op(45.0, 15.0, SpeedLevel::Fast).await?;
+//! // Submit a targeted pan/tilt operation and get a typed handle.
+//! let handle = camera.submit(&PanTilt::Home).await?;
 //!
-//! // Wait for the command's own completion response
-//! handle.await_completion(Duration::from_secs(5)).await?;
+//! // Wait for protocol completion and physical settling.
+//! handle.await_settled(Duration::from_secs(5)).await?;
 //!
-//! // Or cancel the operation
-//! handle.cancel().await?;
+//! // For an operation that should not continue, request socket-safe cancellation
+//! // instead of awaiting it.
+//! // handle.cancel().await?;
 //! # Ok(())
 //! # }
 //! ```
@@ -157,15 +161,63 @@ pub struct Preset;
 ///   `wide` zoom, directional pan/tilt, or a `stop`). For these, `await_settled`
 ///   returns [`Error::NotSupported`].
 ///
-/// In Phase 1 this distinction is carried as runtime data on the handle. Phase 2
-/// promotes it into the marker type `C` so a wrong `await_settled` call becomes a
-/// compile error.
+/// Throughout 1.x this distinction is runtime data on the handle. The planned
+/// 2.0 typed consuming-handle design can promote it into the type system so an
+/// invalid `await_settled` call becomes a compile error.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OpKind {
     /// A targeted move that reaches a destination and physically settles.
     Targeted,
     /// A continuous drive or an instantaneous stop with no well-defined settle.
     Continuous,
+}
+
+/// Runtime metadata describing how an actuation command completes.
+///
+/// Built-in movement commands provide this metadata through
+/// [`ViscaCommand::operation_metadata`](crate::command::ViscaCommand::operation_metadata),
+/// making command kind and affected axes a single source of truth shared by
+/// blocking, async, and dynamic operation handles.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OperationMetadata {
+    /// Whether the command has a meaningful physical settled state.
+    pub kind: OpKind,
+    /// Physical axes affected by the command.
+    pub axes: crate::camera::Axes,
+}
+
+impl OperationMetadata {
+    /// Metadata for a targeted operation that eventually settles.
+    #[must_use]
+    pub const fn targeted(axes: crate::camera::Axes) -> Self {
+        Self {
+            kind: OpKind::Targeted,
+            axes,
+        }
+    }
+
+    /// Metadata for a continuous drive, stop, or other applied-only operation.
+    #[must_use]
+    pub const fn applied_only(axes: crate::camera::Axes) -> Self {
+        Self {
+            kind: OpKind::Continuous,
+            axes,
+        }
+    }
+}
+
+/// Object-safe bridge used by async handles for position-based settle waits.
+///
+/// Keeping this private avoids adding the transport type to the public
+/// `InFlight` generic parameters while still routing fallback polling through
+/// the concrete camera that submitted the command.
+#[cfg(feature = "mode-async")]
+pub(crate) trait AsyncSettleWaiter: Send + Sync {
+    fn await_axes_settled(
+        &self,
+        axes: crate::camera::Axes,
+        timeout: Duration,
+    ) -> crate::mode::BoxFuture<'_, Result<()>>;
 }
 
 /// Type alias for boxed response futures returned by `start_command_with_id`.
@@ -190,7 +242,7 @@ pub type ResponseFuture = Pin<Box<dyn Future<Output = Result<Response, Error>> +
 /// - `P`: Camera profile type
 /// - `Exec`: Async executor type
 #[cfg(feature = "mode-async")]
-#[must_use = "an InFlight handle does nothing unless you await_applied/await_settled, cancel, or detach it (dropping it detaches: the already-dispatched command keeps running, it is not stopped)"]
+#[must_use = "this operation handle should be awaited, cancelled, or explicitly detached; dropping it detaches the already-dispatched command"]
 pub struct InFlight<'a, C, P, Exec>
 where
     P: Profile,
@@ -207,6 +259,11 @@ where
     response_future: Mutex<Option<ResponseFuture>>,
     /// Whether this operation has a well-defined settled state.
     kind: OpKind,
+    /// Axes affected by this operation, used for position-based settling.
+    axes: crate::camera::Axes,
+    /// Concrete-camera bridge for position polling on profiles without an
+    /// operation-complete message.
+    settle_waiter: &'a dyn AsyncSettleWaiter,
     /// Zero-sized marker for the category.
     _c: PhantomData<C>,
 }
@@ -217,6 +274,15 @@ where
     P: Profile + 'static,
     Exec: Executor + Send + Sync + 'static,
 {
+    fn take_response_future(&self) -> Result<ResponseFuture> {
+        self.response_future
+            .lock()
+            .ok()
+            .ok_or(Error::LockPoisoned("InFlight response_future"))?
+            .take()
+            .ok_or_else(|| Error::InvalidState("operation handle already awaited".into()))
+    }
+
     /// Create a new in-flight handle with the response future.
     ///
     /// The response future completes when the camera sends a VISCA completion
@@ -230,14 +296,17 @@ where
         camera_id: CameraId,
         runtime: &'a crate::runtime::RuntimeHandle<P, Exec>,
         response_future: ResponseFuture,
-        kind: OpKind,
+        metadata: OperationMetadata,
+        settle_waiter: &'a dyn AsyncSettleWaiter,
     ) -> Self {
         Self {
             id,
             camera_id,
             runtime,
             response_future: Mutex::new(Some(response_future)),
-            kind,
+            kind: metadata.kind,
+            axes: metadata.axes,
+            settle_waiter,
             _c: PhantomData,
         }
     }
@@ -284,17 +353,15 @@ where
     /// - The internal mutex is poisoned (`Error::LockPoisoned`)
     /// - Other communication or camera errors occur
     pub async fn await_applied(&self, timeout: Duration) -> Result<()> {
-        // Take the response future from the mutex (can only be awaited once)
-        let future = self
-            .response_future
-            .lock()
-            .ok()
-            .ok_or(Error::LockPoisoned("InFlight response_future"))?
-            .take()
-            .ok_or_else(|| Error::InvalidState("await_applied called more than once".into()))?;
+        let future = self.take_response_future()?;
 
         // Use the executor's timeout mechanism to enforce the deadline
         self.runtime.timeout(timeout, future).await?.map(|_| ())
+    }
+
+    /// Await the exact response using the scheduler-owned category deadline.
+    pub(crate) async fn await_applied_default(&self) -> Result<()> {
+        self.take_response_future()?.await.map(|_| ())
     }
 
     /// Deprecated alias for [`await_applied`](Self::await_applied).
@@ -327,7 +394,8 @@ where
     /// set-position, preset recall). On profiles that report
     /// [`SUPPORTS_OPERATION_COMPLETE`], the operation-complete message *is* the
     /// settled signal, so this is equivalent to
-    /// [`await_applied`](Self::await_applied).
+    /// [`await_applied`](Self::await_applied). Profiles without that signal poll
+    /// only the affected axes, using the remainder of the same timeout budget.
     ///
     /// [`SUPPORTS_OPERATION_COMPLETE`]: crate::capabilities::ProfileMetadata::SUPPORTS_OPERATION_COMPLETE
     ///
@@ -337,18 +405,33 @@ where
     /// drive or a stop (there is no well-defined settled state); [`Error::Timeout`]
     /// on deadline; other communication / camera errors otherwise.
     ///
-    /// # Phase 1 limitation
-    ///
-    /// On profiles **without** an operation-complete message this resolves when
-    /// the command is *applied*; for a strict position-based settle, follow up
-    /// with [`Camera::await_axes_idle`](crate::camera::Camera::await_axes_idle).
-    /// A handle-internal position poll (as already implemented for blocking mode)
-    /// is planned alongside the finer targeted/continuous markers.
     pub async fn await_settled(&self, timeout: Duration) -> Result<()> {
         if self.kind == OpKind::Continuous {
             return Err(Error::NotSupported);
         }
-        self.await_applied(timeout).await
+
+        // One caller-supplied budget covers both exact-command completion and
+        // any position-polling fallback.
+        let started = self.runtime.executor().now();
+        self.await_applied(timeout).await?;
+
+        if P::SUPPORTS_OPERATION_COMPLETE {
+            return Ok(());
+        }
+
+        let elapsed = self
+            .runtime
+            .executor()
+            .now()
+            .saturating_duration_since(started);
+        let remaining = timeout.saturating_sub(elapsed);
+        if remaining.is_zero() {
+            return Err(Error::Timeout);
+        }
+
+        self.settle_waiter
+            .await_axes_settled(self.axes, remaining)
+            .await
     }
 
     /// Consume this handle and return the parts needed for type-erased handling.
@@ -357,14 +440,24 @@ where
     /// command response future from the static API instead of approximating
     /// completion with category-level idle polling.
     #[cfg(feature = "dyn-api")]
-    pub(crate) fn into_parts(self) -> Result<(CommandId, CameraId, ResponseFuture)> {
+    pub(crate) fn into_parts(
+        self,
+    ) -> Result<(CommandId, CameraId, ResponseFuture, OperationMetadata)> {
         let response_future = self
             .response_future
             .into_inner()
             .map_err(|_| Error::LockPoisoned("InFlight response_future"))?
             .ok_or_else(|| Error::InvalidState("await_completion called more than once".into()))?;
 
-        Ok((self.id, self.camera_id, response_future))
+        Ok((
+            self.id,
+            self.camera_id,
+            response_future,
+            OperationMetadata {
+                kind: self.kind,
+                axes: self.axes,
+            },
+        ))
     }
 }
 
@@ -377,6 +470,8 @@ where
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("InFlight")
             .field("id", &self.id)
+            .field("kind", &self.kind)
+            .field("axes", &self.axes)
             .field("category", &std::any::type_name::<C>())
             .finish()
     }
@@ -385,8 +480,7 @@ where
 /// A genuine, synchronous handle to an in-flight blocking command.
 ///
 /// This is the blocking-mode counterpart to the async `InFlight` handle. It is
-/// returned by [`Camera::submit`](crate::camera::Camera::submit) (and the
-/// noun-scoped blocking `submit_*` helpers) and provides the same *mode-honest*
+/// returned by [`Camera::submit`](crate::camera::Camera::submit) and provides the same *mode-honest*
 /// surface as the async handle — `await_applied`, `await_settled`, `cancel`,
 /// `detach` — but every method runs **synchronously on the caller's thread**. No
 /// async executor is ever spun up: `await_applied` drives the blocking runner's
@@ -405,13 +499,14 @@ where
 ///
 /// # Safety / lifecycle
 ///
-/// The handle is `#[must_use]`: dropping it without `await_applied`,
-/// `await_settled`, `cancel`, or `detach` triggers a lint. **Dropping never
-/// stops the command** — drop is equivalent to [`detach`](Self::detach): the
-/// queued command is left to be flushed by the next blocking operation. Use
-/// [`cancel`](Self::cancel) to discard it instead.
+/// The handle is `#[must_use]`, so directly ignoring a produced handle triggers
+/// a lint. Rust's lint does not track a handle after it has been bound to a
+/// variable. **Dropping never stops the command** — drop is equivalent to
+/// [`detach`](Self::detach): the already-dispatched command continues running,
+/// but its terminal outcome is no longer retained. Use [`cancel`](Self::cancel)
+/// to request a protocol-aware socket cancel instead.
 #[cfg(not(feature = "mode-async"))]
-#[must_use = "a BlockingInFlight handle does nothing unless you await_applied/await_settled, cancel, or detach it (dropping leaves the command queued, it does not stop it)"]
+#[must_use = "this blocking operation handle should be awaited, cancelled, or explicitly detached; dropping it detaches the already-dispatched command"]
 pub struct BlockingInFlight<'a, C, P, Tr>
 where
     P: Profile + Default,
@@ -475,10 +570,15 @@ where
         self.camera.await_command_applied(self.id, Some(deadline))
     }
 
+    /// Await the exact response using the scheduler-owned category deadline.
+    pub(crate) fn await_applied_default(self) -> Result<()> {
+        self.camera.await_command_applied(self.id, None)
+    }
+
     /// Cancel this command via the runner.
     ///
-    /// If the command is still queued (nothing sent yet), it is discarded and its
-    /// completion resolves as canceled.
+    /// Before ACK, cancellation is deferred until the scheduler learns the
+    /// command's socket. After ACK, the socket cancel is sent immediately.
     ///
     /// # Errors
     ///
@@ -489,14 +589,26 @@ where
 
     /// Explicitly detach: give up the handle without waiting or canceling.
     ///
-    /// This is the intentional fire-and-forget escape hatch. The queued command
-    /// is left in place to be flushed by the next blocking operation; it is not
-    /// stopped. Semantically identical to dropping the handle, but explicit (and
-    /// silences the `#[must_use]` lint).
+    /// This is the intentional fire-and-forget escape hatch. The already-sent
+    /// command continues running and its terminal outcome is discarded. It is
+    /// not stopped. Semantically identical to dropping the handle, but explicit
+    /// (and it satisfies the `#[must_use]` lint).
     #[inline]
     pub fn detach(self) {
-        // Nothing to do: the command stays queued in the runner. Dropping `self`
-        // performs no cancellation, matching the documented drop == detach rule.
+        self.camera.detach_command_id(self.id);
+    }
+}
+
+#[cfg(not(feature = "mode-async"))]
+impl<C, P, Tr> Drop for BlockingInFlight<'_, C, P, Tr>
+where
+    P: Profile + Default,
+    Tr: crate::transport::BlockingTransport + crate::transport::HasTransportConfig + Send + 'static,
+{
+    fn drop(&mut self) {
+        // Drop is detach, never cancel: the command remains scheduler-owned, but
+        // no terminal outcome is retained after its last handle disappears.
+        self.camera.detach_command_id(self.id);
     }
 }
 

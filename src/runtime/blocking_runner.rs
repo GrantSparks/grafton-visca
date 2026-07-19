@@ -9,6 +9,7 @@ use tracing::{debug, trace, warn};
 
 use core::marker::PhantomData;
 use std::{
+    collections::{HashMap, HashSet},
     sync::atomic::{AtomicU32, Ordering},
     time::{Duration, Instant},
 };
@@ -17,11 +18,13 @@ use crate::{
     camera::CommandId,
     camera_id::CameraId,
     capabilities::Profile,
-    command::{response::Response, ViscaCommand},
+    command::{response::Response, system::CommandCancelCommand, CommandKind, ViscaCommand},
     error::{Error, Result},
     protocol::framer::ProtocolFramer,
     runtime::{
-        core::{PendingCommand, Priority, SchedulerAction, SchedulerCore, SchedulerEvent},
+        core::{
+            CancelOutcome, PendingCommand, Priority, SchedulerAction, SchedulerCore, SchedulerEvent,
+        },
         driver::{
             receive_one, scheduler::BlockingScheduler, send_one, ReceiveDisposition, SendResult,
         },
@@ -52,6 +55,14 @@ pub struct BlockingRunner<P: Profile> {
     framer: ProtocolFramer,
     /// Command ID generator.
     next_id: AtomicU32,
+    /// Terminal outcomes for observed commands that completed while another
+    /// command was driving the blocking scheduler.
+    completed: HashMap<CommandId, Result<Response>>,
+    /// Commands whose callers still own a completion handle.
+    ///
+    /// Keeping this separate from `completed` lets detached handles continue to
+    /// run without retaining an outcome that nobody can ever collect.
+    observed: HashSet<CommandId>,
     /// Profile type marker.
     _profile: PhantomData<P>,
 }
@@ -124,6 +135,8 @@ impl<P: Profile> BlockingRunnerBuilder<P> {
             buffer_manager: BufferManager::new(self.buffer_config),
             framer: ProtocolFramer::new_with_config(self.buffer_config),
             next_id: AtomicU32::new(1),
+            completed: HashMap::new(),
+            observed: HashSet::new(),
             _profile: PhantomData,
         }
     }
@@ -200,18 +213,16 @@ impl<P: Profile> BlockingRunner<P> {
             }
         }
 
-        let cmd_id = self.start_command(command, camera_id)?;
+        let cmd_id = self.enqueue(command, camera_id, true)?;
 
-        self.run_until_complete(transport, cmd_id, deadline)
+        self.await_command(transport, cmd_id, deadline)
     }
 
-    /// Queue a command for sending without pumping the scheduler loop.
+    /// Submit a cancelable command and perform its initial transport dispatch.
     ///
-    /// This allocates a [`CommandId`], encodes the command, and enqueues it in
-    /// the scheduler core. It performs **no** transport I/O — nothing is sent
-    /// and nothing is awaited. Call [`await_command`](Self::await_command) (or
-    /// the all-in-one [`send_command`](Self::send_command)) afterwards to drive
-    /// the command to completion.
+    /// This allocates a [`CommandId`], encodes and enqueues the command, and sends
+    /// its bytes. It deliberately performs no receive pump: ACK and completion
+    /// remain pending until [`await_command`](Self::await_command) drives them.
     ///
     /// Splitting submission from completion is what makes a genuine blocking
     /// operation handle possible: the caller can obtain the command's id here,
@@ -220,11 +231,36 @@ impl<P: Profile> BlockingRunner<P> {
     /// # Errors
     ///
     /// Returns an error if the command cannot be encoded.
-    pub fn start_command(
+    pub fn start_command<T: BlockingTransport + HasTransportConfig>(
         &mut self,
+        transport: &mut T,
         command: &impl ViscaCommand,
         camera_id: CameraId,
     ) -> Result<CommandId> {
+        let cmd_id = self.enqueue(command, camera_id, false)?;
+        match self.dispatch_queued_command(transport, cmd_id) {
+            Ok(()) => Ok(cmd_id),
+            Err(error) => {
+                self.core.cancel_command(cmd_id);
+                self.discard_result(cmd_id);
+                Err(error)
+            }
+        }
+    }
+
+    /// Encode and enqueue a command. `allow_inquiry` is reserved for the
+    /// run-to-completion inquiry path; operation handles reject inquiries before
+    /// allocating an ID or performing I/O.
+    fn enqueue(
+        &mut self,
+        command: &impl ViscaCommand,
+        camera_id: CameraId,
+        allow_inquiry: bool,
+    ) -> Result<CommandId> {
+        if !allow_inquiry && command.behavior().command_kind() == CommandKind::Inquiry {
+            return Err(Error::InquiryNotCancelable);
+        }
+
         // Allocate a unique command ID, skipping zero on wraparound
         let cmd_id = loop {
             let id = self.next_id.fetch_add(1, Ordering::SeqCst);
@@ -251,6 +287,8 @@ impl<P: Profile> BlockingRunner<P> {
         };
 
         self.core.queue_command(pending_cmd);
+        self.completed.remove(&cmd_id);
+        self.observed.insert(cmd_id);
 
         Ok(cmd_id)
     }
@@ -273,24 +311,146 @@ impl<P: Profile> BlockingRunner<P> {
         target_cmd_id: CommandId,
         deadline: Option<Deadline>,
     ) -> Result<Response> {
+        if let Some(outcome) = self.completed.remove(&target_cmd_id) {
+            self.observed.remove(&target_cmd_id);
+            return outcome;
+        }
+
+        if !self.observed.contains(&target_cmd_id) {
+            return Err(Error::InvalidState(
+                format!("command {target_cmd_id} is not awaiting a result").into(),
+            ));
+        }
+
         if let Some(ref d) = deadline {
             if d.is_expired() {
                 self.core.cancel_command(target_cmd_id);
+                self.discard_result(target_cmd_id);
                 return Err(Error::Timeout);
             }
         }
 
-        self.run_until_complete(transport, target_cmd_id, deadline)
+        let result = self.run_until_complete(transport, target_cmd_id, deadline);
+        self.discard_result(target_cmd_id);
+        result
     }
 
-    /// Cancel a queued or in-flight command by id.
+    /// Request cancellation without direct transport access.
     ///
-    /// If the command is still queued (no bytes sent), it is dropped from the
-    /// scheduler core and its completion wait resolves as canceled. If it has
-    /// already been sent, this clears the tracked state; the camera-side effect
-    /// depends on the protocol.
+    /// Queued commands are removed immediately and a pre-ACK command is marked
+    /// for cancel-on-ACK. This test-harness API intentionally has no way to send
+    /// a cancel for an already-assigned socket; camera handles use the
+    /// transport-aware path below.
+    #[cfg(any(test, feature = "test-utils"))]
     pub fn cancel(&mut self, target_cmd_id: CommandId) {
-        self.core.cancel_command(target_cmd_id);
+        let _ = self.core.request_cancel_by_id(target_cmd_id);
+        self.discard_result(target_cmd_id);
+    }
+
+    /// Request cancellation and send a socket cancel immediately when the
+    /// scheduler has already observed the command's ACK.
+    pub(crate) fn cancel_with_transport<T: BlockingTransport>(
+        &mut self,
+        transport: &mut T,
+        target_cmd_id: CommandId,
+    ) -> Result<()> {
+        let outcome = self.core.request_cancel_by_id(target_cmd_id);
+        self.discard_result(target_cmd_id);
+
+        if let CancelOutcome::SendCancel { camera_id, socket } = outcome {
+            self.send_cancel_frame(transport, camera_id, socket)?;
+        }
+        Ok(())
+    }
+
+    /// Stop retaining a terminal result for a command without cancelling it.
+    ///
+    /// The scheduler continues to own and drive the command. If it completes
+    /// while another command is awaited, its result is discarded because no
+    /// handle remains to observe it.
+    pub(crate) fn detach(&mut self, target_cmd_id: CommandId) {
+        self.discard_result(target_cmd_id);
+    }
+
+    /// Dispatch queued commands until `target_cmd_id` has been sent, without
+    /// receiving any responses. At most one profile-spacing wait is performed
+    /// when no item is immediately sendable; a still-blocked target means both
+    /// VISCA command sockets are occupied and is reported as `CameraBusy`.
+    fn dispatch_queued_command<T: BlockingTransport + HasTransportConfig>(
+        &mut self,
+        transport: &mut T,
+        target_cmd_id: CommandId,
+    ) -> Result<()> {
+        let mut send_buf = BytesMut::with_capacity(self.buffer_manager.config().send_buffer_size);
+        let mut waited_for_spacing = false;
+
+        loop {
+            let now = Instant::now();
+            let Some(cmd) = self.core.next_item_to_send(now) else {
+                if !waited_for_spacing && !P::MIN_COMMAND_SPACING.is_zero() {
+                    std::thread::sleep(P::MIN_COMMAND_SPACING);
+                    waited_for_spacing = true;
+                    continue;
+                }
+                return Err(Error::CameraBusy);
+            };
+
+            let dispatched_id = cmd.id;
+            let mut scheduler = BlockingScheduler {
+                core: &mut self.core,
+                now,
+            };
+            let write_timeout = transport.transport_config().write_timeout;
+
+            match send_one(
+                transport,
+                &mut scheduler,
+                cmd,
+                &self.envelope,
+                &mut send_buf,
+                write_timeout,
+            ) {
+                SendResult::Ok if dispatched_id == target_cmd_id => return Ok(()),
+                SendResult::Ok => {
+                    waited_for_spacing = false;
+                }
+                SendResult::Err { error, action } => {
+                    if transport.send_semantics() == SendSemantics::Stream {
+                        let error = Error::StreamPoisoned {
+                            reason: format!("Send failed: {error}").into(),
+                        };
+                        self.core.clear_all();
+                        self.fail_observed_except(target_cmd_id, &error);
+                        return Err(error);
+                    }
+
+                    if let Some(SchedulerAction::CommandFailed { id, error }) = action {
+                        if id == target_cmd_id {
+                            return Err(error);
+                        }
+                        if self.observed.contains(&id) {
+                            self.completed.insert(id, Err(error));
+                        }
+                    }
+                    waited_for_spacing = false;
+                }
+            }
+        }
+    }
+
+    fn send_cancel_frame<T: BlockingTransport>(
+        &mut self,
+        transport: &mut T,
+        camera_id: CameraId,
+        socket: crate::ViscaSocket,
+    ) -> Result<()> {
+        let command = CommandCancelCommand::new(socket);
+        let mut command_buf = [0u8; CommandCancelCommand::MAX_SIZE];
+        let len = command.write_into(camera_id, &mut command_buf)?;
+        let mut send_buf = BytesMut::with_capacity(self.buffer_manager.config().send_buffer_size);
+        self.envelope
+            .frame_into(&command_buf[..len], CommandKind::Command, &mut send_buf);
+        transport.send_with_kind(&send_buf, CommandKind::Command)
     }
 
     /// Update the timeout configuration.
@@ -367,6 +527,44 @@ impl<P: Profile> BlockingRunner<P> {
         };
 
         recv_timeout
+    }
+
+    /// Retain a non-target terminal outcome only while its handle is observed.
+    /// Return target outcomes directly to the caller driving the scheduler.
+    fn complete_or_retain(
+        &mut self,
+        target_cmd_id: CommandId,
+        cmd_id: CommandId,
+        outcome: Result<Response>,
+    ) -> Option<Result<Response>> {
+        if cmd_id == target_cmd_id {
+            Some(outcome)
+        } else {
+            if self.observed.contains(&cmd_id) {
+                self.completed.insert(cmd_id, outcome);
+            }
+            None
+        }
+    }
+
+    /// Fail every observed command after a fatal transport failure, preserving
+    /// per-handle outcomes for commands other than the one currently awaited.
+    fn fail_all_observed(&mut self, target_cmd_id: CommandId, error: Error) -> Result<Response> {
+        self.fail_observed_except(target_cmd_id, &error);
+        Err(error)
+    }
+
+    fn fail_observed_except(&mut self, target_cmd_id: CommandId, error: &Error) {
+        for cmd_id in self.observed.iter().copied() {
+            if cmd_id != target_cmd_id {
+                self.completed.insert(cmd_id, Err(error.clone()));
+            }
+        }
+    }
+
+    fn discard_result(&mut self, cmd_id: CommandId) {
+        self.observed.remove(&cmd_id);
+        self.completed.remove(&cmd_id);
     }
 
     /// Run the scheduler until a specific command completes.
@@ -450,14 +648,17 @@ impl<P: Profile> BlockingRunner<P> {
                                 "Stream transport poisoned - failing command and exiting"
                             );
                             self.core.clear_all();
-                            return Err(Error::StreamPoisoned {
+                            let error = Error::StreamPoisoned {
                                 reason: reason.into(),
-                            });
+                            };
+                            return self.fail_all_observed(target_cmd_id, error);
                         }
                         // For datagram transports, check if this failure is for our target command
                         if let Some(SchedulerAction::CommandFailed { id, error }) = action {
-                            if id == target_cmd_id {
-                                return Err(error);
+                            if let Some(outcome) =
+                                self.complete_or_retain(target_cmd_id, id, Err(error))
+                            {
+                                return outcome;
                             }
                         }
                         // Stop draining and fall through to timeout/receive
@@ -470,8 +671,12 @@ impl<P: Profile> BlockingRunner<P> {
             let timeout_actions = self.core.check_timeouts(now);
             for action in timeout_actions {
                 match action {
-                    SchedulerAction::CommandFailed { id, error } if id == target_cmd_id => {
-                        return Err(error);
+                    SchedulerAction::CommandFailed { id, error } => {
+                        if let Some(outcome) =
+                            self.complete_or_retain(target_cmd_id, id, Err(error))
+                        {
+                            return outcome;
+                        }
                     }
                     SchedulerAction::RetryCommand { .. } => {}
                     _ => {}
@@ -485,9 +690,11 @@ impl<P: Profile> BlockingRunner<P> {
             match transport.recv_into_with_timeout(&mut read_buf, recv_timeout) {
                 Ok(0) => {
                     warn!("Connection closed by peer");
-                    return Err(Error::ConnectionClosed {
+                    let error = Error::ConnectionClosed {
                         reason: Some("peer closed connection".into()),
-                    });
+                    };
+                    self.core.clear_all();
+                    return self.fail_all_observed(target_cmd_id, error);
                 }
                 Ok(n) => {
                     trace!("Received {n} bytes from transport");
@@ -509,8 +716,11 @@ impl<P: Profile> BlockingRunner<P> {
                         }
                     }
 
-                    // Always drain frames after push attempt (even after resync)
-                    for frame_result in self.framer.drain_frames() {
+                    // Drain first so processing terminal actions can mutably
+                    // update outcome/cancel state without retaining a borrow of
+                    // the framer iterator.
+                    let frames: Vec<_> = self.framer.drain_frames().collect();
+                    for frame_result in frames {
                         let frame = match frame_result {
                             Ok(frame) => frame,
                             Err(e) => {
@@ -534,8 +744,10 @@ impl<P: Profile> BlockingRunner<P> {
                                 if let Some(SchedulerAction::CommandFailed { id, error }) =
                                     self.core.fail_after_receive_error(id, error)
                                 {
-                                    if id == target_cmd_id {
-                                        return Err(error);
+                                    if let Some(outcome) =
+                                        self.complete_or_retain(target_cmd_id, id, Err(error))
+                                    {
+                                        return outcome;
                                     }
                                 }
                                 continue;
@@ -553,15 +765,34 @@ impl<P: Profile> BlockingRunner<P> {
                         let actions = self.core.process_event(event, now);
                         for action in actions {
                             match action {
-                                SchedulerAction::CommandComplete { id, response, .. }
-                                    if id == target_cmd_id =>
-                                {
-                                    return Ok(response);
+                                SchedulerAction::CommandComplete { id, response, .. } => {
+                                    if let Some(outcome) =
+                                        self.complete_or_retain(target_cmd_id, id, Ok(response))
+                                    {
+                                        return outcome;
+                                    }
                                 }
-                                SchedulerAction::CommandFailed { id, error }
-                                    if id == target_cmd_id =>
-                                {
-                                    return Err(error);
+                                SchedulerAction::CommandFailed { id, error } => {
+                                    if let Some(outcome) =
+                                        self.complete_or_retain(target_cmd_id, id, Err(error))
+                                    {
+                                        return outcome;
+                                    }
+                                }
+                                SchedulerAction::SendCancel { camera_id, socket } => {
+                                    if let Err(error) =
+                                        self.send_cancel_frame(transport, camera_id, socket)
+                                    {
+                                        if transport.send_semantics() == SendSemantics::Stream {
+                                            self.core.clear_all();
+                                            return self.fail_all_observed(target_cmd_id, error);
+                                        }
+                                        warn!(
+                                            ?camera_id,
+                                            ?socket,
+                                            "Failed to send deferred socket cancel: {error}"
+                                        );
+                                    }
                                 }
                                 _ => {}
                             }
@@ -575,11 +806,12 @@ impl<P: Profile> BlockingRunner<P> {
                         .core
                         .process_event(SchedulerEvent::NetworkError(e), now);
                     for action in actions {
-                        match action {
-                            SchedulerAction::CommandFailed { id, error } if id == target_cmd_id => {
-                                return Err(error);
+                        if let SchedulerAction::CommandFailed { id, error } = action {
+                            if let Some(outcome) =
+                                self.complete_or_retain(target_cmd_id, id, Err(error))
+                            {
+                                return outcome;
                             }
-                            _ => {}
                         }
                     }
                 }
@@ -672,11 +904,9 @@ mod tests {
         }
     }
 
-    /// `start_command` queues a command (assigning an id) without any I/O, and
-    /// `cancel` removes it from the scheduler so nothing is left to send. This is
-    /// the submit/cancel half of the split that backs `BlockingInFlight`.
+    /// A command cancelled while it is still queued is removed without any I/O.
     #[test]
-    fn test_start_command_queues_then_cancel_dequeues() {
+    fn test_queued_cancel_dequeues_without_io() {
         use crate::command::bytes::VISCA_TERMINATOR;
 
         #[derive(Debug, Clone)]
@@ -700,10 +930,10 @@ mod tests {
             bytes: vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR],
         };
 
-        // start_command queues and returns a non-zero id, performing no I/O.
+        // Exercise the state before `start_command` performs initial dispatch.
         let id = runner
-            .start_command(&test_cmd, CameraId::CAMERA_1)
-            .expect("start_command should queue the command");
+            .enqueue(&test_cmd, CameraId::CAMERA_1, false)
+            .expect("enqueue should accept the command");
         assert!(id.get() >= 1);
 
         // cancel removes the queued command: nothing is left to send.

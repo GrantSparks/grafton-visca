@@ -312,6 +312,23 @@ impl ViscaCommand for PanTilt {
     const MAX_SIZE: usize = 15;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Movement;
 
+    fn operation_metadata(&self) -> Option<crate::camera::OperationMetadata> {
+        use crate::camera::{Axes, OperationMetadata};
+
+        Some(match self {
+            Self::Home
+            | Self::Reset
+            | Self::AbsolutePosition { .. }
+            | Self::RelativePosition { .. }
+            | Self::AbsolutePositionRaw { .. }
+            | Self::RelativePositionRaw { .. } => OperationMetadata::targeted(Axes::PAN_TILT),
+            Self::Move { .. } => OperationMetadata::applied_only(Axes::PAN_TILT),
+            Self::LimitSet { .. } | Self::LimitSetRaw { .. } | Self::LimitClear { .. } => {
+                OperationMetadata::applied_only(Axes::NONE)
+            }
+        })
+    }
+
     fn write_into(
         &self,
         camera_id: crate::camera_id::CameraId,

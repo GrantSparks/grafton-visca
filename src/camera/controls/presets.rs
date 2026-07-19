@@ -155,7 +155,7 @@ fn validate_preset<P: Presets>(preset: PresetNumber) -> Result<(), Error> {
     Ok(())
 }
 
-fn preset_command<P: Presets>(
+pub(crate) fn preset_command<P: Presets>(
     action: PresetAction,
     preset: PresetNumber,
 ) -> Result<PresetCommand, Error> {
@@ -178,7 +178,7 @@ where
 
     fn preset_recall(&self, preset: PresetNumber) -> M::Fut<'_, Result<(), Error>> {
         match preset_command::<P>(PresetAction::Recall, preset) {
-            Ok(command) => self.execute(command),
+            Ok(command) => self.execute_operation(command),
             Err(e) => self.error(e),
         }
     }
@@ -221,7 +221,7 @@ where
     /// Recall a preset position and return an operation handle.
     #[deprecated(
         since = "1.1.0",
-        note = "use `submit(cmd)` (or the noun-scoped `submit_*` helper) and drive the returned handle with `await_applied` / `await_settled`; the `_op` methods are removed in 2.0"
+        note = "use `submit(cmd)` and drive the returned handle with `await_applied` / `await_settled`; the `_op` methods are removed in 2.0"
     )]
     pub async fn preset_recall_op(
         &self,
@@ -229,7 +229,10 @@ where
     ) -> Result<crate::camera::InFlight<'_, crate::camera::PresetOperation, P, Exec>, Error> {
         let cmd = preset_command::<P>(PresetAction::Recall, preset)?;
 
-        self.submit_op::<crate::camera::PresetOperation, _>(&cmd, crate::camera::OpKind::Targeted)
+        let metadata = crate::command::ViscaCommand::operation_metadata(&cmd).ok_or_else(|| {
+            Error::InvalidState("built-in preset operation is missing metadata".into())
+        })?;
+        self.submit_op::<crate::camera::PresetOperation, _>(&cmd, metadata)
             .await
     }
 }

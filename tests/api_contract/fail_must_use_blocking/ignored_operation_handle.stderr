@@ -1,0 +1,16 @@
+error: unused `BlockingInFlight` that must be used
+ --> tests/api_contract/fail_must_use_blocking/ignored_operation_handle.rs:8:5
+  |
+8 |     camera.submit(&PanTilt::Home).expect("submission");
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this blocking operation handle should be awaited, cancelled, or explicitly detached; dropping it detaches the already-dispatched command
+note: the lint level is defined here
+ --> tests/api_contract/fail_must_use_blocking/ignored_operation_handle.rs:1:9
+  |
+1 | #![deny(unused_must_use)]
+  |         ^^^^^^^^^^^^^^^
+help: use `let _ = ...` to ignore the resulting value
+  |
+8 |     let _ = camera.submit(&PanTilt::Home).expect("submission");
+  |     +++++++

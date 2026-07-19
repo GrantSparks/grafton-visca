@@ -251,7 +251,7 @@ where
     Ok(())
 }
 
-fn pan_tilt_absolute_command<P>(
+pub(crate) fn pan_tilt_absolute_command<P>(
     pan: impl Into<Degrees>,
     tilt: impl Into<Degrees>,
     speed: SpeedLevel,
@@ -270,7 +270,7 @@ where
     })
 }
 
-fn pan_tilt_relative_command<P>(
+pub(crate) fn pan_tilt_relative_command<P>(
     pan: impl Into<Degrees>,
     tilt: impl Into<Degrees>,
     speed: SpeedLevel,
@@ -305,11 +305,11 @@ where
             pan_speed: PanSpeed::from(SpeedLevel::Medium),
             tilt_speed: TiltSpeed::from(SpeedLevel::Medium),
         };
-        self.execute(cmd)
+        self.execute_operation(cmd)
     }
 
     fn pan_tilt_home(&self) -> M::Fut<'_, Result<(), Error>> {
-        self.execute(PanTiltCommand::Home)
+        self.execute_operation(PanTiltCommand::Home)
     }
 
     fn pan_tilt_absolute(
@@ -319,7 +319,7 @@ where
         speed: SpeedLevel,
     ) -> M::Fut<'_, Result<(), Error>> {
         match pan_tilt_absolute_command::<P>(pan, tilt, speed) {
-            Ok(command) => self.execute(command),
+            Ok(command) => self.execute_operation(command),
             Err(e) => self.error(e),
         }
     }
@@ -331,7 +331,7 @@ where
         speed: SpeedLevel,
     ) -> M::Fut<'_, Result<(), Error>> {
         match pan_tilt_relative_command::<P>(pan, tilt, speed) {
-            Ok(command) => self.execute(command),
+            Ok(command) => self.execute_operation(command),
             Err(e) => self.error(e),
         }
     }
@@ -351,11 +351,11 @@ where
             pan_speed,
             tilt_speed,
         };
-        self.execute(cmd)
+        self.execute_operation(cmd)
     }
 
     fn pan_tilt_reset(&self) -> M::Fut<'_, Result<(), Error>> {
-        self.execute(PanTiltCommand::Reset)
+        self.execute_operation(PanTiltCommand::Reset)
     }
 
     fn pan_tilt_limit_set(
@@ -405,17 +405,18 @@ where
         &self,
         command: PanTiltCommand,
     ) -> Result<crate::camera::InFlight<'_, crate::camera::PanTiltOperation, P, Exec>, Error> {
-        self.submit_op::<crate::camera::PanTiltOperation, _>(
-            &command,
-            crate::camera::OpKind::Targeted,
-        )
-        .await
+        let metadata =
+            crate::command::ViscaCommand::operation_metadata(&command).ok_or_else(|| {
+                Error::InvalidState("built-in pan/tilt operation is missing metadata".into())
+            })?;
+        self.submit_op::<crate::camera::PanTiltOperation, _>(&command, metadata)
+            .await
     }
 
     /// Move to an absolute pan/tilt position and return an operation handle.
     #[deprecated(
         since = "1.1.0",
-        note = "use `submit(cmd)` (or the noun-scoped `submit_*` helper) and drive the returned handle with `await_applied` / `await_settled`; the `_op` methods are removed in 2.0"
+        note = "use `submit(cmd)` and drive the returned handle with `await_applied` / `await_settled`; the `_op` methods are removed in 2.0"
     )]
     pub async fn pan_tilt_absolute_op(
         &self,
@@ -430,7 +431,7 @@ where
     /// Move relative to the current position and return an operation handle.
     #[deprecated(
         since = "1.1.0",
-        note = "use `submit(cmd)` (or the noun-scoped `submit_*` helper) and drive the returned handle with `await_applied` / `await_settled`; the `_op` methods are removed in 2.0"
+        note = "use `submit(cmd)` and drive the returned handle with `await_applied` / `await_settled`; the `_op` methods are removed in 2.0"
     )]
     pub async fn pan_tilt_relative_op(
         &self,
@@ -454,14 +455,14 @@ where
     /// use std::time::Duration;
     ///
     /// let handle = camera.pan_tilt_home_op().await?;
-    /// handle.await_completion(Duration::from_secs(30)).await?;
+    /// handle.await_applied(Duration::from_secs(30)).await?;
     /// ```
     ///
     /// # Errors
     /// Returns an error if the command fails to send.
     #[deprecated(
         since = "1.1.0",
-        note = "use `submit(cmd)` (or the noun-scoped `submit_*` helper) and drive the returned handle with `await_applied` / `await_settled`; the `_op` methods are removed in 2.0"
+        note = "use `submit(cmd)` and drive the returned handle with `await_applied` / `await_settled`; the `_op` methods are removed in 2.0"
     )]
     pub async fn pan_tilt_home_op(
         &self,
@@ -481,14 +482,14 @@ where
     /// use std::time::Duration;
     ///
     /// let handle = camera.pan_tilt_reset_op().await?;
-    /// handle.await_completion(Duration::from_secs(30)).await?;
+    /// handle.await_applied(Duration::from_secs(30)).await?;
     /// ```
     ///
     /// # Errors
     /// Returns an error if the command fails to send.
     #[deprecated(
         since = "1.1.0",
-        note = "use `submit(cmd)` (or the noun-scoped `submit_*` helper) and drive the returned handle with `await_applied` / `await_settled`; the `_op` methods are removed in 2.0"
+        note = "use `submit(cmd)` and drive the returned handle with `await_applied` / `await_settled`; the `_op` methods are removed in 2.0"
     )]
     pub async fn pan_tilt_reset_op(
         &self,

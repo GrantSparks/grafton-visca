@@ -555,16 +555,13 @@ pub enum SchedulerAction {
     /// should be sent immediately to the transport.
     SendCancel {
         /// Camera ID for addressing the cancel message.
-        #[cfg(any(feature = "mode-async", test))]
         camera_id: crate::camera_id::CameraId,
         /// Socket to cancel.
-        #[cfg(any(feature = "mode-async", test))]
         socket: ViscaSocket,
     },
 }
 
 /// Result of a cancellation request after scheduler processing.
-#[cfg(any(feature = "mode-async", test))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CancelOutcome {
     /// A queued command was removed before any VISCA bytes were sent.
@@ -1560,7 +1557,6 @@ impl SchedulerCore {
     }
 
     /// Remove a command from pending command/inquiry queues.
-    #[cfg(any(feature = "mode-async", test))]
     fn remove_queued_command(&mut self, cmd_id: CommandId) {
         let old_cmd_queue = std::mem::take(&mut self.command_queue);
         for cmd in old_cmd_queue.into_iter() {
@@ -1591,7 +1587,6 @@ impl SchedulerCore {
     ///
     /// This design eliminates the need for an out-of-band `pending_cancel_ids` map,
     /// ensuring cancels are bounded to command lifetime and cleaned up automatically.
-    #[cfg(any(feature = "mode-async", test))]
     pub fn request_cancel_by_id(&mut self, cmd_id: CommandId) -> CancelOutcome {
         // Check if the command is active and get its state
         let Some(state) = self.commands.get(&cmd_id) else {
@@ -2538,9 +2533,7 @@ impl SchedulerCore {
                     "Emitting SendCancel for command that had cancel_requested set"
                 );
                 Some(SchedulerAction::SendCancel {
-                    #[cfg(any(feature = "mode-async", test))]
                     camera_id: cmd_state.camera_id,
-                    #[cfg(any(feature = "mode-async", test))]
                     socket: assigned_socket,
                 })
             } else {

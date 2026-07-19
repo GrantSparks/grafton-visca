@@ -587,12 +587,59 @@ jobs:
             exit 1
           fi
 
+  # Enforce the workspace's declared minimum supported Rust version.
+  msrv:
+    name: MSRV 1.88 (${{ matrix.surface }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - surface: blocking
+            features: ""
+          - surface: async-dyn
+            features: runtime-tokio,dyn-api,test-utils
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust 1.88.0
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.88.0
+
+      - uses: Swatinem/rust-cache@v2
+        continue-on-error: true
+        with:
+          shared-key: "rust-cache-msrv-${{ matrix.surface }}"
+          save-if: false
+
+      - name: Check ${{ matrix.surface }} public surface on MSRV
+        shell: bash
+        run: |
+          if [ -z "${{ matrix.features }}" ]; then
+            cargo check --workspace --all-targets --no-default-features
+          else
+            cargo check --workspace --all-targets --no-default-features \
+              --features "${{ matrix.features }}"
+          fi
+
   # Semver compatibility check
   semver:
-    name: Check semver
+    name: Check semver (${{ matrix.surface }})
     runs-on: ubuntu-latest
     timeout-minutes: 20
     if: github.event_name == 'pull_request'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - surface: blocking
+            feature_group: default-features
+            features: ""
+          - surface: async-dyn
+            feature_group: only-explicit-features
+            features: runtime-tokio,transport-serial,transport-serial-tokio,serde,schemars,ts-rs,dyn-api,test-utils
     steps:
       - uses: actions/checkout@v6
 
@@ -616,8 +663,8 @@ jobs:
 
       - uses: obi1kenobi/cargo-semver-checks-action@v2
         with:
-          feature-group: only-explicit-features
-          features: runtime-tokio,transport-serial,transport-serial-tokio,serde,schemars,ts-rs,dyn-api,test-utils
+          feature-group: ${{ matrix.feature_group }}
+          features: ${{ matrix.features }}
 
   # Check package metadata and dependencies
   package-check:
@@ -686,6 +733,9 @@ jobs:
       - lint-and-docs
       - async-transport-integration
       - cross-compile
+      - miri
+      - msrv
+      - semver
       - package-check
     runs-on: ubuntu-latest
     timeout-minutes: 5

@@ -29,7 +29,7 @@ Before contributing, please:
 git clone https://github.com/YOUR_USERNAME/grafton-visca.git
 cd grafton-visca
 
-# Run the declared 1.0 support matrix
+# Run the declared 1.x support matrix
 bash .github/scripts/test-all-features.sh
 
 # Or run individual matrix entries while iterating
@@ -236,7 +236,7 @@ fn test_movement_safety() {
 # Default test suite
 cargo test
 
-# Declared 1.0 runtime and transport feature combinations
+# Declared 1.x runtime and transport feature combinations
 bash .github/scripts/test-all-features.sh
 cargo test
 cargo test --no-default-features --features runtime-tokio
@@ -260,7 +260,7 @@ cargo test -- --nocapture
 
 ## Documentation
 
-For v1.0 milestone work, update the Unreleased section of `CHANGELOG.md` in the same change as the implementation. If behavior, setup, examples, or contributor workflow changes, update the matching README, example, or contributor docs before closing the task.
+For 1.x milestone work, update the Unreleased section of `CHANGELOG.md` in the same change as the implementation. If behavior, setup, examples, or contributor workflow changes, update the matching README, example, or contributor docs before closing the task.
 
 ### Code Documentation
 

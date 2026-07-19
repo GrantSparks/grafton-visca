@@ -63,6 +63,19 @@ impl ViscaCommand for Zoom {
     const MAX_SIZE: usize = 10;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Movement;
 
+    fn operation_metadata(&self) -> Option<crate::camera::OperationMetadata> {
+        use crate::camera::{Axes, OperationMetadata};
+
+        Some(match self {
+            Self::Position(_) => OperationMetadata::targeted(Axes::ZOOM),
+            Self::Stop
+            | Self::TeleStd
+            | Self::WideStd
+            | Self::TeleVariable(_)
+            | Self::WideVariable(_) => OperationMetadata::applied_only(Axes::ZOOM),
+        })
+    }
+
     fn write_into(
         &self,
         camera_id: crate::camera_id::CameraId,

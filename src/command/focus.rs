@@ -112,6 +112,22 @@ impl ViscaCommand for Focus {
     const MAX_SIZE: usize = 9;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Movement;
 
+    fn operation_metadata(&self) -> Option<crate::camera::OperationMetadata> {
+        use crate::camera::{Axes, OperationMetadata};
+
+        Some(match self {
+            Self::Position(_) | Self::Infinity => OperationMetadata::targeted(Axes::FOCUS),
+            Self::Stop
+            | Self::Far
+            | Self::Near
+            | Self::FarWithSpeed(_)
+            | Self::NearWithSpeed(_) => OperationMetadata::applied_only(Axes::FOCUS),
+            Self::Auto | Self::Manual | Self::OnePushTrigger | Self::Toggle | Self::Snap => {
+                OperationMetadata::applied_only(Axes::NONE)
+            }
+        })
+    }
+
     fn write_into(
         &self,
         camera_id: crate::camera_id::CameraId,

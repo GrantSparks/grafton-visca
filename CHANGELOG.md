@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+#### Complete Operation-Handle Semantics and Mode Parity (#539)
+
+- Built-in command metadata is now the single source of truth for operation kind
+  and affected axes across blocking, async, and dynamic handles.
+- Async `await_settled` now matches blocking mode: it uses the exact command
+  completion on profiles with operation-complete support and position polling
+  otherwise, under one timeout budget spanning application and settling.
+- Blocking submission performs its initial synchronous dispatch before returning
+  a handle, retains out-of-order results for multiple live handles, and uses the
+  scheduler's protocol-aware cancellation path.
+- The dynamic facade retains operation metadata and shares applied, settled,
+  cancel, and detach semantics with the static handle surface.
+- CI gates the declared Rust 1.88 MSRV and checks semver compatibility for the
+  cfg-exclusive blocking and async/dynamic public surfaces separately.
+
 ### Changed
 
 #### Bounded Contextual Retry for Transient Inquiry Syntax Errors (#536)
@@ -50,18 +67,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     targeted operation, and returns its handle without waiting.
     `Camera::submit_continuous(command)` does the same but marks the handle as a
     continuous drive or stop, for which there is no well-defined settled state.
-    (Ergonomic, noun-scoped `submit_*` helpers that accept degrees/normalized
-    inputs and return a handle are planned as a follow-up — see the migration
-    notes below.)
 - Added handle completion methods with explicit *applied* vs *settled* semantics:
   - `await_applied(timeout)` resolves when the camera has accepted and
     protocol-completed the command. It is available on every handle — including
     continuous drives and stops — and is the method to use for a bounded deadman
     `STOP`.
-  - `await_settled(timeout)` resolves when physical motion has ended (via the
-    operation-complete message on profiles that report it, otherwise via position
-    polling). It is meaningful only for targeted moves; on a continuous or stop
-    handle it returns `Error::NotSupported`.
+  - `await_settled(timeout)` resolves when physical motion has ended. In 1.1.0,
+    blocking handles used position polling when needed; async fallback polling
+    was completed in the subsequent #539 correctness follow-up. It is meaningful
+    only for targeted moves; continuous or stop handles return
+    `Error::NotSupported`.
   - `cancel()` discards the command through the runtime's ID-based cancel path;
     `detach()` is the explicit fire-and-forget escape hatch.
 - Added `OpKind` (`Targeted` / `Continuous`) to describe whether an operation has
@@ -71,12 +86,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Operation handles (`InFlight` and `BlockingInFlight`) are now `#[must_use]`:
-  producing a handle and dropping it without `await_applied`, `await_settled`,
-  `cancel`, or `detach` raises a lint. **Dropping a handle never stops the
-  command** — drop is equivalent to `detach`. The already-dispatched command
-  keeps running; a still-queued blocking command is flushed by the next blocking
-  operation. Use `cancel()` to discard a command instead.
+- Operation handles (`InFlight` and `BlockingInFlight`) are now `#[must_use]`, so
+  directly ignoring a returned handle raises a lint. Rust does not enforce linear
+  use after a handle is bound to a variable. **Dropping a handle never stops the
+  command** — drop is equivalent to `detach`. Use `cancel()` for explicit
+  cancellation.
 - The deprecated `_op` handle methods and the new `submit` primitive now share a
   single internal submission implementation, so the handle-producing paths cannot
   drift.
@@ -84,7 +98,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Deprecated
 
 - The `_op` movement handle methods are deprecated in favor of `submit(command)`
-  (or the noun accessors) plus `await_applied` / `await_settled`:
+  plus `await_applied` / `await_settled`:
   `pan_tilt_absolute_op`, `pan_tilt_relative_op`, `pan_tilt_home_op`,
   `pan_tilt_reset_op`, `set_zoom_op`, `set_zoom_normalized_op`,
   `set_zoom_normalized_in_domain_op`, `set_focus_op`, and `preset_recall_op`.
@@ -109,29 +123,20 @@ deprecation warnings. To migrate:
   Blocking callers gain a real handle here for the first time
   (`camera.submit(&command)?.await_applied(timeout)?`), which previously required
   a separate idle-polling wait.
-- For handles created from ergonomic inputs (degrees, normalized units), keep
-  using the `_op` methods for now. They stay available (with a deprecation
-  warning) until the ergonomic `submit_*` helpers described below replace them;
-  the `_op` methods will not be removed before that replacement exists.
+- For handles created from ergonomic inputs (degrees, normalized units), the
+  `_op` methods remain available as compatibility shims throughout 1.x. Their
+  final replacement is part of the coherent 2.0 operation API design.
 
 Intended follow-up changes, targeted for the next major release (2.0) unless
 noted:
 
-- Ergonomic, noun-scoped `submit_*` handle helpers (accepting degrees/normalized
-  inputs, returning a typed handle) will land as the drop-in replacement for the
-  deprecated `_op` methods. This is the additive step that must precede removal.
 - The deprecated `_op` methods and `InFlight::await_completion` will then be
   removed.
 - The coarse operation markers will be split into targeted and continuous
   variants so that calling `await_settled` on a continuous or stop handle becomes
   a compile error instead of a runtime `Error::NotSupported`.
-- The object-safe `dyn` API facade will be generated from the same command
-  descriptors as the static movement surface, keeping the two in lockstep.
-
-Until then, note that async `await_settled` resolves on the command's completion
-message; on profiles that do not report operation completion, follow it with
-`camera.await_axes_idle(...)` for a strict position-based settle. Blocking
-`await_settled` already performs that position poll internally.
+- The public surface will move to typed consuming handles with compile-time
+  targeted/applied-only completion constraints.
 
 ## [1.0.0] - 2026-06-13
 

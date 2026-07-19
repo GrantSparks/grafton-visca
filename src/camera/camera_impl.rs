@@ -834,9 +834,11 @@ where
     /// bound to that exact command's response, without awaiting completion. Drive
     /// it with `await_applied` / `await_settled`, or `cancel` / `detach` it.
     ///
-    /// The handle is treated as a [targeted](crate::camera::OpKind::Targeted)
-    /// operation; use [`submit_continuous`](Self::submit_continuous) for a
-    /// continuous drive or a stop.
+    /// Built-in commands derive targeted-vs-continuous semantics and affected
+    /// axes from the command itself. Custom commands without operation metadata
+    /// retain the additive 1.1 fallback of targeted motion across all axes. Use
+    /// [`submit_continuous`](Self::submit_continuous) to explicitly classify a
+    /// custom continuous drive or stop.
     ///
     /// # Errors
     /// Returns an error if the command cannot be submitted (for example, an
@@ -850,8 +852,12 @@ where
         Tr: AsyncTransport + Send + Sync,
         Exec: Executor + Send + Sync + Clone,
     {
-        self.submit_op::<(), C>(command, crate::camera::OpKind::Targeted)
-            .await
+        let metadata = command.operation_metadata().unwrap_or_else(|| {
+            // Compatibility for custom commands accepted by the additive 1.1
+            // submit surface. Built-in operations always provide exact metadata.
+            crate::camera::OperationMetadata::targeted(crate::camera::Axes::ALL)
+        });
+        self.submit_op::<(), C>(command, metadata).await
     }
 
     /// Submit a continuous drive or stop command and return an async handle.
@@ -872,19 +878,25 @@ where
         Tr: AsyncTransport + Send + Sync,
         Exec: Executor + Send + Sync + Clone,
     {
-        self.submit_op::<(), C>(command, crate::camera::OpKind::Continuous)
-            .await
+        let axes = command
+            .operation_metadata()
+            .map_or(crate::camera::Axes::NONE, |metadata| metadata.axes);
+        self.submit_op::<(), C>(
+            command,
+            crate::camera::OperationMetadata::applied_only(axes),
+        )
+        .await
     }
 
     /// Shared submission primitive: enqueue a command and build a typed handle.
     ///
-    /// This is the single implementation underlying [`submit`](Self::submit), the
-    /// noun-scoped `submit_*` helpers, and the (deprecated) `_op` methods, so none
-    /// of them duplicate the enqueue-and-wrap logic.
+    /// This is the single implementation underlying [`submit`](Self::submit)
+    /// and the (deprecated) `_op` methods, so they do not duplicate the
+    /// enqueue-and-wrap logic.
     pub(crate) async fn submit_op<Cat, C>(
         &self,
         command: &C,
-        kind: crate::camera::OpKind,
+        metadata: crate::camera::OperationMetadata,
     ) -> Result<crate::camera::InFlight<'_, Cat, P, Exec>, Error>
     where
         C: ViscaCommand,
@@ -897,7 +909,8 @@ where
             self.camera_id(),
             self.runtime(),
             response_future,
-            kind,
+            metadata,
+            self,
         ))
     }
 
@@ -1010,16 +1023,18 @@ where
 
     /// Submit a movement/actuation command and return a genuine blocking handle.
     ///
-    /// This is the blocking half of the mode-honest `submit` primitive: it queues
-    /// the command with the runner (allocating its id) but performs **no**
-    /// transport I/O. Use the returned [`BlockingInFlight`](crate::camera::BlockingInFlight)
-    /// to decide when to block for completion (`await_applied` / `await_settled`),
+    /// This is the blocking half of the mode-honest `submit` primitive: it
+    /// allocates an id, enqueues the command, and performs its initial transport
+    /// send before returning. It does **not** receive-pump an ACK or completion.
+    /// Use the returned [`BlockingInFlight`](crate::camera::BlockingInFlight) to
+    /// decide when to block for completion (`await_applied` / `await_settled`),
     /// to `cancel`, or to `detach`.
     ///
-    /// The handle is treated as a [targeted](crate::camera::OpKind::Targeted)
-    /// operation whose settle is observed across all axes; use
-    /// [`submit_continuous`](Self::submit_continuous) for a continuous drive or a
-    /// stop.
+    /// Built-in commands derive targeted-vs-continuous semantics and affected
+    /// axes from the command itself. Custom commands without operation metadata
+    /// retain the additive 1.1 fallback of targeted motion across all axes. Use
+    /// [`submit_continuous`](Self::submit_continuous) to explicitly classify a
+    /// custom continuous drive or stop.
     ///
     /// # Errors
     /// Returns an error if the command cannot be encoded or the runner is busy.
@@ -1030,12 +1045,17 @@ where
     where
         C: ViscaCommand,
     {
+        let metadata = command.operation_metadata().unwrap_or_else(|| {
+            // Compatibility for custom commands accepted by the additive 1.1
+            // submit surface. Built-in operations always provide exact metadata.
+            crate::camera::OperationMetadata::targeted(crate::camera::Axes::ALL)
+        });
         let id = self.submit_command(command)?;
         Ok(crate::camera::BlockingInFlight::new(
             id,
             self,
-            crate::camera::OpKind::Targeted,
-            crate::camera::Axes::ALL,
+            metadata.kind,
+            metadata.axes,
         ))
     }
 
@@ -1055,28 +1075,35 @@ where
     where
         C: ViscaCommand,
     {
+        let axes = command
+            .operation_metadata()
+            .map_or(crate::camera::Axes::NONE, |metadata| metadata.axes);
         let id = self.submit_command(command)?;
         Ok(crate::camera::BlockingInFlight::new(
             id,
             self,
             crate::camera::OpKind::Continuous,
-            crate::camera::Axes::NONE,
+            axes,
         ))
     }
 
-    /// Queue a command with the blocking runner without pumping I/O.
+    /// Submit and initially dispatch a command without pumping receive I/O.
     ///
-    /// Crate-internal primitive shared by [`submit`](Self::submit) and the
-    /// noun-scoped blocking `submit_*` helpers.
+    /// Crate-internal primitive shared by [`submit`](Self::submit) and ordinary
+    /// built-in operation methods.
     pub(crate) fn submit_command<C>(&self, command: &C) -> Result<crate::camera::CommandId, Error>
     where
         C: ViscaCommand,
     {
+        let transport_cell = self.transport();
+        let mut transport = transport_cell
+            .try_borrow_mut()
+            .map_err(|_| Error::TransportBusy)?;
         let mut runner = self
             .blocking_runner
             .try_borrow_mut()
             .map_err(|_| Error::TransportBusy)?;
-        runner.start_command(command, self.camera_id)
+        runner.start_command(&mut *transport, command, self.camera_id)
     }
 
     /// Drive a specific queued command to its protocol completion, synchronously.
@@ -1104,12 +1131,26 @@ where
     ///
     /// Crate-internal; backs [`BlockingInFlight::cancel`](crate::camera::BlockingInFlight::cancel).
     pub(crate) fn cancel_command_id(&self, id: crate::camera::CommandId) -> Result<(), Error> {
+        let transport_cell = self.transport();
+        let mut transport = transport_cell
+            .try_borrow_mut()
+            .map_err(|_| Error::TransportBusy)?;
         let mut runner = self
             .blocking_runner
             .try_borrow_mut()
             .map_err(|_| Error::TransportBusy)?;
-        runner.cancel(id);
-        Ok(())
+        runner.cancel_with_transport(&mut *transport, id)
+    }
+
+    /// Stop retaining the completion outcome for a blocking command without
+    /// cancelling the command itself.
+    ///
+    /// Used by `BlockingInFlight` drop/detach so a command may continue to run
+    /// while the runner avoids storing an outcome that can no longer be observed.
+    pub(crate) fn detach_command_id(&self, id: crate::camera::CommandId) {
+        if let Ok(mut runner) = self.blocking_runner.try_borrow_mut() {
+            runner.detach(id);
+        }
     }
 
     /// Send a typed command and return the response.

@@ -204,6 +204,46 @@ For smol, enable `runtime-smol` and use `SmolRuntime`.
 
 ---
 
+## Bounded Movement Operations
+
+Ordinary noun methods remain the simplest command-completion surface. When a
+caller needs a per-command deadline, cancellation, or a physical settle signal,
+submit a built-in movement command and drive its operation handle explicitly.
+
+```rust,ignore
+use std::time::Duration;
+use grafton_visca::{camera::Connect, command::{PanTilt, Zoom}, profiles::PtzOpticsG2};
+
+let cam = Connect::open_tcp_blocking::<PtzOpticsG2>("192.168.0.110")?;
+
+// Blocking submit performs the initial synchronous dispatch before returning.
+cam.submit(&PanTilt::Home)?
+    .await_settled(Duration::from_secs(20))?;
+
+// A stop/continuous command has no meaningful settled state; wait for it to be
+// accepted and protocol-completed instead.
+cam.submit(&Zoom::Stop)?
+    .await_applied(Duration::from_secs(2))?;
+```
+
+The async form has the same vocabulary and awaits submission and terminal
+operations:
+
+```rust,ignore
+let handle = cam.submit(&PanTilt::Home).await?;
+handle.await_settled(Duration::from_secs(20)).await?;
+```
+
+- `await_applied` means the exact command was accepted and protocol-completed.
+- `await_settled` additionally means targeted physical motion ended. Profiles
+  with an operation-complete signal use it; other profiles poll only the affected
+  axes under the same total deadline.
+- `cancel` requests ID/socket-safe protocol cancellation.
+- `detach` is explicit fire-and-forget. Dropping a handle has the same non-canceling
+  behavior; `#[must_use]` warns only when a returned handle is ignored directly.
+
+---
+
 ## Public API Boundaries
 
 - Use `grafton_visca::camera::{Connect, CameraConfig, CameraBuilder, Camera}`
