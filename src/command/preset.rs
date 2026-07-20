@@ -96,6 +96,15 @@ impl ViscaCommand for PresetCommand {
     const MAX_SIZE: usize = 7;
     const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Preset;
 
+    fn operation_metadata(&self) -> Option<crate::camera::OperationMetadata> {
+        use crate::camera::{Axes, OperationMetadata};
+
+        Some(match self.action {
+            PresetAction::Recall => OperationMetadata::targeted(Axes::ALL),
+            PresetAction::Reset | PresetAction::Set => OperationMetadata::applied_only(Axes::NONE),
+        })
+    }
+
     fn write_into(
         &self,
         camera_id: crate::camera_id::CameraId,

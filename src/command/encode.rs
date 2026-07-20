@@ -287,6 +287,20 @@ pub trait ViscaCommand: Send + Sync {
     fn behavior(&self) -> CommandBehavior {
         CommandBehavior::Command
     }
+
+    /// Return movement-operation completion metadata for this command.
+    ///
+    /// Built-in actuation commands override this so every API surface derives
+    /// targeted-vs-applied-only behavior and affected axes from the command
+    /// itself. Custom commands may override this 1.x compatibility hook; `None`
+    /// preserves the conservative targeted/all-axes `submit` fallback. The hook
+    /// is hidden because the metadata shape is part of the planned 2.0 operation
+    /// redesign rather than a long-term extension contract.
+    #[doc(hidden)]
+    #[inline]
+    fn operation_metadata(&self) -> Option<crate::camera::OperationMetadata> {
+        None
+    }
 }
 
 /// Inline buffer size for encoded commands - 24 bytes covers most commands without heap allocation.

@@ -251,7 +251,7 @@ where
     Ok(())
 }
 
-fn pan_tilt_absolute_command<P>(
+pub(crate) fn pan_tilt_absolute_command<P>(
     pan: impl Into<Degrees>,
     tilt: impl Into<Degrees>,
     speed: SpeedLevel,
@@ -270,7 +270,7 @@ where
     })
 }
 
-fn pan_tilt_relative_command<P>(
+pub(crate) fn pan_tilt_relative_command<P>(
     pan: impl Into<Degrees>,
     tilt: impl Into<Degrees>,
     speed: SpeedLevel,
@@ -305,11 +305,11 @@ where
             pan_speed: PanSpeed::from(SpeedLevel::Medium),
             tilt_speed: TiltSpeed::from(SpeedLevel::Medium),
         };
-        self.execute(cmd)
+        self.execute_operation(cmd)
     }
 
     fn pan_tilt_home(&self) -> M::Fut<'_, Result<(), Error>> {
-        self.execute(PanTiltCommand::Home)
+        self.execute_operation(PanTiltCommand::Home)
     }
 
     fn pan_tilt_absolute(
@@ -319,7 +319,7 @@ where
         speed: SpeedLevel,
     ) -> M::Fut<'_, Result<(), Error>> {
         match pan_tilt_absolute_command::<P>(pan, tilt, speed) {
-            Ok(command) => self.execute(command),
+            Ok(command) => self.execute_operation(command),
             Err(e) => self.error(e),
         }
     }
@@ -331,7 +331,7 @@ where
         speed: SpeedLevel,
     ) -> M::Fut<'_, Result<(), Error>> {
         match pan_tilt_relative_command::<P>(pan, tilt, speed) {
-            Ok(command) => self.execute(command),
+            Ok(command) => self.execute_operation(command),
             Err(e) => self.error(e),
         }
     }
@@ -351,11 +351,11 @@ where
             pan_speed,
             tilt_speed,
         };
-        self.execute(cmd)
+        self.execute_operation(cmd)
     }
 
     fn pan_tilt_reset(&self) -> M::Fut<'_, Result<(), Error>> {
-        self.execute(PanTiltCommand::Reset)
+        self.execute_operation(PanTiltCommand::Reset)
     }
 
     fn pan_tilt_limit_set(
@@ -393,7 +393,7 @@ where
     }
 }
 
-// Separate implementation for async-mode _op methods on async Camera
+// Profile-aware 1.x compatibility shims for the concrete async Camera.
 #[cfg(feature = "mode-async")]
 impl<P, Tr, Exec> crate::camera::Camera<crate::mode::Async, P, Tr, Exec>
 where
@@ -405,17 +405,18 @@ where
         &self,
         command: PanTiltCommand,
     ) -> Result<crate::camera::InFlight<'_, crate::camera::PanTiltOperation, P, Exec>, Error> {
-        self.submit_op::<crate::camera::PanTiltOperation, _>(
-            &command,
-            crate::camera::OpKind::Targeted,
-        )
-        .await
+        let metadata =
+            crate::command::ViscaCommand::operation_metadata(&command).ok_or_else(|| {
+                Error::InvalidState("built-in pan/tilt operation is missing metadata".into())
+            })?;
+        self.submit_op::<crate::camera::PanTiltOperation, _>(&command, metadata)
+            .await
     }
 
     /// Move to an absolute pan/tilt position and return an operation handle.
     #[deprecated(
         since = "1.1.0",
-        note = "use `submit(cmd)` (or the noun-scoped `submit_*` helper) and drive the returned handle with `await_applied` / `await_settled`; the `_op` methods are removed in 2.0"
+        note = "1.x compatibility shim; if you already have an equivalent profile-validated command, prefer `submit(cmd)`; this method is removed in the 2.0 operation redesign"
     )]
     pub async fn pan_tilt_absolute_op(
         &self,
@@ -430,7 +431,7 @@ where
     /// Move relative to the current position and return an operation handle.
     #[deprecated(
         since = "1.1.0",
-        note = "use `submit(cmd)` (or the noun-scoped `submit_*` helper) and drive the returned handle with `await_applied` / `await_settled`; the `_op` methods are removed in 2.0"
+        note = "1.x compatibility shim; if you already have an equivalent profile-validated command, prefer `submit(cmd)`; this method is removed in the 2.0 operation redesign"
     )]
     pub async fn pan_tilt_relative_op(
         &self,
@@ -444,24 +445,26 @@ where
 
     /// Move to the home position and return an operation handle.
     ///
-    /// This is the `_op` variant that returns an InFlight handle for fine-grained
-    /// control over timeouts and cancellation. The movement speed is determined
-    /// by the camera's default settings.
+    /// This 1.x compatibility shim preserves the original category marker. New
+    /// code can submit the directly constructible `PanTilt::Home` command and
+    /// choose applied or settled completion explicitly.
     ///
     /// # Example
     ///
     /// ```ignore
     /// use std::time::Duration;
     ///
-    /// let handle = camera.pan_tilt_home_op().await?;
-    /// handle.await_completion(Duration::from_secs(30)).await?;
+    /// use grafton_visca::command::PanTilt;
+    ///
+    /// let handle = camera.submit(&PanTilt::Home).await?;
+    /// handle.await_settled(Duration::from_secs(30)).await?;
     /// ```
     ///
     /// # Errors
     /// Returns an error if the command fails to send.
     #[deprecated(
         since = "1.1.0",
-        note = "use `submit(cmd)` (or the noun-scoped `submit_*` helper) and drive the returned handle with `await_applied` / `await_settled`; the `_op` methods are removed in 2.0"
+        note = "use `submit(&PanTilt::Home)` and drive the returned handle with `await_applied` / `await_settled`; this shim is removed in the 2.0 operation redesign"
     )]
     pub async fn pan_tilt_home_op(
         &self,
@@ -471,24 +474,26 @@ where
 
     /// Reset pan/tilt mechanism and return an operation handle.
     ///
-    /// This is the `_op` variant that returns an InFlight handle for fine-grained
-    /// control over timeouts and cancellation. This recalibrates the pan/tilt motors
-    /// and may take several seconds to complete.
+    /// This 1.x compatibility shim preserves the original category marker. New
+    /// code can submit the directly constructible `PanTilt::Reset` command. Reset
+    /// recalibrates the pan/tilt motors and may take several seconds to settle.
     ///
     /// # Example
     ///
     /// ```ignore
     /// use std::time::Duration;
     ///
-    /// let handle = camera.pan_tilt_reset_op().await?;
-    /// handle.await_completion(Duration::from_secs(30)).await?;
+    /// use grafton_visca::command::PanTilt;
+    ///
+    /// let handle = camera.submit(&PanTilt::Reset).await?;
+    /// handle.await_settled(Duration::from_secs(30)).await?;
     /// ```
     ///
     /// # Errors
     /// Returns an error if the command fails to send.
     #[deprecated(
         since = "1.1.0",
-        note = "use `submit(cmd)` (or the noun-scoped `submit_*` helper) and drive the returned handle with `await_applied` / `await_settled`; the `_op` methods are removed in 2.0"
+        note = "use `submit(&PanTilt::Reset)` and drive the returned handle with `await_applied` / `await_settled`; this shim is removed in the 2.0 operation redesign"
     )]
     pub async fn pan_tilt_reset_op(
         &self,

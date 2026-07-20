@@ -9,76 +9,102 @@
 //! ```
 
 #[cfg(not(feature = "mode-async"))]
+mod support;
+
+#[cfg(not(feature = "mode-async"))]
 mod blocking {
+    use std::{env, io};
+
     use grafton_visca::{
         camera::{profiles::PtzOpticsG2, Connect},
         inquiry_conversions::{PanTiltPositionRaw, ZoomDomain},
-        ZoomPositionExt,
+        Error, ZoomPositionExt,
     };
 
-    pub fn main() -> grafton_visca::Result<()> {
+    use super::support::finish_session;
+
+    fn address() -> Result<String, io::Error> {
+        let mut values = env::args().skip(1);
+        let address = match values.next() {
+            Some(value) if value.starts_with('-') => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!("unknown option `{value}`"),
+                ));
+            }
+            Some(value) => value,
+            None => env::var("VISCA_CAMERA_ADDR").unwrap_or_else(|_| "192.168.0.110".to_string()),
+        };
+
+        if let Some(extra) = values.next() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!(
+                    "unexpected extra argument `{extra}`\nusage: cargo run --example inquiry_quickstart -- [address]"
+                ),
+            ));
+        }
+
+        Ok(address)
+    }
+
+    pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         let _ = tracing_subscriber::fmt::try_init();
 
-        let address = std::env::args()
-            .nth(1)
-            .or_else(|| std::env::var("VISCA_CAMERA_ADDR").ok())
-            .unwrap_or_else(|| "192.168.0.110".to_string());
+        let address = address()?;
 
         println!("Inquiry quickstart");
         println!("Address: {address}");
 
         let camera = Connect::open_tcp_blocking::<PtzOpticsG2>(&address)?;
+        let query_result = (|| -> Result<(), Error> {
+            let capabilities = camera.capabilities();
+            println!("Profile: {}", capabilities.model_name);
 
-        match camera.power().state() {
-            Ok(is_on) => println!("Power: {}", if is_on { "on" } else { "off" }),
-            Err(error) => println!("Power inquiry failed: {error}"),
-        }
+            let is_on = camera.power().state()?;
+            println!("Power: {}", if is_on { "on" } else { "off" });
 
-        match camera.pan_tilt().position() {
-            Ok(position) => {
-                let degrees = PanTiltPositionRaw::new(position.pan, position.tilt).as_degrees();
-                println!(
-                    "Pan/tilt: pan={:.1} deg, tilt={:.1} deg",
-                    degrees.pan.0, degrees.tilt.0
-                );
-            }
-            Err(error) => println!("Pan/tilt inquiry failed: {error}"),
-        }
+            let position = camera.pan_tilt().position()?;
+            let degrees = PanTiltPositionRaw::new(position.pan, position.tilt).as_degrees();
+            println!(
+                "Pan/tilt: pan={:.1} deg, tilt={:.1} deg",
+                degrees.pan.0, degrees.tilt.0
+            );
 
-        match camera.zoom().position() {
-            Ok(position) => match position.normalize_with_max(ZoomDomain::Optical, 0x4000, None) {
-                Ok(optical) => println!(
-                    "Zoom: 0x{:04X} ({:.1}% optical)",
-                    position.value(),
-                    optical.value() * 100.0
-                ),
-                Err(error) => println!("Zoom normalization failed: {error}"),
-            },
-            Err(error) => println!("Zoom inquiry failed: {error}"),
-        }
+            let position = camera.zoom().position()?;
+            let optical_max = *capabilities.zoom_range_optical.end();
+            let digital_max = capabilities
+                .zoom_range_digital
+                .as_ref()
+                .map(|range| *range.end());
+            let optical =
+                position.normalize_with_max(ZoomDomain::Optical, optical_max, digital_max)?;
+            println!(
+                "Zoom: 0x{:04X} ({:.1}% optical)",
+                position.value(),
+                optical.value() * 100.0
+            );
 
-        match camera.focus().mode() {
-            Ok(mode) => println!("Focus mode: {mode:?}"),
-            Err(error) => println!("Focus mode inquiry failed: {error}"),
-        }
+            let mode = camera.focus().mode()?;
+            println!("Focus mode: {mode:?}");
 
-        match camera.exposure().mode() {
-            Ok(mode) => println!("Exposure mode: {mode:?}"),
-            Err(error) => println!("Exposure mode inquiry failed: {error}"),
-        }
+            let mode = camera.exposure().mode()?;
+            println!("Exposure mode: {mode:?}");
 
-        match camera.white_balance().mode() {
-            Ok(mode) => println!("White balance mode: {mode:?}"),
-            Err(error) => println!("White balance inquiry failed: {error}"),
-        }
+            let mode = camera.white_balance().mode()?;
+            println!("White balance mode: {mode:?}");
 
-        camera.close()?;
+            Ok(())
+        })();
+        let close_result = camera.close();
+
+        finish_session(query_result, close_result)?;
         Ok(())
     }
 }
 
 #[cfg(not(feature = "mode-async"))]
-fn main() -> grafton_visca::Result<()> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     blocking::main()
 }
 

@@ -232,10 +232,57 @@ where
 #[cfg(feature = "mode-async")]
 impl<P, T, E> CameraSession<crate::mode::Async, P, T, E, Open>
 where
-    P: Profile + crate::capabilities::ProfileMetadata + Default,
+    P: Profile + Default,
     T: crate::transport::AsyncTransport + Send + Sync + 'static,
     E: Executor,
 {
+    /// Submit a command and retain its exact async operation handle.
+    ///
+    /// This forwards the primary 1.x operation API through the open session
+    /// returned by [`Connect`](crate::camera::Connect) and
+    /// [`CameraConfig`](crate::camera::CameraConfig). Built-in commands derive
+    /// targeted-versus-applied-only behavior from command metadata.
+    ///
+    /// `submit` manages lifecycle; it does not add profile capability or range
+    /// validation beyond the command's own checks. Prefer typed noun controls
+    /// when converting ergonomic, profile-sensitive input.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the command is an inquiry, cannot be encoded, or
+    /// cannot be accepted by the runtime scheduler.
+    pub async fn submit<C>(
+        &self,
+        command: &C,
+    ) -> Result<crate::camera::InFlight<'_, (), P, E>, Error>
+    where
+        C: ViscaCommand,
+        E: Send + Sync + Clone + 'static,
+    {
+        self.camera.submit(command).await
+    }
+
+    /// Submit a custom applied-only command and retain its async handle.
+    ///
+    /// Built-in commands already carry exact metadata and should normally use
+    /// [`submit`](Self::submit). Use this override for a custom command with no
+    /// meaningful physical-settle state.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the command cannot be encoded or accepted by the
+    /// runtime scheduler.
+    pub async fn submit_continuous<C>(
+        &self,
+        command: &C,
+    ) -> Result<crate::camera::InFlight<'_, (), P, E>, Error>
+    where
+        C: ViscaCommand,
+        E: Send + Sync + Clone + 'static,
+    {
+        self.camera.submit_continuous(command).await
+    }
+
     /// Wait for all movements to complete.
     ///
     /// Convenience method that waits for all motors (pan/tilt, zoom, focus) to stop.

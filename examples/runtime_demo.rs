@@ -9,20 +9,23 @@
 //! cargo run --example runtime_demo --features runtime-tokio -- 192.168.0.110
 //! ```
 
+mod support;
+
+use std::{env, io};
+
 use grafton_visca::{
     camera::{profiles::PtzOpticsG2, Connect},
     runtime::TokioRuntime,
     Error,
 };
 
+use support::finish_session;
+
 #[tokio::main]
-async fn main() -> Result<(), Error> {
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _ = tracing_subscriber::fmt::try_init();
 
-    let address = std::env::args()
-        .nth(1)
-        .or_else(|| std::env::var("VISCA_CAMERA_ADDR").ok())
-        .unwrap_or_else(|| "192.168.0.110".to_string());
+    let address = camera_address()?;
 
     println!("Tokio runtime example");
     println!("Address: {address}");
@@ -30,38 +33,53 @@ async fn main() -> Result<(), Error> {
     let runtime = TokioRuntime::from_current()?;
     let camera = Connect::open_tcp_async::<PtzOpticsG2, _>(&address, runtime).await?;
 
-    let power = camera.power();
-    let pan_tilt = camera.pan_tilt();
-    let zoom = camera.zoom();
-    let focus = camera.focus();
+    let inquiry_result: Result<(), Error> = async {
+        let power = camera.power();
+        let pan_tilt = camera.pan_tilt();
+        let zoom = camera.zoom();
+        let focus = camera.focus();
 
-    let (power, pan_tilt, zoom, focus) = tokio::join!(
-        power.state(),
-        pan_tilt.position(),
-        zoom.position(),
-        focus.position()
-    );
+        let (is_on, pan_tilt, zoom, focus) = tokio::try_join!(
+            power.state(),
+            pan_tilt.position(),
+            zoom.position(),
+            focus.position()
+        )?;
 
-    match power {
-        Ok(is_on) => println!("Power: {}", if is_on { "on" } else { "off" }),
-        Err(error) => println!("Power inquiry failed: {error}"),
+        println!("Power: {}", if is_on { "on" } else { "off" });
+        println!("Pan/tilt: pan={}, tilt={}", pan_tilt.pan, pan_tilt.tilt);
+        println!("Zoom: 0x{:04X}", zoom.value());
+        println!("Focus: {focus:?}");
+        Ok(())
     }
+    .await;
 
-    match pan_tilt {
-        Ok(position) => println!("Pan/tilt: pan={}, tilt={}", position.pan, position.tilt),
-        Err(error) => println!("Pan/tilt inquiry failed: {error}"),
-    }
-
-    match zoom {
-        Ok(position) => println!("Zoom: 0x{:04X}", position.value()),
-        Err(error) => println!("Zoom inquiry failed: {error}"),
-    }
-
-    match focus {
-        Ok(position) => println!("Focus: {position:?}"),
-        Err(error) => println!("Focus inquiry failed: {error}"),
-    }
-
-    camera.close().await?;
+    let close_result = camera.close().await;
+    finish_session(inquiry_result, close_result)?;
     Ok(())
+}
+
+fn camera_address() -> Result<String, io::Error> {
+    let mut values = env::args().skip(1);
+    let address = match values.next() {
+        Some(value) if value.starts_with('-') => {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("unknown option `{value}`"),
+            ));
+        }
+        Some(value) => value,
+        None => env::var("VISCA_CAMERA_ADDR").unwrap_or_else(|_| "192.168.0.110".to_string()),
+    };
+
+    if let Some(extra) = values.next() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!(
+                "unexpected extra argument `{extra}`\nusage: cargo run --example runtime_demo --features runtime-tokio -- [address]"
+            ),
+        ));
+    }
+
+    Ok(address)
 }

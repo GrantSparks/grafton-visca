@@ -1,6 +1,6 @@
 //! Camera-first, profile-centric VISCA API.
 //!
-//! The primary 1.0 construction path is [`crate::camera::Connect`] for simple TCP, UDP,
+//! The primary 1.x construction path is [`crate::camera::Connect`] for simple TCP, UDP,
 //! and serial sessions, or [`crate::camera::CameraConfig`] when standard transports need explicit
 //! configuration. Once connected, use noun accessors such as
 //! `camera.power().on()` and `camera.zoom().position()`.
@@ -40,7 +40,7 @@ pub use accessors::*;
 #[cfg(not(feature = "mode-async"))]
 pub use inflight::BlockingInFlight;
 pub use inflight::{
-    CommandId, Focus as FocusOperation, OpKind, PanTilt as PanTiltOperation,
+    CommandId, Focus as FocusOperation, OpKind, OperationMetadata, PanTilt as PanTiltOperation,
     Preset as PresetOperation, Zoom as ZoomOperation,
 };
 #[cfg(feature = "mode-async")]
@@ -91,6 +91,14 @@ where
     fn execute<C>(&self, command: C) -> M::Fut<'_, Result<(), crate::Error>>
     where
         C: crate::command::ViscaCommand + Send + Sync + Clone + std::fmt::Debug + 'static;
+
+    /// Execute a movement/actuation command through the shared operation path.
+    fn execute_operation<C>(&self, command: C) -> M::Fut<'_, Result<(), crate::Error>>
+    where
+        C: crate::command::ViscaCommand + Send + Sync + Clone + std::fmt::Debug + 'static,
+    {
+        self.execute(command)
+    }
 
     /// Query with a typed command and parse the response.
     fn query<C>(
@@ -148,6 +156,23 @@ where
         use crate::mode::Mode;
         let future = self.send_command(&command);
         crate::mode::Async::from_future(async move { future.await?.into_result() })
+    }
+
+    fn execute_operation<C>(
+        &self,
+        command: C,
+    ) -> <crate::mode::Async as crate::mode::Mode>::Fut<'_, Result<(), crate::Error>>
+    where
+        C: crate::command::ViscaCommand + Send + Sync + Clone + std::fmt::Debug + 'static,
+    {
+        use crate::mode::Mode;
+        let metadata = command
+            .operation_metadata()
+            .unwrap_or_else(|| OperationMetadata::targeted(Axes::ALL));
+        crate::mode::Async::from_future(async move {
+            let handle = self.submit_op::<(), _>(&command, metadata).await?;
+            handle.await_applied_default().await
+        })
     }
 
     fn query<C>(
@@ -224,6 +249,19 @@ where
         let future = self.send_command(&command);
         let result = future.block();
         std::future::ready(result.and_then(|r| r.into_result()))
+    }
+
+    fn execute_operation<C>(
+        &self,
+        command: C,
+    ) -> <crate::mode::Blocking as crate::mode::Mode>::Fut<'_, Result<(), crate::Error>>
+    where
+        C: crate::command::ViscaCommand + Send + Sync + Clone + std::fmt::Debug + 'static,
+    {
+        let result = self
+            .submit(&command)
+            .and_then(|handle| handle.await_applied_default());
+        std::future::ready(result)
     }
 
     fn query<C>(

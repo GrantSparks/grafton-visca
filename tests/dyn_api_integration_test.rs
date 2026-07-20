@@ -20,14 +20,14 @@ use std::{
 
 use grafton_visca::{
     camera::{
-        profiles::{PtzOpticsG2, SonyFR7},
+        profiles::{GenericVisca, PtzOpticsG2, SonyFR7},
         Camera, CameraBuilder,
     },
     capabilities::{Profile, TypedSupportSurface},
     command::{FocusZone, VISCA_TERMINATOR},
     dynapi::{
         DynCameraControl, DynFocusControl, DynMotionControl, DynPanTiltControl, DynPresetsControl,
-        DynZoomControl, IntoDynCamera,
+        DynZoomControl, IntoDynCamera, OperationCategory,
     },
     mode::Async,
     runtime::TokioRuntime,
@@ -80,6 +80,22 @@ impl Drop for AllocationCountingGuard {
 
 type TestCamera = Camera<Async, PtzOpticsG2, ScriptedTransport<TokioExecutor>, TokioRuntime>;
 type ProfileTestCamera<P> = Camera<Async, P, ScriptedTransport<TokioExecutor>, TokioRuntime>;
+
+const PAN_TILT_POSITION_INQUIRY: &[u8] = &[0x81, 0x09, 0x06, 0x12, VISCA_TERMINATOR];
+
+fn pan_tilt_position_response(pan: u16, tilt: u16) -> Vec<u8> {
+    let mut response = vec![0x90, 0x50];
+    for value in [pan, tilt] {
+        response.extend([
+            ((value >> 12) & 0x0f) as u8,
+            ((value >> 8) & 0x0f) as u8,
+            ((value >> 4) & 0x0f) as u8,
+            (value & 0x0f) as u8,
+        ]);
+    }
+    response.push(VISCA_TERMINATOR);
+    response
+}
 
 fn allocations_during(f: impl FnOnce()) -> usize {
     let _guard = ALLOCATION_TEST_LOCK
@@ -824,6 +840,150 @@ async fn test_dyn_inflight_await_completion_is_one_shot() {
     assert!(
         matches!(second, Err(Error::InvalidState(ref message)) if message.contains("await_completion called more than once")),
         "second completion wait should be rejected: {second:?}"
+    );
+}
+
+#[tokio::test]
+async fn test_dyn_inflight_applied_aliases_share_one_shot_state() {
+    let camera = new_test_camera(vec![helpers::command_response(
+        patterns::pan_tilt::HOME.to_vec(),
+        1,
+    )])
+    .await;
+    let dyn_camera = camera.into_dyn();
+    let handle = dyn_camera
+        .pan_tilt()
+        .pan_tilt_home_op()
+        .await
+        .expect("operation handle");
+
+    handle
+        .await_applied(Duration::from_secs(1))
+        .await
+        .expect("applied wait");
+    let second = handle.await_completion(Duration::from_secs(1)).await;
+    assert!(
+        matches!(second, Err(Error::InvalidState(ref message)) if message.contains("await_completion called more than once")),
+        "compatibility alias should preserve its one-shot error: {second:?}"
+    );
+}
+
+#[tokio::test]
+async fn test_dyn_handle_categories_are_inferred_from_static_markers() {
+    let camera = new_test_camera(vec![
+        helpers::auto_respond_step(),
+        helpers::auto_respond_step(),
+        helpers::auto_respond_step(),
+        helpers::auto_respond_step(),
+    ])
+    .await;
+    let dyn_camera = camera.into_dyn();
+
+    let pan_tilt = dyn_camera
+        .pan_tilt()
+        .pan_tilt_home_op()
+        .await
+        .expect("pan/tilt handle");
+    assert_eq!(pan_tilt.category(), OperationCategory::PanTilt);
+    pan_tilt
+        .await_applied(Duration::from_secs(1))
+        .await
+        .expect("pan/tilt applied");
+
+    let zoom = dyn_camera
+        .zoom()
+        .set_zoom_op(ZoomPosition::MIN)
+        .await
+        .expect("zoom handle");
+    assert_eq!(zoom.category(), OperationCategory::Zoom);
+    zoom.await_applied(Duration::from_secs(1))
+        .await
+        .expect("zoom applied");
+
+    let focus = dyn_camera
+        .focus()
+        .set_focus_op(FocusPosition::new(0x1000))
+        .await
+        .expect("focus handle");
+    assert_eq!(focus.category(), OperationCategory::Focus);
+    focus
+        .await_applied(Duration::from_secs(1))
+        .await
+        .expect("focus applied");
+
+    let preset = dyn_camera
+        .presets()
+        .preset_recall_op(PresetNumber::new(1).expect("preset"))
+        .await
+        .expect("preset handle");
+    assert_eq!(preset.category(), OperationCategory::Preset);
+    preset
+        .await_applied(Duration::from_secs(1))
+        .await
+        .expect("preset applied");
+}
+
+#[tokio::test]
+async fn test_dyn_await_settled_polls_command_derived_axes() {
+    let steps = vec![
+        helpers::command_response(patterns::pan_tilt::HOME.to_vec(), 1),
+        helpers::inquiry_response(
+            PAN_TILT_POSITION_INQUIRY.to_vec(),
+            1,
+            pan_tilt_position_response(0, 0),
+        ),
+        helpers::inquiry_response(
+            PAN_TILT_POSITION_INQUIRY.to_vec(),
+            1,
+            pan_tilt_position_response(0, 0),
+        ),
+    ];
+    let transport = ScriptedTransport::new(steps);
+    let observed = transport.clone();
+    let camera = new_profile_camera::<GenericVisca>(transport).await;
+    let dyn_camera = camera.into_dyn();
+
+    dyn_camera
+        .pan_tilt()
+        .pan_tilt_home_op()
+        .await
+        .expect("operation handle")
+        .await_settled(Duration::from_secs(1))
+        .await
+        .expect("polling settle");
+
+    assert_eq!(
+        observed.sent(),
+        vec![
+            patterns::pan_tilt::HOME.to_vec(),
+            PAN_TILT_POSITION_INQUIRY.to_vec(),
+            PAN_TILT_POSITION_INQUIRY.to_vec(),
+        ]
+    );
+}
+
+#[tokio::test]
+async fn test_dyn_await_settled_shares_timeout_with_polling() {
+    let transport = ScriptedTransport::new(vec![helpers::command_response(
+        patterns::pan_tilt::HOME.to_vec(),
+        1,
+    )]);
+    let camera = new_profile_camera::<GenericVisca>(transport).await;
+    let dyn_camera = camera.into_dyn();
+    let started = Instant::now();
+
+    let result = dyn_camera
+        .pan_tilt()
+        .pan_tilt_home_op()
+        .await
+        .expect("operation handle")
+        .await_settled(Duration::from_millis(40))
+        .await;
+
+    assert!(matches!(result, Err(Error::Timeout)));
+    assert!(
+        started.elapsed() < Duration::from_millis(500),
+        "settle polling must not start a fresh timeout budget"
     );
 }
 

@@ -1,7 +1,7 @@
 //! Prelude modules for convenient imports.
 //!
 //! This module provides separate preludes for async and blocking camera-first APIs.
-//! They are intended for application code that follows the 1.0 path:
+//! They are intended for application code that follows the 1.x path:
 //! `Connect` or `CameraConfig` for construction, then accessor-style controls.
 //!
 //! # High-Level API (Recommended)

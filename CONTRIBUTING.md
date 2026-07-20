@@ -13,6 +13,7 @@ Thank you for your interest in contributing to grafton-visca! This guide will he
 - [Testing](#testing)
 - [Documentation](#documentation)
 - [Pull Request Process](#pull-request-process)
+- [Release Process](#release-process)
 
 ## Getting Started
 
@@ -29,7 +30,7 @@ Before contributing, please:
 git clone https://github.com/YOUR_USERNAME/grafton-visca.git
 cd grafton-visca
 
-# Run the declared 1.0 support matrix
+# Run the declared 1.x support matrix
 bash .github/scripts/test-all-features.sh
 
 # Or run individual matrix entries while iterating
@@ -217,18 +218,12 @@ mod tests {
 
 ### Integration Tests
 
-For camera control features, add integration tests:
-
-```rust
-#[test]
-#[cfg(feature = "test-utils")]
-fn test_movement_safety() {
-    use crate::test_utils::MockCamera;
-
-    let cam = MockCamera::new();
-    // Test safety bounds and limits
-}
-```
+For camera control features, use the public utilities under
+`grafton_visca::testing::testkit` with the `test-utils` feature. Prefer
+`ScriptedBlockingTransport` or `ScriptedTransport` for protocol scripts and a
+real Tokio/smol executor for wall-clock timeout behavior. See
+`src/testing/testkit/README.md` and the existing operation-handle integration
+tests for maintained patterns.
 
 ### Running Tests
 
@@ -236,7 +231,7 @@ fn test_movement_safety() {
 # Default test suite
 cargo test
 
-# Declared 1.0 runtime and transport feature combinations
+# Declared 1.x runtime and transport feature combinations
 bash .github/scripts/test-all-features.sh
 cargo test
 cargo test --no-default-features --features runtime-tokio
@@ -260,7 +255,11 @@ cargo test -- --nocapture
 
 ## Documentation
 
-For v1.0 milestone work, update the Unreleased section of `CHANGELOG.md` in the same change as the implementation. If behavior, setup, examples, or contributor workflow changes, update the matching README, example, or contributor docs before closing the task.
+For 1.x milestone work, update the Unreleased section of `CHANGELOG.md` in the
+same change as the implementation. If behavior, setup, examples, or contributor
+workflow changes, update the matching README, example, or contributor docs
+before closing the task. `submit` examples must distinguish lifecycle management
+from profile-aware input validation and applied completion from physical settling.
 
 ### Code Documentation
 
@@ -272,26 +271,24 @@ For v1.0 milestone work, update the Unreleased section of `CHANGELOG.md` in the 
 ### Example Documentation
 
 ```rust
-/// Controls camera zoom position.
+/// Return a camera to its home position and wait for physical settling.
 ///
 /// # Examples
 ///
 /// ```no_run
-/// # use grafton_visca::camera::Connect;
-/// # use grafton_visca::profiles::GenericVisca;
-/// let mut cam = Connect::open_udp_blocking::<GenericVisca>("192.168.0.110")?;
-/// cam.zoom_absolute(0x4000)?;
+/// # use std::time::Duration;
+/// # use grafton_visca::{camera::Connect, command::PanTilt, profiles::PtzOpticsG2};
+/// let camera = Connect::open_tcp_blocking::<PtzOpticsG2>("192.168.0.110")?;
+/// camera.submit(&PanTilt::Home)?
+///     .await_settled(Duration::from_secs(20))?;
+/// camera.close()?;
 /// # Ok::<(), grafton_visca::Error>(())
 /// ```
 ///
-/// # Safety
+/// # Errors
 ///
-/// Rapid zoom changes may affect camera stability. Allow time for
-/// mechanical stabilization after large zoom movements.
-#[must_use]
-pub fn zoom_absolute(&mut self, position: u16) -> Result<(), Error> {
-    // Implementation
-}
+/// Returns an error if submission, protocol completion, fallback settling, or
+/// shutdown fails.
 ```
 
 ## Pull Request Process
@@ -312,9 +309,10 @@ pub fn zoom_absolute(&mut self, position: u16) -> Result<(), Error> {
    - Testing performed
 
 4. **Checklist**: Before submitting:
-   - [ ] Tests pass: `cargo test --all-features`
+   - [ ] Declared cfg-aware matrix passes: `bash .github/scripts/test-all-features.sh`
    - [ ] No clippy warnings: `cargo clippy --all-targets --all-features -- -D warnings`
-   - [ ] Formatted: `cargo fmt`
+   - [ ] Formatted: `cargo +nightly fmt --all -- --check`
+   - [ ] Rustdoc and doctests pass for blocking, Tokio, and all-feature surfaces
    - [ ] Documentation updated
    - [ ] CHANGELOG.md updated (if applicable)
    - [ ] Safety documented for movement commands
@@ -323,6 +321,15 @@ pub fn zoom_absolute(&mut self, position: u16) -> Result<(), Error> {
    - Address reviewer feedback promptly
    - Keep discussions focused and professional
    - Update PR description with any significant changes
+
+## Release Process
+
+Releases use a two-crate publish sequence because the main crate depends on the
+same-version `grafton-visca-macros` package. Follow [RELEASING.md](RELEASING.md)
+for version selection, changelog finalization, validation, tagging, crates.io
+index verification, and recovery if the macro package publishes but the main
+package does not. Never create a release tag from a commit that has not passed
+both semver surfaces and the complete 1.x matrix on a pull request.
 
 ## Feature Flags
 

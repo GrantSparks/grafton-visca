@@ -30,7 +30,8 @@
 //! // Use accessor-style API
 //! camera.power().on().await?;
 //! camera.zoom().tele().await?;
-//! camera.await_idle().await?;
+//! camera.await_idle(std::time::Duration::from_secs(10)).await?;
+//! camera.shutdown().await?;
 //!
 //! // Advanced BYO-transport path.
 //! let runtime = TokioRuntime::from_current()?;
@@ -223,8 +224,8 @@ where
 {
     /// Create a new camera builder with the specified executor.
     ///
-    /// This is the primary way to create async cameras, ensuring
-    /// that the executor is configured upfront.
+    /// This is the advanced caller-owned transport path. Prefer `Connect` or
+    /// `CameraConfig` for the crate's standard transports.
     pub fn with_executor(executor: impl Into<Arc<E>>) -> Self {
         Self {
             camera_id: CameraId::default(),

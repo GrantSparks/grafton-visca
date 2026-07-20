@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# 1.0 support-matrix testing script.
+# 1.x support-matrix testing script.
 #
 # Keep this list in sync with README.md and CONTRIBUTING.md. Entries below are
 # part of the documented support contract unless they are explicitly labelled
@@ -116,6 +116,20 @@ run_test "runtime-tokio + test-utils" \
 
 run_test "runtime-smol + test-utils" \
     "cargo test --no-default-features --features runtime-smol,test-utils"
+
+# Operation-handle release gates (#539). Keep these explicit so a cfg change
+# cannot silently turn a runtime's semantic suite into zero executed tests.
+run_test "#539 blocking operation handles" \
+    "cargo test --no-default-features --features test-utils --test issue_539_blocking_handle_test"
+
+run_test "#539 mode-async command-metadata contracts" \
+    "cargo test --no-default-features --features mode-async,test-utils --test issue_539_async_handle_test"
+
+run_test "#539 Tokio operation handles" \
+    "cargo test --no-default-features --features runtime-tokio,test-utils --test issue_539_async_handle_test"
+
+run_test "#539 smol operation handles" \
+    "cargo test --no-default-features --features runtime-smol,test-utils --test issue_539_async_handle_test"
 
 clean_target_checkpoint "runtime/test-utils feature group"
 

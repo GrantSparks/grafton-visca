@@ -9,7 +9,9 @@
 //! cargo run --example quickstart_async --features runtime-tokio -- 192.168.0.110 --move
 //! ```
 
-use std::env;
+mod support;
+
+use std::{env, io};
 
 use grafton_visca::{
     camera::{profiles::PtzOpticsG2, Connect},
@@ -18,6 +20,8 @@ use grafton_visca::{
 };
 use tokio::time::{sleep, Duration};
 
+use support::finish_session;
+
 #[derive(Debug)]
 struct Args {
     address: String,
@@ -25,25 +29,41 @@ struct Args {
 }
 
 impl Args {
-    fn parse() -> Self {
+    fn parse() -> Result<Self, io::Error> {
         let mut address = None;
         let mut move_camera = false;
 
         for arg in env::args().skip(1) {
             match arg.as_str() {
                 "--move" => move_camera = true,
+                "-h" | "--help" => return Err(io::Error::other(usage())),
+                _ if arg.starts_with('-') => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        format!("unknown option `{arg}`\n{}", usage()),
+                    ));
+                }
                 _ if address.is_none() => address = Some(arg),
-                _ => {}
+                _ => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        format!("unexpected extra argument `{arg}`\n{}", usage()),
+                    ));
+                }
             }
         }
 
-        Self {
+        Ok(Self {
             address: address
                 .or_else(|| env::var("VISCA_CAMERA_ADDR").ok())
                 .unwrap_or_else(|| "192.168.0.110".to_string()),
             move_camera,
-        }
+        })
     }
+}
+
+fn usage() -> &'static str {
+    "usage: cargo run --example quickstart_async --features runtime-tokio -- [address] [--move]"
 }
 
 fn power_label(is_on: bool) -> &'static str {
@@ -55,35 +75,51 @@ fn power_label(is_on: bool) -> &'static str {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Error> {
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _ = tracing_subscriber::fmt::try_init();
 
-    let args = Args::parse();
+    let args = Args::parse()?;
     println!("Async quickstart (Tokio)");
     println!("Address: {}", args.address);
 
     let runtime = TokioRuntime::from_current()?;
     let camera = Connect::open_tcp_async::<PtzOpticsG2, _>(&args.address, runtime).await?;
 
-    let power = camera.power().state().await?;
-    println!("Power: {}", power_label(power));
+    let run_result = async {
+        let power = camera.power().state().await?;
+        println!("Power: {}", power_label(power));
 
-    match camera.zoom().position().await {
-        Ok(position) => println!("Zoom position: 0x{:04X}", position.value()),
-        Err(error) => println!("Zoom position inquiry failed: {error}"),
+        let position = camera.zoom().position().await?;
+        println!("Zoom position: 0x{:04X}", position.value());
+
+        if args.move_camera {
+            println!("Running short zoom movement.");
+            let start_result = camera.zoom().tele().await;
+            if start_result.is_ok() {
+                sleep(Duration::from_millis(250)).await;
+            }
+
+            // Once movement starts, always attempt STOP before propagating
+            // its result or waiting for the axis to become idle.
+            let stop_result = camera.zoom().stop().await;
+            if start_result.is_err() {
+                if let Err(error) = &stop_result {
+                    eprintln!("The safety STOP also failed: {error}");
+                }
+            }
+            start_result?;
+            stop_result?;
+            camera.await_zoom_idle(Duration::from_secs(2)).await?;
+            println!("Zoom stopped.");
+        } else {
+            println!("No movement requested. Pass --move to run a short zoom command.");
+        }
+
+        Ok::<(), Error>(())
     }
+    .await;
+    let close_result = camera.close().await;
 
-    if args.move_camera {
-        println!("Running short zoom movement.");
-        camera.zoom().tele().await?;
-        sleep(Duration::from_millis(250)).await;
-        camera.zoom().stop().await?;
-        camera.await_zoom_idle(Duration::from_secs(2)).await?;
-        println!("Zoom stopped.");
-    } else {
-        println!("No movement requested. Pass --move to run a short zoom command.");
-    }
-
-    camera.close().await?;
+    finish_session(run_result, close_result)?;
     Ok(())
 }

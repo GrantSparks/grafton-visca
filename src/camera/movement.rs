@@ -1067,13 +1067,17 @@ where
 
         let start = self.runtime().executor().now();
 
-        while self
-            .runtime()
-            .executor()
-            .now()
-            .saturating_duration_since(start)
-            < config.timeout
-        {
+        loop {
+            let elapsed = self
+                .runtime()
+                .executor()
+                .now()
+                .saturating_duration_since(start);
+            let remaining = config.timeout.saturating_sub(elapsed);
+            if remaining.is_zero() {
+                return Err(Error::Timeout);
+            }
+
             match completion_rx.try_recv() {
                 Ok(event) => {
                     if event.camera_id != self.camera_id() {
@@ -1092,12 +1096,26 @@ where
                         }
 
                         // Small settling delay after completion message
-                        self.sleep(Duration::from_millis(50)).await;
+                        self.sleep(Duration::from_millis(50).min(remaining)).await;
+
+                        let elapsed = self
+                            .runtime()
+                            .executor()
+                            .now()
+                            .saturating_duration_since(start);
+                        let remaining = config.timeout.saturating_sub(elapsed);
+                        if remaining.is_zero() {
+                            return Err(Error::Timeout);
+                        }
 
                         // Verify the monitored axes are actually idle
                         let is_moving = self
-                            .is_moving_axes_async(config.axes, &config.tolerance)
-                            .await?;
+                            .runtime()
+                            .timeout(
+                                remaining,
+                                self.is_moving_axes_async(config.axes, &config.tolerance),
+                            )
+                            .await??;
                         if !is_moving {
                             if config.debug {
                                 tracing::debug!("Camera confirmed idle after completion event");
@@ -1112,13 +1130,11 @@ where
                 }
                 Err(flume::TryRecvError::Empty) => {
                     // No events available, sleep briefly before checking again
-                    self.sleep(Duration::from_millis(50)).await;
+                    self.sleep(Duration::from_millis(50).min(remaining)).await;
                 }
                 Err(flume::TryRecvError::Disconnected) => return Err(Error::NotSupported),
             }
         }
-
-        Err(Error::Timeout)
     }
 
     /// Polling-based movement detection using configurable poll interval.
@@ -1138,10 +1154,16 @@ where
                 return Err(Error::Timeout);
             }
 
-            match self
-                .is_moving_axes_async(config.axes, &config.tolerance)
-                .await
-            {
+            let remaining = config.timeout.saturating_sub(elapsed);
+            let moving_result = self
+                .runtime()
+                .timeout(
+                    remaining,
+                    self.is_moving_axes_async(config.axes, &config.tolerance),
+                )
+                .await?;
+
+            match moving_result {
                 Ok(false) => {
                     if config.debug {
                         tracing::debug!("Movement completed (all monitored axes idle)");
@@ -1159,6 +1181,11 @@ where
             }
 
             // Sleep between polls, capped by remaining timeout
+            let elapsed = self
+                .runtime()
+                .executor()
+                .now()
+                .saturating_duration_since(start);
             let remaining = config.timeout.saturating_sub(elapsed);
             let sleep_time = config.poll_interval.min(remaining);
             if sleep_time > Duration::ZERO {
@@ -1174,5 +1201,21 @@ where
     pub async fn await_axes_idle(&self, axes: Axes, timeout: Duration) -> Result<(), Error> {
         self.await_with_config(&AwaitConfig::new(timeout).with_axes(axes))
             .await
+    }
+}
+
+#[cfg(feature = "mode-async")]
+impl<P, T, E> crate::camera::inflight::AsyncSettleWaiter for Camera<crate::mode::Async, P, T, E>
+where
+    P: Profile + ProfileMetadata + Default,
+    T: AsyncTransport + Send + Sync + 'static,
+    E: Executor + Send + Sync + Clone + 'static,
+{
+    fn await_axes_settled(
+        &self,
+        axes: Axes,
+        timeout: Duration,
+    ) -> crate::mode::BoxFuture<'_, Result<(), Error>> {
+        Box::pin(self.await_axes_idle(axes, timeout))
     }
 }

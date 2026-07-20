@@ -105,10 +105,13 @@ fn main() {
     #[cfg(feature = "runtime-tokio")]
     {
         async fn primary_tokio_path(addr: &str) -> Result<(), grafton_visca::Error> {
+            use grafton_visca::command::PanTilt;
+
             let runtime = grafton_visca::runtime::TokioRuntime::from_current()?;
             let camera = Connect::open_tcp_async::<PtzOpticsG2, _>(addr, runtime).await?;
             camera.power().state().await?;
             camera.zoom().stop().await?;
+            camera.submit(&PanTilt::Home).await?.detach();
             camera.close().await?;
             Ok(())
         }
@@ -119,10 +122,13 @@ fn main() {
     #[cfg(feature = "runtime-smol")]
     {
         async fn primary_smol_path(addr: &str) -> Result<(), grafton_visca::Error> {
+            use grafton_visca::command::PanTilt;
+
             let runtime = grafton_visca::runtime::SmolRuntime::new();
             let camera = Connect::open_tcp_async::<PtzOpticsG2, _>(addr, runtime).await?;
             camera.power().state().await?;
             camera.zoom().stop().await?;
+            camera.submit(&PanTilt::Home).await?.detach();
             camera.close().await?;
             Ok(())
         }

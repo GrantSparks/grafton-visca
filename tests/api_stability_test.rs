@@ -1,4 +1,4 @@
-//! Public API contract tests for the 1.0 surface.
+//! Public API contract tests for the 1.x surface.
 //!
 //! These tests intentionally assert stable behavior and exported entry points.
 //! Changes here should reflect an explicit public contract decision.
@@ -764,6 +764,12 @@ fn test_public_compile_time_api_contracts() {
     cases.pass("tests/api_contract/pass_dyn/*.rs");
     #[cfg(feature = "test-utils")]
     cases.pass("tests/api_contract/pass_test_utils/*.rs");
+    #[cfg(feature = "runtime-tokio")]
+    cases.compile_fail("tests/api_contract/fail_must_use_async/*.rs");
+    #[cfg(feature = "dyn-api")]
+    cases.compile_fail("tests/api_contract/fail_must_use_dyn/*.rs");
+    #[cfg(not(feature = "mode-async"))]
+    cases.compile_fail("tests/api_contract/fail_must_use_blocking/*.rs");
 }
 
 #[test]

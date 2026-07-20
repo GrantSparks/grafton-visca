@@ -11,13 +11,19 @@
 //! ```
 
 #[cfg(not(feature = "mode-async"))]
+mod support;
+
+#[cfg(not(feature = "mode-async"))]
 mod blocking {
-    use std::{env, time::Duration};
+    use std::{env, io};
 
     use grafton_visca::{
         camera::{profiles::PtzOpticsG2, AwaitConfig, Connect},
+        capabilities::Capabilities,
         Error,
     };
+
+    use super::support::finish_session;
 
     #[derive(Debug, Clone, Copy)]
     enum Operation {
@@ -33,7 +39,7 @@ mod blocking {
     }
 
     impl Args {
-        fn parse() -> Result<Self, String> {
+        fn parse() -> Result<Self, io::Error> {
             let mut values = env::args().skip(1).collect::<Vec<_>>();
 
             if values.len() == 2 {
@@ -44,21 +50,30 @@ mod blocking {
             }
 
             let [address, command, preset] = values.as_slice() else {
-                return Err(usage());
+                return Err(invalid_input(usage()));
             };
+            if address.starts_with('-') {
+                return Err(invalid_input(format!(
+                    "invalid address `{address}`\n{}",
+                    usage()
+                )));
+            }
 
             let preset = preset
                 .parse::<u8>()
-                .map_err(|_| "preset must be an integer from 0 to 127".to_string())?;
-            if preset > 127 {
-                return Err("preset must be an integer from 0 to 127".to_string());
+                .map_err(|_| invalid_input("preset must be an integer from 0 to 255"))?;
+            let max_preset = Capabilities::from_profile::<PtzOpticsG2>().max_presets;
+            if preset > max_preset {
+                return Err(invalid_input(format!(
+                    "preset must be in the PtzOpticsG2 profile range 0..={max_preset}"
+                )));
             }
 
             let operation = match command.as_str() {
                 "set" => Operation::Set(preset),
                 "recall" => Operation::Recall(preset),
                 "clear" | "reset" => Operation::Clear(preset),
-                _ => return Err(usage()),
+                _ => return Err(invalid_input(usage())),
             };
 
             Ok(Self {
@@ -73,43 +88,44 @@ mod blocking {
             .to_string()
     }
 
-    pub fn main() -> Result<(), Error> {
+    fn invalid_input(message: impl Into<String>) -> io::Error {
+        io::Error::new(io::ErrorKind::InvalidInput, message.into())
+    }
+
+    pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         let _ = tracing_subscriber::fmt::try_init();
 
-        let args = match Args::parse() {
-            Ok(args) => args,
-            Err(message) => {
-                eprintln!("{message}");
-                return Ok(());
-            }
-        };
+        let args = Args::parse()?;
 
         let mut camera = Connect::open_tcp_blocking::<PtzOpticsG2>(&args.address)?;
+        let operation_result = (|| -> Result<(), Error> {
+            match args.operation {
+                Operation::Set(preset) => {
+                    camera.presets().set(preset)?;
+                    println!("Saved current position to preset {preset}.");
+                }
+                Operation::Recall(preset) => {
+                    camera.presets().recall(preset)?;
+                    camera.await_with_config(&AwaitConfig::for_preset_recall())?;
+                    println!("Recalled preset {preset}.");
+                }
+                Operation::Clear(preset) => {
+                    camera.presets().reset(preset)?;
+                    println!("Cleared preset {preset}.");
+                }
+            }
 
-        match args.operation {
-            Operation::Set(preset) => {
-                camera.presets().set(preset)?;
-                println!("Saved current position to preset {preset}.");
-            }
-            Operation::Recall(preset) => {
-                camera.presets().recall(preset)?;
-                camera.await_with_config(&AwaitConfig::for_preset_recall())?;
-                println!("Recalled preset {preset}.");
-            }
-            Operation::Clear(preset) => {
-                camera.presets().reset(preset)?;
-                println!("Cleared preset {preset}.");
-            }
-        }
+            Ok(())
+        })();
+        let close_result = camera.close();
 
-        let _ = camera.await_idle(Duration::from_secs(1));
-        camera.close()?;
+        finish_session(operation_result, close_result)?;
         Ok(())
     }
 }
 
 #[cfg(not(feature = "mode-async"))]
-fn main() -> grafton_visca::Result<()> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     blocking::main()
 }
 

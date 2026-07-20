@@ -1,11 +1,5 @@
 //! Dynamic trait object API with per-operation timeout support.
 //!
-// The hand-written dyn facade still bridges to the static `_op` methods, which
-// are deprecated in favour of `submit` (issue #539, Phase 1). It is slated for
-// descriptor-driven code generation in a follow-up pass; until then, silence the
-// internal deprecation warnings its bridging calls would otherwise emit.
-#![allow(deprecated)]
-//!
 //! This module provides object-safe trait definitions for runtime polymorphism
 //! with cameras. Unlike the static `Camera<M, P, Tr, Exec>` type, these traits
 //! can be used with `dyn` dispatch, enabling heterogeneous collections of cameras
@@ -64,8 +58,8 @@
 //!
 //! # Timeout Behavior
 //!
-//! Movement methods that accept an optional `timeout` parameter use it as a
-//! deadline for the command's own VISCA completion response:
+//! Result-returning movement methods that accept an optional `timeout` use it as
+//! a deadline for the command's own VISCA completion response:
 //!
 //! - **`None`**: Uses the camera's default `TimeoutConfig` for the command category.
 //!   This is the recommended option for most use cases.
@@ -74,9 +68,10 @@
 //!   The wait resolves when the camera reports completion or an error for the
 //!   command. It does not infer physical movement completion from idle polling.
 //!
-//! To wait for physical motion to settle, use
-//! [`DynMotionControl::await_idle`](crate::dynapi::DynMotionControl::await_idle)
-//! or the axis-specific idle wait methods after issuing the command.
+//! The dyn `_op` variants are the object-safe 1.x handle surface. Their
+//! `InFlightDyn` values provide exact `await_applied` and physical
+//! `await_settled` waits. Use `DynMotionControl::await_idle` for category-wide
+//! checks or motion for which no handle was retained.
 //!
 //! ```ignore
 //! use std::time::Duration;
@@ -86,6 +81,12 @@
 //!
 //! // Use explicit 30-second timeout for this operation
 //! pt.pan_tilt_home(Some(Duration::from_secs(30))).await?;
+//!
+//! // Retain a handle when physical settling matters
+//! pt.pan_tilt_home_op()
+//!     .await?
+//!     .await_settled(Duration::from_secs(30))
+//!     .await?;
 //! ```
 //!
 //! # Drop and Cancellation Semantics
@@ -151,7 +152,8 @@
 //! | Cancel specific command | `InFlightDyn::cancel()` |
 //! | Emergency stop all motion | `DynMotionControl::stop_all_motion()` |
 //! | Timeout on specific operation | Pass `timeout` parameter to method |
-//! | Wait for physical idle | `camera.motion().await_idle(timeout)` |
+//! | Wait for one targeted operation to settle | `handle.await_settled(timeout)` |
+//! | Wait for category-wide physical idle | `camera.motion().await_idle(timeout)` |
 //! | Graceful shutdown | `stop_all_motion()`, then drop camera |
 //!
 //! # Capability Detection
@@ -211,6 +213,8 @@
 //! - An additional command-completion `timeout: Option<Duration>` parameter for
 //!   movement methods where per-call deadlines are useful
 //! - Structured runtime capability discovery through `DynCameraControl::capabilities()`
+//! - `_op` methods as the non-deprecated, object-safe 1.x handle entry points;
+//!   concrete `Camera::*_op` compatibility shims are a separate deprecated surface
 //!
 //! # Available Traits
 //!
@@ -226,8 +230,10 @@ use std::{
     time::Duration,
 };
 
+mod movement_registry;
+
 use crate::{
-    camera::{CommandId, ResponseFuture},
+    camera::{CommandId, OperationMetadata, ResponseFuture},
     command::{
         focus::{AutoFocusSensitivity, FocusZone},
         pan_tilt::{PanTiltDirection, PanTiltLimitCorner},
@@ -242,7 +248,7 @@ use crate::{
 };
 
 // ============================================================================
-// Phase 2: Type-erased Operation Handles
+// Type-erased operation handles
 // ============================================================================
 
 /// Operation category for type-erased handles.
@@ -273,6 +279,37 @@ impl std::fmt::Display for OperationCategory {
     }
 }
 
+/// Maps the static typed operation marker to its stable dyn category.
+///
+/// Keeping this mapping on the marker removes the possibility of a dyn adapter
+/// pairing a correctly typed static handle with the wrong runtime category.
+trait DynOperationCategoryMarker {
+    const DYN_CATEGORY: OperationCategory;
+}
+
+#[derive(Clone, Copy)]
+enum DynOperationRequirement {
+    None,
+    Typed(crate::capabilities::TypedSupportSurface, &'static str),
+    ZoomDomain(ZoomDomain),
+}
+
+impl DynOperationCategoryMarker for crate::camera::PanTiltOperation {
+    const DYN_CATEGORY: OperationCategory = OperationCategory::PanTilt;
+}
+
+impl DynOperationCategoryMarker for crate::camera::ZoomOperation {
+    const DYN_CATEGORY: OperationCategory = OperationCategory::Zoom;
+}
+
+impl DynOperationCategoryMarker for crate::camera::FocusOperation {
+    const DYN_CATEGORY: OperationCategory = OperationCategory::Focus;
+}
+
+impl DynOperationCategoryMarker for crate::camera::PresetOperation {
+    const DYN_CATEGORY: OperationCategory = OperationCategory::Preset;
+}
+
 /// Internal trait for type-erased runtime operations.
 ///
 /// This trait enables `InFlightDyn` to perform cancellation and completion
@@ -290,13 +327,23 @@ pub(crate) trait RuntimeDyn: Send + Sync {
         timeout: Duration,
         response_future: ResponseFuture,
     ) -> BoxFuture<'_, Result<(), Error>>;
+
+    /// Wait for exact command completion and, when the profile needs it, use
+    /// the remaining budget to poll the operation's affected axes.
+    fn await_response_settled(
+        &self,
+        timeout: Duration,
+        response_future: ResponseFuture,
+        metadata: OperationMetadata,
+    ) -> BoxFuture<'_, Result<(), Error>>;
 }
 
 /// Type-erased operation handle for dyn-api.
 ///
-/// This handle provides the same functionality as `InFlight<C, T>` but without
-/// generic type parameters, making it object-safe and suitable for use with
-/// trait objects.
+/// This handle provides the same lifecycle vocabulary as static `InFlight`
+/// without generic type parameters, making it object-safe and suitable for use
+/// with trait objects. Its targeted-versus-applied-only behavior remains
+/// command-derived runtime metadata throughout 1.x.
 ///
 /// # Example
 ///
@@ -307,8 +354,8 @@ pub(crate) trait RuntimeDyn: Send + Sync {
 /// async fn move_and_wait(pt: &dyn DynPanTiltControl) -> Result<(), Error> {
 ///     let handle = pt.pan_tilt_home_op().await?;
 ///
-///     // Wait for the movement to complete
-///     handle.await_completion(Duration::from_secs(30)).await?;
+///     // Wait for physical movement to settle
+///     handle.await_settled(Duration::from_secs(30)).await?;
 ///
 ///     // Or cancel the operation
 ///     // handle.cancel().await?;
@@ -317,6 +364,7 @@ pub(crate) trait RuntimeDyn: Send + Sync {
 /// }
 /// ```
 #[cfg(feature = "dyn-api")]
+#[must_use = "this dynamic operation handle should be awaited, cancelled, or explicitly detached; dropping it leaves the submitted command scheduler-owned"]
 pub struct InFlightDyn {
     /// The command ID assigned by the runtime.
     id: CommandId,
@@ -324,6 +372,8 @@ pub struct InFlightDyn {
     camera_id: crate::CameraId,
     /// The operation category for this handle.
     category: OperationCategory,
+    /// Command-derived completion behavior and affected axes.
+    metadata: OperationMetadata,
     /// Reference to the runtime for cancellation and completion waiting.
     runtime: Arc<dyn RuntimeDyn>,
     /// Response future for the command this handle represents.
@@ -340,6 +390,7 @@ impl InFlightDyn {
         id: CommandId,
         camera_id: crate::CameraId,
         category: OperationCategory,
+        metadata: OperationMetadata,
         runtime: Arc<dyn RuntimeDyn>,
         response_future: ResponseFuture,
     ) -> Self {
@@ -347,9 +398,19 @@ impl InFlightDyn {
             id,
             camera_id,
             category,
+            metadata,
             runtime,
             response_future: Mutex::new(Some(response_future)),
         }
+    }
+
+    fn take_response_future(&self, method: &'static str) -> Result<ResponseFuture, Error> {
+        self.response_future
+            .lock()
+            .ok()
+            .ok_or(Error::LockPoisoned("InFlightDyn response_future"))?
+            .take()
+            .ok_or_else(|| Error::InvalidState(format!("{method} called more than once").into()))
     }
 
     /// Get the command ID assigned by the runtime.
@@ -370,6 +431,10 @@ impl InFlightDyn {
     ///
     /// The cancel message is addressed to the camera ID that was used when
     /// this command was originally sent, ensuring correct multi-camera behavior.
+    /// Queued commands may be removed without a frame; commands with an assigned
+    /// socket use the protocol cancel path. `Ok(())` means the request was
+    /// recorded or sent, not that the camera acknowledged it or physical motion
+    /// stopped. The handle remains available for its one-shot response wait.
     ///
     /// # Errors
     ///
@@ -378,7 +443,59 @@ impl InFlightDyn {
         self.runtime.cancel(self.camera_id, self.id)
     }
 
+    /// Wait for this exact command to be accepted and protocol-completed.
+    ///
+    /// This is a one-shot wait. Once it starts—including when it times out—the
+    /// exact response future is consumed. A second wait through `await_applied`,
+    /// `await_settled`, or [`await_completion`](Self::await_completion) returns
+    /// [`Error::InvalidState`].
+    pub fn await_applied(&self, timeout: Duration) -> BoxFuture<'_, Result<(), Error>> {
+        self.await_applied_named(timeout, "await_applied")
+    }
+
+    fn await_applied_named(
+        &self,
+        timeout: Duration,
+        method: &'static str,
+    ) -> BoxFuture<'_, Result<(), Error>> {
+        Box::pin(async move {
+            let response_future = self.take_response_future(method)?;
+            self.runtime
+                .await_response_completion(timeout, response_future)
+                .await
+        })
+    }
+
+    /// Wait until a targeted movement has physically settled.
+    ///
+    /// On profiles with operation-complete responses this is the exact command
+    /// completion wait. Other profiles use position polling on the affected axes.
+    /// One timeout budget covers both phases.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::NotSupported`] for any applied-only operation, without
+    /// consuming the handle's response wait. Once a supported wait starts,
+    /// including when it times out, the response wait is consumed. Returns
+    /// [`Error::Timeout`] when the combined completion and settling budget expires.
+    pub fn await_settled(&self, timeout: Duration) -> BoxFuture<'_, Result<(), Error>> {
+        Box::pin(async move {
+            if self.metadata.kind == crate::camera::OpKind::Continuous {
+                return Err(Error::NotSupported);
+            }
+
+            let response_future = self.take_response_future("await_settled")?;
+            self.runtime
+                .await_response_settled(timeout, response_future, self.metadata)
+                .await
+        })
+    }
+
     /// Wait for this operation's command response to complete.
+    ///
+    /// This 1.x compatibility alias retains the original dyn API. New code should
+    /// use [`await_applied`](Self::await_applied) to state the completion level
+    /// explicitly. The alias is planned for removal in 2.0.
     ///
     /// This uses the same response future as the static `InFlight` API. It
     /// resolves when the camera reports completion or an error for this command.
@@ -398,21 +515,17 @@ impl InFlightDyn {
     ///
     /// Returns an error if the wait fails or times out.
     pub fn await_completion(&self, timeout: Duration) -> BoxFuture<'_, Result<(), Error>> {
-        Box::pin(async move {
-            let response_future = self
-                .response_future
-                .lock()
-                .ok()
-                .ok_or(Error::LockPoisoned("InFlightDyn response_future"))?
-                .take()
-                .ok_or_else(|| {
-                    Error::InvalidState("await_completion called more than once".into())
-                })?;
+        self.await_applied_named(timeout, "await_completion")
+    }
 
-            self.runtime
-                .await_response_completion(timeout, response_future)
-                .await
-        })
+    /// Explicitly detach this submitted command.
+    ///
+    /// Detaching discards this handle's ability to observe completion or request
+    /// cancellation. The command remains scheduler-owned and may still be
+    /// dispatched and complete. Detach never stops physical movement.
+    #[inline]
+    pub fn detach(self) {
+        // Drop is detach for async operation handles.
     }
 }
 
@@ -422,6 +535,8 @@ impl std::fmt::Debug for InFlightDyn {
         f.debug_struct("InFlightDyn")
             .field("id", &self.id)
             .field("category", &self.category)
+            .field("kind", &self.metadata.kind)
+            .field("axes", &self.metadata.axes)
             .finish()
     }
 }
@@ -569,12 +684,13 @@ pub trait DynMotionControl: Send + Sync {
 
 /// Object-safe pan/tilt control trait.
 ///
-/// All movement methods accept an optional timeout parameter. When `None`,
+/// Result-returning movement methods accept an optional timeout parameter. When `None`,
 /// the default timeout from `TimeoutConfig` is used. When `Some(duration)`,
 /// that specific timeout is applied to the operation.
 ///
-/// The `_op` variants return an [`InFlightDyn`] handle for fine-grained control
-/// over timeouts and cancellation.
+/// The non-deprecated dyn `_op` variants are the object-safe 1.x handle surface.
+/// They return [`InFlightDyn`] for applied/settled waits, cancellation, and
+/// detach. This is distinct from the deprecated concrete-camera `_op` shims.
 pub trait DynPanTiltControl: Send + Sync {
     /// Stop all pan/tilt movement immediately.
     fn pan_tilt_stop(&self) -> BoxFuture<'_, Result<(), Error>>;
@@ -584,8 +700,8 @@ pub trait DynPanTiltControl: Send + Sync {
 
     /// Move to the home position and return an operation handle.
     ///
-    /// This is the `_op` variant that returns an [`InFlightDyn`] handle for
-    /// fine-grained control over timeouts and cancellation.
+    /// This object-safe 1.x handle variant returns [`InFlightDyn`] for exact
+    /// applied/settled waits, cancellation, and detach.
     ///
     /// # Example
     ///
@@ -593,7 +709,7 @@ pub trait DynPanTiltControl: Send + Sync {
     /// use std::time::Duration;
     ///
     /// let handle = pt.pan_tilt_home_op().await?;
-    /// handle.await_completion(Duration::from_secs(30)).await?;
+    /// handle.await_settled(Duration::from_secs(30)).await?;
     /// ```
     fn pan_tilt_home_op(&self) -> BoxFuture<'_, Result<InFlightDyn, Error>>;
 
@@ -680,8 +796,8 @@ pub trait DynPanTiltControl: Send + Sync {
 
 /// Object-safe zoom control trait.
 ///
-/// The `_op` variants return an [`InFlightDyn`] handle for fine-grained control
-/// over timeouts and cancellation.
+/// The non-deprecated dyn `_op` variants are the object-safe 1.x handle surface
+/// and return [`InFlightDyn`] for applied/settled waits, cancellation, and detach.
 pub trait DynZoomControl: Send + Sync {
     /// Stop any zoom operation currently in progress.
     fn zoom_stop(&self) -> BoxFuture<'_, Result<(), Error>>;
@@ -734,8 +850,8 @@ pub trait DynZoomControl: Send + Sync {
 
 /// Object-safe focus control trait.
 ///
-/// The `_op` variants return an [`InFlightDyn`] handle for fine-grained control
-/// over timeouts and cancellation.
+/// The non-deprecated dyn `_op` variants are the object-safe 1.x handle surface
+/// and return [`InFlightDyn`] for applied/settled waits, cancellation, and detach.
 pub trait DynFocusControl: Send + Sync {
     /// Set auto focus mode.
     fn focus_auto(&self) -> BoxFuture<'_, Result<(), Error>>;
@@ -786,8 +902,8 @@ pub trait DynFocusControl: Send + Sync {
 
 /// Object-safe preset control trait.
 ///
-/// The `_op` variants return an [`InFlightDyn`] handle for fine-grained control
-/// over timeouts and cancellation.
+/// The non-deprecated dyn `_op` variants are the object-safe 1.x handle surface
+/// and return [`InFlightDyn`] for applied/settled waits, cancellation, and detach.
 pub trait DynPresetsControl: Send + Sync {
     /// Recall a preset position.
     fn preset_recall(
@@ -919,16 +1035,112 @@ where
     fn erase_inflight<C>(
         &self,
         handle: crate::camera::InFlight<'_, C, P, Exec>,
-        category: OperationCategory,
-    ) -> Result<InFlightDyn, Error> {
-        let (id, camera_id, response_future) = handle.into_parts()?;
+    ) -> Result<InFlightDyn, Error>
+    where
+        C: DynOperationCategoryMarker,
+    {
+        let (id, camera_id, response_future, metadata) = handle.into_parts()?;
         Ok(InFlightDyn::new(
             id,
             camera_id,
-            category,
+            C::DYN_CATEGORY,
+            metadata,
             self.runtime_dyn(),
             response_future,
         ))
+    }
+
+    /// Apply a descriptor-built movement operation, optionally overriding the
+    /// scheduler-owned completion timeout with a dyn call-site timeout.
+    fn apply_dyn_operation<Cat, C>(
+        &self,
+        command: Result<C, Error>,
+        timeout: Option<Duration>,
+    ) -> BoxFuture<'_, Result<(), Error>>
+    where
+        Cat: DynOperationCategoryMarker + Send + Sync + 'static,
+        C: crate::command::ViscaCommand + 'static,
+    {
+        Box::pin(async move {
+            let command = command?;
+            let metadata = command.operation_metadata().ok_or_else(|| {
+                Error::InvalidState(
+                    "dyn movement registry command is missing operation metadata".into(),
+                )
+            })?;
+            let handle = self
+                .inner
+                .camera
+                .submit_op::<Cat, _>(&command, metadata)
+                .await?;
+            match timeout {
+                Some(timeout) => handle.await_applied(timeout).await,
+                None => handle.await_applied_default().await,
+            }
+        })
+    }
+
+    /// Start a descriptor-built operation and erase only its transport/profile
+    /// types; completion behavior remains command-derived on the handle.
+    fn start_dyn_operation<Cat, C>(
+        &self,
+        command: Result<C, Error>,
+    ) -> BoxFuture<'_, Result<InFlightDyn, Error>>
+    where
+        Cat: DynOperationCategoryMarker + Send + Sync + 'static,
+        C: crate::command::ViscaCommand + 'static,
+    {
+        Box::pin(async move {
+            let command = command?;
+            let metadata = command.operation_metadata().ok_or_else(|| {
+                Error::InvalidState(
+                    "dyn movement registry command is missing operation metadata".into(),
+                )
+            })?;
+            let handle = self
+                .inner
+                .camera
+                .submit_op::<Cat, _>(&command, metadata)
+                .await?;
+            self.erase_inflight(handle)
+        })
+    }
+
+    fn require_typed(
+        &self,
+        surface: crate::capabilities::TypedSupportSurface,
+        feature: &'static str,
+    ) -> Result<(), Error> {
+        if self.inner.capabilities.supports_typed(surface) {
+            Ok(())
+        } else {
+            Err(Error::FeatureNotSupported { feature })
+        }
+    }
+
+    fn validate_operation_requirement(
+        &self,
+        requirement: DynOperationRequirement,
+    ) -> Result<(), Error> {
+        match requirement {
+            DynOperationRequirement::None => Ok(()),
+            DynOperationRequirement::Typed(surface, feature) => {
+                self.require_typed(surface, feature)
+            }
+            DynOperationRequirement::ZoomDomain(domain) => {
+                self.require_typed(
+                    crate::capabilities::TypedSupportSurface::DirectZoom,
+                    "direct zoom positioning",
+                )?;
+                if domain == ZoomDomain::OpticalPlusDigital {
+                    self.require_typed(
+                        crate::capabilities::TypedSupportSurface::DigitalZoomRange,
+                        "digital zoom",
+                    )?;
+                }
+                Ok(())
+            }
+        }
     }
 }
 
@@ -959,6 +1171,39 @@ where
                 .timeout(timeout, response_future)
                 .await?
                 .map(|_| ())
+        })
+    }
+
+    fn await_response_settled(
+        &self,
+        timeout: Duration,
+        response_future: ResponseFuture,
+        metadata: OperationMetadata,
+    ) -> BoxFuture<'_, Result<(), Error>> {
+        Box::pin(async move {
+            let started = self.camera.runtime().executor().now();
+            self.camera
+                .runtime()
+                .timeout(timeout, response_future)
+                .await?
+                .map(|_| ())?;
+
+            if P::SUPPORTS_OPERATION_COMPLETE {
+                return Ok(());
+            }
+
+            let elapsed = self
+                .camera
+                .runtime()
+                .executor()
+                .now()
+                .saturating_duration_since(started);
+            let remaining = timeout.saturating_sub(elapsed);
+            if remaining.is_zero() {
+                return Err(Error::Timeout);
+            }
+
+            self.camera.await_axes_idle(metadata.axes, remaining).await
         })
     }
 }
@@ -1014,6 +1259,59 @@ where
     }
 }
 
+macro_rules! impl_dyn_registered_operation {
+    (
+        $method:ident($($arg:ident: $arg_ty:ty),*) => none:
+        $category:ty [$requirement:expr] = $build:expr
+    ) => {
+        fn $method(
+            &self,
+            $($arg: $arg_ty,)*
+            timeout: Option<Duration>,
+        ) -> BoxFuture<'_, Result<(), Error>> {
+            let command = self
+                .validate_operation_requirement($requirement)
+                .and_then(|()| $build);
+            self.apply_dyn_operation::<$category, _>(command, timeout)
+        }
+    };
+    (
+        $method:ident($($arg:ident: $arg_ty:ty),*) => $handle:ident:
+        $category:ty [$requirement:expr] = $build:expr
+    ) => {
+        fn $method(
+            &self,
+            $($arg: $arg_ty,)*
+            timeout: Option<Duration>,
+        ) -> BoxFuture<'_, Result<(), Error>> {
+            let command = self
+                .validate_operation_requirement($requirement)
+                .and_then(|()| $build);
+            self.apply_dyn_operation::<$category, _>(command, timeout)
+        }
+
+        fn $handle(
+            &self,
+            $($arg: $arg_ty),*
+        ) -> BoxFuture<'_, Result<InFlightDyn, Error>> {
+            let command = self
+                .validate_operation_requirement($requirement)
+                .and_then(|()| $build);
+            self.start_dyn_operation::<$category, _>(command)
+        }
+    };
+}
+
+macro_rules! impl_dyn_registered_operations {
+    ($($method:ident($($arg:ident: $arg_ty:ty),*) => $handle:ident: $category:ty [$requirement:expr] = $build:expr;)*) => {
+        $(
+            impl_dyn_registered_operation! {
+                $method($($arg: $arg_ty),*) => $handle: $category [$requirement] = $build
+            }
+        )*
+    };
+}
+
 // Implement DynPanTiltControl for DynCamera
 #[cfg(feature = "dyn-api")]
 impl<P, Tr, Exec> DynPanTiltControl for DynCamera<P, Tr, Exec>
@@ -1027,107 +1325,7 @@ where
         self.inner.camera.pan_tilt_stop()
     }
 
-    fn pan_tilt_home(&self, timeout: Option<Duration>) -> BoxFuture<'_, Result<(), Error>> {
-        match timeout {
-            Some(t) => Box::pin(async move {
-                let handle = self.inner.camera.pan_tilt_home_op().await?;
-                handle.await_applied(t).await
-            }),
-            None => {
-                use crate::camera::controls::pan_tilt::PanTiltControl;
-                self.inner.camera.pan_tilt_home()
-            }
-        }
-    }
-
-    fn pan_tilt_home_op(&self) -> BoxFuture<'_, Result<InFlightDyn, Error>> {
-        Box::pin(async move {
-            let handle = self.inner.camera.pan_tilt_home_op().await?;
-            self.erase_inflight(handle, OperationCategory::PanTilt)
-        })
-    }
-
-    fn pan_tilt_absolute(
-        &self,
-        pan_deg: f64,
-        tilt_deg: f64,
-        speed: SpeedLevel,
-        timeout: Option<Duration>,
-    ) -> BoxFuture<'_, Result<(), Error>> {
-        match timeout {
-            Some(t) => Box::pin(async move {
-                let handle = self
-                    .inner
-                    .camera
-                    .pan_tilt_absolute_op(pan_deg, tilt_deg, speed)
-                    .await?;
-                handle.await_applied(t).await
-            }),
-            None => {
-                use crate::camera::controls::pan_tilt::PanTiltControl;
-                self.inner
-                    .camera
-                    .pan_tilt_absolute(pan_deg, tilt_deg, speed)
-            }
-        }
-    }
-
-    fn pan_tilt_absolute_op(
-        &self,
-        pan_deg: f64,
-        tilt_deg: f64,
-        speed: SpeedLevel,
-    ) -> BoxFuture<'_, Result<InFlightDyn, Error>> {
-        Box::pin(async move {
-            let handle = self
-                .inner
-                .camera
-                .pan_tilt_absolute_op(pan_deg, tilt_deg, speed)
-                .await?;
-            self.erase_inflight(handle, OperationCategory::PanTilt)
-        })
-    }
-
-    fn pan_tilt_relative(
-        &self,
-        pan_deg: f64,
-        tilt_deg: f64,
-        speed: SpeedLevel,
-        timeout: Option<Duration>,
-    ) -> BoxFuture<'_, Result<(), Error>> {
-        match timeout {
-            Some(t) => Box::pin(async move {
-                let handle = self
-                    .inner
-                    .camera
-                    .pan_tilt_relative_op(pan_deg, tilt_deg, speed)
-                    .await?;
-                handle.await_applied(t).await
-            }),
-            None => {
-                use crate::camera::controls::pan_tilt::PanTiltControl;
-                self.inner
-                    .camera
-                    .pan_tilt_relative(pan_deg, tilt_deg, speed)
-            }
-        }
-    }
-
-    fn pan_tilt_relative_op(
-        &self,
-        pan_deg: f64,
-        tilt_deg: f64,
-        speed: SpeedLevel,
-    ) -> BoxFuture<'_, Result<InFlightDyn, Error>> {
-        Box::pin(async move {
-            let handle = self
-                .inner
-                .camera
-                .pan_tilt_relative_op(pan_deg, tilt_deg, speed)
-                .await?;
-            self.erase_inflight(handle, OperationCategory::PanTilt)
-        })
-    }
+    movement_registry::dyn_pan_tilt_operations!(impl_dyn_registered_operations);
 
     fn pan_tilt_move(
         &self,
@@ -1139,26 +1337,6 @@ where
         self.inner
             .camera
             .pan_tilt_move(direction, pan_speed, tilt_speed)
-    }
-
-    fn pan_tilt_reset(&self, timeout: Option<Duration>) -> BoxFuture<'_, Result<(), Error>> {
-        match timeout {
-            Some(t) => Box::pin(async move {
-                let handle = self.inner.camera.pan_tilt_reset_op().await?;
-                handle.await_applied(t).await
-            }),
-            None => {
-                use crate::camera::controls::pan_tilt::PanTiltControl;
-                self.inner.camera.pan_tilt_reset()
-            }
-        }
-    }
-
-    fn pan_tilt_reset_op(&self) -> BoxFuture<'_, Result<InFlightDyn, Error>> {
-        Box::pin(async move {
-            let handle = self.inner.camera.pan_tilt_reset_op().await?;
-            self.erase_inflight(handle, OperationCategory::PanTilt)
-        })
     }
 
     fn pan_tilt_limit_set(
@@ -1190,93 +1368,7 @@ where
         self.inner.camera.zoom_stop()
     }
 
-    fn zoom_tele(
-        &self,
-        speed: Option<ZoomSpeed>,
-        timeout: Option<Duration>,
-    ) -> BoxFuture<'_, Result<(), Error>> {
-        match timeout {
-            Some(t) => Box::pin(async move {
-                let handle = self.inner.camera.zoom_tele_op(speed).await?;
-                handle.await_applied(t).await
-            }),
-            None => {
-                use crate::camera::controls::zoom::ZoomControl;
-                self.inner.camera.zoom_tele(speed)
-            }
-        }
-    }
-
-    fn zoom_wide(
-        &self,
-        speed: Option<ZoomSpeed>,
-        timeout: Option<Duration>,
-    ) -> BoxFuture<'_, Result<(), Error>> {
-        match timeout {
-            Some(t) => Box::pin(async move {
-                let handle = self.inner.camera.zoom_wide_op(speed).await?;
-                handle.await_applied(t).await
-            }),
-            None => {
-                use crate::camera::controls::zoom::ZoomControl;
-                self.inner.camera.zoom_wide(speed)
-            }
-        }
-    }
-
-    fn set_zoom(
-        &self,
-        position: ZoomPosition,
-        timeout: Option<Duration>,
-    ) -> BoxFuture<'_, Result<(), Error>> {
-        if !self
-            .capabilities()
-            .supports_typed(crate::capabilities::TypedSupportSurface::DirectZoom)
-        {
-            return Box::pin(async {
-                Err(Error::FeatureNotSupported {
-                    feature: "direct zoom positioning",
-                })
-            });
-        }
-
-        match timeout {
-            Some(t) => Box::pin(async move {
-                let command = crate::camera::controls::zoom::zoom_position_command::<P>(position)?;
-                let handle = self
-                    .inner
-                    .camera
-                    .start_zoom_operation(command, crate::camera::OpKind::Targeted)
-                    .await?;
-                handle.await_applied(t).await
-            }),
-            None => match crate::camera::controls::zoom::zoom_position_command::<P>(position) {
-                Ok(command) => self.inner.camera.execute(command),
-                Err(error) => Box::pin(async move { Err(error) }),
-            },
-        }
-    }
-
-    fn set_zoom_op(&self, position: ZoomPosition) -> BoxFuture<'_, Result<InFlightDyn, Error>> {
-        Box::pin(async move {
-            if !self
-                .capabilities()
-                .supports_typed(crate::capabilities::TypedSupportSurface::DirectZoom)
-            {
-                return Err(Error::FeatureNotSupported {
-                    feature: "direct zoom positioning",
-                });
-            }
-
-            let command = crate::camera::controls::zoom::zoom_position_command::<P>(position)?;
-            let handle = self
-                .inner
-                .camera
-                .start_zoom_operation(command, crate::camera::OpKind::Targeted)
-                .await?;
-            self.erase_inflight(handle, OperationCategory::Zoom)
-        })
-    }
+    movement_registry::dyn_zoom_operations!(impl_dyn_registered_operations);
 
     fn set_digital_zoom(&self, enabled: bool) -> BoxFuture<'_, Result<(), Error>> {
         if !self
@@ -1294,95 +1386,6 @@ where
             .camera
             .execute(crate::command::zoom::DigitalZoom::new(enabled))
     }
-
-    fn set_zoom_normalized(
-        &self,
-        position: UnitInterval,
-        timeout: Option<Duration>,
-    ) -> BoxFuture<'_, Result<(), Error>> {
-        if !self
-            .capabilities()
-            .supports_typed(crate::capabilities::TypedSupportSurface::DirectZoom)
-        {
-            return Box::pin(async {
-                Err(Error::FeatureNotSupported {
-                    feature: "direct zoom positioning",
-                })
-            });
-        }
-
-        match timeout {
-            Some(t) => Box::pin(async move {
-                let command =
-                    crate::camera::controls::zoom::zoom_normalized_command::<P>(position)?;
-                let handle = self
-                    .inner
-                    .camera
-                    .start_zoom_operation(command, crate::camera::OpKind::Targeted)
-                    .await?;
-                handle.await_applied(t).await
-            }),
-            None => match crate::camera::controls::zoom::zoom_normalized_command::<P>(position) {
-                Ok(command) => self.inner.camera.execute(command),
-                Err(error) => Box::pin(async move { Err(error) }),
-            },
-        }
-    }
-
-    fn set_zoom_normalized_in_domain(
-        &self,
-        position: UnitInterval,
-        domain: ZoomDomain,
-        timeout: Option<Duration>,
-    ) -> BoxFuture<'_, Result<(), Error>> {
-        if !self
-            .capabilities()
-            .supports_typed(crate::capabilities::TypedSupportSurface::DirectZoom)
-        {
-            return Box::pin(async {
-                Err(Error::FeatureNotSupported {
-                    feature: "direct zoom positioning",
-                })
-            });
-        }
-
-        if domain == ZoomDomain::OpticalPlusDigital
-            && !self
-                .capabilities()
-                .supports_typed(crate::capabilities::TypedSupportSurface::DigitalZoomRange)
-        {
-            return Box::pin(async {
-                Err(Error::FeatureNotSupported {
-                    feature: "digital zoom",
-                })
-            });
-        }
-
-        match timeout {
-            Some(t) => Box::pin(async move {
-                let zoom = crate::camera::controls::zoom::zoom_from_normalized_for_profile::<P>(
-                    position, domain,
-                )?;
-                let command = crate::camera::controls::zoom::zoom_position_command::<P>(zoom)?;
-                let handle = self
-                    .inner
-                    .camera
-                    .start_zoom_operation(command, crate::camera::OpKind::Targeted)
-                    .await?;
-                handle.await_applied(t).await
-            }),
-            None => {
-                let command = crate::camera::controls::zoom::zoom_from_normalized_for_profile::<P>(
-                    position, domain,
-                )
-                .and_then(crate::camera::controls::zoom::zoom_position_command::<P>);
-                match command {
-                    Ok(command) => self.inner.camera.execute(command),
-                    Err(error) => Box::pin(async move { Err(error) }),
-                }
-            }
-        }
-    }
 }
 
 // Implement DynFocusControl for DynCamera
@@ -1393,6 +1396,8 @@ where
     Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
     Exec: crate::executor::Executor,
 {
+    movement_registry::dyn_focus_operations!(impl_dyn_registered_operations);
+
     fn focus_auto(&self) -> BoxFuture<'_, Result<(), Error>> {
         use crate::camera::controls::focus::FocusControl;
         self.inner.camera.focus_auto()
@@ -1433,30 +1438,6 @@ where
         self.inner
             .camera
             .execute(crate::command::focus::Focus::OnePushTrigger)
-    }
-
-    fn set_focus(
-        &self,
-        position: FocusPosition,
-        timeout: Option<Duration>,
-    ) -> BoxFuture<'_, Result<(), Error>> {
-        match timeout {
-            Some(t) => Box::pin(async move {
-                let handle = self.inner.camera.set_focus_op(position).await?;
-                handle.await_applied(t).await
-            }),
-            None => {
-                use crate::camera::controls::focus::FocusControl;
-                self.inner.camera.set_focus(position)
-            }
-        }
-    }
-
-    fn set_focus_op(&self, position: FocusPosition) -> BoxFuture<'_, Result<InFlightDyn, Error>> {
-        Box::pin(async move {
-            let handle = self.inner.camera.set_focus_op(position).await?;
-            self.erase_inflight(handle, OperationCategory::Focus)
-        })
     }
 
     fn focus_infinity(&self) -> BoxFuture<'_, Result<(), Error>> {
@@ -1515,29 +1496,7 @@ where
     Tr: crate::transport::AsyncTransport + Send + Sync + 'static,
     Exec: crate::executor::Executor,
 {
-    fn preset_recall(
-        &self,
-        preset: PresetNumber,
-        timeout: Option<Duration>,
-    ) -> BoxFuture<'_, Result<(), Error>> {
-        match timeout {
-            Some(t) => Box::pin(async move {
-                let handle = self.inner.camera.preset_recall_op(preset).await?;
-                handle.await_applied(t).await
-            }),
-            None => {
-                use crate::camera::controls::presets::PresetsControl;
-                self.inner.camera.preset_recall(preset)
-            }
-        }
-    }
-
-    fn preset_recall_op(&self, preset: PresetNumber) -> BoxFuture<'_, Result<InFlightDyn, Error>> {
-        Box::pin(async move {
-            let handle = self.inner.camera.preset_recall_op(preset).await?;
-            self.erase_inflight(handle, OperationCategory::Preset)
-        })
-    }
+    movement_registry::dyn_preset_operations!(impl_dyn_registered_operations);
 
     fn preset_set(&self, preset: PresetNumber) -> BoxFuture<'_, Result<(), Error>> {
         use crate::camera::controls::presets::PresetsControl;
@@ -1643,5 +1602,30 @@ mod tests {
         assert_eq!(format!("{}", OperationCategory::Zoom), "Zoom");
         assert_eq!(format!("{}", OperationCategory::Focus), "Focus");
         assert_eq!(format!("{}", OperationCategory::Preset), "Preset");
+    }
+
+    #[test]
+    fn movement_registry_matches_independent_public_inventory() {
+        assert_eq!(
+            movement_registry::PAN_TILT_INVENTORY,
+            [
+                "pan_tilt_home",
+                "pan_tilt_absolute",
+                "pan_tilt_relative",
+                "pan_tilt_reset",
+            ]
+        );
+        assert_eq!(
+            movement_registry::ZOOM_INVENTORY,
+            [
+                "zoom_tele",
+                "zoom_wide",
+                "set_zoom",
+                "set_zoom_normalized",
+                "set_zoom_normalized_in_domain",
+            ]
+        );
+        assert_eq!(movement_registry::FOCUS_INVENTORY, ["set_focus"]);
+        assert_eq!(movement_registry::PRESET_INVENTORY, ["preset_recall"]);
     }
 }
