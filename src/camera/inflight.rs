@@ -47,7 +47,7 @@
 use core::{future::Future, marker::PhantomData, pin::Pin, time::Duration};
 
 #[cfg(feature = "mode-async")]
-use std::sync::Mutex;
+use std::{panic::AssertUnwindSafe, sync::Mutex};
 
 #[cfg(feature = "mode-async")]
 use crate::{
@@ -264,8 +264,11 @@ where
     /// Axes affected by this operation, used for position-based settling.
     axes: crate::camera::Axes,
     /// Concrete-camera bridge for position polling on profiles without an
-    /// operation-complete message.
-    settle_waiter: &'a dyn AsyncSettleWaiter,
+    /// operation-complete message. The assertion is confined to this immutable
+    /// reference: callers cannot mutate or recover camera state through the
+    /// erased bridge, and the public handle carried both unwind auto traits in
+    /// 1.0 before fallback settling was added.
+    settle_waiter: AssertUnwindSafe<&'a dyn AsyncSettleWaiter>,
     /// Zero-sized marker for the category.
     _c: PhantomData<C>,
 }
@@ -308,7 +311,7 @@ where
             response_future: Mutex::new(Some(response_future)),
             kind: metadata.kind,
             axes: metadata.axes,
-            settle_waiter,
+            settle_waiter: AssertUnwindSafe(settle_waiter),
             _c: PhantomData,
         }
     }
@@ -446,6 +449,7 @@ where
         }
 
         self.settle_waiter
+            .0
             .await_axes_settled(self.axes, remaining)
             .await
     }

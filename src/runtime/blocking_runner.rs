@@ -10,6 +10,7 @@ use tracing::{debug, trace, warn};
 use core::marker::PhantomData;
 use std::{
     collections::{HashMap, HashSet},
+    panic::AssertUnwindSafe,
     sync::atomic::{AtomicU32, Ordering},
     time::{Duration, Instant},
 };
@@ -57,7 +58,13 @@ pub struct BlockingRunner<P: Profile> {
     next_id: AtomicU32,
     /// Terminal outcomes for observed commands that completed while another
     /// command was driving the blocking scheduler.
-    completed: HashMap<CommandId, Result<Response>>,
+    ///
+    /// The assertion is deliberately limited to immutable terminal values. An
+    /// opaque source inside [`Error`] may not advertise unwind safety, but no
+    /// scheduler state is reachable through a stored outcome. Keeping that
+    /// distinction here preserves the public blocking camera types' 1.0
+    /// `UnwindSafe` contract without asserting over the runner as a whole.
+    completed: HashMap<CommandId, AssertUnwindSafe<Result<Response>>>,
     /// Commands whose callers still own a completion handle.
     ///
     /// Keeping this separate from `completed` lets detached handles continue to
@@ -313,7 +320,7 @@ impl<P: Profile> BlockingRunner<P> {
     ) -> Result<Response> {
         if let Some(outcome) = self.completed.remove(&target_cmd_id) {
             self.observed.remove(&target_cmd_id);
-            return outcome;
+            return outcome.0;
         }
 
         if !self.observed.contains(&target_cmd_id) {
@@ -429,7 +436,7 @@ impl<P: Profile> BlockingRunner<P> {
                             return Err(error);
                         }
                         if self.observed.contains(&id) {
-                            self.completed.insert(id, Err(error));
+                            self.completed.insert(id, AssertUnwindSafe(Err(error)));
                         }
                     }
                     waited_for_spacing = false;
@@ -541,7 +548,7 @@ impl<P: Profile> BlockingRunner<P> {
             Some(outcome)
         } else {
             if self.observed.contains(&cmd_id) {
-                self.completed.insert(cmd_id, outcome);
+                self.completed.insert(cmd_id, AssertUnwindSafe(outcome));
             }
             None
         }
@@ -557,7 +564,8 @@ impl<P: Profile> BlockingRunner<P> {
     fn fail_observed_except(&mut self, target_cmd_id: CommandId, error: &Error) {
         for cmd_id in self.observed.iter().copied() {
             if cmd_id != target_cmd_id {
-                self.completed.insert(cmd_id, Err(error.clone()));
+                self.completed
+                    .insert(cmd_id, AssertUnwindSafe(Err(error.clone())));
             }
         }
     }
