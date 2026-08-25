@@ -14,7 +14,7 @@ The maintained examples in `examples/` fall into these categories:
 | Inquiry and typed data | `inquiry_quickstart`, `typed_inquiry_demo`, `type_safe_commands` | Demonstrate accessors, profile metadata, conversion helpers, and capability bounds. |
 | Transport setup | `transport_builder_demo`, `transports`, `builder_api`, `serial_async_demo` | Demonstrate current `CameraConfig`, `Connect`, or `CameraBuilder` paths. |
 | Operational patterns | `concurrent_control`, `error_handling`, `runtime_demo`, `runtime_agnostic` | Demonstrate runtime and application patterns without relying on private runtime internals. |
-| Operation handles | `operation_handles`, `operation_handles_async` | Demonstrate blocking and Tokio submission, exact applied waits, physical settled waits, and explicit detach. |
+| Operation handles | `operation_handles`, `operation_handles_async` | Demonstrate blocking and Tokio submission, exact applied waits, physical settled waits, explicit detach, and verified pan/tilt/zoom restoration after movement. |
 | Protocol and lab validation | `sony_encapsulation`, `validate_inquiries`, `validate_ae_commands` | Advanced or lab-oriented material that should stay consistent with `docs/visca_reference.md`; not the recommended first path. |
 
 ## Rules

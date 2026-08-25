@@ -575,6 +575,9 @@ pub(crate) enum CancelOutcome {
         /// Socket assigned to the executing command.
         socket: ViscaSocket,
     },
+    /// The command has already been sent, but this profile does not support
+    /// the VISCA socket-cancel command.
+    Unsupported,
     /// The command was already completed, failed, or unknown.
     NoOp,
 }
@@ -944,6 +947,8 @@ pub struct SchedulerCore {
     min_command_spacing: Duration,
     /// When the last command (of any kind) was sent (for spacing enforcement).
     last_command_sent: Option<Instant>,
+    /// Whether sent commands can be cancelled with a VISCA socket-cancel frame.
+    supports_command_cancel: bool,
     /// Deadline until which inquiry sends are held back after a transient
     /// inquiry-side syntax error, letting an overloaded camera recover before
     /// the failed inquiry is resent or another queued inquiry is dispatched.
@@ -993,6 +998,7 @@ impl SchedulerCore {
             last_inquiry_sent: None,
             min_command_spacing: Duration::ZERO,
             last_command_sent: None,
+            supports_command_cancel: true,
             inquiry_cooldown_until: None,
             ignored_unmatched_sequenced_replies: 0,
         }
@@ -1025,6 +1031,11 @@ impl SchedulerCore {
     /// cannot process commands at wire speed.
     pub fn set_min_command_spacing(&mut self, spacing: Duration) {
         self.min_command_spacing = spacing;
+    }
+
+    /// Set whether sent commands can be cancelled with a VISCA socket-cancel frame.
+    pub fn set_supports_command_cancel(&mut self, supported: bool) {
+        self.supports_command_cancel = supported;
     }
 
     /// Queue a command for execution.
@@ -1579,6 +1590,7 @@ impl SchedulerCore {
     ///
     /// - **Command not active**: Returns `CancelOutcome::NoOp`.
     /// - **Queued**: Removes the queued command and returns `CancelOutcome::QueuedRemoved`.
+    /// - **Sent on an unsupported profile**: Returns `CancelOutcome::Unsupported`.
     /// - **Socket already assigned (Executing phase)**: Returns `CancelOutcome::SendCancel`
     ///   so the caller can send the cancel command immediately.
     /// - **Awaiting ACK (no socket yet)**: Sets `cancel_requested = true` on the command
@@ -1611,6 +1623,14 @@ impl SchedulerCore {
                 CancelOutcome::QueuedRemoved
             }
             CommandPhase::Executing { socket, .. } => {
+                if !self.supports_command_cancel {
+                    debug!(
+                        %cmd_id,
+                        ?camera_id,
+                        "Cancel requested for sent command, but profile does not support socket cancel"
+                    );
+                    return CancelOutcome::Unsupported;
+                }
                 debug!(
                     %cmd_id,
                     ?socket,
@@ -1620,6 +1640,14 @@ impl SchedulerCore {
                 CancelOutcome::SendCancel { camera_id, socket }
             }
             CommandPhase::AwaitingAck { .. } => {
+                if !self.supports_command_cancel {
+                    debug!(
+                        %cmd_id,
+                        ?camera_id,
+                        "Cancel requested for sent command awaiting ACK, but profile does not support socket cancel"
+                    );
+                    return CancelOutcome::Unsupported;
+                }
                 if let Some(state) = self.commands.get_mut(&cmd_id) {
                     state.cancel_requested = true;
                 }
@@ -2206,7 +2234,7 @@ impl SchedulerCore {
     /// - Inquiry timeouts (AwaitingReply phase)
     /// - Retry eligibility
     /// - Inquiry spacing
-    pub fn next_deadline(&self, _now: Instant) -> Option<Instant> {
+    pub fn next_deadline(&self, now: Instant) -> Option<Instant> {
         let mut earliest: Option<Instant> = None;
         let ack_timeout = self.timeout_config.ack_timeout;
 
@@ -2242,7 +2270,9 @@ impl SchedulerCore {
         if !self.inquiry_queue.is_empty() && !self.min_inquiry_spacing.is_zero() {
             if let Some(last_sent) = self.last_inquiry_sent {
                 let next_inquiry_eligible = last_sent + self.min_inquiry_spacing;
-                Self::update_earliest(&mut earliest, next_inquiry_eligible);
+                if next_inquiry_eligible > now {
+                    Self::update_earliest(&mut earliest, next_inquiry_eligible);
+                }
             }
         }
 
@@ -2250,7 +2280,9 @@ impl SchedulerCore {
         // transient syntax error). Only relevant while inquiries are waiting.
         if !self.inquiry_queue.is_empty() {
             if let Some(until) = self.inquiry_cooldown_until {
-                Self::update_earliest(&mut earliest, until);
+                if until > now {
+                    Self::update_earliest(&mut earliest, until);
+                }
             }
         }
 
@@ -2259,7 +2291,9 @@ impl SchedulerCore {
         if has_queued && !self.min_command_spacing.is_zero() {
             if let Some(last_sent) = self.last_command_sent {
                 let next_eligible = last_sent + self.min_command_spacing;
-                Self::update_earliest(&mut earliest, next_eligible);
+                if next_eligible > now {
+                    Self::update_earliest(&mut earliest, next_eligible);
+                }
             }
         }
 

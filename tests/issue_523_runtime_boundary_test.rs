@@ -16,7 +16,7 @@ use std::{
 };
 
 use grafton_visca::{
-    camera::profiles::PtzOpticsG2,
+    camera::profiles::{GenericVisca, PtzOpticsG2},
     command::{
         CommandBehavior, InquiryKind, InquiryResponseSpec, ViscaCommand, Zoom, VISCA_TERMINATOR,
     },
@@ -299,7 +299,7 @@ async fn cancel_socket_send_uses_configured_write_timeout() {
     let executor = Arc::new(TokioExecutor::from_current().unwrap());
     let transport = HangingSendTransport::new(0, Duration::from_millis(50), SendSemantics::Stream);
 
-    let runtime: RuntimeHandle<PtzOpticsG2, TokioExecutor> =
+    let runtime: RuntimeHandle<GenericVisca, TokioExecutor> =
         RuntimeHandle::new(transport, executor)
             .await
             .expect("runtime should start");
@@ -325,7 +325,7 @@ async fn cancel_on_ack_send_uses_configured_write_timeout() {
     let response_tx = transport.response_sender();
     let sent = transport.sent_handle();
 
-    let runtime: RuntimeHandle<PtzOpticsG2, TokioExecutor> =
+    let runtime: RuntimeHandle<GenericVisca, TokioExecutor> =
         RuntimeHandle::new(transport, executor)
             .await
             .expect("runtime should start");

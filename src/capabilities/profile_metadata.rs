@@ -116,6 +116,12 @@ pub trait ProfileMetadata {
     /// When true, movement detection can use event-driven completion instead of polling.
     const SUPPORTS_OPERATION_COMPLETE: bool = false;
 
+    /// Whether the camera accepts the standard VISCA socket-cancel command.
+    ///
+    /// This controls cancellation after a command has been sent. Commands that
+    /// are still queued can always be removed locally without camera support.
+    const SUPPORTS_COMMAND_CANCEL: bool = true;
+
     /// Minimum time spacing between consecutive inquiry sends.
     ///
     /// Some cameras (e.g., PTZOptics) cannot process inquiries faster than

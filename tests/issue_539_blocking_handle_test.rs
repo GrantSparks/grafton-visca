@@ -7,7 +7,7 @@
 //!   executor at all), returning the ordinary `Result`.
 //! - Multiple submitted commands each complete through their own handle.
 //! - `await_settled` returns `Error::NotSupported` for a continuous/stop handle.
-//! - Cancellation before/after ACK sends the correct socket cancel.
+//! - Profiles that support cancellation send the correct socket cancel before/after ACK.
 //! - Dropping or detaching a handle never stops the already-dispatched command.
 
 #![cfg(all(not(feature = "mode-async"), feature = "test-utils"))]
@@ -268,7 +268,7 @@ fn test_cancel_before_ack_is_sent_on_ack() {
             responses: vec![],
         },
     ]);
-    let camera: Camera<PtzOpticsG2, _> = Camera::new(transport.clone()).unwrap();
+    let camera: Camera<GenericVisca, _> = Camera::new(transport.clone()).unwrap();
 
     let first = camera.submit(&PanTiltCmd::Home).unwrap();
     first.cancel().expect("pre-ACK cancel request");
@@ -308,7 +308,7 @@ fn test_cancel_after_ack_sends_immediately() {
             responses: vec![],
         },
     ]);
-    let camera: Camera<PtzOpticsG2, _> = Camera::new(transport.clone()).unwrap();
+    let camera: Camera<GenericVisca, _> = Camera::new(transport.clone()).unwrap();
 
     let first = camera.submit(&PanTiltCmd::Home).unwrap();
     let second = camera.submit(&grafton_visca::command::Zoom::Stop).unwrap();
@@ -316,6 +316,22 @@ fn test_cancel_after_ack_sends_immediately() {
 
     second.cancel().expect("post-ACK cancel");
     assert_eq!(transport.sent().last().unwrap(), CANCEL_SOCKET_2);
+}
+
+/// G2 cameras reject the VISCA socket-cancel command, so cancelling an
+/// already-sent operation reports that limitation without emitting the frame.
+#[test]
+fn test_ptzoptics_g2_sent_cancel_is_not_supported() {
+    let transport = ScriptedBlockingTransport::new(vec![Step::OnSend {
+        matches: Some(patterns::pan_tilt::HOME.to_vec()),
+        responses: vec![],
+    }]);
+    let camera: Camera<PtzOpticsG2, _> = Camera::new(transport.clone()).unwrap();
+
+    let result = camera.submit(&PanTiltCmd::Home).unwrap().cancel();
+
+    assert!(matches!(result, Err(Error::NotSupported)));
+    assert_eq!(transport.sent(), vec![patterns::pan_tilt::HOME.to_vec()]);
 }
 
 /// Dropping a handle without awaiting/cancelling never stops the command: it is

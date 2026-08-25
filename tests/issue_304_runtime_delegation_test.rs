@@ -15,7 +15,7 @@
 use std::time::Duration;
 
 use grafton_visca::{
-    camera::profiles::PtzOpticsG2,
+    camera::profiles::{GenericVisca, PtzOpticsG2},
     testing::testkit::{
         deterministic_executor::DeterministicExecutor, helpers, ScriptedTransport, Step,
     },
@@ -125,7 +125,7 @@ fn test_command_cancellation_through_runtime() {
         let camera = grafton_visca::camera::CameraBuilder::<DeterministicExecutor>::with_executor(
             exec.clone(),
         )
-        .open_async::<PtzOpticsG2, _>(transport)
+        .open_async::<GenericVisca, _>(transport)
         .await
         .unwrap();
 

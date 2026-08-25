@@ -477,6 +477,10 @@ pub async fn runtime_loop_with_config<
                     socket,
                     reply_tx,
                 } => {
+                    if !P::SUPPORTS_COMMAND_CANCEL {
+                        let _ = reply_tx.send(Err(Error::NotSupported));
+                        continue;
+                    }
                     let result = send_cancel_frame(
                         &mut transport,
                         &executor,
@@ -511,6 +515,9 @@ pub async fn runtime_loop_with_config<
                             "Processed cancel-by-id without immediate socket send"
                         );
                         let _ = reply_tx.send(Ok(()));
+                    }
+                    CancelOutcome::Unsupported => {
+                        let _ = reply_tx.send(Err(Error::NotSupported));
                     }
                     CancelOutcome::SendCancel { camera_id, socket } => {
                         let result = send_cancel_frame(

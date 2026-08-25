@@ -266,15 +266,18 @@ async fn move_home() -> Result<(), grafton_visca::Error> {
 - `await_settled` additionally means targeted physical motion ended. Profiles
   with an operation-complete signal use it; other profiles poll only the affected
   axes under the same total deadline.
-- `cancel` requests scheduler-owned, ID/socket-safe cancellation. Success means
-  the request was recorded or sent; it does not prove physical motion stopped.
+- `cancel` requests scheduler-owned, ID/socket-safe cancellation. Queued work is
+  removable locally; sent work requires profile support and otherwise returns
+  `Error::NotSupported`. Success does not prove physical motion stopped, so use
+  a bounded STOP for continuous movement.
 - `detach` is explicit fire-and-forget. Dropping a handle has the same
   non-canceling behavior; the submitted command remains scheduler-owned and may
   still be dispatched and complete. `#[must_use]` warns only when a returned
   handle is ignored directly.
 
 See the maintained [blocking](examples/operation_handles.rs) and
-[Tokio](examples/operation_handles_async.rs) examples for complete programs.
+[Tokio](examples/operation_handles_async.rs) examples for complete programs that
+snapshot and restore the complete camera pose around movement.
 
 ---
 

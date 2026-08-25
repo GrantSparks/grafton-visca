@@ -445,6 +445,7 @@ impl<P: Profile + 'static, E: Executor + Send + Sync + 'static> RuntimeHandle<P,
     /// - For queued commands not yet sent: Removes from the queue without sending VISCA cancel
     /// - For commands awaiting ACK: Records cancel-on-ACK
     /// - For executing commands with a socket: Sends VISCA cancel with correct camera ID
+    /// - For sent commands on profiles without socket cancellation: Returns `NotSupported`
     /// - For unknown commands: Returns success (command may have already completed)
     ///
     /// The cancel command is addressed using the provided `camera_id`, ensuring
@@ -456,7 +457,8 @@ impl<P: Profile + 'static, E: Executor + Send + Sync + 'static> RuntimeHandle<P,
     ///   or `start_command_with_id`)
     ///
     /// # Returns
-    /// `Ok(())` if the cancel request was processed (regardless of whether command was found)
+    /// `Ok(())` if the cancel request was processed (regardless of whether command was found),
+    /// or `Error::NotSupported` when the command was sent using a profile without socket cancel
     ///
     /// # Type Safety
     ///
@@ -484,7 +486,8 @@ impl<P: Profile + 'static, E: Executor + Send + Sync + 'static> RuntimeHandle<P,
     /// * `socket` - The VISCA socket to cancel (S1 or S2)
     ///
     /// # Returns
-    /// Ok(()) if the cancel request was processed
+    /// `Ok(())` if the cancel request was processed, or `Error::NotSupported`
+    /// when the selected profile does not support socket cancellation
     pub async fn cancel_socket(&self, camera_id: CameraId, socket: ViscaSocket) -> Result<()> {
         let (reply_tx, reply_rx) = flume::bounded(1);
         let request = UrgentControlRequest::CancelSocket {
