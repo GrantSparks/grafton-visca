@@ -86,8 +86,9 @@ Do not manually publish the main crate first. Do not create or move a release
 tag to bypass a failed validation gate.
 
 If validation fails before either crate is published, fix the release automation
-on `main` and dispatch the CI workflow with the unchanged tag as `release_tag`.
-The retry checks out and validates that existing tag; it does not move it.
+on `main` and dispatch the `Publish Existing Release Tag` workflow with the
+unchanged tag. The retry checks out and validates that existing tag; it does not
+move it.
 
 ## 4. Partial-Publish Recovery
 
