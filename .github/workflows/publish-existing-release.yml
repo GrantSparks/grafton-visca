@@ -1,0 +1,94 @@
+name: Publish Existing Release Tag
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing immutable release tag to publish or retry
+        required: true
+        type: string
+
+concurrency:
+  group: publish-existing-release-${{ github.event.inputs.release_tag }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.inputs.release_tag }}
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libudev-dev
+
+      - name: Install Rust stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        continue-on-error: true
+        with:
+          shared-key: "rust-cache-ubuntu-latest-stable"
+          save-if: false
+
+      - name: Validate release metadata and inspect payloads
+        id: release
+        env:
+          RELEASE_TAG: ${{ github.event.inputs.release_tag }}
+          RUSTC_WRAPPER: ""
+        run: |
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "$(git rev-parse HEAD)" origin/main
+          cargo generate-lockfile
+          bash .github/scripts/validate-release.sh "$RELEASE_TAG"
+          cargo package -p grafton-visca-macros --locked --no-verify
+          cargo package -p grafton-visca-macros --list
+          cargo package -p grafton-visca --list
+
+      - name: Publish grafton-visca-macros if needed
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_TOKEN }}
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+          RUSTC_WRAPPER: ""
+        run: |
+          if cargo info --registry crates-io "grafton-visca-macros@${RELEASE_VERSION}" >/dev/null 2>&1; then
+            echo "grafton-visca-macros@${RELEASE_VERSION} is already published"
+          else
+            cargo publish -p grafton-visca-macros --locked --dry-run
+            cargo publish -p grafton-visca-macros --locked
+          fi
+
+      - name: Wait for the macro crate index entry
+        env:
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+        run: bash .github/scripts/wait-for-crate.sh grafton-visca-macros "$RELEASE_VERSION" 300
+
+      - name: Publish grafton-visca if needed
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_TOKEN }}
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+          RUSTC_WRAPPER: ""
+        run: |
+          if cargo info --registry crates-io "grafton-visca@${RELEASE_VERSION}" >/dev/null 2>&1; then
+            echo "grafton-visca@${RELEASE_VERSION} is already published"
+          else
+            cargo package -p grafton-visca --locked --no-verify
+            cargo publish -p grafton-visca --locked --dry-run
+            cargo publish -p grafton-visca --locked
+          fi
+
+      - name: Verify both published versions
+        env:
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          bash .github/scripts/wait-for-crate.sh grafton-visca-macros "$RELEASE_VERSION" 300
+          bash .github/scripts/wait-for-crate.sh grafton-visca "$RELEASE_VERSION" 300
