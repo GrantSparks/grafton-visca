@@ -13,14 +13,16 @@ job, including both blocking and async/dynamic semver checks.
 2. Set `[workspace.package].version` in `Cargo.toml`.
 3. Pin the `grafton-visca-macros` dependency in the main crate to the exact same
    version (`=X.Y.Z`). Both package manifests inherit the workspace version.
-4. Run `cargo check --workspace --no-default-features` to refresh the two local
-   workspace entries in `Cargo.lock`, then verify that no unrelated dependency
-   versions changed.
+4. Run `cargo generate-lockfile`, then
+   `cargo check --workspace --no-default-features --locked`. This library
+   workspace intentionally ignores `Cargo.lock`; verify that the generated file
+   contains both local workspace packages at the release version. The release
+   workflow regenerates the lockfile from the tagged manifests before packaging.
 5. Move the release notes from `## [Unreleased]` to
    `## [X.Y.Z] - YYYY-MM-DD`, then restore an empty `Unreleased` heading.
 
 The release workflow rejects a tag unless the `vX.Y.Z` tag, workspace packages,
-macro dependency, lockfile, and changelog heading all agree.
+macro dependency, generated lockfile, and changelog heading all agree.
 
 ## 2. Validate The Release Commit
 
@@ -73,7 +75,8 @@ git push origin vX.Y.Z
 The tag workflow then:
 
 1. validates tag/version/changelog consistency;
-2. packages the macro payload and inspects both crate file lists;
+2. generates the release lockfile, packages the macro payload, and inspects both
+   crate file lists;
 3. dry-runs and publishes `grafton-visca-macros` with `--locked`;
 4. polls crates.io for the exact macro version with a bounded timeout;
 5. packages, dry-runs, and publishes `grafton-visca` with `--locked`; and
@@ -81,6 +84,10 @@ The tag workflow then:
 
 Do not manually publish the main crate first. Do not create or move a release
 tag to bypass a failed validation gate.
+
+If validation fails before either crate is published, fix the release automation
+on `main` and dispatch the CI workflow with the unchanged tag as `release_tag`.
+The retry checks out and validates that existing tag; it does not move it.
 
 ## 4. Partial-Publish Recovery
 
