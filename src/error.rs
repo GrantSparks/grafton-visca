@@ -39,6 +39,11 @@ pub enum ErrorKind {
     NotExecutable,
 
     /// Connection was closed or lost.
+    ///
+    /// Terminal variants in this category, including [`Error::ConnectionClosed`]
+    /// and [`Error::StreamPoisoned`], require a new camera session. Do not
+    /// automatically replay a command whose completion is uncertain, because it
+    /// may have reached the camera before the connection failed.
     IoClosed,
 
     /// Connection was refused.

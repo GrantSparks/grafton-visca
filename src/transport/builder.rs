@@ -143,8 +143,10 @@ pub struct TransportConfig {
     pub tcp_nodelay: Option<bool>,
     /// TTL (Time To Live) for packets.
     pub ttl: Option<u32>,
-    /// TCP keepalive policy. When set, enables OS-level TCP keepalive probes
-    /// to prevent camera-side idle timeout on long-lived connections.
+    /// TCP keepalive policy. When set, enables OS-level probes that detect
+    /// broken peers and may preserve idle network-path state. These probes do
+    /// not send VISCA traffic or guarantee that a camera application keeps its
+    /// session open.
     pub tcp_keepalive: Option<TcpKeepaliveConfig>,
     /// Maximum pending queue depth for runtime admission control and backpressure.
     ///

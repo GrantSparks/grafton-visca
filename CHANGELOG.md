@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Async runtime handles now retain unexpected terminal transport errors so work
+  submitted after termination receives the original cause instead of a generic
+  channel-closed error.
+
+### Changed
+
+- Clarified that TCP keepalive is an OS-level liveness mechanism rather than
+  application-level VISCA traffic, and documented safe recovery from a closed
+  connection.
+
 ## [1.1.0] - 2026-07-19
 
 ### Added

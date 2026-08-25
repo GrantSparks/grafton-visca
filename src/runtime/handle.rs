@@ -60,7 +60,7 @@ struct RuntimeHandleInner<P: Profile, E: Executor> {
     /// Channel for normal control-plane observability and subscription requests.
     control: Sender<ControlRequest>,
     /// Runtime lifecycle for fast-fail and error normalization at the handle boundary.
-    lifecycle: Arc<AtomicU8>,
+    lifecycle: Arc<RuntimeLifecycle>,
     /// Shared completion state for explicit shutdown callers.
     shutdown_completion: Arc<ShutdownCompletion>,
     /// Counter for generating unique command IDs.
@@ -74,6 +74,52 @@ struct RuntimeHandleInner<P: Profile, E: Executor> {
 const LIFECYCLE_RUNNING: u8 = 0;
 const LIFECYCLE_CLOSING: u8 = 1;
 const LIFECYCLE_TERMINATED: u8 = 2;
+
+#[derive(Debug)]
+struct RuntimeLifecycle {
+    phase: AtomicU8,
+    terminal_error: Mutex<Option<Error>>,
+}
+
+impl RuntimeLifecycle {
+    fn new() -> Self {
+        Self {
+            phase: AtomicU8::new(LIFECYCLE_RUNNING),
+            terminal_error: Mutex::new(None),
+        }
+    }
+
+    fn terminal_error(&self) -> Option<Error> {
+        match self.terminal_error.lock() {
+            Ok(error) => error.clone(),
+            Err(poisoned) => poisoned.into_inner().clone(),
+        }
+    }
+
+    fn record_failure(&self, error: Error) {
+        let mut terminal_error = match self.terminal_error.lock() {
+            Ok(error) => error,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        if terminal_error.is_none() {
+            *terminal_error = Some(error);
+        }
+        drop(terminal_error);
+
+        self.phase.store(LIFECYCLE_TERMINATED, Ordering::Release);
+    }
+
+    fn closed_error(&self) -> Error {
+        if let Some(error) = self.terminal_error() {
+            return error;
+        }
+
+        match self.phase.load(Ordering::Acquire) {
+            LIFECYCLE_CLOSING => Error::RuntimeShutdown,
+            _ => Error::TransportChannelClosed,
+        }
+    }
+}
 
 #[derive(Debug)]
 struct ShutdownCompletion {
@@ -217,7 +263,7 @@ impl<P: Profile + 'static, E: Executor + Send + Sync + 'static> RuntimeHandle<P,
         // Control-plane traffic is separated from bounded data-plane submission.
         let (urgent_control_tx, urgent_control_rx) = flume::unbounded();
         let (control_tx, control_rx) = flume::unbounded();
-        let lifecycle = Arc::new(AtomicU8::new(LIFECYCLE_RUNNING));
+        let lifecycle = Arc::new(RuntimeLifecycle::new());
         let shutdown_completion = Arc::new(ShutdownCompletion::new());
 
         let envelope = P::Envelope::new(tcfg.addressing);
@@ -275,29 +321,21 @@ impl<P: Profile + 'static, E: Executor + Send + Sync + 'static> RuntimeHandle<P,
     }
 
     fn lifecycle_error(&self) -> Option<Error> {
-        match self.inner.lifecycle.load(Ordering::Acquire) {
-            LIFECYCLE_RUNNING => None,
-            LIFECYCLE_CLOSING => Some(Error::RuntimeShutdown),
-            _ => Some(Error::TransportChannelClosed),
+        match self.inner.lifecycle.phase.load(Ordering::Acquire) {
+            LIFECYCLE_RUNNING => self.inner.lifecycle.terminal_error(),
+            _ => Some(self.inner.lifecycle.closed_error()),
         }
     }
 
-    fn closed_error_from_lifecycle(lifecycle: &AtomicU8) -> Error {
-        match lifecycle.load(Ordering::Acquire) {
-            LIFECYCLE_CLOSING => Error::RuntimeShutdown,
-            _ => Error::ChannelClosed.to_public_error(),
-        }
+    fn closed_error_from_lifecycle(lifecycle: &RuntimeLifecycle) -> Error {
+        lifecycle.closed_error()
     }
 
-    fn normalize_boundary_error(lifecycle: &AtomicU8, error: Error) -> Error {
+    fn normalize_boundary_error(lifecycle: &RuntimeLifecycle, error: Error) -> Error {
         match error {
             Error::ChannelClosed
             | Error::ResponseChannelClosed
-            | Error::SocketManagerChannelClosed
-                if lifecycle.load(Ordering::Acquire) == LIFECYCLE_CLOSING =>
-            {
-                Error::RuntimeShutdown
-            }
+            | Error::SocketManagerChannelClosed => lifecycle.closed_error(),
             other => other.to_public_error(),
         }
     }
@@ -391,8 +429,10 @@ impl<P: Profile + 'static, E: Executor + Send + Sync + 'static> RuntimeHandle<P,
                 )),
             };
 
-            if matches!(&result, Err(error) if !matches!(error, Error::RuntimeShutdown)) {
-                lifecycle.store(LIFECYCLE_TERMINATED, Ordering::Release);
+            if let Err(error) = &result {
+                if !matches!(error, Error::RuntimeShutdown) {
+                    lifecycle.record_failure(error.clone());
+                }
             }
 
             shutdown_completion.complete(result);
@@ -458,7 +498,7 @@ impl<P: Profile + 'static, E: Executor + Send + Sync + 'static> RuntimeHandle<P,
 
     /// Shutdown the runtime.
     pub async fn shutdown(&self) -> Result<()> {
-        let subscription = match self.inner.lifecycle.compare_exchange(
+        let subscription = match self.inner.lifecycle.phase.compare_exchange(
             LIFECYCLE_RUNNING,
             LIFECYCLE_CLOSING,
             Ordering::AcqRel,
@@ -470,12 +510,13 @@ impl<P: Profile + 'static, E: Executor + Send + Sync + 'static> RuntimeHandle<P,
                 let request = UrgentControlRequest::Shutdown { reply_tx };
 
                 if self.inner.urgent_control.send(request).is_err() {
-                    self.inner
+                    let error = self
+                        .inner
                         .lifecycle
-                        .store(LIFECYCLE_TERMINATED, Ordering::Release);
-                    self.inner
-                        .shutdown_completion
-                        .complete(Err(Error::ChannelClosed.to_public_error()));
+                        .terminal_error()
+                        .unwrap_or(Error::TransportChannelClosed);
+                    self.inner.lifecycle.record_failure(error.clone());
+                    self.inner.shutdown_completion.complete(Err(error));
                 } else {
                     self.spawn_shutdown_reply_forwarder(reply_rx);
                 }
@@ -483,7 +524,7 @@ impl<P: Profile + 'static, E: Executor + Send + Sync + 'static> RuntimeHandle<P,
                 subscription
             }
             Err(LIFECYCLE_CLOSING) => self.inner.shutdown_completion.subscribe(),
-            Err(_) => return Err(Error::TransportChannelClosed),
+            Err(_) => return Err(self.inner.lifecycle.closed_error()),
         };
 
         self.await_shutdown_subscription(subscription).await
@@ -822,7 +863,7 @@ fn spawn_runtime_loop<P, T, E>(
     submit_rx: Receiver<SubmitRequest>,
     urgent_control_rx: Receiver<UrgentControlRequest>,
     control_rx: Receiver<ControlRequest>,
-    lifecycle: Arc<AtomicU8>,
+    lifecycle: Arc<RuntimeLifecycle>,
     task_executor: Arc<E>,
     config: RuntimeLoopConfig<P::Envelope>,
 ) where
@@ -830,8 +871,17 @@ fn spawn_runtime_loop<P, T, E>(
     T: AsyncTransport + Send + 'static,
     E: Executor + Send + Sync + 'static,
 {
+    // Keep receiver clones alive until the task records its terminal result. This
+    // prevents a concurrent sender from observing a closed channel before the
+    // corresponding transport error is available at the handle boundary.
+    let receiver_guards = (
+        submit_rx.clone(),
+        urgent_control_rx.clone(),
+        control_rx.clone(),
+    );
+
     executor.spawn_bg(async move {
-        match runtime_loop_with_config::<P, T, E>(
+        let result = runtime_loop_with_config::<P, T, E>(
             transport,
             submit_rx,
             urgent_control_rx,
@@ -839,22 +889,30 @@ fn spawn_runtime_loop<P, T, E>(
             task_executor,
             config,
         )
-        .await
-        {
+        .await;
+
+        match &result {
             Ok(()) => tracing::debug!("Runtime loop exited cleanly"),
-            Err(ref e) if matches!(e, Error::ConnectionClosed { .. }) => {
+            Err(e) if matches!(e, Error::ConnectionClosed { .. }) => {
                 tracing::error!("Runtime loop exited: {e} — all subsequent commands on this connection will fail");
             }
-            Err(ref e) => {
+            Err(e) => {
                 tracing::error!("Runtime loop exited unexpectedly: {e}");
             }
         }
-        let _ = lifecycle.compare_exchange(
-            LIFECYCLE_RUNNING,
-            LIFECYCLE_TERMINATED,
-            Ordering::AcqRel,
-            Ordering::Acquire,
-        );
+
+        if let Err(error) = result {
+            lifecycle.record_failure(error);
+        } else {
+            let _ = lifecycle.phase.compare_exchange(
+                LIFECYCLE_RUNNING,
+                LIFECYCLE_TERMINATED,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            );
+        }
+
+        drop(receiver_guards);
     });
 }
 
@@ -866,6 +924,7 @@ impl<P: Profile, E: Executor> Drop for RuntimeHandle<P, E> {
             if self
                 .inner
                 .lifecycle
+                .phase
                 .compare_exchange(
                     LIFECYCLE_RUNNING,
                     LIFECYCLE_CLOSING,

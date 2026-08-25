@@ -25,8 +25,9 @@ pub struct TcpConnectionConfig {
     /// Connection timeout duration.
     #[cfg(any(feature = "runtime-tokio", feature = "runtime-smol"))]
     pub connect_timeout: Duration,
-    /// TCP keepalive policy. When set, enables OS-level TCP keepalive probes
-    /// to prevent camera-side idle timeout.
+    /// TCP keepalive policy. When set, enables OS-level probes that detect
+    /// broken peers and may preserve idle network-path state. These probes are
+    /// not application-level VISCA traffic.
     pub tcp_keepalive: Option<TcpKeepaliveConfig>,
 }
 

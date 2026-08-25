@@ -164,6 +164,18 @@ fn assert_runtime_shutdown<T: std::fmt::Debug>(result: Result<T, Error>, context
     );
 }
 
+fn assert_peer_closed<T: std::fmt::Debug>(result: Result<T, Error>, context: &str) {
+    assert!(
+        matches!(
+            &result,
+            Err(Error::ConnectionClosed {
+                reason: Some(reason)
+            }) if reason.as_ref() == "peer closed"
+        ),
+        "{context} should preserve the peer-closed cause, got {result:?}"
+    );
+}
+
 #[tokio::test]
 async fn explicit_shutdown_fails_pending_and_later_requests() {
     let executor = Arc::new(TokioExecutor::from_current().unwrap());
@@ -491,7 +503,7 @@ async fn admitted_work_failed_by_transport_termination_preserves_cause() {
             .await
             .expect("runtime should start");
 
-    let (_cmd_id, response) = runtime
+    let (cmd_id, response) = runtime
         .send_command_with_id(&Zoom::TeleStd, CameraId::CAMERA_1, None)
         .await
         .expect("command should be admitted before the scripted transport error");
@@ -506,11 +518,26 @@ async fn admitted_work_failed_by_transport_termination_preserves_cause() {
 
     tokio::time::sleep(Duration::from_millis(50)).await;
 
-    let later_result = runtime
-        .send_command(&Zoom::WideStd, CameraId::CAMERA_1, None)
-        .await;
-    assert!(
-        !matches!(later_result, Err(Error::RuntimeShutdown)),
-        "unexpected transport termination must not be normalized to RuntimeShutdown"
+    assert_peer_closed(
+        runtime
+            .send_command(&Zoom::WideStd, CameraId::CAMERA_1, None)
+            .await,
+        "post-termination command",
     );
+    assert_peer_closed(
+        runtime
+            .send_inquiry(&PowerInquiry, CameraId::CAMERA_1)
+            .await,
+        "post-termination inquiry",
+    );
+    assert_peer_closed(
+        runtime.cancel(CameraId::CAMERA_1, cmd_id).await,
+        "post-termination cancel",
+    );
+    assert_peer_closed(runtime.metrics().await, "post-termination metrics request");
+    assert_peer_closed(
+        runtime.subscribe_completions().await,
+        "post-termination completion subscription",
+    );
+    assert_peer_closed(runtime.shutdown().await, "post-termination shutdown");
 }
