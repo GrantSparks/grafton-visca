@@ -40,10 +40,10 @@ fn test_cancel_command_by_id() {
 
     let executor_clone = executor.clone();
     executor.clone().block_on(async move {
-        use grafton_visca::camera::profiles::PtzOpticsG2;
+        use grafton_visca::camera::profiles::GenericVisca;
 
         let camera = CameraBuilder::<DeterministicExecutor>::with_executor(executor_clone)
-            .open_async::<PtzOpticsG2, _>(transport)
+            .open_async::<GenericVisca, _>(transport)
             .await
             .expect("Failed to create camera");
         let (cmd_id, future) = camera
@@ -65,6 +65,42 @@ fn test_cancel_command_by_id() {
             "Command should be canceled, got: {:?}",
             result
         );
+    });
+}
+
+#[test]
+fn test_ptzoptics_g2_rejects_sent_protocol_cancel_without_writing_frame() {
+    let (executor, _clock) = DeterministicExecutor::new();
+    let transport = ScriptedTransport::new(vec![Step::OnSend {
+        matches: Some(vec![0x81, 0x01, 0x04, 0x07, 0x02, 0xFF]),
+        responses: vec![vec![0x90, 0x41, 0xFF]],
+    }])
+    .with_executor(executor.clone());
+    let sent_transport = transport.clone();
+    let executor_clone = executor.clone();
+
+    executor.clone().block_on(async move {
+        use grafton_visca::{camera::profiles::PtzOpticsG2, Error};
+
+        let camera = CameraBuilder::<DeterministicExecutor>::with_executor(executor_clone.clone())
+            .open_async::<PtzOpticsG2, _>(transport)
+            .await
+            .expect("Failed to create camera");
+        let (cmd_id, response) = camera
+            .start_command_with_id(&Zoom::TeleStd)
+            .await
+            .expect("Failed to send command");
+
+        let result = camera.cancel(cmd_id).await;
+
+        assert!(matches!(result, Err(Error::NotSupported)));
+        assert_eq!(
+            sent_transport.sent(),
+            vec![vec![0x81, 0x01, 0x04, 0x07, 0x02, 0xFF]],
+            "unsupported cancellation must not emit a VISCA socket-cancel frame"
+        );
+        drop(response);
+        camera.shutdown().await.expect("camera shutdown");
     });
 }
 
@@ -112,10 +148,10 @@ fn test_cancel_socket_directly() {
     let clock_clone = clock.clone();
 
     executor.clone().block_on(async move {
-        use grafton_visca::camera::profiles::PtzOpticsG2;
+        use grafton_visca::camera::profiles::GenericVisca;
 
         let camera = CameraBuilder::<DeterministicExecutor>::with_executor(executor_clone.clone())
-            .open_async::<PtzOpticsG2, _>(transport)
+            .open_async::<GenericVisca, _>(transport)
             .await
             .expect("Failed to create camera");
 
@@ -165,10 +201,10 @@ fn test_cancel_nonexistent_command() {
     let clock_clone = clock.clone();
 
     executor.clone().block_on(async move {
-        use grafton_visca::camera::profiles::PtzOpticsG2;
+        use grafton_visca::camera::profiles::GenericVisca;
 
         let camera = CameraBuilder::<DeterministicExecutor>::with_executor(executor_clone)
-            .open_async::<PtzOpticsG2, _>(transport)
+            .open_async::<GenericVisca, _>(transport)
             .await
             .expect("Failed to create camera");
         camera
@@ -205,10 +241,10 @@ fn test_cancel_during_movement() {
     let clock_clone = clock.clone();
 
     executor.clone().block_on(async move {
-        use grafton_visca::camera::profiles::PtzOpticsG2;
+        use grafton_visca::camera::profiles::GenericVisca;
 
         let camera = CameraBuilder::<DeterministicExecutor>::with_executor(executor_clone)
-            .open_async::<PtzOpticsG2, _>(transport)
+            .open_async::<GenericVisca, _>(transport)
             .await
             .expect("Failed to create camera");
         let result = camera.cancel_socket(ViscaSocket::S1).await;

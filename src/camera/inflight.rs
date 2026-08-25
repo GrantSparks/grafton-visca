@@ -332,12 +332,15 @@ where
     /// # Errors
     ///
     /// Queued commands may be removed without a protocol frame. Once a command
-    /// has a socket, the scheduler emits the socket-specific cancel request.
+    /// has a socket, the scheduler emits the socket-specific cancel request when
+    /// the selected profile supports it.
     /// `Ok(())` means the request was recorded or sent; it is not camera
     /// acknowledgement and does not prove physical motion stopped. This method
     /// borrows the handle, so its exact response may still be awaited.
     ///
-    /// Returns an error if the cancellation request cannot be sent to the runtime.
+    /// Returns [`Error::NotSupported`] when the command has already been sent and
+    /// the profile does not support VISCA socket cancellation, or another error
+    /// if the request cannot be sent to the runtime.
     pub async fn cancel(&self) -> Result<()> {
         self.runtime.cancel(self.camera_id, self.id).await
     }
@@ -606,8 +609,9 @@ where
     /// # Errors
     ///
     /// Returns [`Error::TransportBusy`] if the runner is concurrently borrowed,
-    /// or a transport error if an immediately eligible cancel frame cannot be
-    /// sent.
+    /// [`Error::NotSupported`] when the command has already been sent and the
+    /// profile does not support VISCA socket cancellation, or a transport error
+    /// if an immediately eligible cancel frame cannot be sent.
     pub fn cancel(self) -> Result<()> {
         self.camera.cancel_command_id(self.id)
     }

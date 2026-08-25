@@ -345,6 +345,7 @@ macro_rules! __define_builtin_profiles {
                         busy_timeout_ms: $busy_timeout_ms:expr,
                         inquiry_support: $inquiry_support:expr,
                         supports_operation_complete: $supports_operation_complete:expr,
+                        supports_command_cancel: $supports_command_cancel:expr,
                         min_inquiry_spacing_ms: $min_inquiry_spacing_ms:expr,
                         min_command_spacing_ms: $min_command_spacing_ms:expr,
                     },
@@ -477,6 +478,7 @@ macro_rules! __define_builtin_profiles {
                     std::time::Duration::from_millis($busy_timeout_ms);
                 const INQUIRY_SUPPORT: $crate::capabilities::InquirySupport = $inquiry_support;
                 const SUPPORTS_OPERATION_COMPLETE: bool = $supports_operation_complete;
+                const SUPPORTS_COMMAND_CANCEL: bool = $supports_command_cancel;
                 const MIN_INQUIRY_SPACING: std::time::Duration =
                     std::time::Duration::from_millis($min_inquiry_spacing_ms);
                 const MIN_COMMAND_SPACING: std::time::Duration =
@@ -1297,6 +1299,21 @@ macro_rules! __define_builtin_profiles {
                 assert_ptzoptics_raw_profile::<PtzOpticsG3>();
                 assert_ptzoptics_raw_profile::<PtzOptics30X>();
 
+                assert!(
+                    !<PtzOpticsG2 as $crate::capabilities::ProfileMetadata>::SUPPORTS_COMMAND_CANCEL
+                );
+                assert!(
+                    <PtzOpticsG3 as $crate::capabilities::ProfileMetadata>::SUPPORTS_COMMAND_CANCEL
+                );
+                assert!(
+                    <PtzOptics30X as $crate::capabilities::ProfileMetadata>::SUPPORTS_COMMAND_CANCEL
+                );
+                assert!(ProfileId::PtzOpticsG2
+                    .registry_facts()
+                    .evidence
+                    .iter()
+                    .any(|item| item.key == "command_cancel"));
+
                 for id in [
                     ProfileId::PtzOpticsG2,
                     ProfileId::PtzOpticsG3,
@@ -1654,13 +1671,13 @@ macro_rules! define_builtin_profiles {
             }
             profiles {
                 profile PtzOpticsG2 {
-                    doc: "PtzOptics G2 camera profile.",
+                    doc: "PtzOptics G2-series camera profile.",
                     id: PtzOpticsG2,
                     id_doc: "PtzOptics G2 series cameras",
                     id_attrs: [],
                     group: PtzOpticsG2,
                     vendor: "PtzOptics",
-                    description: "20x optical zoom PTZ camera with 128 presets",
+                    description: "G2-series PTZ camera with 12x, 20x, and 30x optical variants and 128 presets",
                     envelope: $crate::transport::RawVisca,
                     envelope_kind: RawVisca,
                     transport: {
@@ -1676,6 +1693,7 @@ macro_rules! define_builtin_profiles {
                         busy_timeout_ms: 0,
                         inquiry_support: $crate::capabilities::InquirySupport::Full,
                         supports_operation_complete: true,
+                        supports_command_cancel: false,
                         min_inquiry_spacing_ms: 150,
                         min_command_spacing_ms: 100,
                     },
@@ -1800,6 +1818,7 @@ macro_rules! define_builtin_profiles {
                         PictureEffect,
                     ],
                     evidence: [
+                        ("command_cancel", "Tested G2 hardware rejects the standard VISCA socket-cancel command; use an explicit STOP command for bounded motion control."),
                         ("digital_zoom", "Hardware rejects VISCA digital zoom control on tested G2 firmware."),
                     ],
                 }
@@ -1827,6 +1846,7 @@ macro_rules! define_builtin_profiles {
                         busy_timeout_ms: 0,
                         inquiry_support: $crate::capabilities::InquirySupport::Full,
                         supports_operation_complete: true,
+                        supports_command_cancel: true,
                         min_inquiry_spacing_ms: 150,
                         min_command_spacing_ms: 100,
                     },
@@ -1979,6 +1999,7 @@ macro_rules! define_builtin_profiles {
                         busy_timeout_ms: 0,
                         inquiry_support: $crate::capabilities::InquirySupport::Full,
                         supports_operation_complete: true,
+                        supports_command_cancel: true,
                         min_inquiry_spacing_ms: 150,
                         min_command_spacing_ms: 100,
                     },
@@ -2135,6 +2156,7 @@ macro_rules! define_builtin_profiles {
                         busy_timeout_ms: 240,
                         inquiry_support: $crate::capabilities::InquirySupport::Full,
                         supports_operation_complete: false,
+                        supports_command_cancel: true,
                         min_inquiry_spacing_ms: 35,
                         min_command_spacing_ms: 35,
                     },
@@ -2296,6 +2318,7 @@ macro_rules! define_builtin_profiles {
                         busy_timeout_ms: 0,
                         inquiry_support: $crate::capabilities::InquirySupport::Full,
                         supports_operation_complete: false,
+                        supports_command_cancel: true,
                         min_inquiry_spacing_ms: 35,
                         min_command_spacing_ms: 35,
                     },
@@ -2443,6 +2466,7 @@ macro_rules! define_builtin_profiles {
                         busy_timeout_ms: 0,
                         inquiry_support: $crate::capabilities::InquirySupport::Partial,
                         supports_operation_complete: false,
+                        supports_command_cancel: true,
                         min_inquiry_spacing_ms: 0,
                         min_command_spacing_ms: 0,
                     },
@@ -2577,6 +2601,7 @@ macro_rules! define_builtin_profiles {
                         busy_timeout_ms: 0,
                         inquiry_support: $crate::capabilities::InquirySupport::Partial,
                         supports_operation_complete: false,
+                        supports_command_cancel: true,
                         min_inquiry_spacing_ms: 0,
                         min_command_spacing_ms: 0,
                     },
@@ -2704,6 +2729,7 @@ macro_rules! define_builtin_profiles {
                         busy_timeout_ms: 0,
                         inquiry_support: $crate::capabilities::InquirySupport::Partial,
                         supports_operation_complete: false,
+                        supports_command_cancel: true,
                         min_inquiry_spacing_ms: 0,
                         min_command_spacing_ms: 0,
                     },
@@ -2832,6 +2858,7 @@ macro_rules! define_builtin_profiles {
                         busy_timeout_ms: 0,
                         inquiry_support: $crate::capabilities::InquirySupport::Partial,
                         supports_operation_complete: false,
+                        supports_command_cancel: true,
                         min_inquiry_spacing_ms: 0,
                         min_command_spacing_ms: 0,
                     },

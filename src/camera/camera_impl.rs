@@ -924,7 +924,9 @@ where
     /// Cancel all commands on a specific socket.
     ///
     /// This method sends a cancel command to the specified VISCA socket,
-    /// addressed to this camera's configured camera ID.
+    /// addressed to this camera's configured camera ID. It returns
+    /// [`Error::NotSupported`] when the selected profile does not support the
+    /// standard VISCA socket-cancel command.
     pub async fn cancel_socket(&self, socket: crate::ViscaSocket) -> Result<(), Error>
     where
         Tr: AsyncTransport + Send + Sync,
@@ -939,10 +941,11 @@ where
     /// or `start_command_with_id`. If the command is still queued and no VISCA bytes
     /// have been sent, its future resolves with [`Error::CommandCanceled`] and no
     /// cancel frame is emitted. If the command is awaiting ACK or already executing,
-    /// this method returns after the runtime records or sends the cancel request; the
-    /// command future then resolves according to the camera response, timeout,
-    /// shutdown, or transport failure. The cancel command is addressed to this
-    /// camera's configured camera ID.
+    /// this method returns [`Error::NotSupported`] for profiles without protocol
+    /// cancellation. Otherwise it returns after the runtime records or sends the
+    /// cancel request, and the command future resolves according to the camera
+    /// response, timeout, shutdown, or transport failure. The cancel command is
+    /// addressed to this camera's configured camera ID.
     ///
     /// # Type Safety
     ///

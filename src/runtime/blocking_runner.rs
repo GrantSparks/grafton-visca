@@ -136,6 +136,7 @@ impl<P: Profile> BlockingRunnerBuilder<P> {
         // Apply profile-specific spacing
         core.set_min_inquiry_spacing(P::MIN_INQUIRY_SPACING);
         core.set_min_command_spacing(P::MIN_COMMAND_SPACING);
+        core.set_supports_command_cancel(P::SUPPORTS_COMMAND_CANCEL);
         BlockingRunner {
             core,
             envelope: P::Envelope::new(self.addressing),
@@ -364,8 +365,14 @@ impl<P: Profile> BlockingRunner<P> {
         let outcome = self.core.request_cancel_by_id(target_cmd_id);
         self.discard_result(target_cmd_id);
 
-        if let CancelOutcome::SendCancel { camera_id, socket } = outcome {
-            self.send_cancel_frame(transport, camera_id, socket)?;
+        match outcome {
+            CancelOutcome::SendCancel { camera_id, socket } => {
+                self.send_cancel_frame(transport, camera_id, socket)?;
+            }
+            CancelOutcome::Unsupported => return Err(Error::NotSupported),
+            CancelOutcome::QueuedRemoved
+            | CancelOutcome::MarkedCancelOnAck
+            | CancelOutcome::NoOp => {}
         }
         Ok(())
     }
@@ -695,6 +702,12 @@ impl<P: Profile> BlockingRunner<P> {
             let now = Instant::now();
             let recv_timeout = self.compute_receive_timeout(transport, now, deadline.as_ref());
 
+            // A zero duration is a scheduler signal to iterate immediately,
+            // not a valid timeout for platform socket APIs such as TCP.
+            if recv_timeout.is_zero() {
+                continue;
+            }
+
             match transport.recv_into_with_timeout(&mut read_buf, recv_timeout) {
                 Ok(0) => {
                     warn!("Connection closed by peer");
@@ -833,8 +846,8 @@ impl<P: Profile> BlockingRunner<P> {
 mod tests {
     use super::*;
     use crate::camera::profiles::PtzOpticsG2;
-    use crate::command::encode::ViscaCommand;
     use crate::command::CommandKind;
+    use crate::command::{bytes::VISCA_TERMINATOR, encode::ViscaCommand};
     use crate::timeout::CommandCategory;
     use crate::transport::builder::TransportConfig;
     use std::collections::VecDeque;
@@ -1299,6 +1312,78 @@ mod tests {
         fn transport_config(&self) -> &TransportConfig {
             &self.config
         }
+    }
+
+    /// Minimal raw-VISCA transport that models a platform socket API rejecting
+    /// zero-duration receive timeouts.
+    struct RejectZeroTimeoutTransport {
+        responses: VecDeque<Vec<u8>>,
+        sent: usize,
+        config: TransportConfig,
+    }
+
+    impl RejectZeroTimeoutTransport {
+        fn new() -> Self {
+            Self {
+                responses: VecDeque::new(),
+                sent: 0,
+                config: TransportConfig {
+                    read_timeout: Duration::from_secs(1),
+                    ..TransportConfig::default()
+                },
+            }
+        }
+    }
+
+    impl BlockingTransport for RejectZeroTimeoutTransport {
+        fn send_with_kind(&mut self, _bytes: &[u8], _kind: CommandKind) -> Result<()> {
+            self.sent += 1;
+            self.responses
+                .push_back(vec![0x90, 0x50, 0x00, 0x00, 0x00, 0x00, VISCA_TERMINATOR]);
+            Ok(())
+        }
+
+        fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize> {
+            let timeout = self.config.read_timeout;
+            self.recv_into_with_timeout(dst, timeout)
+        }
+
+        fn recv_into_with_timeout(&mut self, dst: &mut [u8], timeout: Duration) -> Result<usize> {
+            assert!(
+                !timeout.is_zero(),
+                "blocking runner passed an invalid zero-duration timeout to the transport"
+            );
+            if let Some(response) = self.responses.pop_front() {
+                let len = response.len().min(dst.len());
+                dst[..len].copy_from_slice(&response[..len]);
+                return Ok(len);
+            }
+
+            std::thread::sleep(timeout);
+            Err(Error::Timeout)
+        }
+    }
+
+    impl HasTransportConfig for RejectZeroTimeoutTransport {
+        fn transport_config(&self) -> &TransportConfig {
+            &self.config
+        }
+    }
+
+    #[test]
+    fn test_spaced_inquiries_never_pass_zero_timeout_to_transport() {
+        let mut runner = BlockingRunner::<PtzOpticsG2>::new(TimeoutConfig::default());
+        let mut transport = RejectZeroTimeoutTransport::new();
+        let inquiry = crate::command::inquiry::ZoomPositionInquiry;
+
+        runner
+            .send_command(&mut transport, &inquiry, CameraId::CAMERA_1)
+            .expect("first inquiry");
+        runner
+            .send_command(&mut transport, &inquiry, CameraId::CAMERA_1)
+            .expect("second inquiry after profile spacing");
+
+        assert_eq!(transport.sent, 2);
     }
 
     /// Test that compute_receive_timeout selects the minimum of available waits.

@@ -296,8 +296,10 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
         executor: Arc<E>,
         max_pending_queue_depth: usize,
     ) -> Self {
+        let mut core = SchedulerCore::with_retry_config(timeout_config, retry_config);
+        core.set_supports_command_cancel(P::SUPPORTS_COMMAND_CANCEL);
         Self {
-            core: SchedulerCore::with_retry_config(timeout_config, retry_config),
+            core,
             executor,
             response_channels: HashMap::new(),
             metrics: Metrics::default(),
@@ -823,13 +825,11 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
     /// lifecycle-aware cancel semantics:
     ///
     /// - **Command not active**: No-op (command already completed, timed out, or unknown ID).
-    /// - **Socket already assigned**: Returns `Some((camera_id, socket))` immediately for sending.
+    /// - **Queued**: Removes the command locally and fails its response with `CommandCanceled`.
+    /// - **Sent, unsupported profile**: Returns `CancelOutcome::Unsupported`.
+    /// - **Socket already assigned**: Returns `CancelOutcome::SendCancel` immediately for sending.
     /// - **Awaiting ACK**: Flags the command for cancel-on-ACK; the cancel will be emitted
     ///   as a `SchedulerAction::SendCancel` when the ACK arrives.
-    ///
-    /// If this method returns `Some((camera_id, socket))`, the caller should send
-    /// the cancel command to the transport. If it returns `None`, either the command
-    /// is inactive or the cancel has been deferred until ACK.
     pub fn request_cancel_by_id(&mut self, cmd_id: CommandId) -> CancelOutcome {
         let outcome = self.core.request_cancel_by_id(cmd_id);
         if matches!(outcome, CancelOutcome::QueuedRemoved) {

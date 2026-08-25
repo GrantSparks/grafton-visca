@@ -550,6 +550,11 @@
 //! camera.cancel_socket(ViscaSocket::S1).await?;
 //! ```
 //!
+//! Queued commands can always be removed locally. Cancelling a command that has
+//! already been sent requires profile support for the standard VISCA socket-cancel
+//! command and otherwise returns [`Error::NotSupported`]. For bounded continuous
+//! movement, send the relevant STOP command and await its application.
+//!
 //! ## Movement Completion Tracking
 //!
 //! Wait for camera movements to complete using [`AwaitConfig`](camera::AwaitConfig):

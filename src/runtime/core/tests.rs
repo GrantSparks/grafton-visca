@@ -3826,6 +3826,51 @@ fn test_cancel_requested_after_ack_returns_immediately() {
     );
 }
 
+/// A profile can still remove queued work locally while refusing to emit
+/// protocol cancel frames for commands that have reached the wire.
+#[test]
+fn test_unsupported_protocol_cancel_only_rejects_sent_commands() {
+    let mut core =
+        SchedulerCore::with_retry_config(TimeoutConfig::default(), RetryConfig::default());
+    core.set_supports_command_cancel(false);
+
+    let now = Instant::now();
+    let camera_id = CameraId::CAMERA_1;
+    let queued = create_test_command(
+        vec![0x81, 0x01, 0x04, 0x07, 0x02, VISCA_TERMINATOR],
+        None,
+        CommandCategory::Quick,
+        camera_id,
+    );
+    core.queue_command(PendingCommand {
+        id: cmd_id(20),
+        command: queued,
+        priority: Priority::Normal,
+        camera_id,
+        submitted_at: now,
+    });
+    assert_eq!(
+        core.request_cancel_by_id(cmd_id(20)),
+        CancelOutcome::QueuedRemoved
+    );
+
+    let sent = create_test_command(
+        vec![0x81, 0x01, 0x04, 0x07, 0x02, VISCA_TERMINATOR],
+        None,
+        CommandCategory::Quick,
+        camera_id,
+    );
+    core.register_pending_ack(cmd_id(21), sent, Priority::Normal, camera_id, now);
+    assert_eq!(
+        core.request_cancel_by_id(cmd_id(21)),
+        CancelOutcome::Unsupported
+    );
+    assert!(
+        !core.commands[&cmd_id(21)].cancel_requested,
+        "unsupported cancellation must not schedule a deferred cancel frame"
+    );
+}
+
 /// Test: Cancel requested for inactive/unknown command is a no-op.
 ///
 /// Verifies that requesting a cancel for a command that doesn't exist
@@ -5625,6 +5670,29 @@ fn test_inquiry_syntax_retry_applies_inquiry_cooldown() {
         .next_item_to_send(now + Duration::from_millis(100))
         .expect("inquiry B should send once cooldown clears");
     assert_eq!(pending.id, cmd_id(2));
+}
+
+#[test]
+fn test_next_deadline_ignores_elapsed_spacing_gate() {
+    let mut core = SchedulerCore::new(TimeoutConfig::default());
+    let now = Instant::now();
+    core.set_min_command_spacing(Duration::from_millis(100));
+    core.set_min_inquiry_spacing(Duration::from_millis(150));
+    core.last_command_sent = Some(now - Duration::from_millis(100));
+    core.last_inquiry_sent = Some(now - Duration::from_millis(50));
+    core.queue_command(PendingCommand {
+        id: cmd_id(30),
+        command: create_test_inquiry(CameraId::CAMERA_1),
+        priority: Priority::Normal,
+        camera_id: CameraId::CAMERA_1,
+        submitted_at: now,
+    });
+
+    assert_eq!(
+        core.next_deadline(now),
+        Some(now + Duration::from_millis(100)),
+        "an elapsed command-spacing gate must not mask the future inquiry-spacing deadline"
+    );
 }
 
 #[test]

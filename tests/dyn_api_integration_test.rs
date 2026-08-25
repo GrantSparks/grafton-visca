@@ -1004,7 +1004,7 @@ async fn test_dyn_inflight_cancel_propagates_command_canceled() {
 
     let runtime = TokioRuntime::from_current().expect("Failed to get runtime");
     let camera = CameraBuilder::with_executor(runtime)
-        .open_async::<PtzOpticsG2, _>(transport)
+        .open_async::<GenericVisca, _>(transport)
         .await
         .expect("Failed to create camera");
 

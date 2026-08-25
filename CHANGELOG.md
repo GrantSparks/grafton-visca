@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.1.0] - 2026-07-19
+## [1.1.0] - 2026-08-25
 
 ### Added
 
@@ -45,8 +45,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     applied-only handles return `Error::NotSupported`.
   - `cancel()` requests scheduler-owned, ID/socket-safe cancellation. Queued
     commands can be removed before sending; sent commands use the protocol cancel
-    path once their socket is known. Success does not prove physical motion has
-    stopped. `detach()` is the explicit fire-and-forget escape hatch.
+    path once their socket is known and the profile supports it. Success does not
+    prove physical motion has stopped. `detach()` is the explicit fire-and-forget
+    escape hatch.
 - Added `OpKind` (`Targeted` / `Continuous`, where `Continuous` is the 1.x name
   for any applied-only operation) to describe whether an operation has a settled
   state, and re-exported it from `grafton_visca::camera`.
@@ -54,6 +55,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   through a shared `&self` reference so it composes with the new handle waits.
 
 ### Fixed
+
+- PTZOptics G2 sent-command cancellation now returns `Error::NotSupported`
+  instead of transmitting a socket-cancel frame that tested G2 cameras reject.
+  Queued commands remain locally cancellable; bounded continuous movement should
+  use an explicit STOP command.
+- Blocking deadline scheduling no longer passes a zero-duration receive timeout
+  to platform sockets when command spacing has elapsed but inquiry spacing has
+  not, avoiding a tight warning/error loop on real TCP transports.
+- Operation-handle examples now snapshot and restore the complete pan/tilt/zoom
+  pose, run cleanup after operation failures, and verify restoration before
+  closing the session.
+- Async runtime handles now retain unexpected terminal transport errors so work
+  submitted after termination receives the original cause instead of a generic
+  channel-closed error.
 
 #### Complete Operation-Handle Semantics and Mode Parity (#539)
 
@@ -75,6 +90,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   dispatch, and cancellation requests from proof that physical motion stopped.
 
 ### Changed
+
+- Clarified that TCP keepalive is an OS-level liveness mechanism rather than
+  application-level VISCA traffic, and documented safe recovery from a closed
+  connection.
 
 #### Bounded Contextual Retry for Transient Inquiry Syntax Errors (#536)
 

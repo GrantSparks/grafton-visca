@@ -141,10 +141,10 @@ fn test_start_command_with_id_returns_valid_id() {
 
     let executor_clone = executor.clone();
     executor.clone().block_on(async move {
-        use grafton_visca::camera::profiles::PtzOpticsG2;
+        use grafton_visca::camera::profiles::GenericVisca;
 
         let camera = CameraBuilder::<DeterministicExecutor>::with_executor(executor_clone)
-            .open_async::<PtzOpticsG2, _>(transport)
+            .open_async::<GenericVisca, _>(transport)
             .await
             .expect("Failed to create camera");
 

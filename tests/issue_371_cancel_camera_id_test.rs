@@ -11,7 +11,7 @@ mod tokio_regression {
     use std::time::Duration;
 
     use grafton_visca::{
-        camera::profiles::PtzOpticsG2,
+        camera::profiles::GenericVisca,
         command::Zoom,
         runtime::testing::RuntimeHandle,
         testing::testkit::{helpers, ScriptedTransport, Step},
@@ -69,7 +69,7 @@ mod tokio_regression {
         .with_config(serial_config());
         let sent_transport = transport.clone();
 
-        let runtime: RuntimeHandle<PtzOpticsG2, TokioExecutor> =
+        let runtime: RuntimeHandle<GenericVisca, TokioExecutor> =
             RuntimeHandle::new(transport, executor)
                 .await
                 .expect("runtime should start");
@@ -129,7 +129,7 @@ mod tokio_regression {
         .with_config(serial_config());
         let sent_transport = transport.clone();
 
-        let runtime: RuntimeHandle<PtzOpticsG2, TokioExecutor> =
+        let runtime: RuntimeHandle<GenericVisca, TokioExecutor> =
             RuntimeHandle::new(transport, executor)
                 .await
                 .expect("runtime should start");
@@ -195,7 +195,7 @@ mod tokio_regression {
             .with_config(serial_config());
         let sent_transport = transport.clone();
 
-        let runtime: RuntimeHandle<PtzOpticsG2, TokioExecutor> =
+        let runtime: RuntimeHandle<GenericVisca, TokioExecutor> =
             RuntimeHandle::new(transport, executor)
                 .await
                 .expect("runtime should start");
@@ -219,7 +219,7 @@ mod tokio_regression {
 #[cfg(not(any(feature = "runtime-tokio", feature = "runtime-smol")))]
 mod deterministic_regression {
     use grafton_visca::{
-        camera::{profiles::PtzOpticsG2, CameraBuilder},
+        camera::{profiles::GenericVisca, CameraBuilder},
         command::Zoom,
         testing::testkit::{
             scripted_transport::{ScriptedTransport, Step},
@@ -260,7 +260,7 @@ mod deterministic_regression {
             let camera =
                 CameraBuilder::<DeterministicExecutor>::with_executor(executor_clone.clone())
                     .camera_id(CameraId::new(4).unwrap())
-                    .open_async::<PtzOpticsG2, _>(transport)
+                    .open_async::<GenericVisca, _>(transport)
                     .await
                     .expect("Failed to create camera");
 
@@ -328,7 +328,7 @@ mod deterministic_regression {
             let camera1 =
                 CameraBuilder::<DeterministicExecutor>::with_executor(executor_clone.clone())
                     .camera_id(CameraId::new(2).unwrap())
-                    .open_async::<PtzOpticsG2, _>(transport.clone())
+                    .open_async::<GenericVisca, _>(transport.clone())
                     .await
                     .expect("Failed to create camera 1");
 
@@ -336,7 +336,7 @@ mod deterministic_regression {
             let camera2 =
                 CameraBuilder::<DeterministicExecutor>::with_executor(executor_clone.clone())
                     .camera_id(CameraId::new(7).unwrap())
-                    .open_async::<PtzOpticsG2, _>(transport)
+                    .open_async::<GenericVisca, _>(transport)
                     .await
                     .expect("Failed to create camera 2");
 
@@ -413,7 +413,7 @@ mod deterministic_regression {
             let camera =
                 CameraBuilder::<DeterministicExecutor>::with_executor(executor_clone.clone())
                     .camera_id(CameraId::new(5).unwrap())
-                    .open_async::<PtzOpticsG2, _>(transport)
+                    .open_async::<GenericVisca, _>(transport)
                     .await
                     .expect("Failed to create camera");
 

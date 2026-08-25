@@ -40,8 +40,8 @@ If you're new to the library, start with these examples in order:
 1. **[quickstart.rs](quickstart.rs)** - Blocking connection and read-only state query
 2. **[inquiry_quickstart.rs](inquiry_quickstart.rs)** - Blocking inquiry flow with the current accessor API
 3. **[quickstart_async.rs](quickstart_async.rs)** - Tokio async connection and read-only state query
-4. **[operation_handles.rs](operation_handles.rs)** - Blocking applied/settled operation waits
-5. **[operation_handles_async.rs](operation_handles_async.rs)** - Tokio applied/settled operation waits and detach
+4. **[operation_handles.rs](operation_handles.rs)** - Blocking applied/settled waits with pose restoration
+5. **[operation_handles_async.rs](operation_handles_async.rs)** - Tokio waits, detach, and pose restoration
 6. **[type_safe_commands.rs](type_safe_commands.rs)** - Profile metadata, validation, and compile-time capability bounds
 7. **[transport_builder_demo.rs](transport_builder_demo.rs)** - Configured connection setup with `CameraConfig`
 
@@ -52,8 +52,8 @@ If you're new to the library, start with these examples in order:
 - **[quickstart_async.rs](quickstart_async.rs)** - Async version for Tokio
 - **[inquiry_quickstart.rs](inquiry_quickstart.rs)** - High-level inquiry accessors and typed responses
 - **[preset_demo.rs](preset_demo.rs)** - Single preset set, recall, or clear operation
-- **[operation_handles.rs](operation_handles.rs)** - Blocking per-command deadlines and completion levels
-- **[operation_handles_async.rs](operation_handles_async.rs)** - Tokio per-command deadlines and explicit detach
+- **[operation_handles.rs](operation_handles.rs)** - Blocking per-command deadlines, cleanup, and verified state restoration
+- **[operation_handles_async.rs](operation_handles_async.rs)** - Tokio deadlines, explicit detach, cleanup, and verified state restoration
 - **[type_safe_commands.rs](type_safe_commands.rs)** - Compile-time profile and capability safety (no camera required)
 
 ### Connection, Transport, and Configuration
