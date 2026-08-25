@@ -2,7 +2,7 @@
 
 [![Crates.io](https://img.shields.io/crates/v/grafton-visca.svg)](https://crates.io/crates/grafton-visca)
 [![Documentation](https://docs.rs/grafton-visca/badge.svg)](https://docs.rs/grafton-visca)
-[![License](https://img.shields.io/crates/l/grafton-visca.svg)](LICENSE)
+[![License](https://img.shields.io/crates/l/grafton-visca.svg)](#license)
 [![CI](https://github.com/GrantSparks/grafton-visca/actions/workflows/ci.yml/badge.svg)](https://github.com/GrantSparks/grafton-visca/actions/workflows/ci.yml)
 
 A pure Rust library for controlling PTZ cameras via the VISCA protocol. Supports blocking and async APIs with built-in runtime adapters (Tokio and smol), TCP/UDP/serial transports, and type-safe camera profiles.
@@ -20,7 +20,7 @@ surfaces, and the optional feature surfaces listed below. Hardware validation is
 narrower than software support: the library contract is tested automatically,
 while device-specific firmware quirks are handled as reproducible bugs.
 
-The upcoming 1.x release keeps the 1.0 camera-first surface stable while
+Version 1.1 keeps the 1.0 camera-first surface stable while
 completing the additive operation-handle model across blocking, async, and
 dynamic use. Concrete async `_op` methods remain compatibility shims throughout
 1.x; their coherent typed replacement is intentionally deferred to 2.0.
@@ -155,7 +155,7 @@ matrix fit together.
 - **Type-safe profiles** — Compile-time protocol selection (raw VISCA vs Sony encapsulation) with capability-based APIs
 - **Flexible transports** — TCP, UDP, and serial (RS-232/422) with configurable timeouts, retries, and TCP keepalive
 - **Ergonomic API** — One-line connection helpers, checked unit types (`Degrees`, `Percentage`, `UnitInterval`), built-in inquiry conversions
-- **Optional serialization** — Serde and JSON Schema support for all types
+- **Optional serialization** — Serde and JSON Schema support for public value and configuration types
 - **Zero-allocation hot path** — Stack-allocated command buffers for standard VISCA commands
 
 ---
@@ -357,7 +357,7 @@ uncertain.
 | `runtime-smol`         | smol runtime adapter                       |
 | `transport-serial`     | Blocking serial (RS-232/422)               |
 | `transport-serial-tokio` | Async serial (Tokio)                     |
-| `serde`                | Serialize/Deserialize for all types        |
+| `serde`                | Serialize/deserialize public value and configuration types |
 | `schemars`             | JSON Schema generation                     |
 | `ts-rs`                | TypeScript type generation                 |
 | `dyn-api`              | Object-safe async camera traits            |

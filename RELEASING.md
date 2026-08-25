@@ -66,7 +66,7 @@ omissions without pretending the dependency can already resolve.
 After the release pull request is merged and required checks pass on `main`:
 
 ```sh
-git tag -s vX.Y.Z -m "grafton-visca X.Y.Z"
+git tag -a vX.Y.Z -m "grafton-visca X.Y.Z"
 git push origin vX.Y.Z
 ```
 
@@ -95,4 +95,4 @@ for different source. The macro package is already immutable.
    both workspace versions and the changelog, and run the complete process again.
 
 After success, verify both package pages and docs.rs, then create the GitHub
-release from the signed tag using the matching changelog section.
+release from the annotated tag using the matching changelog section.
