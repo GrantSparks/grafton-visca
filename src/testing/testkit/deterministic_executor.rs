@@ -1007,15 +1007,17 @@ where
 }
 
 /// Convenience extension trait for `Arc<DeterministicExecutor>`
+///
+/// Note: [`DeterministicExecutor::run_until`] is deliberately *not* a member of
+/// this trait. `Arc<DeterministicExecutor>` already reaches the inherent method
+/// through `Deref`, and adding it here would be a breaking change for any
+/// downstream implementor of this non-sealed trait.
 pub trait DeterministicExecutorExt {
     /// Execute a future in the background and block until it completes
     fn block_on_bg<F, T>(&self, fut: F) -> T
     where
         F: Future<Output = T> + Send + 'static,
         T: Send + 'static;
-
-    /// Drive a borrowing future to completion, advancing virtual time as needed.
-    fn run_until<F: Future>(&self, fut: F) -> F::Output;
 
     /// Drive the executor until all tasks are idle.
     fn drive_until_idle(&self);
@@ -1031,10 +1033,6 @@ impl DeterministicExecutorExt for Arc<DeterministicExecutor> {
         T: Send + 'static,
     {
         self.as_ref().block_on_bg(fut)
-    }
-
-    fn run_until<F: Future>(&self, fut: F) -> F::Output {
-        self.as_ref().run_until(fut)
     }
 
     fn drive_until_idle(&self) {
