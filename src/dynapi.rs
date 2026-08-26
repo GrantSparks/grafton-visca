@@ -25,20 +25,36 @@
 //! grafton-visca = { version = "1", features = ["dyn-api", "runtime-tokio"] }
 //! ```
 //!
-//! Then convert a concrete camera to use the dynamic API:
+//! Then convert a concrete camera to use the dynamic API.
 //!
-//! ```ignore
+//! [`IntoDynCamera`](crate::dynapi::IntoDynCamera) is implemented for the owned async
+//! [`Camera`](crate::camera::Camera), so build the camera directly with
+//! [`CameraBuilder`](crate::camera::CameraBuilder) rather than through the
+//! [`Connect`](crate::camera::Connect) helpers, which hand back a
+//! [`CameraSession`](crate::camera::CameraSession) wrapper:
+//!
+//! ```rust,no_run
+//! # #[cfg(feature = "runtime-tokio")]
 //! use grafton_visca::{
-//!     camera::{Connect, profiles::PtzOpticsG2},
+//!     camera::{profiles::PtzOpticsG2, CameraBuilder},
 //!     dynapi::{DynCameraControl, IntoDynCamera},
-//!     runtime::TokioRuntime,
+//!     runtime::{Runtime, TokioRuntime, TransportHandle},
 //!     Error,
 //! };
 //!
+//! # #[cfg(feature = "runtime-tokio")]
 //! #[tokio::main]
 //! async fn main() -> Result<(), Error> {
 //!     let runtime = TokioRuntime::from_current()?;
-//!     let camera = Connect::open_tcp_async::<PtzOpticsG2, _>("192.168.0.110", runtime).await?;
+//!
+//!     // Connect the transport, then build an owned async camera.
+//!     let tcp = runtime
+//!         .connect_tcp("192.168.0.110:5678", Default::default())
+//!         .await?;
+//!     let transport: TransportHandle<TokioRuntime> = TransportHandle::Tcp(tcp);
+//!     let camera = CameraBuilder::<TokioRuntime>::with_executor(runtime.clone())
+//!         .open_async::<PtzOpticsG2, _>(transport)
+//!         .await?;
 //!
 //!     // Convert to dynamic API
 //!     let dyn_camera = camera.into_dyn();
@@ -50,10 +66,16 @@
 //!     Ok(())
 //! }
 //!
+//! # #[cfg(feature = "runtime-tokio")]
 //! async fn control_camera(camera: &dyn DynCameraControl) -> Result<(), Error> {
 //!     camera.pan_tilt().pan_tilt_home(None).await?;
 //!     Ok(())
 //! }
+//! #
+//! # // The `dyn-api` feature does not imply a runtime, so the example above is
+//! # // compiled only when `runtime-tokio` is enabled.
+//! # #[cfg(not(feature = "runtime-tokio"))]
+//! # fn main() {}
 //! ```
 //!
 //! # Timeout Behavior

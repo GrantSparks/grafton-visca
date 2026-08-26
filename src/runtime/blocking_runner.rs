@@ -437,7 +437,8 @@ impl<P: Profile> BlockingRunner<P> {
     /// Dispatch queued commands until `target_cmd_id` has been sent, without
     /// receiving any responses. At most one profile-spacing wait is performed
     /// when no item is immediately sendable; a still-blocked target means both
-    /// VISCA command sockets are occupied and is reported as `CameraBusy`.
+    /// of the target camera's VISCA command sockets are occupied and is
+    /// reported as `CameraBusy`.
     fn dispatch_queued_command<T: BlockingTransport + HasTransportConfig>(
         &mut self,
         transport: &mut T,
@@ -848,7 +849,14 @@ impl<P: Profile> BlockingRunner<P> {
                                         return outcome;
                                     }
                                 }
-                                SchedulerAction::SendCancel { camera_id, socket } => {
+                                // Sent inline while the scheduler state that produced
+                                // the action is still current, so the socket cannot
+                                // have been reassigned to another command.
+                                SchedulerAction::SendCancel {
+                                    id,
+                                    camera_id,
+                                    socket,
+                                } => {
                                     if let Err(error) =
                                         self.send_cancel_frame(transport, camera_id, socket)
                                     {
@@ -857,6 +865,7 @@ impl<P: Profile> BlockingRunner<P> {
                                             return self.fail_all_observed(target_cmd_id, error);
                                         }
                                         warn!(
+                                            %id,
                                             ?camera_id,
                                             ?socket,
                                             "Failed to send deferred socket cancel: {error}"

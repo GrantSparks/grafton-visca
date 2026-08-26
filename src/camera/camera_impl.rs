@@ -353,9 +353,9 @@ where
 
     /// Get the current timeout configuration.
     ///
-    /// Note: For async cameras, timeout configuration is set at construction time
-    /// via [`Camera::new_async_with_config`] and cannot be changed after creation.
-    /// This ensures the runtime's timeout behavior matches the configuration.
+    /// The initial configuration is supplied at construction time via
+    /// [`Camera::new_async_with_config`]; use
+    /// [`set_timeout_config`](Camera::set_timeout_config) to change it afterwards.
     pub fn timeout_config(&self) -> &TimeoutConfig {
         &self.timeout_config
     }
@@ -462,6 +462,11 @@ where
     /// Access white balance controls and inquiries.
     pub fn white_balance(&self) -> crate::camera::WhiteBalanceAccessor<'_, M, P, Tr, Exec> {
         crate::camera::WhiteBalanceAccessor::new(self)
+    }
+
+    /// Access menu navigation controls and inquiries.
+    pub fn menu(&self) -> crate::camera::MenuAccessor<'_, M, P, Tr, Exec> {
+        crate::camera::MenuAccessor::new(self)
     }
 
     /// Access image processing controls and inquiries.
@@ -1110,6 +1115,28 @@ where
         Exec: Executor + Send + Sync + Clone,
     {
         self.runtime.cancel(self.camera_id, command_id).await
+    }
+
+    /// Set the timeout configuration.
+    ///
+    /// The async runtime owns the deadlines used by its scheduler, so the new
+    /// configuration is handed to the runtime loop and this future resolves once
+    /// the loop has applied it. Deadlines are re-evaluated on every housekeeping
+    /// pass, so the update also covers commands and inquiries already in flight.
+    ///
+    /// Only this handle's [`timeout_config`](Camera::timeout_config) view is
+    /// updated; clones taken earlier keep reporting the previous values even
+    /// though the runtime they share honours the new ones.
+    ///
+    /// # Errors
+    /// Returns an error if the runtime is shutting down or has already terminated.
+    pub async fn set_timeout_config(&mut self, timeout_config: TimeoutConfig) -> Result<(), Error>
+    where
+        Exec: Executor + Send + Sync + Clone,
+    {
+        self.runtime.set_timeout_config(timeout_config).await?;
+        self.timeout_config = timeout_config;
+        Ok(())
     }
 
     /// Sleep for a specified duration using the runtime.
