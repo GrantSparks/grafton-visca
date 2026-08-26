@@ -1,9 +1,17 @@
 #!/bin/bash
 
 # Miri safety testing script
-# Tests for undefined behavior in different feature configurations
+# Tests for undefined behavior in different feature configurations.
+#
+# This script is a real gate: any Miri failure makes it exit non-zero. Do not
+# reintroduce an unconditional `exit 0` — a Miri job that cannot fail reports
+# safety it has not checked.
+#
+# Scope: library tests only, matching the `miri` job in ci.yml. The integration
+# tests intentionally exercise real socket I/O and OS resolution paths, which
+# belong in the normal CI matrix rather than Miri's isolation model.
 
-set -e
+set -euo pipefail
 
 echo "=========================================="
 echo "Starting Miri safety checks"
@@ -18,32 +26,41 @@ NC='\033[0m'
 
 # Track if any issues were found
 ISSUES_FOUND=0
+FAILED_CONFIGS=()
+
+LOG_DIR="$(mktemp -d)"
+trap 'rm -rf "$LOG_DIR"' EXIT
 
 # Function to run miri test
 run_miri_test() {
     local description="$1"
     local features="$2"
+    local log_file
+    log_file="$LOG_DIR/$(echo "$description" | tr -cs '[:alnum:]' '-').log"
 
     echo -e "${YELLOW}Miri testing: ${description}${NC}"
 
+    local -a cmd
     if [ -z "$features" ]; then
-        cmd="cargo miri test --no-default-features"
+        cmd=(cargo miri test --lib --no-default-features)
     else
-        cmd="cargo miri test --no-default-features --features $features"
+        cmd=(cargo miri test --lib --no-default-features --features "$features")
     fi
 
-    # Run with various miri flags for comprehensive checking
+    # Run with miri flags for comprehensive checking.
     export MIRIFLAGS="-Zmiri-disable-isolation -Zmiri-strict-provenance"
 
-    if $cmd 2>&1 | tee miri_output.log; then
-        echo -e "${GREEN}✓ ${description} - No undefined behavior detected${NC}"
+    # `set -o pipefail` makes the pipeline report the cargo exit status rather
+    # than tee's, so a Miri failure is not swallowed by the log pipe.
+    if "${cmd[@]}" 2>&1 | tee "$log_file"; then
+        echo -e "${GREEN}OK ${description} - no undefined behavior detected${NC}"
     else
-        echo -e "${RED}⚠ ${description} - Potential issues found (see log)${NC}"
+        echo -e "${RED}FAIL ${description} - see findings below${NC}"
         ISSUES_FOUND=$((ISSUES_FOUND + 1))
+        FAILED_CONFIGS+=("$description")
 
-        # Extract and display key issues
         echo -e "${BLUE}Key findings:${NC}"
-        grep -E "error:|warning:|undefined behavior" miri_output.log || true
+        grep -E "error:|undefined behavior" "$log_file" || true
     fi
 
     echo ""
@@ -70,37 +87,17 @@ run_miri_test "Test utilities" "test-utils"
 echo -e "${BLUE}Testing combined features${NC}"
 run_miri_test "Tokio + test-utils" "runtime-tokio,test-utils"
 
-# Also test specific modules that might have unsafe code
-echo -e "${BLUE}Testing specific modules for safety${NC}"
-
-# Test serialization/deserialization if it has unsafe
-if grep -r "unsafe" src/ | grep -E "ser|de" > /dev/null 2>&1; then
-    echo "Found unsafe code in serialization, testing..."
-    MIRIFLAGS="-Zmiri-disable-isolation -Zmiri-strict-provenance -Zmiri-symbolic-alignment-check" \
-        cargo miri test --no-default-features --lib serialization
-fi
-
-# Test any FFI boundaries
-if grep -r "unsafe" src/ | grep -E "ffi|extern" > /dev/null 2>&1; then
-    echo "Found unsafe FFI code, testing..."
-    MIRIFLAGS="-Zmiri-disable-isolation -Zmiri-strict-provenance -Zmiri-check-number-validity" \
-        cargo miri test --no-default-features --lib ffi
-fi
-
 # Summary
 echo "=========================================="
-if [ $ISSUES_FOUND -eq 0 ]; then
-    echo -e "${GREEN}✓ All Miri safety checks passed!${NC}"
-    echo "No undefined behavior detected."
-else
-    echo -e "${YELLOW}⚠ Miri found $ISSUES_FOUND potential issue(s)${NC}"
-    echo "Review the logs above for details."
-    echo "Note: Some warnings may be false positives or acceptable in context."
+if [ "$ISSUES_FOUND" -eq 0 ]; then
+    echo -e "${GREEN}All Miri safety checks passed.${NC}"
+    echo "=========================================="
+    exit 0
 fi
+
+echo -e "${RED}Miri failed in $ISSUES_FOUND configuration(s):${NC}"
+for config in "${FAILED_CONFIGS[@]}"; do
+    echo "  - $config"
+done
 echo "=========================================="
-
-# Clean up
-rm -f miri_output.log
-
-# Exit with appropriate code (0 for now since we're in continue-on-error mode)
-exit 0
+exit 1

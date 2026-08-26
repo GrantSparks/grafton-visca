@@ -21,6 +21,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   doctests written against the real construction paths — `Runtime::connect_tcp`
   plus `TransportHandle` for async, and the blocking `Transport` builder for
   `from_transport_handle` — and are compiled on every run.
+- The `mode-async,test-utils` feature combination (async mode with no runtime
+  feature) now builds and tests cleanly. `issue_377_async_detection_test.rs`
+  imported `transport::protocol_detection`, a module deleted when runtime
+  protocol detection was replaced by compile-time envelope selection, and its
+  `#![cfg(...)]` gate meant only this one uncovered combination ever built it.
+  The dead test is retired; the `executor_selection` timeout-executor panic is
+  allowed explicitly; `runtime_parity_test.rs` is gated on a real runtime so it
+  no longer leaves unused items behind; and the never-executed
+  `DeterministicExecutor` variants in `issue_339_timeout_behavior_test.rs` and
+  `issue_371_cancel_camera_id_test.rs` are marked `#[ignore]` with an
+  explanation, since they hang. A bare `mode-async,test-utils` cell was added to
+  the CI feature matrix so runtime-free async test files cannot rot unnoticed
+  again (#591).
+- Deferred cancels in the async runtime no longer abort an unrelated command.
+  The cancel outbox now records which command each queued cancel targets, and a
+  cancel is dropped if the command has completed or the camera has reassigned
+  its VISCA socket before the frame is sent (#574).
+- Async cameras can control the on-screen menu again: `Camera::menu()` was
+  defined only in the blocking `impl` block, so enabling `mode-async` removed
+  the OSD menu accessor from the camera surface entirely (#575).
+- Added `Camera::set_timeout_config()` to the async camera. Timeouts were fixed
+  at construction time for async users; the new setter hands the configuration
+  to the runtime loop, which re-evaluates deadlines against it on every
+  housekeeping pass, so it also covers work already in flight.
 
 ## [1.1.0] - 2026-08-25
 

@@ -568,6 +568,27 @@ impl<P: Profile + 'static, E: Executor + Send + Sync + 'static> RuntimeHandle<P,
             .await
     }
 
+    /// Replace the timeout configuration used by the runtime scheduler.
+    ///
+    /// The runtime evaluates deadlines against its current configuration on every
+    /// housekeeping pass, so the new timeouts apply to commands and inquiries that
+    /// are already in flight as well as to subsequent ones.
+    ///
+    /// # Returns
+    /// `Ok(())` once the runtime loop has applied the configuration, or an error
+    /// if the runtime is shutting down or has already terminated.
+    pub async fn set_timeout_config(&self, timeout_config: TimeoutConfig) -> Result<()> {
+        let (reply_tx, reply_rx) = flume::bounded(1);
+        self.control_request(
+            ControlRequest::SetTimeoutConfig {
+                timeout_config,
+                reply_tx,
+            },
+            reply_rx,
+        )
+        .await
+    }
+
     /// Get a reference to the executor.
     ///
     /// This allows access to the executor for runtime-agnostic operations like sleep and timeout.
