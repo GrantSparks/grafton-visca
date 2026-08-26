@@ -5,7 +5,12 @@
 
 #![cfg(feature = "mode-async")]
 
-#[cfg(feature = "test-utils")]
+// Every test below needs a real runtime; without one the module would only
+// contain unused imports and helpers.
+#[cfg(all(
+    feature = "test-utils",
+    any(feature = "runtime-tokio", feature = "runtime-smol")
+))]
 mod parity_tests {
     use std::sync::Arc;
 

@@ -1,10 +1,11 @@
 #![allow(dead_code)]
 
 use grafton_visca::{
-    camera::{CameraConfig, CameraSession, Connect},
+    camera::{AsyncCamera, CameraConfig, CameraSession, Connect},
     mode::Async,
     profiles::{PtzOpticsG2, SonyFR7},
     runtime::Runtime,
+    timeout::TimeoutConfig,
     transport::TransportConfig,
     Error, Executor,
 };
@@ -24,6 +25,37 @@ where
     let _ = session.menu();
     let _ = session.system();
     let _ = session.advanced();
+}
+
+// The async and blocking camera surfaces are hand-duplicated, so the accessors
+// shared by both modes are pinned here as well as on the session above.
+fn async_camera_accessors<Tr, Exec>(camera: &AsyncCamera<PtzOpticsG2, Tr, Exec>)
+where
+    Exec: Executor,
+{
+    let _ = camera.power();
+    let _ = camera.zoom();
+    let _ = camera.pan_tilt();
+    let _ = camera.focus();
+    let _ = camera.exposure();
+    let _ = camera.white_balance();
+    let _ = camera.image();
+    let _ = camera.presets();
+    let _ = camera.menu();
+    let _ = camera.system();
+}
+
+async fn async_camera_timeout_config<Tr, Exec>(
+    camera: &mut AsyncCamera<PtzOpticsG2, Tr, Exec>,
+    timeout_config: TimeoutConfig,
+) -> Result<(), Error>
+where
+    Tr: Send + 'static,
+    Exec: Executor,
+{
+    camera.set_timeout_config(timeout_config).await?;
+    let _ = camera.timeout_config();
+    Ok(())
 }
 
 fn async_fr7_optional_accessors<Tr, Exec>(session: &CameraSession<Async, SonyFR7, Tr, Exec>)

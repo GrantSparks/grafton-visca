@@ -213,6 +213,15 @@ mod timeout_behavior_tests {
 // NOTE: These tests are disabled when real runtimes are available because
 // DeterministicExecutor has fundamental issues with timeout handling when
 // real runtimes are present. See issue #394 for details.
+//
+// Both tests below never ran: no CI cell built this module until
+// `mode-async,test-utils` was added to the feature matrix, and both hang when
+// they are finally executed. `Executor::block_on` never advances virtual time,
+// so the runtime's timeout futures never fire; switching to `block_on_bg`
+// (which does advance time) makes them pass only intermittently - roughly one
+// run in ten. They are `#[ignore]`d rather than deleted so the intent survives;
+// the guarantees they assert are covered for real by the
+// `timeout_behavior_tests` module above, which runs under `runtime-tokio`.
 #[cfg(all(
     feature = "test-utils",
     not(feature = "runtime-tokio"),
@@ -231,6 +240,7 @@ mod deterministic_tests {
 
     /// Test with deterministic executor for precise timeout testing
     #[test]
+    #[ignore = "hangs under DeterministicExecutor; see module note and #394"]
     fn deterministic_timeout_handling() {
         let (executor, _clock) = DeterministicExecutor::new();
 
@@ -264,6 +274,7 @@ mod deterministic_tests {
 
     /// Test that the runtime continues to function after errors
     #[test]
+    #[ignore = "hangs under DeterministicExecutor; see module note and #394"]
     fn runtime_resilient_to_timeout_errors() {
         let (executor, _clock) = DeterministicExecutor::new();
 
