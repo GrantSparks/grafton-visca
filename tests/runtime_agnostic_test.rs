@@ -2,24 +2,17 @@
 //!
 //! When runtime-tokio feature is enabled, the camera requires explicit executor configuration
 //! to ensure predictable behavior and avoid hidden runtime initialization.
+//!
+//! The complementary property — that enabling `mode-async` without `runtime-tokio`
+//! pulls in no implicit Tokio dependency — is enforced by the feature matrix
+//! building this crate with `--no-default-features --features mode-async`, not by
+//! a test body. It previously lived here as an empty `#[test]` that reported
+//! "ok" without checking anything.
 
 #![cfg(feature = "mode-async")]
 
 #[cfg(all(feature = "runtime-tokio", feature = "test-utils"))]
 use grafton_visca::{camera::CameraBuilder, PowerControl};
-
-#[cfg(not(feature = "runtime-tokio"))]
-#[test]
-fn test_no_tokio_fallback_without_runtime() {
-    // This test verifies that when async features are enabled but runtime-tokio is not,
-    // and no runtime is configured, we get an error rather than a fallback.
-
-    // Note: This is a compile-time test to ensure no Tokio dependencies are pulled in
-    // when runtime-tokio feature is not enabled.
-
-    // If this test compiles successfully with `cargo test --features async --no-default-features`,
-    // it means we're not depending on Tokio implicitly.
-}
 
 #[cfg(all(feature = "runtime-tokio", feature = "test-utils"))]
 mod async_tests {
