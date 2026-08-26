@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The `CameraBuilder` documentation no longer shows APIs that do not exist
+  (#587). The `from_transport` example documented
+  `Transport::tcp(...).build_async_with(runtime)`, but `Transport` and
+  `NetTransportBuilder` are `cfg(not(feature = "mode-async"))` blocking-mode
+  types and `build_async_with` exists nowhere in the crate. The module-level
+  example used an undeclared `custom_transport` and called `shutdown()` on the
+  `CameraSession` returned by `CameraConfig::open_async`, which only offers
+  `close()`. All three `CameraBuilder` examples were wrapped in `ignore` fences,
+  so `cargo test --doc` never compiled them. They are now `rust,no_run`
+  doctests written against the real construction paths — `Runtime::connect_tcp`
+  plus `TransportHandle` for async, and the blocking `Transport` builder for
+  `from_transport_handle` — and are compiled on every run.
 - The `mode-async,test-utils` feature combination (async mode with no runtime
   feature) now builds and tests cleanly. `issue_377_async_detection_test.rs`
   imported `transport::protocol_detection`, a module deleted when runtime
