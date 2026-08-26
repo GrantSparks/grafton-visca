@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `CameraSession::into_inner()` on async sessions. `Connect::open_tcp_async()`
+  and its siblings return a session, while `IntoDynCamera` is implemented for the
+  owned `Camera`, so users of the convenience helpers could not reach
+  `into_dyn()` at all — the only route was the verbose `Runtime::connect_tcp` +
+  `CameraBuilder` path. Extraction is a handoff, not a close: the transport and
+  the runtime task move with the returned camera, which then owns the teardown
+  the session would have performed on drop (#588).
+
 ### Fixed
 
 - The `CameraBuilder` documentation no longer shows APIs that do not exist
