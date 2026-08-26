@@ -128,6 +128,10 @@ mod loop_task;
 #[cfg(feature = "mode-async")]
 pub(crate) use handle::RuntimeHandle;
 
+// Command scheduling priority is part of the stable surface in every build
+// configuration, including the blocking (non-`mode-async`) default.
+pub use core::Priority;
+
 // Re-export the stable runtime contract at the module level.
 #[cfg(feature = "mode-async")]
 pub use traits::{Runtime, TransportHandle};
@@ -152,7 +156,6 @@ pub mod testing {
     pub use super::async_adapter::{CompletionEvent, MetricsSummary};
     #[cfg(not(feature = "mode-async"))]
     pub use super::blocking_runner::BlockingRunner;
-    #[cfg(feature = "mode-async")]
     pub use super::core::Priority;
     #[cfg(feature = "mode-async")]
     pub use super::handle::RuntimeHandle;
