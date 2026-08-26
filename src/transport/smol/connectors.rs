@@ -150,6 +150,12 @@ impl AsyncDatagram for UdpSocket {
     }
 }
 
+// Miri skip: every test in this module drives `smol::Timer`, whose reactor calls
+// `timerfd_create` — a foreign function Miri does not implement (a Miri
+// limitation, not undefined behaviour in this crate). Miri aborts the whole test
+// binary on the first unsupported call, so each test carries
+// `#[cfg_attr(miri, ignore = ...)]`. They still run in the normal CI matrix.
+// See https://github.com/GrantSparks/grafton-visca/issues/585.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -162,6 +168,10 @@ mod tests {
     /// - Step A sleeps for ~T * 0.6 and must succeed
     /// - Step B sleeps for ~T * 0.6 and must fail with Timeout because only ~T * 0.4 remains
     #[test]
+    #[cfg_attr(
+        miri,
+        ignore = "smol::Timer needs timerfd_create, unsupported by Miri (issue #585)"
+    )]
     fn test_deadline_budget_consumption() {
         smol::block_on(async {
             let total_timeout = Duration::from_millis(200);
@@ -217,6 +227,10 @@ mod tests {
 
     /// Test that an already-expired deadline returns zero remaining time.
     #[test]
+    #[cfg_attr(
+        miri,
+        ignore = "smol::Timer needs timerfd_create, unsupported by Miri (issue #585)"
+    )]
     fn test_deadline_expired_returns_zero() {
         smol::block_on(async {
             let timeout = Duration::from_millis(10);
@@ -235,6 +249,10 @@ mod tests {
 
     /// Test that deadline correctly tracks remaining time across multiple checks.
     #[test]
+    #[cfg_attr(
+        miri,
+        ignore = "smol::Timer needs timerfd_create, unsupported by Miri (issue #585)"
+    )]
     fn test_deadline_remaining_decreases() {
         smol::block_on(async {
             let timeout = Duration::from_millis(100);
