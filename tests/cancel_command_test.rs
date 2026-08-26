@@ -11,7 +11,7 @@ use grafton_visca::{
         scripted_transport::{ScriptedTransport, Step},
         DeterministicExecutor,
     },
-    Executor, ViscaSocket,
+    ViscaSocket,
 };
 
 #[test]
@@ -39,7 +39,7 @@ fn test_cancel_command_by_id() {
     let transport = ScriptedTransport::new(steps).with_executor(executor.clone());
 
     let executor_clone = executor.clone();
-    executor.clone().block_on(async move {
+    executor.run_until(async move {
         use grafton_visca::camera::profiles::GenericVisca;
 
         let camera = CameraBuilder::<DeterministicExecutor>::with_executor(executor_clone)
@@ -79,7 +79,7 @@ fn test_ptzoptics_g2_rejects_sent_protocol_cancel_without_writing_frame() {
     let sent_transport = transport.clone();
     let executor_clone = executor.clone();
 
-    executor.clone().block_on(async move {
+    executor.run_until(async move {
         use grafton_visca::{camera::profiles::PtzOpticsG2, Error};
 
         let camera = CameraBuilder::<DeterministicExecutor>::with_executor(executor_clone.clone())
@@ -147,7 +147,7 @@ fn test_cancel_socket_directly() {
     let executor_clone = executor.clone();
     let clock_clone = clock.clone();
 
-    executor.clone().block_on(async move {
+    executor.run_until(async move {
         use grafton_visca::camera::profiles::GenericVisca;
 
         let camera = CameraBuilder::<DeterministicExecutor>::with_executor(executor_clone.clone())
@@ -200,7 +200,7 @@ fn test_cancel_nonexistent_command() {
     let executor_clone = executor.clone();
     let clock_clone = clock.clone();
 
-    executor.clone().block_on(async move {
+    executor.run_until(async move {
         use grafton_visca::camera::profiles::GenericVisca;
 
         let camera = CameraBuilder::<DeterministicExecutor>::with_executor(executor_clone)
@@ -240,7 +240,7 @@ fn test_cancel_during_movement() {
     let executor_clone = executor.clone();
     let clock_clone = clock.clone();
 
-    executor.clone().block_on(async move {
+    executor.run_until(async move {
         use grafton_visca::camera::profiles::GenericVisca;
 
         let camera = CameraBuilder::<DeterministicExecutor>::with_executor(executor_clone)

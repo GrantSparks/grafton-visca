@@ -1000,7 +1000,7 @@ mod tests {
         // This is the packet shape that was previously dropped by async_adapter
         let error_payload = vec![0x90, 0x60, 0x41, VISCA_TERMINATOR];
 
-        let result = executor.block_on(adapter.process_response(&error_payload, None));
+        let result = executor.run_until(adapter.process_response(&error_payload, None));
         assert!(result.is_ok(), "process_response should succeed");
 
         let response_result = response_rx.try_recv();
@@ -1072,7 +1072,7 @@ mod tests {
         let malformed_data_reply = vec![0x90, 0x50, 0x01, 0x02, 0x03, VISCA_TERMINATOR];
 
         // Process the malformed response - should NOT return Err
-        let result = executor.block_on(adapter.process_response(&malformed_data_reply, None));
+        let result = executor.run_until(adapter.process_response(&malformed_data_reply, None));
         assert!(
             result.is_ok(),
             "process_response should return Ok even on decode error: {result:?}"
@@ -1146,7 +1146,7 @@ mod tests {
         let orphan_data_reply = vec![0x90, 0x50, 0x01, VISCA_TERMINATOR];
 
         // Process the orphan reply - should NOT return Err
-        let result = executor.block_on(adapter.process_response(&orphan_data_reply, None));
+        let result = executor.run_until(adapter.process_response(&orphan_data_reply, None));
         assert!(
             result.is_ok(),
             "process_response should succeed for unattributed replies: {result:?}"
@@ -1940,12 +1940,12 @@ mod tests {
         // ACK every camera, then complete them in a different order.
         for &(_, _, z0) in &chain {
             let result =
-                executor.block_on(adapter.process_response(&[z0, 0x41, VISCA_TERMINATOR], None));
+                executor.run_until(adapter.process_response(&[z0, 0x41, VISCA_TERMINATOR], None));
             assert!(result.is_ok(), "ACK from 0x{z0:02X} must be processed");
         }
         for &(_, _, z0) in chain.iter().rev() {
             let result =
-                executor.block_on(adapter.process_response(&[z0, 0x51, VISCA_TERMINATOR], None));
+                executor.run_until(adapter.process_response(&[z0, 0x51, VISCA_TERMINATOR], None));
             assert!(
                 result.is_ok(),
                 "completion from 0x{z0:02X} must be processed"
@@ -2006,7 +2006,7 @@ mod tests {
 
         // ACK assigns socket 1 and emits the deferred cancel into the outbox
         executor
-            .block_on(adapter.process_response(&[0x90, 0x41, VISCA_TERMINATOR], None))
+            .run_until(adapter.process_response(&[0x90, 0x41, VISCA_TERMINATOR], None))
             .expect("ACK should be processed");
         assert_eq!(
             adapter.cancel_outbox.len(),
@@ -2047,7 +2047,7 @@ mod tests {
 
         // Completion for socket 1 finalizes the target and frees the socket
         executor
-            .block_on(adapter.process_response(&[0x90, 0x51, VISCA_TERMINATOR], None))
+            .run_until(adapter.process_response(&[0x90, 0x51, VISCA_TERMINATOR], None))
             .expect("Completion should be processed");
         assert!(
             !adapter.core.is_command_pending(cmd_id(301)),
@@ -2073,7 +2073,7 @@ mod tests {
 
         // Command A completes, releasing socket 1
         executor
-            .block_on(adapter.process_response(&[0x90, 0x51, VISCA_TERMINATOR], None))
+            .run_until(adapter.process_response(&[0x90, 0x51, VISCA_TERMINATOR], None))
             .expect("Completion should be processed");
 
         // Command B is submitted and the camera ACKs it onto the same socket
@@ -2088,7 +2088,7 @@ mod tests {
         adapter.response_channels.insert(cmd_id(303), response_tx);
 
         executor
-            .block_on(adapter.process_response(&[0x90, 0x41, VISCA_TERMINATOR], None))
+            .run_until(adapter.process_response(&[0x90, 0x41, VISCA_TERMINATOR], None))
             .expect("ACK should be processed");
         assert_eq!(
             adapter.core.find_command_on_socket(ViscaSocket::S1),

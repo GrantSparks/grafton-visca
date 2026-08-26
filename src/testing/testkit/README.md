@@ -8,6 +8,23 @@ The `DeterministicExecutor` has fundamental issues when handling timeout-based t
 
 Rather than trying to force deterministic execution on inherently time-dependent code, we use different executors for different test scenarios:
 
+### Driving a `DeterministicExecutor`
+
+`Executor::block_on` is **not** available on `DeterministicExecutor`: it panics
+immediately (see issue #600). A naive `block_on` cannot advance the virtual clock,
+so any future that awaits a timer parks forever, which is exactly the hang that
+issue #394 diagnosed. Use one of the drivers that do advance virtual time:
+
+| Driver | Use when |
+| --- | --- |
+| `DeterministicExecutor::run_until(fut)` | The future borrows from its environment or is not `Send`/`'static`. Polls the future in place while driving background tasks and advancing time. |
+| `DeterministicExecutor::block_on_bg(fut)` | The future is `Send + 'static`. Spawns it and drives it alongside background tasks. |
+| `drive_until_idle` / `drive_until_stalled` / `DeterministicClock::advance` | You want to single-step the executor or the clock by hand. |
+
+Both drivers panic instead of spinning forever if no forward progress is made, so
+a livelock surfaces as a test failure rather than a hung CI job.
+
+
 ### When to Use DeterministicExecutor
 
 Use `DeterministicExecutor` for:
@@ -79,7 +96,7 @@ The root cause of the timeout handling issues:
 
 2. **Infinite Loop Potential**: This creates situations where the executor waits for the runtime, and the runtime waits for time advancement, resulting in deadlock.
 
-3. **Complex Interactions**: The `block_on` implementation would need to handle virtual time advancement, background task coordination, and timeout future handling - making it fragile and hard to maintain.
+3. **Complex Interactions**: The `block_on` implementation would need to handle virtual time advancement, background task coordination, and timeout future handling - making it fragile and hard to maintain. Because that entry point could only ever mislead, `DeterministicExecutor::block_on` now panics and points callers at `run_until` / `block_on_bg` or at a real runtime (issue #600).
 
 ## Best Practices
 

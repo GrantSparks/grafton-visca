@@ -20,7 +20,7 @@ use grafton_visca::{
         deterministic_executor::DeterministicExecutor, helpers, ScriptedTransport, Step,
     },
     timeout::TimeoutConfig,
-    Error, Executor, InquiryControl, ZoomControl,
+    Error, InquiryControl, ZoomControl,
 };
 
 /// Test that async Camera properly delegates to runtime.
@@ -38,7 +38,7 @@ fn test_async_camera_uses_runtime() {
 
     // Create camera - this should create a RuntimeHandle internally
     let exec = executor.clone();
-    executor.block_on(async move {
+    executor.run_until(async move {
         let camera = grafton_visca::camera::CameraBuilder::<DeterministicExecutor>::with_executor(
             exec.clone(),
         )
@@ -76,7 +76,7 @@ fn test_timeout_config_passed_to_runtime() {
         .build();
 
     let exec = executor.clone();
-    executor.block_on(async move {
+    executor.run_until(async move {
         // This test verifies that:
         // 1. The CameraBuilder properly accepts timeout_config
         // 2. The timeout config is passed to RuntimeHandle creation
@@ -121,7 +121,7 @@ fn test_command_cancellation_through_runtime() {
     .with_executor(executor.clone());
 
     let exec = executor.clone();
-    executor.block_on(async move {
+    executor.run_until(async move {
         let camera = grafton_visca::camera::CameraBuilder::<DeterministicExecutor>::with_executor(
             exec.clone(),
         )
@@ -168,7 +168,7 @@ fn test_inquiry_through_runtime() {
         .with_executor(executor.clone());
 
     let exec = executor.clone();
-    executor.block_on(async move {
+    executor.run_until(async move {
         let camera = grafton_visca::camera::CameraBuilder::<DeterministicExecutor>::with_executor(
             exec.clone(),
         )
@@ -202,7 +202,7 @@ fn test_transport_error_propagation() {
         .with_executor(executor.clone());
 
     let exec = executor.clone();
-    executor.block_on(async move {
+    executor.run_until(async move {
         let camera = grafton_visca::camera::CameraBuilder::<DeterministicExecutor>::with_executor(
             exec.clone(),
         )
