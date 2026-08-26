@@ -74,20 +74,11 @@ async fn test_operations_succeed_with_explicit_runtime() {
     drop(camera);
 }
 
-// NOTE: Testing custom runtimes is complex because:
-// 1. We're already running inside a tokio runtime from #[tokio::test]
-// 2. Creating nested runtime contexts can cause deadlocks
-// 3. The abstraction over runtimes is primarily for users who want to use
-//    different async runtimes like async-std or smol
-//
-// For now, we'll skip this test as it's not testing anything meaningful
-// in the context of running inside tokio.
-#[cfg(feature = "runtime-tokio")]
-#[tokio::test]
-#[ignore] // Ignore this test as it causes issues with nested runtimes
-async fn test_custom_runtime_works() {
-    // This test would need to be run in a different context to be meaningful
-}
+// NOTE: A `test_custom_runtime_works` case used to sit here with an empty body
+// and a permanent `#[ignore]`, its own comment conceding it was "not testing
+// anything meaningful". Custom-runtime coverage lives in the smol-backed tests
+// (`dyn_api_smol_integration_test.rs`, `runtime_parity_test.rs`), which exercise
+// a second runtime for real instead of from inside a nested Tokio context.
 
 #[cfg(all(feature = "runtime-tokio", feature = "test-utils"))]
 #[tokio::test(start_paused = true)]
