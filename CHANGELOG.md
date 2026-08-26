@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `runtime::Priority` is public again in every build configuration, and all four
+  documented levels (`Low`, `Normal`, `High`, `Critical`) now exist in production
+  builds (#578). `High` and `Critical` were previously compile-gated behind
+  `all(feature = "mode-async", feature = "test-utils")` or `cfg(test)`, so a
+  released build exposed only `Low` and `Normal` while the type documented an
+  emergency/safety lane. The scheduler orders queued work by `Ord` alone, so the
+  upper two levels need no new scheduling code. `runtime::testing::Priority`
+  keeps working and is now available in blocking `test-utils` builds too.
+
 ## [1.1.0] - 2026-08-25
 
 ### Added
