@@ -196,6 +196,28 @@ where
     pub fn camera_mut(&mut self) -> &mut Camera<M, P, Tr, Exec> {
         &mut self.camera
     }
+
+    /// Extract the inner camera, consuming the session.
+    ///
+    /// This is a handoff, not a close: the runtime task and the transport stay
+    /// open and move with the returned camera. The session's RAII teardown
+    /// travels with them, so the connection is closed when that camera is
+    /// dropped, or explicitly through `Camera::shutdown()`. The session's own
+    /// `close()` is no longer reachable once the session has been consumed.
+    ///
+    /// Use this to reach APIs that need an owned camera rather than the borrow
+    /// [`camera`](Self::camera) provides, such as `IntoDynCamera::into_dyn()`
+    /// under the `dyn-api` feature:
+    ///
+    /// ```ignore
+    /// let camera = Connect::open_tcp_async::<PtzOpticsG2, _>("192.168.0.110", runtime)
+    ///     .await?
+    ///     .into_inner()
+    ///     .into_dyn();
+    /// ```
+    pub fn into_inner(self) -> Camera<M, P, Tr, Exec> {
+        self.camera
+    }
 }
 
 // Async-specific close implementation for Runtime-based cameras
@@ -403,8 +425,22 @@ where
     }
 
     /// Extract the inner camera, consuming the session.
+    ///
+    /// This is a handoff, not a close: the transport stays open and moves with
+    /// the returned camera, which is then responsible for the teardown the
+    /// session would otherwise have performed on drop or on `close()`.
     pub fn into_inner(self) -> Camera<crate::mode::Blocking, P, Tr, ()> {
         self.camera
+    }
+
+    /// Replace the timeout configuration used for this session's commands.
+    ///
+    /// Delegates to
+    /// [`Camera::set_timeout_config`](crate::camera::Camera::set_timeout_config),
+    /// which also hands the new deadlines to the blocking runner, so subsequent
+    /// commands sent through this session observe them.
+    pub fn set_timeout_config(&mut self, timeout_config: crate::timeout::TimeoutConfig) {
+        self.camera.set_timeout_config(timeout_config);
     }
 }
 
