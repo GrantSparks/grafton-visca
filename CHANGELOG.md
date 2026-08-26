@@ -17,6 +17,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   emergency/safety lane. The scheduler orders queued work by `Ord` alone, so the
   upper two levels need no new scheduling code. `runtime::testing::Priority`
   keeps working and is now available in blocking `test-utils` builds too.
+- Cameras can now submit at a chosen `runtime::Priority` (#589). `Camera` gained
+  `set_command_priority` / `command_priority` (mirrored on `BlockingClient`),
+  which set the priority every command from that handle is queued at, and
+  `execute_with_priority`, which raises a single command without changing the
+  handle default — the form an emergency stop needs on a camera shared behind an
+  `Arc`. Previously every camera call site submitted at `Normal` and the blocking
+  runner hard-coded `Normal`, so `High` and `Critical` were unreachable from the
+  public API. The default is unchanged (`Normal`), inquiries keep the scheduler's
+  own polling priority, and priority only decides which **queued** command is
+  dispatched next: it never interrupts or reorders a command already sent.
 - `CameraSession::into_inner()` on async sessions. `Connect::open_tcp_async()`
   and its siblings return a session, while `IntoDynCamera` is implemented for the
   owned `Camera`, so users of the convenience helpers could not reach
