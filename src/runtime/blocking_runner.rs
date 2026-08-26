@@ -800,7 +800,14 @@ impl<P: Profile> BlockingRunner<P> {
                                         return outcome;
                                     }
                                 }
-                                SchedulerAction::SendCancel { camera_id, socket } => {
+                                // Sent inline while the scheduler state that produced
+                                // the action is still current, so the socket cannot
+                                // have been reassigned to another command.
+                                SchedulerAction::SendCancel {
+                                    id,
+                                    camera_id,
+                                    socket,
+                                } => {
                                     if let Err(error) =
                                         self.send_cancel_frame(transport, camera_id, socket)
                                     {
@@ -809,6 +816,7 @@ impl<P: Profile> BlockingRunner<P> {
                                             return self.fail_all_observed(target_cmd_id, error);
                                         }
                                         warn!(
+                                            %id,
                                             ?camera_id,
                                             ?socket,
                                             "Failed to send deferred socket cancel: {error}"
