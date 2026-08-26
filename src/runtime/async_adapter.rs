@@ -1929,7 +1929,7 @@ mod tests {
 
         // ACK assigns socket 1 and emits the deferred cancel into the outbox
         executor
-            .block_on(adapter.process_response(&[0x90, 0x41, VISCA_TERMINATOR], None))
+            .run_until(adapter.process_response(&[0x90, 0x41, VISCA_TERMINATOR], None))
             .expect("ACK should be processed");
         assert_eq!(
             adapter.cancel_outbox.len(),
@@ -1970,7 +1970,7 @@ mod tests {
 
         // Completion for socket 1 finalizes the target and frees the socket
         executor
-            .block_on(adapter.process_response(&[0x90, 0x51, VISCA_TERMINATOR], None))
+            .run_until(adapter.process_response(&[0x90, 0x51, VISCA_TERMINATOR], None))
             .expect("Completion should be processed");
         assert!(
             !adapter.core.is_command_pending(cmd_id(301)),
@@ -1996,7 +1996,7 @@ mod tests {
 
         // Command A completes, releasing socket 1
         executor
-            .block_on(adapter.process_response(&[0x90, 0x51, VISCA_TERMINATOR], None))
+            .run_until(adapter.process_response(&[0x90, 0x51, VISCA_TERMINATOR], None))
             .expect("Completion should be processed");
 
         // Command B is submitted and the camera ACKs it onto the same socket
@@ -2011,7 +2011,7 @@ mod tests {
         adapter.response_channels.insert(cmd_id(303), response_tx);
 
         executor
-            .block_on(adapter.process_response(&[0x90, 0x41, VISCA_TERMINATOR], None))
+            .run_until(adapter.process_response(&[0x90, 0x41, VISCA_TERMINATOR], None))
             .expect("ACK should be processed");
         assert_eq!(
             adapter.core.find_command_on_socket(ViscaSocket::S1),
