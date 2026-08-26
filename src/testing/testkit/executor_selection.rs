@@ -57,6 +57,13 @@ pub trait TestExecutorSelector {
     }
 
     /// Get the executor type suitable for timeout and timing tests.
+    ///
+    /// # Panics
+    ///
+    /// Panics when no real runtime feature is enabled, because timeout tests
+    /// cannot run on virtual time. This is a test-only helper, so the panic is
+    /// the intended signal to enable `runtime-tokio` or `runtime-smol`.
+    #[allow(clippy::panic)]
     fn for_timeout_tests() -> TestExecutorType {
         // Use the first available real runtime
         #[cfg(feature = "runtime-tokio")]

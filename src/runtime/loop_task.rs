@@ -553,6 +553,14 @@ pub async fn runtime_loop_with_config<
                         let completion_rx = adapter.subscribe_completions();
                         let _ = reply_tx.send(Ok(completion_rx));
                     }
+                    ControlRequest::SetTimeoutConfig {
+                        timeout_config,
+                        reply_tx,
+                    } => {
+                        debug!(?timeout_config, "Applying updated timeout configuration");
+                        adapter.set_timeout_config(timeout_config);
+                        let _ = reply_tx.send(Ok(()));
+                    }
                 }
                 // Fall through to housekeeping
             }
