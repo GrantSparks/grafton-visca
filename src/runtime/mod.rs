@@ -36,41 +36,67 @@
 //! - Command delivery failures
 //! - Unpredictable response routing between connections
 //!
-//! The [`Camera`] type (and its underlying runtime) is designed for
+//! The async [`Camera`] (and its underlying runtime) is designed for
 //! concurrent access:
 //! - **Thread-safe**: Internal synchronization handles concurrent command submission
-//! - **Clone-friendly**: `Camera::clone()` creates a lightweight handle to the same
-//!   underlying connection
+//! - **Clone-friendly**: the async `Camera` is [`Clone`]; `camera.clone()` creates a
+//!   lightweight handle to the same runtime and the same underlying connection,
+//!   and the connection is torn down only when the last handle is dropped
 //! - **Command sequencing**: The runtime automatically sequences commands per VISCA
 //!   protocol requirements
 //!
+//! The blocking `Camera` owns its transport and is **not** `Clone`; share it by
+//! keeping the one value behind your own `Rc<RefCell<_>>` or `Arc<Mutex<_>>`.
+//!
 //! ### Example: Connection Pooling Pattern
 //!
-//! ```ignore
-//! use std::sync::Arc;
+//! ```rust,no_run
+//! # #[cfg(feature = "runtime-tokio")]
 //! use std::collections::HashMap;
+//! # #[cfg(feature = "runtime-tokio")]
+//! use grafton_visca::{
+//!     camera::{profiles::PtzOpticsG2, Camera, Connect},
+//!     mode::Async,
+//!     runtime::{TokioRuntime, TransportHandle},
+//!     Error,
+//! };
+//! # #[cfg(feature = "runtime-tokio")]
 //! use tokio::sync::RwLock;
 //!
-//! // Shared camera pool for multi-client access
-//! struct CameraPool<P, T, E> {
-//!     cameras: RwLock<HashMap<String, Camera<P, T, E>>>,
+//! # #[cfg(feature = "runtime-tokio")]
+//! type PooledCamera = Camera<Async, PtzOpticsG2, TransportHandle<TokioRuntime>, TokioRuntime>;
+//!
+//! // Shared camera pool for multi-client access: one connection per address,
+//! // handed out as clones.
+//! # #[cfg(feature = "runtime-tokio")]
+//! struct CameraPool {
+//!     runtime: TokioRuntime,
+//!     cameras: RwLock<HashMap<String, PooledCamera>>,
 //! }
 //!
-//! impl<P, T, E> CameraPool<P, T, E> {
+//! # #[cfg(feature = "runtime-tokio")]
+//! impl CameraPool {
 //!     /// Get or create a camera connection for the given address.
 //!     /// Returns a cloned handle - all clients share the same underlying connection.
-//!     async fn get_camera(&self, address: &str) -> Camera<P, T, E> {
+//!     async fn get_camera(&self, address: &str) -> Result<PooledCamera, Error> {
 //!         // Check if camera already exists
 //!         if let Some(camera) = self.cameras.read().await.get(address) {
-//!             return camera.clone(); // Lightweight clone, same connection
+//!             return Ok(camera.clone()); // Lightweight clone, same connection
 //!         }
 //!
 //!         // Create new connection (only happens once per physical camera)
-//!         let camera = Connect::open_tcp_async::<P, E>(address, runtime).await?;
-//!         self.cameras.write().await.insert(address.to_string(), camera.clone());
-//!         camera
+//!         let camera = Connect::open_tcp_async::<PtzOpticsG2, _>(address, self.runtime.clone())
+//!             .await?
+//!             .into_inner();
+//!
+//!         // Another task may have opened the same address in the meantime;
+//!         // keep whichever connection reached the map first.
+//!         let mut cameras = self.cameras.write().await;
+//!         let pooled = cameras.entry(address.to_string()).or_insert(camera);
+//!         Ok(pooled.clone())
 //!     }
 //! }
+//! # fn main() {}
 //! ```
 //!
 //! [`Camera`]: crate::Camera

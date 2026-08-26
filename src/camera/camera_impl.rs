@@ -39,21 +39,50 @@ use crate::{runtime::blocking_runner::BlockingRunner, transport::BlockingTranspo
 /// # Multi-Client Usage
 ///
 /// For applications serving multiple clients (e.g., web servers, MCP servers),
-/// **share a single `Camera` instance per physical camera**. The `Camera` type is
-/// `Clone` and handles concurrent command access internally through its runtime.
+/// **share a single connection per physical camera**. PTZ cameras typically
+/// cannot reliably handle multiple concurrent TCP/UDP connections, which causes
+/// inquiry timeouts and unpredictable behavior.
 ///
-/// PTZ cameras typically cannot reliably handle multiple concurrent TCP/UDP
-/// connections, which causes inquiry timeouts and unpredictable behavior.
+/// The async `Camera` is [`Clone`] for exactly this purpose: a clone is a second
+/// handle onto the *same* runtime, transport, and command queue, not a second
+/// connection. The runtime sequences commands arriving from every handle, and
+/// stays alive until the last handle is dropped. Per-handle settings — camera
+/// ID, timeout view, command priority — are copied at clone time and then
+/// diverge. The `Clone` implementation below documents the full contract.
 ///
-/// ```rust,ignore
-/// // BAD: Multiple connections to same camera
-/// let cam1 = Connect::open_tcp_blocking::<Profile>("192.168.0.10")?; // Client 1
-/// let cam2 = Connect::open_tcp_blocking::<Profile>("192.168.0.10")?; // Client 2 - AVOID!
+/// ```rust,no_run
+/// # #[cfg(feature = "runtime-tokio")]
+/// use grafton_visca::{
+///     camera::{profiles::PtzOpticsG2, Connect},
+///     runtime::TokioRuntime,
+///     Error,
+/// };
 ///
-/// // GOOD: Share a single camera instance
-/// let camera = Connect::open_tcp_blocking::<Profile>("192.168.0.10")?;
-/// let cam1 = camera.clone(); // Client 1 - lightweight handle
-/// let cam2 = camera.clone(); // Client 2 - same underlying connection
+/// # #[cfg(feature = "runtime-tokio")]
+/// #[tokio::main]
+/// async fn main() -> Result<(), Error> {
+///     let runtime = TokioRuntime::from_current()?;
+///
+///     // AVOID: two connections to the same physical camera.
+///     // let a = Connect::open_tcp_async::<PtzOpticsG2, _>("192.168.0.10", runtime.clone()).await?;
+///     // let b = Connect::open_tcp_async::<PtzOpticsG2, _>("192.168.0.10", runtime.clone()).await?;
+///
+///     // GOOD: open once, then hand out cheap handles onto that one connection.
+///     let camera = Connect::open_tcp_async::<PtzOpticsG2, _>("192.168.0.10", runtime)
+///         .await?
+///         .into_inner();
+///     let client_1 = camera.clone(); // same runtime, same transport
+///     let client_2 = camera.clone(); // same runtime, same transport
+///
+///     drop(client_1); // the connection stays up for the remaining handles
+///     drop(client_2);
+///     Ok(())
+/// }
+/// #
+/// # // The example needs a concrete runtime, so it is compiled only when one
+/// # // is enabled.
+/// # #[cfg(not(feature = "runtime-tokio"))]
+/// # fn main() {}
 /// ```
 ///
 /// See the [`runtime`](crate::runtime) module documentation for connection pooling
@@ -62,18 +91,11 @@ use crate::{runtime::blocking_runner::BlockingRunner, transport::BlockingTranspo
 /// # Examples
 ///
 /// ```rust,ignore
-/// use grafton_visca::{Camera, mode::{Async, Blocking}, camera::profiles::PtzOpticsG2};
-/// use grafton_visca::transport::Transport;
+/// use grafton_visca::{Camera, mode::Async, camera::profiles::PtzOpticsG2};
+/// use grafton_visca::camera::controls::power::PowerControl;
 ///
-/// // Async camera
-/// let transport = Transport::tcp().address("192.168.0.110:5678").open_async().await?;
 /// let camera = Camera::<Async, PtzOpticsG2, _, _>::new_async(transport, executor).await?;
 /// camera.power_on().await?;
-///
-/// // Blocking camera
-/// let transport = Transport::tcp().address("192.168.0.110:5678").build_blocking()?;
-/// let mut camera = Camera::<Blocking, PtzOpticsG2, _, ()>::new_blocking(transport)?;
-/// camera.power_on().await?; // .await works for both modes via Mode trait
 /// ```
 #[cfg(feature = "mode-async")]
 pub struct Camera<M, P, Tr, Exec>
@@ -118,25 +140,51 @@ where
 /// # Multi-Client Usage
 ///
 /// For applications serving multiple clients (e.g., web servers, MCP servers),
-/// **share a single `Camera` instance per physical camera**. The `Camera` type is
-/// `Clone` and handles concurrent command access internally through its runtime.
+/// **share a single connection per physical camera**. PTZ cameras typically
+/// cannot reliably handle multiple concurrent TCP/UDP connections, which causes
+/// inquiry timeouts and unpredictable behavior.
 ///
-/// PTZ cameras typically cannot reliably handle multiple concurrent TCP/UDP
-/// connections, which causes inquiry timeouts and unpredictable behavior.
+/// The blocking `Camera` owns its transport outright, so — unlike the async
+/// `Camera` under the `mode-async` feature — **it is not `Clone`**, and neither
+/// is the [`BlockingClient`](crate::camera::BlockingClient) wrapper that
+/// [`Connect`](crate::camera::Connect) returns. It is also not `Sync`: the
+/// transport and runner sit behind `RefCell`. Share one blocking camera by
+/// keeping the single value in one place and lending it out:
 ///
-/// ```rust,ignore
-/// // BAD: Multiple connections to same camera
-/// let cam1 = Connect::open_tcp_blocking::<Profile>("192.168.0.10")?; // Client 1
-/// let cam2 = Connect::open_tcp_blocking::<Profile>("192.168.0.10")?; // Client 2 - AVOID!
+/// ```rust,no_run
+/// use std::{
+///     cell::RefCell,
+///     rc::Rc,
+///     sync::{Arc, Mutex},
+/// };
 ///
-/// // GOOD: Share a single camera instance
-/// let camera = Connect::open_tcp_blocking::<Profile>("192.168.0.10")?;
-/// let cam1 = camera.clone(); // Client 1 - lightweight handle
-/// let cam2 = camera.clone(); // Client 2 - same underlying connection
+/// use grafton_visca::{
+///     camera::{profiles::PtzOpticsG2, Connect},
+///     Error,
+/// };
+///
+/// fn main() -> Result<(), Error> {
+///     // AVOID: two connections to the same physical camera.
+///     // let a = Connect::open_tcp_blocking::<PtzOpticsG2>("192.168.0.10")?;
+///     // let b = Connect::open_tcp_blocking::<PtzOpticsG2>("192.168.0.10")?;
+///
+///     // GOOD (single-threaded): one camera, shared by reference counting.
+///     let camera = Connect::open_tcp_blocking::<PtzOpticsG2>("192.168.0.10")?;
+///     let shared = Rc::new(RefCell::new(camera));
+///     let client_1 = Rc::clone(&shared); // a handle to the one connection
+///     let client_2 = Rc::clone(&shared);
+///
+///     // GOOD (across threads): guard the one camera with your own lock.
+///     let camera = Connect::open_tcp_blocking::<PtzOpticsG2>("192.168.0.10")?;
+///     let shared = Arc::new(Mutex::new(camera));
+///     let worker = Arc::clone(&shared);
+///     Ok(())
+/// }
 /// ```
 ///
-/// See the [`runtime`](crate::runtime) module documentation for connection pooling
-/// patterns.
+/// Applications that need genuinely concurrent, lock-free access from many
+/// tasks should enable the `mode-async` feature instead: the async `Camera` is
+/// `Clone`, and its runtime sequences commands from every handle for you.
 #[cfg(not(feature = "mode-async"))]
 pub struct Camera<M, P, Tr, Exec = ()>
 where
@@ -380,14 +428,17 @@ where
     /// commands.
     ///
     /// The priority is a property of *this handle*, not of the camera or the
-    /// connection: another handle on the same camera keeps its own value.
+    /// connection: another handle on the same camera keeps its own value. A
+    /// [`clone`](Clone::clone) copies the current priority and then diverges.
     ///
     /// # Emergency stops on a shared camera
     ///
     /// A camera shared between tasks is held behind an `Arc`, which cannot be
-    /// mutated, so a shared handle cannot be re-prioritised in place. Raise the
-    /// single command instead, with
-    /// [`execute_with_priority`](Self::execute_with_priority):
+    /// mutated, so that handle cannot be re-prioritised in place. There are two
+    /// ways around it, both reaching the same runtime and the same connection:
+    /// raise the single command with
+    /// [`execute_with_priority`](Self::execute_with_priority), or clone off a
+    /// private handle and raise that.
     ///
     /// ```rust,ignore
     /// use grafton_visca::{command::PanTilt, runtime::Priority};
@@ -395,10 +446,10 @@ where
     /// // One-off: this command alone jumps the queue, the handle stays Normal.
     /// camera.execute_with_priority(PanTilt::Stop, Priority::Critical).await?;
     ///
-    /// // Whereas a handle owned by one operator path can be raised wholesale.
-    /// let mut console = Camera::<Async, PtzOpticsG2, _, _>::new_async(transport, executor).await?;
-    /// console.set_command_priority(Priority::High);
-    /// console.pan_tilt().home().await?;
+    /// // Or take a private handle onto the same connection and raise it once.
+    /// let mut emergency = camera.clone();
+    /// emergency.set_command_priority(Priority::Critical);
+    /// emergency.execute(PanTilt::Stop).await?; // and every later command too
     /// ```
     pub fn set_command_priority(&mut self, priority: crate::runtime::Priority) {
         self.command_priority = priority;
@@ -1520,6 +1571,13 @@ where
     /// then closes the underlying runtime task.
     /// The camera object is consumed and cannot be used after this call.
     ///
+    /// This is a connection-wide operation, not a per-handle one: because
+    /// [clones](Clone::clone) share one runtime, shutting down through any
+    /// handle terminates the runtime for every remaining clone, whose
+    /// subsequent commands fail with [`Error::RuntimeShutdown`]. Simply
+    /// dropping a handle, by contrast, tears the runtime down only when it is
+    /// the last one.
+    ///
     /// # Example
     ///
     /// ```rust,ignore
@@ -1533,6 +1591,59 @@ where
     pub async fn shutdown(self) -> Result<(), Error> {
         // Shutdown the runtime handle which will close the transport
         self.runtime.shutdown().await
+    }
+}
+
+/// Clone a camera handle onto the same connection.
+///
+/// # Clone semantics
+///
+/// **Shared, one per physical camera.** The runtime task, its transport, the
+/// VISCA socket allocator, the command queue, and the write-only
+/// [`state_cache`](Camera::state_cache) all live behind reference counts, so a
+/// clone drives the *same* camera over the *same* connection. Commands
+/// submitted through either handle enter one queue and are sequenced against
+/// each other; cache writes made through either handle are visible through
+/// both.
+///
+/// **Per-handle, copied then independent.** The
+/// [`camera_id`](Camera::camera_id) commands are addressed to, this handle's
+/// [`timeout_config`](Camera::timeout_config) view, and the
+/// [`command_priority`](Camera::command_priority) commands are submitted at are
+/// copied at clone time and diverge afterwards: a later
+/// [`set_camera_id`](Camera::set_camera_id),
+/// [`set_command_priority`](Camera::set_command_priority), or
+/// [`set_timeout_config`](Camera::set_timeout_config) on one handle does not
+/// change the other's. Note that `set_timeout_config` is asymmetric: the
+/// runtime-wide deadlines it installs *are* shared, and only the local view
+/// reported by `timeout_config()` is per-handle.
+///
+/// **Teardown is on the last handle.** Dropping a clone leaves the runtime
+/// running for every remaining handle. The runtime is shut down when the final
+/// handle drops, or eagerly by [`shutdown`](Camera::shutdown), which consumes
+/// one handle and terminates the runtime for all of them.
+///
+/// Cloning does not open a second connection to the camera — that is exactly
+/// what a shared handle exists to avoid.
+#[cfg(feature = "mode-async")]
+impl<P, Tr, Exec> Clone for Camera<crate::mode::Async, P, Tr, Exec>
+where
+    P: Profile,
+    Exec: Executor,
+{
+    fn clone(&self) -> Self {
+        Self {
+            camera_id: self.camera_id,
+            timeout_config: self.timeout_config,
+            command_priority: self.command_priority,
+            // Arc-backed: the clone drives the same runtime task and transport.
+            runtime: self.runtime.clone(),
+            // Arc<Mutex<_>>-backed: write-only state stays consistent across handles.
+            state_cache: self.state_cache.clone(),
+            _phantom_mode: PhantomData,
+            _phantom_profile: PhantomData,
+            _phantom_transport: PhantomData,
+        }
     }
 }
 
