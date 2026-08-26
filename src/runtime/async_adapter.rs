@@ -923,7 +923,7 @@ mod tests {
         // This is the packet shape that was previously dropped by async_adapter
         let error_payload = vec![0x90, 0x60, 0x41, VISCA_TERMINATOR];
 
-        let result = executor.block_on(adapter.process_response(&error_payload, None));
+        let result = executor.run_until(adapter.process_response(&error_payload, None));
         assert!(result.is_ok(), "process_response should succeed");
 
         let response_result = response_rx.try_recv();
@@ -995,7 +995,7 @@ mod tests {
         let malformed_data_reply = vec![0x90, 0x50, 0x01, 0x02, 0x03, VISCA_TERMINATOR];
 
         // Process the malformed response - should NOT return Err
-        let result = executor.block_on(adapter.process_response(&malformed_data_reply, None));
+        let result = executor.run_until(adapter.process_response(&malformed_data_reply, None));
         assert!(
             result.is_ok(),
             "process_response should return Ok even on decode error: {result:?}"
@@ -1069,7 +1069,7 @@ mod tests {
         let orphan_data_reply = vec![0x90, 0x50, 0x01, VISCA_TERMINATOR];
 
         // Process the orphan reply - should NOT return Err
-        let result = executor.block_on(adapter.process_response(&orphan_data_reply, None));
+        let result = executor.run_until(adapter.process_response(&orphan_data_reply, None));
         assert!(
             result.is_ok(),
             "process_response should succeed for unattributed replies: {result:?}"

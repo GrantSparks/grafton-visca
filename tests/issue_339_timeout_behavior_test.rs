@@ -4,6 +4,11 @@
 //! 1. Recv idle (timeout) does NOT trigger network error
 //! 2. Genuine IO errors DO trigger network error
 //! 3. Normal traffic flow is not affected by the fix
+//!
+//! Timeout behaviour is exercised on a real runtime only, per the decision in
+//! issue #394. The `DeterministicExecutor` variants of these tests were removed
+//! in issue #600: they never ran in CI and could not run, because virtual time
+//! cannot be advanced from a plain `block_on`.
 
 #![cfg(all(feature = "test-utils", feature = "mode-async"))]
 
@@ -208,106 +213,48 @@ mod timeout_behavior_tests {
         // Command should succeed and subsequent timeouts should not break the runtime
         camera.power_off().await.expect("Power off should succeed");
     }
-}
 
-// NOTE: These tests are disabled when real runtimes are available because
-// DeterministicExecutor has fundamental issues with timeout handling when
-// real runtimes are present. See issue #394 for details.
-//
-// Both tests below never ran: no CI cell built this module until
-// `mode-async,test-utils` was added to the feature matrix, and both hang when
-// they are finally executed. `Executor::block_on` never advances virtual time,
-// so the runtime's timeout futures never fire; switching to `block_on_bg`
-// (which does advance time) makes them pass only intermittently - roughly one
-// run in ten. They are `#[ignore]`d rather than deleted so the intent survives;
-// the guarantees they assert are covered for real by the
-// `timeout_behavior_tests` module above, which runs under `runtime-tokio`.
-#[cfg(all(
-    feature = "test-utils",
-    not(feature = "runtime-tokio"),
-    not(feature = "runtime-smol")
-))]
-mod deterministic_tests {
-    use std::time::Duration;
+    /// Test that a second command still succeeds after an idle timeout tick.
+    ///
+    /// Ported from the deleted `runtime_resilient_to_timeout_errors` deterministic
+    /// variant (issue #600): the guarantee is that a recv timeout between two
+    /// commands is absorbed as an idle tick and leaves the runtime usable, not
+    /// that virtual time can be single-stepped.
+    #[tokio::test]
+    async fn runtime_resilient_to_timeout_errors_between_commands() {
+        let executor = Arc::new(TokioExecutor::from_handle(tokio::runtime::Handle::current()));
 
-    use grafton_visca::{
-        camera::CameraBuilder,
-        testing::testkit::{
-            deterministic_executor::DeterministicExecutor, ScriptedTransport, Step,
-        },
-        Error, Executor, PowerControl,
-    };
+        // Steps are consumed strictly front-to-back: each OnSend is popped when the
+        // matching command is sent, and the InjectError behind it is then served to
+        // the next recv as an idle tick.
+        let transport: ScriptedTransport<TokioExecutor> = ScriptedTransport::new(vec![
+            // Power off
+            Step::OnSend {
+                matches: Some(vec![0x81, 0x01, 0x04, 0x00, 0x03, 0xFF]),
+                responses: vec![
+                    vec![0x90, 0x41, 0xFF], // ACK
+                    vec![0x90, 0x51, 0xFF], // Completion
+                ],
+            },
+            Step::InjectError(Error::Timeout),
+            // Power on
+            Step::OnSend {
+                matches: Some(vec![0x81, 0x01, 0x04, 0x00, 0x02, 0xFF]),
+                responses: vec![
+                    vec![0x90, 0x41, 0xFF], // ACK
+                    vec![0x90, 0x51, 0xFF], // Completion
+                ],
+            },
+            Step::InjectError(Error::Timeout),
+        ])
+        .with_executor(executor.clone());
 
-    /// Test with deterministic executor for precise timeout testing
-    #[test]
-    #[ignore = "hangs under DeterministicExecutor; see module note and #394"]
-    fn deterministic_timeout_handling() {
-        let (executor, _clock) = DeterministicExecutor::new();
+        let camera = CameraBuilder::<TokioExecutor>::with_executor(executor.clone())
+            .open_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport)
+            .await
+            .expect("Failed to create camera");
 
-        executor.block_on(async {
-            // Create a transport that times out after initial response
-            let transport = ScriptedTransport::new(vec![
-                // Multiple timeouts that should be treated as idle ticks
-                Step::InjectError(Error::Timeout),
-                Step::InjectError(Error::Timeout),
-                // Then allow power off
-                Step::OnSend {
-                    matches: Some(vec![0x81, 0x01, 0x04, 0x00, 0x03, 0xFF]),
-                    responses: vec![
-                        vec![0x90, 0x41, 0xFF], // ACK
-                        vec![0x90, 0x51, 0xFF], // Completion
-                    ],
-                },
-            ])
-            .with_executor(executor.clone());
-
-            // Create camera
-            let camera = CameraBuilder::<DeterministicExecutor>::with_executor(executor.clone())
-                .open_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport)
-                .await
-                .expect("Failed to create camera");
-
-            // Power off should work despite timeouts
-            camera.power_off().await.expect("Power off should succeed");
-        });
-    }
-
-    /// Test that the runtime continues to function after errors
-    #[test]
-    #[ignore = "hangs under DeterministicExecutor; see module note and #394"]
-    fn runtime_resilient_to_timeout_errors() {
-        let (executor, _clock) = DeterministicExecutor::new();
-
-        executor.block_on(async {
-            // Mix of timeouts and real responses
-            let transport = ScriptedTransport::new(vec![
-                Step::InjectError(Error::Timeout),
-                // Power off
-                Step::OnSend {
-                    matches: Some(vec![0x81, 0x01, 0x04, 0x00, 0x03, 0xFF]),
-                    responses: vec![vec![0x90, 0x41, 0xFF], vec![0x90, 0x51, 0xFF]],
-                },
-                Step::InjectError(Error::Timeout),
-                // Power on
-                Step::OnSend {
-                    matches: Some(vec![0x81, 0x01, 0x04, 0x00, 0x02, 0xFF]),
-                    responses: vec![vec![0x90, 0x41, 0xFF], vec![0x90, 0x51, 0xFF]],
-                },
-            ])
-            .with_executor(executor.clone());
-
-            let camera = CameraBuilder::<DeterministicExecutor>::with_executor(executor.clone())
-                .open_async::<grafton_visca::camera::profiles::PtzOpticsG2, _>(transport)
-                .await
-                .expect("Failed to create camera");
-
-            // Multiple operations should work with timeouts interspersed
-            camera.power_off().await.expect("First command should work");
-
-            // Advance time to let timeout occur
-            executor.sleep(Duration::from_millis(10)).await;
-
-            camera.power_on().await.expect("Second command should work");
-        });
+        camera.power_off().await.expect("First command should work");
+        camera.power_on().await.expect("Second command should work");
     }
 }

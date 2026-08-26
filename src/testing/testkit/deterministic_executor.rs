@@ -21,8 +21,11 @@ use async_executor::Executor as AsyncExec;
 use std::{
     future::Future,
     pin::Pin,
-    sync::{Arc, Mutex},
-    task::{Context, Poll, Waker},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
+    task::{Context, Poll, Wake, Waker},
     time::{Duration, Instant},
 };
 
@@ -211,6 +214,36 @@ impl Drop for SleepFuture {
     }
 }
 
+/// A one-shot wake flag used by [`DeterministicExecutor::run_until`] so the
+/// in-place future can be re-polled only when it has actually been woken.
+#[derive(Debug)]
+struct NotifyFlag(AtomicBool);
+
+impl NotifyFlag {
+    /// Create a flag that starts set, so the future is polled once up front.
+    fn new() -> Self {
+        Self(AtomicBool::new(true))
+    }
+
+    fn is_set(&self) -> bool {
+        self.0.load(Ordering::SeqCst)
+    }
+
+    fn take(&self) -> bool {
+        self.0.swap(false, Ordering::SeqCst)
+    }
+}
+
+impl Wake for NotifyFlag {
+    fn wake(self: Arc<Self>) {
+        self.0.store(true, Ordering::SeqCst);
+    }
+
+    fn wake_by_ref(self: &Arc<Self>) {
+        self.0.store(true, Ordering::SeqCst);
+    }
+}
+
 /// A deterministic executor that uses virtual time for testing.
 ///
 /// This executor provides deterministic timing behavior by using a virtual clock
@@ -352,6 +385,99 @@ impl DeterministicExecutor {
                     self.drain_until_quiescent();
                     return out;
                 }
+            }
+
+            std::thread::yield_now();
+        }
+    }
+
+    /// Drive `fut` to completion on this executor, advancing virtual time as needed.
+    ///
+    /// This is the borrowing counterpart to [`Self::block_on_bg`]: the future is
+    /// polled in place rather than spawned, so it does not have to be `Send` or
+    /// `'static` and may borrow from its environment. Background tasks spawned on
+    /// this executor are driven alongside it, and virtual time is advanced to the
+    /// next deadline whenever nothing is ready to run.
+    ///
+    /// Prefer this over [`Executor::block_on`], which cannot advance virtual time
+    /// and therefore panics for this executor (see issue #600).
+    ///
+    /// Returns as soon as `fut` is ready; background tasks are left where they
+    /// are. Call [`Self::drain_until_quiescent`] or [`Self::drive_until_idle`]
+    /// afterwards if a test needs them to settle - note that draining a runtime
+    /// whose in-flight command can never be answered by the script will spin,
+    /// because virtual time lets the retry loop run at CPU speed.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the future and the executor make no forward progress for a large
+    /// number of iterations, which indicates a livelock or a leaked real timer.
+    pub fn run_until<F: Future>(&self, fut: F) -> F::Output {
+        // ---- Tunables (keep constants to preserve determinism) ----
+        const READY_BUDGET_PER_EPOCH: usize = 512;
+        const BUSY_EPOCHS_BEFORE_TIME_BUMP: usize = 4;
+        const NO_PROGRESS_PANIC: usize = 50_000;
+
+        let flag = Arc::new(NotifyFlag::new());
+        let waker = Waker::from(Arc::clone(&flag));
+        let mut cx = Context::from_waker(&waker);
+        let mut fut = std::pin::pin!(fut);
+
+        let mut busy_epochs = 0usize;
+        let mut spins = 0usize;
+
+        loop {
+            if flag.take() {
+                if let Poll::Ready(out) = fut.as_mut().poll(&mut cx) {
+                    return out;
+                }
+            }
+
+            let mut ran = 0usize;
+            for _ in 0..READY_BUDGET_PER_EPOCH {
+                if self.executor.try_tick() {
+                    ran += 1;
+                } else {
+                    break;
+                }
+                if flag.is_set() {
+                    break;
+                }
+            }
+
+            if flag.is_set() {
+                spins = 0;
+                continue;
+            }
+
+            if ran == 0 {
+                busy_epochs = 0;
+                if self.fire_due_timers() || self.advance_to_next_deadline() {
+                    spins = 0;
+                    continue;
+                }
+            } else if self.has_pending_deadlines() {
+                busy_epochs += 1;
+                if busy_epochs >= BUSY_EPOCHS_BEFORE_TIME_BUMP && self.advance_to_next_deadline() {
+                    busy_epochs = 0;
+                    spins = 0;
+                    continue;
+                }
+            } else {
+                busy_epochs = 0;
+            }
+
+            spins += 1;
+            if spins >= NO_PROGRESS_PANIC {
+                panic!(
+                    "DeterministicExecutor::run_until: no forward progress after {NO_PROGRESS_PANIC} iterations. \
+                     Possible causes: perpetual busy loop without yields; real timers leaking into tests; \
+                     or background loop exited early."
+                );
+            }
+
+            if self.executor.try_tick() {
+                spins = 0;
             }
 
             std::thread::yield_now();
@@ -733,9 +859,25 @@ impl Executor for DeterministicExecutor {
         (DetJoin(join_task), detach_handle)
     }
 
-    fn block_on<F: Future>(&self, fut: F) -> F::Output {
-        use futures_lite::future;
-        future::block_on(self.executor.run(fut))
+    /// Always panics.
+    ///
+    /// A naive `block_on` cannot advance this executor's virtual clock, so any
+    /// future that awaits a timer (every timeout, retry, or cancel path in the
+    /// runtime) parks forever. Rather than leave that trap in place, the entry
+    /// point is removed: use [`DeterministicExecutor::run_until`] or
+    /// [`DeterministicExecutor::block_on_bg`], both of which drive background
+    /// tasks and advance virtual time, or use a real runtime for timeout tests
+    /// as decided in issue #394.
+    ///
+    /// # Panics
+    ///
+    /// Always.
+    fn block_on<F: Future>(&self, _fut: F) -> F::Output {
+        panic!(
+            "DeterministicExecutor::block_on cannot advance virtual time; \
+             drive the future with block_on_bg / run_until, or use a real runtime \
+             for timeout tests (see issue #600 / #394)"
+        );
     }
 
     #[allow(clippy::manual_async_fn)]
@@ -872,6 +1014,9 @@ pub trait DeterministicExecutorExt {
         F: Future<Output = T> + Send + 'static,
         T: Send + 'static;
 
+    /// Drive a borrowing future to completion, advancing virtual time as needed.
+    fn run_until<F: Future>(&self, fut: F) -> F::Output;
+
     /// Drive the executor until all tasks are idle.
     fn drive_until_idle(&self);
 
@@ -886,6 +1031,10 @@ impl DeterministicExecutorExt for Arc<DeterministicExecutor> {
         T: Send + 'static,
     {
         self.as_ref().block_on_bg(fut)
+    }
+
+    fn run_until<F: Future>(&self, fut: F) -> F::Output {
+        self.as_ref().run_until(fut)
     }
 
     fn drive_until_idle(&self) {
@@ -1017,6 +1166,28 @@ mod tests {
             result, 42,
             "block_on_bg should complete and return the value"
         );
+    }
+
+    #[test]
+    fn test_run_until_advances_virtual_time() {
+        let (executor, _clock) = DeterministicExecutor::new();
+        let executor_ref = &executor;
+
+        // The future borrows `executor_ref`, which `block_on_bg` could not accept.
+        let result = executor.run_until(async move {
+            executor_ref.sleep(Duration::from_millis(100)).await;
+            42
+        });
+
+        assert_eq!(result, 42, "run_until should complete and return the value");
+    }
+
+    #[test]
+    #[should_panic(expected = "DeterministicExecutor::block_on cannot advance virtual time")]
+    fn test_block_on_panics_instead_of_hanging() {
+        let (executor, _clock) = DeterministicExecutor::new();
+        // Would park forever if it were still the naive implementation.
+        let _: () = executor.block_on(async {});
     }
 
     #[test]
