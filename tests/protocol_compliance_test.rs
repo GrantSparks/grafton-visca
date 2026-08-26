@@ -8,6 +8,8 @@
 //!   command category.
 //! * `90 6y 41 FF` (Command Not Executable) is retried for Movement and Preset
 //!   commands, which are the categories that transiently report "still settling".
+//!   Only the Movement half is covered here: `PresetCommand` is crate-private, so
+//!   a Preset-category command cannot be constructed from an integration test.
 //! * The same `0x41` is terminal for Quick commands, which require the caller to
 //!   change camera state first (for example, switching to manual focus).
 //! * Inquiries receive a Data Reply with no ACK.
