@@ -28,6 +28,18 @@ use crate::{
     Error,
 };
 
+/// Maximum number of commands that may be outstanding on a single camera.
+///
+/// VISCA gives every device two command sockets, so a camera can accept two
+/// commands before it must reply. The limit is deliberately **per camera**, not
+/// per transport: a serial daisy chain carries up to seven independently
+/// addressed devices, each with its own pair of sockets.
+///
+/// This bounds outstanding *completions*, not wire traffic - frames are still
+/// serialized on the transport and paced by
+/// [`set_min_command_spacing`](SchedulerCore::set_min_command_spacing).
+pub const MAX_COMMANDS_IN_FLIGHT_PER_CAMERA: usize = 2;
+
 /// Command lifecycle phase.
 ///
 /// This enum encodes the lifecycle phase of a command in the scheduler:
@@ -554,6 +566,13 @@ pub enum SchedulerAction {
     /// a socket was assigned, and an ACK has now assigned the socket. The cancel
     /// should be sent immediately to the transport.
     SendCancel {
+        /// Command the cancel targets.
+        ///
+        /// Sockets are recycled as commands complete, so a consumer that does
+        /// not send the frame synchronously must re-check that this command
+        /// still owns `socket` (see `SchedulerCore::find_command_on_socket`)
+        /// before putting the cancel on the wire.
+        id: CommandId,
         /// Camera ID for addressing the cancel message.
         camera_id: crate::camera_id::CameraId,
         /// Socket to cancel.
@@ -1005,7 +1024,6 @@ impl SchedulerCore {
     }
 
     /// Set the timeout configuration.
-    #[cfg(not(feature = "mode-async"))]
     pub fn set_timeout_config(&mut self, timeout_config: TimeoutConfig) {
         self.timeout_config = timeout_config;
     }
@@ -1082,44 +1100,101 @@ impl SchedulerCore {
         }
     }
 
-    /// Check if we can send another command (have room for pending ACK and spacing satisfied).
+    /// Count the commands currently in flight for one camera.
     ///
-    /// Uses phase-based counting to determine capacity:
-    /// - Commands in `AwaitingAck` phase count toward the 2-slot limit
-    /// - Commands in `Executing` phase count toward the 2-slot limit
-    /// - Total must be < 2 to allow sending another command
-    /// - The minimum command spacing since the last send must be satisfied
+    /// Both `AwaitingAck` and `Executing` commands occupy a command socket on
+    /// the target camera: the camera has already accepted the frame (or is
+    /// about to ACK it) and will not free the slot until it replies.
+    fn commands_in_flight_for(&self, camera_id: crate::camera_id::CameraId) -> usize {
+        self.commands
+            .values()
+            .filter(|s| {
+                s.camera_id == camera_id && (s.phase.is_awaiting_ack() || s.phase.is_executing())
+            })
+            .count()
+    }
+
+    /// Returns `true` if `camera_id` still has a free command socket.
+    ///
+    /// This is the pure capacity predicate; it deliberately ignores send
+    /// spacing so callers can separate "the camera has room" from "the bus is
+    /// ready for another frame".
+    #[inline]
+    fn has_command_capacity(&self, camera_id: crate::camera_id::CameraId) -> bool {
+        self.commands_in_flight_for(camera_id) < MAX_COMMANDS_IN_FLIGHT_PER_CAMERA
+    }
+
+    /// Check if we can send another command to `camera_id`.
+    ///
+    /// Capacity is tracked per camera because VISCA gives *each* device two
+    /// command sockets. On a serial daisy chain every camera on the bus has its
+    /// own pair, so a saturated camera must not block traffic to its neighbours.
+    ///
+    /// Returns `true` when:
+    /// - the minimum command spacing since the last send is satisfied
+    ///   (transport-wide: frames are still serialized on the wire), and
+    /// - the target camera has fewer than
+    ///   [`MAX_COMMANDS_IN_FLIGHT_PER_CAMERA`] commands in `AwaitingAck` or
+    ///   `Executing` phase.
+    pub fn can_send_command_to(&self, camera_id: crate::camera_id::CameraId, now: Instant) -> bool {
+        self.check_command_spacing(now) && self.has_command_capacity(camera_id)
+    }
+
+    /// Check if any command could be dispatched right now.
+    ///
+    /// This is the queue-wide view of [`can_send_command_to`](Self::can_send_command_to)
+    /// and is used for diagnostics and tests; actual dispatch decisions are made
+    /// per camera by [`next_item_to_send`](Self::next_item_to_send).
+    ///
+    /// Returns `true` when the minimum command spacing is satisfied and:
+    /// - a queued command targets a camera that still has a free socket, or
+    /// - nothing is queued and some camera that already has commands in flight
+    ///   still has a free socket (trivially true when nothing is in flight).
+    #[cfg(any(feature = "mode-async", test))]
     pub fn can_send_command(&self, now: Instant) -> bool {
         // Check command spacing requirement (applies to all send types)
         if !self.check_command_spacing(now) {
             return false;
         }
 
-        // Count command entries by phase.
+        // Count command entries by phase (whole-transport view, for logging).
         let awaiting_ack = self.count_awaiting_ack();
         let executing = self.count_executing();
         let total_in_flight = awaiting_ack + executing;
 
-        let can_send = total_in_flight < 2;
+        let can_send = if self.command_queue.is_empty() {
+            // Nothing queued: report whether a camera that is already busy could
+            // still accept another command. With nothing in flight this is true.
+            total_in_flight == 0
+                || self
+                    .commands
+                    .values()
+                    .any(|s| self.has_command_capacity(s.camera_id))
+        } else {
+            self.command_queue
+                .iter()
+                .any(|c| self.has_command_capacity(c.camera_id))
+        };
 
         if !can_send && std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
             eprintln!(
-                "[SchedulerCore] can_send_command=false: {} awaiting ACK + {} executing = {}/2 capacity",
-                awaiting_ack, executing, total_in_flight
+                "[SchedulerCore] can_send_command=false: {} awaiting ACK + {} executing = {} in flight, no camera under the {}-socket limit",
+                awaiting_ack, executing, total_in_flight, MAX_COMMANDS_IN_FLIGHT_PER_CAMERA
             );
         }
 
         // Log state transitions: always log once when going to idle, otherwise only when busy
         if total_in_flight > 0 {
             trace!(
-                "Commands in flight: {} awaiting ACK + {} executing = {}/2",
+                "Commands in flight: {} awaiting ACK + {} executing = {} (limit {} per camera)",
                 awaiting_ack,
                 executing,
-                total_in_flight
+                total_in_flight,
+                MAX_COMMANDS_IN_FLIGHT_PER_CAMERA
             );
             self.last_logged_idle.set(false);
         } else if !self.last_logged_idle.get() {
-            trace!("Commands in flight: 0 awaiting ACK + 0 executing = 0/2");
+            trace!("Commands in flight: 0 awaiting ACK + 0 executing = 0");
             self.last_logged_idle.set(true);
         }
 
@@ -1171,7 +1246,8 @@ impl SchedulerCore {
     ///
     /// Selects the highest-priority item across both queues, respecting capacity limits:
     /// - Inquiries bypass socket allocation but respect max_inquiries_inflight
-    /// - Commands require socket capacity (2-socket limit)
+    /// - Commands require a free socket **on their own camera**
+    ///   ([`MAX_COMMANDS_IN_FLIGHT_PER_CAMERA`])
     ///
     /// When priorities are equal, inquiries are preferred because they are
     /// typically quick status reads and do not consume command sockets.
@@ -1183,28 +1259,28 @@ impl SchedulerCore {
     /// ensuring user-initiated actions (preset save, etc.) aren't blocked by background
     /// polling inquiries.
     ///
+    /// Because capacity is per camera, a queued command whose camera is already
+    /// saturated is skipped rather than blocking the whole queue: the
+    /// highest-priority command targeting a camera with a free socket is chosen.
+    /// Relative order between commands for the *same* camera is unchanged.
+    ///
     /// # Arguments
     ///
     /// * `now` - Current instant, used to check inquiry spacing requirements
     pub fn next_item_to_send(&mut self, now: Instant) -> Option<PendingCommand> {
         // Check what's available in each queue
         let inquiry_available = !self.inquiry_queue.is_empty() && self.can_send_inquiry(now);
-        let command_available = self.can_send_command(now) && !self.command_queue.is_empty();
+        let command_priority = self.peek_dispatchable_command_priority(now);
 
-        match (inquiry_available, command_available) {
-            (false, false) => None,
-            (true, false) => self.inquiry_queue.pop(),
-            (false, true) => self.command_queue.pop(),
-            (true, true) => {
-                // Both queues have items - compare priorities
+        match (inquiry_available, command_priority) {
+            (false, None) => None,
+            (true, None) => self.inquiry_queue.pop(),
+            (false, Some(_)) => self.take_dispatchable_command(),
+            (true, Some(command_priority)) => {
+                // Both queues have sendable items - compare priorities.
                 // peek() is safe here because we already checked is_empty()
                 let inquiry_priority = self
                     .inquiry_queue
-                    .peek()
-                    .map(|c| c.priority)
-                    .unwrap_or(Priority::Low);
-                let command_priority = self
-                    .command_queue
                     .peek()
                     .map(|c| c.priority)
                     .unwrap_or(Priority::Low);
@@ -1212,12 +1288,71 @@ impl SchedulerCore {
                 // If command has strictly higher priority, prefer it.
                 // Otherwise, prefer the inquiry because it does not consume a command socket.
                 if command_priority > inquiry_priority {
-                    self.command_queue.pop()
+                    self.take_dispatchable_command()
                 } else {
                     self.inquiry_queue.pop()
                 }
             }
         }
+    }
+
+    /// Priority of the highest-priority queued command that could be sent now.
+    ///
+    /// Returns `None` when spacing is not satisfied or every queued command
+    /// targets a camera whose command sockets are full.
+    fn peek_dispatchable_command_priority(&self, now: Instant) -> Option<Priority> {
+        if !self.check_command_spacing(now) {
+            return None;
+        }
+
+        // Fast path: the queue head is dispatchable (the single-camera case, and
+        // the common case on a chain).
+        let head = self.command_queue.peek()?;
+        if self.can_send_command_to(head.camera_id, now) {
+            return Some(head.priority);
+        }
+
+        // Slow path: the head's camera is saturated. Fall back to the best
+        // candidate among the remaining entries.
+        self.command_queue
+            .iter()
+            .filter(|c| self.has_command_capacity(c.camera_id))
+            .max()
+            .map(|c| c.priority)
+    }
+
+    /// Remove and return the highest-priority queued command whose camera has a
+    /// free command socket.
+    ///
+    /// This selects the same entry that
+    /// [`peek_dispatchable_command_priority`](Self::peek_dispatchable_command_priority)
+    /// reported, so callers must check spacing through that method first.
+    fn take_dispatchable_command(&mut self) -> Option<PendingCommand> {
+        // Fast path: the queue head is dispatchable, so no re-heapifying.
+        if self
+            .command_queue
+            .peek()
+            .is_some_and(|c| self.has_command_capacity(c.camera_id))
+        {
+            return self.command_queue.pop();
+        }
+
+        // Slow path: pop past the saturated cameras, then put them back. Popping
+        // in heap order means the first dispatchable entry found is the
+        // highest-priority one.
+        let mut skipped: Vec<PendingCommand> = Vec::new();
+        let mut taken = None;
+        while let Some(cmd) = self.command_queue.pop() {
+            if self.has_command_capacity(cmd.camera_id) {
+                taken = Some(cmd);
+                break;
+            }
+            skipped.push(cmd);
+        }
+        for cmd in skipped {
+            self.command_queue.push(cmd);
+        }
+        taken
     }
 
     /// Register a command as pending ACK.
@@ -2501,10 +2636,14 @@ impl SchedulerCore {
         // Get command state
         let state_copy = self.commands.get(&target_id).cloned();
         if let Some(cmd_state) = state_copy {
+            // Sockets belong to the camera that ACKed, so occupancy is only
+            // meaningful within that camera's own pair.
+            let camera_id = cmd_state.camera_id;
+
             // Determine which socket to use with fallback logic
             let assigned_socket = if let Some(s) = socket {
                 // Camera specified a socket - try to use it
-                if self.is_socket_free(s) {
+                if self.is_socket_free(camera_id, s) {
                     // Requested socket is free, use it
                     s
                 } else {
@@ -2515,27 +2654,33 @@ impl SchedulerCore {
                         ViscaSocket::S1
                     };
 
-                    if self.is_socket_free(other) {
+                    if self.is_socket_free(camera_id, other) {
                         debug!(
-                            "Camera requested {:?} but it's occupied, using {:?} instead",
-                            s, other
+                            "Camera {:?} requested {:?} but it's occupied, using {:?} instead",
+                            camera_id, s, other
                         );
                         other
                     } else {
                         // Both sockets are busy - command stays in AwaitingAck phase
-                        warn!("Camera assigned {:?} but both sockets are occupied", s);
+                        warn!(
+                            "Camera {:?} assigned {:?} but both of its sockets are occupied",
+                            camera_id, s
+                        );
                         return (None, None);
                     }
                 }
             } else {
                 // No socket specified - pick the first free one
-                if self.is_socket_free(ViscaSocket::S1) {
+                if self.is_socket_free(camera_id, ViscaSocket::S1) {
                     ViscaSocket::S1
-                } else if self.is_socket_free(ViscaSocket::S2) {
+                } else if self.is_socket_free(camera_id, ViscaSocket::S2) {
                     ViscaSocket::S2
                 } else {
                     // Both sockets are busy - command stays in AwaitingAck phase
-                    warn!("ACK received without socket nibble but both sockets are occupied");
+                    warn!(
+                        "ACK received without socket nibble but both sockets of camera {:?} are occupied",
+                        camera_id
+                    );
                     return (None, None);
                 }
             };
@@ -2567,6 +2712,7 @@ impl SchedulerCore {
                     "Emitting SendCancel for command that had cancel_requested set"
                 );
                 Some(SchedulerAction::SendCancel {
+                    id: target_id,
                     camera_id: cmd_state.camera_id,
                     socket: assigned_socket,
                 })
@@ -2716,10 +2862,14 @@ impl SchedulerCore {
         self.ignored_unmatched_sequenced_replies += 1;
     }
 
-    /// Get socket state for testing.
+    /// Get socket state for testing, across every camera.
     ///
     /// Returns (is_free, command_id, category) for the given socket.
     /// Socket state is derived from CommandPhase::Executing variants.
+    ///
+    /// Use [`socket_state_for`](Self::socket_state_for) in multi-camera tests:
+    /// sockets are per camera, so this whole-transport view is only unambiguous
+    /// when a single camera is active.
     #[cfg(test)]
     pub fn socket_state(
         &self,
@@ -2735,6 +2885,23 @@ impl SchedulerCore {
                 if s == socket {
                     return (false, Some(cmd_id), Some(state.category()));
                 }
+            }
+        }
+        (true, None, None)
+    }
+
+    /// Get the state of one camera's socket for testing.
+    ///
+    /// Returns (is_free, command_id, category) for `socket` on `camera_id`.
+    #[cfg(test)]
+    pub fn socket_state_for(
+        &self,
+        camera_id: crate::camera_id::CameraId,
+        socket: ViscaSocket,
+    ) -> (bool, Option<CommandId>, Option<CommandCategory>) {
+        for (&cmd_id, state) in &self.commands {
+            if state.camera_id == camera_id && state.phase.socket() == Some(socket) {
+                return (false, Some(cmd_id), Some(state.category()));
             }
         }
         (true, None, None)
@@ -3083,6 +3250,7 @@ impl SchedulerCore {
     }
 
     /// Count commands in the Executing phase.
+    #[cfg(any(feature = "mode-async", test))]
     #[inline]
     fn count_executing(&self) -> usize {
         self.commands
@@ -3143,22 +3311,35 @@ impl SchedulerCore {
     }
 
     /// Find the command ID currently assigned to a socket, if any.
+    ///
+    /// Raw VISCA reply frames carry a socket nibble but the decoded reply does
+    /// not identify which camera answered, so this searches every camera. When
+    /// more than one camera holds the same socket number, the command that has
+    /// held it longest is returned; this keeps attribution deterministic instead
+    /// of depending on hash-map iteration order.
     pub fn find_command_on_socket(&self, socket: ViscaSocket) -> Option<CommandId> {
-        self.commands.iter().find_map(|(&cmd_id, state)| {
-            if state.phase.socket() == Some(socket) {
-                Some(cmd_id)
-            } else {
-                None
-            }
-        })
+        self.commands
+            .iter()
+            .filter_map(|(&cmd_id, state)| match state.phase {
+                CommandPhase::Executing {
+                    socket: s,
+                    started_at,
+                } if s == socket => Some((started_at, cmd_id)),
+                _ => None,
+            })
+            .min_by_key(|(started_at, cmd_id)| (*started_at, cmd_id.get()))
+            .map(|(_, cmd_id)| cmd_id)
     }
 
-    /// Check if a socket is free (not assigned to any command).
-    fn is_socket_free(&self, socket: ViscaSocket) -> bool {
+    /// Check if one of a camera's two command sockets is free.
+    ///
+    /// Sockets are per camera: camera 2 holding socket 1 says nothing about
+    /// whether camera 3's socket 1 is available.
+    fn is_socket_free(&self, camera_id: crate::camera_id::CameraId, socket: ViscaSocket) -> bool {
         !self
             .commands
             .values()
-            .any(|s| s.phase.socket() == Some(socket))
+            .any(|s| s.camera_id == camera_id && s.phase.socket() == Some(socket))
     }
 
     /// Get commands in AwaitingAck phase.
