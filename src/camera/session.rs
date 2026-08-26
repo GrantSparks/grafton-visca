@@ -432,16 +432,6 @@ where
     pub fn into_inner(self) -> Camera<crate::mode::Blocking, P, Tr, ()> {
         self.camera
     }
-
-    /// Replace the timeout configuration used for this session's commands.
-    ///
-    /// Delegates to
-    /// [`Camera::set_timeout_config`](crate::camera::Camera::set_timeout_config),
-    /// which also hands the new deadlines to the blocking runner, so subsequent
-    /// commands sent through this session observe them.
-    pub fn set_timeout_config(&mut self, timeout_config: crate::timeout::TimeoutConfig) {
-        self.camera.set_timeout_config(timeout_config);
-    }
 }
 
 // Additional methods requiring transport bounds

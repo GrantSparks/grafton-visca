@@ -16,9 +16,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `CameraBuilder` path. Extraction is a handoff, not a close: the transport and
   the runtime task move with the returned camera, which then owns the teardown
   the session would have performed on drop (#588).
-- `CameraSession::set_timeout_config()` on blocking sessions, delegating to
-  `Camera::set_timeout_config()` so a session can retune its deadlines without
-  reaching through `camera_mut()` (#588).
 
 ## [1.1.0] - 2026-08-25
 

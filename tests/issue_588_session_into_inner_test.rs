@@ -8,23 +8,6 @@
 //! These tests pin the extractor's contract: `into_inner()` is a handoff, not a
 //! close, so the camera it returns still drives the same live connection.
 
-/// Compile-time proof that the blocking session exposes the timeout setter.
-///
-/// The blocking `CameraSession` has no public constructor today (blocking
-/// connections return `BlockingClient`), so this surface can only be checked at
-/// the type level.
-#[cfg(not(feature = "mode-async"))]
-fn _blocking_session_surface<P, Tr>(
-    session: &mut grafton_visca::camera::CameraSession<grafton_visca::mode::Blocking, P, Tr, ()>,
-    timeout_config: grafton_visca::timeout::TimeoutConfig,
-) where
-    P: grafton_visca::capabilities::Profile,
-{
-    session.set_timeout_config(timeout_config);
-    let _camera: &grafton_visca::camera::Camera<grafton_visca::mode::Blocking, P, Tr, ()> =
-        session.camera();
-}
-
 #[cfg(feature = "runtime-tokio")]
 mod tokio_tests {
     use std::{
