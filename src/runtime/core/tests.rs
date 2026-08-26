@@ -5803,3 +5803,360 @@ fn test_stale_sequenced_syntax_error_is_ignored() {
         "FIFO attribution intact"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Per-camera in-flight accounting (VISCA gives every camera two command sockets)
+// ---------------------------------------------------------------------------
+
+/// Queue one movement command for `camera_id`.
+fn queue_command_for(
+    core: &mut SchedulerCore,
+    id: u32,
+    camera_id: CameraId,
+    priority: Priority,
+    submitted_at: Instant,
+) {
+    let command = create_test_command(
+        vec![0x81, 0x01, 0x04, 0x00, 0x03, VISCA_TERMINATOR],
+        None,
+        CommandCategory::Movement,
+        camera_id,
+    );
+    core.queue_command(PendingCommand {
+        id: cmd_id(id),
+        command,
+        priority,
+        camera_id,
+        submitted_at,
+    });
+}
+
+/// Dispatch the next sendable item and register it as pending ACK, mirroring
+/// what the runtime loop does after a successful write.
+fn dispatch_and_register(core: &mut SchedulerCore, now: Instant) -> Option<(CommandId, CameraId)> {
+    let cmd = core.next_item_to_send(now)?;
+    core.register_pending_ack(
+        cmd.id,
+        cmd.command.clone(),
+        cmd.priority,
+        cmd.camera_id,
+        now,
+    );
+    Some((cmd.id, cmd.camera_id))
+}
+
+/// Move a registered command from `AwaitingAck` to `Executing` via a real ACK.
+fn ack(core: &mut SchedulerCore, id: CommandId, socket: ViscaSocket, now: Instant) {
+    core.process_event(
+        SchedulerEvent::Ack {
+            source: ReplySource::from_fields(Some(id), None, Some(socket)),
+        },
+        now,
+    );
+}
+
+/// Complete a command, freeing the socket it holds on its own camera.
+fn complete(core: &mut SchedulerCore, id: CommandId, socket: ViscaSocket, now: Instant) {
+    let actions = core.process_event(
+        SchedulerEvent::Completion {
+            source: ReplySource::from_fields(Some(id), None, Some(socket)),
+            response: Response::Completion {
+                socket: Some(socket),
+            },
+        },
+        now,
+    );
+    assert_eq!(actions.len(), 1, "completion should produce one action");
+}
+
+/// A serial daisy chain must run every camera's two sockets concurrently.
+///
+/// Regression test for per-transport in-flight accounting, which capped the
+/// whole chain at 2 outstanding commands no matter how many cameras were on it.
+#[test]
+fn test_daisy_chain_runs_two_commands_per_camera() {
+    let mut core = SchedulerCore::new(TimeoutConfig::default());
+    let now = Instant::now();
+    let cameras = [CameraId::CAMERA_1, CameraId::CAMERA_2, CameraId::CAMERA_3];
+
+    // Two commands per camera, interleaved the way a controller would submit them.
+    let mut next_id = 1u32;
+    for round in 0..2u64 {
+        for (offset, &camera) in cameras.iter().enumerate() {
+            let submitted_at = now + Duration::from_millis(round * 10 + offset as u64);
+            queue_command_for(&mut core, next_id, camera, Priority::Normal, submitted_at);
+            next_id += 1;
+        }
+    }
+
+    let mut dispatched = Vec::new();
+    while let Some(entry) = dispatch_and_register(&mut core, now) {
+        dispatched.push(entry);
+    }
+
+    assert_eq!(
+        dispatched.len(),
+        6,
+        "3 cameras x 2 command sockets should all be busy, got {dispatched:?}"
+    );
+    for &camera in &cameras {
+        assert_eq!(
+            core.commands_in_flight_for(camera),
+            2,
+            "camera {camera:?} should hold both of its command sockets"
+        );
+        assert!(
+            !core.can_send_command_to(camera, now),
+            "camera {camera:?} is saturated"
+        );
+    }
+    assert_eq!(core.command_queue.len(), 0, "nothing should be left queued");
+
+    // Each camera allocates its own socket pair from its own ACK nibbles.
+    for (index, &(id, camera)) in dispatched.iter().enumerate() {
+        let socket = if index < cameras.len() {
+            ViscaSocket::S1
+        } else {
+            ViscaSocket::S2
+        };
+        ack(&mut core, id, socket, now);
+        let (free, holder, _) = core.socket_state_for(camera, socket);
+        assert!(!free, "{camera:?} {socket:?} should be occupied");
+        assert_eq!(holder, Some(id));
+    }
+}
+
+/// The two-socket limit still applies to each individual camera.
+#[test]
+fn test_third_command_for_one_camera_waits_for_a_free_socket() {
+    let mut core = SchedulerCore::new(TimeoutConfig::default());
+    let now = Instant::now();
+    let camera = CameraId::CAMERA_2;
+
+    for i in 1..=3u32 {
+        queue_command_for(
+            &mut core,
+            i,
+            camera,
+            Priority::Normal,
+            now + Duration::from_millis(u64::from(i)),
+        );
+    }
+
+    let (first, _) = dispatch_and_register(&mut core, now).expect("first command dispatches");
+    let (second, _) = dispatch_and_register(&mut core, now).expect("second command dispatches");
+    ack(&mut core, first, ViscaSocket::S1, now);
+    ack(&mut core, second, ViscaSocket::S2, now);
+
+    assert_eq!(core.commands_in_flight_for(camera), 2);
+    assert!(
+        core.next_item_to_send(now).is_none(),
+        "a third command must wait for one of the camera's two sockets"
+    );
+    assert_eq!(core.command_queue.len(), 1);
+
+    // Freeing one socket releases exactly one queued command.
+    complete(&mut core, first, ViscaSocket::S1, now);
+    let (third, third_camera) =
+        dispatch_and_register(&mut core, now).expect("third command dispatches after completion");
+    assert_eq!(third, cmd_id(3));
+    assert_eq!(third_camera, camera);
+    assert_eq!(core.commands_in_flight_for(camera), 2);
+    assert!(
+        core.next_item_to_send(now).is_none(),
+        "camera is saturated again"
+    );
+}
+
+/// Completing a command on one camera must not release another camera's slot.
+#[test]
+fn test_completion_frees_only_the_completing_cameras_slot() {
+    let mut core = SchedulerCore::new(TimeoutConfig::default());
+    let now = Instant::now();
+    let camera_a = CameraId::CAMERA_1;
+    let camera_b = CameraId::CAMERA_4;
+
+    // Saturate both cameras, then queue one more command for each.
+    queue_command_for(&mut core, 1, camera_a, Priority::Normal, now);
+    queue_command_for(
+        &mut core,
+        2,
+        camera_a,
+        Priority::Normal,
+        now + Duration::from_millis(1),
+    );
+    queue_command_for(
+        &mut core,
+        3,
+        camera_b,
+        Priority::Normal,
+        now + Duration::from_millis(2),
+    );
+    queue_command_for(
+        &mut core,
+        4,
+        camera_b,
+        Priority::Normal,
+        now + Duration::from_millis(3),
+    );
+    for _ in 0..4 {
+        dispatch_and_register(&mut core, now).expect("both cameras fill their sockets");
+    }
+    ack(&mut core, cmd_id(1), ViscaSocket::S1, now);
+    ack(&mut core, cmd_id(2), ViscaSocket::S2, now);
+    ack(&mut core, cmd_id(3), ViscaSocket::S1, now);
+    ack(&mut core, cmd_id(4), ViscaSocket::S2, now);
+
+    queue_command_for(
+        &mut core,
+        5,
+        camera_a,
+        Priority::Normal,
+        now + Duration::from_millis(4),
+    );
+    queue_command_for(
+        &mut core,
+        6,
+        camera_b,
+        Priority::Normal,
+        now + Duration::from_millis(5),
+    );
+    assert!(
+        core.next_item_to_send(now).is_none(),
+        "both cameras are full"
+    );
+
+    // Complete one of camera A's commands.
+    complete(&mut core, cmd_id(1), ViscaSocket::S1, now);
+
+    assert_eq!(core.commands_in_flight_for(camera_a), 1);
+    assert_eq!(
+        core.commands_in_flight_for(camera_b),
+        2,
+        "camera B keeps both slots"
+    );
+    assert!(core.can_send_command_to(camera_a, now));
+    assert!(!core.can_send_command_to(camera_b, now));
+    let (free, _, _) = core.socket_state_for(camera_b, ViscaSocket::S1);
+    assert!(!free, "camera B's S1 is untouched by camera A's completion");
+
+    let (dispatched, dispatched_camera) =
+        dispatch_and_register(&mut core, now).expect("camera A's queued command dispatches");
+    assert_eq!(dispatched, cmd_id(5));
+    assert_eq!(dispatched_camera, camera_a);
+    assert!(
+        core.next_item_to_send(now).is_none(),
+        "camera B's command must still wait"
+    );
+    assert_eq!(core.command_queue.len(), 1);
+}
+
+/// Socket numbers are camera-local: two cameras may both hold socket 1.
+#[test]
+fn test_socket_assignment_is_scoped_to_camera() {
+    let mut core = SchedulerCore::new(TimeoutConfig::default());
+    let now = Instant::now();
+    let camera_a = CameraId::CAMERA_1;
+    let camera_b = CameraId::CAMERA_2;
+    let command = create_test_command(
+        vec![0x81, 0x01, 0x04, 0x00, 0x03, VISCA_TERMINATOR],
+        None,
+        CommandCategory::Movement,
+        camera_a,
+    );
+
+    core.register_pending_ack(cmd_id(1), command.clone(), Priority::Normal, camera_a, now);
+    core.register_pending_ack(cmd_id(2), command, Priority::Normal, camera_b, now);
+
+    ack(&mut core, cmd_id(1), ViscaSocket::S1, now);
+    ack(&mut core, cmd_id(2), ViscaSocket::S1, now);
+
+    let (free, holder, _) = core.socket_state_for(camera_a, ViscaSocket::S1);
+    assert!(!free);
+    assert_eq!(holder, Some(cmd_id(1)));
+
+    let (free, holder, _) = core.socket_state_for(camera_b, ViscaSocket::S1);
+    assert!(!free, "camera B keeps the socket its own ACK asked for");
+    assert_eq!(holder, Some(cmd_id(2)));
+
+    let (free, _, _) = core.socket_state_for(camera_b, ViscaSocket::S2);
+    assert!(free, "camera B should not have been pushed onto S2");
+}
+
+/// A saturated camera must not block queued work for other cameras, even when
+/// the blocked camera holds the highest-priority queue entry.
+#[test]
+fn test_saturated_camera_does_not_block_other_cameras() {
+    let mut core = SchedulerCore::new(TimeoutConfig::default());
+    let now = Instant::now();
+    let busy = CameraId::CAMERA_1;
+    let idle = CameraId::CAMERA_5;
+
+    queue_command_for(&mut core, 1, busy, Priority::Normal, now);
+    queue_command_for(
+        &mut core,
+        2,
+        busy,
+        Priority::Normal,
+        now + Duration::from_millis(1),
+    );
+    dispatch_and_register(&mut core, now).expect("first fills a socket");
+    dispatch_and_register(&mut core, now).expect("second fills a socket");
+    ack(&mut core, cmd_id(1), ViscaSocket::S1, now);
+    ack(&mut core, cmd_id(2), ViscaSocket::S2, now);
+
+    // The blocked camera owns the highest-priority entry in the queue.
+    queue_command_for(
+        &mut core,
+        3,
+        busy,
+        Priority::High,
+        now + Duration::from_millis(2),
+    );
+    queue_command_for(
+        &mut core,
+        4,
+        idle,
+        Priority::Normal,
+        now + Duration::from_millis(3),
+    );
+
+    let next = core
+        .next_item_to_send(now)
+        .expect("idle camera can be served");
+    assert_eq!(next.id, cmd_id(4));
+    assert_eq!(next.camera_id, idle);
+    assert_eq!(
+        core.command_queue.len(),
+        1,
+        "the high-priority command for the saturated camera stays queued"
+    );
+}
+
+/// Per-camera accounting must not loosen the limit for a single camera, which
+/// is the only topology 1.x TCP transports use.
+#[test]
+fn test_single_camera_still_capped_at_two_in_flight() {
+    let mut core = SchedulerCore::new(TimeoutConfig::default());
+    let now = Instant::now();
+    let camera = CameraId::CAMERA_1;
+
+    for i in 1..=5u32 {
+        queue_command_for(
+            &mut core,
+            i,
+            camera,
+            Priority::Normal,
+            now + Duration::from_millis(u64::from(i)),
+        );
+    }
+
+    let mut dispatched = 0;
+    while dispatch_and_register(&mut core, now).is_some() {
+        dispatched += 1;
+    }
+
+    assert_eq!(dispatched, MAX_COMMANDS_IN_FLIGHT_PER_CAMERA);
+    assert!(!core.can_send_command(now));
+    assert_eq!(core.command_queue.len(), 3);
+}

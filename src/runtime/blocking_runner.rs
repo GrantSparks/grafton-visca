@@ -389,7 +389,8 @@ impl<P: Profile> BlockingRunner<P> {
     /// Dispatch queued commands until `target_cmd_id` has been sent, without
     /// receiving any responses. At most one profile-spacing wait is performed
     /// when no item is immediately sendable; a still-blocked target means both
-    /// VISCA command sockets are occupied and is reported as `CameraBusy`.
+    /// of the target camera's VISCA command sockets are occupied and is
+    /// reported as `CameraBusy`.
     fn dispatch_queued_command<T: BlockingTransport + HasTransportConfig>(
         &mut self,
         transport: &mut T,
