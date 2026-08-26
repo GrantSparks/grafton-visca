@@ -19,6 +19,7 @@ mod tokio_priority_cascade {
         command::{PowerOn, PowerStandby, Zoom},
         runtime::testing::{Priority, RuntimeHandle},
         testing::testkit::{helpers, ScriptedTransport, Step},
+        timeout::TimeoutConfig,
         transport::{BackoffStrategy, RetryConfig},
         CameraId, Error, TokioExecutor,
     };
@@ -47,7 +48,11 @@ mod tokio_priority_cascade {
         let transport: ScriptedTransport<TokioExecutor> =
             ScriptedTransport::new(steps).with_executor(executor.clone());
         let observed = transport.clone();
-        let runtime = RuntimeHandle::new_with_config(transport, executor, None, retry)
+        // Generous per-category deadlines: these tests deliberately hold commands
+        // ACKed-but-incomplete, and a deadline firing mid-test would free a socket
+        // and make the ordering assertions flaky on a loaded runner.
+        let timeouts = TimeoutConfig::uniform(Duration::from_secs(120));
+        let runtime = RuntimeHandle::new_with_config(transport, executor, Some(timeouts), retry)
             .await
             .expect("runtime should start");
         (runtime, observed)

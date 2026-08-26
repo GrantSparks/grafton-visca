@@ -34,6 +34,13 @@ mod tokio_completion {
         }
     }
 
+    /// Generous deadlines for the tests that are about completion tracking rather
+    /// than timeouts: a deadline firing mid-test on a loaded runner would resolve
+    /// a future these tests expect to stay pending.
+    fn long_timeouts() -> TimeoutConfig {
+        TimeoutConfig::uniform(Duration::from_secs(120))
+    }
+
     /// Short deadlines so the "completion never arrives" case fails fast instead
     /// of waiting out the 30s movement default.
     fn short_timeouts() -> TimeoutConfig {
@@ -71,7 +78,7 @@ mod tokio_completion {
                 matches: None,
                 responses: vec![helpers::ack(1)], // ACK now, completion injected later.
             }],
-            Some(short_timeouts()),
+            Some(long_timeouts()),
         )
         .await;
 
@@ -144,7 +151,7 @@ mod tokio_completion {
     async fn completion_events_are_published_with_the_command_category() {
         let (runtime, _transport) = runtime_with(
             vec![helpers::standard_command_response(1)],
-            Some(short_timeouts()),
+            Some(long_timeouts()),
         )
         .await;
 
@@ -177,7 +184,7 @@ mod tokio_completion {
     /// library's own idle signal rather than a value the test invents.
     #[tokio::test]
     async fn a_fresh_runtime_reports_no_pending_work() {
-        let (runtime, _transport) = runtime_with(vec![], Some(short_timeouts())).await;
+        let (runtime, _transport) = runtime_with(vec![], Some(long_timeouts())).await;
 
         let metrics = runtime.metrics().await.expect("metrics");
         assert_eq!(metrics.pending_queue_depth, 0, "{metrics:?}");
@@ -198,7 +205,7 @@ mod tokio_completion {
                 helpers::standard_command_response(2),
                 helpers::standard_command_response(1),
             ],
-            Some(short_timeouts()),
+            Some(long_timeouts()),
         )
         .await;
 
@@ -243,7 +250,7 @@ mod tokio_completion {
                     responses: vec![helpers::ack(2)],
                 },
             ],
-            Some(short_timeouts()),
+            Some(long_timeouts()),
         )
         .await;
 
