@@ -1808,12 +1808,158 @@ impl SchedulerCore {
         self.inquiries.get(&id).map(|state| state.response_spec)
     }
 
+    /// Bitmask of the cameras that currently have work outstanding.
+    ///
+    /// Bit *n* is set when camera *n* has a command awaiting ACK or executing,
+    /// or an inquiry awaiting its reply. Camera IDs are 1-8, so the mask fits a
+    /// `u16` and needs no allocation.
+    fn active_camera_mask(&self) -> u16 {
+        let commands = self
+            .commands
+            .values()
+            .filter(|state| state.phase.is_awaiting_ack() || state.phase.is_executing())
+            .map(|state| state.camera_id);
+        let inquiries = self
+            .inquiries
+            .values()
+            .filter(|state| state.phase.is_awaiting_reply())
+            .map(|state| state.camera_id);
+
+        commands
+            .chain(inquiries)
+            .fold(0u16, |mask, camera| mask | (1u16 << camera.id()))
+    }
+
+    /// Decide whether a raw VISCA reply's source address should constrain
+    /// correlation, and to which camera.
+    ///
+    /// Returns `Some(camera)` when the address is discriminating:
+    /// - `camera` has work outstanding, so the reply is its own, or
+    /// - the transport is currently carrying work for more than one camera, in
+    ///   which case a reply from an idle address must not be charged to a
+    ///   neighbour on the bus.
+    ///
+    /// Returns `None` when the address carries nothing the scheduler can act
+    /// on - at most one camera has work outstanding and it is not the sender.
+    /// That is the single-camera case, where IP cameras routinely answer `0x90`
+    /// whatever address they were configured with, so the pre-existing
+    /// camera-blind attribution runs unchanged.
+    pub(crate) fn reply_scope(
+        &self,
+        source: crate::camera_id::CameraId,
+    ) -> Option<crate::camera_id::CameraId> {
+        let mask = self.active_camera_mask();
+        if mask & (1u16 << source.id()) != 0 || mask.count_ones() > 1 {
+            Some(source)
+        } else {
+            None
+        }
+    }
+
+    /// Find the command from `camera` that has been waiting longest for an ACK.
+    ///
+    /// This is the camera-scoped form of the scheduler's raw-VISCA ACK
+    /// attribution: on a daisy chain an ACK carries the sender's address, so it
+    /// belongs to that camera's oldest unacknowledged command and to no other.
+    pub(crate) fn find_ack_target_for(
+        &self,
+        camera: crate::camera_id::CameraId,
+    ) -> Option<CommandId> {
+        self.commands_awaiting_ack_for(camera)
+            .min_by_key(|(sent_at, cmd_id)| (*sent_at, cmd_id.get()))
+            .map(|(_, cmd_id)| cmd_id)
+    }
+
+    /// Find the command holding `socket` on `camera`.
+    ///
+    /// Sockets are camera-local, so this is the correct lookup whenever the
+    /// reply's source address is known.
+    pub(crate) fn find_command_on_socket_for(
+        &self,
+        camera: crate::camera_id::CameraId,
+        socket: ViscaSocket,
+    ) -> Option<CommandId> {
+        self.find_socket_holder(Some(camera), socket)
+    }
+
+    /// Attribute an error frame from `camera` to one of its own commands.
+    ///
+    /// Mirrors the camera-blind error heuristics - socket mapping first, then
+    /// the oldest in-flight inquiry (for `y == 0` errors), then the most
+    /// recently sent command still awaiting ACK - but never crosses to another
+    /// camera's state.
+    pub(crate) fn find_error_target_for(
+        &self,
+        camera: crate::camera_id::CameraId,
+        socket: Option<ViscaSocket>,
+    ) -> Option<CommandId> {
+        let by_socket = socket.and_then(|socket| self.find_command_on_socket_for(camera, socket));
+        by_socket
+            .or_else(|| self.first_inquiry_for(camera))
+            .or_else(|| self.find_most_recent_pending_command_for(camera))
+    }
+
+    /// Oldest inquiry from `camera` still awaiting its reply, in FIFO order.
+    fn first_inquiry_for(&self, camera: crate::camera_id::CameraId) -> Option<CommandId> {
+        self.inquiries_order
+            .iter()
+            .copied()
+            .find(|id| self.inquiry_belongs_to(*id, camera))
+    }
+
+    /// Most recently sent command from `camera` that is still awaiting ACK.
+    fn find_most_recent_pending_command_for(
+        &self,
+        camera: crate::camera_id::CameraId,
+    ) -> Option<CommandId> {
+        self.commands_awaiting_ack_for(camera)
+            .max_by_key(|(sent_at, cmd_id)| (*sent_at, cmd_id.get()))
+            .map(|(_, cmd_id)| cmd_id)
+    }
+
+    /// Commands from `camera` still awaiting an ACK, paired with their send time.
+    fn commands_awaiting_ack_for(
+        &self,
+        camera: crate::camera_id::CameraId,
+    ) -> impl Iterator<Item = (Instant, CommandId)> + '_ {
+        self.commands
+            .iter()
+            .filter_map(move |(&cmd_id, state)| match state.phase {
+                CommandPhase::AwaitingAck { sent_at } if state.camera_id == camera => {
+                    Some((sent_at, cmd_id))
+                }
+                _ => None,
+            })
+    }
+
+    /// Returns `true` if `id` is an active inquiry belonging to `camera`.
+    fn inquiry_belongs_to(&self, id: CommandId, camera: crate::camera_id::CameraId) -> bool {
+        self.inquiries
+            .get(&id)
+            .is_some_and(|state| state.camera_id == camera)
+    }
+
+    /// Head of the inquiry FIFO, restricted to `scope` when the reply's source
+    /// address is discriminating.
+    fn fifo_front_in_scope(&self, scope: Option<crate::camera_id::CameraId>) -> Option<CommandId> {
+        match scope {
+            Some(camera) => self.first_inquiry_for(camera),
+            None => self.inquiries_order.front().copied(),
+        }
+    }
+
     /// Resolve a raw VISCA inquiry reply using content matching and FIFO fallback.
     ///
     /// This method must only be called for replies without Sony sequence metadata.
+    ///
+    /// `scope` restricts both content matching and the FIFO fallback to one
+    /// camera's inquiries. It is `Some` when the reply's source address is
+    /// discriminating (see [`reply_scope`](Self::reply_scope)) and `None` when
+    /// attribution must stay camera-blind.
     pub(crate) fn resolve_raw_inquiry_id(
         &self,
         payload: crate::command::response::Payload<'_>,
+        scope: Option<crate::camera_id::CameraId>,
     ) -> Option<CommandId> {
         use tracing::{debug, trace};
 
@@ -1821,11 +1967,9 @@ impl SchedulerCore {
         let mut match_count = 0usize;
         let mut matched = None;
 
-        for (&id, state) in self
-            .inquiries
-            .iter()
-            .filter(|(_, state)| state.phase.is_awaiting_reply())
-        {
+        for (&id, state) in self.inquiries.iter().filter(|(_, state)| {
+            state.phase.is_awaiting_reply() && scope.is_none_or(|camera| state.camera_id == camera)
+        }) {
             active_count += 1;
             match state.response_spec {
                 InquiryResponseSpec::Builtin(kind) => {
@@ -1853,7 +1997,7 @@ impl SchedulerCore {
         match match_count {
             0 => {
                 // No match - fall back to FIFO as last resort
-                let fifo_front = self.inquiries_order.front().copied();
+                let fifo_front = self.fifo_front_in_scope(scope);
 
                 // Only log at DEBUG when FIFO fallback actually happens (indicates potential issue)
                 if fifo_front.is_some() {
@@ -1879,7 +2023,7 @@ impl SchedulerCore {
             _ => {
                 // Ambiguous - multiple inquiries match the same payload type
                 // This is unusual and worth logging at DEBUG
-                let fifo_front = self.inquiries_order.front().copied();
+                let fifo_front = self.fifo_front_in_scope(scope);
                 debug!(
                     fifo_fallback = ?fifo_front,
                     "Ambiguous inquiry match - using FIFO to disambiguate"
@@ -3322,13 +3466,28 @@ impl SchedulerCore {
     /// held it longest is returned; this keeps attribution deterministic instead
     /// of depending on hash-map iteration order.
     pub fn find_command_on_socket(&self, socket: ViscaSocket) -> Option<CommandId> {
+        self.find_socket_holder(None, socket)
+    }
+
+    /// Find the command holding `socket`, optionally restricted to one camera.
+    ///
+    /// When more than one camera holds the same socket number, the command that
+    /// has held it longest is returned; this keeps attribution deterministic
+    /// instead of depending on hash-map iteration order.
+    fn find_socket_holder(
+        &self,
+        camera: Option<crate::camera_id::CameraId>,
+        socket: ViscaSocket,
+    ) -> Option<CommandId> {
         self.commands
             .iter()
             .filter_map(|(&cmd_id, state)| match state.phase {
                 CommandPhase::Executing {
                     socket: s,
                     started_at,
-                } if s == socket => Some((started_at, cmd_id)),
+                } if s == socket && camera.is_none_or(|camera| state.camera_id == camera) => {
+                    Some((started_at, cmd_id))
+                }
                 _ => None,
             })
             .min_by_key(|(started_at, cmd_id)| (*started_at, cmd_id.get()))

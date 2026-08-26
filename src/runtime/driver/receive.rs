@@ -10,6 +10,7 @@ use tracing::{debug, trace, warn};
 
 use crate::{
     camera::CommandId,
+    camera_id::CameraId,
     capabilities::Profile,
     command::response::{lift_response_for_spec, Payload},
     error::Error,
@@ -43,6 +44,12 @@ pub(crate) enum IgnoreReason {
     UnattributedDataReply,
     /// A data reply used the sequence of an active non-inquiry command.
     UnexpectedDataReply { id: CommandId },
+    /// A reply whose source address owns nothing in flight, on a transport
+    /// carrying more than one camera.
+    ///
+    /// The address is authoritative there, so the frame is dropped rather than
+    /// charged to a neighbour's command.
+    UnownedSourceReply { camera: CameraId },
 }
 
 /// Classify and attribute one received VISCA payload.
@@ -64,6 +71,7 @@ pub(crate) fn receive_one<P: Profile>(
     trace!(
         kind = ?basic.kind,
         socket = ?basic.socket,
+        source = %basic.source,
         sequence,
         "Decoded VISCA response"
     );
@@ -74,6 +82,14 @@ pub(crate) fn receive_one<P: Profile>(
             if let Some(reason) = ignore_unmatched_sequence(core, sequence, cmd_id) {
                 return ReceiveDisposition::Ignored { reason };
             }
+
+            let cmd_id =
+                match attribute_to_source(core, &basic, sequence, cmd_id, |core, camera| {
+                    core.find_ack_target_for(camera)
+                }) {
+                    Ok(cmd_id) => cmd_id,
+                    Err(reason) => return ReceiveDisposition::Ignored { reason },
+                };
 
             let source = ReplySource::from_fields(cmd_id, sequence, basic.socket);
             ReceiveDisposition::Event(SchedulerEvent::Ack { source })
@@ -100,6 +116,15 @@ fn classify_completion<P: Profile>(
         return ReceiveDisposition::Ignored { reason };
     }
 
+    let cmd_id = match attribute_to_source(core, basic, sequence, cmd_id, |core, camera| {
+        basic
+            .socket
+            .and_then(|socket| core.find_command_on_socket_for(camera, socket))
+    }) {
+        Ok(cmd_id) => cmd_id,
+        Err(reason) => return ReceiveDisposition::Ignored { reason },
+    };
+
     let response_spec = cmd_id.and_then(|id| core.get_inquiry_response_spec(id));
 
     match lift_response_for_spec::<P>(basic, response_spec.as_ref()) {
@@ -123,12 +148,22 @@ fn classify_error(
     }
 
     if cmd_id.is_none() && basic.socket.is_none() && sequence.is_none() {
-        cmd_id = core.resolve_raw_inquiry_id(Payload::new(&[]));
+        // An error frame carries no inquiry payload, so this resolves through
+        // the inquiry FIFO rather than by content.
+        cmd_id =
+            core.resolve_raw_inquiry_id(Payload::new(&[]), source_scope(core, basic, sequence));
     }
 
+    let cmd_id = match attribute_to_source(core, basic, sequence, cmd_id, |core, camera| {
+        core.find_error_target_for(camera, basic.socket)
+    }) {
+        Ok(cmd_id) => cmd_id,
+        Err(reason) => return ReceiveDisposition::Ignored { reason },
+    };
+
     debug!(
-        "Received error 0x{code:02X} for socket {:?}, cmd_id {:?}",
-        basic.socket, cmd_id
+        "Received error 0x{code:02X} from {} for socket {:?}, cmd_id {:?}",
+        basic.source, basic.socket, cmd_id
     );
 
     let source = ReplySource::from_fields(cmd_id, sequence, basic.socket);
@@ -160,7 +195,7 @@ fn classify_data_reply<P: Profile>(
                 };
             }
         },
-        None => core.resolve_raw_inquiry_id(basic.payload),
+        None => core.resolve_raw_inquiry_id(basic.payload, source_scope(core, basic, sequence)),
     };
 
     let Some(cmd_id) = cmd_id else {
@@ -181,6 +216,66 @@ fn classify_data_reply<P: Profile>(
             ReceiveDisposition::Event(SchedulerEvent::InquiryReply { source, response })
         }
         Err(error) => attributed_decode_failure(Some(cmd_id), error, "DataReply"),
+    }
+}
+
+/// The camera a raw VISCA reply must be correlated against, if its source
+/// address is discriminating on this transport.
+///
+/// Sony-encapsulated replies are correlated by sequence number, which is
+/// authoritative; the VISCA address must never override it, so a sequenced
+/// frame is never scoped here.
+fn source_scope(
+    core: &SchedulerCore,
+    basic: &BasicResponse<'_>,
+    sequence: Option<u32>,
+) -> Option<CameraId> {
+    if sequence.is_some() {
+        return None;
+    }
+    core.reply_scope(basic.source)
+}
+
+/// Attribute an unsequenced reply to the camera named by its source address.
+///
+/// On a serial daisy chain the reply address is the only thing that ties a
+/// frame to one of up to seven devices, so it is resolved here rather than left
+/// to the scheduler's camera-blind socket and FIFO heuristics.
+///
+/// Returns:
+/// - `Ok(Some(id))` when `resolved` already named a command, or the source
+///   camera owns one that can take the reply,
+/// - `Ok(None)` when the address is not discriminating - one camera at most has
+///   work outstanding - so the scheduler's existing heuristics run unchanged,
+/// - `Err(reason)` when the address is authoritative but nothing on that camera
+///   can own the frame; the reply is ignored instead of being charged to a
+///   neighbour on the bus.
+fn attribute_to_source(
+    core: &SchedulerCore,
+    basic: &BasicResponse<'_>,
+    sequence: Option<u32>,
+    resolved: Option<CommandId>,
+    resolve: impl FnOnce(&SchedulerCore, CameraId) -> Option<CommandId>,
+) -> Result<Option<CommandId>, IgnoreReason> {
+    if resolved.is_some() {
+        return Ok(resolved);
+    }
+
+    let Some(camera) = source_scope(core, basic, sequence) else {
+        return Ok(None);
+    };
+
+    match resolve(core, camera) {
+        Some(cmd_id) => Ok(Some(cmd_id)),
+        None => {
+            debug!(
+                %camera,
+                kind = ?basic.kind,
+                socket = ?basic.socket,
+                "Ignoring reply from a camera with no matching work in flight"
+            );
+            Err(IgnoreReason::UnownedSourceReply { camera })
+        }
     }
 }
 
@@ -230,7 +325,10 @@ fn record_unmatched_sequence(core: &mut SchedulerCore, sequence: u32) {
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
-    use std::{sync::Arc, time::Instant};
+    use std::{
+        sync::Arc,
+        time::{Duration, Instant},
+    };
 
     use smallvec::SmallVec;
 
@@ -303,6 +401,52 @@ mod tests {
             CameraId::CAMERA_1,
             Instant::now(),
         );
+    }
+
+    fn start_command_for(core: &mut SchedulerCore, id: CommandId, camera: CameraId, at: Instant) {
+        core.register_pending_ack(id, command(), Priority::Normal, camera, at);
+    }
+
+    fn start_inquiry_for(
+        core: &mut SchedulerCore,
+        id: CommandId,
+        kind: InquiryKind,
+        camera: CameraId,
+        at: Instant,
+    ) {
+        core.start_inquiry(id, inquiry(kind), Priority::Normal, camera, at);
+    }
+
+    /// Reply address byte for a camera on a serial daisy chain: the device at
+    /// address n answers with the high nibble `8 + n`.
+    fn z0(camera: CameraId) -> u8 {
+        (8 + camera.id()) << 4
+    }
+
+    #[track_caller]
+    fn expect_event(disposition: ReceiveDisposition) -> SchedulerEvent {
+        match disposition {
+            ReceiveDisposition::Event(event) => event,
+            other => panic!("expected a scheduler event, got {other:?}"),
+        }
+    }
+
+    /// Feed one raw VISCA frame through the receive path and the scheduler.
+    #[track_caller]
+    fn deliver(core: &mut SchedulerCore, frame: &[u8], now: Instant) -> Vec<SchedulerAction> {
+        let event = expect_event(receive_one::<PtzOpticsG2>(core, frame, None));
+        core.process_event(event, now)
+    }
+
+    #[track_caller]
+    fn completed_ids(actions: &[SchedulerAction]) -> Vec<CommandId> {
+        actions
+            .iter()
+            .filter_map(|action| match action {
+                SchedulerAction::CommandComplete { id, .. } => Some(*id),
+                _ => None,
+            })
+            .collect()
     }
 
     #[test]
@@ -697,5 +841,325 @@ mod tests {
             }
             other => panic!("expected error event, got {other:?}"),
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // Serial daisy chain: replies carry the sending camera's address
+    // -----------------------------------------------------------------------
+
+    /// Every device on a chain answers with its own address, and each reply
+    /// must drive that camera's own command through ACK and completion.
+    ///
+    /// Before source-address decoding, only camera 1's `0x90` replies parsed;
+    /// `0xA0`-`0xF0` were rejected as malformed and those commands could only
+    /// time out.
+    #[test]
+    fn chain_replies_drive_each_cameras_own_command() {
+        let mut core = SchedulerCore::new(TimeoutConfig::default());
+        let now = Instant::now();
+        let chain = [
+            (cmd_id(1), CameraId::CAMERA_1),
+            (cmd_id(2), CameraId::CAMERA_2),
+            (cmd_id(3), CameraId::CAMERA_3),
+        ];
+
+        for (offset, &(id, camera)) in chain.iter().enumerate() {
+            start_command_for(
+                &mut core,
+                id,
+                camera,
+                now + Duration::from_millis(offset as u64),
+            );
+        }
+
+        // ACKs come back in reverse order; each camera allocates its own S1.
+        for &(id, camera) in chain.iter().rev() {
+            let actions = deliver(&mut core, &[z0(camera), 0x41, VISCA_TERMINATOR], now);
+            assert!(actions.is_empty(), "an ACK alone completes nothing");
+            let (free, holder, _) = core.socket_state_for(camera, ViscaSocket::S1);
+            assert!(!free, "{camera} should hold its own S1");
+            assert_eq!(holder, Some(id), "{camera} S1 must hold its own command");
+        }
+
+        // Completions interleave; each finishes only its own camera's command.
+        for &(id, camera) in &[chain[1], chain[2], chain[0]] {
+            let actions = deliver(&mut core, &[z0(camera), 0x51, VISCA_TERMINATOR], now);
+            assert_eq!(
+                completed_ids(&actions),
+                vec![id],
+                "{camera}'s completion must finish {id} and nothing else"
+            );
+        }
+
+        for &(id, _) in &chain {
+            assert!(!core.is_command_pending(id), "{id} should be finished");
+        }
+    }
+
+    /// An error frame from one camera fails that camera's command only.
+    #[test]
+    fn chain_error_fails_only_the_sending_cameras_command() {
+        let mut core = SchedulerCore::new(TimeoutConfig::default());
+        let now = Instant::now();
+        let chain = [
+            (cmd_id(1), CameraId::CAMERA_1),
+            (cmd_id(2), CameraId::CAMERA_2),
+            (cmd_id(3), CameraId::CAMERA_3),
+        ];
+
+        for (offset, &(id, camera)) in chain.iter().enumerate() {
+            start_command_for(
+                &mut core,
+                id,
+                camera,
+                now + Duration::from_millis(offset as u64),
+            );
+            deliver(&mut core, &[z0(camera), 0x41, VISCA_TERMINATOR], now);
+        }
+
+        // Camera 2 rejects its command with a terminal syntax error.
+        let actions = deliver(
+            &mut core,
+            &[z0(CameraId::CAMERA_2), 0x61, 0x02, VISCA_TERMINATOR],
+            now,
+        );
+        let failed: Vec<_> = actions
+            .iter()
+            .filter_map(|action| match action {
+                SchedulerAction::CommandFailed { id, .. } => Some(*id),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(failed, vec![cmd_id(2)], "only camera 2's command fails");
+
+        assert!(core.is_command_pending(cmd_id(1)), "camera 1 is untouched");
+        assert!(core.is_command_pending(cmd_id(3)), "camera 3 is untouched");
+
+        // The neighbours still complete normally afterwards.
+        let actions = deliver(
+            &mut core,
+            &[z0(CameraId::CAMERA_3), 0x51, VISCA_TERMINATOR],
+            now,
+        );
+        assert_eq!(completed_ids(&actions), vec![cmd_id(3)]);
+    }
+
+    /// A data reply resolves against the sending camera's inquiry, even when
+    /// another camera has an identical inquiry outstanding.
+    #[test]
+    fn chain_data_reply_resolves_the_sending_cameras_inquiry() {
+        let mut core = SchedulerCore::new(TimeoutConfig::default());
+        let now = Instant::now();
+
+        // Camera 1 asked first, so it owns the head of the FIFO order queue.
+        start_inquiry_for(
+            &mut core,
+            cmd_id(1),
+            InquiryKind::Power,
+            CameraId::CAMERA_1,
+            now,
+        );
+        start_inquiry_for(
+            &mut core,
+            cmd_id(2),
+            InquiryKind::Power,
+            CameraId::CAMERA_2,
+            now + Duration::from_millis(1),
+        );
+
+        let actions = deliver(
+            &mut core,
+            &[z0(CameraId::CAMERA_2), 0x50, 0x02, VISCA_TERMINATOR],
+            now,
+        );
+        assert_eq!(
+            completed_ids(&actions),
+            vec![cmd_id(2)],
+            "camera 2's reply must not be charged to camera 1's identical inquiry"
+        );
+        assert!(core.is_command_pending(cmd_id(1)), "camera 1 still waiting");
+
+        let actions = deliver(
+            &mut core,
+            &[z0(CameraId::CAMERA_1), 0x50, 0x02, VISCA_TERMINATOR],
+            now,
+        );
+        assert_eq!(completed_ids(&actions), vec![cmd_id(1)]);
+    }
+
+    /// A reply from a camera with nothing in flight is ignored rather than
+    /// charged to a neighbour, which is the existing policy for a syntactically
+    /// valid frame that cannot be attributed.
+    #[test]
+    fn chain_reply_from_idle_camera_is_ignored() {
+        let mut core = SchedulerCore::new(TimeoutConfig::default());
+        let now = Instant::now();
+
+        start_command_for(&mut core, cmd_id(1), CameraId::CAMERA_1, now);
+        start_command_for(
+            &mut core,
+            cmd_id(2),
+            CameraId::CAMERA_2,
+            now + Duration::from_millis(1),
+        );
+        deliver(
+            &mut core,
+            &[z0(CameraId::CAMERA_1), 0x41, VISCA_TERMINATOR],
+            now,
+        );
+        deliver(
+            &mut core,
+            &[z0(CameraId::CAMERA_2), 0x41, VISCA_TERMINATOR],
+            now,
+        );
+
+        // Camera 5 is on the bus but has nothing outstanding.
+        let idle = CameraId::CAMERA_5;
+        for frame in [
+            vec![z0(idle), 0x41, VISCA_TERMINATOR],
+            vec![z0(idle), 0x51, VISCA_TERMINATOR],
+            vec![z0(idle), 0x61, 0x02, VISCA_TERMINATOR],
+            vec![z0(idle), 0x50, 0x02, VISCA_TERMINATOR],
+        ] {
+            let disposition = receive_one::<PtzOpticsG2>(&mut core, &frame, None);
+            match disposition {
+                ReceiveDisposition::Ignored {
+                    reason: IgnoreReason::UnownedSourceReply { camera },
+                } => assert_eq!(camera, idle),
+                ReceiveDisposition::Ignored {
+                    reason: IgnoreReason::UnattributedDataReply,
+                } => {}
+                other => panic!("expected an ignored frame for {frame:02X?}, got {other:?}"),
+            }
+        }
+
+        assert!(core.is_command_pending(cmd_id(1)), "camera 1 untouched");
+        assert!(core.is_command_pending(cmd_id(2)), "camera 2 untouched");
+        let (free, holder, _) = core.socket_state_for(CameraId::CAMERA_1, ViscaSocket::S1);
+        assert!(!free);
+        assert_eq!(holder, Some(cmd_id(1)));
+        let (free, holder, _) = core.socket_state_for(CameraId::CAMERA_2, ViscaSocket::S1);
+        assert!(!free);
+        assert_eq!(holder, Some(cmd_id(2)));
+    }
+
+    /// With one camera on the transport the reply address is not
+    /// discriminating: IP cameras answer `0x90` whatever address they were
+    /// configured with, so attribution stays exactly as it was in 1.x.
+    #[test]
+    fn single_camera_keeps_camera_blind_attribution() {
+        let mut core = SchedulerCore::new(TimeoutConfig::default());
+        let now = Instant::now();
+
+        // The session addresses this camera as 2, but it replies as camera 1.
+        start_command_for(&mut core, cmd_id(1), CameraId::CAMERA_2, now);
+
+        deliver(&mut core, &[0x90, 0x41, VISCA_TERMINATOR], now);
+        let (free, holder, _) = core.socket_state_for(CameraId::CAMERA_2, ViscaSocket::S1);
+        assert!(
+            !free,
+            "the ACK still assigns the configured camera's socket"
+        );
+        assert_eq!(holder, Some(cmd_id(1)));
+
+        let actions = deliver(&mut core, &[0x90, 0x51, VISCA_TERMINATOR], now);
+        assert_eq!(completed_ids(&actions), vec![cmd_id(1)]);
+    }
+
+    /// Lead bytes that are not reply addresses stay malformed, and a chain
+    /// address does not make a truncated frame decodable.
+    #[test]
+    fn non_reply_addresses_and_truncated_frames_are_still_malformed() {
+        let mut core = SchedulerCore::new(TimeoutConfig::default());
+        start_command(&mut core, cmd_id(1));
+
+        let malformed: &[&[u8]] = &[
+            &[0x80, 0x41, VISCA_TERMINATOR],       // controller address
+            &[0x88, 0x30, 0x02, VISCA_TERMINATOR], // address-set reply
+            &[0x81, 0x41, VISCA_TERMINATOR],       // command address, not a reply
+            &[0x8F, 0x41, VISCA_TERMINATOR],
+            &[0xA0, 0x41],                   // no terminator
+            &[0xF0, 0x41],                   // no terminator
+            &[0xA0, VISCA_TERMINATOR],       // too short
+            &[0xF0, 0x61, VISCA_TERMINATOR], // error frame without its code
+        ];
+
+        for frame in malformed {
+            assert!(
+                matches!(
+                    receive_one::<PtzOpticsG2>(&mut core, frame, None),
+                    ReceiveDisposition::Malformed(_)
+                ),
+                "{frame:02X?} must stay malformed"
+            );
+        }
+        assert!(core.is_command_pending(cmd_id(1)), "no state was disturbed");
+    }
+
+    /// Network-change notifications are ignored from every chain address.
+    #[test]
+    fn network_change_from_any_chain_address_is_ignored() {
+        let mut core = SchedulerCore::new(TimeoutConfig::default());
+        start_command(&mut core, cmd_id(1));
+
+        for id in 1..=7u8 {
+            let camera = CameraId::new(id).expect("1-7 are valid camera IDs");
+            let frame = [z0(camera), 0x38, VISCA_TERMINATOR];
+            assert!(
+                matches!(
+                    receive_one::<PtzOpticsG2>(&mut core, &frame, None),
+                    ReceiveDisposition::Ignored {
+                        reason: IgnoreReason::NetworkChange
+                    }
+                ),
+                "network change from {camera} must be ignored"
+            );
+        }
+        assert!(core.is_command_pending(cmd_id(1)));
+    }
+
+    /// A Sony sequence number stays authoritative: the VISCA reply address must
+    /// never override it, and an unmatched sequence is still ignored.
+    #[test]
+    fn sequenced_replies_ignore_the_reply_address() {
+        let mut core = SchedulerCore::new(TimeoutConfig::default());
+        let now = Instant::now();
+        start_command_for(&mut core, cmd_id(1), CameraId::CAMERA_1, now);
+        start_command_for(
+            &mut core,
+            cmd_id(2),
+            CameraId::CAMERA_2,
+            now + Duration::from_millis(1),
+        );
+        core.register_sequence(cmd_id(1), 700);
+
+        // Camera 2's address on a frame sequenced for camera 1's command:
+        // the sequence wins.
+        match receive_one::<PtzOpticsG2>(
+            &mut core,
+            &[z0(CameraId::CAMERA_2), 0x41, VISCA_TERMINATOR],
+            Some(700),
+        ) {
+            ReceiveDisposition::Event(SchedulerEvent::Ack { source }) => {
+                assert_eq!(source.cmd_id(), Some(cmd_id(1)));
+            }
+            other => panic!("expected a sequence-attributed ACK, got {other:?}"),
+        }
+
+        // An unmatched sequence is still dropped rather than falling back to
+        // the reply address.
+        let before = core.ignored_unmatched_sequenced_replies();
+        let disposition = receive_one::<PtzOpticsG2>(
+            &mut core,
+            &[z0(CameraId::CAMERA_2), 0x41, VISCA_TERMINATOR],
+            Some(999),
+        );
+        assert!(matches!(
+            disposition,
+            ReceiveDisposition::Ignored {
+                reason: IgnoreReason::UnmatchedSequence { sequence: 999 }
+            }
+        ));
+        assert_eq!(core.ignored_unmatched_sequenced_replies(), before + 1);
     }
 }

@@ -73,6 +73,24 @@ impl CameraId {
         self.0
     }
 
+    /// Decode the camera that sent a reply from the reply's address byte.
+    ///
+    /// A VISCA device at address *n* answers with the high nibble `8 + n`, so
+    /// camera 1 replies `0x90`, camera 2 `0xA0`, and camera 7 `0xF0`. The low
+    /// nibble carries the destination (the controller, address 0) and is not
+    /// part of the source address.
+    ///
+    /// Returns `None` for any byte that is not a reply address: `0x8y` is the
+    /// controller/broadcast range (`0x88` is address-set traffic, handled by the
+    /// serial handshake, not by response decoding) and anything below that is
+    /// not addressed to us at all.
+    pub(crate) fn from_reply_address(byte: u8) -> Option<Self> {
+        match byte >> 4 {
+            nibble @ 0x9..=0xF => Some(CameraId(nibble - 8)),
+            _ => None,
+        }
+    }
+
     /// Check if this is the broadcast address.
     #[must_use]
     pub fn is_broadcast(self) -> bool {
@@ -145,6 +163,36 @@ mod tests {
     #[test]
     fn test_default() {
         assert_eq!(CameraId::default(), CameraId::CAMERA_1);
+    }
+
+    #[test]
+    fn test_from_reply_address() {
+        // Every chain address replies with the high nibble 8 + n.
+        for id in 1..=7u8 {
+            let address = (8 + id) << 4;
+            assert_eq!(
+                CameraId::from_reply_address(address),
+                Some(CameraId(id)),
+                "reply address 0x{address:02X} is camera {id}"
+            );
+        }
+
+        assert_eq!(CameraId::from_reply_address(0x90), Some(CameraId::CAMERA_1));
+        assert_eq!(CameraId::from_reply_address(0xA0), Some(CameraId::CAMERA_2));
+        assert_eq!(CameraId::from_reply_address(0xF0), Some(CameraId::CAMERA_7));
+
+        // The low nibble is the destination address, not part of the source.
+        assert_eq!(CameraId::from_reply_address(0x9F), Some(CameraId::CAMERA_1));
+
+        // Not reply addresses: controller (0x80), broadcast/address-set (0x88),
+        // and command addresses (0x81-0x87).
+        for byte in [0x00, 0x0F, 0x7F, 0x80, 0x81, 0x87, 0x88, 0x8F] {
+            assert_eq!(
+                CameraId::from_reply_address(byte),
+                None,
+                "0x{byte:02X} is not a reply address"
+            );
+        }
     }
 
     #[test]
