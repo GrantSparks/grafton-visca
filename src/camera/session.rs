@@ -3,6 +3,22 @@
 //! This module provides the CameraSession type which represents an active
 //! connection to a VISCA camera. Sessions provide both RAII (automatic cleanup
 //! on drop) and explicit close() methods for controlled shutdown.
+//!
+//! # Async sessions are the supported use of this type
+//!
+//! `CameraSession` is constructed only by the async entry points
+//! (`CameraConfig::open_async`, `open_serial_async`, and the `Connect`
+//! builders), all of which are gated behind the `mode-async` feature. The async
+//! session surface is fully supported and is not deprecated.
+//!
+//! # The blocking session surface is deprecated
+//!
+//! There is no blocking constructor for `CameraSession`, so the
+//! `CameraSession<Blocking, ...>` surface is exported type-level parity that no
+//! blocking caller can ever reach. Every blocking entry point returns
+//! `BlockingClient` instead, and that is the blocking handle to use. The
+//! blocking session methods are therefore deprecated as of 1.2.0 (see issue
+//! #594) and are removed in 2.0; the type itself stays for the async build.
 
 use std::{marker::PhantomData, time::Duration};
 
@@ -415,11 +431,19 @@ where
     P: Profile,
 {
     /// Get a reference to the underlying camera.
+    #[deprecated(
+        since = "1.2.0",
+        note = "the blocking CameraSession is unconstructible; use BlockingClient - see issue #594, removed in 2.0"
+    )]
     pub fn camera(&self) -> &Camera<crate::mode::Blocking, P, Tr, ()> {
         &self.camera
     }
 
     /// Get a mutable reference to the underlying camera.
+    #[deprecated(
+        since = "1.2.0",
+        note = "the blocking CameraSession is unconstructible; use BlockingClient - see issue #594, removed in 2.0"
+    )]
     pub fn camera_mut(&mut self) -> &mut Camera<crate::mode::Blocking, P, Tr, ()> {
         &mut self.camera
     }
@@ -429,6 +453,10 @@ where
     /// This is a handoff, not a close: the transport stays open and moves with
     /// the returned camera, which is then responsible for the teardown the
     /// session would otherwise have performed on drop or on `close()`.
+    #[deprecated(
+        since = "1.2.0",
+        note = "the blocking CameraSession is unconstructible; use BlockingClient - see issue #594, removed in 2.0"
+    )]
     pub fn into_inner(self) -> Camera<crate::mode::Blocking, P, Tr, ()> {
         self.camera
     }
@@ -445,6 +473,10 @@ where
     ///
     /// This consumes the session and returns a closed session marker.
     /// The session is also automatically closed when dropped.
+    #[deprecated(
+        since = "1.2.0",
+        note = "the blocking CameraSession is unconstructible; use BlockingClient - see issue #594, removed in 2.0"
+    )]
     pub fn close(self) -> Result<ClosedSession, Error> {
         drop(self);
         Ok(ClosedSession)
@@ -454,6 +486,10 @@ where
     ///
     /// This provides a way to send raw VISCA commands while still going through
     /// the session's command scheduler to maintain proper sequencing.
+    #[deprecated(
+        since = "1.2.0",
+        note = "the blocking CameraSession is unconstructible; use BlockingClient - see issue #594, removed in 2.0"
+    )]
     pub fn raw(&self) -> RawSender<'_, crate::mode::Blocking, P, Tr, ()> {
         RawSender {
             camera: &self.camera,
@@ -480,6 +516,10 @@ where
     /// * `Ok(())` - Movement completed successfully
     /// * `Err(Error::Timeout)` - Movement did not complete within timeout
     /// * `Err(Error::*)` - Other communication or camera errors
+    #[deprecated(
+        since = "1.2.0",
+        note = "the blocking CameraSession is unconstructible; use BlockingClient - see issue #594, removed in 2.0"
+    )]
     pub fn await_idle(&mut self, timeout: Duration) -> Result<(), Error> {
         self.camera.await_idle(timeout)
     }
@@ -494,6 +534,10 @@ where
     /// # Returns
     /// * `Ok(())` - Movement completed successfully
     /// * `Err(Error::Timeout)` - Movement did not complete within timeout
+    #[deprecated(
+        since = "1.2.0",
+        note = "the blocking CameraSession is unconstructible; use BlockingClient - see issue #594, removed in 2.0"
+    )]
     pub fn await_pan_tilt_idle(&mut self, timeout: Duration) -> Result<(), Error> {
         self.camera.await_pan_tilt_idle(timeout)
     }
@@ -508,6 +552,10 @@ where
     /// # Returns
     /// * `Ok(())` - Movement completed successfully
     /// * `Err(Error::Timeout)` - Movement did not complete within timeout
+    #[deprecated(
+        since = "1.2.0",
+        note = "the blocking CameraSession is unconstructible; use BlockingClient - see issue #594, removed in 2.0"
+    )]
     pub fn await_zoom_idle(&mut self, timeout: Duration) -> Result<(), Error> {
         self.camera.await_zoom_idle(timeout)
     }
@@ -522,6 +570,10 @@ where
     /// # Returns
     /// * `Ok(())` - Movement completed successfully
     /// * `Err(Error::Timeout)` - Movement did not complete within timeout
+    #[deprecated(
+        since = "1.2.0",
+        note = "the blocking CameraSession is unconstructible; use BlockingClient - see issue #594, removed in 2.0"
+    )]
     pub fn await_focus_idle(&mut self, timeout: Duration) -> Result<(), Error> {
         self.camera.await_focus_idle(timeout)
     }
@@ -534,6 +586,10 @@ where
     /// * `Ok(true)` - Camera is moving
     /// * `Ok(false)` - Camera is idle
     /// * `Err(Error::*)` - Communication error
+    #[deprecated(
+        since = "1.2.0",
+        note = "the blocking CameraSession is unconstructible; use BlockingClient - see issue #594, removed in 2.0"
+    )]
     pub fn is_moving(&mut self) -> Result<bool, Error> {
         self.camera.is_moving()
     }
@@ -550,6 +606,10 @@ where
     /// * `Ok(())` - Movement completed successfully
     /// * `Err(Error::Timeout)` - Movement did not complete within timeout
     /// * `Err(Error::*)` - Other communication or camera errors
+    #[deprecated(
+        since = "1.2.0",
+        note = "the blocking CameraSession is unconstructible; use BlockingClient - see issue #594, removed in 2.0"
+    )]
     pub fn await_with_config(&mut self, config: &super::AwaitConfig) -> Result<(), Error> {
         self.camera.await_with_config(config)
     }
@@ -567,31 +627,55 @@ where
     /// * `Ok(())` - All monitored axes idle
     /// * `Err(Error::Timeout)` - Movement did not complete within timeout
     /// * `Err(Error::*)` - Communication error
+    #[deprecated(
+        since = "1.2.0",
+        note = "the blocking CameraSession is unconstructible; use BlockingClient - see issue #594, removed in 2.0"
+    )]
     pub fn await_axes_idle(&mut self, axes: super::Axes, timeout: Duration) -> Result<(), Error> {
         self.camera.await_axes_idle(axes, timeout)
     }
 
     /// Access power-related controls and inquiries.
+    #[deprecated(
+        since = "1.2.0",
+        note = "the blocking CameraSession is unconstructible; use BlockingClient - see issue #594, removed in 2.0"
+    )]
     pub fn power(&self) -> crate::camera::PowerAccessor<'_, crate::mode::Blocking, P, Tr, ()> {
         crate::camera::PowerAccessor::new(&self.camera)
     }
 
     /// Access zoom-related controls and inquiries.
+    #[deprecated(
+        since = "1.2.0",
+        note = "the blocking CameraSession is unconstructible; use BlockingClient - see issue #594, removed in 2.0"
+    )]
     pub fn zoom(&self) -> crate::camera::ZoomAccessor<'_, crate::mode::Blocking, P, Tr, ()> {
         crate::camera::ZoomAccessor::new(&self.camera)
     }
 
     /// Access pan/tilt-related controls and inquiries.
+    #[deprecated(
+        since = "1.2.0",
+        note = "the blocking CameraSession is unconstructible; use BlockingClient - see issue #594, removed in 2.0"
+    )]
     pub fn pan_tilt(&self) -> crate::camera::PanTiltAccessor<'_, crate::mode::Blocking, P, Tr, ()> {
         crate::camera::PanTiltAccessor::new(&self.camera)
     }
 
     /// Access focus-related controls and inquiries.
+    #[deprecated(
+        since = "1.2.0",
+        note = "the blocking CameraSession is unconstructible; use BlockingClient - see issue #594, removed in 2.0"
+    )]
     pub fn focus(&self) -> crate::camera::FocusAccessor<'_, crate::mode::Blocking, P, Tr, ()> {
         crate::camera::FocusAccessor::new(&self.camera)
     }
 
     /// Access exposure-related controls and inquiries.
+    #[deprecated(
+        since = "1.2.0",
+        note = "the blocking CameraSession is unconstructible; use BlockingClient - see issue #594, removed in 2.0"
+    )]
     pub fn exposure(
         &self,
     ) -> crate::camera::ExposureAccessor<'_, crate::mode::Blocking, P, Tr, ()> {
@@ -599,6 +683,10 @@ where
     }
 
     /// Access white balance controls.
+    #[deprecated(
+        since = "1.2.0",
+        note = "the blocking CameraSession is unconstructible; use BlockingClient - see issue #594, removed in 2.0"
+    )]
     pub fn white_balance(
         &self,
     ) -> crate::camera::WhiteBalanceAccessor<'_, crate::mode::Blocking, P, Tr, ()> {
@@ -606,16 +694,28 @@ where
     }
 
     /// Access menu navigation controls.
+    #[deprecated(
+        since = "1.2.0",
+        note = "the blocking CameraSession is unconstructible; use BlockingClient - see issue #594, removed in 2.0"
+    )]
     pub fn menu(&self) -> crate::camera::MenuAccessor<'_, crate::mode::Blocking, P, Tr, ()> {
         crate::camera::MenuAccessor::new(&self.camera)
     }
 
     /// Access preset controls.
+    #[deprecated(
+        since = "1.2.0",
+        note = "the blocking CameraSession is unconstructible; use BlockingClient - see issue #594, removed in 2.0"
+    )]
     pub fn presets(&self) -> crate::camera::PresetsAccessor<'_, crate::mode::Blocking, P, Tr, ()> {
         crate::camera::PresetsAccessor::new(&self.camera)
     }
 
     /// Access tally light controls.
+    #[deprecated(
+        since = "1.2.0",
+        note = "the blocking CameraSession is unconstructible; use BlockingClient - see issue #594, removed in 2.0"
+    )]
     pub fn tally(&self) -> crate::camera::TallyAccessor<'_, crate::mode::Blocking, P, Tr, ()>
     where
         P: crate::capabilities::HasTally,
@@ -624,11 +724,19 @@ where
     }
 
     /// Access system-related controls and inquiries.
+    #[deprecated(
+        since = "1.2.0",
+        note = "the blocking CameraSession is unconstructible; use BlockingClient - see issue #594, removed in 2.0"
+    )]
     pub fn system(&self) -> crate::camera::SystemAccessor<'_, crate::mode::Blocking, P, Tr, ()> {
         crate::camera::SystemAccessor::new(&self.camera)
     }
 
     /// Access image-related controls and inquiries.
+    #[deprecated(
+        since = "1.2.0",
+        note = "the blocking CameraSession is unconstructible; use BlockingClient - see issue #594, removed in 2.0"
+    )]
     pub fn image(&self) -> crate::camera::ImageAccessor<'_, crate::mode::Blocking, P, Tr, ()> {
         crate::camera::ImageAccessor::new(&self.camera)
     }
@@ -740,6 +848,10 @@ where
     ///
     /// This method encodes the bytes directly without intermediate allocation,
     /// copying them once into the encoded command payload.
+    #[deprecated(
+        since = "1.2.0",
+        note = "the blocking CameraSession is unconstructible; use BlockingClient - see issue #594, removed in 2.0"
+    )]
     pub fn send_bytes(&self, bytes: &[u8]) -> Result<(), Error> {
         use crate::mode::BlockingFutureExt;
 
@@ -751,6 +863,10 @@ where
     ///
     /// This is the raw-command escape hatch for custom command types that are
     /// not yet represented by a typed control method.
+    #[deprecated(
+        since = "1.2.0",
+        note = "the blocking CameraSession is unconstructible; use BlockingClient - see issue #594, removed in 2.0"
+    )]
     pub fn execute<C>(&self, command: C) -> Result<(), Error>
     where
         C: ViscaCommand,
@@ -761,6 +877,10 @@ where
     }
 
     /// Send a typed VISCA command.
+    #[deprecated(
+        since = "1.2.0",
+        note = "the blocking CameraSession is unconstructible; use BlockingClient - see issue #594, removed in 2.0"
+    )]
     pub fn send_command<C>(&self, command: C) -> Result<<C as ResponseParser>::Response, Error>
     where
         C: ResponseParser + ViscaCommand,

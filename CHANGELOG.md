@@ -17,6 +17,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the runtime task move with the returned camera, which then owns the teardown
   the session would have performed on drop (#588).
 
+### Deprecated
+
+- The blocking `CameraSession` surface is deprecated and will be removed in 2.0
+  (#594). `CameraSession::new` is gated behind `mode-async` and is only reached
+  through the async entry points, so no blocking caller could ever construct a
+  `CameraSession<Blocking, ...>`; every blocking entry point returns
+  `BlockingClient`, which remains the single blocking handle. The deprecation is
+  applied per method on the blocking-only impl blocks — `camera`, `camera_mut`,
+  `into_inner`, `close`, `raw`, the movement-detection methods (`await_idle`,
+  `await_pan_tilt_idle`, `await_zoom_idle`, `await_focus_idle`, `is_moving`,
+  `await_with_config`, `await_axes_idle`), the noun accessors (`power`, `zoom`,
+  `pan_tilt`, `focus`, `exposure`, `white_balance`, `menu`, `presets`, `tally`,
+  `system`, `image`), and the blocking `RawSender` methods (`send_bytes`,
+  `execute`, `send_command`). The `CameraSession` type itself and the async
+  session surface are unaffected and are not deprecated.
+
 ### Fixed
 
 - The `CameraBuilder` documentation no longer shows APIs that do not exist
