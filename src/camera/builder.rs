@@ -300,9 +300,8 @@ where
     /// runtime's own connectors ([`Runtime::connect_tcp`](crate::runtime::Runtime::connect_tcp)
     /// and friends), which take a [`TransportConfig`](crate::transport::TransportConfig);
     /// the `transport::Transport` builder is blocking-mode only and is not
-    /// available here. Any transport implementing
-    /// [`AsyncTransport`](crate::transport::AsyncTransport) is accepted, so a fully
-    /// custom transport works the same way.
+    /// available here. Any transport implementing [`AsyncTransport`] is
+    /// accepted, so a fully custom transport works the same way.
     ///
     /// # Example
     /// ```rust,no_run
