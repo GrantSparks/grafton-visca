@@ -82,6 +82,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The cancel outbox now records which command each queued cancel targets, and a
   cancel is dropped if the command has completed or the camera has reassigned
   its VISCA socket before the frame is sent (#574).
+- Deferred cancels on a multi-camera transport are no longer dropped as stale
+  (#602). VISCA sockets are camera-local, but the async cancel outbox
+  re-validated each queued cancel with the camera-blind
+  `find_command_on_socket`, which returns whichever camera has held that socket
+  *number* longest. On a daisy chain an unrelated command on camera 1's socket 1
+  shadowed camera 2's own socket 1, so camera 2's perfectly valid cancel was
+  judged stale and silently discarded and its command ran on to completion or
+  timeout. The re-validation is now camera-scoped. The staleness guard from #574
+  is unchanged; it is simply evaluated against the right camera's state. The
+  direction was always fail-safe — a mismatch could only drop a cancel, never
+  emit one against another camera's command.
 - Async cameras can control the on-screen menu again: `Camera::menu()` was
   defined only in the blocking `impl` block, so enabling `mode-async` removed
   the OSD menu accessor from the camera surface entirely (#575).

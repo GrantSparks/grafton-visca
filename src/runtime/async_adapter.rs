@@ -896,6 +896,12 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
     /// frame would abort that unrelated command instead. Cancelling a command
     /// that is no longer in flight is a no-op anyway.
     ///
+    /// Sockets are camera-local, so that re-validation is scoped to the camera
+    /// the cancel is addressed to. A camera-blind lookup would compare the entry
+    /// against whichever camera has held that socket *number* longest, and on a
+    /// daisy chain would drop camera 2's perfectly valid cancel because camera 1
+    /// happens to be occupying its own socket of the same number.
+    ///
     /// Returns a `Vec` instead of an iterator to avoid borrow checker issues
     /// when the caller needs to mutate `adapter` while iterating.
     pub fn drain_cancel_outbox(&mut self) -> Vec<(CameraId, ViscaSocket)> {
@@ -904,7 +910,7 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
         queued
             .into_iter()
             .filter_map(|pending| {
-                let owner = core.find_command_on_socket(pending.socket);
+                let owner = core.find_command_on_socket_for(pending.camera_id, pending.socket);
                 if owner == Some(pending.id) {
                     return Some((pending.camera_id, pending.socket));
                 }
@@ -2091,7 +2097,9 @@ mod tests {
             .block_on(adapter.process_response(&[0x90, 0x41, VISCA_TERMINATOR], None))
             .expect("ACK should be processed");
         assert_eq!(
-            adapter.core.find_command_on_socket(ViscaSocket::S1),
+            adapter
+                .core
+                .find_command_on_socket_for(camera_id, ViscaSocket::S1),
             Some(cmd_id(303)),
             "Command B should now own socket 1"
         );
@@ -2109,6 +2117,151 @@ mod tests {
         assert!(
             response_rx.try_recv().is_err(),
             "Command B should not have been resolved by the stale cancel"
+        );
+    }
+
+    /// Build an adapter holding a cancel for `cancel_target` on `cancel_camera`
+    /// while `holder` occupies the *same socket number* on another camera.
+    ///
+    /// Camera 1 ACKs first, so on a camera-blind lookup it is the longest-held
+    /// holder of socket 1 and shadows the cancelling camera's own socket 1.
+    fn adapter_with_cross_camera_socket_contention(
+        holder: CommandId,
+        cancel_target: CommandId,
+        cancel_camera: CameraId,
+    ) -> (
+        AsyncAdapter<PtzOpticsG3, DeterministicExecutor>,
+        Arc<DeterministicExecutor>,
+    ) {
+        let (executor, _clock) = DeterministicExecutor::new();
+        let mut adapter = AsyncAdapter::<PtzOpticsG3, _>::new(
+            TimeoutConfig::default(),
+            RetryConfig::default(),
+            executor.clone(),
+            DEFAULT_MAX_PENDING_QUEUE_DEPTH,
+        );
+
+        // Camera 1 takes its socket 1 first and keeps it.
+        adapter.core.register_pending_ack(
+            holder,
+            test_command(),
+            Priority::Normal,
+            CameraId::CAMERA_1,
+            executor.now(),
+        );
+        executor
+            .block_on(adapter.process_response(&[0x90, 0x41, VISCA_TERMINATOR], None))
+            .expect("camera 1 ACK should be processed");
+
+        // The cancelling camera's command is cancelled before its ACK, so the
+        // cancel is deferred, then ACKed onto that camera's own socket 1.
+        adapter.core.register_pending_ack(
+            cancel_target,
+            test_command(),
+            Priority::Normal,
+            cancel_camera,
+            executor.now(),
+        );
+        assert_eq!(
+            adapter.request_cancel_by_id(cancel_target),
+            CancelOutcome::MarkedCancelOnAck,
+            "Cancel before ACK should be deferred to socket assignment"
+        );
+        executor
+            .block_on(adapter.process_response(&[0xA0, 0x41, VISCA_TERMINATOR], None))
+            .expect("camera 2 ACK should be processed");
+
+        assert_eq!(
+            adapter.cancel_outbox.len(),
+            1,
+            "ACK should queue the deferred cancel"
+        );
+        assert_eq!(
+            adapter
+                .core
+                .find_command_on_socket_for(CameraId::CAMERA_1, ViscaSocket::S1),
+            Some(holder),
+            "Camera 1 should still hold its own socket 1"
+        );
+        assert_eq!(
+            adapter
+                .core
+                .find_command_on_socket_for(cancel_camera, ViscaSocket::S1),
+            Some(cancel_target),
+            "The cancelling camera should hold its own socket 1"
+        );
+
+        (adapter, executor)
+    }
+
+    /// A cancel must be validated against its own camera's sockets.
+    ///
+    /// Regression test for issue #602. Sockets are camera-local, but the drain
+    /// re-validated with the camera-blind `find_command_on_socket`, which
+    /// returns whichever camera has held that socket *number* longest. On a
+    /// daisy chain camera 1's unrelated command shadowed camera 2's socket 1,
+    /// the drain judged camera 2's cancel stale, and a user's cancel silently
+    /// vanished.
+    #[test]
+    fn test_cancel_is_validated_against_its_own_camera_socket() {
+        let cancel_camera = CameraId::CAMERA_2;
+        let (mut adapter, _executor) =
+            adapter_with_cross_camera_socket_contention(cmd_id(400), cmd_id(401), cancel_camera);
+
+        assert_eq!(
+            adapter.core.find_command_on_socket(ViscaSocket::S1),
+            Some(cmd_id(400)),
+            "Camera-blind lookup resolves to camera 1: the shadowing that the fix must ignore"
+        );
+
+        let drained = adapter.drain_cancel_outbox();
+
+        assert_eq!(
+            drained,
+            vec![(cancel_camera, ViscaSocket::S1)],
+            "Camera 2's cancel must be sent: its own command still owns its own socket 1"
+        );
+        assert!(
+            adapter.core.is_command_pending(cmd_id(400)),
+            "Camera 1's command is untouched by camera 2's cancel"
+        );
+    }
+
+    /// Staleness is still enforced, per camera, under socket contention.
+    ///
+    /// The camera-scoped re-validation from issue #602 must not weaken the
+    /// #574 guard: when the cancel's own target has completed, the entry is
+    /// still dropped even though another camera holds the same socket number.
+    #[test]
+    fn test_stale_cancel_is_dropped_per_camera_under_socket_contention() {
+        let cancel_camera = CameraId::CAMERA_2;
+        let (mut adapter, executor) =
+            adapter_with_cross_camera_socket_contention(cmd_id(402), cmd_id(403), cancel_camera);
+
+        // The cancel's own target completes, freeing camera 2's socket 1 while
+        // camera 1 keeps holding socket 1 of its own.
+        executor
+            .block_on(adapter.process_response(&[0xA0, 0x51, VISCA_TERMINATOR], None))
+            .expect("camera 2 completion should be processed");
+        assert!(
+            !adapter.core.is_command_pending(cmd_id(403)),
+            "Target command should be finalized by the completion"
+        );
+        assert_eq!(
+            adapter
+                .core
+                .find_command_on_socket_for(CameraId::CAMERA_1, ViscaSocket::S1),
+            Some(cmd_id(402)),
+            "Camera 1 should still hold its own socket 1"
+        );
+
+        assert!(
+            adapter.drain_cancel_outbox().is_empty(),
+            "Cancel for a completed command must not be sent"
+        );
+        assert!(
+            adapter.core.is_command_pending(cmd_id(402)),
+            "Camera 1's command is untouched by the dropped cancel"
         );
     }
 }
