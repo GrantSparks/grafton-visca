@@ -56,6 +56,11 @@ pub struct BlockingRunner<P: Profile> {
     framer: ProtocolFramer,
     /// Command ID generator.
     next_id: AtomicU32,
+    /// Scheduling priority used for commands queued through this runner.
+    ///
+    /// Inquiries are deliberately excluded: they keep the runner's own polling
+    /// priority so status reads never preempt control commands.
+    command_priority: Priority,
     /// Terminal outcomes for observed commands that completed while another
     /// command was driving the blocking scheduler.
     ///
@@ -143,6 +148,7 @@ impl<P: Profile> BlockingRunnerBuilder<P> {
             buffer_manager: BufferManager::new(self.buffer_config),
             framer: ProtocolFramer::new_with_config(self.buffer_config),
             next_id: AtomicU32::new(1),
+            command_priority: Priority::Normal,
             completed: HashMap::new(),
             observed: HashSet::new(),
             _profile: PhantomData,
@@ -178,6 +184,13 @@ impl<P: Profile> BlockingRunner<P> {
         Self::builder(timeout_config).build()
     }
 
+    /// Set the scheduling priority commands are queued at.
+    ///
+    /// Applies to commands queued after this call. Inquiries are unaffected.
+    pub(crate) fn set_command_priority(&mut self, priority: Priority) {
+        self.command_priority = priority;
+    }
+
     /// Send a command and wait for the response.
     ///
     /// The timeout category is derived from the command's `TIMEOUT_CATEGORY` constant,
@@ -189,6 +202,21 @@ impl<P: Profile> BlockingRunner<P> {
         camera_id: CameraId,
     ) -> Result<Response> {
         self.send_command_with_deadline(transport, command, camera_id, None)
+    }
+
+    /// Send a command at an explicit priority and wait for the response.
+    ///
+    /// Overrides [`set_command_priority`](Self::set_command_priority) for this
+    /// one command without changing the runner's default.
+    pub(crate) fn send_command_at_priority<T: BlockingTransport + HasTransportConfig>(
+        &mut self,
+        transport: &mut T,
+        command: &impl ViscaCommand,
+        camera_id: CameraId,
+        priority: Priority,
+    ) -> Result<Response> {
+        let cmd_id = self.enqueue_with_priority(command, camera_id, true, Some(priority))?;
+        self.await_command(transport, cmd_id, None)
     }
 
     /// Send a command with an optional deadline for the entire operation.
@@ -265,6 +293,21 @@ impl<P: Profile> BlockingRunner<P> {
         camera_id: CameraId,
         allow_inquiry: bool,
     ) -> Result<CommandId> {
+        self.enqueue_with_priority(command, camera_id, allow_inquiry, None)
+    }
+
+    /// Encode and enqueue a command, optionally overriding the runner's
+    /// scheduling priority for this command only.
+    ///
+    /// Inquiries always keep the runner's polling priority: raising a status
+    /// read above control commands is never the intent of a handle priority.
+    fn enqueue_with_priority(
+        &mut self,
+        command: &impl ViscaCommand,
+        camera_id: CameraId,
+        allow_inquiry: bool,
+        priority: Option<Priority>,
+    ) -> Result<CommandId> {
         if !allow_inquiry && command.behavior().command_kind() == CommandKind::Inquiry {
             return Err(Error::InquiryNotCancelable);
         }
@@ -286,10 +329,15 @@ impl<P: Profile> BlockingRunner<P> {
             })?,
         );
 
+        let is_inquiry = command.behavior().command_kind() == CommandKind::Inquiry;
         let pending_cmd = PendingCommand {
             id: cmd_id,
             command: prepared_cmd,
-            priority: Priority::Normal,
+            priority: if is_inquiry {
+                Priority::Normal
+            } else {
+                priority.unwrap_or(self.command_priority)
+            },
             camera_id,
             submitted_at: Instant::now(),
         };
@@ -801,7 +849,14 @@ impl<P: Profile> BlockingRunner<P> {
                                         return outcome;
                                     }
                                 }
-                                SchedulerAction::SendCancel { camera_id, socket } => {
+                                // Sent inline while the scheduler state that produced
+                                // the action is still current, so the socket cannot
+                                // have been reassigned to another command.
+                                SchedulerAction::SendCancel {
+                                    id,
+                                    camera_id,
+                                    socket,
+                                } => {
                                     if let Err(error) =
                                         self.send_cancel_frame(transport, camera_id, socket)
                                     {
@@ -810,6 +865,7 @@ impl<P: Profile> BlockingRunner<P> {
                                             return self.fail_all_observed(target_cmd_id, error);
                                         }
                                         warn!(
+                                            %id,
                                             ?camera_id,
                                             ?socket,
                                             "Failed to send deferred socket cancel: {error}"

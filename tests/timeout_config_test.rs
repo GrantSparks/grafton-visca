@@ -4,11 +4,9 @@
 mod timeout_config_tests {
     use std::time::Duration;
 
-    use grafton_visca::{
-        camera::CameraBuilder,
-        testing::testkit::DeterministicExecutor,
-        timeout::{CommandCategory, TimeoutConfig},
-    };
+    #[cfg(feature = "runtime-tokio")]
+    use grafton_visca::camera::CameraBuilder;
+    use grafton_visca::timeout::{CommandCategory, TimeoutConfig};
 
     #[test]
     fn test_custom_timeout_config_builder() {
@@ -68,39 +66,78 @@ mod timeout_config_tests {
         );
     }
 
-    #[cfg(feature = "mode-async")]
+    /// A partially specified builder must leave the untouched categories at their
+    /// documented defaults rather than zeroing them.
     #[test]
-    fn test_async_camera_with_custom_timeouts() {
-        let timeout_config = TimeoutConfig::builder()
-            .ack_timeout(Duration::from_millis(100))
-            .quick_timeout(Duration::from_secs(1))
-            .movement_timeout(Duration::from_secs(5))
-            .preset_timeout(Duration::from_secs(10))
+    fn test_partial_builder_keeps_defaults_for_unset_categories() {
+        let defaults = TimeoutConfig::default();
+        let config = TimeoutConfig::builder()
+            .movement_timeout(Duration::from_secs(7))
             .build();
 
-        let (executor, _clock) = DeterministicExecutor::new();
-
-        let _builder = CameraBuilder::<DeterministicExecutor>::with_executor(executor)
-            .timeout_config(timeout_config);
-
-        // The actual runtime behavior with timeouts is tested via the scheduler unit tests
-        // This test verifies that the API allows setting custom timeouts
+        assert_eq!(config.movement_timeout, Duration::from_secs(7));
+        assert_eq!(config.quick_timeout, defaults.quick_timeout);
+        assert_eq!(config.preset_timeout, defaults.preset_timeout);
+        assert_eq!(config.long_timeout, defaults.long_timeout);
+        assert_eq!(config.network_timeout, defaults.network_timeout);
+        assert_eq!(config.ack_timeout, defaults.ack_timeout);
+        assert_eq!(config.default_timeout, defaults.default_timeout);
+        assert_eq!(
+            config.get_timeout(CommandCategory::Movement),
+            Duration::from_secs(7),
+            "the overridden category must be the one the runtime reads back"
+        );
     }
 
-    #[cfg(feature = "mode-async")]
-    #[test]
-    fn test_timeout_config_with_different_executors() {
-        let timeout_config = TimeoutConfig::builder()
-            .quick_timeout(Duration::from_millis(500)) // Quick commands: 500ms
-            .movement_timeout(Duration::from_secs(2)) // Movement commands: 2s
-            .preset_timeout(Duration::from_secs(5)) // Preset commands: 5s
-            .build();
+    /// `CameraBuilder::timeout_config` must be more than a setter: the value has
+    /// to reach the runtime that enforces deadlines. A 150ms movement timeout on
+    /// a camera that never sends a Completion must fail in well under the 30s
+    /// default.
+    #[cfg(feature = "runtime-tokio")]
+    #[tokio::test]
+    async fn test_builder_timeout_config_is_enforced_by_the_runtime() {
+        use std::sync::Arc;
+        use std::time::Instant;
 
-        let (executor, _clock) = DeterministicExecutor::new();
-        let _builder = CameraBuilder::<DeterministicExecutor>::with_executor(executor)
-            .timeout_config(timeout_config);
+        use grafton_visca::{
+            camera::profiles::GenericVisca,
+            testing::testkit::{helpers, ScriptedTransport, Step},
+            TokioExecutor, ZoomControl,
+        };
 
-        // This test verifies that timeout configs can be used with different executor types
+        let executor = Arc::new(TokioExecutor::from_current().expect("tokio runtime"));
+        let transport: ScriptedTransport<TokioExecutor> =
+            ScriptedTransport::new(vec![Step::OnSend {
+                matches: None,
+                responses: vec![helpers::ack(1)], // ACK only: the completion never arrives.
+            }])
+            .with_executor(executor.clone());
+
+        let camera = CameraBuilder::<TokioExecutor>::with_executor(executor)
+            .timeout_config(
+                TimeoutConfig::builder()
+                    .ack_timeout(Duration::from_millis(100))
+                    .movement_timeout(Duration::from_millis(150))
+                    .build(),
+            )
+            .open_async::<GenericVisca, _>(transport)
+            .await
+            .expect("camera should open");
+
+        let started = Instant::now();
+        let result = tokio::time::timeout(Duration::from_secs(5), camera.zoom_tele(None))
+            .await
+            .expect("the custom movement timeout must fire long before the default");
+        let elapsed = started.elapsed();
+
+        assert!(
+            result.is_err(),
+            "a movement command with no completion must fail, got {result:?}"
+        );
+        assert!(
+            elapsed < Duration::from_secs(2),
+            "the builder's 150ms movement timeout must be used, not the 30s default (took {elapsed:?})"
+        );
     }
 
     #[test]

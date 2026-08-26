@@ -2,6 +2,8 @@
 
 #![cfg(all(feature = "test-utils", feature = "mode-async"))]
 
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use grafton_visca::{
@@ -9,88 +11,124 @@ use grafton_visca::{
     Executor,
 };
 
+/// The executor's own clock must never move on its own, and a registered sleep
+/// must only fire once virtual time reaches its deadline.
 #[test]
-fn test_deterministic_executor_with_simple_command() {
-    // Simplified test that verifies basic executor functionality without complex runtime interactions
-    let (executor, _clock) = DeterministicExecutor::new();
+fn virtual_time_moves_only_when_the_clock_is_advanced() {
+    let (executor, clock) = DeterministicExecutor::new();
+    let start = executor.now();
 
-    // Test basic async execution
-    let result = executor.block_on(async {
-        // Simple async operation that should complete
-        42
+    let fired = Arc::new(AtomicBool::new(false));
+    let fired_in_task = fired.clone();
+    let task_executor = executor.clone();
+    executor.spawn_detached(async move {
+        task_executor.sleep(Duration::from_millis(250)).await;
+        fired_in_task.store(true, Ordering::SeqCst);
     });
 
-    assert_eq!(result, 42, "Executor should handle simple async operations");
-}
-
-#[test]
-fn test_deterministic_executor_with_sleep() {
-    // Simplified test that verifies basic async functionality
-    let (executor, _clock) = DeterministicExecutor::new();
-
-    let start_time = std::time::Instant::now();
-
-    let result = executor.block_on(async {
-        // Test basic async completion without sleep complications
-        "completed"
-    });
-
-    assert_eq!(result, "completed", "Async operation should complete");
-
-    // The operation should complete quickly
-    let elapsed = start_time.elapsed();
-    assert!(elapsed < Duration::from_secs(1), "Should complete quickly");
-}
-
-#[test]
-fn test_deterministic_executor_handles_busy_retry() {
-    // Simplified test that demonstrates retry concept without complex runtime integration
-    let (executor, _clock) = DeterministicExecutor::new();
-
-    // Test that executor can handle multiple async operations
-    let result = executor.block_on(async {
-        let mut attempts = 0;
-        loop {
-            attempts += 1;
-            if attempts < 3 {
-                // Simulate busy condition for first 2 attempts
-                continue;
-            } else {
-                // Success on 3rd attempt
-                return "success after retries";
-            }
-        }
-    });
-
+    executor.run_until_idle();
+    assert!(
+        clock.has_pending_deadlines(),
+        "the sleep should register a deadline with the virtual clock"
+    );
     assert_eq!(
-        result, "success after retries",
-        "Should succeed after simulated retries"
+        executor.now(),
+        start,
+        "virtual time must not advance on its own"
+    );
+
+    clock.advance(Duration::from_millis(100));
+    executor.run_until_idle();
+    assert!(
+        !fired.load(Ordering::SeqCst),
+        "a partial advance must not fire the timer"
+    );
+
+    clock.advance(Duration::from_millis(150));
+    executor.run_until_idle();
+    assert!(
+        fired.load(Ordering::SeqCst),
+        "the timer must fire once virtual time reaches the deadline"
+    );
+    assert_eq!(
+        executor.now().duration_since(start),
+        Duration::from_millis(250),
+        "virtual time should have advanced by exactly the sleep duration"
     );
 }
 
+/// A retry/backoff loop is the reason this executor exists: several seconds of
+/// modelled backoff must cost virtual time, not wall-clock time.
 #[test]
-fn test_deterministic_executor_handles_busy_exhaustion() {
-    // Simplified test that demonstrates exhaustion concept without complex runtime integration
+fn a_backoff_loop_consumes_virtual_time_not_wall_clock() {
     let (executor, _clock) = DeterministicExecutor::new();
+    let virtual_start = executor.now();
+    let wall_start = std::time::Instant::now();
 
-    // Test that executor can handle error conditions
-    let result = executor.block_on(async {
-        let max_attempts = 5;
-        for attempt in 1..=max_attempts {
-            if attempt == max_attempts {
-                // Simulate exhaustion after max attempts
-                return Err("MaxRetriesExceeded");
-            }
-            // All attempts fail with busy
+    let attempts = Arc::new(AtomicUsize::new(0));
+    let attempts_in_task = attempts.clone();
+    let task_executor = executor.clone();
+    executor.spawn_detached(async move {
+        for _ in 0..3 {
+            attempts_in_task.fetch_add(1, Ordering::SeqCst);
+            task_executor.sleep(Duration::from_secs(1)).await;
         }
-        Ok("should not reach here")
     });
 
-    assert!(result.is_err(), "Should fail with exhaustion");
+    executor.run_until_idle();
+    while executor.advance_to_next_deadline() {
+        executor.run_until_idle();
+    }
+
     assert_eq!(
-        result.unwrap_err(),
-        "MaxRetriesExceeded",
-        "Should report correct error"
+        attempts.load(Ordering::SeqCst),
+        3,
+        "every backoff iteration should run"
+    );
+    assert_eq!(
+        executor.now().duration_since(virtual_start),
+        Duration::from_secs(3),
+        "three one-second backoffs should consume exactly three virtual seconds"
+    );
+    assert!(
+        wall_start.elapsed() < Duration::from_secs(1),
+        "three virtual seconds must not cost real seconds (took {:?})",
+        wall_start.elapsed()
+    );
+}
+
+/// `advance_to_next_deadline` must jump to the *earliest* pending deadline, so
+/// concurrent timers fire in deadline order rather than spawn order.
+#[test]
+fn timers_fire_in_deadline_order_not_spawn_order() {
+    let (executor, _clock) = DeterministicExecutor::new();
+    let order = Arc::new(Mutex::new(Vec::new()));
+
+    for (label, delay) in [("late", 300u64), ("early", 100), ("middle", 200)] {
+        let order_in_task = order.clone();
+        let task_executor = executor.clone();
+        executor.spawn_detached(async move {
+            task_executor.sleep(Duration::from_millis(delay)).await;
+            order_in_task
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .push(label);
+        });
+    }
+
+    executor.run_until_idle();
+    while executor.advance_to_next_deadline() {
+        executor.run_until_idle();
+    }
+
+    let observed = order
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clone();
+    assert_eq!(
+        observed,
+        vec!["early", "middle", "late"],
+        "timers must fire in deadline order"
     );
 }
 

@@ -292,6 +292,12 @@ impl RetryBudget {
 }
 
 /// Command priority levels.
+///
+/// The scheduler consumes this type only through its [`Ord`] implementation:
+/// queued work is ordered highest-priority-first, with FIFO ordering within a
+/// level, and the same comparison decides whether a queued command preempts a
+/// queued inquiry. Every level therefore behaves identically apart from where
+/// it sorts, and all four are available in every build configuration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Priority {
     /// Low priority - normal operations.
@@ -299,10 +305,8 @@ pub enum Priority {
     /// Normal priority - default.
     Normal = 1,
     /// High priority - user-initiated actions.
-    #[cfg(any(all(feature = "mode-async", feature = "test-utils"), test))]
     High = 2,
     /// Critical priority - emergency/safety operations.
-    #[cfg(any(all(feature = "mode-async", feature = "test-utils"), test))]
     Critical = 3,
 }
 
@@ -566,6 +570,13 @@ pub enum SchedulerAction {
     /// a socket was assigned, and an ACK has now assigned the socket. The cancel
     /// should be sent immediately to the transport.
     SendCancel {
+        /// Command the cancel targets.
+        ///
+        /// Sockets are recycled as commands complete, so a consumer that does
+        /// not send the frame synchronously must re-check that this command
+        /// still owns `socket` (see `SchedulerCore::find_command_on_socket`)
+        /// before putting the cancel on the wire.
+        id: CommandId,
         /// Camera ID for addressing the cancel message.
         camera_id: crate::camera_id::CameraId,
         /// Socket to cancel.
@@ -1017,7 +1028,6 @@ impl SchedulerCore {
     }
 
     /// Set the timeout configuration.
-    #[cfg(not(feature = "mode-async"))]
     pub fn set_timeout_config(&mut self, timeout_config: TimeoutConfig) {
         self.timeout_config = timeout_config;
     }
@@ -2850,6 +2860,7 @@ impl SchedulerCore {
                     "Emitting SendCancel for command that had cancel_requested set"
                 );
                 Some(SchedulerAction::SendCancel {
+                    id: target_id,
                     camera_id: cmd_state.camera_id,
                     socket: assigned_socket,
                 })

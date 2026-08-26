@@ -398,6 +398,12 @@ mod smol_impl {
 #[cfg(feature = "runtime-smol")]
 pub use smol_impl::SmolExecutor;
 
+// Miri skip: every test in this module reaches `async-io`'s reactor through
+// `SmolExecutor::block_on`, and that reactor calls `timerfd_create`, a foreign
+// function Miri does not implement (a Miri limitation, not undefined behaviour in
+// this crate). Miri aborts the whole test binary on the first unsupported call, so
+// each test carries `#[cfg_attr(miri, ignore = ...)]`. They still run in the normal
+// CI matrix. See https://github.com/GrantSparks/grafton-visca/issues/585.
 #[cfg(all(test, feature = "runtime-smol"))]
 mod smol_tests {
     use super::*;
@@ -438,6 +444,10 @@ mod smol_tests {
 
     /// Test that a never-completing future times out correctly.
     #[test]
+    #[cfg_attr(
+        miri,
+        ignore = "async-io's reactor needs timerfd_create, unsupported by Miri (issue #585)"
+    )]
     fn timeout_returns_error_for_never_completing_future() {
         let executor = SmolExecutor::new();
         let (never_complete, _poll_count) = NeverComplete::new();
@@ -447,6 +457,10 @@ mod smol_tests {
 
     /// Test that an immediately completing future returns success.
     #[test]
+    #[cfg_attr(
+        miri,
+        ignore = "async-io's reactor needs timerfd_create, unsupported by Miri (issue #585)"
+    )]
     fn timeout_returns_ok_for_immediate_completion() {
         let executor = SmolExecutor::new();
         let result = executor.block_on(executor.timeout(Duration::from_secs(10), async { 42 }));
@@ -462,6 +476,10 @@ mod smol_tests {
     ///
     /// We use a generous bound (10 polls) to avoid flakiness while still catching busy loops.
     #[test]
+    #[cfg_attr(
+        miri,
+        ignore = "async-io's reactor needs timerfd_create, unsupported by Miri (issue #585)"
+    )]
     fn timeout_does_not_busy_poll() {
         let executor = SmolExecutor::new();
         let (never_complete, poll_count) = NeverComplete::new();
@@ -481,6 +499,10 @@ mod smol_tests {
 
     /// Test that a future completing just before the timeout succeeds.
     #[test]
+    #[cfg_attr(
+        miri,
+        ignore = "async-io's reactor needs timerfd_create, unsupported by Miri (issue #585)"
+    )]
     fn timeout_future_completing_before_deadline_succeeds() {
         let executor = SmolExecutor::new();
         let result = executor.block_on(executor.timeout(Duration::from_millis(100), async {

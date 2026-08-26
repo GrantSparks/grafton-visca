@@ -1,12 +1,39 @@
+[graph]
+# Check every optional feature's dependency tree, not just the default (empty)
+# feature set, so `transport-serial`, `ts-rs`, `schemars` and friends are covered.
+all-features = true
+
 [licenses]
 allow = [
     "MIT",
     "Apache-2.0",
+    # Permissive Apache variant used by `ar_archive_writer` (build dep of `psm`).
+    "Apache-2.0 WITH LLVM-exception",
     "Unicode-3.0",
     "Unlicense",
+    # Permissive (OSI/FSF approved) license used by `foldhash`, via `hashbrown`.
+    "Zlib",
 ]
 
+# MPL-2.0 is file-level copyleft, so it is allowed per crate rather than
+# globally: both crates below are used unmodified and are not vendored.
+[[licenses.exceptions]]
+# Optional `transport-serial` backend; linked as an unmodified upstream crate.
+name = "serialport"
+allow = ["MPL-2.0"]
+
+[[licenses.exceptions]]
+# Transitive build-time dep of the optional `ts-rs` formatter (dprint/deno_ast).
+name = "smartstring"
+allow = ["MPL-2.0"]
+
 [advisories]
+ignore = [
+    # Unmaintained (no known vulnerability). Reached only through the optional
+    # `ts-rs` binding generator's formatter chain; it never ships in a build that
+    # does not enable `ts-rs`. Revisit when dprint/deno_ast drops smartstring.
+    { id = "RUSTSEC-2026-0249", reason = "smartstring unmaintained; build-time only, behind the optional ts-rs feature" },
+]
 
 [bans]
 

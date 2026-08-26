@@ -20,8 +20,8 @@ on:
   push:
     branches: ["main", "feature/*"]
     tags: ["v*"]
+  # no base-branch filter: stacked PRs (feature-branch bases) must run CI too
   pull_request:
-    branches: ["main"]
   workflow_dispatch:
 
 concurrency:
@@ -285,6 +285,9 @@ jobs:
           - "runtime-tokio"
           - "runtime-smol"
           - "test-utils"
+          # Runtime-free async test surface: builds the cfg-gated test files that
+          # every runtime cell excludes, so they cannot silently rot.
+          - "mode-async,test-utils"
           - "runtime-tokio,test-utils"
           - "runtime-smol,test-utils"
           - "transport-serial"
@@ -665,6 +668,7 @@ jobs:
         with:
           feature-group: ${{ matrix.feature_group }}
           features: ${{ matrix.features }}
+          release-type: minor  # 1.2.0 minor planned (see #594); revisit at release
 
   # Check package metadata and dependencies
   package-check:
@@ -732,6 +736,21 @@ jobs:
       - name: Security audit
         run: cargo audit
 
+  # Dependency policy gate. `deny.toml` sat in the repo unexecuted until this job
+  # existed, so its licenses/advisories/bans/sources rules were never enforced.
+  cargo-deny:
+    name: Cargo Deny
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+
+      # Pinned to the commit behind v2.1.1: action tags are mutable, and this job
+      # is a supply-chain gate, so it must not follow a moving reference.
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        with:
+          command: check advisories bans licenses sources
+
   # Summary job to ensure all required checks pass
   ci-success:
     name: CI Success
@@ -748,6 +767,7 @@ jobs:
       - msrv
       - semver
       - package-check
+      - cargo-deny
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

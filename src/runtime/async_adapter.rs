@@ -183,6 +183,13 @@ pub(crate) enum ControlRequest {
         /// Reply channel for the new subscription receiver.
         reply_tx: Sender<Result<flume::Receiver<CompletionEvent>>>,
     },
+    /// Replace the runtime's timeout configuration.
+    SetTimeoutConfig {
+        /// The timeout configuration the scheduler should use from now on.
+        timeout_config: TimeoutConfig,
+        /// Reply sent once the runtime has applied the new configuration.
+        reply_tx: Sender<Result<()>>,
+    },
 }
 
 impl ControlRequest {
@@ -194,6 +201,9 @@ impl ControlRequest {
                 let _ = reply_tx.send(Err(error));
             }
             ControlRequest::SubscribeCompletions { reply_tx } => {
+                let _ = reply_tx.send(Err(error));
+            }
+            ControlRequest::SetTimeoutConfig { reply_tx, .. } => {
                 let _ = reply_tx.send(Err(error));
             }
         }
@@ -253,6 +263,23 @@ pub struct CompletionEvent {
 /// lag while preventing memory issues from slow/forgotten subscribers.
 const COMPLETIONS_BUFFER: usize = 256;
 
+/// A cancel-on-ACK frame queued for later transmission by `loop_task`.
+///
+/// The entry records which command the cancel targets, not just the socket it
+/// was assigned. Sockets are recycled as soon as a command completes, so the
+/// drain has to confirm that `id` still owns `socket` before emitting the
+/// frame; otherwise the cancel would abort whichever command inherited the
+/// socket in the meantime.
+#[derive(Debug, Clone, Copy)]
+struct PendingCancel {
+    /// Command the cancel was requested for.
+    id: CommandId,
+    /// Camera ID for addressing the cancel message.
+    camera_id: CameraId,
+    /// Socket held by the command when the cancel was queued.
+    socket: ViscaSocket,
+}
+
 /// Async adapter wrapping the scheduler core.
 pub(crate) struct AsyncAdapter<P: Profile, E: Executor> {
     /// The scheduler core for state management.
@@ -271,7 +298,7 @@ pub(crate) struct AsyncAdapter<P: Profile, E: Executor> {
     ///
     /// Populated when `SchedulerAction::SendCancel` is emitted (cancel-on-ACK).
     /// Drained by `loop_task` to send cancel frames to the transport.
-    cancel_outbox: VecDeque<(CameraId, ViscaSocket)>,
+    cancel_outbox: VecDeque<PendingCancel>,
     /// Profile marker (zero-sized type).
     _profile: std::marker::PhantomData<P>,
 }
@@ -334,6 +361,15 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
     /// commands at wire speed. Applies to all sends (commands and inquiries).
     pub fn set_min_command_spacing(&mut self, spacing: std::time::Duration) {
         self.core.set_min_command_spacing(spacing);
+    }
+
+    /// Replace the timeout configuration used for deadline checks.
+    ///
+    /// Deadlines are evaluated against the current configuration on every
+    /// housekeeping pass, so the new values also apply to work that is already
+    /// in flight.
+    pub fn set_timeout_config(&mut self, timeout_config: TimeoutConfig) {
+        self.core.set_timeout_config(timeout_config);
     }
 
     /// Admit a command or inquiry into runtime scheduler state.
@@ -693,10 +729,18 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
 
                 debug!("Scheduling retry for command {id} after {delay:?}");
             }
-            SchedulerAction::SendCancel { camera_id, socket } => {
+            SchedulerAction::SendCancel {
+                id,
+                camera_id,
+                socket,
+            } => {
                 // Queue the cancel for sending by loop_task
-                debug!(?camera_id, ?socket, "Queueing cancel for socket");
-                self.cancel_outbox.push_back((camera_id, socket));
+                debug!(%id, ?camera_id, ?socket, "Queueing cancel for socket");
+                self.cancel_outbox.push_back(PendingCancel {
+                    id,
+                    camera_id,
+                    socket,
+                });
             }
         }
     }
@@ -841,15 +885,39 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
         outcome
     }
 
-    /// Drain the cancel outbox, returning all queued cancel requests.
+    /// Drain the cancel outbox, returning the cancel requests still worth sending.
     ///
     /// This should be called by `loop_task` to retrieve cancels that were
     /// queued via `SchedulerAction::SendCancel` (cancel-on-ACK path).
     ///
+    /// A cancel frame only names a socket, so an entry whose target command has
+    /// since completed, failed, or moved off the socket is dropped here: the
+    /// socket may already have been handed to a later command, and sending the
+    /// frame would abort that unrelated command instead. Cancelling a command
+    /// that is no longer in flight is a no-op anyway.
+    ///
     /// Returns a `Vec` instead of an iterator to avoid borrow checker issues
     /// when the caller needs to mutate `adapter` while iterating.
     pub fn drain_cancel_outbox(&mut self) -> Vec<(CameraId, ViscaSocket)> {
-        self.cancel_outbox.drain(..).collect()
+        let queued = std::mem::take(&mut self.cancel_outbox);
+        let core = &self.core;
+        queued
+            .into_iter()
+            .filter_map(|pending| {
+                let owner = core.find_command_on_socket(pending.socket);
+                if owner == Some(pending.id) {
+                    return Some((pending.camera_id, pending.socket));
+                }
+                debug!(
+                    id = %pending.id,
+                    camera_id = ?pending.camera_id,
+                    socket = ?pending.socket,
+                    ?owner,
+                    "Dropping stale cancel: target command no longer owns the socket"
+                );
+                None
+            })
+            .collect()
     }
 }
 
@@ -858,7 +926,7 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
 mod tests {
     use super::*;
     use crate::{
-        camera::profiles::PtzOpticsG2,
+        camera::profiles::{PtzOpticsG2, PtzOpticsG3},
         command::{
             bytes::VISCA_TERMINATOR, encode::EncodedCommand, response::InquiryKind,
             CommandBehavior, InquiryResponseSpec, Response,
@@ -878,6 +946,15 @@ mod tests {
     fn admission_tx() -> Sender<Result<()>> {
         let (tx, _rx) = flume::bounded(1);
         tx
+    }
+
+    /// Zoom Stop, used wherever a test just needs a plain (non-inquiry) command.
+    fn test_command() -> Arc<EncodedCommand> {
+        Arc::new(EncodedCommand {
+            payload: SmallVec::from_slice(&[0x81, 0x01, 0x04, 0x07, 0x02, VISCA_TERMINATOR]),
+            behavior: CommandBehavior::Command,
+            category: CommandCategory::Quick,
+        })
     }
 
     /// Test that async adapter delegates unattributed errors to SchedulerCore for FIFO attribution.
@@ -1891,5 +1968,147 @@ mod tests {
         let metrics = adapter.metrics_summary();
         assert_eq!(metrics.commands_completed, 3, "every camera completed");
         assert_eq!(metrics.protocol_errors, 0);
+    }
+
+    /// Build an adapter with a cancel already queued in the outbox for `id`.
+    ///
+    /// The command is registered as pending ACK, cancelled while it is still
+    /// awaiting ACK (so the cancel is deferred), and then ACKed onto socket 1,
+    /// which is the path that populates the outbox.
+    fn adapter_with_queued_cancel(
+        id: CommandId,
+        camera_id: CameraId,
+    ) -> (
+        AsyncAdapter<PtzOpticsG3, DeterministicExecutor>,
+        Arc<DeterministicExecutor>,
+    ) {
+        let (executor, _clock) = DeterministicExecutor::new();
+        let mut adapter = AsyncAdapter::<PtzOpticsG3, _>::new(
+            TimeoutConfig::default(),
+            RetryConfig::default(),
+            executor.clone(),
+            DEFAULT_MAX_PENDING_QUEUE_DEPTH,
+        );
+
+        adapter.core.register_pending_ack(
+            id,
+            test_command(),
+            Priority::Normal,
+            camera_id,
+            executor.now(),
+        );
+
+        assert_eq!(
+            adapter.request_cancel_by_id(id),
+            CancelOutcome::MarkedCancelOnAck,
+            "Cancel before ACK should be deferred to socket assignment"
+        );
+
+        // ACK assigns socket 1 and emits the deferred cancel into the outbox
+        executor
+            .block_on(adapter.process_response(&[0x90, 0x41, VISCA_TERMINATOR], None))
+            .expect("ACK should be processed");
+        assert_eq!(
+            adapter.cancel_outbox.len(),
+            1,
+            "ACK should queue the deferred cancel"
+        );
+
+        (adapter, executor)
+    }
+
+    /// Test that a cancel whose target still holds the socket is emitted.
+    ///
+    /// This is the counterpart to the staleness checks below: the re-validation
+    /// added for issue #574 must not suppress legitimate cancels.
+    #[test]
+    fn test_valid_cancel_is_drained_for_sending() {
+        let camera_id = CameraId::CAMERA_1;
+        let (mut adapter, _executor) = adapter_with_queued_cancel(cmd_id(300), camera_id);
+
+        let drained = adapter.drain_cancel_outbox();
+
+        assert_eq!(
+            drained,
+            vec![(camera_id, ViscaSocket::S1)],
+            "Cancel should be sent while its target still owns the socket"
+        );
+    }
+
+    /// Test that a cancel is dropped when its target completed before the drain.
+    ///
+    /// Regression test for issue #574. A cancel frame only names a socket, so a
+    /// cancel queued for a command that has since completed must not be sent:
+    /// the socket is free and the frame would be meaningless at best.
+    #[test]
+    fn test_stale_cancel_is_dropped_after_target_completes() {
+        let camera_id = CameraId::CAMERA_1;
+        let (mut adapter, executor) = adapter_with_queued_cancel(cmd_id(301), camera_id);
+
+        // Completion for socket 1 finalizes the target and frees the socket
+        executor
+            .block_on(adapter.process_response(&[0x90, 0x51, VISCA_TERMINATOR], None))
+            .expect("Completion should be processed");
+        assert!(
+            !adapter.core.is_command_pending(cmd_id(301)),
+            "Target command should be finalized by the completion"
+        );
+
+        assert!(
+            adapter.drain_cancel_outbox().is_empty(),
+            "Cancel for a completed command must not be sent"
+        );
+    }
+
+    /// Test that a cancel is dropped when the socket was reassigned.
+    ///
+    /// Regression test for issue #574. Before the fix the outbox held only
+    /// `(camera, socket)`, so a cancel queued for command A and drained after A
+    /// completed and the camera handed socket 1 to command B aborted B on the
+    /// wire.
+    #[test]
+    fn test_stale_cancel_is_dropped_after_socket_reassigned() {
+        let camera_id = CameraId::CAMERA_1;
+        let (mut adapter, executor) = adapter_with_queued_cancel(cmd_id(302), camera_id);
+
+        // Command A completes, releasing socket 1
+        executor
+            .block_on(adapter.process_response(&[0x90, 0x51, VISCA_TERMINATOR], None))
+            .expect("Completion should be processed");
+
+        // Command B is submitted and the camera ACKs it onto the same socket
+        adapter.core.register_pending_ack(
+            cmd_id(303),
+            test_command(),
+            Priority::Normal,
+            camera_id,
+            executor.now(),
+        );
+        let (response_tx, response_rx) = flume::bounded(1);
+        adapter.response_channels.insert(cmd_id(303), response_tx);
+
+        executor
+            .block_on(adapter.process_response(&[0x90, 0x41, VISCA_TERMINATOR], None))
+            .expect("ACK should be processed");
+        assert_eq!(
+            adapter.core.find_command_on_socket(ViscaSocket::S1),
+            Some(cmd_id(303)),
+            "Command B should now own socket 1"
+        );
+
+        assert!(
+            adapter.drain_cancel_outbox().is_empty(),
+            "Cancel queued for command A must not be sent against command B"
+        );
+
+        // Command B is untouched: still in flight, no cancellation reported
+        assert!(
+            adapter.core.is_command_pending(cmd_id(303)),
+            "Command B should still be in flight"
+        );
+        assert!(
+            response_rx.try_recv().is_err(),
+            "Command B should not have been resolved by the stale cancel"
+        );
     }
 }
