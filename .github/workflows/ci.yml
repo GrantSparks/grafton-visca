@@ -20,8 +20,8 @@ on:
   push:
     branches: ["main", "feature/*"]
     tags: ["v*"]
+  # no base-branch filter: stacked PRs (feature-branch bases) must run CI too
   pull_request:
-    branches: ["main"]
   workflow_dispatch:
 
 concurrency:
