@@ -85,6 +85,9 @@ where
     camera_id: CameraId,
     timeout_config: TimeoutConfig,
 
+    // Scheduling priority applied to every command submitted through this handle.
+    command_priority: crate::runtime::Priority,
+
     // For async mode: stores runtime handle (transport and envelope managed by runtime)
     runtime: crate::runtime::RuntimeHandle<P, Exec>,
 
@@ -142,6 +145,9 @@ where
 {
     camera_id: CameraId,
     timeout_config: TimeoutConfig,
+
+    // Scheduling priority applied to every command submitted through this handle.
+    command_priority: crate::runtime::Priority,
 
     // For blocking mode: stores transport directly with BlockingRunner for state management
     transport: M::Shared<Tr>,
@@ -230,6 +236,7 @@ where
         Ok(Self {
             camera_id,
             timeout_config,
+            command_priority: crate::runtime::Priority::Normal,
             runtime: runtime_handle,
             state_cache: crate::cache::StateCache::new(),
             _phantom_mode: PhantomData,
@@ -315,6 +322,7 @@ where
         Ok(Self {
             camera_id,
             timeout_config,
+            command_priority: crate::runtime::Priority::Normal,
             transport: shared_transport,
             blocking_runner: std::cell::RefCell::new(blocking_runner),
             state_cache: crate::cache::StateCache::new(),
@@ -350,6 +358,50 @@ where
     /// This ensures the runtime's timeout behavior matches the configuration.
     pub fn timeout_config(&self) -> &TimeoutConfig {
         &self.timeout_config
+    }
+
+    /// Get the scheduling priority this handle submits commands at.
+    ///
+    /// Newly constructed cameras submit at
+    /// [`Priority::Normal`](crate::runtime::Priority::Normal).
+    pub fn command_priority(&self) -> crate::runtime::Priority {
+        self.command_priority
+    }
+
+    /// Set the scheduling priority this handle submits commands at.
+    ///
+    /// The runtime dispatches queued work highest priority first, FIFO within a
+    /// level, so raising the priority makes this handle's commands overtake
+    /// lower-priority commands that are still **queued**. It never interrupts,
+    /// cancels, or reorders a command that has already been written to the
+    /// transport, and it does not change the priority of commands submitted
+    /// before the call. Inquiries are unaffected: the runtime keeps queueing
+    /// them at its own polling priority so status reads never preempt control
+    /// commands.
+    ///
+    /// The priority is a property of *this handle*, not of the camera or the
+    /// connection: another handle on the same camera keeps its own value.
+    ///
+    /// # Emergency stops on a shared camera
+    ///
+    /// A camera shared between tasks is held behind an `Arc`, which cannot be
+    /// mutated, so a shared handle cannot be re-prioritised in place. Raise the
+    /// single command instead, with
+    /// [`execute_with_priority`](Self::execute_with_priority):
+    ///
+    /// ```rust,ignore
+    /// use grafton_visca::{command::PanTilt, runtime::Priority};
+    ///
+    /// // One-off: this command alone jumps the queue, the handle stays Normal.
+    /// camera.execute_with_priority(PanTilt::Stop, Priority::Critical).await?;
+    ///
+    /// // Whereas a handle owned by one operator path can be raised wholesale.
+    /// let mut console = Camera::<Async, PtzOpticsG2, _, _>::new_async(transport, executor).await?;
+    /// console.set_command_priority(Priority::High);
+    /// console.pan_tilt().home().await?;
+    /// ```
+    pub fn set_command_priority(&mut self, priority: crate::runtime::Priority) {
+        self.command_priority = priority;
     }
 
     /// Get the camera's capabilities.
@@ -485,6 +537,49 @@ where
         // Also update the BlockingRunner's timeout config
         if let Ok(mut runner) = self.blocking_runner.try_borrow_mut() {
             runner.update_timeout_config(timeout_config);
+        }
+    }
+
+    /// Get the scheduling priority this handle submits commands at.
+    ///
+    /// Newly constructed cameras submit at
+    /// [`Priority::Normal`](crate::runtime::Priority::Normal).
+    pub fn command_priority(&self) -> crate::runtime::Priority {
+        self.command_priority
+    }
+
+    /// Set the scheduling priority this handle submits commands at.
+    ///
+    /// The runner dispatches queued work highest priority first, FIFO within a
+    /// level, so raising the priority makes this handle's commands overtake
+    /// lower-priority commands that are still **queued** — including commands
+    /// waiting on a retry backoff after a busy or timed-out attempt. It never
+    /// interrupts, cancels, or reorders a command that has already been written
+    /// to the transport, and it does not change the priority of commands
+    /// submitted before the call. Inquiries are unaffected: the runner keeps
+    /// queueing them at its own polling priority so status reads never preempt
+    /// control commands.
+    ///
+    /// The priority is a property of *this handle*, not of the camera. A
+    /// blocking camera owns its transport, so a dedicated emergency handle means
+    /// a separate connection; to raise the priority of a single command on the
+    /// handle you already have, use
+    /// [`execute_with_priority`](Self::execute_with_priority).
+    ///
+    /// ```rust,ignore
+    /// use grafton_visca::{command::PanTilt, runtime::Priority};
+    ///
+    /// // One-off: this command alone jumps the queue, the handle stays Normal.
+    /// camera.execute_with_priority(PanTilt::Stop, Priority::Critical)?;
+    ///
+    /// // Or raise the whole handle, for example an operator-driven console.
+    /// camera.set_command_priority(Priority::High);
+    /// ```
+    pub fn set_command_priority(&mut self, priority: crate::runtime::Priority) {
+        self.command_priority = priority;
+        // Keep the runner's queueing priority in step with the handle.
+        if let Ok(mut runner) = self.blocking_runner.try_borrow_mut() {
+            runner.set_command_priority(priority);
         }
     }
 
@@ -651,6 +746,7 @@ where
         // instead of the command itself.
         let prepared = EncodedCommand::new(command, camera_id);
         let runtime = self.runtime.clone();
+        let priority = self.command_priority;
 
         Box::pin(async move {
             let prepared_command = Arc::new(prepared?);
@@ -660,9 +756,64 @@ where
                     .await
             } else {
                 runtime
-                    .send_command_prepared(prepared_command, camera_id, None)
+                    .send_command_prepared(prepared_command, camera_id, Some(priority))
                     .await
             }
+        })
+    }
+
+    /// Execute one command at an explicit scheduling priority.
+    ///
+    /// This is the per-command override of the handle default set by
+    /// [`set_command_priority`](Self::set_command_priority). It takes `&self`,
+    /// so it is the way to raise a single command — an emergency stop, say —
+    /// on a camera that is shared behind an `Arc` and therefore cannot be
+    /// re-prioritised in place. The handle default is left unchanged.
+    ///
+    /// ```rust,ignore
+    /// use grafton_visca::{command::PanTilt, runtime::Priority};
+    ///
+    /// // Overtakes anything still queued at Normal or High.
+    /// camera.execute_with_priority(PanTilt::Stop, Priority::Critical).await?;
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the command cannot be encoded, is rejected by the
+    /// runtime, or does not complete successfully.
+    pub fn execute_with_priority<C>(
+        &self,
+        command: C,
+        priority: crate::runtime::Priority,
+    ) -> <crate::mode::Async as Mode>::Fut<'static, Result<(), Error>>
+    where
+        C: ViscaCommand,
+        Tr: AsyncTransport + Send + Sync,
+        Exec: Executor + Send + Sync + Clone,
+    {
+        use crate::command::encode::EncodedCommand;
+        use std::sync::Arc;
+
+        let camera_id = self.camera_id;
+        let is_inquiry = matches!(
+            command.behavior().command_kind(),
+            crate::command::CommandKind::Inquiry
+        );
+        let prepared = EncodedCommand::new(&command, camera_id);
+        let runtime = self.runtime.clone();
+
+        Box::pin(async move {
+            let prepared_command = Arc::new(prepared?);
+            let response = if is_inquiry {
+                runtime
+                    .send_inquiry_prepared(prepared_command, camera_id)
+                    .await?
+            } else {
+                runtime
+                    .send_command_prepared(prepared_command, camera_id, Some(priority))
+                    .await?
+            };
+            response.into_result()
         })
     }
 
@@ -747,6 +898,7 @@ where
         );
         let prepared = EncodedCommand::new(command, camera_id);
         let runtime = self.runtime.clone();
+        let priority = self.command_priority;
 
         Box::pin(async move {
             if is_inquiry {
@@ -756,7 +908,7 @@ where
 
             let prepared_command = Arc::new(prepared?);
             let (id, future) = runtime
-                .send_command_with_id_prepared(prepared_command, camera_id, None)
+                .send_command_with_id_prepared(prepared_command, camera_id, Some(priority))
                 .await?;
             let response = future.await?;
             Ok((id, response))
@@ -823,7 +975,7 @@ where
         // Await scheduler acceptance, then return the ID and response future.
         let (id, fut) = self
             .runtime
-            .send_command_with_id_prepared(prepared_command, camera_id, None)
+            .send_command_with_id_prepared(prepared_command, camera_id, Some(self.command_priority))
             .await?;
         let future = Box::pin(fut);
         Ok((id, future))
@@ -1028,6 +1180,52 @@ where
         use crate::mode::BlockingFutureExt;
 
         let response = self.send_command(&command).block();
+        std::future::ready(response.and_then(crate::command::Response::into_result))
+    }
+
+    /// Execute one command at an explicit scheduling priority.
+    ///
+    /// This is the per-command override of the handle default set by
+    /// [`set_command_priority`](Self::set_command_priority); the handle default
+    /// is left unchanged. Use it for an emergency stop that must overtake work
+    /// still queued at a lower priority — for example a command waiting on a
+    /// retry backoff after the camera reported its buffer full.
+    ///
+    /// ```rust,ignore
+    /// use grafton_visca::{command::PanTilt, runtime::Priority};
+    ///
+    /// camera.execute_with_priority(PanTilt::Stop, Priority::Critical)?;
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the transport or runner is busy, the command cannot
+    /// be encoded, or it does not complete successfully.
+    pub fn execute_with_priority<C>(
+        &self,
+        command: C,
+        priority: crate::runtime::Priority,
+    ) -> <crate::mode::Blocking as Mode>::Fut<'_, Result<(), Error>>
+    where
+        C: ViscaCommand,
+    {
+        let transport_cell = self.transport();
+        let mut transport = match transport_cell.try_borrow_mut() {
+            Ok(transport) => transport,
+            Err(_) => {
+                return std::future::ready(Err(Error::TransportBusy));
+            }
+        };
+
+        let mut runner = match self.blocking_runner.try_borrow_mut() {
+            Ok(runner) => runner,
+            Err(_) => {
+                return std::future::ready(Err(Error::TransportBusy));
+            }
+        };
+
+        let response =
+            runner.send_command_at_priority(&mut *transport, &command, self.camera_id, priority);
         std::future::ready(response.and_then(crate::command::Response::into_result))
     }
 

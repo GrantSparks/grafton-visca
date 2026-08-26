@@ -152,6 +152,56 @@ where
         self.inner.execute(command).block()
     }
 
+    /// Execute an arbitrary VISCA command at an explicit scheduling priority.
+    ///
+    /// Per-command override of [`set_command_priority`](Self::set_command_priority);
+    /// the client's default priority is left unchanged. Use it for an emergency
+    /// stop that must overtake work still queued at a lower priority.
+    ///
+    /// ```rust,ignore
+    /// use grafton_visca::{command::PanTilt, runtime::Priority};
+    ///
+    /// camera.execute_with_priority(PanTilt::Stop, Priority::Critical)?;
+    /// ```
+    pub fn execute_with_priority<C>(
+        &self,
+        command: C,
+        priority: crate::runtime::Priority,
+    ) -> Result<(), Error>
+    where
+        P: Default,
+        Tr: crate::transport::BlockingTransport
+            + crate::transport::HasTransportConfig
+            + Send
+            + 'static,
+        C: crate::command::ViscaCommand,
+    {
+        self.inner.execute_with_priority(command, priority).block()
+    }
+
+    /// Get the scheduling priority this client submits commands at.
+    ///
+    /// Defaults to [`Priority::Normal`](crate::runtime::Priority::Normal).
+    pub fn command_priority(&self) -> crate::runtime::Priority {
+        self.inner.command_priority()
+    }
+
+    /// Set the scheduling priority this client submits commands at.
+    ///
+    /// See [`Camera::set_command_priority`] for the ordering guarantees; in
+    /// short, it decides which **queued** command is dispatched next and never
+    /// disturbs a command already sent to the camera.
+    ///
+    /// ```rust,ignore
+    /// use grafton_visca::runtime::Priority;
+    ///
+    /// // An operator console outranks background automation on the same camera.
+    /// camera.set_command_priority(Priority::High);
+    /// ```
+    pub fn set_command_priority(&mut self, priority: crate::runtime::Priority) {
+        self.inner.set_command_priority(priority);
+    }
+
     /// Send an arbitrary VISCA command and return the raw response.
     ///
     /// Prefer [`execute`](Self::execute) for command-only operations and typed
