@@ -15,7 +15,7 @@ use grafton_visca::{
         scripted_transport::{ScriptedTransport, Step},
         DeterministicExecutor,
     },
-    Error, Executor,
+    Error,
 };
 
 /// Test that `start_command_with_id` returns `Error::InquiryNotCancelable` for inquiry commands.
@@ -27,7 +27,7 @@ fn test_start_command_with_id_rejects_inquiry() {
     let transport = ScriptedTransport::new(vec![]).with_executor(executor.clone());
 
     let executor_clone = executor.clone();
-    executor.clone().block_on(async move {
+    executor.run_until(async move {
         use grafton_visca::camera::profiles::PtzOpticsG2;
 
         let camera = CameraBuilder::<DeterministicExecutor>::with_executor(executor_clone)
@@ -55,7 +55,7 @@ fn test_send_command_with_id_rejects_inquiry() {
     let transport = ScriptedTransport::new(vec![]).with_executor(executor.clone());
 
     let executor_clone = executor.clone();
-    executor.clone().block_on(async move {
+    executor.run_until(async move {
         use grafton_visca::camera::profiles::PtzOpticsG2;
 
         let camera = CameraBuilder::<DeterministicExecutor>::with_executor(executor_clone)
@@ -93,7 +93,7 @@ fn test_command_with_id_returns_valid_command_id() {
     let transport = ScriptedTransport::new(steps).with_executor(executor.clone());
 
     let executor_clone = executor.clone();
-    executor.clone().block_on(async move {
+    executor.run_until(async move {
         use grafton_visca::camera::profiles::PtzOpticsG2;
 
         let camera = CameraBuilder::<DeterministicExecutor>::with_executor(executor_clone)
@@ -140,7 +140,7 @@ fn test_start_command_with_id_returns_valid_id() {
     let transport = ScriptedTransport::new(steps).with_executor(executor.clone());
 
     let executor_clone = executor.clone();
-    executor.clone().block_on(async move {
+    executor.run_until(async move {
         use grafton_visca::camera::profiles::GenericVisca;
 
         let camera = CameraBuilder::<DeterministicExecutor>::with_executor(executor_clone)
