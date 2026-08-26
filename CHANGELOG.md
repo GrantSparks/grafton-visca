@@ -26,6 +26,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The cancel outbox now records which command each queued cancel targets, and a
   cancel is dropped if the command has completed or the camera has reassigned
   its VISCA socket before the frame is sent (#574).
+- Async cameras can control the on-screen menu again: `Camera::menu()` was
+  defined only in the blocking `impl` block, so enabling `mode-async` removed
+  the OSD menu accessor from the camera surface entirely (#575).
+- Added `Camera::set_timeout_config()` to the async camera. Timeouts were fixed
+  at construction time for async users; the new setter hands the configuration
+  to the runtime loop, which re-evaluates deadlines against it on every
+  housekeeping pass, so it also covers work already in flight.
 
 ## [1.1.0] - 2026-08-25
 

@@ -183,6 +183,13 @@ pub(crate) enum ControlRequest {
         /// Reply channel for the new subscription receiver.
         reply_tx: Sender<Result<flume::Receiver<CompletionEvent>>>,
     },
+    /// Replace the runtime's timeout configuration.
+    SetTimeoutConfig {
+        /// The timeout configuration the scheduler should use from now on.
+        timeout_config: TimeoutConfig,
+        /// Reply sent once the runtime has applied the new configuration.
+        reply_tx: Sender<Result<()>>,
+    },
 }
 
 impl ControlRequest {
@@ -194,6 +201,9 @@ impl ControlRequest {
                 let _ = reply_tx.send(Err(error));
             }
             ControlRequest::SubscribeCompletions { reply_tx } => {
+                let _ = reply_tx.send(Err(error));
+            }
+            ControlRequest::SetTimeoutConfig { reply_tx, .. } => {
                 let _ = reply_tx.send(Err(error));
             }
         }
@@ -351,6 +361,15 @@ impl<P: Profile, E: Executor> AsyncAdapter<P, E> {
     /// commands at wire speed. Applies to all sends (commands and inquiries).
     pub fn set_min_command_spacing(&mut self, spacing: std::time::Duration) {
         self.core.set_min_command_spacing(spacing);
+    }
+
+    /// Replace the timeout configuration used for deadline checks.
+    ///
+    /// Deadlines are evaluated against the current configuration on every
+    /// housekeeping pass, so the new values also apply to work that is already
+    /// in flight.
+    pub fn set_timeout_config(&mut self, timeout_config: TimeoutConfig) {
+        self.core.set_timeout_config(timeout_config);
     }
 
     /// Admit a command or inquiry into runtime scheduler state.
