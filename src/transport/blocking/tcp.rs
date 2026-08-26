@@ -178,4 +178,8 @@ impl BlockingTransport for Tcp {
 
         result
     }
+
+    fn addressing_mode_hint(&self) -> Option<AddressingMode> {
+        Some(AddressingMode::Ip)
+    }
 }

@@ -15,9 +15,8 @@ use super::response::{BoolConvention, Nibbles, Nibbles4Or8, Payload, Response};
 use super::system::{MotionSyncMode, MotionSyncPreset};
 use super::white_balance::{AutoWhiteBalanceSensitivity, WhiteBalanceMode};
 use crate::capabilities::{PanTilt, Profile};
-use crate::command::{CommandBehavior, InquiryResponseSpec, ResponseParser, ViscaCommand};
+use crate::command::{encode::WireEncode, ResponseParser};
 use crate::error::format_payload_hex;
-use crate::timeout::CommandCategory;
 use crate::types::{BroadcastDomain, DefogLevel, ExposureCompensationPosition, NdFilterPreset};
 use crate::{CameraId, Error};
 
@@ -119,22 +118,28 @@ pub(crate) struct BuiltinInquiryMetadata {
     pub(crate) bytes: Option<&'static [u8]>,
     /// Command-generation classification.
     pub(crate) query: BuiltinInquiryQuery,
+    /// Whether the query has a typed response conversion.
+    ///
+    /// The generated table intentionally keeps the two queryable
+    /// `typed: none` entries (`DefogModeInquiry` and `NrSpeedInquiry`)
+    /// explicit.  Decode-only entries are always untyped for this metadata
+    /// purpose.
+    pub(crate) typed: bool,
     /// Whether this inquiry is vendor-specific rather than baseline VISCA.
     pub(crate) vendor_specific: bool,
-    /// Timeout category used by the generated command.
-    pub(crate) timeout_category: CommandCategory,
     /// Profile-specific decode behavior, if this inquiry needs it.
     pub(crate) profile_decoder: BuiltinInquiryProfileDecoder,
     /// Rationale for aliases, alternate interpretations, and intentional gaps.
     pub(crate) rationale: Option<&'static str>,
 }
 
-macro_rules! builtin_inquiry_timeout_category {
-    () => {
-        CommandCategory::Quick
+#[cfg(test)]
+macro_rules! builtin_inquiry_is_typed {
+    (none) => {
+        false
     };
-    ($timeout:expr) => {
-        $timeout
+    (($($typed:tt)*)) => {
+        true
     };
 }
 
@@ -180,6 +185,132 @@ macro_rules! impl_builtin_response_parser {
     };
 }
 
+macro_rules! builtin_profile_request_validation {
+    ([]) => {};
+    ([pan_tilt_position]) => {
+        fn validate_for_profile(&self, profile: &crate::ProfileSpec) -> Result<(), crate::Error> {
+            if profile.capabilities().has_pan_tilt && profile.pan_tilt_coordinates().is_some() {
+                Ok(())
+            } else {
+                Err(crate::Error::FeatureNotSupported {
+                    feature: "pan/tilt position inquiry",
+                })
+            }
+        }
+    };
+}
+
+macro_rules! builtin_profile_decoder_method {
+    ([], $response_ty:ty, $struct:ident) => {};
+    ([pan_tilt_position], $response_ty:ty, $struct:ident) => {
+        fn decoder_for_profile(
+            &self,
+            profile: &crate::ProfileSpec,
+        ) -> crate::ResponseDecoder<Self::Response> {
+            fn decode(
+                coordinate_system: &Option<crate::capabilities::CoordinateSystem>,
+                payload: &[u8],
+            ) -> Result<$response_ty, crate::Error> {
+                let coordinate_system =
+                    coordinate_system.ok_or(crate::Error::FeatureNotSupported {
+                        feature: "pan/tilt coordinate conversion",
+                    })?;
+                let response = decode_pan_tilt_position_with_coordinate(
+                    Payload::new(payload),
+                    coordinate_system,
+                )?;
+                <$struct as ResponseParser>::from_response(response)
+            }
+
+            let coordinate_system = profile
+                .pan_tilt_coordinates()
+                .map(|facts| facts.coordinate_system());
+            crate::ResponseDecoder::with_context(coordinate_system, decode)
+        }
+    };
+}
+
+macro_rules! impl_builtin_typed_request {
+    ($profile_decode:tt, none, $struct:ident, $kind:ident, $bytes_const:ident) => {
+        impl crate::Request for $struct {
+            type Class = crate::request::Inquiry;
+
+            const MAX_SIZE: usize = bytes::$bytes_const.len();
+            const TIMEOUT_CLASS: crate::TimeoutClass = crate::TimeoutClass::Inquiry;
+            const RETRY_CLASS: crate::RetryClass = crate::RetryClass::Inquiry;
+            const CONTROL_CLASS: crate::ControlClass = crate::ControlClass::Normal;
+
+            fn write_into(
+                &self,
+                camera_id: crate::CameraId,
+                buffer: &mut [u8],
+            ) -> Result<usize, crate::Error> {
+                WireEncode::write_into(self, camera_id, buffer)
+            }
+
+            builtin_profile_request_validation!($profile_decode);
+        }
+
+        impl crate::Inquiry for $struct {
+            type Response = crate::command::Response;
+
+            fn route(&self) -> crate::InquiryRoute {
+                crate::InquiryRoute::custom(InquiryKind::$kind as u16 + 1)
+            }
+
+            fn decoder(&self) -> crate::ResponseDecoder<Self::Response> {
+                fn decode(payload: &[u8]) -> Result<crate::command::Response, crate::Error> {
+                    crate::command::parse_inquiry_payload(payload, &InquiryKind::$kind)
+                }
+                crate::ResponseDecoder::from_fn(decode)
+            }
+        }
+
+        impl crate::prepared::BuiltinInquiryRequest for $struct {}
+    };
+    ($profile_decode:tt, ($response_ty:ty, $data_pattern:tt => $conversion:expr), $struct:ident, $kind:ident, $bytes_const:ident) => {
+        impl crate::Request for $struct {
+            type Class = crate::request::Inquiry;
+
+            const MAX_SIZE: usize = bytes::$bytes_const.len();
+            const TIMEOUT_CLASS: crate::TimeoutClass = crate::TimeoutClass::Inquiry;
+            const RETRY_CLASS: crate::RetryClass = crate::RetryClass::Inquiry;
+            const CONTROL_CLASS: crate::ControlClass = crate::ControlClass::Normal;
+
+            fn write_into(
+                &self,
+                camera_id: crate::CameraId,
+                buffer: &mut [u8],
+            ) -> Result<usize, crate::Error> {
+                WireEncode::write_into(self, camera_id, buffer)
+            }
+
+            builtin_profile_request_validation!($profile_decode);
+        }
+
+        impl crate::Inquiry for $struct {
+            type Response = $response_ty;
+
+            fn route(&self) -> crate::InquiryRoute {
+                crate::InquiryRoute::custom(InquiryKind::$kind as u16 + 1)
+            }
+
+            fn decoder(&self) -> crate::ResponseDecoder<Self::Response> {
+                fn decode(payload: &[u8]) -> Result<$response_ty, crate::Error> {
+                    let response =
+                        crate::command::parse_inquiry_payload(payload, &InquiryKind::$kind)?;
+                    <$struct as ResponseParser>::from_response(response)
+                }
+                crate::ResponseDecoder::from_fn(decode)
+            }
+
+            builtin_profile_decoder_method!($profile_decode, $response_ty, $struct);
+        }
+
+        impl crate::prepared::BuiltinInquiryRequest for $struct {}
+    };
+}
+
 macro_rules! define_inquiry_kind_enum {
     (
         queryable { $($query_entries:tt)* }
@@ -197,7 +328,6 @@ macro_rules! define_inquiry_kind_enum {
             kind: $kind:ident $body:tt;
             decode: |$payload:ident| $decode_body:block;
             $(profile_decode: $profile_decode:ident;)?
-            $(timeout: $timeout:expr;)?
             response: false;
             query: $query:expr;
             vendor_specific: $vendor_specific:expr;
@@ -215,7 +345,6 @@ macro_rules! define_inquiry_kind_enum {
             kind: $kind:ident $body:tt;
             decode: |$payload:ident| $decode_body:block;
             $(profile_decode: $profile_decode:ident;)?
-            $(timeout: $timeout:expr;)?
             response: $response:ident;
             query: $query:expr;
             vendor_specific: $vendor_specific:expr;
@@ -280,7 +409,6 @@ macro_rules! define_inquiry_data_enum {
             kind: $kind:ident $body:tt;
             decode: |$payload:ident| $decode_body:block;
             $(profile_decode: $profile_decode:ident;)?
-            $(timeout: $timeout:expr;)?
             response: false;
             query: $query:expr;
             vendor_specific: $vendor_specific:expr;
@@ -298,7 +426,6 @@ macro_rules! define_inquiry_data_enum {
             kind: $kind:ident $body:tt;
             decode: |$payload:ident| $decode_body:block;
             $(profile_decode: $profile_decode:ident;)?
-            $(timeout: $timeout:expr;)?
             response: $response:ident;
             query: $query:expr;
             vendor_specific: $vendor_specific:expr;
@@ -364,7 +491,6 @@ macro_rules! define_inquiry_dispatch {
             kind: $kind:ident $body:tt;
             decode: |$payload:ident| $decode_body:block;
             $(profile_decode: $profile_decode:ident;)?
-            $(timeout: $timeout:expr;)?
             response: false;
             query: $query:expr;
             vendor_specific: $vendor_specific:expr;
@@ -382,7 +508,6 @@ macro_rules! define_inquiry_dispatch {
             kind: $kind:ident $body:tt;
             decode: |$payload:ident| $decode_body:block;
             $(profile_decode: $profile_decode:ident;)?
-            $(timeout: $timeout:expr;)?
             response: $response:ident;
             query: $query:expr;
             vendor_specific: $vendor_specific:expr;
@@ -465,7 +590,6 @@ macro_rules! define_inquiry_profile_dispatch {
             kind: $kind:ident $body:tt;
             decode: |$payload:ident| $decode_body:block;
             profile_decode: pan_tilt_position;
-            $(timeout: $timeout:expr;)?
             response: $response:ident;
             query: $query:expr;
             vendor_specific: $vendor_specific:expr;
@@ -492,7 +616,6 @@ macro_rules! define_inquiry_profile_dispatch {
             kind: $kind:ident $body:tt;
             decode: |$payload:ident| $decode_body:block;
             profile_decode: default;
-            $(timeout: $timeout:expr;)?
             response: $response:ident;
             query: $query:expr;
             vendor_specific: $vendor_specific:expr;
@@ -509,7 +632,6 @@ macro_rules! define_inquiry_profile_dispatch {
             const $bytes_const:ident = [$($byte:expr),+ $(,)?];
             kind: $kind:ident $body:tt;
             decode: |$payload:ident| $decode_body:block;
-            $(timeout: $timeout:expr;)?
             response: $response:ident;
             query: $query:expr;
             vendor_specific: $vendor_specific:expr;
@@ -584,7 +706,6 @@ macro_rules! define_builtin_inquiries {
                     kind: $kind:ident $body:tt;
                     decode: |$payload:ident| $decode_body:block;
                     $(profile_decode: $profile_decode:ident;)?
-                    $(timeout: $timeout:expr;)?
                     response: $response:ident;
                     query: $query:expr;
                     vendor_specific: $vendor_specific:expr;
@@ -614,7 +735,6 @@ macro_rules! define_builtin_inquiries {
                         kind: $kind $body;
                         decode: |$payload| $decode_body;
                         $(profile_decode: $profile_decode;)?
-                        $(timeout: $timeout;)?
                         response: $response;
                         query: $query;
                         vendor_specific: $vendor_specific;
@@ -644,7 +764,6 @@ macro_rules! define_builtin_inquiries {
                         kind: $kind $body;
                         decode: |$payload| $decode_body;
                         $(profile_decode: $profile_decode;)?
-                        $(timeout: $timeout;)?
                         response: $response;
                         query: $query;
                         vendor_specific: $vendor_specific;
@@ -674,7 +793,6 @@ macro_rules! define_builtin_inquiries {
                         kind: $kind $body;
                         decode: |$payload| $decode_body;
                         $(profile_decode: $profile_decode;)?
-                        $(timeout: $timeout;)?
                         response: $response;
                         query: $query;
                         vendor_specific: $vendor_specific;
@@ -704,7 +822,6 @@ macro_rules! define_builtin_inquiries {
                         kind: $kind $body;
                         decode: |$payload| $decode_body;
                         $(profile_decode: $profile_decode;)?
-                        $(timeout: $timeout;)?
                         response: $response;
                         query: $query;
                         vendor_specific: $vendor_specific;
@@ -741,10 +858,8 @@ macro_rules! define_builtin_inquiries {
             #[derive(Debug, Copy, Clone, Default)]
             pub struct $struct;
 
-            impl ViscaCommand for $struct {
+            impl WireEncode for $struct {
                 const MAX_SIZE: usize = bytes::$bytes_const.len();
-                const TIMEOUT_CATEGORY: CommandCategory =
-                    builtin_inquiry_timeout_category!($($timeout)?);
 
                 fn write_into(
                     &self,
@@ -764,12 +879,10 @@ macro_rules! define_builtin_inquiries {
                     Ok(len)
                 }
 
-                fn behavior(&self) -> CommandBehavior {
-                    CommandBehavior::Inquiry(InquiryResponseSpec::Builtin(InquiryKind::$kind))
-                }
             }
 
             impl_builtin_response_parser!($typed, $struct, $kind);
+            impl_builtin_typed_request!([$($profile_decode)?], $typed, $struct, $kind, $bytes_const);
 
             #[cfg(test)]
             impl BuiltinInquiryCommandMarker for $struct {
@@ -791,8 +904,8 @@ macro_rules! define_builtin_inquiries {
                     kind: InquiryKind::$kind,
                     bytes: Some(bytes::$bytes_const),
                     query: $query,
+                    typed: builtin_inquiry_is_typed!($typed),
                     vendor_specific: $vendor_specific,
-                    timeout_category: builtin_inquiry_timeout_category!($($timeout)?),
                     profile_decoder: builtin_inquiry_profile_decoder!($($profile_decode)?),
                     rationale: $rationale,
                 },
@@ -804,8 +917,8 @@ macro_rules! define_builtin_inquiries {
                     kind: InquiryKind::$decode_kind,
                     bytes: None,
                     query: BuiltinInquiryQuery::DecodeOnly,
+                    typed: false,
                     vendor_specific: $decode_vendor_specific,
-                    timeout_category: CommandCategory::Quick,
                     profile_decoder: BuiltinInquiryProfileDecoder::Default,
                     rationale: $decode_rationale,
                 },
@@ -825,12 +938,10 @@ macro_rules! define_builtin_inquiries {
             fn assert_inquiry_matches_metadata<C>(
                 cmd: C,
                 expected: &[u8],
-                expected_kind: InquiryKind,
-                expected_timeout: CommandCategory,
                 camera_id: CameraId,
                 name: &str,
             ) where
-                C: ViscaCommand,
+                C: WireEncode,
             {
                 let mut buffer = [0u8; 32];
                 let len = cmd
@@ -846,11 +957,6 @@ macro_rules! define_builtin_inquiries {
                     expected.len(),
                     "{name} MAX_SIZE must be the exact canonical byte length",
                 );
-                assert_eq!(
-                    cmd.encoded_size(),
-                    expected.len(),
-                    "{name} encoded_size must be exact",
-                );
                 assert_eq!(len, expected.len(), "{name} must report exact length");
                 assert_eq!(
                     &buffer[..len],
@@ -862,18 +968,6 @@ macro_rules! define_builtin_inquiries {
                     1,
                     "{name} must contain exactly one terminator",
                 );
-                assert_eq!(
-                    cmd.behavior(),
-                    crate::command::CommandBehavior::Inquiry(
-                        crate::command::InquiryResponseSpec::Builtin(expected_kind),
-                    ),
-                    "{name} inquiry behavior changed",
-                );
-                assert_eq!(
-                    C::TIMEOUT_CATEGORY,
-                    expected_timeout,
-                    "{name} timeout category changed",
-                );
             }
 
             #[test]
@@ -884,8 +978,6 @@ macro_rules! define_builtin_inquiries {
                         assert_inquiry_matches_metadata(
                             $struct,
                             bytes::$bytes_const,
-                            InquiryKind::$kind,
-                            builtin_inquiry_timeout_category!($($timeout)?),
                             camera_id,
                             stringify!($struct),
                         );
@@ -996,17 +1088,70 @@ macro_rules! define_builtin_inquiries {
                         assert_eq!(meta.kind, InquiryKind::PanTiltPosition);
                     }
 
-                    assert!(
-                        meta.timeout_category.default_timeout() > std::time::Duration::ZERO,
-                        "{} has an unexpected timeout category",
-                        meta.name,
-                    );
                 }
 
                 assert!(saw_vendor_specific, "vendor-specific inquiries must be modeled");
                 assert!(
                     saw_profile_decoder,
                     "profile-aware inquiry decoding must be modeled"
+                );
+            }
+
+            #[test]
+            fn queryable_typed_exclusions_are_exact() {
+                let mut untyped = BUILTIN_INQUIRIES
+                    .iter()
+                    .filter(|meta| {
+                        !matches!(meta.query, BuiltinInquiryQuery::DecodeOnly) && !meta.typed
+                    })
+                    .map(|meta| meta.name)
+                    .collect::<Vec<_>>();
+                untyped.sort_unstable();
+
+                assert_eq!(untyped, ["DefogModeInquiry", "NrSpeedInquiry"]);
+            }
+
+            #[test]
+            fn required_queryable_typed_inquiries_have_generated_accessors() {
+                let required = [
+                    ("FocusRangeInquiry", "focus_range"),
+                    (
+                        "AutoWhiteBalanceSensitivityInquiry",
+                        "auto_white_balance_sensitivity",
+                    ),
+                    ("TallyRedInquiry", "red_tally_status"),
+                    ("MotionSyncPresetInquiry", "motion_sync_speed"),
+                    ("DynamicRangeInquiry", "dynamic_range"),
+                    ("FlickerModeInquiry", "flicker_mode"),
+                    ("AutoFocusSensitivityInquiry", "auto_focus_sensitivity"),
+                ];
+
+                for (command, method) in required {
+                    assert!(
+                        BUILTIN_INQUIRY_ACCESSORS.iter().any(|accessor| {
+                            accessor.command.name() == command && accessor.method == method
+                        }),
+                        "{command} must have generated typed accessor {method}",
+                    );
+                }
+            }
+
+            #[test]
+            fn nd_filter_inquiry_has_one_generated_accessor_path() {
+                let rows = BUILTIN_INQUIRY_ACCESSORS
+                    .iter()
+                    .filter(|accessor| accessor.command.name() == "NdFilterInquiry")
+                    .collect::<Vec<_>>();
+
+                assert_eq!(rows.len(), 1, "NdFilterInquiry must have one accessor row");
+                assert_eq!(rows[0].trait_name, "NdFilterInquiryControl");
+                assert_eq!(rows[0].method, "nd_filter_position");
+                assert!(
+                    !BUILTIN_INQUIRY_ACCESSORS.iter().any(|accessor| {
+                        accessor.trait_name == "NdFilterControl"
+                            && accessor.command.name() == "NdFilterInquiry"
+                    }),
+                    "the legacy NdFilterControl inquiry path must not be generated",
                 );
             }
 
@@ -2803,6 +2948,7 @@ macro_rules! builtin_inquiry_table {
         TallyControl {
             gate: crate::capabilities::HasTally;
             TallyStatusInquiry => tally_status: crate::command::TallyStatusState;
+            TallyRedInquiry => red_tally_status: bool;
             TallyGreenInquiry => green_tally_status: bool;
             TallyAutoAdjustInquiry => tally_auto_adjust_enabled: bool;
         }
@@ -2879,10 +3025,6 @@ macro_rules! builtin_inquiry_table {
             NdFilterInquiry => nd_filter_position: crate::command::NdFilterPosition;
             NdFilterPresetInquiry => nd_filter_preset: crate::types::NdFilterPreset;
         }
-        NdFilterControl {
-            gate: crate::capabilities::HasNdFilter;
-            NdFilterInquiry => nd_filter: crate::command::NdFilterPosition;
-        }
         MotionSyncControl {
             gate: crate::capabilities::HasMotionSync;
             MotionSyncModeInquiry => motion_sync_mode: crate::command::MotionSyncMode;
@@ -2892,6 +3034,10 @@ macro_rules! builtin_inquiry_table {
             gate: crate::capabilities::HasFocusNearLimitInquiry;
             FocusNearLimitInquiry => focus_near_limit: crate::types::FocusPosition;
         }
+        FocusRangeInquiryControl {
+            gate: none;
+            FocusRangeInquiry => focus_range: FocusRange;
+        }
         FocusZoneInquiryControl {
             gate: crate::capabilities::HasFocusZone;
             FocusZoneInquiry => focus_zone: FocusZone;
@@ -2899,6 +3045,10 @@ macro_rules! builtin_inquiry_table {
         AutoFocusSensitivityInquiryControl {
             gate: crate::capabilities::HasAutoFocusSensitivity;
             AutoFocusSensitivityInquiry => auto_focus_sensitivity: AutoFocusSensitivity;
+        }
+        AutoWhiteBalanceSensitivityInquiryControl {
+            gate: crate::capabilities::HasAutoWhiteBalanceSensitivity;
+            AutoWhiteBalanceSensitivityInquiry => auto_white_balance_sensitivity: AutoWhiteBalanceSensitivity;
         }
         IrisInquiryControl {
             gate: crate::capabilities::HasIrisControl;
@@ -2991,11 +3141,18 @@ fn decode_pan_tilt_position(payload: Payload<'_>) -> Result<Response, Error> {
 fn decode_pan_tilt_position_for<P: Profile + PanTilt>(
     payload: Payload<'_>,
 ) -> Result<Response, Error> {
+    decode_pan_tilt_position_with_coordinate(payload, P::COORDINATE_SYSTEM)
+}
+
+fn decode_pan_tilt_position_with_coordinate(
+    payload: Payload<'_>,
+    coordinate_system: crate::capabilities::CoordinateSystem,
+) -> Result<Response, Error> {
     if payload.len() == 8 {
         let nibbles = Nibbles::<8>::try_from(payload)?;
         let pan_u16 = nibbles.u16_quad(0);
         let tilt_u16 = nibbles.u16_quad(4);
-        let (pan, tilt) = P::COORDINATE_SYSTEM.convert_from_camera_coords(pan_u16, tilt_u16);
+        let (pan, tilt) = coordinate_system.convert_from_camera_coords(pan_u16, tilt_u16);
 
         Ok(Response::Inquiry(InquiryData::PanTiltPosition {
             pan,
@@ -3016,7 +3173,7 @@ fn decode_pan_tilt_position_for<P: Profile + PanTilt>(
         } else {
             0x8000
         };
-        let (pan, tilt) = P::COORDINATE_SYSTEM.convert_from_camera_coords(pan_u16, tilt_u16);
+        let (pan, tilt) = coordinate_system.convert_from_camera_coords(pan_u16, tilt_u16);
 
         Ok(Response::Inquiry(InquiryData::PanTiltPosition {
             pan,

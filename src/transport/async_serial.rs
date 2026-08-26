@@ -7,7 +7,7 @@ use crate::{
     transport::{
         async_io::{write_all_flush, AsyncReadExt, AsyncWriteExt},
         builder::TransportConfig,
-        AsyncTransport, HasTransportConfig,
+        AddressingMode, AsyncTransport, HasTransportConfig,
     },
     Error,
 };
@@ -66,6 +66,10 @@ impl<S: AsyncReadExt + AsyncWriteExt + Send> AsyncTransport for Serial<S> {
         }
 
         Ok(n)
+    }
+
+    fn addressing_mode_hint(&self) -> Option<AddressingMode> {
+        Some(AddressingMode::Serial)
     }
 }
 

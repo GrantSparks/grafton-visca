@@ -3,7 +3,7 @@
 //! This module provides unified buffer management across all transport implementations,
 //! ensuring consistent buffer sizes and allocation strategies.
 
-#[cfg(all(not(feature = "mode-async"), test))]
+#[cfg(all(feature = "blocking", test))]
 use bytes::BytesMut;
 
 /// Default buffer size for most VISCA operations.
@@ -92,25 +92,21 @@ impl BufferConfig {
 /// Available for all transport configurations.
 #[doc(hidden)]
 #[derive(Debug, Clone, Copy)]
+#[cfg(all(test, feature = "blocking"))]
 pub struct BufferManager {
     config: BufferConfig,
 }
 
+#[cfg(all(test, feature = "blocking"))]
 impl BufferManager {
     /// Create a new buffer manager with the given configuration.
     pub fn new(config: BufferConfig) -> Self {
         Self { config }
     }
 
-    /// Get the buffer configuration (crate-visible for runtime loop).
-    #[inline]
-    pub(crate) fn config(&self) -> BufferConfig {
-        self.config
-    }
-
     /// Allocate a new receive buffer.
     /// Only used by blocking transports that need BytesMut for receive operations.
-    #[cfg(all(not(feature = "mode-async"), test))]
+    #[cfg(all(feature = "blocking", test))]
     pub fn alloc_recv_buffer(&self) -> BytesMut {
         BytesMut::with_capacity(self.config.recv_buffer_size)
     }
@@ -118,13 +114,13 @@ impl BufferManager {
     /// Allocate a new send buffer.
     /// Available for all transport configurations that need BytesMut.
     /// Some transports don't need send buffers (they send data directly).
-    #[cfg(all(not(feature = "mode-async"), test))]
+    #[cfg(all(feature = "blocking", test))]
     pub fn alloc_send_buffer(&self) -> BytesMut {
         BytesMut::with_capacity(self.config.send_buffer_size)
     }
 
     /// Resize a buffer if needed, respecting max size limits.
-    #[cfg(all(test, not(feature = "mode-async")))]
+    #[cfg(all(test, feature = "blocking"))]
     pub fn resize_buffer(&self, buffer: &mut BytesMut, required_size: usize) {
         let new_size = required_size.min(self.config.max_buffer_size);
         if buffer.capacity() < new_size {
@@ -134,7 +130,7 @@ impl BufferManager {
     }
 
     /// Clear and reset a buffer for reuse.
-    #[cfg(all(test, not(feature = "mode-async")))]
+    #[cfg(all(test, feature = "blocking"))]
     pub fn reset_buffer(&self, buffer: &mut BytesMut) {
         buffer.clear();
         // Shrink if buffer has grown too large
@@ -172,7 +168,7 @@ mod tests {
     }
 
     // These tests rely on BytesMut and blocking-only allocation helpers
-    #[cfg(not(feature = "mode-async"))]
+    #[cfg(feature = "blocking")]
     #[test]
     fn test_buffer_manager_allocation() {
         let manager = BufferManager::new(BufferConfig::default());
@@ -184,7 +180,7 @@ mod tests {
         assert_eq!(send_buf.capacity(), DEFAULT_BUFFER_SIZE);
     }
 
-    #[cfg(not(feature = "mode-async"))]
+    #[cfg(feature = "blocking")]
     #[test]
     fn test_buffer_resize() {
         let manager = BufferManager::new(BufferConfig::default());
@@ -208,7 +204,7 @@ mod tests {
         assert!(buffer.capacity() <= 8192);
     }
 
-    #[cfg(not(feature = "mode-async"))]
+    #[cfg(feature = "blocking")]
     #[test]
     fn test_buffer_reset() {
         let manager = BufferManager::new(BufferConfig::default());

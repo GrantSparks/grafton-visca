@@ -7,17 +7,17 @@ use std::{
 };
 
 const EXPECTED_INACCESSIBLE_ERROR_CODES: &[&str] = &[
-    "E0277", "E0308", "E0432", "E0433", "E0437", "E0599", "E0603",
+    "E0271", "E0277", "E0308", "E0382", "E0432", "E0433", "E0437", "E0599", "E0603",
 ];
 
 pub fn active_grafton_visca_features() -> Vec<&'static str> {
     let mut features = Vec::new();
 
-    if cfg!(feature = "default") {
-        features.push("default");
+    if cfg!(feature = "blocking") {
+        features.push("blocking");
     }
-    if cfg!(feature = "mode-async") {
-        features.push("mode-async");
+    if cfg!(feature = "async") {
+        features.push("async");
     }
     if cfg!(feature = "runtime-tokio") {
         features.push("runtime-tokio");
@@ -31,25 +31,12 @@ pub fn active_grafton_visca_features() -> Vec<&'static str> {
     if cfg!(feature = "transport-serial-tokio") {
         features.push("transport-serial-tokio");
     }
-    if cfg!(feature = "serde") {
-        features.push("serde");
-    }
-    if cfg!(feature = "schemars") {
-        features.push("schemars");
-    }
-    if cfg!(feature = "ts-rs") {
-        features.push("ts-rs");
-    }
     if cfg!(feature = "dyn-api") {
         features.push("dyn-api");
     }
     if cfg!(feature = "test-utils") {
         features.push("test-utils");
     }
-    if cfg!(feature = "DISABLED") {
-        features.push("DISABLED");
-    }
-
     features
 }
 
@@ -239,10 +226,14 @@ fn assert_fixture_does_not_compile(
     }
 
     let stderr = String::from_utf8_lossy(&output.stderr);
-    if !EXPECTED_INACCESSIBLE_ERROR_CODES
+    let expected_error = EXPECTED_INACCESSIBLE_ERROR_CODES
         .iter()
         .any(|code| stderr.contains(code))
-    {
+        || stderr.contains("unused `Operation`")
+        || stderr.contains("unused `Dyn")
+        || stderr.contains("must be used")
+        || stderr.contains("use of moved value");
+    if !expected_error {
         let stdout = String::from_utf8_lossy(&output.stdout);
         panic!(
             "{fixture_label} failed without an expected privacy/removal error code \

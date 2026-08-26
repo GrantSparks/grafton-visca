@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 2.0.0-rc.1 release candidate
+
+- Added owner-backed `Session`/`SessionConfig` construction and typed
+  `Camera<P>` views for heterogeneous multi-camera sessions.
+- Added the final blocking, async, and dynamic noun surfaces with typed
+  completion classes, profile capability gates, and shared operation
+  lifecycle semantics.
+- Standardized endpoint defaults, transport configuration, preflight
+  validation, cancellation, retry, and observability behavior across the
+  supported runtime and transport combinations.
+- Removed the 1.x compatibility feature aliases and documented the 2.0
+  request, construction, dynamic API, and release contracts.
+- Added a hardware release evidence checklist. Hardware, registry, and
+  Synemantic validation remain `Pending (Not run)` until release owners record
+  bench evidence.
+
 ## [1.2.0] - 2026-08-27
 
 ### Added

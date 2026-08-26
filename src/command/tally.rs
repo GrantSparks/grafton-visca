@@ -10,69 +10,60 @@
 //! - Green tally light (`GreenOn`, `GreenOff`) - Sony FR7 specific
 //! - Flash/solid modes (`Flash`, `On`, `Off`) - PtzOptics specific
 
-use crate::{timeout::CommandCategory, visca_command};
+use crate::visca_command;
 
 visca_command! {
         /// Turn red tally light on.
     pub struct TallyRedOn;
     bytes = [0x01, 0x7E, 0x01, 0x0A, 0x00, 0x02];
-    category = CommandCategory::Quick;
 }
 
 visca_command! {
         /// Turn red tally light off.
     pub struct TallyRedOff;
     bytes = [0x01, 0x7E, 0x01, 0x0A, 0x00, 0x03];
-    category = CommandCategory::Quick;
 }
 
 visca_command! {
         /// Set tally brightness to low.
     pub struct TallyBrightLo;
     bytes = [0x01, 0x7E, 0x01, 0x0A, 0x01, 0x04];
-    category = CommandCategory::Quick;
 }
 
 visca_command! {
         /// Set tally brightness to high.
     pub struct TallyBrightHi;
     bytes = [0x01, 0x7E, 0x01, 0x0A, 0x01, 0x05];
-    category = CommandCategory::Quick;
 }
 
 visca_command! {
         /// Turn green tally light on (FR7 specific).
     pub struct TallyGreenOn;
     bytes = [0x01, 0x7E, 0x04, 0x1A, 0x00, 0x02];
-    category = CommandCategory::Quick;
 }
 
 visca_command! {
         /// Turn green tally light off (FR7 specific).
     pub struct TallyGreenOff;
     bytes = [0x01, 0x7E, 0x04, 0x1A, 0x00, 0x03];
-    category = CommandCategory::Quick;
 }
 
 visca_command! {
         /// Set tally to flash mode (PtzOptics specific).
     pub struct TallyFlash;
     bytes = [0x0A, 0x02, 0x02, 0x01];
-    category = CommandCategory::Quick;
 }
 
 visca_command! {
         /// Set tally to solid on (PtzOptics specific).
     pub struct TallyOn;
     bytes = [0x0A, 0x02, 0x02, 0x02];
-    category = CommandCategory::Quick;
 }
 
 visca_command! {
         /// Turn tally off (PtzOptics specific).
     pub struct TallyOff;
     bytes = [0x0A, 0x02, 0x02, 0x03];
-    category = CommandCategory::Quick;
 }
 
 impl Default for TallyRedOn {

@@ -1,0 +1,28 @@
+error[E0277]: the trait bound `MissingAffectedAxes: OperationCommand<grafton_visca::completion::Targeted>` is not satisfied
+  --> tests/api_contract/fail/operation_without_affected_axes_is_rejected.rs:25:24
+   |
+25 |     requires_operation(MissingAffectedAxes);
+   |     ------------------ ^^^^^^^^^^^^^^^^^^^ unsatisfied trait bound
+   |     |
+   |     required by a bound introduced by this call
+   |
+help: the trait `OperationCommand<grafton_visca::completion::Targeted>` is not implemented for `MissingAffectedAxes`
+  --> tests/api_contract/fail/operation_without_affected_axes_is_rejected.rs:6:1
+   |
+ 6 | struct MissingAffectedAxes;
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   = help: the following other types implement trait `OperationCommand<K>`:
+             `FocusDrive` implements `OperationCommand<grafton_visca::completion::AppliedOnly>`
+             `FocusInfinity` implements `OperationCommand<grafton_visca::completion::Targeted>`
+             `FocusStop` implements `OperationCommand<grafton_visca::completion::AppliedOnly>`
+             `FocusTarget` implements `OperationCommand<grafton_visca::completion::Targeted>`
+             `FocusTrigger` implements `OperationCommand<grafton_visca::completion::AppliedOnly>`
+             `IrisDirect` implements `OperationCommand<grafton_visca::completion::Targeted>`
+             `IrisReset` implements `OperationCommand<grafton_visca::completion::Targeted>`
+             `NdFilterDirect` implements `OperationCommand<grafton_visca::completion::Targeted>`
+           and $N others
+note: required by a bound in `requires_operation`
+  --> tests/api_contract/fail/operation_without_affected_axes_is_rejected.rs:22:26
+   |
+22 | fn requires_operation<O: OperationCommand<Targeted>>(_: O) {}
+   |                          ^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `requires_operation`

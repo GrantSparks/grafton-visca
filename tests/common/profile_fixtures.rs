@@ -9,6 +9,7 @@ use grafton_visca::{
     },
     command::ExposureMode,
     transport::RawVisca,
+    AffectedAxes, CompileTimeProfile, PositionInquirySupport, TransportCompatibility,
     WhiteBalanceMode,
 };
 
@@ -22,10 +23,24 @@ const EXPOSURE_MODES: &[ExposureMode] = &[
 const SHUTTER_SPEEDS: &[ShutterSpeed] = &[ShutterSpeed::new("1/60", 0x01)];
 const WB_MODES: &[WhiteBalanceMode] = &[WhiteBalanceMode::Auto, WhiteBalanceMode::Manual];
 
-macro_rules! synthetic_profile {
-    ($profile:ident, $model:literal, $typed_support:expr) => {
-        #[derive(Debug, Default, Clone, Copy)]
+macro_rules! synthetic_profile_default {
+    (default, $profile:ident) => {
+        impl Default for $profile {
+            fn default() -> Self {
+                Self
+            }
+        }
+    };
+    (no_default, $profile:ident) => {};
+}
+
+macro_rules! synthetic_profile_impl {
+    ($profile:ident, $model:literal, $typed_support:expr, $default:ident) => {
+        #[allow(dead_code)]
+        #[derive(Debug, Clone, Copy)]
         pub struct $profile;
+
+        synthetic_profile_default!($default, $profile);
 
         impl ProfileMetadata for $profile {
             const MODEL_NAME: &'static str = $model;
@@ -105,6 +120,31 @@ macro_rules! synthetic_profile {
         impl ProfileTypedSupport for $profile {
             const TYPED_SUPPORT: TypedSupportSet = $typed_support;
         }
+
+        impl CompileTimeProfile for $profile {
+            const TRANSPORTS: TransportCompatibility =
+                TransportCompatibility::new(Some(5678), Some(1259), true);
+            const INQUIRY_TIMEOUT: Duration = Duration::from_secs(1);
+            const CANCELLATION_TIMEOUT: Duration = Duration::from_secs(1);
+            const AMBIGUITY_TIMEOUT: Duration = Duration::from_secs(1);
+            const MAXIMUM_COMMAND_SOCKETS: u8 = 2;
+            const PRESET_RECALL_AXES: Option<AffectedAxes> = Some(
+                AffectedAxes::PAN_TILT
+                    .union(AffectedAxes::ZOOM)
+                    .union(AffectedAxes::FOCUS),
+            );
+            const POSITION_INQUIRIES: PositionInquirySupport =
+                PositionInquirySupport::new(true, true, true);
+        }
+    };
+}
+
+macro_rules! synthetic_profile {
+    ($profile:ident, $model:literal, $typed_support:expr) => {
+        synthetic_profile_impl!($profile, $model, $typed_support, default);
+    };
+    ($profile:ident, $model:literal, $typed_support:expr, no_default) => {
+        synthetic_profile_impl!($profile, $model, $typed_support, no_default);
     };
 }
 
@@ -118,6 +158,13 @@ synthetic_profile!(
     DirectZoomOnlyTypedSupport,
     "Direct Zoom Typed Support Only",
     TypedSupportSet::from_surface(TypedSupportSurface::DirectZoom)
+);
+
+synthetic_profile!(
+    NonDefaultCompileTimeProfile,
+    "Non-Default Compile-Time Profile",
+    TypedSupportSet::EMPTY,
+    no_default
 );
 
 impl HasDirectZoom for DirectZoomOnlyTypedSupport {}

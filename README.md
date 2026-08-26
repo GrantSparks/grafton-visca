@@ -7,54 +7,50 @@
 
 A pure Rust library for controlling PTZ cameras via the VISCA protocol. Supports blocking and async APIs with built-in runtime adapters (Tokio and smol), TCP/UDP/serial transports, and type-safe camera profiles.
 
-> **Read the 1.0 release announcement**
-> Learn how `grafton-visca` brings camera-first APIs, profile-gated controls, and runtime-agnostic PTZ camera control to Rust: [grafton-visca 1.0: Type-safe control of PTZ cameras in Rust](https://blog.grafton.ai/grafton-visca-1-0-type-safe-control-of-ptz-cameras-in-rust-d027e6f9802f)
+> **2.0.0-rc.1** — The prerelease owner-backed API is available for review. It
+> keeps one protocol owner per session and exposes typed static, blocking, async,
+> and dynamic views over that owner.
 
 ---
 
-## 1.x Support Matrix
+## 2.0.0-rc.1 Support Matrix
 
-The 1.x contract is the camera-first API, the documented transport/runtime
-configuration types, root-level control trait and raw command extension
-surfaces, and the optional feature surfaces listed below. Hardware validation is
-narrower than software support: the library contract is tested automatically,
-while device-specific firmware quirks are handled as reproducible bugs.
+The 2.0 contract is owner-backed construction, mode-native sessions, typed
+profile views, and one request path for each semantic class. Hardware validation
+is narrower than software support: the library contract is checked in CI, while
+device-specific firmware behavior is tracked in the
+[hardware release checklist](docs/hardware_release_checklist.md).
 
-Version 1.1 keeps the 1.0 camera-first surface stable while
-completing the additive operation-handle model across blocking, async, and
-dynamic use. Concrete async `_op` methods remain compatibility shims throughout
-1.x; their coherent typed replacement is intentionally deferred to 2.0.
-
-The rows below are the support promise. CI also includes compatibility checks
-for feature unions that can appear in downstream dependency graphs; those checks
-keep combinations buildable without expanding the public contract beyond the
-documented rows they combine.
+The release candidate is intentionally a clean break from the pre-2.0 API. Use
+`SessionConfig` for reusable target/profile registration, `Connect` or
+`CameraConfig` for standard transports, and `Session::open` for caller-owned
+transports.
 
 ### APIs and runtimes
 
-| Area | Supported 1.x contract | Automated validation |
+| Area | Supported 2.0 contract | Automated validation |
 | ---- | ---------------------- | -------------------- |
-| Blocking API | Baseline build when `mode-async` is not enabled | `cargo test --no-default-features` |
-| Runtime-agnostic async | `mode-async` with caller-provided executor/runtime | `cargo test --no-default-features --features mode-async` |
-| Tokio async | `runtime-tokio`, `TokioRuntime`, Tokio TCP/UDP adapters | `cargo test --no-default-features --features runtime-tokio` |
-| smol async | `runtime-smol`, `SmolRuntime`, smol TCP/UDP adapters | `cargo test --no-default-features --features runtime-smol` |
-| Runtime coexistence | `runtime-tokio` and `runtime-smol` may be enabled together; camera construction still chooses one runtime explicitly | `cargo check --no-default-features --features runtime-tokio,runtime-smol` |
-| Dynamic API | `dyn-api` object-safe camera traits for async cameras, with runtime capabilities and in-flight handles supporting applied/settled waits, cancellation, and detach | `cargo test --no-default-features --features runtime-tokio,dyn-api,test-utils --test dyn_api_integration_test`, `cargo test --no-default-features --features runtime-smol,dyn-api,test-utils --test dyn_api_smol_integration_test` |
-| Raw command extension | Custom command and inquiry implementations through `grafton_visca::command::{ViscaCommand, CommandBehavior, InquiryResponseSpec, InquiryKind, ResponseParser}` plus root command value re-exports. `ViscaCommand` covers encoding and response routing; typed built-in and raw inquiry responses are supplied by `ResponseParser`. | API contract tests |
+| Blocking API | `blocking::Session`, `blocking::Camera<P>`, and blocking noun views | Blocking API contract tests |
+| Runtime-neutral async | `Session`, `Camera<P>`, and a caller-provided `Executor` | Async API contract tests |
+| Tokio async | `runtime-tokio`, `TokioRuntime`, and Tokio TCP/UDP adapters | Tokio construction and noun suites |
+| smol async | `runtime-smol`, `SmolRuntime`, and smol TCP/UDP adapters | smol construction and noun suites |
+| Runtime coexistence | Tokio and smol may be enabled together; each session receives one explicit runtime | Coexistence API contract |
+| Dynamic API | `dyn-api` owner-backed `DynSessionCamera` with runtime profile checks and the same operation lifecycle | Dynamic Tokio/smol suites |
+| Request extension | Typed `Request`, `PlainCommand`, `Inquiry`, and `OperationCommand` contracts; `ResponseParser` handles custom inquiry decoding | Request/API contract tests |
 
 ### Transports
 
-| Transport | Supported 1.x contract | Automated validation |
+| Transport | Supported 2.0 contract | Automated validation |
 | --------- | ---------------------- | -------------------- |
-| TCP | Blocking, Tokio, and smol camera connections through `Connect`, `CameraConfig`, and transport config types | Runtime matrix above |
-| UDP | Blocking, Tokio, and smol camera connections through `Connect`, `CameraConfig`, and transport config types | Runtime matrix above |
-| Blocking serial | RS-232/422 configuration and blocking serial transport APIs behind `transport-serial` | `cargo test --no-default-features --features transport-serial` |
-| Tokio serial | Async serial transport APIs behind `transport-serial-tokio` | `cargo test --no-default-features --features runtime-tokio,transport-serial-tokio` |
-| Custom transports | Public transport traits and handles documented under `grafton_visca::transport` | API contract tests |
+| TCP | Blocking, Tokio, and smol owner sessions through `Connect`/`CameraConfig` | Runtime matrix above |
+| UDP | Blocking, Tokio, and smol owner sessions through `Connect`/`CameraConfig` | Runtime matrix above |
+| Blocking serial | RS-232/422 through `transport-serial` and `blocking::Session` | Serial feature matrix |
+| Tokio serial | Tokio serial through `transport-serial-tokio` and `Session` | Tokio serial feature matrix |
+| Custom transports | Caller-owned `BlockingTransport`/`AsyncTransport` with `Session::open` | Custom transport contract tests |
 
 ### Profiles
 
-| Profile family | Protocol | 1.x support |
+| Profile family | Protocol | 2.0 support |
 | -------------- | -------- | ----------- |
 | `GenericVisca` | Raw VISCA | Supported baseline profile with conservative capabilities |
 | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` | Raw VISCA | Supported; G2/G3 TCP and UDP behavior is hardware-validated |
@@ -93,7 +89,7 @@ operations.
 | --------------------- | ----------------- |
 | Direct absolute zoom positioning | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300` |
 | VISCA digital zoom toggle and optical-plus-digital positioning | `SonyFR7`, `SonyBRCH900` |
-| Iris control, iris-priority mode, and iris inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300`, `GenericVisca` |
+| Iris control, iris-priority mode, and iris inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7` |
 | Standard one-push focus | No built-in profile currently marks this typed capability |
 | PTZOptics snap focus | No built-in profile currently marks this typed capability |
 | Focus lock | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
@@ -123,6 +119,14 @@ operations.
 | 2D/3D noise reduction | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900` |
 | Picture effects | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900` |
 
+The registry keeps model-specific iris ranges in runtime metadata where they
+are useful for discovery, but that metadata alone does not grant the typed
+`IrisControl` surface or a targeted settlement inquiry. Those APIs are enabled
+only for the PTZOptics profiles covered by the shared VISCA reference and the
+Sony FR7 entry with an exact registry-backed inquiry. Other Sony, EVI, Nearus,
+and generic entries remain available through the raw command escape hatch until
+model-specific evidence is added.
+
 Contributors adding or changing profile capabilities should follow the
 [Camera Profile Support Guide](docs/camera_profile_support.md) and the
 [VISCA Protocol Reference](docs/visca_reference.md), which explain how protocol
@@ -131,20 +135,22 @@ matrix fit together.
 
 ### Optional features
 
-| Feature | 1.x support |
+| Feature | 2.0 support |
 | ------- | ----------- |
+| `blocking` | Canonical owner-backed blocking facade (enabled by default) |
+| `async` | Canonical owner-backed async facade; may be enabled with `blocking` |
 | `serde` | Stable serialization/deserialization for public value and configuration types |
 | `schemars` | Stable JSON Schema generation for serde-backed public types |
 | `ts-rs` | Stable TypeScript type generation for supported exported types |
-| `dyn-api` | Stable object-safe async camera traits with applied/settled waits, command timeouts, cancellation, and detach |
+| `dyn-api` | Owner-backed object-safe async views with applied/settled operation lifecycle, cancellation, and detach |
 | `test-utils` | Stable deterministic test transports, executors, and Tokio camera simulator under `grafton_visca::testing`; `runtime-tokio` alone does not expose test helpers |
 
-### Compatibility-only checks
+### Feature-union checks
 
 | Feature union | Scope | Automated validation |
 | ------------- | ----- | -------------------- |
-| `runtime-tokio,transport-serial` | Dependency-graph compatibility only. The supported serial APIs are the blocking `transport-serial` row and the Tokio `transport-serial-tokio` row above. | `cargo test --no-default-features --features runtime-tokio,transport-serial` |
-| `runtime-smol,dyn-api` | Build/API compatibility for dyn-api with smol without test helpers. Runtime behavior is covered by the smol dyn-api integration row above. | `cargo test --no-default-features --features runtime-smol,dyn-api` |
+| `runtime-tokio,transport-serial` | Blocking serial plus Tokio async dependency coexistence; use `transport-serial-tokio` for Tokio serial. | Feature check |
+| `runtime-smol,dyn-api` | Dynamic API with smol and no test helpers. | smol dynamic feature check |
 
 ---
 
@@ -173,7 +179,7 @@ use grafton_visca::camera::Connect;
 use grafton_visca::profiles::PtzOpticsG2;
 
 fn main() -> Result<(), grafton_visca::Error> {
-    let cam = Connect::open_tcp_blocking::<PtzOpticsG2>("192.168.0.110")?;
+    let cam = Connect::open_tcp::<PtzOpticsG2>("192.168.0.110")?;
 
     let power_is_on = cam.power().state()?;
     let zoom = cam.zoom().position()?;
@@ -194,7 +200,7 @@ use grafton_visca::runtime::TokioRuntime;
 #[tokio::main]
 async fn main() -> Result<(), grafton_visca::Error> {
     let runtime = TokioRuntime::from_current()?;
-    let cam = Connect::open_tcp_async::<PtzOpticsG2, _>("192.168.0.110", runtime).await?;
+    let cam = Connect::open_tcp::<PtzOpticsG2, _>("192.168.0.110", runtime).await?;
 
     let power_is_on = cam.power().state().await?;
     let zoom = cam.zoom().position().await?;
@@ -218,23 +224,21 @@ submit a built-in movement command and drive its operation handle explicitly.
 `submit` manages lifecycle; it does not add profile capability or range
 validation beyond the command's own checks. Prefer typed noun controls for
 profile-validated ergonomic input. Built-in commands provide exact completion
-metadata. In 1.x, custom commands without metadata use a conservative targeted,
-all-axes fallback; use `submit_continuous` for a custom applied-only command.
+metadata. Custom operation requests must declare their targeted or applied-only
+class explicitly.
 
 ```rust
 use std::time::Duration;
 use grafton_visca::{camera::Connect, command::{PanTilt, Zoom}, profiles::PtzOpticsG2};
 
 fn move_home() -> Result<(), grafton_visca::Error> {
-    let cam = Connect::open_tcp_blocking::<PtzOpticsG2>("192.168.0.110")?;
+    let cam = Connect::open_tcp::<PtzOpticsG2>("192.168.0.110")?;
 
     // Blocking submit performs initial synchronous dispatch before returning.
-    cam.submit(&PanTilt::Home)?
-        .await_settled(Duration::from_secs(20))?;
+    cam.submit(&PanTilt::Home)?.settled()?;
 
     // Applied-only commands have no meaningful settled state.
-    cam.submit(&Zoom::Stop)?
-        .await_applied(Duration::from_secs(2))?;
+    cam.submit(&Zoom::Stop)?.applied()?;
 
     cam.close()
 }
@@ -249,24 +253,24 @@ use grafton_visca::{camera::Connect, command::PanTilt, profiles::PtzOpticsG2, ru
 
 async fn move_home() -> Result<(), grafton_visca::Error> {
     let runtime = TokioRuntime::from_current()?;
-    let cam = Connect::open_tcp_async::<PtzOpticsG2, _>(
+    let cam = Connect::open_tcp::<PtzOpticsG2, _>(
         "192.168.0.110",
         runtime,
     ).await?;
 
     let handle = cam.submit(&PanTilt::Home).await?;
-    handle.await_settled(Duration::from_secs(20)).await?;
+    handle.settled().await?;
 
     cam.close().await?;
     Ok(())
 }
 ```
 
-- `await_applied` means the exact command was accepted and protocol-completed.
-- `await_settled` additionally means targeted physical motion ended. Profiles
+- `applied` means the exact command was accepted and protocol-completed.
+- `settled` additionally means targeted physical motion ended. Profiles
   with an operation-complete signal use it; other profiles poll only the affected
   axes under the same total deadline.
-- `cancel` requests scheduler-owned, ID/socket-safe cancellation. Queued work is
+- `cancel` requests owner-owned, ID/socket-safe cancellation. Queued work is
   removable locally; sent work requires profile support and otherwise returns
   `Error::NotSupported`. Success does not prove physical motion stopped, so use
   a bounded STOP for continuous movement.
@@ -283,11 +287,10 @@ snapshot and restore the complete camera pose around movement.
 
 ## Public API Boundaries
 
-- Use `grafton_visca::camera::{Connect, CameraConfig, CameraBuilder, Camera}`
-  for camera construction and session types. Implementation submodules under
-  `camera` are internal.
-- Import static control traits from the crate root, for example
-  `grafton_visca::{PowerControl, ZoomControl}`.
+- Use `Connect`, `CameraConfig`, and `SessionConfig` for construction; select a
+  target view with `Session::camera::<P>()` or `camera_for::<P>(target)`.
+- Use the 14 inherent noun accessors on `Camera<P>`; profile-gated methods are
+  checked by `Has*` marker bounds and runtime `ProfileSpec` validation.
 - Use `UnitInterval::new(value)?` or `UnitInterval::try_from(value)?` for
   normalized `0.0..=1.0` control values.
 - Use `CameraId` with `camera_id(...)`, or `try_camera_id(u8)` when converting
@@ -299,27 +302,27 @@ snapshot and restore the complete camera pose around movement.
 
 ```toml
 [dependencies]
-grafton-visca = "1"
+grafton-visca = "=2.0.0-rc.1"
 ```
 
 ### Common configurations
 
 ```toml
 # Runtime-agnostic async (bring your own executor)
-grafton-visca = { version = "1", features = ["mode-async"] }
+grafton-visca = { version = "=2.0.0-rc.1", features = ["async"] }
 
 # Async with Tokio
-grafton-visca = { version = "1", features = ["runtime-tokio"] }
+grafton-visca = { version = "=2.0.0-rc.1", features = ["runtime-tokio"] }
 tokio = { version = "1", features = ["full"] }
 
 # With serialization
-grafton-visca = { version = "1", features = ["serde"] }
+grafton-visca = { version = "=2.0.0-rc.1", features = ["serde"] }
 
 # Serial transport (blocking)
-grafton-visca = { version = "1", features = ["transport-serial"] }
+grafton-visca = { version = "=2.0.0-rc.1", features = ["transport-serial"] }
 
 # Serial transport (Tokio)
-grafton-visca = { version = "1", features = ["runtime-tokio", "transport-serial-tokio"] }
+grafton-visca = { version = "=2.0.0-rc.1", features = ["runtime-tokio", "transport-serial-tokio"] }
 ```
 
 ### Configuring Standard Transport Behavior
@@ -353,6 +356,8 @@ uncertain.
 
 | Feature                | Enables                                    |
 | ---------------------- | ------------------------------------------ |
+| `blocking`             | Canonical owner-backed blocking facade (default) |
+| `async`                | Canonical owner-backed async facade        |
 | `runtime-tokio`        | Tokio async runtime adapter                |
 | `runtime-smol`         | smol runtime adapter                       |
 | `transport-serial`     | Blocking serial (RS-232/422)               |
@@ -389,7 +394,15 @@ before any socket or serial device is opened.
 
 - **[API Reference](https://docs.rs/grafton-visca)** — Complete type and method documentation
 - **[Examples](examples/)** — Maintained examples for common scenarios
-- **[Example Policy](docs/examples.md)** — 1.x examples contract and maintenance rules
+- **[2.0 Example Policy](docs/examples.md)** — Example contract and maintenance rules
+- **[2.0 Usage and Construction](docs/usage_2_0.md)** — Sessions, profiles, transports, and noun views
+- **[2.0 Architecture](docs/architecture_2_0.md)** — Ownership, target registration, and lifecycle invariants
+- **[Preservation Inventory](docs/architecture_inventory.md)** — Closed profile, transport, noun, and extension inventory
+- **[Request Semantics](docs/request_semantics.md)** — Plain, inquiry, targeted, and applied-only request classes
+- **[Allocation and Validation](docs/allocation_and_validation.md)** — Release gates for bounded work and preflight validation
+- **[Observability and Recovery](docs/observability_and_recovery.md)** — Metrics, diagnostics, cache, and recovery behavior
+- **[Hardware Release Checklist](docs/hardware_release_checklist.md)** — Assigned physical validation rows and evidence status
+- **[2.0 Migration Guide](docs/migration_2_0.md)** — Destination APIs for pre-2.0 applications
 - **[VISCA Protocol Reference](docs/visca_reference.md)** — Consolidated PTZOptics, Axis, and protocol evidence used for built-in profile decisions
 - **[Camera Profile Support Guide](docs/camera_profile_support.md)** — Workflow and testing rules for adding camera capabilities
 - **[CHANGELOG](CHANGELOG.md)** — Version history and migration guides
@@ -412,7 +425,7 @@ before any socket or serial device is opened.
 
 ---
 
-## Compatibility
+## Platform and MSRV
 
 - **MSRV:** Rust 1.88
 - **Platforms:** Linux, macOS, Windows

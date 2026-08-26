@@ -4,9 +4,8 @@
 //! including manual gain adjustment, gain limit control, and anti-flicker settings.
 
 use crate::{
-    command::{bytes::builder::ConstCommandBuilder, encode::ViscaCommand},
+    command::{bytes::builder::ConstCommandBuilder, encode::WireEncode},
     error::Error,
-    timeout::CommandCategory,
     types::{GainLevel, GainLimit},
     visca_command,
 };
@@ -34,9 +33,8 @@ pub enum Gain {
 }
 
 // Manual implementation to add model validation
-impl ViscaCommand for Gain {
+impl WireEncode for Gain {
     const MAX_SIZE: usize = 9;
-    const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
     fn write_into(
         &self,
@@ -84,7 +82,6 @@ visca_command! {
     prefix = [0x01, 0x04, 0x2C];
     param = limit.value();
     max_param_size = 1;
-    category = CommandCategory::Quick;
 }
 
 impl GainLimitCommand {
@@ -99,11 +96,7 @@ impl GainLimitCommand {
 mod tests {
     use super::*;
 
-    use crate::{
-        command::{bytes::VISCA_TERMINATOR, encode::ViscaCommand},
-        macros::test_utils::visca_test,
-        timeout::CommandTimeout,
-    };
+    use crate::{command::bytes::VISCA_TERMINATOR, macros::test_utils::visca_test};
 
     visca_test!(
         Gain,
@@ -136,8 +129,7 @@ mod tests {
             let high = (value >> 4) & 0x0F;
             let low = value & 0x0F;
             assert_eq!(
-                cmd.to_bytes(crate::camera_id::CameraId::CAMERA_1)
-                    .map(|b| b.to_vec())
+                crate::command::test_wire_bytes(&cmd, crate::camera_id::CameraId::CAMERA_1)
                     .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
                 vec![
                     0x81,
@@ -171,8 +163,7 @@ mod tests {
                 GainLimit::new(value).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
             let cmd = GainLimitCommand::new(limit);
             assert_eq!(
-                cmd.to_bytes(crate::camera_id::CameraId::CAMERA_1)
-                    .map(|b| b.to_vec())
+                crate::command::test_wire_bytes(&cmd, crate::camera_id::CameraId::CAMERA_1)
                     .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
                 vec![0x81, 0x01, 0x04, 0x2C, value, VISCA_TERMINATOR]
             );
@@ -180,47 +171,21 @@ mod tests {
     }
 
     #[test]
-    fn test_command_categories() {
-        assert_eq!(Gain::Reset.timeout_class(), CommandCategory::Quick);
-        assert_eq!(Gain::Up.timeout_class(), CommandCategory::Quick);
-        assert_eq!(Gain::Down.timeout_class(), CommandCategory::Quick);
-        assert_eq!(
-            Gain::SetValue(
-                GainLevel::new(0x05).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
-            )
-            .timeout_class(),
-            CommandCategory::Quick
-        );
-        assert_eq!(
-            GainLimitCommand::new(
-                GainLimit::new(0x03).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
-            )
-            .timeout_class(),
-            CommandCategory::Quick
-        );
-    }
-
-    #[test]
     fn test_response_types() {
-        assert!(Gain::Reset.behavior().command_kind() == crate::command::CommandKind::Command);
-        assert!(Gain::Up.behavior().command_kind() == crate::command::CommandKind::Command);
-        assert!(Gain::Down.behavior().command_kind() == crate::command::CommandKind::Command);
-        assert!(
-            Gain::SetValue(
-                GainLevel::new(0x05).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
-            )
-            .behavior()
-            .command_kind()
-                == crate::command::CommandKind::Command
+        let reset = Gain::Reset;
+        assert!(crate::command::test_wire_bytes(&reset, crate::CameraId::CAMERA_1).is_ok());
+        let up = Gain::Up;
+        assert!(crate::command::test_wire_bytes(&up, crate::CameraId::CAMERA_1).is_ok());
+        let down = Gain::Down;
+        assert!(crate::command::test_wire_bytes(&down, crate::CameraId::CAMERA_1).is_ok());
+        let set = Gain::SetValue(
+            GainLevel::new(0x05).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
         );
-        assert!(
-            GainLimitCommand::new(
-                GainLimit::new(0x03).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
-            )
-            .behavior()
-            .command_kind()
-                == crate::command::CommandKind::Command
+        assert!(crate::command::test_wire_bytes(&set, crate::CameraId::CAMERA_1).is_ok());
+        let limit = GainLimitCommand::new(
+            GainLimit::new(0x03).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
         );
+        assert!(crate::command::test_wire_bytes(&limit, crate::CameraId::CAMERA_1).is_ok());
     }
 
     #[test]

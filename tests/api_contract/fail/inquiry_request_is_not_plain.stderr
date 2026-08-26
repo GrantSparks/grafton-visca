@@ -1,0 +1,14 @@
+error[E0271]: type mismatch resolving `<PowerInquiry as Request>::Class == Plain`
+ --> tests/api_contract/fail/inquiry_request_is_not_plain.rs:6:20
+  |
+6 |     requires_plain(PowerInquiry);
+  |     -------------- ^^^^^^^^^^^^ expected `Plain`, found `Inquiry`
+  |     |
+  |     required by a bound introduced by this call
+  |
+  = note: required for `PowerInquiry` to implement `PlainCommand`
+note: required by a bound in `requires_plain`
+ --> tests/api_contract/fail/inquiry_request_is_not_plain.rs:3:22
+  |
+3 | fn requires_plain<C: PlainCommand>(_: C) {}
+  |                      ^^^^^^^^^^^^ required by this bound in `requires_plain`

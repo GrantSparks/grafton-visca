@@ -13,9 +13,8 @@
 use grafton_visca_macros::ViscaEnum;
 
 use crate::{
-    command::{bytes::VISCA_TERMINATOR, encode::ViscaCommand},
+    command::{bytes::VISCA_TERMINATOR, encode::WireEncode},
     error::Error,
-    timeout::CommandCategory,
     ViscaSocket,
 };
 
@@ -33,9 +32,8 @@ impl AddressSetCommand {
     }
 }
 
-impl ViscaCommand for AddressSetCommand {
+impl WireEncode for AddressSetCommand {
     const MAX_SIZE: usize = 4;
-    const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
     fn write_into(
         &self,
@@ -70,9 +68,8 @@ impl InterfaceClearCommand {
     }
 }
 
-impl ViscaCommand for InterfaceClearCommand {
+impl WireEncode for InterfaceClearCommand {
     const MAX_SIZE: usize = 5;
-    const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
     fn write_into(
         &self,
@@ -130,9 +127,8 @@ pub(crate) struct CommandCancelCommand {
     socket: ViscaSocket,
 }
 
-impl ViscaCommand for CommandCancelCommand {
+impl WireEncode for CommandCancelCommand {
     const MAX_SIZE: usize = 3;
-    const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
     fn write_into(
         &self,
@@ -188,9 +184,8 @@ impl Default for SettingsSaveCommand {
     }
 }
 
-impl ViscaCommand for SettingsSaveCommand {
+impl WireEncode for SettingsSaveCommand {
     const MAX_SIZE: usize = 6;
-    const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
     fn write_into(
         &self,
@@ -218,7 +213,6 @@ impl ViscaCommand for SettingsSaveCommand {
 mod tests {
     use super::*;
     use crate::macros::test_utils::visca_test;
-    use crate::timeout::CommandTimeout;
 
     visca_test!(
         AddressSetCommand,
@@ -256,38 +250,14 @@ mod tests {
     );
 
     #[test]
-    fn test_response_type_and_timeout() {
-        let cmd = AddressSetCommand::new();
-        assert!(cmd.behavior().command_kind() == crate::command::CommandKind::Command);
-        assert_eq!(cmd.timeout_class(), CommandCategory::Quick);
-
-        let cmd = InterfaceClearCommand::new();
-        assert!(cmd.behavior().command_kind() == crate::command::CommandKind::Command);
-        assert_eq!(cmd.timeout_class(), CommandCategory::Quick);
-
-        let cmd = CommandCancelCommand::new(ViscaSocket::S1);
-        assert!(cmd.behavior().command_kind() == crate::command::CommandKind::Command);
-        assert_eq!(cmd.timeout_class(), CommandCategory::Quick);
-
-        let cmd = SettingsSaveCommand::new();
-        assert!(cmd.behavior().command_kind() == crate::command::CommandKind::Command);
-        assert_eq!(cmd.timeout_class(), CommandCategory::Quick);
-    }
-
-    #[test]
     fn test_settings_save_default() {
         let cmd1 = SettingsSaveCommand::new();
         let cmd2 = SettingsSaveCommand;
         // Both should produce the same bytes
         use crate::camera_id::CameraId;
-        use crate::command::encode::ViscaCommand;
         assert_eq!(
-            cmd1.to_bytes(CameraId::CAMERA_1)
-                .map(|b| b.to_vec())
-                .unwrap(),
-            cmd2.to_bytes(CameraId::CAMERA_1)
-                .map(|b| b.to_vec())
-                .unwrap()
+            crate::command::test_wire_bytes(&cmd1, CameraId::CAMERA_1).unwrap(),
+            crate::command::test_wire_bytes(&cmd2, CameraId::CAMERA_1).unwrap()
         );
     }
 
@@ -305,33 +275,32 @@ mod tests {
     #[test]
     fn test_cancel_command_camera_addressing() {
         use crate::camera_id::CameraId;
-        use crate::command::encode::ViscaCommand;
 
         // Test CAMERA_1 addressing (0x81 = 0x80 + 1)
         let cmd = CommandCancelCommand::new(ViscaSocket::S1);
-        let bytes = cmd.to_bytes(CameraId::CAMERA_1).unwrap();
+        let bytes = crate::command::test_wire_bytes(&cmd, CameraId::CAMERA_1).unwrap();
         assert_eq!(bytes[0], 0x81, "First byte should be 0x81 for CAMERA_1");
 
         // Test CAMERA_2 addressing (0x82 = 0x80 + 2)
         let cmd = CommandCancelCommand::new(ViscaSocket::S1);
-        let bytes = cmd.to_bytes(CameraId::CAMERA_2).unwrap();
+        let bytes = crate::command::test_wire_bytes(&cmd, CameraId::CAMERA_2).unwrap();
         assert_eq!(bytes[0], 0x82, "First byte should be 0x82 for CAMERA_2");
 
         // Test CAMERA_3 addressing (0x83 = 0x80 + 3)
         let cmd = CommandCancelCommand::new(ViscaSocket::S2);
-        let bytes = cmd.to_bytes(CameraId::CAMERA_3).unwrap();
+        let bytes = crate::command::test_wire_bytes(&cmd, CameraId::CAMERA_3).unwrap();
         assert_eq!(bytes[0], 0x83, "First byte should be 0x83 for CAMERA_3");
 
         // Test BROADCAST addressing (0x88 = 0x80 + 8)
         let cmd = CommandCancelCommand::new(ViscaSocket::S1);
-        let bytes = cmd.to_bytes(CameraId::BROADCAST).unwrap();
+        let bytes = crate::command::test_wire_bytes(&cmd, CameraId::BROADCAST).unwrap();
         assert_eq!(bytes[0], 0x88, "First byte should be 0x88 for BROADCAST");
 
         // Verify full command structure for CAMERA_2 with Socket S2
         let cmd = CommandCancelCommand::new(ViscaSocket::S2);
-        let bytes = cmd.to_bytes(CameraId::CAMERA_2).unwrap();
+        let bytes = crate::command::test_wire_bytes(&cmd, CameraId::CAMERA_2).unwrap();
         assert_eq!(
-            bytes.as_ref(),
+            bytes.as_slice(),
             &[0x82, 0x22, VISCA_TERMINATOR],
             "Full cancel command for CAMERA_2/S2 should be [0x82, 0x22, VISCA_TERMINATOR]"
         );

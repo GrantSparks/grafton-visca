@@ -4,13 +4,13 @@
 //! of executors and their corresponding transport implementations, preventing
 //! cross-runtime mismatches at compile time.
 
-#[cfg(feature = "mode-async")]
+#[cfg(feature = "async")]
 use std::time::Instant;
 
-#[cfg(feature = "mode-async")]
+#[cfg(feature = "async")]
 use crate::{
     executor::Executor,
-    transport::{builder::TransportConfig, AsyncTransport, HasTransportConfig},
+    transport::{builder::TransportConfig, AddressingMode, AsyncTransport, HasTransportConfig},
     Error,
 };
 
@@ -35,7 +35,7 @@ use crate::{
 /// # Ok(())
 /// # }
 /// ```
-#[cfg(feature = "mode-async")]
+#[cfg(feature = "async")]
 pub trait Runtime: Executor + Clone + Send + Sync + 'static {
     /// TCP transport type for this runtime.
     type TcpTransport: AsyncTransport + HasTransportConfig + Send + Sync + 'static;
@@ -83,7 +83,7 @@ pub trait Runtime: Executor + Clone + Send + Sync + 'static {
 /// when the serialport feature is enabled.
 ///
 /// Currently only implemented for Tokio runtime as it has tokio-serial integration.
-#[cfg(all(feature = "mode-async", feature = "transport-serial-tokio"))]
+#[cfg(all(feature = "async", feature = "transport-serial-tokio"))]
 pub trait RuntimeSerial: Runtime {
     /// Serial transport type for this runtime.
     type SerialTransport: AsyncTransport + HasTransportConfig + Send + Sync + 'static;
@@ -124,7 +124,7 @@ pub trait RuntimeSerial: Runtime {
 /// # Ok(())
 /// # }
 /// ```
-#[cfg(feature = "mode-async")]
+#[cfg(feature = "async")]
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum TransportHandle<R: Runtime> {
@@ -140,7 +140,7 @@ pub enum TransportHandle<R: Runtime> {
     Serial(Box<crate::transport::tokio::serial::Serial>),
 }
 
-#[cfg(feature = "mode-async")]
+#[cfg(feature = "async")]
 impl<R: Runtime> AsyncTransport for TransportHandle<R> {
     async fn send(&mut self, bytes: &[u8]) -> Result<(), Error> {
         match self {
@@ -159,9 +159,18 @@ impl<R: Runtime> AsyncTransport for TransportHandle<R> {
             TransportHandle::Serial(transport) => transport.recv_into(dst).await,
         }
     }
+
+    fn addressing_mode_hint(&self) -> Option<AddressingMode> {
+        match self {
+            TransportHandle::Tcp(transport) => transport.addressing_mode_hint(),
+            TransportHandle::Udp(transport) => transport.addressing_mode_hint(),
+            #[cfg(feature = "transport-serial-tokio")]
+            TransportHandle::Serial(transport) => transport.addressing_mode_hint(),
+        }
+    }
 }
 
-#[cfg(feature = "mode-async")]
+#[cfg(feature = "async")]
 impl<R: Runtime> HasTransportConfig for TransportHandle<R> {
     fn transport_config(&self) -> &TransportConfig {
         match self {

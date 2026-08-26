@@ -7,25 +7,25 @@
 // Expects in test utilities are intentional for detecting test failures
 #![allow(clippy::expect_used)]
 
+use std::time::Duration;
+
+#[cfg(any(feature = "async", feature = "blocking"))]
 use std::{
     collections::VecDeque,
     sync::{Arc, Mutex},
-    time::Duration,
 };
 
-#[cfg(feature = "mode-async")]
+#[cfg(feature = "async")]
 use super::deterministic_executor::ExecutorExt;
-#[cfg(not(feature = "mode-async"))]
-use crate::{
-    command::CommandKind,
-    transport::{builder::TransportConfig, BlockingTransport, HasTransportConfig},
-};
-#[cfg(feature = "mode-async")]
-use crate::{
-    executor::Executor,
-    transport::{builder::TransportConfig, AsyncTransport, HasTransportConfig},
-};
-use crate::{Error, Result};
+#[cfg(any(feature = "async", feature = "blocking"))]
+use crate::transport::{builder::TransportConfig, HasTransportConfig};
+use crate::Error;
+#[cfg(any(feature = "async", feature = "blocking"))]
+use crate::Result;
+#[cfg(feature = "blocking")]
+use crate::{command::CommandKind, transport::BlockingTransport};
+#[cfg(feature = "async")]
+use crate::{executor::Executor, transport::AsyncTransport};
 
 /// Function type for dynamic response generation.
 pub type DynamicResponseFn = Box<dyn Fn(&[u8]) -> Vec<Vec<u8>> + Send + Sync>;
@@ -120,7 +120,7 @@ impl Clone for Step {
 ///
 /// This transport allows tests to define exactly what responses should be sent
 /// and when, without relying on real network behavior or timing.
-#[cfg(feature = "mode-async")]
+#[cfg(feature = "async")]
 #[derive(Debug)]
 pub struct ScriptedTransport<E = ()> {
     sent: Arc<Mutex<Vec<Vec<u8>>>>,
@@ -134,7 +134,7 @@ pub struct ScriptedTransport<E = ()> {
     config: Option<TransportConfig>,
 }
 
-#[cfg(feature = "mode-async")]
+#[cfg(feature = "async")]
 impl<E> Clone for ScriptedTransport<E> {
     fn clone(&self) -> Self {
         Self {
@@ -149,7 +149,7 @@ impl<E> Clone for ScriptedTransport<E> {
     }
 }
 
-#[cfg(feature = "mode-async")]
+#[cfg(feature = "async")]
 impl<E> ScriptedTransport<E> {
     /// Create a new scripted transport with the given steps.
     pub fn new(steps: impl Into<Vec<Step>>) -> Self {
@@ -205,7 +205,7 @@ impl<E> ScriptedTransport<E> {
     /// Schedule a response to be delivered after `delay`.
     /// This provides a convenient way to add delayed responses without
     /// having to pre-script them in the constructor.
-    #[cfg(feature = "mode-async")]
+    #[cfg(feature = "async")]
     pub fn add_after(&self, delay: Duration, response: Vec<u8>)
     where
         E: Executor + ExecutorExt + 'static,
@@ -269,7 +269,7 @@ impl<E> ScriptedTransport<E> {
     }
 }
 
-#[cfg(feature = "mode-async")]
+#[cfg(feature = "async")]
 impl<E> AsyncTransport for ScriptedTransport<E>
 where
     E: Executor + ExecutorExt + 'static,
@@ -409,7 +409,7 @@ where
 ///
 /// This is the blocking version of ScriptedTransport, designed for testing
 /// blocking transport implementations.
-#[cfg(not(feature = "mode-async"))]
+#[cfg(feature = "blocking")]
 #[derive(Clone, Debug)]
 pub struct ScriptedBlockingTransport {
     sent: Arc<Mutex<Vec<Vec<u8>>>>,
@@ -419,7 +419,7 @@ pub struct ScriptedBlockingTransport {
     transport_config: TransportConfig,
 }
 
-#[cfg(not(feature = "mode-async"))]
+#[cfg(feature = "blocking")]
 impl ScriptedBlockingTransport {
     /// Create a new scripted blocking transport with the given steps.
     pub fn new(steps: impl Into<Vec<Step>>) -> Self {
@@ -447,7 +447,7 @@ impl ScriptedBlockingTransport {
     }
 }
 
-#[cfg(not(feature = "mode-async"))]
+#[cfg(feature = "blocking")]
 impl BlockingTransport for ScriptedBlockingTransport {
     fn send_with_kind(&mut self, bytes: &[u8], _kind: CommandKind) -> Result<()> {
         self.sent
@@ -638,7 +638,7 @@ impl BlockingTransport for ScriptedBlockingTransport {
     }
 }
 
-#[cfg(not(feature = "mode-async"))]
+#[cfg(feature = "blocking")]
 impl HasTransportConfig for ScriptedBlockingTransport {
     fn transport_config(&self) -> &TransportConfig {
         &self.transport_config
@@ -938,7 +938,7 @@ pub mod helpers {
     }
 }
 
-#[cfg(feature = "mode-async")]
+#[cfg(feature = "async")]
 impl<E> HasTransportConfig for ScriptedTransport<E> {
     fn transport_config(&self) -> &TransportConfig {
         // Return custom config if set, otherwise fall back to static default
@@ -952,16 +952,16 @@ impl<E> HasTransportConfig for ScriptedTransport<E> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(feature = "async", feature = "blocking")))]
 mod tests {
     use super::*;
 
     use crate::command::bytes::VISCA_TERMINATOR;
-    #[cfg(feature = "mode-async")]
+    #[cfg(feature = "async")]
     use crate::testing::testkit::DeterministicExecutor;
 
     #[test]
-    #[cfg(not(feature = "mode-async"))]
+    #[cfg(feature = "blocking")]
     #[allow(clippy::unwrap_used)]
     fn test_scripted_blocking_transport_basic() {
         let mut transport = ScriptedBlockingTransport::new(vec![Step::OnSend {
@@ -985,7 +985,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(not(feature = "mode-async"))]
+    #[cfg(feature = "blocking")]
     #[allow(clippy::unwrap_used)]
     fn test_scripted_blocking_transport_no_response() {
         let mut transport = ScriptedBlockingTransport::new(vec![]);
@@ -1001,7 +1001,7 @@ mod tests {
         assert!(matches!(result, Err(Error::Timeout)));
     }
 
-    #[cfg(feature = "mode-async")]
+    #[cfg(feature = "async")]
     #[tokio::test]
     #[allow(clippy::unwrap_used)]
     async fn test_scripted_async_transport_with_executor() {
@@ -1055,7 +1055,7 @@ mod tests {
         assert!(matches!(err, Error::Timeout));
     }
 
-    #[cfg(all(test, feature = "test-utils", feature = "mode-async"))]
+    #[cfg(all(test, feature = "test-utils", feature = "async"))]
     #[test]
     #[allow(clippy::unwrap_used)]
     fn test_scripted_transport_delayed_response_with_deterministic_executor() {

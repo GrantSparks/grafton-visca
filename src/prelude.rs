@@ -1,8 +1,8 @@
 //! Prelude modules for convenient imports.
 //!
-//! This module provides separate preludes for async and blocking camera-first APIs.
-//! They are intended for application code that follows the 1.x path:
-//! `Connect` or `CameraConfig` for construction, then accessor-style controls.
+//! This module provides separate preludes for the async and blocking facades.
+//! Both use `Connect` or `CameraConfig` for construction, then accessor-style
+//! controls.
 //!
 //! # High-Level API (Recommended)
 //!
@@ -11,7 +11,7 @@
 //! ## Async Usage
 //!
 //! ```ignore
-//! # #[cfg(feature = "mode-async")]
+//! # #[cfg(feature = "async")]
 //! use grafton_visca::prelude::r#async::*;
 //!
 //! # #[tokio::main]
@@ -19,15 +19,16 @@
 //! # #[cfg(feature = "runtime-tokio")]
 //! # {
 //! let runtime = TokioRuntime::from_current()?;
-//! let camera = Connect::open_tcp_async::<PtzOpticsG2, _>(
+//! let session = Connect::open_tcp::<PtzOpticsG2, _>(
 //!     "192.168.0.110",
 //!     runtime,
 //! ).await?;
+//! let camera = session.camera::<PtzOpticsG2>()?;
 //!
 //! camera.power().on().await?;
 //! camera.zoom().stop().await?;
 //! camera.pan_tilt().home().await?;
-//! camera.close().await?;
+//! session.close().await?;
 //! # }
 //! # Ok(())
 //! # }
@@ -39,12 +40,13 @@
 //! use grafton_visca::prelude::blocking::*;
 //!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! let camera = Connect::open_tcp_blocking::<PtzOpticsG2>("192.168.0.110")?;
+//! let session = Connect::open_tcp::<PtzOpticsG2>("192.168.0.110")?;
+//! let camera = session.camera::<PtzOpticsG2>()?;
 //!
 //! camera.power().on()?;
 //! camera.zoom().stop()?;
 //! camera.pan_tilt().home()?;
-//! camera.close()?;
+//! session.close()?;
 //! # Ok(())
 //! # }
 //! ```
@@ -52,14 +54,25 @@
 //! Advanced extension APIs remain available from their owning modules, such as
 //! [`camera`](crate::camera), [`command`](crate::command), and
 //! [`transport`](crate::transport). They are intentionally not glob-reexported
-//! from a raw prelude. Use [`CameraBuilder`](crate::CameraBuilder) only for
-//! custom transport attachment, and use [`command`](crate::command) explicitly
-//! for custom VISCA commands that are not represented by a typed accessor.
+//! from a raw prelude. Use `Session::open` for async or
+//! `blocking::Session::open` for blocking custom transport attachment, and use
+//! [`command`](crate::command) explicitly for custom VISCA commands that are
+//! not represented by a typed accessor.
+
+/// Dynamic noun and custom-operation prelude.
+///
+/// This surface is a projection of an owner-backed [`crate::Session`]. It
+/// keeps the canonical operation lifecycle while allowing runtime profile
+/// and request-type erasure.
+#[cfg(feature = "dyn-api")]
+pub mod dyn_api {
+    pub use crate::dynapi::*;
+}
 
 /// Async prelude - import this for async camera control.
 ///
 /// This prelude provides the high-level API for async camera control:
-/// - Camera profiles and type aliases
+/// - Camera profiles and typed camera views
 /// - Common types and error handling
 /// - Runtime support
 ///
@@ -69,15 +82,21 @@
 /// ```no_run
 /// use grafton_visca::prelude::r#async::*;
 /// ```
-#[cfg(feature = "mode-async")]
+#[cfg(feature = "async")]
 pub mod r#async {
     // Common enums for camera settings
     pub use crate::{
-        AutoWhiteBalanceSensitivity, Error, ExposureMode, MotionSyncMode, NdFilterMode,
-        PanTiltDirection, PanTiltLimitCorner, PresetNumber, ResolutionMode, WhiteBalanceMode,
+        AdvancedAccessor, AutoWhiteBalanceSensitivity, Camera, Cancellation, Error,
+        ExposureAccessor, ExposureMode, FocusAccessor, ImageAccessor, MenuAccessor, MotionAccessor,
+        MotionSyncAccessor, NdFilterAccessor, NdFilterMode, Operation, OperationId,
+        PanTiltAccessor, PanTiltDirection, PanTiltLimitCorner, PowerAccessor, PresetNumber,
+        PresetsAccessor, ResolutionMode, Session, SessionConfig, StateCache, StateEntry, StateKey,
+        StateValue, SystemAccessor, TallyAccessor, WhiteBalanceAccessor, WhiteBalanceMode,
+        ZoomAccessor,
     };
     // High-level camera construction and configuration
-    pub use crate::camera::{AwaitConfig, CameraConfig, Connect};
+    pub use crate::camera::{CameraConfig, IdleWait, MotionQuery};
+    pub use crate::Connect;
     // Camera profiles - these are the primary way to configure camera behavior
     pub use crate::camera::profiles::{
         GenericVisca, NearusBRC300, PtzOptics30X, PtzOpticsG2, PtzOpticsG3, SonyBRC300,
@@ -86,6 +105,10 @@ pub mod r#async {
     // Type-safe parameter types for camera control
     pub use crate::types::{FStop, IrisLevel, PanSpeed, ShutterSpeed, SpeedLevel, TiltSpeed};
     pub use crate::units::{Degrees, Percentage, Raw, UnitInterval};
+
+    // Owner-backed dynamic noun and custom-operation projections.
+    #[cfg(feature = "dyn-api")]
+    pub use crate::dynapi::*;
 
     // Runtime support for async operations
     #[cfg(feature = "runtime-smol")]
@@ -97,7 +120,7 @@ pub mod r#async {
 /// Blocking prelude - import this for synchronous camera control.
 ///
 /// This prelude provides the high-level API for blocking camera control:
-/// - Camera profiles and type aliases
+/// - Camera profiles and borrowed typed camera views
 /// - Common types and error handling
 ///
 /// Import advanced extension APIs from their owning modules when needed.
@@ -106,15 +129,29 @@ pub mod r#async {
 /// ```no_run
 /// use grafton_visca::prelude::blocking::*;
 /// ```
-#[cfg(not(feature = "mode-async"))]
+#[cfg(feature = "blocking")]
 pub mod blocking {
     // Common enums for camera settings
     pub use crate::{
-        AutoWhiteBalanceSensitivity, Error, ExposureMode, MotionSyncMode, NdFilterMode,
-        PanTiltDirection, PanTiltLimitCorner, PresetNumber, ResolutionMode, WhiteBalanceMode,
+        AutoWhiteBalanceSensitivity, Error, ExposureMode, MetricsSnapshot, MotionSyncMode,
+        NdFilterMode, PanTiltDirection, PanTiltLimitCorner, PresetNumber, ResolutionMode,
+        SessionStatus, StateCache, StateEntry, StateKey, StateValue, WhiteBalanceMode,
     };
-    // High-level camera construction, camera type, and configuration
-    pub use crate::camera::{AwaitConfig, BlockingCamera as Camera, CameraConfig, Connect};
+    // High-level owner-backed blocking session facade and camera view.
+    pub use crate::blocking::{
+        AdvancedAccessor, Camera, Cancellation, ExposureAccessor, FocusAccessor, ImageAccessor,
+        MenuAccessor, MotionAccessor, MotionSyncAccessor, NdFilterAccessor, Operation, OperationId,
+        PanTiltAccessor, PowerAccessor, PresetsAccessor, Session, SessionConfig, SystemAccessor,
+        TallyAccessor, WhiteBalanceAccessor, ZoomAccessor,
+    };
+    // Final owner-backed construction in the blocking-only feature build.
+    #[cfg(feature = "transport-serial")]
+    pub use crate::blocking::SerialConnectBuilder;
+    #[cfg(feature = "blocking")]
+    pub use crate::blocking::{
+        CameraConfig, Connect, ConnectBuilder, TcpConnectBuilder, UdpConnectBuilder,
+    };
+    pub use crate::camera::{IdleWait, MotionQuery};
     // Camera profiles - these are the primary way to configure camera behavior
     pub use crate::camera::profiles::{
         GenericVisca, NearusBRC300, PtzOptics30X, PtzOpticsG2, PtzOpticsG3, SonyBRC300,
@@ -123,33 +160,4 @@ pub mod blocking {
     // Type-safe parameter types for camera control
     pub use crate::types::{FStop, IrisLevel, PanSpeed, ShutterSpeed, SpeedLevel, TiltSpeed};
     pub use crate::units::{Degrees, Percentage, Raw, UnitInterval};
-
-    // Type aliases for signatures in applications that need named blocking
-    // camera types. Construction should still go through Connect or CameraConfig.
-    /// Generic VISCA camera type alias.
-    pub type GenericViscaCam<T> = Camera<GenericVisca, T>;
-
-    /// Nearus BRC-300 camera type alias.
-    pub type NearusBRC300Cam<T> = Camera<NearusBRC300, T>;
-
-    /// PtzOptics 30X camera type alias.
-    pub type PtzOptics30XCam<T> = Camera<PtzOptics30X, T>;
-
-    /// PtzOptics G2 camera type alias.
-    pub type PtzOpticsG2Cam<T> = Camera<PtzOpticsG2, T>;
-
-    /// PtzOptics G3 camera type alias.
-    pub type PtzOpticsG3Cam<T> = Camera<PtzOpticsG3, T>;
-
-    /// Sony BRC-300 camera type alias.
-    pub type SonyBRC300Cam<T> = Camera<SonyBRC300, T>;
-
-    /// Sony BRC-H900 camera type alias.
-    pub type SonyBRCH900Cam<T> = Camera<SonyBRCH900, T>;
-
-    /// Sony EVI-H100 camera type alias.
-    pub type SonyEVIH100Cam<T> = Camera<SonyEVIH100, T>;
-
-    /// Sony FR7 camera type alias.
-    pub type SonyFR7Cam<T> = Camera<SonyFR7, T>;
 }

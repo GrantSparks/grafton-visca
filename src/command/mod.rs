@@ -23,7 +23,15 @@ pub(crate) mod power;
 pub(crate) mod preset;
 pub(crate) mod resolution;
 pub(crate) mod response;
+/// Authoritative semantic classification ledger for built-in commands.
+pub(crate) mod semantics;
 pub(crate) mod streaming;
+/// Crate-private noun/method mapping for the final static camera surface.
+///
+/// The mapping is an in-crate audit authority; production request preparation
+/// consumes typed request implementations directly.
+#[cfg(test)]
+pub(crate) mod surface;
 pub(crate) mod system;
 pub(crate) mod tally;
 pub(crate) mod typed;
@@ -35,14 +43,24 @@ pub(crate) mod zoom;
 // from this module root rather than through implementation submodules.
 pub(crate) mod bytes;
 
-// Unified ViscaCommand implementation internals.
+// Wire encoding implementation. Semantic request policy lives in `Request`.
 pub(crate) mod encode;
+
+#[cfg(test)]
+pub(crate) fn test_wire_bytes<C: encode::WireEncode>(
+    command: &C,
+    camera_id: crate::CameraId,
+) -> Result<Vec<u8>, crate::Error> {
+    let mut buffer = [0u8; 256];
+    let len = command.write_into(camera_id, &mut buffer)?;
+    Ok(buffer[..len].to_vec())
+}
 
 // Re-export command types
 pub use self::{
-    bytes::{FixedCommandBytes, VISCA_TERMINATOR},
+    bytes::VISCA_TERMINATOR,
     color::*,
-    encode::{CommandBehavior, CommandKind, InquiryResponseSpec, ViscaCommand},
+    encode::CommandKind,
     exposure::*,
     flip::{Flip, ImageFreeze},
     focus::*,
@@ -58,7 +76,10 @@ pub use self::{
     power::*,
     preset::*,
     resolution::{NdFilterPosition, PictureEffectMode, ResolutionMode},
-    response::{BoolConvention, Nibbles, Nibbles4Or8, Payload, RawInquiryPayload, Response},
+    response::{
+        parse_inquiry_payload, BoolConvention, Nibbles, Nibbles4Or8, Payload, RawInquiryPayload,
+        Response,
+    },
     streaming::{MulticastStreaming, SetNdiQuality, UsbAudio},
     system::{MotionSyncMode, MotionSyncPreset, SettingsSaveCommand},
     tally::{
@@ -75,11 +96,11 @@ pub use self::{
 mod tests {
     use crate::camera_id::CameraId;
     use crate::command::bytes::VISCA_TERMINATOR;
-    use crate::command::encode::ViscaCommand;
+    use crate::command::encode::WireEncode;
 
     /// Helper to encode a command and verify it has a terminator
     #[allow(clippy::expect_used, clippy::unwrap_used)]
-    fn assert_command_has_terminator<C: ViscaCommand>(command: C, name: &str) {
+    fn assert_command_has_terminator<C: WireEncode>(command: C, name: &str) {
         let mut buffer = [0u8; 256];
         let result = command.write_into(CameraId::CAMERA_1, &mut buffer);
 

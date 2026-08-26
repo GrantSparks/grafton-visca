@@ -61,7 +61,7 @@ pub use validation::ValidationError;
 
 // Structured capabilities response
 mod discovery;
-pub use discovery::Capabilities;
+pub use discovery::{Capabilities, RuntimeShutterSpeed};
 
 /// Super-trait that encompasses all camera capabilities.
 ///

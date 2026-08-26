@@ -40,11 +40,19 @@ repos:
         types: [rust]
         pass_filenames: false
       - id: clippy-async
-        name: clippy (mode-async feature)
+        name: clippy (async feature)
         description: Lint rust sources with base async feature
         entry: cargo clippy
         language: system
-        args: ["--all-targets", "--no-default-features", "--features", "mode-async", "--", "-D", "warnings"]
+        args: ["--all-targets", "--no-default-features", "--features", "async", "--", "-D", "warnings"]
+        types: [rust]
+        pass_filenames: false
+      - id: clippy-blocking
+        name: clippy (blocking feature)
+        description: Lint rust sources with the blocking facade
+        entry: cargo clippy
+        language: system
+        args: ["--all-targets", "--no-default-features", "--features", "blocking", "--", "-D", "warnings"]
         types: [rust]
         pass_filenames: false
       - id: clippy-runtime-tokio

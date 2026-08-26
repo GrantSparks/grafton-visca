@@ -45,6 +45,7 @@ use proc_macro::TokenStream;
 /// ```
 pub fn derive_visca_value(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
+    let crate_path = crate::crate_path::grafton_visca();
 
     // Extract the struct name and inner type
     let name = &input.ident;
@@ -123,7 +124,7 @@ pub fn derive_visca_value(input: TokenStream) -> TokenStream {
         quote! {
             const VALID_VALUES: &[#inner_type] = &#values_tokens;
             if !VALID_VALUES.contains(&value) {
-                return Err(crate::Error::InvalidParameter {
+                return Err(#crate_path::Error::InvalidParameter {
                     parameter: stringify!(#name),
                     value: ::std::borrow::Cow::Owned(format!("{value}")),
                     reason: ::std::borrow::Cow::Owned(format!("must be one of {:?}", VALID_VALUES)),
@@ -135,7 +136,7 @@ pub fn derive_visca_value(input: TokenStream) -> TokenStream {
         let max_tokens: proc_macro2::TokenStream = max.parse().unwrap_or_else(|_| quote! { 255 });
         quote! {
             if !(#min_tokens..=#max_tokens).contains(&value) {
-                return Err(crate::Error::ParameterOutOfRange {
+                return Err(#crate_path::Error::ParameterOutOfRange {
                     parameter: stringify!(#name),
                     value: value as i32,
                     min: #min_tokens as i32,
@@ -240,7 +241,7 @@ pub fn derive_visca_value(input: TokenStream) -> TokenStream {
             ///
             /// # Errors
             /// Returns an error if the value is out of range or invalid.
-            pub fn new(value: #inner_type) -> Result<Self, crate::Error> {
+            pub fn new(value: #inner_type) -> Result<Self, #crate_path::Error> {
                 #validation
                 Ok(Self(value))
             }
@@ -253,7 +254,7 @@ pub fn derive_visca_value(input: TokenStream) -> TokenStream {
         }
 
         impl TryFrom<#inner_type> for #name {
-            type Error = crate::Error;
+            type Error = #crate_path::Error;
 
             fn try_from(value: #inner_type) -> Result<Self, Self::Error> {
                 Self::new(value)

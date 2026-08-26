@@ -176,6 +176,10 @@ impl BlockingTransport for SerialTransport {
         }
         // TimeoutGuard restores original timeout on drop
     }
+
+    fn addressing_mode_hint(&self) -> Option<AddressingMode> {
+        Some(AddressingMode::Serial)
+    }
 }
 
 #[cfg(test)]

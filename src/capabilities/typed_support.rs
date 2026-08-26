@@ -228,6 +228,12 @@ impl TypedSupportSet {
         self.0 & surface.bit() != 0
     }
 
+    /// Returns this set without `surface`.
+    #[must_use]
+    pub const fn without(self, surface: TypedSupportSurface) -> Self {
+        Self(self.0 & !surface.bit())
+    }
+
     /// Returns true when this set contains every surface in `required`.
     #[must_use]
     pub const fn contains_all(self, required: Self) -> bool {

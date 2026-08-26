@@ -476,6 +476,13 @@ The following inquiry rows consolidate the PTZOptics Gen‑2 inquiry tables. Rep
 | AWB sensitivity | `81 09 04 A9 FF` | `90 50 00 FF` high, `01` normal, `02` low. |
 | UAC / USB audio | `81 2A 02 A0 04 FF` | `90 50 02 FF` on; `90 50 03 FF` off. |
 
+The iris rows above are part of the shared PTZOptics reference used by the
+G2/G3/30X registry entries. The Sony FR7 profile separately retains the
+standard iris control and `04 4B` inquiry because its profile registry entry
+has matching model evidence. A generic VISCA opcode or an encoder range alone
+does not establish those typed or targeted-inquiry guarantees for the other
+Sony, EVI, or Nearus profiles.
+
 ### 7.11 PTZOptics block inquiries
 
 Block inquiries return compact multi-field status packets. The following rows are retained because the PTZOptics command source includes them explicitly.
@@ -884,6 +891,12 @@ Record ACK/completion behavior, preset recall behavior, and any drift or oversho
 ## A.9 Broader Sony FR7 / BRC / EVI / Nearus / third-party model sections
 
 **Current treatment:** Background only. Do not present those profiles as fully validated in this PTZOptics/Axis document.
+
+**Narrow registry exception:** The built-in Sony FR7 entry uses the primary
+FR7 command-list evidence in R7 only for its explicitly modeled iris and
+variable-ND controls/inquiries. That narrow exception does not generalize
+typed iris or ND support to the other Sony, EVI, Nearus, or generic profiles,
+and it does not make the broader FR7 profile fully validated here.
 
 **Why it remains open:** The uploaded unified guide explicitly says the non-PTZOptics and non-Axis sections were not re-validated in the prior patch set. This final document used Sony manuals only to resolve transport and opcode semantics, not to validate every model-family capability.
 

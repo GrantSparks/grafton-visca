@@ -14,7 +14,7 @@ use syn::{parse_macro_input, DeriveInput};
 
 use proc_macro::TokenStream;
 
-mod forward_control;
+mod crate_path;
 mod inquiry_command;
 mod parser_templates;
 mod value_macros;
@@ -40,23 +40,25 @@ pub fn derive_visca_value(input: TokenStream) -> TokenStream {
     value_macros::derive_visca_value(input)
 }
 
-/// Derive macro for generating `ViscaCommand` inquiry implementations with parser support.
+/// Derive macro for generating typed inquiry request implementations with parser support.
 ///
-/// This macro eliminates boilerplate by automatically generating the `ViscaCommand`
-/// implementation with exact `MAX_SIZE`, zero-allocation `write_into()`, and
-/// `behavior()` returning inquiry response routing metadata. When parser attributes
-/// are provided for a built-in response, it also generates a `parse_response()` method.
+/// This macro eliminates boilerplate by automatically generating the typed
+/// [`Request`](https://docs.rs/grafton-visca/latest/grafton_visca/trait.Request.html)
+/// and [`Inquiry`](https://docs.rs/grafton-visca/latest/grafton_visca/trait.Inquiry.html)
+/// implementations with exact `MAX_SIZE` and zero-allocation `write_into()`.
+/// When parser attributes are provided for a built-in response, it also
+/// generates a `parse_response()` method.
 ///
 /// # Basic Usage
 ///
 /// ```rust,ignore
-/// use grafton_visca::{command::ViscaCommand, CameraId, ViscaInquiry};
+/// use grafton_visca::{CameraId, Request, ViscaInquiry};
 ///
 /// #[derive(ViscaInquiry, Debug, Copy, Clone)]
 /// #[visca(opcode = 0x00, response = Power)]
 /// struct PowerInquiry;
 ///
-/// let mut buffer = [0u8; PowerInquiry::MAX_SIZE];
+/// let mut buffer = [0u8; <PowerInquiry as Request>::MAX_SIZE];
 /// let len = PowerInquiry.write_into(CameraId::CAMERA_1, &mut buffer)?;
 /// assert_eq!(
 ///     &buffer[..len],
@@ -103,7 +105,7 @@ pub fn derive_visca_value(input: TokenStream) -> TokenStream {
 ///
 /// - The struct must have the `#[visca(...)]` attribute with required fields
 /// - The `response` attribute must reference an existing `InquiryKind` variant,
-///   or `Raw` for a raw custom inquiry that implements `ResponseParser` manually
+///   or `Raw` for a raw custom inquiry
 /// - Downstream derives use the standard five-byte inquiry form
 /// - The struct should implement `Debug`, `Copy`, and `Clone` for full compatibility
 #[proc_macro_derive(ViscaInquiry, attributes(visca))]
@@ -187,61 +189,4 @@ pub fn derive_visca_inquiry(input: TokenStream) -> TokenStream {
 pub fn derive_visca_enum(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     TokenStream::from(visca_enum::derive_visca_enum_impl(input))
-}
-
-/// Internal attribute macro for generating `CameraSession` forwarding implementations.
-///
-/// This macro is public only because procedural macros cannot be scoped
-/// crate-private. It is an implementation tool for the matching main
-/// `grafton-visca` crate, not a stable downstream extension API.
-///
-/// # Usage
-///
-/// Apply this attribute to control trait definitions:
-///
-/// ```rust,ignore
-/// use grafton_visca_macros::delegate_to_session;
-///
-/// #[delegate_to_session]
-/// pub trait ZoomControl {
-///     type Mode: Mode;
-///
-///     fn zoom_stop(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
-///     fn zoom_tele_std(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
-///     // ... more methods
-/// }
-/// ```
-///
-/// # Generated Code
-///
-/// The macro generates two implementations:
-///
-/// 1. **Async variant** (when `feature = "mode-async"`):
-///    - Forwards calls from `CameraSession<M, P, Tr, Exec>` to the inner camera
-///    - Preserves the generic Mode type `M`
-///
-/// 2. **Blocking variant** (when `feature != "mode-async"`):
-///    - Forwards calls from `CameraSession<Blocking, P, Tr, ()>` to the inner camera
-///    - Uses the concrete `Blocking` mode type
-///
-/// Each forwarding method uses the open session's `camera()`/`camera_mut()`
-/// accessor, adds `#[inline]`, and preserves the original method attributes and
-/// documentation.
-///
-/// # Requirements
-///
-/// - The trait must have a `type Mode: Mode` associated type
-/// - Methods should use `<Self::Mode as Mode>::Fut<'_, T>` for return types
-/// - The trait should be implemented for `Camera` (the actual logic)
-///
-/// # Benefits
-///
-/// - **Eliminates duplication**: No need to manually write forwarding impls
-/// - **Prevents drift**: Changes to trait methods automatically propagate
-/// - **Feature-gate aware**: Handles both async and blocking configurations
-/// - **Zero runtime cost**: Generated code is identical to hand-written forwarding
-#[proc_macro_attribute]
-pub fn delegate_to_session(_attr: TokenStream, input: TokenStream) -> TokenStream {
-    let input = parse_macro_input!(input as syn::ItemTrait);
-    TokenStream::from(forward_control::delegate_to_session_impl(input))
 }

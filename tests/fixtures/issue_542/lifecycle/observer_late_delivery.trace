@@ -1,0 +1,46 @@
+# Normative #542: observer timeout and detach close only the operation observer.
+# Target/socket routing, the admission permit, and target-local applied-state
+# delivery remain until each late terminal response safely removes its entry.
+0 input session transport=datagram capacity=4 cancel=supported
+0 effect session state=running transport=datagram capacity=4 cancel=supported
+1 input subscribe-applied target-one target=1
+1 effect subscriber-added observer=target-one target=1
+2 input subscribe-applied target-two target=2
+2 effect subscriber-added observer=target-two target=2
+3 input admit timed target=1 wire=81010604ff observer=async
+3 effect admitted ticket=timed id=1 target=1 permit=acquired state=ready observer=async
+3 outcome admission ticket=timed id=1
+4 input dispatch timed result=ok
+4 effect state id=1 from=ready to=sending
+4 effect transmit tx=1 id=1 kind=request target=1 wire=81010604ff
+4 driver-input transmission-finished tx=1 result=ok
+4 effect state id=1 from=sending to=awaiting-ack
+10 input observer-timeout timed
+10 outcome operation id=1 Error::Timeout source=observer
+10 effect observer-detached id=1 protocol-state=awaiting-ack routing=retained
+20 input frame ack timed socket=1 bytes=9041ff
+20 effect frame-routed id=1 target=1 via=target-socket socket=1 bytes=9041ff
+20 effect state id=1 from=awaiting-ack to=executing(socket=1)
+21 input frame complete timed bytes=9051ff
+21 effect frame-routed id=1 target=1 via=target-socket socket=1 bytes=9051ff
+21 effect terminal id=1 outcome=Applied source=protocol state=removed permit=released
+21 effect delivery-discarded id=1 observer=detached
+21 outcome applied-state observer=target-one target=1 id=1 state=applied
+22 input admit detached target=2 wire=8201040700ff observer=async
+22 effect admitted ticket=detached id=2 target=2 permit=acquired state=ready observer=async
+22 outcome admission ticket=detached id=2
+23 input dispatch detached result=ok
+23 effect state id=2 from=ready to=sending
+23 effect transmit tx=2 id=2 kind=request target=2 wire=8201040700ff
+23 driver-input transmission-finished tx=2 result=ok
+23 effect state id=2 from=sending to=awaiting-ack
+24 input detach detached
+24 effect observer-detached id=2 protocol-state=awaiting-ack routing=retained
+30 input frame ack detached socket=2 bytes=a042ff
+30 effect frame-routed id=2 target=2 via=target-socket socket=2 bytes=a042ff
+30 effect state id=2 from=awaiting-ack to=executing(socket=2)
+31 input frame complete detached bytes=a052ff
+31 effect frame-routed id=2 target=2 via=target-socket socket=2 bytes=a052ff
+31 effect terminal id=2 outcome=Applied source=protocol state=removed permit=released
+31 effect delivery-discarded id=2 observer=detached
+31 outcome applied-state observer=target-two target=2 id=2 state=applied

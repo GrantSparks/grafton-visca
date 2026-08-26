@@ -1,4 +1,4 @@
-#![cfg(not(feature = "mode-async"))]
+#![cfg(feature = "blocking")]
 //! Hardware integration test: validates VISCA inquiry commands against a real PTZOptics G2 camera.
 //!
 //! This test requires a real PTZOptics G2 camera on the network.
@@ -15,28 +15,27 @@
 //! VISCA_CAMERA_IP=192.168.0.110 cargo test --test hardware_inquiry_test -- --ignored --nocapture --test-threads=1
 //! ```
 
-use grafton_visca::camera::profiles::PtzOpticsG2;
-use grafton_visca::camera::Connect;
-use grafton_visca::transport::BlockingTransportHandle;
-use grafton_visca::BlockingClient;
+use grafton_visca::blocking::{Connect, Session};
+use grafton_visca::profiles::PtzOpticsG2;
 
-fn connect() -> Option<BlockingClient<PtzOpticsG2, BlockingTransportHandle>> {
+fn connect() -> Option<Session> {
     let ip = std::env::var("VISCA_CAMERA_IP").ok()?;
     let addr = format!("{ip}:5678");
     eprintln!("Connecting to camera at {addr}...");
-    Some(Connect::open_tcp_blocking::<PtzOpticsG2>(addr).expect("Failed to connect to camera"))
+    Some(Connect::open_tcp::<PtzOpticsG2>(addr).expect("Failed to connect to camera"))
 }
 
 macro_rules! inquiry_test {
-    ($name:ident, $method:ident) => {
+    ($name:ident, $noun:ident, $method:ident) => {
         #[test]
         #[ignore]
         fn $name() {
-            let Some(camera) = connect() else {
+            let Some(session) = connect() else {
                 eprintln!("Skipped: VISCA_CAMERA_IP not set");
                 return;
             };
-            let result = camera.$method();
+            let camera = session.camera::<PtzOpticsG2>().expect("camera view");
+            let result = camera.$noun().$method();
             assert!(
                 result.is_ok(),
                 "Inquiry {} failed: {:?}",
@@ -49,47 +48,49 @@ macro_rules! inquiry_test {
 }
 
 // === Position inquiries ===
-inquiry_test!(test_pan_tilt_position, pan_tilt_position);
-inquiry_test!(test_zoom_position, zoom_position);
-inquiry_test!(test_focus_position, focus_position);
+inquiry_test!(test_pan_tilt_position, pan_tilt, position);
+inquiry_test!(test_zoom_position, zoom, position);
+inquiry_test!(test_focus_position, focus, position);
 
 // === Focus inquiries ===
-inquiry_test!(test_focus_mode, focus_mode);
+inquiry_test!(test_focus_mode, focus, mode);
 
 // === Exposure inquiries ===
-inquiry_test!(test_exposure_mode, exposure_mode);
-inquiry_test!(test_shutter, shutter);
-inquiry_test!(test_gain, gain);
-inquiry_test!(test_gain_limit, gain_limit);
-inquiry_test!(test_exposure_compensation, exposure_compensation);
+inquiry_test!(test_exposure_mode, exposure, mode);
+inquiry_test!(test_shutter, exposure, shutter);
+inquiry_test!(test_gain, exposure, gain);
+inquiry_test!(test_gain_limit, exposure, gain_limit);
+inquiry_test!(test_exposure_compensation, exposure, compensation);
 inquiry_test!(
     test_exposure_compensation_enabled,
-    exposure_compensation_enabled
+    exposure,
+    compensation_enabled
 );
 inquiry_test!(
     test_exposure_compensation_position,
-    exposure_compensation_position
+    exposure,
+    compensation_position
 );
-inquiry_test!(test_backlight_enabled, backlight_enabled);
+inquiry_test!(test_backlight_enabled, image, backlight);
 
 // === White balance inquiries ===
-inquiry_test!(test_white_balance_mode, white_balance_mode);
+inquiry_test!(test_white_balance_mode, white_balance, mode);
 
 // === Image processing inquiries ===
-inquiry_test!(test_brightness, brightness);
-inquiry_test!(test_sharpness_mode, sharpness_mode);
-inquiry_test!(test_saturation, saturation);
-inquiry_test!(test_hue, hue);
-inquiry_test!(test_noise_reduction_2d, noise_reduction_2d);
-inquiry_test!(test_noise_reduction_3d, noise_reduction_3d);
-inquiry_test!(test_image_flip, image_flip);
-inquiry_test!(test_gamma, gamma);
-inquiry_test!(test_contrast, contrast);
-inquiry_test!(test_luminance, luminance);
+inquiry_test!(test_brightness, exposure, brightness);
+inquiry_test!(test_sharpness_mode, image, sharpness_mode);
+inquiry_test!(test_saturation, image, saturation);
+inquiry_test!(test_hue, image, hue);
+inquiry_test!(test_noise_reduction_2d, image, noise_reduction_2d);
+inquiry_test!(test_noise_reduction_3d, image, noise_reduction_3d);
+inquiry_test!(test_image_flip, image, flip);
+inquiry_test!(test_gamma, image, gamma);
+inquiry_test!(test_contrast, image, contrast);
+inquiry_test!(test_luminance, image, luminance);
 
 // === System inquiries ===
-inquiry_test!(test_power_state, power_state);
-inquiry_test!(test_menu_status, menu_status);
+inquiry_test!(test_power_state, power, state);
+inquiry_test!(test_menu_status, menu, status);
 
 // === Comprehensive test that runs all inquiries in sequence ===
 //
@@ -101,10 +102,11 @@ inquiry_test!(test_menu_status, menu_status);
 #[test]
 #[ignore]
 fn test_all_inquiries_succeed() {
-    let Some(camera) = connect() else {
+    let Some(session) = connect() else {
         eprintln!("Skipped: VISCA_CAMERA_IP not set");
         return;
     };
+    let camera = session.camera::<PtzOpticsG2>().expect("camera view");
 
     let mut passed = 0u32;
     let mut known_mismatches = 0u32;
@@ -146,75 +148,75 @@ fn test_all_inquiries_succeed() {
     eprintln!("\n=== PTZOptics G2 Full Inquiry Validation ===\n");
 
     // Position
-    check!("pan_tilt_position", camera.pan_tilt_position());
-    check!("zoom_position", camera.zoom_position());
-    check!("focus_position", camera.focus_position());
+    check!("pan_tilt_position", camera.pan_tilt().position());
+    check!("zoom_position", camera.zoom().position());
+    check!("focus_position", camera.focus().position());
 
     // Focus
-    check!("focus_mode", camera.focus_mode());
+    check!("focus_mode", camera.focus().mode());
 
     // Exposure
-    check!("exposure_mode", camera.exposure_mode());
-    check!("shutter", camera.shutter());
-    check!("gain", camera.gain());
-    check!("gain_limit", camera.gain_limit());
-    check!("exposure_compensation", camera.exposure_compensation());
+    check!("exposure_mode", camera.exposure().mode());
+    check!("shutter", camera.exposure().shutter());
+    check!("gain", camera.exposure().gain());
+    check!("gain_limit", camera.exposure().gain_limit());
+    check!("exposure_compensation", camera.exposure().compensation());
     check!(
         "exposure_compensation_enabled",
-        camera.exposure_compensation_enabled()
+        camera.exposure().compensation_enabled()
     );
     check!(
         "exposure_compensation_position",
-        camera.exposure_compensation_position()
+        camera.exposure().compensation_position()
     );
-    check!("backlight_enabled", camera.backlight_enabled());
+    check!("backlight_enabled", camera.image().backlight());
 
     // White balance
-    check!("white_balance_mode", camera.white_balance_mode());
+    check!("white_balance_mode", camera.white_balance().mode());
     // PTZOptics returns 4-nibble format for RGain/BGain but our parser expects 1-byte offset format
     check_known_mismatch!(
         "red_gain",
-        camera.red_gain(),
+        camera.white_balance().red_gain(),
         "PTZOptics returns 4-nibble RGain, parser expects 1-byte offset"
     );
     check_known_mismatch!(
         "blue_gain",
-        camera.blue_gain(),
+        camera.white_balance().blue_gain(),
         "PTZOptics returns 4-nibble BGain, parser expects 1-byte offset"
     );
     // PTZOptics returns 1-byte color temp value but our parser expects 4-nibble format
     check_known_mismatch!(
         "color_temperature",
-        camera.color_temperature(),
+        camera.white_balance().color_temperature(),
         "PTZOptics returns 1-byte color temp, parser expects 4-nibble"
     );
 
     // Image processing
-    check!("brightness", camera.brightness());
-    check!("sharpness_mode", camera.sharpness_mode());
-    check!("saturation", camera.saturation());
-    check!("hue", camera.hue());
-    check!("noise_reduction_2d", camera.noise_reduction_2d());
-    check!("noise_reduction_3d", camera.noise_reduction_3d());
+    check!("brightness", camera.exposure().brightness());
+    check!("sharpness_mode", camera.image().sharpness_mode());
+    check!("saturation", camera.image().saturation());
+    check!("hue", camera.image().hue());
+    check!("noise_reduction_2d", camera.image().noise_reduction_2d());
+    check!("noise_reduction_3d", camera.image().noise_reduction_3d());
     // PTZOptics image_flip uses CAM_PictureFlipInq (0x66) — works but has nuances:
     // PTZOptics also has CAM_FlipInq (0xA4) for combined H/V/HV flip and
     // CAM_LR_ReverseInq (0x61) for horizontal-only flip.
-    check!("image_flip", camera.image_flip());
-    check!("gamma", camera.gamma());
-    check!("contrast", camera.contrast());
-    check!("luminance", camera.luminance());
+    check!("image_flip", camera.image().flip());
+    check!("gamma", camera.image().gamma());
+    check!("contrast", camera.image().contrast());
+    check!("luminance", camera.image().luminance());
     // flip_mode now uses CAM_FlipInq (0xA4) — should work correctly on PTZOptics
-    check!("flip_mode", camera.flip_mode());
+    check!("flip_mode", camera.image().flip_mode());
 
     // System
-    check!("power_state", camera.power_state());
+    check!("power_state", camera.power().state());
     // PTZOptics returns a shorter version response (2 bytes) than Sony format (7 bytes)
     check_known_mismatch!(
         "version",
-        camera.version(),
+        camera.system().version(),
         "PTZOptics returns 2-byte version, parser expects 7-byte Sony format"
     );
-    check!("menu_status", camera.menu_status());
+    check!("menu_status", camera.menu().status());
 
     eprintln!(
         "\n=== Results: {passed} passed, {known_mismatches} known parser mismatches, {unexpected_failures} unexpected failures ===\n"

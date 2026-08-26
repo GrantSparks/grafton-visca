@@ -11,9 +11,11 @@ use bytes::{Bytes, BytesMut};
 use crate::{
     command::bytes::VISCA_TERMINATOR,
     protocol::sony::{PayloadType, SonyHeader},
-    transport::buffer::BufferConfig,
     Error,
 };
+
+#[cfg(any(feature = "async", feature = "blocking", test))]
+use crate::transport::buffer::BufferConfig;
 
 /// A zero-copy, protocol-aware VISCA/Sony frame decoder.
 ///
@@ -42,6 +44,7 @@ impl ProtocolFramer {
     }
 
     /// Create a new protocol framer with size limits from BufferConfig.
+    #[cfg(any(feature = "async", feature = "blocking", test))]
     pub fn new_with_config(config: BufferConfig) -> Self {
         Self {
             buf: BytesMut::with_capacity(config.recv_buffer_size),
@@ -165,7 +168,7 @@ impl ProtocolFramer {
 
     /// Try to extract any available frame when the stream has ended.
     /// This handles edge cases where EOF is encountered with partial data.
-    #[cfg(all(test, not(feature = "mode-async")))]
+    #[cfg(all(test, feature = "blocking"))]
     pub fn drain_on_eof(&mut self) -> Option<Result<Bytes, Error>> {
         if self.buf.is_empty() {
             return None;

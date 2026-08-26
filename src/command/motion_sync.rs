@@ -6,10 +6,9 @@
 
 use crate::{
     command::{
-        bytes::builder::ConstCommandBuilder, encode::ViscaCommand, MotionSyncMode, MotionSyncPreset,
+        bytes::builder::ConstCommandBuilder, encode::WireEncode, MotionSyncMode, MotionSyncPreset,
     },
     error::Error,
-    timeout::CommandCategory,
 };
 
 /// Command to control Motion Sync mode (on/off).
@@ -28,9 +27,8 @@ impl SetMotionSyncMode {
     }
 }
 
-impl ViscaCommand for SetMotionSyncMode {
+impl WireEncode for SetMotionSyncMode {
     const MAX_SIZE: usize = 6;
-    const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
     fn write_into(
         &self,
@@ -88,11 +86,15 @@ impl SetMotionSyncPreset {
         };
         Self { speed: speed_value }
     }
+
+    /// Returns the configured motion-sync speed.
+    pub const fn speed(self) -> u8 {
+        self.speed
+    }
 }
 
-impl ViscaCommand for SetMotionSyncPreset {
+impl WireEncode for SetMotionSyncPreset {
     const MAX_SIZE: usize = 6;
-    const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
     fn write_into(
         &self,

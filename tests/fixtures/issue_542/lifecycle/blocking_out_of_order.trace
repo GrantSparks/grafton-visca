@@ -1,0 +1,73 @@
+# Normative #542: blocking submission returns only after the initial write
+# result, and pumping one receipt retains exact terminal outcomes for all other
+# attached blocking receipts. Times are monotonic milliseconds.
+0 input session transport=datagram capacity=8 cancel=supported
+0 effect session state=running transport=datagram capacity=8 cancel=supported
+1 input blocking-submit a target=1 wire=81010604ff observer=blocking
+1 effect admitted ticket=a id=1 target=1 permit=acquired state=ready observer=blocking
+1 outcome admission ticket=a id=1
+1 effect state id=1 from=ready to=sending
+1 effect transmit tx=1 id=1 kind=request target=1 wire=81010604ff
+1 driver-input transmission-finished tx=1 result=ok
+1 effect state id=1 from=sending to=awaiting-ack
+1 outcome blocking-handle ticket=a id=1 initial-write=complete
+2 input blocking-submit b target=1 wire=8101040700ff observer=blocking
+2 effect admitted ticket=b id=2 target=1 permit=acquired state=ready observer=blocking
+2 outcome admission ticket=b id=2
+2 effect state id=2 from=ready to=sending
+2 effect transmit tx=2 id=2 kind=request target=1 wire=8101040700ff
+2 driver-input transmission-finished tx=2 result=ok
+2 effect state id=2 from=sending to=awaiting-ack
+2 outcome blocking-handle ticket=b id=2 initial-write=complete
+3 input frame ack b socket=2 bytes=9042ff
+3 effect frame-routed id=2 target=1 via=target-socket socket=2 bytes=9042ff
+3 effect state id=2 from=awaiting-ack to=executing(socket=2)
+4 input frame complete b bytes=9052ff
+4 effect frame-routed id=2 target=1 via=target-socket socket=2 bytes=9052ff
+4 effect terminal id=2 outcome=Applied source=protocol state=removed permit=released
+4 effect outcome-retained id=2 observer=blocking
+5 input frame ack a socket=1 bytes=9041ff
+5 effect frame-routed id=1 target=1 via=target-socket socket=1 bytes=9041ff
+5 effect state id=1 from=awaiting-ack to=executing(socket=1)
+6 input frame complete a bytes=9051ff
+6 effect frame-routed id=1 target=1 via=target-socket socket=1 bytes=9051ff
+6 effect terminal id=1 outcome=Applied source=protocol state=removed permit=released
+6 effect outcome-retained id=1 observer=blocking
+7 input blocking-wait a
+7 outcome blocking-wait id=1 Applied source=protocol
+8 input blocking-wait b
+8 outcome blocking-wait id=2 Applied source=protocol
+10 input blocking-submit c target=1 wire=81010604ff observer=blocking
+10 effect admitted ticket=c id=3 target=1 permit=acquired state=ready observer=blocking
+10 outcome admission ticket=c id=3
+10 effect state id=3 from=ready to=sending
+10 effect transmit tx=3 id=3 kind=request target=1 wire=81010604ff
+10 driver-input transmission-finished tx=3 result=ok
+10 effect state id=3 from=sending to=awaiting-ack
+10 outcome blocking-handle ticket=c id=3 initial-write=complete
+11 input blocking-submit d target=1 wire=8101040700ff observer=blocking
+11 effect admitted ticket=d id=4 target=1 permit=acquired state=ready observer=blocking
+11 outcome admission ticket=d id=4
+11 effect state id=4 from=ready to=sending
+11 effect transmit tx=4 id=4 kind=request target=1 wire=8101040700ff
+11 driver-input transmission-finished tx=4 result=ok
+11 effect state id=4 from=sending to=awaiting-ack
+11 outcome blocking-handle ticket=d id=4 initial-write=complete
+12 input frame ack c socket=1 bytes=9041ff
+12 effect frame-routed id=3 target=1 via=target-socket socket=1 bytes=9041ff
+12 effect state id=3 from=awaiting-ack to=executing(socket=1)
+13 input frame ack d socket=2 bytes=9042ff
+13 effect frame-routed id=4 target=1 via=target-socket socket=2 bytes=9042ff
+13 effect state id=4 from=awaiting-ack to=executing(socket=2)
+14 input frame error d socket=2 code=02 bytes=906202ff
+14 effect frame-routed id=4 target=1 via=target-socket socket=2 bytes=906202ff
+14 effect terminal id=4 outcome=Error::SyntaxError source=camera state=removed permit=released
+14 effect outcome-retained id=4 observer=blocking
+15 input frame complete c bytes=9051ff
+15 effect frame-routed id=3 target=1 via=target-socket socket=1 bytes=9051ff
+15 effect terminal id=3 outcome=Applied source=protocol state=removed permit=released
+15 effect outcome-retained id=3 observer=blocking
+16 input blocking-wait c
+16 outcome blocking-wait id=3 Applied source=protocol
+17 input blocking-wait d
+17 outcome blocking-wait id=4 Error::SyntaxError source=camera

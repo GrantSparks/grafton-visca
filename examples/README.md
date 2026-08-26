@@ -6,8 +6,8 @@ Preferred usage:
 
 - Use `Connect` for simple blocking and async camera connections.
 - Use `CameraConfig` when a standard TCP, UDP, or serial connection needs explicit timeouts, retry policy, keepalive, or camera ID.
-- Use `CameraBuilder` only when you already own a custom transport and need to attach it to a camera.
-- Import camera construction/session types from `grafton_visca::camera` and generic control traits from the crate root.
+- Use `Session::open` when you already own a custom transport and need to attach it to a camera.
+- Import construction/session types from their public modules (`Session`, `Connect`, and `CameraConfig`).
 - Use checked public value types such as `UnitInterval::new(...)` and `CameraId`/`try_camera_id(...)` instead of raw normalized floats or raw camera ID setters.
 - Treat raw transport, protocol, and lab-validation programs as advanced integration/reference material.
 - Use ordinary noun methods for simple command completion. Use operation handles
@@ -20,15 +20,15 @@ Example quality bar:
 - Examples that move hardware should take the camera address from an argument or environment variable and should keep movement focused.
 - Hard-coded lab IPs belong only in validation utilities, not in getting-started examples.
 
-See [docs/examples.md](../docs/examples.md) for the 1.x example maintenance policy.
+See [docs/examples.md](../docs/examples.md) for the example maintenance policy.
 
 ## Important: Feature Flags
 
 This library uses feature flags to control dependencies:
-- **No features** (default): Blocking API only
-- **`mode-async`**: Runtime-agnostic async API; provide your own executor/runtime integration
-- **`runtime-tokio`**: Built-in Tokio runtime support (implies `mode-async`)
-- **`runtime-smol`**: Built-in smol runtime support (implies `mode-async`)
+- **`blocking`**: Blocking API
+- **`async`**: Runtime-agnostic async API; provide your own executor/runtime integration
+- **`runtime-tokio`**: Built-in Tokio runtime support (implies `async`)
+- **`runtime-smol`**: Built-in smol runtime support (implies `async`)
 - **`transport-serial`**: Blocking serial (RS-232/RS-422)
 - **`transport-serial-tokio`**: Tokio serial transport (implies `runtime-tokio`)
 - **`test-utils`**: Deterministic test transports and executors
@@ -59,7 +59,7 @@ If you're new to the library, start with these examples in order:
 ### Connection, Transport, and Configuration
 - **[transports.rs](transports.rs)** - Check PTZOptics G2 TCP and UDP connectivity without changing camera state
 - **[transport_builder_demo.rs](transport_builder_demo.rs)** - Current `CameraConfig` transport policy setup
-- **[builder_api.rs](builder_api.rs)** - Attach a caller-owned UDP transport with `CameraBuilder`
+- **[builder_api.rs](builder_api.rs)** - Attach a caller-owned transport with `Session::open`
 - **[sony_encapsulation.rs](sony_encapsulation.rs)** - Sony encapsulated protocol with 8-byte header (advanced)
 - **[serial_async_demo.rs](serial_async_demo.rs)** - Tokio serial `CameraConfig`, checked camera ID, read-only inquiries, and explicit session close
 
@@ -114,7 +114,7 @@ cargo run --example sony_encapsulation --features runtime-tokio -- 192.168.0.110
 cargo run --example serial_async_demo --features runtime-tokio,transport-serial-tokio -- /dev/ttyUSB0 1
 
 # Runtime-agnostic async example
-cargo run --example runtime_agnostic --features mode-async
+cargo run --example runtime_agnostic --features async
 ```
 
 Run lab validation tools only after editing their camera lists or confirming the checked-in defaults match your test bench:
@@ -150,25 +150,27 @@ Profile capability contributions should follow the [Camera Profile Support Guide
 ## Current API Shape
 
 ```rust
-use grafton_visca::camera::{CameraConfig, Connect};
+use grafton_visca::camera::CameraConfig;
 use grafton_visca::profiles::PtzOpticsG2;
 use grafton_visca::runtime::TokioRuntime;
 use grafton_visca::transport::{TcpKeepaliveConfig, TransportConfig};
 
-let blocking = Connect::open_tcp_blocking::<PtzOpticsG2>("192.168.0.110")?;
-let is_on = blocking.power().state()?;
-blocking.close()?;
+let blocking_session = grafton_visca::blocking::Connect::open_tcp::<PtzOpticsG2>("192.168.0.110")?;
+let blocking_camera = blocking_session.camera::<PtzOpticsG2>()?;
+let is_on = blocking_camera.power().state()?;
+blocking_session.close()?;
 
 let runtime = TokioRuntime::from_current()?;
-let async_camera = CameraConfig::<PtzOpticsG2>::tcp("192.168.0.110")
+let async_session = CameraConfig::<PtzOpticsG2>::tcp("192.168.0.110")
     .transport_config(TransportConfig {
         tcp_keepalive: Some(TcpKeepaliveConfig::default()),
         ..TransportConfig::default()
     })
     .open_async(runtime)
     .await?;
+let async_camera = async_session.camera::<PtzOpticsG2>()?;
 let is_on = async_camera.power().state().await?;
-async_camera.close().await?;
+async_session.close().await?;
 ```
 
 ## Troubleshooting

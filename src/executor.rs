@@ -3,9 +3,9 @@
 //! This module provides a single `Executor` trait that combines all async runtime
 //! operations into one coherent interface, preventing runtime/spawner mismatches.
 
-#[cfg(feature = "mode-async")]
+#[cfg(feature = "async")]
 use core::future::Future;
-#[cfg(feature = "mode-async")]
+#[cfg(feature = "async")]
 use std::time::Instant;
 
 use crate::Error;
@@ -39,7 +39,7 @@ impl From<ExecError> for Error {
 /// By using a single `Executor` trait with an associated `Join` type, we ensure
 /// that runtime and spawner come from the same ecosystem, preventing runtime
 /// mismatches at compile time.
-#[cfg(feature = "mode-async")]
+#[cfg(feature = "async")]
 pub trait Executor: Clone + Send + Sync + 'static {
     /// The join handle type for spawned tasks.
     type Join<T>: Future<Output = Result<T, ExecError>> + Send + 'static
@@ -125,7 +125,7 @@ pub trait Executor: Clone + Send + Sync + 'static {
 }
 
 // Generic implementation for Arc<E> where E: Executor
-#[cfg(feature = "mode-async")]
+#[cfg(feature = "async")]
 #[allow(refining_impl_trait_reachable)]
 impl<E> Executor for std::sync::Arc<E>
 where

@@ -101,8 +101,8 @@ async fn connect_and_query(address: &str) -> Result<(), Error> {
     });
 
     let runtime = TokioRuntime::from_current()?;
-    let camera = match config.open_async(runtime).await {
-        Ok(camera) => camera,
+    let session = match config.open_async(runtime).await {
+        Ok(session) => session,
         Err(error) => {
             println!("  Connection failed: {error}");
             println!("  retryable={}", error.is_retryable());
@@ -113,6 +113,7 @@ async fn connect_and_query(address: &str) -> Result<(), Error> {
         }
     };
 
+    let camera = session.camera::<PtzOpticsG2>()?;
     let inquiry_result = camera.power().state().await;
     match &inquiry_result {
         Ok(is_on) => println!(
@@ -121,7 +122,7 @@ async fn connect_and_query(address: &str) -> Result<(), Error> {
         ),
         Err(error) => println!("  Connected, but power inquiry failed: {error}"),
     }
-    let close_result = camera.close().await;
+    let close_result = session.close().await;
 
     finish_session(inquiry_result.map(|_| ()), close_result)
 }

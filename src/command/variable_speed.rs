@@ -4,9 +4,8 @@
 //! When in 50-step mode, pan/tilt speed values can range from 1-50 for finer control.
 
 use crate::{
-    command::{bytes::builder::ConstCommandBuilder, encode::ViscaCommand},
+    command::{bytes::builder::ConstCommandBuilder, encode::WireEncode},
     error::Error,
-    timeout::CommandCategory,
 };
 
 /// Variable speed mode setting for Sony FR7.
@@ -41,9 +40,8 @@ impl SetVariableSpeedMode {
     }
 }
 
-impl ViscaCommand for SetVariableSpeedMode {
+impl WireEncode for SetVariableSpeedMode {
     const MAX_SIZE: usize = 7;
-    const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
     fn write_into(
         &self,

@@ -1,0 +1,81 @@
+# Normative #542: one admission bound covers all active lifecycle phases.
+# Datagram request-write failure is isolated; stream request-write failure
+# poisons every active entry in admission order; explicit shutdown is distinct.
+0 input session transport=datagram capacity=2 cancel=supported
+0 effect session state=running transport=datagram capacity=2 cancel=supported
+1 input admit datagram-one target=1 wire=81010604ff observer=async
+1 effect admitted ticket=datagram-one id=1 target=1 permit=acquired state=ready observer=async
+1 outcome admission ticket=datagram-one id=1
+2 input admit datagram-two target=1 wire=8101040700ff observer=async
+2 effect admitted ticket=datagram-two id=2 target=1 permit=acquired state=ready observer=async
+2 outcome admission ticket=datagram-two id=2
+3 input admit over-capacity target=1 wire=8101040700ff observer=async
+3 outcome admission ticket=over-capacity error=Capacity capacity=2 engine-entry=none observer=none transmission=none
+4 input dispatch datagram-one result=WriteFailed
+4 effect state id=1 from=ready to=sending
+4 effect transmit tx=1 id=1 kind=request target=1 wire=81010604ff
+4 driver-input transmission-finished tx=1 result=WriteFailed
+4 effect terminal id=1 outcome=Error::WriteFailed source=transport state=removed permit=released
+4 outcome operation id=1 Error::WriteFailed source=transport
+5 input admit datagram-three target=1 wire=8101040700ff observer=async
+5 effect admitted ticket=datagram-three id=3 target=1 permit=acquired state=ready observer=async
+5 outcome admission ticket=datagram-three id=3
+6 input dispatch datagram-two result=ok
+6 effect state id=2 from=ready to=sending
+6 effect transmit tx=2 id=2 kind=request target=1 wire=8101040700ff
+6 driver-input transmission-finished tx=2 result=ok
+6 effect state id=2 from=sending to=awaiting-ack
+7 input frame ack datagram-two socket=1 bytes=9041ff
+7 effect frame-routed id=2 target=1 via=target-socket socket=1 bytes=9041ff
+7 effect state id=2 from=awaiting-ack to=executing(socket=1)
+8 input frame complete datagram-two bytes=9051ff
+8 effect frame-routed id=2 target=1 via=target-socket socket=1 bytes=9051ff
+8 effect terminal id=2 outcome=Applied source=protocol state=removed permit=released
+8 outcome operation id=2 Applied source=protocol
+9 input dispatch datagram-three result=ok
+9 effect state id=3 from=ready to=sending
+9 effect transmit tx=3 id=3 kind=request target=1 wire=8101040700ff
+9 driver-input transmission-finished tx=3 result=ok
+9 effect state id=3 from=sending to=awaiting-ack
+10 input frame ack datagram-three socket=2 bytes=9042ff
+10 effect frame-routed id=3 target=1 via=target-socket socket=2 bytes=9042ff
+10 effect state id=3 from=awaiting-ack to=executing(socket=2)
+11 input frame complete datagram-three bytes=9052ff
+11 effect frame-routed id=3 target=1 via=target-socket socket=2 bytes=9052ff
+11 effect terminal id=3 outcome=Applied source=protocol state=removed permit=released
+11 outcome operation id=3 Applied source=protocol
+20 input session transport=stream capacity=3 cancel=supported
+20 effect session state=running transport=stream capacity=3 cancel=supported
+21 input admit stream-one target=1 wire=81010604ff observer=async
+21 effect admitted ticket=stream-one id=1 target=1 permit=acquired state=ready observer=async
+21 outcome admission ticket=stream-one id=1
+22 input admit stream-two target=1 wire=8101040700ff observer=async
+22 effect admitted ticket=stream-two id=2 target=1 permit=acquired state=ready observer=async
+22 outcome admission ticket=stream-two id=2
+23 input dispatch stream-one result=WriteTimeout
+23 effect state id=1 from=ready to=sending
+23 effect transmit tx=1 id=1 kind=request target=1 wire=81010604ff
+23 driver-input transmission-finished tx=1 result=WriteTimeout
+23 effect session from=running to=poisoned cause=WriteTimeout
+23 effect terminal id=1 outcome=Error::StreamPoisoned source=transport state=removed permit=released
+23 outcome operation id=1 Error::StreamPoisoned source=transport
+23 effect terminal id=2 outcome=Error::StreamPoisoned source=transport state=removed permit=released
+23 outcome operation id=2 Error::StreamPoisoned source=transport
+24 input admit poisoned-reject target=1 wire=8101040700ff observer=async
+24 outcome admission ticket=poisoned-reject error=StreamPoisoned engine-entry=none observer=none transmission=none
+30 input session transport=stream capacity=3 cancel=supported
+30 effect session state=running transport=stream capacity=3 cancel=supported
+31 input admit shutdown-one target=1 wire=81010604ff observer=async
+31 effect admitted ticket=shutdown-one id=1 target=1 permit=acquired state=ready observer=async
+31 outcome admission ticket=shutdown-one id=1
+32 input admit shutdown-two target=1 wire=8101040700ff observer=async
+32 effect admitted ticket=shutdown-two id=2 target=1 permit=acquired state=ready observer=async
+32 outcome admission ticket=shutdown-two id=2
+33 input shutdown
+33 effect session from=running to=shutdown reason=explicit
+33 effect terminal id=1 outcome=Error::RuntimeShutdown source=shutdown state=removed permit=released
+33 outcome operation id=1 Error::RuntimeShutdown source=shutdown
+33 effect terminal id=2 outcome=Error::RuntimeShutdown source=shutdown state=removed permit=released
+33 outcome operation id=2 Error::RuntimeShutdown source=shutdown
+34 input admit shutdown-reject target=1 wire=8101040700ff observer=async
+34 outcome admission ticket=shutdown-reject error=RuntimeShutdown engine-entry=none observer=none transmission=none

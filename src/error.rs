@@ -354,6 +354,16 @@ pub enum Error {
     #[error("Runtime has been shutdown")]
     RuntimeShutdown,
 
+    /// Cancellation intent was recorded after transmission, but the engine could
+    /// not prove either original completion or protocol cancellation before the
+    /// correlation quarantine expired.
+    #[error("Cancellation could not be confirmed")]
+    CancellationUnconfirmed,
+
+    /// A private runtime identity space was exhausted without a safe non-aliasing value.
+    #[error("Runtime identity space exhausted")]
+    RuntimeIdentityExhausted,
+
     /// Runtime command queue is at capacity.
     ///
     /// This error indicates that the runtime's pending command queue has reached
@@ -589,7 +599,9 @@ impl Error {
             | Self::CommandPending => ErrorKind::Busy,
 
             // Other: truly uncategorizable
-            Self::LockPoisoned(..) => ErrorKind::Other,
+            Self::LockPoisoned(..)
+            | Self::CancellationUnconfirmed
+            | Self::RuntimeIdentityExhausted => ErrorKind::Other,
 
             // Delegated: unwrap context wrapper
             Self::WithContext { source, .. } => source.kind(),

@@ -5,7 +5,10 @@
 
 use std::future::Future;
 
-use crate::{transport::SendSemantics, Error};
+use crate::{
+    transport::{AddressingMode, SendSemantics},
+    Error,
+};
 
 /// Async transport for VISCA communication.
 ///
@@ -48,6 +51,18 @@ pub trait AsyncTransport: Send {
         &'a mut self,
         dst: &'a mut [u8],
     ) -> impl Future<Output = Result<usize, Error>> + Send;
+
+    /// Return a side-effect-free hint for the transport's VISCA addressing mode.
+    ///
+    /// Multi-target sessions require an explicit [`AddressingMode::Serial`]
+    /// declaration because serial replies carry a camera source while IP
+    /// replies do not. Custom transports default to `None`, which conservatively
+    /// rejects multi-target startup before configuration is read. Single-target
+    /// sessions do not require a hint. The hint only authorizes preflight;
+    /// `TransportConfig::addressing` remains the runtime's framing source.
+    fn addressing_mode_hint(&self) -> Option<AddressingMode> {
+        None
+    }
 
     /// Query the transport's send semantics.
     ///

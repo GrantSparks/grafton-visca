@@ -13,10 +13,9 @@
 use crate::{
     command::{
         bytes::{constants, ConstCommandBuilder},
-        encode::ViscaCommand,
+        encode::WireEncode,
     },
     error::Error,
-    timeout::CommandCategory,
 };
 
 /// ND filter mode for Sony FR7.
@@ -52,9 +51,8 @@ pub struct NdFilterModeCommand {
     mode: NdFilterMode,
 }
 
-impl ViscaCommand for NdFilterModeCommand {
+impl WireEncode for NdFilterModeCommand {
     const MAX_SIZE: usize = 7;
-    const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
     fn write_into(
         &self,
@@ -75,6 +73,12 @@ impl NdFilterModeCommand {
     pub fn new(mode: NdFilterMode) -> Self {
         Self { mode }
     }
+
+    /// Returns the requested ND filter mode.
+    #[must_use]
+    pub const fn mode(self) -> NdFilterMode {
+        self.mode
+    }
 }
 
 /// Direct ND filter value command for variable mode.
@@ -84,14 +88,13 @@ impl NdFilterModeCommand {
 /// - Value 0x0000 = ND 1/4 (2 stops, minimum ND)
 /// - Value 0x0014 = ND 1/128 (7 stops, maximum density)
 /// - Linear scale for optical density (each increment ~0.5 stop)
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct NdFilterValue {
     value: u16,
 }
 
-impl ViscaCommand for NdFilterValue {
+impl WireEncode for NdFilterValue {
     const MAX_SIZE: usize = 9;
-    const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
     fn write_into(
         &self,
@@ -139,6 +142,12 @@ impl NdFilterValue {
         let value = ((stops - 2.0) * 4.0) as u16;
         Ok(Self { value })
     }
+
+    /// Returns the raw VISCA ND-filter value.
+    #[must_use]
+    pub const fn value(self) -> u16 {
+        self.value
+    }
 }
 
 /// ND filter step adjustment direction.
@@ -175,9 +184,8 @@ pub struct NdFilterStepCommand {
     direction: NdFilterStep,
 }
 
-impl ViscaCommand for NdFilterStepCommand {
+impl WireEncode for NdFilterStepCommand {
     const MAX_SIZE: usize = 7;
-    const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
     fn write_into(
         &self,
@@ -218,11 +226,16 @@ impl AutoNdCommand {
     pub fn new(enabled: bool) -> Self {
         Self { enabled }
     }
+
+    /// Returns whether automatic ND control is enabled.
+    #[must_use]
+    pub const fn enabled(self) -> bool {
+        self.enabled
+    }
 }
 
-impl ViscaCommand for AutoNdCommand {
+impl WireEncode for AutoNdCommand {
     const MAX_SIZE: usize = 7;
-    const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
     fn write_into(
         &self,

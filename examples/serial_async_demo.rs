@@ -75,13 +75,14 @@ async fn main() -> Result<(), Error> {
     let config = CameraConfig::<GenericVisca>::serial(args.port.clone(), 9600)
         .try_camera_id(args.camera_id)?;
     let runtime = TokioRuntime::from_current()?;
-    let camera = config.open_serial_async(runtime).await.map_err(|error| {
+    let session = config.open_serial_async(runtime).await.map_err(|error| {
         error.context(format!(
             "failed to open VISCA camera {} on serial port {}",
             args.camera_id, args.port
         ))
     })?;
 
+    let camera = session.camera::<GenericVisca>()?;
     println!("Serial camera session established; running read-only inquiries.");
     let inquiry_result = async {
         let version = camera
@@ -104,7 +105,7 @@ async fn main() -> Result<(), Error> {
 
     // Close before propagating an inquiry error so the example demonstrates a
     // complete session lifecycle even when the camera rejects an inquiry.
-    let close_result = camera
+    let close_result = session
         .close()
         .await
         .map(|_| ())

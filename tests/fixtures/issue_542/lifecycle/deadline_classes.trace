@@ -1,0 +1,40 @@
+# Normative #542: an observer deadline detaches only delivery, a scheduler
+# deadline terminally resolves engine state, and a transport timeout is an
+# identified I/O result. The public error may be Timeout in all three cases,
+# but the boundary source remains explicit and replayable.
+0 input session transport=datagram capacity=4 cancel=supported
+0 effect session state=running transport=datagram capacity=4 cancel=supported
+1 input admit observer-deadline target=1 wire=81010604ff observer=async scheduler=100
+1 effect admitted ticket=observer-deadline id=1 target=1 permit=acquired state=ready observer=async
+1 outcome admission ticket=observer-deadline id=1
+2 input dispatch observer-deadline result=ok
+2 effect state id=1 from=ready to=sending
+2 effect transmit tx=1 id=1 kind=request target=1 wire=81010604ff
+2 driver-input transmission-finished tx=1 result=ok
+2 effect state id=1 from=sending to=awaiting-ack
+10 input observer-timeout observer-deadline
+10 outcome operation id=1 Error::Timeout source=observer
+10 effect observer-detached id=1 protocol-state=awaiting-ack routing=retained
+20 input admit scheduler-deadline target=1 wire=8101040700ff observer=async scheduler=30
+20 effect admitted ticket=scheduler-deadline id=2 target=1 permit=acquired state=ready observer=async
+20 outcome admission ticket=scheduler-deadline id=2
+21 input dispatch scheduler-deadline result=ok
+21 effect state id=2 from=ready to=sending
+21 effect transmit tx=2 id=2 kind=request target=1 wire=8101040700ff
+21 driver-input transmission-finished tx=2 result=ok
+21 effect state id=2 from=sending to=awaiting-ack
+30 input wake
+30 effect terminal id=2 outcome=Error::Timeout source=scheduler state=removed permit=released
+30 outcome operation id=2 Error::Timeout source=scheduler
+40 input admit transport-deadline target=1 wire=8101040700ff observer=async
+40 effect admitted ticket=transport-deadline id=3 target=1 permit=acquired state=ready observer=async
+40 outcome admission ticket=transport-deadline id=3
+41 input dispatch transport-deadline result=Timeout
+41 effect state id=3 from=ready to=sending
+41 effect transmit tx=3 id=3 kind=request target=1 wire=8101040700ff
+41 driver-input transmission-finished tx=3 result=Timeout
+41 effect terminal id=3 outcome=Error::Timeout source=transport state=removed permit=released
+41 outcome operation id=3 Error::Timeout source=transport
+100 input wake
+100 effect terminal id=1 outcome=Error::Timeout source=scheduler state=removed permit=released
+100 effect delivery-discarded id=1 observer=detached

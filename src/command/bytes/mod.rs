@@ -14,48 +14,19 @@ pub const VISCA_TERMINATOR: u8 = 0xFF;
 /// Default camera ID for VISCA commands.
 pub const DEFAULT_CAMERA_ID: u8 = 0x81;
 
-/// Stack-allocated, length-aware command buffer.
+/// Internal stack-allocated result used by builder unit tests.
 ///
-/// This type provides a zero-allocation representation for encoded VISCA commands
-/// that carries both the bytes and the actual encoded length. This prevents
-/// accidental transmission of trailing bytes after the terminator.
-///
-/// # Design Rationale
-///
-/// Unlike returning a raw `[u8; N]` which loses length information, `FixedCommandBytes`
-/// ensures that callers always have access to the correct slice via [`as_slice()`](Self::as_slice)
-/// or [`AsRef<[u8]>`](AsRef). The underlying array may contain trailing zeros after
-/// the encoded data, but these are never exposed through the safe API.
-///
-/// # Equality and Hashing
-///
-/// `FixedCommandBytes` implements `PartialEq`, `Eq`, and `Hash` based only on the
-/// meaningful bytes (`&self[..len]`), not the full buffer capacity. This means two
-/// `FixedCommandBytes` with different `N` but the same content compare as equal
-/// when compared via slice, and hash identically.
-///
-/// # Examples
-///
-/// ```ignore
-/// let cmd = MyCommand { value: 42 };
-/// let encoded = cmd.to_fixed_bytes::<16>(CameraId::CAMERA_1)?;
-///
-/// // Safe access via as_slice() - only returns meaningful bytes
-/// let slice = encoded.as_slice();
-/// assert_eq!(slice.last(), Some(&0xFF)); // Properly terminated
-///
-/// // Works with APIs expecting &[u8]
-/// transport.send(encoded.as_ref())?;
-///
-/// // Length is always available
-/// println!("Command is {} bytes", encoded.len());
-/// ```
+/// Production request encoding writes directly into caller-owned storage through
+/// the crate-private [`super::super::encode::WireEncode`] contract. This helper
+/// is not part of the public command or raw-request API.
+#[cfg(test)]
 #[derive(Debug, Clone, Copy)]
-pub struct FixedCommandBytes<const N: usize> {
+pub(crate) struct FixedCommandBytes<const N: usize> {
     bytes: [u8; N],
     len: usize,
 }
 
+#[cfg(test)]
 impl<const N: usize> FixedCommandBytes<N> {
     /// Creates a new `FixedCommandBytes` from a buffer and length.
     ///
@@ -74,7 +45,7 @@ impl<const N: usize> FixedCommandBytes<N> {
     /// This returns only the meaningful bytes (up to the terminator),
     /// excluding any trailing zeros in the underlying buffer.
     #[inline]
-    pub const fn as_slice(&self) -> &[u8] {
+    pub(crate) const fn as_slice(&self) -> &[u8] {
         // SAFETY: split_at panics if len > N, but our invariant guarantees len <= N.
         // However, const fn can't use &self.bytes[..self.len] directly, so we use
         // split_at which is const-compatible.
@@ -83,13 +54,13 @@ impl<const N: usize> FixedCommandBytes<N> {
 
     /// Returns the length of the encoded command in bytes.
     #[inline]
-    pub const fn len(&self) -> usize {
+    pub(crate) const fn len(&self) -> usize {
         self.len
     }
 
     /// Returns `true` if the command is empty (length 0).
     #[inline]
-    pub const fn is_empty(&self) -> bool {
+    pub(crate) const fn is_empty(&self) -> bool {
         self.len == 0
     }
 
@@ -98,7 +69,7 @@ impl<const N: usize> FixedCommandBytes<N> {
     /// **Warning:** The returned array may contain trailing zeros after position
     /// `self.len()`. Prefer using [`as_slice()`](Self::as_slice) for transmission.
     #[inline]
-    pub const fn into_array(self) -> [u8; N] {
+    pub(crate) const fn into_array(self) -> [u8; N] {
         self.bytes
     }
 
@@ -107,11 +78,12 @@ impl<const N: usize> FixedCommandBytes<N> {
     /// **Warning:** The returned array may contain trailing zeros after position
     /// `self.len()`. Prefer using [`as_slice()`](Self::as_slice) for transmission.
     #[inline]
-    pub const fn as_array(&self) -> &[u8; N] {
+    pub(crate) const fn as_array(&self) -> &[u8; N] {
         &self.bytes
     }
 }
 
+#[cfg(test)]
 impl<const N: usize> AsRef<[u8]> for FixedCommandBytes<N> {
     #[inline]
     fn as_ref(&self) -> &[u8] {
@@ -119,6 +91,7 @@ impl<const N: usize> AsRef<[u8]> for FixedCommandBytes<N> {
     }
 }
 
+#[cfg(test)]
 impl<const N: usize> core::ops::Deref for FixedCommandBytes<N> {
     type Target = [u8];
 
@@ -129,6 +102,7 @@ impl<const N: usize> core::ops::Deref for FixedCommandBytes<N> {
 }
 
 // Manual PartialEq implementation comparing only meaningful bytes
+#[cfg(test)]
 impl<const N: usize> PartialEq for FixedCommandBytes<N> {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
@@ -136,9 +110,11 @@ impl<const N: usize> PartialEq for FixedCommandBytes<N> {
     }
 }
 
+#[cfg(test)]
 impl<const N: usize> Eq for FixedCommandBytes<N> {}
 
 // Allow comparing FixedCommandBytes directly with byte slices
+#[cfg(test)]
 impl<const N: usize> PartialEq<[u8]> for FixedCommandBytes<N> {
     #[inline]
     fn eq(&self, other: &[u8]) -> bool {
@@ -146,6 +122,7 @@ impl<const N: usize> PartialEq<[u8]> for FixedCommandBytes<N> {
     }
 }
 
+#[cfg(test)]
 impl<const N: usize> PartialEq<&[u8]> for FixedCommandBytes<N> {
     #[inline]
     fn eq(&self, other: &&[u8]) -> bool {
@@ -154,6 +131,7 @@ impl<const N: usize> PartialEq<&[u8]> for FixedCommandBytes<N> {
 }
 
 // Hash only the meaningful bytes, not the full buffer
+#[cfg(test)]
 impl<const N: usize> core::hash::Hash for FixedCommandBytes<N> {
     #[inline]
     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
@@ -162,6 +140,7 @@ impl<const N: usize> core::hash::Hash for FixedCommandBytes<N> {
 }
 
 // Borrow as slice for use in HashMap/HashSet lookups
+#[cfg(test)]
 impl<const N: usize> core::borrow::Borrow<[u8]> for FixedCommandBytes<N> {
     #[inline]
     fn borrow(&self) -> &[u8] {

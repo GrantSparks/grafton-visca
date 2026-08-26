@@ -11,13 +11,13 @@ use crate::{
     capabilities::{Profile, SupportsSerial, SupportsTcp, SupportsUdp},
     error::Error,
     timeout::TimeoutConfig,
-    transport::{
-        buffer::BufferConfig,
-        builder::{AddressingMode, TransportConfig},
-    },
+    transport::builder::TransportConfig,
 };
 
-/// Standard transport kind used for profile compatibility validation.
+#[cfg(any(feature = "async", feature = "blocking"))]
+use crate::transport::{buffer::BufferConfig, builder::AddressingMode};
+
+/// Standard transport kind used for profile support validation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(
     feature = "serde",
@@ -153,7 +153,7 @@ impl TransportOptions {
 /// let camera1 = config.open_async(runtime).await?;
 ///
 /// // Open blocking connection using the configuration
-/// let camera2 = config2.open_blocking()?;
+/// let camera2 = config2.open()?;
 ///
 /// // Use accessor-style API
 /// camera1.power().on().await?;
@@ -177,7 +177,7 @@ pub struct CameraConfig<P> {
 
 impl<P> CameraConfig<P>
 where
-    P: Profile + Default,
+    P: Profile,
 {
     /// Create a new camera configuration for the specified profile.
     ///
@@ -279,6 +279,16 @@ where
         self
     }
 
+    /// Clears the profile-derived network port.  This is crate-private because
+    /// it is only needed by the typed connection builder's explicit
+    /// `with_default_port` opt-in; [`Self::tcp`] and [`Self::udp`] retain their
+    /// documented profile defaults.
+    #[cfg(any(feature = "async", feature = "blocking"))]
+    pub(crate) fn without_network_default_port(mut self) -> Self {
+        self.network_default_port = None;
+        self
+    }
+
     /// Set timeout configuration.
     pub fn timeouts(mut self, timeouts: TimeoutConfig) -> Self {
         self.timeouts = timeouts;
@@ -311,6 +321,7 @@ where
         Ok(self.camera_id(CameraId::new(id)?))
     }
 
+    #[cfg(any(feature = "async", feature = "blocking"))]
     fn defaulted_buffer_config(&self, transport_default: BufferConfig) -> BufferConfig {
         if self.transport_config.buffer_config == BufferConfig::default() {
             transport_default
@@ -319,7 +330,8 @@ where
         }
     }
 
-    fn tcp_transport_config(&self) -> TransportConfig {
+    #[cfg(any(feature = "async", feature = "blocking"))]
+    pub(crate) fn tcp_transport_config(&self) -> TransportConfig {
         TransportConfig {
             buffer_config: self.defaulted_buffer_config(BufferConfig::for_raw_ip()),
             addressing: AddressingMode::Ip,
@@ -327,7 +339,8 @@ where
         }
     }
 
-    fn udp_transport_config(&self) -> TransportConfig {
+    #[cfg(any(feature = "async", feature = "blocking"))]
+    pub(crate) fn udp_transport_config(&self) -> TransportConfig {
         TransportConfig {
             buffer_config: self.defaulted_buffer_config(BufferConfig::for_udp()),
             addressing: AddressingMode::Ip,
@@ -345,17 +358,29 @@ where
 
     #[cfg(any(
         feature = "transport-serial-tokio",
-        all(not(feature = "mode-async"), feature = "transport-serial")
+        all(feature = "blocking", feature = "transport-serial")
     ))]
-    fn serial_config(&self, port: &str, baud_rate: u32) -> crate::transport::serial::Config {
-        let transport_config = TransportConfig {
+    pub(crate) fn serial_transport_config(&self) -> TransportConfig {
+        TransportConfig {
             buffer_config: self.defaulted_buffer_config(BufferConfig::for_serial()),
             addressing: AddressingMode::Serial,
             tcp_nodelay: None,
             ttl: None,
             tcp_keepalive: None,
             ..self.transport_config
-        };
+        }
+    }
+
+    #[cfg(any(
+        feature = "transport-serial-tokio",
+        all(feature = "blocking", feature = "transport-serial")
+    ))]
+    pub(crate) fn serial_config(
+        &self,
+        port: &str,
+        baud_rate: u32,
+    ) -> crate::transport::serial::Config {
+        let transport_config = self.serial_transport_config();
 
         crate::transport::serial::Config::new(port.to_string())
             .baud_rate(baud_rate)
@@ -367,314 +392,463 @@ where
     }
 }
 
+// The owner-backed facades use the same public configuration values and lower
+// them once into immutable session tuning at the construction boundary.
+#[cfg(any(feature = "async", feature = "blocking"))]
+impl<P> CameraConfig<P>
+where
+    P: crate::profile::CompileTimeProfile,
+{
+    pub(crate) fn owner_tuning(&self) -> crate::OperationalTuning {
+        use crate::transport::BackoffStrategy;
+
+        let timeout = self.timeouts;
+        let retry = self.transport_config.retry_config;
+
+        // The owner has one immutable completion budget and one immutable
+        // settlement budget. Use the largest configured timeout so a long or
+        // preset operation cannot be shortened when lowered into the final
+        // request model.
+        let completion = timeout
+            .quick_timeout
+            .max(timeout.movement_timeout)
+            .max(timeout.preset_timeout)
+            .max(timeout.long_timeout)
+            .max(timeout.network_timeout)
+            .max(timeout.default_timeout);
+        let settlement = completion;
+
+        let maximum_backoff = match retry.backoff_strategy {
+            BackoffStrategy::Constant => retry.base_retry_delay,
+            BackoffStrategy::Exponential => {
+                let mut value = retry.base_retry_delay;
+                for _ in 0..retry.max_retries.min(31) {
+                    value = value.saturating_mul(2);
+                }
+                value.min(retry.max_retry_duration)
+            }
+        };
+
+        crate::OperationalTuning::new()
+            .ack_timeout(timeout.ack_timeout)
+            .completion_timeout(completion)
+            .settlement_timeout(settlement)
+            .inquiry_timeout(timeout.quick_timeout.max(timeout.network_timeout))
+            .retry_limit(retry.max_retries)
+            .retry_timing(
+                retry.base_retry_delay,
+                maximum_backoff,
+                retry.max_retry_duration,
+            )
+    }
+
+    pub(crate) fn owner_profile_config(&self) -> crate::Result<crate::SessionConfig> {
+        let profile = crate::ProfileSpec::from_compile_time::<P>()?;
+        crate::SessionConfig::for_target(self.camera_id, profile)?.with_tuning(self.owner_tuning())
+    }
+
+    pub(crate) fn owner_default_port(&self, kind: TransportKind) -> Option<u16> {
+        self.network_default_port.or_else(|| match kind {
+            TransportKind::Tcp => P::TRANSPORTS.tcp_port(),
+            TransportKind::Udp => P::TRANSPORTS.udp_port(),
+            TransportKind::Serial | TransportKind::Custom => None,
+        })
+    }
+
+    /// Returns the validated, pure [`crate::SessionConfig`] that standard
+    /// construction will pass to the owner-backed session.
+    ///
+    /// This performs profile and tuning validation but no endpoint parsing,
+    /// DNS lookup, device open, task spawn, or protocol I/O. It is useful when
+    /// an application needs to inspect or compose the shared session policy
+    /// before selecting an async or blocking transport.
+    pub fn session_config(&self) -> crate::Result<crate::SessionConfig> {
+        self.validate()?;
+        self.owner_profile_config()
+    }
+}
+
+/// Pure standard TCP/UDP construction state shared by the async and blocking
+/// owner-backed constructors. No connector or socket is created while this
+/// plan is being built.
+#[derive(Debug, Clone)]
+#[cfg(any(feature = "async", feature = "blocking"))]
+pub(crate) struct StandardConnectionPlan {
+    pub(crate) kind: TransportKind,
+    pub(crate) endpoint: String,
+    pub(crate) transport_config: TransportConfig,
+    pub(crate) session_config: crate::SessionConfig,
+}
+
+#[cfg(any(feature = "async", feature = "blocking"))]
+impl<P> CameraConfig<P>
+where
+    P: crate::profile::CompileTimeProfile,
+{
+    /// Resolves all standard profile/configuration/endpoint state before any
+    /// runtime connector or blocking socket is entered.
+    pub(crate) fn standard_connection_plan(&self) -> crate::Result<StandardConnectionPlan> {
+        let session_config = self.session_config()?;
+        let (kind, address, default_port, transport_config) = match &self.transport {
+            TransportOptions::Tcp { address } => (
+                TransportKind::Tcp,
+                address.as_str(),
+                self.owner_default_port(TransportKind::Tcp),
+                self.tcp_transport_config(),
+            ),
+            TransportOptions::Udp { address } => (
+                TransportKind::Udp,
+                address.as_str(),
+                self.owner_default_port(TransportKind::Udp),
+                self.udp_transport_config(),
+            ),
+            TransportOptions::Serial { .. } => {
+                return Err(Error::InvalidState(
+                    "serial transport requires its serial construction path".into(),
+                ));
+            }
+            TransportOptions::Custom => {
+                return Err(Error::InvalidState(
+                    "custom transport requires Session::open".into(),
+                ));
+            }
+        };
+
+        session_config.validate_for_transport(Some(kind))?;
+        let endpoint = crate::transport::address::canonicalize_endpoint(address, default_port)?;
+        Ok(StandardConnectionPlan {
+            kind,
+            endpoint,
+            transport_config,
+            session_config,
+        })
+    }
+}
+
 impl<P> Default for CameraConfig<P>
 where
-    P: Profile + Default,
+    P: Profile,
 {
     fn default() -> Self {
         Self::new()
     }
 }
 
-// Implementation of open methods
-#[cfg(feature = "mode-async")]
+/// Canonical owner-backed standard async construction.
+#[cfg(feature = "async")]
 impl<P> CameraConfig<P>
 where
-    P: Profile + Default,
+    P: crate::profile::CompileTimeProfile,
 {
-    /// Open an async camera session using the configuration.
-    ///
-    /// This method performs all I/O operations needed to establish a connection
-    /// to the camera, including transport setup.
-    ///
-    /// # Arguments
-    ///
-    /// * `runtime` - The async runtime to use for I/O operations
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// use grafton_visca::camera::{CameraConfig, profiles::PtzOpticsG2};
-    /// use grafton_visca::runtime::TokioRuntime;
-    ///
-    /// let runtime = TokioRuntime::from_current()?;
-    /// let config = CameraConfig::<PtzOpticsG2>::tcp("192.168.0.110");
-    ///
-    /// let session = config.open_async(runtime).await?;
-    /// ```
-    pub async fn open_async<R>(
-        &self,
-        runtime: R,
-    ) -> Result<
-        crate::camera::CameraSession<crate::mode::Async, P, crate::runtime::TransportHandle<R>, R>,
-        Error,
-    >
+    /// Opens a standard TCP or UDP connection and starts one owner session.
+    pub async fn open_async<R>(&self, runtime: R) -> crate::Result<crate::Session>
     where
         R: crate::runtime::Runtime,
     {
         use crate::runtime::TransportHandle;
 
-        self.validate()?;
-
-        // Create transport based on configuration
-        let transport = match &self.transport {
-            TransportOptions::Tcp { address } => {
-                // Canonicalize address at the connection boundary (handles IPv6 bracketing)
-                let canonical_addr = crate::transport::address::canonicalize_endpoint(
-                    address,
-                    self.network_default_port,
-                )?;
+        let plan = self.standard_connection_plan()?;
+        let transport = match plan.kind {
+            TransportKind::Tcp => {
                 let tcp = runtime
-                    .connect_tcp(&canonical_addr, self.tcp_transport_config())
+                    .connect_tcp(&plan.endpoint, plan.transport_config)
                     .await?;
-                TransportHandle::Tcp(tcp)
+                TransportHandle::<R>::Tcp(tcp)
             }
-            TransportOptions::Udp { address } => {
-                // Canonicalize address at the connection boundary (handles IPv6 bracketing)
-                let canonical_addr = crate::transport::address::canonicalize_endpoint(
-                    address,
-                    self.network_default_port,
-                )?;
+            TransportKind::Udp => {
                 let udp = runtime
-                    .connect_udp(&canonical_addr, self.udp_transport_config())
+                    .connect_udp(&plan.endpoint, plan.transport_config)
                     .await?;
-                TransportHandle::Udp(udp)
+                TransportHandle::<R>::Udp(udp)
             }
-            TransportOptions::Serial { .. } => {
-                // Serial transport must use open_serial_async() method which has RuntimeSerial bound
-                return Err(Error::InvalidState(
-                    "Serial transport requires open_serial_async() method for proper trait bounds"
-                        .into(),
-                ));
-            }
-            TransportOptions::Custom => {
-                return Err(Error::InvalidState(
-                    "Custom transport requires manual session creation".into(),
-                ));
-            }
+            _ => unreachable!("standard connection plan only contains network transports"),
         };
 
-        // Create camera using profile's envelope type with explicit timeout and retry configs
-        // This ensures the runtime uses the same configs as configured in CameraConfig
-        let mut camera =
-            crate::camera::Camera::<crate::mode::Async, P, _, _>::new_async_with_config(
-                transport,
-                runtime.clone(),
-                self.timeouts,
-                self.transport_config.retry_config,
-            )
-            .await?;
-
-        // Apply camera ID if different from profile default
-        if self.camera_id.id() != P::DEFAULT_CAMERA_ID {
-            camera.set_camera_id(self.camera_id);
-        }
-
-        // Wrap in session
-        Ok(crate::camera::CameraSession::new(camera))
+        crate::Session::open::<R, _>(transport, plan.session_config, runtime).await
     }
 
-    /// Open an async serial camera session using the configuration.
-    ///
-    /// This method requires a runtime that implements `RuntimeSerial` and returns
-    /// a session using the unified `TransportHandle` type, allowing downstream users
-    /// to implement traits uniformly across all transport types.
-    ///
-    /// Currently, serial transport is only supported for the Tokio runtime.
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// use grafton_visca::camera::{CameraConfig, profiles::PtzOpticsG2};
-    /// use grafton_visca::runtime::TokioRuntime;
-    ///
-    /// let runtime = TokioRuntime::from_current()?;
-    /// let config = CameraConfig::<PtzOpticsG2>::serial("/dev/ttyUSB0", 9600);
-    ///
-    /// let session = config.open_serial_async(runtime).await?;
-    /// ```
+    /// Opens the configured Tokio serial transport through the owner session.
     #[cfg(feature = "transport-serial-tokio")]
-    pub async fn open_serial_async<R>(
-        &self,
-        runtime: R,
-    ) -> Result<
-        crate::camera::CameraSession<crate::mode::Async, P, crate::runtime::TransportHandle<R>, R>,
-        Error,
-    >
+    pub async fn open_serial_async<R>(&self, runtime: R) -> crate::Result<crate::Session>
     where
         R: crate::runtime::Runtime
             + crate::runtime::RuntimeSerial<SerialTransport = crate::transport::tokio::serial::Serial>,
     {
         use crate::runtime::TransportHandle;
 
-        self.validate()?;
+        let session_config = self.session_config()?;
+        session_config.validate_for_transport(Some(TransportKind::Serial))?;
 
-        match &self.transport {
-            TransportOptions::Serial { port, baud_rate } => {
-                // Create serial config from transport options
-                let serial_config = self.serial_config(port, *baud_rate);
-
-                // Connect using RuntimeSerial trait
-                let serial = runtime.connect_serial(serial_config).await?;
-                let transport = TransportHandle::Serial(Box::new(serial));
-
-                // Create camera using profile's envelope type with explicit timeout and retry configs
-                // This ensures the runtime uses the same configs as configured in CameraConfig
-                let mut camera =
-                    crate::camera::Camera::<crate::mode::Async, P, _, _>::new_async_with_config(
-                        transport,
-                        runtime.clone(),
-                        self.timeouts,
-                        self.transport_config.retry_config,
-                    )
-                    .await?;
-
-                // Apply camera ID if different from profile default
-                if self.camera_id.id() != P::DEFAULT_CAMERA_ID {
-                    camera.set_camera_id(self.camera_id);
-                }
-
-                // Wrap in session
-                Ok(crate::camera::CameraSession::new(camera))
-            }
-            _ => Err(Error::InvalidState(
-                "open_serial_async requires serial transport configuration".into(),
-            )),
-        }
-    }
-}
-
-#[cfg(not(feature = "mode-async"))]
-impl<P> CameraConfig<P>
-where
-    P: Profile + Default,
-{
-    /// Open a blocking camera session using the configuration.
-    ///
-    /// This method performs all I/O operations needed to establish a connection
-    /// to the camera, including transport setup.
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// use grafton_visca::camera::{CameraConfig, profiles::PtzOpticsG2};
-    ///
-    /// let config = CameraConfig::<PtzOpticsG2>::tcp("192.168.0.110");
-    ///
-    /// let camera = config.open_blocking()?;
-    /// ```
-    pub fn open_blocking(
-        &self,
-    ) -> Result<crate::BlockingClient<P, crate::transport::BlockingTransportHandle>, Error> {
-        use crate::transport::blocking::{Tcp, Udp};
-
-        self.validate()?;
-
-        // Create transport based on configuration
-        let transport = match &self.transport {
-            TransportOptions::Tcp { address } => {
-                // Canonicalize address at the connection boundary (handles IPv6 bracketing)
-                let canonical_addr = crate::transport::address::canonicalize_endpoint(
-                    address,
-                    self.network_default_port,
-                )?;
-                let tcp = Tcp::connect_with_config(&canonical_addr, self.tcp_transport_config())?;
-                crate::transport::BlockingTransportHandle::Tcp(tcp)
-            }
-            TransportOptions::Udp { address } => {
-                // Canonicalize address at the connection boundary (handles IPv6 bracketing)
-                let canonical_addr = crate::transport::address::canonicalize_endpoint(
-                    address,
-                    self.network_default_port,
-                )?;
-                let udp = Udp::connect_with_config(&canonical_addr, self.udp_transport_config())?;
-                crate::transport::BlockingTransportHandle::Udp(udp)
-            }
-            TransportOptions::Serial { .. } => {
-                // Serial transport requires special handling due to it not being part of BlockingTransportHandle
-                // This case should not be reached as serial should use open_serial_blocking() instead
+        let (port, baud_rate) = match &self.transport {
+            TransportOptions::Serial { port, baud_rate } => (port, *baud_rate),
+            _ => {
                 return Err(Error::InvalidState(
-                    "Serial transport requires open_serial_blocking() method".into(),
-                ));
-            }
-            TransportOptions::Custom => {
-                return Err(Error::InvalidState(
-                    "Custom transport requires manual session creation".into(),
+                    "open_serial_async requires serial transport configuration".into(),
                 ));
             }
         };
+        let serial = runtime
+            .connect_serial(self.serial_config(port, baud_rate))
+            .await?;
+        crate::Session::open::<R, _>(
+            TransportHandle::<R>::Serial(Box::new(serial)),
+            session_config,
+            runtime,
+        )
+        .await
+    }
+}
 
-        // Create camera using profile's envelope type with explicit timeout and retry configs
-        // This ensures the blocking runner uses the same configs as configured in CameraConfig
-        let mut camera =
-            crate::camera::Camera::<crate::mode::Blocking, P, _, ()>::new_blocking_with_config(
-                transport,
-                self.timeouts,
-                self.transport_config.retry_config,
-            )?;
+/// Canonical owner-backed blocking construction.
+#[cfg(feature = "blocking")]
+impl<P> CameraConfig<P>
+where
+    P: crate::profile::CompileTimeProfile,
+{
+    /// Opens a configured standard blocking TCP or UDP owner session.
+    pub fn open(&self) -> crate::Result<crate::blocking::Session> {
+        use crate::transport::blocking::{Tcp, Udp};
 
-        // Apply camera ID if different from profile default
-        if self.camera_id.id() != P::DEFAULT_CAMERA_ID {
-            camera.set_camera_id(self.camera_id);
-        }
+        let plan = self.standard_connection_plan()?;
+        let transport = match plan.kind {
+            TransportKind::Tcp => crate::transport::BlockingTransportHandle::Tcp(
+                Tcp::connect_with_config(&plan.endpoint, plan.transport_config)?,
+            ),
+            TransportKind::Udp => crate::transport::BlockingTransportHandle::Udp(
+                Udp::connect_with_config(&plan.endpoint, plan.transport_config)?,
+            ),
+            _ => unreachable!("standard connection plan only contains network transports"),
+        };
 
-        Ok(crate::BlockingClient::from_camera(camera))
+        crate::blocking::Session::open(transport, plan.session_config)
     }
 
-    /// Open a blocking serial camera session using the configuration.
-    ///
-    /// This method creates a blocking serial connection to the camera.
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// use grafton_visca::camera::{CameraConfig, profiles::PtzOpticsG2};
-    ///
-    /// let config = CameraConfig::<PtzOpticsG2>::serial("/dev/ttyUSB0", 9600);
-    ///
-    /// let camera = config.open_serial_blocking()?;
-    /// ```
+    /// Opens a configured blocking serial owner session.
     #[cfg(feature = "transport-serial")]
-    pub fn open_serial_blocking(
-        &self,
-    ) -> Result<crate::BlockingClient<P, crate::transport::BlockingTransportHandle>, Error> {
-        self.validate()?;
-
-        match &self.transport {
-            TransportOptions::Serial { port, baud_rate } => {
-                // Create serial config from transport options
-                let serial_config = self.serial_config(port, *baud_rate);
-
-                // Create blocking serial transport
-                let serial_transport =
-                    crate::transport::serial_blocking::SerialTransport::new(serial_config)?;
-                let transport = crate::transport::BlockingTransportHandle::Serial(serial_transport);
-
-                // Create camera using profile's envelope type with explicit timeout and retry configs
-                // This ensures the blocking runner uses the same configs as configured in CameraConfig
-                let mut camera =
-                    crate::camera::Camera::<crate::mode::Blocking, P, _, _>::new_blocking_with_config(
-                        transport,
-                        self.timeouts,
-                        self.transport_config.retry_config,
-                    )?;
-
-                // Apply camera ID if different from profile default
-                if self.camera_id.id() != P::DEFAULT_CAMERA_ID {
-                    camera.set_camera_id(self.camera_id);
-                }
-
-                Ok(crate::BlockingClient::from_camera(camera))
+    pub fn open_serial(&self) -> crate::Result<crate::blocking::Session> {
+        let session_config = self.session_config()?;
+        session_config.validate_for_transport(Some(TransportKind::Serial))?;
+        let (port, baud_rate) = match &self.transport {
+            TransportOptions::Serial { port, baud_rate } => (port, *baud_rate),
+            _ => {
+                return Err(Error::InvalidState(
+                    "open_serial requires serial transport configuration".into(),
+                ));
             }
-            _ => Err(Error::InvalidState(
-                "open_serial_blocking requires serial transport configuration".into(),
-            )),
-        }
+        };
+        let serial = crate::transport::serial_blocking::SerialTransport::new(
+            self.serial_config(port, baud_rate),
+        )?;
+        let transport = crate::transport::BlockingTransportHandle::Serial(serial);
+        crate::blocking::Session::open(transport, session_config)
     }
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used)]
 mod tests {
+    #[cfg(any(feature = "async", feature = "blocking"))]
+    #[test]
+    fn canonical_standard_plan_records_defaults_and_transport_options_without_io() {
+        use std::time::Duration;
+
+        use crate::{
+            camera::{CameraConfig, TransportKind, TransportOptions},
+            profiles::{PtzOpticsG2, SonyFR7},
+            transport::{AddressingMode, BufferConfig, TcpKeepaliveConfig, TransportConfig},
+        };
+
+        let transport_config = TransportConfig {
+            connect_timeout: Duration::from_millis(17),
+            read_timeout: Duration::from_millis(19),
+            write_timeout: Duration::from_millis(23),
+            buffer_config: BufferConfig {
+                recv_buffer_size: 11,
+                send_buffer_size: 13,
+                max_buffer_size: 17,
+            },
+            tcp_nodelay: Some(false),
+            tcp_keepalive: Some(TcpKeepaliveConfig::new(Duration::from_secs(4))),
+            ttl: Some(41),
+            addressing: AddressingMode::Ip,
+            ..TransportConfig::default()
+        };
+
+        let tcp = CameraConfig::<PtzOpticsG2>::tcp("camera.local")
+            .transport_config(transport_config)
+            .standard_connection_plan()
+            .expect("TCP plan");
+        assert_eq!(tcp.kind, TransportKind::Tcp);
+        assert_eq!(tcp.endpoint, "camera.local:5678");
+        assert_eq!(
+            tcp.transport_config.connect_timeout,
+            Duration::from_millis(17)
+        );
+        assert_eq!(tcp.transport_config.read_timeout, Duration::from_millis(19));
+        assert_eq!(
+            tcp.transport_config.write_timeout,
+            Duration::from_millis(23)
+        );
+        assert_eq!(
+            tcp.transport_config.buffer_config,
+            transport_config.buffer_config
+        );
+        assert_eq!(tcp.transport_config.tcp_nodelay, Some(false));
+        assert_eq!(
+            tcp.transport_config.tcp_keepalive,
+            transport_config.tcp_keepalive
+        );
+        assert_eq!(tcp.transport_config.ttl, Some(41));
+        assert_eq!(tcp.transport_config.addressing, AddressingMode::Ip);
+
+        let udp = CameraConfig::<PtzOpticsG2>::udp("camera.local")
+            .transport_config(transport_config)
+            .standard_connection_plan()
+            .expect("UDP plan");
+        assert_eq!(udp.kind, TransportKind::Udp);
+        assert_eq!(udp.endpoint, "camera.local:1259");
+        assert_eq!(
+            udp.transport_config.connect_timeout,
+            Duration::from_millis(17)
+        );
+        assert_eq!(udp.transport_config.read_timeout, Duration::from_millis(19));
+        assert_eq!(
+            udp.transport_config.write_timeout,
+            Duration::from_millis(23)
+        );
+        assert_eq!(
+            udp.transport_config.buffer_config,
+            transport_config.buffer_config
+        );
+        assert_eq!(udp.transport_config.ttl, Some(41));
+        assert_eq!(udp.transport_config.addressing, AddressingMode::Ip);
+
+        let sony = CameraConfig::<SonyFR7>::udp("camera.local")
+            .standard_connection_plan()
+            .expect("Sony UDP plan");
+        assert_eq!(sony.endpoint, "camera.local:52381");
+
+        let mut connector_calls = 0;
+        let unsupported = CameraConfig::<SonyFR7>::new()
+            .transport(TransportOptions::tcp("does-not-resolve.invalid"))
+            .standard_connection_plan();
+        if unsupported.is_ok() {
+            connector_calls += 1;
+        }
+        assert!(unsupported.is_err());
+        assert_eq!(connector_calls, 0);
+
+        let malformed =
+            CameraConfig::<PtzOpticsG2>::udp("invalid:address:format").standard_connection_plan();
+        if malformed.is_ok() {
+            connector_calls += 1;
+        }
+        assert!(malformed.is_err());
+        assert_eq!(connector_calls, 0);
+    }
+
+    #[cfg(any(feature = "async", feature = "blocking"))]
+    #[test]
+    fn canonical_session_config_lowers_timeout_and_retry_policy() {
+        use std::time::Duration;
+
+        use crate::{
+            camera::CameraConfig,
+            profile::OperationalTuning,
+            profiles::PtzOpticsG2,
+            timeout::TimeoutConfig,
+            transport::{BackoffStrategy, RetryConfig},
+        };
+
+        let timeouts = TimeoutConfig {
+            ack_timeout: Duration::from_secs(61),
+            quick_timeout: Duration::from_secs(67),
+            movement_timeout: Duration::from_secs(71),
+            preset_timeout: Duration::from_secs(73),
+            long_timeout: Duration::from_secs(79),
+            network_timeout: Duration::from_secs(83),
+            default_timeout: Duration::from_secs(89),
+        };
+        let retry = RetryConfig {
+            max_retries: 2,
+            base_retry_delay: Duration::from_secs(3),
+            max_retry_duration: Duration::from_secs(17),
+            backoff_strategy: BackoffStrategy::Exponential,
+        };
+        let config = CameraConfig::<PtzOpticsG2>::udp("camera.local")
+            .timeouts(timeouts)
+            .retry_config(retry);
+
+        let expected = OperationalTuning::new()
+            .ack_timeout(Duration::from_secs(61))
+            .completion_timeout(Duration::from_secs(89))
+            .settlement_timeout(Duration::from_secs(89))
+            .inquiry_timeout(Duration::from_secs(83))
+            .retry_limit(2)
+            .retry_timing(
+                Duration::from_secs(3),
+                Duration::from_secs(12),
+                Duration::from_secs(17),
+            );
+        assert_eq!(
+            config.session_config().expect("session config").tuning(),
+            expected
+        );
+    }
+
+    #[cfg(any(
+        feature = "transport-serial-tokio",
+        all(feature = "blocking", feature = "transport-serial")
+    ))]
+    #[test]
+    fn serial_plan_preserves_device_config_before_open() {
+        use std::time::Duration;
+
+        use crate::{
+            camera::CameraConfig,
+            profiles::PtzOpticsG2,
+            transport::{
+                AddressingMode, BackoffStrategy, BufferConfig, RetryConfig, TransportConfig,
+            },
+        };
+
+        let retry = RetryConfig {
+            max_retries: 4,
+            base_retry_delay: Duration::from_millis(7),
+            max_retry_duration: Duration::from_millis(31),
+            backoff_strategy: BackoffStrategy::Constant,
+        };
+        let transport_config = TransportConfig {
+            read_timeout: Duration::from_millis(37),
+            write_timeout: Duration::from_millis(41),
+            retry_config: retry,
+            buffer_config: BufferConfig {
+                recv_buffer_size: 43,
+                send_buffer_size: 47,
+                max_buffer_size: 53,
+            },
+            addressing: AddressingMode::Ip,
+            ..TransportConfig::default()
+        };
+        let config = CameraConfig::<PtzOpticsG2>::serial("/dev/fake-visca", 38_400)
+            .transport_config(transport_config);
+        let serial = config.serial_config("/dev/fake-visca", 38_400);
+        assert_eq!(serial.port, "/dev/fake-visca");
+        assert_eq!(serial.baud_rate, 38_400);
+        assert_eq!(serial.read_timeout, Duration::from_millis(37));
+        assert_eq!(serial.write_timeout, Duration::from_millis(41));
+        assert_eq!(serial.retry_config.max_retries, 4);
+        assert_eq!(
+            serial.retry_config.base_retry_delay,
+            Duration::from_millis(7)
+        );
+        assert_eq!(serial.buffer_config, transport_config.buffer_config);
+        assert_eq!(
+            config.serial_transport_config().addressing,
+            AddressingMode::Serial
+        );
+    }
+
     #[test]
     #[cfg(feature = "serde")]
     fn test_transport_options_serialization() {

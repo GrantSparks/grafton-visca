@@ -615,7 +615,7 @@ mod validation_tests {
     #[test]
     fn test_constant_usage_in_commands() {
         use crate::camera_id::CameraId;
-        use crate::command::encode::ViscaCommand;
+        use crate::command::encode::WireEncode;
 
         // Test gain commands use constants
         let mut buffer = [0u8; 32];

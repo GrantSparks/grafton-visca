@@ -672,31 +672,6 @@ impl Deadline {
     }
 }
 
-/// Trait for commands that can provide timeout classification.
-///
-/// This trait allows each command to specify its expected timeout category,
-/// enabling appropriate timeout and retry behavior.
-pub trait CommandTimeout {
-    /// Get the timeout class for this command.
-    ///
-    /// This determines how long to wait for the command to complete
-    /// and affects retry behavior.
-    fn timeout_class(&self) -> CommandCategory;
-}
-
-/// Blanket implementation for all commands that implement ViscaCommand.
-///
-/// This automatically provides timeout classification for all VISCA commands
-/// based on their TIMEOUT_CATEGORY constant.
-impl<T> CommandTimeout for T
-where
-    T: crate::command::ViscaCommand,
-{
-    fn timeout_class(&self) -> CommandCategory {
-        T::TIMEOUT_CATEGORY
-    }
-}
-
 /// Timeout policy configuration that maps classes to durations.
 ///
 /// This provides a runtime-configurable way to adjust timeout behavior

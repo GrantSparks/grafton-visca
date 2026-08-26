@@ -1,4 +1,5 @@
 #![allow(dead_code)]
+#![cfg(feature = "transport-serial-tokio")]
 
 use grafton_visca::{
     camera::CameraConfig, profiles::PtzOpticsG2, runtime::TokioRuntime, transport::TransportConfig,
@@ -16,6 +17,8 @@ async fn tokio_serial_contract(runtime: TokioRuntime) -> Result<(), Error> {
     Ok(())
 }
 
-fn main() {
+fn contract() {
     let _ = tokio_serial_contract;
 }
+
+fn main() {}

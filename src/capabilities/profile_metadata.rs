@@ -109,6 +109,26 @@ pub trait ProfileMetadata {
     /// Default: [`InquirySupport::Full`] — most VISCA cameras support all inquiries.
     const INQUIRY_SUPPORT: InquirySupport = InquirySupport::Full;
 
+    /// Exact per-axis position-inquiry support used by motion observation.
+    ///
+    /// Runtime profiles must carry this fact in their [`ProfileSpec`](crate::ProfileSpec).
+    /// Static profiles may override this associated constant directly; built-in
+    /// registry profiles do so from their per-axis protocol facts. The default is
+    /// intentionally conservative for profiles that only declare the coarse
+    /// [`Self::INQUIRY_SUPPORT`] level: no inquiry support means no position polling,
+    /// while any inquiry support permits the three baseline PTZ position
+    /// inquiries. Iris and ND-filter inquiries remain conservative unless a
+    /// profile overrides this constant with explicit scalar facts.
+    const POSITION_INQUIRY_SUPPORT: crate::profile::PositionInquirySupport =
+        match Self::INQUIRY_SUPPORT {
+            InquirySupport::None => {
+                crate::profile::PositionInquirySupport::new(false, false, false)
+            }
+            InquirySupport::Full | InquirySupport::Partial => {
+                crate::profile::PositionInquirySupport::new(true, true, true)
+            }
+        };
+
     /// Whether this camera sends operation complete messages (0x51) after movements.
     ///
     /// Most VISCA-compliant cameras (Sony, Canon, Panasonic, PtzOptics, etc.)

@@ -3,6 +3,7 @@
 use core::marker::PhantomData;
 
 #[cfg(test)]
+#[cfg(test)]
 use crate::command::bytes::FixedCommandBytes;
 use crate::command::bytes::VISCA_TERMINATOR;
 

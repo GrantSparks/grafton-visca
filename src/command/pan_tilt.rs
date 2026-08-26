@@ -12,24 +12,25 @@
 //! supported by all VISCA-compliant cameras.
 //! # Example
 //! ```ignore
-//! # #[cfg(not(feature = "mode-async"))]
-//! # {
-//! # use grafton_visca::{CameraId, command::{PanTilt, PanTiltDirection, ViscaCommand}, types::{PanSpeed, TiltSpeed}};
-//! // Move camera diagonally up-right
-//! let command = PanTilt::Move {
-//!     direction: PanTiltDirection::UpRight,
-//!     pan_speed: PanSpeed::new(0x10).unwrap(),
-//!     tilt_speed: TiltSpeed::new(0x10).unwrap(),
-//! };
-//! let bytes = command.to_bytes(CameraId::CAMERA_1).unwrap();
+//! use grafton_visca::{CameraId, Request};
+//! use grafton_visca::{command::PanTiltDirection, request::builtin::PanTiltDrive};
+//! use grafton_visca::types::{PanSpeed, TiltSpeed};
+//!
+//! // Move the camera diagonally up-right using a typed operation request.
+//! let request = PanTiltDrive::new(
+//!     PanTiltDirection::UpRight,
+//!     PanSpeed::new(0x10).unwrap(),
+//!     TiltSpeed::new(0x10).unwrap(),
+//! ).unwrap();
+//! let mut bytes = [0_u8; PanTiltDrive::MAX_SIZE];
+//! let written = request.write_into(CameraId::CAMERA_1, &mut bytes).unwrap();
 //! assert_eq!(bytes[0], 0x81);
-//! # }
+//! assert_eq!(bytes[written - 1], 0xFF);
 //! ```
 
 use crate::{
-    command::{bytes::ConstCommandBuilder, encode::ViscaCommand},
+    command::{bytes::ConstCommandBuilder, encode::WireEncode},
     error::Error,
-    timeout::CommandCategory,
     types::{PanPosition, PanSpeed, TiltPosition, TiltSpeed},
 };
 
@@ -308,26 +309,8 @@ impl PanTilt {
     // an out-of-scope generic parameter. Use the camera facade methods instead.
 }
 
-impl ViscaCommand for PanTilt {
+impl WireEncode for PanTilt {
     const MAX_SIZE: usize = 15;
-    const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Movement;
-
-    fn operation_metadata(&self) -> Option<crate::camera::OperationMetadata> {
-        use crate::camera::{Axes, OperationMetadata};
-
-        Some(match self {
-            Self::Home
-            | Self::Reset
-            | Self::AbsolutePosition { .. }
-            | Self::RelativePosition { .. }
-            | Self::AbsolutePositionRaw { .. }
-            | Self::RelativePositionRaw { .. } => OperationMetadata::targeted(Axes::PAN_TILT),
-            Self::Move { .. } => OperationMetadata::applied_only(Axes::PAN_TILT),
-            Self::LimitSet { .. } | Self::LimitSetRaw { .. } | Self::LimitClear { .. } => {
-                OperationMetadata::applied_only(Axes::NONE)
-            }
-        })
-    }
 
     fn write_into(
         &self,

@@ -83,7 +83,6 @@ visca_command! {
     prefix = [0x01, 0x04, 0x35];
     param = *mode as u8;
     max_param_size = 1;
-    category = crate::timeout::CommandCategory::Quick;
 }
 
 visca_command! {
@@ -92,7 +91,6 @@ visca_command! {
     prefix = [0x01, 0x04, 0xA9];
     param = sensitivity.to_command_byte();
     max_param_size = 1;
-    category = crate::timeout::CommandCategory::Quick;
 }
 
 impl WhiteBalanceCommand {
@@ -114,11 +112,7 @@ impl AWBSensitivityCommand {
 mod tests {
     use super::*;
 
-    use crate::{
-        command::{bytes::VISCA_TERMINATOR, encode::ViscaCommand},
-        macros::test_utils::visca_test,
-        timeout::{CommandCategory, CommandTimeout},
-    };
+    use crate::{command::bytes::VISCA_TERMINATOR, macros::test_utils::visca_test};
 
     #[test]
     fn test_white_balance_mode_values() {
@@ -233,34 +227,6 @@ mod tests {
     }
 
     #[test]
-    fn test_timeout_kind() {
-        let cmd = WhiteBalanceCommand {
-            mode: WhiteBalanceMode::Auto,
-        };
-        assert_eq!(cmd.timeout_class(), CommandCategory::Quick);
-
-        // Test with different modes
-        let cmd = WhiteBalanceCommand {
-            mode: WhiteBalanceMode::Manual,
-        };
-        assert_eq!(cmd.timeout_class(), CommandCategory::Quick);
-    }
-
-    #[test]
-    fn test_response_type() {
-        let cmd = WhiteBalanceCommand {
-            mode: WhiteBalanceMode::Auto,
-        };
-        assert!(cmd.behavior().command_kind() == crate::command::CommandKind::Command);
-
-        // Test with different modes
-        let cmd = WhiteBalanceCommand {
-            mode: WhiteBalanceMode::ColorTemperature,
-        };
-        assert!(cmd.behavior().command_kind() == crate::command::CommandKind::Command);
-    }
-
-    #[test]
     fn test_white_balance_command_debug() {
         let cmd = WhiteBalanceCommand {
             mode: WhiteBalanceMode::Auto,
@@ -286,19 +252,15 @@ mod tests {
         let cmd3 = cmd1; // Copy (clone() not needed for Copy types)
 
         assert_eq!(
-            cmd1.to_bytes(crate::camera_id::CameraId::CAMERA_1)
-                .map(|b| b.to_vec())
+            crate::command::test_wire_bytes(&cmd1, crate::camera_id::CameraId::CAMERA_1,)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            cmd2.to_bytes(crate::camera_id::CameraId::CAMERA_1)
-                .map(|b| b.to_vec())
+            crate::command::test_wire_bytes(&cmd2, crate::camera_id::CameraId::CAMERA_1,)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
         );
         assert_eq!(
-            cmd1.to_bytes(crate::camera_id::CameraId::CAMERA_1)
-                .map(|b| b.to_vec())
+            crate::command::test_wire_bytes(&cmd1, crate::camera_id::CameraId::CAMERA_1,)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            cmd3.to_bytes(crate::camera_id::CameraId::CAMERA_1)
-                .map(|b| b.to_vec())
+            crate::command::test_wire_bytes(&cmd3, crate::camera_id::CameraId::CAMERA_1,)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
         );
     }
@@ -317,9 +279,7 @@ mod tests {
 
         for mode in modes {
             let cmd = WhiteBalanceCommand { mode };
-            let bytes = cmd
-                .to_bytes(crate::camera_id::CameraId::CAMERA_1)
-                .map(|b| b.to_vec())
+            let bytes = crate::command::test_wire_bytes(&cmd, crate::camera_id::CameraId::CAMERA_1)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
 
             // Verify command structure
@@ -338,8 +298,7 @@ mod tests {
         // Test High sensitivity
         let cmd = AWBSensitivityCommand::new(AutoWhiteBalanceSensitivity::High);
         assert_eq!(
-            cmd.to_bytes(crate::camera_id::CameraId::CAMERA_1)
-                .map(|b| b.to_vec())
+            crate::command::test_wire_bytes(&cmd, crate::camera_id::CameraId::CAMERA_1,)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0xA9, 0x00, VISCA_TERMINATOR]
         );
@@ -347,8 +306,7 @@ mod tests {
         // Test Normal sensitivity
         let cmd = AWBSensitivityCommand::new(AutoWhiteBalanceSensitivity::Normal);
         assert_eq!(
-            cmd.to_bytes(crate::camera_id::CameraId::CAMERA_1)
-                .map(|b| b.to_vec())
+            crate::command::test_wire_bytes(&cmd, crate::camera_id::CameraId::CAMERA_1,)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0xA9, 0x01, VISCA_TERMINATOR]
         );
@@ -356,8 +314,7 @@ mod tests {
         // Test Low sensitivity
         let cmd = AWBSensitivityCommand::new(AutoWhiteBalanceSensitivity::Low);
         assert_eq!(
-            cmd.to_bytes(crate::camera_id::CameraId::CAMERA_1)
-                .map(|b| b.to_vec())
+            crate::command::test_wire_bytes(&cmd, crate::camera_id::CameraId::CAMERA_1,)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0xA9, 0x02, VISCA_TERMINATOR]
         );

@@ -2,7 +2,7 @@
 //!
 //! This module provides commands for controlling image orientation.
 
-use crate::{timeout::CommandCategory, visca_command};
+use crate::visca_command;
 
 /// Image flip state.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -25,7 +25,6 @@ visca_command! {
     prefix = [0x01, 0x04, 0x66];
     param = match flip { Flip::On => 0x02, Flip::Off => 0x03 };
     max_param_size = 1;
-    category = CommandCategory::Quick;
 }
 
 visca_command! {
@@ -36,7 +35,6 @@ visca_command! {
     prefix = [0x01, 0x04, 0x61];
     param = if *on { 0x02 } else { 0x03 };
     max_param_size = 1;
-    category = CommandCategory::Quick;
 }
 
 visca_command! {
@@ -47,7 +45,6 @@ visca_command! {
     prefix = [0x01, 0x04, 0x62];
     param = if *on { 0x02 } else { 0x03 };
     max_param_size = 1;
-    category = CommandCategory::Quick;
 }
 
 impl ImageFreeze {
@@ -68,6 +65,12 @@ impl ImageFreeze {
     pub const fn off() -> Self {
         Self::new(false)
     }
+
+    /// Returns whether image freezing is enabled.
+    #[must_use]
+    pub const fn enabled(self) -> bool {
+        self.on
+    }
 }
 
 #[cfg(test)]
@@ -78,10 +81,7 @@ impl ImageFreeze {
 )]
 mod tests {
     use crate::{
-        camera_id::CameraId,
-        command::{bytes::VISCA_TERMINATOR, encode::ViscaCommand},
-        macros::test_utils::visca_test,
-        timeout::{CommandCategory, CommandTimeout},
+        camera_id::CameraId, command::bytes::VISCA_TERMINATOR, macros::test_utils::visca_test,
     };
 
     use super::*;
@@ -149,20 +149,14 @@ mod tests {
         let cmd2 = cmd1.clone();
         // Verify commands produce same bytes
         assert_eq!(
-            cmd1.to_bytes(CameraId::CAMERA_1)
-                .map(|b| b.to_vec())
-                .unwrap(),
-            cmd2.to_bytes(CameraId::CAMERA_1)
-                .map(|b| b.to_vec())
-                .unwrap()
+            crate::command::test_wire_bytes(&cmd1, CameraId::CAMERA_1).unwrap(),
+            crate::command::test_wire_bytes(&cmd2, CameraId::CAMERA_1).unwrap()
         );
 
         let cmd1 = ImageFlip { flip: Flip::Off };
         let cmd2 = cmd1; // Copy trait
         assert_eq!(
-            cmd2.to_bytes(CameraId::CAMERA_1)
-                .map(|b| b.to_vec())
-                .unwrap(),
+            crate::command::test_wire_bytes(&cmd2, CameraId::CAMERA_1).unwrap(),
             vec![0x81, 0x01, 0x04, 0x66, 0x03, VISCA_TERMINATOR]
         );
     }
@@ -171,29 +165,24 @@ mod tests {
     fn test_response_type_none() {
         // Flip commands don't expect a response beyond ACK/completion
         let cmd_on = ImageFlip { flip: Flip::On };
-        assert!(cmd_on.behavior().command_kind() == crate::command::CommandKind::Command);
+        assert!(crate::command::test_wire_bytes(&cmd_on, CameraId::CAMERA_1).is_ok());
 
         let cmd_off = ImageFlip { flip: Flip::Off };
-        assert!(cmd_off.behavior().command_kind() == crate::command::CommandKind::Command);
+        assert!(crate::command::test_wire_bytes(&cmd_off, CameraId::CAMERA_1).is_ok());
     }
 
     #[test]
     fn test_command_trait_impl() {
-        // Verify ImageFlip implements ViscaCommand trait
+        // Verify ImageFlip implements the private wire encoder.
         let cmd = ImageFlip { flip: Flip::On };
-        assert!(cmd.to_bytes(CameraId::CAMERA_1).map(|b| b.to_vec()).is_ok());
-        assert!(cmd.behavior().command_kind() == crate::command::CommandKind::Command);
-        assert!(matches!(cmd.timeout_class(), CommandCategory::Quick));
+        assert!(crate::command::test_wire_bytes(&cmd, CameraId::CAMERA_1).is_ok());
     }
 
     #[test]
     fn test_byte_sequence_correctness() {
         // Verify the exact byte sequences match VISCA protocol
         let on_cmd = ImageFlip { flip: Flip::On };
-        let on_bytes = on_cmd
-            .to_bytes(CameraId::CAMERA_1)
-            .map(|b| b.to_vec())
-            .unwrap();
+        let on_bytes = crate::command::test_wire_bytes(&on_cmd, CameraId::CAMERA_1).unwrap();
         assert_eq!(on_bytes[0], 0x81); // Command header
         assert_eq!(on_bytes[1], 0x01); // Command type
         assert_eq!(on_bytes[2], 0x04); // Category
@@ -202,10 +191,7 @@ mod tests {
         assert_eq!(on_bytes[5], 0xFF); // Terminator
 
         let off_cmd = ImageFlip { flip: Flip::Off };
-        let off_bytes = off_cmd
-            .to_bytes(CameraId::CAMERA_1)
-            .map(|b| b.to_vec())
-            .unwrap();
+        let off_bytes = crate::command::test_wire_bytes(&off_cmd, CameraId::CAMERA_1).unwrap();
         assert_eq!(off_bytes[0], 0x81); // Command header
         assert_eq!(off_bytes[1], 0x01); // Command type
         assert_eq!(off_bytes[2], 0x04); // Category
@@ -220,23 +206,15 @@ mod tests {
         let cmd1 = ImageFlip { flip: Flip::On };
         let cmd2 = ImageFlip { flip: Flip::On };
         assert_eq!(
-            cmd1.to_bytes(CameraId::CAMERA_1)
-                .map(|b| b.to_vec())
-                .unwrap(),
-            cmd2.to_bytes(CameraId::CAMERA_1)
-                .map(|b| b.to_vec())
-                .unwrap()
+            crate::command::test_wire_bytes(&cmd1, CameraId::CAMERA_1).unwrap(),
+            crate::command::test_wire_bytes(&cmd2, CameraId::CAMERA_1).unwrap()
         );
 
         let cmd1 = ImageFlip { flip: Flip::Off };
         let cmd2 = ImageFlip { flip: Flip::Off };
         assert_eq!(
-            cmd1.to_bytes(CameraId::CAMERA_1)
-                .map(|b| b.to_vec())
-                .unwrap(),
-            cmd2.to_bytes(CameraId::CAMERA_1)
-                .map(|b| b.to_vec())
-                .unwrap()
+            crate::command::test_wire_bytes(&cmd1, CameraId::CAMERA_1).unwrap(),
+            crate::command::test_wire_bytes(&cmd2, CameraId::CAMERA_1).unwrap()
         );
     }
 }

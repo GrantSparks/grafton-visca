@@ -1343,7 +1343,7 @@ mod tests {
     }
 }
 
-#[cfg(all(feature = "mode-async", feature = "runtime-smol"))]
+#[cfg(all(feature = "async", feature = "runtime-smol"))]
 impl ExecutorExt for crate::executor::SmolExecutor {
     fn spawn_detached<F>(&self, fut: F)
     where

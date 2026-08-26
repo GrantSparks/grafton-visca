@@ -1,103 +1,75 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-# Miri safety testing script
-# Tests for undefined behavior in different feature configurations.
-#
-# This script is a real gate: any Miri failure makes it exit non-zero. Do not
-# reintroduce an unconditional `exit 0` — a Miri job that cannot fail reports
-# safety it has not checked.
-#
-# Scope: library tests only, matching the `miri` job in ci.yml. The integration
-# tests intentionally exercise real socket I/O and OS resolution paths, which
-# belong in the normal CI matrix rather than Miri's isolation model.
+# Miri checks for the runtime-neutral engine and applicable library surfaces.
 
 set -euo pipefail
+
+readonly YELLOW='\033[1;33m'
+readonly GREEN='\033[0;32m'
+readonly NC='\033[0m'
+
+run_miri() {
+    local description="$1"
+    shift
+
+    printf '%bMiri testing: %s%b\n' "$YELLOW" "$description" "$NC"
+    cargo miri test "$@"
+    printf '%b✓ %s passed%b\n\n' "$GREEN" "$description" "$NC"
+}
+
+run_check() {
+    local description="$1"
+    shift
+
+    printf '%bFeature compile checking: %s%b\n' "$YELLOW" "$description" "$NC"
+    cargo check --lib "$@"
+    printf '%b✓ %s passed%b\n\n' "$GREEN" "$description" "$NC"
+}
 
 echo "=========================================="
 echo "Starting Miri safety checks"
 echo "=========================================="
 
-# Color output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m'
-
-# Track if any issues were found
-ISSUES_FOUND=0
-FAILED_CONFIGS=()
-
-LOG_DIR="$(mktemp -d)"
-trap 'rm -rf "$LOG_DIR"' EXIT
-
-# Function to run miri test
-run_miri_test() {
-    local description="$1"
-    local features="$2"
-    local log_file
-    log_file="$LOG_DIR/$(echo "$description" | tr -cs '[:alnum:]' '-').log"
-
-    echo -e "${YELLOW}Miri testing: ${description}${NC}"
-
-    local -a cmd
-    if [ -z "$features" ]; then
-        cmd=(cargo miri test --lib --no-default-features)
-    else
-        cmd=(cargo miri test --lib --no-default-features --features "$features")
-    fi
-
-    # Run with miri flags for comprehensive checking.
-    export MIRIFLAGS="-Zmiri-disable-isolation -Zmiri-strict-provenance"
-
-    # `set -o pipefail` makes the pipeline report the cargo exit status rather
-    # than tee's, so a Miri failure is not swallowed by the log pipe.
-    if "${cmd[@]}" 2>&1 | tee "$log_file"; then
-        echo -e "${GREEN}OK ${description} - no undefined behavior detected${NC}"
-    else
-        echo -e "${RED}FAIL ${description} - see findings below${NC}"
-        ISSUES_FOUND=$((ISSUES_FOUND + 1))
-        FAILED_CONFIGS+=("$description")
-
-        echo -e "${BLUE}Key findings:${NC}"
-        grep -E "error:|undefined behavior" "$log_file" || true
-    fi
-
-    echo ""
-}
-
-# Setup miri
-echo "Setting up Miri..."
+export MIRIFLAGS="-Zmiri-disable-isolation -Zmiri-strict-provenance"
 cargo miri setup
 
-# Test different feature configurations
-echo -e "${BLUE}Testing core library (no features)${NC}"
-run_miri_test "Blocking mode (no features)" ""
+# Miri is applicable to the synchronous, I/O-free domain boundary.  A library
+# test target still compiles every unit-test module once, so keep that expensive
+# compilation to one no-default build and bound execution to pure modules.  The
+# long deterministic trace and generated property test remain covered by the
+# ordinary engine/property CI jobs, not by an unbounded Miri run.
+run_miri "deterministic protocol engine" \
+    --no-default-features --lib 'runtime::engine::tests::' -- \
+    --test-threads=1 \
+    --skip arbitrary_stale_and_reordered_inputs_preserve_invariants \
+    --skip arbitrary_ordered_and_stale_inputs_preserve_invariants_property
+run_miri "prepared request domain" --no-default-features --lib 'prepared::tests::' -- --test-threads=1
+run_miri "raw request contracts" --no-default-features --lib 'raw::tests::' -- --test-threads=1
+run_miri "VISCA frame parsing" \
+    --no-default-features --lib 'protocol::framer::tests::' -- --test-threads=1
+run_miri "VISCA response decoding" \
+    --no-default-features --lib 'protocol::response::tests::' -- --test-threads=1
+run_miri "Sony envelope parsing" \
+    --no-default-features --lib 'protocol::sony::tests::' -- --test-threads=1
 
-echo -e "${BLUE}Testing async features${NC}"
-run_miri_test "Mode-async feature" "mode-async"
+# Runtime adapters, transports, serialization, and test utilities are not
+# meaningful Miri executions here (they either require OS I/O or third-party
+# runtime internals), but every supported feature combination still receives a
+# library compile check in this job.
+run_check "no-default pure library" --no-default-features
+run_check "blocking library" --no-default-features --features blocking
+run_check "runtime-neutral async library" --no-default-features --features async
+run_check "Tokio library" --no-default-features --features runtime-tokio
+run_check "smol library" --no-default-features --features runtime-smol
+run_check "Tokio + dyn-api library" \
+    --no-default-features --features runtime-tokio,dyn-api
+run_check "smol + dyn-api library" \
+    --no-default-features --features runtime-smol,dyn-api
+run_check "blocking + async library" --no-default-features --features blocking,async
+run_check "test-utils library" --no-default-features --features test-utils
+run_check "serde + schemars + ts-rs library" \
+    --no-default-features --features serde,schemars,ts-rs
 
-echo -e "${BLUE}Testing runtime implementations${NC}"
-run_miri_test "Tokio runtime" "runtime-tokio"
-run_miri_test "Smol runtime" "runtime-smol"
-
-echo -e "${BLUE}Testing utility features${NC}"
-run_miri_test "Test utilities" "test-utils"
-
-echo -e "${BLUE}Testing combined features${NC}"
-run_miri_test "Tokio + test-utils" "runtime-tokio,test-utils"
-
-# Summary
 echo "=========================================="
-if [ "$ISSUES_FOUND" -eq 0 ]; then
-    echo -e "${GREEN}All Miri safety checks passed.${NC}"
-    echo "=========================================="
-    exit 0
-fi
-
-echo -e "${RED}Miri failed in $ISSUES_FOUND configuration(s):${NC}"
-for config in "${FAILED_CONFIGS[@]}"; do
-    echo "  - $config"
-done
+printf '%bAll bounded Miri and feature checks passed%b\n' "$GREEN" "$NC"
 echo "=========================================="
-exit 1

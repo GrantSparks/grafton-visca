@@ -8,25 +8,19 @@
 //!
 //! # Example
 //! ```ignore
-//! # #[cfg(not(feature = "mode-async"))]
-//! # {
-//! # use grafton_visca::{CameraId, command::{ViscaCommand, Zoom}, ZoomSpeed};
-//! // Zoom in at standard speed
-//! let tele = Zoom::TeleStd.to_bytes(CameraId::CAMERA_1).unwrap();
-//! assert_eq!(tele[0], 0x81);
+//! use grafton_visca::{CameraId, Request};
+//! use grafton_visca::request::builtin::ZoomDrive;
 //!
-//! // Zoom out at variable speed
-//! let wide = Zoom::WideVariable(ZoomSpeed::new(5).unwrap())
-//!     .to_bytes(CameraId::CAMERA_1)
-//!     .unwrap();
-//! assert_eq!(wide[0], 0x81);
-//! # }
+//! // Typed requests write directly into caller-owned storage.
+//! let request = ZoomDrive::Tele;
+//! let mut bytes = [0_u8; ZoomDrive::MAX_SIZE];
+//! let written = request.write_into(CameraId::CAMERA_1, &mut bytes).unwrap();
+//! assert_eq!(bytes[0..written], [0x81, 0x01, 0x04, 0x07, 0x02, 0xFF]);
 //! ```
 
 use crate::{
-    command::{bytes::ConstCommandBuilder, encode::ViscaCommand},
+    command::{bytes::ConstCommandBuilder, encode::WireEncode},
     error::Error,
-    timeout::CommandCategory,
     types::{ZoomPosition, ZoomSpeed},
 };
 
@@ -59,22 +53,8 @@ pub enum Zoom {
     Position(ZoomPosition),
 }
 
-impl ViscaCommand for Zoom {
+impl WireEncode for Zoom {
     const MAX_SIZE: usize = 10;
-    const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Movement;
-
-    fn operation_metadata(&self) -> Option<crate::camera::OperationMetadata> {
-        use crate::camera::{Axes, OperationMetadata};
-
-        Some(match self {
-            Self::Position(_) => OperationMetadata::targeted(Axes::ZOOM),
-            Self::Stop
-            | Self::TeleStd
-            | Self::WideStd
-            | Self::TeleVariable(_)
-            | Self::WideVariable(_) => OperationMetadata::applied_only(Axes::ZOOM),
-        })
-    }
 
     fn write_into(
         &self,
@@ -144,11 +124,16 @@ impl DigitalZoom {
     pub const fn new(enabled: bool) -> Self {
         Self { enabled }
     }
+
+    /// Returns whether digital zoom is enabled.
+    #[must_use]
+    pub const fn enabled(self) -> bool {
+        self.enabled
+    }
 }
 
-impl ViscaCommand for DigitalZoom {
+impl WireEncode for DigitalZoom {
     const MAX_SIZE: usize = 6;
-    const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
     fn write_into(
         &self,
@@ -171,7 +156,7 @@ mod tests {
     use super::*;
     use crate::camera_id::CameraId;
     use crate::command::bytes::VISCA_TERMINATOR;
-    use crate::command::encode::ViscaCommand;
+    use crate::command::encode::WireEncode;
 
     /// Helper to encode a zoom command and return the bytes.
     fn encode_zoom(cmd: &Zoom) -> Vec<u8> {

@@ -44,12 +44,16 @@ jobs:
         id: release
         env:
           RELEASE_TAG: ${{ github.event.inputs.release_tag }}
+          HARDWARE_CHECKLIST: docs/hardware_release_checklist.md
           RUSTC_WRAPPER: ""
         run: |
           git fetch --no-tags origin main
           git merge-base --is-ancestor "$(git rev-parse HEAD)" origin/main
-          cargo generate-lockfile
           bash .github/scripts/validate-release.sh "$RELEASE_TAG"
+          # Cargo.lock is intentionally ignored by this library workspace.
+          # Generate the checkout-local lockfile only for reproducible locked
+          # package/publish commands below.
+          cargo generate-lockfile
           cargo package -p grafton-visca-macros --locked --no-verify
           cargo package -p grafton-visca-macros --list
           cargo package -p grafton-visca --list

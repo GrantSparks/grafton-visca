@@ -13,13 +13,13 @@ const VISCA_TERMINATOR: u8 = 0xFF;
 /// Standard test speeds to avoid repetitive magic numbers.
 ///
 /// Returns commonly used pan and tilt speeds for tests.
-#[cfg(not(feature = "mode-async"))]
+#[cfg(feature = "blocking")]
 pub fn test_speeds() -> (u8, u8) {
     (10, 10)
 }
 
 /// Test speeds with custom values.
-#[cfg(not(feature = "mode-async"))]
+#[cfg(feature = "blocking")]
 pub fn test_speeds_with(pan: u8, tilt: u8) -> (u8, u8) {
     (pan, tilt)
 }
@@ -91,7 +91,7 @@ pub fn create_ack_completion_sequence(socket: u8) -> Vec<Vec<u8>> {
     ]
 }
 
-#[cfg(all(test, not(feature = "mode-async")))]
+#[cfg(test)]
 mod tests {
     use super::*;
 

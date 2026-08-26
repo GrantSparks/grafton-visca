@@ -27,20 +27,20 @@
 //!
 //! For blocking transports (using camera-first API):
 //! ```rust,ignore
-//! # #[cfg(not(feature = "mode-async"))]
+//! # #[cfg(feature = "blocking")]
 //! use grafton_visca::{
 //!     camera::{Connect, profiles::PtzOpticsG2},
 //! };
 //!
-//! # #[cfg(not(feature = "mode-async"))]
+//! # #[cfg(feature = "blocking")]
 //! # fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! # #[cfg(not(feature = "mode-async"))]
-//! let camera = Connect::open_tcp_blocking::<PtzOpticsG2>("192.168.0.110:5678")?;
-//! # #[cfg(not(feature = "mode-async"))]
+//! # #[cfg(feature = "blocking")]
+//! let camera = Connect::open_tcp::<PtzOpticsG2>("192.168.0.110:5678")?;
+//! # #[cfg(feature = "blocking")]
 //! // Camera is ready to use with accessor pattern
-//! # #[cfg(not(feature = "mode-async"))]
+//! # #[cfg(feature = "blocking")]
 //! camera.power().on()?;
-//! # #[cfg(not(feature = "mode-async"))]
+//! # #[cfg(feature = "blocking")]
 //! camera.zoom().tele()?;
 //! # Ok(())
 //! # }
@@ -57,7 +57,7 @@
 //! # #[cfg(feature = "runtime-tokio")]
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! let runtime = TokioRuntime::from_current()?;
-//! let camera = Connect::open_tcp_async::<PtzOpticsG2, _>(
+//! let camera = Connect::open_tcp::<PtzOpticsG2, _>(
 //!     "192.168.0.110:5678",
 //!     runtime
 //! ).await?;
@@ -108,6 +108,13 @@ pub enum SendSemantics {
     Datagram,
 }
 
+#[cfg(any(
+    feature = "async",
+    feature = "blocking",
+    feature = "runtime-tokio",
+    feature = "runtime-smol",
+    test
+))]
 pub(crate) mod address;
 #[cfg(any(feature = "runtime-tokio", feature = "runtime-smol"))]
 pub(crate) mod async_io;
@@ -115,11 +122,11 @@ pub(crate) mod async_io;
 pub(crate) mod async_serial;
 #[cfg(any(feature = "runtime-tokio", feature = "runtime-smol"))]
 pub(crate) mod async_tcp;
-#[cfg(feature = "mode-async")]
+#[cfg(feature = "async")]
 pub(crate) mod async_transport;
 #[cfg(any(feature = "runtime-tokio", feature = "runtime-smol"))]
 pub(crate) mod async_udp;
-#[cfg(not(feature = "mode-async"))]
+#[cfg(feature = "blocking")]
 pub(crate) mod blocking;
 pub(crate) mod blocking_transport;
 pub(crate) mod buffer;
@@ -130,32 +137,32 @@ pub(crate) mod envelope;
 pub(crate) mod runtime_common;
 #[cfg(any(feature = "transport-serial", feature = "transport-serial-tokio"))]
 pub mod serial;
-#[cfg(all(not(feature = "mode-async"), feature = "transport-serial"))]
+#[cfg(all(feature = "blocking", feature = "transport-serial"))]
 pub(crate) mod serial_blocking;
-#[cfg(all(feature = "mode-async", feature = "runtime-smol"))]
+#[cfg(all(feature = "async", feature = "runtime-smol"))]
 pub(crate) mod smol;
 #[cfg(all(
     any(unix, windows),
     any(
-        not(feature = "mode-async"),
+        feature = "blocking",
         feature = "runtime-tokio",
         feature = "runtime-smol"
     )
 ))]
 pub(crate) mod socket_options;
-#[cfg(all(feature = "mode-async", feature = "runtime-tokio"))]
+#[cfg(all(feature = "async", feature = "runtime-tokio"))]
 pub(crate) mod tokio;
 
-#[cfg(feature = "mode-async")]
+#[cfg(feature = "async")]
 pub use async_transport::AsyncTransport;
-#[cfg(not(feature = "mode-async"))]
+#[cfg(feature = "blocking")]
 pub use blocking_transport::BlockingTransportHandle;
 pub use blocking_transport::{BlockingTransport, HasTransportConfig};
 pub use buffer::BufferConfig;
 pub use builder::{
     AddressingMode, TcpKeepaliveConfig, TransportConfig, DEFAULT_MAX_PENDING_QUEUE_DEPTH,
 };
-#[cfg(not(feature = "mode-async"))]
+#[cfg(feature = "blocking")]
 pub use builder::{NetTransportBuilder, Transport, TransportBuilderExt};
 pub use envelope::{Envelope, FrameMeta, RawVisca, SonyEncapsulated};
 

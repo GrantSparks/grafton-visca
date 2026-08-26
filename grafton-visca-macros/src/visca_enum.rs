@@ -119,6 +119,7 @@ fn generate_visca_enum(input: &DeriveInput) -> Result<TokenStream, Error> {
 
     // Parse enum-level attributes
     let enum_attrs = parse_enum_attributes(&input.attrs)?;
+    let crate_path = crate::crate_path::grafton_visca();
 
     // Extract enum name and generics
     let enum_name = &input.ident;
@@ -145,6 +146,7 @@ fn generate_visca_enum(input: &DeriveInput) -> Result<TokenStream, Error> {
         &where_clause,
         &active_variants,
         &enum_attrs,
+        &crate_path,
     );
 
     // Generate From<Enum> for u8 implementation (needs ALL variants, not just active ones)
@@ -331,6 +333,7 @@ fn generate_try_from_impl_with_attrs(
     where_clause: &Option<&syn::WhereClause>,
     variants: &[(Variant, u8, VariantAttributes)],
     enum_attrs: &EnumAttributes,
+    crate_path: &TokenStream,
 ) -> TokenStream {
     // Generate match arms for conversion
     let match_arms = variants.iter().map(|(variant, value, _)| {
@@ -346,8 +349,7 @@ fn generate_try_from_impl_with_attrs(
         .as_ref()
         .map(|t| quote! { #t })
         .unwrap_or_else(|| {
-            // Try to use crate::error::Error, but allow for external usage
-            quote! { crate::error::Error }
+            quote! { #crate_path::Error }
         });
 
     // Generate error message with custom names

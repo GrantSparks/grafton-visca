@@ -82,6 +82,8 @@ impl_capability_range!(i16);
 /// - Modern cameras use signed coordinates centered at (0,0)
 /// - Legacy cameras (e.g., BRC-300) use unsigned coordinates with (0x8000,0x8000) as center
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum CoordinateSystem {
     /// Signed coordinates with (0,0) as the center position.
     /// Used by most modern cameras.

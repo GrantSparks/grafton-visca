@@ -4,12 +4,23 @@
 //! camera capabilities at runtime, complementing the compile-time
 //! trait-based capability system.
 
-use std::{borrow::Cow, ops::RangeInclusive};
+use std::{borrow::Cow, ops::RangeInclusive, time::Duration};
 
 use super::{
     profile_metadata::InquirySupport, ProfileTypedSupport, TypedSupportSet, TypedSupportSurface,
 };
-use crate::command::exposure::ExposureMode;
+use crate::{command::exposure::ExposureMode, WhiteBalanceMode};
+
+/// Owned runtime representation of one supported shutter setting.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct RuntimeShutterSpeed {
+    /// Human-readable shutter label, such as `1/60`.
+    pub label: String,
+    /// VISCA protocol value.
+    pub value: u16,
+}
 
 /// Structured capabilities response for runtime feature discovery.
 ///
@@ -41,6 +52,9 @@ use crate::command::exposure::ExposureMode;
 #[non_exhaustive]
 pub struct Capabilities {
     // Camera identification
+    /// Built-in registry identity, or `None` for a downstream runtime profile.
+    pub profile_id: Option<crate::camera::profiles::ProfileId>,
+
     /// Model name of the camera.
     pub model_name: String,
 
@@ -48,10 +62,16 @@ pub struct Capabilities {
     pub default_camera_id: u8,
 
     // Network configuration
-    /// Default TCP port for this camera model, if TCP is supported.
+    /// Validated mirror of the profile's default TCP transport port.
+    ///
+    /// Runtime builders fill `None` from their transport facts; an explicit
+    /// `Some` value is treated as an assertion and must match exactly.
     pub default_tcp_port: Option<u16>,
 
-    /// Default UDP port for this camera model, if UDP is supported.
+    /// Validated mirror of the profile's default UDP transport port.
+    ///
+    /// Runtime builders fill `None` from their transport facts; an explicit
+    /// `Some` value is treated as an assertion and must match exactly.
     pub default_udp_port: Option<u16>,
 
     // Pan/Tilt capabilities
@@ -78,6 +98,9 @@ pub struct Capabilities {
 
     /// Whether camera can pan and tilt simultaneously.
     pub pan_tilt_simultaneous: bool,
+
+    /// Mechanical recovery time after a preset movement.
+    pub preset_recovery_time: Duration,
 
     // Zoom capabilities
     /// Whether camera supports zoom operations.
@@ -181,14 +204,21 @@ pub struct Capabilities {
     /// Exposure compensation range, if supported.
     pub exposure_comp_range: Option<RangeInclusive<i8>>,
 
+    /// Exact profile exposure-compensation range constant, even when disabled.
+    ///
+    /// [`exposure_comp_range`](Self::exposure_comp_range) is the active view;
+    /// validated profiles require it to be either this exact range or `None`
+    /// according to [`has_exposure_comp`](Self::has_exposure_comp).
+    pub exposure_comp_profile_range: RangeInclusive<i8>,
+
     /// Iris range in VISCA units, if iris control is supported.
     pub iris_range: Option<RangeInclusive<u16>>,
 
     /// Gain range in VISCA units.
     pub gain_range: RangeInclusive<u8>,
 
-    /// Number of supported shutter speeds.
-    pub shutter_speed_count: usize,
+    /// Exact supported shutter-speed labels and VISCA values.
+    pub shutter_speeds: Vec<RuntimeShutterSpeed>,
 
     /// VISCA exposure bright range, if supported.
     ///
@@ -224,8 +254,8 @@ pub struct Capabilities {
     /// Blue gain range if supported.
     pub blue_gain_range: Option<RangeInclusive<u8>>,
 
-    /// Number of white balance modes supported.
-    pub wb_mode_count: usize,
+    /// Exact supported white-balance modes.
+    pub white_balance_modes: Vec<WhiteBalanceMode>,
 
     // Image processing capabilities
     /// Whether camera supports image processing features.
@@ -254,6 +284,15 @@ pub struct Capabilities {
 
     /// Whether camera supports image mirror.
     pub supports_mirror: bool,
+
+    /// Whether camera supports hue adjustment.
+    pub supports_hue: bool,
+
+    /// Whether flip and mirror share the combined VISCA command.
+    pub uses_combined_flip_command: bool,
+
+    /// Whether flip changes require an explicit settings-save command.
+    pub requires_settings_save_for_flip: bool,
 
     /// Whether camera supports noise reduction.
     pub has_noise_reduction: bool,
@@ -292,6 +331,15 @@ pub struct Capabilities {
     /// Whether camera supports preset thumbnails.
     pub supports_preset_thumbnail: bool,
 
+    /// Required delay after recalling a preset.
+    pub preset_recall_delay: Duration,
+
+    /// Whether camera supports stored preset names.
+    pub supports_preset_names: bool,
+
+    /// Maximum preset-name length, zero when names are unsupported.
+    pub max_preset_name_length: usize,
+
     // Power capabilities
     /// Whether camera supports power control.
     pub has_power: bool,
@@ -302,21 +350,36 @@ pub struct Capabilities {
     /// Whether camera supports wake-on-LAN.
     pub supports_wake_on_lan: bool,
 
-    /// Time required for power-on sequence (in seconds).
-    pub power_on_time_secs: u64,
+    /// Exact time required for the power-on sequence.
+    pub power_on_time: Duration,
+
+    /// Exact time required to enter standby.
+    pub standby_time: Duration,
+
+    /// Whether settings survive power-off.
+    pub retains_settings_on_power_off: bool,
+
+    /// Whether power-on automatically returns to home.
+    pub home_on_power_up: bool,
 
     // Special capabilities
     /// Whether camera has ND filter support.
     pub has_nd_filter: bool,
 
-    /// ND filter type if supported.
-    pub nd_filter_type: Option<String>,
+    /// Exact typed ND filter operating mode.
+    pub nd_filter_mode: super::NdFilterMode,
+
+    /// Explicit ND step count when supplied by the profile.
+    pub nd_filter_steps: Option<u8>,
 
     /// Whether camera supports motion sync.
     pub has_motion_sync: bool,
 
     /// Maximum motion sync speed if supported.
     pub max_motion_sync_speed: Option<u8>,
+
+    /// Exact profile motion-sync maximum constant, even when disabled.
+    pub max_motion_sync_speed_profile: u8,
 
     /// Whether camera supports direct menu control.
     pub has_direct_menu_control: bool,
@@ -345,6 +408,128 @@ pub struct Capabilities {
 }
 
 impl Capabilities {
+    /// Creates a conservative runtime-only capability inventory.
+    ///
+    /// No transport, control domain, inquiry, completion, cancellation, or
+    /// optional typed surface is granted. Callers explicitly populate the
+    /// documented facts, then pass the value to [`ProfileSpec::builder`](crate::ProfileSpec::builder).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an empty model name or invalid camera ID.
+    pub fn runtime_baseline(
+        model_name: impl Into<String>,
+        default_camera_id: u8,
+    ) -> Result<Self, crate::Error> {
+        let model_name = model_name.into();
+        if model_name.trim().is_empty() {
+            return Err(crate::Error::InvalidRequest(
+                "runtime capability model name must not be empty".into(),
+            ));
+        }
+        crate::CameraId::new(default_camera_id)?;
+
+        Ok(Self {
+            profile_id: None,
+            model_name,
+            default_camera_id,
+            default_tcp_port: None,
+            default_udp_port: None,
+            has_pan_tilt: false,
+            pan_speed: 0..=0,
+            tilt_speed: 0..=0,
+            pan_range: 0..=0,
+            tilt_range: 0..=0,
+            pan_range_degrees: 0.0..=0.0,
+            tilt_range_degrees: 0.0..=0.0,
+            pan_tilt_simultaneous: false,
+            preset_recovery_time: Duration::ZERO,
+            has_zoom: false,
+            has_digital_zoom: false,
+            zoom_range_optical: 0..=0,
+            zoom_range_digital: None,
+            zoom_speed: 0..=0,
+            supports_direct_zoom: false,
+            supports_variable_zoom: false,
+            zoom_magnification_to_units: 1.0,
+            has_focus: false,
+            has_auto_focus: false,
+            has_one_push_focus: false,
+            focus_range: 0..=0,
+            focus_speed: 0..=0,
+            has_focus_zone: false,
+            has_af_sensitivity: false,
+            has_focus_near_limit_inquiry: false,
+            has_exposure: false,
+            has_iris_control: false,
+            exposure_modes: Vec::new(),
+            has_backlight_comp: false,
+            has_wdr: false,
+            has_exposure_comp: false,
+            exposure_comp_range: None,
+            exposure_comp_profile_range: -7..=7,
+            iris_range: None,
+            gain_range: 0..=0,
+            shutter_speeds: Vec::new(),
+            exposure_brightness_range: None,
+            has_white_balance: false,
+            has_one_push_wb: false,
+            has_color_temp: false,
+            color_temp_range: None,
+            rg_tuning_range: None,
+            bg_tuning_range: None,
+            has_rgb_gain: false,
+            red_gain_range: None,
+            blue_gain_range: None,
+            white_balance_modes: Vec::new(),
+            has_image_processing: false,
+            contrast_range: None,
+            sharpness_range: None,
+            saturation_range: None,
+            hue_range: None,
+            luminance_range: None,
+            gamma_range: None,
+            supports_flip: false,
+            supports_mirror: false,
+            supports_hue: false,
+            uses_combined_flip_command: false,
+            requires_settings_save_for_flip: false,
+            has_noise_reduction: false,
+            has_2d_nr: false,
+            has_3d_nr: false,
+            has_picture_effect: false,
+            has_gamma: false,
+            has_luminance: false,
+            has_tally: false,
+            has_presets: false,
+            max_presets: 0,
+            preset_speed_range: 0..=0,
+            supports_preset_tour: false,
+            supports_preset_thumbnail: false,
+            preset_recall_delay: Duration::ZERO,
+            supports_preset_names: false,
+            max_preset_name_length: 0,
+            has_power: false,
+            supports_standby: false,
+            supports_wake_on_lan: false,
+            power_on_time: Duration::ZERO,
+            standby_time: Duration::ZERO,
+            retains_settings_on_power_off: false,
+            home_on_power_up: false,
+            has_nd_filter: false,
+            nd_filter_mode: super::NdFilterMode::None,
+            nd_filter_steps: None,
+            has_motion_sync: false,
+            max_motion_sync_speed: None,
+            max_motion_sync_speed_profile: 24,
+            has_direct_menu_control: false,
+            has_variable_speed: false,
+            inquiry_support: InquirySupport::None,
+            supports_operation_complete: false,
+            typed_support: TypedSupportSet::empty(),
+        })
+    }
+
     /// Creates a new Capabilities struct from a camera profile.
     ///
     /// This method extracts all capability information from the compile-time
@@ -366,6 +551,7 @@ impl Capabilities {
         let pan_range_degrees = pan_min_deg..=pan_max_deg;
         let tilt_range_degrees = tilt_min_deg..=tilt_max_deg;
         let pan_tilt_simultaneous = P::PAN_TILT_SIMULTANEOUS;
+        let preset_recovery_time = P::PRESET_RECOVERY_TIME;
 
         // Extract zoom capabilities
         let has_digital_zoom = P::DIGITAL_ZOOM_MAX.is_some();
@@ -378,6 +564,13 @@ impl Capabilities {
         // Extract exposure capabilities
         let has_iris_control = P::IRIS_RANGE.is_some();
         let exposure_modes = P::EXPOSURE_MODES.to_vec();
+        let shutter_speeds = P::SHUTTER_SPEEDS
+            .iter()
+            .map(|speed| RuntimeShutterSpeed {
+                label: speed.label.to_owned(),
+                value: speed.value,
+            })
+            .collect();
         let iris_range = P::IRIS_RANGE.map(|range| range.as_inclusive());
         let gain_range = P::GAIN_RANGE.as_inclusive();
         let exposure_brightness_range = P::BRIGHTNESS_RANGE.map(|range| range.as_inclusive());
@@ -418,12 +611,6 @@ impl Capabilities {
 
         // Extract ND filter capabilities from profile metadata.
         let has_nd_filter = !matches!(P::ND_MODE, crate::capabilities::NdFilterMode::None);
-        let nd_filter_type = match P::ND_MODE {
-            crate::capabilities::NdFilterMode::None => None,
-            crate::capabilities::NdFilterMode::Fixed(_) => Some("Fixed ND filter".to_string()),
-            crate::capabilities::NdFilterMode::Stepped(_) => Some("Stepped ND filter".to_string()),
-            crate::capabilities::NdFilterMode::Variable => Some("Variable ND filter".to_string()),
-        };
 
         // Extract Motion Sync capabilities from profile metadata.
         let has_motion_sync = P::SUPPORTS_MOTION_SYNC;
@@ -435,6 +622,7 @@ impl Capabilities {
 
         Self {
             // Camera identification
+            profile_id: P::PROFILE_ID,
             model_name: P::MODEL_NAME.to_string(),
             default_camera_id: P::DEFAULT_CAMERA_ID,
 
@@ -451,6 +639,7 @@ impl Capabilities {
             pan_range_degrees,
             tilt_range_degrees,
             pan_tilt_simultaneous,
+            preset_recovery_time,
 
             // Zoom capabilities
             has_zoom: true, // All cameras have zoom
@@ -480,9 +669,10 @@ impl Capabilities {
             has_wdr: P::SUPPORTS_WDR,
             has_exposure_comp: P::SUPPORTS_EXPOSURE_COMP,
             exposure_comp_range,
+            exposure_comp_profile_range: P::EXPOSURE_COMP_RANGE.as_inclusive(),
             iris_range,
             gain_range,
-            shutter_speed_count: P::SHUTTER_SPEEDS.len(),
+            shutter_speeds,
             exposure_brightness_range,
 
             // White balance capabilities
@@ -495,7 +685,7 @@ impl Capabilities {
             has_rgb_gain: P::SUPPORTS_RGB_GAIN,
             red_gain_range,
             blue_gain_range,
-            wb_mode_count: P::WB_MODES.len(),
+            white_balance_modes: P::WB_MODES.to_vec(),
 
             // Image processing capabilities
             has_image_processing,
@@ -507,6 +697,9 @@ impl Capabilities {
             gamma_range,
             supports_flip: P::SUPPORTS_FLIP,
             supports_mirror: P::SUPPORTS_MIRROR,
+            supports_hue: P::SUPPORTS_HUE,
+            uses_combined_flip_command: P::USES_COMBINED_FLIP_COMMAND,
+            requires_settings_save_for_flip: P::REQUIRES_SETTINGS_SAVE_FOR_FLIP,
             has_noise_reduction: P::SUPPORTS_NOISE_REDUCTION,
             has_2d_nr: P::SUPPORTS_2D_NR,
             has_3d_nr: P::SUPPORTS_3D_NR,
@@ -521,18 +714,26 @@ impl Capabilities {
             preset_speed_range,
             supports_preset_tour: P::SUPPORTS_PRESET_TOUR,
             supports_preset_thumbnail: P::SUPPORTS_PRESET_THUMBNAIL,
+            preset_recall_delay: P::PRESET_RECALL_DELAY,
+            supports_preset_names: P::SUPPORTS_PRESET_NAMES,
+            max_preset_name_length: P::MAX_PRESET_NAME_LENGTH,
 
             // Power capabilities
             has_power: true, // All cameras have power control
             supports_standby: P::SUPPORTS_STANDBY,
             supports_wake_on_lan: P::SUPPORTS_WAKE_ON_LAN,
-            power_on_time_secs: P::POWER_ON_TIME.as_secs(),
+            power_on_time: P::POWER_ON_TIME,
+            standby_time: P::STANDBY_TIME,
+            retains_settings_on_power_off: P::RETAINS_SETTINGS_ON_POWER_OFF,
+            home_on_power_up: P::HOME_ON_POWER_UP,
 
             // Special capabilities
             has_nd_filter,
-            nd_filter_type,
+            nd_filter_mode: P::ND_MODE,
+            nd_filter_steps: P::ND_STEPS,
             has_motion_sync,
             max_motion_sync_speed,
+            max_motion_sync_speed_profile: P::MAX_MOTION_SYNC_SPEED,
             has_direct_menu_control: P::SUPPORTS_DIRECT_CONTROL,
             has_variable_speed: P::SUPPORTS_VARIABLE_SPEED,
 
@@ -736,10 +937,7 @@ impl Capabilities {
         lines.push(format!("Max Presets: {}", self.max_presets));
 
         if self.has_nd_filter {
-            lines.push(format!(
-                "ND Filter: {}",
-                self.nd_filter_type.as_ref().unwrap_or(&"Yes".to_string())
-            ));
+            lines.push(format!("ND Filter: {:?}", self.nd_filter_mode));
         }
 
         lines.join("\n")
@@ -854,6 +1052,10 @@ mod tests {
     fn test_capabilities_from_ptzoptics_g2() {
         let caps = Capabilities::from_profile::<PtzOpticsG2>();
 
+        assert_eq!(
+            caps.profile_id,
+            Some(crate::profiles::ProfileId::PtzOpticsG2)
+        );
         assert_eq!(caps.model_name, "PtzOptics G2");
         assert_eq!(caps.default_camera_id, 1);
         assert_eq!(caps.default_tcp_port, Some(5678));
@@ -877,15 +1079,17 @@ mod tests {
         assert!(caps.supports_exposure_mode(ExposureMode::Iris));
         assert_eq!(caps.iris_range, Some(0..=12));
         assert_eq!(caps.exposure_comp_range, Some(-7..=7));
+        assert_eq!(caps.exposure_comp_profile_range, -7..=7);
         assert!(caps.has_rgb_gain);
-        assert_eq!(caps.red_gain_range, None);
-        assert_eq!(caps.blue_gain_range, None);
+        assert_eq!(caps.red_gain_range, Some(0..=255));
+        assert_eq!(caps.blue_gain_range, Some(0..=255));
 
         assert_eq!(caps.max_presets, 127);
         assert!(!caps.supports_preset_tour);
         assert!(!caps.has_nd_filter);
         assert!(!caps.has_motion_sync);
         assert_eq!(caps.max_motion_sync_speed, None);
+        assert_eq!(caps.max_motion_sync_speed_profile, 24);
         assert!(!caps.has_variable_speed);
         assert_eq!(caps.exposure_brightness_range, Some(0..=17));
         assert!(caps.has_image_processing);
@@ -919,7 +1123,10 @@ mod tests {
         assert!(!caps.has_color_temp);
         assert_eq!(caps.color_temp_range, None);
         assert!(caps.has_nd_filter);
-        assert_eq!(caps.nd_filter_type.as_deref(), Some("Variable ND filter"));
+        assert_eq!(
+            caps.nd_filter_mode,
+            crate::capabilities::NdFilterMode::Variable
+        );
         assert!(!caps.has_motion_sync);
         assert_eq!(caps.max_motion_sync_speed, None);
         assert!(caps.has_variable_speed);
@@ -986,13 +1193,13 @@ mod tests {
         ] {
             assert!(caps.has_color_temp);
             assert_eq!(caps.color_temp_range, Some(2500..=8000));
-            assert_eq!(caps.wb_mode_count, 6);
+            assert_eq!(caps.white_balance_modes.len(), 6);
         }
 
         let fr7 = Capabilities::from_profile::<SonyFR7>();
         assert!(!fr7.has_color_temp);
         assert_eq!(fr7.color_temp_range, None);
-        assert_eq!(fr7.wb_mode_count, 6);
+        assert_eq!(fr7.white_balance_modes.len(), 6);
     }
 
     #[test]
@@ -1049,7 +1256,7 @@ mod tests {
         ] {
             assert!(!caps.has_one_push_focus);
             assert!(!caps.has_nd_filter);
-            assert_eq!(caps.nd_filter_type, None);
+            assert_eq!(caps.nd_filter_mode, crate::capabilities::NdFilterMode::None);
             assert!(!caps.has_motion_sync);
             assert_eq!(caps.max_motion_sync_speed, None);
             assert!(!caps.has_variable_speed);
@@ -1057,7 +1264,10 @@ mod tests {
 
         let fr7 = Capabilities::from_profile::<SonyFR7>();
         assert!(fr7.has_nd_filter);
-        assert_eq!(fr7.nd_filter_type.as_deref(), Some("Variable ND filter"));
+        assert_eq!(
+            fr7.nd_filter_mode,
+            crate::capabilities::NdFilterMode::Variable
+        );
         assert!(!fr7.has_one_push_focus);
         assert!(!fr7.has_motion_sync);
         assert_eq!(fr7.max_motion_sync_speed, None);
@@ -1072,7 +1282,7 @@ mod tests {
         ] {
             assert!(!caps.has_one_push_focus);
             assert!(!caps.has_nd_filter);
-            assert_eq!(caps.nd_filter_type, None);
+            assert_eq!(caps.nd_filter_mode, crate::capabilities::NdFilterMode::None);
             assert!(!caps.has_motion_sync);
             assert_eq!(caps.max_motion_sync_speed, None);
             assert!(!caps.has_variable_speed);

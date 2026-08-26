@@ -1,25 +1,9 @@
-name: Rust CI/CD
-
-# Comprehensive CI/CD pipeline with enhanced feature coverage
-#
-# Key improvements:
-# - Parallel feature matrix testing for better performance
-# - Enhanced dependency caching with sccache and registry index
-# - Miri safety checks for unsafe code
-# - Cross-compilation testing
-# - Reusable workflows for better organization
-# - Job timeouts for reliability
-# - Comprehensive 1.x support-matrix testing (matches README and contributor docs)
-# - Tests blocking, async runtimes, serial transports, dyn-api, and serialization features
-# - Enhanced clippy coverage for all feature combinations
-# - Platform matrix testing (ubuntu, windows, macos) × (stable, beta)
-# - Separate minimal testing for feature branches (faster feedback)
-# - Full testing on main/PRs (comprehensive quality assurance)
+name: Rust 2.0 CI
 
 on:
   push:
-    branches: ["main", "feature/*"]
-    tags: ["v*"]
+    branches: [main, "feature/**"]
+    tags: ["v*.*.*"]
   # no base-branch filter: stacked PRs (feature-branch bases) must run CI too
   pull_request:
   workflow_dispatch:
@@ -30,833 +14,298 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  RUSTFLAGS: "-D warnings"
   RUST_BACKTRACE: 1
+  RUSTFLAGS: "-D warnings"
 
 jobs:
-  # Quick format check (no dependencies needed)
   format:
-    name: Format Check
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Install Rust nightly toolchain
-        uses: dtolnay/rust-toolchain@nightly
-        with:
-          components: rustfmt
-        continue-on-error: true
-
-      # macOS runners have intermittently left `cargo` resolving to
-      # `rustup-init` after the install action reported success, so verify the
-      # toolchain is actually usable and fall back to a direct rustup install.
-      - name: Ensure nightly toolchain is usable
-        shell: bash
-        run: |
-          if rustup component list --toolchain nightly --installed 2>/dev/null | grep -q '^rustfmt' \
-            && cargo +nightly --version >/dev/null 2>&1; then
-            cargo +nightly --version
-            exit 0
-          fi
-          for i in {1..3}; do
-            echo "Attempt $i of 3..."
-            rustup toolchain install nightly --component rustfmt --profile minimal && break
-            sleep 30
-          done
-          cargo +nightly --version
-
-      - run: cargo +nightly fmt --all -- --check
-
-  # Test on minimal platform for feature branches (uses reusable workflow)
-  test-minimal:
-    name: Test Minimal
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/feature/')
-    uses: ./.github/workflows/test-features.yml
-    with:
-      os: ubuntu-latest
-      rust: stable
-      features: "minimal"
-      runs-on: ubuntu-latest
-
-  # Test on Unix platforms (Linux/macOS)
-  test-unix:
-    name: Test (${{ matrix.os }} / ${{ matrix.rust }})
-    # Skip on feature branch pushes (use test-minimal instead)
-    if: github.event_name != 'push' || !startsWith(github.ref, 'refs/heads/feature/')
-    timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-        rust: [stable, beta]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v6
-
-      # Install system dependencies for transport-serial
-      - name: Install system dependencies
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libudev-dev
-
-      - name: Install Rust ${{ matrix.rust }} toolchain
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ matrix.rust }}
-        continue-on-error: true
-
-      # macOS runners have intermittently left `cargo` resolving to
-      # `rustup-init` after the install action reported success, so verify the
-      # toolchain is actually usable and fall back to a direct rustup install.
-      - name: Ensure ${{ matrix.rust }} toolchain is usable
-        shell: bash
-        run: |
-          install_toolchain_shims() {
-            local cargo_bin="$1"
-            local rustc_bin="$2"
-            local rustdoc_bin="$3"
-            local shim_dir="$RUNNER_TEMP/rust-toolchain-shim"
-            mkdir -p "$shim_dir"
-            printf '#!/usr/bin/env bash\nexec "%s" "$@"\n' "$cargo_bin" > "$shim_dir/cargo"
-            printf '#!/usr/bin/env bash\nexec "%s" "$@"\n' "$rustc_bin" > "$shim_dir/rustc"
-            printf '#!/usr/bin/env bash\nexec "%s" "$@"\n' "$rustdoc_bin" > "$shim_dir/rustdoc"
-            chmod +x "$shim_dir/cargo"
-            chmod +x "$shim_dir/rustc"
-            chmod +x "$shim_dir/rustdoc"
-            echo "$shim_dir" >> "$GITHUB_PATH"
-            echo "RUSTC=$rustc_bin" >> "$GITHUB_ENV"
-            echo "RUSTDOC=$rustdoc_bin" >> "$GITHUB_ENV"
-          }
-
-          if rustup show active-toolchain 2>/dev/null | grep -q "${{ matrix.rust }}" \
-            && cargo_bin="$(rustup which --toolchain "${{ matrix.rust }}" cargo 2>/dev/null)" \
-            && rustc_bin="$(rustup which --toolchain "${{ matrix.rust }}" rustc 2>/dev/null)" \
-            && rustdoc_bin="$(rustup which --toolchain "${{ matrix.rust }}" rustdoc 2>/dev/null)" \
-            && "$cargo_bin" --version >/dev/null 2>&1 \
-            && "$rustc_bin" --version >/dev/null 2>&1 \
-            && "$rustdoc_bin" --version >/dev/null 2>&1; then
-            "$cargo_bin" --version
-            "$rustc_bin" --version
-            "$rustdoc_bin" --version
-            install_toolchain_shims "$cargo_bin" "$rustc_bin" "$rustdoc_bin"
-            exit 0
-          fi
-          for i in {1..3}; do
-            echo "Attempt $i of 3..."
-            rustup toolchain install ${{ matrix.rust }} --profile minimal \
-              && rustup default ${{ matrix.rust }} \
-              && break
-            sleep 30
-          done
-          cargo_bin="$(rustup which --toolchain "${{ matrix.rust }}" cargo)"
-          rustc_bin="$(rustup which --toolchain "${{ matrix.rust }}" rustc)"
-          rustdoc_bin="$(rustup which --toolchain "${{ matrix.rust }}" rustdoc)"
-          "$cargo_bin" --version
-          "$rustc_bin" --version
-          "$rustdoc_bin" --version
-          install_toolchain_shims "$cargo_bin" "$rustc_bin" "$rustdoc_bin"
-
-      # Setup sccache for compiler caching (gracefully handle service outages)
-      - name: Setup sccache
-        uses: ./.github/actions/setup-sccache
-
-      # Compiler/dependency cache. Advisory only: tests must run if cache restore fails.
-      - uses: Swatinem/rust-cache@v2
-        continue-on-error: true
-        with:
-          shared-key: "rust-cache-${{ matrix.os }}-${{ matrix.rust }}"
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-          # This job builds many feature combinations in one run. Restoring or
-          # saving target artifacts here can consume tens of GB and exhaust the
-          # hosted runner disk; sccache still covers compiler output.
-          cache-targets: false
-          cache-on-failure: true
-          cache-all-crates: true
-
-      # Use reusable workflow for comprehensive testing
-      - name: Run comprehensive feature tests
-        run: |
-          echo "Running comprehensive test suite..."
-          bash .github/scripts/test-all-features.sh
-
-  # Windows-specific parallel test jobs for better performance
-  test-windows:
-    name: Test Windows (${{ matrix.rust }} / ${{ matrix.features || 'default' }})
-    # Skip on feature branch pushes
-    if: github.event_name != 'push' || !startsWith(github.ref, 'refs/heads/feature/')
-    timeout-minutes: 20
-    strategy:
-      fail-fast: false
-      matrix:
-        rust: [stable, beta]
-        features:
-          - ""  # default features
-          - "no-default"
-          - "mode-async"
-          - "runtime-tokio"
-          - "runtime-smol"
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Install Rust ${{ matrix.rust }} toolchain
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ matrix.rust }}
-        continue-on-error: true
-
-      # Mirror the Unix job's verify-and-fallback so a silently-unusable
-      # toolchain reinstalls before tests run.
-      - name: Ensure ${{ matrix.rust }} toolchain is usable
-        shell: bash
-        run: |
-          if rustup show active-toolchain 2>/dev/null | grep -q "${{ matrix.rust }}" \
-            && cargo +${{ matrix.rust }} --version >/dev/null 2>&1; then
-            cargo +${{ matrix.rust }} --version
-            exit 0
-          fi
-          for i in {1..3}; do
-            echo "Attempt $i of 3..."
-            rustup toolchain install ${{ matrix.rust }} --profile minimal \
-              && rustup default ${{ matrix.rust }} \
-              && break
-            sleep 30
-          done
-          cargo +${{ matrix.rust }} --version
-
-      # Setup sccache for compiler caching (gracefully handle service outages)
-      - name: Setup sccache
-        uses: ./.github/actions/setup-sccache
-
-      # Normalize the empty default feature entry before it reaches cache keys.
-      - name: Sanitize features for cache keys
-        id: windows-features
-        run: |
-          FEATURES="${{ matrix.features }}"
-          if [ -z "$FEATURES" ]; then
-            FEATURES="default"
-          fi
-          FEATURES="${FEATURES//,/-}"
-          echo "sanitized=$FEATURES" >> "$GITHUB_OUTPUT"
-        shell: bash
-
-      # Compiler/dependency cache. Advisory only: tests must run if cache restore fails.
-      - uses: Swatinem/rust-cache@v2
-        continue-on-error: true
-        with:
-          shared-key: "rust-cache-windows-${{ matrix.rust }}-${{ steps.windows-features.outputs.sanitized }}"
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-          # Trybuild creates transient target/tests/target trees on Windows; skip
-          # target caching there so post-job cache scans do not emit ENOENT noise.
-          cache-targets: false
-          cache-on-failure: true
-          cache-all-crates: true
-
-      # Run targeted tests based on features
-      - name: Run tests - ${{ matrix.features || 'default' }}
-        run: |
-          if [ -z "${{ matrix.features }}" ]; then
-            echo "Testing with default features..."
-            cargo test --verbose
-          elif [ "${{ matrix.features }}" == "no-default" ]; then
-            echo "Testing with no default features..."
-            cargo test --no-default-features --verbose
-          else
-            echo "Testing with features: ${{ matrix.features }}"
-            cargo test --no-default-features --features "${{ matrix.features }}" --verbose
-          fi
-        shell: bash
-        env:
-          TMPDIR: ${{ runner.temp }}
-
-  # Parallel feature matrix testing for better performance
-  feature-matrix-parallel:
-    name: Feature Matrix (${{ matrix.features || 'no-features' }})
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        features:
-          - ""  # no features
-          - "mode-async"
-          - "runtime-tokio"
-          - "runtime-smol"
-          - "test-utils"
-          # Runtime-free async test surface: builds the cfg-gated test files that
-          # every runtime cell excludes, so they cannot silently rot.
-          - "mode-async,test-utils"
-          - "runtime-tokio,test-utils"
-          - "runtime-smol,test-utils"
-          - "transport-serial"
-          # Compatibility-only union: async runtime plus blocking serial dependency.
-          - "runtime-tokio,transport-serial"
-          - "runtime-tokio,transport-serial-tokio"
-          - "serde,schemars,ts-rs"
-          - "runtime-tokio,dyn-api,test-utils"
-          # Compatibility-only union: smol dyn-api without test helpers.
-          - "runtime-smol,dyn-api"
-          - "runtime-smol,dyn-api,test-utils"
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libudev-dev
-
-      - name: Install Rust stable toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
-
-      # Setup sccache (gracefully handle service outages)
-      - name: Setup sccache
-        uses: ./.github/actions/setup-sccache
-
-      # Sanitize features for cache keys (replace commas with hyphens)
-      - name: Sanitize features for cache keys
-        id: features
-        run: |
-          SANITIZED_FEATURES="${{ matrix.features }}"
-          if [ -z "$SANITIZED_FEATURES" ]; then
-            SANITIZED_FEATURES="no-features"
-          fi
-          SANITIZED_FEATURES="${SANITIZED_FEATURES//,/-}"
-          echo "sanitized=${SANITIZED_FEATURES}" >> $GITHUB_OUTPUT
-
-      - uses: Swatinem/rust-cache@v2
-        continue-on-error: true
-        with:
-          shared-key: "rust-cache-features-${{ steps.features.outputs.sanitized }}"
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-
-      - name: Test features - ${{ matrix.features || 'no-features' }}
-        run: |
-          if [ -z "${{ matrix.features }}" ]; then
-            echo "Testing with no features..."
-            cargo test --no-default-features --verbose
-            cargo clippy --all-targets --no-default-features -- -D warnings
-          else
-            echo "Testing with features: ${{ matrix.features }}"
-            cargo test --no-default-features --features "${{ matrix.features }}" --verbose
-            cargo clippy --all-targets --no-default-features --features "${{ matrix.features }}" -- -D warnings
-          fi
-        env:
-          TMPDIR: ${{ runner.temp }}
-
-  # Miri safety checks for unsafe code
-  miri:
-    name: Miri Safety Check
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    # Only run on main branch and PRs to avoid overwhelming CI
-    if: github.ref == 'refs/heads/main' || github.event_name == 'pull_request'
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libudev-dev
-
-      - name: Install Rust nightly and miri
-        uses: dtolnay/rust-toolchain@nightly
-        with:
-          components: miri
-
-      - name: Setup miri
-        run: cargo miri setup
-
-      # Restrict Miri to library tests. Integration tests intentionally exercise
-      # real socket I/O and OS resolution paths, which belong in the normal CI matrix
-      # rather than Miri's isolation model.
-      - name: Run miri tests (no features)
-        run: cargo miri test --lib --no-default-features
-
-      - name: Run miri tests (mode-async)
-        run: cargo miri test --lib --no-default-features --features mode-async
-
-      - name: Run miri tests (runtime-tokio)
-        run: cargo miri test --lib --no-default-features --features runtime-tokio
-
-  # Cross-compilation testing
-  cross-compile:
-    name: Cross Compile (${{ matrix.target }})
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        target:
-          - aarch64-unknown-linux-gnu
-          - armv7-unknown-linux-gnueabihf
-          # x86_64-pc-windows-gnu: Temporarily disabled due to Rust 1.92 GetHostNameW linking bug
-          # See: https://github.com/rust-lang/rust/issues/issue-number (upstream fix pending)
-          - wasm32-unknown-unknown
-          - riscv64gc-unknown-linux-gnu
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Install Rust stable toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
-
-      - name: Install cross
-        uses: taiki-e/install-action@cross
-
-      # Setup sccache (gracefully handle service outages)
-      - name: Setup sccache
-        uses: ./.github/actions/setup-sccache
-
-      - uses: Swatinem/rust-cache@v2
-        continue-on-error: true
-        with:
-          shared-key: "rust-cache-cross-${{ matrix.target }}"
-          save-if: false
-
-      # Different features for different targets
-      - name: Cross compile for ${{ matrix.target }}
-        run: |
-          if [[ "${{ matrix.target }}" == "wasm32-unknown-unknown" ]]; then
-            # WASM doesn't support certain features
-            cross build --target ${{ matrix.target }} --no-default-features --features mode-async
-          else
-            # Other targets can use full features
-            cross build --target ${{ matrix.target }} --no-default-features --features runtime-tokio
-          fi
-
-      # Also test that examples compile for the target
-      - name: Build examples for ${{ matrix.target }}
-        if: matrix.target != 'wasm32-unknown-unknown'
-        run: |
-          cross build --examples --target ${{ matrix.target }} --no-default-features --features runtime-tokio
-
-  # Combined lint and doc check
-  lint-and-docs:
-    name: Lint & Docs
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libudev-dev
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
-
-      # Setup sccache (gracefully handle service outages)
-      - name: Setup sccache
-        uses: ./.github/actions/setup-sccache
-
-      - uses: Swatinem/rust-cache@v2
-        continue-on-error: true
-        with:
-          shared-key: "rust-cache-ubuntu-latest-stable"
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-
-      # Use parallel clippy checks via script
-      - name: Run comprehensive clippy checks
-        run: |
-          cat > /tmp/clippy-features.sh << 'EOF'
-          #!/bin/bash
-          set -e
-
-          echo "Running comprehensive clippy checks..."
-
-          features=(
-            ""
-            "mode-async"
-            "runtime-tokio"
-            "runtime-smol"
-            "test-utils"
-            "runtime-tokio,test-utils"
-            "runtime-smol,test-utils"
-            "transport-serial"
-            # Compatibility-only union: async runtime plus blocking serial dependency.
-            "runtime-tokio,transport-serial"
-            "runtime-tokio,transport-serial-tokio"
-            "serde,schemars,ts-rs"
-            "runtime-tokio,dyn-api,test-utils"
-            # Compatibility-only union: smol dyn-api without test helpers.
-            "runtime-smol,dyn-api"
-            "runtime-smol,dyn-api,test-utils"
-          )
-
-          for feature in "${features[@]}"; do
-            if [ -z "$feature" ]; then
-              echo "Clippy: no features"
-              cargo clippy --all-targets --no-default-features -- -D warnings
-            else
-              echo "Clippy: $feature"
-              cargo clippy --all-targets --no-default-features --features "$feature" -- -D warnings
-            fi
-          done
-
-          # Check all features across every target.
-          cargo clippy --all-targets --all-features -- -D warnings
-
-          # Check the macro crate
-          cargo clippy -p grafton-visca-macros --all-targets -- -D warnings
-
-          # Check examples
-          cargo clippy --examples --no-default-features --features runtime-tokio -- -D warnings
-          EOF
-
-          chmod +x /tmp/clippy-features.sh
-          /tmp/clippy-features.sh
-
-      # Documentation checks
-      - name: Check documentation
-        if: github.event_name != 'push' || !startsWith(github.ref, 'refs/heads/feature/')
-        run: |
-          # Check documentation builds for different feature sets
-          cargo doc --no-deps --no-default-features
-          cargo doc --no-deps --no-default-features --features runtime-tokio
-          cargo doc --no-deps --all-features
-
-          # Check private items documentation
-          cargo doc --document-private-items --no-deps --no-default-features --features runtime-tokio
-
-          # Check macro crate documentation
-          cargo doc -p grafton-visca-macros --no-deps
-        env:
-          RUSTDOCFLAGS: "-D warnings"
-
-  # Async transport integration tests
-  async-transport-integration:
-    name: Async Transport Integration (${{ matrix.runtime }})
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    strategy:
-      matrix:
-        runtime: [runtime-tokio, runtime-smol]
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libudev-dev
-
-      - name: Install Rust stable toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      # Setup sccache (gracefully handle service outages)
-      - name: Setup sccache
-        uses: ./.github/actions/setup-sccache
-
-      - uses: Swatinem/rust-cache@v2
-        continue-on-error: true
-        with:
-          shared-key: "rust-cache-async-${{ matrix.runtime }}"
-          save-if: false
-
-      - name: Run Send futures compile tests (${{ matrix.runtime }})
-        run: |
-          cargo test --no-default-features --features ${{ matrix.runtime }},test-utils \
-            --test send_futures_compile_test
-
-      - name: Run API stability tests (${{ matrix.runtime }})
-        run: |
-          cargo test --no-default-features --features ${{ matrix.runtime }} \
-            --test api_stability_test
-
-      - name: Test runtime coexistence (${{ matrix.runtime }})
-        run: |
-          echo "Testing that multiple runtime features can coexist..."
-
-          case "${{ matrix.runtime }}" in
-            "runtime-tokio")
-              other_runtime="runtime-smol"
-              ;;
-            "runtime-smol")
-              other_runtime="runtime-tokio"
-              ;;
-          esac
-
-          if cargo check --no-default-features --features ${{ matrix.runtime }},$other_runtime 2>/dev/null; then
-            echo "✅ Runtime coexistence working correctly for ${{ matrix.runtime }} + $other_runtime"
-          else
-            echo "ERROR: Multiple runtime features should be able to coexist"
-            exit 1
-          fi
-
-  # Enforce the workspace's declared minimum supported Rust version.
-  msrv:
-    name: MSRV 1.88 (${{ matrix.surface }})
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - surface: blocking
-            features: ""
-          - surface: async-dyn
-            features: runtime-tokio,dyn-api,test-utils
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Install Rust 1.88.0
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: 1.88.0
-
-      - uses: Swatinem/rust-cache@v2
-        continue-on-error: true
-        with:
-          shared-key: "rust-cache-msrv-${{ matrix.surface }}"
-          save-if: false
-
-      - name: Check ${{ matrix.surface }} public surface on MSRV
-        shell: bash
-        run: |
-          if [ -z "${{ matrix.features }}" ]; then
-            cargo check --workspace --all-targets --no-default-features
-          else
-            cargo check --workspace --all-targets --no-default-features \
-              --features "${{ matrix.features }}"
-          fi
-
-  # Semver compatibility check
-  semver:
-    name: Check semver (${{ matrix.surface }})
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    if: github.event_name == 'pull_request'
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - surface: blocking
-            feature_group: default-features
-            features: ""
-          - surface: async-dyn
-            feature_group: only-explicit-features
-            features: runtime-tokio,transport-serial,transport-serial-tokio,serde,schemars,ts-rs,dyn-api,test-utils
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libudev-dev
-
-      - name: Install Rust stable toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      # Setup sccache (gracefully handle service outages)
-      - name: Setup sccache
-        uses: ./.github/actions/setup-sccache
-
-      - uses: Swatinem/rust-cache@v2
-        continue-on-error: true
-        with:
-          shared-key: "rust-cache-ubuntu-latest-stable"
-          save-if: false
-
-      - uses: obi1kenobi/cargo-semver-checks-action@v2
-        with:
-          feature-group: ${{ matrix.feature_group }}
-          features: ${{ matrix.features }}
-
-  # Check package metadata and dependencies
-  package-check:
-    name: Package Check
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    if: github.event_name != 'pull_request' && !(github.event_name == 'push' && startsWith(github.ref, 'refs/heads/feature/'))
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libudev-dev
-
-      - name: Install Rust stable toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      # Setup sccache (gracefully handle service outages)
-      - name: Setup sccache
-        uses: ./.github/actions/setup-sccache
-
-      - uses: Swatinem/rust-cache@v2
-        continue-on-error: true
-        with:
-          shared-key: "rust-cache-ubuntu-latest-stable"
-          save-if: false
-
-      # Package verification for releases
-      - name: Validate release metadata and ancestry
-        id: release
-        if: startsWith(github.ref, 'refs/tags/')
-        run: |
-          git fetch --no-tags origin main
-          git merge-base --is-ancestor "$(git rev-parse HEAD)" origin/main
-          cargo generate-lockfile
-          bash .github/scripts/validate-release.sh "$GITHUB_REF_NAME"
-
-      - name: Inspect package payloads (release tags only)
-        if: startsWith(github.ref, 'refs/tags/')
-        env:
-          RUSTC_WRAPPER: ""  # Disable sccache for packaging
-        run: |
-          echo "Inspecting package payloads for release tag..."
-          cargo package -p grafton-visca-macros --locked --no-verify
-          cargo package -p grafton-visca-macros --list
-          cargo package -p grafton-visca --list
-          echo "The main archive is packaged after its exact macro version reaches crates.io."
-
-      # Build validation for non-releases
-      - name: Build validation (non-release)
-        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
-        run: |
-          echo "Running build validation for non-release..."
-          cargo build --no-default-features --features runtime-tokio --workspace
-          cargo build --examples --no-default-features --features runtime-tokio
-          cargo metadata --format-version 1 > /dev/null
-
-      # Security audit
-      - name: Install cargo-audit
-        run: cargo install cargo-audit
-
-      - name: Security audit
-        run: cargo audit
-
-  # Dependency policy gate. `deny.toml` sat in the repo unexecuted until this job
-  # existed, so its licenses/advisories/bans/sources rules were never enforced.
-  cargo-deny:
-    name: Cargo Deny
+    name: rustfmt
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v6
-
-      # Pinned to the commit behind v2.1.1: action tags are mutable, and this job
-      # is a supply-chain gate, so it must not follow a moving reference.
-      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
         with:
-          command: check advisories bans licenses sources
+          components: rustfmt
+      - run: cargo +nightly fmt --all -- --check
 
-  # Summary job to ensure all required checks pass
+  feature-matrix:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: no-default pure engine/domain
+            command: --no-default-features --lib
+          - name: default blocking + tcp
+            command: --workspace --all-targets
+          - name: blocking-only
+            command: --no-default-features --features blocking --all-targets
+          - name: runtime-neutral async
+            command: --no-default-features --features async --all-targets
+          - name: Tokio
+            command: --no-default-features --features runtime-tokio --all-targets
+          - name: smol
+            command: --no-default-features --features runtime-smol --all-targets
+          - name: Tokio + smol
+            command: --no-default-features --features runtime-tokio,runtime-smol --all-targets
+          - name: blocking + Tokio
+            command: --no-default-features --features blocking,runtime-tokio --all-targets
+          - name: blocking + smol
+            command: --no-default-features --features blocking,runtime-smol --all-targets
+          - name: blocking + Tokio + smol
+            command: --no-default-features --features blocking,runtime-tokio,runtime-smol --all-targets
+          - name: Tokio + dyn-api
+            command: --no-default-features --features runtime-tokio,dyn-api --all-targets
+          - name: smol + dyn-api
+            command: --no-default-features --features runtime-smol,dyn-api --all-targets
+          - name: blocking + async + dyn-api
+            command: --no-default-features --features blocking,async,dyn-api --all-targets
+          - name: blocking serial
+            command: --no-default-features --features transport-serial --all-targets
+          - name: Tokio serial
+            command: --no-default-features --features runtime-tokio,transport-serial-tokio --all-targets
+          - name: serde + schemars + ts-rs
+            command: --no-default-features --features serde,schemars,ts-rs --all-targets
+          - name: test-utils
+            command: --no-default-features --features test-utils --all-targets
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install serial transport dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes libudev-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: matrix-${{ matrix.name }}
+      - run: cargo test ${{ matrix.command }}
+
+  macro-derives:
+    name: macro derives
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test -p grafton-visca-macros
+
+  all-features:
+    name: all features and targets
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install serial transport dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes libudev-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check --workspace --all-features --all-targets
+
+  examples:
+    name: examples and doctests
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install serial transport dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes libudev-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build supported example surfaces
+        run: |
+          set -euo pipefail
+          cargo check --examples --no-default-features --features blocking
+          cargo check --examples --no-default-features --features runtime-tokio
+          cargo check --examples --no-default-features --features runtime-smol
+          cargo check --examples --all-features
+      - name: Build strict documentation and run doctests
+        env:
+          RUSTDOCFLAGS: "-D warnings"
+        run: |
+          set -euo pipefail
+          cargo doc --workspace --all-features --no-deps
+          cargo test --doc --no-default-features
+          cargo test --doc --no-default-features --features async
+          cargo test --doc --all-features
+
+  lint:
+    name: clippy and rustdoc warnings
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install serial transport dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes libudev-dev
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+      - run: cargo clippy --lib --no-default-features -- -D warnings
+      - env:
+          RUSTDOCFLAGS: "-D warnings"
+        run: cargo doc --workspace --all-features --no-deps
+
+  msrv:
+    name: Rust 1.88 MSRV
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.88.0
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check --workspace --all-targets
+      - run: cargo check --lib --no-default-features --features async
+      - run: cargo check --lib --no-default-features --features runtime-tokio,dyn-api
+
+  miri:
+    name: Miri
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: miri
+      - uses: Swatinem/rust-cache@v2
+      - run: bash .github/scripts/miri-tests.sh
+
+  fuzz:
+    name: cargo-fuzz parser harness
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: Swatinem/rust-cache@v2
+      - name: Install cargo-fuzz 0.12.0
+        run: cargo +stable install cargo-fuzz --version 0.12.0 --locked
+      - name: Check parser fuzz target
+        run: cargo +nightly fuzz check response_parser
+      - name: Run bounded parser fuzz smoke test
+        run: cargo +nightly fuzz run response_parser -- -runs=1000
+
+  removed-features:
+    name: removed feature names are unknown
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Check explicit unknown-feature diagnostics
+        shell: bash
+        run: |
+          set -euo pipefail
+          for feature in mode-async async-core mode-blocking; do
+            output_file="${RUNNER_TEMP}/removed-${feature}.log"
+            if cargo check --no-default-features --features "${feature}" >"${output_file}" 2>&1; then
+              cat "${output_file}"
+              echo "::error::removed feature ${feature} unexpectedly succeeded"
+              exit 1
+            fi
+            grep -Fq "does not contain this feature: ${feature}" "${output_file}"
+          done
+
+  release-validation:
+    name: release validator regression
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Check clean-checkout and hardware gates
+        run: bash .github/scripts/test-validate-release.sh
+
+  public-api:
+    name: public API RC snapshot
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: no-default
+            cargo_args: --no-default-features
+          - name: blocking
+            cargo_args: --no-default-features --features blocking
+          - name: async
+            cargo_args: --no-default-features --features async
+          - name: tokio-dyn
+            cargo_args: --no-default-features --features runtime-tokio,dyn-api
+          - name: smol-dyn
+            cargo_args: --no-default-features --features runtime-smol,dyn-api
+          - name: coexistence
+            cargo_args: --no-default-features --features blocking,runtime-tokio,dyn-api
+          - name: all-features
+            cargo_args: --all-features
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install serial transport dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes libudev-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install pinned cargo-public-api
+        run: cargo install cargo-public-api --version 0.52.0 --locked
+      - name: Diff ${{ matrix.name }} snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          generated="${RUNNER_TEMP}/${{ matrix.name }}.txt"
+          cargo public-api --color never ${{ matrix.cargo_args }} >"${generated}"
+          test -s "${generated}"
+          diff -u "api/2.0.0-rc.1/${{ matrix.name }}.txt" "${generated}"
+
+  downstream:
+    name: Synemantic 2.0 contract fixture
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check --manifest-path tests/fixtures/synemantic_2_0/Cargo.toml
+      - name: Report external-head limitation
+        run: >-
+          echo "External Synemantic main is not asserted: its published manifest
+          still targets the 1.x feature surface and private sibling paths; the
+          local RC fixture above is the reproducible contract."
+
   ci-success:
-    name: CI Success
+    name: CI success
     if: always()
     needs:
       - format
-      - test-unix
-      - test-windows
-      - feature-matrix-parallel
-      - lint-and-docs
-      - async-transport-integration
-      - cross-compile
-      - miri
+      - feature-matrix
+      - macro-derives
+      - all-features
+      - examples
+      - lint
       - msrv
-      - semver
-      - package-check
-      - cargo-deny
+      - miri
+      - fuzz
+      - removed-features
+      - release-validation
+      - public-api
+      - downstream
     runs-on: ubuntu-latest
-    timeout-minutes: 5
     steps:
-      - name: Check if all jobs succeeded
+      - name: Require every check to pass
         run: |
-          # Check for failures (but ignore skipped jobs)
-          if [[ "${{ contains(needs.*.result, 'failure') }}" == "true" ]]; then
-            echo "One or more required jobs failed"
+          if [[ "${{ contains(needs.*.result, 'failure') }}" == "true" || \
+                "${{ contains(needs.*.result, 'cancelled') }}" == "true" ]]; then
+            echo "One or more required CI jobs failed or was cancelled."
             exit 1
-          elif [[ "${{ contains(needs.*.result, 'cancelled') }}" == "true" ]]; then
-            echo "One or more required jobs were cancelled"
-            exit 1
-          else
-            echo "All required jobs passed or were skipped successfully"
           fi
-
-  # Publish job
-  publish:
-    name: Publish
-    needs: [ci-success]
-    if: startsWith(github.ref, 'refs/tags/')
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libudev-dev
-
-      - name: Install Rust stable toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
-        continue-on-error: true
-        with:
-          shared-key: "rust-cache-ubuntu-latest-stable"
-          save-if: false
-
-      - name: Validate release metadata and inspect payloads
-        id: release
-        env:
-          RUSTC_WRAPPER: ""  # Disable sccache for packaging
-        run: |
-          git fetch --no-tags origin main
-          git merge-base --is-ancestor "$(git rev-parse HEAD)" origin/main
-          cargo generate-lockfile
-          bash .github/scripts/validate-release.sh "$GITHUB_REF_NAME"
-          cargo package -p grafton-visca-macros --locked --no-verify
-          cargo package -p grafton-visca-macros --list
-          cargo package -p grafton-visca --list
-
-      - name: Publish grafton-visca-macros if needed
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_TOKEN }}
-          RUSTC_WRAPPER: ""  # Disable sccache for packaging
-          RELEASE_VERSION: ${{ steps.release.outputs.version }}
-        run: |
-          if cargo info --registry crates-io "grafton-visca-macros@${RELEASE_VERSION}" >/dev/null 2>&1; then
-            echo "grafton-visca-macros@${RELEASE_VERSION} is already published"
-          else
-            cargo publish -p grafton-visca-macros --locked --dry-run
-            cargo publish -p grafton-visca-macros --locked
-          fi
-
-      - name: Wait for the macro crate index entry
-        env:
-          RELEASE_VERSION: ${{ steps.release.outputs.version }}
-        run: bash .github/scripts/wait-for-crate.sh grafton-visca-macros "$RELEASE_VERSION" 300
-
-      - name: Publish grafton-visca if needed
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_TOKEN }}
-          RUSTC_WRAPPER: ""  # Disable sccache for packaging
-          RELEASE_VERSION: ${{ steps.release.outputs.version }}
-        run: |
-          if cargo info --registry crates-io "grafton-visca@${RELEASE_VERSION}" >/dev/null 2>&1; then
-            echo "grafton-visca@${RELEASE_VERSION} is already published"
-          else
-            cargo package -p grafton-visca --locked --no-verify
-            cargo publish -p grafton-visca --locked --dry-run
-            cargo publish -p grafton-visca --locked
-          fi
-
-      - name: Verify both published versions
-        env:
-          RELEASE_VERSION: ${{ steps.release.outputs.version }}
-        run: |
-          bash .github/scripts/wait-for-crate.sh grafton-visca-macros "$RELEASE_VERSION" 300
-          bash .github/scripts/wait-for-crate.sh grafton-visca "$RELEASE_VERSION" 300

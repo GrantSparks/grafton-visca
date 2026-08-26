@@ -14,9 +14,9 @@ mod support;
 use std::{env, io};
 
 use grafton_visca::{
-    camera::{profiles::PtzOpticsG2, Connect},
+    camera::{profiles::PtzOpticsG2, IdleWait},
     runtime::TokioRuntime,
-    Error,
+    AffectedAxes, Connect, Error,
 };
 use tokio::time::{sleep, Duration};
 
@@ -83,7 +83,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Address: {}", args.address);
 
     let runtime = TokioRuntime::from_current()?;
-    let camera = Connect::open_tcp_async::<PtzOpticsG2, _>(&args.address, runtime).await?;
+    let session = Connect::open_tcp::<PtzOpticsG2, _>(&args.address, runtime).await?;
+    let camera = session.camera::<PtzOpticsG2>()?;
 
     let run_result = async {
         let power = camera.power().state().await?;
@@ -94,14 +95,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         if args.move_camera {
             println!("Running short zoom movement.");
-            let start_result = camera.zoom().tele().await;
+            let start_result = match camera.zoom().tele().await {
+                Ok(operation) => operation.applied().await,
+                Err(error) => Err(error),
+            };
             if start_result.is_ok() {
                 sleep(Duration::from_millis(250)).await;
             }
 
             // Once movement starts, always attempt STOP before propagating
             // its result or waiting for the axis to become idle.
-            let stop_result = camera.zoom().stop().await;
+            let stop_result = match camera.zoom().stop().await {
+                Ok(operation) => operation.applied().await,
+                Err(error) => Err(error),
+            };
             if start_result.is_err() {
                 if let Err(error) = &stop_result {
                     eprintln!("The safety STOP also failed: {error}");
@@ -109,7 +116,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             start_result?;
             stop_result?;
-            camera.await_zoom_idle(Duration::from_secs(2)).await?;
+            camera
+                .motion()
+                .wait_until_idle(IdleWait::new(AffectedAxes::ZOOM, Duration::from_secs(2)))
+                .await?;
             println!("Zoom stopped.");
         } else {
             println!("No movement requested. Pass --move to run a short zoom command.");
@@ -118,7 +128,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Ok::<(), Error>(())
     }
     .await;
-    let close_result = camera.close().await;
+    let close_result = session.close().await;
 
     finish_session(run_result, close_result)?;
     Ok(())

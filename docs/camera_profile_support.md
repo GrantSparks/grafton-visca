@@ -104,7 +104,7 @@ compile. Runtime or deserialized `TransportOptions` values are validated against
 the same registry before address resolution, socket creation, serial opening, or
 protocol startup.
 
-Advanced `CameraBuilder` paths are for caller-owned transports. Built-in
+`Session::open` is the advanced path for caller-owned transports. Built-in
 TCP/UDP/serial transport handles still expose their standard transport kind and
 are validated against the same registry before protocol startup. Custom
 transports that do not expose a standard kind remain an intentional unchecked
@@ -140,18 +140,26 @@ optional typed operations when a capability is not universal.
 | `PtzOpticsG3` | `HasExposureCompensation`<br>`HasBrightnessControl`<br>`HasFocusLock`<br>`HasDirectZoom`<br>`HasIrisControl`<br>`HasFocusZone`<br>`HasBacklightCompensation`<br>`HasWideDynamicRange`<br>`HasColorTemperature`<br>`HasRgbGain`<br>`HasRgbTuning`<br>`HasOnePushWhiteBalance`<br>`HasAutoWhiteBalanceSensitivity`<br>`HasImageFlip`<br>`HasImageMirror`<br>`HasCombinedImageFlip`<br>`HasContrastControl`<br>`HasSharpnessControl`<br>`HasSaturationControl`<br>`HasHueControl`<br>`HasLuminanceControl`<br>`HasGammaControl`<br>`HasNoiseReduction`<br>`HasNoiseReduction2D`<br>`HasNoiseReduction3D`<br>`HasPictureEffect` |
 | `PtzOptics30X` | `HasExposureCompensation`<br>`HasBrightnessControl`<br>`HasFocusLock`<br>`HasDirectZoom`<br>`HasIrisControl`<br>`HasFocusZone`<br>`HasBacklightCompensation`<br>`HasWideDynamicRange`<br>`HasColorTemperature`<br>`HasRgbGain`<br>`HasRgbTuning`<br>`HasOnePushWhiteBalance`<br>`HasAutoWhiteBalanceSensitivity`<br>`HasImageFlip`<br>`HasImageMirror`<br>`HasCombinedImageFlip`<br>`HasContrastControl`<br>`HasSharpnessControl`<br>`HasSaturationControl`<br>`HasHueControl`<br>`HasLuminanceControl`<br>`HasGammaControl`<br>`HasNoiseReduction`<br>`HasNoiseReduction2D`<br>`HasNoiseReduction3D`<br>`HasPictureEffect` |
 | `SonyFR7` | `HasExposureCompensation`<br>`HasBrightnessControl`<br>`HasPushAutoFocus`<br>`HasDirectZoom`<br>`HasDigitalZoomToggle`<br>`HasDigitalZoomRange`<br>`HasIrisControl`<br>`HasFocusZone`<br>`HasAutoFocusSensitivity`<br>`HasFocusNearLimitInquiry`<br>`HasBacklightCompensation`<br>`HasWideDynamicRange`<br>`HasRgbGain`<br>`HasRgbTuning`<br>`HasOnePushWhiteBalance`<br>`HasAutoTrackingWhiteBalance`<br>`HasImageFlip`<br>`HasImageMirror`<br>`HasContrastControl`<br>`HasSharpnessControl`<br>`HasSaturationControl`<br>`HasHueControl`<br>`HasGammaControl`<br>`HasNoiseReduction`<br>`HasNoiseReduction2D`<br>`HasNoiseReduction3D`<br>`HasPictureEffect`<br>`HasTally`<br>`HasDirectMenuControl`<br>`HasNdFilter`<br>`HasVariableSpeed` |
-| `SonyBRCH900` | `HasBrightnessControl`<br>`HasDirectZoom`<br>`HasDigitalZoomToggle`<br>`HasDigitalZoomRange`<br>`HasIrisControl`<br>`HasFocusNearLimitInquiry`<br>`HasBacklightCompensation`<br>`HasWideDynamicRange`<br>`HasColorTemperature`<br>`HasRgbTuning`<br>`HasOnePushWhiteBalance`<br>`HasImageFlip`<br>`HasImageMirror`<br>`HasContrastControl`<br>`HasSharpnessControl`<br>`HasSaturationControl`<br>`HasGammaControl`<br>`HasNoiseReduction`<br>`HasNoiseReduction2D`<br>`HasNoiseReduction3D`<br>`HasPictureEffect`<br>`HasTally` |
-| `SonyEVIH100` | `HasDirectZoom`<br>`HasIrisControl`<br>`HasFocusNearLimitInquiry`<br>`HasBacklightCompensation`<br>`HasColorTemperature`<br>`HasRgbTuning`<br>`HasOnePushWhiteBalance`<br>`HasImageFlip`<br>`HasImageMirror`<br>`HasGammaControl`<br>`HasNoiseReduction` |
-| `SonyBRC300` | `HasDirectZoom`<br>`HasIrisControl`<br>`HasFocusNearLimitInquiry`<br>`HasBacklightCompensation` |
-| `NearusBRC300` | `HasDirectZoom`<br>`HasIrisControl`<br>`HasFocusNearLimitInquiry`<br>`HasBacklightCompensation`<br>`HasSaturationControl` |
-| `GenericVisca` | `HasIrisControl`<br>`HasFocusNearLimitInquiry`<br>`HasOnePushWhiteBalance` |
+| `SonyBRCH900` | `HasBrightnessControl`<br>`HasDirectZoom`<br>`HasDigitalZoomToggle`<br>`HasDigitalZoomRange`<br>`HasFocusNearLimitInquiry`<br>`HasBacklightCompensation`<br>`HasWideDynamicRange`<br>`HasColorTemperature`<br>`HasRgbTuning`<br>`HasOnePushWhiteBalance`<br>`HasImageFlip`<br>`HasImageMirror`<br>`HasContrastControl`<br>`HasSharpnessControl`<br>`HasSaturationControl`<br>`HasGammaControl`<br>`HasNoiseReduction`<br>`HasNoiseReduction2D`<br>`HasNoiseReduction3D`<br>`HasPictureEffect`<br>`HasTally` |
+| `SonyEVIH100` | `HasDirectZoom`<br>`HasFocusNearLimitInquiry`<br>`HasBacklightCompensation`<br>`HasColorTemperature`<br>`HasRgbTuning`<br>`HasOnePushWhiteBalance`<br>`HasImageFlip`<br>`HasImageMirror`<br>`HasGammaControl`<br>`HasNoiseReduction` |
+| `SonyBRC300` | `HasDirectZoom`<br>`HasFocusNearLimitInquiry`<br>`HasBacklightCompensation` |
+| `NearusBRC300` | `HasDirectZoom`<br>`HasFocusNearLimitInquiry`<br>`HasBacklightCompensation`<br>`HasSaturationControl` |
+| `GenericVisca` | `HasFocusNearLimitInquiry`<br>`HasOnePushWhiteBalance` |
 
-Raw/custom VISCA command APIs are different. They remain available as escape
-hatches for experiments, unsupported firmware variants, and downstream
-integrations. Raw command availability must not be used to justify a built-in
-typed support marker. `ViscaCommand` describes encoding plus `CommandBehavior`
-response routing; typed custom inquiries add response typing by implementing
-`ResponseParser` and may receive raw payloads with `InquiryResponseSpec::Raw`.
+An iris range in runtime metadata is a discovery fact, not a typed-support
+grant. The registry currently enables typed iris control and targeted iris
+settlement only for PTZOptics G2/G3/30X and Sony FR7, where the shared or
+model-specific command references include the exact control and inquiry. The
+other Sony, EVI, Nearus, and generic profiles retain raw-command escape-hatch
+access but do not claim those typed operations without additional evidence.
+
+Raw/custom request APIs are different. They remain available as escape hatches
+for experiments, unsupported firmware variants, and downstream integrations.
+Raw request availability must not be used to justify a built-in typed support
+marker. Implement `Request` for the wire encoding and semantic class; typed
+custom inquiries additionally implement `Inquiry` and return a
+`ResponseDecoder` for their response type. Keep routing and profile validation
+explicit in those typed request implementations.
 
 ## Adding Or Updating A Profile
 
@@ -183,14 +191,14 @@ feature matrix:
 
 ```sh
 cargo test --test api_stability_test --no-default-features
-cargo test --test api_stability_test --no-default-features --features mode-async
+cargo test --test api_stability_test --no-default-features --features async
 cargo test --no-default-features --lib capabilities::discovery
 cargo test --no-default-features --test feature_detection_tests --test camera_profile_tests --test simple_compile_test
 cargo test --no-default-features --features test-utils --test compile_time_safety_test
 cargo clippy --all-targets --all-features -- -D warnings
 ```
 
-Before merging 1.x contract work, run the declared matrix:
+Before merging 2.0 profile-contract work, run the declared matrix:
 
 ```sh
 bash .github/scripts/test-all-features.sh

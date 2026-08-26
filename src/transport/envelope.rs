@@ -109,6 +109,20 @@ pub struct SonyEncapsulated {
     sequence_counter: Arc<AtomicU32>,
 }
 
+impl RawVisca {
+    /// Returns the immutable addressing mode selected for this envelope.
+    pub(crate) const fn addressing(self) -> AddressingMode {
+        self.addressing
+    }
+}
+
+impl SonyEncapsulated {
+    /// Returns the immutable addressing mode selected for this envelope.
+    pub(crate) const fn addressing(&self) -> AddressingMode {
+        self.addressing
+    }
+}
+
 impl Envelope for RawVisca {
     /// Raw VISCA does not support sequence correlation - responses cannot be
     /// reliably matched to requests when multiple inquiries are in flight.

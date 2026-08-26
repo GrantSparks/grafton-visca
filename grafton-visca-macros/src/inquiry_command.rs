@@ -37,14 +37,8 @@ pub fn derive_visca_inquiry_impl(input: DeriveInput) -> TokenStream {
                 }
             };
 
-            // Determine crate path once for consistency
-            let is_internal_crate =
-                std::env::var("CARGO_CRATE_NAME").unwrap_or_default() == "grafton_visca";
-            let crate_path = if is_internal_crate {
-                quote! { crate }
-            } else {
-                quote! { ::grafton_visca }
-            };
+            // Determine the actual dependency name once for all generated paths.
+            let crate_path = crate::crate_path::grafton_visca();
 
             let byte_value = match attrs.byte_value {
                 Some(byte_value) => byte_value,
@@ -67,7 +61,6 @@ pub fn derive_visca_inquiry_impl(input: DeriveInput) -> TokenStream {
                 return error.to_compile_error();
             }
 
-            let max_size_expr = quote! { 5 };
             let write_into_body = quote! {
                 const LEN: usize = 5;
                 if buffer.len() < LEN {
@@ -121,40 +114,136 @@ pub fn derive_visca_inquiry_impl(input: DeriveInput) -> TokenStream {
                 &parser_info,
             );
 
-            let behavior_expr = if raw_response {
+            let final_inquiry_impl = if raw_response {
                 quote! {
-                    #crate_path::command::CommandBehavior::Inquiry(
-                        #crate_path::command::InquiryResponseSpec::Raw,
-                    )
+                    impl #crate_path::Request for #struct_name {
+                        type Class = #crate_path::request::Inquiry;
+
+                        const MAX_SIZE: usize = 5;
+                        const TIMEOUT_CLASS: #crate_path::TimeoutClass = #crate_path::TimeoutClass::Inquiry;
+                        const RETRY_CLASS: #crate_path::RetryClass = #crate_path::RetryClass::Inquiry;
+                        const CONTROL_CLASS: #crate_path::ControlClass = #crate_path::ControlClass::Normal;
+
+                        fn write_into(
+                            &self,
+                            camera_id: #crate_path::CameraId,
+                            buffer: &mut [u8],
+                        ) -> Result<usize, #crate_path::EncodeError> {
+                            #write_into_body
+                        }
+                    }
+
+                    impl #crate_path::Inquiry for #struct_name {
+                        type Response = #crate_path::command::RawInquiryPayload;
+
+                        fn route(&self) -> #crate_path::InquiryRoute {
+                            #crate_path::InquiryRoute::RAW
+                        }
+
+                        fn decoder(&self) -> #crate_path::ResponseDecoder<Self::Response> {
+                            fn decode(
+                                payload: &[u8],
+                            ) -> Result<#crate_path::command::RawInquiryPayload, #crate_path::Error> {
+                                Ok(#crate_path::command::RawInquiryPayload::from_slice(payload))
+                            }
+                            #crate_path::ResponseDecoder::from_fn(decode)
+                        }
+                    }
+                }
+            } else if let Some(typed_response) = &attrs.typed_response {
+                let response_type = type_spec_tokens(typed_response, &crate_path);
+                quote! {
+                    impl #crate_path::Request for #struct_name {
+                        type Class = #crate_path::request::Inquiry;
+
+                        const MAX_SIZE: usize = 5;
+                        const TIMEOUT_CLASS: #crate_path::TimeoutClass = #crate_path::TimeoutClass::Inquiry;
+                        const RETRY_CLASS: #crate_path::RetryClass = #crate_path::RetryClass::Inquiry;
+                        const CONTROL_CLASS: #crate_path::ControlClass = #crate_path::ControlClass::Normal;
+
+                        fn write_into(
+                            &self,
+                            camera_id: #crate_path::CameraId,
+                            buffer: &mut [u8],
+                        ) -> Result<usize, #crate_path::EncodeError> {
+                            #write_into_body
+                        }
+                    }
+
+                    impl #crate_path::Inquiry for #struct_name {
+                        type Response = #response_type;
+
+                        fn route(&self) -> #crate_path::InquiryRoute {
+                            #crate_path::InquiryRoute::custom(
+                                #crate_path::command::InquiryKind::#response_kind as u16 + 1,
+                            )
+                        }
+
+                        fn decoder(&self) -> #crate_path::ResponseDecoder<Self::Response> {
+                            fn decode(
+                                payload: &[u8],
+                            ) -> Result<#response_type, #crate_path::Error> {
+                                let response = #crate_path::command::parse_inquiry_payload(
+                                    payload,
+                                    &#crate_path::command::InquiryKind::#response_kind,
+                                )?;
+                                <#struct_name as #crate_path::command::ResponseParser>::from_response(
+                                    response,
+                                )
+                            }
+                            #crate_path::ResponseDecoder::from_fn(decode)
+                        }
+                    }
                 }
             } else {
                 quote! {
-                    #crate_path::command::CommandBehavior::Inquiry(
-                        #crate_path::command::InquiryResponseSpec::Builtin(
-                            #crate_path::command::InquiryKind::#response_kind,
-                        ),
-                    )
+                    impl #crate_path::Request for #struct_name {
+                        type Class = #crate_path::request::Inquiry;
+
+                        const MAX_SIZE: usize = 5;
+                        const TIMEOUT_CLASS: #crate_path::TimeoutClass = #crate_path::TimeoutClass::Inquiry;
+                        const RETRY_CLASS: #crate_path::RetryClass = #crate_path::RetryClass::Inquiry;
+                        const CONTROL_CLASS: #crate_path::ControlClass = #crate_path::ControlClass::Normal;
+
+                        fn write_into(
+                            &self,
+                            camera_id: #crate_path::CameraId,
+                            buffer: &mut [u8],
+                        ) -> Result<usize, #crate_path::EncodeError> {
+                            #write_into_body
+                        }
+                    }
+
+                    impl #crate_path::Inquiry for #struct_name {
+                        type Response = #crate_path::command::Response;
+
+                        fn route(&self) -> #crate_path::InquiryRoute {
+                            #crate_path::InquiryRoute::custom(
+                                #crate_path::command::InquiryKind::#response_kind as u16 + 1,
+                            )
+                        }
+
+                        fn decoder(&self) -> #crate_path::ResponseDecoder<Self::Response> {
+                            fn decode(
+                                payload: &[u8],
+                            ) -> Result<#crate_path::command::Response, #crate_path::Error> {
+                                #crate_path::command::parse_inquiry_payload(
+                                    payload,
+                                    &#crate_path::command::InquiryKind::#response_kind,
+                                )
+                            }
+                            #crate_path::ResponseDecoder::from_fn(decode)
+                        }
+                    }
                 }
             };
 
             let expanded = quote! {
-                impl #crate_path::command::ViscaCommand for #struct_name {
-                    const MAX_SIZE: usize = #max_size_expr;
-                    const TIMEOUT_CATEGORY: #crate_path::timeout::CommandCategory = #crate_path::timeout::CommandCategory::Quick;
-
-                    fn write_into(&self, camera_id: #crate_path::CameraId, buffer: &mut [u8]) -> Result<usize, #crate_path::Error> {
-                        #write_into_body
-                    }
-
-                    fn behavior(&self) -> #crate_path::command::CommandBehavior {
-                        #behavior_expr
-                    }
-                }
-
-
                 #parse_response_impl
 
                 #typed_impl
+
+                #final_inquiry_impl
             };
 
             expanded

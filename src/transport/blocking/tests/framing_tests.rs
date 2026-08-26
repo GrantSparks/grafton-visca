@@ -118,6 +118,10 @@ impl BlockingTransport for MockTcp {
         // For testing, just use regular recv_into
         self.recv_into(dst)
     }
+
+    fn addressing_mode_hint(&self) -> Option<crate::transport::AddressingMode> {
+        Some(crate::transport::AddressingMode::Ip)
+    }
 }
 
 #[test]

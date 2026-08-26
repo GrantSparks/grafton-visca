@@ -12,6 +12,7 @@ release_version="${release_tag#v}"
 python3 - "${release_version}" <<'PY'
 import pathlib
 import re
+import os
 import subprocess
 import sys
 import tomllib
@@ -20,7 +21,10 @@ expected = sys.argv[1]
 root = pathlib.Path.cwd()
 
 metadata = subprocess.run(
-    ["cargo", "metadata", "--format-version", "1", "--no-deps", "--locked"],
+    # This is intentionally lockfile-independent.  grafton-visca is a library
+    # workspace and does not track Cargo.lock; the publication workflow creates
+    # an ignored lockfile later, immediately before locked packaging.
+    ["cargo", "metadata", "--format-version", "1", "--no-deps"],
     check=True,
     capture_output=True,
     text=True,
@@ -41,18 +45,6 @@ if macro_dependency != f"={expected}":
         f"{macro_dependency} is not pinned to the tag version ={expected}"
     )
 
-lock = tomllib.loads((root / "Cargo.lock").read_text())
-locked = {
-    package["name"]: package["version"]
-    for package in lock["package"]
-    if package["name"] in {"grafton-visca", "grafton-visca-macros"}
-}
-for name in ("grafton-visca", "grafton-visca-macros"):
-    if locked.get(name) != expected:
-        raise SystemExit(
-            f"Cargo.lock {name} version {locked.get(name)!r} does not match {expected}"
-        )
-
 changelog = (root / "CHANGELOG.md").read_text()
 heading = re.compile(
     rf"^## \[{re.escape(expected)}\] - \d{{4}}-\d{{2}}-\d{{2}}$", re.MULTILINE
@@ -61,6 +53,65 @@ if not heading.search(changelog):
     raise SystemExit(
         f"CHANGELOG.md must contain a dated '## [{expected}] - YYYY-MM-DD' heading"
     )
+
+# Stable 2.x publication requires physical-camera evidence in addition to the
+# software gates above. Candidate tags deliberately remain publishable while
+# their hardware rows are still marked pending; a final tag is not.
+if re.fullmatch(r"2\.\d+\.\d+", expected):
+    checklist = root / os.environ.get(
+        "HARDWARE_CHECKLIST", "docs/hardware_release_checklist.md"
+    )
+    if not checklist.is_file():
+        raise SystemExit(f"missing hardware release checklist: {checklist}")
+
+    incomplete = []
+    nonpassing = []
+    status_column = None
+    checklist_text = checklist.read_text()
+    for line_number, line in enumerate(checklist_text.splitlines(), 1):
+        if "|" not in line:
+            status_column = None
+            continue
+        cells = [cell.strip() for cell in line.split("|")]
+        if "Status" in cells:
+            status_column = cells.index("Status")
+            continue
+        for cell in cells:
+            if (
+                cell.startswith("Pending")
+                or cell in {"Blocked", "Fail"}
+            ):
+                incomplete.append(f"line {line_number}: {cell}")
+        if status_column is not None and status_column < len(cells):
+            status = cells[status_column]
+            if status != "---" and status != "Pass":
+                nonpassing.append(f"line {line_number}: {status or '<empty>'}")
+    if incomplete:
+        sample = "; ".join(incomplete[:5])
+        suffix = "" if len(incomplete) <= 5 else f"; ... ({len(incomplete)} total)"
+        raise SystemExit(
+            "stable 2.x publication requires every hardware/checklist row to "
+            f"have evidence; incomplete rows: {sample}{suffix}"
+        )
+    if nonpassing:
+        sample = "; ".join(nonpassing[:5])
+        suffix = "" if len(nonpassing) <= 5 else f"; ... ({len(nonpassing)} total)"
+        raise SystemExit(
+            "stable 2.x publication requires every hardware/checklist status "
+            f"to be Pass; non-Pass status cells: {sample}{suffix}"
+        )
+
+    signoff = re.search(
+        r"^Final sign-off:\s*(?!Pending\b)(\S.+)$", checklist_text, re.MULTILINE
+    )
+    evidence = re.search(
+        r"^Evidence index:\s*(?!Pending\b)(\S.+)$", checklist_text, re.MULTILINE
+    )
+    if signoff is None or evidence is None:
+        raise SystemExit(
+            "stable 2.x publication requires non-pending 'Final sign-off:' "
+            "and 'Evidence index:' records in docs/hardware_release_checklist.md"
+        )
 PY
 
 if [[ -n "${GITHUB_OUTPUT:-}" ]]; then

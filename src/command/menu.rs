@@ -4,7 +4,7 @@
 //! allowing remote navigation and configuration. These commands are particularly useful
 //! for Sony FR7 and other cameras with comprehensive on-screen menus.
 
-use crate::{command::bytes::ConstCommandBuilder, timeout::CommandCategory, visca_command};
+use crate::{command::bytes::ConstCommandBuilder, visca_command};
 
 visca_command! {
     /// Menu display control command.
@@ -18,7 +18,6 @@ visca_command! {
     prefix = [0x01, 0x06, 0x06];
     param = if *on { 0x02 } else { 0x03 };
     max_param_size = 1;
-    category = CommandCategory::Quick;
 }
 
 impl SetMenuDisplay {
@@ -46,9 +45,8 @@ pub enum MenuDirection {
 }
 
 // Manual implementation for MenuNavigate due to complex direction mapping
-impl crate::command::ViscaCommand for MenuNavigate {
+impl crate::command::encode::WireEncode for MenuNavigate {
     const MAX_SIZE: usize = 9;
-    const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
     fn write_into(
         &self,
@@ -122,7 +120,6 @@ visca_command! {
     prefix = [0x01, 0x06, 0x06];
     param = u8::from(*action);
     max_param_size = 1;
-    category = CommandCategory::Quick;
 }
 
 impl PerformMenuAction {
@@ -148,9 +145,8 @@ pub struct DirectMenuControl {
     pub control2: u8,
 }
 
-impl crate::command::ViscaCommand for DirectMenuControl {
+impl crate::command::encode::WireEncode for DirectMenuControl {
     const MAX_SIZE: usize = 8;
-    const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
     fn write_into(
         &self,

@@ -1,134 +1,85 @@
-//! Blocking quickstart for the high-level camera API.
+//! Blocking quickstart for the owner-backed camera API.
 //!
-//! By default this example is read-only: it connects, queries a few pieces of
-//! state, and exits. Pass `--move` to run a short zoom movement and then stop.
-//!
-//! Run with:
-//! ```sh
-//! cargo run --example quickstart -- 192.168.0.110
-//! cargo run --example quickstart -- 192.168.0.110 --move
-//! ```
+//! The default path only performs inquiries. Pass `--move` to run a short
+//! zoom command followed by an applied STOP.
 
-#[cfg(not(feature = "mode-async"))]
-mod support;
+use std::{env, io, thread::sleep, time::Duration};
 
-#[cfg(not(feature = "mode-async"))]
-mod blocking {
-    use std::{env, io, thread::sleep, time::Duration};
+use grafton_visca::{
+    blocking::Connect,
+    camera::{profiles::PtzOpticsG2, IdleWait},
+    AffectedAxes, Error,
+};
 
-    use grafton_visca::{
-        camera::{profiles::PtzOpticsG2, Connect},
-        Error,
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let (address, move_camera) = arguments()?;
+    let session = Connect::open_tcp::<PtzOpticsG2>(&address)?;
+
+    let result = {
+        let camera = session.camera::<PtzOpticsG2>()?;
+        let power = camera.power().state()?;
+        let zoom = camera.zoom().position()?;
+        println!("Power: {}", if power { "on" } else { "off" });
+        println!("Zoom position: 0x{:04X}", zoom.value());
+
+        if move_camera {
+            let drive = camera.zoom().tele()?;
+            sleep(Duration::from_millis(250));
+            drive.applied()?;
+            camera.zoom().stop()?.applied()?;
+            camera
+                .motion()
+                .wait_until_idle(IdleWait::new(AffectedAxes::ZOOM, Duration::from_secs(2)))?;
+        }
+        Ok::<(), Error>(())
     };
 
-    use super::support::finish_session;
-
-    #[derive(Debug)]
-    struct Args {
-        address: String,
-        move_camera: bool,
-    }
-
-    impl Args {
-        fn parse() -> Result<Self, io::Error> {
-            let mut address = None;
-            let mut move_camera = false;
-
-            for arg in env::args().skip(1) {
-                match arg.as_str() {
-                    "--move" => move_camera = true,
-                    "-h" | "--help" => return Err(io::Error::other(usage())),
-                    _ if arg.starts_with('-') => {
-                        return Err(io::Error::new(
-                            io::ErrorKind::InvalidInput,
-                            format!("unknown option `{arg}`\n{}", usage()),
-                        ));
-                    }
-                    _ if address.is_none() => address = Some(arg),
-                    _ => {
-                        return Err(io::Error::new(
-                            io::ErrorKind::InvalidInput,
-                            format!("unexpected extra argument `{arg}`\n{}", usage()),
-                        ));
-                    }
-                }
-            }
-
-            Ok(Self {
-                address: address
-                    .or_else(|| env::var("VISCA_CAMERA_ADDR").ok())
-                    .unwrap_or_else(|| "192.168.0.110".to_string()),
-                move_camera,
-            })
-        }
-    }
-
-    fn usage() -> &'static str {
-        "usage: cargo run --example quickstart -- [address] [--move]"
-    }
-
-    fn power_label(is_on: bool) -> &'static str {
-        if is_on {
-            "on"
-        } else {
-            "off"
-        }
-    }
-
-    pub fn main() -> Result<(), Box<dyn std::error::Error>> {
-        let _ = tracing_subscriber::fmt::try_init();
-
-        let args = Args::parse()?;
-        println!("Blocking quickstart");
-        println!("Address: {}", args.address);
-
-        let mut camera = Connect::open_tcp_blocking::<PtzOpticsG2>(&args.address)?;
-        let run_result = (|| -> Result<(), Error> {
-            let power = camera.power().state()?;
-            println!("Power: {}", power_label(power));
-
-            let position = camera.zoom().position()?;
-            println!("Zoom position: 0x{:04X}", position.value());
-
-            if args.move_camera {
-                println!("Running short zoom movement.");
-                let start_result = camera.zoom().tele();
-                if start_result.is_ok() {
-                    sleep(Duration::from_millis(250));
-                }
-
-                // Once movement starts, always attempt STOP before propagating
-                // its result or waiting for the axis to become idle.
-                let stop_result = camera.zoom().stop();
-                if start_result.is_err() {
-                    if let Err(error) = &stop_result {
-                        eprintln!("The safety STOP also failed: {error}");
-                    }
-                }
-                start_result?;
-                stop_result?;
-                camera.await_zoom_idle(Duration::from_secs(2))?;
-                println!("Zoom stopped.");
-            } else {
-                println!("No movement requested. Pass --move to run a short zoom command.");
-            }
-
-            Ok(())
-        })();
-        let close_result = camera.close();
-
-        finish_session(run_result, close_result)?;
-        Ok(())
-    }
+    let close = session.close();
+    finish(result, close)?;
+    Ok(())
 }
 
-#[cfg(not(feature = "mode-async"))]
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    blocking::main()
+fn arguments() -> Result<(String, bool), io::Error> {
+    let mut address = None;
+    let mut move_camera = false;
+    for argument in env::args().skip(1) {
+        match argument.as_str() {
+            "--move" => move_camera = true,
+            "-h" | "--help" => {
+                return Err(io::Error::other(
+                    "usage: cargo run --example quickstart -- [address] [--move]",
+                ));
+            }
+            _ if argument.starts_with('-') => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!("unknown option `{argument}`"),
+                ));
+            }
+            _ if address.is_none() => address = Some(argument),
+            _ => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "only one address is accepted",
+                ));
+            }
+        }
+    }
+    Ok((
+        address
+            .or_else(|| env::var("VISCA_CAMERA_ADDR").ok())
+            .unwrap_or_else(|| "192.168.0.110".to_string()),
+        move_camera,
+    ))
 }
 
-#[cfg(feature = "mode-async")]
-fn main() {
-    println!("This example requires blocking mode. Run without async features:");
-    println!("  cargo run --example quickstart -- 192.168.0.110");
+fn finish<T>(operation: Result<T, Error>, close: Result<(), Error>) -> Result<T, Error> {
+    match (operation, close) {
+        (Ok(value), Ok(())) => Ok(value),
+        (Err(error), Ok(())) | (Ok(_), Err(error)) => Err(error),
+        (Err(operation), Err(close)) => {
+            eprintln!("session close also failed: {close}");
+            Err(operation)
+        }
+    }
 }

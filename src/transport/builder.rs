@@ -6,39 +6,46 @@
 //! ## Blocking Transport Builder
 //!
 //! `Transport` and `NetTransportBuilder` are the blocking transport-construction
-//! entry points. For async mode, use either:
-//! - `CameraConfig::transport_config(...)` for high-level configuration, or
-//! - runtime-specific transports plus `CameraBuilder::from_transport(...)` for
-//!   advanced BYO-transport flows.
+//! entry points. For canonical async mode, obtain a runtime-specific transport
+//! and pass it to `Session::open`; `TransportConfig` is shared by both paths.
 //!
 //! ```rust,no_run
 //! # #[cfg(feature = "runtime-tokio")]
-//! use grafton_visca::camera::{CameraConfig, profiles::GenericVisca};
-//! # #[cfg(feature = "runtime-tokio")]
-//! use grafton_visca::runtime::TokioRuntime;
+//! use grafton_visca::{
+//!     profiles::GenericVisca, Runtime, Session, SessionConfig, TokioRuntime,
+//! };
 //! # #[cfg(feature = "runtime-tokio")]
 //! use grafton_visca::transport::{TcpKeepaliveConfig, TransportConfig};
 //!
 //! # #[cfg(feature = "runtime-tokio")]
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! let runtime = TokioRuntime::from_current()?;
-//! let config = CameraConfig::<GenericVisca>::tcp("192.168.0.110:5678")
-//!     .transport_config(TransportConfig {
-//!         tcp_keepalive: Some(TcpKeepaliveConfig::default()),
-//!         ..TransportConfig::default()
-//!     });
-//! let _camera = config.open_async(runtime).await?;
+//! let transport = runtime
+//!     .connect_tcp(
+//!         "192.168.0.110:5678",
+//!         TransportConfig {
+//!             tcp_keepalive: Some(TcpKeepaliveConfig::default()),
+//!             ..TransportConfig::default()
+//!         },
+//!     )
+//!     .await?;
+//! let _session = Session::open(
+//!     transport,
+//!     SessionConfig::from_compile_time::<GenericVisca>()?,
+//!     runtime,
+//! )
+//! .await?;
 //! # Ok(())
 //! # }
 //! ```
 
 use std::{num::NonZeroUsize, time::Duration};
 
-#[cfg(not(feature = "mode-async"))]
+#[cfg(feature = "blocking")]
 use crate::transport::BackoffStrategy;
 use crate::transport::{buffer::BufferConfig, RetryConfig};
 
-#[cfg(not(feature = "mode-async"))]
+#[cfg(feature = "blocking")]
 use crate::Error;
 
 /// Addressing mode for VISCA communication.
@@ -152,7 +159,7 @@ pub struct TransportConfig {
     ///
     /// This value provides a **hard memory/backpressure guarantee** by bounding:
     ///
-    /// 1. **Submission channel capacity**: The channel from `RuntimeHandle` to the
+    /// 1. **Submission channel capacity**: The owner submission channel is
     ///    runtime loop is bounded to this depth. When full, `send_async` calls
     ///    will await rather than buffer unboundedly, providing backpressure to
     ///    bursty producers.
@@ -188,13 +195,13 @@ impl Default for TransportConfig {
 /// Uniform transport API (blocking mode only).
 ///
 /// Provides a clean interface for creating transports without exposing runtime details.
-/// This type is only available in blocking mode. For async mode, use `CameraConfig`
-/// and `Connect` convenience methods instead.
-#[cfg(not(feature = "mode-async"))]
+/// This type is only available in blocking mode. For canonical async mode, use a
+/// runtime-specific transport with `Session::open` instead.
+#[cfg(feature = "blocking")]
 #[derive(Debug, Copy, Clone)]
 pub struct Transport;
 
-#[cfg(not(feature = "mode-async"))]
+#[cfg(feature = "blocking")]
 impl Transport {
     /// Create a TCP transport builder.
     ///
@@ -204,24 +211,13 @@ impl Transport {
     /// use grafton_visca::transport::Transport;
     /// # use std::time::Duration;
     ///
-    /// # #[cfg(not(feature = "mode-async"))]
+    /// # #[cfg(feature = "blocking")]
     /// # fn blocking_example() -> Result<(), Box<dyn std::error::Error>> {
     /// // Building blocking transports
     /// let transport = Transport::tcp()
     ///     .address("192.168.0.110:5678")
     ///     .tcp_nodelay(true)
     ///     .build_blocking()?;
-    /// # Ok(())
-    /// # }
-    ///
-    /// # #[cfg(feature = "runtime-tokio")]
-    /// # async fn async_example() -> Result<(), Box<dyn std::error::Error>> {
-    /// // Building cameras with transport configuration
-    /// use grafton_visca::{camera::{CameraConfig, Connect}, runtime::TokioRuntime};
-    /// use grafton_visca::camera::profiles::GenericVisca;
-    /// let runtime = TokioRuntime::from_current()?;
-    /// // Use convenience method for quick setup
-    /// let session = Connect::open_tcp_async::<GenericVisca, _>("192.168.0.110:5678", runtime).await?;
     /// # Ok(())
     /// # }
     /// ```
@@ -237,24 +233,13 @@ impl Transport {
     /// use grafton_visca::transport::Transport;
     /// # use std::time::Duration;
     ///
-    /// # #[cfg(not(feature = "mode-async"))]
+    /// # #[cfg(feature = "blocking")]
     /// # fn blocking_example() -> Result<(), Box<dyn std::error::Error>> {
     /// // Building blocking transports
     /// let transport = Transport::udp()
     ///     .address("192.168.0.110:5678")
     ///     .max_retries(5)
     ///     .build_blocking()?;
-    /// # Ok(())
-    /// # }
-    ///
-    /// # #[cfg(feature = "runtime-tokio")]
-    /// # async fn async_example() -> Result<(), Box<dyn std::error::Error>> {
-    /// // Building cameras with transport configuration
-    /// use grafton_visca::{camera::{CameraConfig, Connect}, runtime::TokioRuntime};
-    /// use grafton_visca::camera::profiles::GenericVisca;
-    /// let runtime = TokioRuntime::from_current()?;
-    /// // Use convenience method for quick setup
-    /// let session = Connect::open_udp_async::<GenericVisca, _>("192.168.0.110:1259", runtime).await?;
     /// # Ok(())
     /// # }
     /// ```
@@ -266,17 +251,17 @@ impl Transport {
 /// Unified transport builder for blocking transports.
 ///
 /// This builder provides `.build_blocking()` to create blocking transport instances.
-/// This type is only available in blocking mode. For async mode, use `CameraConfig`
-/// and `Connect` convenience methods instead.
+/// This type is only available in blocking mode. For canonical async mode, use a
+/// runtime-specific transport with `Session::open` instead.
 ///
 /// # Example
 ///
 /// ```rust,no_run
-/// # #[cfg(not(feature = "mode-async"))]
+/// # #[cfg(feature = "blocking")]
 /// use grafton_visca::transport::NetTransportBuilder;
 /// # use std::time::Duration;
 ///
-/// # #[cfg(not(feature = "mode-async"))]
+/// # #[cfg(feature = "blocking")]
 /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// // Building blocking transports
 /// let blocking_transport = NetTransportBuilder::tcp()
@@ -286,7 +271,7 @@ impl Transport {
 /// # Ok(())
 /// # }
 /// ```
-#[cfg(not(feature = "mode-async"))]
+#[cfg(feature = "blocking")]
 #[derive(Debug, Clone)]
 pub struct NetTransportBuilder {
     protocol: Protocol,
@@ -294,14 +279,14 @@ pub struct NetTransportBuilder {
     config: TransportConfig,
 }
 
-#[cfg(not(feature = "mode-async"))]
+#[cfg(feature = "blocking")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Protocol {
     Tcp,
     Udp,
 }
 
-#[cfg(not(feature = "mode-async"))]
+#[cfg(feature = "blocking")]
 impl NetTransportBuilder {
     /// Create a new TCP transport builder.
     pub fn tcp() -> Self {
@@ -488,7 +473,7 @@ impl NetTransportBuilder {
     /// - Connection fails
     /// - Socket configuration fails
     /// - Async features are enabled without blocking support
-    #[cfg(not(feature = "mode-async"))]
+    #[cfg(feature = "blocking")]
     pub fn build_blocking(self) -> Result<crate::transport::BlockingTransportHandle, Error> {
         let address = self.address.ok_or_else(|| Error::InvalidParameter {
             parameter: "address",
@@ -514,27 +499,27 @@ impl NetTransportBuilder {
 /// Extension trait for creating transports with a builder pattern.
 ///
 /// This trait is only available in blocking mode.
-#[cfg(not(feature = "mode-async"))]
+#[cfg(feature = "blocking")]
 pub trait TransportBuilderExt: Sized {
     /// Create a builder for this transport type.
     fn builder() -> NetTransportBuilder;
 }
 
-#[cfg(not(feature = "mode-async"))]
+#[cfg(feature = "blocking")]
 impl TransportBuilderExt for crate::transport::blocking::Tcp {
     fn builder() -> NetTransportBuilder {
         NetTransportBuilder::tcp()
     }
 }
 
-#[cfg(not(feature = "mode-async"))]
+#[cfg(feature = "blocking")]
 impl TransportBuilderExt for crate::transport::blocking::Udp {
     fn builder() -> NetTransportBuilder {
         NetTransportBuilder::udp()
     }
 }
 
-#[cfg(all(test, not(feature = "mode-async")))]
+#[cfg(all(test, feature = "blocking"))]
 #[allow(clippy::expect_used)]
 mod tests {
     use super::*;

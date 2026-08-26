@@ -24,7 +24,7 @@ pub struct RawInquiryPayload {
 impl RawInquiryPayload {
     /// Create a raw inquiry payload by copying bytes into inline-backed storage.
     #[inline]
-    pub(crate) fn from_slice(payload: &[u8]) -> Self {
+    pub fn from_slice(payload: &[u8]) -> Self {
         Self {
             bytes: SmallVec::from_slice(payload),
         }

@@ -111,7 +111,7 @@ fn test_error_code_round_trip() {
     }
 }
 
-#[cfg(feature = "mode-async")]
+#[cfg(feature = "async")]
 #[test]
 fn test_internal_external_error_consistency() {
     // Test that the public Error type handles all VISCA error codes consistently

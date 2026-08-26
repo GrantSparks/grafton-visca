@@ -1,8 +1,12 @@
 [workspace]
-members = [".", "grafton-visca-macros"]
+members = [
+    ".",
+    "grafton-visca-macros",
+    "tests/fixtures/phase4_renamed",
+]
 
 [workspace.package]
-version = "1.2.0"
+version = "2.0.0-rc.1"
 authors = ["Grant Sparks <grant@grafton.ai>"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/GrantSparks/grafton-visca"
@@ -36,17 +40,24 @@ exclude = [
 readme = "README.md"
 
 [features]
-default = []
-# Mode selection: enable mode-async for async API, omit it for blocking API.
-# The blocking API is the default when mode-async is not enabled.
-mode-async = ["dep:futures-lite", "dep:async-lock"]
+# The owner-backed blocking facade and standard TCP transport are the default.
+# Async is independently selectable, so applications may opt into either
+# facade or both together.
+default = ["blocking", "tcp"]
+blocking = []
+# Standard TCP is part of the default transport set. It remains a marker
+# feature so downstream manifests can opt into the same topology explicitly.
+tcp = []
+# Runtime-agnostic async support. Runtime features add their adapter while
+# applications may also enable the independent blocking facade.
+async = ["dep:futures-lite", "dep:async-lock"]
 
-# Runtime features and compatibility aliases (each implies mode-async)
-runtime-tokio = ["mode-async", "dep:tokio"]
-runtime-smol = ["mode-async", "dep:smol", "dep:async-executor", "dep:async-io"]
+# Runtime features imply the canonical async facade.
+runtime-tokio = ["async", "dep:tokio"]
+runtime-smol = ["async", "dep:smol", "dep:async-executor", "dep:async-io"]
 
 # Transport features
-transport-serial = ["dep:serialport"]
+transport-serial = ["blocking", "dep:serialport"]
 transport-serial-tokio = ["dep:tokio-serial", "runtime-tokio"]
 
 # Serialization features
@@ -55,17 +66,16 @@ schemars = ["serde", "dep:schemars"]
 ts-rs = ["serde", "dep:ts-rs"]
 
 # Dynamic trait object API with per-operation timeout support
-dyn-api = ["mode-async"]
+dyn-api = ["async"]
 
 # Internal features
 test-utils = ["dep:async-executor", "dep:futures-lite"]
-DISABLED = []
 
 [dependencies]
 bytes = "1.11"
 flume = "0.12"
 smallvec = "1.15"
-grafton-visca-macros = { path = "grafton-visca-macros", version = "=1.2.0" }
+grafton-visca-macros = { path = "grafton-visca-macros", version = "=2.0.0-rc.1" }
 tracing = "0.1"
 nom = "8.0.0"
 serde = { version = "1.0", features = ["derive"], optional = true }
@@ -103,9 +113,11 @@ async-io = "2.6"
 async-executor = "1.14"
 futures-lite = "2.6"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+proptest = "1.11.0"
 
 [[example]]
 name = "quickstart"
+required-features = ["blocking"]
 
 [[example]]
 name = "quickstart_async"
@@ -113,6 +125,7 @@ required-features = ["runtime-tokio"]
 
 [[example]]
 name = "operation_handles"
+required-features = ["blocking"]
 
 [[example]]
 name = "operation_handles_async"
@@ -120,12 +133,15 @@ required-features = ["runtime-tokio"]
 
 [[example]]
 name = "transports"
+required-features = ["blocking"]
 
 [[example]]
 name = "builder_api"
+required-features = ["blocking"]
 
 [[example]]
 name = "inquiry_quickstart"
+required-features = ["blocking"]
 
 [[example]]
 name = "concurrent_control"
@@ -137,13 +153,14 @@ required-features = ["runtime-tokio"]
 
 [[example]]
 name = "preset_demo"
+required-features = ["blocking"]
 
 [[example]]
 name = "type_safe_commands"
 
 [[example]]
 name = "runtime_agnostic"
-required-features = ["mode-async"]
+required-features = ["async"]
 
 [[example]]
 name = "sony_encapsulation"
@@ -160,9 +177,11 @@ required-features = ["runtime-tokio"]
 
 [[example]]
 name = "typed_inquiry_demo"
+required-features = ["blocking"]
 
 [[example]]
 name = "transport_builder_demo"
+required-features = ["blocking"]
 
 [[example]]
 name = "validate_inquiries"

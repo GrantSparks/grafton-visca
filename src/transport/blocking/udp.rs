@@ -125,6 +125,10 @@ impl BlockingTransport for Udp {
         }
     }
 
+    fn addressing_mode_hint(&self) -> Option<AddressingMode> {
+        Some(AddressingMode::Ip)
+    }
+
     fn send_semantics(&self) -> SendSemantics {
         // UDP sends are atomic at the datagram boundary - a failed send
         // does not affect the state for subsequent sends

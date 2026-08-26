@@ -30,13 +30,13 @@ Before contributing, please:
 git clone https://github.com/YOUR_USERNAME/grafton-visca.git
 cd grafton-visca
 
-# Run the declared 1.x support matrix
+# Run the declared 2.0 release-candidate support matrix
 bash .github/scripts/test-all-features.sh
 
 # Or run individual matrix entries while iterating
 cargo test
 cargo test --no-default-features
-cargo test --no-default-features --features mode-async
+cargo test --no-default-features --features async
 cargo test --no-default-features --features runtime-tokio
 cargo test --no-default-features --features runtime-smol
 cargo check --no-default-features --features runtime-tokio,runtime-smol
@@ -49,7 +49,7 @@ cargo test --no-default-features --features runtime-smol,test-utils
 cargo test --no-default-features --features runtime-tokio,dyn-api,test-utils --test dyn_api_integration_test
 cargo test --no-default-features --features runtime-smol,dyn-api,test-utils --test dyn_api_smol_integration_test
 
-# Compatibility-only checks for feature unions that may appear downstream
+# Feature-union checks for combinations that may appear downstream
 cargo test --no-default-features --features runtime-tokio,transport-serial
 cargo test --no-default-features --features runtime-smol,dyn-api
 
@@ -119,53 +119,66 @@ Example safety documentation:
 
 When implementing new VISCA commands:
 
-### 1. Use CommandBuilder for Safe Encoding
+The owner-facing API is built from the typed `Request`, `Inquiry`, and
+`OperationCommand` contracts. Custom wire values should implement `Request`
+directly; the protocol encoder is an internal implementation detail and does
+not by itself select a completion class or lifecycle. Keep new semantic
+classifications in the authoritative request/command ledger.
 
-The `CommandBuilder` pattern ensures type-safe, zero-allocation command construction:
+### 1. Use a typed Request for Safe Encoding
+
+Typed `Request` implementations make semantic admission explicit while keeping
+wire encoding bounded and allocation-free:
 
 ```rust
-use crate::command::bytes::{ConstCommandBuilder, constants};
+use grafton_visca::{CameraId, Request};
 
-impl ViscaCommand for MyCommand {
+impl Request for MyCommand {
+    type Class = grafton_visca::request::Plain;
+    const MAX_SIZE: usize = 8;
+    const TIMEOUT_CLASS: grafton_visca::TimeoutClass = grafton_visca::TimeoutClass::Quick;
+    const RETRY_CLASS: grafton_visca::RetryClass = grafton_visca::RetryClass::Standard;
+    const CONTROL_CLASS: grafton_visca::ControlClass = grafton_visca::ControlClass::Normal;
+
     fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
-        let builder = ConstCommandBuilder::<8>::new()
-            .append(constants::COMMAND_PREFIX)
-            .append_u16(self.value)
-            .with_camera_id(camera_id)
-            .terminate();
-
-        builder.build_into(buffer)
+        // Encode the complete terminated VISCA frame into `buffer`.
+        let _ = (camera_id, buffer);
+        todo!("encode MyCommand with the bounded command-byte helpers")
     }
 }
 ```
 
 ### 2. Define Proper Buffer Sizes
 
-Each command must define its maximum size:
-
-```rust
-impl MyCommand {
-    /// Maximum size includes all bytes plus VISCA_TERMINATOR
-    pub const MAX_SIZE: usize = 8;
-}
-```
+Each request declares `Request::MAX_SIZE`; it includes every byte through the
+final `VISCA_TERMINATOR`.
 
 ### 3. Implement Inquiry Pattern
 
-For inquiry commands, follow the established pattern:
+For inquiry commands, implement `Request<Class = request::Inquiry>` and
+`Inquiry`:
 
 ```rust
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MyInquiry;
 
-impl ViscaCommand for MyInquiry {
-    fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
-        // Use CommandBuilder for safe construction
-    }
+impl Request for MyInquiry {
+    type Class = request::Inquiry;
+    const MAX_SIZE: usize = 5;
+    const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Inquiry;
+    const RETRY_CLASS: RetryClass = RetryClass::Inquiry;
+    const CONTROL_CLASS: ControlClass = ControlClass::Normal;
 
-    fn behavior(&self) -> CommandBehavior {
-        CommandBehavior::Inquiry(InquiryResponseSpec::Builtin(InquiryKind::MyInquiry))
+    fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
+        // Use the bounded command-byte helpers for safe construction
     }
+}
+
+impl Inquiry for MyInquiry {
+    type Response = MyResponse;
+
+    fn route(&self) -> InquiryRoute { /* select the response route */ }
+    fn decoder(&self) -> ResponseDecoder<Self::Response> { /* decode response */ }
 }
 ```
 
@@ -231,7 +244,7 @@ tests for maintained patterns.
 # Default test suite
 cargo test
 
-# Declared 1.x runtime and transport feature combinations
+# Declared 2.0 runtime and transport feature combinations
 bash .github/scripts/test-all-features.sh
 cargo test
 cargo test --no-default-features --features runtime-tokio
@@ -242,7 +255,7 @@ cargo test --no-default-features --features runtime-tokio,transport-serial-tokio
 cargo test --no-default-features --features runtime-tokio,dyn-api,test-utils --test dyn_api_integration_test
 cargo test --no-default-features --features runtime-smol,dyn-api,test-utils --test dyn_api_smol_integration_test
 
-# Compatibility-only feature-union checks
+# Feature-union checks
 cargo test --no-default-features --features runtime-tokio,transport-serial
 cargo test --no-default-features --features runtime-smol,dyn-api
 
@@ -255,7 +268,7 @@ cargo test -- --nocapture
 
 ## Documentation
 
-For 1.x milestone work, update the Unreleased section of `CHANGELOG.md` in the
+For 2.0 release-candidate work, update the Unreleased section of `CHANGELOG.md` in the
 same change as the implementation. If behavior, setup, examples, or contributor
 workflow changes, update the matching README, example, or contributor docs
 before closing the task. `submit` examples must distinguish lifecycle management
@@ -276,12 +289,11 @@ from profile-aware input validation and applied completion from physical settlin
 /// # Examples
 ///
 /// ```no_run
-/// # use std::time::Duration;
-/// # use grafton_visca::{camera::Connect, command::PanTilt, profiles::PtzOpticsG2};
-/// let camera = Connect::open_tcp_blocking::<PtzOpticsG2>("192.168.0.110")?;
-/// camera.submit(&PanTilt::Home)?
-///     .await_settled(Duration::from_secs(20))?;
-/// camera.close()?;
+/// # use grafton_visca::{blocking::Connect, camera::profiles::PtzOpticsG2};
+/// let session = Connect::open_tcp::<PtzOpticsG2>("192.168.0.110")?;
+/// let camera = session.camera::<PtzOpticsG2>()?;
+/// camera.pan_tilt().home()?.settled()?;
+/// session.close()?;
 /// # Ok::<(), grafton_visca::Error>(())
 /// ```
 ///
@@ -324,12 +336,13 @@ from profile-aware input validation and applied completion from physical settlin
 
 ## Release Process
 
-Releases use a two-crate publish sequence because the main crate depends on the
-same-version `grafton-visca-macros` package. Follow [RELEASING.md](RELEASING.md)
-for version selection, changelog finalization, validation, tagging, crates.io
-index verification, and recovery if the macro package publishes but the main
-package does not. Never create a release tag from a commit that has not passed
-both semver surfaces and the complete 1.x matrix on a pull request.
+Releases use a two-crate prerelease/final publish sequence because the main crate
+depends on the same-version `grafton-visca-macros` package. Follow
+[RELEASING.md](RELEASING.md) for `2.0.0-rc.1` versioning, changelog
+finalization, validation, tagging, crates.io index verification, and recovery if
+the macro package publishes but the main package does not. Never create a
+release tag from a commit that has not passed both semver surfaces and the
+complete 2.0 matrix on a pull request.
 
 ## Feature Flags
 

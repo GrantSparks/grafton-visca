@@ -4,9 +4,8 @@
 //! `PtzOptics` G2 cameras support up to 128 presets (0-127).
 
 use crate::{
-    command::{bytes::builder::ConstCommandBuilder, encode::ViscaCommand},
+    command::{bytes::builder::ConstCommandBuilder, encode::WireEncode},
     error::Error,
-    timeout::CommandCategory,
 };
 
 /// Action to perform on a preset.
@@ -57,14 +56,20 @@ crate::visca_range_type! {
 /// This controls how fast the camera moves when recalling a preset position.
 /// **Vendor-Specific**: PTZOptics cameras only.
 #[derive(Debug, Copy, Clone)]
-pub(crate) struct PresetRecallSpeedCommand {
+pub struct PresetRecallSpeedCommand {
     /// The recall speed to set.
     pub speed: PresetRecallSpeed,
 }
 
-impl ViscaCommand for PresetRecallSpeedCommand {
+impl PresetRecallSpeedCommand {
+    /// Create a command that sets the preset-recall speed.
+    pub const fn new(speed: PresetRecallSpeed) -> Self {
+        Self { speed }
+    }
+}
+
+impl WireEncode for PresetRecallSpeedCommand {
     const MAX_SIZE: usize = 6;
-    const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
 
     fn write_into(
         &self,
@@ -92,18 +97,8 @@ pub(crate) struct PresetCommand {
 
 impl PresetCommand {}
 
-impl ViscaCommand for PresetCommand {
+impl WireEncode for PresetCommand {
     const MAX_SIZE: usize = 7;
-    const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Preset;
-
-    fn operation_metadata(&self) -> Option<crate::camera::OperationMetadata> {
-        use crate::camera::{Axes, OperationMetadata};
-
-        Some(match self.action {
-            PresetAction::Recall => OperationMetadata::targeted(Axes::ALL),
-            PresetAction::Reset | PresetAction::Set => OperationMetadata::applied_only(Axes::NONE),
-        })
-    }
 
     fn write_into(
         &self,
@@ -124,9 +119,7 @@ impl ViscaCommand for PresetCommand {
 #[cfg(test)]
 #[allow(clippy::panic)]
 mod tests {
-    use crate::{
-        command::bytes::VISCA_TERMINATOR, macros::test_utils::visca_test, timeout::CommandTimeout,
-    };
+    use crate::{command::bytes::VISCA_TERMINATOR, macros::test_utils::visca_test};
 
     use super::*;
 
@@ -196,26 +189,6 @@ mod tests {
         },
         &[0x81, 0x01, 0x04, 0x3F, 0x02, 0x59, VISCA_TERMINATOR]
     );
-
-    #[test]
-    fn test_preset_timeout_kind() {
-        let cmd = PresetCommand {
-            action: PresetAction::Recall,
-            preset_number: PresetNumber::new(0)
-                .unwrap_or_else(|e| panic!("Valid preset number: {e:?}")),
-        };
-        assert_eq!(cmd.timeout_class(), CommandCategory::Preset);
-    }
-
-    #[test]
-    fn test_preset_command_response_type() {
-        let cmd = PresetCommand {
-            action: PresetAction::Set,
-            preset_number: PresetNumber::new(0)
-                .unwrap_or_else(|e| panic!("Valid preset number: {e:?}")),
-        };
-        assert!(cmd.behavior().command_kind() == crate::command::CommandKind::Command);
-    }
 
     #[test]
     fn test_preset_recall_speed_valid_range() {

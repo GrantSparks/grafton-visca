@@ -5,8 +5,8 @@
 
 use crate::{
     transport::{
-        async_io::AsyncDatagram, builder::TransportConfig, AsyncTransport, HasTransportConfig,
-        SendSemantics,
+        async_io::AsyncDatagram, builder::TransportConfig, AddressingMode, AsyncTransport,
+        HasTransportConfig, SendSemantics,
     },
     Error,
 };
@@ -47,6 +47,10 @@ impl<S: AsyncDatagram> AsyncTransport for Udp<S> {
         // Receive data directly into the provided buffer
         let n = self.socket.recv(dst).await?;
         Ok(n)
+    }
+
+    fn addressing_mode_hint(&self) -> Option<AddressingMode> {
+        Some(AddressingMode::Ip)
     }
 
     fn send_semantics(&self) -> SendSemantics {

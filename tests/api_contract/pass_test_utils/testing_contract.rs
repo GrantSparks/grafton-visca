@@ -2,10 +2,10 @@ use std::time::Duration;
 
 use grafton_visca::testing::testkit::{helpers, Step};
 
-#[cfg(not(feature = "mode-async"))]
+#[cfg(feature = "blocking")]
 use grafton_visca::testing::testkit::ScriptedBlockingTransport;
 
-#[cfg(feature = "mode-async")]
+#[cfg(feature = "async")]
 use grafton_visca::testing::testkit::ScriptedTransport;
 
 fn main() {
@@ -18,14 +18,14 @@ fn main() {
         responses: vec![helpers::complete(1)],
     };
 
-    #[cfg(not(feature = "mode-async"))]
+    #[cfg(feature = "blocking")]
     {
-        let transport = ScriptedBlockingTransport::new(vec![step]);
+        let transport = ScriptedBlockingTransport::new(vec![step.clone()]);
         transport.add_response(helpers::complete(1));
         let _: Vec<Vec<u8>> = transport.sent();
     }
 
-    #[cfg(feature = "mode-async")]
+    #[cfg(feature = "async")]
     {
         let transport = ScriptedTransport::<()>::new(vec![step]);
         transport.add_response(helpers::complete(1));

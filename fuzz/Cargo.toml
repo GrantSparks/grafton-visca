@@ -1,0 +1,21 @@
+[package]
+name = "grafton-visca-fuzz"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+grafton-visca = { path = "..", default-features = false }
+libfuzzer-sys = "0.4"
+
+[[bin]]
+name = "response_parser"
+path = "fuzz_targets/response_parser.rs"
+test = false
+doc = false
+bench = false
+
+[workspace]

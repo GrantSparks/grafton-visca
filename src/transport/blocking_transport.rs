@@ -7,7 +7,7 @@ use core::time::Duration;
 
 use crate::{
     command::CommandKind,
-    transport::{builder::TransportConfig, SendSemantics},
+    transport::{builder::TransportConfig, AddressingMode, SendSemantics},
     Error,
 };
 
@@ -28,7 +28,7 @@ use crate::{
 ///     Tcp::connect_with_config("192.168.0.110:5678", Default::default())?
 /// );
 /// ```
-#[cfg(not(feature = "mode-async"))]
+#[cfg(feature = "blocking")]
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum BlockingTransportHandle {
@@ -41,7 +41,7 @@ pub enum BlockingTransportHandle {
     Serial(crate::transport::serial_blocking::SerialTransport),
 }
 
-#[cfg(not(feature = "mode-async"))]
+#[cfg(feature = "blocking")]
 impl BlockingTransport for BlockingTransportHandle {
     fn send_with_kind(&mut self, bytes: &[u8], kind: CommandKind) -> Result<(), Error> {
         match self {
@@ -80,6 +80,15 @@ impl BlockingTransport for BlockingTransportHandle {
         }
     }
 
+    fn addressing_mode_hint(&self) -> Option<AddressingMode> {
+        match self {
+            BlockingTransportHandle::Tcp(transport) => transport.addressing_mode_hint(),
+            BlockingTransportHandle::Udp(transport) => transport.addressing_mode_hint(),
+            #[cfg(feature = "transport-serial")]
+            BlockingTransportHandle::Serial(transport) => transport.addressing_mode_hint(),
+        }
+    }
+
     fn send_semantics(&self) -> SendSemantics {
         match self {
             BlockingTransportHandle::Tcp(transport) => transport.send_semantics(),
@@ -90,7 +99,7 @@ impl BlockingTransport for BlockingTransportHandle {
     }
 }
 
-#[cfg(not(feature = "mode-async"))]
+#[cfg(feature = "blocking")]
 impl HasTransportConfig for BlockingTransportHandle {
     fn transport_config(&self) -> &TransportConfig {
         match self {
@@ -192,6 +201,18 @@ pub trait BlockingTransport: Send {
     fn recv_into_with_timeout(&mut self, dst: &mut [u8], timeout: Duration)
         -> Result<usize, Error>;
 
+    /// Return a side-effect-free hint for the transport's VISCA addressing mode.
+    ///
+    /// Multi-target sessions require an explicit [`AddressingMode::Serial`]
+    /// declaration because serial replies carry a camera source while IP
+    /// replies do not. Custom transports default to `None`, which conservatively
+    /// rejects multi-target startup before configuration is read. Single-target
+    /// sessions do not require a hint. The hint only authorizes preflight;
+    /// `TransportConfig::addressing` remains the runtime's framing source.
+    fn addressing_mode_hint(&self) -> Option<AddressingMode> {
+        None
+    }
+
     /// Query the transport's send semantics.
     ///
     /// This method returns whether the transport uses stream or datagram semantics,
@@ -234,8 +255,10 @@ pub trait HasTransportConfig {
     fn transport_config(&self) -> &TransportConfig;
 
     /// Return the standard transport kind when this is a built-in TCP, UDP, or
-    /// serial transport. Custom transports leave this as `None` so advanced
-    /// BYO paths remain explicit unchecked escape hatches.
+    /// serial transport. Custom transports leave this as `None` so profile
+    /// compatibility remains an explicit BYO escape hatch. Multi-target
+    /// routing additionally requires an explicit serial
+    /// [`BlockingTransport::addressing_mode_hint`] implementation.
     fn standard_transport_kind(&self) -> Option<crate::camera::TransportKind> {
         None
     }

@@ -9,22 +9,22 @@ Procedural macros for the grafton-visca crate, providing derive macros to elimin
 ## Overview
 
 This crate provides three downstream derive macros for type-safe VISCA protocol
-implementations and one attribute macro used internally by the main crate:
+implementations:
 
 - **`ViscaInquiry`** - Generate inquiry command implementations with parser support
 - **`ViscaEnum`** - Automatic enum/u8 conversions for protocol values
 - **`ViscaValue`** - Value wrapper types with VISCA encoding
-- **`delegate_to_session`** - Internal main-crate maintenance macro that generates `CameraSession` forwarding implementations
 
 ## ViscaInquiry
 
-Generates complete `ViscaCommand` implementations for inquiry commands, including exact-size,
-zero-allocation `write_into` encoding and optional response parsing.
+Generates typed `Request` and `Inquiry` implementations for inquiry commands,
+including exact-size, zero-allocation `write_into` encoding and optional response
+parsing.
 
 ### Basic Usage
 
 ```rust
-use grafton_visca::{command::ViscaCommand, CameraId, ViscaInquiry};
+use grafton_visca::{CameraId, Request, ViscaInquiry};
 
 #[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(opcode = 0x00, response = Power, parser = Bool)]
@@ -35,7 +35,7 @@ pub struct PowerInquiry;
 #[visca(opcode = 0x12, subcode = 0x06, response = PanTiltPosition, parser = PanTilt)]
 pub struct PanTiltPositionInquiry;
 
-let mut buffer = [0u8; PowerInquiry::MAX_SIZE];
+let mut buffer = [0u8; <PowerInquiry as Request>::MAX_SIZE];
 let len = PowerInquiry
     .write_into(CameraId::CAMERA_1, &mut buffer)
     .expect("inquiry should encode");
@@ -48,10 +48,9 @@ assert_eq!(
 ### Generated Code
 
 The macro generates:
-- `ViscaCommand` trait implementation
+- `Request` and `Inquiry` trait implementations
 - exact `MAX_SIZE`
 - `write_into()` for caller-provided buffers
-- `behavior()` returning built-in or raw inquiry response routing metadata
 - `parse_response()` method when parser is specified
 - `ResponseParser` implementation when typed response attributes are specified
 
@@ -134,30 +133,8 @@ The macro generates methods for:
 - Validation of value ranges
 - VISCA protocol encoding
 
-## delegate_to_session
-
-This attribute macro is an implementation tool for the matching
-`grafton-visca` source tree. It auto-generates `CameraSession` forwarding
-implementations for the main crate's control traits. It is public only because
-procedural macros cannot be scoped crate-private; downstream applications should
-not build APIs around it.
-
-### Usage
-
-```rust
-use grafton_visca_macros::delegate_to_session;
-
-#[delegate_to_session]
-pub trait ZoomControl {
-    type Mode: Mode;
-
-    fn zoom_stop(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
-    fn zoom_tele_std(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
-    // ... more methods
-}
-```
-
-The macro generates forwarding implementations that delegate from `CameraSession` to the inner `Camera` instance with proper error handling.
+Use the derive macros above with the typed request contracts documented by the
+main crate. There is no forwarding attribute or mode-specific generated API.
 
 ## Integration with grafton-visca
 
@@ -234,8 +211,8 @@ users must use matching versions:
 
 ```toml
 [dependencies]
-grafton-visca = "=1.2.0"
-grafton-visca-macros = "=1.2.0"
+grafton-visca = "=2.0.0-rc.1"
+grafton-visca-macros = "=2.0.0-rc.1"
 ```
 
 During a release, this macro crate is published and indexed before the
