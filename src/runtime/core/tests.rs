@@ -3758,9 +3758,11 @@ fn test_cancel_requested_before_ack_emits_send_cancel_on_ack() {
     );
     match &actions[0] {
         SchedulerAction::SendCancel {
+            id,
             camera_id: cam,
             socket,
         } => {
+            assert_eq!(*id, cmd_id(1), "Cancel should name the targeted command");
             assert_eq!(*cam, camera_id, "Camera ID should match");
             assert_eq!(*socket, ViscaSocket::S1, "Socket should be S1");
         }

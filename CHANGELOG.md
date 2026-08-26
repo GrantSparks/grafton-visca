@@ -22,6 +22,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   explanation, since they hang. A bare `mode-async,test-utils` cell was added to
   the CI feature matrix so runtime-free async test files cannot rot unnoticed
   again (#591).
+- Deferred cancels in the async runtime no longer abort an unrelated command.
+  The cancel outbox now records which command each queued cancel targets, and a
+  cancel is dropped if the command has completed or the camera has reassigned
+  its VISCA socket before the frame is sent (#574).
 
 ## [1.1.0] - 2026-08-25
 
