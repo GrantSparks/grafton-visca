@@ -20,8 +20,8 @@ on:
   push:
     branches: ["main", "feature/*"]
     tags: ["v*"]
+  # no base-branch filter: stacked PRs (feature-branch bases) must run CI too
   pull_request:
-    branches: ["main"]
   workflow_dispatch:
 
 concurrency:
@@ -285,6 +285,9 @@ jobs:
           - "runtime-tokio"
           - "runtime-smol"
           - "test-utils"
+          # Runtime-free async test surface: builds the cfg-gated test files that
+          # every runtime cell excludes, so they cannot silently rot.
+          - "mode-async,test-utils"
           - "runtime-tokio,test-utils"
           - "runtime-smol,test-utils"
           - "transport-serial"
