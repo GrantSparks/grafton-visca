@@ -1005,7 +1005,6 @@ impl SchedulerCore {
     }
 
     /// Set the timeout configuration.
-    #[cfg(not(feature = "mode-async"))]
     pub fn set_timeout_config(&mut self, timeout_config: TimeoutConfig) {
         self.timeout_config = timeout_config;
     }
