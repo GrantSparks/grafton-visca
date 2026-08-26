@@ -17,6 +17,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   emergency/safety lane. The scheduler orders queued work by `Ord` alone, so the
   upper two levels need no new scheduling code. `runtime::testing::Priority`
   keeps working and is now available in blocking `test-utils` builds too.
+- Cameras can now submit at a chosen `runtime::Priority` (#589). `Camera` gained
+  `set_command_priority` / `command_priority` (mirrored on `BlockingClient`),
+  which set the priority every command from that handle is queued at, and
+  `execute_with_priority`, which raises a single command without changing the
+  handle default — the form an emergency stop needs on a camera shared behind an
+  `Arc`. Previously every camera call site submitted at `Normal` and the blocking
+  runner hard-coded `Normal`, so `High` and `Critical` were unreachable from the
+  public API. The default is unchanged (`Normal`), inquiries keep the scheduler's
+  own polling priority, and priority only decides which **queued** command is
+  dispatched next: it never interrupts or reorders a command already sent.
 - `CameraSession::into_inner()` on async sessions. `Connect::open_tcp_async()`
   and its siblings return a session, while `IntoDynCamera` is implemented for the
   owned `Camera`, so users of the convenience helpers could not reach
@@ -95,6 +105,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `runtime_resilient_to_timeout_errors_between_commands`. The orphan
   `src/testing/testkit/deterministic_executor_test.rs`, never declared as a
   module, is removed (#600).
+- Replies from serial-chain addresses 2-7 are no longer rejected by the response
+  decoder (#590). A VISCA device at address *n* answers with the high nibble
+  `8 + n`, so camera 1 replies `0x90` and camera 7 replies `0xF0`; the decoder
+  accepted only `0x9y`, and every ACK, completion, error, and data reply from
+  the rest of a daisy chain was dropped as malformed, leaving those commands to
+  time out. The full `0x90`-`0xFy` reply range is now decoded, the source
+  address is carried through as a `CameraId`, and reply correlation uses it: on
+  a transport carrying more than one camera a reply resolves against the sending
+  camera's own sockets, ACK queue, and inquiry FIFO instead of matching by
+  socket number across cameras. Single-camera behavior is unchanged - when at
+  most one camera has work outstanding the address is not discriminating (IP
+  cameras commonly answer `0x90` whatever address they were given) and the
+  existing attribution runs as before. Lead bytes that are not reply addresses,
+  including the `0x88` address-set traffic handled by the serial handshake, are
+  still rejected as malformed.
 
 ## [1.1.0] - 2026-08-25
 

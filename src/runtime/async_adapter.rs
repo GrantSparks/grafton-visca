@@ -1893,6 +1893,83 @@ mod tests {
         }
     }
 
+    /// Replies from a serial daisy chain must complete their own camera's
+    /// command through the async runtime path.
+    ///
+    /// Regression test for issue #590: the response decoder accepted only
+    /// `0x9y` lead bytes, so ACKs and completions from chain addresses 2-7
+    /// (`0xA0`-`0xF0`) were dropped as malformed and those commands could only
+    /// time out.
+    #[test]
+    fn test_chain_replies_complete_their_own_camera_command() {
+        let (executor, _clock) = DeterministicExecutor::new();
+
+        let mut adapter = AsyncAdapter::<PtzOpticsG2, _>::new(
+            TimeoutConfig::default(),
+            RetryConfig::default(),
+            executor.clone(),
+            DEFAULT_MAX_PENDING_QUEUE_DEPTH,
+        );
+
+        let command = Arc::new(EncodedCommand {
+            payload: SmallVec::from_slice(&[0x81, 0x01, 0x04, 0x07, 0x02, VISCA_TERMINATOR]),
+            behavior: CommandBehavior::Command,
+            category: CommandCategory::Movement,
+        });
+
+        let chain = [
+            (cmd_id(1), CameraId::CAMERA_1, 0x90u8),
+            (cmd_id(2), CameraId::CAMERA_2, 0xA0u8),
+            (cmd_id(3), CameraId::CAMERA_7, 0xF0u8),
+        ];
+
+        let mut waiters = Vec::new();
+        for &(id, camera_id, _) in &chain {
+            adapter.core.register_pending_ack(
+                id,
+                command.clone(),
+                Priority::Normal,
+                camera_id,
+                executor.now(),
+            );
+            let (response_tx, response_rx) = flume::unbounded();
+            adapter.response_channels.insert(id, response_tx);
+            waiters.push((id, response_rx));
+        }
+
+        // ACK every camera, then complete them in a different order.
+        for &(_, _, z0) in &chain {
+            let result =
+                executor.run_until(adapter.process_response(&[z0, 0x41, VISCA_TERMINATOR], None));
+            assert!(result.is_ok(), "ACK from 0x{z0:02X} must be processed");
+        }
+        for &(_, _, z0) in chain.iter().rev() {
+            let result =
+                executor.run_until(adapter.process_response(&[z0, 0x51, VISCA_TERMINATOR], None));
+            assert!(
+                result.is_ok(),
+                "completion from 0x{z0:02X} must be processed"
+            );
+        }
+
+        for (id, response_rx) in waiters {
+            match response_rx.try_recv() {
+                Ok(Ok(Response::Completion { socket })) => {
+                    assert_eq!(
+                        socket,
+                        Some(ViscaSocket::S1),
+                        "{id} completed on its own S1"
+                    );
+                }
+                other => panic!("{id} should have completed, got: {other:?}"),
+            }
+        }
+
+        let metrics = adapter.metrics_summary();
+        assert_eq!(metrics.commands_completed, 3, "every camera completed");
+        assert_eq!(metrics.protocol_errors, 0);
+    }
+
     /// Build an adapter with a cancel already queued in the outbox for `id`.
     ///
     /// The command is registered as pending ACK, cancelled while it is still
