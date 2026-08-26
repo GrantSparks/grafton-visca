@@ -136,43 +136,53 @@ fn test_no_hardcoded_terminators_in_source() {
     }
 }
 
+/// The terminator the library publishes must be the protocol's `0xFF`, and every
+/// frame the library encodes must actually end with it exactly once.
 #[test]
-fn test_no_hardcoded_terminators_in_tests() {
-    let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let tests_dir = workspace_root.join("tests");
+fn exported_terminator_matches_the_protocol_and_the_encoder() {
+    use grafton_visca::{
+        command::{PowerOn, ViscaCommand, Zoom, VISCA_TERMINATOR},
+        CameraId,
+    };
 
-    let violations = check_directory_recursively(&tests_dir);
-
-    // Tests are more lenient but should still use constants where possible
-    if !violations.is_empty() {
-        println!("\nWarning: Found hardcoded 0xFF in test files:");
-        for (file, lines) in &violations {
-            println!("File: {}", file);
-            for (line_num, line) in lines {
-                println!("  Line {}: {}", line_num, line.trim());
-            }
-        }
-        println!("\nConsider using VISCA_TERMINATOR constant in tests for consistency.\n");
-
-        // Don't fail the test for test files, just warn
-        // But we could make this stricter in the future
-    }
-}
-
-/// Test that the VISCA_TERMINATOR constant is actually 0xFF
-#[test]
-fn test_visca_terminator_value() {
-    // This is a sanity check to ensure the constant hasn't been changed
-    const EXPECTED_TERMINATOR: u8 = 0xFF;
-
-    // We'll test this using the Camera API with a mock transport
-    // Since all commands must end with the terminator, we can verify
-    // through any command sent
-
-    // For now, we just verify the constant value directly
-    // The actual validation is done through unit tests in src/command/mod.rs
     assert_eq!(
-        EXPECTED_TERMINATOR, 0xFF,
-        "VISCA protocol requires terminator to be 0xFF"
+        VISCA_TERMINATOR, 0xFF,
+        "VISCA protocol requires the terminator to be 0xFF"
+    );
+
+    let mut buffer = [0u8; 32];
+
+    let len = PowerOn::new()
+        .write_into(CameraId::CAMERA_1, &mut buffer)
+        .expect("PowerOn should encode");
+    assert_eq!(
+        buffer[len - 1],
+        VISCA_TERMINATOR,
+        "PowerOn must end with the exported terminator"
+    );
+    assert_eq!(
+        buffer[..len]
+            .iter()
+            .filter(|&&b| b == VISCA_TERMINATOR)
+            .count(),
+        1,
+        "PowerOn must contain exactly one terminator"
+    );
+
+    let len = Zoom::TeleStd
+        .write_into(CameraId::CAMERA_1, &mut buffer)
+        .expect("Zoom should encode");
+    assert_eq!(
+        buffer[len - 1],
+        VISCA_TERMINATOR,
+        "Zoom must end with the exported terminator"
+    );
+    assert_eq!(
+        buffer[..len]
+            .iter()
+            .filter(|&&b| b == VISCA_TERMINATOR)
+            .count(),
+        1,
+        "Zoom must contain exactly one terminator"
     );
 }
