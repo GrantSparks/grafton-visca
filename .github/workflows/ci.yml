@@ -668,6 +668,7 @@ jobs:
         with:
           feature-group: ${{ matrix.feature_group }}
           features: ${{ matrix.features }}
+          release-type: minor  # 1.2.0 minor planned (see #594); revisit at release
 
   # Check package metadata and dependencies
   package-check:

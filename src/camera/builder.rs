@@ -18,28 +18,54 @@
 //!
 //! # Example
 //!
-//! ```ignore
-//! use grafton_visca::{camera::{CameraConfig, profiles::PtzOpticsG2}, runtime::TokioRuntime};
+//! ```rust,no_run
+//! # #[cfg(feature = "runtime-tokio")]
+//! use std::time::Duration;
+//! # #[cfg(feature = "runtime-tokio")]
+//! use grafton_visca::{
+//!     camera::{profiles::PtzOpticsG2, CameraBuilder, CameraConfig},
+//!     runtime::{Runtime, TokioRuntime, TransportHandle},
+//!     Error,
+//! };
 //!
-//! // Preferred application path.
-//! let runtime = TokioRuntime::from_current()?;
-//! let camera = CameraConfig::<PtzOpticsG2>::tcp("192.168.0.110")
-//!     .open_async(runtime)
-//!     .await?;
+//! # #[cfg(feature = "runtime-tokio")]
+//! #[tokio::main]
+//! async fn main() -> Result<(), Error> {
+//!     let runtime = TokioRuntime::from_current()?;
 //!
-//! // Use accessor-style API
-//! camera.power().on().await?;
-//! camera.zoom().tele().await?;
-//! camera.await_idle(std::time::Duration::from_secs(10)).await?;
-//! camera.shutdown().await?;
+//!     // Preferred application path: `CameraConfig` connects a standard
+//!     // transport and hands back an open `CameraSession`.
+//!     let session = CameraConfig::<PtzOpticsG2>::tcp("192.168.0.110")
+//!         .open_async(runtime.clone())
+//!         .await?;
 //!
-//! // Advanced BYO-transport path.
-//! let runtime = TokioRuntime::from_current()?;
-//! let camera = CameraBuilder::with_executor(runtime)
-//!     .from_transport(custom_transport)
-//!     .profile::<PtzOpticsG2>()
-//!     .open_async()
-//!     .await?;
+//!     // Use accessor-style API
+//!     session.power().on().await?;
+//!     session.zoom().tele().await?;
+//!     session.await_idle(Duration::from_secs(10)).await?;
+//!     session.close().await?;
+//!
+//!     // Advanced BYO-transport path: connect the transport yourself, then
+//!     // attach it to the builder to get an owned `Camera`.
+//!     let custom_transport: TransportHandle<TokioRuntime> = TransportHandle::Tcp(
+//!         runtime
+//!             .connect_tcp("192.168.0.110:5678", Default::default())
+//!             .await?,
+//!     );
+//!     let camera = CameraBuilder::<TokioRuntime>::with_executor(runtime)
+//!         .from_transport(custom_transport)
+//!         .profile::<PtzOpticsG2>()
+//!         .open_async()
+//!         .await?;
+//!     camera.shutdown().await?;
+//!
+//!     Ok(())
+//! }
+//! #
+//! # // No runtime is enabled by default, so the example above is compiled only
+//! # // when `runtime-tokio` is enabled.
+//! # #[cfg(not(feature = "runtime-tokio"))]
+//! # fn main() {}
 //! ```
 
 #[cfg(feature = "mode-async")]
@@ -270,24 +296,53 @@ where
     /// Create a builder from an existing transport (BYO transport pattern).
     ///
     /// This is the advanced path for users who want full control over transport
-    /// configuration using the Transport builder API or custom transports.
+    /// configuration. In async mode the transport is connected through the
+    /// runtime's own connectors ([`Runtime::connect_tcp`](crate::runtime::Runtime::connect_tcp)
+    /// and friends), which take a [`TransportConfig`](crate::transport::TransportConfig);
+    /// the `transport::Transport` builder is blocking-mode only and is not
+    /// available here. Any transport implementing [`AsyncTransport`] is
+    /// accepted, so a fully custom transport works the same way.
     ///
     /// # Example
-    /// ```ignore
-    /// use grafton_visca::transport::Transport;
+    /// ```rust,no_run
+    /// # #[cfg(feature = "runtime-tokio")]
+    /// use std::time::Duration;
+    /// # #[cfg(feature = "runtime-tokio")]
+    /// use grafton_visca::{
+    ///     camera::{profiles::PtzOpticsG2, CameraBuilder},
+    ///     runtime::{Runtime, TokioRuntime, TransportHandle},
+    ///     transport::TransportConfig,
+    ///     Error,
+    /// };
     ///
-    /// let transport = Transport::tcp()
-    ///     .address("192.168.0.110:5678")
-    ///     .connect_timeout(Duration::from_secs(10))
-    ///     .tcp_nodelay(true)
-    ///     .build_async_with(runtime.clone())
-    ///     .await?;
+    /// # #[cfg(feature = "runtime-tokio")]
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), Error> {
+    ///     let runtime = TokioRuntime::from_current()?;
     ///
-    /// let camera = CameraBuilder::with_executor(executor)
-    ///     .from_transport(transport)
-    ///     .profile::<PtzOpticsG2>()
-    ///     .open_async()
-    ///     .await?;
+    ///     // Connect the transport yourself, with explicit settings.
+    ///     let config = TransportConfig {
+    ///         connect_timeout: Duration::from_secs(10),
+    ///         tcp_nodelay: Some(true),
+    ///         ..Default::default()
+    ///     };
+    ///     let transport: TransportHandle<TokioRuntime> =
+    ///         TransportHandle::Tcp(runtime.connect_tcp("192.168.0.110:5678", config).await?);
+    ///
+    ///     let camera = CameraBuilder::<TokioRuntime>::with_executor(runtime)
+    ///         .from_transport(transport)
+    ///         .profile::<PtzOpticsG2>()
+    ///         .open_async()
+    ///         .await?;
+    ///     camera.shutdown().await?;
+    ///
+    ///     Ok(())
+    /// }
+    /// #
+    /// # // `mode-async` does not imply a runtime, so the example above is
+    /// # // compiled only when `runtime-tokio` is enabled.
+    /// # #[cfg(not(feature = "runtime-tokio"))]
+    /// # fn main() {}
     /// ```
     pub fn from_transport<T>(self, transport: T) -> CameraBuilderWithAsyncTransport<E, T>
     where
@@ -408,18 +463,36 @@ impl CameraBuilder<()> {
     /// and [`CameraConfig`](crate::camera::CameraConfig) APIs.
     ///
     /// # Example
-    /// ```ignore
-    /// use grafton_visca::transport::Transport;
+    /// ```rust,no_run
+    /// # #[cfg(not(feature = "mode-async"))]
+    /// use std::time::Duration;
+    /// # #[cfg(not(feature = "mode-async"))]
+    /// use grafton_visca::{
+    ///     camera::{profiles::PtzOpticsG2, CameraBuilder},
+    ///     transport::Transport,
+    ///     Error,
+    /// };
     ///
-    /// let transport = Transport::tcp()
-    ///     .address("192.168.0.110:5678")
-    ///     .connect_timeout(Duration::from_secs(10))
-    ///     .tcp_nodelay(true)
-    ///     .build_blocking()?;
+    /// # #[cfg(not(feature = "mode-async"))]
+    /// fn main() -> Result<(), Error> {
+    ///     let transport = Transport::tcp()
+    ///         .address("192.168.0.110:5678")
+    ///         .connect_timeout(Duration::from_secs(10))
+    ///         .tcp_nodelay(true)
+    ///         .build_blocking()?;
     ///
-    /// let camera = CameraBuilder::from_transport_handle(transport)
-    ///     .profile::<PtzOpticsG2>()
-    ///     .open()?;
+    ///     let camera = CameraBuilder::from_transport_handle(transport)
+    ///         .profile::<PtzOpticsG2>()
+    ///         .open()?;
+    ///     camera.power().on()?;
+    ///     camera.close()?;
+    ///
+    ///     Ok(())
+    /// }
+    /// #
+    /// # // `Transport` and the blocking builder exist only in blocking mode.
+    /// # #[cfg(feature = "mode-async")]
+    /// # fn main() {}
     /// ```
     #[cfg(not(feature = "mode-async"))]
     pub fn from_transport_handle(

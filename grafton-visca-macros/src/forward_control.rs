@@ -39,6 +39,9 @@ pub fn delegate_to_session_impl(input: syn::ItemTrait) -> TokenStream {
             #async_methods
         }
 
+        // The blocking session accessors these forwarders call are deprecated
+        // (issue #594); this whole impl is part of that same dead surface.
+        #[allow(deprecated)]
         #[cfg(not(feature = "mode-async"))]
         impl<P, Tr> #trait_name for crate::camera::CameraSession<crate::mode::Blocking, P, Tr, (), crate::camera::session::Open>
         where
