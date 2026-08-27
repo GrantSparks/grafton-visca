@@ -6,7 +6,7 @@
 //! new command therefore requires the source inventory, semantic
 //! classification, and this surface decision to be updated together.
 
-use crate::capabilities::TypedSupportSurface;
+use crate::{capabilities::TypedSupportSurface, noun_table::noun_table};
 
 use super::semantics::{BuiltinCommand, BuiltinRequestClass};
 
@@ -142,8 +142,200 @@ macro_rules! noun_marker {
     };
 }
 
+macro_rules! broadcast_entry {
+    ($command:ident, $method:expr) => {
+        StaticSurfaceEntry {
+            command: BuiltinCommand::$command,
+            disposition: StaticSurfaceDisposition::BroadcastHandshake { method: $method },
+            class: registry_class(BuiltinCommand::$command, RegistryKind::Plain),
+        }
+    };
+}
+
+macro_rules! internal_entry {
+    ($command:ident, $method:expr) => {
+        StaticSurfaceEntry {
+            command: BuiltinCommand::$command,
+            disposition: StaticSurfaceDisposition::InternalCancellation { method: $method },
+            class: registry_class(BuiltinCommand::$command, RegistryKind::Plain),
+        }
+    };
+}
+
+/// The request kind recorded by one noun-table row.
+///
+/// `BuiltinRequestClass` carries more information than a facade needs (axes,
+/// state effects, and completion policy).  Keeping this small projection in
+/// the surface consumer lets the registry check that its `plain`/`applied`/
+/// `targeted` spelling agrees with the authoritative semantic ledger.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum RegistryKind {
+    Plain,
+    AppliedOnly,
+    Targeted,
+}
+
+/// Resolve a registry kind against the authoritative semantic classification.
+///
+/// This is deliberately a const function with no fallback: a row whose kind
+/// does not match its command ID fails during const evaluation below, before a
+/// facade can accidentally expose the wrong operation handle.
+#[allow(clippy::panic)]
+const fn registry_class(command: BuiltinCommand, kind: RegistryKind) -> BuiltinRequestClass {
+    let class = command.classification();
+    match (kind, class) {
+        (RegistryKind::Plain, BuiltinRequestClass::Plain { .. })
+        | (RegistryKind::AppliedOnly, BuiltinRequestClass::AppliedOnly { .. })
+        | (RegistryKind::Targeted, BuiltinRequestClass::Targeted { .. }) => class,
+        _ => panic!("noun-table request kind disagrees with BuiltinCommand::classification"),
+    }
+}
+
+/// Human-readable closed-inventory totals for the built-in surface.
+///
+/// There are 149 command IDs: 146 target-facing noun rows and three protocol
+/// exceptions (the two broadcast handshakes and internal cancellation).
+pub(crate) const BUILTIN_COMMAND_COUNT: usize = 149;
+pub(crate) const TARGET_FACING_COMMAND_COUNT: usize = 146;
+pub(crate) const NON_NOUN_COMMAND_COUNT: usize = 3;
+
+macro_rules! registry_class {
+    (plain) => {
+        RegistryKind::Plain
+    };
+    (applied) => {
+        RegistryKind::AppliedOnly
+    };
+    (targeted) => {
+        RegistryKind::Targeted
+    };
+}
+
+/// Convert a row's static capability spelling to the surface marker
+/// requirement.  The noun table owns the spelling; this map keeps the
+/// TypedSupportSurface classification in the surface consumer only.
+macro_rules! surface_marker {
+    (HasDirectZoom) => {
+        StaticMarkerRequirement::Typed(TypedSupportSurface::DirectZoom)
+    };
+    (HasDigitalZoomToggle) => {
+        StaticMarkerRequirement::Typed(TypedSupportSurface::DigitalZoomToggle)
+    };
+    (HasDigitalZoomRange) => {
+        StaticMarkerRequirement::Typed(TypedSupportSurface::DigitalZoomRange)
+    };
+    (HasIrisControl) => {
+        StaticMarkerRequirement::Typed(TypedSupportSurface::IrisControl)
+    };
+    (HasOnePushFocus) => {
+        StaticMarkerRequirement::Typed(TypedSupportSurface::OnePushFocus)
+    };
+    (HasPtzOpticsSnapFocus) => {
+        StaticMarkerRequirement::Typed(TypedSupportSurface::PtzOpticsSnapFocus)
+    };
+    (HasFocusLock) => {
+        StaticMarkerRequirement::Typed(TypedSupportSurface::FocusLock)
+    };
+    (HasPushAutoFocus) => {
+        StaticMarkerRequirement::Typed(TypedSupportSurface::PushAutoFocus)
+    };
+    (HasFocusZone) => {
+        StaticMarkerRequirement::Typed(TypedSupportSurface::FocusZone)
+    };
+    (HasAutoFocusSensitivity) => {
+        StaticMarkerRequirement::Typed(TypedSupportSurface::AutoFocusSensitivity)
+    };
+    (HasFocusNearLimitInquiry) => {
+        StaticMarkerRequirement::Typed(TypedSupportSurface::FocusNearLimitInquiry)
+    };
+    (HasBacklightCompensation) => {
+        StaticMarkerRequirement::Typed(TypedSupportSurface::BacklightCompensation)
+    };
+    (HasWideDynamicRange) => {
+        StaticMarkerRequirement::Typed(TypedSupportSurface::WideDynamicRange)
+    };
+    (HasExposureCompensation) => {
+        StaticMarkerRequirement::Typed(TypedSupportSurface::ExposureCompensation)
+    };
+    (HasBrightnessControl) => {
+        StaticMarkerRequirement::Typed(TypedSupportSurface::BrightnessControl)
+    };
+    (HasOnePushWhiteBalance) => {
+        StaticMarkerRequirement::Typed(TypedSupportSurface::OnePushWhiteBalance)
+    };
+    (HasAutoTrackingWhiteBalance) => {
+        StaticMarkerRequirement::Typed(TypedSupportSurface::AutoTrackingWhiteBalance)
+    };
+    (HasAutoWhiteBalanceSensitivity) => {
+        StaticMarkerRequirement::Typed(TypedSupportSurface::AutoWhiteBalanceSensitivity)
+    };
+    (HasColorTemperature) => {
+        StaticMarkerRequirement::Typed(TypedSupportSurface::ColorTemperature)
+    };
+    (HasRgbGain) => {
+        StaticMarkerRequirement::Typed(TypedSupportSurface::RgbGain)
+    };
+    (HasRgbTuning) => {
+        StaticMarkerRequirement::Typed(TypedSupportSurface::RgbTuning)
+    };
+    (HasImageFlip) => {
+        StaticMarkerRequirement::Typed(TypedSupportSurface::ImageFlip)
+    };
+    (HasImageMirror) => {
+        StaticMarkerRequirement::Typed(TypedSupportSurface::ImageMirror)
+    };
+    (HasCombinedImageFlip) => {
+        StaticMarkerRequirement::Typed(TypedSupportSurface::CombinedImageFlip)
+    };
+    (HasContrastControl) => {
+        StaticMarkerRequirement::Typed(TypedSupportSurface::ContrastControl)
+    };
+    (HasSharpnessControl) => {
+        StaticMarkerRequirement::Typed(TypedSupportSurface::SharpnessControl)
+    };
+    (HasSaturationControl) => {
+        StaticMarkerRequirement::Typed(TypedSupportSurface::SaturationControl)
+    };
+    (HasHueControl) => {
+        StaticMarkerRequirement::Typed(TypedSupportSurface::HueControl)
+    };
+    (HasLuminanceControl) => {
+        StaticMarkerRequirement::Typed(TypedSupportSurface::LuminanceControl)
+    };
+    (HasGammaControl) => {
+        StaticMarkerRequirement::Typed(TypedSupportSurface::GammaControl)
+    };
+    (HasNoiseReduction) => {
+        StaticMarkerRequirement::Typed(TypedSupportSurface::NoiseReduction)
+    };
+    (HasNoiseReduction2D) => {
+        StaticMarkerRequirement::Typed(TypedSupportSurface::NoiseReduction2D)
+    };
+    (HasNoiseReduction3D) => {
+        StaticMarkerRequirement::Typed(TypedSupportSurface::NoiseReduction3D)
+    };
+    (HasPictureEffect) => {
+        StaticMarkerRequirement::Typed(TypedSupportSurface::PictureEffect)
+    };
+    (HasTally) => {
+        StaticMarkerRequirement::Typed(TypedSupportSurface::Tally)
+    };
+    (HasDirectMenuControl) => {
+        StaticMarkerRequirement::Typed(TypedSupportSurface::DirectMenu)
+    };
+    (HasNdFilter) => {
+        StaticMarkerRequirement::Typed(TypedSupportSurface::NdFilter)
+    };
+    (HasVariableSpeed) => {
+        StaticMarkerRequirement::Typed(TypedSupportSurface::VariableSpeed)
+    };
+    (HasMotionSync) => {
+        StaticMarkerRequirement::Typed(TypedSupportSurface::MotionSync)
+    };
+}
+
 macro_rules! noun_entry {
-    ($command:ident, $noun:ident, $method:literal) => {
+    ($kind:ident, $command:ident, $noun:ident, $method:expr) => {
         StaticSurfaceEntry {
             command: BuiltinCommand::$command,
             disposition: StaticSurfaceDisposition::Noun {
@@ -151,10 +343,10 @@ macro_rules! noun_entry {
                 method: $method,
                 marker: noun_marker!($noun),
             },
-            class: BuiltinCommand::$command.classification(),
+            class: registry_class(BuiltinCommand::$command, registry_class!($kind)),
         }
     };
-    ($command:ident, $noun:ident, $method:literal, $marker:expr) => {
+    ($kind:ident, $command:ident, $noun:ident, $method:expr, $marker:expr) => {
         StaticSurfaceEntry {
             command: BuiltinCommand::$command,
             disposition: StaticSurfaceDisposition::Noun {
@@ -162,575 +354,237 @@ macro_rules! noun_entry {
                 method: $method,
                 marker: $marker,
             },
-            class: BuiltinCommand::$command.classification(),
+            class: registry_class(BuiltinCommand::$command, registry_class!($kind)),
         }
     };
 }
 
-macro_rules! broadcast_entry {
-    ($command:ident, $method:literal) => {
-        StaticSurfaceEntry {
-            command: BuiltinCommand::$command,
-            disposition: StaticSurfaceDisposition::BroadcastHandshake { method: $method },
-            class: BuiltinCommand::$command.classification(),
+/// Consume one flat projection of every noun row.
+///
+/// Inquiry and empty-ID convenience rows are intentionally consumed without
+/// emitting a command arm.  Every canonical row emits one arm per explicitly
+/// listed BuiltinCommand variant.  The exceptions are rows in the same
+/// projection, so the resulting match is complete without a wildcard or a
+/// second hand-written inventory.
+macro_rules! surface_rows {
+    (@start $input:ident; [$($arms:tt)*]; @noun $noun:ident; $($rest:tt)*) => {
+        surface_rows!(@rows $input; $noun; [$($arms)*]; $($rest)*)
+    };
+
+    (@rows $input:ident; $noun:ident; [$($arms:tt)*]; @noun $next:ident; $($rest:tt)*) => {
+        surface_rows!(@rows $input; $next; [$($arms)*]; $($rest)*)
+    };
+
+    // Append one command row.  The gate is split into separate arms so the
+    // command-list repetition below can reuse it without a repetition-depth
+    // mismatch in macro_rules.
+    (
+        @append $input:ident;
+        $noun:ident;
+        [$($arms:tt)*];
+        $kind:ident;
+        [$($command:ident),*];
+        $method:expr;
+        ;
+        $($rest:tt)*
+    ) => {
+        surface_rows!(@rows $input; $noun; [
+            $($arms)*
+            $(
+                BuiltinCommand::$command => noun_entry!(
+                    $kind,
+                    $command,
+                    $noun,
+                    $method,
+                    noun_marker!($noun)
+                ),
+            )*
+        ]; $($rest)*)
+    };
+
+    (
+        @append $input:ident;
+        $noun:ident;
+        [$($arms:tt)*];
+        $kind:ident;
+        [$($command:ident),*];
+        $method:expr;
+        $gate:ident;
+        $($rest:tt)*
+    ) => {
+        surface_rows!(@rows $input; $noun; [
+            $($arms)*
+            $(
+                BuiltinCommand::$command => noun_entry!(
+                    $kind,
+                    $command,
+                    $noun,
+                    $method,
+                    surface_marker!($gate)
+                ),
+            )*
+        ]; $($rest)*)
+    };
+
+    (
+        @rows $input:ident;
+        $noun:ident;
+        [$($arms:tt)*];
+        @exceptions;
+        $($rest:tt)*
+    ) => {
+        surface_rows!(@exceptions $input; [$($arms)*]; $($rest)*)
+    };
+
+    // Consume one row at a time.  Keeping the row grammar non-repetitive avoids
+    // a local ambiguity between the row's documentation attributes and the
+    // trailing token stream.
+    (
+        @rows $input:ident;
+        $noun:ident;
+        [$($arms:tt)*];
+        $(#[$doc:meta])*
+        inquiry $($inquiry:ident)::+ $method:ident() -> $response:ty
+            $(where $gate:ident $(+ $extra:ident)*)? = $request:expr;
+        $($rest:tt)*
+    ) => {
+        surface_rows!(@rows $input; $noun; [$($arms)*]; $($rest)*)
+    };
+
+    (
+        @rows $input:ident;
+        $noun:ident;
+        [$($arms:tt)*];
+        $(#[$doc:meta])*
+        $kind:ident [$($command:ident),*] $method:ident(
+            $($arg:ident: $ty:ty),*
+        ) $(-> $request_ty:ty)? $(where $gate:ident $(+ $extra:ident)*)?
+            = checked $request:expr;
+        $($rest:tt)*
+    ) => {
+        surface_rows!(@append $input; $noun; [$($arms)*]; $kind; [$($command),*]; stringify!($method); $($gate)?; $($rest)*)
+    };
+
+    (
+        @rows $input:ident;
+        $noun:ident;
+        [$($arms:tt)*];
+        $(#[$doc:meta])*
+        $kind:ident [$($command:ident),*] $method:ident(
+            $($arg:ident: $ty:ty),*
+        ) $(-> $request_ty:ty)? $(where $gate:ident $(+ $extra:ident)*)?
+            = with_profile |$profile:ident| $request:expr;
+        $($rest:tt)*
+    ) => {
+        surface_rows!(@append $input; $noun; [$($arms)*]; $kind; [$($command),*]; stringify!($method); $($gate)?; $($rest)*)
+    };
+
+    (
+        @rows $input:ident;
+        $noun:ident;
+        [$($arms:tt)*];
+        $(#[$doc:meta])*
+        $kind:ident [$($command:ident),*] $method:ident(
+            $($arg:ident: $ty:ty),*
+        ) $(-> $request_ty:ty)? $(where $gate:ident $(+ $extra:ident)*)?
+            = with_core |$core:ident| $request:expr;
+        $($rest:tt)*
+    ) => {
+        surface_rows!(@append $input; $noun; [$($arms)*]; $kind; [$($command),*]; stringify!($method); $($gate)?; $($rest)*)
+    };
+
+    (
+        @rows $input:ident;
+        $noun:ident;
+        [$($arms:tt)*];
+        $(#[$doc:meta])*
+        $kind:ident [$($command:ident),*] $method:ident(
+            $($arg:ident: $ty:ty),*
+        ) $(-> $request_ty:ty)? $(where $gate:ident $(+ $extra:ident)*)?
+            = delegate $target:ident($($delegated:expr),*);
+        $($rest:tt)*
+    ) => {
+        surface_rows!(@append $input; $noun; [$($arms)*]; $kind; [$($command),*]; stringify!($method); $($gate)?; $($rest)*)
+    };
+
+    (
+        @rows $input:ident;
+        $noun:ident;
+        [$($arms:tt)*];
+        $(#[$doc:meta])*
+        $kind:ident [$($command:ident),*] $method:ident(
+            $($arg:ident: $ty:ty),*
+        ) $(-> $request_ty:ty)? $(where $gate:ident $(+ $extra:ident)*)?
+            = $request:expr;
+        $($rest:tt)*
+    ) => {
+        surface_rows!(@append $input; $noun; [$($arms)*]; $kind; [$($command),*]; stringify!($method); $($gate)?; $($rest)*)
+    };
+
+    (@exceptions $input:ident; [$($arms:tt)*]; broadcast [$($command:ident),*] $method:ident;
+        $($rest:tt)*) => {
+        surface_rows!(@exceptions $input; [
+            $($arms)*
+            $(
+                BuiltinCommand::$command => broadcast_entry!($command, stringify!($method)),
+            )*
+        ]; $($rest)*)
+    };
+
+    (@exceptions $input:ident; [$($arms:tt)*]; internal [$($command:ident),*] $method:ident;
+        $($rest:tt)*) => {
+        surface_rows!(@exceptions $input; [
+            $($arms)*
+            $(
+                BuiltinCommand::$command => internal_entry!($command, stringify!($method)),
+            )*
+        ]; $($rest)*)
+    };
+
+    (@exceptions $input:ident; [$($arms:tt)*];) => {
+        match $input {
+            $($arms)*
         }
     };
-}
 
-macro_rules! internal_entry {
-    ($command:ident, $method:literal) => {
-        StaticSurfaceEntry {
-            command: BuiltinCommand::$command,
-            disposition: StaticSurfaceDisposition::InternalCancellation { method: $method },
-            class: BuiltinCommand::$command.classification(),
-        }
+    // The public projection always starts with a noun marker.  Restrict this
+    // entry arm to that shape so recursive dispatcher calls cannot match it.
+    ($input:ident; @noun $noun:ident; $($rest:tt)*) => {
+        surface_rows!(@start $input; []; @noun $noun; $($rest)*)
     };
 }
 
 /// Derive the one surface row for a semantic command.
 ///
 /// This match is intentionally exhaustive and contains no default arm.  The
-/// 149-row source list remains [`BuiltinCommand::ALL`], not a parallel table.
+/// row list is supplied by noun_table!(All => surface_rows), so adding a
+/// command requires adding its explicit owner row there.  BuiltinCommand
+/// remains the semantic authority for classification.
 #[must_use]
+#[deny(unreachable_patterns)]
 pub(crate) const fn surface_entry(command: BuiltinCommand) -> StaticSurfaceEntry {
-    match command {
-        // Pan/tilt.
-        BuiltinCommand::PanTiltHome => noun_entry!(PanTiltHome, PanTilt, "home"),
-        BuiltinCommand::PanTiltReset => noun_entry!(PanTiltReset, PanTilt, "reset"),
-        BuiltinCommand::PanTiltDrive => noun_entry!(PanTiltDrive, PanTilt, "move_direction"),
-        BuiltinCommand::PanTiltStop => noun_entry!(PanTiltStop, PanTilt, "stop"),
-        BuiltinCommand::PanTiltAbsolute => noun_entry!(PanTiltAbsolute, PanTilt, "absolute"),
-        BuiltinCommand::PanTiltRelative => noun_entry!(PanTiltRelative, PanTilt, "relative"),
-        BuiltinCommand::PanTiltLimitSet => noun_entry!(PanTiltLimitSet, PanTilt, "limit_set"),
-        BuiltinCommand::PanTiltLimitClear => {
-            noun_entry!(PanTiltLimitClear, PanTilt, "limit_clear")
-        }
-        // Zoom.
-        BuiltinCommand::ZoomStop => noun_entry!(ZoomStop, Zoom, "stop"),
-        BuiltinCommand::ZoomTele => noun_entry!(ZoomTele, Zoom, "tele"),
-        BuiltinCommand::ZoomWide => noun_entry!(ZoomWide, Zoom, "wide"),
-        BuiltinCommand::ZoomTeleVariable => noun_entry!(ZoomTeleVariable, Zoom, "tele_variable"),
-        BuiltinCommand::ZoomWideVariable => noun_entry!(ZoomWideVariable, Zoom, "wide_variable"),
-        BuiltinCommand::ZoomPosition => noun_entry!(
-            ZoomPosition,
-            Zoom,
-            "set_position",
-            StaticMarkerRequirement::Typed(TypedSupportSurface::DirectZoom)
-        ),
-        BuiltinCommand::DigitalZoom => noun_entry!(
-            DigitalZoom,
-            Zoom,
-            "set_digital_zoom",
-            StaticMarkerRequirement::Typed(TypedSupportSurface::DigitalZoomToggle)
-        ),
-        // Focus.
-        BuiltinCommand::FocusStop => noun_entry!(FocusStop, Focus, "stop"),
-        BuiltinCommand::FocusFar => noun_entry!(FocusFar, Focus, "far"),
-        BuiltinCommand::FocusNear => noun_entry!(FocusNear, Focus, "near"),
-        BuiltinCommand::FocusFarVariable => noun_entry!(FocusFarVariable, Focus, "far_variable"),
-        BuiltinCommand::FocusNearVariable => {
-            noun_entry!(FocusNearVariable, Focus, "near_variable")
-        }
-        BuiltinCommand::FocusPosition => noun_entry!(FocusPosition, Focus, "set_position"),
-        BuiltinCommand::FocusAuto => noun_entry!(FocusAuto, Focus, "auto"),
-        BuiltinCommand::FocusManual => noun_entry!(FocusManual, Focus, "manual"),
-        BuiltinCommand::FocusOnePush => noun_entry!(
-            FocusOnePush,
-            Focus,
-            "one_push",
-            StaticMarkerRequirement::Typed(TypedSupportSurface::OnePushFocus)
-        ),
-        BuiltinCommand::FocusInfinity => noun_entry!(FocusInfinity, Focus, "infinity"),
-        BuiltinCommand::FocusToggle => noun_entry!(FocusToggle, Focus, "toggle"),
-        BuiltinCommand::FocusSnap => noun_entry!(
-            FocusSnap,
-            Focus,
-            "snap",
-            StaticMarkerRequirement::Typed(TypedSupportSurface::PtzOpticsSnapFocus)
-        ),
-        BuiltinCommand::FocusZone => noun_entry!(
-            FocusZone,
-            Focus,
-            "set_zone",
-            StaticMarkerRequirement::Typed(TypedSupportSurface::FocusZone)
-        ),
-        BuiltinCommand::FocusAutoSensitivity => noun_entry!(
-            FocusAutoSensitivity,
-            Focus,
-            "set_sensitivity",
-            StaticMarkerRequirement::Typed(TypedSupportSurface::AutoFocusSensitivity)
-        ),
-        BuiltinCommand::FocusNearLimit => noun_entry!(
-            FocusNearLimit,
-            Focus,
-            "set_near_limit",
-            StaticMarkerRequirement::Typed(TypedSupportSurface::FocusNearLimitInquiry)
-        ),
-        BuiltinCommand::FocusLock => noun_entry!(
-            FocusLock,
-            Focus,
-            "set_lock",
-            StaticMarkerRequirement::Typed(TypedSupportSurface::FocusLock)
-        ),
-        BuiltinCommand::PushAfPress => noun_entry!(
-            PushAfPress,
-            Focus,
-            "push_af_press",
-            StaticMarkerRequirement::Typed(TypedSupportSurface::PushAutoFocus)
-        ),
-        BuiltinCommand::PushAfRelease => noun_entry!(
-            PushAfRelease,
-            Focus,
-            "push_af_release",
-            StaticMarkerRequirement::Typed(TypedSupportSurface::PushAutoFocus)
-        ),
-        // Presets and power.
-        BuiltinCommand::PresetRecall => noun_entry!(PresetRecall, Presets, "recall"),
-        BuiltinCommand::PresetRecallSpeed => {
-            noun_entry!(PresetRecallSpeed, Presets, "set_recall_speed")
-        }
-        BuiltinCommand::PresetSet => noun_entry!(PresetSet, Presets, "set"),
-        BuiltinCommand::PresetReset => noun_entry!(PresetReset, Presets, "reset"),
-        BuiltinCommand::PowerOn => noun_entry!(PowerOn, Power, "on"),
-        BuiltinCommand::PowerStandby => noun_entry!(PowerStandby, Power, "off"),
-        // Exposure, iris, shutter, brightness, and gain.
-        BuiltinCommand::ExposureMode => noun_entry!(ExposureMode, Exposure, "set_mode"),
-        BuiltinCommand::ExposureCompensationOn => noun_entry!(
-            ExposureCompensationOn,
-            Exposure,
-            "compensation_on",
-            StaticMarkerRequirement::Typed(TypedSupportSurface::ExposureCompensation)
-        ),
-        BuiltinCommand::ExposureCompensationOff => noun_entry!(
-            ExposureCompensationOff,
-            Exposure,
-            "compensation_off",
-            StaticMarkerRequirement::Typed(TypedSupportSurface::ExposureCompensation)
-        ),
-        BuiltinCommand::ExposureCompensationReset => noun_entry!(
-            ExposureCompensationReset,
-            Exposure,
-            "compensation_reset",
-            StaticMarkerRequirement::Typed(TypedSupportSurface::ExposureCompensation)
-        ),
-        BuiltinCommand::ExposureCompensationUp => noun_entry!(
-            ExposureCompensationUp,
-            Exposure,
-            "compensation_up",
-            StaticMarkerRequirement::Typed(TypedSupportSurface::ExposureCompensation)
-        ),
-        BuiltinCommand::ExposureCompensationDown => noun_entry!(
-            ExposureCompensationDown,
-            Exposure,
-            "compensation_down",
-            StaticMarkerRequirement::Typed(TypedSupportSurface::ExposureCompensation)
-        ),
-        BuiltinCommand::ExposureCompensationDirect => noun_entry!(
-            ExposureCompensationDirect,
-            Exposure,
-            "compensation_direct",
-            StaticMarkerRequirement::Typed(TypedSupportSurface::ExposureCompensation)
-        ),
-        BuiltinCommand::DynamicRange => noun_entry!(
-            DynamicRange,
-            Exposure,
-            "set_dynamic_range",
-            StaticMarkerRequirement::Typed(TypedSupportSurface::WideDynamicRange)
-        ),
-        BuiltinCommand::IrisReset => noun_entry!(
-            IrisReset,
-            Exposure,
-            "iris_reset",
-            StaticMarkerRequirement::Typed(TypedSupportSurface::IrisControl)
-        ),
-        BuiltinCommand::IrisUp => noun_entry!(
-            IrisUp,
-            Exposure,
-            "iris_up",
-            StaticMarkerRequirement::Typed(TypedSupportSurface::IrisControl)
-        ),
-        BuiltinCommand::IrisDown => noun_entry!(
-            IrisDown,
-            Exposure,
-            "iris_down",
-            StaticMarkerRequirement::Typed(TypedSupportSurface::IrisControl)
-        ),
-        BuiltinCommand::IrisDirect => noun_entry!(
-            IrisDirect,
-            Exposure,
-            "iris_direct",
-            StaticMarkerRequirement::Typed(TypedSupportSurface::IrisControl)
-        ),
-        BuiltinCommand::ShutterReset => noun_entry!(ShutterReset, Exposure, "shutter_reset"),
-        BuiltinCommand::ShutterUp => noun_entry!(ShutterUp, Exposure, "shutter_up"),
-        BuiltinCommand::ShutterDown => noun_entry!(ShutterDown, Exposure, "shutter_down"),
-        BuiltinCommand::ShutterDirect => noun_entry!(ShutterDirect, Exposure, "shutter_direct"),
-        BuiltinCommand::BrightnessReset => noun_entry!(
-            BrightnessReset,
-            Exposure,
-            "brightness_reset",
-            StaticMarkerRequirement::Typed(TypedSupportSurface::BrightnessControl)
-        ),
-        BuiltinCommand::BrightnessUp => noun_entry!(
-            BrightnessUp,
-            Exposure,
-            "brightness_up",
-            StaticMarkerRequirement::Typed(TypedSupportSurface::BrightnessControl)
-        ),
-        BuiltinCommand::BrightnessDown => noun_entry!(
-            BrightnessDown,
-            Exposure,
-            "brightness_down",
-            StaticMarkerRequirement::Typed(TypedSupportSurface::BrightnessControl)
-        ),
-        BuiltinCommand::BrightnessSet => noun_entry!(
-            BrightnessSet,
-            Exposure,
-            "brightness_set",
-            StaticMarkerRequirement::Typed(TypedSupportSurface::BrightnessControl)
-        ),
-        BuiltinCommand::BrightnessDirect => noun_entry!(
-            BrightnessDirect,
-            Exposure,
-            "brightness_direct",
-            StaticMarkerRequirement::Typed(TypedSupportSurface::BrightnessControl)
-        ),
-        BuiltinCommand::AntiFlicker => noun_entry!(AntiFlicker, Exposure, "set_anti_flicker"),
-        BuiltinCommand::SpotlightOn => noun_entry!(SpotlightOn, Exposure, "spotlight_on"),
-        BuiltinCommand::SpotlightOff => noun_entry!(SpotlightOff, Exposure, "spotlight_off"),
-        BuiltinCommand::AutoSlowShutterOn => {
-            noun_entry!(AutoSlowShutterOn, Exposure, "auto_slow_shutter_on")
-        }
-        BuiltinCommand::AutoSlowShutterOff => {
-            noun_entry!(AutoSlowShutterOff, Exposure, "auto_slow_shutter_off")
-        }
-        BuiltinCommand::GainReset => noun_entry!(GainReset, Exposure, "gain_reset"),
-        BuiltinCommand::GainUp => noun_entry!(GainUp, Exposure, "gain_up"),
-        BuiltinCommand::GainDown => noun_entry!(GainDown, Exposure, "gain_down"),
-        BuiltinCommand::GainDirect => noun_entry!(GainDirect, Exposure, "gain_direct"),
-        BuiltinCommand::GainLimit => noun_entry!(GainLimit, Exposure, "set_gain_limit"),
-        // White balance and channel controls.
-        BuiltinCommand::WhiteBalanceAuto => noun_entry!(WhiteBalanceAuto, WhiteBalance, "auto"),
-        BuiltinCommand::WhiteBalanceIndoor => {
-            noun_entry!(WhiteBalanceIndoor, WhiteBalance, "indoor")
-        }
-        BuiltinCommand::WhiteBalanceOutdoor => {
-            noun_entry!(WhiteBalanceOutdoor, WhiteBalance, "outdoor")
-        }
-        BuiltinCommand::WhiteBalanceOnePush => noun_entry!(
-            WhiteBalanceOnePush,
-            WhiteBalance,
-            "one_push",
-            StaticMarkerRequirement::Typed(TypedSupportSurface::OnePushWhiteBalance)
-        ),
-        BuiltinCommand::WhiteBalanceAutoTracking => noun_entry!(
-            WhiteBalanceAutoTracking,
-            WhiteBalance,
-            "atw",
-            StaticMarkerRequirement::Typed(TypedSupportSurface::AutoTrackingWhiteBalance)
-        ),
-        BuiltinCommand::WhiteBalanceManual => {
-            noun_entry!(WhiteBalanceManual, WhiteBalance, "manual")
-        }
-        BuiltinCommand::WhiteBalanceColorTemperature => noun_entry!(
-            WhiteBalanceColorTemperature,
-            WhiteBalance,
-            "color_temperature_mode",
-            StaticMarkerRequirement::Typed(TypedSupportSurface::ColorTemperature)
-        ),
-        BuiltinCommand::AutoWhiteBalanceSensitivity => noun_entry!(
-            AutoWhiteBalanceSensitivity,
-            WhiteBalance,
-            "set_sensitivity",
-            StaticMarkerRequirement::Typed(TypedSupportSurface::AutoWhiteBalanceSensitivity)
-        ),
-        BuiltinCommand::OnePushWhiteBalanceTrigger => noun_entry!(
-            OnePushWhiteBalanceTrigger,
-            WhiteBalance,
-            "one_push_trigger",
-            StaticMarkerRequirement::Typed(TypedSupportSurface::OnePushWhiteBalance)
-        ),
-        BuiltinCommand::RedTuning => noun_entry!(
-            RedTuning,
-            WhiteBalance,
-            "set_red_tuning",
-            StaticMarkerRequirement::Typed(TypedSupportSurface::RgbTuning)
-        ),
-        BuiltinCommand::BlueTuning => noun_entry!(
-            BlueTuning,
-            WhiteBalance,
-            "set_blue_tuning",
-            StaticMarkerRequirement::Typed(TypedSupportSurface::RgbTuning)
-        ),
-        // Image processing, including saturation and hue.
-        BuiltinCommand::Saturation => noun_entry!(
-            Saturation,
-            Image,
-            "set_saturation",
-            StaticMarkerRequirement::Typed(TypedSupportSurface::SaturationControl)
-        ),
-        BuiltinCommand::Hue => noun_entry!(
-            Hue,
-            Image,
-            "set_hue",
-            StaticMarkerRequirement::Typed(TypedSupportSurface::HueControl)
-        ),
-        BuiltinCommand::ColorTemperatureReset => noun_entry!(
-            ColorTemperatureReset,
-            WhiteBalance,
-            "reset_color_temperature",
-            StaticMarkerRequirement::Typed(TypedSupportSurface::ColorTemperature)
-        ),
-        BuiltinCommand::ColorTemperatureUp => noun_entry!(
-            ColorTemperatureUp,
-            WhiteBalance,
-            "increase_color_temperature",
-            StaticMarkerRequirement::Typed(TypedSupportSurface::ColorTemperature)
-        ),
-        BuiltinCommand::ColorTemperatureDown => noun_entry!(
-            ColorTemperatureDown,
-            WhiteBalance,
-            "decrease_color_temperature",
-            StaticMarkerRequirement::Typed(TypedSupportSurface::ColorTemperature)
-        ),
-        BuiltinCommand::ColorTemperatureDirect => noun_entry!(
-            ColorTemperatureDirect,
-            WhiteBalance,
-            "set_color_temperature",
-            StaticMarkerRequirement::Typed(TypedSupportSurface::ColorTemperature)
-        ),
-        BuiltinCommand::RedGainReset => noun_entry!(
-            RedGainReset,
-            WhiteBalance,
-            "reset_red_gain",
-            StaticMarkerRequirement::Typed(TypedSupportSurface::RgbGain)
-        ),
-        BuiltinCommand::RedGainUp => noun_entry!(
-            RedGainUp,
-            WhiteBalance,
-            "increase_red_gain",
-            StaticMarkerRequirement::Typed(TypedSupportSurface::RgbGain)
-        ),
-        BuiltinCommand::RedGainDown => noun_entry!(
-            RedGainDown,
-            WhiteBalance,
-            "decrease_red_gain",
-            StaticMarkerRequirement::Typed(TypedSupportSurface::RgbGain)
-        ),
-        BuiltinCommand::RedGainDirect => noun_entry!(
-            RedGainDirect,
-            WhiteBalance,
-            "set_red_gain",
-            StaticMarkerRequirement::Typed(TypedSupportSurface::RgbGain)
-        ),
-        BuiltinCommand::BlueGainReset => noun_entry!(
-            BlueGainReset,
-            WhiteBalance,
-            "reset_blue_gain",
-            StaticMarkerRequirement::Typed(TypedSupportSurface::RgbGain)
-        ),
-        BuiltinCommand::BlueGainUp => noun_entry!(
-            BlueGainUp,
-            WhiteBalance,
-            "increase_blue_gain",
-            StaticMarkerRequirement::Typed(TypedSupportSurface::RgbGain)
-        ),
-        BuiltinCommand::BlueGainDown => noun_entry!(
-            BlueGainDown,
-            WhiteBalance,
-            "decrease_blue_gain",
-            StaticMarkerRequirement::Typed(TypedSupportSurface::RgbGain)
-        ),
-        BuiltinCommand::BlueGainDirect => noun_entry!(
-            BlueGainDirect,
-            WhiteBalance,
-            "set_blue_gain",
-            StaticMarkerRequirement::Typed(TypedSupportSurface::RgbGain)
-        ),
-        BuiltinCommand::SharpnessMode => noun_entry!(
-            SharpnessMode,
-            Image,
-            "set_sharpness_mode",
-            StaticMarkerRequirement::Typed(TypedSupportSurface::SharpnessControl)
-        ),
-        BuiltinCommand::SharpnessReset => noun_entry!(
-            SharpnessReset,
-            Image,
-            "reset_sharpness",
-            StaticMarkerRequirement::Typed(TypedSupportSurface::SharpnessControl)
-        ),
-        BuiltinCommand::SharpnessUp => noun_entry!(
-            SharpnessUp,
-            Image,
-            "increase_sharpness",
-            StaticMarkerRequirement::Typed(TypedSupportSurface::SharpnessControl)
-        ),
-        BuiltinCommand::SharpnessDown => noun_entry!(
-            SharpnessDown,
-            Image,
-            "decrease_sharpness",
-            StaticMarkerRequirement::Typed(TypedSupportSurface::SharpnessControl)
-        ),
-        BuiltinCommand::SharpnessDirect => noun_entry!(
-            SharpnessDirect,
-            Image,
-            "set_sharpness",
-            StaticMarkerRequirement::Typed(TypedSupportSurface::SharpnessControl)
-        ),
-        BuiltinCommand::Luminance => noun_entry!(
-            Luminance,
-            Image,
-            "set_luminance",
-            StaticMarkerRequirement::Typed(TypedSupportSurface::LuminanceControl)
-        ),
-        BuiltinCommand::Contrast => noun_entry!(
-            Contrast,
-            Image,
-            "set_contrast",
-            StaticMarkerRequirement::Typed(TypedSupportSurface::ContrastControl)
-        ),
-        BuiltinCommand::Gamma => noun_entry!(
-            Gamma,
-            Image,
-            "set_gamma",
-            StaticMarkerRequirement::Typed(TypedSupportSurface::GammaControl)
-        ),
-        BuiltinCommand::Backlight => noun_entry!(
-            Backlight,
-            Image,
-            "set_backlight",
-            StaticMarkerRequirement::Typed(TypedSupportSurface::BacklightCompensation)
-        ),
-        BuiltinCommand::NoiseReduction2d => noun_entry!(
-            NoiseReduction2d,
-            Image,
-            "set_noise_reduction_2d",
-            StaticMarkerRequirement::Typed(TypedSupportSurface::NoiseReduction2D)
-        ),
-        BuiltinCommand::NoiseReduction2dOff => noun_entry!(
-            NoiseReduction2dOff,
-            Image,
-            "disable_noise_reduction_2d",
-            StaticMarkerRequirement::Typed(TypedSupportSurface::NoiseReduction2D)
-        ),
-        BuiltinCommand::NoiseReduction3d => noun_entry!(
-            NoiseReduction3d,
-            Image,
-            "set_noise_reduction_3d",
-            StaticMarkerRequirement::Typed(TypedSupportSurface::NoiseReduction3D)
-        ),
-        BuiltinCommand::NoiseReduction3dOff => noun_entry!(
-            NoiseReduction3dOff,
-            Image,
-            "disable_noise_reduction_3d",
-            StaticMarkerRequirement::Typed(TypedSupportSurface::NoiseReduction3D)
-        ),
-        BuiltinCommand::ImageFlipOff => noun_entry!(
-            ImageFlipOff,
-            Image,
-            "disable_flip",
-            StaticMarkerRequirement::Typed(TypedSupportSurface::ImageFlip)
-        ),
-        BuiltinCommand::ImageFlipHorizontal => noun_entry!(
-            ImageFlipHorizontal,
-            Image,
-            "enable_horizontal_flip",
-            StaticMarkerRequirement::Typed(TypedSupportSurface::ImageMirror)
-        ),
-        BuiltinCommand::ImageFlipHorizontalOff => noun_entry!(
-            ImageFlipHorizontalOff,
-            Image,
-            "disable_horizontal_flip",
-            StaticMarkerRequirement::Typed(TypedSupportSurface::ImageMirror)
-        ),
-        BuiltinCommand::ImageFlipVertical => noun_entry!(
-            ImageFlipVertical,
-            Image,
-            "enable_flip",
-            StaticMarkerRequirement::Typed(TypedSupportSurface::ImageFlip)
-        ),
-        // `set_flip_both` sends the *combined* flip opcode, so it is gated on
-        // the combined marker exactly like `set_flip_mode`.  Gating it on the
-        // single-axis `ImageFlip` marker instead let SonyFR7, SonyBRCH900 and
-        // SonyEVIH100 — which declare `ImageFlip` but not `CombinedImageFlip` —
-        // send the combined opcode's `Both` while having no way to send its
-        // `Off`.  1.x reached this opcode only through `set_image_flip(mode)`,
-        // gated on `HasCombinedImageFlip`.
-        BuiltinCommand::ImageFlipBoth => noun_entry!(
-            ImageFlipBoth,
-            Image,
-            "set_flip_both",
-            StaticMarkerRequirement::Typed(TypedSupportSurface::CombinedImageFlip)
-        ),
-        BuiltinCommand::ImageFlipCombined => noun_entry!(
-            ImageFlipCombined,
-            Image,
-            "set_flip_mode",
-            StaticMarkerRequirement::Typed(TypedSupportSurface::CombinedImageFlip)
-        ),
-        BuiltinCommand::ImageFreezeOn => noun_entry!(ImageFreezeOn, Image, "freeze_on"),
-        BuiltinCommand::ImageFreezeOff => noun_entry!(ImageFreezeOff, Image, "freeze_off"),
-        BuiltinCommand::PictureEffect => noun_entry!(
-            PictureEffect,
-            Image,
-            "set_picture_effect",
-            StaticMarkerRequirement::Typed(TypedSupportSurface::PictureEffect)
-        ),
-        // Neutral-density filter.
-        BuiltinCommand::NdFilterMode => noun_entry!(NdFilterMode, NdFilter, "set_mode"),
-        BuiltinCommand::NdFilterDirect => noun_entry!(NdFilterDirect, NdFilter, "set_value"),
-        BuiltinCommand::NdFilterStepUp => noun_entry!(NdFilterStepUp, NdFilter, "step_up"),
-        BuiltinCommand::NdFilterStepDown => {
-            noun_entry!(NdFilterStepDown, NdFilter, "step_down")
-        }
-        BuiltinCommand::NdFilterAutoOn => noun_entry!(NdFilterAutoOn, NdFilter, "auto_on"),
-        BuiltinCommand::NdFilterAutoOff => noun_entry!(NdFilterAutoOff, NdFilter, "auto_off"),
-        // Tally.
-        BuiltinCommand::TallyRedOn => noun_entry!(TallyRedOn, Tally, "red_on"),
-        BuiltinCommand::TallyRedOff => noun_entry!(TallyRedOff, Tally, "red_off"),
-        BuiltinCommand::TallyBrightLow => noun_entry!(TallyBrightLow, Tally, "bright_lo"),
-        BuiltinCommand::TallyBrightHigh => noun_entry!(TallyBrightHigh, Tally, "bright_hi"),
-        BuiltinCommand::TallyGreenOn => noun_entry!(TallyGreenOn, Tally, "green_on"),
-        BuiltinCommand::TallyGreenOff => noun_entry!(TallyGreenOff, Tally, "green_off"),
-        BuiltinCommand::TallyFlash => noun_entry!(TallyFlash, Tally, "flash"),
-        BuiltinCommand::TallyOn => noun_entry!(TallyOn, Tally, "on"),
-        BuiltinCommand::TallyOff => noun_entry!(TallyOff, Tally, "off"),
-        // Menu.
-        BuiltinCommand::MenuDisplay => noun_entry!(MenuDisplay, Menu, "display"),
-        BuiltinCommand::MenuNavigate => noun_entry!(MenuNavigate, Menu, "navigate"),
-        BuiltinCommand::MenuSelect => noun_entry!(MenuSelect, Menu, "select"),
-        BuiltinCommand::MenuCancel => noun_entry!(MenuCancel, Menu, "cancel"),
-        BuiltinCommand::DirectMenu => noun_entry!(
-            DirectMenu,
-            Menu,
-            "direct",
-            StaticMarkerRequirement::Typed(TypedSupportSurface::DirectMenu)
-        ),
-        // Advanced/vendor controls.
-        BuiltinCommand::MulticastStreamingOn => {
-            noun_entry!(MulticastStreamingOn, Advanced, "multicast_on")
-        }
-        BuiltinCommand::MulticastStreamingOff => {
-            noun_entry!(MulticastStreamingOff, Advanced, "multicast_off")
-        }
-        BuiltinCommand::NdiQuality => noun_entry!(NdiQuality, Advanced, "set_ndi_quality"),
-        BuiltinCommand::UsbAudioOn => noun_entry!(UsbAudioOn, Advanced, "usb_audio_on"),
-        BuiltinCommand::UsbAudioOff => noun_entry!(UsbAudioOff, Advanced, "usb_audio_off"),
-        // Explicit non-noun exceptions.
-        BuiltinCommand::AddressSet => broadcast_entry!(AddressSet, "address_set"),
-        BuiltinCommand::InterfaceClear => broadcast_entry!(InterfaceClear, "interface_clear"),
-        BuiltinCommand::CommandCancel => internal_entry!(CommandCancel, "cancel_command"),
-        BuiltinCommand::SettingsSave => noun_entry!(SettingsSave, System, "save_settings"),
-        BuiltinCommand::MotionSyncMode => noun_entry!(MotionSyncMode, MotionSync, "set_mode"),
-        BuiltinCommand::MotionSyncPreset => noun_entry!(MotionSyncPreset, MotionSync, "set_preset"),
-        BuiltinCommand::VariableSpeedMode => noun_entry!(
-            VariableSpeedMode,
-            Advanced,
-            "set_variable_speed_mode",
-            StaticMarkerRequirement::Typed(TypedSupportSurface::VariableSpeed)
-        ),
+    macro_rules! surface_rows_for_entry {
+        ($($rows:tt)*) => {
+            surface_rows!(command; $($rows)*)
+        };
     }
+
+    noun_table!(All => surface_rows_for_entry)
 }
+
+/// Force every registry arm through const evaluation.
+///
+/// `surface_entry` is also called by runtime tests, but those calls alone
+/// would not evaluate the `registry_class` checks until the tests run.  This
+/// item makes a mismatched row kind a compile-time failure for every command
+/// ID in the closed semantic inventory.
+const _: () = {
+    let mut index = 0;
+    while index < BuiltinCommand::ALL.len() {
+        let _ = surface_entry(BuiltinCommand::ALL[index]);
+        index += 1;
+    }
+};
 
 #[cfg(test)]
 mod tests {
@@ -777,6 +631,17 @@ mod tests {
             "the semantic class distribution of the closed ledger changed",
         );
         assert_eq!(seen.len(), BuiltinCommand::ALL.len());
+        assert_eq!(BuiltinCommand::ALL.len(), BUILTIN_COMMAND_COUNT);
+        assert_eq!(
+            seen.iter()
+                .filter(|command| surface_entry(**command).is_target_facing())
+                .count(),
+            TARGET_FACING_COMMAND_COUNT,
+        );
+        assert_eq!(
+            BuiltinCommand::ALL.len() - TARGET_FACING_COMMAND_COUNT,
+            NON_NOUN_COMMAND_COUNT,
+        );
     }
 
     /// Issue #651: paired on/off rows agree on their capability gate.

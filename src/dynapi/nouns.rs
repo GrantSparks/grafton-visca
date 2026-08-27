@@ -71,6 +71,12 @@ pub const DYN_NOUN_CONVENIENCE_METHODS: &[(&str, &str)] = &[
 macro_rules! dyn_noun_declarations {
     () => {};
 
+    // The flat registry projection keeps noun context while collecting rows;
+    // dynamic traits only need the row shapes and therefore strip it here.
+    (@noun $noun:ident; $($rows:tt)*) => {
+        dyn_noun_declarations!($($rows)*);
+    };
+
     // The declared shape of a command row is its kind, name and arguments; how
     // its request value is built is invisible from the signature.  The `@shape`
     // arms below emit that shape, and the row arms further down strip whichever
@@ -90,7 +96,8 @@ macro_rules! dyn_noun_declarations {
 
     (
         $(#[$doc:meta])*
-        inquiry $method:ident() -> $response:ty $(where $gate:tt $(+ $extra:tt)*)? = $request:expr;
+        inquiry $($inquiry:ident)::+ $method:ident() -> $response:ty
+            $(where $gate:tt $(+ $extra:tt)*)? = $request:expr;
         $($rest:tt)*
     ) => {
         $(#[$doc])*
@@ -100,8 +107,8 @@ macro_rules! dyn_noun_declarations {
 
     (
         $(#[$doc:meta])*
-        $kind:ident $method:ident($($arg:ident: $ty:ty),*) $(where $gate:tt $(+ $extra:tt)*)?
-            = checked $request:expr;
+        $kind:ident [$($command:ident),*] $method:ident($($arg:ident: $ty:ty),*)
+            -> $request_ty:ty $(where $gate:tt $(+ $extra:tt)*)? = checked $request:expr;
         $($rest:tt)*
     ) => {
         dyn_noun_declarations!(@shape $(#[$doc])* $kind $method($($arg: $ty),*));
@@ -110,7 +117,8 @@ macro_rules! dyn_noun_declarations {
 
     (
         $(#[$doc:meta])*
-        $kind:ident $method:ident($($arg:ident: $ty:ty),*) $(where $gate:tt $(+ $extra:tt)*)?
+        $kind:ident [$($command:ident),*] $method:ident($($arg:ident: $ty:ty),*)
+            -> $request_ty:ty $(where $gate:tt $(+ $extra:tt)*)?
             = with_profile |$profile:ident| $request:expr;
         $($rest:tt)*
     ) => {
@@ -120,7 +128,8 @@ macro_rules! dyn_noun_declarations {
 
     (
         $(#[$doc:meta])*
-        $kind:ident $method:ident($($arg:ident: $ty:ty),*) $(where $gate:tt $(+ $extra:tt)*)?
+        $kind:ident [$($command:ident),*] $method:ident($($arg:ident: $ty:ty),*)
+            -> $request_ty:ty $(where $gate:tt $(+ $extra:tt)*)?
             = with_core |$core:ident| $request:expr;
         $($rest:tt)*
     ) => {
@@ -130,7 +139,8 @@ macro_rules! dyn_noun_declarations {
 
     (
         $(#[$doc:meta])*
-        $kind:ident $method:ident($($arg:ident: $ty:ty),*) $(where $gate:tt $(+ $extra:tt)*)?
+        $kind:ident [$($command:ident),*] $method:ident($($arg:ident: $ty:ty),*)
+            $(where $gate:tt $(+ $extra:tt)*)?
             = delegate $target:ident($($delegated:expr),*);
         $($rest:tt)*
     ) => {
@@ -140,8 +150,8 @@ macro_rules! dyn_noun_declarations {
 
     (
         $(#[$doc:meta])*
-        $kind:ident $method:ident($($arg:ident: $ty:ty),*) $(where $gate:tt $(+ $extra:tt)*)?
-            = $request:expr;
+        $kind:ident [$($command:ident),*] $method:ident($($arg:ident: $ty:ty),*)
+            -> $request_ty:ty $(where $gate:tt $(+ $extra:tt)*)? = $request:expr;
         $($rest:tt)*
     ) => {
         dyn_noun_declarations!(@shape $(#[$doc])* $kind $method($($arg: $ty),*));
@@ -157,26 +167,36 @@ macro_rules! dyn_noun_declarations {
 macro_rules! dyn_noun_impls {
     () => {};
 
+    // Strip the all-rows projection's noun context before expanding the
+    // object-safe request implementation grammar.
+    (@noun $noun:ident; $($rows:tt)*) => {
+        dyn_noun_impls!($($rows)*);
+    };
+
     (
         $(#[$doc:meta])*
-        inquiry $method:ident() -> $response:ty $(where $gate:tt $(+ $extra:tt)*)? = $request:expr;
+        inquiry $($inquiry:ident)::+ $method:ident() -> $response:ty
+            $(where $gate:tt $(+ $extra:tt)*)? = $request:expr;
         $($rest:tt)*
     ) => {
         fn $method(&self) -> DynFuture<'_, Result<$response, Error>> {
-            Box::pin(async move { self.inquire(&$request).await })
+            Box::pin(async move {
+                let request: $($inquiry)::+ = $request;
+                self.inquire(&request).await
+            })
         }
         dyn_noun_impls!($($rest)*);
     };
 
     (
         $(#[$doc:meta])*
-        plain $method:ident($($arg:ident: $ty:ty),*) $(where $gate:tt $(+ $extra:tt)*)?
-            = checked $request:expr;
+        plain [$($command:ident),*] $method:ident($($arg:ident: $ty:ty),*)
+            -> $request_ty:ty $(where $gate:tt $(+ $extra:tt)*)? = checked $request:expr;
         $($rest:tt)*
     ) => {
         fn $method(&self, $($arg: $ty),*) -> DynFuture<'_, Result<(), Error>> {
             Box::pin(async move {
-                let request = $request?;
+                let request: $request_ty = $request?;
                 self.execute(&request).await
             })
         }
@@ -185,7 +205,8 @@ macro_rules! dyn_noun_impls {
 
     (
         $(#[$doc:meta])*
-        plain $method:ident($($arg:ident: $ty:ty),*) $(where $gate:tt $(+ $extra:tt)*)?
+        plain [$($command:ident),*] $method:ident($($arg:ident: $ty:ty),*)
+            -> $request_ty:ty $(where $gate:tt $(+ $extra:tt)*)?
             = with_profile |$profile:ident| $request:expr;
         $($rest:tt)*
     ) => {
@@ -193,7 +214,8 @@ macro_rules! dyn_noun_impls {
             Box::pin(async move {
                 let request = {
                     let $profile = self.profile();
-                    $request?
+                    let request: $request_ty = $request?;
+                    request
                 };
                 self.execute(&request).await
             })
@@ -203,19 +225,23 @@ macro_rules! dyn_noun_impls {
 
     (
         $(#[$doc:meta])*
-        plain $method:ident($($arg:ident: $ty:ty),*) $(where $gate:tt $(+ $extra:tt)*)?
-            = $request:expr;
+        plain [$($command:ident),*] $method:ident($($arg:ident: $ty:ty),*)
+            -> $request_ty:ty $(where $gate:tt $(+ $extra:tt)*)? = $request:expr;
         $($rest:tt)*
     ) => {
         fn $method(&self, $($arg: $ty),*) -> DynFuture<'_, Result<(), Error>> {
-            Box::pin(async move { self.execute(&$request).await })
+            Box::pin(async move {
+                let request: $request_ty = $request;
+                self.execute(&request).await
+            })
         }
         dyn_noun_impls!($($rest)*);
     };
 
     (
         $(#[$doc:meta])*
-        applied $method:ident($($arg:ident: $ty:ty),*) $(where $gate:tt $(+ $extra:tt)*)?
+        applied [$($command:ident),*] $method:ident($($arg:ident: $ty:ty),*)
+            $(where $gate:tt $(+ $extra:tt)*)?
             = delegate $target:ident($($delegated:expr),*);
         $($rest:tt)*
     ) => {
@@ -227,13 +253,13 @@ macro_rules! dyn_noun_impls {
 
     (
         $(#[$doc:meta])*
-        applied $method:ident($($arg:ident: $ty:ty),*) $(where $gate:tt $(+ $extra:tt)*)?
-            = checked $request:expr;
+        applied [$($command:ident),*] $method:ident($($arg:ident: $ty:ty),*)
+            -> $request_ty:ty $(where $gate:tt $(+ $extra:tt)*)? = checked $request:expr;
         $($rest:tt)*
     ) => {
         fn $method(&self, $($arg: $ty),*) -> DynFuture<'_, Result<DynAppliedOperation, Error>> {
             Box::pin(async move {
-                let request = $request?;
+                let request: $request_ty = $request?;
                 self.submit_applied(&request).await
             })
         }
@@ -242,7 +268,8 @@ macro_rules! dyn_noun_impls {
 
     (
         $(#[$doc:meta])*
-        applied $method:ident($($arg:ident: $ty:ty),*) $(where $gate:tt $(+ $extra:tt)*)?
+        applied [$($command:ident),*] $method:ident($($arg:ident: $ty:ty),*)
+            -> $request_ty:ty $(where $gate:tt $(+ $extra:tt)*)?
             = with_core |$core:ident| $request:expr;
         $($rest:tt)*
     ) => {
@@ -250,7 +277,8 @@ macro_rules! dyn_noun_impls {
             Box::pin(async move {
                 let request = {
                     let $core = self.core();
-                    $request?
+                    let request: $request_ty = $request?;
+                    request
                 };
                 self.submit_applied(&request).await
             })
@@ -260,25 +288,28 @@ macro_rules! dyn_noun_impls {
 
     (
         $(#[$doc:meta])*
-        applied $method:ident($($arg:ident: $ty:ty),*) $(where $gate:tt $(+ $extra:tt)*)?
-            = $request:expr;
+        applied [$($command:ident),*] $method:ident($($arg:ident: $ty:ty),*)
+            -> $request_ty:ty $(where $gate:tt $(+ $extra:tt)*)? = $request:expr;
         $($rest:tt)*
     ) => {
         fn $method(&self, $($arg: $ty),*) -> DynFuture<'_, Result<DynAppliedOperation, Error>> {
-            Box::pin(async move { self.submit_applied(&$request).await })
+            Box::pin(async move {
+                let request: $request_ty = $request;
+                self.submit_applied(&request).await
+            })
         }
         dyn_noun_impls!($($rest)*);
     };
 
     (
         $(#[$doc:meta])*
-        targeted $method:ident($($arg:ident: $ty:ty),*) $(where $gate:tt $(+ $extra:tt)*)?
-            = checked $request:expr;
+        targeted [$($command:ident),*] $method:ident($($arg:ident: $ty:ty),*)
+            -> $request_ty:ty $(where $gate:tt $(+ $extra:tt)*)? = checked $request:expr;
         $($rest:tt)*
     ) => {
         fn $method(&self, $($arg: $ty),*) -> DynFuture<'_, Result<DynTargetedOperation, Error>> {
             Box::pin(async move {
-                let request = $request?;
+                let request: $request_ty = $request?;
                 self.submit_targeted(&request).await
             })
         }
@@ -287,7 +318,8 @@ macro_rules! dyn_noun_impls {
 
     (
         $(#[$doc:meta])*
-        targeted $method:ident($($arg:ident: $ty:ty),*) $(where $gate:tt $(+ $extra:tt)*)?
+        targeted [$($command:ident),*] $method:ident($($arg:ident: $ty:ty),*)
+            -> $request_ty:ty $(where $gate:tt $(+ $extra:tt)*)?
             = with_profile |$profile:ident| $request:expr;
         $($rest:tt)*
     ) => {
@@ -295,7 +327,8 @@ macro_rules! dyn_noun_impls {
             Box::pin(async move {
                 let request = {
                     let $profile = self.profile();
-                    $request?
+                    let request: $request_ty = $request?;
+                    request
                 };
                 self.submit_targeted(&request).await
             })
@@ -305,12 +338,15 @@ macro_rules! dyn_noun_impls {
 
     (
         $(#[$doc:meta])*
-        targeted $method:ident($($arg:ident: $ty:ty),*) $(where $gate:tt $(+ $extra:tt)*)?
-            = $request:expr;
+        targeted [$($command:ident),*] $method:ident($($arg:ident: $ty:ty),*)
+            -> $request_ty:ty $(where $gate:tt $(+ $extra:tt)*)? = $request:expr;
         $($rest:tt)*
     ) => {
         fn $method(&self, $($arg: $ty),*) -> DynFuture<'_, Result<DynTargetedOperation, Error>> {
-            Box::pin(async move { self.submit_targeted(&$request).await })
+            Box::pin(async move {
+                let request: $request_ty = $request;
+                self.submit_targeted(&request).await
+            })
         }
         dyn_noun_impls!($($rest)*);
     };

@@ -3,6 +3,9 @@
 //! Rust library for VISCA over IP protocol to control PTZ cameras.
 
 #![forbid(unsafe_code)]
+// The generated noun/surface ledger is deliberately exhaustive and uses
+// continuation-style collectors.  Keep a modest budget for its expansion.
+#![recursion_limit = "512"]
 #![warn(
     clippy::all,
     missing_docs,

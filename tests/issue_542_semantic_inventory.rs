@@ -30,13 +30,6 @@ fn ledger_variants(semantics: &str) -> usize {
         .expect("BuiltinCommand enum body")
 }
 
-/// One surface disposition per semantic row, counted from the macro calls.
-fn surface_dispositions(surface: &str) -> usize {
-    surface.matches("noun_entry!(").count()
-        + surface.matches("broadcast_entry!(").count()
-        + surface.matches("internal_entry!(").count()
-}
-
 /// Reads `pub const NAME: usize = N;` without depending on its formatting.
 fn declared_usize(source: &str, name: &str) -> usize {
     let needle = format!("{name}: usize");
@@ -56,23 +49,54 @@ fn semantic_ledger_is_single_source_and_class_balanced() {
     assert!(semantics.contains("pub enum BuiltinCommand"));
     assert!(semantics.contains("pub const ALL: &[Self]"));
     assert!(surface.contains("BuiltinCommand::ALL"));
-    assert!(surface.contains("match command"));
+    assert!(surface.contains("pub(crate) const fn surface_entry"));
 
-    // Both sides of every equality below are counted from source, so the
-    // ledger size is written down nowhere and reformatting cannot silently
-    // satisfy the gate.  The closed `ALL` slice must list every declared
-    // variant, and the surface match must give every listed row exactly one
-    // disposition.
-    let rows = builtin_command_rows(&semantics);
+    // The surface projection is generated from the shared noun table.  Keep
+    // this check whitespace-tolerant: the consumer name and the `All` scope
+    // are the contract, not the formatter's choice of spacing.
+    let compact_surface: String = surface.split_whitespace().collect();
     assert_eq!(
-        rows,
-        ledger_variants(&semantics),
+        compact_surface
+            .matches("noun_table!(All=>surface_rows_for_entry)")
+            .count(),
+        1,
+        "surface_entry must consume the complete noun table"
+    );
+
+    // `surface_rows!` emits the command match, so the compiler—not a source
+    // count—owns exhaustiveness.  There is no wildcard arm to hide a newly
+    // added BuiltinCommand row, and duplicate generated arms are rejected by
+    // the explicit unreachable-pattern lint on `surface_entry`.
+    let surface_rows = surface
+        .split_once("macro_rules! surface_rows")
+        .and_then(|(_, rest)| rest.split_once("/// Derive the one surface row"))
+        .map(|(body, _)| body)
+        .expect("surface_rows macro body");
+    let compact_surface_rows: String = surface_rows.split_whitespace().collect();
+    assert!(compact_surface_rows.contains("match$input"));
+    assert!(!compact_surface_rows.contains("_=>"));
+    assert!(surface.contains("#[deny(unreachable_patterns)]"));
+
+    // The semantic inventory remains the independent source of truth.  The
+    // surface constants make the split readable without reproducing the noun
+    // table here: every command is either target-facing or a protocol
+    // exception.
+    let rows = builtin_command_rows(&semantics);
+    let variants = ledger_variants(&semantics);
+    assert_eq!(
+        rows, variants,
         "BuiltinCommand::ALL must list every declared semantic row"
     );
     assert_eq!(
-        surface_dispositions(&surface),
+        declared_usize(&surface, "BUILTIN_COMMAND_COUNT"),
         rows,
-        "every semantic row needs exactly one surface disposition"
+        "readable surface total drifted from BuiltinCommand::ALL"
+    );
+    assert_eq!(
+        declared_usize(&surface, "TARGET_FACING_COMMAND_COUNT")
+            + declared_usize(&surface, "NON_NOUN_COMMAND_COUNT"),
+        rows,
+        "target-facing and protocol-exception totals must cover every semantic row"
     );
 }
 
@@ -118,12 +142,12 @@ fn static_and_dynamic_ledgers_reference_the_same_command_rows() {
     }
     assert!(surface.contains("StaticSurfaceDisposition::Noun"));
 
-    // Derived, not string-matched: the dynamic projection must declare one
-    // command method per target-facing ledger row and one inquiry method per
-    // projected inquiry, whatever those totals happen to be.
+    // Both projections expose the same readable target-facing total.  The
+    // semantic test above independently anchors that total to BuiltinCommand;
+    // this assertion only checks that the dynamic projection did not drift.
     assert_eq!(
         declared_usize(&dynamic_nouns, "DYN_NOUN_TARGET_METHOD_COUNT"),
-        surface.matches("noun_entry!(").count(),
+        declared_usize(&surface, "TARGET_FACING_COMMAND_COUNT"),
         "dynamic target-method count drifted from the static noun ledger"
     );
     // Both sides of the inquiry count used to come out of `dynapi/nouns.rs`

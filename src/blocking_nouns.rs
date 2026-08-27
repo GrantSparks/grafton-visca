@@ -94,31 +94,39 @@ macro_rules! accessor {
 macro_rules! blocking_noun_methods {
     () => {};
 
+    // Strip the all-rows projection's noun context before expanding the
+    // normal blocking method grammar.
+    (@noun $noun:ident; $($rows:tt)*) => {
+        blocking_noun_methods!($($rows)*);
+    };
+
     (
         $(#[$doc:meta])*
-        inquiry $method:ident() -> $response:ty $(where $gate:tt $(+ $extra:tt)*)? = $request:expr;
+        inquiry $($inquiry:ident)::+ $method:ident() -> $response:ty
+            $(where $gate:tt $(+ $extra:tt)*)? = $request:expr;
         $($rest:tt)*
     ) => {
         $(#[$doc])*
         pub fn $method(&self) -> Result<$response>
         $(where P: $gate $(+ $extra)*)?
         {
-            inquire(self.camera, &$request)
+            let request: $($inquiry)::+ = $request;
+            inquire(self.camera, &request)
         }
         blocking_noun_methods!($($rest)*);
     };
 
     (
         $(#[$doc:meta])*
-        plain $method:ident($($arg:ident: $ty:ty),*) $(where $gate:tt $(+ $extra:tt)*)?
-            = checked $request:expr;
+        plain [$($command:ident),*] $method:ident($($arg:ident: $ty:ty),*)
+            -> $request_ty:ty $(where $gate:tt $(+ $extra:tt)*)? = checked $request:expr;
         $($rest:tt)*
     ) => {
         $(#[$doc])*
         pub fn $method(&self, $($arg: $ty),*) -> Result<()>
         $(where P: $gate $(+ $extra)*)?
         {
-            let request = $request?;
+            let request: $request_ty = $request?;
             execute(self.camera, &request)
         }
         blocking_noun_methods!($($rest)*);
@@ -126,7 +134,8 @@ macro_rules! blocking_noun_methods {
 
     (
         $(#[$doc:meta])*
-        plain $method:ident($($arg:ident: $ty:ty),*) $(where $gate:tt $(+ $extra:tt)*)?
+        plain [$($command:ident),*] $method:ident($($arg:ident: $ty:ty),*)
+            -> $request_ty:ty $(where $gate:tt $(+ $extra:tt)*)?
             = with_profile |$profile:ident| $request:expr;
         $($rest:tt)*
     ) => {
@@ -136,7 +145,8 @@ macro_rules! blocking_noun_methods {
         {
             let request = {
                 let $profile = self.camera.profile();
-                $request?
+                let request: $request_ty = $request?;
+                request
             };
             execute(self.camera, &request)
         }
@@ -145,22 +155,24 @@ macro_rules! blocking_noun_methods {
 
     (
         $(#[$doc:meta])*
-        plain $method:ident($($arg:ident: $ty:ty),*) $(where $gate:tt $(+ $extra:tt)*)?
-            = $request:expr;
+        plain [$($command:ident),*] $method:ident($($arg:ident: $ty:ty),*)
+            -> $request_ty:ty $(where $gate:tt $(+ $extra:tt)*)? = $request:expr;
         $($rest:tt)*
     ) => {
         $(#[$doc])*
         pub fn $method(&self, $($arg: $ty),*) -> Result<()>
         $(where P: $gate $(+ $extra)*)?
         {
-            execute(self.camera, &$request)
+            let request: $request_ty = $request;
+            execute(self.camera, &request)
         }
         blocking_noun_methods!($($rest)*);
     };
 
     (
         $(#[$doc:meta])*
-        applied $method:ident($($arg:ident: $ty:ty),*) $(where $gate:tt $(+ $extra:tt)*)?
+        applied [$($command:ident),*] $method:ident($($arg:ident: $ty:ty),*)
+            $(where $gate:tt $(+ $extra:tt)*)?
             = delegate $target:ident($($delegated:expr),*);
         $($rest:tt)*
     ) => {
@@ -175,15 +187,15 @@ macro_rules! blocking_noun_methods {
 
     (
         $(#[$doc:meta])*
-        applied $method:ident($($arg:ident: $ty:ty),*) $(where $gate:tt $(+ $extra:tt)*)?
-            = checked $request:expr;
+        applied [$($command:ident),*] $method:ident($($arg:ident: $ty:ty),*)
+            -> $request_ty:ty $(where $gate:tt $(+ $extra:tt)*)? = checked $request:expr;
         $($rest:tt)*
     ) => {
         $(#[$doc])*
         pub fn $method(&self, $($arg: $ty),*) -> Result<Operation<'session, AppliedOnly>>
         $(where P: $gate $(+ $extra)*)?
         {
-            let request = $request?;
+            let request: $request_ty = $request?;
             submit(self.camera, &request)
         }
         blocking_noun_methods!($($rest)*);
@@ -191,7 +203,8 @@ macro_rules! blocking_noun_methods {
 
     (
         $(#[$doc:meta])*
-        applied $method:ident($($arg:ident: $ty:ty),*) $(where $gate:tt $(+ $extra:tt)*)?
+        applied [$($command:ident),*] $method:ident($($arg:ident: $ty:ty),*)
+            -> $request_ty:ty $(where $gate:tt $(+ $extra:tt)*)?
             = with_core |$core:ident| $request:expr;
         $($rest:tt)*
     ) => {
@@ -201,7 +214,8 @@ macro_rules! blocking_noun_methods {
         {
             let request = {
                 let $core = self.camera.core();
-                $request?
+                let request: $request_ty = $request?;
+                request
             };
             submit(self.camera, &request)
         }
@@ -210,30 +224,15 @@ macro_rules! blocking_noun_methods {
 
     (
         $(#[$doc:meta])*
-        applied $method:ident($($arg:ident: $ty:ty),*) $(where $gate:tt $(+ $extra:tt)*)?
-            = $request:expr;
+        applied [$($command:ident),*] $method:ident($($arg:ident: $ty:ty),*)
+            -> $request_ty:ty $(where $gate:tt $(+ $extra:tt)*)? = $request:expr;
         $($rest:tt)*
     ) => {
         $(#[$doc])*
         pub fn $method(&self, $($arg: $ty),*) -> Result<Operation<'session, AppliedOnly>>
         $(where P: $gate $(+ $extra)*)?
         {
-            submit(self.camera, &$request)
-        }
-        blocking_noun_methods!($($rest)*);
-    };
-
-    (
-        $(#[$doc:meta])*
-        targeted $method:ident($($arg:ident: $ty:ty),*) $(where $gate:tt $(+ $extra:tt)*)?
-            = checked $request:expr;
-        $($rest:tt)*
-    ) => {
-        $(#[$doc])*
-        pub fn $method(&self, $($arg: $ty),*) -> Result<Operation<'session, Targeted>>
-        $(where P: $gate $(+ $extra)*)?
-        {
-            let request = $request?;
+            let request: $request_ty = $request;
             submit(self.camera, &request)
         }
         blocking_noun_methods!($($rest)*);
@@ -241,7 +240,24 @@ macro_rules! blocking_noun_methods {
 
     (
         $(#[$doc:meta])*
-        targeted $method:ident($($arg:ident: $ty:ty),*) $(where $gate:tt $(+ $extra:tt)*)?
+        targeted [$($command:ident),*] $method:ident($($arg:ident: $ty:ty),*)
+            -> $request_ty:ty $(where $gate:tt $(+ $extra:tt)*)? = checked $request:expr;
+        $($rest:tt)*
+    ) => {
+        $(#[$doc])*
+        pub fn $method(&self, $($arg: $ty),*) -> Result<Operation<'session, Targeted>>
+        $(where P: $gate $(+ $extra)*)?
+        {
+            let request: $request_ty = $request?;
+            submit(self.camera, &request)
+        }
+        blocking_noun_methods!($($rest)*);
+    };
+
+    (
+        $(#[$doc:meta])*
+        targeted [$($command:ident),*] $method:ident($($arg:ident: $ty:ty),*)
+            -> $request_ty:ty $(where $gate:tt $(+ $extra:tt)*)?
             = with_profile |$profile:ident| $request:expr;
         $($rest:tt)*
     ) => {
@@ -251,7 +267,8 @@ macro_rules! blocking_noun_methods {
         {
             let request = {
                 let $profile = self.camera.profile();
-                $request?
+                let request: $request_ty = $request?;
+                request
             };
             submit(self.camera, &request)
         }
@@ -260,15 +277,16 @@ macro_rules! blocking_noun_methods {
 
     (
         $(#[$doc:meta])*
-        targeted $method:ident($($arg:ident: $ty:ty),*) $(where $gate:tt $(+ $extra:tt)*)?
-            = $request:expr;
+        targeted [$($command:ident),*] $method:ident($($arg:ident: $ty:ty),*)
+            -> $request_ty:ty $(where $gate:tt $(+ $extra:tt)*)? = $request:expr;
         $($rest:tt)*
     ) => {
         $(#[$doc])*
         pub fn $method(&self, $($arg: $ty),*) -> Result<Operation<'session, Targeted>>
         $(where P: $gate $(+ $extra)*)?
         {
-            submit(self.camera, &$request)
+            let request: $request_ty = $request;
+            submit(self.camera, &request)
         }
         blocking_noun_methods!($($rest)*);
     };
