@@ -92,6 +92,11 @@ views never read or mutate each other's entries.
 Treat a closed or poisoned owner as a completed session, not as a queue to
 restart in place:
 
+0. Classify the failure with `Error::requires_new_session()`. It returns `true`
+   for transport-level session death (`ConnectionClosed`, `StreamPoisoned`, and
+   the transport/channel-unavailable errors) and `false` for the deliberate
+   `RuntimeShutdown`, which all share `ErrorKind::IoClosed`. Do not match the
+   kind or individual variants to make this decision.
 1. Keep the validated, reusable `SessionConfig` outside the session.
 2. Request `shutdown`/`close` and stop using views from the old owner.
 3. Resolve or discard every old operation handle. Handles from the old owner

@@ -689,6 +689,8 @@ pub use requests::{
 
 mod prepared;
 
+mod drop_stop;
+
 /// Bounded owner metrics and diagnostic subscriptions.
 pub mod observability;
 

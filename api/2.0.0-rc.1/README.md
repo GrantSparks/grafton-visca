@@ -5,12 +5,20 @@ candidate. They intentionally establish a new semver baseline instead of
 comparing the 2.0 API break with the 1.x API. Future changes are reviewed by
 diffing the same selected feature surfaces against these files.
 
-The snapshots are generated with the pinned `cargo-public-api` 0.52.0 tool:
+The snapshots are generated with the pinned `cargo-public-api` 0.52.0 tool on
+the nightly toolchain pinned by `.github/workflows/ci.yml`:
 
 ```text
+rustup toolchain install nightly-2026-08-26 --profile minimal
 cargo install cargo-public-api --version 0.52.0 --locked
-cargo public-api --color never [feature arguments]
+cargo +nightly-2026-08-26 public-api --color never [feature arguments]
 ```
+
+`cargo public-api` builds rustdoc JSON, which only nightly rustdoc emits, and
+the emitted item order and formatting change between nightly releases. Running
+it through the same pinned nightly CI uses is what keeps these files a stable
+byte comparison instead of a moving target; a nightly bump in the workflow has
+to be accompanied by regenerated snapshots.
 
 CI compares the complete deterministic, unfiltered `cargo public-api` output
 for each surface. No simplification filters are used, so blanket, auto-trait,

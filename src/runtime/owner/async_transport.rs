@@ -6,7 +6,7 @@ use crate::{
     command::CommandKind,
     profile::{OperationalTuning, ProfileSpec},
     protocol::framer::ProtocolFramer,
-    runtime::engine::{DecodedFrame, TransmissionMeta},
+    runtime::engine::TransmissionMeta,
     transport::{AsyncTransport, HasTransportConfig},
     CameraId, Error,
 };
@@ -16,7 +16,7 @@ use super::{
         decode_frames_with_routing, owner_policy_for_targets_with_tuning,
         validate_profile_transport, OwnerEnvelope, RoutingState, TargetRegistry,
     },
-    AsyncOwnerDriver, OwnerBuffers, OwnerPolicy, WireWrite,
+    AsyncOwnerDriver, AsyncReceive, OwnerBuffers, OwnerPolicy, WireWrite,
 };
 
 #[derive(Debug)]
@@ -169,9 +169,15 @@ where
         &mut self,
         buffers: &mut OwnerBuffers,
         frame_limit: usize,
-    ) -> impl Future<Output = Result<Vec<DecodedFrame>, Error>> + Send {
+    ) -> impl Future<Output = Result<AsyncReceive, Error>> + Send {
         async move {
             let received = self.transport.recv_into(buffers.receive_mut()).await?;
+            // Only a zero-length read means the peer closed. A short read that
+            // carried bytes decodes to an empty batch when it did not finish a
+            // frame, which is routine on byte-stream transports.
+            if received == 0 {
+                return Ok(AsyncReceive::Closed);
+            }
             decode_frames_with_routing(
                 &self.state.envelope,
                 &mut self.state.framer,
@@ -180,12 +186,13 @@ where
                 received,
                 frame_limit,
             )
+            .map(AsyncReceive::Frames)
         }
     }
 }
 
 #[cfg(test)]
-#[allow(clippy::expect_used, clippy::unwrap_used)]
+#[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 mod tests {
     use super::*;
     use crate::{
@@ -244,12 +251,52 @@ mod tests {
         );
 
         let mut buffers = OwnerBuffers::new(adapter.policy().limits).unwrap();
-        let frames = futures_lite::future::block_on(adapter.receive(&mut buffers, 4)).unwrap();
+        let received = futures_lite::future::block_on(adapter.receive(&mut buffers, 4)).unwrap();
+        let AsyncReceive::Frames(frames) = received else {
+            panic!("a nonzero read must not report the transport as closed");
+        };
         assert_eq!(frames.len(), 1);
         assert!(matches!(
             frames[0].response,
             crate::runtime::engine::DecodedResponse::Ack { .. }
         ));
+    }
+
+    #[test]
+    fn partial_stream_frame_is_reported_as_an_empty_batch_not_a_close() {
+        let transport = ScriptedTransport {
+            config: TransportConfig::default(),
+            sent: Vec::new(),
+            // One reply split across two reads, then a genuine end of stream.
+            receives: [Ok(vec![0x90, 0x41]), Ok(vec![0xff]), Ok(Vec::new())]
+                .into_iter()
+                .collect(),
+        };
+        let mut adapter =
+            AsyncTransportAdapter::new(transport, &profile(), CameraId::CAMERA_1).unwrap();
+        let mut buffers = OwnerBuffers::new(adapter.policy().limits).unwrap();
+
+        let first = futures_lite::future::block_on(adapter.receive(&mut buffers, 4)).unwrap();
+        let AsyncReceive::Frames(frames) = first else {
+            panic!("a partial frame must not be reported as a transport close");
+        };
+        assert!(frames.is_empty());
+
+        let second = futures_lite::future::block_on(adapter.receive(&mut buffers, 4)).unwrap();
+        let AsyncReceive::Frames(frames) = second else {
+            panic!("the completing read must decode the buffered frame");
+        };
+        assert_eq!(frames.len(), 1);
+        assert!(matches!(
+            frames[0].response,
+            crate::runtime::engine::DecodedResponse::Ack { .. }
+        ));
+
+        let third = futures_lite::future::block_on(adapter.receive(&mut buffers, 4)).unwrap();
+        assert!(
+            matches!(third, AsyncReceive::Closed),
+            "only a zero-length read closes the transport"
+        );
     }
 
     #[test]

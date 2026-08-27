@@ -294,14 +294,17 @@ async fn move_home() -> Result<(), grafton_visca::Error> {
   removable locally; sent work requires profile support and otherwise returns
   `Error::NotSupported`. Success does not prove physical motion stopped, so use
   a bounded STOP for continuous movement.
-- `detach` is explicit fire-and-forget. Dropping a handle has the same
-  non-canceling behavior; the submitted command remains scheduler-owned and may
-  still be dispatched and complete. `#[must_use]` warns only when a returned
+- Dropping a movement handle nobody resolved sends the typed STOP for every
+  axis that operation affects, so an early `?` or a panic cannot leave the
+  camera driving. The stop is best effort and never blocks the drop.
+- `detach` is explicit fire-and-forget and is the opt-out from that stop: the
+  submitted command remains owner-owned, may still be dispatched and complete,
+  and physical movement continues. `#[must_use]` warns only when a returned
   handle is ignored directly.
 
 See the maintained [blocking](examples/operation_handles.rs) and
 [Tokio](examples/operation_handles_async.rs) examples for complete programs that
-snapshot and restore the complete camera pose around movement.
+close the session on every path and pair each detach with a bounded stop.
 
 ---
 
@@ -369,11 +372,12 @@ let config = CameraConfig::<PtzOpticsG2>::tcp("192.168.0.110")
 
 TCP keepalive is a socket-level liveness mechanism. It can detect broken peers
 and may keep idle network-path state active, but it does not send VISCA commands
-or guarantee that camera firmware will retain an idle application session. If an
-operation reports a terminal connection failure such as `ConnectionClosed` or
-`StreamPoisoned`, discard that session and establish a new one before submitting
-more work. Do not automatically replay an operation whose completion is
-uncertain.
+or guarantee that camera firmware will retain an idle application session. When
+an operation fails, ask `Error::requires_new_session()`: it reports `true` for
+terminal connection failures such as `ConnectionClosed` and `StreamPoisoned`,
+and `false` for a `RuntimeShutdown` this application requested. On `true`,
+discard that session and establish a new one before submitting more work. Do not
+automatically replay an operation whose completion is uncertain.
 
 ### Feature flags
 

@@ -192,6 +192,37 @@ pub(crate) trait BlockingControlHost {
     ) -> Result<ReceiptCore, Error>;
 
     fn cancel_operation(&self, receipt: ReceiptCore) -> Result<BlockingCancellationReceipt, Error>;
+
+    /// Admits and writes one request whose outcome nobody will observe.
+    ///
+    /// Blocking mode has no background actor, so the caller thread is the only
+    /// thing that can put bytes on the wire; a queued-but-unwritten STOP would
+    /// never leave if the session is torn down next. This therefore performs
+    /// the request's single first write, bounded by the transport's own send
+    /// timeout, and reports nothing. It takes the owner turn with a
+    /// non-blocking borrow, so a re-entrant call fails instead of deadlocking,
+    /// and it never panics — a dropped handle may be unwinding.
+    fn submit_detached(&self, request: RuntimeRequest);
+}
+
+/// One caller-thread owner turn that writes an unobserved request.
+///
+/// Shared by both [`BlockingControlHost`] implementations so drop-time stop
+/// submission behaves identically for a borrowed and an owning session.
+fn write_detached(
+    owner: &mut BlockingOwner,
+    driver: &mut dyn BlockingWireDriver,
+    reader: &mut dyn BlockingReadDriver,
+    decoder: &mut dyn BlockingFrameDecoder,
+    request: RuntimeRequest,
+) {
+    // Reclaim any command socket whose reply has already arrived. An abandoned
+    // multi-axis operation still holds one and each stop takes another, so
+    // without this a later axis would be refused for capacity. The deadline is
+    // already elapsed, so this drains what is buffered and returns instead of
+    // waiting for the camera.
+    let _ = owner.pump_once_until(driver, reader, decoder, Some(Instant::now()));
+    let _ = owner.submit(driver, request);
 }
 
 impl BlockingControlHost for BlockingSessionCore<'_> {
@@ -230,6 +261,13 @@ impl BlockingControlHost for BlockingSessionCore<'_> {
 
     fn cancel_operation(&self, receipt: ReceiptCore) -> Result<BlockingCancellationReceipt, Error> {
         self.with_parts(|owner, driver, _, _| owner.cancel_core(driver, receipt))
+    }
+
+    fn submit_detached(&self, request: RuntimeRequest) {
+        drop(self.with_parts(|owner, driver, reader, decoder| {
+            write_detached(owner, driver, reader, decoder, request);
+            Ok(())
+        }));
     }
 }
 
@@ -391,6 +429,13 @@ impl BlockingControlHost for BlockingSessionHost {
 
     fn cancel_operation(&self, receipt: ReceiptCore) -> Result<BlockingCancellationReceipt, Error> {
         self.with_parts(|owner, driver, _, _| owner.cancel_core(driver, receipt))
+    }
+
+    fn submit_detached(&self, request: RuntimeRequest) {
+        drop(self.with_parts(|owner, driver, reader, decoder| {
+            write_detached(owner, driver, reader, decoder, request);
+            Ok(())
+        }));
     }
 }
 
@@ -604,6 +649,11 @@ where
 {
     pub(crate) fn id(&self) -> u64 {
         self.core.id().get()
+    }
+
+    /// Returns the exact non-empty axis selection admitted with this operation.
+    pub(crate) const fn affected_axes(&self) -> AffectedAxes {
+        self.affected_axes
     }
 
     pub(crate) fn applied(self, control: &mut BlockingReceiptControl<'_>) -> Result<(), Error> {
@@ -1090,9 +1140,12 @@ impl BlockingOwner {
         })
     }
 
-    /// Admit and perform this exact request's first write. No receive method is
-    /// called here, so ACK/completion can only be consumed by an explicit pump.
-    pub(crate) fn submit<D: BlockingWireDriver>(
+    /// Admit and, when this exact request already wins the global dispatch
+    /// race, perform its first write. A request that cannot win yet stays
+    /// queued in the engine and is written by a later owner turn. No receive
+    /// method is called here, so ACK/completion can only be consumed by an
+    /// explicit pump.
+    pub(crate) fn submit<D: BlockingWireDriver + ?Sized>(
         &mut self,
         driver: &mut D,
         request: RuntimeRequest,
@@ -1164,6 +1217,12 @@ impl BlockingOwner {
         let mut report = self.drive_without_due(driver, effects);
         let id = admission.recv().map_err(|_| Error::RuntimeShutdown)??;
 
+        // Issue #561: losing the global dispatch race is not backpressure.
+        // Admission capacity (`max_pending_queue_depth`) already bounds how much
+        // work may be outstanding, so a request that cannot be written yet stays
+        // in the engine's ready queue and is dispatched by a later owner turn —
+        // exactly the way the async facade behaves.
+        let mut queued = false;
         while report.first_write_for(id).is_none() {
             if let Some(error) = buffered_submission_error(&completion) {
                 return Err(error);
@@ -1187,11 +1246,11 @@ impl BlockingOwner {
                     }
                 }
                 FirstDispatch::Blocked => {
-                    let failed = self.state.fail_unwritten_without_due(id);
-                    let _ = self.drive_without_due(driver, failed);
-                    return Err(
-                        buffered_submission_error(&completion).unwrap_or(Error::TransportBusy)
-                    );
+                    // Another request owns the only eligible socket right now.
+                    // Leave this one queued; no peer request, deadline, pacing,
+                    // or cancellation state is mutated here.
+                    queued = true;
+                    break;
                 }
                 FirstDispatch::Missing => {
                     if let Some(error) = buffered_submission_error(&completion) {
@@ -1207,10 +1266,12 @@ impl BlockingOwner {
         if let Some(error) = buffered_submission_error(&completion) {
             return Err(error);
         }
-        let first_write = report.first_write_for(id).ok_or_else(|| {
-            Error::InvalidState("blocking request lost its first-write result".into())
-        })?;
-        first_write?;
+        if !queued {
+            let first_write = report.first_write_for(id).ok_or_else(|| {
+                Error::InvalidState("blocking request lost its first-write result".into())
+            })?;
+            first_write?;
+        }
         Ok(ReceiptCore::new(
             id,
             target,

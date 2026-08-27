@@ -46268,6 +46268,7 @@ pub fn grafton_visca::testing::testkit::deterministic_executor::DeterministicExe
 pub fn grafton_visca::testing::testkit::deterministic_executor::DeterministicExecutor::new() -> (alloc::sync::Arc<Self>, grafton_visca::testing::testkit::deterministic_executor::DeterministicClock)
 pub fn grafton_visca::testing::testkit::deterministic_executor::DeterministicExecutor::new_start_at(std::time::Instant) -> (alloc::sync::Arc<Self>, grafton_visca::testing::testkit::deterministic_executor::DeterministicClock)
 pub fn grafton_visca::testing::testkit::deterministic_executor::DeterministicExecutor::now(&self) -> std::time::Instant
+pub fn grafton_visca::testing::testkit::deterministic_executor::DeterministicExecutor::run_until<F: core::future::future::Future>(&self, F) -> <F as core::future::future::Future>::Output
 pub fn grafton_visca::testing::testkit::deterministic_executor::DeterministicExecutor::run_until_idle(&self) -> bool
 impl grafton_visca::testing::testkit::deterministic_executor::DeterministicExecutor
 pub fn grafton_visca::testing::testkit::deterministic_executor::DeterministicExecutor::drain_until_quiescent(&self)
@@ -46907,6 +46908,7 @@ pub fn grafton_visca::testing::testkit::deterministic_executor::DeterministicExe
 pub fn grafton_visca::testing::testkit::deterministic_executor::DeterministicExecutor::new() -> (alloc::sync::Arc<Self>, grafton_visca::testing::testkit::deterministic_executor::DeterministicClock)
 pub fn grafton_visca::testing::testkit::deterministic_executor::DeterministicExecutor::new_start_at(std::time::Instant) -> (alloc::sync::Arc<Self>, grafton_visca::testing::testkit::deterministic_executor::DeterministicClock)
 pub fn grafton_visca::testing::testkit::deterministic_executor::DeterministicExecutor::now(&self) -> std::time::Instant
+pub fn grafton_visca::testing::testkit::deterministic_executor::DeterministicExecutor::run_until<F: core::future::future::Future>(&self, F) -> <F as core::future::future::Future>::Output
 pub fn grafton_visca::testing::testkit::deterministic_executor::DeterministicExecutor::run_until_idle(&self) -> bool
 impl grafton_visca::testing::testkit::deterministic_executor::DeterministicExecutor
 pub fn grafton_visca::testing::testkit::deterministic_executor::DeterministicExecutor::drain_until_quiescent(&self)

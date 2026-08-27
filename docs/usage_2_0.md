@@ -187,7 +187,9 @@ Use the generic `execute` for a plain request, `inquire` for a typed inquiry,
 and `submit` for a typed operation. Dynamic custom requests use the explicit
 targeted/applied-only request traits. An applied-only handle has no settled
 state; cancellation reports its owner outcome, and `detach` is the explicit
-fire-and-forget choice. Dropping a handle never sends an implicit STOP.
+fire-and-forget choice. Dropping a movement handle that was never resolved
+enqueues the typed STOP for the axes it affects, so an error path cannot leave
+hardware moving; `detach` opts out of that.
 
 ## Optional ecosystem surfaces
 
