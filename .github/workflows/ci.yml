@@ -233,8 +233,25 @@ jobs:
         run: cargo +1.98.0 install cargo-fuzz --version 0.12.0 --locked
       - name: Check parser fuzz target
         run: cargo +nightly-2026-08-26 fuzz check response_parser
+      # The corpus path is `cargo-fuzz`'s own default, named explicitly so the
+      # committed seeds are visibly part of the gate rather than an implicit
+      # convention. A 1000-execution budget starting from a cold corpus mostly
+      # re-derives frame structure; starting from `fuzz/corpus/response_parser`
+      # spends it past the frame header instead. See `fuzz/README.md` for the
+      # seed layout and for what to do with a crash artifact.
       - name: Run bounded parser fuzz smoke test
-        run: cargo +nightly-2026-08-26 fuzz run response_parser -- -runs=1000
+        run: |
+          cargo +nightly-2026-08-26 fuzz run response_parser \
+            "${GITHUB_WORKSPACE}/fuzz/corpus/response_parser" -- -runs=1000
+      # A crash reproducer is only useful if it leaves the runner. Upload it so
+      # it can be committed into the corpus as a permanent regression seed.
+      - name: Upload crash artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-artifacts
+          path: fuzz/artifacts/
+          if-no-files-found: ignore
 
   release-validation:
     name: release validator regression
@@ -245,6 +262,36 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.98.0
       - name: Check clean-checkout and hardware gates
         run: bash .github/scripts/test-validate-release.sh
+
+  release-drift:
+    name: release validator vs. real repository (advisory)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Advisory by construction, in two independent ways: this job is
+    # `continue-on-error`, and it is deliberately absent from `ci-success`'s
+    # `needs` list, so it can never block a merge.
+    #
+    # `release-validation` above runs the validator against synthetic
+    # fixtures, which proves the script works but not that *this* repository
+    # would pass it. Running it against the real checkout with the intended
+    # next tag surfaces version/pin drift on the pull request that introduces
+    # it instead of at publish time.
+    #
+    # It is expected to fail for most of a release cycle: the validator
+    # requires a dated `## [2.0.0-rc.1] - YYYY-MM-DD` CHANGELOG heading, and
+    # RELEASING.md says the 2.0 notes stay under `## [Unreleased]` until the
+    # release commit. That single expected failure is why the job is advisory
+    # rather than required; the signal it exists for is the *other* failures
+    # (a workspace version, an exact macro dependency pin, or a manifest that
+    # no longer agrees with the tag being prepared).
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.98.0
+      # The tag the next publication is expected to use. Bump it in the same
+      # commit that bumps `[workspace.package].version`.
+      - name: Validate the intended next tag against this checkout
+        run: bash .github/scripts/validate-release.sh v2.0.0-rc.1
 
   public-api:
     name: public API RC snapshot
@@ -329,6 +376,15 @@ jobs:
       # `serialport` is a different implementation on Windows (the Win32 comms
       # API rather than termios), so the blocking serial transport is the leg
       # that actually needs a Windows runner.
+      #
+      # Be precise about what this proves: no hosted runner has a serial
+      # device, so every test below drives an in-process mock implementing
+      # `serialport::SerialPort` (`TestSerialPort`, in
+      # `src/transport/serial_blocking.rs`). The Win32 backend is *compiled*
+      # here — which is the check that catches
+      # Windows-only type, cfg, and API-shape breakage — and never executed.
+      # Behaviour against a real Win32 port is hardware evidence and belongs in
+      # `docs/hardware_release_checklist.md`, not in this job.
       - run: cargo test --no-default-features --features transport-serial
 
   macos:
