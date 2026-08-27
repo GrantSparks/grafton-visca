@@ -1,3 +1,8 @@
+# The fuzz corpus holds raw VISCA frames, not text. The end-of-file and
+# whitespace fixers below classify the short ones as text and append a newline,
+# which changes the frame the fuzzer replays; exclude the directory instead.
+exclude: ^fuzz/corpus/
+
 repos:
   - repo: local
     hooks:
