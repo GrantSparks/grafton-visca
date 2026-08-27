@@ -797,6 +797,18 @@ where
         };
         admit(request, self.affected_axes, self.settlement, timeout)
     }
+
+    /// Discards the settlement and observation metadata of a lowered STOP.
+    ///
+    /// Drop-time stop submission creates no observation right, so the prepared
+    /// axes, settlement plan, and completion budget have no observer to serve.
+    pub(crate) fn into_stop_request(self) -> RuntimeRequest {
+        RuntimeRequest::Command {
+            wire: self.wire,
+            context: self.context,
+            applied_state: self.applied_state,
+        }
+    }
 }
 
 #[cfg(test)]

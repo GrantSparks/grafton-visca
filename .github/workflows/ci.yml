@@ -17,6 +17,28 @@ env:
   RUST_BACKTRACE: 1
   RUSTFLAGS: "-D warnings"
 
+# Toolchain pinning policy
+#
+# Several gates in this workflow compare compiler output byte for byte: the
+# `trybuild` `.stderr` snapshots under `tests/api_contract/` and the
+# `api/2.0.0-rc.1/*.txt` public API snapshots. Floating `@stable`/`@nightly`
+# refs make those gates fail on every rustc release even when the pull request
+# changes nothing, so every toolchain used here is pinned to an exact version:
+#
+#   * stable  -> dtolnay/rust-toolchain@1.98.0
+#   * nightly -> dtolnay/rust-toolchain@master with `toolchain: nightly-2026-08-26`
+#   * MSRV    -> dtolnay/rust-toolchain@1.88.0 (the documented minimum)
+#
+# A `rust-toolchain.toml` is deliberately not used: `dtolnay/rust-toolchain`
+# selects a toolchain with `rustup default`, which a `rust-toolchain.toml`
+# directory override would silently win over, breaking the MSRV and nightly
+# jobs. Pinning the action refs keeps each job's toolchain explicit.
+#
+# Bumping stable requires re-blessing the trybuild snapshots
+# (`TRYBUILD=overwrite cargo test --test issue_551_compile_contract`, once per
+# affected feature leg). Bumping nightly requires regenerating the public API
+# snapshots; see `api/2.0.0-rc.1/README.md`.
+
 jobs:
   format:
     name: rustfmt
@@ -24,10 +46,11 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@nightly
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: nightly-2026-08-26
           components: rustfmt
-      - run: cargo +nightly fmt --all -- --check
+      - run: cargo +nightly-2026-08-26 fmt --all -- --check
 
   feature-matrix:
     name: ${{ matrix.name }}
@@ -78,7 +101,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes libudev-dev
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.98.0
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: matrix-${{ matrix.name }}
@@ -90,7 +113,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.98.0
       - uses: Swatinem/rust-cache@v2
       - run: cargo test -p grafton-visca-macros
 
@@ -104,7 +127,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes libudev-dev
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.98.0
       - uses: Swatinem/rust-cache@v2
       - run: cargo check --workspace --all-features --all-targets
 
@@ -118,7 +141,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes libudev-dev
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.98.0
       - uses: Swatinem/rust-cache@v2
       - name: Build supported example surfaces
         run: |
@@ -147,7 +170,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes libudev-dev
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.98.0
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
@@ -175,8 +198,9 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@nightly
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: nightly-2026-08-26
           components: miri
       - uses: Swatinem/rust-cache@v2
       - run: bash .github/scripts/miri-tests.sh
@@ -187,14 +211,22 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@nightly
+      # `cargo-fuzz` is built with the pinned stable and the harness runs on
+      # the pinned nightly, so both toolchains are installed explicitly instead
+      # of relying on whatever the runner image happens to ship.
+      - name: Install the pinned nightly used to run the fuzz harness
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-08-26
+      - name: Install the pinned stable used to build cargo-fuzz
+        uses: dtolnay/rust-toolchain@1.98.0
       - uses: Swatinem/rust-cache@v2
       - name: Install cargo-fuzz 0.12.0
-        run: cargo +stable install cargo-fuzz --version 0.12.0 --locked
+        run: cargo +1.98.0 install cargo-fuzz --version 0.12.0 --locked
       - name: Check parser fuzz target
-        run: cargo +nightly fuzz check response_parser
+        run: cargo +nightly-2026-08-26 fuzz check response_parser
       - name: Run bounded parser fuzz smoke test
-        run: cargo +nightly fuzz run response_parser -- -runs=1000
+        run: cargo +nightly-2026-08-26 fuzz run response_parser -- -runs=1000
 
   removed-features:
     name: removed feature names are unknown
@@ -202,7 +234,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.98.0
       - name: Check explicit unknown-feature diagnostics
         shell: bash
         run: |
@@ -223,7 +255,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.98.0
       - name: Check clean-checkout and hardware gates
         run: bash .github/scripts/test-validate-release.sh
 
@@ -255,7 +287,18 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes libudev-dev
-      - uses: dtolnay/rust-toolchain@stable
+      # `cargo public-api` needs a nightly rustdoc to emit rustdoc JSON. When it
+      # is run from a stable toolchain it shells out to a bare `+nightly`, which
+      # fails outright when no toolchain named `nightly` was ever installed.
+      # Install the pinned nightly here and invoke the tool through it, so the
+      # snapshot bytes come from one known rustdoc rather than from whatever the
+      # runner image happens to carry.
+      - name: Install the pinned nightly used for rustdoc JSON
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-08-26
+      - name: Install the pinned stable used to build cargo-public-api
+        uses: dtolnay/rust-toolchain@1.98.0
       - uses: Swatinem/rust-cache@v2
       - name: Install pinned cargo-public-api
         run: cargo install cargo-public-api --version 0.52.0 --locked
@@ -264,7 +307,7 @@ jobs:
         run: |
           set -euo pipefail
           generated="${RUNNER_TEMP}/${{ matrix.name }}.txt"
-          cargo public-api --color never ${{ matrix.cargo_args }} >"${generated}"
+          cargo +nightly-2026-08-26 public-api --color never ${{ matrix.cargo_args }} >"${generated}"
           test -s "${generated}"
           diff -u "api/2.0.0-rc.1/${{ matrix.name }}.txt" "${generated}"
 
@@ -274,7 +317,7 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.98.0
       - uses: Swatinem/rust-cache@v2
       - run: cargo check --manifest-path tests/fixtures/synemantic_2_0/Cargo.toml
       - name: Report external-head limitation
