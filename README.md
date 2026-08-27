@@ -154,6 +154,7 @@ matrix of `.github/workflows/ci.yml`.
 | ------------- | ----- | -------------------- |
 | `runtime-tokio,transport-serial` | Blocking serial plus Tokio async dependency coexistence; use `transport-serial-tokio` for Tokio serial. | `Tokio + blocking serial` matrix leg |
 | `runtime-smol,dyn-api` | Dynamic API with smol and no test helpers. | `smol + dyn-api` matrix leg |
+| `test-utils,blocking,runtime-tokio` | The shipped test toolkit driven through a real facade. `test-utils` alone enables neither `blocking` nor a runtime, so the scripted transports, deterministic executor, and camera simulator only *execute* under a union like this one. | `test-utils + blocking + Tokio` matrix leg |
 
 ---
 

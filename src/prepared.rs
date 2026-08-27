@@ -342,6 +342,25 @@ where
     marker: PhantomData<fn() -> K>,
 }
 
+/// Rejects an operation that names no affected axis.
+///
+/// [`OperationCommand::affected_axes`] documents a non-empty set, and
+/// [`crate::raw`] enforces that at construction. `AffectedAxes::NONE` and any
+/// `BitAnd` of disjoint sets are constructible outside the checked
+/// constructors, though, so preparation applies the same rule to every typed
+/// operation: without it a targeted operation with an empty set lowers to a
+/// settlement plan that observes nothing and reports "settled" immediately.
+///
+/// [`OperationCommand::affected_axes`]: crate::OperationCommand::affected_axes
+fn validate_operation_axes(axes: AffectedAxes) -> Result<()> {
+    if axes.is_empty() {
+        return Err(Error::InvalidRequest(
+            "operation affected axes must be non-empty".into(),
+        ));
+    }
+    Ok(())
+}
+
 pub(crate) fn lower_targeted_settlement(
     target: CameraId,
     profile: &ProfileSpec,
@@ -349,6 +368,7 @@ pub(crate) fn lower_targeted_settlement(
     axes: AffectedAxes,
     default_budget: Duration,
 ) -> Result<SettlementPlan> {
+    validate_operation_axes(axes)?;
     if !profile.supports_axes(axes) {
         return Err(Error::FeatureNotSupported {
             feature: "affected operation axes are not supported by the profile",
@@ -382,10 +402,10 @@ pub(crate) fn lower_applied_only_settlement(
     _target: CameraId,
     _profile: &ProfileSpec,
     _tuning: OperationalTuning,
-    _axes: AffectedAxes,
+    axes: AffectedAxes,
     _default_budget: Duration,
 ) -> Result<()> {
-    Ok(())
+    validate_operation_axes(axes)
 }
 
 /// Prepares a generic plain command through the shared lowering path.
@@ -996,6 +1016,54 @@ mod tests {
         }
     }
 
+    /// A downstream operation that violates the documented non-empty
+    /// `affected_axes` contract, in both completion kinds.
+    struct EmptyAxes;
+
+    impl Request for EmptyAxes {
+        type Class = crate::request::Operation<completion::Targeted>;
+
+        const MAX_SIZE: usize = 2;
+        const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Movement;
+        const RETRY_CLASS: RetryClass = RetryClass::Movement;
+        const CONTROL_CLASS: ControlClass = ControlClass::User;
+
+        fn write_into(&self, target: CameraId, buffer: &mut [u8]) -> Result<usize> {
+            increment_write_count();
+            buffer[..2].copy_from_slice(&[target.to_address_byte(), VISCA_TERMINATOR]);
+            Ok(2)
+        }
+    }
+
+    impl OperationCommand<completion::Targeted> for EmptyAxes {
+        fn affected_axes(&self) -> AffectedAxes {
+            AffectedAxes::NONE
+        }
+    }
+
+    struct EmptyAxesApplied;
+
+    impl Request for EmptyAxesApplied {
+        type Class = crate::request::Operation<completion::AppliedOnly>;
+
+        const MAX_SIZE: usize = 2;
+        const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Movement;
+        const RETRY_CLASS: RetryClass = RetryClass::Movement;
+        const CONTROL_CLASS: ControlClass = ControlClass::User;
+
+        fn write_into(&self, target: CameraId, buffer: &mut [u8]) -> Result<usize> {
+            increment_write_count();
+            buffer[..2].copy_from_slice(&[target.to_address_byte(), VISCA_TERMINATOR]);
+            Ok(2)
+        }
+    }
+
+    impl OperationCommand<completion::AppliedOnly> for EmptyAxesApplied {
+        fn affected_axes(&self) -> AffectedAxes {
+            AffectedAxes::PAN_TILT & AffectedAxes::ZOOM
+        }
+    }
+
     struct WrongAddress;
 
     impl Request for WrongAddress {
@@ -1049,6 +1117,135 @@ mod tests {
         )
         .is_err());
         assert_eq!(write_count(), 0);
+    }
+
+    /// An empty axis set is rejected at preparation, exactly as the raw path
+    /// rejects it at construction.
+    ///
+    /// Before this rule existed, `lower_targeted_settlement` accepted the
+    /// empty set, `profile.supports_axes` and `position_inquiries().supports`
+    /// were both vacuously true for it, and the operation lowered to a poll
+    /// plan with zero position inquiries that reported "settled" without ever
+    /// observing the camera.
+    #[test]
+    fn empty_affected_axes_are_rejected_at_preparation_for_both_completion_kinds() {
+        let capabilities = Capabilities::from_profile::<crate::profiles::GenericVisca>();
+        let polling = runtime_profile(
+            capabilities.clone(),
+            false,
+            PositionInquirySupport::new(true, true, true),
+            AffectedAxes::PAN_TILT,
+        );
+        let completing = runtime_profile(
+            capabilities,
+            true,
+            PositionInquirySupport::new(true, true, true),
+            AffectedAxes::PAN_TILT,
+        );
+
+        for profile in [&polling, &completing] {
+            reset_write_count();
+            let error = prepare_operation::<completion::Targeted, _>(
+                &EmptyAxes,
+                CameraId::CAMERA_1,
+                profile,
+                OperationalTuning::new(),
+            )
+            .expect_err("an operation naming no axis must not prepare");
+            assert!(
+                matches!(&error, Error::InvalidRequest(message) if message.contains("non-empty")),
+                "expected a non-empty axes rejection, got {error:?}"
+            );
+            assert_eq!(write_count(), 0, "admission must precede encoding");
+
+            reset_write_count();
+            let applied = prepare_operation::<completion::AppliedOnly, _>(
+                &EmptyAxesApplied,
+                CameraId::CAMERA_1,
+                profile,
+                OperationalTuning::new(),
+            )
+            .expect_err("an applied-only operation naming no axis must not prepare");
+            assert!(matches!(applied, Error::InvalidRequest(_)));
+            assert_eq!(write_count(), 0, "admission must precede encoding");
+        }
+
+        // The settlement lowering itself refuses the empty set rather than
+        // returning a plan that observes nothing.
+        let error = lower_targeted_settlement(
+            CameraId::CAMERA_1,
+            &polling,
+            OperationalTuning::new(),
+            AffectedAxes::NONE,
+            Duration::from_secs(5),
+        )
+        .expect_err("empty axes must not lower to a settlement plan");
+        assert!(matches!(error, Error::InvalidRequest(_)));
+        assert!(lower_applied_only_settlement(
+            CameraId::CAMERA_1,
+            &polling,
+            OperationalTuning::new(),
+            AffectedAxes::NONE,
+            Duration::from_secs(5),
+        )
+        .is_err());
+
+        // A named axis still lowers, so the assertions above are about
+        // emptiness rather than about lowering being broken.
+        assert!(lower_targeted_settlement(
+            CameraId::CAMERA_1,
+            &polling,
+            OperationalTuning::new(),
+            AffectedAxes::PAN_TILT,
+            Duration::from_secs(5),
+        )
+        .is_ok());
+    }
+
+    /// Motion observation keeps its 1.x parity: selecting no axis is not an
+    /// error, it simply observes nothing and reports "not moving".
+    ///
+    /// This is deliberately different from the operation rule above: an
+    /// operation must name what it moves, while a query may legitimately name
+    /// nothing.
+    #[test]
+    fn empty_axes_remain_a_valid_and_vacuous_motion_query() {
+        let profile = runtime_profile(
+            Capabilities::from_profile::<crate::profiles::GenericVisca>(),
+            false,
+            PositionInquirySupport::new(true, true, true),
+            AffectedAxes::PAN_TILT,
+        );
+        let plan = prepare_position_queries(
+            CameraId::CAMERA_1,
+            &profile,
+            OperationalTuning::new(),
+            AffectedAxes::NONE,
+        )
+        .expect("an empty motion query plan stays valid");
+        assert!(
+            plan.pan_tilt.is_none()
+                && plan.zoom.is_none()
+                && plan.focus.is_none()
+                && plan.iris.is_none()
+                && plan.nd_filter.is_none(),
+            "an empty selection queries nothing"
+        );
+
+        let mut detector = MotionDetector::new(AffectedAxes::NONE, MovementTolerance::default());
+        assert_eq!(
+            detector
+                .observe(PositionSnapshot::default())
+                .expect("baseline"),
+            MotionState::NeedSample
+        );
+        assert_eq!(
+            detector
+                .observe(PositionSnapshot::default())
+                .expect("second sample"),
+            MotionState::Settled,
+            "no selected axis can be moving, so the observation settles"
+        );
     }
 
     #[test]

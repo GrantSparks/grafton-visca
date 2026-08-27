@@ -184,6 +184,20 @@ where
     let camera = session
         .camera::<NonDefaultCompileTimeProfile>()
         .expect("camera");
+    // 1.x parity: a motion query that selects no axis is valid and vacuous.
+    // Operations must name at least one affected axis, but an observation may
+    // legitimately name none; it observes nothing, writes nothing, and reports
+    // "not moving".
+    assert!(!camera
+        .motion()
+        .is_moving_axes(MotionQuery::new(AffectedAxes::NONE))
+        .await
+        .expect("an empty motion query stays valid"));
+    assert!(
+        writes.lock().expect("writes lock").is_empty(),
+        "an empty motion query must not issue a position inquiry"
+    );
+
     assert!(!camera
         .motion()
         .is_moving_axes(MotionQuery::new(AffectedAxes::ZOOM))

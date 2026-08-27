@@ -526,6 +526,7 @@ pub enum BuiltinCommand {
     NoiseReduction3d,
     ImageFlipOff,
     ImageFlipHorizontal,
+    ImageFlipHorizontalOff,
     ImageFlipVertical,
     ImageFlipBoth,
     ImageFlipCombined,
@@ -687,6 +688,7 @@ impl BuiltinCommand {
         Self::NoiseReduction3d,
         Self::ImageFlipOff,
         Self::ImageFlipHorizontal,
+        Self::ImageFlipHorizontalOff,
         Self::ImageFlipVertical,
         Self::ImageFlipBoth,
         Self::ImageFlipCombined,
@@ -841,6 +843,7 @@ impl BuiltinCommand {
             | Self::NoiseReduction3d
             | Self::ImageFlipOff
             | Self::ImageFlipHorizontal
+            | Self::ImageFlipHorizontalOff
             | Self::ImageFlipVertical
             | Self::ImageFlipBoth
             | Self::ImageFlipCombined
@@ -1041,7 +1044,10 @@ impl BuiltinCommand {
             },
             // The single-axis flip and mirror opcodes move one axis and say
             // nothing about the other, so a complete pair stops being known.
-            Self::ImageFlipOff | Self::ImageFlipHorizontal | Self::ImageFlipVertical => Plain {
+            Self::ImageFlipOff
+            | Self::ImageFlipHorizontal
+            | Self::ImageFlipHorizontalOff
+            | Self::ImageFlipVertical => Plain {
                 state_effect: Some(Invalidate(Flip)),
             },
             // ND direct and step commands physically reposition the filter.

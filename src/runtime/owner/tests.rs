@@ -1379,9 +1379,159 @@ mod blocking {
             ))))),
         };
         let mut decoder = EmptyDecoder;
-        assert!(owner
+        let error = owner
             .pump_once(&mut driver, &mut reader, &mut decoder)
-            .is_err());
+            .expect_err("a fatal read ends the session");
+        // Issue #629: the caller is told the session's verdict, not the raw
+        // read fault. `Error::Io` classifies as survivable, so returning it here
+        // would tell an auto-reconnect loop to keep using a dead session.
+        let Error::ConnectionClosed { reason } = &error else {
+            panic!("a fatal read must report the session close, got {error:?}");
+        };
+        let reason = reason.as_ref().expect("the read fault names the close");
+        assert!(
+            reason.contains("broken pipe"),
+            "the transport cause must survive in the close reason: {reason}"
+        );
+        assert!(
+            error.requires_new_session(),
+            "a closed session must classify as needing a replacement"
+        );
+        assert_eq!(owner.state().state(), SessionState::Closed);
+    }
+
+    /// Issue #629 probe: a fatal read during settlement polling escaped through
+    /// `pump_until_sample_boundary`, which has no receipt to consult, and
+    /// reached the caller as the raw `Error::Io` while the session was already
+    /// `Closed`.
+    #[test]
+    fn fatal_read_during_settlement_polling_reports_the_session_boundary_error() {
+        #[derive(Debug)]
+        struct PollingFaultReader {
+            events: VecDeque<Result<BlockingReceive, Error>>,
+        }
+
+        impl BlockingReadDriver for PollingFaultReader {
+            fn receive(
+                &mut self,
+                receive_buffer: &mut [u8],
+                _owner_deadline: Option<Instant>,
+            ) -> Result<BlockingReceive, Error> {
+                let event = self.events.pop_front().ok_or_else(|| {
+                    Error::InvalidState("polling fault reader event exhausted".into())
+                })?;
+                if matches!(event, Ok(BlockingReceive::Bytes(_))) {
+                    receive_buffer[0] = 1;
+                }
+                event
+            }
+        }
+
+        let profile =
+            crate::ProfileSpec::from_compile_time::<crate::profiles::SonyBRC300>().unwrap();
+        let mut owner = BlockingOwner::new(policy(2, TransportKind::Stream)).unwrap();
+        let mut driver = FakeDriver::default();
+        let operation = owner
+            .submit_operation(&mut driver, prepared_zoom::<completion::Targeted>(&profile))
+            .unwrap();
+        let now = Instant::now();
+        owner
+            .inject_frame(
+                &mut driver,
+                frame(
+                    CameraId::CAMERA_1,
+                    DecodedResponse::Ack {
+                        socket: Some(ViscaSocket::S1),
+                    },
+                ),
+                now,
+            )
+            .unwrap();
+        owner
+            .inject_frame(
+                &mut driver,
+                frame(
+                    CameraId::CAMERA_1,
+                    DecodedResponse::Completion {
+                        socket: Some(ViscaSocket::S1),
+                    },
+                ),
+                now,
+            )
+            .unwrap();
+
+        // The baseline snapshot succeeds; the connection dies in the interval
+        // pump before the next sample can be taken.
+        let mut reader = PollingFaultReader {
+            events: VecDeque::from([
+                Ok(BlockingReceive::Bytes(1)),
+                Err(Error::Io(std::sync::Arc::new(std::io::Error::from(
+                    std::io::ErrorKind::ConnectionReset,
+                )))),
+            ]),
+        };
+        let mut decoder = ScriptedDecoder {
+            batches: VecDeque::from([vec![frame(
+                CameraId::CAMERA_1,
+                DecodedResponse::InquiryReply {
+                    route: None,
+                    payload: smallvec::smallvec![0x0, 0x1, 0x0, 0x0],
+                },
+            )]]),
+        };
+        let error = operation
+            .settled_with_timeout(
+                owner.receipt_control(&mut driver, &mut reader, &mut decoder),
+                Duration::from_secs(1),
+            )
+            .wait()
+            .expect_err("a fatal read during polling ends the settlement wait");
+        assert!(
+            matches!(error, Error::ConnectionClosed { .. }),
+            "settlement must report the session close, got {error:?}"
+        );
+        assert!(
+            error.requires_new_session(),
+            "the settlement error must classify as needing a replacement session"
+        );
+        assert_eq!(owner.state().state(), SessionState::Closed);
+    }
+
+    /// Issue #629: the cancellation observer's pump is the other escape site.
+    /// Its own terminal observation wins; without one the session's boundary
+    /// error must be reported, never the raw read fault.
+    #[test]
+    fn fatal_read_while_observing_cancellation_reports_the_session_boundary_error() {
+        let mut owner = BlockingOwner::new(policy(1, TransportKind::Stream)).unwrap();
+        let mut driver = FakeDriver::default();
+        let operation = owner
+            .submit(
+                &mut driver,
+                command(CameraId::CAMERA_1, CancellationPolicy::Supported, None),
+            )
+            .unwrap();
+        let cancellation = owner.cancel_test(&mut driver, operation).unwrap();
+        let mut reader = DeadlineReader {
+            deadline: None,
+            result: Some(Err(Error::Io(std::sync::Arc::new(std::io::Error::from(
+                std::io::ErrorKind::ConnectionReset,
+            ))))),
+        };
+        let mut decoder = EmptyDecoder;
+        let error = cancellation
+            .outcome(
+                &mut owner.receipt_control(&mut driver, &mut reader, &mut decoder),
+                Duration::from_secs(1),
+            )
+            .expect_err("a fatal read ends the cancellation observation");
+        assert!(
+            matches!(error, Error::ConnectionClosed { .. }),
+            "cancellation must report the session close, got {error:?}"
+        );
+        assert!(
+            error.requires_new_session(),
+            "the cancellation error must classify as needing a replacement session"
+        );
         assert_eq!(owner.state().state(), SessionState::Closed);
     }
 

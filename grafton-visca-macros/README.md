@@ -221,7 +221,6 @@ two-crate sequence.
 
 ## License
 
-Licensed under MIT OR Apache-2.0 dual license. See
-[LICENSE-MIT](https://github.com/GrantSparks/grafton-visca/blob/main/LICENSE-MIT)
-and
-[LICENSE-APACHE](https://github.com/GrantSparks/grafton-visca/blob/main/LICENSE-APACHE).
+Licensed under MIT OR Apache-2.0 dual license. Both texts are shipped inside
+this package: see [LICENSE-MIT](LICENSE-MIT) and
+[LICENSE-APACHE](LICENSE-APACHE).

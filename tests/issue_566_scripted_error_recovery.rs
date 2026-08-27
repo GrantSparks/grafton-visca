@@ -8,9 +8,13 @@
 //! code sitting in the published `test-utils` API. This file drives them
 //! through the real blocking facade, which is what they were built for.
 //!
-//! `test-utils` is not part of the default feature set, so this file runs
-//! under `--all-features` and under the dedicated `test-utils` CI leg. The
-//! retry behavior itself is additionally pinned without `test-utils` by
+//! `test-utils` is not part of the default feature set and enables no facade
+//! on its own, so this file needs a leg that unions it with one: the
+//! `test-utils + blocking + Tokio` entry in `.github/workflows/ci.yml` and its
+//! twin in `.github/scripts/test-all-features.sh` (#628). The bare
+//! `test-utils` leg compiles this file away, and the all-features job is a
+//! `cargo check`, so neither one runs it. The retry behavior itself is
+//! additionally pinned without `test-utils` by
 //! `tests/issue_566_retry_recovery_blocking.rs` and its async twin, so no
 //! behavior depends on this file alone.
 

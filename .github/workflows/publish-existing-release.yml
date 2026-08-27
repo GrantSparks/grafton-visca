@@ -14,6 +14,8 @@ concurrency:
 
 permissions:
   contents: read
+  # Needed by the "Verify CI passed on the tagged commit" gate below.
+  checks: read
 
 jobs:
   publish:
@@ -21,10 +23,39 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v6
+      # Action refs and the toolchain are pinned to exactly what `ci.yml`
+      # pins (see its "Toolchain pinning policy" comment). Publication must
+      # package with the same compiler the release gates ran under, and a
+      # floating `@stable` would silently change that between the tag being
+      # validated and the tag being published.
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           ref: ${{ github.event.inputs.release_tag }}
+
+      # RELEASING.md requires a tag whose commit passed every required CI job.
+      # That was an honour-system instruction; this step makes it a gate. It
+      # asks the API for the tagged commit's `CI success` check run — the
+      # aggregate job `ci.yml` uses as the required check — and refuses to
+      # publish unless it concluded successfully. `check_name` keeps the
+      # response to that one run, so no pagination is involved.
+      - name: Verify CI passed on the tagged commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          sha="$(git rev-parse HEAD)"
+          conclusion="$(gh api \
+            --method GET \
+            "repos/${REPOSITORY}/commits/${sha}/check-runs" \
+            -f check_name='CI success' \
+            --jq '[.check_runs[] | select(.status == "completed") | .conclusion] | first // "missing"')"
+          echo "CI success check run for ${sha}: ${conclusion}"
+          if [[ "${conclusion}" != "success" ]]; then
+            echo "::error::refusing to publish ${sha}: its 'CI success' check run is '${conclusion}', not 'success'"
+            exit 1
+          fi
 
       - name: Install system dependencies
         run: |
@@ -32,7 +63,7 @@ jobs:
           sudo apt-get install -y libudev-dev
 
       - name: Install Rust stable toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@1.98.0
 
       - uses: Swatinem/rust-cache@v2
         continue-on-error: true

@@ -36,7 +36,11 @@ versions:
 
 ```bash
 rustup toolchain install 1.98.0          # stable jobs, trybuild snapshots
-rustup toolchain install nightly-2026-08-26 --profile minimal  # fmt, Miri, fuzz, API snapshots
+# `--profile minimal` installs rustc/cargo/rust-std only, so the components the
+# nightly jobs actually use must be named explicitly. `--component` takes one
+# comma-separated list; a space-separated second name is parsed as another
+# toolchain, not as a component.
+rustup toolchain install nightly-2026-08-26 --profile minimal --component rustfmt,miri  # fmt, Miri, fuzz, API snapshots
 rustup toolchain install 1.88.0          # MSRV job
 ```
 
