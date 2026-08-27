@@ -103,6 +103,36 @@ an ACK alone, a failed write, a timeout, or a pre-ACK error does not change the
 cache. A fresh session starts every target at `Unknown`; target 1 and target 2
 views never read or mutate each other's entries.
 
+## What is retried, and for how long
+
+Every retry class except `RetryClass::Never` replays a lost ACK, a post-ACK
+completion timeout, and a camera reporting a full command buffer (`0x03`) or no
+free socket (`0x05`). `0x41` (`CommandNotExecutable`) is the one answer whose
+retryability depends on the class: it is transient for movement and preset
+work, where the camera is reporting a state that passes, and terminal
+everywhere else, where it is the camera's verdict on the command.
+
+How many attempts a request gets is derived from its *timeout* category, not
+its retry class: quick and inquiry work gets two attempts more than the
+configured base, network work one fewer, and a long-running command exactly
+one. `OperationalTuning::retry_limit` sets that base.
+
+Two bounds stop a request retrying. Its attempt budget above, and a wall-clock
+budget counted from admission — ten seconds, or twice the request's own
+governing deadline where that is longer, so one further full-length attempt
+always fits. Whichever is reached first produces the terminal error, and a
+request that runs out of wall-clock time reports the error that caused its last
+retry rather than an incidental later timeout.
+
+Backoff doubles from the initial delay up to `maximum_backoff`, with the
+exponent additionally capped at five for a lost ACK: a camera that has not even
+accepted a frame should not inherit a ceiling raised to accommodate slow
+completions. Each wait is then drawn from the equal-jitter band
+`[ceiling / 2, ceiling]`, so two commands that time out on the same instant do
+not retry on the same instant. That draw is a pure function of the engine's
+seed, the request identity and the attempt number: it never reads the clock or
+process entropy, so a replayed input sequence produces identical scheduling.
+
 ## Transient transport faults are not session death
 
 Not every transport failure ends a session. A receive that fails without

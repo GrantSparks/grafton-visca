@@ -48,6 +48,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `CameraSession::open` takes a caller-owned transport with the same bind.
   `close` mirrors `Session::close`, and dropping the value tears the session
   down. The multi-camera `Session`/`camera_for` path is unchanged.
+- **Restored the 1.x retry coverage the rewrite narrowed** (#566). A post-ACK
+  completion timeout retries again — the rewrite hard-coded it off for every
+  request class, so a camera that acknowledged a command and then went silent
+  failed on its first deadline with no second attempt. A lost ACK retries for
+  every retry class except `Never`, instead of only `Standard`, which had left
+  all 32 movement requests and every preset dying on a single dropped ACK
+  frame. Per-category retry budgets are back in 1.x's shape — quick and inquiry
+  work gets two attempts more than the base, network work one fewer, and a
+  long-running command exactly one — replacing three flat numbers keyed on the
+  retry class. `OperationalTuning::retry_limit` overrides that *base*, which is
+  the knob 1.x exposed, so a request's effective count is derived from its
+  timeout category rather than taken literally.
+- Sized the retry budget against the request's own deadline (#566). It was two
+  seconds, shorter than every profile's completion deadline, so re-enabling
+  completion retries alone would have changed nothing. The budget is now
+  1.x's ten seconds or twice the request's governing deadline, whichever is
+  larger, which admits exactly one further full-length attempt.
+- Restored the ACK backoff exponent cap and added deterministic backoff jitter
+  (#566). 1.x capped the ACK backoff exponent at five — 32x the initial delay —
+  and left completion, inquiry, protocol-error and transport-fault retries
+  uncapped; that distinction is back. **1.x had no jitter at all**, so the
+  jitter here is new rather than restored: the rewrite's `maximum_backoff`
+  ceiling makes concurrent retries converge on the same instant and stay there,
+  which is the collision a backoff exists to break up. Each wait is now drawn
+  from the equal-jitter band `[ceiling / 2, ceiling]`, so no request waits
+  longer than 1.x would have. The draw is a pure function of the engine's seed,
+  the request identity and the attempt number — never of wall-clock time or
+  process entropy — so the engine remains a total function of its inputs and
+  the exact sequence is pinned by test.
 - **Restored the 1.x transport fault tolerance the rewrite dropped** (#565).
   A transient receive failure no longer destroys the session: the owner
   classifies the read error, and a transient one — the classic case is a UDP

@@ -204,6 +204,7 @@ pub(crate) struct ProtocolEngine {
     next_generation: IdAllocator,
     next_admission_order: u64,
     next_transmission_order: u64,
+    jitter: Jitter,
     last_request_sent: Option<Instant>,
     last_inquiry_sent: Option<Instant>,
     inquiry_cooldown_until: Option<Instant>,
@@ -235,6 +236,7 @@ impl ProtocolEngine {
             next_generation: IdAllocator::new(),
             next_admission_order: 0,
             next_transmission_order: 0,
+            jitter: Jitter::new(),
             last_request_sent: None,
             last_inquiry_sent: None,
             inquiry_cooldown_until: None,
@@ -1127,7 +1129,7 @@ impl ProtocolEngine {
             .collect();
         affected.sort_unstable_by_key(|(order, _)| *order);
         for (_, id) in affected {
-            self.schedule_retry(id, now, error.clone(), effects);
+            self.schedule_retry(id, now, error.clone(), Backoff::Uncapped, effects);
         }
     }
 
@@ -1656,7 +1658,7 @@ impl ProtocolEngine {
             if cancellation_active {
                 self.finish(id, RuntimeOutcome::Cancelled, effects);
             } else {
-                self.schedule_retry(id, now, error, effects);
+                self.schedule_retry(id, now, error, Backoff::Uncapped, effects);
             }
         } else {
             self.finish(id, RuntimeOutcome::Failed(error), effects);
@@ -1820,6 +1822,7 @@ impl ProtocolEngine {
         id: RequestId,
         now: Instant,
         error: Error,
+        backoff: Backoff,
         effects: &mut Vec<Effect>,
     ) {
         let Some(entry) = self.entries.get(&id) else {
@@ -1840,7 +1843,12 @@ impl ProtocolEngine {
             return;
         }
         self.release_attempt_ownership(id);
-        let delay = retry_delay(policy, next_attempt);
+        let delay = retry_delay(
+            policy,
+            next_attempt,
+            backoff,
+            self.jitter.fraction(id, next_attempt),
+        );
         let ready_at = add_duration(now, delay);
         if policy.total_budget != Duration::ZERO
             && ready_at >= add_duration(submitted_at, policy.total_budget)
@@ -2031,7 +2039,13 @@ impl ProtocolEngine {
                         effects,
                     );
                 } else if entry.request.context().retry.ack_timeout {
-                    self.schedule_retry(due.request, now, Error::Timeout, effects);
+                    self.schedule_retry(
+                        due.request,
+                        now,
+                        Error::Timeout,
+                        Backoff::AckCapped,
+                        effects,
+                    );
                 } else {
                     self.finish(due.request, RuntimeOutcome::Failed(Error::Timeout), effects);
                 }
@@ -2062,7 +2076,13 @@ impl ProtocolEngine {
                         );
                     }
                 } else if entry.request.context().retry.completion_timeout {
-                    self.schedule_retry(due.request, now, Error::Timeout, effects);
+                    self.schedule_retry(
+                        due.request,
+                        now,
+                        Error::Timeout,
+                        Backoff::Uncapped,
+                        effects,
+                    );
                 } else {
                     self.finish(due.request, RuntimeOutcome::Failed(Error::Timeout), effects);
                 }
@@ -2071,7 +2091,13 @@ impl ProtocolEngine {
             Phase::AwaitingReply { deadline, .. } if deadline <= now => {
                 let mark = effects.len();
                 if entry.request.context().retry.inquiry_timeout {
-                    self.schedule_retry(due.request, now, Error::Timeout, effects);
+                    self.schedule_retry(
+                        due.request,
+                        now,
+                        Error::Timeout,
+                        Backoff::Uncapped,
+                        effects,
+                    );
                 } else {
                     self.finish(due.request, RuntimeOutcome::Failed(Error::Timeout), effects);
                 }
@@ -2445,6 +2471,13 @@ impl ProtocolEngine {
         Ok(())
     }
 
+    /// Moves the backoff jitter sequence, so a test can show that the spread
+    /// comes from the seed rather than from the clock.
+    #[cfg(test)]
+    fn seed_jitter(&mut self, seed: u64) {
+        self.jitter = Jitter { seed };
+    }
+
     #[cfg(test)]
     fn seed_allocators(&mut self, request: u64, transmission: u64, generation: u64) {
         self.next_request_id = IdAllocator::seeded(request);
@@ -2517,17 +2550,108 @@ fn record_deadline_expiry(
     );
 }
 
-fn retry_delay(policy: RetryPolicy, attempt: u32) -> Duration {
+/// Backoff exponent ceiling for a retry triggered by a lost ACK.
+///
+/// 1.x capped the ACK backoff exponent at 5 — 32x the initial delay — and left
+/// completion, inquiry, protocol-error and transport-fault retries uncapped
+/// (`main:src/runtime/core/mod.rs`, `delay_exponent_cap`). The rewrite dropped
+/// the cap. It matters whenever `maximum_backoff` is raised to accommodate a
+/// slow completion deadline: without it, a camera that simply stops ACKing
+/// would inherit that same long ceiling for a frame it has not even accepted
+/// yet.
+const ACK_BACKOFF_EXPONENT_CAP: u32 = 5;
+
+/// Which backoff ceiling a retry is subject to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Backoff {
+    /// A lost ACK: the exponent stops at [`ACK_BACKOFF_EXPONENT_CAP`].
+    AckCapped,
+    /// Everything else: the exponent runs up to `maximum_backoff`.
+    Uncapped,
+}
+
+/// Deterministic backoff jitter.
+///
+/// **1.x had no jitter at all.** `RetryConfig::calculate_delay` was exactly
+/// `base * 2^(attempt - 1)` with no entropy anywhere on the path, so there is
+/// nothing here to restore — this is new. It exists because the rewrite's
+/// `maximum_backoff` ceiling makes retries *converge*: every command that
+/// times out together against one camera saturates the same ceiling and then
+/// retries on the same instant, forever, which is precisely the collision a
+/// backoff is supposed to break up.
+///
+/// The spread is a pure function of the seed, the request identity and the
+/// attempt number, never of wall-clock time or process entropy. The engine
+/// stays what it is designed to be — a total function of its inputs — so a
+/// replayed input sequence still produces byte-identical effects, and
+/// `assert_invariants` and the ordered `BTreeMap` traversals are untouched. A
+/// test pins the exact sequence by construction, and [`seed_jitter`] moves it
+/// to prove the spread is really seed-derived.
+///
+/// [`seed_jitter`]: ProtocolEngine::seed_jitter
+#[derive(Debug, Clone, Copy)]
+struct Jitter {
+    seed: u64,
+}
+
+impl Jitter {
+    /// Arbitrary odd constant; only its bit spread matters.
+    const DEFAULT_SEED: u64 = 0x2545_F491_4F6C_DD1D;
+
+    const fn new() -> Self {
+        Self {
+            seed: Self::DEFAULT_SEED,
+        }
+    }
+
+    /// Returns this attempt's spread as a 32-bit fraction of one.
+    ///
+    /// SplitMix64's finalizer over the seed mixed with the request identity
+    /// and the attempt, so two requests retrying from the same instant land on
+    /// different instants and one request's successive attempts do not repeat
+    /// the same offset.
+    const fn fraction(self, id: RequestId, attempt: u32) -> u64 {
+        let mut z = self
+            .seed
+            .wrapping_add(id.get().wrapping_mul(0x9E37_79B9_7F4A_7C15))
+            .wrapping_add((attempt as u64).wrapping_mul(0xBF58_476D_1CE4_E5B9));
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        (z ^ (z >> 31)) >> 32
+    }
+}
+
+/// Computes one attempt's backoff.
+///
+/// The ceiling is 1.x's exponential — `initial << (attempt - 1)`, bounded by
+/// the ACK exponent cap where it applies and by `maximum_backoff` always. The
+/// wait is then the equal-jitter half-open band `[ceiling / 2, ceiling]`, so
+/// no request ever waits *longer* than 1.x would have, the ceiling is still
+/// honored exactly, and concurrent requests separate.
+fn retry_delay(policy: RetryPolicy, attempt: u32, backoff: Backoff, jitter: u64) -> Duration {
     if policy.initial_backoff == Duration::ZERO {
         return Duration::ZERO;
     }
-    let exponent = attempt.saturating_sub(1).min(31);
+    let cap = match backoff {
+        Backoff::AckCapped => ACK_BACKOFF_EXPONENT_CAP,
+        Backoff::Uncapped => u32::MAX,
+    };
+    let exponent = attempt.saturating_sub(1).min(cap).min(31);
     let multiplier = 1_u32 << exponent;
-    policy
+    let ceiling = policy
         .initial_backoff
         .checked_mul(multiplier)
         .unwrap_or(policy.maximum_backoff)
-        .min(policy.maximum_backoff)
+        .min(policy.maximum_backoff);
+    let floor = ceiling / 2;
+    let spread = ceiling
+        .saturating_sub(floor)
+        .as_nanos()
+        .saturating_mul(u128::from(jitter))
+        >> 32;
+    floor.saturating_add(Duration::from_nanos(
+        u64::try_from(spread).unwrap_or(u64::MAX),
+    ))
 }
 
 fn add_unique_owner(owners: &mut SmallVec<[CorrelationOwner; 2]>, owner: CorrelationOwner) {
