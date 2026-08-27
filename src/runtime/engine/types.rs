@@ -502,14 +502,20 @@ pub(crate) enum IgnoreReason {
     SessionNotRunning,
 }
 
-/// Scheduler timeout source retained in terminal diagnostics.
+/// Which of a request's own protocol deadlines expired.
+///
+/// These are exactly the three deadlines 1.x counted as timeouts. Cancellation
+/// deadlines are deliberately not part of this vocabulary: they resolve a
+/// quarantine rather than the request's own protocol progress, and they are
+/// already reported through [`Effect::CancellationObservation`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum DeadlineKind {
-    CancellationAmbiguity,
+    /// The acknowledgement deadline for a sent command expired.
     Ack,
+    /// The completion deadline for an acknowledged command expired.
     Completion,
+    /// The reply deadline for a sent inquiry expired.
     InquiryReply,
-    CancellationResolution,
 }
 
 /// Public-observer-independent terminal engine result.
@@ -669,6 +675,19 @@ pub(crate) enum Effect {
         id: RequestId,
         attempt: u32,
         ready_at: std::time::Instant,
+    },
+    /// One of a request's own protocol deadlines expired.
+    ///
+    /// `will_retry` is the engine's actual decision for this expiry rather than
+    /// the policy that motivated it: it is true exactly when the expiry produced
+    /// a [`Effect::RetryScheduled`] for the same request. A subscriber therefore
+    /// never has to infer the decision from a [`Effect::Transition`] plus the
+    /// absence of a retry, which is what 1.x's
+    /// `SchedulerAction::Timeout { will_retry }` carried directly.
+    DeadlineExpired {
+        id: RequestId,
+        deadline: DeadlineKind,
+        will_retry: bool,
     },
     CancellationRecorded {
         id: RequestId,

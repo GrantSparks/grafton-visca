@@ -2028,6 +2028,7 @@ impl ProtocolEngine {
         }
         match phase {
             Phase::AwaitingAck { deadline, .. } if deadline <= now => {
+                let mark = effects.len();
                 if let CancelState::Requested { ambiguity_deadline } = entry.cancellation {
                     self.transition(
                         due.request,
@@ -2048,10 +2049,12 @@ impl ProtocolEngine {
                 } else {
                     self.finish(due.request, RuntimeOutcome::Failed(Error::Timeout), effects);
                 }
+                record_deadline_expiry(due.request, DeadlineKind::Ack, mark, effects);
             }
             Phase::Executing {
                 socket, deadline, ..
             } if deadline <= now => {
+                let mark = effects.len();
                 if !matches!(entry.cancellation, CancelState::None) {
                     if let Some(ambiguity_deadline) = cancellation_ambiguity(entry.cancellation)
                         .filter(|ambiguity_deadline| *ambiguity_deadline > now)
@@ -2083,8 +2086,10 @@ impl ProtocolEngine {
                 } else {
                     self.finish(due.request, RuntimeOutcome::Failed(Error::Timeout), effects);
                 }
+                record_deadline_expiry(due.request, DeadlineKind::Completion, mark, effects);
             }
             Phase::AwaitingReply { deadline, .. } if deadline <= now => {
+                let mark = effects.len();
                 if entry.request.context().retry.inquiry_timeout {
                     self.schedule_retry(
                         due.request,
@@ -2096,6 +2101,7 @@ impl ProtocolEngine {
                 } else {
                     self.finish(due.request, RuntimeOutcome::Failed(Error::Timeout), effects);
                 }
+                record_deadline_expiry(due.request, DeadlineKind::InquiryReply, mark, effects);
             }
             Phase::Backoff {
                 ready_at,
@@ -2510,6 +2516,38 @@ fn cancellation_ambiguity(cancellation: CancelState) -> Option<Instant> {
         } => Some(ambiguity_deadline),
         CancelState::None => None,
     }
+}
+
+/// Records one expired request deadline ahead of whatever the expiry produced.
+///
+/// `mark` is the effect-queue length captured immediately before the expiry was
+/// handled, so everything from `mark` onwards is this expiry's consequence. The
+/// retry decision is read back out of those effects rather than recomputed from
+/// the retry policy: a policy that permits retrying this deadline still fails
+/// the request when the attempt or duration budget is spent, and only the
+/// emitted [`Effect::RetryScheduled`] knows which of the two happened. Reading
+/// the decision from the emitted effect also keeps this correct for retry
+/// reasons the engine grows later.
+///
+/// The effect is inserted at `mark` rather than appended so a subscriber reads
+/// the cause before its consequences.
+fn record_deadline_expiry(
+    id: RequestId,
+    deadline: DeadlineKind,
+    mark: usize,
+    effects: &mut Vec<Effect>,
+) {
+    let will_retry = effects[mark..].iter().any(
+        |effect| matches!(effect, Effect::RetryScheduled { id: retried, .. } if *retried == id),
+    );
+    effects.insert(
+        mark,
+        Effect::DeadlineExpired {
+            id,
+            deadline,
+            will_retry,
+        },
+    );
 }
 
 /// Backoff exponent ceiling for a retry triggered by a lost ACK.

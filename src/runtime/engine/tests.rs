@@ -3501,6 +3501,177 @@ fn sony_socketless_completion_finishes_the_sequenced_request() {
     engine.assert_invariants().unwrap();
 }
 
+fn command_with_retry(target: u8, retry: RetryPolicy) -> RuntimeRequest {
+    let mut command_context = context(target, CancellationPolicy::Supported);
+    command_context.retry = retry;
+    RuntimeRequest::Command {
+        wire: wire(0x80 | target),
+        context: command_context,
+        applied_state: None,
+    }
+}
+
+fn deadline_expiries(effects: &[Effect], id: RequestId) -> Vec<(DeadlineKind, bool)> {
+    effects
+        .iter()
+        .filter_map(|effect| match effect {
+            Effect::DeadlineExpired {
+                id: seen,
+                deadline,
+                will_retry,
+            } if *seen == id => Some((*deadline, *will_retry)),
+            _ => None,
+        })
+        .collect()
+}
+
+fn position_of(effects: &[Effect], predicate: impl Fn(&Effect) -> bool) -> Option<usize> {
+    effects.iter().position(predicate)
+}
+
+/// Issue #571: an expired ACK deadline names itself and carries the retry
+/// decision, and it is emitted before the retry it caused.
+#[test]
+fn ack_deadline_expiry_reports_its_own_retry_decision_before_the_retry() {
+    let start = Instant::now();
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+    let admission = engine.handle(
+        Input::Admit {
+            ticket: AdmissionTicket(1),
+            request: command(1, CancellationPolicy::Supported),
+        },
+        start,
+    );
+    let id = admitted(&admission);
+    send_ok(&mut engine, &admission, None, start);
+    let expired = engine.advance(start + Duration::from_millis(20));
+    assert_eq!(deadline_expiries(&expired, id), [(DeadlineKind::Ack, true)]);
+    let expiry = position_of(&expired, |effect| {
+        matches!(effect, Effect::DeadlineExpired { .. })
+    })
+    .expect("deadline expiry");
+    let retry = position_of(&expired, |effect| {
+        matches!(effect, Effect::RetryScheduled { .. })
+    })
+    .expect("retry");
+    assert!(expiry < retry, "cause must precede consequence");
+    engine.assert_invariants().unwrap();
+}
+
+/// Issue #571: the same expiry on a request that may not retry says so, rather
+/// than leaving a subscriber to infer it from a missing `RetryScheduled`.
+#[test]
+fn ack_deadline_expiry_without_retry_policy_reports_no_retry() {
+    let start = Instant::now();
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+    let admission = engine.handle(
+        Input::Admit {
+            ticket: AdmissionTicket(1),
+            request: command_with_retry(1, RetryPolicy::NEVER),
+        },
+        start,
+    );
+    let id = admitted(&admission);
+    send_ok(&mut engine, &admission, None, start);
+    let expired = engine.advance(start + Duration::from_millis(20));
+    assert_eq!(
+        deadline_expiries(&expired, id),
+        [(DeadlineKind::Ack, false)]
+    );
+    assert_eq!(terminal_id(&expired), Some(id));
+    engine.assert_invariants().unwrap();
+}
+
+/// Issue #571: a completion deadline is distinguished from an ACK deadline.
+#[test]
+fn completion_deadline_expiry_is_reported_as_a_completion_deadline() {
+    let start = Instant::now();
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+    let admission = engine.handle(
+        Input::Admit {
+            ticket: AdmissionTicket(1),
+            request: command(1, CancellationPolicy::Supported),
+        },
+        start,
+    );
+    let id = admitted(&admission);
+    send_ok(&mut engine, &admission, None, start);
+    engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::Ack {
+                socket: Some(ViscaSocket::S1),
+            },
+        ),
+        start,
+    );
+    let expired = engine.advance(start + Duration::from_millis(40));
+    assert_eq!(
+        deadline_expiries(&expired, id),
+        [(DeadlineKind::Completion, true)]
+    );
+    engine.assert_invariants().unwrap();
+}
+
+/// Issue #571: an inquiry reply deadline is its own kind.
+#[test]
+fn inquiry_reply_deadline_expiry_is_reported_as_an_inquiry_deadline() {
+    let start = Instant::now();
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+    let admission = engine.handle(
+        Input::Admit {
+            ticket: AdmissionTicket(1),
+            request: inquiry(1, POWER),
+        },
+        start,
+    );
+    let id = admitted(&admission);
+    send_ok(&mut engine, &admission, None, start);
+    let expired = engine.advance(start + Duration::from_millis(30));
+    assert_eq!(
+        deadline_expiries(&expired, id),
+        [(DeadlineKind::InquiryReply, true)]
+    );
+    engine.assert_invariants().unwrap();
+}
+
+/// Issue #571: `will_retry` reports the decision the engine actually took, not
+/// the policy flag that motivated it. The policy still permits ACK-deadline
+/// retries on the second expiry below; the attempt budget is what refuses it.
+#[test]
+fn deadline_expiry_reports_no_retry_once_the_attempt_budget_is_spent() {
+    let start = Instant::now();
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+    let policy = RetryPolicy {
+        max_retries: 1,
+        ..retrying()
+    };
+    assert!(policy.ack_timeout);
+    let admission = engine.handle(
+        Input::Admit {
+            ticket: AdmissionTicket(1),
+            request: command_with_retry(1, policy),
+        },
+        start,
+    );
+    let id = admitted(&admission);
+    send_ok(&mut engine, &admission, None, start);
+    let first = engine.advance(start + Duration::from_millis(20));
+    assert_eq!(deadline_expiries(&first, id), [(DeadlineKind::Ack, true)]);
+    let resent = engine.advance(start + Duration::from_millis(30));
+    send_ok(
+        &mut engine,
+        &resent,
+        None,
+        start + Duration::from_millis(30),
+    );
+    let second = engine.advance(start + Duration::from_millis(50));
+    assert_eq!(deadline_expiries(&second, id), [(DeadlineKind::Ack, false)]);
+    assert_eq!(terminal_id(&second), Some(id));
+    engine.assert_invariants().unwrap();
+}
+
 // --- Issue #566: retry timing, exhaustion, and camera error codes ------------
 
 /// Retry policy with a wide ceiling, so the ACK exponent cap is the binding
@@ -3512,16 +3683,6 @@ fn ack_capped_retry() -> RetryPolicy {
         maximum_backoff: Duration::from_secs(10),
         total_budget: Duration::from_secs(600),
         ..retrying()
-    }
-}
-
-fn command_with_retry(target: u8, retry: RetryPolicy) -> RuntimeRequest {
-    let mut request_context = context(target, CancellationPolicy::Supported);
-    request_context.retry = retry;
-    RuntimeRequest::Command {
-        wire: wire(0x80 | target),
-        context: request_context,
-        applied_state: None,
     }
 }
 

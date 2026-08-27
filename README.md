@@ -175,9 +175,12 @@ The quickstart snippets are read-only. They connect to a camera, query state,
 and close the session. Movement and configuration changes are shown in focused
 examples that opt in to hardware changes explicitly.
 
-`Connect` returns an owner-backed `Session`. A `Session` owns the transport and
-the target registry; the noun accessors live on the typed `Camera` view that
-`session.camera::<P>()` selects.
+For one camera, `Connect::open_tcp_camera::<P>` / `open_udp_camera::<P>` return
+an owner-backed `CameraSession<P>`: the profile is named once and bound at
+compile time, and `session.camera()` hands out the typed `Camera` view that
+carries the noun accessors. For two or more cameras, `Connect::open_tcp` /
+`open_udp` return a `Session` that owns the transport and the target registry,
+and `session.camera_for::<P>(target)` selects each view.
 
 Every Rust snippet in this README is compiled by the crate's own test suite, so
 the `#[cfg(feature = "...")]` attributes below are load-bearing: they name the
@@ -190,8 +193,8 @@ use grafton_visca::blocking::Connect;
 use grafton_visca::camera::profiles::PtzOpticsG2;
 
 fn quick_start() -> Result<(), grafton_visca::Error> {
-    let session = Connect::open_tcp::<PtzOpticsG2>("192.168.0.110")?;
-    let camera = session.camera::<PtzOpticsG2>()?;
+    let session = Connect::open_tcp_camera::<PtzOpticsG2>("192.168.0.110")?;
+    let camera = session.camera();
 
     let power_is_on = camera.power().state()?;
     let zoom = camera.zoom().position()?;
@@ -214,8 +217,8 @@ async fn quick_start() -> Result<(), grafton_visca::Error> {
     use grafton_visca::Connect;
 
     let runtime = TokioRuntime::from_current()?;
-    let session = Connect::open_tcp::<PtzOpticsG2, _>("192.168.0.110", runtime).await?;
-    let camera = session.camera::<PtzOpticsG2>()?;
+    let session = Connect::open_tcp_camera::<PtzOpticsG2, _>("192.168.0.110", runtime).await?;
+    let camera = session.camera();
 
     let power_is_on = camera.power().state().await?;
     let zoom = camera.zoom().position().await?;
@@ -248,8 +251,8 @@ use grafton_visca::camera::profiles::PtzOpticsG2;
 use grafton_visca::request::builtin::{PanTiltHome, ZoomStop};
 
 fn move_home() -> Result<(), grafton_visca::Error> {
-    let session = Connect::open_tcp::<PtzOpticsG2>("192.168.0.110")?;
-    let camera = session.camera::<PtzOpticsG2>()?;
+    let session = Connect::open_tcp_camera::<PtzOpticsG2>("192.168.0.110")?;
+    let camera = session.camera();
 
     // Blocking submit performs initial synchronous dispatch before returning.
     camera.submit(&PanTiltHome)?.settled()?;
@@ -277,8 +280,8 @@ async fn move_home() -> Result<(), grafton_visca::Error> {
     use grafton_visca::Connect;
 
     let runtime = TokioRuntime::from_current()?;
-    let session = Connect::open_tcp::<PtzOpticsG2, _>("192.168.0.110", runtime).await?;
-    let camera = session.camera::<PtzOpticsG2>()?;
+    let session = Connect::open_tcp_camera::<PtzOpticsG2, _>("192.168.0.110", runtime).await?;
+    let camera = session.camera();
 
     let handle = camera.submit(&PanTiltHome).await?;
     handle.settled().await?;
@@ -316,8 +319,12 @@ close the session on every path and bound movement with a stop-on-exit guard.
 
 ## Public API Boundaries
 
-- Use `Connect`, `CameraConfig`, and `SessionConfig` for construction; select a
-  target view with `Session::camera::<P>()` or `camera_for::<P>(target)`.
+- Use `Connect`, `CameraConfig`, and `SessionConfig` for construction. For one
+  camera, `Connect::open_tcp_camera::<P>` / `open_udp_camera::<P>` (or
+  `CameraConfig::<P>::open_camera` / `open_camera_async`) return a
+  `CameraSession<P>` whose `camera()` view is bound to `P` at compile time. For
+  several, select a target view with `Session::camera::<P>()` or
+  `camera_for::<P>(target)`.
 - Use the 14 inherent noun accessors on `Camera<P>`; profile-gated methods are
   checked by `Has*` marker bounds and runtime `ProfileSpec` validation.
 - Use `UnitInterval::new(value)?` or `UnitInterval::try_from(value)?` for the

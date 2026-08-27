@@ -286,11 +286,13 @@ fn canonical_compile_contracts() {
     {
         cases.pass("tests/api_contract/pass_async/async_lifecycle_handles.rs");
         cases.pass("tests/api_contract/pass_async/canonical_camera_projection.rs");
+        cases.pass("tests/api_contract/pass_async/single_camera_profile_bind.rs");
     }
     #[cfg(feature = "blocking")]
     {
         cases.pass("tests/api_contract/pass_blocking/blocking_lifecycle_handles.rs");
         cases.pass("tests/api_contract/pass_blocking/canonical_camera_projection.rs");
+        cases.pass("tests/api_contract/pass_blocking/single_camera_profile_bind.rs");
     }
     #[cfg(all(feature = "blocking", feature = "async"))]
     cases.pass("tests/api_contract/pass_coexistence/canonical_facades.rs");

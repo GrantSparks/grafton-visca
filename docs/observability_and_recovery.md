@@ -17,6 +17,13 @@ without granting control over the protocol engine.
 | `terminal` | Requests reaching a terminal outcome. |
 | `cancellations` | Cancellation requests observed by the owner. |
 | `cache_updates` | Exact applied-state effects committed to a target cache. |
+| `ack_timeouts` | Acknowledgement deadlines that expired on a sent command. |
+| `completion_timeouts` | Completion deadlines that expired on an acknowledged command. |
+| `inquiry_timeouts` | Reply deadlines that expired on a sent inquiry. |
+| `busy_errors` | Error frames saying the camera cannot accept the request now. |
+| `protocol_errors` | Every other error frame, excluding the cancellation reply. |
+| `retries_scheduled` | Requests re-queued for another attempt, for any reason. |
+| `ignored_unmatched_sequenced_replies` | Sequenced replies matching no request. |
 | `dropped_diagnostics` | Events evicted from the owner diagnostic ring. |
 | `dropped_diagnostic_events` | Events dropped because a subscriber queue was full. |
 | `dropped_observer_events` | Completion-observer events dropped after receiver loss. |
@@ -30,6 +37,15 @@ The counter fields saturate at `u64::MAX`; queue and active counts remain
 bounded by owner policy. `metrics()` is a separate bounded control request and
 does not clone the diagnostic ring, subscriber queues, wire buffers, or state
 registry.
+
+`busy_errors` counts the codes the scheduler itself treats as transient
+camera-side backpressure — command buffer full (`0x03`), no socket (`0x05`),
+and not executable in the current state (`0x41`). The cancellation reply
+(`0x04`) is an answer rather than a fault and is counted in neither error
+bucket. Both error counters count frames as the owner decodes them, so a
+camera answering requests the engine can no longer correlate still shows up.
+`retries_scheduled` counts wherever the engine emits a retry — a busy camera,
+an expired deadline, or a transient receive fault all count the same.
 
 ## Diagnostics
 

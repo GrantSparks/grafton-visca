@@ -24,6 +24,15 @@ fn assert_metrics_shape(snapshot: MetricsSnapshot) {
     assert_eq!(snapshot.admitted, 0);
     assert_eq!(snapshot.terminal, 0);
     assert_eq!(snapshot.cache_updates, 0);
+    // Issue #571: the field-debugging counters are part of the published
+    // snapshot, and an idle session reports every one of them at zero.
+    assert_eq!(snapshot.ack_timeouts, 0);
+    assert_eq!(snapshot.completion_timeouts, 0);
+    assert_eq!(snapshot.inquiry_timeouts, 0);
+    assert_eq!(snapshot.busy_errors, 0);
+    assert_eq!(snapshot.protocol_errors, 0);
+    assert_eq!(snapshot.retries_scheduled, 0);
+    assert_eq!(snapshot.ignored_unmatched_sequenced_replies, 0);
     assert!(matches!(
         snapshot.session,
         grafton_visca::SessionStatus::Running

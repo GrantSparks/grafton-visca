@@ -49,6 +49,33 @@ pub struct MetricsSnapshot {
     pub cancellations: u64,
     /// Exact applied-state effects committed to the target cache.
     pub cache_updates: u64,
+    /// Acknowledgement deadlines that expired on a sent command.
+    pub ack_timeouts: u64,
+    /// Completion deadlines that expired on an acknowledged command.
+    pub completion_timeouts: u64,
+    /// Reply deadlines that expired on a sent inquiry.
+    pub inquiry_timeouts: u64,
+    /// Error frames reporting that the camera cannot accept the request now.
+    ///
+    /// These are command buffer full (`0x03`), no socket available (`0x05`),
+    /// and not executable in the current state (`0x41`) — the codes the
+    /// scheduler itself treats as transient camera-side backpressure.
+    pub busy_errors: u64,
+    /// Every other error frame, excluding the cancellation reply (`0x04`).
+    ///
+    /// Both error counters count frames as they are decoded, including frames
+    /// that no longer correlate to an active request.
+    pub protocol_errors: u64,
+    /// Requests re-queued for another attempt.
+    ///
+    /// Counted wherever the scheduler emits a retry, whatever motivated it: a
+    /// busy camera, an expired deadline, or a transient receive fault.
+    pub retries_scheduled: u64,
+    /// Sequenced replies discarded because their sequence matched no request.
+    ///
+    /// Expected for stale or duplicated datagrams; a rising count means the
+    /// sequence-correlation safety net is doing its job.
+    pub ignored_unmatched_sequenced_replies: u64,
     /// Events evicted from the bounded diagnostic ring.
     pub dropped_diagnostics: u64,
     /// Diagnostic events dropped because a subscriber queue was full.
@@ -135,6 +162,21 @@ pub enum DiagnosticResponse {
     NetworkChange,
     /// A response could not be classified.
     Unknown,
+}
+
+/// Which of a request's own protocol deadlines expired.
+///
+/// Cancellation deadlines are not reported here; they arrive as a
+/// [`DiagnosticEvent::CancellationObserved`] instead.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum DiagnosticDeadline {
+    /// The acknowledgement deadline for a sent command expired.
+    Ack,
+    /// The completion deadline for an acknowledged command expired.
+    Completion,
+    /// The reply deadline for a sent inquiry expired.
+    InquiryReply,
 }
 
 /// Sanitized terminal outcome.
@@ -255,6 +297,21 @@ pub enum DiagnosticEvent {
         /// Retry attempt, bounded by the request policy.
         attempt: u32,
     },
+    /// A request's own protocol deadline expired.
+    ///
+    /// `will_retry` is the scheduler's decision for this exact expiry, so a
+    /// subscriber never has to infer it from a [`DiagnosticEvent::Transition`]
+    /// and the absence of a following [`DiagnosticEvent::RetryScheduled`].
+    DeadlineExpired {
+        /// Opaque request lifecycle identity.
+        id: DiagnosticId,
+        /// Target camera.
+        target: CameraId,
+        /// Which deadline expired.
+        deadline: DiagnosticDeadline,
+        /// Whether this expiry scheduled another attempt.
+        will_retry: bool,
+    },
     /// Cancellation entered the owner.
     CancellationRecorded {
         /// Opaque request lifecycle identity.
@@ -340,7 +397,7 @@ impl DiagnosticSubscription {
 
 impl DiagnosticEvent {
     pub(crate) fn from_owner(event: crate::runtime::owner::DiagnosticEvent) -> Self {
-        use crate::runtime::engine::{IgnoreReason, Phase, SessionState};
+        use crate::runtime::engine::{DeadlineKind, IgnoreReason, Phase, SessionState};
         use crate::runtime::owner::{
             CancellationDiagnostic, DiagnosticEvent as OwnerEvent, OutcomeDiagnostic, RequestLane,
             ResponseDiagnostic,
@@ -375,6 +432,11 @@ impl DiagnosticEvent {
             ResponseDiagnostic::Error { .. } => DiagnosticResponse::Error,
             ResponseDiagnostic::NetworkChange => DiagnosticResponse::NetworkChange,
             ResponseDiagnostic::Unknown => DiagnosticResponse::Unknown,
+        };
+        let deadline = |value: DeadlineKind| match value {
+            DeadlineKind::Ack => DiagnosticDeadline::Ack,
+            DeadlineKind::Completion => DiagnosticDeadline::Completion,
+            DeadlineKind::InquiryReply => DiagnosticDeadline::InquiryReply,
         };
         let cancellation = |value: CancellationDiagnostic| match value {
             CancellationDiagnostic::Recorded => DiagnosticCancellation::Recorded,
@@ -473,6 +535,17 @@ impl DiagnosticEvent {
                 target,
                 attempt,
             },
+            OwnerEvent::DeadlineExpired {
+                id,
+                target,
+                deadline: value,
+                will_retry,
+            } => Self::DeadlineExpired {
+                id: DiagnosticId::from_owner(id.get()),
+                target,
+                deadline: deadline(value),
+                will_retry,
+            },
             OwnerEvent::CancellationRecorded { id, target } => Self::CancellationRecorded {
                 id: DiagnosticId::from_owner(id.get()),
                 target,
@@ -532,6 +605,13 @@ pub(crate) fn metrics_snapshot(
         terminal: metrics.terminal,
         cancellations: metrics.cancellations,
         cache_updates: metrics.cache_updates,
+        ack_timeouts: metrics.ack_timeouts,
+        completion_timeouts: metrics.completion_timeouts,
+        inquiry_timeouts: metrics.inquiry_timeouts,
+        busy_errors: metrics.busy_errors,
+        protocol_errors: metrics.protocol_errors,
+        retries_scheduled: metrics.retries_scheduled,
+        ignored_unmatched_sequenced_replies: metrics.ignored_unmatched_sequenced_replies,
         dropped_diagnostics: metrics.dropped_diagnostics,
         dropped_diagnostic_events: metrics.dropped_diagnostic_events,
         dropped_observer_events: metrics.dropped_observer_events,
