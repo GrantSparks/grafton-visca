@@ -1609,28 +1609,28 @@ impl_plain_request!(
 );
 impl_plain_request!(
     crate::command::tally::TallyRedOn,
-    6,
+    8,
     TimeoutClass::Quick,
     RetryClass::Standard,
     ControlClass::Normal
 );
 impl_plain_request!(
     crate::command::tally::TallyRedOff,
-    6,
+    8,
     TimeoutClass::Quick,
     RetryClass::Standard,
     ControlClass::Normal
 );
 impl_plain_request!(
     crate::command::tally::TallyGreenOn,
-    6,
+    8,
     TimeoutClass::Quick,
     RetryClass::Standard,
     ControlClass::Normal
 );
 impl_plain_request!(
     crate::command::tally::TallyGreenOff,
-    6,
+    8,
     TimeoutClass::Quick,
     RetryClass::Standard,
     ControlClass::Normal
@@ -4578,6 +4578,24 @@ mod tests {
             .expect("request must encode");
         assert_eq!(written, request.encoded_size());
         assert!(written <= R::MAX_SIZE);
+    }
+
+    fn assert_exact_declared_wire_size<R: Request>(request: &R, expected: usize) {
+        assert_eq!(R::MAX_SIZE, expected);
+        assert_eq!(request.encoded_size(), expected);
+        let mut buffer = vec![0_u8; R::MAX_SIZE];
+        let written = request
+            .write_into(CameraId::CAMERA_1, &mut buffer)
+            .expect("request must fit its declared maximum size");
+        assert_eq!(written, expected);
+    }
+
+    #[test]
+    fn tally_requests_declare_their_terminated_wire_lengths() {
+        assert_exact_declared_wire_size(&crate::command::TallyRedOn::new(), 8);
+        assert_exact_declared_wire_size(&crate::command::TallyRedOff::new(), 8);
+        assert_exact_declared_wire_size(&crate::command::TallyGreenOn::new(), 8);
+        assert_exact_declared_wire_size(&crate::command::TallyGreenOff::new(), 8);
     }
 
     #[test]
