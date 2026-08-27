@@ -9,6 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 2.0.0-rc.1 release candidate
 
+- **Every normative issue-542 trace fixture is now replayed through the
+  production engine and owner** (#634). Four lifecycle fixtures — observer late
+  delivery, deadline classes, capacity and failures, and PTZOptics
+  cancellation — previously had no production replay at all, and the two that
+  did were weak: the engine replay rebuilt its expected reply route, reply
+  payload and camera error code from the fixture's *input* columns, so an
+  engine that corrupted every inquiry reply or collapsed every camera error
+  code onto one still passed; the owner replay consumed 17 of 70 records and
+  ignored the expectation columns entirely. All five lifecycle fixtures now
+  replay record for record against the real `OwnerState` — the real protocol
+  engine, admission permit pool, terminal observers and applied-state
+  subscribers — and the protocol replay reads its reply route, payload bytes,
+  attributed socket and error code out of the engine's own effects. The
+  1,357-line hand-written simulator the fixtures used to be checked against is
+  deleted; only the fixture-integrity checks a production replay cannot make
+  (versioned trace format, scoped scenario coverage, one recognized normative
+  #542 clause per expectation) survive, in
+  `tests/issue_542_trace_fixture_contract.rs`. The blocking out-of-order
+  fixture's first ACK block was corrected: it asserted that a raw VISCA ACK —
+  which carries no request identity — could be attributed to the *second* of
+  two outstanding commands. Raw ACKs are attributed in transmission order and
+  the socket the ACK carries becomes that request's socket, so out-of-order
+  settlement is expressed at completion, which is keyed by target and socket
+  together. No library behavior changed.
+
 - Restored the 1.x convenience helpers the rewrite dropped, on all three noun
   surfaces (#569). `pan_tilt().up()/down()/left()/right()` are back as thin
   wrappers over `move_direction`; `zoom().set_normalized(UnitInterval)` and

@@ -56,6 +56,7 @@ mod blocking {
     use crate::{
         command::CommandKind,
         completion,
+        protocol::response::{decode_basic, BasicKind},
         transport::{builder::AddressingMode, Envelope, RawVisca, SonyEncapsulated},
         CameraId, Error, ViscaSocket,
     };
@@ -2766,76 +2767,267 @@ mod blocking {
         assert_eq!(owner.state().permits().available(), 2);
     }
 
+    /// Issue #634: the blocking facade is replayed against every expectation
+    /// column the facade can observe.
+    ///
+    /// `BlockingOwner::submit` admits, dispatches and completes the initial
+    /// write as one operation, so the fixture's intermediate `ready`/`sending`
+    /// transitions are not facade-observable; the record-for-record replay of
+    /// the same fixture at the owner-state seam lives in `lifecycle_trace`.
+    /// Everything the facade *can* see is asserted here against the fixture's
+    /// own columns: the exact wire bytes of every transmission, the engine
+    /// identity behind every ticket, the socket every ACK claimed, terminal
+    /// removal and permit release, retention of an unwaited outcome, and the
+    /// exact terminal outcome each wait observes.
     #[test]
     fn blocking_out_of_order_fixture_replays_through_production_owner() {
-        let fixture =
+        const FIXTURE: &str =
             include_str!("../../../tests/fixtures/issue_542/lifecycle/blocking_out_of_order.trace");
-        let mut owner = BlockingOwner::new(policy(8, TransportKind::Datagram)).unwrap();
+
+        let mut owner: Option<BlockingOwner> = None;
         let mut driver = FakeDriver::default();
         let mut receipts = BTreeMap::<String, ReceiptCore>::new();
-        let mut observed = Vec::new();
+        let mut identities = BTreeMap::<u64, RequestId>::new();
+        let mut waited: Option<String> = None;
+        let mut transmits = 0_usize;
+        let mut records = 0_usize;
         let base = Instant::now();
 
-        for line in fixture.lines() {
-            let fields: Vec<_> = line.split_ascii_whitespace().collect();
-            if fields.get(1) != Some(&"input") {
+        for line in FIXTURE.lines().map(str::trim) {
+            if line.is_empty() || line.starts_with('#') {
                 continue;
             }
+            records += 1;
+            let fields: Vec<_> = line.split_ascii_whitespace().collect();
             let at = fields[0].parse::<u64>().unwrap();
-            match fields[2] {
-                "session" => {}
-                "blocking-submit" => {
+            match (fields[1], fields[2]) {
+                ("input", "session") => {
+                    let capacity = trace_field(&fields, "capacity").parse().unwrap();
+                    owner = Some(
+                        BlockingOwner::new(policy(capacity, TransportKind::Datagram)).unwrap(),
+                    );
+                }
+                ("effect", "session") => {
+                    let owner = owner.as_ref().unwrap();
+                    assert_eq!(
+                        owner.state().state(),
+                        SessionState::Running,
+                        "fixture session state: {line}"
+                    );
+                    assert_eq!(
+                        owner.state().policy().protocol.transport,
+                        TransportKind::Datagram
+                    );
+                    assert_eq!(
+                        owner.state().permits().capacity().to_string(),
+                        trace_field(&fields, "capacity"),
+                        "fixture admission capacity: {line}"
+                    );
+                    assert_eq!(
+                        owner.state().policy().targets[1].unwrap().cancellation,
+                        CancellationPolicy::Supported
+                    );
+                }
+                ("input", "blocking-submit") => {
+                    let owner = owner.as_mut().unwrap();
                     let label = fields[3].to_owned();
-                    let target = trace_field(&fields, "target").parse::<u8>().unwrap();
-                    let target = CameraId::new(target).unwrap();
+                    let target =
+                        CameraId::new(trace_field(&fields, "target").parse::<u8>().unwrap())
+                            .unwrap();
                     let mut request = command(target, CancellationPolicy::Supported, None);
-                    if let RuntimeRequest::Command { context, .. } = &mut request {
-                        context.timeout.ack = Duration::from_secs(1);
-                        context.timeout.completion = Duration::from_secs(1);
+                    if let RuntimeRequest::Command { wire, context, .. } = &mut request {
+                        // The fixture's own wire bytes, so the transmission
+                        // expectation below compares against the real write.
+                        *wire = Arc::new(
+                            EncodedMessage::new(&trace_bytes(trace_field(&fields, "wire")))
+                                .unwrap(),
+                        );
+                        context.timeout.ack = Duration::from_secs(60);
+                        context.timeout.completion = Duration::from_secs(60);
                     }
                     let receipt = owner.submit(&mut driver, request).unwrap();
                     assert!(receipts.insert(label, receipt).is_none());
                 }
-                "frame" => {
-                    let target = CameraId::CAMERA_1;
-                    let response = match fields[3] {
-                        "ack" => DecodedResponse::Ack {
-                            socket: Some(trace_socket(&fields)),
+                ("effect", "admitted") => {
+                    let owner = owner.as_ref().unwrap();
+                    let receipt = &receipts[trace_field(&fields, "ticket")];
+                    let id: u64 = trace_field(&fields, "id").parse().unwrap();
+                    identities.insert(id, receipt.id);
+                    assert_eq!(receipt.id.get(), id, "fixture engine identity: {line}");
+                    assert_eq!(
+                        receipt.target,
+                        CameraId::new(trace_field(&fields, "target").parse::<u8>().unwrap())
+                            .unwrap(),
+                        "fixture admission target: {line}"
+                    );
+                    assert_eq!(
+                        owner.state().permits().available(),
+                        owner.state().permits().capacity() - owner.state().active_len(),
+                        "an admitted request holds exactly one permit: {line}"
+                    );
+                    assert_eq!(trace_field(&fields, "observer"), "blocking");
+                }
+                ("outcome", "admission") => {
+                    let receipt = &receipts[trace_field(&fields, "ticket")];
+                    assert_eq!(
+                        receipt.id.get().to_string(),
+                        trace_field(&fields, "id"),
+                        "fixture admission reply: {line}"
+                    );
+                }
+                ("effect", "state") => {
+                    let owner = owner.as_ref().unwrap();
+                    let id = identities[&trace_field(&fields, "id").parse().unwrap()];
+                    let to = trace_field(&fields, "to");
+                    let phase = owner.state().request_state(id).map(|state| state.0);
+                    match to {
+                        // Admission, dispatch and the initial write are one
+                        // facade operation; only their settled result is
+                        // observable here.
+                        "sending" | "awaiting-ack" => assert!(
+                            matches!(phase, Some(Phase::AwaitingAck { .. })),
+                            "fixture phase {to}: {line} (actual {phase:?})"
+                        ),
+                        other => {
+                            let socket = trace_socket_suffix(other);
+                            assert!(
+                                matches!(phase, Some(Phase::Executing { socket: owned, .. }) if owned == socket),
+                                "fixture phase {other}: {line} (actual {phase:?})"
+                            );
+                        }
+                    }
+                }
+                ("effect", "transmit") => {
+                    let index: usize = trace_field(&fields, "tx").parse().unwrap();
+                    transmits = transmits.max(index);
+                    let id = identities[&trace_field(&fields, "id").parse().unwrap()];
+                    let (written, bytes, cancellation) = &driver.writes[index - 1];
+                    assert_eq!(*written, id, "fixture transmission owner: {line}");
+                    assert_eq!(
+                        bytes.as_slice(),
+                        trace_bytes(trace_field(&fields, "wire")).as_slice(),
+                        "fixture transmission bytes: {line}"
+                    );
+                    assert!(!cancellation, "fixture request transmission: {line}");
+                    assert_eq!(trace_field(&fields, "kind"), "request");
+                }
+                ("driver-input", "transmission-finished") => {
+                    let index: usize = trace_field(&fields, "tx").parse().unwrap();
+                    assert_eq!(trace_field(&fields, "result"), "ok");
+                    assert!(driver.writes.len() >= index, "fixture write result: {line}");
+                }
+                ("outcome", "blocking-handle") => {
+                    let receipt = &receipts[trace_field(&fields, "ticket")];
+                    assert_eq!(
+                        receipt.id.get().to_string(),
+                        trace_field(&fields, "id"),
+                        "fixture blocking handle identity: {line}"
+                    );
+                    assert_eq!(
+                        driver.writes.len(),
+                        transmits,
+                        "a blocking handle is returned only after its initial write: {line}"
+                    );
+                    assert_eq!(trace_field(&fields, "initial-write"), "complete");
+                }
+                ("input", "frame") => {
+                    let owner = owner.as_mut().unwrap();
+                    let bytes = trace_bytes(trace_field(&fields, "bytes"));
+                    let decoded = decode_basic(&bytes).expect("fixture frame bytes decode");
+                    let response = match (fields[3], decoded.kind) {
+                        ("ack", BasicKind::Ack) => DecodedResponse::Ack {
+                            socket: decoded.socket,
                         },
-                        "complete" => DecodedResponse::Completion {
-                            socket: Some(trace_completion_socket(&fields)),
+                        ("complete", BasicKind::Completion) => DecodedResponse::Completion {
+                            socket: decoded.socket,
                         },
-                        "error" => DecodedResponse::Error {
-                            socket: Some(trace_socket(&fields)),
-                            code: u8::from_str_radix(trace_field(&fields, "code"), 16).unwrap(),
+                        ("error", BasicKind::Error(code)) => DecodedResponse::Error {
+                            socket: decoded.socket,
+                            code,
                         },
-                        other => panic!("unsupported fixture frame {other}"),
+                        other => panic!("fixture frame {other:?} disagrees with its own bytes"),
                     };
                     owner
                         .inject_frame(
                             &mut driver,
-                            frame(target, response),
+                            frame(decoded.source, response),
                             base + Duration::from_millis(at),
                         )
                         .unwrap();
                 }
-                "blocking-wait" => {
-                    let receipt = receipts.remove(fields[3]).unwrap();
-                    observed.push(receipt.terminal().unwrap());
+                ("effect", "frame-routed") => {
+                    let owner = owner.as_ref().unwrap();
+                    let id = identities[&trace_field(&fields, "id").parse().unwrap()];
+                    let socket = trace_socket(&fields);
+                    let phase = owner.state().request_state(id).map(|state| state.0);
+                    assert!(
+                        match phase {
+                            Some(Phase::Executing { socket: owned, .. }) => owned == socket,
+                            // A routed completion or error terminalizes the
+                            // request that owned the frame's socket.
+                            None => true,
+                            _ => false,
+                        },
+                        "fixture frame routing: {line} (actual {phase:?})"
+                    );
+                    assert_eq!(trace_field(&fields, "via"), "target-socket");
                 }
-                other => panic!("unsupported blocking fixture input {other}"),
+                ("effect", "terminal") => {
+                    let owner = owner.as_ref().unwrap();
+                    let id = identities[&trace_field(&fields, "id").parse().unwrap()];
+                    assert!(
+                        owner.state().request_state(id).is_none(),
+                        "fixture terminal removes the engine entry: {line}"
+                    );
+                    assert_eq!(trace_field(&fields, "state"), "removed");
+                    assert_eq!(trace_field(&fields, "permit"), "released");
+                    assert_eq!(
+                        owner.state().permits().available(),
+                        owner.state().permits().capacity() - owner.state().active_len(),
+                        "a terminal request releases its permit: {line}"
+                    );
+                }
+                ("effect", "outcome-retained") => {
+                    let id: u64 = trace_field(&fields, "id").parse().unwrap();
+                    let receipt = receipts
+                        .values()
+                        .find(|receipt| receipt.id.get() == id)
+                        .expect("an attached blocking receipt");
+                    assert!(
+                        !receipt.completion.receiver.is_empty(),
+                        "a blocking receipt retains its outcome until it waits: {line}"
+                    );
+                    assert_eq!(trace_field(&fields, "observer"), "blocking");
+                }
+                ("input", "blocking-wait") => waited = Some(fields[3].to_owned()),
+                ("outcome", "blocking-wait") => {
+                    let label = waited.take().expect("a preceding blocking wait");
+                    let receipt = receipts.remove(&label).unwrap();
+                    assert_eq!(
+                        receipt.id.get().to_string(),
+                        trace_field(&fields, "id"),
+                        "fixture wait identity: {line}"
+                    );
+                    let outcome = receipt.terminal().expect("a settled blocking receipt");
+                    let expected = fields[4];
+                    let matched = matches!(
+                        (&outcome, expected),
+                        (RuntimeOutcome::Applied, "Applied")
+                            | (RuntimeOutcome::Cancelled, "Cancelled")
+                            | (
+                                RuntimeOutcome::Failed(Error::SyntaxError),
+                                "Error::SyntaxError"
+                            )
+                    );
+                    assert!(matched, "fixture wait outcome: {line} (actual {outcome:?})");
+                }
+                other => panic!("unsupported blocking fixture record {other:?}"),
             }
         }
 
-        assert_eq!(observed.len(), 4);
-        assert!(matches!(observed[0], RuntimeOutcome::Applied));
-        assert!(matches!(observed[1], RuntimeOutcome::Applied));
-        assert!(matches!(observed[2], RuntimeOutcome::Applied));
-        assert!(
-            matches!(observed[3], RuntimeOutcome::Failed(Error::SyntaxError)),
-            "unexpected fixture outcomes: {observed:?}"
-        );
+        assert_eq!(records, 70, "every fixture record must be consumed");
         assert!(receipts.is_empty());
+        assert_eq!(owner.as_ref().unwrap().state().active_len(), 0);
     }
 
     fn trace_field<'a>(fields: &[&'a str], name: &str) -> &'a str {
@@ -2846,6 +3038,13 @@ mod blocking {
             .unwrap_or_else(|| panic!("fixture field {name}"))
     }
 
+    fn trace_bytes(text: &str) -> Vec<u8> {
+        assert!(text.len().is_multiple_of(2), "fixture byte string {text}");
+        (0..text.len() / 2)
+            .map(|index| u8::from_str_radix(&text[index * 2..index * 2 + 2], 16).unwrap())
+            .collect()
+    }
+
     fn trace_socket(fields: &[&str]) -> ViscaSocket {
         match trace_field(fields, "socket") {
             "1" => ViscaSocket::S1,
@@ -2854,13 +3053,11 @@ mod blocking {
         }
     }
 
-    fn trace_completion_socket(fields: &[&str]) -> ViscaSocket {
-        let bytes = trace_field(fields, "bytes");
-        let response = u8::from_str_radix(&bytes[2..4], 16).unwrap();
-        match response & 0x0f {
-            1 => ViscaSocket::S1,
-            2 => ViscaSocket::S2,
-            other => panic!("fixture completion socket {other}"),
+    fn trace_socket_suffix(phase: &str) -> ViscaSocket {
+        match phase {
+            "executing(socket=1)" => ViscaSocket::S1,
+            "executing(socket=2)" => ViscaSocket::S2,
+            other => panic!("fixture phase {other}"),
         }
     }
 
@@ -3215,5 +3412,1152 @@ mod metrics {
         assert_copy::<OwnerMetrics>();
         assert_copy::<DiagnosticEvent>();
         assert_eq!(size_of::<OwnerMetrics>(), 19 * size_of::<u64>());
+    }
+}
+
+/// Issue #634: every normative issue-542 lifecycle fixture replays through the
+/// production owner and engine.
+///
+/// The replay below is deliberately *not* a model of the runtime. It drives the
+/// real [`OwnerState`] — which owns the real protocol engine, the real
+/// admission permit pool, the real terminal observers and the real
+/// applied-state subscribers — and renders what production actually produced
+/// back into the fixture's own record language. Every fixture record is then
+/// compared against that rendering, so an engine or owner behavior change fails
+/// the fixture instead of a hand-written simulator.
+///
+/// Only [`Effect::DeadlineExpired`] has no fixture vocabulary: the trace format
+/// names the *boundary* that resolved a request rather than the deadline
+/// classification, so the effect is consumed to prove `source=scheduler` and
+/// emits no record of its own.
+mod lifecycle_trace {
+    use std::{
+        borrow::Cow,
+        collections::{BTreeMap, BTreeSet, VecDeque},
+        sync::Arc,
+        time::{Duration, Instant},
+    };
+
+    use super::super::*;
+    use crate::{
+        protocol::response::{decode_basic, BasicKind},
+        runtime::engine::{
+            CancellationPolicy, ControlPolicy, EncodedMessage, EnvelopeKind, RequestContext,
+            RetryPolicy, TimeoutPolicy, TransportKind,
+        },
+        CameraId, Error,
+    };
+
+    const OBSERVER_LATE_DELIVERY: &str =
+        include_str!("../../../tests/fixtures/issue_542/lifecycle/observer_late_delivery.trace");
+    const DEADLINE_CLASSES: &str =
+        include_str!("../../../tests/fixtures/issue_542/lifecycle/deadline_classes.trace");
+    const CAPACITY_AND_FAILURES: &str =
+        include_str!("../../../tests/fixtures/issue_542/lifecycle/capacity_and_failures.trace");
+    const PTZOPTICS_CANCEL: &str =
+        include_str!("../../../tests/fixtures/issue_542/lifecycle/ptzoptics_cancel.trace");
+    const BLOCKING_OUT_OF_ORDER: &str =
+        include_str!("../../../tests/fixtures/issue_542/lifecycle/blocking_out_of_order.trace");
+
+    /// No fixture request may reach a deadline it did not ask for.
+    const UNREACHABLE: Duration = Duration::from_secs(3_600);
+
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum ObserverKind {
+        Blocking,
+        Async,
+    }
+
+    struct ObserverSlot {
+        kind: ObserverKind,
+        /// Dropping the observer *is* the detach operation.
+        observer: Option<CompletionObserver>,
+        cell: Arc<ObserverCell>,
+        terminal_source: Option<&'static str>,
+    }
+
+    struct Pending {
+        label: String,
+        kind: ObserverKind,
+        observer: CompletionObserver,
+        admission: flume::Receiver<Result<RequestId, Error>>,
+        permits_before: usize,
+        active_before: usize,
+    }
+
+    fn lines(fixture: &str) -> Vec<&str> {
+        fixture
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty() && !line.starts_with('#'))
+            .collect()
+    }
+
+    fn tokens(line: &str) -> Vec<&str> {
+        line.split_ascii_whitespace().collect()
+    }
+
+    fn field<'a>(tokens: &[&'a str], name: &str) -> Option<&'a str> {
+        tokens.iter().find_map(|token| {
+            token
+                .split_once('=')
+                .filter(|(key, _)| *key == name)
+                .map(|(_, value)| value)
+        })
+    }
+
+    fn required<'a>(tokens: &[&'a str], name: &str) -> &'a str {
+        field(tokens, name).unwrap_or_else(|| panic!("fixture field {name} in {tokens:?}"))
+    }
+
+    fn hex(text: &str) -> Vec<u8> {
+        assert!(text.len().is_multiple_of(2), "fixture byte string {text}");
+        (0..text.len() / 2)
+            .map(|index| u8::from_str_radix(&text[index * 2..index * 2 + 2], 16).unwrap())
+            .collect()
+    }
+
+    fn hex_text(bytes: &[u8]) -> String {
+        bytes.iter().fold(String::new(), |mut text, byte| {
+            use std::fmt::Write as _;
+            let _ = write!(text, "{byte:02x}");
+            text
+        })
+    }
+
+    fn phase_name(phase: Phase) -> String {
+        match phase {
+            Phase::Ready { .. } => "ready".to_owned(),
+            Phase::Sending { .. } => "sending".to_owned(),
+            Phase::AwaitingAck { .. } => "awaiting-ack".to_owned(),
+            Phase::Executing { socket, .. } => {
+                format!("executing(socket={})", socket.as_socket_number())
+            }
+            Phase::AwaitingReply { .. } => "awaiting-reply".to_owned(),
+            Phase::Backoff { .. } => "backoff".to_owned(),
+            Phase::AwaitingCancellationResolution { socket, .. } => {
+                format!(
+                    "awaiting-cancellation(socket={})",
+                    socket.as_socket_number()
+                )
+            }
+            Phase::AwaitingLateAck { .. } => "awaiting-late-ack".to_owned(),
+        }
+    }
+
+    const fn session_name(state: SessionState) -> &'static str {
+        match state {
+            SessionState::Running => "running",
+            SessionState::Closed => "closed",
+            SessionState::Shutdown => "shutdown",
+            SessionState::Poisoned => "poisoned",
+        }
+    }
+
+    const fn transport_name(transport: TransportKind) -> &'static str {
+        match transport {
+            TransportKind::Datagram => "datagram",
+            TransportKind::Stream => "stream",
+        }
+    }
+
+    const fn cancellation_name(policy: CancellationPolicy) -> &'static str {
+        match policy {
+            CancellationPolicy::Supported => "supported",
+            CancellationPolicy::Unsupported => "unsupported",
+        }
+    }
+
+    /// Maps one engine error back onto the fixture's terminal vocabulary.
+    ///
+    /// A transport failure round-trips through its injected error, so an engine
+    /// that substitutes or collapses errors renders a different label.
+    fn error_label(error: &Error) -> String {
+        match error {
+            Error::Timeout => "Timeout".to_owned(),
+            Error::SyntaxError => "SyntaxError".to_owned(),
+            Error::MessageLengthError => "MessageLengthError".to_owned(),
+            Error::CommandBufferFull => "CommandBufferFull".to_owned(),
+            Error::CommandCanceled => "CommandCanceled".to_owned(),
+            Error::NoSocket => "NoSocket".to_owned(),
+            Error::CommandNotExecutable => "CommandNotExecutable".to_owned(),
+            Error::NotSupported => "NotSupported".to_owned(),
+            Error::RuntimeShutdown => "RuntimeShutdown".to_owned(),
+            Error::StreamPoisoned { .. } => "StreamPoisoned".to_owned(),
+            Error::RuntimeQueueFull { .. } => "Capacity".to_owned(),
+            Error::TransportError(reason) => reason.to_string(),
+            other => format!("{other:?}"),
+        }
+    }
+
+    fn outcome_text(outcome: &RuntimeOutcome) -> String {
+        match outcome {
+            RuntimeOutcome::Applied => "Applied".to_owned(),
+            RuntimeOutcome::Cancelled => "Cancelled".to_owned(),
+            RuntimeOutcome::Failed(error) => format!("Error::{}", error_label(error)),
+            RuntimeOutcome::Reply { route, payload } => {
+                format!("Reply(route={route:?},payload={payload:?})")
+            }
+        }
+    }
+
+    fn write_result(label: &str) -> Result<TransmissionMeta, Error> {
+        match label {
+            "ok" => Ok(TransmissionMeta { sequence: None }),
+            "Timeout" => Err(Error::Timeout),
+            other => Err(Error::TransportError(Cow::Owned(other.to_owned()))),
+        }
+    }
+
+    /// Recovers the fixture label of the write failure that poisoned a stream
+    /// session from the owner's own boundary error.
+    fn poison_cause(state: &OwnerState) -> String {
+        match state.boundary_error() {
+            Some(Error::StreamPoisoned { reason }) => ["WriteFailed", "WriteTimeout", "Timeout"]
+                .into_iter()
+                .find(|label| {
+                    write_result(label)
+                        .err()
+                        .is_some_and(|error| error.to_string() == reason.as_ref())
+                })
+                .map_or_else(|| reason.to_string(), ToOwned::to_owned),
+            other => panic!("a poisoned session without a stream-poison boundary error: {other:?}"),
+        }
+    }
+
+    fn owner_policy(
+        transport: TransportKind,
+        capacity: usize,
+        cancellation: CancellationPolicy,
+    ) -> OwnerPolicy {
+        let protocol = ProtocolPolicy {
+            capacity,
+            envelope: EnvelopeKind::Raw,
+            transport,
+            inquiry_capacity: capacity,
+            command_spacing: Duration::ZERO,
+            inquiry_spacing: Duration::ZERO,
+            inquiry_cooldown: Duration::ZERO,
+        };
+        let mut targets = [None; 9];
+        for slot in targets.iter_mut().take(3).skip(1) {
+            *slot = Some(TargetPolicy {
+                command_sockets: 2,
+                cancellation,
+            });
+        }
+        OwnerPolicy::with_targets(protocol, targets).unwrap()
+    }
+
+    fn command(
+        target: CameraId,
+        wire: &str,
+        cancellation: CancellationPolicy,
+        ack: Duration,
+    ) -> RuntimeRequest {
+        RuntimeRequest::Command {
+            wire: Arc::new(EncodedMessage::new(&hex(wire)).unwrap()),
+            context: RequestContext {
+                target,
+                timeout: TimeoutPolicy {
+                    ack,
+                    completion: UNREACHABLE,
+                    inquiry: UNREACHABLE,
+                    cancellation: UNREACHABLE,
+                    ambiguity: UNREACHABLE,
+                },
+                retry: RetryPolicy::NEVER,
+                control: ControlPolicy::default(),
+                cancellation,
+            },
+            // Applied-state delivery is one of the normative observations, and
+            // an unsubscribed fixture simply produces no subscriber record.
+            applied_state: Some(
+                AppliedStateProjection::set(WriteOnlyState::Spotlight, &[1]).unwrap(),
+            ),
+        }
+    }
+
+    struct Replay {
+        state: Option<OwnerState>,
+        cancellation: CancellationPolicy,
+        base: Instant,
+        at: u64,
+        now: Instant,
+        scheduler_dispatch: BTreeMap<String, u64>,
+        labels: BTreeMap<String, RequestId>,
+        observers: BTreeMap<RequestId, ObserverSlot>,
+        subscribers: Vec<(String, AppliedStateSubscription)>,
+        pending: Option<Pending>,
+        write_label: String,
+        cancel_phase: Option<Phase>,
+        next_transmission: u64,
+        cancel_transmissions: usize,
+    }
+
+    impl Replay {
+        fn new(scheduler_dispatch: BTreeMap<String, u64>) -> Self {
+            let base = Instant::now();
+            Self {
+                state: None,
+                cancellation: CancellationPolicy::Supported,
+                base,
+                at: 0,
+                now: base,
+                scheduler_dispatch,
+                labels: BTreeMap::new(),
+                observers: BTreeMap::new(),
+                subscribers: Vec::new(),
+                pending: None,
+                write_label: "ok".to_owned(),
+                cancel_phase: None,
+                next_transmission: 0,
+                cancel_transmissions: 0,
+            }
+        }
+
+        fn state(&self) -> &OwnerState {
+            self.state.as_ref().expect("fixture session")
+        }
+
+        fn state_mut(&mut self) -> &mut OwnerState {
+            self.state.as_mut().expect("fixture session")
+        }
+
+        fn id(&self, label: &str) -> RequestId {
+            *self
+                .labels
+                .get(label)
+                .unwrap_or_else(|| panic!("unknown fixture request label {label}"))
+        }
+
+        fn step(&mut self, input: &[&str]) -> Vec<String> {
+            self.at = input[0].parse().expect("fixture timestamp");
+            self.now = self.base + Duration::from_millis(self.at);
+            let mut out = Vec::new();
+            match input[2] {
+                "session" => self.session(input, &mut out),
+                "subscribe-applied" => self.subscribe_applied(input, &mut out),
+                "admit" => self.admit(input, &mut out),
+                "blocking-submit" => self.blocking_submit(input, &mut out),
+                "dispatch" => self.dispatch(self.id(input[3]), required(input, "result"), &mut out),
+                "frame" => self.frame(input, &mut out),
+                "observer-timeout" => self.observer_deadline(input, true, &mut out),
+                "detach" => self.observer_deadline(input, false, &mut out),
+                "wake" => self.wake(&mut out),
+                "cancel" => self.cancel(input, &mut out),
+                "shutdown" => self.shutdown(&mut out),
+                "blocking-wait" => self.blocking_wait(input, &mut out),
+                "inspect-transmissions" => self.inspect_transmissions(input, &mut out),
+                other => panic!("unknown lifecycle fixture input {other}"),
+            }
+            out
+        }
+
+        fn session(&mut self, input: &[&str], out: &mut Vec<String>) {
+            let transport = match required(input, "transport") {
+                "datagram" => TransportKind::Datagram,
+                "stream" => TransportKind::Stream,
+                other => panic!("unknown fixture transport {other}"),
+            };
+            let capacity = required(input, "capacity")
+                .parse()
+                .expect("fixture admission capacity");
+            let cancellation = match required(input, "cancel") {
+                "supported" => CancellationPolicy::Supported,
+                "unsupported" => CancellationPolicy::Unsupported,
+                other => panic!("unknown fixture cancellation policy {other}"),
+            };
+            self.cancellation = cancellation;
+            self.labels.clear();
+            self.observers.clear();
+            self.subscribers.clear();
+            self.pending = None;
+            self.next_transmission = 0;
+            self.cancel_transmissions = 0;
+            let state = OwnerState::new(owner_policy(transport, capacity, cancellation)).unwrap();
+            let registered = state.policy().targets[1].expect("camera one is registered");
+            out.push(format!(
+                "{} effect session state={} transport={} capacity={} cancel={}",
+                self.at,
+                session_name(state.state()),
+                transport_name(state.policy().protocol.transport),
+                state.permits().capacity(),
+                cancellation_name(registered.cancellation),
+            ));
+            self.state = Some(state);
+        }
+
+        fn subscribe_applied(&mut self, input: &[&str], out: &mut Vec<String>) {
+            let name = input[3].to_owned();
+            let target = CameraId::new(required(input, "target").parse().unwrap()).unwrap();
+            let subscription = self
+                .state_mut()
+                .subscribe_applied(Some(target), 8)
+                .expect("applied-state subscription");
+            self.subscribers.push((name.clone(), subscription));
+            out.push(format!(
+                "{} effect subscriber-added observer={name} target={}",
+                self.at,
+                target.id()
+            ));
+        }
+
+        fn admit(&mut self, input: &[&str], out: &mut Vec<String>) {
+            let label = input[3].to_owned();
+            let target = CameraId::new(required(input, "target").parse().unwrap()).unwrap();
+            let wire = required(input, "wire");
+            let kind = match required(input, "observer") {
+                "async" => ObserverKind::Async,
+                "blocking" => ObserverKind::Blocking,
+                other => panic!("unknown fixture observer kind {other}"),
+            };
+            // A scheduler deadline in the fixture is an absolute trace time; the
+            // engine computes it from the instant the request is actually sent.
+            let ack = field(input, "scheduler").map_or(UNREACHABLE, |value| {
+                let deadline: u64 = value.parse().expect("fixture scheduler deadline");
+                let sent_at = self.scheduler_dispatch[&label];
+                Duration::from_millis(deadline - sent_at)
+            });
+
+            let permits_before = self.state().permits().available();
+            let active_before = self.state().active_len();
+            let Some(permit) = self.state().permits().try_acquire() else {
+                out.push(format!(
+                    "{} outcome admission ticket={label} error=Capacity capacity={} engine-entry=none observer=none transmission=none",
+                    self.at,
+                    self.state().permits().capacity()
+                ));
+                assert_eq!(
+                    self.state().active_len(),
+                    active_before,
+                    "a rejected admission never creates an engine entry"
+                );
+                return;
+            };
+
+            let request = command(target, wire, self.cancellation, ack);
+            let now = self.now;
+            let (staged, observer, admission) = self.state_mut().stage_admission(request, permit);
+            let Input::Admit { ticket, request } = staged else {
+                panic!("staged admission did not produce an admit input")
+            };
+            self.pending = Some(Pending {
+                label,
+                kind,
+                observer,
+                admission,
+                permits_before,
+                active_before,
+            });
+            let effects = self.state_mut().admit_without_due(ticket, request, now);
+            self.drain(effects, "admission", out);
+            assert!(
+                self.pending.is_none(),
+                "admission produced neither an entry nor a rejection"
+            );
+        }
+
+        fn blocking_submit(&mut self, input: &[&str], out: &mut Vec<String>) {
+            self.admit(input, out);
+            let label = input[3];
+            let id = self.id(label);
+            self.dispatch(id, "ok", out);
+            assert!(
+                matches!(
+                    self.state().request_state(id),
+                    Some((Phase::AwaitingAck { .. }, _))
+                ),
+                "a blocking handle is returned only after its initial write completes"
+            );
+            out.push(format!(
+                "{} outcome blocking-handle ticket={label} id={} initial-write=complete",
+                self.at,
+                id.get()
+            ));
+        }
+
+        fn dispatch(&mut self, id: RequestId, result: &str, out: &mut Vec<String>) {
+            self.write_label = result.to_owned();
+            let now = self.now;
+            match self.state_mut().first_dispatch_without_due(id, now) {
+                FirstDispatch::Effects(effects) => self.drain(effects.into(), "transport", out),
+                other => panic!("fixture dispatch is not the scheduler winner: {other:?}"),
+            }
+        }
+
+        fn frame(&mut self, input: &[&str], out: &mut Vec<String>) {
+            let kind = input[3];
+            let bytes = hex(required(input, "bytes"));
+            let decoded = decode_basic(&bytes).expect("fixture frame bytes decode");
+            let response = match (kind, decoded.kind) {
+                ("ack", BasicKind::Ack) => DecodedResponse::Ack {
+                    socket: decoded.socket,
+                },
+                ("complete", BasicKind::Completion) => DecodedResponse::Completion {
+                    socket: decoded.socket,
+                },
+                ("error", BasicKind::Error(code)) => DecodedResponse::Error {
+                    socket: decoded.socket,
+                    code,
+                },
+                other => panic!("fixture frame {other:?} disagrees with its own bytes"),
+            };
+            if let Some(socket) = field(input, "socket") {
+                assert_eq!(
+                    decoded.socket.map(|socket| socket.as_socket_number()),
+                    socket.parse::<u8>().ok(),
+                    "fixture socket disagrees with its own bytes"
+                );
+            }
+            if let Some(code) = field(input, "code") {
+                assert_eq!(
+                    decoded.kind,
+                    BasicKind::Error(u8::from_str_radix(code, 16).unwrap()),
+                    "fixture error code disagrees with its own bytes"
+                );
+            }
+            // Every lifecycle fixture is a raw session, so correlation is by
+            // target and socket rather than by envelope sequence.
+            let target = decoded.source;
+            let sequence: Option<EnvelopeSequence> = None;
+            let now = self.now;
+            let pre_socket = |state: &OwnerState, id: RequestId| match state.request_state(id) {
+                Some((Phase::Executing { socket, .. }, _)) => Some(socket),
+                _ => None,
+            };
+            let owned = self
+                .labels
+                .values()
+                .copied()
+                .filter_map(|id| pre_socket(self.state(), id).map(|socket| (id, socket)))
+                .collect::<BTreeMap<_, _>>();
+
+            let turn = self.state().begin_input_turn(now);
+            let effects = self.state_mut().input_in_turn(
+                &turn,
+                Input::Frame(DecodedFrame {
+                    target,
+                    sequence,
+                    response,
+                }),
+            );
+            let routed = effects
+                .iter()
+                .find_map(effect_request)
+                .expect("a fixture frame is always routed to one request");
+            let socket = decoded
+                .socket
+                .or_else(|| owned.get(&routed).copied())
+                .expect("a routed raw frame owns a socket");
+            out.push(format!(
+                "{} effect frame-routed id={} target={} via={} socket={} bytes={}",
+                self.at,
+                routed.get(),
+                target.id(),
+                if sequence.is_some() {
+                    "sequence"
+                } else {
+                    "target-socket"
+                },
+                socket.as_socket_number(),
+                hex_text(&bytes)
+            ));
+            self.drain(effects, "protocol", out);
+        }
+
+        fn observer_deadline(&mut self, input: &[&str], timed_out: bool, out: &mut Vec<String>) {
+            let id = self.id(input[3]);
+            let slot = self
+                .observers
+                .get_mut(&id)
+                .expect("fixture observer is registered");
+            let observer = slot.observer.as_ref().expect("an attached observer");
+            assert!(
+                observer.try_recv().is_none(),
+                "an observer that gives up cannot already hold a terminal outcome"
+            );
+            slot.observer = None;
+            assert!(
+                !slot.cell.is_attached(),
+                "dropping the observer detaches it"
+            );
+            if timed_out {
+                out.push(format!(
+                    "{} outcome operation id={} Error::{} source=observer",
+                    self.at,
+                    id.get(),
+                    error_label(&Error::Timeout)
+                ));
+            }
+            let (phase, _) = self
+                .state()
+                .request_state(id)
+                .expect("observer detach never removes engine routing");
+            out.push(format!(
+                "{} effect observer-detached id={} protocol-state={} routing=retained",
+                self.at,
+                id.get(),
+                phase_name(phase)
+            ));
+        }
+
+        fn wake(&mut self, out: &mut Vec<String>) {
+            let now = self.now;
+            let effects = self.state_mut().advance(now);
+            self.drain(effects, "scheduler", out);
+        }
+
+        fn cancel(&mut self, input: &[&str], out: &mut Vec<String>) {
+            let id = self.id(input[3]);
+            let (phase, _) = self
+                .state()
+                .request_state(id)
+                .expect("cancellation target is active");
+            self.cancel_phase = Some(phase);
+            let cancels_before = self.cancel_transmissions;
+            let now = self.now;
+            let turn = self.state().begin_input_turn(now);
+            let effects = self.state_mut().input_in_turn(&turn, Input::Cancel { id });
+            let ignored = effects.iter().all(|effect| {
+                matches!(
+                    effect,
+                    Effect::CancellationObservation {
+                        observation: CancellationObservation::Failed(_),
+                        ..
+                    }
+                )
+            });
+            self.drain(effects, "local", out);
+            if ignored {
+                let (phase, cancellation) = self
+                    .state()
+                    .request_state(id)
+                    .expect("an ignored cancellation leaves the request able to complete");
+                assert_eq!(
+                    cancellation,
+                    CancelState::None,
+                    "an ignored cancellation records no cancellation substate"
+                );
+                assert_eq!(
+                    self.cancel_transmissions, cancels_before,
+                    "an ignored cancellation emits no cancel frame"
+                );
+                out.push(format!(
+                    "{} effect cancellation-ignored id={} protocol-state={} cancel-frame=none",
+                    self.at,
+                    id.get(),
+                    phase_name(phase)
+                ));
+            }
+        }
+
+        fn shutdown(&mut self, out: &mut Vec<String>) {
+            let now = self.now;
+            let turn = self.state().begin_input_turn(now);
+            let effects = self
+                .state_mut()
+                .input_in_turn(&turn, Input::Shutdown(ShutdownReason::Explicit));
+            self.drain(effects, "shutdown", out);
+        }
+
+        fn blocking_wait(&mut self, input: &[&str], out: &mut Vec<String>) {
+            let id = self.id(input[3]);
+            let slot = self
+                .observers
+                .get_mut(&id)
+                .expect("fixture observer is registered");
+            let observer = slot.observer.take().expect("a retained blocking observer");
+            let outcome = observation_outcome(
+                observer
+                    .try_recv()
+                    .expect("a blocking wait consumes its retained terminal outcome"),
+            );
+            out.push(format!(
+                "{} outcome blocking-wait id={} {} source={}",
+                self.at,
+                id.get(),
+                outcome_text(&outcome),
+                slot.terminal_source.expect("recorded terminal source")
+            ));
+        }
+
+        fn inspect_transmissions(&mut self, input: &[&str], out: &mut Vec<String>) {
+            assert_eq!(required(input, "kind"), "cancel");
+            out.push(format!(
+                "{} outcome transmissions kind=cancel count={}",
+                self.at, self.cancel_transmissions
+            ));
+        }
+
+        fn drain(
+            &mut self,
+            effects: VecDeque<Effect>,
+            boundary: &'static str,
+            out: &mut Vec<String>,
+        ) {
+            let mut queue = effects;
+            let mut deferred: Vec<(RequestId, String)> = Vec::new();
+            let mut applied: Vec<(RequestId, String)> = Vec::new();
+            let mut deadlines: BTreeSet<RequestId> = BTreeSet::new();
+            while let Some(effect) = queue.pop_front() {
+                match effect {
+                    Effect::Admitted { id, .. } => {
+                        self.record_admitted(id, effect, out);
+                    }
+                    Effect::AdmissionRejected { .. } => {
+                        self.record_admission_rejected(effect, out);
+                    }
+                    Effect::Transition { id, from, to, .. } => {
+                        self.state_mut().apply_effect(effect);
+                        out.push(format!(
+                            "{} effect state id={} from={} to={}",
+                            self.at,
+                            id.get(),
+                            phase_name(from),
+                            phase_name(to)
+                        ));
+                    }
+                    Effect::Transmit { .. } => {
+                        self.record_transmit(effect, &mut queue, out);
+                    }
+                    Effect::DeadlineExpired { id, .. } => {
+                        deadlines.insert(id);
+                        self.state_mut().apply_effect(effect);
+                    }
+                    Effect::CancellationRecorded { id } => {
+                        self.state_mut().apply_effect(effect);
+                        let queued = matches!(
+                            self.cancel_phase,
+                            Some(Phase::Ready { .. } | Phase::Backoff { .. })
+                        );
+                        out.push(format!(
+                            "{} effect cancellation-recorded id={} disposition={} cancel-frame=none",
+                            self.at,
+                            id.get(),
+                            if queued { "queued-local" } else { "sent" }
+                        ));
+                    }
+                    Effect::CancellationObservation {
+                        id,
+                        ref observation,
+                    } => {
+                        let (text, source) = match observation {
+                            CancellationObservation::Recorded => ("Recorded".to_owned(), "local"),
+                            CancellationObservation::Cancelled => ("Cancelled".to_owned(), "local"),
+                            CancellationObservation::Completed => {
+                                ("Completed".to_owned(), "protocol")
+                            }
+                            CancellationObservation::Failed(error) => (
+                                format!("Error::{}", error_label(error)),
+                                if matches!(error, Error::NotSupported) {
+                                    "profile"
+                                } else {
+                                    "engine"
+                                },
+                            ),
+                        };
+                        deferred.push((
+                            id,
+                            format!(
+                                "{} outcome cancellation id={} {text} source={source}",
+                                self.at,
+                                id.get()
+                            ),
+                        ));
+                        self.state_mut().apply_effect(effect);
+                    }
+                    Effect::AppliedState { effect: projection } => {
+                        self.state_mut()
+                            .apply_effect(Effect::AppliedState { effect: projection });
+                        for (name, subscription) in &self.subscribers {
+                            if let Some(AppliedStateEvent(delivered)) = subscription.try_recv() {
+                                applied.push((
+                                    projection.request,
+                                    format!(
+                                        "{} outcome applied-state observer={name} target={} id={} state={}",
+                                        self.at,
+                                        delivered.target.id(),
+                                        delivered.request.get(),
+                                        if delivered.projection.is_known() {
+                                            "applied"
+                                        } else {
+                                            "invalidated"
+                                        }
+                                    ),
+                                ));
+                            }
+                        }
+                    }
+                    Effect::Terminal { id, ref outcome } => {
+                        let source = if deadlines.contains(&id) {
+                            "scheduler"
+                        } else if boundary == "protocol"
+                            && matches!(outcome, RuntimeOutcome::Failed(_))
+                        {
+                            "camera"
+                        } else {
+                            boundary
+                        };
+                        let text = outcome_text(outcome);
+                        let permits_before = self.state().permits().available();
+                        self.state_mut().apply_effect(effect.clone());
+                        let removed = self.state().request_state(id).is_none();
+                        let released = self.state().permits().available() == permits_before + 1;
+                        out.push(format!(
+                            "{} effect terminal id={} outcome={text} source={source} state={} permit={}",
+                            self.at,
+                            id.get(),
+                            if removed { "removed" } else { "retained" },
+                            if released { "released" } else { "held" }
+                        ));
+                        self.record_observer(id, source, out);
+                        applied.retain(|(request, record)| {
+                            let mine = *request == id;
+                            if mine {
+                                out.push(record.clone());
+                            }
+                            !mine
+                        });
+                        deferred.retain(|(request, record)| {
+                            let mine = *request == id;
+                            if mine {
+                                out.push(record.clone());
+                            }
+                            !mine
+                        });
+                    }
+                    Effect::SessionChanged { from, to } => {
+                        self.state_mut().apply_effect(effect);
+                        let detail = match to {
+                            SessionState::Poisoned => {
+                                format!("cause={}", poison_cause(self.state()))
+                            }
+                            SessionState::Shutdown => "reason=explicit".to_owned(),
+                            other => panic!("no fixture vocabulary for session state {other:?}"),
+                        };
+                        out.push(format!(
+                            "{} effect session from={} to={} {detail}",
+                            self.at,
+                            session_name(from),
+                            session_name(to)
+                        ));
+                    }
+                    Effect::RetryScheduled { .. } | Effect::Ignored(_) => {
+                        panic!("no fixture vocabulary for {effect:?}")
+                    }
+                }
+            }
+            for (_, record) in applied {
+                out.push(record);
+            }
+            for (_, record) in deferred {
+                out.push(record);
+            }
+        }
+
+        fn record_admitted(&mut self, id: RequestId, effect: Effect, out: &mut Vec<String>) {
+            let pending = self.pending.take().expect("a staged admission");
+            self.state_mut().apply_effect(effect);
+            let target = self
+                .state()
+                .diagnostics()
+                .filter_map(|event| match event {
+                    DiagnosticEvent::Admitted {
+                        id: recorded,
+                        target,
+                        ..
+                    } if *recorded == id => Some(*target),
+                    _ => None,
+                })
+                .last()
+                .expect("owner records every admission");
+            let (phase, _) = self
+                .state()
+                .request_state(id)
+                .expect("an admitted request owns an engine entry");
+            let acquired = self.state().permits().available() == pending.permits_before - 1;
+            out.push(format!(
+                "{} effect admitted ticket={} id={} target={} permit={} state={} observer={}",
+                self.at,
+                pending.label,
+                id.get(),
+                target.id(),
+                if acquired { "acquired" } else { "unclaimed" },
+                phase_name(phase),
+                match pending.kind {
+                    ObserverKind::Async => "async",
+                    ObserverKind::Blocking => "blocking",
+                }
+            ));
+            let admitted = pending
+                .admission
+                .try_recv()
+                .expect("admission reply")
+                .expect("admission reply carries the engine identity");
+            out.push(format!(
+                "{} outcome admission ticket={} id={}",
+                self.at,
+                pending.label,
+                admitted.get()
+            ));
+            self.labels.insert(pending.label, id);
+            self.observers.insert(
+                id,
+                ObserverSlot {
+                    kind: pending.kind,
+                    cell: Arc::clone(&pending.observer.cell),
+                    observer: Some(pending.observer),
+                    terminal_source: None,
+                },
+            );
+        }
+
+        fn record_admission_rejected(&mut self, effect: Effect, out: &mut Vec<String>) {
+            let pending = self.pending.take().expect("a staged admission");
+            let AppliedEffect::AdmissionRejected(error) = self.state_mut().apply_effect(effect)
+            else {
+                panic!("a rejected admission did not report its error")
+            };
+            let capacity = match &error {
+                Error::RuntimeQueueFull { capacity } => format!(" capacity={capacity}"),
+                _ => String::new(),
+            };
+            assert_eq!(
+                self.state().active_len(),
+                pending.active_before,
+                "a rejected admission never creates an engine entry"
+            );
+            assert_eq!(
+                self.state().permits().available(),
+                pending.permits_before,
+                "a rejected admission releases its permit"
+            );
+            assert!(
+                matches!(pending.admission.try_recv(), Ok(Err(_)) | Err(_)),
+                "a rejected admission never replies with an engine identity"
+            );
+            out.push(format!(
+                "{} outcome admission ticket={} error={}{capacity} engine-entry=none observer=none transmission=none",
+                self.at,
+                pending.label,
+                error_label(&error)
+            ));
+        }
+
+        fn record_transmit(
+            &mut self,
+            effect: Effect,
+            queue: &mut VecDeque<Effect>,
+            out: &mut Vec<String>,
+        ) {
+            let Effect::Transmit {
+                request, ref kind, ..
+            } = effect
+            else {
+                unreachable!()
+            };
+            self.next_transmission += 1;
+            let transmission = self.next_transmission;
+            match kind {
+                Transmission::Request { target, wire } => out.push(format!(
+                    "{} effect transmit tx={transmission} id={} kind=request target={} wire={}",
+                    self.at,
+                    request.get(),
+                    target.id(),
+                    hex_text(wire.as_bytes())
+                )),
+                Transmission::Cancel { target, socket } => {
+                    self.cancel_transmissions += 1;
+                    out.push(format!(
+                        "{} effect transmit tx={transmission} id={} kind=cancel target={} socket={}",
+                        self.at,
+                        request.get(),
+                        target.id(),
+                        socket.as_socket_number()
+                    ));
+                }
+            }
+            let AppliedEffect::Transmit(staged) = self.state_mut().apply_effect(effect) else {
+                panic!("a transmit effect did not stage a write")
+            };
+            let label = self.write_label.clone();
+            out.push(format!(
+                "{} driver-input transmission-finished tx={transmission} result={label}",
+                self.at
+            ));
+            let now = self.now;
+            let produced =
+                self.state_mut()
+                    .finish_write_without_due(&staged, write_result(&label), now);
+            prepend_effects(queue, produced);
+        }
+
+        fn record_observer(&mut self, id: RequestId, source: &'static str, out: &mut Vec<String>) {
+            let at = self.at;
+            let Some(slot) = self.observers.get_mut(&id) else {
+                return;
+            };
+            slot.terminal_source = Some(source);
+            let Some(observer) = slot.observer.as_ref() else {
+                assert!(
+                    !slot.cell.is_attached() && !slot.cell.resolved.load(Ordering::Acquire),
+                    "a detached observer is never resolved"
+                );
+                out.push(format!(
+                    "{at} effect delivery-discarded id={} observer=detached",
+                    id.get()
+                ));
+                return;
+            };
+            match slot.kind {
+                ObserverKind::Async => {
+                    let outcome = observation_outcome(
+                        observer
+                            .try_recv()
+                            .expect("an attached observer receives its terminal outcome"),
+                    );
+                    out.push(format!(
+                        "{at} outcome operation id={} {} source={source}",
+                        id.get(),
+                        outcome_text(&outcome)
+                    ));
+                }
+                ObserverKind::Blocking => {
+                    assert!(
+                        !observer.receiver.is_empty(),
+                        "a blocking observer retains its terminal outcome until it waits"
+                    );
+                    out.push(format!(
+                        "{at} effect outcome-retained id={} observer=blocking",
+                        id.get()
+                    ));
+                }
+            }
+        }
+    }
+
+    fn effect_request(effect: &Effect) -> Option<RequestId> {
+        match effect {
+            Effect::Transition { id, .. }
+            | Effect::Terminal { id, .. }
+            | Effect::CancellationRecorded { id }
+            | Effect::CancellationObservation { id, .. }
+            | Effect::DeadlineExpired { id, .. }
+            | Effect::Admitted { id, .. }
+            | Effect::RetryScheduled { id, .. } => Some(*id),
+            Effect::AppliedState { effect } => Some(effect.request),
+            Effect::Transmit { request, .. } => Some(*request),
+            Effect::AdmissionRejected { .. }
+            | Effect::SessionChanged { .. }
+            | Effect::Ignored(_) => None,
+        }
+    }
+
+    /// Replays one fixture through the production owner and asserts that every
+    /// `effect`, `outcome` and `driver-input` record it names is exactly what
+    /// production produced.
+    fn replay(fixture: &str) -> Vec<String> {
+        let records = lines(fixture);
+        let mut scheduler_dispatch = BTreeMap::new();
+        for record in &records {
+            let parsed = tokens(record);
+            if parsed[1] == "input" && matches!(parsed[2], "dispatch" | "blocking-submit") {
+                scheduler_dispatch.insert(parsed[3].to_owned(), parsed[0].parse().unwrap());
+            }
+        }
+
+        let mut replay = Replay::new(scheduler_dispatch);
+        let mut produced = Vec::new();
+        let mut index = 0;
+        while index < records.len() {
+            let line = records[index];
+            let parsed = tokens(line);
+            assert_eq!(
+                parsed[1], "input",
+                "every fixture step begins with an input record: {line}"
+            );
+            index += 1;
+            let mut expected = Vec::new();
+            while index < records.len() {
+                if tokens(records[index])[1] == "input" {
+                    break;
+                }
+                expected.push(records[index].to_owned());
+                index += 1;
+            }
+            let actual = replay.step(&parsed);
+            assert_eq!(actual, expected, "production output diverged from {line}");
+            produced.push(line.to_owned());
+            produced.extend(actual);
+        }
+        assert_eq!(
+            produced,
+            records
+                .iter()
+                .map(|line| (*line).to_owned())
+                .collect::<Vec<_>>(),
+            "the fixture and the production replay must be the same record stream"
+        );
+        produced
+    }
+
+    #[test]
+    fn observer_timeout_and_detach_preserve_late_routing_and_target_delivery() {
+        let records = replay(OBSERVER_LATE_DELIVERY);
+        assert!(records.iter().any(
+            |line| line.contains("observer-detached id=1") && line.contains("routing=retained")
+        ));
+        assert!(records
+            .iter()
+            .any(|line| line.contains("applied-state observer=target-one")));
+    }
+
+    #[test]
+    fn observer_scheduler_and_transport_deadlines_stay_distinct() {
+        let records = replay(DEADLINE_CLASSES);
+        for source in ["observer", "scheduler", "transport"] {
+            assert!(
+                records
+                    .iter()
+                    .any(|line| line.contains(&format!("source={source}"))),
+                "the production replay must expose the {source} deadline boundary"
+            );
+        }
+    }
+
+    #[test]
+    fn capacity_datagram_stream_poison_and_shutdown_boundaries_stay_distinct() {
+        replay(CAPACITY_AND_FAILURES);
+    }
+
+    #[test]
+    fn ptzoptics_g2_queued_cancel_is_local_but_sent_cancel_is_unsupported() {
+        let records = replay(PTZOPTICS_CANCEL);
+        assert!(records.iter().any(|line| line
+            .contains("cancellation-recorded id=1 disposition=queued-local cancel-frame=none")));
+        assert!(records
+            .iter()
+            .any(|line| line.contains("Error::NotSupported source=profile")));
+        assert!(records
+            .iter()
+            .any(|line| line.ends_with("transmissions kind=cancel count=0")));
+    }
+
+    #[test]
+    fn blocking_handles_follow_initial_write_and_retain_exact_out_of_order_outcomes() {
+        let records = replay(BLOCKING_OUT_OF_ORDER);
+        let first_write = records
+            .iter()
+            .position(|line| line.contains("transmission-finished tx=1 result=ok"))
+            .expect("first initial write result");
+        let first_handle = records
+            .iter()
+            .position(|line| line.contains("blocking-handle ticket=a"))
+            .expect("first blocking handle");
+        assert!(
+            first_write < first_handle,
+            "a blocking handle is returned only after its initial write completes"
+        );
     }
 }
