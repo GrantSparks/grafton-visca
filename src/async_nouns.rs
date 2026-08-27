@@ -1638,6 +1638,16 @@ impl<'a, P: CompileTimeProfile> ImageAccessor<'a, P> {
             .await
     }
 
+    /// Disables horizontal image mirroring.
+    pub async fn disable_horizontal_flip(&self) -> Result<()>
+    where
+        P: HasImageMirror,
+    {
+        self.camera
+            .execute(&builtin::ImageMirrorCommand::new(false))
+            .await
+    }
+
     /// Sets the combined image-flip mode to both axes.
     pub async fn set_flip_both(&self) -> Result<()>
     where

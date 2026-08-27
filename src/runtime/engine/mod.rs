@@ -2625,7 +2625,7 @@ impl Jitter {
 ///
 /// The ceiling is 1.x's exponential — `initial << (attempt - 1)`, bounded by
 /// the ACK exponent cap where it applies and by `maximum_backoff` always. The
-/// wait is then the equal-jitter half-open band `[ceiling / 2, ceiling]`, so
+/// wait is then the equal-jitter half-open band `[ceiling / 2, ceiling)`, so
 /// no request ever waits *longer* than 1.x would have, the ceiling is still
 /// honored exactly, and concurrent requests separate.
 fn retry_delay(policy: RetryPolicy, attempt: u32, backoff: Backoff, jitter: u64) -> Duration {

@@ -112,26 +112,48 @@ retryability depends on the class: it is transient for movement and preset
 work, where the camera is reporting a state that passes, and terminal
 everywhere else, where it is the camera's verdict on the command.
 
-How many attempts a request gets is derived from its *timeout* category, not
-its retry class: quick and inquiry work gets two attempts more than the
-configured base, network work one fewer, and a long-running command exactly
-one. `OperationalTuning::retry_limit` sets that base.
+`0x02` (`SyntaxError`) is retried on one narrow path: an inquiry issued through
+this crate's own built-in typed inquiry surface. Cameras answer a built-in
+inquiry's exact syntax inconsistently enough that one replay is worth having.
+A raw or downstream-derived inquiry carries the application's own syntax, so
+`0x02` is that inquiry's terminal verdict and is never replayed. No command of
+any class retries `0x02`.
 
-Two bounds stop a request retrying. Its attempt budget above, and a wall-clock
-budget counted from admission — ten seconds, or twice the request's own
-governing deadline where that is longer, so one further full-length attempt
-always fits. Whichever is reached first produces the terminal error, and a
-request that runs out of wall-clock time reports the error that caused its last
-retry rather than an incidental later timeout.
+How many *retries* a request gets is derived from its *timeout* category, not
+its retry class. These are retries after the first attempt, so a request makes
+at most one more attempt than its budget:
 
-Backoff doubles from the initial delay up to `maximum_backoff`, with the
-exponent additionally capped at five for a lost ACK: a camera that has not even
-accepted a frame should not inherit a ceiling raised to accommodate slow
-completions. Each wait is then drawn from the equal-jitter band
-`[ceiling / 2, ceiling]`, so two commands that time out on the same instant do
-not retry on the same instant. That draw is a pure function of the engine's
-seed, the request identity and the attempt number: it never reads the clock or
-process entropy, so a replayed input sequence produces identical scheduling.
+| Timeout category | Retry budget | Attempts at the default base |
+| --- | --- | ---: |
+| `Quick`, `Inquiry` | base + 2 | 6 |
+| `Movement`, `Preset` | base | 4 |
+| `Network` | base - 1, never below 1 | 3 |
+| `LongRunning` | 1 | 2 |
+
+`OperationalTuning::retry_limit` sets that base, which defaults to 3.
+`RetryClass::Never` overrides the table with zero retries — one attempt — for
+every timeout category.
+
+Two bounds stop a request retrying: the budget above, and a wall-clock budget
+counted from admission. That wall-clock budget is the largest of ten seconds,
+twice the request's own governing deadline (its completion deadline for a
+command, its reply deadline for an inquiry — doubling it always leaves room for
+one further full-length attempt), and the profile's busy timeout. Whichever
+bound is reached first produces the terminal error, and a request that runs out
+of wall-clock time reports the error that caused its last retry rather than an
+incidental later timeout.
+
+Backoff doubles from the initial delay (50 ms by default) up to
+`maximum_backoff` (500 ms by default, raised to the profile's busy timeout
+where that is longer), with the exponent additionally capped at five for a lost
+ACK: a camera that has not even accepted a frame should not inherit a ceiling
+raised to accommodate slow completions. Each wait is then drawn from the
+half-open equal-jitter band `[ceiling / 2, ceiling)`, so no attempt ever waits
+longer than the undithered ceiling and two commands that time out on the same
+instant do not retry on the same instant. That draw is a pure function of the
+engine's seed, the request identity and the attempt number: it never reads the
+clock or process entropy, so a replayed input sequence produces identical
+scheduling.
 
 ## Transient transport faults are not session death
 

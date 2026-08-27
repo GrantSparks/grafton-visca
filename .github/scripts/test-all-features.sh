@@ -25,6 +25,31 @@ run_test() {
     fi
 }
 
+# A libtest name filter that matches nothing exits 0: the binary prints
+# "running 0 tests" and reports success. A renamed, moved or cfg-ed-out test
+# would silently turn a gate into a no-op instead of turning it red, so every
+# run that carries a filter asserts that it selected at least one test.
+run_filtered_test() {
+    local description="$1"
+    shift
+
+    local log
+    log="${TMPDIR:-/tmp}/grafton-filtered-${description//[^[:alnum:]]/_}.log"
+
+    printf '%bTesting: %s%b\n' "$YELLOW" "$description" "$NC"
+    if ! "$@" 2>&1 | tee "$log"; then
+        printf '%b✗ %s failed%b\n' "$RED" "$description" "$NC"
+        return 1
+    fi
+    if ! grep -Eq '^running [1-9][0-9]* tests?$' "$log"; then
+        printf '%b✗ %s matched zero tests%b\n' "$RED" "$description" "$NC"
+        printf 'The name filter selected nothing, so this check was vacuous.\n'
+        printf 'A renamed or moved test is the usual cause; update the filter.\n'
+        return 1
+    fi
+    printf '%b✓ %s passed%b\n\n' "$GREEN" "$description" "$NC"
+}
+
 expect_unknown_feature() {
     local feature="$1"
     local output_file
@@ -92,8 +117,15 @@ run_test "Tokio + blocking serial transport" \
     cargo test --no-default-features --features runtime-tokio,transport-serial --all-targets
 run_test "serde + schemars + ts-rs" \
     cargo test --no-default-features --features serde,schemars,ts-rs --all-targets
+# `test-utils` alone proves the toolkit compiles with no facade selected; it
+# cannot run it, because `ScriptedBlockingTransport` needs `blocking` and
+# `ScriptedTransport`/`DeterministicExecutor` need `async`. The union below is
+# the entry that actually executes the shipped toolkit and the tests built on
+# it; without it those tests run in no CI job at all.
 run_test "test-utils" \
     cargo test --no-default-features --features test-utils --all-targets
+run_test "test-utils + blocking + Tokio" \
+    cargo test --no-default-features --features test-utils,blocking,runtime-tokio --all-targets
 run_test "macro derives" \
     cargo test -p grafton-visca-macros
 
@@ -116,7 +148,7 @@ run_test "async doctests" \
 run_test "all-feature doctests" \
     cargo test --doc --all-features
 
-run_test "generated engine invariant property" \
+run_filtered_test "generated engine invariant property" \
     cargo test --no-default-features --lib arbitrary_ordered_and_stale_inputs_preserve_invariants_property
 
 echo "=========================================="

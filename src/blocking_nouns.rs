@@ -1589,6 +1589,14 @@ impl<'view, 'session, P: CompileTimeProfile> ImageAccessor<'view, 'session, P> {
         execute(self.camera, &builtin::ImageMirrorCommand::new(true))
     }
 
+    /// Disables horizontal image mirroring.
+    pub fn disable_horizontal_flip(&self) -> Result<()>
+    where
+        P: HasImageMirror,
+    {
+        execute(self.camera, &builtin::ImageMirrorCommand::new(false))
+    }
+
     /// Sets both image-flip axes.
     pub fn set_flip_both(&self) -> Result<()>
     where

@@ -185,6 +185,309 @@ mod tests {
             0xFF
         ]
     );
+
+    // Golden frames for the movement encodings (issue #633).
+    //
+    // These vectors are hand-derived from the VISCA specification, not
+    // recomputed from `PanTiltDirection::to_bytes` or from the position
+    // pushes, so a swapped direction-table row or a transposed pan/tilt field
+    // fails here even though every differential test stays green. The pan and
+    // tilt speed fields are deliberately different (`0x18` vs `0x14`), and the
+    // positional fixtures use dissimilar pan and tilt values, so a
+    // transposition is never self-cancelling.
+
+    /// Builds a directional move at maximum pan (`0x18`) and tilt (`0x14`) speed.
+    fn golden_move(direction: PanTiltDirection) -> PanTilt {
+        PanTilt::Move {
+            direction,
+            pan_speed: PanSpeed::new(0x18).expect("maximum pan speed"),
+            tilt_speed: TiltSpeed::new(0x14).expect("maximum tilt speed"),
+        }
+    }
+
+    visca_test!(
+        PanTilt,
+        test_pan_tilt_move_up_golden_frame,
+        golden_move(PanTiltDirection::Up),
+        &[
+            0x81,
+            0x01,
+            0x06,
+            0x01,
+            0x18,
+            0x14,
+            0x03,
+            0x01,
+            VISCA_TERMINATOR
+        ]
+    );
+    visca_test!(
+        PanTilt,
+        test_pan_tilt_move_down_golden_frame,
+        golden_move(PanTiltDirection::Down),
+        &[
+            0x81,
+            0x01,
+            0x06,
+            0x01,
+            0x18,
+            0x14,
+            0x03,
+            0x02,
+            VISCA_TERMINATOR
+        ]
+    );
+    visca_test!(
+        PanTilt,
+        test_pan_tilt_move_left_golden_frame,
+        golden_move(PanTiltDirection::Left),
+        &[
+            0x81,
+            0x01,
+            0x06,
+            0x01,
+            0x18,
+            0x14,
+            0x01,
+            0x03,
+            VISCA_TERMINATOR
+        ]
+    );
+    visca_test!(
+        PanTilt,
+        test_pan_tilt_move_right_golden_frame,
+        golden_move(PanTiltDirection::Right),
+        &[
+            0x81,
+            0x01,
+            0x06,
+            0x01,
+            0x18,
+            0x14,
+            0x02,
+            0x03,
+            VISCA_TERMINATOR
+        ]
+    );
+    visca_test!(
+        PanTilt,
+        test_pan_tilt_move_up_left_golden_frame,
+        golden_move(PanTiltDirection::UpLeft),
+        &[
+            0x81,
+            0x01,
+            0x06,
+            0x01,
+            0x18,
+            0x14,
+            0x01,
+            0x01,
+            VISCA_TERMINATOR
+        ]
+    );
+    visca_test!(
+        PanTilt,
+        test_pan_tilt_move_up_right_golden_frame,
+        golden_move(PanTiltDirection::UpRight),
+        &[
+            0x81,
+            0x01,
+            0x06,
+            0x01,
+            0x18,
+            0x14,
+            0x02,
+            0x01,
+            VISCA_TERMINATOR
+        ]
+    );
+    visca_test!(
+        PanTilt,
+        test_pan_tilt_move_down_left_golden_frame,
+        golden_move(PanTiltDirection::DownLeft),
+        &[
+            0x81,
+            0x01,
+            0x06,
+            0x01,
+            0x18,
+            0x14,
+            0x01,
+            0x02,
+            VISCA_TERMINATOR
+        ]
+    );
+    visca_test!(
+        PanTilt,
+        test_pan_tilt_move_down_right_golden_frame,
+        golden_move(PanTiltDirection::DownRight),
+        &[
+            0x81,
+            0x01,
+            0x06,
+            0x01,
+            0x18,
+            0x14,
+            0x02,
+            0x02,
+            VISCA_TERMINATOR
+        ]
+    );
+    visca_test!(
+        PanTilt,
+        test_pan_tilt_move_stop_golden_frame,
+        golden_move(PanTiltDirection::Stop),
+        &[
+            0x81,
+            0x01,
+            0x06,
+            0x01,
+            0x18,
+            0x14,
+            0x03,
+            0x03,
+            VISCA_TERMINATOR
+        ]
+    );
+
+    // Pan `+144` is `0x0090` (nibbles `00 00 09 00`); tilt `-72` is the
+    // two's-complement `0xFFB8` (nibbles `0F 0F 0B 08`).
+    visca_test!(
+        PanTilt,
+        test_pan_tilt_absolute_position_golden_frame,
+        PanTilt::AbsolutePosition {
+            pan: PanPosition::new(144).expect("valid test pan position"),
+            tilt: TiltPosition::new(-72).expect("valid test tilt position"),
+            pan_speed: PanSpeed::new(0x0A).expect("valid pan speed"),
+            tilt_speed: TiltSpeed::new(0x05).expect("valid tilt speed"),
+        },
+        &[
+            0x81,
+            0x01,
+            0x06,
+            0x02,
+            0x0A,
+            0x05,
+            0x00,
+            0x00,
+            0x09,
+            0x00,
+            0x0F,
+            0x0F,
+            0x0B,
+            0x08,
+            VISCA_TERMINATOR
+        ]
+    );
+    visca_test!(
+        PanTilt,
+        test_pan_tilt_absolute_position_raw_golden_frame,
+        PanTilt::AbsolutePositionRaw {
+            pan_u16: 0x0090,
+            tilt_u16: 0xFFB8,
+            pan_speed: PanSpeed::new(0x0A).expect("valid pan speed"),
+            tilt_speed: TiltSpeed::new(0x05).expect("valid tilt speed"),
+        },
+        &[
+            0x81,
+            0x01,
+            0x06,
+            0x02,
+            0x0A,
+            0x05,
+            0x00,
+            0x00,
+            0x09,
+            0x00,
+            0x0F,
+            0x0F,
+            0x0B,
+            0x08,
+            VISCA_TERMINATOR
+        ]
+    );
+    visca_test!(
+        PanTilt,
+        test_pan_tilt_relative_position_golden_frame,
+        PanTilt::RelativePosition {
+            pan: PanPosition::new(144).expect("valid test pan position"),
+            tilt: TiltPosition::new(-72).expect("valid test tilt position"),
+            pan_speed: PanSpeed::new(0x0A).expect("valid pan speed"),
+            tilt_speed: TiltSpeed::new(0x05).expect("valid tilt speed"),
+        },
+        &[
+            0x81,
+            0x01,
+            0x06,
+            0x03,
+            0x0A,
+            0x05,
+            0x00,
+            0x00,
+            0x09,
+            0x00,
+            0x0F,
+            0x0F,
+            0x0B,
+            0x08,
+            VISCA_TERMINATOR
+        ]
+    );
+    visca_test!(
+        PanTilt,
+        test_pan_tilt_relative_position_raw_golden_frame,
+        PanTilt::RelativePositionRaw {
+            pan_u16: 0x0090,
+            tilt_u16: 0xFFB8,
+            pan_speed: PanSpeed::new(0x0A).expect("valid pan speed"),
+            tilt_speed: TiltSpeed::new(0x05).expect("valid tilt speed"),
+        },
+        &[
+            0x81,
+            0x01,
+            0x06,
+            0x03,
+            0x0A,
+            0x05,
+            0x00,
+            0x00,
+            0x09,
+            0x00,
+            0x0F,
+            0x0F,
+            0x0B,
+            0x08,
+            VISCA_TERMINATOR
+        ]
+    );
+
+    /// Each direction must own a distinct `(pan, tilt)` byte pair.
+    ///
+    /// The golden frames above pin every direction to the right bytes; this
+    /// rules out a table that collapses two directions onto one encoding.
+    #[test]
+    fn every_direction_owns_a_distinct_byte_pair() {
+        let directions = [
+            PanTiltDirection::Up,
+            PanTiltDirection::Down,
+            PanTiltDirection::Left,
+            PanTiltDirection::Right,
+            PanTiltDirection::UpLeft,
+            PanTiltDirection::UpRight,
+            PanTiltDirection::DownLeft,
+            PanTiltDirection::DownRight,
+            PanTiltDirection::Stop,
+        ];
+        for (index, direction) in directions.iter().enumerate() {
+            for other in directions.iter().skip(index + 1) {
+                assert_ne!(
+                    direction.to_bytes(),
+                    other.to_bytes(),
+                    "{direction:?} and {other:?} share one direction byte pair"
+                );
+            }
+        }
+    }
 }
 
 /// Pan/Tilt movement commands.

@@ -190,7 +190,7 @@ macro_rules! internal_entry {
 /// Derive the one surface row for a semantic command.
 ///
 /// This match is intentionally exhaustive and contains no default arm.  The
-/// 146-row source list remains [`BuiltinCommand::ALL`], not a parallel table.
+/// 147-row source list remains [`BuiltinCommand::ALL`], not a parallel table.
 #[must_use]
 pub(crate) const fn surface_entry(command: BuiltinCommand) -> StaticSurfaceEntry {
     match command {
@@ -623,6 +623,12 @@ pub(crate) const fn surface_entry(command: BuiltinCommand) -> StaticSurfaceEntry
             ImageFlipHorizontal,
             Image,
             "enable_horizontal_flip",
+            StaticMarkerRequirement::Typed(TypedSupportSurface::ImageMirror)
+        ),
+        BuiltinCommand::ImageFlipHorizontalOff => noun_entry!(
+            ImageFlipHorizontalOff,
+            Image,
+            "disable_horizontal_flip",
             StaticMarkerRequirement::Typed(TypedSupportSurface::ImageMirror)
         ),
         BuiltinCommand::ImageFlipVertical => noun_entry!(
