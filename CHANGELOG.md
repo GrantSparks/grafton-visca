@@ -13,6 +13,26 @@ destination.
 
 ### Added
 
+- **Added runtime timeout and tuning reconfiguration** (#631), restoring the
+  capability 1.2.0 shipped as `Camera::set_timeout_config` (#575). `set_tuning`
+  and `tuning` are on the blocking and async `Session` and `CameraSession`, so
+  an application that has to widen `ack_timeout` on a congested venue network no
+  longer has to `close()` and reopen, dropping every in-flight command to do it.
+  The update travels through the owner's control boundary — a control message to
+  the async actor, the caller's own owner turn in the blocking mode — so the
+  owner is its only writer and two handles reconfiguring at once resolve
+  last-writer-wins with no torn value in between. The scope is stated plainly
+  because it is narrower than 1.2.0's: **every request prepared after the update
+  uses the new values**, and the owner's session-wide pacing and per-target
+  socket capacity are re-derived immediately, but **a request already in flight
+  keeps the deadlines it was admitted with**. 2.0 stamps a request's deadlines
+  once, at preparation, where 1.2.0 recomputed them on every housekeeping pass;
+  nothing is re-timed underneath a receipt a caller is already holding. Cancel
+  and resubmit to move a running command onto a new deadline. The update is a
+  whole replacement rather than a merge, and it is validated on exactly the
+  grounds `SessionConfig::with_tuning` validates on, so a value construction
+  would have rejected is rejected here too and leaves the live tuning untouched.
+
 - Restored `image().disable_horizontal_flip()` on all three noun surfaces
   (#635). The rewrite ledgered `BuiltinCommand::ImageFlipHorizontal` under the
   single method spelling `enable_horizontal_flip`, so the noun surfaces only

@@ -490,8 +490,53 @@ impl Session {
             host: &self.host,
             target,
             profile,
-            tuning: self.config.tuning(),
         }))
+    }
+
+    /// Returns the operational tuning this session is currently preparing
+    /// requests under.
+    ///
+    /// This is the live value, not the one the session was opened with: it
+    /// reflects the most recent successful [`set_tuning`](Self::set_tuning).
+    #[must_use]
+    pub fn tuning(&self) -> OperationalTuning {
+        self.host.tuning()
+    }
+
+    /// Replaces this session's operational tuning at runtime.
+    ///
+    /// # Scope
+    ///
+    /// **Every request prepared after this call uses the new values** — its
+    /// acknowledgement, completion, settlement, and inquiry deadlines, its
+    /// retry budget, and its pacing floor. The owner's session-wide pacing and
+    /// per-target command-socket capacity are re-derived immediately, so work
+    /// still queued behind pacing is released under the new values too.
+    ///
+    /// **Requests already in flight keep the deadlines they were admitted
+    /// with.** 2.0 stamps a request's deadlines once, at preparation, and the
+    /// engine derives its absolute phase deadlines from that stamp; nothing is
+    /// re-timed underneath a receipt a caller is already holding. This is the
+    /// one deliberate difference from 1.2.0's `Camera::set_timeout_config`,
+    /// which recomputed deadlines on every housekeeping pass and therefore also
+    /// covered work in flight. To widen a deadline for a command that is
+    /// already running, cancel it and resubmit.
+    ///
+    /// The update is not a merge: `tuning` replaces the previous value whole,
+    /// so a field left unset returns to its profile default rather than keeping
+    /// the value a previous call installed.
+    ///
+    /// # Errors
+    ///
+    /// Rejects exactly what construction rejects — tuning that weakens a
+    /// registered profile's pacing minima, raises its socket limit, undercuts
+    /// its deadlines, or specifies incoherent retry timing — leaving the
+    /// session's current tuning untouched. Also returns
+    /// [`Error::TransportBusy`] if called re-entrantly from inside another
+    /// owner turn, and the session's terminal error if the owner is gone.
+    pub fn set_tuning(&self, tuning: OperationalTuning) -> Result<(), Error> {
+        self.config.validate_tuning(tuning)?;
+        self.host.reconfigure(tuning)
     }
 
     /// Requests owner shutdown.
@@ -598,7 +643,6 @@ impl<P: CompileTimeProfile> CameraSession<P> {
             host: &self.session.host,
             target: self.target,
             profile: self.profile.as_ref(),
-            tuning: self.session.config.tuning(),
         })
     }
 
@@ -612,6 +656,26 @@ impl<P: CompileTimeProfile> CameraSession<P> {
     #[must_use]
     pub const fn target(&self) -> CameraId {
         self.target
+    }
+
+    /// Returns the operational tuning this session is currently preparing
+    /// requests under.
+    #[must_use]
+    pub fn tuning(&self) -> OperationalTuning {
+        self.session.tuning()
+    }
+
+    /// Replaces this session's operational tuning at runtime.
+    ///
+    /// This is [`Session::set_tuning`] on the session this camera owns; see
+    /// there for the exact scope, in particular that requests already in flight
+    /// keep the deadlines they were admitted with.
+    ///
+    /// # Errors
+    ///
+    /// See [`Session::set_tuning`].
+    pub fn set_tuning(&self, tuning: OperationalTuning) -> Result<(), Error> {
+        self.session.set_tuning(tuning)
     }
 
     /// Requests owner shutdown without consuming this value.
@@ -631,7 +695,6 @@ pub(crate) struct BlockingCameraCore<'session> {
     host: &'session BlockingSessionHost,
     target: CameraId,
     profile: &'session ProfileSpec,
-    tuning: OperationalTuning,
 }
 
 impl fmt::Debug for BlockingCameraCore<'_> {
@@ -663,13 +726,22 @@ impl<'session> BlockingCameraCore<'session> {
         self.host.state_cache(self.target)
     }
 
+    /// Reads the session's live operational tuning.
+    ///
+    /// This is read once per preparation rather than copied into the view, so a
+    /// view taken before [`Session::set_tuning`] still prepares its next
+    /// request under the new values (#631).
+    fn tuning(&self) -> OperationalTuning {
+        self.host.tuning()
+    }
+
     /// Executes a plain command and waits for exact application.
     pub fn execute<C>(&self, command: &C) -> Result<(), Error>
     where
         C: PlainCommand + ?Sized,
     {
         let prepared =
-            crate::prepared::prepare_command(command, self.target, self.profile, self.tuning)?;
+            crate::prepared::prepare_command(command, self.target, self.profile, self.tuning())?;
         let receipt = self.host.submit_command(prepared)?;
         let mut control = BlockingReceiptControl::shared(self.host);
         receipt.wait(&mut control)
@@ -681,7 +753,7 @@ impl<'session> BlockingCameraCore<'session> {
         Q: Inquiry + ?Sized,
     {
         let prepared =
-            crate::prepared::prepare_inquiry(inquiry, self.target, self.profile, self.tuning)?;
+            crate::prepared::prepare_inquiry(inquiry, self.target, self.profile, self.tuning())?;
         let receipt = self.host.submit_inquiry(prepared)?;
         let mut control = BlockingReceiptControl::shared(self.host);
         receipt.wait(&mut control)
@@ -700,7 +772,7 @@ impl<'session> BlockingCameraCore<'session> {
             operation,
             self.target,
             self.profile,
-            self.tuning,
+            self.tuning(),
         )?;
         let receipt = self.host.submit_operation(prepared)?;
         Ok(Operation::from_receipt(receipt, self.host))
@@ -741,7 +813,8 @@ impl<'session> BlockingCameraCore<'session> {
     /// compared by the shared pure movement detector. The observer budget is
     /// lowered once to one owner-clock deadline.
     pub fn is_moving(&self, query: MotionQuery) -> Result<bool, Error> {
-        let queries = prepare_position_queries(self.target, self.profile, self.tuning, query.axes)?;
+        let queries =
+            prepare_position_queries(self.target, self.profile, self.tuning(), query.axes)?;
         let deadline = self.host.deadline_after(MOTION_QUERY_OBSERVER_BUDGET)?;
         let mut control = BlockingReceiptControl::shared(self.host);
         let mut detector = crate::prepared::MotionDetector::new(query.axes, query.tolerance);
@@ -767,7 +840,8 @@ impl<'session> BlockingCameraCore<'session> {
     /// deadline, and the clock is checked before each new inquiry can be
     /// enqueued.
     pub fn wait_until_idle(&self, wait: IdleWait) -> Result<(), Error> {
-        let queries = prepare_position_queries(self.target, self.profile, self.tuning, wait.axes)?;
+        let queries =
+            prepare_position_queries(self.target, self.profile, self.tuning(), wait.axes)?;
         let deadline = self.host.deadline_after(wait.timeout)?;
         let mut control = BlockingReceiptControl::shared(self.host);
         let mut detector = crate::prepared::MotionDetector::new(wait.axes, wait.tolerance);
