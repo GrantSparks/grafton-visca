@@ -59,6 +59,21 @@ destination.
   `Priority` → `ControlClass` mapping table and the notes on
   `runtime::testing::Priority`, which has no 2.0 equivalent and needs none.
 
+- Restored `image().disable_noise_reduction_2d()` and
+  `image().disable_noise_reduction_3d()` on all three noun surfaces (#651).
+  The rewrite ledgered `BuiltinCommand::NoiseReduction2d` / `NoiseReduction3d`
+  under the single method spellings `set_noise_reduction_2d` / `_3d`, whose
+  level newtypes are bounded `1..=5` and `1..=8`. The parameter therefore
+  cannot express off, and the `0x00` wire value — produced only by
+  `NoiseReduction2D::off()` / `NoiseReduction3D::off()` — was reachable from no
+  noun method on any profile: once noise reduction was turned on, nothing short
+  of `camera.execute(..)` could turn it back off. 1.x paired each setter with a
+  `disable_noise_reduction_2d` / `_3d`. Each off value now has its own ledger
+  row, `BuiltinCommand::NoiseReduction2dOff` / `NoiseReduction3dOff`, gated on
+  the same `HasNoiseReduction2D` / `HasNoiseReduction3D` markers as the
+  setters, so the per-row gates and the cross-surface parity test enforce both
+  directions the way they already do for the flip and multicast pairs. The
+  frames are `81 01 04 53 00 FF` and `81 01 04 54 00 FF`.
 - Restored `image().disable_horizontal_flip()` on all three noun surfaces
   (#635). The rewrite ledgered `BuiltinCommand::ImageFlipHorizontal` under the
   single method spelling `enable_horizontal_flip`, so the noun surfaces only
@@ -163,6 +178,17 @@ destination.
 
 ### Changed
 
+- `image().set_flip_both()` is now gated on `HasCombinedImageFlip` rather than
+  `HasImageFlip` (#651). It sends the *combined* flip opcode, the same one
+  `set_flip_mode` sends, so the split gate let SonyFR7, SonyBRCH900 and
+  SonyEVIH100 — which declare `ImageFlip` but not `CombinedImageFlip` — send
+  that opcode's `Both` while having no way to send its `Off`. 1.x reached the
+  combined opcode only through `set_image_flip(mode)`, gated on
+  `HasCombinedImageFlip`; those three profiles could not send it at all. A new
+  ledger assertion pins both halves of a toggle to one capability gate so the
+  split cannot reappear. Callers on a profile that only declares `ImageFlip`
+  should use `enable_flip()` / `enable_horizontal_flip()` and their disable
+  twins, which move the axes the profile actually documents.
 - Strengthened the weak and vacuous tests the second review round itemized
   (#641). Each one asserted something that could not fail: a retry counter
   compared against a count derived from the same event stream, so removing

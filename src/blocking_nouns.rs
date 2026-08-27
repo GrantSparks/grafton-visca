@@ -1533,6 +1533,14 @@ impl<'view, 'session, P: CompileTimeProfile> ImageAccessor<'view, 'session, P> {
         execute(self.camera, &command::NoiseReduction2D::with_level(level))
     }
 
+    /// Disables 2D noise reduction.
+    pub fn disable_noise_reduction_2d(&self) -> Result<()>
+    where
+        P: HasNoiseReduction2D,
+    {
+        execute(self.camera, &command::NoiseReduction2D::off())
+    }
+
     /// Returns 3D noise-reduction level.
     pub fn noise_reduction_3d(&self) -> Result<types::NoiseReduction3DLevel>
     where
@@ -1547,6 +1555,14 @@ impl<'view, 'session, P: CompileTimeProfile> ImageAccessor<'view, 'session, P> {
         P: HasNoiseReduction3D,
     {
         execute(self.camera, &command::NoiseReduction3D::with_level(level))
+    }
+
+    /// Disables 3D noise reduction.
+    pub fn disable_noise_reduction_3d(&self) -> Result<()>
+    where
+        P: HasNoiseReduction3D,
+    {
+        execute(self.camera, &command::NoiseReduction3D::off())
     }
 
     /// Returns the aggregate noise-reduction level.
@@ -1604,9 +1620,12 @@ impl<'view, 'session, P: CompileTimeProfile> ImageAccessor<'view, 'session, P> {
     }
 
     /// Sets both image-flip axes.
+    ///
+    /// This sends the combined flip opcode, so it carries the same
+    /// `HasCombinedImageFlip` bound as [`Self::set_flip_mode`].
     pub fn set_flip_both(&self) -> Result<()>
     where
-        P: HasImageFlip,
+        P: HasCombinedImageFlip,
     {
         execute(
             self.camera,

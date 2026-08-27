@@ -2168,12 +2168,22 @@ pub(crate) const BUILTIN_TYPED_REQUEST_INVENTORY: &[BuiltinTypedRequestCoverage]
     typed_plain_coverage!(
         crate::command::semantics::BuiltinCommand::NoiseReduction2d,
         crate::command::NoiseReduction2D,
-        "None/Some(level)"
+        "Some(level)"
+    ),
+    typed_plain_coverage!(
+        crate::command::semantics::BuiltinCommand::NoiseReduction2dOff,
+        crate::command::NoiseReduction2D,
+        "None"
     ),
     typed_plain_coverage!(
         crate::command::semantics::BuiltinCommand::NoiseReduction3d,
         crate::command::NoiseReduction3D,
-        "None/Some(level)"
+        "Some(level)"
+    ),
+    typed_plain_coverage!(
+        crate::command::semantics::BuiltinCommand::NoiseReduction3dOff,
+        crate::command::NoiseReduction3D,
+        "None"
     ),
     typed_plain_coverage!(
         crate::command::semantics::BuiltinCommand::ImageFlipOff,
