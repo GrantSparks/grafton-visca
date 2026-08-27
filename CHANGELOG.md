@@ -22,6 +22,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added a hardware release evidence checklist. Hardware, registry, and
   Synemantic validation remain `Pending (Not run)` until release owners record
   bench evidence.
+- Pinned every CI toolchain to an exact version (stable 1.98.0, nightly
+  2026-08-26, MSRV 1.88.0) so the byte-compared gates stop breaking on
+  unrelated pull requests whenever rustc releases, re-blessed the three
+  `trybuild` contracts whose diagnostic wording drifted, regenerated the
+  `api/2.0.0-rc.1` public API snapshots against the pinned toolchain, and
+  installed that nightly explicitly in the snapshot job so `cargo public-api`
+  can build rustdoc JSON instead of failing on a missing `nightly` toolchain
+  (#562).
 
 ## [1.2.0] - 2026-08-27
 

@@ -25,6 +25,26 @@ Before contributing, please:
 
 ## Development Setup
 
+### Toolchains
+
+CI pins every toolchain to an exact version in `.github/workflows/ci.yml`,
+because two gates compare compiler output byte for byte: the `trybuild`
+`.stderr` files under `tests/api_contract/` and the `api/2.0.0-rc.1/*.txt`
+public API snapshots. Reproducing a CI failure locally means using the same
+versions:
+
+```bash
+rustup toolchain install 1.98.0          # stable jobs, trybuild snapshots
+rustup toolchain install nightly-2026-08-26 --profile minimal  # fmt, Miri, fuzz, API snapshots
+rustup toolchain install 1.88.0          # MSRV job
+```
+
+A newer stable will report `trybuild` mismatches that CI does not see; re-bless
+them only when the workflow's pinned stable is bumped in the same change, with
+`TRYBUILD=overwrite cargo test --test issue_551_compile_contract` run once per
+affected feature leg. Regenerating the public API snapshots is documented in
+`api/2.0.0-rc.1/README.md`.
+
 ```bash
 # Clone your fork
 git clone https://github.com/YOUR_USERNAME/grafton-visca.git
