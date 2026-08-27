@@ -777,6 +777,11 @@ fn pump_until_sample_boundary(
     }
     let sample_at = now.checked_add(interval).unwrap_or(deadline).min(deadline);
     while control.now() < sample_at {
+        // No receipt is being observed between two samples, so the pump's own
+        // error is the only verdict available here. `pump_once_until` reports
+        // the session boundary error whenever this turn ended the session, so a
+        // settlement wait interrupted by a dead transport still classifies as
+        // needing a replacement session (#629).
         control.pump_once_until(Some(sample_at))?;
     }
     if control.now() >= deadline {
@@ -860,6 +865,9 @@ impl BlockingCancellationReceipt {
                 return normalize_cancellation_observation(observation);
             }
             let pump_result = control.pump_once_until(Some(deadline));
+            // This cancellation's own terminal observation wins over the pump's
+            // verdict; without one, the pump reports the session boundary error
+            // rather than the raw transport cause (#629).
             if let Some(observation) = self.core.try_observation() {
                 return normalize_cancellation_observation(observation);
             }
@@ -1277,7 +1285,21 @@ impl BlockingOwner {
         self.enter()?;
         let result = self.pump_once_inner(driver, reader, decoder, observer_deadline);
         self.leave();
-        result
+        // Issue #629: whatever ended the session inside this one pump turn, the
+        // caller must be told the session's own boundary verdict and never the
+        // raw transport or framing cause that produced it. A raw cause
+        // classifies as survivable (`Error::requires_new_session() == false`)
+        // while the session is already `Closed`/`Poisoned`, so an auto-reconnect
+        // loop keyed on that predicate would not rebuild. This is the single
+        // choke point every pump caller shares, so no observation path can
+        // reintroduce the misclassification.
+        result.map_err(|error| self.boundary_error_or(error))
+    }
+
+    /// The session's terminal boundary verdict once a boundary input has been
+    /// applied, falling back to `error` while the session is still usable.
+    fn boundary_error_or(&self, error: Error) -> Error {
+        self.state.boundary_error().unwrap_or(error)
     }
 
     fn pump_once_inner<D, R, F>(
@@ -1336,7 +1358,10 @@ impl BlockingOwner {
                         Instant::now(),
                     );
                     let _ = self.drive(driver, effects);
-                    return Err(error);
+                    // Report the close, not the raw read fault that caused it —
+                    // the same verdict the zero-byte arm above returns. The
+                    // cause survives in the close reason.
+                    return Err(self.boundary_error_or(error));
                 }
             };
 
