@@ -828,7 +828,10 @@ pub use crate::runtime::{Runtime, TransportHandle};
 mod error;
 pub(crate) mod macros;
 
-/// Cross-surface parity gate for the three hand-written noun facades.
+/// The single row table behind all three noun facades.
+pub(crate) mod noun_table;
+
+/// Cross-surface parity gate for the table-driven noun facades.
 #[cfg(test)]
 mod noun_parity;
 

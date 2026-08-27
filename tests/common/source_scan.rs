@@ -241,6 +241,79 @@ pub fn builtin_command_rows(semantics: &str) -> usize {
         .count()
 }
 
+/// Method names one arm of the shared noun table declares.
+///
+/// Issue #617 moved every noun method spelling out of the three facades and
+/// into `src/noun_table.rs`, so a gate that used to read a facade's trait body
+/// reads the table arm the trait is generated from instead.  The rows are read
+/// by delimiter depth rather than by column, so re-indentation and multi-line
+/// rows are legal input; anything that is not a `<kind> <method>(` row is a
+/// hard failure rather than something to skip.
+pub fn noun_table_methods(table: &str, noun: &str) -> Vec<String> {
+    let cleaned = clean(table);
+    let lines: Vec<&str> = cleaned.lines().collect();
+    let header = format!("({noun} => $consumer:ident) => {{");
+    let start = lines
+        .iter()
+        .position(|line| line.trim() == header)
+        .unwrap_or_else(|| panic!("no noun table arm for {noun}"));
+    let end = block_end(&lines, start);
+
+    let rows_start = (start + 1..end)
+        .find(|index| lines[*index].trim().starts_with("$consumer!"))
+        .unwrap_or_else(|| panic!("the {noun} table arm hands nothing to its consumer"));
+    let rows_end = block_end(&lines, rows_start);
+    let body = lines[rows_start + 1..rows_end.saturating_sub(1)].join("\n");
+
+    let mut methods = Vec::new();
+    let mut depth = 0_i32;
+    let mut row = String::new();
+    for ch in body.chars() {
+        match ch {
+            '(' | '[' | '{' => depth += 1,
+            ')' | ']' | '}' => depth -= 1,
+            ';' if depth == 0 => {
+                if let Some(method) = row_method(&row) {
+                    methods.push(method);
+                }
+                row.clear();
+                continue;
+            }
+            _ => {}
+        }
+        row.push(ch);
+    }
+    assert!(
+        row.trim().is_empty(),
+        "unterminated noun table row in the {noun} arm: {row:?}",
+    );
+
+    methods.sort();
+    methods.dedup();
+    methods
+}
+
+/// Returns the method name of one `<kind> <method>(..)` table row.
+fn row_method(row: &str) -> Option<String> {
+    let row = row.trim();
+    if row.is_empty() {
+        return None;
+    }
+    let mut words = row.split_whitespace();
+    let kind = words.next()?;
+    assert!(
+        matches!(kind, "inquiry" | "plain" | "applied" | "targeted"),
+        "unknown noun table row kind {kind:?} in {row:?}",
+    );
+    let rest = row[kind.len()..].trim_start();
+    let name: String = rest
+        .chars()
+        .take_while(|ch| ch.is_alphanumeric() || *ch == '_')
+        .collect();
+    assert!(!name.is_empty(), "unnamed noun table row {row:?}");
+    Some(name)
+}
+
 /// Entries in the generated camera-facing inquiry-accessor table.
 ///
 /// This is the table behind `BUILTIN_INQUIRY_ACCESSORS`, and therefore an

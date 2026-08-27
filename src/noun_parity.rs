@@ -1,19 +1,37 @@
-//! Cross-surface parity gate for the three hand-written noun facades.
+//! Cross-surface parity gate for the three noun facades.
 //!
 //! [`crate::async_nouns`], [`crate::blocking::nouns`], and
-//! [`crate::dynapi::nouns`] are three independent transcriptions of the same
-//! closed ledger in [`crate::command::surface`].  Nothing in the type system
-//! relates them, and the published API snapshots diff each facade only against
-//! its own baseline, so a method dropped from one surface, reclassified, given
-//! a different argument list, or given a different capability bound would
-//! otherwise pass every gate.
+//! [`crate::dynapi::nouns`] used to be three independent transcriptions of the
+//! same closed ledger in [`crate::command::surface`].  Nothing in the type
+//! system related them, and the published API snapshots diff each facade only
+//! against its own baseline, so a method dropped from one surface,
+//! reclassified, given a different argument list, or given a different
+//! capability bound would otherwise have passed every gate.
 //!
-//! This module reads the three sources and compares them against the ledger
-//! and against each other by method name, receiver, argument-type list,
-//! semantic return class, and required capability bound.  Nothing here is
-//! derived from a hand-maintained `EXPECTED_` table: the noun set, the method
-//! set, the classes, and the markers all come from [`surface_entry`].  Rustdoc
-//! prose is deliberately out of scope; only semantic identity is gated.
+//! Issue #617 moved the rows themselves into [`crate::noun_table`], so the
+//! three facades are now *generated* from one table and cannot disagree about a
+//! generated row by construction.  That does not retire this gate; it moves
+//! what it has to read:
+//!
+//! * The table is still an independent statement from the ledger, so its rows
+//!   are compared against [`surface_entry`] by noun, method spelling, semantic
+//!   return class, and required capability bound.
+//! * A capability bound in the table is a bare marker name, so each static
+//!   facade is still required to resolve that name to a real
+//!   `crate::capabilities` trait — a shadow trait borrowing the name is still a
+//!   failure.
+//! * Each facade must actually consume the table for every ledger noun; a
+//!   facade that quietly stopped generating a noun would otherwise lose its
+//!   whole method set silently.
+//! * Anything a facade still writes by hand inside a noun accessor or noun
+//!   trait is a *residual*, and residuals are compared across the three
+//!   surfaces exactly as every method used to be.  The declared exemption list
+//!   is [`EXEMPT_HAND_WRITTEN`]; a residual that is not on it fails.
+//!
+//! Nothing here is derived from a hand-maintained `EXPECTED_` table: the noun
+//! set, the method set, the classes, and the markers all come from
+//! [`surface_entry`].  Rustdoc prose is out of scope here because the table
+//! makes it a per-row attribute the three surfaces share.
 //!
 //! # Parsing contract
 //!
@@ -23,7 +41,9 @@
 //! signatures, and re-indentation are all legal input.  Anything the scanner
 //! does *not* recognise is a hard panic naming the file and line: this gate
 //! must never silently skip a method it cannot read, because a skipped method
-//! is an ungated method.
+//! is an ungated method.  The one macro invocation it will accept inside a noun
+//! accessor or noun trait is `noun_table!`, whose rows it reads from the table
+//! itself.
 //!
 //! # What the erased facade cannot be compared on
 //!
@@ -59,13 +79,35 @@ use crate::{
 const ASYNC_SOURCE: &str = include_str!("async_nouns.rs");
 const BLOCKING_SOURCE: &str = include_str!("blocking_nouns.rs");
 const DYN_SOURCE: &str = include_str!("dynapi/nouns.rs");
+const TABLE_SOURCE: &str = include_str!("noun_table.rs");
+const TABLE_LABEL: &str = "src/noun_table.rs";
 
 /// Motion is a safety/observation view rather than a ledger noun, so it has no
 /// [`StaticNoun`] row; it is still one of the surfaces that must stay in step.
 const MOTION_FACADE: NounFacade = NounFacade {
     accessor: "MotionAccessor",
     dyn_trait: "DynMotion",
+    table_key: None,
 };
+
+/// The noun methods that are still written by hand on all three facades.
+///
+/// Every other noun method is generated from [`crate::noun_table`].  These four
+/// are the motion safety and observation view: they reach `stop_all_motion`,
+/// `is_moving` and `wait_until_idle` on the owner core rather than sending a
+/// ledger request, so they share no shape with a table row.  They are exempt
+/// from *generation*, not from parity — the gate below compares them across the
+/// three surfaces exactly as it compares a generated row against the ledger,
+/// and a residual that is not named here is a hard failure.
+const EXEMPT_HAND_WRITTEN: &[(&str, &[&str])] = &[(
+    "MotionAccessor",
+    &[
+        "is_moving",
+        "is_moving_axes",
+        "stop_all_motion",
+        "wait_until_idle",
+    ],
+)];
 
 /// Traits that may legally be implemented *for* an accessor type.
 ///
@@ -130,13 +172,35 @@ struct MethodFacts {
 /// the erased facade cannot be compared on.
 type DynMethodShape = MethodShape;
 
+/// One parsed dynamic facade: hand-written method shapes per noun trait, and
+/// the [`crate::noun_table`] nouns each trait declaration generates.
+type DynFacade = (
+    BTreeMap<String, BTreeMap<String, DynMethodShape>>,
+    BTreeMap<String, BTreeSet<String>>,
+);
+
 /// One parsed static facade.
 #[derive(Debug, Default)]
 struct StaticFacade {
-    /// Accessor type name to method name to facts.
+    /// Accessor type name to hand-written method name to facts.
     accessors: BTreeMap<String, BTreeMap<String, MethodFacts>>,
     /// Accessor type name to the capability gate the type itself imposes.
     gates: BTreeMap<String, BTreeSet<String>>,
+    /// Accessor type name to the [`noun_table`] nouns its impl generates.
+    ///
+    /// [`noun_table`]: crate::noun_table
+    generated: BTreeMap<String, BTreeSet<String>>,
+}
+
+/// One parsed row of [`crate::noun_table`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TableRow {
+    /// The semantic return class the row declares.
+    class: SurfaceClass,
+    /// Normalized argument types, in declaration order.
+    arguments: Vec<String>,
+    /// Bare capability marker names the row puts on the static facades.
+    gates: BTreeSet<String>,
 }
 
 /// The name each facade gives one noun.
@@ -144,6 +208,8 @@ struct StaticFacade {
 struct NounFacade {
     accessor: &'static str,
     dyn_trait: &'static str,
+    /// The `noun_table!` arm the facades generate this noun from, if any.
+    table_key: Option<&'static str>,
 }
 
 /// One ledger row projected onto the facades.
@@ -174,7 +240,250 @@ const fn noun_facade(noun: StaticNoun) -> NounFacade {
     NounFacade {
         accessor,
         dyn_trait,
+        table_key: Some(noun_table_key(noun)),
     }
+}
+
+/// Maps a ledger noun onto the arm of [`crate::noun_table`] that carries it.
+///
+/// The match is exhaustive on purpose: a new noun cannot be added without
+/// deciding which table arm the facades generate it from.
+#[must_use]
+pub(crate) const fn noun_table_key(noun: StaticNoun) -> &'static str {
+    match noun {
+        StaticNoun::Power => "Power",
+        StaticNoun::Zoom => "Zoom",
+        StaticNoun::System => "System",
+        StaticNoun::PanTilt => "PanTilt",
+        StaticNoun::Focus => "Focus",
+        StaticNoun::Exposure => "Exposure",
+        StaticNoun::WhiteBalance => "WhiteBalance",
+        StaticNoun::Image => "Image",
+        StaticNoun::Presets => "Presets",
+        StaticNoun::Tally => "Tally",
+        StaticNoun::NdFilter => "NdFilter",
+        StaticNoun::MotionSync => "MotionSync",
+        StaticNoun::Menu => "Menu",
+        StaticNoun::Advanced => "Advanced",
+    }
+}
+
+/// Maps an object-safe noun trait name onto its [`crate::noun_table`] arm.
+///
+/// Only the erased facade's own inventory gate needs this direction.
+#[cfg(feature = "dyn-api")]
+#[must_use]
+pub(crate) fn dyn_trait_noun_key(dyn_trait: &str) -> &'static str {
+    for command in BuiltinCommand::ALL {
+        if let StaticSurfaceDisposition::Noun { noun, .. } = surface_entry(*command).disposition {
+            if noun_facade(noun).dyn_trait == dyn_trait {
+                return noun_table_key(noun);
+            }
+        }
+    }
+    panic!("{dyn_trait} is not a ledger noun trait")
+}
+
+/// Reads [`crate::noun_table`] into noun/method rows.
+///
+/// The table is the one place a noun method's name, arguments, capability bound
+/// and return class are written down, so this reader is what lets every other
+/// gate keep checking those facts without reading three generated facades.
+#[must_use]
+pub(crate) fn table_surface() -> BTreeMap<String, BTreeMap<String, TableRow>> {
+    let cleaned = clean_source(TABLE_SOURCE, TABLE_LABEL);
+    let lines: Vec<&str> = cleaned.lines().collect();
+    let mut table: BTreeMap<String, BTreeMap<String, TableRow>> = BTreeMap::new();
+
+    let mut index = 0;
+    while index < lines.len() {
+        let trimmed = lines[index].trim();
+        let Some(noun) = table_arm_noun(trimmed) else {
+            index += 1;
+            continue;
+        };
+        // The rows sit inside the `$consumer! { .. }` call this arm expands to.
+        let arm_end = block_end(&lines, index, TABLE_LABEL);
+        let mut cursor = index + 1;
+        while cursor < arm_end && !lines[cursor].trim().starts_with("$consumer!") {
+            cursor += 1;
+        }
+        assert!(
+            cursor < arm_end,
+            "{TABLE_LABEL}:{}: the {noun} arm hands nothing to its consumer",
+            index + 1,
+        );
+        let rows_end = block_end(&lines, cursor, TABLE_LABEL);
+        let mut rows = BTreeMap::new();
+        let mut row_line = cursor + 1;
+        let last = rows_end.saturating_sub(1);
+        while row_line < last {
+            if lines[row_line].trim().is_empty() {
+                row_line += 1;
+                continue;
+            }
+            let (text, _, next) = join_until(&lines, row_line, &[';'], TABLE_LABEL);
+            let (method, row) = parse_table_row(&text, row_line + 1);
+            assert!(
+                rows.insert(method.clone(), row).is_none(),
+                "{TABLE_LABEL}:{}: duplicate {noun} row {method}",
+                row_line + 1,
+            );
+            row_line = next;
+        }
+        assert!(
+            table.insert(noun.clone(), rows).is_none(),
+            "{TABLE_LABEL}:{}: duplicate table arm for {noun}",
+            index + 1,
+        );
+        index = arm_end;
+    }
+
+    assert!(!table.is_empty(), "{TABLE_LABEL}: no noun arms were read");
+    table
+}
+
+/// Returns the noun a `(<Noun> => $consumer:ident) => {` arm header declares.
+fn table_arm_noun(trimmed: &str) -> Option<String> {
+    let rest = trimmed.strip_prefix('(')?;
+    let noun = leading_identifier(rest);
+    if noun.is_empty() {
+        return None;
+    }
+    let rest = rest[noun.len()..].trim_start();
+    let rest = rest.strip_prefix("=> $consumer:ident)")?;
+    rest.trim_start().starts_with("=>").then(|| noun.to_owned())
+}
+
+/// Parses one table row into its method name and facts.
+fn parse_table_row(text: &str, line: usize) -> (String, TableRow) {
+    let origin = format!("{TABLE_LABEL}:{line}");
+    let text = text.trim();
+    let kind = leading_identifier(text);
+    let class = match kind {
+        "inquiry" => SurfaceClass::Inquiry,
+        "plain" => SurfaceClass::Plain,
+        "applied" => SurfaceClass::AppliedOnly,
+        "targeted" => SurfaceClass::Targeted,
+        other => panic!("{origin}: unknown row kind {other:?} in {text:?}"),
+    };
+
+    let rest = text[kind.len()..].trim_start();
+    let method = leading_identifier(rest).to_owned();
+    assert!(!method.is_empty(), "{origin}: unnamed row in {text:?}");
+    let rest = rest[method.len()..].trim_start();
+    assert!(
+        rest.starts_with('('),
+        "{origin}: no argument list in row {text:?}",
+    );
+    let (argument_text, rest) = split_parens(rest, &origin);
+    let arguments: Vec<String> = split_top_level(argument_text, ',')
+        .into_iter()
+        .filter(|argument| !argument.trim().is_empty())
+        .map(|argument| {
+            let Some((_, kind)) = argument.split_once(':') else {
+                panic!("{origin}: unrecognized argument {argument:?} in {text:?}")
+            };
+            normalize_type(kind)
+        })
+        .collect();
+
+    // What is left is `[-> Response] [where A + B] = <request>`.  The request
+    // is not compared against anything, so it is only skipped past.
+    let head = match split_at_row_assignment(rest) {
+        Some((head, _)) => head,
+        None => panic!("{origin}: row {text:?} has no `= <request>`"),
+    };
+    let (head, gates) = match find_keyword(head, "where") {
+        Some(offset) => (
+            &head[..offset],
+            split_top_level(&head[offset + "where".len()..], '+')
+                .into_iter()
+                .map(|gate| gate.trim().to_owned())
+                .filter(|gate| !gate.is_empty())
+                .collect(),
+        ),
+        None => (head, BTreeSet::new()),
+    };
+    let head = head.trim();
+    if class == SurfaceClass::Inquiry {
+        assert!(
+            head.starts_with("->"),
+            "{origin}: inquiry row {text:?} declares no response type",
+        );
+        assert!(
+            arguments.is_empty(),
+            "{origin}: inquiry row {text:?} takes arguments",
+        );
+    } else {
+        assert!(
+            head.is_empty(),
+            "{origin}: unrecognized row tail {head:?} in {text:?}",
+        );
+    }
+
+    (
+        method,
+        TableRow {
+            class,
+            arguments,
+            gates,
+        },
+    )
+}
+
+/// Splits a row tail at the `=` that introduces its request expression.
+fn split_at_row_assignment(text: &str) -> Option<(&str, &str)> {
+    let mut depth = 0_i32;
+    let mut previous = ' ';
+    for (index, ch) in text.char_indices() {
+        match ch {
+            '(' | '[' | '{' | '<' => depth += 1,
+            ')' | ']' | '}' => depth -= 1,
+            '>' if previous != '-' => depth -= 1,
+            '=' if depth == 0 && previous != '-' => {
+                return Some((&text[..index], &text[index + 1..]))
+            }
+            _ => {}
+        }
+        previous = ch;
+    }
+    None
+}
+
+/// Returns the [`crate::noun_table`] nouns `source` generates with `consumer`.
+#[must_use]
+pub(crate) fn consumed_nouns(
+    source: &str,
+    label: &'static str,
+    consumer: &str,
+) -> BTreeSet<String> {
+    let cleaned = clean_source(source, label);
+    let lines: Vec<&str> = cleaned.lines().collect();
+    let skip = skipped_lines(&lines, label);
+    let mut nouns = BTreeSet::new();
+    for (index, line) in lines.iter().enumerate() {
+        if skip[index] {
+            continue;
+        }
+        let trimmed = line.trim();
+        let Some(rest) = trimmed.strip_prefix("noun_table!") else {
+            continue;
+        };
+        let inner = split_parens(rest.trim_start(), label).0;
+        let Some((noun, named)) = inner.split_once("=>") else {
+            panic!("{label}:{}: unrecognized noun_table! invocation", index + 1)
+        };
+        if named.trim() == consumer {
+            assert!(
+                nouns.insert(noun.trim().to_owned()),
+                "{label}:{}: {consumer} generates {} twice",
+                index + 1,
+                noun.trim(),
+            );
+        }
+    }
+    nouns
 }
 
 /// Maps a typed support gate onto the marker trait the facades bound `P` with.
@@ -1142,8 +1451,14 @@ fn static_facade(source: &str, label: &'static str) -> StaticFacade {
             ImplTarget::Inherent { name, generics } if name.ends_with("Accessor") => {
                 let mut bounds = profile_bounds(&generics, &imports, label);
                 bounds.extend(facade.gates.get(&name).into_iter().flatten().cloned());
-                let methods = accessor_methods(&lines, body_start, end, label, &imports, &bounds);
-                facade.accessors.entry(name).or_default().extend(methods);
+                let (methods, generated) =
+                    accessor_methods(&lines, body_start, end, label, &imports, &bounds);
+                facade
+                    .accessors
+                    .entry(name.clone())
+                    .or_default()
+                    .extend(methods);
+                facade.generated.entry(name).or_default().extend(generated);
             }
             ImplTarget::Trait { path, name } if name.ends_with("Accessor") => {
                 assert!(
@@ -1269,7 +1584,10 @@ fn accessor_invocation(
     (name, arguments.get(2).cloned(), next)
 }
 
-/// Reads the public methods of one accessor impl body.
+/// Reads one accessor impl body.
+///
+/// Returns the hand-written public methods and the [`crate::noun_table`] nouns
+/// the impl generates.
 fn accessor_methods(
     lines: &[&str],
     body_start: usize,
@@ -1277,8 +1595,9 @@ fn accessor_methods(
     label: &'static str,
     imports: &BTreeMap<String, String>,
     impl_bounds: &BTreeSet<String>,
-) -> BTreeMap<String, MethodFacts> {
+) -> (BTreeMap<String, MethodFacts>, BTreeSet<String>) {
     let mut methods = BTreeMap::new();
+    let mut generated = BTreeSet::new();
     let mut index = body_start;
     let last = end.saturating_sub(1);
 
@@ -1286,6 +1605,23 @@ fn accessor_methods(
         let trimmed = lines[index].trim();
         if trimmed.is_empty() || trimmed.starts_with('#') {
             index += 1;
+            continue;
+        }
+
+        // The one macro invocation this gate accepts: its rows are read from
+        // the table itself, so nothing is skipped unread.
+        if let Some(rest) = trimmed.strip_prefix("noun_table!") {
+            let inner = split_parens(rest.trim_start(), label).0;
+            let Some((noun, _)) = inner.split_once("=>") else {
+                panic!("{label}:{}: unrecognized noun_table! invocation", index + 1)
+            };
+            assert!(
+                generated.insert(noun.trim().to_owned()),
+                "{label}:{}: accessor impl generates {} twice",
+                index + 1,
+                noun.trim(),
+            );
+            index = item_end(lines, index, label);
             continue;
         }
 
@@ -1305,8 +1641,8 @@ fn accessor_methods(
         assert!(
             rest.starts_with("fn "),
             "{label}:{}: unrecognized item {trimmed:?} in an accessor impl; a macro invocation \
-             here can declare methods the parity gate would never see, so the gate refuses to \
-             skip what it cannot read",
+             other than `noun_table!` here can declare methods the parity gate would never see, \
+             so the gate refuses to skip what it cannot read",
             index + 1,
         );
 
@@ -1333,7 +1669,7 @@ fn accessor_methods(
         index = block_end(lines, index, label);
     }
 
-    methods
+    (methods, generated)
 }
 
 // ---------------------------------------------------------------------------
@@ -1343,15 +1679,15 @@ fn accessor_methods(
 /// Reads the dynamic facade traits into noun/method shapes.
 ///
 /// Capability bounds are absent by construction; see the module documentation.
-fn dyn_facade(
-    source: &str,
-    label: &'static str,
-) -> BTreeMap<String, BTreeMap<String, DynMethodShape>> {
+/// Returns the hand-written method shapes and, per trait, the
+/// [`crate::noun_table`] nouns the trait declaration generates.
+fn dyn_facade(source: &str, label: &'static str) -> DynFacade {
     let cleaned = clean_source(source, label);
     let lines: Vec<&str> = cleaned.lines().collect();
     let skip = skipped_lines(&lines, label);
     let imports = use_map(&lines, &skip, label);
     let mut surface: BTreeMap<String, BTreeMap<String, DynMethodShape>> = BTreeMap::new();
+    let mut generated: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
 
     let mut index = 0;
     while index < lines.len() {
@@ -1372,6 +1708,7 @@ fn dyn_facade(
         let name = leading_identifier(rest).to_owned();
         let (_, _, body_start) = join_until(&lines, index, &['{'], label);
         let end = block_end(&lines, index, label);
+        let trait_generated = generated.entry(name.clone()).or_default();
         let methods = surface.entry(name).or_default();
 
         let mut cursor = body_start;
@@ -1382,6 +1719,23 @@ fn dyn_facade(
                 cursor += 1;
                 continue;
             }
+            if let Some(rest) = line.strip_prefix("noun_table!") {
+                let inner = split_parens(rest.trim_start(), label).0;
+                let Some((noun, _)) = inner.split_once("=>") else {
+                    panic!(
+                        "{label}:{}: unrecognized noun_table! invocation",
+                        cursor + 1
+                    )
+                };
+                assert!(
+                    trait_generated.insert(noun.trim().to_owned()),
+                    "{label}:{}: dynamic noun trait generates {} twice",
+                    cursor + 1,
+                    noun.trim(),
+                );
+                cursor = item_end(&lines, cursor, label);
+                continue;
+            }
             if is_associated_data(line) {
                 cursor = item_end(&lines, cursor, label);
                 continue;
@@ -1389,7 +1743,8 @@ fn dyn_facade(
             assert!(
                 line.starts_with("fn ") || line.starts_with("async fn "),
                 "{label}:{}: unrecognized item {line:?} in a dynamic noun trait; a macro \
-                 invocation here can declare methods the parity gate would never see",
+                 invocation other than `noun_table!` here can declare methods the parity gate \
+                 would never see",
                 cursor + 1,
             );
             let (text, terminator, next) = join_until(&lines, cursor, &[';', '{'], label);
@@ -1415,7 +1770,7 @@ fn dyn_facade(
         index = end;
     }
 
-    surface
+    (surface, generated)
 }
 
 /// Returns the sorted method names of one parsed noun.
@@ -1423,12 +1778,74 @@ fn method_names<T>(noun: &BTreeMap<String, T>) -> Vec<&str> {
     noun.keys().map(String::as_str).collect()
 }
 
+/// Projects one noun's table rows onto a static facade's method facts.
+///
+/// The accessor's own type-level gate is unioned into every row, because the
+/// generated method inherits it from the impl block it lands in.
+fn static_table_methods(
+    table: &BTreeMap<String, BTreeMap<String, TableRow>>,
+    nouns: &BTreeSet<String>,
+    gate: &BTreeSet<String>,
+    label: &str,
+    accessor: &str,
+) -> BTreeMap<String, MethodFacts> {
+    let mut methods = BTreeMap::new();
+    for noun in nouns {
+        let rows = table
+            .get(noun)
+            .unwrap_or_else(|| panic!("{label}: {accessor} generates unknown noun {noun}"));
+        for (method, row) in rows {
+            let mut bounds = gate.clone();
+            bounds.extend(row.gates.iter().cloned());
+            let facts = MethodFacts {
+                shape: MethodShape {
+                    class: row.class,
+                    receiver: "&self".to_owned(),
+                    arguments: row.arguments.clone(),
+                },
+                bounds,
+            };
+            assert!(
+                methods.insert(method.clone(), facts).is_none(),
+                "{label}: {accessor} generates {method} twice",
+            );
+        }
+    }
+    methods
+}
+
+/// Merges a facade's generated rows with whatever it still writes by hand.
+fn merge_methods(
+    mut generated: BTreeMap<String, MethodFacts>,
+    residual: &BTreeMap<String, MethodFacts>,
+    label: &str,
+    accessor: &str,
+) -> BTreeMap<String, MethodFacts> {
+    for (method, facts) in residual {
+        assert!(
+            generated.insert(method.clone(), facts.clone()).is_none(),
+            "{label}: hand-written {accessor}::{method} shadows a generated table row",
+        );
+    }
+    generated
+}
+
+/// Returns the hand-written methods `accessor` is allowed to still carry.
+fn exempt_methods(accessor: &str) -> BTreeSet<String> {
+    EXEMPT_HAND_WRITTEN
+        .iter()
+        .find(|(name, _)| *name == accessor)
+        .map(|(_, methods)| methods.iter().map(|method| (*method).to_owned()).collect())
+        .unwrap_or_default()
+}
+
 #[test]
 fn noun_surfaces_agree_on_method_name_class_arguments_and_capability_bound() {
     let ledger = ledger_surface();
+    let table = table_surface();
     let asynchronous = static_facade(ASYNC_SOURCE, "src/async_nouns.rs");
     let blocking = static_facade(BLOCKING_SOURCE, "src/blocking_nouns.rs");
-    let dynamic = dyn_facade(DYN_SOURCE, "src/dynapi/nouns.rs");
+    let (dynamic, dynamic_generated) = dyn_facade(DYN_SOURCE, "src/dynapi/nouns.rs");
 
     let markers = known_markers();
     for (label, facade) in [
@@ -1457,6 +1874,39 @@ fn noun_surfaces_agree_on_method_name_class_arguments_and_capability_bound() {
         }
     }
 
+    // A table gate is a bare marker name, so it means whatever each facade's
+    // imports say it means.  Both static facades must resolve it to the real
+    // capability trait: a shadow trait borrowing the name would otherwise
+    // silently stand in for the gate on one surface.
+    let table_gates: BTreeSet<&str> = table
+        .values()
+        .flat_map(|rows| rows.values())
+        .flat_map(|row| row.gates.iter().map(String::as_str))
+        .collect();
+    for gate in &table_gates {
+        assert!(
+            markers.contains(gate),
+            "{TABLE_LABEL}: {gate:?} is not a ledger capability marker",
+        );
+    }
+    for (label, source) in [
+        ("src/async_nouns.rs", ASYNC_SOURCE),
+        ("src/blocking_nouns.rs", BLOCKING_SOURCE),
+    ] {
+        let cleaned = clean_source(source, label);
+        let lines: Vec<&str> = cleaned.lines().collect();
+        let skip = skipped_lines(&lines, label);
+        let imports = use_map(&lines, &skip, label);
+        for gate in &table_gates {
+            assert_eq!(
+                imports.get(*gate).map(String::as_str),
+                Some(format!("crate::capabilities::{gate}").as_str()),
+                "{label}: the table gate {gate:?} does not resolve to the real capability \
+                 marker on this facade",
+            );
+        }
+    }
+
     let facades: Vec<NounFacade> = ledger
         .iter()
         .map(|(facade, _)| *facade)
@@ -1465,38 +1915,144 @@ fn noun_surfaces_agree_on_method_name_class_arguments_and_capability_bound() {
 
     for facade in &facades {
         let accessor = facade.accessor;
-        let asynchronous_noun = asynchronous
+        let asynchronous_residual = asynchronous
             .accessors
             .get(accessor)
             .unwrap_or_else(|| panic!("async facade is missing {accessor}"));
-        let blocking_noun = blocking
+        let blocking_residual = blocking
             .accessors
             .get(accessor)
             .unwrap_or_else(|| panic!("blocking facade is missing {accessor}"));
-        let dynamic_noun = dynamic
+        let dynamic_residual = dynamic
             .get(facade.dyn_trait)
             .unwrap_or_else(|| panic!("dynamic facade is missing {}", facade.dyn_trait));
+
+        // Whatever a facade still writes by hand has to be declared, on every
+        // surface: an undeclared residual is a method that escaped generation.
+        let exempt = exempt_methods(accessor);
+        for (label, residual) in [
+            ("src/async_nouns.rs", &method_names(asynchronous_residual)),
+            ("src/blocking_nouns.rs", &method_names(blocking_residual)),
+            ("src/dynapi/nouns.rs", &method_names(dynamic_residual)),
+        ] {
+            let observed: BTreeSet<String> =
+                residual.iter().map(|name| (*name).to_owned()).collect();
+            assert_eq!(
+                observed, exempt,
+                "{label}: {accessor} hand-writes methods that are not the declared \
+                 EXEMPT_HAND_WRITTEN set",
+            );
+        }
+
+        // The generated half must come from the same table arm on all three.
+        let asynchronous_nouns = asynchronous
+            .generated
+            .get(accessor)
+            .cloned()
+            .unwrap_or_default();
+        let blocking_nouns = blocking
+            .generated
+            .get(accessor)
+            .cloned()
+            .unwrap_or_default();
+        let dynamic_nouns = dynamic_generated
+            .get(facade.dyn_trait)
+            .cloned()
+            .unwrap_or_default();
+        let expected_nouns: BTreeSet<String> = facade
+            .table_key
+            .into_iter()
+            .map(str::to_owned)
+            .collect::<BTreeSet<_>>();
+        assert_eq!(
+            asynchronous_nouns, expected_nouns,
+            "async {accessor} does not generate exactly its own table arm",
+        );
+        assert_eq!(
+            blocking_nouns, expected_nouns,
+            "blocking {accessor} does not generate exactly its own table arm",
+        );
+        assert_eq!(
+            dynamic_nouns, expected_nouns,
+            "{} does not generate exactly its own table arm",
+            facade.dyn_trait,
+        );
 
         assert_eq!(
             asynchronous.gates.get(accessor),
             blocking.gates.get(accessor),
             "async and blocking {accessor} carry different type-level capability gates",
         );
+
+        let asynchronous_gate = asynchronous
+            .gates
+            .get(accessor)
+            .cloned()
+            .unwrap_or_default();
+        let blocking_gate = blocking.gates.get(accessor).cloned().unwrap_or_default();
+        let asynchronous_noun = merge_methods(
+            static_table_methods(
+                &table,
+                &asynchronous_nouns,
+                &asynchronous_gate,
+                "src/async_nouns.rs",
+                accessor,
+            ),
+            asynchronous_residual,
+            "src/async_nouns.rs",
+            accessor,
+        );
+        let blocking_noun = merge_methods(
+            static_table_methods(
+                &table,
+                &blocking_nouns,
+                &blocking_gate,
+                "src/blocking_nouns.rs",
+                accessor,
+            ),
+            blocking_residual,
+            "src/blocking_nouns.rs",
+            accessor,
+        );
+        let dynamic_noun = merge_methods(
+            static_table_methods(
+                &table,
+                &dynamic_nouns,
+                &BTreeSet::new(),
+                "src/dynapi/nouns.rs",
+                facade.dyn_trait,
+            ),
+            &dynamic_residual
+                .iter()
+                .map(|(method, shape)| {
+                    (
+                        method.clone(),
+                        MethodFacts {
+                            shape: shape.clone(),
+                            bounds: BTreeSet::new(),
+                        },
+                    )
+                })
+                .collect(),
+            "src/dynapi/nouns.rs",
+            facade.dyn_trait,
+        );
+
         assert_eq!(
-            method_names(asynchronous_noun),
-            method_names(blocking_noun),
+            method_names(&asynchronous_noun),
+            method_names(&blocking_noun),
             "async and blocking {accessor} expose different methods",
         );
         assert_eq!(
-            method_names(asynchronous_noun),
-            method_names(dynamic_noun),
+            method_names(&asynchronous_noun),
+            method_names(&dynamic_noun),
             "async {accessor} and {} expose different methods",
             facade.dyn_trait,
         );
 
-        for (method, asynchronous_facts) in asynchronous_noun {
+        for (method, asynchronous_facts) in &asynchronous_noun {
             let blocking_facts = &blocking_noun[method];
-            let dynamic_shape = &dynamic_noun[method];
+            let dynamic_shape = &dynamic_noun[method].shape;
             assert_eq!(
                 asynchronous_facts.shape, blocking_facts.shape,
                 "async and blocking {accessor}::{method} disagree on receiver, argument \
@@ -1526,26 +2082,31 @@ fn noun_surfaces_agree_on_method_name_class_arguments_and_capability_bound() {
 
     for (facade, rows) in &ledger {
         let accessor = facade.accessor;
-        let methods = &asynchronous.accessors[accessor];
+        let noun = facade
+            .table_key
+            .unwrap_or_else(|| panic!("ledger noun {accessor} has no table arm"));
         let gate = asynchronous
             .gates
             .get(accessor)
             .cloned()
             .unwrap_or_default();
+        let table_rows = &table[noun];
 
         for (method, facts) in rows {
-            let observed = methods
+            let observed = table_rows
                 .get(*method)
-                .unwrap_or_else(|| panic!("ledger row {accessor}::{method} has no facade method"));
+                .unwrap_or_else(|| panic!("ledger row {accessor}::{method} has no table row"));
             assert_eq!(
-                observed.shape.class, facts.class,
+                observed.class, facts.class,
                 "{accessor}::{method} does not carry its ledger return class",
             );
 
             let mut expected = gate.clone();
             expected.extend(facts.marker.map(str::to_owned));
+            let mut bounds = gate.clone();
+            bounds.extend(observed.gates.iter().cloned());
             assert_eq!(
-                observed.bounds, expected,
+                bounds, expected,
                 "{accessor}::{method} does not carry its ledger capability bound",
             );
         }

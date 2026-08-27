@@ -455,7 +455,14 @@ fn declared_usize(source: &str, name: &str) -> usize {
         .unwrap_or_else(|| panic!("no usize constant named {name}"))
 }
 
-fn trait_methods(source: &str, traits: &[&str]) -> Vec<String> {
+/// Every method one dynamic noun trait declares.
+///
+/// Since #617 the declarations are generated from `src/noun_table.rs`, so a
+/// trait body is a `noun_table!` invocation naming the arm it is generated
+/// from.  This reader follows that invocation into the table rather than
+/// reporting an empty trait: the property being pinned — the exact method
+/// spellings of each closed noun — is unchanged, only its source moved.
+fn trait_methods(source: &str, table: &str, traits: &[&str]) -> Vec<String> {
     let mut methods = Vec::new();
     let mut selected = false;
     let mut depth = 0_i32;
@@ -474,6 +481,15 @@ fn trait_methods(source: &str, traits: &[&str]) -> Vec<String> {
                 if let Some(name) = rest.split('(').next() {
                     methods.push(name.trim().to_owned());
                 }
+            }
+            if let Some(rest) = trimmed.strip_prefix("noun_table!(") {
+                let noun = rest
+                    .split("=>")
+                    .next()
+                    .unwrap_or_default()
+                    .trim()
+                    .to_owned();
+                methods.extend(source_scan::noun_table_methods(table, &noun));
             }
             depth += line.matches('{').count() as i32;
             depth -= line.matches('}').count() as i32;
@@ -556,6 +572,9 @@ fn static_noun_and_control_inventory_is_closed() {
 fn dynamic_control_inventory_is_closed() {
     let owner = declarations(include_str!("../src/dynapi/owner_projection.rs"));
     let nouns = declarations(include_str!("../src/dynapi/nouns.rs"));
+    // The dynamic noun traits are generated from the shared row table, so the
+    // spellings this gate pins are read from there.
+    let table = declarations(include_str!("../src/noun_table.rs"));
     let custom = declarations(include_str!("../src/dynapi/custom.rs"));
     // The forbidden-token gates below are negative, so they read the whole file:
     // a legacy spelling hiding in a test module is still a legacy spelling.
@@ -568,7 +587,7 @@ fn dynamic_control_inventory_is_closed() {
 
     for (name, expected) in EXPECTED_DYN_NOUN_METHODS {
         assert_eq!(
-            trait_methods(&nouns, &[*name]),
+            trait_methods(&nouns, &table, &[*name]),
             *expected,
             "dynamic noun {name} drifted"
         );
@@ -637,7 +656,7 @@ fn dynamic_control_inventory_is_closed() {
     let projected: usize = public_trait_names(&[&nouns])
         .iter()
         .filter(|name| name.as_str() != "DynSessionCameraNouns" && name.as_str() != "DynMotion")
-        .map(|name| trait_methods(&nouns, &[name.as_str()]).len())
+        .map(|name| trait_methods(&nouns, &table, &[name.as_str()]).len())
         .sum();
     assert_eq!(
         projected,
