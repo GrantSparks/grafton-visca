@@ -254,6 +254,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   closed the session. Only a zero-length transport read now signals a close; a
   short read that only advances a partial frame keeps the owner pumping, which
   matches the blocking owner.
+- Closed the release version-gate bypasses in
+  `.github/scripts/validate-release.sh` (#632). The hardware-evidence
+  requirement keyed off a literal `2.x.y` match, so `v2.0.0+meta` — identical in
+  semver precedence to `v2.0.0` — and every later major (`v3.0.0`, `v12.0.0`)
+  published a stable release with an all-`Pending` hardware checklist. Tags
+  carrying build metadata are now refused outright, and the evidence gate
+  applies to every stable release with major version 2 or higher while
+  pre-releases keep their candidate exemption. The checklist parser no longer
+  loses the `Status` column to Markdown emphasis or letter case, rejects a
+  checklist with no `Status` rows instead of passing it by omission, and treats
+  `pending`/`TBD`/`TODO` sign-off records as placeholders. The tag shape check
+  also rejects leading zeroes. `test-validate-release.sh` gains fixtures for
+  both bypasses, later-major stable and pre-release controls, and the adjacent
+  checklist and tag-shape holes.
 
 ## [1.2.0] - 2026-08-27
 
