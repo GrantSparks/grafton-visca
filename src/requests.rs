@@ -66,23 +66,66 @@ pub enum RetryClass {
     Preset,
 }
 
-/// Scheduling policy class selected by a request implementation.
+/// Scheduling class of one request: which of the owner's four ready lanes it
+/// is queued in.
 ///
-/// This is semantic input to profile lowering, not a caller-controlled engine
-/// priority. The owner retains sole authority over its private ready queues.
+/// Every request classifies itself through [`Request::control_class`], and a
+/// camera handle may name a class for one submission or for all of its own
+/// traffic — see `Camera::execute_with_class` and
+/// `Camera::set_command_class`.
+///
+/// # Lane semantics
+///
+/// The owner keeps one ready queue per class per lane (commands and inquiries
+/// are separate lanes). Dispatch scans the classes from [`Urgent`](Self::Urgent)
+/// down to [`Background`](Self::Background) and takes the first request that is
+/// eligible, preferring an inquiry over a command *within* the same class.
+/// Within one class the order is the order of admission.
+///
+/// Three consequences follow, and they are the whole contract:
+///
+/// - The class decides only which **queued** request is written next. Once a
+///   request has been written to the transport nothing reorders, interrupts, or
+///   cancels it, so raising a class cannot preempt work already in flight; use
+///   a typed stop or a cancellation for that.
+/// - A request already queued keeps the class it was admitted with. Changing a
+///   handle's default affects later submissions only.
+/// - Classes are strictly ordered rather than weighted: while urgent work is
+///   ready and eligible, nothing below it is dispatched. Demoting a chatty
+///   handle to [`Background`](Self::Background) is therefore an effective way
+///   to keep it out of an operator's way, and promoting bulk traffic to
+///   [`Urgent`](Self::Urgent) is a good way to starve everything else.
+///
+/// The owner retains sole authority over the queues themselves: a class selects
+/// a lane, never a position, a deadline, a retry budget, or a socket.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[non_exhaustive]
 pub enum ControlClass {
-    /// Opportunistic background work.
+    /// Opportunistic background work: telemetry polling, warm-up reads, and
+    /// anything that should yield the transport to everything else.
+    ///
+    /// This is 1.x's `Priority::Low`.
     Background,
-    /// Ordinary camera control traffic.
+    /// Ordinary camera control traffic, and the class of every built-in
+    /// inquiry.
+    ///
+    /// This is 1.x's `Priority::Normal`, and the class a request gets when it
+    /// says nothing else.
     Normal,
-    /// Direct user interaction.
+    /// Direct user interaction: drives, absolute moves, preset recalls, and the
+    /// other commands a person is waiting on.
+    ///
+    /// This is 1.x's `Priority::High`.
     User,
-    /// Time-sensitive control work.
+    /// Time-sensitive control work that must reach the camera ahead of queued
+    /// traffic: the typed stops and socket cancellation.
+    ///
+    /// This is 1.x's `Priority::Critical`. A camera handle's default class
+    /// never demotes a request classified this way; only an explicit
+    /// per-submission class can.
     Urgent,
 }
 
@@ -498,8 +541,13 @@ pub trait Request: Send + Sync {
 
     /// Returns this value's control class.
     ///
-    /// The owner still lowers this semantic class to its private scheduler
-    /// priority; callers cannot provide a priority or change it at admission.
+    /// This is the request's own classification, and it is what the owner uses
+    /// unless the submitting camera handle names a class: a per-submission
+    /// class (`Camera::execute_with_class` and its twins) replaces it outright,
+    /// and a handle default (`Camera::set_command_class`) replaces it unless
+    /// this returns [`ControlClass::Urgent`]. The owner still lowers the
+    /// resolved class to its private ready queues; callers select a lane, not a
+    /// queue position.
     #[must_use]
     fn control_class(&self) -> ControlClass {
         Self::CONTROL_CLASS

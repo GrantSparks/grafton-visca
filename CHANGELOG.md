@@ -9,6 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 2.0.0-rc.1 release candidate
 
+- **Added a typed submission-priority API over the owner's four control-class
+  lanes** (#630), restoring in 2.0 shape the capability 1.2.0 shipped as
+  `runtime::Priority` with `set_command_priority` / `command_priority` /
+  `execute_with_priority`. The engine always had the four lanes and dispatched
+  the highest occupied class first, but the only public route into that choice
+  was `raw::Policy` on hand-assembled bytes, so a typed command could not be
+  raised for one submission and a chatty handle could not be demoted out of an
+  operator's way. `ControlClass` — already a public root export, now documented
+  with its lane semantics — is the selector; no separate `Priority` enum
+  returns. Every camera handle gained `set_command_class` / `command_class` for
+  a per-handle default and `execute_with_class` / `inquire_with_class` /
+  `submit_with_class` for a single submission, on the async `Camera` and
+  `CameraSession`, the blocking `Camera` and `CameraSession`, and
+  `DynSessionCamera` (whose operation twins are `submit_targeted_with_class`
+  and `submit_applied_with_class`). Two rules make the safety case explicit: a
+  handle default **never** demotes a request the crate classifies
+  `ControlClass::Urgent` — the typed stops and `CommandCancel` — so a telemetry
+  poller demoted to `Background` still preempts with an emergency stop; and an
+  explicit per-submission class replaces the request's own class outright,
+  which is the only way to demote a stop and is documented as such. Unlike
+  1.x's priority, the class also covers inquiries, since 2.0 queues them in the
+  same four lanes; owner-internal settlement polling and motion observation
+  keep their built-in class. `docs/migration_2_0.md` gains the
+  `Priority` → `ControlClass` mapping table and the notes on
+  `runtime::testing::Priority`, which has no 2.0 equivalent and needs none.
 - **Fixed a livelock that made an async session unkillable when a transport
   failed every read** (#625). The actor's readiness race is left-biased towards
   the transport by design, so a read that failed *immediately* — a disconnected

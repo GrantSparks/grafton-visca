@@ -12,16 +12,16 @@ use std::{fmt, marker::PhantomData, sync::Arc, time::Duration};
 use crate::{
     camera::{IdleWait, MotionQuery},
     completion,
-    prepared::prepare_position_queries,
+    prepared::{prepare_position_queries, ClassSelection},
     request::builtin::{FocusStop, PanTiltStop, ZoomStop},
     runtime::owner::{
         sample_positions_blocking, BlockingCancellationReceipt, BlockingControlHost,
         BlockingOperationReceipt, BlockingReceiptControl, BlockingSessionHost,
     },
     stop_request::pan_tilt_stop_request,
-    CameraId, CancellationOutcome, CompileTimeProfile, DiagnosticEvent, Error, Inquiry,
-    MetricsSnapshot, OperationCommand, OperationalTuning, PlainCommand, ProfileSpec, Result,
-    StateCache,
+    CameraId, CancellationOutcome, CompileTimeProfile, ControlClass, DiagnosticEvent, Error,
+    Inquiry, MetricsSnapshot, OperationCommand, OperationalTuning, PlainCommand, ProfileSpec,
+    Result, StateCache,
 };
 
 const MOTION_QUERY_OBSERVER_BUDGET: Duration = Duration::from_secs(30);
@@ -491,6 +491,7 @@ impl Session {
             target,
             profile,
             tuning: self.config.tuning(),
+            class: ClassSelection::Request,
         }))
     }
 
@@ -543,6 +544,7 @@ pub struct CameraSession<P: CompileTimeProfile> {
     session: Session,
     target: CameraId,
     profile: Arc<ProfileSpec>,
+    class: ClassSelection,
     _profile: PhantomData<fn() -> P>,
 }
 
@@ -572,6 +574,7 @@ impl<P: CompileTimeProfile> CameraSession<P> {
             session,
             target,
             profile,
+            class: ClassSelection::Request,
             _profile: PhantomData,
         })
     }
@@ -599,7 +602,28 @@ impl<P: CompileTimeProfile> CameraSession<P> {
             target: self.target,
             profile: self.profile.as_ref(),
             tuning: self.session.config.tuning(),
+            class: self.class,
         })
+    }
+
+    /// Returns the submission-class default this session hands to its camera.
+    ///
+    /// See [`Camera::command_class`].
+    #[must_use]
+    pub const fn command_class(&self) -> Option<ControlClass> {
+        self.class.handle_default()
+    }
+
+    /// Sets the submission-class default this session hands to its camera.
+    ///
+    /// The blocking [`Camera`] is built afresh by [`camera`](Self::camera)
+    /// rather than stored, so this is how a single-camera session carries a
+    /// default: every view taken after this call, and every noun accessor
+    /// reached through one, submits in `class`. See
+    /// [`Camera::set_command_class`] for the full semantics, including the
+    /// rule that an urgent request is never demoted.
+    pub fn set_command_class(&mut self, class: Option<ControlClass>) {
+        self.class = ClassSelection::from_handle_default(class);
     }
 
     /// Returns the owned session behind this camera.
@@ -632,6 +656,7 @@ pub(crate) struct BlockingCameraCore<'session> {
     target: CameraId,
     profile: &'session ProfileSpec,
     tuning: OperationalTuning,
+    class: ClassSelection,
 }
 
 impl fmt::Debug for BlockingCameraCore<'_> {
@@ -663,13 +688,43 @@ impl<'session> BlockingCameraCore<'session> {
         self.host.state_cache(self.target)
     }
 
+    /// Returns this view's submission-class default, if it carries one.
+    pub const fn command_class(&self) -> Option<ControlClass> {
+        self.class.handle_default()
+    }
+
+    /// Sets this view's submission-class default.
+    pub fn set_command_class(&mut self, class: Option<ControlClass>) {
+        self.class = ClassSelection::from_handle_default(class);
+    }
+
     /// Executes a plain command and waits for exact application.
     pub fn execute<C>(&self, command: &C) -> Result<(), Error>
     where
         C: PlainCommand + ?Sized,
     {
-        let prepared =
-            crate::prepared::prepare_command(command, self.target, self.profile, self.tuning)?;
+        self.execute_with_selection(command, self.class)
+    }
+
+    /// Executes a plain command in an explicitly named scheduling lane.
+    pub fn execute_with_class<C>(&self, command: &C, class: ControlClass) -> Result<(), Error>
+    where
+        C: PlainCommand + ?Sized,
+    {
+        self.execute_with_selection(command, ClassSelection::Explicit(class))
+    }
+
+    fn execute_with_selection<C>(&self, command: &C, class: ClassSelection) -> Result<(), Error>
+    where
+        C: PlainCommand + ?Sized,
+    {
+        let prepared = crate::prepared::prepare_command(
+            command,
+            self.target,
+            self.profile,
+            self.tuning,
+            class,
+        )?;
         let receipt = self.host.submit_command(prepared)?;
         let mut control = BlockingReceiptControl::shared(self.host);
         receipt.wait(&mut control)
@@ -680,8 +735,36 @@ impl<'session> BlockingCameraCore<'session> {
     where
         Q: Inquiry + ?Sized,
     {
-        let prepared =
-            crate::prepared::prepare_inquiry(inquiry, self.target, self.profile, self.tuning)?;
+        self.inquire_with_selection(inquiry, self.class)
+    }
+
+    /// Submits a typed inquiry in an explicitly named scheduling lane.
+    pub fn inquire_with_class<Q>(
+        &self,
+        inquiry: &Q,
+        class: ControlClass,
+    ) -> Result<Q::Response, Error>
+    where
+        Q: Inquiry + ?Sized,
+    {
+        self.inquire_with_selection(inquiry, ClassSelection::Explicit(class))
+    }
+
+    fn inquire_with_selection<Q>(
+        &self,
+        inquiry: &Q,
+        class: ClassSelection,
+    ) -> Result<Q::Response, Error>
+    where
+        Q: Inquiry + ?Sized,
+    {
+        let prepared = crate::prepared::prepare_inquiry(
+            inquiry,
+            self.target,
+            self.profile,
+            self.tuning,
+            class,
+        )?;
         let receipt = self.host.submit_inquiry(prepared)?;
         let mut control = BlockingReceiptControl::shared(self.host);
         receipt.wait(&mut control)
@@ -696,11 +779,37 @@ impl<'session> BlockingCameraCore<'session> {
         K: completion::Kind,
         O: OperationCommand<K> + ?Sized,
     {
+        self.submit_with_selection::<K, O>(operation, self.class)
+    }
+
+    /// Admits a typed operation in an explicitly named scheduling lane.
+    pub fn submit_with_class<K, O>(
+        &self,
+        operation: &O,
+        class: ControlClass,
+    ) -> Result<Operation<'session, K>, Error>
+    where
+        K: completion::Kind,
+        O: OperationCommand<K> + ?Sized,
+    {
+        self.submit_with_selection::<K, O>(operation, ClassSelection::Explicit(class))
+    }
+
+    fn submit_with_selection<K, O>(
+        &self,
+        operation: &O,
+        class: ClassSelection,
+    ) -> Result<Operation<'session, K>, Error>
+    where
+        K: completion::Kind,
+        O: OperationCommand<K> + ?Sized,
+    {
         let prepared = crate::prepared::prepare_operation::<K, _>(
             operation,
             self.target,
             self.profile,
             self.tuning,
+            class,
         )?;
         let receipt = self.host.submit_operation(prepared)?;
         Ok(Operation::from_receipt(receipt, self.host))
@@ -865,12 +974,76 @@ impl<'session, P: CompileTimeProfile> Camera<'session, P> {
         self.core.state_cache()
     }
 
+    /// Returns this handle's submission-class default, if it carries one.
+    ///
+    /// `None` — the initial value — means every request is submitted in the
+    /// lane its own [`ControlClass`] names. See
+    /// [`set_command_class`](Self::set_command_class).
+    #[must_use]
+    pub const fn command_class(&self) -> Option<ControlClass> {
+        self.core.command_class()
+    }
+
+    /// Sets the [`ControlClass`] every later submission from *this handle*
+    /// uses, or clears it with `None`.
+    ///
+    /// The owner dispatches ready work from the highest occupied class first
+    /// and FIFO within a class, so lowering this default makes the handle's
+    /// traffic yield the transport to other handles' ordinary work, and
+    /// raising it makes the handle's traffic overtake work that is still
+    /// **queued**. It never interrupts, cancels, or reorders a request that
+    /// has already been written to the transport, and it does not change the
+    /// class of requests submitted before the call.
+    ///
+    /// The default is a property of *this handle*, not of the camera or the
+    /// session: another view taken from the same [`Session`] keeps its own
+    /// value. It applies to every request the handle submits — commands,
+    /// inquiries, and operations, including the ones the noun accessors submit
+    /// — with exactly one exception.
+    ///
+    /// # Urgent requests are never demoted
+    ///
+    /// A request the crate classifies [`ControlClass::Urgent`] — the typed
+    /// stops [`PanTiltStop`], [`ZoomStop`], [`FocusStop`], and
+    /// [`CommandCancel`](crate::request::builtin::CommandCancel) — ignores
+    /// this default and stays urgent. A handle demoted to
+    /// [`ControlClass::Background`] for telemetry polling therefore still
+    /// preempts with an emergency stop. Only
+    /// [`execute_with_class`](Self::execute_with_class),
+    /// [`inquire_with_class`](Self::inquire_with_class), and
+    /// [`submit_with_class`](Self::submit_with_class) can demote an urgent
+    /// request, and they do so for that one submission only.
+    ///
+    /// Owner-internal traffic that no caller submitted — the settlement
+    /// polling behind [`Operation::settled`] and the observation inquiries
+    /// behind `motion()` — keeps its own built-in class.
+    pub fn set_command_class(&mut self, class: Option<ControlClass>) {
+        self.core.set_command_class(class);
+    }
+
     /// Executes a plain command through this camera's shared owner.
     pub fn execute<C>(&self, command: &C) -> Result<(), Error>
     where
         C: PlainCommand + ?Sized,
     {
         self.core.execute(command)
+    }
+
+    /// Executes a plain command in an explicitly named scheduling lane.
+    ///
+    /// `class` replaces both the command's own [`ControlClass`] and this
+    /// handle's [`set_command_class`](Self::set_command_class) default, for
+    /// this submission only.
+    ///
+    /// Unlike the handle default, this **can demote an urgent request**:
+    /// naming [`ControlClass::Background`] for a stop or a cancel queues it
+    /// behind ordinary control traffic. Nothing in the crate does that for
+    /// you; it is only reachable by asking for it here.
+    pub fn execute_with_class<C>(&self, command: &C, class: ControlClass) -> Result<(), Error>
+    where
+        C: PlainCommand + ?Sized,
+    {
+        self.core.execute_with_class(command, class)
     }
 
     /// Sends an inquiry and decodes its response through the shared owner.
@@ -881,6 +1054,22 @@ impl<'session, P: CompileTimeProfile> Camera<'session, P> {
         self.core.inquire(inquiry)
     }
 
+    /// Sends an inquiry in an explicitly named scheduling lane.
+    ///
+    /// `class` replaces both the inquiry's own [`ControlClass`] and this
+    /// handle's [`set_command_class`](Self::set_command_class) default, for
+    /// this submission only.
+    pub fn inquire_with_class<Q>(
+        &self,
+        inquiry: &Q,
+        class: ControlClass,
+    ) -> Result<Q::Response, Error>
+    where
+        Q: Inquiry + ?Sized,
+    {
+        self.core.inquire_with_class(inquiry, class)
+    }
+
     /// Submits a typed operation and returns its borrowed owner-backed handle.
     pub fn submit<K, O>(&self, operation: &O) -> Result<Operation<'session, K>, Error>
     where
@@ -888,6 +1077,25 @@ impl<'session, P: CompileTimeProfile> Camera<'session, P> {
         O: OperationCommand<K> + ?Sized,
     {
         self.core.submit(operation)
+    }
+
+    /// Submits a typed operation in an explicitly named scheduling lane.
+    ///
+    /// `class` replaces both the operation's own [`ControlClass`] and this
+    /// handle's [`set_command_class`](Self::set_command_class) default, for
+    /// this submission only. As with
+    /// [`execute_with_class`](Self::execute_with_class), this is the one route
+    /// that can demote an urgent stop.
+    pub fn submit_with_class<K, O>(
+        &self,
+        operation: &O,
+        class: ControlClass,
+    ) -> Result<Operation<'session, K>, Error>
+    where
+        K: completion::Kind,
+        O: OperationCommand<K> + ?Sized,
+    {
+        self.core.submit_with_class::<K, O>(operation, class)
     }
 }
 

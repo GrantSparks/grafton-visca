@@ -15,8 +15,8 @@ use crate::{
     capabilities::{Capabilities, TypedSupportSurface},
     completion::{AppliedOnly, Targeted},
     operation::{Cancellation, Operation},
-    CameraId, CancellationOutcome, CompileTimeProfile, Error, Inquiry, OperationCommand,
-    OperationId, PlainCommand, ProfileSpec, Result, StateCache,
+    CameraId, CancellationOutcome, CompileTimeProfile, ControlClass, Error, Inquiry,
+    OperationCommand, OperationId, PlainCommand, ProfileSpec, Result, StateCache,
 };
 
 use super::DynFuture;
@@ -245,6 +245,28 @@ impl DynSessionCamera {
         self.core.clone().into_typed::<P>()
     }
 
+    /// Returns this view's submission-class default, if it carries one.
+    ///
+    /// This is the erased projection of [`Camera::command_class`].
+    #[must_use]
+    pub const fn command_class(&self) -> Option<ControlClass> {
+        self.core.command_class()
+    }
+
+    /// Sets the [`ControlClass`] every later submission from *this view* uses,
+    /// or clears it with `None`.
+    ///
+    /// This is the erased projection of [`Camera::set_command_class`] and
+    /// carries exactly its semantics, including the rule that a request the
+    /// crate classifies [`ControlClass::Urgent`] is never demoted by a handle
+    /// default. The value belongs to this view: a
+    /// [`clone`](Clone::clone) copies it and then diverges, and a typed
+    /// [`camera`](Self::camera) projected out of this view starts from the
+    /// same value.
+    pub fn set_command_class(&mut self, class: Option<ControlClass>) {
+        self.core.set_command_class(class);
+    }
+
     /// Executes a plain command through the shared owner.
     pub async fn execute<C>(&self, command: &C) -> Result<(), Error>
     where
@@ -253,12 +275,38 @@ impl DynSessionCamera {
         self.core.execute(command).await
     }
 
+    /// Executes a plain command in an explicitly named scheduling lane.
+    ///
+    /// This is the erased projection of [`Camera::execute_with_class`];
+    /// `class` replaces both the command's own class and this view's default,
+    /// and it is the one route that can demote an urgent request.
+    pub async fn execute_with_class<C>(&self, command: &C, class: ControlClass) -> Result<(), Error>
+    where
+        C: PlainCommand + ?Sized,
+    {
+        self.core.execute_with_class(command, class).await
+    }
+
     /// Sends a typed inquiry through the shared owner.
     pub async fn inquire<Q>(&self, inquiry: &Q) -> Result<Q::Response, Error>
     where
         Q: Inquiry + ?Sized,
     {
         self.core.inquire(inquiry).await
+    }
+
+    /// Sends a typed inquiry in an explicitly named scheduling lane.
+    ///
+    /// This is the erased projection of [`Camera::inquire_with_class`].
+    pub async fn inquire_with_class<Q>(
+        &self,
+        inquiry: &Q,
+        class: ControlClass,
+    ) -> Result<Q::Response, Error>
+    where
+        Q: Inquiry + ?Sized,
+    {
+        self.core.inquire_with_class(inquiry, class).await
     }
 
     /// Submits any typed targeted request through the same preparation and
@@ -273,6 +321,24 @@ impl DynSessionCamera {
             .map(DynTargetedOperation::from_operation)
     }
 
+    /// Submits a typed targeted request in an explicitly named scheduling
+    /// lane.
+    ///
+    /// This is the erased projection of [`Camera::submit_with_class`].
+    pub async fn submit_targeted_with_class<O>(
+        &self,
+        operation: &O,
+        class: ControlClass,
+    ) -> Result<DynTargetedOperation, Error>
+    where
+        O: OperationCommand<Targeted> + Sync + ?Sized,
+    {
+        self.core
+            .submit_with_class::<Targeted, O>(operation, class)
+            .await
+            .map(DynTargetedOperation::from_operation)
+    }
+
     /// Submits any typed applied-only request through the same preparation and
     /// owner admission path as [`Camera::submit`].
     pub async fn submit_applied<O>(&self, operation: &O) -> Result<DynAppliedOperation, Error>
@@ -281,6 +347,26 @@ impl DynSessionCamera {
     {
         self.core
             .submit::<AppliedOnly, O>(operation)
+            .await
+            .map(DynAppliedOperation::from_operation)
+    }
+
+    /// Submits a typed applied-only request in an explicitly named scheduling
+    /// lane.
+    ///
+    /// This is the erased projection of [`Camera::submit_with_class`], and the
+    /// route that can demote an urgent stop such as
+    /// [`ZoomStop`](crate::request::builtin::ZoomStop).
+    pub async fn submit_applied_with_class<O>(
+        &self,
+        operation: &O,
+        class: ControlClass,
+    ) -> Result<DynAppliedOperation, Error>
+    where
+        O: OperationCommand<AppliedOnly> + Sync + ?Sized,
+    {
+        self.core
+            .submit_with_class::<AppliedOnly, O>(operation, class)
             .await
             .map(DynAppliedOperation::from_operation)
     }

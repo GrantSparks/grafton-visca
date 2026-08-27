@@ -54,7 +54,12 @@ const VISCA_TERMINATOR: u8 = 0xff;
 /// Explicit timeout, retry, and scheduler-control classes for one raw value.
 ///
 /// The owner lowers these semantic classes to its private runtime policy. The
-/// public value never exposes a priority or a lifecycle identifier.
+/// public value never exposes a queue position or a lifecycle identifier.
+///
+/// The [`ControlClass`] here is the raw request's *own* classification, exactly
+/// as a built-in's associated constant is: a camera handle's default class
+/// still replaces it (unless it is [`ControlClass::Urgent`]), and a
+/// per-submission class still replaces it outright.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Policy {
     timeout: TimeoutClass,
@@ -67,7 +72,7 @@ pub struct Policy {
 /// `Spec` is intentionally distinct from [`Policy`]: a specification is the
 /// value supplied at a construction boundary, while `Policy` is the compact
 /// policy retained by a constructed request. Both carry the same three
-/// semantic classes and neither exposes runtime priority or lifecycle state.
+/// semantic classes and neither exposes a queue position or lifecycle state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Spec {
     policy: Policy,
@@ -1052,6 +1057,7 @@ mod tests {
             CameraId::CAMERA_1,
             &profile,
             crate::OperationalTuning::new(),
+            crate::prepared::ClassSelection::Request,
         )
         .expect_err("the owner target must reject a mismatched wire address");
         assert!(matches!(error, Error::InvalidRequest(_)));

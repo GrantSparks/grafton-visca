@@ -1964,6 +1964,7 @@ mod tests {
             CameraId::CAMERA_1,
             profile,
             crate::OperationalTuning::new(),
+            crate::prepared::ClassSelection::Request,
         )
         .unwrap()
     }

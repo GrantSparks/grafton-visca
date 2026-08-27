@@ -70,9 +70,48 @@
 //! inquiry shapes.
 //!
 //! Request values carry their timeout, retry, and control-policy classes. Camera
-//! targets, completion kinds, retry behavior, and priority cannot be overridden
-//! at submission time. Supported `ViscaInquiry` derives implement this typed
-//! inquiry contract; downstream derives use the conservative inquiry retry class.
+//! targets, completion kinds, and retry behavior cannot be overridden at
+//! submission time. The scheduling class can: see [Submission priority] below.
+//! Supported `ViscaInquiry` derives implement this typed inquiry contract;
+//! downstream derives use the conservative inquiry retry class.
+//!
+//! ## Submission priority
+//!
+//! [`ControlClass`] names one of the owner's four scheduling lanes. The owner
+//! dispatches ready work from the highest occupied class first and FIFO within
+//! a class, so the class only decides which **queued** request is written next;
+//! it never interrupts, cancels, or reorders a request already on the wire.
+//!
+//! Every request classifies itself — ordinary control traffic is
+//! [`ControlClass::Normal`], direct movement is [`ControlClass::User`], and the
+//! typed stops and cancels are [`ControlClass::Urgent`] so an emergency stop
+//! preempts queued work with no extra ceremony. Two typed routes select a class
+//! explicitly:
+//!
+//! - Per handle: `set_command_class(Some(class))` on a camera view, its
+//!   single-camera session, or the dynamic projection. Every later submission
+//!   from *that handle* uses `class`, including the ones its noun accessors
+//!   make — except that an urgent request is never demoted.
+//! - Per submission: `execute_with_class`, `inquire_with_class`, and
+//!   `submit_with_class` (`submit_targeted_with_class` /
+//!   `submit_applied_with_class` on the dynamic projection). These replace both
+//!   the request's own class and the handle default for one submission, and
+//!   they are the only route that can demote an urgent stop.
+//!
+//! ```ignore
+//! use grafton_visca::ControlClass;
+//!
+//! // Keep a telemetry poller out of the operator's way.
+//! let mut poller = camera.clone();
+//! poller.set_command_class(Some(ControlClass::Background));
+//! let zoom = poller.zoom().position().await?;   // queued behind operator input
+//! poller.pan_tilt().stop().await?;              // still urgent
+//!
+//! // Raise one safety-interlock command without changing the handle.
+//! camera.execute_with_class(&command, ControlClass::Urgent).await?;
+//! ```
+//!
+//! [Submission priority]: #submission-priority
 //!
 //! Runtime-only camera models start with
 //! [`capabilities::Capabilities::runtime_baseline`] and must explicitly provide
