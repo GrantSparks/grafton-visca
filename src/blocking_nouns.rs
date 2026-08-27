@@ -14,21 +14,22 @@ use crate::{
     capabilities::{
         HasAutoFocusSensitivity, HasAutoTrackingWhiteBalance, HasAutoWhiteBalanceSensitivity,
         HasBacklightCompensation, HasBrightnessControl, HasColorTemperature, HasCombinedImageFlip,
-        HasContrastControl, HasDigitalZoomToggle, HasDirectMenuControl, HasDirectZoom, HasExposure,
-        HasExposureCompensation, HasFocus, HasFocusLock, HasFocusNearLimitInquiry, HasFocusZone,
-        HasGammaControl, HasHueControl, HasImageFlip, HasImageMirror, HasImageProcessing,
-        HasIrisControl, HasLuminanceControl, HasMenuControl, HasMotionSync, HasNdFilter,
-        HasNoiseReduction, HasNoiseReduction2D, HasNoiseReduction3D, HasOnePushFocus,
-        HasOnePushWhiteBalance, HasPanTilt, HasPictureEffect, HasPower, HasPresets,
-        HasPushAutoFocus, HasRgbGain, HasRgbTuning, HasSaturationControl, HasSharpnessControl,
-        HasTally, HasVariableSpeed, HasWhiteBalance, HasWideDynamicRange, HasZoom,
+        HasContrastControl, HasDigitalZoomRange, HasDigitalZoomToggle, HasDirectMenuControl,
+        HasDirectZoom, HasExposure, HasExposureCompensation, HasFocus, HasFocusLock,
+        HasFocusNearLimitInquiry, HasFocusZone, HasGammaControl, HasHueControl, HasImageFlip,
+        HasImageMirror, HasImageProcessing, HasIrisControl, HasLuminanceControl, HasMenuControl,
+        HasMotionSync, HasNdFilter, HasNoiseReduction, HasNoiseReduction2D, HasNoiseReduction3D,
+        HasOnePushFocus, HasOnePushWhiteBalance, HasPanTilt, HasPictureEffect, HasPower,
+        HasPresets, HasPushAutoFocus, HasRgbGain, HasRgbTuning, HasSaturationControl,
+        HasSharpnessControl, HasTally, HasVariableSpeed, HasWhiteBalance, HasWideDynamicRange,
+        HasZoom,
     },
     command,
     completion::{self, AppliedOnly, Targeted},
     request::builtin,
     types,
-    units::Degrees,
-    CompileTimeProfile, Inquiry, OperationCommand, PlainCommand, Result,
+    units::{Degrees, UnitInterval},
+    CompileTimeProfile, Inquiry, OperationCommand, PlainCommand, Result, ZoomDomain,
 };
 
 use super::{Camera, Operation};
@@ -299,6 +300,17 @@ impl<'view, 'session, P: CompileTimeProfile + HasMotionSync>
     pub fn set_preset(&self, speed: u8) -> Result<()> {
         execute(self.camera, &command::SetMotionSyncPreset::new(speed)?)
     }
+
+    /// Sets the motion-sync speed from a range-checked speed value.
+    ///
+    /// This is [`Self::set_preset`] with the `1..=24` bound moved into the
+    /// argument type, so an out-of-range speed cannot be constructed.
+    pub fn set_speed(&self, speed: types::MotionSyncSpeed) -> Result<()> {
+        execute(
+            self.camera,
+            &command::SetMotionSyncPreset::new(speed.value())?,
+        )
+    }
 }
 
 impl<'session, P: CompileTimeProfile> Camera<'session, P> {
@@ -317,8 +329,18 @@ impl<'view, 'session, P: CompileTimeProfile> MotionAccessor<'view, 'session, P> 
         self.camera.core().stop_all_motion()
     }
 
+    /// Reports whether any mechanical movement axis is moving.
+    ///
+    /// This samples [`AffectedAxes::MOVEMENT`] with the default tolerance; use
+    /// [`Self::is_moving_axes`] to pick the axes or the tolerance.
+    ///
+    /// [`AffectedAxes::MOVEMENT`]: crate::AffectedAxes::MOVEMENT
+    pub fn is_moving(&self) -> Result<bool> {
+        self.camera.core().is_moving(MotionQuery::default())
+    }
+
     /// Reports whether the selected physical axes are moving.
-    pub fn is_moving(&self, query: MotionQuery) -> Result<bool> {
+    pub fn is_moving_axes(&self, query: MotionQuery) -> Result<bool> {
         self.camera.core().is_moving(query)
     }
 
@@ -421,6 +443,39 @@ impl<'view, 'session, P: CompileTimeProfile> ZoomAccessor<'view, 'session, P> {
         submit(self.camera, &builtin::ZoomTarget::new(position))
     }
 
+    /// Moves to a normalized position across the optical zoom range.
+    ///
+    /// `0.0` is the wide end and `1.0` the telephoto end of the profile's
+    /// documented optical range.
+    pub fn set_normalized(&self, position: UnitInterval) -> Result<Operation<'session, Targeted>>
+    where
+        P: HasDirectZoom,
+    {
+        let command = builtin::ZoomTarget::from_normalized(
+            position,
+            ZoomDomain::Optical,
+            self.camera.profile(),
+        )?;
+        submit(self.camera, &command)
+    }
+
+    /// Moves to a normalized position across a documented zoom domain.
+    ///
+    /// [`ZoomDomain::OpticalPlusDigital`] requires the profile to document a
+    /// digital maximum and never falls back to the optical range.
+    pub fn set_normalized_in_domain(
+        &self,
+        position: UnitInterval,
+        domain: ZoomDomain,
+    ) -> Result<Operation<'session, Targeted>>
+    where
+        P: HasDirectZoom + HasDigitalZoomRange,
+    {
+        let command =
+            builtin::ZoomTarget::from_normalized(position, domain, self.camera.profile())?;
+        submit(self.camera, &command)
+    }
+
     /// Enables or disables digital zoom.
     pub fn set_digital_zoom(&self, enabled: bool) -> Result<()>
     where
@@ -467,6 +522,42 @@ impl<'view, 'session, P: CompileTimeProfile> PanTiltAccessor<'view, 'session, P>
     ) -> Result<Operation<'session, AppliedOnly>> {
         let command = builtin::PanTiltDrive::new(direction, pan_speed, tilt_speed)?;
         submit(self.camera, &command)
+    }
+
+    /// Starts an upward pan/tilt drive.
+    pub fn up(
+        &self,
+        pan_speed: types::PanSpeed,
+        tilt_speed: types::TiltSpeed,
+    ) -> Result<Operation<'session, AppliedOnly>> {
+        self.move_direction(command::PanTiltDirection::Up, pan_speed, tilt_speed)
+    }
+
+    /// Starts a downward pan/tilt drive.
+    pub fn down(
+        &self,
+        pan_speed: types::PanSpeed,
+        tilt_speed: types::TiltSpeed,
+    ) -> Result<Operation<'session, AppliedOnly>> {
+        self.move_direction(command::PanTiltDirection::Down, pan_speed, tilt_speed)
+    }
+
+    /// Starts a leftward pan/tilt drive.
+    pub fn left(
+        &self,
+        pan_speed: types::PanSpeed,
+        tilt_speed: types::TiltSpeed,
+    ) -> Result<Operation<'session, AppliedOnly>> {
+        self.move_direction(command::PanTiltDirection::Left, pan_speed, tilt_speed)
+    }
+
+    /// Starts a rightward pan/tilt drive.
+    pub fn right(
+        &self,
+        pan_speed: types::PanSpeed,
+        tilt_speed: types::TiltSpeed,
+    ) -> Result<Operation<'session, AppliedOnly>> {
+        self.move_direction(command::PanTiltDirection::Right, pan_speed, tilt_speed)
     }
 
     /// Stops pan/tilt movement with profile-safe stop speeds.
@@ -1623,6 +1714,17 @@ impl<'view, 'session, P: CompileTimeProfile> MenuAccessor<'view, 'session, P> {
             &command::DirectMenuControl::new(control1, control2),
         )
     }
+
+    /// Toggles the on-screen menu open or closed.
+    ///
+    /// This is the vendor open/close direct control, so it needs no prior
+    /// [`Self::status`] round trip to decide which way to move.
+    pub fn toggle_display(&self) -> Result<()>
+    where
+        P: HasDirectMenuControl,
+    {
+        execute(self.camera, &command::DirectMenuControl::open_close())
+    }
 }
 
 impl<'view, 'session, P: CompileTimeProfile> AdvancedAccessor<'view, 'session, P> {
@@ -1809,6 +1911,16 @@ impl<'view, 'session, P: CompileTimeProfile + HasNdFilter> NdFilterAccessor<'vie
     /// Sets a direct variable ND-filter value.
     pub fn set_value(&self, value: u16) -> Result<Operation<'session, Targeted>> {
         let value = command::NdFilterValue::new(value)?;
+        submit(self.camera, &builtin::NdFilterDirect::new(value))
+    }
+
+    /// Sets a direct variable ND-filter value in photographic stops.
+    ///
+    /// `stops` is the light reduction in stops and must lie in `2.0..=7.0`.
+    /// Each raw unit is a quarter stop, so `2.0` maps to the minimum density
+    /// and `7.0` to the maximum.
+    pub fn set_stops(&self, stops: f32) -> Result<Operation<'session, Targeted>> {
+        let value = command::NdFilterValue::from_stops(stops)?;
         submit(self.camera, &builtin::NdFilterDirect::new(value))
     }
 

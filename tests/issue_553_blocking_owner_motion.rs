@@ -178,7 +178,7 @@ fn blocking_owner_motion_surface_is_exact_and_deadline_bound() {
         .expect("camera");
     assert!(!camera
         .motion()
-        .is_moving(MotionQuery::new(AffectedAxes::ZOOM))
+        .is_moving_axes(MotionQuery::new(AffectedAxes::ZOOM))
         .expect("zoom motion query"));
     camera
         .motion()
@@ -204,7 +204,7 @@ fn blocking_owner_motion_surface_is_exact_and_deadline_bound() {
     assert!(matches!(
         camera
             .motion()
-            .is_moving(MotionQuery::new(AffectedAxes::ND_FILTER)),
+            .is_moving_axes(MotionQuery::new(AffectedAxes::ND_FILTER)),
         Err(Error::FeatureNotSupported { .. })
     ));
     assert!(matches!(

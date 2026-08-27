@@ -215,20 +215,20 @@ const EXPECTED_DYN_TRAITS: &[&str] = &[
 
 const EXPECTED_DYN_NOUN_METHOD_COUNTS: &[(&str, usize)] = &[
     ("DynPower", 3),
-    ("DynZoom", 8),
+    ("DynZoom", 10),
     ("DynSystem", 2),
-    ("DynPanTilt", 9),
+    ("DynPanTilt", 13),
     ("DynFocus", 24),
     ("DynPresets", 4),
     ("DynExposure", 43),
     ("DynWhiteBalance", 30),
     ("DynImage", 40),
     ("DynTally", 13),
-    ("DynNdFilter", 8),
-    ("DynMotionSync", 4),
-    ("DynMenu", 6),
+    ("DynNdFilter", 9),
+    ("DynMotionSync", 5),
+    ("DynMenu", 7),
     ("DynAdvanced", 15),
-    ("DynMotion", 3),
+    ("DynMotion", 4),
 ];
 
 fn public_trait_names(sources: &[&str]) -> Vec<String> {
@@ -436,7 +436,10 @@ fn dynamic_control_inventory_is_closed() {
     // Derived instead of matched against the constant's formatted source: the
     // declared projection sizes must add up to the methods the noun traits
     // actually carry.  Motion is a safety/observation view, not a projection
-    // of the command or inquiry ledgers.
+    // of the command or inquiry ledgers.  Every noun method is therefore one
+    // of exactly three things: a command row, a typed inquiry, or one of the
+    // declared non-ledger convenience wrappers, whose own membership is gated
+    // in `src/dynapi/nouns.rs`.
     let projected: usize = public_trait_names(&[nouns])
         .iter()
         .filter(|name| name.as_str() != "DynSessionCameraNouns" && name.as_str() != "DynMotion")
@@ -445,7 +448,8 @@ fn dynamic_control_inventory_is_closed() {
     assert_eq!(
         projected,
         declared_usize(nouns, "DYN_NOUN_TARGET_METHOD_COUNT")
-            + declared_usize(nouns, "DYN_NOUN_INQUIRY_METHOD_COUNT"),
+            + declared_usize(nouns, "DYN_NOUN_INQUIRY_METHOD_COUNT")
+            + declared_usize(nouns, "DYN_NOUN_CONVENIENCE_METHOD_COUNT"),
         "the dynamic noun traits drifted from the declared projection sizes"
     );
 }

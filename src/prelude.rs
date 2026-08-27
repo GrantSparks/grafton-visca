@@ -90,10 +90,10 @@ pub mod r#async {
         AdvancedAccessor, AutoWhiteBalanceSensitivity, Camera, Cancellation, Error,
         ExposureAccessor, ExposureMode, FocusAccessor, ImageAccessor, MenuAccessor, MotionAccessor,
         MotionSyncAccessor, NdFilterAccessor, NdFilterMode, Operation, OperationId,
-        PanTiltAccessor, PanTiltDirection, PanTiltLimitCorner, PowerAccessor, PresetNumber,
-        PresetsAccessor, ResolutionMode, Session, SessionConfig, StateCache, StateEntry, StateKey,
-        StateValue, SystemAccessor, TallyAccessor, WhiteBalanceAccessor, WhiteBalanceMode,
-        ZoomAccessor,
+        PanTiltAccessor, PanTiltDirection, PanTiltLimitCorner, PanTiltLimitUpdate, PowerAccessor,
+        PresetNumber, PresetsAccessor, ResolutionMode, Session, SessionConfig, StateCache,
+        StateEntry, StateKey, StateValue, SystemAccessor, TallyAccessor, WhiteBalanceAccessor,
+        WhiteBalanceMode, ZoomAccessor,
     };
     // High-level camera construction and configuration
     pub use crate::camera::{CameraConfig, IdleWait, MotionQuery};
@@ -135,8 +135,9 @@ pub mod blocking {
     // Common enums for camera settings
     pub use crate::{
         AutoWhiteBalanceSensitivity, Error, ExposureMode, MetricsSnapshot, MotionSyncMode,
-        NdFilterMode, PanTiltDirection, PanTiltLimitCorner, PresetNumber, ResolutionMode,
-        SessionStatus, StateCache, StateEntry, StateKey, StateValue, WhiteBalanceMode,
+        NdFilterMode, PanTiltDirection, PanTiltLimitCorner, PanTiltLimitUpdate, PresetNumber,
+        ResolutionMode, SessionStatus, StateCache, StateEntry, StateKey, StateValue,
+        WhiteBalanceMode,
     };
     // High-level owner-backed blocking session facade and camera view.
     pub use crate::blocking::{

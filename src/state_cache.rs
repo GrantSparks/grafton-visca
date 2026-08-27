@@ -51,6 +51,8 @@ pub enum StateKey {
     VariableSpeedMode,
     /// Vendor tally mode where the command has no corresponding inquiry.
     TallyMode,
+    /// Combined horizontal/vertical image-flip state.
+    Flip,
 }
 
 impl StateKey {
@@ -70,6 +72,7 @@ impl StateKey {
         Self::TallyBrightness,
         Self::VariableSpeedMode,
         Self::TallyMode,
+        Self::Flip,
     ];
 
     /// Returns every currently supported state key in stable order.
@@ -167,6 +170,254 @@ impl StateCache {
         };
         cache.entry(key)
     }
+
+    /// Reads one key that stores a single boolean discriminator as `1`/`0`.
+    fn boolean(&self, key: StateKey) -> Option<bool> {
+        match self.value(key) {
+            StateEntry::Set(value) => value.get(0).map(|flag| flag != 0),
+            StateEntry::Unknown | StateEntry::Clear(_) => None,
+        }
+    }
+
+    /// Reads one key that stores a single scalar discriminator.
+    fn scalar(&self, key: StateKey) -> Option<i64> {
+        match self.value(key) {
+            StateEntry::Set(value) => value.get(0),
+            StateEntry::Unknown | StateEntry::Clear(_) => None,
+        }
+    }
+
+    /// Returns the last known auto slow-shutter setting.
+    ///
+    /// [`StateKey::AutoSlowShutter`] stores `1` when the last applied
+    /// `exposure().auto_slow_shutter_on()` succeeded and `0` for the `_off`
+    /// twin. `None` means no such command has reached `Applied` on this target
+    /// in this session.
+    #[must_use]
+    pub fn auto_slow_shutter(&self) -> Option<bool> {
+        self.boolean(StateKey::AutoSlowShutter)
+    }
+
+    /// Returns the last known spotlight-compensation setting.
+    ///
+    /// [`StateKey::Spotlight`] stores `1` for `spotlight_on` and `0` for
+    /// `spotlight_off`.
+    #[must_use]
+    pub fn spotlight(&self) -> Option<bool> {
+        self.boolean(StateKey::Spotlight)
+    }
+
+    /// Returns the last known focus-lock setting.
+    ///
+    /// [`StateKey::FocusLockMode`] stores `1` for a locked focus and `0` for an
+    /// unlocked one.
+    #[must_use]
+    pub fn focus_lock(&self) -> Option<bool> {
+        self.boolean(StateKey::FocusLockMode)
+    }
+
+    /// Returns the last known image-freeze setting.
+    ///
+    /// [`StateKey::ImageFreeze`] stores `1` for a frozen frame and `0` for live
+    /// output.
+    #[must_use]
+    pub fn image_freeze(&self) -> Option<bool> {
+        self.boolean(StateKey::ImageFreeze)
+    }
+
+    /// Returns the last known digital-zoom enablement.
+    ///
+    /// [`StateKey::DigitalZoomMode`] stores `1` when digital zoom was enabled
+    /// and `0` when it was disabled.
+    #[must_use]
+    pub fn digital_zoom(&self) -> Option<bool> {
+        self.boolean(StateKey::DigitalZoomMode)
+    }
+
+    /// Returns the last known automatic ND-filter setting.
+    ///
+    /// [`StateKey::AutoNdFilter`] stores `1` for `auto_on` and `0` for
+    /// `auto_off`.
+    #[must_use]
+    pub fn auto_nd_filter(&self) -> Option<bool> {
+        self.boolean(StateKey::AutoNdFilter)
+    }
+
+    /// Returns the last known multicast-streaming enablement.
+    ///
+    /// [`StateKey::MulticastStreaming`] stores `1` for `multicast_on` and `0`
+    /// for `multicast_off`.
+    #[must_use]
+    pub fn multicast_streaming(&self) -> Option<bool> {
+        self.boolean(StateKey::MulticastStreaming)
+    }
+
+    /// Returns the last known vendor tally mode.
+    ///
+    /// [`StateKey::TallyMode`] stores `1` for tally on and `0` for tally off.
+    /// A tally *flash* command invalidates the key rather than setting it,
+    /// because the resulting steady-state mode is not determined by the
+    /// request, so this reports `None` after a flash.
+    #[must_use]
+    pub fn tally_mode(&self) -> Option<bool> {
+        self.boolean(StateKey::TallyMode)
+    }
+
+    /// Returns the last known preset recall speed in raw VISCA units.
+    ///
+    /// [`StateKey::PresetRecallSpeed`] stores the profile-validated speed
+    /// exactly as it was sent.
+    #[must_use]
+    pub fn preset_recall_speed(&self) -> Option<u8> {
+        u8::try_from(self.scalar(StateKey::PresetRecallSpeed)?).ok()
+    }
+
+    /// Returns the last known ND-filter selection mode.
+    ///
+    /// [`StateKey::NdFilterMode`] stores `0` for
+    /// [`NdFilterMode::Preset`](crate::command::NdFilterMode::Preset) and `1`
+    /// for [`NdFilterMode::Variable`](crate::command::NdFilterMode::Variable).
+    #[must_use]
+    pub fn nd_filter_mode(&self) -> Option<crate::command::NdFilterMode> {
+        match self.scalar(StateKey::NdFilterMode)? {
+            0 => Some(crate::command::NdFilterMode::Preset),
+            1 => Some(crate::command::NdFilterMode::Variable),
+            _ => None,
+        }
+    }
+
+    /// Returns the last known NDI streaming quality.
+    ///
+    /// [`StateKey::NdiQuality`] stores `1` for `High`, `2` for `Medium`, `3`
+    /// for `Low`, and `4` for `Off`.
+    #[must_use]
+    pub fn ndi_quality(&self) -> Option<crate::types::NdiQuality> {
+        match self.scalar(StateKey::NdiQuality)? {
+            1 => Some(crate::types::NdiQuality::High),
+            2 => Some(crate::types::NdiQuality::Medium),
+            3 => Some(crate::types::NdiQuality::Low),
+            4 => Some(crate::types::NdiQuality::Off),
+            _ => None,
+        }
+    }
+
+    /// Returns the last known pan/tilt variable-speed mode.
+    ///
+    /// [`StateKey::VariableSpeedMode`] stores `1` for
+    /// [`VariableSpeedMode::Standard24`](crate::command::VariableSpeedMode::Standard24)
+    /// and `2` for
+    /// [`VariableSpeedMode::Fine50`](crate::command::VariableSpeedMode::Fine50).
+    #[must_use]
+    pub fn variable_speed_mode(&self) -> Option<crate::command::VariableSpeedMode> {
+        match self.scalar(StateKey::VariableSpeedMode)? {
+            1 => Some(crate::command::VariableSpeedMode::Standard24),
+            2 => Some(crate::command::VariableSpeedMode::Fine50),
+            _ => None,
+        }
+    }
+
+    /// Returns whether the tally light was last set to its high brightness.
+    ///
+    /// [`StateKey::TallyBrightness`] stores `0` for the low setting and `1`
+    /// for the high one.
+    #[must_use]
+    pub fn tally_brightness_is_high(&self) -> Option<bool> {
+        match self.scalar(StateKey::TallyBrightness)? {
+            0 => Some(false),
+            1 => Some(true),
+            _ => None,
+        }
+    }
+
+    /// Returns the last known combined image-flip state.
+    ///
+    /// [`StateKey::Flip`] stores the horizontal axis in slot 0 and the vertical
+    /// axis in slot 1, both as `1`/`0`. Only the combined-flip opcode
+    /// (`image().set_flip_mode()` and `image().set_flip_both()`) establishes
+    /// both axes at once, so only those commands set the key. The single-axis
+    /// opcodes (`enable_flip`, `disable_flip`, `enable_horizontal_flip`) move
+    /// one axis without saying anything about the other and therefore
+    /// invalidate the key, which reads back as `None`.
+    #[must_use]
+    pub fn flip_state(&self) -> Option<crate::command::FlipState> {
+        let StateEntry::Set(value) = self.value(StateKey::Flip) else {
+            return None;
+        };
+        Some(crate::command::FlipState {
+            horizontal: value.get(0)? != 0,
+            vertical: value.get(1)? != 0,
+        })
+    }
+
+    /// Returns the last recorded pan/tilt movement-limit update.
+    ///
+    /// [`StateKey::PanTiltLimits`] stores the corner discriminator in slot 0
+    /// (`0x00` for [`PanTiltLimitCorner::DownLeft`], `0x03` for
+    /// [`PanTiltLimitCorner::UpRight`]). A `limit_set` additionally stores the
+    /// converted raw pan and tilt in slots 1 and 2; a `limit_clear` stores only
+    /// the corner.
+    ///
+    /// The owner keeps exactly one entry per key, so this reports the most
+    /// recent corner update rather than a merged two-corner rectangle: writing
+    /// the other corner replaces this value.
+    ///
+    /// [`PanTiltLimitCorner::DownLeft`]: crate::command::PanTiltLimitCorner::DownLeft
+    /// [`PanTiltLimitCorner::UpRight`]: crate::command::PanTiltLimitCorner::UpRight
+    #[must_use]
+    pub fn pan_tilt_limits(&self) -> Option<PanTiltLimitUpdate> {
+        let (value, cleared) = match self.value(StateKey::PanTiltLimits) {
+            StateEntry::Set(value) => (value, false),
+            StateEntry::Clear(value) => (value, true),
+            StateEntry::Unknown => return None,
+        };
+        let corner = match value.get(0)? {
+            0x00 => crate::command::PanTiltLimitCorner::DownLeft,
+            0x03 => crate::command::PanTiltLimitCorner::UpRight,
+            _ => return None,
+        };
+        if cleared {
+            return Some(PanTiltLimitUpdate {
+                corner,
+                position: None,
+            });
+        }
+        let pan = i16::try_from(value.get(1)?).ok()?;
+        let tilt = i16::try_from(value.get(2)?).ok()?;
+        Some(PanTiltLimitUpdate {
+            corner,
+            position: Some(crate::camera::PanTiltPosition::new(pan, tilt)),
+        })
+    }
+}
+
+/// The most recent pan/tilt movement-limit update recorded for one target.
+///
+/// The owner's state cache keeps one entry per [`StateKey`], so this describes
+/// the last corner that was written, not the full limit rectangle.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PanTiltLimitUpdate {
+    corner: crate::command::PanTiltLimitCorner,
+    position: Option<crate::camera::PanTiltPosition>,
+}
+
+impl PanTiltLimitUpdate {
+    /// Returns the corner this update applied to.
+    #[must_use]
+    pub const fn corner(self) -> crate::command::PanTiltLimitCorner {
+        self.corner
+    }
+
+    /// Returns the raw limit position, or `None` when the corner was cleared.
+    #[must_use]
+    pub const fn position(self) -> Option<crate::camera::PanTiltPosition> {
+        self.position
+    }
+
+    /// Returns whether this update cleared the corner.
+    #[must_use]
+    pub const fn is_cleared(self) -> bool {
+        self.position.is_none()
+    }
 }
 
 #[cfg(test)]
@@ -179,7 +430,7 @@ mod tests {
             .iter()
             .copied()
             .collect::<std::collections::BTreeSet<_>>();
-        assert_eq!(StateKey::ALL.len(), 14);
+        assert_eq!(StateKey::ALL.len(), 15);
         assert_eq!(unique.len(), StateKey::ALL.len());
     }
 }

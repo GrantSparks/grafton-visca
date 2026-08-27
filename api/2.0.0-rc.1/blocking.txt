@@ -33,6 +33,7 @@ pub struct grafton_visca::blocking::Camera<'session, P: grafton_visca::profile::
 impl<'session, P: grafton_visca::profile::CompileTimeProfile> grafton_visca::blocking::Camera<'session, P>
 pub fn grafton_visca::blocking::Camera<'session, P>::advanced(&self) -> grafton_visca::blocking::AdvancedAccessor<'_, 'session, P>
 impl<'session, P: grafton_visca::profile::CompileTimeProfile> grafton_visca::blocking::Camera<'session, P>
+pub const fn grafton_visca::blocking::Camera<'session, P>::capabilities(&self) -> &grafton_visca::capabilities::Capabilities
 pub fn grafton_visca::blocking::Camera<'session, P>::execute<C>(&self, &C) -> grafton_visca::Result<(), grafton_visca::Error> where C: grafton_visca::PlainCommand + ?core::marker::Sized
 pub fn grafton_visca::blocking::Camera<'session, P>::inquire<Q>(&self, &Q) -> grafton_visca::Result<<Q as grafton_visca::Inquiry>::Response, grafton_visca::Error> where Q: grafton_visca::Inquiry + ?core::marker::Sized
 pub const fn grafton_visca::blocking::Camera<'session, P>::profile(&self) -> &grafton_visca::profile::ProfileSpec
@@ -304,6 +305,7 @@ pub fn grafton_visca::blocking::MenuAccessor<'view, 'session, P>::display(&self,
 pub fn grafton_visca::blocking::MenuAccessor<'view, 'session, P>::navigate(&self, grafton_visca::command::MenuDirection) -> grafton_visca::Result<()>
 pub fn grafton_visca::blocking::MenuAccessor<'view, 'session, P>::select(&self) -> grafton_visca::Result<()>
 pub fn grafton_visca::blocking::MenuAccessor<'view, 'session, P>::status(&self) -> grafton_visca::Result<bool>
+pub fn grafton_visca::blocking::MenuAccessor<'view, 'session, P>::toggle_display(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::menu_control::HasDirectMenuControl
 impl<P: grafton_visca::profile::CompileTimeProfile> core::fmt::Debug for grafton_visca::blocking::MenuAccessor<'_, '_, P>
 pub fn grafton_visca::blocking::MenuAccessor<'_, '_, P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'view, 'session, P> core::marker::Freeze for grafton_visca::blocking::MenuAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Freeze
@@ -315,7 +317,8 @@ impl<'view, 'session, P> !core::panic::unwind_safe::RefUnwindSafe for grafton_vi
 impl<'view, 'session, P> !core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::MenuAccessor<'view, 'session, P>
 pub struct grafton_visca::blocking::MotionAccessor<'view, 'session, P: grafton_visca::profile::CompileTimeProfile>
 impl<'view, 'session, P: grafton_visca::profile::CompileTimeProfile> grafton_visca::blocking::MotionAccessor<'view, 'session, P>
-pub fn grafton_visca::blocking::MotionAccessor<'view, 'session, P>::is_moving(&self, grafton_visca::camera::MotionQuery) -> grafton_visca::Result<bool>
+pub fn grafton_visca::blocking::MotionAccessor<'view, 'session, P>::is_moving(&self) -> grafton_visca::Result<bool>
+pub fn grafton_visca::blocking::MotionAccessor<'view, 'session, P>::is_moving_axes(&self, grafton_visca::camera::MotionQuery) -> grafton_visca::Result<bool>
 pub fn grafton_visca::blocking::MotionAccessor<'view, 'session, P>::stop_all_motion(&self) -> grafton_visca::Result<()>
 pub fn grafton_visca::blocking::MotionAccessor<'view, 'session, P>::wait_until_idle(&self, grafton_visca::camera::IdleWait) -> grafton_visca::Result<()>
 impl<P: grafton_visca::profile::CompileTimeProfile> core::fmt::Debug for grafton_visca::blocking::MotionAccessor<'_, '_, P>
@@ -333,6 +336,7 @@ pub fn grafton_visca::blocking::MotionSyncAccessor<'view, 'session, P>::mode(&se
 pub fn grafton_visca::blocking::MotionSyncAccessor<'view, 'session, P>::preset(&self) -> grafton_visca::Result<grafton_visca::MotionSyncPreset>
 pub fn grafton_visca::blocking::MotionSyncAccessor<'view, 'session, P>::set_mode(&self, grafton_visca::MotionSyncMode) -> grafton_visca::Result<()>
 pub fn grafton_visca::blocking::MotionSyncAccessor<'view, 'session, P>::set_preset(&self, u8) -> grafton_visca::Result<()>
+pub fn grafton_visca::blocking::MotionSyncAccessor<'view, 'session, P>::set_speed(&self, grafton_visca::types::MotionSyncSpeed) -> grafton_visca::Result<()>
 impl<P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::HasMotionSync> core::fmt::Debug for grafton_visca::blocking::MotionSyncAccessor<'_, '_, P>
 pub fn grafton_visca::blocking::MotionSyncAccessor<'_, '_, P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'view, 'session, P> core::marker::Freeze for grafton_visca::blocking::MotionSyncAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Freeze
@@ -349,6 +353,7 @@ pub fn grafton_visca::blocking::NdFilterAccessor<'view, 'session, P>::auto_on(&s
 pub fn grafton_visca::blocking::NdFilterAccessor<'view, 'session, P>::position(&self) -> grafton_visca::Result<grafton_visca::NdFilterPosition>
 pub fn grafton_visca::blocking::NdFilterAccessor<'view, 'session, P>::preset(&self) -> grafton_visca::Result<grafton_visca::types::NdFilterPreset>
 pub fn grafton_visca::blocking::NdFilterAccessor<'view, 'session, P>::set_mode(&self, grafton_visca::command::NdFilterMode) -> grafton_visca::Result<()>
+pub fn grafton_visca::blocking::NdFilterAccessor<'view, 'session, P>::set_stops(&self, f32) -> grafton_visca::Result<grafton_visca::blocking::Operation<'session, grafton_visca::completion::Targeted>>
 pub fn grafton_visca::blocking::NdFilterAccessor<'view, 'session, P>::set_value(&self, u16) -> grafton_visca::Result<grafton_visca::blocking::Operation<'session, grafton_visca::completion::Targeted>>
 pub fn grafton_visca::blocking::NdFilterAccessor<'view, 'session, P>::step_down(&self) -> grafton_visca::Result<grafton_visca::blocking::Operation<'session, grafton_visca::completion::Targeted>>
 pub fn grafton_visca::blocking::NdFilterAccessor<'view, 'session, P>::step_up(&self) -> grafton_visca::Result<grafton_visca::blocking::Operation<'session, grafton_visca::completion::Targeted>>
@@ -413,14 +418,18 @@ impl core::panic::unwind_safe::UnwindSafe for grafton_visca::OperationId
 pub struct grafton_visca::blocking::PanTiltAccessor<'view, 'session, P: grafton_visca::profile::CompileTimeProfile>
 impl<'view, 'session, P: grafton_visca::profile::CompileTimeProfile> grafton_visca::blocking::PanTiltAccessor<'view, 'session, P>
 pub fn grafton_visca::blocking::PanTiltAccessor<'view, 'session, P>::absolute(&self, grafton_visca::units::Degrees<f32>, grafton_visca::units::Degrees<f32>, grafton_visca::types::SpeedLevel) -> grafton_visca::Result<grafton_visca::blocking::Operation<'session, grafton_visca::completion::Targeted>>
+pub fn grafton_visca::blocking::PanTiltAccessor<'view, 'session, P>::down(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::Result<grafton_visca::blocking::Operation<'session, grafton_visca::completion::AppliedOnly>>
 pub fn grafton_visca::blocking::PanTiltAccessor<'view, 'session, P>::home(&self) -> grafton_visca::Result<grafton_visca::blocking::Operation<'session, grafton_visca::completion::Targeted>>
+pub fn grafton_visca::blocking::PanTiltAccessor<'view, 'session, P>::left(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::Result<grafton_visca::blocking::Operation<'session, grafton_visca::completion::AppliedOnly>>
 pub fn grafton_visca::blocking::PanTiltAccessor<'view, 'session, P>::limit_clear(&self, grafton_visca::command::PanTiltLimitCorner) -> grafton_visca::Result<()>
 pub fn grafton_visca::blocking::PanTiltAccessor<'view, 'session, P>::limit_set(&self, grafton_visca::command::PanTiltLimitCorner, grafton_visca::units::Degrees<f32>, grafton_visca::units::Degrees<f32>) -> grafton_visca::Result<()>
 pub fn grafton_visca::blocking::PanTiltAccessor<'view, 'session, P>::move_direction(&self, grafton_visca::command::PanTiltDirection, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::Result<grafton_visca::blocking::Operation<'session, grafton_visca::completion::AppliedOnly>>
 pub fn grafton_visca::blocking::PanTiltAccessor<'view, 'session, P>::position(&self) -> grafton_visca::Result<grafton_visca::camera::PanTiltPosition>
 pub fn grafton_visca::blocking::PanTiltAccessor<'view, 'session, P>::relative(&self, grafton_visca::units::Degrees<f32>, grafton_visca::units::Degrees<f32>, grafton_visca::types::SpeedLevel) -> grafton_visca::Result<grafton_visca::blocking::Operation<'session, grafton_visca::completion::Targeted>>
 pub fn grafton_visca::blocking::PanTiltAccessor<'view, 'session, P>::reset(&self) -> grafton_visca::Result<grafton_visca::blocking::Operation<'session, grafton_visca::completion::Targeted>>
+pub fn grafton_visca::blocking::PanTiltAccessor<'view, 'session, P>::right(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::Result<grafton_visca::blocking::Operation<'session, grafton_visca::completion::AppliedOnly>>
 pub fn grafton_visca::blocking::PanTiltAccessor<'view, 'session, P>::stop(&self) -> grafton_visca::Result<grafton_visca::blocking::Operation<'session, grafton_visca::completion::AppliedOnly>>
+pub fn grafton_visca::blocking::PanTiltAccessor<'view, 'session, P>::up(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::Result<grafton_visca::blocking::Operation<'session, grafton_visca::completion::AppliedOnly>>
 impl<P: grafton_visca::profile::CompileTimeProfile> core::fmt::Debug for grafton_visca::blocking::PanTiltAccessor<'_, '_, P>
 pub fn grafton_visca::blocking::PanTiltAccessor<'_, '_, P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'view, 'session, P> core::marker::Freeze for grafton_visca::blocking::PanTiltAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Freeze
@@ -615,6 +624,8 @@ pub struct grafton_visca::blocking::ZoomAccessor<'view, 'session, P: grafton_vis
 impl<'view, 'session, P: grafton_visca::profile::CompileTimeProfile> grafton_visca::blocking::ZoomAccessor<'view, 'session, P>
 pub fn grafton_visca::blocking::ZoomAccessor<'view, 'session, P>::position(&self) -> grafton_visca::Result<grafton_visca::types::ZoomPosition>
 pub fn grafton_visca::blocking::ZoomAccessor<'view, 'session, P>::set_digital_zoom(&self, bool) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasDigitalZoomToggle
+pub fn grafton_visca::blocking::ZoomAccessor<'view, 'session, P>::set_normalized(&self, grafton_visca::units::UnitInterval) -> grafton_visca::Result<grafton_visca::blocking::Operation<'session, grafton_visca::completion::Targeted>> where P: grafton_visca::capabilities::HasDirectZoom
+pub fn grafton_visca::blocking::ZoomAccessor<'view, 'session, P>::set_normalized_in_domain(&self, grafton_visca::units::UnitInterval, grafton_visca::inquiry_conversions::ZoomDomain) -> grafton_visca::Result<grafton_visca::blocking::Operation<'session, grafton_visca::completion::Targeted>> where P: grafton_visca::capabilities::HasDirectZoom + grafton_visca::capabilities::HasDigitalZoomRange
 pub fn grafton_visca::blocking::ZoomAccessor<'view, 'session, P>::set_position(&self, grafton_visca::types::ZoomPosition) -> grafton_visca::Result<grafton_visca::blocking::Operation<'session, grafton_visca::completion::Targeted>> where P: grafton_visca::capabilities::HasDirectZoom
 pub fn grafton_visca::blocking::ZoomAccessor<'view, 'session, P>::stop(&self) -> grafton_visca::Result<grafton_visca::blocking::Operation<'session, grafton_visca::completion::AppliedOnly>>
 pub fn grafton_visca::blocking::ZoomAccessor<'view, 'session, P>::tele(&self) -> grafton_visca::Result<grafton_visca::blocking::Operation<'session, grafton_visca::completion::AppliedOnly>>
@@ -2221,14 +2232,24 @@ pub grafton_visca::camera::IdleWait::interval: core::time::Duration
 pub grafton_visca::camera::IdleWait::timeout: core::time::Duration
 pub grafton_visca::camera::IdleWait::tolerance: grafton_visca::camera::MovementTolerance
 impl grafton_visca::camera::IdleWait
+pub const fn grafton_visca::camera::IdleWait::for_focus() -> Self
+pub const fn grafton_visca::camera::IdleWait::for_pan_tilt() -> Self
+pub const fn grafton_visca::camera::IdleWait::for_preset_recall() -> Self
+pub const fn grafton_visca::camera::IdleWait::for_zoom() -> Self
 pub const fn grafton_visca::camera::IdleWait::new(grafton_visca::AffectedAxes, core::time::Duration) -> Self
+pub const fn grafton_visca::camera::IdleWait::with_axes(self, grafton_visca::AffectedAxes) -> Self
 pub const fn grafton_visca::camera::IdleWait::with_interval(self, core::time::Duration) -> Self
+pub const fn grafton_visca::camera::IdleWait::with_timeout(self, core::time::Duration) -> Self
 pub const fn grafton_visca::camera::IdleWait::with_tolerance(self, grafton_visca::camera::MovementTolerance) -> Self
 impl core::clone::Clone for grafton_visca::camera::IdleWait
 pub fn grafton_visca::camera::IdleWait::clone(&self) -> grafton_visca::camera::IdleWait
 impl core::cmp::Eq for grafton_visca::camera::IdleWait
 impl core::cmp::PartialEq for grafton_visca::camera::IdleWait
 pub fn grafton_visca::camera::IdleWait::eq(&self, &grafton_visca::camera::IdleWait) -> bool
+impl core::convert::From<core::time::Duration> for grafton_visca::camera::IdleWait
+pub fn grafton_visca::camera::IdleWait::from(core::time::Duration) -> Self
+impl core::default::Default for grafton_visca::camera::IdleWait
+pub fn grafton_visca::camera::IdleWait::default() -> Self
 impl core::fmt::Debug for grafton_visca::camera::IdleWait
 pub fn grafton_visca::camera::IdleWait::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for grafton_visca::camera::IdleWait
@@ -2251,6 +2272,10 @@ pub fn grafton_visca::camera::MotionQuery::clone(&self) -> grafton_visca::camera
 impl core::cmp::Eq for grafton_visca::camera::MotionQuery
 impl core::cmp::PartialEq for grafton_visca::camera::MotionQuery
 pub fn grafton_visca::camera::MotionQuery::eq(&self, &grafton_visca::camera::MotionQuery) -> bool
+impl core::convert::From<grafton_visca::AffectedAxes> for grafton_visca::camera::MotionQuery
+pub fn grafton_visca::camera::MotionQuery::from(grafton_visca::AffectedAxes) -> Self
+impl core::default::Default for grafton_visca::camera::MotionQuery
+pub fn grafton_visca::camera::MotionQuery::default() -> Self
 impl core::fmt::Debug for grafton_visca::camera::MotionQuery
 pub fn grafton_visca::camera::MotionQuery::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for grafton_visca::camera::MotionQuery
@@ -11916,6 +11941,7 @@ impl core::panic::unwind_safe::UnwindSafe for grafton_visca::state_cache::StateE
 pub grafton_visca::prelude::blocking::StateKey::AutoNdFilter
 pub grafton_visca::prelude::blocking::StateKey::AutoSlowShutter
 pub grafton_visca::prelude::blocking::StateKey::DigitalZoomMode
+pub grafton_visca::prelude::blocking::StateKey::Flip
 pub grafton_visca::prelude::blocking::StateKey::FocusLockMode
 pub grafton_visca::prelude::blocking::StateKey::ImageFreeze
 pub grafton_visca::prelude::blocking::StateKey::MulticastStreaming
@@ -12013,6 +12039,7 @@ pub struct grafton_visca::prelude::blocking::Camera<'session, P: grafton_visca::
 impl<'session, P: grafton_visca::profile::CompileTimeProfile> grafton_visca::blocking::Camera<'session, P>
 pub fn grafton_visca::blocking::Camera<'session, P>::advanced(&self) -> grafton_visca::blocking::AdvancedAccessor<'_, 'session, P>
 impl<'session, P: grafton_visca::profile::CompileTimeProfile> grafton_visca::blocking::Camera<'session, P>
+pub const fn grafton_visca::blocking::Camera<'session, P>::capabilities(&self) -> &grafton_visca::capabilities::Capabilities
 pub fn grafton_visca::blocking::Camera<'session, P>::execute<C>(&self, &C) -> grafton_visca::Result<(), grafton_visca::Error> where C: grafton_visca::PlainCommand + ?core::marker::Sized
 pub fn grafton_visca::blocking::Camera<'session, P>::inquire<Q>(&self, &Q) -> grafton_visca::Result<<Q as grafton_visca::Inquiry>::Response, grafton_visca::Error> where Q: grafton_visca::Inquiry + ?core::marker::Sized
 pub const fn grafton_visca::blocking::Camera<'session, P>::profile(&self) -> &grafton_visca::profile::ProfileSpec
@@ -12394,14 +12421,24 @@ pub grafton_visca::prelude::blocking::IdleWait::interval: core::time::Duration
 pub grafton_visca::prelude::blocking::IdleWait::timeout: core::time::Duration
 pub grafton_visca::prelude::blocking::IdleWait::tolerance: grafton_visca::camera::MovementTolerance
 impl grafton_visca::camera::IdleWait
+pub const fn grafton_visca::camera::IdleWait::for_focus() -> Self
+pub const fn grafton_visca::camera::IdleWait::for_pan_tilt() -> Self
+pub const fn grafton_visca::camera::IdleWait::for_preset_recall() -> Self
+pub const fn grafton_visca::camera::IdleWait::for_zoom() -> Self
 pub const fn grafton_visca::camera::IdleWait::new(grafton_visca::AffectedAxes, core::time::Duration) -> Self
+pub const fn grafton_visca::camera::IdleWait::with_axes(self, grafton_visca::AffectedAxes) -> Self
 pub const fn grafton_visca::camera::IdleWait::with_interval(self, core::time::Duration) -> Self
+pub const fn grafton_visca::camera::IdleWait::with_timeout(self, core::time::Duration) -> Self
 pub const fn grafton_visca::camera::IdleWait::with_tolerance(self, grafton_visca::camera::MovementTolerance) -> Self
 impl core::clone::Clone for grafton_visca::camera::IdleWait
 pub fn grafton_visca::camera::IdleWait::clone(&self) -> grafton_visca::camera::IdleWait
 impl core::cmp::Eq for grafton_visca::camera::IdleWait
 impl core::cmp::PartialEq for grafton_visca::camera::IdleWait
 pub fn grafton_visca::camera::IdleWait::eq(&self, &grafton_visca::camera::IdleWait) -> bool
+impl core::convert::From<core::time::Duration> for grafton_visca::camera::IdleWait
+pub fn grafton_visca::camera::IdleWait::from(core::time::Duration) -> Self
+impl core::default::Default for grafton_visca::camera::IdleWait
+pub fn grafton_visca::camera::IdleWait::default() -> Self
 impl core::fmt::Debug for grafton_visca::camera::IdleWait
 pub fn grafton_visca::camera::IdleWait::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for grafton_visca::camera::IdleWait
@@ -12508,6 +12545,7 @@ pub fn grafton_visca::blocking::MenuAccessor<'view, 'session, P>::display(&self,
 pub fn grafton_visca::blocking::MenuAccessor<'view, 'session, P>::navigate(&self, grafton_visca::command::MenuDirection) -> grafton_visca::Result<()>
 pub fn grafton_visca::blocking::MenuAccessor<'view, 'session, P>::select(&self) -> grafton_visca::Result<()>
 pub fn grafton_visca::blocking::MenuAccessor<'view, 'session, P>::status(&self) -> grafton_visca::Result<bool>
+pub fn grafton_visca::blocking::MenuAccessor<'view, 'session, P>::toggle_display(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::menu_control::HasDirectMenuControl
 impl<P: grafton_visca::profile::CompileTimeProfile> core::fmt::Debug for grafton_visca::blocking::MenuAccessor<'_, '_, P>
 pub fn grafton_visca::blocking::MenuAccessor<'_, '_, P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'view, 'session, P> core::marker::Freeze for grafton_visca::blocking::MenuAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Freeze
@@ -12553,7 +12591,8 @@ impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::observability::M
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::observability::MetricsSnapshot
 pub struct grafton_visca::prelude::blocking::MotionAccessor<'view, 'session, P: grafton_visca::profile::CompileTimeProfile>
 impl<'view, 'session, P: grafton_visca::profile::CompileTimeProfile> grafton_visca::blocking::MotionAccessor<'view, 'session, P>
-pub fn grafton_visca::blocking::MotionAccessor<'view, 'session, P>::is_moving(&self, grafton_visca::camera::MotionQuery) -> grafton_visca::Result<bool>
+pub fn grafton_visca::blocking::MotionAccessor<'view, 'session, P>::is_moving(&self) -> grafton_visca::Result<bool>
+pub fn grafton_visca::blocking::MotionAccessor<'view, 'session, P>::is_moving_axes(&self, grafton_visca::camera::MotionQuery) -> grafton_visca::Result<bool>
 pub fn grafton_visca::blocking::MotionAccessor<'view, 'session, P>::stop_all_motion(&self) -> grafton_visca::Result<()>
 pub fn grafton_visca::blocking::MotionAccessor<'view, 'session, P>::wait_until_idle(&self, grafton_visca::camera::IdleWait) -> grafton_visca::Result<()>
 impl<P: grafton_visca::profile::CompileTimeProfile> core::fmt::Debug for grafton_visca::blocking::MotionAccessor<'_, '_, P>
@@ -12576,6 +12615,10 @@ pub fn grafton_visca::camera::MotionQuery::clone(&self) -> grafton_visca::camera
 impl core::cmp::Eq for grafton_visca::camera::MotionQuery
 impl core::cmp::PartialEq for grafton_visca::camera::MotionQuery
 pub fn grafton_visca::camera::MotionQuery::eq(&self, &grafton_visca::camera::MotionQuery) -> bool
+impl core::convert::From<grafton_visca::AffectedAxes> for grafton_visca::camera::MotionQuery
+pub fn grafton_visca::camera::MotionQuery::from(grafton_visca::AffectedAxes) -> Self
+impl core::default::Default for grafton_visca::camera::MotionQuery
+pub fn grafton_visca::camera::MotionQuery::default() -> Self
 impl core::fmt::Debug for grafton_visca::camera::MotionQuery
 pub fn grafton_visca::camera::MotionQuery::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for grafton_visca::camera::MotionQuery
@@ -12593,6 +12636,7 @@ pub fn grafton_visca::blocking::MotionSyncAccessor<'view, 'session, P>::mode(&se
 pub fn grafton_visca::blocking::MotionSyncAccessor<'view, 'session, P>::preset(&self) -> grafton_visca::Result<grafton_visca::MotionSyncPreset>
 pub fn grafton_visca::blocking::MotionSyncAccessor<'view, 'session, P>::set_mode(&self, grafton_visca::MotionSyncMode) -> grafton_visca::Result<()>
 pub fn grafton_visca::blocking::MotionSyncAccessor<'view, 'session, P>::set_preset(&self, u8) -> grafton_visca::Result<()>
+pub fn grafton_visca::blocking::MotionSyncAccessor<'view, 'session, P>::set_speed(&self, grafton_visca::types::MotionSyncSpeed) -> grafton_visca::Result<()>
 impl<P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::HasMotionSync> core::fmt::Debug for grafton_visca::blocking::MotionSyncAccessor<'_, '_, P>
 pub fn grafton_visca::blocking::MotionSyncAccessor<'_, '_, P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'view, 'session, P> core::marker::Freeze for grafton_visca::blocking::MotionSyncAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Freeze
@@ -12609,6 +12653,7 @@ pub fn grafton_visca::blocking::NdFilterAccessor<'view, 'session, P>::auto_on(&s
 pub fn grafton_visca::blocking::NdFilterAccessor<'view, 'session, P>::position(&self) -> grafton_visca::Result<grafton_visca::NdFilterPosition>
 pub fn grafton_visca::blocking::NdFilterAccessor<'view, 'session, P>::preset(&self) -> grafton_visca::Result<grafton_visca::types::NdFilterPreset>
 pub fn grafton_visca::blocking::NdFilterAccessor<'view, 'session, P>::set_mode(&self, grafton_visca::command::NdFilterMode) -> grafton_visca::Result<()>
+pub fn grafton_visca::blocking::NdFilterAccessor<'view, 'session, P>::set_stops(&self, f32) -> grafton_visca::Result<grafton_visca::blocking::Operation<'session, grafton_visca::completion::Targeted>>
 pub fn grafton_visca::blocking::NdFilterAccessor<'view, 'session, P>::set_value(&self, u16) -> grafton_visca::Result<grafton_visca::blocking::Operation<'session, grafton_visca::completion::Targeted>>
 pub fn grafton_visca::blocking::NdFilterAccessor<'view, 'session, P>::step_down(&self) -> grafton_visca::Result<grafton_visca::blocking::Operation<'session, grafton_visca::completion::Targeted>>
 pub fn grafton_visca::blocking::NdFilterAccessor<'view, 'session, P>::step_up(&self) -> grafton_visca::Result<grafton_visca::blocking::Operation<'session, grafton_visca::completion::Targeted>>
@@ -12852,14 +12897,18 @@ impl core::panic::unwind_safe::UnwindSafe for grafton_visca::types::PanSpeed
 pub struct grafton_visca::prelude::blocking::PanTiltAccessor<'view, 'session, P: grafton_visca::profile::CompileTimeProfile>
 impl<'view, 'session, P: grafton_visca::profile::CompileTimeProfile> grafton_visca::blocking::PanTiltAccessor<'view, 'session, P>
 pub fn grafton_visca::blocking::PanTiltAccessor<'view, 'session, P>::absolute(&self, grafton_visca::units::Degrees<f32>, grafton_visca::units::Degrees<f32>, grafton_visca::types::SpeedLevel) -> grafton_visca::Result<grafton_visca::blocking::Operation<'session, grafton_visca::completion::Targeted>>
+pub fn grafton_visca::blocking::PanTiltAccessor<'view, 'session, P>::down(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::Result<grafton_visca::blocking::Operation<'session, grafton_visca::completion::AppliedOnly>>
 pub fn grafton_visca::blocking::PanTiltAccessor<'view, 'session, P>::home(&self) -> grafton_visca::Result<grafton_visca::blocking::Operation<'session, grafton_visca::completion::Targeted>>
+pub fn grafton_visca::blocking::PanTiltAccessor<'view, 'session, P>::left(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::Result<grafton_visca::blocking::Operation<'session, grafton_visca::completion::AppliedOnly>>
 pub fn grafton_visca::blocking::PanTiltAccessor<'view, 'session, P>::limit_clear(&self, grafton_visca::command::PanTiltLimitCorner) -> grafton_visca::Result<()>
 pub fn grafton_visca::blocking::PanTiltAccessor<'view, 'session, P>::limit_set(&self, grafton_visca::command::PanTiltLimitCorner, grafton_visca::units::Degrees<f32>, grafton_visca::units::Degrees<f32>) -> grafton_visca::Result<()>
 pub fn grafton_visca::blocking::PanTiltAccessor<'view, 'session, P>::move_direction(&self, grafton_visca::command::PanTiltDirection, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::Result<grafton_visca::blocking::Operation<'session, grafton_visca::completion::AppliedOnly>>
 pub fn grafton_visca::blocking::PanTiltAccessor<'view, 'session, P>::position(&self) -> grafton_visca::Result<grafton_visca::camera::PanTiltPosition>
 pub fn grafton_visca::blocking::PanTiltAccessor<'view, 'session, P>::relative(&self, grafton_visca::units::Degrees<f32>, grafton_visca::units::Degrees<f32>, grafton_visca::types::SpeedLevel) -> grafton_visca::Result<grafton_visca::blocking::Operation<'session, grafton_visca::completion::Targeted>>
 pub fn grafton_visca::blocking::PanTiltAccessor<'view, 'session, P>::reset(&self) -> grafton_visca::Result<grafton_visca::blocking::Operation<'session, grafton_visca::completion::Targeted>>
+pub fn grafton_visca::blocking::PanTiltAccessor<'view, 'session, P>::right(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::Result<grafton_visca::blocking::Operation<'session, grafton_visca::completion::AppliedOnly>>
 pub fn grafton_visca::blocking::PanTiltAccessor<'view, 'session, P>::stop(&self) -> grafton_visca::Result<grafton_visca::blocking::Operation<'session, grafton_visca::completion::AppliedOnly>>
+pub fn grafton_visca::blocking::PanTiltAccessor<'view, 'session, P>::up(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::Result<grafton_visca::blocking::Operation<'session, grafton_visca::completion::AppliedOnly>>
 impl<P: grafton_visca::profile::CompileTimeProfile> core::fmt::Debug for grafton_visca::blocking::PanTiltAccessor<'_, '_, P>
 pub fn grafton_visca::blocking::PanTiltAccessor<'_, '_, P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'view, 'session, P> core::marker::Freeze for grafton_visca::blocking::PanTiltAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Freeze
@@ -12869,6 +12918,27 @@ impl<'view, 'session, P> core::marker::Unpin for grafton_visca::blocking::PanTil
 impl<'view, 'session, P> core::marker::UnsafeUnpin for grafton_visca::blocking::PanTiltAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::UnsafeUnpin
 impl<'view, 'session, P> !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::PanTiltAccessor<'view, 'session, P>
 impl<'view, 'session, P> !core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::PanTiltAccessor<'view, 'session, P>
+pub struct grafton_visca::prelude::blocking::PanTiltLimitUpdate
+impl grafton_visca::state_cache::PanTiltLimitUpdate
+pub const fn grafton_visca::state_cache::PanTiltLimitUpdate::corner(self) -> grafton_visca::command::PanTiltLimitCorner
+pub const fn grafton_visca::state_cache::PanTiltLimitUpdate::is_cleared(self) -> bool
+pub const fn grafton_visca::state_cache::PanTiltLimitUpdate::position(self) -> core::option::Option<grafton_visca::camera::PanTiltPosition>
+impl core::clone::Clone for grafton_visca::state_cache::PanTiltLimitUpdate
+pub fn grafton_visca::state_cache::PanTiltLimitUpdate::clone(&self) -> grafton_visca::state_cache::PanTiltLimitUpdate
+impl core::cmp::Eq for grafton_visca::state_cache::PanTiltLimitUpdate
+impl core::cmp::PartialEq for grafton_visca::state_cache::PanTiltLimitUpdate
+pub fn grafton_visca::state_cache::PanTiltLimitUpdate::eq(&self, &grafton_visca::state_cache::PanTiltLimitUpdate) -> bool
+impl core::fmt::Debug for grafton_visca::state_cache::PanTiltLimitUpdate
+pub fn grafton_visca::state_cache::PanTiltLimitUpdate::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for grafton_visca::state_cache::PanTiltLimitUpdate
+impl core::marker::StructuralPartialEq for grafton_visca::state_cache::PanTiltLimitUpdate
+impl core::marker::Freeze for grafton_visca::state_cache::PanTiltLimitUpdate
+impl core::marker::Send for grafton_visca::state_cache::PanTiltLimitUpdate
+impl core::marker::Sync for grafton_visca::state_cache::PanTiltLimitUpdate
+impl core::marker::Unpin for grafton_visca::state_cache::PanTiltLimitUpdate
+impl core::marker::UnsafeUnpin for grafton_visca::state_cache::PanTiltLimitUpdate
+impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::state_cache::PanTiltLimitUpdate
+impl core::panic::unwind_safe::UnwindSafe for grafton_visca::state_cache::PanTiltLimitUpdate
 pub struct grafton_visca::prelude::blocking::Percentage<T>(pub T)
 impl<T> grafton_visca::units::Percentage<T>
 pub fn grafton_visca::units::Percentage<T>::into_inner(self) -> T
@@ -14180,8 +14250,23 @@ impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::camera::profiles
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::camera::profiles::SonyFR7
 pub struct grafton_visca::prelude::blocking::StateCache
 impl grafton_visca::state_cache::StateCache
+pub fn grafton_visca::state_cache::StateCache::auto_nd_filter(&self) -> core::option::Option<bool>
+pub fn grafton_visca::state_cache::StateCache::auto_slow_shutter(&self) -> core::option::Option<bool>
+pub fn grafton_visca::state_cache::StateCache::digital_zoom(&self) -> core::option::Option<bool>
+pub fn grafton_visca::state_cache::StateCache::flip_state(&self) -> core::option::Option<grafton_visca::command::FlipState>
+pub fn grafton_visca::state_cache::StateCache::focus_lock(&self) -> core::option::Option<bool>
+pub fn grafton_visca::state_cache::StateCache::image_freeze(&self) -> core::option::Option<bool>
+pub fn grafton_visca::state_cache::StateCache::multicast_streaming(&self) -> core::option::Option<bool>
+pub fn grafton_visca::state_cache::StateCache::nd_filter_mode(&self) -> core::option::Option<grafton_visca::command::NdFilterMode>
+pub fn grafton_visca::state_cache::StateCache::ndi_quality(&self) -> core::option::Option<grafton_visca::types::NdiQuality>
+pub fn grafton_visca::state_cache::StateCache::pan_tilt_limits(&self) -> core::option::Option<grafton_visca::state_cache::PanTiltLimitUpdate>
+pub fn grafton_visca::state_cache::StateCache::preset_recall_speed(&self) -> core::option::Option<u8>
+pub fn grafton_visca::state_cache::StateCache::spotlight(&self) -> core::option::Option<bool>
+pub fn grafton_visca::state_cache::StateCache::tally_brightness_is_high(&self) -> core::option::Option<bool>
+pub fn grafton_visca::state_cache::StateCache::tally_mode(&self) -> core::option::Option<bool>
 pub const fn grafton_visca::state_cache::StateCache::target(&self) -> grafton_visca::CameraId
 pub fn grafton_visca::state_cache::StateCache::value(&self, grafton_visca::state_cache::StateKey) -> grafton_visca::state_cache::StateEntry
+pub fn grafton_visca::state_cache::StateCache::variable_speed_mode(&self) -> core::option::Option<grafton_visca::command::VariableSpeedMode>
 impl core::clone::Clone for grafton_visca::state_cache::StateCache
 pub fn grafton_visca::state_cache::StateCache::clone(&self) -> grafton_visca::state_cache::StateCache
 impl core::fmt::Debug for grafton_visca::state_cache::StateCache
@@ -14399,6 +14484,8 @@ pub struct grafton_visca::prelude::blocking::ZoomAccessor<'view, 'session, P: gr
 impl<'view, 'session, P: grafton_visca::profile::CompileTimeProfile> grafton_visca::blocking::ZoomAccessor<'view, 'session, P>
 pub fn grafton_visca::blocking::ZoomAccessor<'view, 'session, P>::position(&self) -> grafton_visca::Result<grafton_visca::types::ZoomPosition>
 pub fn grafton_visca::blocking::ZoomAccessor<'view, 'session, P>::set_digital_zoom(&self, bool) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasDigitalZoomToggle
+pub fn grafton_visca::blocking::ZoomAccessor<'view, 'session, P>::set_normalized(&self, grafton_visca::units::UnitInterval) -> grafton_visca::Result<grafton_visca::blocking::Operation<'session, grafton_visca::completion::Targeted>> where P: grafton_visca::capabilities::HasDirectZoom
+pub fn grafton_visca::blocking::ZoomAccessor<'view, 'session, P>::set_normalized_in_domain(&self, grafton_visca::units::UnitInterval, grafton_visca::inquiry_conversions::ZoomDomain) -> grafton_visca::Result<grafton_visca::blocking::Operation<'session, grafton_visca::completion::Targeted>> where P: grafton_visca::capabilities::HasDirectZoom + grafton_visca::capabilities::HasDigitalZoomRange
 pub fn grafton_visca::blocking::ZoomAccessor<'view, 'session, P>::set_position(&self, grafton_visca::types::ZoomPosition) -> grafton_visca::Result<grafton_visca::blocking::Operation<'session, grafton_visca::completion::Targeted>> where P: grafton_visca::capabilities::HasDirectZoom
 pub fn grafton_visca::blocking::ZoomAccessor<'view, 'session, P>::stop(&self) -> grafton_visca::Result<grafton_visca::blocking::Operation<'session, grafton_visca::completion::AppliedOnly>>
 pub fn grafton_visca::blocking::ZoomAccessor<'view, 'session, P>::tele(&self) -> grafton_visca::Result<grafton_visca::blocking::Operation<'session, grafton_visca::completion::AppliedOnly>>
@@ -16242,9 +16329,12 @@ impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::TimeoutClass
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::TimeoutClass
 pub struct grafton_visca::raw::AffectedAxes(_)
 impl grafton_visca::AffectedAxes
+pub const grafton_visca::AffectedAxes::ALL: Self
 pub const grafton_visca::AffectedAxes::FOCUS: Self
 pub const grafton_visca::AffectedAxes::IRIS: Self
+pub const grafton_visca::AffectedAxes::MOVEMENT: Self
 pub const grafton_visca::AffectedAxes::ND_FILTER: Self
+pub const grafton_visca::AffectedAxes::NONE: Self
 pub const grafton_visca::AffectedAxes::PAN_TILT: Self
 pub const grafton_visca::AffectedAxes::ZOOM: Self
 pub const fn grafton_visca::AffectedAxes::bits(self) -> u8
@@ -16263,6 +16353,8 @@ pub fn grafton_visca::AffectedAxes::clone(&self) -> grafton_visca::AffectedAxes
 impl core::cmp::Eq for grafton_visca::AffectedAxes
 impl core::cmp::PartialEq for grafton_visca::AffectedAxes
 pub fn grafton_visca::AffectedAxes::eq(&self, &grafton_visca::AffectedAxes) -> bool
+impl core::convert::From<grafton_visca::AffectedAxes> for grafton_visca::camera::MotionQuery
+pub fn grafton_visca::camera::MotionQuery::from(grafton_visca::AffectedAxes) -> Self
 impl core::convert::From<grafton_visca::AffectedAxes> for u8
 pub fn u8::from(grafton_visca::AffectedAxes) -> Self
 impl core::convert::TryFrom<u8> for grafton_visca::AffectedAxes
@@ -16274,6 +16366,14 @@ impl core::hash::Hash for grafton_visca::AffectedAxes
 pub fn grafton_visca::AffectedAxes::hash<__H: core::hash::Hasher>(&self, &mut __H)
 impl core::marker::Copy for grafton_visca::AffectedAxes
 impl core::marker::StructuralPartialEq for grafton_visca::AffectedAxes
+impl core::ops::bit::BitAnd for grafton_visca::AffectedAxes
+pub type grafton_visca::AffectedAxes::Output = grafton_visca::AffectedAxes
+pub fn grafton_visca::AffectedAxes::bitand(self, Self) -> Self
+impl core::ops::bit::BitOr for grafton_visca::AffectedAxes
+pub type grafton_visca::AffectedAxes::Output = grafton_visca::AffectedAxes
+pub fn grafton_visca::AffectedAxes::bitor(self, Self) -> Self
+impl core::ops::bit::BitOrAssign for grafton_visca::AffectedAxes
+pub fn grafton_visca::AffectedAxes::bitor_assign(&mut self, Self)
 impl core::marker::Freeze for grafton_visca::AffectedAxes
 impl core::marker::Send for grafton_visca::AffectedAxes
 impl core::marker::Sync for grafton_visca::AffectedAxes
@@ -17663,6 +17763,7 @@ impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::request::builtin
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::request::builtin::ZoomStop
 pub struct grafton_visca::request::builtin::ZoomTarget(_)
 impl grafton_visca::request::builtin::ZoomTarget
+pub fn grafton_visca::request::builtin::ZoomTarget::from_normalized(grafton_visca::units::UnitInterval, grafton_visca::inquiry_conversions::ZoomDomain, &grafton_visca::profile::ProfileSpec) -> core::result::Result<Self, grafton_visca::Error>
 pub const fn grafton_visca::request::builtin::ZoomTarget::new(grafton_visca::types::ZoomPosition) -> Self
 impl core::clone::Clone for grafton_visca::request::builtin::ZoomTarget
 pub fn grafton_visca::request::builtin::ZoomTarget::clone(&self) -> grafton_visca::request::builtin::ZoomTarget
@@ -17792,6 +17893,7 @@ impl core::panic::unwind_safe::UnwindSafe for grafton_visca::state_cache::StateE
 pub grafton_visca::state_cache::StateKey::AutoNdFilter
 pub grafton_visca::state_cache::StateKey::AutoSlowShutter
 pub grafton_visca::state_cache::StateKey::DigitalZoomMode
+pub grafton_visca::state_cache::StateKey::Flip
 pub grafton_visca::state_cache::StateKey::FocusLockMode
 pub grafton_visca::state_cache::StateKey::ImageFreeze
 pub grafton_visca::state_cache::StateKey::MulticastStreaming
@@ -17828,10 +17930,46 @@ impl core::marker::Unpin for grafton_visca::state_cache::StateKey
 impl core::marker::UnsafeUnpin for grafton_visca::state_cache::StateKey
 impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::state_cache::StateKey
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::state_cache::StateKey
+pub struct grafton_visca::state_cache::PanTiltLimitUpdate
+impl grafton_visca::state_cache::PanTiltLimitUpdate
+pub const fn grafton_visca::state_cache::PanTiltLimitUpdate::corner(self) -> grafton_visca::command::PanTiltLimitCorner
+pub const fn grafton_visca::state_cache::PanTiltLimitUpdate::is_cleared(self) -> bool
+pub const fn grafton_visca::state_cache::PanTiltLimitUpdate::position(self) -> core::option::Option<grafton_visca::camera::PanTiltPosition>
+impl core::clone::Clone for grafton_visca::state_cache::PanTiltLimitUpdate
+pub fn grafton_visca::state_cache::PanTiltLimitUpdate::clone(&self) -> grafton_visca::state_cache::PanTiltLimitUpdate
+impl core::cmp::Eq for grafton_visca::state_cache::PanTiltLimitUpdate
+impl core::cmp::PartialEq for grafton_visca::state_cache::PanTiltLimitUpdate
+pub fn grafton_visca::state_cache::PanTiltLimitUpdate::eq(&self, &grafton_visca::state_cache::PanTiltLimitUpdate) -> bool
+impl core::fmt::Debug for grafton_visca::state_cache::PanTiltLimitUpdate
+pub fn grafton_visca::state_cache::PanTiltLimitUpdate::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for grafton_visca::state_cache::PanTiltLimitUpdate
+impl core::marker::StructuralPartialEq for grafton_visca::state_cache::PanTiltLimitUpdate
+impl core::marker::Freeze for grafton_visca::state_cache::PanTiltLimitUpdate
+impl core::marker::Send for grafton_visca::state_cache::PanTiltLimitUpdate
+impl core::marker::Sync for grafton_visca::state_cache::PanTiltLimitUpdate
+impl core::marker::Unpin for grafton_visca::state_cache::PanTiltLimitUpdate
+impl core::marker::UnsafeUnpin for grafton_visca::state_cache::PanTiltLimitUpdate
+impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::state_cache::PanTiltLimitUpdate
+impl core::panic::unwind_safe::UnwindSafe for grafton_visca::state_cache::PanTiltLimitUpdate
 pub struct grafton_visca::state_cache::StateCache
 impl grafton_visca::state_cache::StateCache
+pub fn grafton_visca::state_cache::StateCache::auto_nd_filter(&self) -> core::option::Option<bool>
+pub fn grafton_visca::state_cache::StateCache::auto_slow_shutter(&self) -> core::option::Option<bool>
+pub fn grafton_visca::state_cache::StateCache::digital_zoom(&self) -> core::option::Option<bool>
+pub fn grafton_visca::state_cache::StateCache::flip_state(&self) -> core::option::Option<grafton_visca::command::FlipState>
+pub fn grafton_visca::state_cache::StateCache::focus_lock(&self) -> core::option::Option<bool>
+pub fn grafton_visca::state_cache::StateCache::image_freeze(&self) -> core::option::Option<bool>
+pub fn grafton_visca::state_cache::StateCache::multicast_streaming(&self) -> core::option::Option<bool>
+pub fn grafton_visca::state_cache::StateCache::nd_filter_mode(&self) -> core::option::Option<grafton_visca::command::NdFilterMode>
+pub fn grafton_visca::state_cache::StateCache::ndi_quality(&self) -> core::option::Option<grafton_visca::types::NdiQuality>
+pub fn grafton_visca::state_cache::StateCache::pan_tilt_limits(&self) -> core::option::Option<grafton_visca::state_cache::PanTiltLimitUpdate>
+pub fn grafton_visca::state_cache::StateCache::preset_recall_speed(&self) -> core::option::Option<u8>
+pub fn grafton_visca::state_cache::StateCache::spotlight(&self) -> core::option::Option<bool>
+pub fn grafton_visca::state_cache::StateCache::tally_brightness_is_high(&self) -> core::option::Option<bool>
+pub fn grafton_visca::state_cache::StateCache::tally_mode(&self) -> core::option::Option<bool>
 pub const fn grafton_visca::state_cache::StateCache::target(&self) -> grafton_visca::CameraId
 pub fn grafton_visca::state_cache::StateCache::value(&self, grafton_visca::state_cache::StateKey) -> grafton_visca::state_cache::StateEntry
+pub fn grafton_visca::state_cache::StateCache::variable_speed_mode(&self) -> core::option::Option<grafton_visca::command::VariableSpeedMode>
 impl core::clone::Clone for grafton_visca::state_cache::StateCache
 pub fn grafton_visca::state_cache::StateCache::clone(&self) -> grafton_visca::state_cache::StateCache
 impl core::fmt::Debug for grafton_visca::state_cache::StateCache
@@ -20780,6 +20918,7 @@ impl core::panic::unwind_safe::UnwindSafe for grafton_visca::state_cache::StateE
 pub grafton_visca::StateKey::AutoNdFilter
 pub grafton_visca::StateKey::AutoSlowShutter
 pub grafton_visca::StateKey::DigitalZoomMode
+pub grafton_visca::StateKey::Flip
 pub grafton_visca::StateKey::FocusLockMode
 pub grafton_visca::StateKey::ImageFreeze
 pub grafton_visca::StateKey::MulticastStreaming
@@ -20926,9 +21065,12 @@ impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::inquiry_conversi
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::inquiry_conversions::ZoomDomain
 pub struct grafton_visca::AffectedAxes(_)
 impl grafton_visca::AffectedAxes
+pub const grafton_visca::AffectedAxes::ALL: Self
 pub const grafton_visca::AffectedAxes::FOCUS: Self
 pub const grafton_visca::AffectedAxes::IRIS: Self
+pub const grafton_visca::AffectedAxes::MOVEMENT: Self
 pub const grafton_visca::AffectedAxes::ND_FILTER: Self
+pub const grafton_visca::AffectedAxes::NONE: Self
 pub const grafton_visca::AffectedAxes::PAN_TILT: Self
 pub const grafton_visca::AffectedAxes::ZOOM: Self
 pub const fn grafton_visca::AffectedAxes::bits(self) -> u8
@@ -20947,6 +21089,8 @@ pub fn grafton_visca::AffectedAxes::clone(&self) -> grafton_visca::AffectedAxes
 impl core::cmp::Eq for grafton_visca::AffectedAxes
 impl core::cmp::PartialEq for grafton_visca::AffectedAxes
 pub fn grafton_visca::AffectedAxes::eq(&self, &grafton_visca::AffectedAxes) -> bool
+impl core::convert::From<grafton_visca::AffectedAxes> for grafton_visca::camera::MotionQuery
+pub fn grafton_visca::camera::MotionQuery::from(grafton_visca::AffectedAxes) -> Self
 impl core::convert::From<grafton_visca::AffectedAxes> for u8
 pub fn u8::from(grafton_visca::AffectedAxes) -> Self
 impl core::convert::TryFrom<u8> for grafton_visca::AffectedAxes
@@ -20958,6 +21102,14 @@ impl core::hash::Hash for grafton_visca::AffectedAxes
 pub fn grafton_visca::AffectedAxes::hash<__H: core::hash::Hasher>(&self, &mut __H)
 impl core::marker::Copy for grafton_visca::AffectedAxes
 impl core::marker::StructuralPartialEq for grafton_visca::AffectedAxes
+impl core::ops::bit::BitAnd for grafton_visca::AffectedAxes
+pub type grafton_visca::AffectedAxes::Output = grafton_visca::AffectedAxes
+pub fn grafton_visca::AffectedAxes::bitand(self, Self) -> Self
+impl core::ops::bit::BitOr for grafton_visca::AffectedAxes
+pub type grafton_visca::AffectedAxes::Output = grafton_visca::AffectedAxes
+pub fn grafton_visca::AffectedAxes::bitor(self, Self) -> Self
+impl core::ops::bit::BitOrAssign for grafton_visca::AffectedAxes
+pub fn grafton_visca::AffectedAxes::bitor_assign(&mut self, Self)
 impl core::marker::Freeze for grafton_visca::AffectedAxes
 impl core::marker::Send for grafton_visca::AffectedAxes
 impl core::marker::Sync for grafton_visca::AffectedAxes
@@ -21266,6 +21418,27 @@ impl core::marker::Unpin for grafton_visca::profile::PanTiltCoordinateConversion
 impl core::marker::UnsafeUnpin for grafton_visca::profile::PanTiltCoordinateConversion
 impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::profile::PanTiltCoordinateConversion
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::profile::PanTiltCoordinateConversion
+pub struct grafton_visca::PanTiltLimitUpdate
+impl grafton_visca::state_cache::PanTiltLimitUpdate
+pub const fn grafton_visca::state_cache::PanTiltLimitUpdate::corner(self) -> grafton_visca::command::PanTiltLimitCorner
+pub const fn grafton_visca::state_cache::PanTiltLimitUpdate::is_cleared(self) -> bool
+pub const fn grafton_visca::state_cache::PanTiltLimitUpdate::position(self) -> core::option::Option<grafton_visca::camera::PanTiltPosition>
+impl core::clone::Clone for grafton_visca::state_cache::PanTiltLimitUpdate
+pub fn grafton_visca::state_cache::PanTiltLimitUpdate::clone(&self) -> grafton_visca::state_cache::PanTiltLimitUpdate
+impl core::cmp::Eq for grafton_visca::state_cache::PanTiltLimitUpdate
+impl core::cmp::PartialEq for grafton_visca::state_cache::PanTiltLimitUpdate
+pub fn grafton_visca::state_cache::PanTiltLimitUpdate::eq(&self, &grafton_visca::state_cache::PanTiltLimitUpdate) -> bool
+impl core::fmt::Debug for grafton_visca::state_cache::PanTiltLimitUpdate
+pub fn grafton_visca::state_cache::PanTiltLimitUpdate::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for grafton_visca::state_cache::PanTiltLimitUpdate
+impl core::marker::StructuralPartialEq for grafton_visca::state_cache::PanTiltLimitUpdate
+impl core::marker::Freeze for grafton_visca::state_cache::PanTiltLimitUpdate
+impl core::marker::Send for grafton_visca::state_cache::PanTiltLimitUpdate
+impl core::marker::Sync for grafton_visca::state_cache::PanTiltLimitUpdate
+impl core::marker::Unpin for grafton_visca::state_cache::PanTiltLimitUpdate
+impl core::marker::UnsafeUnpin for grafton_visca::state_cache::PanTiltLimitUpdate
+impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::state_cache::PanTiltLimitUpdate
+impl core::panic::unwind_safe::UnwindSafe for grafton_visca::state_cache::PanTiltLimitUpdate
 pub struct grafton_visca::PanTiltPositionDeg
 pub grafton_visca::PanTiltPositionDeg::pan: grafton_visca::units::Degrees<f32>
 pub grafton_visca::PanTiltPositionDeg::tilt: grafton_visca::units::Degrees<f32>
@@ -21504,8 +21677,23 @@ impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::SessionConfig
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::SessionConfig
 pub struct grafton_visca::StateCache
 impl grafton_visca::state_cache::StateCache
+pub fn grafton_visca::state_cache::StateCache::auto_nd_filter(&self) -> core::option::Option<bool>
+pub fn grafton_visca::state_cache::StateCache::auto_slow_shutter(&self) -> core::option::Option<bool>
+pub fn grafton_visca::state_cache::StateCache::digital_zoom(&self) -> core::option::Option<bool>
+pub fn grafton_visca::state_cache::StateCache::flip_state(&self) -> core::option::Option<grafton_visca::command::FlipState>
+pub fn grafton_visca::state_cache::StateCache::focus_lock(&self) -> core::option::Option<bool>
+pub fn grafton_visca::state_cache::StateCache::image_freeze(&self) -> core::option::Option<bool>
+pub fn grafton_visca::state_cache::StateCache::multicast_streaming(&self) -> core::option::Option<bool>
+pub fn grafton_visca::state_cache::StateCache::nd_filter_mode(&self) -> core::option::Option<grafton_visca::command::NdFilterMode>
+pub fn grafton_visca::state_cache::StateCache::ndi_quality(&self) -> core::option::Option<grafton_visca::types::NdiQuality>
+pub fn grafton_visca::state_cache::StateCache::pan_tilt_limits(&self) -> core::option::Option<grafton_visca::state_cache::PanTiltLimitUpdate>
+pub fn grafton_visca::state_cache::StateCache::preset_recall_speed(&self) -> core::option::Option<u8>
+pub fn grafton_visca::state_cache::StateCache::spotlight(&self) -> core::option::Option<bool>
+pub fn grafton_visca::state_cache::StateCache::tally_brightness_is_high(&self) -> core::option::Option<bool>
+pub fn grafton_visca::state_cache::StateCache::tally_mode(&self) -> core::option::Option<bool>
 pub const fn grafton_visca::state_cache::StateCache::target(&self) -> grafton_visca::CameraId
 pub fn grafton_visca::state_cache::StateCache::value(&self, grafton_visca::state_cache::StateKey) -> grafton_visca::state_cache::StateEntry
+pub fn grafton_visca::state_cache::StateCache::variable_speed_mode(&self) -> core::option::Option<grafton_visca::command::VariableSpeedMode>
 impl core::clone::Clone for grafton_visca::state_cache::StateCache
 pub fn grafton_visca::state_cache::StateCache::clone(&self) -> grafton_visca::state_cache::StateCache
 impl core::fmt::Debug for grafton_visca::state_cache::StateCache

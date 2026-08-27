@@ -86,7 +86,14 @@ pub enum ControlClass {
     Urgent,
 }
 
-/// A non-empty set of physical camera axes affected by an operation.
+/// A set of physical camera axes affected by an operation.
+///
+/// The validated constructors ([`Self::new`], [`Self::new_with_iris_nd`], and
+/// [`Self::from_bits`]) reject the empty set, because
+/// [`OperationCommand::affected_axes`] must name at least one axis. The empty
+/// set is still representable as the [`Self::NONE`] constant so that
+/// [`Self::union`] and `|` have an identity element and so that a motion
+/// observation can explicitly select nothing.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(try_from = "u8", into = "u8"))]
@@ -171,6 +178,32 @@ impl AffectedAxes {
     pub const IRIS: Self = Self(Self::IRIS_BIT);
     /// The neutral-density filter axis.
     pub const ND_FILTER: Self = Self(Self::ND_FILTER_BIT);
+
+    /// Every physical axis this type can represent.
+    ///
+    /// A motion observation over this set requires the profile to declare
+    /// pan/tilt, zoom, focus, iris, *and* ND-filter position inquiries. Use
+    /// [`Self::MOVEMENT`] for the three mechanical movement axes that every
+    /// profile with motion support declares.
+    pub const ALL: Self = Self(Self::VALID_BITS);
+
+    /// The three mechanical movement axes: pan/tilt, zoom, and focus.
+    ///
+    /// This is the "wait for everything that moves" selection used by
+    /// [`crate::camera::IdleWait::default`] and the named wait presets.
+    pub const MOVEMENT: Self = Self(Self::PAN_TILT_BIT | Self::ZOOM_BIT | Self::FOCUS_BIT);
+
+    /// The empty axis set.
+    ///
+    /// This is the identity element of [`Self::union`] and of the
+    /// [`BitOr`](std::ops::BitOr) operator, and it selects nothing for a motion
+    /// observation. It is
+    /// deliberately outside the validated constructors: [`Self::new`],
+    /// [`Self::new_with_iris_nd`], and [`Self::from_bits`] still reject an
+    /// empty set, because an operation must name at least one affected axis.
+    /// For the same reason `NONE` does not survive a serde round trip through
+    /// its `u8` representation.
+    pub const NONE: Self = Self(0);
 
     /// Constructs an explicit non-empty set of affected axes.
     ///
@@ -270,6 +303,28 @@ impl AffectedAxes {
         } else {
             self
         }
+    }
+}
+
+impl std::ops::BitOr for AffectedAxes {
+    type Output = Self;
+
+    fn bitor(self, other: Self) -> Self {
+        self.union(other)
+    }
+}
+
+impl std::ops::BitOrAssign for AffectedAxes {
+    fn bitor_assign(&mut self, other: Self) {
+        *self = self.union(other);
+    }
+}
+
+impl std::ops::BitAnd for AffectedAxes {
+    type Output = Self;
+
+    fn bitand(self, other: Self) -> Self {
+        Self(self.0 & other.0)
     }
 }
 
@@ -526,4 +581,91 @@ where
 {
     /// Returns the non-empty set of axes affected by this operation.
     fn affected_axes(&self) -> AffectedAxes;
+}
+
+#[cfg(test)]
+#[allow(clippy::expect_used)]
+mod affected_axes_tests {
+    use super::AffectedAxes;
+
+    #[test]
+    fn all_contains_every_axis_and_movement_contains_only_the_mechanical_three() {
+        for axis in [
+            AffectedAxes::PAN_TILT,
+            AffectedAxes::ZOOM,
+            AffectedAxes::FOCUS,
+            AffectedAxes::IRIS,
+            AffectedAxes::ND_FILTER,
+        ] {
+            assert!(AffectedAxes::ALL.contains(axis));
+        }
+        assert_eq!(AffectedAxes::ALL.len(), 5);
+
+        assert_eq!(AffectedAxes::MOVEMENT.len(), 3);
+        assert!(AffectedAxes::MOVEMENT.contains(AffectedAxes::PAN_TILT));
+        assert!(AffectedAxes::MOVEMENT.contains(AffectedAxes::ZOOM));
+        assert!(AffectedAxes::MOVEMENT.contains(AffectedAxes::FOCUS));
+        assert!(!AffectedAxes::MOVEMENT.contains(AffectedAxes::IRIS));
+        assert!(!AffectedAxes::MOVEMENT.contains(AffectedAxes::ND_FILTER));
+        assert!(AffectedAxes::ALL.contains(AffectedAxes::MOVEMENT));
+    }
+
+    #[test]
+    fn none_is_empty_and_is_the_union_identity() {
+        assert!(AffectedAxes::NONE.is_empty());
+        assert_eq!(AffectedAxes::NONE.len(), 0);
+        assert_eq!(AffectedAxes::NONE.iter().count(), 0);
+
+        for axes in [
+            AffectedAxes::PAN_TILT,
+            AffectedAxes::MOVEMENT,
+            AffectedAxes::ALL,
+        ] {
+            assert_eq!(axes | AffectedAxes::NONE, axes);
+            assert_eq!(AffectedAxes::NONE | axes, axes);
+        }
+    }
+
+    #[test]
+    fn none_remains_outside_the_validated_constructors() {
+        assert!(AffectedAxes::from_bits(AffectedAxes::NONE.bits()).is_err());
+        assert!(AffectedAxes::new(false, false, false).is_err());
+        assert!(AffectedAxes::new_with_iris_nd(false, false, false, false, false).is_err());
+    }
+
+    #[test]
+    fn bit_or_and_bit_and_agree_with_the_named_combinators() {
+        let combined = AffectedAxes::PAN_TILT | AffectedAxes::ZOOM | AffectedAxes::FOCUS;
+        assert_eq!(combined, AffectedAxes::MOVEMENT);
+        assert_eq!(
+            combined,
+            AffectedAxes::PAN_TILT
+                .union(AffectedAxes::ZOOM)
+                .union(AffectedAxes::FOCUS)
+        );
+
+        let mut accumulated = AffectedAxes::NONE;
+        accumulated |= AffectedAxes::PAN_TILT;
+        accumulated |= AffectedAxes::ZOOM;
+        accumulated |= AffectedAxes::FOCUS;
+        assert_eq!(accumulated, AffectedAxes::MOVEMENT);
+
+        assert_eq!(AffectedAxes::ALL & AffectedAxes::MOVEMENT, combined);
+        assert_eq!(
+            AffectedAxes::MOVEMENT & AffectedAxes::IRIS,
+            AffectedAxes::NONE
+        );
+    }
+
+    #[test]
+    fn all_round_trips_through_its_bit_representation() {
+        assert_eq!(
+            AffectedAxes::from_bits(AffectedAxes::ALL.bits()).expect("ALL is non-empty"),
+            AffectedAxes::ALL
+        );
+        assert_eq!(
+            AffectedAxes::from_bits(AffectedAxes::MOVEMENT.bits()).expect("MOVEMENT is non-empty"),
+            AffectedAxes::MOVEMENT
+        );
+    }
 }

@@ -186,7 +186,7 @@ where
         .expect("camera");
     assert!(!camera
         .motion()
-        .is_moving(MotionQuery::new(AffectedAxes::ZOOM))
+        .is_moving_axes(MotionQuery::new(AffectedAxes::ZOOM))
         .await
         .expect("zoom motion query"));
     camera
@@ -216,7 +216,7 @@ where
     assert!(matches!(
         camera
             .motion()
-            .is_moving(MotionQuery::new(AffectedAxes::ND_FILTER))
+            .is_moving_axes(MotionQuery::new(AffectedAxes::ND_FILTER))
             .await,
         Err(Error::FeatureNotSupported { .. })
     ));

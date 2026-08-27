@@ -890,7 +890,7 @@ impl BuiltinCommand {
         use BuiltinAxisSelection::{Exact, ProfilePresetRecall};
         use BuiltinRequestClass::{AppliedOnly, Plain, Targeted};
         use WriteOnlyState::{
-            AutoNdFilter, AutoSlowShutter, DigitalZoomMode, FocusLockMode, ImageFreeze,
+            AutoNdFilter, AutoSlowShutter, DigitalZoomMode, Flip, FocusLockMode, ImageFreeze,
             MulticastStreaming, NdFilterMode, NdiQuality, PanTiltLimits, PresetRecallSpeed,
             Spotlight, TallyBrightness, TallyMode, VariableSpeedMode,
         };
@@ -1026,11 +1026,6 @@ impl BuiltinCommand {
             | Self::Backlight
             | Self::NoiseReduction2d
             | Self::NoiseReduction3d
-            | Self::ImageFlipOff
-            | Self::ImageFlipHorizontal
-            | Self::ImageFlipVertical
-            | Self::ImageFlipBoth
-            | Self::ImageFlipCombined
             | Self::PictureEffect
             | Self::MenuDisplay
             | Self::MenuNavigate
@@ -1039,6 +1034,16 @@ impl BuiltinCommand {
             | Self::DirectMenu
             | Self::MotionSyncMode
             | Self::MotionSyncPreset => Plain { state_effect: None },
+            // The combined-flip opcode carries both axes in one parameter, so
+            // it establishes a complete horizontal/vertical pair.
+            Self::ImageFlipBoth | Self::ImageFlipCombined => Plain {
+                state_effect: Some(Set(Flip)),
+            },
+            // The single-axis flip and mirror opcodes move one axis and say
+            // nothing about the other, so a complete pair stops being known.
+            Self::ImageFlipOff | Self::ImageFlipHorizontal | Self::ImageFlipVertical => Plain {
+                state_effect: Some(Invalidate(Flip)),
+            },
             // ND direct and step commands physically reposition the filter.
             // The direct target and each finite step have meaningful end
             // states and are therefore targeted on the ND axis.

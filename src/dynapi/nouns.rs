@@ -6,11 +6,6 @@
 //! dynamic layer does not duplicate capability or profile validation.
 
 #![cfg(feature = "dyn-api")]
-// The 212 noun methods are a mechanical projection of the static command
-// ledger. Their shared return and lifecycle contracts are documented on the
-// public dynamic module and operation types; repeating per-method prose here
-// would duplicate that authority and make the two surfaces drift.
-#![allow(missing_docs)]
 
 use crate::{
     camera::{IdleWait, MotionQuery, PanTiltPosition},
@@ -19,8 +14,8 @@ use crate::{
     request::builtin,
     requests::{Inquiry, OperationCommand, PlainCommand},
     types,
-    units::Degrees,
-    Error, Result,
+    units::{Degrees, UnitInterval},
+    Error, Result, ZoomDomain,
 };
 
 use super::{DynAppliedOperation, DynFuture, DynSessionCamera, DynTargetedOperation};
@@ -33,6 +28,33 @@ pub const DYN_NOUN_INQUIRY_METHOD_COUNT: usize = 66;
 
 /// Number of domain nouns (motion is a separate safety/observation view).
 pub const DYN_NOUN_COUNT: usize = 14;
+
+/// Number of declared non-ledger convenience methods on the noun traits.
+///
+/// A dynamic noun method is one of exactly three things: a projection of a
+/// built-in command row, a typed inquiry accessor, or one of the hand-written
+/// convenience wrappers named in [`DYN_NOUN_CONVENIENCE_METHODS`]. Keeping the
+/// third category declared is what lets the inventory gate keep checking that
+/// the projection carries nothing else.
+pub const DYN_NOUN_CONVENIENCE_METHOD_COUNT: usize = 9;
+
+/// The non-ledger convenience wrappers carried by the dynamic noun traits.
+///
+/// Each entry delegates to a ledger method with a fixed argument, so it adds
+/// ergonomics without adding a command row. `src/noun_parity.rs` separately
+/// requires the async and blocking facades to expose the same method set, so
+/// none of these can become dynamic-only.
+pub const DYN_NOUN_CONVENIENCE_METHODS: &[(&str, &str)] = &[
+    ("DynZoom", "set_normalized"),
+    ("DynZoom", "set_normalized_in_domain"),
+    ("DynPanTilt", "up"),
+    ("DynPanTilt", "down"),
+    ("DynPanTilt", "left"),
+    ("DynPanTilt", "right"),
+    ("DynNdFilter", "set_stops"),
+    ("DynMotionSync", "set_speed"),
+    ("DynMenu", "toggle_display"),
+];
 
 fn plain<'a, C>(camera: &'a DynSessionCamera, command: C) -> DynFuture<'a, Result<(), Error>>
 where
@@ -112,339 +134,605 @@ where
 
 /// Object-safe power noun.
 pub trait DynPower: Send + Sync {
+    /// Inquires the camera's current power state.
     fn state(&self) -> DynFuture<'_, Result<bool, Error>>;
+    /// Powers the camera on.
     fn on(&self) -> DynFuture<'_, Result<(), Error>>;
+    /// Places the camera in standby.
     fn off(&self) -> DynFuture<'_, Result<(), Error>>;
 }
 
 /// Object-safe zoom noun.
 pub trait DynZoom: Send + Sync {
+    /// Inquires the current optical/digital zoom position.
     fn position(&self) -> DynFuture<'_, Result<types::ZoomPosition, Error>>;
+    /// Drives toward telephoto at standard speed.
     fn tele(&self) -> DynFuture<'_, Result<DynAppliedOperation, Error>>;
+    /// Drives toward wide angle at standard speed.
     fn wide(&self) -> DynFuture<'_, Result<DynAppliedOperation, Error>>;
+    /// Stops zoom movement.
     fn stop(&self) -> DynFuture<'_, Result<DynAppliedOperation, Error>>;
+    /// Drives toward telephoto at a validated variable speed.
     fn tele_variable(
         &self,
         speed: types::ZoomSpeed,
     ) -> DynFuture<'_, Result<DynAppliedOperation, Error>>;
+    /// Drives toward wide angle at a validated variable speed.
     fn wide_variable(
         &self,
         speed: types::ZoomSpeed,
     ) -> DynFuture<'_, Result<DynAppliedOperation, Error>>;
+    /// Moves to an absolute zoom position.
     fn set_position(
         &self,
         position: types::ZoomPosition,
     ) -> DynFuture<'_, Result<DynTargetedOperation, Error>>;
+    /// Moves to a normalized position across the optical zoom range.
+    ///
+    /// `0.0` is the wide end and `1.0` the telephoto end of the profile's
+    /// documented optical range.
+    fn set_normalized(
+        &self,
+        position: UnitInterval,
+    ) -> DynFuture<'_, Result<DynTargetedOperation, Error>>;
+    /// Moves to a normalized position across a documented zoom domain.
+    ///
+    /// [`ZoomDomain::OpticalPlusDigital`] requires the profile to document a
+    /// digital maximum and never falls back to the optical range.
+    fn set_normalized_in_domain(
+        &self,
+        position: UnitInterval,
+        domain: ZoomDomain,
+    ) -> DynFuture<'_, Result<DynTargetedOperation, Error>>;
+    /// Enables or disables digital zoom.
     fn set_digital_zoom(&self, enabled: bool) -> DynFuture<'_, Result<(), Error>>;
 }
 
 /// Object-safe system noun.
 pub trait DynSystem: Send + Sync {
+    /// Inquires the camera firmware/version information.
     fn version(&self) -> DynFuture<'_, Result<command::VersionInfo, Error>>;
+    /// Saves the camera's current settings to non-volatile storage.
     fn save_settings(&self) -> DynFuture<'_, Result<(), Error>>;
 }
 
 /// Object-safe pan/tilt noun.
 pub trait DynPanTilt: Send + Sync {
+    /// Inquires the current pan/tilt position.
     fn position(&self) -> DynFuture<'_, Result<PanTiltPosition, Error>>;
+    /// Moves the pan/tilt mechanism to its home position.
     fn home(&self) -> DynFuture<'_, Result<DynTargetedOperation, Error>>;
+    /// Resets the pan/tilt mechanism.
     fn reset(&self) -> DynFuture<'_, Result<DynTargetedOperation, Error>>;
+    /// Starts a directional pan/tilt drive.
     fn move_direction(
         &self,
         direction: command::PanTiltDirection,
         pan_speed: types::PanSpeed,
         tilt_speed: types::TiltSpeed,
     ) -> DynFuture<'_, Result<DynAppliedOperation, Error>>;
+    /// Starts an upward pan/tilt drive.
+    fn up(
+        &self,
+        pan_speed: types::PanSpeed,
+        tilt_speed: types::TiltSpeed,
+    ) -> DynFuture<'_, Result<DynAppliedOperation, Error>>;
+    /// Starts a downward pan/tilt drive.
+    fn down(
+        &self,
+        pan_speed: types::PanSpeed,
+        tilt_speed: types::TiltSpeed,
+    ) -> DynFuture<'_, Result<DynAppliedOperation, Error>>;
+    /// Starts a leftward pan/tilt drive.
+    fn left(
+        &self,
+        pan_speed: types::PanSpeed,
+        tilt_speed: types::TiltSpeed,
+    ) -> DynFuture<'_, Result<DynAppliedOperation, Error>>;
+    /// Starts a rightward pan/tilt drive.
+    fn right(
+        &self,
+        pan_speed: types::PanSpeed,
+        tilt_speed: types::TiltSpeed,
+    ) -> DynFuture<'_, Result<DynAppliedOperation, Error>>;
+    /// Stops pan/tilt movement using profile-safe stop speeds.
     fn stop(&self) -> DynFuture<'_, Result<DynAppliedOperation, Error>>;
+    /// Moves to an absolute degree position at the selected speed.
     fn absolute(
         &self,
         pan: Degrees<f32>,
         tilt: Degrees<f32>,
         speed: types::SpeedLevel,
     ) -> DynFuture<'_, Result<DynTargetedOperation, Error>>;
+    /// Moves by a relative degree offset at the selected speed.
     fn relative(
         &self,
         pan: Degrees<f32>,
         tilt: Degrees<f32>,
         speed: types::SpeedLevel,
     ) -> DynFuture<'_, Result<DynTargetedOperation, Error>>;
+    /// Sets one pan/tilt movement-limit corner.
     fn limit_set(
         &self,
         corner: command::PanTiltLimitCorner,
         pan: Degrees<f32>,
         tilt: Degrees<f32>,
     ) -> DynFuture<'_, Result<(), Error>>;
+    /// Clears one pan/tilt movement-limit corner.
     fn limit_clear(&self, corner: command::PanTiltLimitCorner) -> DynFuture<'_, Result<(), Error>>;
 }
 
 /// Object-safe focus noun.
 pub trait DynFocus: Send + Sync {
+    /// Inquires the current focus position.
     fn position(&self) -> DynFuture<'_, Result<types::FocusPosition, Error>>;
+    /// Inquires the current focus mode.
     fn mode(&self) -> DynFuture<'_, Result<command::FocusMode, Error>>;
+    /// Drives focus farther at standard speed.
     fn far(&self) -> DynFuture<'_, Result<DynAppliedOperation, Error>>;
+    /// Drives focus nearer at standard speed.
     fn near(&self) -> DynFuture<'_, Result<DynAppliedOperation, Error>>;
+    /// Drives focus farther at a variable speed.
     fn far_variable(
         &self,
         speed: command::FocusSpeed,
     ) -> DynFuture<'_, Result<DynAppliedOperation, Error>>;
+    /// Drives focus nearer at a variable speed.
     fn near_variable(
         &self,
         speed: command::FocusSpeed,
     ) -> DynFuture<'_, Result<DynAppliedOperation, Error>>;
+    /// Stops focus movement.
     fn stop(&self) -> DynFuture<'_, Result<DynAppliedOperation, Error>>;
+    /// Moves focus to an absolute position.
     fn set_position(
         &self,
         position: types::FocusPosition,
     ) -> DynFuture<'_, Result<DynTargetedOperation, Error>>;
+    /// Enables automatic focus mode.
     fn auto(&self) -> DynFuture<'_, Result<(), Error>>;
+    /// Enables manual focus mode.
     fn manual(&self) -> DynFuture<'_, Result<(), Error>>;
+    /// Triggers one-push autofocus.
     fn one_push(&self) -> DynFuture<'_, Result<DynAppliedOperation, Error>>;
+    /// Moves focus to infinity.
     fn infinity(&self) -> DynFuture<'_, Result<DynTargetedOperation, Error>>;
+    /// Toggles automatic/manual focus mode.
     fn toggle(&self) -> DynFuture<'_, Result<(), Error>>;
+    /// Triggers vendor snap focus.
     fn snap(&self) -> DynFuture<'_, Result<DynAppliedOperation, Error>>;
+    /// Selects a focus zone.
     fn set_zone(&self, zone: command::FocusZone) -> DynFuture<'_, Result<(), Error>>;
+    /// Sets the autofocus sensitivity.
     fn set_sensitivity(
         &self,
         sensitivity: command::AutoFocusSensitivity,
     ) -> DynFuture<'_, Result<(), Error>>;
+    /// Sets the minimum focus distance.
     fn set_near_limit(&self, position: types::FocusPosition) -> DynFuture<'_, Result<(), Error>>;
+    /// Sets the focus-lock mode.
     fn set_lock(&self, mode: command::FocusLock) -> DynFuture<'_, Result<(), Error>>;
+    /// Presses the vendor Push-AF control.
     fn push_af_press(&self) -> DynFuture<'_, Result<DynAppliedOperation, Error>>;
+    /// Releases the vendor Push-AF control.
     fn push_af_release(&self) -> DynFuture<'_, Result<DynAppliedOperation, Error>>;
+    /// Inquires the configured focus near limit.
     fn near_limit(&self) -> DynFuture<'_, Result<types::FocusPosition, Error>>;
+    /// Inquires the configured focus zone.
     fn zone(&self) -> DynFuture<'_, Result<command::FocusZone, Error>>;
+    /// Inquires the autofocus sensitivity.
     fn sensitivity(&self) -> DynFuture<'_, Result<command::AutoFocusSensitivity, Error>>;
+    /// Inquires the configured focus range.
     fn range(&self) -> DynFuture<'_, Result<command::FocusRange, Error>>;
 }
 
 /// Object-safe preset noun.
 pub trait DynPresets: Send + Sync {
+    /// Recalls a stored preset as a targeted operation.
     fn recall(
         &self,
         preset: command::PresetNumber,
     ) -> DynFuture<'_, Result<DynTargetedOperation, Error>>;
+    /// Sets the preset-recall speed.
     fn set_recall_speed(
         &self,
         speed: command::PresetRecallSpeed,
     ) -> DynFuture<'_, Result<(), Error>>;
+    /// Stores the current camera state in a preset.
     fn set(&self, preset: command::PresetNumber) -> DynFuture<'_, Result<(), Error>>;
+    /// Clears a stored preset.
     fn reset(&self, preset: command::PresetNumber) -> DynFuture<'_, Result<(), Error>>;
 }
 
 /// Object-safe exposure noun.
 pub trait DynExposure: Send + Sync {
+    /// Inquires the active exposure mode.
     fn mode(&self) -> DynFuture<'_, Result<command::ExposureMode, Error>>;
+    /// Sets the exposure mode.
     fn set_mode(&self, mode: command::ExposureMode) -> DynFuture<'_, Result<(), Error>>;
+    /// Inquires the shutter speed.
     fn shutter(&self) -> DynFuture<'_, Result<types::ShutterSpeed, Error>>;
+    /// Restores the camera's shutter default.
     fn shutter_reset(&self) -> DynFuture<'_, Result<(), Error>>;
+    /// Increases shutter speed by one camera-defined step.
     fn shutter_up(&self) -> DynFuture<'_, Result<(), Error>>;
+    /// Decreases shutter speed by one camera-defined step.
     fn shutter_down(&self) -> DynFuture<'_, Result<(), Error>>;
+    /// Sets an explicit shutter speed.
     fn shutter_direct(&self, speed: types::ShutterSpeed) -> DynFuture<'_, Result<(), Error>>;
+    /// Inquires exposure compensation value.
     fn compensation(&self) -> DynFuture<'_, Result<types::ExposureCompensationLevel, Error>>;
+    /// Inquires whether exposure compensation is enabled.
     fn compensation_enabled(&self) -> DynFuture<'_, Result<bool, Error>>;
+    /// Inquires the camera's exposure compensation position.
     fn compensation_position(
         &self,
     ) -> DynFuture<'_, Result<types::ExposureCompensationPosition, Error>>;
+    /// Enables exposure compensation.
     fn compensation_on(&self) -> DynFuture<'_, Result<(), Error>>;
+    /// Disables exposure compensation.
     fn compensation_off(&self) -> DynFuture<'_, Result<(), Error>>;
+    /// Resets exposure compensation.
     fn compensation_reset(&self) -> DynFuture<'_, Result<(), Error>>;
+    /// Increases exposure compensation by one step.
     fn compensation_up(&self) -> DynFuture<'_, Result<(), Error>>;
+    /// Decreases exposure compensation by one step.
     fn compensation_down(&self) -> DynFuture<'_, Result<(), Error>>;
+    /// Sets direct exposure compensation.
     fn compensation_direct(
         &self,
         level: types::ExposureCompensationLevel,
     ) -> DynFuture<'_, Result<(), Error>>;
+    /// Inquires the wide-dynamic-range level.
     fn dynamic_range(&self) -> DynFuture<'_, Result<types::DynamicRangeLevel, Error>>;
+    /// Sets the wide-dynamic-range level.
     fn set_dynamic_range(
         &self,
         level: types::DynamicRangeLevel,
     ) -> DynFuture<'_, Result<(), Error>>;
+    /// Inquires whether iris control is automatic.
     fn iris_control(&self) -> DynFuture<'_, Result<bool, Error>>;
+    /// Inquires the iris level.
     fn iris(&self) -> DynFuture<'_, Result<types::IrisLevel, Error>>;
+    /// Resets the iris.
     fn iris_reset(&self) -> DynFuture<'_, Result<DynTargetedOperation, Error>>;
+    /// Increases the iris by one step.
     fn iris_up(&self) -> DynFuture<'_, Result<DynTargetedOperation, Error>>;
+    /// Decreases the iris by one step.
     fn iris_down(&self) -> DynFuture<'_, Result<DynTargetedOperation, Error>>;
+    /// Sets a direct iris level.
     fn iris_direct(
         &self,
         level: types::IrisLevel,
     ) -> DynFuture<'_, Result<DynTargetedOperation, Error>>;
+    /// Inquires exposure brightness.
     fn brightness(&self) -> DynFuture<'_, Result<types::BrightnessLevel, Error>>;
+    /// Resets exposure brightness.
     fn brightness_reset(&self) -> DynFuture<'_, Result<(), Error>>;
+    /// Increases exposure brightness.
     fn brightness_up(&self) -> DynFuture<'_, Result<(), Error>>;
+    /// Decreases exposure brightness.
     fn brightness_down(&self) -> DynFuture<'_, Result<(), Error>>;
+    /// Sets exposure brightness through the bright-direct command.
     fn brightness_set(&self, level: types::BrightnessLevel) -> DynFuture<'_, Result<(), Error>>;
+    /// Sets the camera's direct brightness value.
     fn brightness_direct(&self, level: types::BrightnessLevel) -> DynFuture<'_, Result<(), Error>>;
+    /// Inquires gain.
     fn gain(&self) -> DynFuture<'_, Result<types::GainLevel, Error>>;
+    /// Resets gain.
     fn gain_reset(&self) -> DynFuture<'_, Result<(), Error>>;
+    /// Increases gain.
     fn gain_up(&self) -> DynFuture<'_, Result<(), Error>>;
+    /// Decreases gain.
     fn gain_down(&self) -> DynFuture<'_, Result<(), Error>>;
+    /// Sets direct gain.
     fn gain_direct(&self, level: types::GainLevel) -> DynFuture<'_, Result<(), Error>>;
+    /// Inquires the configured gain limit.
     fn gain_limit(&self) -> DynFuture<'_, Result<types::GainLimit, Error>>;
+    /// Sets the configured gain limit.
     fn set_gain_limit(&self, limit: types::GainLimit) -> DynFuture<'_, Result<(), Error>>;
+    /// Sets anti-flicker mode.
     fn set_anti_flicker(&self, mode: command::AntiFlickerMode) -> DynFuture<'_, Result<(), Error>>;
+    /// Inquires the configured anti-flicker mode.
     fn flicker_mode(&self) -> DynFuture<'_, Result<command::AntiFlickerMode, Error>>;
+    /// Enables spotlight mode.
     fn spotlight_on(&self) -> DynFuture<'_, Result<(), Error>>;
+    /// Disables spotlight mode.
     fn spotlight_off(&self) -> DynFuture<'_, Result<(), Error>>;
+    /// Enables automatic slow shutter.
     fn auto_slow_shutter_on(&self) -> DynFuture<'_, Result<(), Error>>;
+    /// Disables automatic slow shutter.
     fn auto_slow_shutter_off(&self) -> DynFuture<'_, Result<(), Error>>;
 }
 
 /// Object-safe white-balance noun.
 pub trait DynWhiteBalance: Send + Sync {
+    /// Inquires the active white-balance mode.
     fn mode(&self) -> DynFuture<'_, Result<command::WhiteBalanceMode, Error>>;
+    /// Selects automatic white balance.
     fn auto(&self) -> DynFuture<'_, Result<(), Error>>;
+    /// Selects the indoor white-balance preset.
     fn indoor(&self) -> DynFuture<'_, Result<(), Error>>;
+    /// Selects the outdoor white-balance preset.
     fn outdoor(&self) -> DynFuture<'_, Result<(), Error>>;
+    /// Selects one-push white balance.
     fn one_push(&self) -> DynFuture<'_, Result<(), Error>>;
+    /// Selects auto-tracking white balance.
     fn atw(&self) -> DynFuture<'_, Result<(), Error>>;
+    /// Selects manual white balance.
     fn manual(&self) -> DynFuture<'_, Result<(), Error>>;
+    /// Selects color-temperature white balance mode.
     fn color_temperature_mode(&self) -> DynFuture<'_, Result<(), Error>>;
+    /// Sets automatic white-balance sensitivity.
     fn set_sensitivity(
         &self,
         sensitivity: command::AutoWhiteBalanceSensitivity,
     ) -> DynFuture<'_, Result<(), Error>>;
+    /// Inquires automatic white-balance sensitivity.
     fn sensitivity(&self) -> DynFuture<'_, Result<command::AutoWhiteBalanceSensitivity, Error>>;
+    /// Triggers one-push white-balance calibration.
     fn one_push_trigger(&self) -> DynFuture<'_, Result<(), Error>>;
+    /// Sets red-channel white-balance tuning.
     fn set_red_tuning(&self, level: types::RedTuning) -> DynFuture<'_, Result<(), Error>>;
+    /// Sets blue-channel white-balance tuning.
     fn set_blue_tuning(&self, level: types::BlueTuning) -> DynFuture<'_, Result<(), Error>>;
+    /// Inquires the color temperature.
     fn color_temperature(&self) -> DynFuture<'_, Result<types::ColorTemp, Error>>;
+    /// Resets color temperature.
     fn reset_color_temperature(&self) -> DynFuture<'_, Result<(), Error>>;
+    /// Increases color temperature.
     fn increase_color_temperature(&self) -> DynFuture<'_, Result<(), Error>>;
+    /// Decreases color temperature.
     fn decrease_color_temperature(&self) -> DynFuture<'_, Result<(), Error>>;
+    /// Sets a direct color-temperature value.
     fn set_color_temperature(
         &self,
         temperature: types::ColorTemp,
     ) -> DynFuture<'_, Result<(), Error>>;
+    /// Inquires the red-channel gain.
     fn red_gain(&self) -> DynFuture<'_, Result<types::RedChannel, Error>>;
+    /// Resets red-channel gain.
     fn reset_red_gain(&self) -> DynFuture<'_, Result<(), Error>>;
+    /// Increases red-channel gain.
     fn increase_red_gain(&self) -> DynFuture<'_, Result<(), Error>>;
+    /// Decreases red-channel gain.
     fn decrease_red_gain(&self) -> DynFuture<'_, Result<(), Error>>;
+    /// Sets direct red-channel gain.
     fn set_red_gain(&self, value: types::RedChannel) -> DynFuture<'_, Result<(), Error>>;
+    /// Inquires the blue-channel gain.
     fn blue_gain(&self) -> DynFuture<'_, Result<types::BlueChannel, Error>>;
+    /// Resets blue-channel gain.
     fn reset_blue_gain(&self) -> DynFuture<'_, Result<(), Error>>;
+    /// Increases blue-channel gain.
     fn increase_blue_gain(&self) -> DynFuture<'_, Result<(), Error>>;
+    /// Decreases blue-channel gain.
     fn decrease_blue_gain(&self) -> DynFuture<'_, Result<(), Error>>;
+    /// Sets direct blue-channel gain.
     fn set_blue_gain(&self, value: types::BlueChannel) -> DynFuture<'_, Result<(), Error>>;
+    /// Inquires red-channel tuning.
     fn red_tuning(&self) -> DynFuture<'_, Result<types::RedTuning, Error>>;
+    /// Inquires blue-channel tuning.
     fn blue_tuning(&self) -> DynFuture<'_, Result<types::BlueTuning, Error>>;
 }
 
 /// Object-safe image-processing noun.
 pub trait DynImage: Send + Sync {
+    /// Inquires the camera resolution mode.
     fn resolution(&self) -> DynFuture<'_, Result<command::ResolutionMode, Error>>;
+    /// Inquires image saturation.
     fn saturation(&self) -> DynFuture<'_, Result<types::SaturationLevel, Error>>;
+    /// Sets image saturation.
     fn set_saturation(&self, level: types::SaturationLevel) -> DynFuture<'_, Result<(), Error>>;
+    /// Inquires image hue.
     fn hue(&self) -> DynFuture<'_, Result<types::HueLevel, Error>>;
+    /// Sets image hue.
     fn set_hue(&self, level: types::HueLevel) -> DynFuture<'_, Result<(), Error>>;
+    /// Inquires image luminance.
     fn luminance(&self) -> DynFuture<'_, Result<types::LuminanceLevel, Error>>;
+    /// Sets image luminance.
     fn set_luminance(&self, level: types::LuminanceLevel) -> DynFuture<'_, Result<(), Error>>;
+    /// Inquires image contrast.
     fn contrast(&self) -> DynFuture<'_, Result<types::ContrastLevel, Error>>;
+    /// Sets image contrast.
     fn set_contrast(&self, level: types::ContrastLevel) -> DynFuture<'_, Result<(), Error>>;
+    /// Inquires the gamma curve.
     fn gamma(&self) -> DynFuture<'_, Result<types::GammaLevel, Error>>;
+    /// Sets the gamma curve.
     fn set_gamma(&self, level: types::GammaLevel) -> DynFuture<'_, Result<(), Error>>;
+    /// Inquires the sharpness mode.
     fn sharpness_mode(&self) -> DynFuture<'_, Result<command::SharpnessMode, Error>>;
+    /// Inquires the sharpness level.
     fn sharpness_level(&self) -> DynFuture<'_, Result<types::SharpnessLevel, Error>>;
+    /// Sets the sharpness mode.
     fn set_sharpness_mode(&self, mode: command::SharpnessMode) -> DynFuture<'_, Result<(), Error>>;
+    /// Resets sharpness.
     fn reset_sharpness(&self) -> DynFuture<'_, Result<(), Error>>;
+    /// Increases sharpness by one step.
     fn increase_sharpness(&self) -> DynFuture<'_, Result<(), Error>>;
+    /// Decreases sharpness by one step.
     fn decrease_sharpness(&self) -> DynFuture<'_, Result<(), Error>>;
+    /// Sets a direct sharpness level.
     fn set_sharpness(&self, level: types::SharpnessLevel) -> DynFuture<'_, Result<(), Error>>;
+    /// Inquires backlight compensation state.
     fn backlight(&self) -> DynFuture<'_, Result<bool, Error>>;
+    /// Enables or disables backlight compensation.
     fn set_backlight(&self, enabled: bool) -> DynFuture<'_, Result<(), Error>>;
+    /// Inquires 2D noise reduction level.
     fn noise_reduction_2d(&self) -> DynFuture<'_, Result<types::NoiseReduction2DLevel, Error>>;
+    /// Sets 2D noise reduction level.
     fn set_noise_reduction_2d(
         &self,
         level: types::NoiseReduction2DLevel,
     ) -> DynFuture<'_, Result<(), Error>>;
+    /// Inquires 3D noise reduction level.
     fn noise_reduction_3d(&self) -> DynFuture<'_, Result<types::NoiseReduction3DLevel, Error>>;
+    /// Sets 3D noise reduction level.
     fn set_noise_reduction_3d(
         &self,
         level: types::NoiseReduction3DLevel,
     ) -> DynFuture<'_, Result<(), Error>>;
+    /// Inquires the aggregate noise-reduction level.
     fn noise_reduction_level(&self) -> DynFuture<'_, Result<types::NoiseReductionLevel, Error>>;
+    /// Inquires the aggregate noise-reduction mode.
     fn noise_reduction_mode(&self) -> DynFuture<'_, Result<command::NoiseReductionMode, Error>>;
+    /// Disables vertical image flip.
     fn disable_flip(&self) -> DynFuture<'_, Result<(), Error>>;
+    /// Enables vertical image flip.
     fn enable_flip(&self) -> DynFuture<'_, Result<(), Error>>;
+    /// Enables horizontal image mirroring.
     fn enable_horizontal_flip(&self) -> DynFuture<'_, Result<(), Error>>;
+    /// Sets the combined image-flip mode to both axes.
     fn set_flip_both(&self) -> DynFuture<'_, Result<(), Error>>;
+    /// Sets the combined image-flip mode.
     fn set_flip_mode(&self, mode: command::ImageFlipMode) -> DynFuture<'_, Result<(), Error>>;
+    /// Freezes the image.
     fn freeze_on(&self) -> DynFuture<'_, Result<(), Error>>;
+    /// Resumes live image output.
     fn freeze_off(&self) -> DynFuture<'_, Result<(), Error>>;
+    /// Inquires the canonical image-flip state.
     fn flip(&self) -> DynFuture<'_, Result<command::FlipState, Error>>;
+    /// Inquires the combined image-flip mode.
     fn flip_mode(&self) -> DynFuture<'_, Result<command::FlipState, Error>>;
+    /// Inquires whether black-and-white mode is active.
     fn black_white(&self) -> DynFuture<'_, Result<bool, Error>>;
+    /// Inquires black-and-white mode.
     fn black_white_mode(&self) -> DynFuture<'_, Result<command::BlackWhiteMode, Error>>;
+    /// Inquires picture-effect mode.
     fn picture_effect(&self) -> DynFuture<'_, Result<command::PictureEffectMode, Error>>;
+    /// Sets picture-effect mode.
     fn set_picture_effect(
         &self,
         mode: command::PictureEffectMode,
     ) -> DynFuture<'_, Result<(), Error>>;
+    /// Inquires the camera's defog level.
     fn defog_level(&self) -> DynFuture<'_, Result<types::DefogLevel, Error>>;
 }
 
 /// Object-safe tally noun.
 pub trait DynTally: Send + Sync {
+    /// Inquires all tally light state.
     fn status(&self) -> DynFuture<'_, Result<command::TallyStatusState, Error>>;
+    /// Turns the red tally on.
     fn red_on(&self) -> DynFuture<'_, Result<(), Error>>;
+    /// Turns the red tally off.
     fn red_off(&self) -> DynFuture<'_, Result<(), Error>>;
+    /// Sets low tally brightness.
     fn bright_lo(&self) -> DynFuture<'_, Result<(), Error>>;
+    /// Sets high tally brightness.
     fn bright_hi(&self) -> DynFuture<'_, Result<(), Error>>;
+    /// Turns the green tally on.
     fn green_on(&self) -> DynFuture<'_, Result<(), Error>>;
+    /// Turns the green tally off.
     fn green_off(&self) -> DynFuture<'_, Result<(), Error>>;
+    /// Sets tally flash mode.
     fn flash(&self) -> DynFuture<'_, Result<(), Error>>;
+    /// Sets tally solid-on mode.
     fn on(&self) -> DynFuture<'_, Result<(), Error>>;
+    /// Turns tally output off.
     fn off(&self) -> DynFuture<'_, Result<(), Error>>;
+    /// Inquires red tally state.
     fn red_status(&self) -> DynFuture<'_, Result<bool, Error>>;
+    /// Inquires green tally state.
     fn green_status(&self) -> DynFuture<'_, Result<bool, Error>>;
+    /// Inquires automatic tally adjustment state.
     fn auto_adjust_enabled(&self) -> DynFuture<'_, Result<bool, Error>>;
 }
 
 /// Object-safe neutral-density filter noun.
 pub trait DynNdFilter: Send + Sync {
+    /// Inquires the current ND-filter position.
     fn position(&self) -> DynFuture<'_, Result<command::NdFilterPosition, Error>>;
+    /// Inquires the current ND-filter preset.
     fn preset(&self) -> DynFuture<'_, Result<types::NdFilterPreset, Error>>;
+    /// Selects preset or variable ND-filter mode.
     fn set_mode(&self, mode: command::NdFilterMode) -> DynFuture<'_, Result<(), Error>>;
+    /// Sets a direct variable ND-filter value.
     fn set_value(&self, value: u16) -> DynFuture<'_, Result<DynTargetedOperation, Error>>;
+    /// Sets a direct variable ND-filter value in photographic stops.
+    ///
+    /// `stops` is the light reduction in stops and must lie in `2.0..=7.0`.
+    /// Each raw unit is a quarter stop, so `2.0` maps to the minimum density
+    /// and `7.0` to the maximum.
+    fn set_stops(&self, stops: f32) -> DynFuture<'_, Result<DynTargetedOperation, Error>>;
+    /// Increases ND-filter density by one step.
     fn step_up(&self) -> DynFuture<'_, Result<DynTargetedOperation, Error>>;
+    /// Decreases ND-filter density by one step.
     fn step_down(&self) -> DynFuture<'_, Result<DynTargetedOperation, Error>>;
+    /// Enables automatic ND filtering.
     fn auto_on(&self) -> DynFuture<'_, Result<(), Error>>;
+    /// Disables automatic ND filtering.
     fn auto_off(&self) -> DynFuture<'_, Result<(), Error>>;
 }
 
 /// Object-safe motion-sync noun.
 pub trait DynMotionSync: Send + Sync {
+    /// Inquires the motion-sync mode.
     fn mode(&self) -> DynFuture<'_, Result<command::MotionSyncMode, Error>>;
+    /// Inquires the motion-sync preset speed.
     fn preset(&self) -> DynFuture<'_, Result<command::MotionSyncPreset, Error>>;
+    /// Enables or disables motion synchronization.
     fn set_mode(&self, mode: command::MotionSyncMode) -> DynFuture<'_, Result<(), Error>>;
+    /// Sets the motion-sync speed preset.
     fn set_preset(&self, speed: u8) -> DynFuture<'_, Result<(), Error>>;
+    /// Sets the motion-sync speed from a range-checked speed value.
+    ///
+    /// This is [`Self::set_preset`] with the `1..=24` bound moved into the
+    /// argument type, so an out-of-range speed cannot be constructed.
+    fn set_speed(&self, speed: types::MotionSyncSpeed) -> DynFuture<'_, Result<(), Error>>;
 }
 
 /// Object-safe on-screen menu noun.
 pub trait DynMenu: Send + Sync {
+    /// Inquires whether the on-screen menu is open.
     fn status(&self) -> DynFuture<'_, Result<bool, Error>>;
+    /// Displays or hides the on-screen menu.
     fn display(&self, on: bool) -> DynFuture<'_, Result<(), Error>>;
+    /// Moves the menu cursor.
     fn navigate(&self, direction: command::MenuDirection) -> DynFuture<'_, Result<(), Error>>;
+    /// Selects the current menu item.
     fn select(&self) -> DynFuture<'_, Result<(), Error>>;
+    /// Cancels or returns from the current menu item.
     fn cancel(&self) -> DynFuture<'_, Result<(), Error>>;
+    /// Sends a vendor-specific direct menu control.
     fn direct(&self, control1: u8, control2: u8) -> DynFuture<'_, Result<(), Error>>;
+    /// Toggles the on-screen menu open or closed.
+    ///
+    /// This is the vendor open/close direct control, so it needs no prior
+    /// [`Self::status`] round trip to decide which way to move.
+    fn toggle_display(&self) -> DynFuture<'_, Result<(), Error>>;
 }
 
 /// Object-safe advanced/vendor noun.
 pub trait DynAdvanced: Send + Sync {
+    /// Inquires night/day mode.
     fn night_day_mode(&self) -> DynFuture<'_, Result<bool, Error>>;
+    /// Inquires standby state.
     fn standby_enabled(&self) -> DynFuture<'_, Result<bool, Error>>;
+    /// Inquires digital PTZ state.
     fn digital_ptz_enabled(&self) -> DynFuture<'_, Result<bool, Error>>;
+    /// Inquires auto-trace state.
     fn auto_trace_enabled(&self) -> DynFuture<'_, Result<bool, Error>>;
+    /// Inquires focus-unlock state.
     fn focus_unlock(&self) -> DynFuture<'_, Result<bool, Error>>;
+    /// Inquires the broadcast domain.
     fn broadcast_domain(&self) -> DynFuture<'_, Result<types::BroadcastDomain, Error>>;
+    /// Inquires USB-audio state.
     fn usb_audio_enabled(&self) -> DynFuture<'_, Result<bool, Error>>;
+    /// Inquires two-tone mode.
     fn two_tone_mode_enabled(&self) -> DynFuture<'_, Result<bool, Error>>;
+    /// Inquires digital mode.
     fn digital_mode_enabled(&self) -> DynFuture<'_, Result<bool, Error>>;
+    /// Enables multicast streaming.
     fn multicast_on(&self) -> DynFuture<'_, Result<(), Error>>;
+    /// Disables multicast streaming.
     fn multicast_off(&self) -> DynFuture<'_, Result<(), Error>>;
+    /// Sets NDI streaming quality.
     fn set_ndi_quality(&self, quality: types::NdiQuality) -> DynFuture<'_, Result<(), Error>>;
+    /// Enables USB audio.
     fn usb_audio_on(&self) -> DynFuture<'_, Result<(), Error>>;
+    /// Disables USB audio.
     fn usb_audio_off(&self) -> DynFuture<'_, Result<(), Error>>;
+    /// Sets pan/tilt variable-speed mode.
     fn set_variable_speed_mode(
         &self,
         mode: command::VariableSpeedMode,
@@ -453,27 +741,52 @@ pub trait DynAdvanced: Send + Sync {
 
 /// Object-safe motion safety and observation noun.
 pub trait DynMotion: Send + Sync {
+    /// Stops all supported pan/tilt, zoom, and focus movement.
     fn stop_all_motion(&self) -> DynFuture<'_, Result<(), Error>>;
-    fn is_moving(&self, query: MotionQuery) -> DynFuture<'_, Result<bool, Error>>;
+    /// Reports whether any mechanical movement axis is moving.
+    ///
+    /// This samples [`AffectedAxes::MOVEMENT`] with the default tolerance; use
+    /// [`Self::is_moving_axes`] to pick the axes or the tolerance.
+    ///
+    /// [`AffectedAxes::MOVEMENT`]: crate::AffectedAxes::MOVEMENT
+    fn is_moving(&self) -> DynFuture<'_, Result<bool, Error>>;
+    /// Reports whether the selected physical axes are moving.
+    fn is_moving_axes(&self, query: MotionQuery) -> DynFuture<'_, Result<bool, Error>>;
+    /// Waits until the selected physical axes become idle.
     fn wait_until_idle(&self, wait: IdleWait) -> DynFuture<'_, Result<(), Error>>;
 }
 
 /// Object-safe accessors for all final dynamic nouns.
 pub trait DynSessionCameraNouns: Send + Sync {
+    /// Returns the dynamic power noun.
     fn power(&self) -> &dyn DynPower;
+    /// Returns the dynamic zoom noun.
     fn zoom(&self) -> &dyn DynZoom;
+    /// Returns the dynamic system noun.
     fn system(&self) -> &dyn DynSystem;
+    /// Returns the dynamic pan/tilt noun.
     fn pan_tilt(&self) -> &dyn DynPanTilt;
+    /// Returns the dynamic focus noun.
     fn focus(&self) -> &dyn DynFocus;
+    /// Returns the dynamic exposure noun.
     fn exposure(&self) -> &dyn DynExposure;
+    /// Returns the dynamic white-balance noun.
     fn white_balance(&self) -> &dyn DynWhiteBalance;
+    /// Returns the dynamic image noun.
     fn image(&self) -> &dyn DynImage;
+    /// Returns the dynamic preset noun.
     fn presets(&self) -> &dyn DynPresets;
+    /// Returns the dynamic tally noun.
     fn tally(&self) -> &dyn DynTally;
+    /// Returns the dynamic ND-filter noun.
     fn nd_filter(&self) -> &dyn DynNdFilter;
+    /// Returns the dynamic motion-sync noun.
     fn motion_sync(&self) -> &dyn DynMotionSync;
+    /// Returns the dynamic menu noun.
     fn menu(&self) -> &dyn DynMenu;
+    /// Returns the dynamic advanced/vendor noun.
     fn advanced(&self) -> &dyn DynAdvanced;
+    /// Returns the dynamic motion safety and observation noun.
     fn motion(&self) -> &dyn DynMotion;
 }
 
@@ -670,6 +983,27 @@ impl DynZoom for DynSessionCamera {
     plain_methods! {
         fn set_digital_zoom(enabled: bool) => command::DigitalZoom::new(enabled);
     }
+
+    fn set_normalized(
+        &self,
+        position: UnitInterval,
+    ) -> DynFuture<'_, Result<DynTargetedOperation, Error>> {
+        targeted_result(
+            self,
+            builtin::ZoomTarget::from_normalized(position, ZoomDomain::Optical, self.profile()),
+        )
+    }
+
+    fn set_normalized_in_domain(
+        &self,
+        position: UnitInterval,
+        domain: ZoomDomain,
+    ) -> DynFuture<'_, Result<DynTargetedOperation, Error>> {
+        targeted_result(
+            self,
+            builtin::ZoomTarget::from_normalized(position, domain, self.profile()),
+        )
+    }
 }
 
 impl DynSystem for DynSessionCamera {
@@ -698,6 +1032,43 @@ impl DynPanTilt for DynSessionCamera {
         applied_result(
             self,
             builtin::PanTiltDrive::new(direction, pan_speed, tilt_speed),
+        )
+    }
+
+    fn up(
+        &self,
+        pan_speed: types::PanSpeed,
+        tilt_speed: types::TiltSpeed,
+    ) -> DynFuture<'_, Result<DynAppliedOperation, Error>> {
+        DynPanTilt::move_direction(self, command::PanTiltDirection::Up, pan_speed, tilt_speed)
+    }
+
+    fn down(
+        &self,
+        pan_speed: types::PanSpeed,
+        tilt_speed: types::TiltSpeed,
+    ) -> DynFuture<'_, Result<DynAppliedOperation, Error>> {
+        DynPanTilt::move_direction(self, command::PanTiltDirection::Down, pan_speed, tilt_speed)
+    }
+
+    fn left(
+        &self,
+        pan_speed: types::PanSpeed,
+        tilt_speed: types::TiltSpeed,
+    ) -> DynFuture<'_, Result<DynAppliedOperation, Error>> {
+        DynPanTilt::move_direction(self, command::PanTiltDirection::Left, pan_speed, tilt_speed)
+    }
+
+    fn right(
+        &self,
+        pan_speed: types::PanSpeed,
+        tilt_speed: types::TiltSpeed,
+    ) -> DynFuture<'_, Result<DynAppliedOperation, Error>> {
+        DynPanTilt::move_direction(
+            self,
+            command::PanTiltDirection::Right,
+            pan_speed,
+            tilt_speed,
         )
     }
 
@@ -970,6 +1341,7 @@ impl DynMenu for DynSessionCamera {
         fn select() => command::PerformMenuAction::new(command::MenuAction::Select);
         fn cancel() => command::PerformMenuAction::new(command::MenuAction::Cancel);
         fn direct(control1: u8, control2: u8) => command::DirectMenuControl::new(control1, control2);
+        fn toggle_display() => command::DirectMenuControl::open_close();
     }
 }
 
@@ -1032,6 +1404,13 @@ impl DynNdFilter for DynSessionCamera {
         )
     }
 
+    fn set_stops(&self, stops: f32) -> DynFuture<'_, Result<DynTargetedOperation, Error>> {
+        targeted_result(
+            self,
+            command::NdFilterValue::from_stops(stops).map(builtin::NdFilterDirect::new),
+        )
+    }
+
     fn step_up(&self) -> DynFuture<'_, Result<DynTargetedOperation, Error>> {
         targeted(self, builtin::NdFilterStepUp::new())
     }
@@ -1053,6 +1432,10 @@ impl DynMotionSync for DynSessionCamera {
     fn set_preset(&self, speed: u8) -> DynFuture<'_, Result<(), Error>> {
         plain_result(self, command::SetMotionSyncPreset::new(speed))
     }
+
+    fn set_speed(&self, speed: types::MotionSyncSpeed) -> DynFuture<'_, Result<(), Error>> {
+        plain_result(self, command::SetMotionSyncPreset::new(speed.value()))
+    }
 }
 
 impl DynMotion for DynSessionCamera {
@@ -1060,8 +1443,12 @@ impl DynMotion for DynSessionCamera {
         self.stop_all_motion()
     }
 
-    fn is_moving(&self, query: MotionQuery) -> DynFuture<'_, Result<bool, Error>> {
-        self.is_moving(query)
+    fn is_moving(&self) -> DynFuture<'_, Result<bool, Error>> {
+        DynSessionCamera::is_moving(self, MotionQuery::default())
+    }
+
+    fn is_moving_axes(&self, query: MotionQuery) -> DynFuture<'_, Result<bool, Error>> {
+        DynSessionCamera::is_moving(self, query)
     }
 
     fn wait_until_idle(&self, wait: IdleWait) -> DynFuture<'_, Result<(), Error>> {
@@ -1080,7 +1467,51 @@ mod tests {
         surface::{surface_entry, StaticSurfaceDisposition},
     };
 
-    use super::{DYN_NOUN_COUNT, DYN_NOUN_INQUIRY_METHOD_COUNT, DYN_NOUN_TARGET_METHOD_COUNT};
+    use super::{
+        DYN_NOUN_CONVENIENCE_METHODS, DYN_NOUN_CONVENIENCE_METHOD_COUNT, DYN_NOUN_COUNT,
+        DYN_NOUN_INQUIRY_METHOD_COUNT, DYN_NOUN_TARGET_METHOD_COUNT,
+    };
+
+    #[test]
+    fn declared_convenience_wrappers_exist_and_are_disjoint_from_the_ledger() {
+        let source = include_str!("nouns.rs");
+
+        assert_eq!(
+            DYN_NOUN_CONVENIENCE_METHODS.len(),
+            DYN_NOUN_CONVENIENCE_METHOD_COUNT,
+        );
+
+        let mut ledger_methods = HashSet::new();
+        for command in BuiltinCommand::ALL {
+            if let StaticSurfaceDisposition::Noun { method, .. } =
+                surface_entry(*command).disposition
+            {
+                ledger_methods.insert(method);
+            }
+        }
+
+        let mut declared = HashSet::new();
+        for (noun, method) in DYN_NOUN_CONVENIENCE_METHODS {
+            assert!(
+                declared.insert((*noun, *method)),
+                "duplicate convenience entry {noun}::{method}",
+            );
+            assert!(
+                source.contains(&format!("pub trait {noun}:")),
+                "convenience entry names an unknown dynamic noun {noun}",
+            );
+            assert!(
+                source.contains(&format!("fn {method}(")),
+                "convenience method {noun}::{method} is not declared",
+            );
+            // A convenience wrapper must never shadow a ledger spelling: that
+            // would let a command row silently lose its own method.
+            assert!(
+                !ledger_methods.contains(method),
+                "convenience method {noun}::{method} collides with a ledger row spelling",
+            );
+        }
+    }
 
     #[test]
     fn dynamic_command_counts_follow_static_surface_ledger() {

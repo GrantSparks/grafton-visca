@@ -64,6 +64,20 @@ impl MotionQuery {
     }
 }
 
+impl Default for MotionQuery {
+    /// Samples every mechanical movement axis with the default tolerance.
+    fn default() -> Self {
+        Self::new(AffectedAxes::MOVEMENT)
+    }
+}
+
+impl From<AffectedAxes> for MotionQuery {
+    /// Samples `axes` with the default tolerance.
+    fn from(axes: AffectedAxes) -> Self {
+        Self::new(axes)
+    }
+}
+
 /// Complete policy for waiting until selected axes become idle.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct IdleWait {
@@ -108,6 +122,61 @@ impl IdleWait {
         self.interval = interval;
         self
     }
+
+    /// Replaces the observed axes.
+    #[must_use]
+    pub const fn with_axes(mut self, axes: AffectedAxes) -> Self {
+        self.axes = axes;
+        self
+    }
+
+    /// Replaces the absolute observation budget.
+    #[must_use]
+    pub const fn with_timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = timeout;
+        self
+    }
+
+    /// Waits for a preset recall over every mechanical movement axis.
+    ///
+    /// A preset moves pan/tilt, zoom, and focus together and can take a while,
+    /// so this budgets 60 seconds over [`AffectedAxes::MOVEMENT`].
+    #[must_use]
+    pub const fn for_preset_recall() -> Self {
+        Self::new(AffectedAxes::MOVEMENT, Duration::from_secs(60))
+    }
+
+    /// Waits for pan/tilt movement only, budgeting 30 seconds.
+    #[must_use]
+    pub const fn for_pan_tilt() -> Self {
+        Self::new(AffectedAxes::PAN_TILT, Duration::from_secs(30))
+    }
+
+    /// Waits for zoom movement only, budgeting 15 seconds.
+    #[must_use]
+    pub const fn for_zoom() -> Self {
+        Self::new(AffectedAxes::ZOOM, Duration::from_secs(15))
+    }
+
+    /// Waits for focus movement only, budgeting 10 seconds.
+    #[must_use]
+    pub const fn for_focus() -> Self {
+        Self::new(AffectedAxes::FOCUS, Duration::from_secs(10))
+    }
+}
+
+impl Default for IdleWait {
+    /// Waits up to 30 seconds over every mechanical movement axis.
+    fn default() -> Self {
+        Self::new(AffectedAxes::MOVEMENT, Duration::from_secs(30))
+    }
+}
+
+impl From<Duration> for IdleWait {
+    /// Waits up to `timeout` over every mechanical movement axis.
+    fn from(timeout: Duration) -> Self {
+        Self::new(AffectedAxes::MOVEMENT, timeout)
+    }
 }
 
 /// Raw pan/tilt position returned by the VISCA inquiry.
@@ -139,5 +208,85 @@ impl PanTiltPosition {
     #[must_use]
     pub const fn raw_values(&self) -> (i16, i16) {
         (self.pan, self.tilt)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use super::{IdleWait, MotionQuery, MovementTolerance};
+    use crate::AffectedAxes;
+
+    #[test]
+    fn named_wait_presets_select_their_axis_and_budget() {
+        let expected = [
+            (
+                IdleWait::for_preset_recall(),
+                AffectedAxes::MOVEMENT,
+                Duration::from_secs(60),
+            ),
+            (
+                IdleWait::for_pan_tilt(),
+                AffectedAxes::PAN_TILT,
+                Duration::from_secs(30),
+            ),
+            (
+                IdleWait::for_zoom(),
+                AffectedAxes::ZOOM,
+                Duration::from_secs(15),
+            ),
+            (
+                IdleWait::for_focus(),
+                AffectedAxes::FOCUS,
+                Duration::from_secs(10),
+            ),
+        ];
+
+        for (wait, axes, timeout) in expected {
+            assert_eq!(wait.axes, axes);
+            assert_eq!(wait.timeout, timeout);
+            assert_eq!(wait.tolerance, MovementTolerance::default());
+            assert_eq!(wait.interval, Duration::from_millis(100));
+        }
+    }
+
+    #[test]
+    fn idle_wait_default_and_duration_conversion_watch_every_movement_axis() {
+        let default = IdleWait::default();
+        assert_eq!(default.axes, AffectedAxes::MOVEMENT);
+        assert_eq!(default.timeout, Duration::from_secs(30));
+
+        let converted = IdleWait::from(Duration::from_millis(2500));
+        assert_eq!(converted.axes, AffectedAxes::MOVEMENT);
+        assert_eq!(converted.timeout, Duration::from_millis(2500));
+        assert_eq!(converted.interval, default.interval);
+        assert_eq!(converted.tolerance, default.tolerance);
+
+        let inferred: IdleWait = Duration::from_secs(1).into();
+        assert_eq!(
+            inferred,
+            IdleWait::new(AffectedAxes::MOVEMENT, Duration::from_secs(1))
+        );
+    }
+
+    #[test]
+    fn idle_wait_builders_replace_axes_and_timeout() {
+        let wait = IdleWait::default()
+            .with_axes(AffectedAxes::ZOOM)
+            .with_timeout(Duration::from_secs(3))
+            .with_interval(Duration::from_millis(25));
+        assert_eq!(wait.axes, AffectedAxes::ZOOM);
+        assert_eq!(wait.timeout, Duration::from_secs(3));
+        assert_eq!(wait.interval, Duration::from_millis(25));
+    }
+
+    #[test]
+    fn motion_query_default_and_conversion_select_movement_axes() {
+        assert_eq!(MotionQuery::default().axes, AffectedAxes::MOVEMENT);
+        assert_eq!(
+            MotionQuery::from(AffectedAxes::FOCUS),
+            MotionQuery::new(AffectedAxes::FOCUS)
+        );
     }
 }
