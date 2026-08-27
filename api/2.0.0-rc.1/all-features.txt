@@ -93,9 +93,11 @@ pub fn grafton_visca::CameraConfig<P>::udp(impl core::convert::Into<alloc::strin
 pub fn grafton_visca::CameraConfig<P>::validate(&self) -> core::result::Result<(), grafton_visca::Error>
 impl<P> grafton_visca::CameraConfig<P> where P: grafton_visca::profile::CompileTimeProfile
 pub fn grafton_visca::CameraConfig<P>::open(&self) -> grafton_visca::Result<grafton_visca::blocking::Session>
+pub fn grafton_visca::CameraConfig<P>::open_camera(&self) -> grafton_visca::Result<grafton_visca::blocking::CameraSession<P>>
 pub fn grafton_visca::CameraConfig<P>::open_serial(&self) -> grafton_visca::Result<grafton_visca::blocking::Session>
 impl<P> grafton_visca::CameraConfig<P> where P: grafton_visca::profile::CompileTimeProfile
 pub async fn grafton_visca::CameraConfig<P>::open_async<R>(&self, R) -> grafton_visca::Result<grafton_visca::Session> where R: grafton_visca::Runtime
+pub async fn grafton_visca::CameraConfig<P>::open_camera_async<R>(&self, R) -> grafton_visca::Result<grafton_visca::CameraSession<P>> where R: grafton_visca::Runtime
 pub async fn grafton_visca::CameraConfig<P>::open_serial_async<R>(&self, R) -> grafton_visca::Result<grafton_visca::Session> where R: grafton_visca::Runtime + grafton_visca::runtime::RuntimeSerial<SerialTransport = grafton_visca::runtime_adapters::tokio::SerialTransport>
 impl<P> grafton_visca::CameraConfig<P> where P: grafton_visca::profile::CompileTimeProfile
 pub fn grafton_visca::CameraConfig<P>::session_config(&self) -> grafton_visca::Result<grafton_visca::SessionConfig>
@@ -112,6 +114,23 @@ impl<P> core::marker::Unpin for grafton_visca::CameraConfig<P> where core::marke
 impl<P> core::marker::UnsafeUnpin for grafton_visca::CameraConfig<P> where core::marker::PhantomData<P>: core::marker::UnsafeUnpin
 impl<P> core::panic::unwind_safe::RefUnwindSafe for grafton_visca::CameraConfig<P> where core::marker::PhantomData<P>: core::panic::unwind_safe::RefUnwindSafe
 impl<P> core::panic::unwind_safe::UnwindSafe for grafton_visca::CameraConfig<P> where core::marker::PhantomData<P>: core::panic::unwind_safe::UnwindSafe
+pub struct grafton_visca::blocking::CameraSession<P: grafton_visca::profile::CompileTimeProfile>
+impl<P: grafton_visca::profile::CompileTimeProfile> grafton_visca::blocking::CameraSession<P>
+pub fn grafton_visca::blocking::CameraSession<P>::camera(&self) -> grafton_visca::blocking::Camera<'_, P>
+pub fn grafton_visca::blocking::CameraSession<P>::close(self) -> grafton_visca::Result<(), grafton_visca::Error>
+pub fn grafton_visca::blocking::CameraSession<P>::open<T>(T, &grafton_visca::CameraConfig<P>) -> grafton_visca::Result<Self, grafton_visca::Error> where T: grafton_visca::transport::BlockingTransport + grafton_visca::transport::HasTransportConfig + 'static
+pub const fn grafton_visca::blocking::CameraSession<P>::session(&self) -> &grafton_visca::blocking::Session
+pub fn grafton_visca::blocking::CameraSession<P>::shutdown(&self) -> grafton_visca::Result<(), grafton_visca::Error>
+pub const fn grafton_visca::blocking::CameraSession<P>::target(&self) -> grafton_visca::CameraId
+impl<P: grafton_visca::profile::CompileTimeProfile> core::fmt::Debug for grafton_visca::blocking::CameraSession<P>
+pub fn grafton_visca::blocking::CameraSession<P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<P> !core::marker::Freeze for grafton_visca::blocking::CameraSession<P>
+impl<P> core::marker::Send for grafton_visca::blocking::CameraSession<P> where core::marker::PhantomData<fn() -> P>: core::marker::Send
+impl<P> !core::marker::Sync for grafton_visca::blocking::CameraSession<P>
+impl<P> core::marker::Unpin for grafton_visca::blocking::CameraSession<P> where core::marker::PhantomData<fn() -> P>: core::marker::Unpin
+impl<P> core::marker::UnsafeUnpin for grafton_visca::blocking::CameraSession<P> where core::marker::PhantomData<fn() -> P>: core::marker::UnsafeUnpin
+impl<P> !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::CameraSession<P>
+impl<P> !core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::CameraSession<P>
 pub struct grafton_visca::blocking::Cancellation<'session>
 impl<'session> grafton_visca::blocking::Cancellation<'session>
 pub fn grafton_visca::blocking::Cancellation<'session>::detach(self)
@@ -132,7 +151,9 @@ impl grafton_visca::blocking::Connect
 pub fn grafton_visca::blocking::Connect::builder() -> grafton_visca::blocking::ConnectBuilder
 pub fn grafton_visca::blocking::Connect::open_serial<P>(impl core::convert::Into<alloc::string::String>, u32) -> grafton_visca::Result<grafton_visca::blocking::Session> where P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::SupportsSerial
 pub fn grafton_visca::blocking::Connect::open_tcp<P>(impl core::convert::Into<alloc::string::String>) -> grafton_visca::Result<grafton_visca::blocking::Session> where P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::SupportsTcp
+pub fn grafton_visca::blocking::Connect::open_tcp_camera<P>(impl core::convert::Into<alloc::string::String>) -> grafton_visca::Result<grafton_visca::blocking::CameraSession<P>> where P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::SupportsTcp
 pub fn grafton_visca::blocking::Connect::open_udp<P>(impl core::convert::Into<alloc::string::String>) -> grafton_visca::Result<grafton_visca::blocking::Session> where P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::SupportsUdp
+pub fn grafton_visca::blocking::Connect::open_udp_camera<P>(impl core::convert::Into<alloc::string::String>) -> grafton_visca::Result<grafton_visca::blocking::CameraSession<P>> where P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::SupportsUdp
 impl core::clone::Clone for grafton_visca::blocking::Connect
 pub fn grafton_visca::blocking::Connect::clone(&self) -> grafton_visca::blocking::Connect
 impl core::fmt::Debug for grafton_visca::blocking::Connect
@@ -2330,9 +2351,11 @@ pub fn grafton_visca::CameraConfig<P>::udp(impl core::convert::Into<alloc::strin
 pub fn grafton_visca::CameraConfig<P>::validate(&self) -> core::result::Result<(), grafton_visca::Error>
 impl<P> grafton_visca::CameraConfig<P> where P: grafton_visca::profile::CompileTimeProfile
 pub fn grafton_visca::CameraConfig<P>::open(&self) -> grafton_visca::Result<grafton_visca::blocking::Session>
+pub fn grafton_visca::CameraConfig<P>::open_camera(&self) -> grafton_visca::Result<grafton_visca::blocking::CameraSession<P>>
 pub fn grafton_visca::CameraConfig<P>::open_serial(&self) -> grafton_visca::Result<grafton_visca::blocking::Session>
 impl<P> grafton_visca::CameraConfig<P> where P: grafton_visca::profile::CompileTimeProfile
 pub async fn grafton_visca::CameraConfig<P>::open_async<R>(&self, R) -> grafton_visca::Result<grafton_visca::Session> where R: grafton_visca::Runtime
+pub async fn grafton_visca::CameraConfig<P>::open_camera_async<R>(&self, R) -> grafton_visca::Result<grafton_visca::CameraSession<P>> where R: grafton_visca::Runtime
 pub async fn grafton_visca::CameraConfig<P>::open_serial_async<R>(&self, R) -> grafton_visca::Result<grafton_visca::Session> where R: grafton_visca::Runtime + grafton_visca::runtime::RuntimeSerial<SerialTransport = grafton_visca::runtime_adapters::tokio::SerialTransport>
 impl<P> grafton_visca::CameraConfig<P> where P: grafton_visca::profile::CompileTimeProfile
 pub fn grafton_visca::CameraConfig<P>::session_config(&self) -> grafton_visca::Result<grafton_visca::SessionConfig>
@@ -2354,7 +2377,9 @@ impl grafton_visca::Connect
 pub fn grafton_visca::Connect::builder() -> grafton_visca::ConnectBuilder
 pub async fn grafton_visca::Connect::open_serial<P, R>(impl core::convert::Into<alloc::string::String>, u32, R) -> grafton_visca::Result<grafton_visca::Session> where P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::SupportsSerial, R: grafton_visca::Runtime + grafton_visca::runtime::RuntimeSerial<SerialTransport = grafton_visca::runtime_adapters::tokio::SerialTransport>
 pub async fn grafton_visca::Connect::open_tcp<P, R>(impl core::convert::Into<alloc::string::String>, R) -> grafton_visca::Result<grafton_visca::Session> where P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::SupportsTcp, R: grafton_visca::Runtime
+pub async fn grafton_visca::Connect::open_tcp_camera<P, R>(impl core::convert::Into<alloc::string::String>, R) -> grafton_visca::Result<grafton_visca::CameraSession<P>> where P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::SupportsTcp, R: grafton_visca::Runtime
 pub async fn grafton_visca::Connect::open_udp<P, R>(impl core::convert::Into<alloc::string::String>, R) -> grafton_visca::Result<grafton_visca::Session> where P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::SupportsUdp, R: grafton_visca::Runtime
+pub async fn grafton_visca::Connect::open_udp_camera<P, R>(impl core::convert::Into<alloc::string::String>, R) -> grafton_visca::Result<grafton_visca::CameraSession<P>> where P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::SupportsUdp, R: grafton_visca::Runtime
 impl core::clone::Clone for grafton_visca::Connect
 pub fn grafton_visca::Connect::clone(&self) -> grafton_visca::Connect
 impl core::fmt::Debug for grafton_visca::Connect
@@ -14289,9 +14314,11 @@ pub fn grafton_visca::CameraConfig<P>::udp(impl core::convert::Into<alloc::strin
 pub fn grafton_visca::CameraConfig<P>::validate(&self) -> core::result::Result<(), grafton_visca::Error>
 impl<P> grafton_visca::CameraConfig<P> where P: grafton_visca::profile::CompileTimeProfile
 pub fn grafton_visca::CameraConfig<P>::open(&self) -> grafton_visca::Result<grafton_visca::blocking::Session>
+pub fn grafton_visca::CameraConfig<P>::open_camera(&self) -> grafton_visca::Result<grafton_visca::blocking::CameraSession<P>>
 pub fn grafton_visca::CameraConfig<P>::open_serial(&self) -> grafton_visca::Result<grafton_visca::blocking::Session>
 impl<P> grafton_visca::CameraConfig<P> where P: grafton_visca::profile::CompileTimeProfile
 pub async fn grafton_visca::CameraConfig<P>::open_async<R>(&self, R) -> grafton_visca::Result<grafton_visca::Session> where R: grafton_visca::Runtime
+pub async fn grafton_visca::CameraConfig<P>::open_camera_async<R>(&self, R) -> grafton_visca::Result<grafton_visca::CameraSession<P>> where R: grafton_visca::Runtime
 pub async fn grafton_visca::CameraConfig<P>::open_serial_async<R>(&self, R) -> grafton_visca::Result<grafton_visca::Session> where R: grafton_visca::Runtime + grafton_visca::runtime::RuntimeSerial<SerialTransport = grafton_visca::runtime_adapters::tokio::SerialTransport>
 impl<P> grafton_visca::CameraConfig<P> where P: grafton_visca::profile::CompileTimeProfile
 pub fn grafton_visca::CameraConfig<P>::session_config(&self) -> grafton_visca::Result<grafton_visca::SessionConfig>
@@ -14328,7 +14355,9 @@ impl grafton_visca::Connect
 pub fn grafton_visca::Connect::builder() -> grafton_visca::ConnectBuilder
 pub async fn grafton_visca::Connect::open_serial<P, R>(impl core::convert::Into<alloc::string::String>, u32, R) -> grafton_visca::Result<grafton_visca::Session> where P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::SupportsSerial, R: grafton_visca::Runtime + grafton_visca::runtime::RuntimeSerial<SerialTransport = grafton_visca::runtime_adapters::tokio::SerialTransport>
 pub async fn grafton_visca::Connect::open_tcp<P, R>(impl core::convert::Into<alloc::string::String>, R) -> grafton_visca::Result<grafton_visca::Session> where P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::SupportsTcp, R: grafton_visca::Runtime
+pub async fn grafton_visca::Connect::open_tcp_camera<P, R>(impl core::convert::Into<alloc::string::String>, R) -> grafton_visca::Result<grafton_visca::CameraSession<P>> where P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::SupportsTcp, R: grafton_visca::Runtime
 pub async fn grafton_visca::Connect::open_udp<P, R>(impl core::convert::Into<alloc::string::String>, R) -> grafton_visca::Result<grafton_visca::Session> where P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::SupportsUdp, R: grafton_visca::Runtime
+pub async fn grafton_visca::Connect::open_udp_camera<P, R>(impl core::convert::Into<alloc::string::String>, R) -> grafton_visca::Result<grafton_visca::CameraSession<P>> where P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::SupportsUdp, R: grafton_visca::Runtime
 impl core::clone::Clone for grafton_visca::Connect
 pub fn grafton_visca::Connect::clone(&self) -> grafton_visca::Connect
 impl core::fmt::Debug for grafton_visca::Connect
@@ -18439,9 +18468,11 @@ pub fn grafton_visca::CameraConfig<P>::udp(impl core::convert::Into<alloc::strin
 pub fn grafton_visca::CameraConfig<P>::validate(&self) -> core::result::Result<(), grafton_visca::Error>
 impl<P> grafton_visca::CameraConfig<P> where P: grafton_visca::profile::CompileTimeProfile
 pub fn grafton_visca::CameraConfig<P>::open(&self) -> grafton_visca::Result<grafton_visca::blocking::Session>
+pub fn grafton_visca::CameraConfig<P>::open_camera(&self) -> grafton_visca::Result<grafton_visca::blocking::CameraSession<P>>
 pub fn grafton_visca::CameraConfig<P>::open_serial(&self) -> grafton_visca::Result<grafton_visca::blocking::Session>
 impl<P> grafton_visca::CameraConfig<P> where P: grafton_visca::profile::CompileTimeProfile
 pub async fn grafton_visca::CameraConfig<P>::open_async<R>(&self, R) -> grafton_visca::Result<grafton_visca::Session> where R: grafton_visca::Runtime
+pub async fn grafton_visca::CameraConfig<P>::open_camera_async<R>(&self, R) -> grafton_visca::Result<grafton_visca::CameraSession<P>> where R: grafton_visca::Runtime
 pub async fn grafton_visca::CameraConfig<P>::open_serial_async<R>(&self, R) -> grafton_visca::Result<grafton_visca::Session> where R: grafton_visca::Runtime + grafton_visca::runtime::RuntimeSerial<SerialTransport = grafton_visca::runtime_adapters::tokio::SerialTransport>
 impl<P> grafton_visca::CameraConfig<P> where P: grafton_visca::profile::CompileTimeProfile
 pub fn grafton_visca::CameraConfig<P>::session_config(&self) -> grafton_visca::Result<grafton_visca::SessionConfig>
@@ -18478,7 +18509,9 @@ impl grafton_visca::blocking::Connect
 pub fn grafton_visca::blocking::Connect::builder() -> grafton_visca::blocking::ConnectBuilder
 pub fn grafton_visca::blocking::Connect::open_serial<P>(impl core::convert::Into<alloc::string::String>, u32) -> grafton_visca::Result<grafton_visca::blocking::Session> where P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::SupportsSerial
 pub fn grafton_visca::blocking::Connect::open_tcp<P>(impl core::convert::Into<alloc::string::String>) -> grafton_visca::Result<grafton_visca::blocking::Session> where P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::SupportsTcp
+pub fn grafton_visca::blocking::Connect::open_tcp_camera<P>(impl core::convert::Into<alloc::string::String>) -> grafton_visca::Result<grafton_visca::blocking::CameraSession<P>> where P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::SupportsTcp
 pub fn grafton_visca::blocking::Connect::open_udp<P>(impl core::convert::Into<alloc::string::String>) -> grafton_visca::Result<grafton_visca::blocking::Session> where P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::SupportsUdp
+pub fn grafton_visca::blocking::Connect::open_udp_camera<P>(impl core::convert::Into<alloc::string::String>) -> grafton_visca::Result<grafton_visca::blocking::CameraSession<P>> where P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::SupportsUdp
 impl core::clone::Clone for grafton_visca::blocking::Connect
 pub fn grafton_visca::blocking::Connect::clone(&self) -> grafton_visca::blocking::Connect
 impl core::fmt::Debug for grafton_visca::blocking::Connect
@@ -25649,9 +25682,11 @@ pub fn grafton_visca::CameraConfig<P>::udp(impl core::convert::Into<alloc::strin
 pub fn grafton_visca::CameraConfig<P>::validate(&self) -> core::result::Result<(), grafton_visca::Error>
 impl<P> grafton_visca::CameraConfig<P> where P: grafton_visca::profile::CompileTimeProfile
 pub fn grafton_visca::CameraConfig<P>::open(&self) -> grafton_visca::Result<grafton_visca::blocking::Session>
+pub fn grafton_visca::CameraConfig<P>::open_camera(&self) -> grafton_visca::Result<grafton_visca::blocking::CameraSession<P>>
 pub fn grafton_visca::CameraConfig<P>::open_serial(&self) -> grafton_visca::Result<grafton_visca::blocking::Session>
 impl<P> grafton_visca::CameraConfig<P> where P: grafton_visca::profile::CompileTimeProfile
 pub async fn grafton_visca::CameraConfig<P>::open_async<R>(&self, R) -> grafton_visca::Result<grafton_visca::Session> where R: grafton_visca::Runtime
+pub async fn grafton_visca::CameraConfig<P>::open_camera_async<R>(&self, R) -> grafton_visca::Result<grafton_visca::CameraSession<P>> where R: grafton_visca::Runtime
 pub async fn grafton_visca::CameraConfig<P>::open_serial_async<R>(&self, R) -> grafton_visca::Result<grafton_visca::Session> where R: grafton_visca::Runtime + grafton_visca::runtime::RuntimeSerial<SerialTransport = grafton_visca::runtime_adapters::tokio::SerialTransport>
 impl<P> grafton_visca::CameraConfig<P> where P: grafton_visca::profile::CompileTimeProfile
 pub fn grafton_visca::CameraConfig<P>::session_config(&self) -> grafton_visca::Result<grafton_visca::SessionConfig>
@@ -25668,12 +25703,32 @@ impl<P> core::marker::Unpin for grafton_visca::CameraConfig<P> where core::marke
 impl<P> core::marker::UnsafeUnpin for grafton_visca::CameraConfig<P> where core::marker::PhantomData<P>: core::marker::UnsafeUnpin
 impl<P> core::panic::unwind_safe::RefUnwindSafe for grafton_visca::CameraConfig<P> where core::marker::PhantomData<P>: core::panic::unwind_safe::RefUnwindSafe
 impl<P> core::panic::unwind_safe::UnwindSafe for grafton_visca::CameraConfig<P> where core::marker::PhantomData<P>: core::panic::unwind_safe::UnwindSafe
+pub struct grafton_visca::session::CameraSession<P: grafton_visca::profile::CompileTimeProfile>
+impl<P: grafton_visca::profile::CompileTimeProfile> grafton_visca::CameraSession<P>
+pub const fn grafton_visca::CameraSession<P>::camera(&self) -> &grafton_visca::Camera<P>
+pub async fn grafton_visca::CameraSession<P>::close(self) -> grafton_visca::Result<()>
+pub fn grafton_visca::CameraSession<P>::into_camera(self) -> grafton_visca::Camera<P>
+pub async fn grafton_visca::CameraSession<P>::open<E, T>(T, &grafton_visca::CameraConfig<P>, impl core::convert::Into<alloc::sync::Arc<E>>) -> grafton_visca::Result<Self> where E: grafton_visca::Executor, T: grafton_visca::transport::AsyncTransport + grafton_visca::transport::HasTransportConfig + 'static
+pub const fn grafton_visca::CameraSession<P>::session(&self) -> &grafton_visca::Session
+pub async fn grafton_visca::CameraSession<P>::shutdown(&self) -> grafton_visca::Result<()>
+pub const fn grafton_visca::CameraSession<P>::target(&self) -> grafton_visca::CameraId
+impl<P: grafton_visca::profile::CompileTimeProfile> core::fmt::Debug for grafton_visca::CameraSession<P>
+pub fn grafton_visca::CameraSession<P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<P> core::marker::Freeze for grafton_visca::CameraSession<P> where grafton_visca::Camera<P>: core::marker::Freeze
+impl<P> core::marker::Send for grafton_visca::CameraSession<P> where grafton_visca::Camera<P>: core::marker::Send
+impl<P> core::marker::Sync for grafton_visca::CameraSession<P> where grafton_visca::Camera<P>: core::marker::Sync
+impl<P> core::marker::Unpin for grafton_visca::CameraSession<P> where grafton_visca::Camera<P>: core::marker::Unpin
+impl<P> core::marker::UnsafeUnpin for grafton_visca::CameraSession<P> where grafton_visca::Camera<P>: core::marker::UnsafeUnpin
+impl<P> !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::CameraSession<P>
+impl<P> !core::panic::unwind_safe::UnwindSafe for grafton_visca::CameraSession<P>
 pub struct grafton_visca::session::Connect
 impl grafton_visca::Connect
 pub fn grafton_visca::Connect::builder() -> grafton_visca::ConnectBuilder
 pub async fn grafton_visca::Connect::open_serial<P, R>(impl core::convert::Into<alloc::string::String>, u32, R) -> grafton_visca::Result<grafton_visca::Session> where P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::SupportsSerial, R: grafton_visca::Runtime + grafton_visca::runtime::RuntimeSerial<SerialTransport = grafton_visca::runtime_adapters::tokio::SerialTransport>
 pub async fn grafton_visca::Connect::open_tcp<P, R>(impl core::convert::Into<alloc::string::String>, R) -> grafton_visca::Result<grafton_visca::Session> where P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::SupportsTcp, R: grafton_visca::Runtime
+pub async fn grafton_visca::Connect::open_tcp_camera<P, R>(impl core::convert::Into<alloc::string::String>, R) -> grafton_visca::Result<grafton_visca::CameraSession<P>> where P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::SupportsTcp, R: grafton_visca::Runtime
 pub async fn grafton_visca::Connect::open_udp<P, R>(impl core::convert::Into<alloc::string::String>, R) -> grafton_visca::Result<grafton_visca::Session> where P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::SupportsUdp, R: grafton_visca::Runtime
+pub async fn grafton_visca::Connect::open_udp_camera<P, R>(impl core::convert::Into<alloc::string::String>, R) -> grafton_visca::Result<grafton_visca::CameraSession<P>> where P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::SupportsUdp, R: grafton_visca::Runtime
 impl core::clone::Clone for grafton_visca::Connect
 pub fn grafton_visca::Connect::clone(&self) -> grafton_visca::Connect
 impl core::fmt::Debug for grafton_visca::Connect
@@ -31487,9 +31542,11 @@ pub fn grafton_visca::CameraConfig<P>::udp(impl core::convert::Into<alloc::strin
 pub fn grafton_visca::CameraConfig<P>::validate(&self) -> core::result::Result<(), grafton_visca::Error>
 impl<P> grafton_visca::CameraConfig<P> where P: grafton_visca::profile::CompileTimeProfile
 pub fn grafton_visca::CameraConfig<P>::open(&self) -> grafton_visca::Result<grafton_visca::blocking::Session>
+pub fn grafton_visca::CameraConfig<P>::open_camera(&self) -> grafton_visca::Result<grafton_visca::blocking::CameraSession<P>>
 pub fn grafton_visca::CameraConfig<P>::open_serial(&self) -> grafton_visca::Result<grafton_visca::blocking::Session>
 impl<P> grafton_visca::CameraConfig<P> where P: grafton_visca::profile::CompileTimeProfile
 pub async fn grafton_visca::CameraConfig<P>::open_async<R>(&self, R) -> grafton_visca::Result<grafton_visca::Session> where R: grafton_visca::Runtime
+pub async fn grafton_visca::CameraConfig<P>::open_camera_async<R>(&self, R) -> grafton_visca::Result<grafton_visca::CameraSession<P>> where R: grafton_visca::Runtime
 pub async fn grafton_visca::CameraConfig<P>::open_serial_async<R>(&self, R) -> grafton_visca::Result<grafton_visca::Session> where R: grafton_visca::Runtime + grafton_visca::runtime::RuntimeSerial<SerialTransport = grafton_visca::runtime_adapters::tokio::SerialTransport>
 impl<P> grafton_visca::CameraConfig<P> where P: grafton_visca::profile::CompileTimeProfile
 pub fn grafton_visca::CameraConfig<P>::session_config(&self) -> grafton_visca::Result<grafton_visca::SessionConfig>
@@ -31545,6 +31602,24 @@ impl core::marker::Unpin for grafton_visca::CameraId
 impl core::marker::UnsafeUnpin for grafton_visca::CameraId
 impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::CameraId
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::CameraId
+pub struct grafton_visca::CameraSession<P: grafton_visca::profile::CompileTimeProfile>
+impl<P: grafton_visca::profile::CompileTimeProfile> grafton_visca::CameraSession<P>
+pub const fn grafton_visca::CameraSession<P>::camera(&self) -> &grafton_visca::Camera<P>
+pub async fn grafton_visca::CameraSession<P>::close(self) -> grafton_visca::Result<()>
+pub fn grafton_visca::CameraSession<P>::into_camera(self) -> grafton_visca::Camera<P>
+pub async fn grafton_visca::CameraSession<P>::open<E, T>(T, &grafton_visca::CameraConfig<P>, impl core::convert::Into<alloc::sync::Arc<E>>) -> grafton_visca::Result<Self> where E: grafton_visca::Executor, T: grafton_visca::transport::AsyncTransport + grafton_visca::transport::HasTransportConfig + 'static
+pub const fn grafton_visca::CameraSession<P>::session(&self) -> &grafton_visca::Session
+pub async fn grafton_visca::CameraSession<P>::shutdown(&self) -> grafton_visca::Result<()>
+pub const fn grafton_visca::CameraSession<P>::target(&self) -> grafton_visca::CameraId
+impl<P: grafton_visca::profile::CompileTimeProfile> core::fmt::Debug for grafton_visca::CameraSession<P>
+pub fn grafton_visca::CameraSession<P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<P> core::marker::Freeze for grafton_visca::CameraSession<P> where grafton_visca::Camera<P>: core::marker::Freeze
+impl<P> core::marker::Send for grafton_visca::CameraSession<P> where grafton_visca::Camera<P>: core::marker::Send
+impl<P> core::marker::Sync for grafton_visca::CameraSession<P> where grafton_visca::Camera<P>: core::marker::Sync
+impl<P> core::marker::Unpin for grafton_visca::CameraSession<P> where grafton_visca::Camera<P>: core::marker::Unpin
+impl<P> core::marker::UnsafeUnpin for grafton_visca::CameraSession<P> where grafton_visca::Camera<P>: core::marker::UnsafeUnpin
+impl<P> !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::CameraSession<P>
+impl<P> !core::panic::unwind_safe::UnwindSafe for grafton_visca::CameraSession<P>
 pub struct grafton_visca::Cancellation
 impl grafton_visca::Cancellation
 pub fn grafton_visca::Cancellation::detach(self)
@@ -31565,7 +31640,9 @@ impl grafton_visca::Connect
 pub fn grafton_visca::Connect::builder() -> grafton_visca::ConnectBuilder
 pub async fn grafton_visca::Connect::open_serial<P, R>(impl core::convert::Into<alloc::string::String>, u32, R) -> grafton_visca::Result<grafton_visca::Session> where P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::SupportsSerial, R: grafton_visca::Runtime + grafton_visca::runtime::RuntimeSerial<SerialTransport = grafton_visca::runtime_adapters::tokio::SerialTransport>
 pub async fn grafton_visca::Connect::open_tcp<P, R>(impl core::convert::Into<alloc::string::String>, R) -> grafton_visca::Result<grafton_visca::Session> where P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::SupportsTcp, R: grafton_visca::Runtime
+pub async fn grafton_visca::Connect::open_tcp_camera<P, R>(impl core::convert::Into<alloc::string::String>, R) -> grafton_visca::Result<grafton_visca::CameraSession<P>> where P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::SupportsTcp, R: grafton_visca::Runtime
 pub async fn grafton_visca::Connect::open_udp<P, R>(impl core::convert::Into<alloc::string::String>, R) -> grafton_visca::Result<grafton_visca::Session> where P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::SupportsUdp, R: grafton_visca::Runtime
+pub async fn grafton_visca::Connect::open_udp_camera<P, R>(impl core::convert::Into<alloc::string::String>, R) -> grafton_visca::Result<grafton_visca::CameraSession<P>> where P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::SupportsUdp, R: grafton_visca::Runtime
 impl core::clone::Clone for grafton_visca::Connect
 pub fn grafton_visca::Connect::clone(&self) -> grafton_visca::Connect
 impl core::fmt::Debug for grafton_visca::Connect
