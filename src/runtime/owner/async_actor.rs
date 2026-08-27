@@ -435,6 +435,13 @@ where
 
     /// Records cancellation intent, returning this receipt intact when the
     /// owner refuses (#612).
+    ///
+    /// The large `Err` variant is the point: it is the caller's observation
+    /// right travelling back rather than being destroyed. The public
+    /// `Operation::cancel` boxes it into `CancelRejected` before it reaches a
+    /// caller, so no public `Result` carries this size. This mirrors the
+    /// blocking twin, `BlockingReceiptControl::cancel_operation`.
+    #[allow(clippy::result_large_err)]
     pub(crate) async fn cancel(self) -> Result<AsyncCancellationReceipt, (Option<Self>, Error)> {
         let Self {
             core,
