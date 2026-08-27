@@ -53,11 +53,11 @@ use crate::{raw::MAX_BYTES, CameraId, CancellationOutcome, Error, ErrorKind, Vis
 
 use super::engine::{
     AdmissionTicket, AppliedStateEffect, AppliedStateProjection, CancelState,
-    CancellationObservation, CancellationPolicy, ControlClass, DecodedFrame, DecodedResponse,
-    Effect, EnvelopeKind, EnvelopeSequence, FirstDispatch, IgnoreReason, Input, InputTurn, Phase,
-    ProtocolEngine, ProtocolPolicy, RequestId, RetryPolicy, RuntimeOutcome, RuntimeRequest,
-    SessionState, ShutdownReason, TargetPolicy, TimeoutPolicy, Transmission, TransmissionId,
-    TransmissionMeta,
+    CancellationObservation, CancellationPolicy, ControlClass, DeadlineKind, DecodedFrame,
+    DecodedResponse, Effect, EnvelopeKind, EnvelopeSequence, FirstDispatch, IgnoreReason, Input,
+    InputTurn, Phase, ProtocolEngine, ProtocolPolicy, RequestId, RetryPolicy, RuntimeOutcome,
+    RuntimeRequest, SessionState, ShutdownReason, TargetPolicy, TimeoutPolicy, Transmission,
+    TransmissionId, TransmissionMeta,
 };
 
 #[cfg(test)]
@@ -255,6 +255,9 @@ impl OwnerPolicy {
 }
 
 /// Bounded counters designed to be projected into the later public metrics API.
+///
+/// Every field is a scalar the owner increments in place, so the whole struct
+/// stays `Copy` and observing it can never allocate.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct OwnerMetrics {
     pub(crate) admitted: u64,
@@ -264,12 +267,36 @@ pub(crate) struct OwnerMetrics {
     pub(crate) terminal: u64,
     pub(crate) cancellations: u64,
     pub(crate) cache_updates: u64,
+    pub(crate) ack_timeouts: u64,
+    pub(crate) completion_timeouts: u64,
+    pub(crate) inquiry_timeouts: u64,
+    pub(crate) busy_errors: u64,
+    pub(crate) protocol_errors: u64,
+    pub(crate) retries_scheduled: u64,
+    pub(crate) ignored_unmatched_sequenced_replies: u64,
     pub(crate) dropped_diagnostics: u64,
     pub(crate) dropped_diagnostic_events: u64,
     pub(crate) dropped_observer_events: u64,
     pub(crate) dropped_applied_events: u64,
     pub(crate) dropped_boundary_work: u64,
 }
+
+/// The camera reported that it cannot accept this request right now.
+///
+/// These are the codes the engine's own retry classification treats as
+/// transient camera-side backpressure: command buffer full (`0x03`), no socket
+/// available (`0x05`), and not executable in the current state (`0x41`).
+///
+/// 1.x bucketed `0x03 | 0x04` here instead. `0x04` is the cancellation reply,
+/// which this engine consumes as the confirmation of a cancel rather than as a
+/// failure, so counting it as a busy error would make every successful
+/// cancellation look like camera backpressure.
+const fn error_code_is_busy(code: u8) -> bool {
+    matches!(code, 0x03 | 0x05 | 0x41)
+}
+
+/// The cancellation reply code, which is an answer rather than a fault.
+const CANCELLATION_REPLY_CODE: u8 = 0x04;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RequestLane {
@@ -378,6 +405,15 @@ pub(crate) enum DiagnosticEvent {
         target: CameraId,
         attempt: u32,
         ready_at: Instant,
+    },
+    /// One of a request's own protocol deadlines expired, carrying the engine's
+    /// actual retry decision so a subscriber never has to infer it from a
+    /// `Transition` and the absence of a `RetryScheduled`.
+    DeadlineExpired {
+        id: RequestId,
+        target: CameraId,
+        deadline: DeadlineKind,
+        will_retry: bool,
     },
     CancellationRecorded {
         id: RequestId,
@@ -1181,6 +1217,16 @@ impl OwnerState {
 
     fn observe_input(&mut self, input: &Input) {
         if let Input::Frame(frame) = input {
+            // Error frames are counted as the owner decodes them, so a camera
+            // answering requests the engine can no longer correlate — the exact
+            // case a field debugging session is trying to see — still shows up.
+            if let DecodedResponse::Error { code, .. } = frame.response {
+                if error_code_is_busy(code) {
+                    self.metrics.busy_errors = self.metrics.busy_errors.saturating_add(1);
+                } else if code != CANCELLATION_REPLY_CODE {
+                    self.metrics.protocol_errors = self.metrics.protocol_errors.saturating_add(1);
+                }
+            }
             self.record(DiagnosticEvent::FrameReceived {
                 target: frame.target,
                 sequence: frame.sequence,
@@ -1551,12 +1597,39 @@ impl OwnerState {
                 attempt,
                 ready_at,
             } => {
+                // Counted where the retry is emitted, not where it is decided:
+                // every retry reason the engine has — a busy camera, an expired
+                // deadline, a transient receive fault (#565) — funnels through
+                // this one effect, so the counter stays correct as retry policy
+                // evolves.
+                self.metrics.retries_scheduled = self.metrics.retries_scheduled.saturating_add(1);
                 if let Some(target) = self.active.get(&id).map(|active| active.summary.target) {
                     self.record(DiagnosticEvent::RetryScheduled {
                         id,
                         target,
                         attempt,
                         ready_at,
+                    });
+                }
+                AppliedEffect::None
+            }
+            Effect::DeadlineExpired {
+                id,
+                deadline,
+                will_retry,
+            } => {
+                let counter = match deadline {
+                    DeadlineKind::Ack => &mut self.metrics.ack_timeouts,
+                    DeadlineKind::Completion => &mut self.metrics.completion_timeouts,
+                    DeadlineKind::InquiryReply => &mut self.metrics.inquiry_timeouts,
+                };
+                *counter = counter.saturating_add(1);
+                if let Some(target) = self.active.get(&id).map(|active| active.summary.target) {
+                    self.record(DiagnosticEvent::DeadlineExpired {
+                        id,
+                        target,
+                        deadline,
+                        will_retry,
                     });
                 }
                 AppliedEffect::None
@@ -1684,6 +1757,12 @@ impl OwnerState {
                 AppliedEffect::None
             }
             Effect::Ignored(reason) => {
+                if reason == IgnoreReason::UnmatchedSequencedFrame {
+                    self.metrics.ignored_unmatched_sequenced_replies = self
+                        .metrics
+                        .ignored_unmatched_sequenced_replies
+                        .saturating_add(1);
+                }
                 self.record(DiagnosticEvent::Ignored(reason));
                 AppliedEffect::None
             }

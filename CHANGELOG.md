@@ -9,6 +9,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 2.0.0-rc.1 release candidate
 
+- **Restored the owner metrics counters the rewrite dropped, and made the
+  retry decision observable** (#571). `MetricsSnapshot` carries `ack_timeouts`,
+  `completion_timeouts`, `inquiry_timeouts`, `busy_errors`, `protocol_errors`,
+  `retries_scheduled` and `ignored_unmatched_sequenced_replies` again — the
+  first numbers a field debugging session asks for in a crate whose failure
+  modes are timing- and hardware-dependent. 1.x carried a single `timeouts`
+  counter; the 2.0 engine distinguishes the ACK, completion and inquiry
+  deadlines, so each is counted separately. `busy_errors` covers the codes the
+  scheduler itself treats as transient camera-side backpressure — command
+  buffer full (`0x03`), no socket (`0x05`), and not executable in the current
+  state (`0x41`) — and `protocol_errors` covers every other error frame.
+  1.x bucketed `0x03 | 0x04` as busy instead; `0x04` is this engine's
+  cancellation reply, so counting it would make every successful cancellation
+  look like camera backpressure, and it is now counted as neither. Both error
+  counters count frames as they are decoded, including frames that no longer
+  correlate to an active request. `retries_scheduled` counts wherever the
+  engine emits a retry, so a transient receive-fault retry (#565) counts like
+  any other.
+- Added `DiagnosticEvent::DeadlineExpired` and `DiagnosticDeadline` (#571). A
+  subscriber that needs to know whether an expired deadline led to another
+  attempt reads `will_retry` off the event, instead of inferring it from a
+  `Transition` plus the absence of a following `RetryScheduled` — which is what
+  1.x's `SchedulerAction::Timeout { will_retry }` carried directly. The flag is
+  the decision the engine actually took, not the policy that motivated it: a
+  policy that permits retrying a deadline still fails the request once its
+  attempt or duration budget is spent, and the event reports that honestly.
 - **Single-camera constructors return a camera, with the profile bound at
   compile time** (#568). Every other entry point returns a `Session`, so a
   one-camera program had to name its profile a second time through

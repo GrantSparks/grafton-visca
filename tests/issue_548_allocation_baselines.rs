@@ -17,7 +17,7 @@ use grafton_visca::{
     },
     transport::{AddressingMode, Envelope, RawVisca, SonyEncapsulated},
     types::{PanSpeed, TiltSpeed, ZoomSpeed},
-    CameraId, PanTiltDirection, PresetNumber, Request,
+    CameraId, MetricsSnapshot, PanTiltDirection, PresetNumber, Request,
 };
 
 static ALLOCATION_TEST_LOCK: Mutex<()> = Mutex::new(());
@@ -339,6 +339,33 @@ fn assert_warmed_framing_reuses_buffer<E: Envelope>(label: &str, envelope: E) {
         capacity,
         "{label} grew its framing buffer"
     );
+}
+
+/// Issue #571: the owner counters are a hot-path observation, so the published
+/// snapshot must stay a scalar copy. The `Copy` bound is the real guard — a
+/// counter that grew owned state (a per-code map, a label string) would fail to
+/// compile here rather than quietly allocate on every metrics read.
+#[test]
+fn observing_the_metrics_snapshot_does_not_allocate() {
+    const fn assert_copy<T: Copy>() {}
+    assert_copy::<MetricsSnapshot>();
+
+    let snapshot = MetricsSnapshot::default();
+    let allocations = allocations_during(|| {
+        for _ in 0..128 {
+            let observed = snapshot;
+            std::hint::black_box((
+                observed.ack_timeouts,
+                observed.completion_timeouts,
+                observed.inquiry_timeouts,
+                observed.busy_errors,
+                observed.protocol_errors,
+                observed.retries_scheduled,
+                observed.ignored_unmatched_sequenced_replies,
+            ));
+        }
+    });
+    assert_eq!(allocations, 0, "metrics snapshot observation allocated");
 }
 
 #[test]

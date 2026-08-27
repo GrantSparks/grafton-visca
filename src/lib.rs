@@ -702,9 +702,9 @@ pub mod observability;
 pub mod state_cache;
 
 pub use observability::{
-    DiagnosticCancellation, DiagnosticEvent, DiagnosticId, DiagnosticIgnoreReason, DiagnosticLane,
-    DiagnosticOutcome, DiagnosticPhase, DiagnosticResponse, DiagnosticSubscription,
-    MetricsSnapshot, SessionStatus,
+    DiagnosticCancellation, DiagnosticDeadline, DiagnosticEvent, DiagnosticId,
+    DiagnosticIgnoreReason, DiagnosticLane, DiagnosticOutcome, DiagnosticPhase, DiagnosticResponse,
+    DiagnosticSubscription, MetricsSnapshot, SessionStatus,
 };
 pub use state_cache::{StateCache, StateEntry, StateKey, StateValue};
 
