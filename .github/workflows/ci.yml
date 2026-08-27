@@ -281,9 +281,16 @@ jobs:
     name: release validator vs. real repository (advisory)
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    # Advisory by construction, in two independent ways: this job is
-    # `continue-on-error`, and it is deliberately absent from `ci-success`'s
-    # `needs` list, so it can never block a merge.
+    # Advisory by construction, in two independent ways: it is deliberately
+    # absent from `ci-success`'s `needs` list, so it can never block a merge,
+    # and its one step always exits 0, reporting drift as an annotation and a
+    # job-summary note rather than as a failure.
+    #
+    # A job-level `continue-on-error: true` does not do that. It stops the
+    # *workflow* from failing but still leaves this job concluding "failure",
+    # which paints an otherwise-green run red on every pull request for most of
+    # a release cycle — and a check that is red by design is a check everyone
+    # learns to skip past, which costs exactly the signal this job exists for.
     #
     # `release-validation` above runs the validator against synthetic
     # fixtures, which proves the script works but not that *this* repository
@@ -291,21 +298,39 @@ jobs:
     # next tag surfaces version/pin drift on the pull request that introduces
     # it instead of at publish time.
     #
-    # It is expected to fail for most of a release cycle: the validator
+    # It is expected to report drift for most of a release cycle: the validator
     # requires a dated `## [2.0.0-rc.1] - YYYY-MM-DD` CHANGELOG heading, and
     # RELEASING.md says the 2.0 notes stay under `## [Unreleased]` until the
-    # release commit. That single expected failure is why the job is advisory
-    # rather than required; the signal it exists for is the *other* failures
+    # release commit. That single expected finding is why the job is advisory
+    # rather than required; the signal it exists for is the *other* findings
     # (a workspace version, an exact macro dependency pin, or a manifest that
     # no longer agrees with the tag being prepared).
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.98.0
       # The tag the next publication is expected to use. Bump it in the same
       # commit that bumps `[workspace.package].version`.
       - name: Validate the intended next tag against this checkout
-        run: bash .github/scripts/validate-release.sh v2.0.0-rc.1
+        shell: bash
+        run: |
+          set -uo pipefail
+          tag=v2.0.0-rc.1
+          bash .github/scripts/validate-release.sh "${tag}" && status=0 || status=$?
+          if [ "${status}" -eq 0 ]; then
+            echo "::notice title=Release drift::The release validator accepts this checkout as ${tag}."
+            echo "The release validator accepts this checkout as \`${tag}\`." >>"${GITHUB_STEP_SUMMARY}"
+            exit 0
+          fi
+          echo "::warning title=Release drift::validate-release.sh ${tag} exited ${status}; see this step's log for the findings. An undated '## [Unreleased]' CHANGELOG heading is expected until the release commit; anything else is real drift."
+          {
+            echo "### Release drift (advisory)"
+            echo
+            echo "\`validate-release.sh ${tag}\` exited \`${status}\`. The findings are in this job's step log."
+            echo
+            echo "An undated \`## [Unreleased]\` heading is expected until the release commit. Any other finding — a workspace version, an exact macro dependency pin, or a manifest that no longer agrees with the tag — is real drift to fix before publishing."
+          } >>"${GITHUB_STEP_SUMMARY}"
+          # Advisory: the finding is reported, not enforced.
+          exit 0
 
   public-api:
     name: public API RC snapshot
