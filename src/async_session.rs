@@ -13,7 +13,6 @@ use std::{fmt, marker::PhantomData, sync::Arc, time::Duration};
 use crate::{
     camera::{IdleWait, MotionQuery},
     completion,
-    drop_stop::{pan_tilt_stop_request, DropStopPlan},
     executor::Executor,
     operation::Operation,
     prepared::{prepare_command, prepare_inquiry, prepare_operation, prepare_position_queries},
@@ -25,6 +24,7 @@ use crate::{
             ensure_async_before_deadline, sample_positions_async, AsyncOwnerActor, AsyncOwnerHandle,
         },
     },
+    stop_request::pan_tilt_stop_request,
     transport::{AsyncTransport, HasTransportConfig},
     CameraId, DiagnosticSubscription, Error, Inquiry, MetricsSnapshot, OperationCommand,
     PlainCommand, Result, SessionConfig, StateCache,
@@ -245,17 +245,9 @@ impl AsyncCameraCore {
         let prepared =
             prepare_operation::<K, _>(operation, self.target, self.profile.as_ref(), self.tuning)?;
         let receipt = self.owner.submit_operation(prepared).await?;
-        let stop_on_drop = DropStopPlan::new(
-            operation.control_class(),
-            receipt.affected_axes(),
-            self.target,
-            Arc::clone(&self.profile),
-            self.tuning,
-        );
         Ok(Operation::from_receipt(
             receipt,
             self.owner.receipt_control(),
-            stop_on_drop,
         ))
     }
 

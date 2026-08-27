@@ -48,7 +48,7 @@ cache. There is no dynamic policy layer that can bypass static preparation.
 | `start_*`, `*_and_wait`, `_result`, and `*_op` twins | One noun method for ordinary completion, or one `submit` call for lifecycle control. No aliases or result twins. |
 | `await_completion` | `applied`; use `settled` only on a targeted operation. |
 | `InFlightDyn`/legacy dynamic operation wrappers | `DynTargetedOperation`, `DynAppliedOperation`, and `DynCancellation`. Applied-only handles have no settled operation. |
-| Dropping an operation to stop hardware | Still supported, and now the default: dropping an unobserved movement operation enqueues the typed STOP for each axis it affects, so an early `?` or a panic cannot leave hardware moving. `detach` is the explicit opt-out, `cancel` is protocol cancellation, and both — like any completed wait — consume the handle and emit no STOP. |
+| Dropping an operation handle | Unchanged from 1.x: drop is `detach` and never stops hardware. See [Drop never stops hardware](#drop-never-stops-hardware) for the scoped stop-on-exit pattern. |
 | Raw `command::RawInquiryPayload`/untyped response assumptions | `raw::Plain`, `raw::Inquiry`, `raw::Targeted`, or `raw::AppliedOnly`, with an explicit response parser/spec. |
 | `ViscaCommand` response-associated-type extensions | The typed `Request`/`Inquiry`/`OperationCommand` contract and `ResponseParser` for custom decoding. |
 | Plain requests submitted as operations or operations without affected axes | Match the request class exactly: `execute` for plain, `inquire` for inquiry, and `submit` for a typed operation with non-empty affected axes. |
@@ -57,6 +57,71 @@ cache. There is no dynamic policy layer that can bypass static preparation.
 The built-in command classification remains one closed semantic ledger. A
 custom request must declare its class explicitly; wire opcode or response shape
 does not infer lifecycle semantics.
+
+## Drop never stops hardware
+
+Dropping an operation handle is exactly `detach`. It relinquishes the observer
+and nothing else: the owner keeps the protocol lifecycle, never reads a dropped
+handle as cancellation, and no STOP reaches the camera. An early `?`, a panic
+unwinding past a live handle, or a forgotten binding therefore leaves physical
+movement running until something else ends it.
+
+**This is not a 2.0 change.** 1.x behaved identically — `src/camera/inflight.rs`
+on the 1.x line documents "drop == detach ... Dropping never stops the command",
+pinned there by `tests/issue_539_blocking_handle_test.rs`. Nothing to migrate;
+it is documented here because the consequence is physical and easy to assume
+otherwise.
+
+To end motion, submit a stop: `camera.pan_tilt().stop()`, `camera.zoom().stop()`,
+`camera.focus().stop()`, or `camera.motion().stop_all_motion()`. `cancel` records
+protocol cancellation and does not by itself prove motion ended.
+
+### Scoped stop-on-exit guard
+
+To bound movement by a scope rather than by an explicit call on every path,
+write a guard whose own `Drop` submits the typed STOP. This is caller-owned
+code — the library deliberately offers no such type, so the policy, the axes,
+and the failure handling stay yours:
+
+```rust,ignore
+struct StopPanTiltOnExit<'a, 'session> {
+    camera: &'a grafton_visca::blocking::Camera<'session, PtzOpticsG2>,
+}
+
+impl Drop for StopPanTiltOnExit<'_, '_> {
+    fn drop(&mut self) {
+        // `Drop` cannot report a failure and may run while unwinding, so the
+        // stop is best effort — as in any scope guard.
+        if let Ok(stop) = self.camera.pan_tilt().stop() {
+            let _ = stop.applied();
+        }
+    }
+}
+
+// Hold the guard for the region that must stay bounded.
+{
+    let _stop_on_exit = StopPanTiltOnExit { camera: &camera };
+    let drive = camera.pan_tilt().move_direction(direction, pan, tilt)?;
+    do_fallible_work()?; // an early `?` here still stops pan/tilt
+    drive.applied()?;
+}
+```
+
+`Drop` cannot await, so the async form is a wrapper rather than a guard type:
+run the fallible region, stop unconditionally, then propagate its result.
+
+```rust,ignore
+async fn bounded_drive(camera: &grafton_visca::Camera<PtzOpticsG2>) -> Result<(), Error> {
+    let result = drive_up(camera).await;
+    if let Ok(stop) = camera.pan_tilt().stop().await {
+        let _ = stop.applied().await;
+    }
+    result
+}
+```
+
+Both forms are demonstrated end to end in `examples/operation_handles.rs` and
+`examples/operation_handles_async.rs`.
 
 ## Values, optional features, and internal modules
 

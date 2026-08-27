@@ -9,17 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 2.0.0-rc.1 release candidate
 
-- **Dropping an in-flight movement operation now stops the camera** (#567).
-  An `Operation` handle that is dropped without being awaited, cancelled, or
-  detached — an early `?`, a panic unwinding past it, or a forgotten binding —
-  enqueues the typed STOP for every axis that operation affects, so no failure
-  path can leave hardware driving. This applies to the blocking, async, and
-  dynamic handles alike. Movement is the branch's existing classification: an
-  operation whose affected axes include pan/tilt, zoom, or focus and whose
-  control class is not `Urgent` (the closed stop/cancel set, so an abandoned
-  STOP never answers itself). `detach` is the explicit opt-out, and cancelling
-  or awaiting a handle consumes it, so neither adds a redundant STOP. The stop
-  is best effort and never blocks or panics in `Drop`.
+- Operation-handle drop semantics match 1.x exactly: drop is `detach` and
+  never stops hardware (#567). Dropping a handle relinquishes the observer and
+  nothing else, so an early `?`, a panic unwinding past it, or a forgotten
+  binding leaves physical movement running until an explicit stop ends it.
+  This is documented rather than changed — 1.x behaved identically — so it is
+  not a migration item, and the migration-table row that implied otherwise is
+  corrected. Callers who want motion bounded by a scope write a stop-on-exit
+  guard; the pattern is documented in `docs/migration_2_0.md` and demonstrated
+  in `examples/operation_handles.rs` (and in its async wrapper form in
+  `examples/operation_handles_async.rs`). No new public API.
 - Added owner-backed `Session`/`SessionConfig` construction and typed
   `Camera<P>` views for heterogeneous multi-camera sessions.
 - Added the final blocking, async, and dynamic noun surfaces with typed
