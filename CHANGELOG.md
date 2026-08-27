@@ -36,6 +36,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   backend is compiled but never executed; and CONTRIBUTING's nightly install
   one-liner names the `rustfmt` and `miri` components that `--profile minimal`
   omits.
+- **Replaced the fake terminator tests with real encode-path coverage** (#627).
+  `tests/no_hardcoded_terminator_test.rs` had regressed to its pre-#586
+  revision: one test asserted that a `const` it declared itself equalled `0xFF`
+  and never touched the crate, another only `println!`ed and could not fail,
+  and the surviving source scanner matched uppercase `0xFF` only — structurally
+  blind to the lowercase literals in `src/` — while exempting any line
+  containing `// `. The file now drives the production encode path
+  (`Request::write_into`) for real typed commands across the power, pan/tilt,
+  zoom, focus, iris, preset and system families, for built-in inquiries, for
+  raw-frame admission, and for both transport envelopes, asserting that every
+  frame ends with the exported `VISCA_TERMINATOR` and carries it exactly once.
+  Because the frames are compared against the imported constant rather than a
+  literal, the constant and the encoders can no longer drift apart. The scanner
+  and `tests/terminator_validation_test.rs` (three file-existence and
+  string-presence assertions) are deleted: a text scan cannot tell a hardcoded
+  terminator from the legitimate `0xff` in response fixtures, simulator
+  scripts, framer comparisons, error codes and the constant's own definition,
+  so it can only be noisy or vacuous.
 - Restored the 1.x convenience helpers the rewrite dropped, on all three noun
   surfaces (#569). `pan_tilt().up()/down()/left()/right()` are back as thin
   wrappers over `move_direction`; `zoom().set_normalized(UnitInterval)` and
@@ -164,6 +182,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   position treated as unknowable. `Error::StreamPoisoned` carries the exact
   transport cause in its reason and is the one terminal error that answers
   `Error::requires_new_session()` correctly (#564). 1.x drew the same line.
+- A blocking pump that ends the session now reports the session's boundary
+  error, not the raw transport cause (#629). A fatal read closed the session
+  and then returned the underlying `Error::Io` to whoever was pumping. `Io`
+  classifies as survivable, so a caller driving an auto-reconnect loop off
+  `Error::requires_new_session()` was told to keep using a session the owner
+  had already closed, and only learned the truth from the *next* call. The
+  observation paths that wait on a receipt hid this — a closed session fails
+  the request they are waiting on, and that terminal outcome carries the right
+  error — but the paths with no receipt to consult did not: settlement polling
+  between two position samples, above all. The verdict is now translated once,
+  where every pump caller shares it, so a settlement wait, a cancellation
+  observation, or any future pump caller sees `ConnectionClosed` (or
+  `StreamPoisoned` for a framing failure on a stream), with the transport cause
+  preserved in the reason. The async owner already reported boundary errors
+  this way.
 - Gated the async noun surface and added a cross-surface parity test (#570).
   Only `blocking_nouns` carried a per-row ledger gate, so deleting or
   misclassifying an async noun method failed no test: the published API
@@ -281,6 +314,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   closed the session. Only a zero-length transport read now signals a close; a
   short read that only advances a partial frame keeps the owner pumping, which
   matches the blocking owner.
+- Closed the release version-gate bypasses in
+  `.github/scripts/validate-release.sh` (#632). The hardware-evidence
+  requirement keyed off a literal `2.x.y` match, so `v2.0.0+meta` — identical in
+  semver precedence to `v2.0.0` — and every later major (`v3.0.0`, `v12.0.0`)
+  published a stable release with an all-`Pending` hardware checklist. Tags
+  carrying build metadata are now refused outright, and the evidence gate
+  applies to every stable release with major version 2 or higher while
+  pre-releases keep their candidate exemption. The checklist parser no longer
+  loses the `Status` column to Markdown emphasis or letter case, rejects a
+  checklist with no `Status` rows instead of passing it by omission, and treats
+  `pending`/`TBD`/`TODO` sign-off records as placeholders. The tag shape check
+  also rejects leading zeroes. `test-validate-release.sh` gains fixtures for
+  both bypasses, later-major stable and pre-release controls, and the adjacent
+  checklist and tag-shape holes.
 
 ## [1.2.0] - 2026-08-27
 
