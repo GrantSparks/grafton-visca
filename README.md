@@ -143,7 +143,7 @@ matrix fit together.
 | `schemars` | Stable JSON Schema generation for serde-backed public types |
 | `ts-rs` | Stable TypeScript type generation for supported exported types |
 | `dyn-api` | Owner-backed object-safe async views with applied/settled operation lifecycle, cancellation, and detach |
-| `test-utils` | Stable deterministic test transports, executors, and Tokio camera simulator under `grafton_visca::testing`; `runtime-tokio` alone does not expose test helpers |
+| `test-utils` | Exposes the stable `grafton_visca::testing` module. It enables no facade of its own, so what it exposes depends on the union: `testkit::{Step, helpers}` always, `ScriptedBlockingTransport` with `blocking`, `ScriptedTransport` and the deterministic executor with `async`, and `ViscaCameraSimulator` only with `runtime-tokio`. Neither `runtime-tokio` nor `blocking` exposes any of it on its own. |
 
 ### Feature-union checks
 

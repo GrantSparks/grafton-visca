@@ -3360,6 +3360,43 @@ mod tests {
     // #626: a boundary request racing teardown must never hang.
     // ---------------------------------------------------------------------
 
+    /// Driver whose writes complete immediately and whose reads come from one
+    /// channel the test controls. Writes never stall, so the actor is only ever
+    /// waiting on its own event race.
+    #[cfg(feature = "runtime-tokio")]
+    #[derive(Debug)]
+    struct UngatedDriver {
+        receives: flume::Receiver<Result<AsyncReceive, Error>>,
+    }
+
+    #[cfg(feature = "runtime-tokio")]
+    impl AsyncOwnerDriver for UngatedDriver {
+        // The private driver trait requires an explicitly `Send` future.
+        #[allow(clippy::manual_async_fn)]
+        fn write(
+            &mut self,
+            _write: WireWrite<'_>,
+        ) -> impl Future<Output = Result<TransmissionMeta, Error>> + Send {
+            async { Ok(TransmissionMeta { sequence: None }) }
+        }
+
+        fn receive(
+            &mut self,
+            _buffers: &mut super::super::OwnerBuffers,
+            _frame_limit: usize,
+        ) -> impl Future<Output = Result<AsyncReceive, Error>> + Send {
+            let receives = self.receives.clone();
+            async move {
+                // An exhausted script parks instead of reporting a close, so
+                // the test decides exactly when the transport ends.
+                match receives.recv_async().await {
+                    Ok(next) => next,
+                    Err(_) => future::pending().await,
+                }
+            }
+        }
+    }
+
     /// Issue #626. `run` drains the boundary lanes once and then drops its
     /// receivers. A message that lands in between used to be stranded forever:
     /// this handle's own sender keeps flume's queue alive, and with it the
@@ -3369,15 +3406,22 @@ mod tests {
     ///
     /// The window is only reachable when the caller runs on another thread, so
     /// this drives a multi-threaded runtime and repeats enough to hit it.
+    ///
+    /// The driver is deliberately not `harness()`'s. That one parks in `write`
+    /// until the test releases a gate, which is exactly what several ordering
+    /// tests need and exactly wrong here: a command admitted before the close
+    /// is read would park the actor mid-transmission, and every later question
+    /// would then hang on an actor that is stalled rather than racing its own
+    /// teardown. That is a property of the fake transport, not of the boundary,
+    /// and it is not what this probe is for.
     #[cfg(feature = "runtime-tokio")]
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn a_boundary_request_racing_teardown_never_hangs() {
         for iteration in 0..64 {
             let runtime = TokioRuntime::from_current().unwrap();
-            let (handle, actor) = AsyncOwnerActor::new(policy(4), runtime).unwrap();
-            let harness = harness();
-            let frames = harness.frames.clone();
-            let actor_task = tokio::spawn(actor.run(harness.driver));
+            let (handle, actor) = AsyncOwnerActor::new(policy(8), runtime).unwrap();
+            let (frames, receives) = flume::bounded(1);
+            let actor_task = tokio::spawn(actor.run(UngatedDriver { receives }));
 
             let asking = handle.clone();
             let questions = tokio::spawn(async move {
@@ -3390,24 +3434,34 @@ mod tests {
                     if asking.snapshot().await.is_err() {
                         break;
                     }
-                    if let Err(error) = asking.submit(command()).await {
-                        assert!(
-                            !matches!(error, Error::RuntimeQueueFull { .. }),
-                            "capacity rejection is not a terminal answer"
-                        );
-                        break;
+                    match asking.submit(command()).await {
+                        Ok(receipt) => drop(receipt),
+                        // Nothing acknowledges these commands, so the lane
+                        // fills up and stays full. Capacity is a "ask again"
+                        // answer, not a terminal one: the probe is only over
+                        // when the session itself answers.
+                        Err(Error::RuntimeQueueFull { .. }) => {}
+                        Err(_) => break,
                     }
                 }
             });
 
+            // Let the questioner get in flight first, so the close lands while
+            // boundary work is actually moving. The exact interleaving is left
+            // to the scheduler; over this many iterations both orders occur.
+            tokio::task::yield_now().await;
             frames.send_async(Ok(AsyncReceive::Closed)).await.unwrap();
-            tokio::time::timeout(Duration::from_secs(10), questions)
+
+            // The bug this guards is an unbounded park, so the bound only has
+            // to be longer than a healthy teardown ever takes. It is generous
+            // because CI runners are small, not because the answer is slow.
+            tokio::time::timeout(Duration::from_secs(30), questions)
                 .await
                 .unwrap_or_else(|_| {
                     panic!("iteration {iteration}: a boundary request outlived the actor")
                 })
                 .unwrap();
-            let snapshot = tokio::time::timeout(Duration::from_secs(10), actor_task)
+            let snapshot = tokio::time::timeout(Duration::from_secs(30), actor_task)
                 .await
                 .unwrap_or_else(|_| panic!("iteration {iteration}: the actor never finished"))
                 .unwrap();
