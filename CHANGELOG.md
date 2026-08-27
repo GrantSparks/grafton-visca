@@ -41,6 +41,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added a hardware release evidence checklist. Hardware, registry, and
   Synemantic validation remain `Pending (Not run)` until release owners record
   bench evidence.
+- Ported the README and `prelude` quick starts to the 2.0 API and made them
+  compile (#563). The README used the async-only `camera::Connect` path and
+  called noun accessors and `submit` on `Session`; it now uses
+  `blocking::Connect`, selects a typed view with `session.camera::<P>()`, and
+  submits `request::builtin` commands. The `prelude` snippets now observe the
+  `#[must_use]` operation handles with `applied()`/`settled()`, and the stale
+  claim that `UnitInterval` carries normalized control values is corrected to
+  the inquiry-conversion helpers that actually use it. A `cfg(doctest)`
+  `include_str!` gate in `src/lib.rs` compiles every README snippet under
+  `cargo test --doc`, so the front page can no longer drift from the API.
 - Fixed a blocking submission that loses the dispatch race being terminalized
   as `Error::TransportBusy` (#561). A blocking caller holding more un-awaited
   operation handles than the target has command sockets now queues the excess

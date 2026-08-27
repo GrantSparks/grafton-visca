@@ -160,7 +160,7 @@ matrix fit together.
 - **Multi-runtime support** — Pluggable adapters for Tokio and smol
 - **Type-safe profiles** — Compile-time protocol selection (raw VISCA vs Sony encapsulation) with capability-based APIs
 - **Flexible transports** — TCP, UDP, and serial (RS-232/422) with configurable timeouts, retries, and TCP keepalive
-- **Ergonomic API** — One-line connection helpers, checked unit types (`Degrees`, `Percentage`, `UnitInterval`), built-in inquiry conversions
+- **Ergonomic API** — One-line connection helpers, checked unit types (`Degrees` for typed pan/tilt input, `Percentage` and `UnitInterval` for checked value conversions), built-in inquiry conversions
 - **Optional serialization** — Serde and JSON Schema support for public value and configuration types
 - **Zero-allocation hot path** — Stack-allocated command buffers for standard VISCA commands
 
@@ -172,42 +172,54 @@ The quickstart snippets are read-only. They connect to a camera, query state,
 and close the session. Movement and configuration changes are shown in focused
 examples that opt in to hardware changes explicitly.
 
+`Connect` returns an owner-backed `Session`. A `Session` owns the transport and
+the target registry; the noun accessors live on the typed `Camera` view that
+`session.camera::<P>()` selects.
+
+Every Rust snippet in this README is compiled by the crate's own test suite, so
+the `#[cfg(feature = "...")]` attributes below are load-bearing: they name the
+Cargo feature a snippet needs.
+
 ### Blocking
 
 ```rust
-use grafton_visca::camera::Connect;
-use grafton_visca::profiles::PtzOpticsG2;
+use grafton_visca::blocking::Connect;
+use grafton_visca::camera::profiles::PtzOpticsG2;
 
-fn main() -> Result<(), grafton_visca::Error> {
-    let cam = Connect::open_tcp::<PtzOpticsG2>("192.168.0.110")?;
+fn quick_start() -> Result<(), grafton_visca::Error> {
+    let session = Connect::open_tcp::<PtzOpticsG2>("192.168.0.110")?;
+    let camera = session.camera::<PtzOpticsG2>()?;
 
-    let power_is_on = cam.power().state()?;
-    let zoom = cam.zoom().position()?;
+    let power_is_on = camera.power().state()?;
+    let zoom = camera.zoom().position()?;
     println!("Power: {}", if power_is_on { "on" } else { "off" });
     println!("Zoom position: 0x{:04X}", zoom.value());
 
-    cam.close()
+    session.close()
 }
 ```
 
 ### Async (Tokio)
 
+Enable the `runtime-tokio` feature and call this from inside a Tokio runtime.
+
 ```rust
-use grafton_visca::camera::Connect;
-use grafton_visca::profiles::PtzOpticsG2;
-use grafton_visca::runtime::TokioRuntime;
+#[cfg(feature = "runtime-tokio")]
+async fn quick_start() -> Result<(), grafton_visca::Error> {
+    use grafton_visca::camera::profiles::PtzOpticsG2;
+    use grafton_visca::runtime::TokioRuntime;
+    use grafton_visca::Connect;
 
-#[tokio::main]
-async fn main() -> Result<(), grafton_visca::Error> {
     let runtime = TokioRuntime::from_current()?;
-    let cam = Connect::open_tcp::<PtzOpticsG2, _>("192.168.0.110", runtime).await?;
+    let session = Connect::open_tcp::<PtzOpticsG2, _>("192.168.0.110", runtime).await?;
+    let camera = session.camera::<PtzOpticsG2>()?;
 
-    let power_is_on = cam.power().state().await?;
-    let zoom = cam.zoom().position().await?;
+    let power_is_on = camera.power().state().await?;
+    let zoom = camera.zoom().position().await?;
     println!("Power: {}", if power_is_on { "on" } else { "off" });
     println!("Zoom position: 0x{:04X}", zoom.value());
 
-    cam.close().await
+    session.close().await
 }
 ```
 
@@ -228,41 +240,49 @@ metadata. Custom operation requests must declare their targeted or applied-only
 class explicitly.
 
 ```rust
-use std::time::Duration;
-use grafton_visca::{camera::Connect, command::{PanTilt, Zoom}, profiles::PtzOpticsG2};
+use grafton_visca::blocking::Connect;
+use grafton_visca::camera::profiles::PtzOpticsG2;
+use grafton_visca::request::builtin::{PanTiltHome, ZoomStop};
 
 fn move_home() -> Result<(), grafton_visca::Error> {
-    let cam = Connect::open_tcp::<PtzOpticsG2>("192.168.0.110")?;
+    let session = Connect::open_tcp::<PtzOpticsG2>("192.168.0.110")?;
+    let camera = session.camera::<PtzOpticsG2>()?;
 
     // Blocking submit performs initial synchronous dispatch before returning.
-    cam.submit(&PanTilt::Home)?.settled()?;
+    camera.submit(&PanTiltHome)?.settled()?;
 
     // Applied-only commands have no meaningful settled state.
-    cam.submit(&Zoom::Stop)?.applied()?;
+    camera.submit(&ZoomStop)?.applied()?;
 
-    cam.close()
+    session.close()
 }
 ```
+
+The typed noun accessors return the same handles, so
+`camera.pan_tilt().home()?.settled()?` and `camera.zoom().stop()?.applied()?`
+are the profile-validated equivalents of the two `submit` calls above.
 
 The async form has the same vocabulary and awaits submission and terminal
 operations:
 
 ```rust
-use std::time::Duration;
-use grafton_visca::{camera::Connect, command::PanTilt, profiles::PtzOpticsG2, runtime::TokioRuntime};
-
+#[cfg(feature = "runtime-tokio")]
 async fn move_home() -> Result<(), grafton_visca::Error> {
-    let runtime = TokioRuntime::from_current()?;
-    let cam = Connect::open_tcp::<PtzOpticsG2, _>(
-        "192.168.0.110",
-        runtime,
-    ).await?;
+    use grafton_visca::camera::profiles::PtzOpticsG2;
+    use grafton_visca::request::builtin::{PanTiltHome, ZoomStop};
+    use grafton_visca::runtime::TokioRuntime;
+    use grafton_visca::Connect;
 
-    let handle = cam.submit(&PanTilt::Home).await?;
+    let runtime = TokioRuntime::from_current()?;
+    let session = Connect::open_tcp::<PtzOpticsG2, _>("192.168.0.110", runtime).await?;
+    let camera = session.camera::<PtzOpticsG2>()?;
+
+    let handle = camera.submit(&PanTiltHome).await?;
     handle.settled().await?;
 
-    cam.close().await?;
-    Ok(())
+    camera.submit(&ZoomStop).await?.applied().await?;
+
+    session.close().await
 }
 ```
 
@@ -294,8 +314,11 @@ close the session on every path and pair each detach with a bounded stop.
   target view with `Session::camera::<P>()` or `camera_for::<P>(target)`.
 - Use the 14 inherent noun accessors on `Camera<P>`; profile-gated methods are
   checked by `Has*` marker bounds and runtime `ProfileSpec` validation.
-- Use `UnitInterval::new(value)?` or `UnitInterval::try_from(value)?` for
-  normalized `0.0..=1.0` control values.
+- Use `UnitInterval::new(value)?` or `UnitInterval::try_from(value)?` for the
+  checked `0.0..=1.0` values used by the inquiry conversion helpers such as
+  `ZoomPositionExt::normalize_with_max` and `zoom_from_normalized`. No noun
+  accessor takes a normalized value directly; typed control input uses
+  `Degrees`, `SpeedLevel`, and the profile-checked `types` values.
 - Use `CameraId` with `camera_id(...)`, or `try_camera_id(u8)` when converting
   a raw VISCA camera number from configuration.
 
