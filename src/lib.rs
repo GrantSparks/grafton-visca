@@ -816,3 +816,18 @@ pub mod profiles {
     };
     pub use crate::capabilities::InquirySupport;
 }
+
+/// Compile gate for the Rust snippets in `README.md`.
+///
+/// `cfg(doctest)` is set only while rustdoc is collecting doctests, so this
+/// module never reaches the compiled library or the rendered documentation. It
+/// exists so `cargo test --doc` compiles the crates.io front page and the
+/// README cannot drift away from the public API.
+///
+/// The gate is enabled whenever the default `blocking` feature is on, which
+/// covers the README's primary snippets. Snippets needing more than the default
+/// feature set carry their own `#[cfg(feature = "...")]`, so they compile under
+/// `--all-features` and are compiled away otherwise.
+#[cfg(all(doctest, feature = "blocking"))]
+#[doc = include_str!("../README.md")]
+mod readme_snippets {}

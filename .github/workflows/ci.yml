@@ -135,6 +135,9 @@ jobs:
           cargo doc --workspace --all-features --no-deps
           cargo test --doc --no-default-features
           cargo test --doc --no-default-features --features async
+          # Default features compile the README quick start through the
+          # cfg(doctest) README gate in src/lib.rs.
+          cargo test --doc
           cargo test --doc --all-features
 
   lint:

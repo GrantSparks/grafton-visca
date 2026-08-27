@@ -6,18 +6,19 @@
 //!
 //! # High-Level API (Recommended)
 //!
-//! Most users should use the high-level API which provides type-safe camera control:
+//! Most users should use the high-level API which provides type-safe camera
+//! control. Movement accessors return `#[must_use]` operation handles: observe
+//! them with `applied()` for applied-only commands and `settled()` for targeted
+//! commands. A handle that is neither observed nor `detach`ed is a lint, not a
+//! shortcut.
 //!
 //! ## Async Usage
 //!
-//! ```ignore
-//! # #[cfg(feature = "async")]
+//! ```no_run
+//! # #[cfg(feature = "runtime-tokio")]
+//! # async fn quick_start() -> Result<(), Box<dyn std::error::Error>> {
 //! use grafton_visca::prelude::r#async::*;
 //!
-//! # #[tokio::main]
-//! # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! # #[cfg(feature = "runtime-tokio")]
-//! # {
 //! let runtime = TokioRuntime::from_current()?;
 //! let session = Connect::open_tcp::<PtzOpticsG2, _>(
 //!     "192.168.0.110",
@@ -26,26 +27,26 @@
 //! let camera = session.camera::<PtzOpticsG2>()?;
 //!
 //! camera.power().on().await?;
-//! camera.zoom().stop().await?;
-//! camera.pan_tilt().home().await?;
+//! camera.zoom().stop().await?.applied().await?;
+//! camera.pan_tilt().home().await?.settled().await?;
 //! session.close().await?;
-//! # }
 //! # Ok(())
 //! # }
 //! ```
 //!
 //! ## Blocking Usage
 //!
-//! ```ignore
+//! ```no_run
+//! # #[cfg(feature = "blocking")]
+//! # fn quick_start() -> Result<(), Box<dyn std::error::Error>> {
 //! use grafton_visca::prelude::blocking::*;
 //!
-//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! let session = Connect::open_tcp::<PtzOpticsG2>("192.168.0.110")?;
 //! let camera = session.camera::<PtzOpticsG2>()?;
 //!
 //! camera.power().on()?;
-//! camera.zoom().stop()?;
-//! camera.pan_tilt().home()?;
+//! camera.zoom().stop()?.applied()?;
+//! camera.pan_tilt().home()?.settled()?;
 //! session.close()?;
 //! # Ok(())
 //! # }
