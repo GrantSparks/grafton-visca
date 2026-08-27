@@ -1140,8 +1140,11 @@ impl BlockingOwner {
         })
     }
 
-    /// Admit and perform this exact request's first write. No receive method is
-    /// called here, so ACK/completion can only be consumed by an explicit pump.
+    /// Admit and, when this exact request already wins the global dispatch
+    /// race, perform its first write. A request that cannot win yet stays
+    /// queued in the engine and is written by a later owner turn. No receive
+    /// method is called here, so ACK/completion can only be consumed by an
+    /// explicit pump.
     pub(crate) fn submit<D: BlockingWireDriver + ?Sized>(
         &mut self,
         driver: &mut D,
@@ -1214,6 +1217,12 @@ impl BlockingOwner {
         let mut report = self.drive_without_due(driver, effects);
         let id = admission.recv().map_err(|_| Error::RuntimeShutdown)??;
 
+        // Issue #561: losing the global dispatch race is not backpressure.
+        // Admission capacity (`max_pending_queue_depth`) already bounds how much
+        // work may be outstanding, so a request that cannot be written yet stays
+        // in the engine's ready queue and is dispatched by a later owner turn —
+        // exactly the way the async facade behaves.
+        let mut queued = false;
         while report.first_write_for(id).is_none() {
             if let Some(error) = buffered_submission_error(&completion) {
                 return Err(error);
@@ -1237,11 +1246,11 @@ impl BlockingOwner {
                     }
                 }
                 FirstDispatch::Blocked => {
-                    let failed = self.state.fail_unwritten_without_due(id);
-                    let _ = self.drive_without_due(driver, failed);
-                    return Err(
-                        buffered_submission_error(&completion).unwrap_or(Error::TransportBusy)
-                    );
+                    // Another request owns the only eligible socket right now.
+                    // Leave this one queued; no peer request, deadline, pacing,
+                    // or cancellation state is mutated here.
+                    queued = true;
+                    break;
                 }
                 FirstDispatch::Missing => {
                     if let Some(error) = buffered_submission_error(&completion) {
@@ -1257,10 +1266,12 @@ impl BlockingOwner {
         if let Some(error) = buffered_submission_error(&completion) {
             return Err(error);
         }
-        let first_write = report.first_write_for(id).ok_or_else(|| {
-            Error::InvalidState("blocking request lost its first-write result".into())
-        })?;
-        first_write?;
+        if !queued {
+            let first_write = report.first_write_for(id).ok_or_else(|| {
+                Error::InvalidState("blocking request lost its first-write result".into())
+            })?;
+            first_write?;
+        }
         Ok(ReceiptCore::new(
             id,
             target,

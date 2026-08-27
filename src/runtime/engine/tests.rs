@@ -712,7 +712,7 @@ fn response_at_exact_deadline_wins_and_equal_deadlines_use_admission_order() {
 }
 
 #[test]
-fn exact_first_dispatch_preserves_global_inquiry_preference_and_busy_is_local() {
+fn exact_first_dispatch_preserves_global_inquiry_preference_and_queues_the_loser() {
     let start = Instant::now();
     let mut inquiry_engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
     let command_effects = inquiry_engine.admit_without_due(
@@ -759,18 +759,18 @@ fn exact_first_dispatch_preserves_global_inquiry_preference_and_busy_is_local() 
     let (_, dispatched_id, _) = request_transmit(&inquiry_dispatch);
     assert_eq!(dispatched_id, inquiry_id);
 
-    let failed = inquiry_engine.fail_unwritten_without_due(command_id);
-    assert!(failed.iter().any(|effect| matches!(
-        effect,
-        Effect::Terminal {
-            id,
-            outcome: RuntimeOutcome::Failed(Error::TransportBusy),
-        } if *id == command_id
-    )));
-    assert!(!failed.iter().any(|effect| matches!(
-        effect,
-        Effect::CancellationRecorded { .. } | Effect::CancellationObservation { .. }
-    )));
+    // Issue #561: losing the race leaves the command queued, never terminal.
+    assert_eq!(
+        inquiry_engine
+            .entry(command_id)
+            .map(|entry| (entry.phase(), entry.cancellation())),
+        Some(command_before)
+    );
+    let command_dispatch = match inquiry_engine.first_dispatch_without_due(command_id, start) {
+        FirstDispatch::Effects(effects) => effects,
+        other => panic!("expected the queued command to dispatch next, got {other:?}"),
+    };
+    assert_eq!(request_transmit(&command_dispatch).1, command_id);
     assert!(inquiry_engine.entry(inquiry_id).is_some());
     inquiry_engine.assert_invariants().unwrap();
 
