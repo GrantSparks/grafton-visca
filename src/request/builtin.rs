@@ -3850,7 +3850,9 @@ mod tests {
             PresetRecallSpeed, SetNdiQuality, SpotlightOff, SpotlightOn, TallyBrightHi,
             TallyBrightLo, TallyFlash, TallyOff, TallyOn, VariableSpeedMode,
         },
-        prepared::{prepare_builtin_command, prepare_builtin_operation, prepare_command},
+        prepared::{
+            prepare_builtin_command, prepare_builtin_operation, prepare_command, ClassSelection,
+        },
         profiles::{GenericVisca, PtzOpticsG2, SonyFR7},
         types::NdiQuality,
         OperationalTuning, PlainCommand, ProfileSpec,
@@ -3885,6 +3887,7 @@ mod tests {
             CameraId::CAMERA_1,
             profile,
             OperationalTuning::new(),
+            ClassSelection::Request,
         )
         .expect("state command must prepare")
         .admit_with(|request, _timeout| match request {

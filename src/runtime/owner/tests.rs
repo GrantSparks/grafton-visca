@@ -384,6 +384,7 @@ mod blocking {
             target,
             profile,
             crate::OperationalTuning::new(),
+            crate::prepared::ClassSelection::Request,
         )
         .unwrap()
     }
@@ -399,6 +400,7 @@ mod blocking {
             target,
             profile,
             crate::OperationalTuning::new(),
+            crate::prepared::ClassSelection::Request,
         )
         .unwrap()
     }
@@ -2413,9 +2415,15 @@ mod blocking {
             &profile,
         )
         .expect("pan/tilt limit preparation");
-        let request = prepare_command(&set, CameraId::CAMERA_1, &profile, OperationalTuning::new())
-            .expect("pan/tilt limit preparation")
-            .admit_with(|request, _timeout| request);
+        let request = prepare_command(
+            &set,
+            CameraId::CAMERA_1,
+            &profile,
+            OperationalTuning::new(),
+            crate::prepared::ClassSelection::Request,
+        )
+        .expect("pan/tilt limit preparation")
+        .admit_with(|request, _timeout| request);
         let mut owner = BlockingOwner::new(policy(2, TransportKind::Datagram)).unwrap();
         let mut driver = FakeDriver::default();
         let receipt = owner.submit(&mut driver, request).unwrap();
@@ -2473,6 +2481,7 @@ mod blocking {
             CameraId::CAMERA_1,
             &profile,
             OperationalTuning::new(),
+            crate::prepared::ClassSelection::Request,
         )
         .expect("pan/tilt limit clear preparation")
         .admit_with(|request, _timeout| request);
@@ -2572,6 +2581,7 @@ mod blocking {
             CameraId::CAMERA_1,
             &profile,
             OperationalTuning::new(),
+            crate::prepared::ClassSelection::Request,
         )
         .expect("plain preparation")
         .admit_with(|request, _timeout| request);
@@ -2580,6 +2590,7 @@ mod blocking {
             CameraId::CAMERA_1,
             &profile,
             OperationalTuning::new(),
+            crate::prepared::ClassSelection::Request,
         )
         .expect("inquiry preparation")
         .admit_with(|request, _decoder, _timeout| request);

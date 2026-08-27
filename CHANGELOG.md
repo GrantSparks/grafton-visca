@@ -33,6 +33,32 @@ destination.
   grounds `SessionConfig::with_tuning` validates on, so a value construction
   would have rejected is rejected here too and leaves the live tuning untouched.
 
+- **Added a typed submission-priority API over the owner's four control-class
+  lanes** (#630), restoring in 2.0 shape the capability 1.2.0 shipped as
+  `runtime::Priority` with `set_command_priority` / `command_priority` /
+  `execute_with_priority`. The engine always had the four lanes and dispatched
+  the highest occupied class first, but the only public route into that choice
+  was `raw::Policy` on hand-assembled bytes, so a typed command could not be
+  raised for one submission and a chatty handle could not be demoted out of an
+  operator's way. `ControlClass` — already a public root export, now documented
+  with its lane semantics — is the selector; no separate `Priority` enum
+  returns. Every camera handle gained `set_command_class` / `command_class` for
+  a per-handle default and `execute_with_class` / `inquire_with_class` /
+  `submit_with_class` for a single submission, on the async `Camera` and
+  `CameraSession`, the blocking `Camera` and `CameraSession`, and
+  `DynSessionCamera` (whose operation twins are `submit_targeted_with_class`
+  and `submit_applied_with_class`). Two rules make the safety case explicit: a
+  handle default **never** demotes a request the crate classifies
+  `ControlClass::Urgent` — the typed stops and `CommandCancel` — so a telemetry
+  poller demoted to `Background` still preempts with an emergency stop; and an
+  explicit per-submission class replaces the request's own class outright,
+  which is the only way to demote a stop and is documented as such. Unlike
+  1.x's priority, the class also covers inquiries, since 2.0 queues them in the
+  same four lanes; owner-internal settlement polling and motion observation
+  keep their built-in class. `docs/migration_2_0.md` gains the
+  `Priority` → `ControlClass` mapping table and the notes on
+  `runtime::testing::Priority`, which has no 2.0 equivalent and needs none.
+
 - Restored `image().disable_horizontal_flip()` on all three noun surfaces
   (#635). The rewrite ledgered `BuiltinCommand::ImageFlipHorizontal` under the
   single method spelling `enable_horizontal_flip`, so the noun surfaces only
@@ -362,17 +388,15 @@ destination.
 
 ### Removed
 
-- **Removed the 1.2.0 command-priority surface** (#630). `runtime::Priority`,
-  `Camera::set_command_priority` / `command_priority` /
+- **Removed the 1.2.0 command-priority *vocabulary*** (#630).
+  `runtime::Priority`, `Camera::set_command_priority` / `command_priority` /
   `execute_with_priority`, their `BlockingClient` mirrors, and
-  `runtime::testing::Priority` are all gone. The engine still has four
-  dispatch lanes, and the built-in `PanTiltStop`, `ZoomStop`, `FocusStop`, and
-  `CommandCancel` requests are still `ControlClass::Urgent`, so an emergency
-  stop preempts queued work with no selector needed. What a caller can no
-  longer do is raise one arbitrary typed command for a single submission, or
-  demote a handle's traffic so operator input preempts a telemetry poller.
-  Whether a typed per-submission or per-handle `ControlClass` override is
-  restored before 2.0 is still an open decision in #630.
+  `runtime::testing::Priority` are all gone. The capability is not: the four
+  dispatch lanes are now selected through `ControlClass` itself — see the
+  submission-priority entry under Added — and `docs/migration_2_0.md` carries
+  the `Priority` → `ControlClass` mapping. `runtime::testing::Priority` has no
+  replacement and needs none, because `ControlClass` is public in every build
+  configuration.
 - **Removed `BlockingClient`** (#542). The blocking facade is owner-backed:
   `blocking::Connect`, `blocking::CameraConfig`, and
   `blocking::Session::open` build a `blocking::Session`, and

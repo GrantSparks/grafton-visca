@@ -5,8 +5,10 @@
 //! in [`crate::request`] and from the low-level [`crate::command`] extension
 //! surface. A raw value is still admitted only through the async camera's
 //! `execute`, `inquire`, or `submit` methods (and their blocking projections);
-//! it cannot select a lifecycle ID, target, scheduler priority, or completion
-//! kind at submission time.
+//! it cannot select a lifecycle ID, target, or completion kind at submission
+//! time. Its [`crate::ControlClass`] is chosen in its [`crate::raw::Policy`],
+//! exactly as a built-in chooses one, and the camera handle's `*_with_class`
+//! methods and `set_command_class` default apply to it on the same terms.
 //!
 //! Raw constructors validate and own the complete VISCA frame. The first byte
 //! must be a valid VISCA camera address and the final byte must be `0xff`.
@@ -54,7 +56,12 @@ const VISCA_TERMINATOR: u8 = 0xff;
 /// Explicit timeout, retry, and scheduler-control classes for one raw value.
 ///
 /// The owner lowers these semantic classes to its private runtime policy. The
-/// public value never exposes a priority or a lifecycle identifier.
+/// public value never exposes a queue position or a lifecycle identifier.
+///
+/// The [`ControlClass`] here is the raw request's *own* classification, exactly
+/// as a built-in's associated constant is: a camera handle's default class
+/// still replaces it (unless it is [`ControlClass::Urgent`]), and a
+/// per-submission class still replaces it outright.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Policy {
     timeout: TimeoutClass,
@@ -67,7 +74,7 @@ pub struct Policy {
 /// `Spec` is intentionally distinct from [`Policy`]: a specification is the
 /// value supplied at a construction boundary, while `Policy` is the compact
 /// policy retained by a constructed request. Both carry the same three
-/// semantic classes and neither exposes runtime priority or lifecycle state.
+/// semantic classes and neither exposes a queue position or lifecycle state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Spec {
     policy: Policy,
@@ -1052,6 +1059,7 @@ mod tests {
             CameraId::CAMERA_1,
             &profile,
             crate::OperationalTuning::new(),
+            crate::prepared::ClassSelection::Request,
         )
         .expect_err("the owner target must reject a mismatched wire address");
         assert!(matches!(error, Error::InvalidRequest(_)));

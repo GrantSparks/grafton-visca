@@ -27,6 +27,62 @@ use crate::runtime::engine::{
     RetryPolicy, RuntimeRequest, TimeoutPolicy,
 };
 
+/// How one submission's scheduling lane is chosen.
+///
+/// Every request already classifies itself through [`Request::control_class`].
+/// A camera handle may carry a default that replaces that classification for
+/// its own traffic, and a single submission may name a class outright. The
+/// three cases are kept apart here because they do not resolve the same way:
+/// only the explicit per-submission form is allowed to demote a request the
+/// crate classified [`ControlClass::Urgent`].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) enum ClassSelection {
+    /// Use the request's own classification.
+    #[default]
+    Request,
+    /// A camera handle's default, which never demotes an urgent request.
+    Handle(ControlClass),
+    /// One submission's explicit class, which replaces the request's own.
+    Explicit(ControlClass),
+}
+
+impl ClassSelection {
+    /// Resolves the effective class for a request that classifies itself as
+    /// `request`.
+    ///
+    /// A handle default is deliberately not applied to an urgent request: the
+    /// crate classifies exactly the stop and cancel requests that way, and a
+    /// handle-wide demotion of a telemetry poller must never queue an
+    /// emergency stop behind ordinary work. An explicit per-submission class
+    /// is the caller naming one request, so it is honoured as written.
+    pub(crate) const fn resolve(self, request: ControlClass) -> ControlClass {
+        match self {
+            Self::Request => request,
+            Self::Handle(class) => match request {
+                ControlClass::Urgent => ControlClass::Urgent,
+                _ => class,
+            },
+            Self::Explicit(class) => class,
+        }
+    }
+
+    /// Returns the handle default this selection carries, if any.
+    pub(crate) const fn handle_default(self) -> Option<ControlClass> {
+        match self {
+            Self::Handle(class) => Some(class),
+            Self::Request | Self::Explicit(_) => None,
+        }
+    }
+
+    /// Builds a handle selection from an optional default.
+    pub(crate) const fn from_handle_default(class: Option<ControlClass>) -> Self {
+        match class {
+            Some(class) => Self::Handle(class),
+            None => Self::Request,
+        }
+    }
+}
+
 /// Complete erased physical-settlement selection made before admission.
 // The poll plan is intentionally kept inline: moving it behind a box would
 // add an allocation to every targeted preparation.
@@ -417,6 +473,7 @@ pub(crate) fn prepare_command<C>(
     target: CameraId,
     profile: &ProfileSpec,
     tuning: OperationalTuning,
+    class: ClassSelection,
 ) -> Result<PreparedCommand>
 where
     C: PlainCommand + ?Sized,
@@ -426,6 +483,7 @@ where
         target,
         profile,
         tuning,
+        class,
         crate::requests::applied_state_projection(command),
     )
 }
@@ -444,7 +502,7 @@ pub(crate) fn prepare_builtin_command<C>(
 where
     C: PlainCommand + crate::request::builtin::BuiltinValidation + ?Sized,
 {
-    prepare_command(command, target, profile, tuning)
+    prepare_command(command, target, profile, tuning, ClassSelection::Request)
 }
 
 fn prepare_command_with_state<C>(
@@ -452,6 +510,7 @@ fn prepare_command_with_state<C>(
     target: CameraId,
     profile: &ProfileSpec,
     tuning: OperationalTuning,
+    class: ClassSelection,
     applied_state: Option<AppliedStateProjection>,
 ) -> Result<PreparedCommand>
 where
@@ -460,7 +519,7 @@ where
     profile.validate_tuning(tuning)?;
     command.validate_for_profile(profile)?;
     let wire = encode(command, target)?;
-    let context = request_context(command, target, profile, tuning, false, false);
+    let context = request_context(command, target, profile, tuning, class, false, false);
     Ok(PreparedCommand {
         wire,
         context,
@@ -474,11 +533,12 @@ pub(crate) fn prepare_inquiry<Q>(
     target: CameraId,
     profile: &ProfileSpec,
     tuning: OperationalTuning,
+    class: ClassSelection,
 ) -> Result<PreparedInquiry<Q::Response>>
 where
     Q: Inquiry + ?Sized,
 {
-    prepare_inquiry_with_policy(inquiry, target, profile, tuning, false)
+    prepare_inquiry_with_policy(inquiry, target, profile, tuning, class, false)
 }
 
 /// Prepares a crate-generated inquiry with its closed protocol retry policy.
@@ -491,7 +551,14 @@ pub(crate) fn prepare_builtin_inquiry<Q>(
 where
     Q: Inquiry + BuiltinInquiryRequest + ?Sized,
 {
-    prepare_inquiry_with_policy(inquiry, target, profile, tuning, true)
+    prepare_inquiry_with_policy(
+        inquiry,
+        target,
+        profile,
+        tuning,
+        ClassSelection::Request,
+        true,
+    )
 }
 
 pub(crate) trait BuiltinInquiryRequest: Inquiry {}
@@ -501,6 +568,7 @@ fn prepare_inquiry_with_policy<Q>(
     target: CameraId,
     profile: &ProfileSpec,
     tuning: OperationalTuning,
+    class: ClassSelection,
     builtin_inquiry_syntax: bool,
 ) -> Result<PreparedInquiry<Q::Response>>
 where
@@ -527,6 +595,7 @@ where
         target,
         profile,
         tuning,
+        class,
         true,
         builtin_inquiry_syntax,
     );
@@ -544,6 +613,7 @@ pub(crate) fn prepare_operation<K, O>(
     target: CameraId,
     profile: &ProfileSpec,
     tuning: OperationalTuning,
+    class: ClassSelection,
 ) -> Result<PreparedOperation<K>>
 where
     K: completion::Kind,
@@ -554,6 +624,7 @@ where
         target,
         profile,
         tuning,
+        class,
         crate::requests::applied_state_projection(operation),
     )
 }
@@ -571,7 +642,7 @@ where
     K: completion::Kind,
     O: OperationCommand<K> + crate::request::builtin::BuiltinValidation + ?Sized,
 {
-    prepare_operation::<K, _>(operation, target, profile, tuning)
+    prepare_operation::<K, _>(operation, target, profile, tuning, ClassSelection::Request)
 }
 
 fn prepare_operation_with_state<K, O>(
@@ -579,6 +650,7 @@ fn prepare_operation_with_state<K, O>(
     target: CameraId,
     profile: &ProfileSpec,
     tuning: OperationalTuning,
+    class: ClassSelection,
     applied_state: Option<AppliedStateProjection>,
 ) -> Result<PreparedOperation<K>>
 where
@@ -597,7 +669,7 @@ where
     // effect of discovering that its operation class is unavailable.
     operation.validate_for_profile(profile)?;
     let affected_axes = operation.affected_axes();
-    let context = request_context(operation, target, profile, tuning, false, false);
+    let context = request_context(operation, target, profile, tuning, class, false, false);
     let settlement = K::lower_settlement(
         target,
         profile,
@@ -648,6 +720,7 @@ fn request_context<R>(
     target: CameraId,
     profile: &ProfileSpec,
     tuning: OperationalTuning,
+    class: ClassSelection,
     inquiry: bool,
     builtin_inquiry_syntax: bool,
 ) -> RequestContext
@@ -693,7 +766,7 @@ where
             builtin_inquiry_syntax,
         ),
         control: ControlPolicy {
-            class: lower_control(request.control_class()),
+            class: lower_control(class.resolve(request.control_class())),
             minimum_spacing: spacing,
         },
         cancellation: if profile.supports_command_cancel() {
@@ -1108,6 +1181,7 @@ mod tests {
             CameraId::CAMERA_1,
             &no_inquiry,
             OperationalTuning::new(),
+            ClassSelection::Request,
         )
         .is_err());
         assert_eq!(write_count(), 0);
@@ -1126,6 +1200,7 @@ mod tests {
             CameraId::CAMERA_1,
             &missing_custom_zoom,
             OperationalTuning::new(),
+            ClassSelection::Request,
         )
         .is_err());
         assert_eq!(write_count(), 0);
@@ -1162,6 +1237,7 @@ mod tests {
                 CameraId::CAMERA_1,
                 profile,
                 OperationalTuning::new(),
+                ClassSelection::Request,
             )
             .expect_err("an operation naming no axis must not prepare");
             assert!(
@@ -1176,6 +1252,7 @@ mod tests {
                 CameraId::CAMERA_1,
                 profile,
                 OperationalTuning::new(),
+                ClassSelection::Request,
             )
             .expect_err("an applied-only operation naming no axis must not prepare");
             assert!(matches!(applied, Error::InvalidRequest(_)));
@@ -1278,6 +1355,7 @@ mod tests {
             CameraId::CAMERA_2,
             &profile,
             tuning,
+            ClassSelection::Request,
         )
         .expect("targeted poll preparation");
 
@@ -1605,6 +1683,7 @@ mod tests {
             CameraId::CAMERA_2,
             &profile,
             OperationalTuning::new(),
+            ClassSelection::Request,
         )
         .is_err());
     }
@@ -1618,6 +1697,7 @@ mod tests {
             CameraId::CAMERA_1,
             &profile,
             OperationalTuning::new(),
+            ClassSelection::Request,
         )
         .expect("custom inquiry preparation");
         assert!(custom.context.retry.inquiry_timeout);
@@ -1914,6 +1994,7 @@ mod tests {
                 CameraId::CAMERA_1,
                 profile,
                 OperationalTuning::new(),
+                ClassSelection::Request,
             )
             .expect("prepared unsigned inquiry");
             assert_eq!(
@@ -1931,6 +2012,7 @@ mod tests {
             CameraId::CAMERA_1,
             &signed,
             OperationalTuning::new(),
+            ClassSelection::Request,
         )
         .expect("prepared limit clear");
         assert!(matches!(
@@ -1970,6 +2052,7 @@ mod tests {
             CameraId::CAMERA_1,
             &signed,
             OperationalTuning::new(),
+            ClassSelection::Request,
         )
         .expect("prepared signed inquiry");
         assert_eq!(
@@ -2001,6 +2084,7 @@ mod tests {
             CameraId::CAMERA_1,
             &nearus,
             OperationalTuning::new(),
+            ClassSelection::Request,
         )
         .is_err());
         assert_eq!(request_write_count(), 0);
@@ -2021,6 +2105,7 @@ mod tests {
             CameraId::CAMERA_1,
             &no_direct,
             OperationalTuning::new(),
+            ClassSelection::Request,
         )
         .is_err());
         assert_eq!(request_write_count(), 0);
@@ -2058,6 +2143,7 @@ mod tests {
             CameraId::CAMERA_1,
             &no_direct,
             OperationalTuning::new(),
+            ClassSelection::Request,
         )
         .is_err());
         assert_eq!(request_write_count(), 0);
@@ -2069,8 +2155,197 @@ mod tests {
             CameraId::CAMERA_1,
             &nearus,
             OperationalTuning::new(),
+            ClassSelection::Request,
         )
         .is_err());
         assert_eq!(request_write_count(), 0);
+    }
+
+    /// Issue #630: the submission class a camera handle selects reaches the
+    /// engine's `ControlPolicy` through every preparation path.
+    mod submission_class {
+        use super::*;
+        use crate::runtime::engine::ControlClass as EngineControlClass;
+
+        /// A plain command the crate would ordinarily schedule as background
+        /// work, so a promotion is visible and a demotion is not a no-op.
+        struct BackgroundPlain;
+
+        impl Request for BackgroundPlain {
+            type Class = crate::request::Plain;
+
+            const MAX_SIZE: usize = 2;
+            const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Quick;
+            const RETRY_CLASS: RetryClass = RetryClass::Standard;
+            const CONTROL_CLASS: ControlClass = ControlClass::Background;
+
+            fn write_into(&self, target: CameraId, buffer: &mut [u8]) -> Result<usize> {
+                buffer[..2].copy_from_slice(&[target.to_address_byte(), VISCA_TERMINATOR]);
+                Ok(2)
+            }
+        }
+
+        /// An applied-only operation classified urgent exactly as the crate's
+        /// typed stops are.
+        struct UrgentStop;
+
+        impl Request for UrgentStop {
+            type Class = crate::request::Operation<completion::AppliedOnly>;
+
+            const MAX_SIZE: usize = 2;
+            const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Quick;
+            const RETRY_CLASS: RetryClass = RetryClass::Movement;
+            const CONTROL_CLASS: ControlClass = ControlClass::Urgent;
+
+            fn write_into(&self, target: CameraId, buffer: &mut [u8]) -> Result<usize> {
+                buffer[..2].copy_from_slice(&[target.to_address_byte(), VISCA_TERMINATOR]);
+                Ok(2)
+            }
+        }
+
+        impl OperationCommand<completion::AppliedOnly> for UrgentStop {
+            fn affected_axes(&self) -> AffectedAxes {
+                AffectedAxes::ZOOM
+            }
+        }
+
+        fn profile() -> ProfileSpec {
+            ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()
+                .expect("built-in profile")
+        }
+
+        fn command_class(class: ClassSelection) -> EngineControlClass {
+            prepare_command(
+                &BackgroundPlain,
+                CameraId::CAMERA_1,
+                &profile(),
+                OperationalTuning::new(),
+                class,
+            )
+            .expect("plain command prepares")
+            .context
+            .control
+            .class
+        }
+
+        fn inquiry_class(class: ClassSelection) -> EngineControlClass {
+            prepare_inquiry(
+                &CountingInquiry,
+                CameraId::CAMERA_1,
+                &profile(),
+                OperationalTuning::new(),
+                class,
+            )
+            .expect("inquiry prepares")
+            .context
+            .control
+            .class
+        }
+
+        fn operation_class(class: ClassSelection) -> EngineControlClass {
+            prepare_operation::<completion::AppliedOnly, _>(
+                &UrgentStop,
+                CameraId::CAMERA_1,
+                &profile(),
+                OperationalTuning::new(),
+                class,
+            )
+            .expect("applied-only operation prepares")
+            .context
+            .control
+            .class
+        }
+
+        /// The three sources resolve independently of any request: a handle
+        /// default is refused only by an urgent request, and an explicit
+        /// per-submission class is honoured as written.
+        #[test]
+        fn resolution_table_is_exact() {
+            for request in [
+                ControlClass::Background,
+                ControlClass::Normal,
+                ControlClass::User,
+                ControlClass::Urgent,
+            ] {
+                assert_eq!(
+                    ClassSelection::Request.resolve(request),
+                    request,
+                    "an unselected submission keeps the request's own class",
+                );
+                assert_eq!(
+                    ClassSelection::Explicit(ControlClass::Background).resolve(request),
+                    ControlClass::Background,
+                    "an explicit per-submission class replaces every request class",
+                );
+
+                let expected = if matches!(request, ControlClass::Urgent) {
+                    ControlClass::Urgent
+                } else {
+                    ControlClass::Background
+                };
+                assert_eq!(
+                    ClassSelection::Handle(ControlClass::Background).resolve(request),
+                    expected,
+                    "a handle default never demotes an urgent request",
+                );
+            }
+        }
+
+        /// A handle default and a per-submission override both reach the
+        /// lowered `ControlPolicy` of a plain command.
+        #[test]
+        fn plain_command_lowers_the_selected_class() {
+            assert_eq!(
+                command_class(ClassSelection::Request),
+                EngineControlClass::Background
+            );
+            assert_eq!(
+                command_class(ClassSelection::Handle(ControlClass::User)),
+                EngineControlClass::User,
+            );
+            assert_eq!(
+                command_class(ClassSelection::Explicit(ControlClass::Urgent)),
+                EngineControlClass::Urgent,
+            );
+        }
+
+        /// Inquiries share the same four lanes, so a demoted telemetry handle
+        /// really does move its polling out of the way.
+        #[test]
+        fn inquiry_lowers_the_selected_class() {
+            assert_eq!(
+                inquiry_class(ClassSelection::Request),
+                EngineControlClass::Normal
+            );
+            assert_eq!(
+                inquiry_class(ClassSelection::Handle(ControlClass::Background)),
+                EngineControlClass::Background,
+            );
+            assert_eq!(
+                inquiry_class(ClassSelection::Explicit(ControlClass::User)),
+                EngineControlClass::User,
+            );
+        }
+
+        /// The safety rule, on the lowered value rather than on `resolve`
+        /// alone: a demoted handle still submits its stop as urgent, and only
+        /// the explicit per-submission form can demote it.
+        #[test]
+        fn an_urgent_operation_is_demoted_only_by_an_explicit_class() {
+            assert_eq!(
+                operation_class(ClassSelection::Request),
+                EngineControlClass::Urgent
+            );
+            assert_eq!(
+                operation_class(ClassSelection::Handle(ControlClass::Background)),
+                EngineControlClass::Urgent,
+                "issue #630: a handle default must never demote an urgent stop",
+            );
+            assert_eq!(
+                operation_class(ClassSelection::Explicit(ControlClass::Background)),
+                EngineControlClass::Background,
+                "issue #630: an explicit per-submission class may demote a stop",
+            );
+        }
     }
 }

@@ -116,11 +116,69 @@ inquiries.
 | Raw `command::RawInquiryPayload`/untyped response assumptions | `raw::Plain`, `raw::Inquiry`, `raw::Targeted`, or `raw::AppliedOnly`, with an explicit response parser/spec. |
 | `ViscaCommand` response-associated-type extensions | The typed `Request`/`Inquiry`/`OperationCommand` contract and `ResponseParser` for custom decoding. |
 | Plain requests submitted as operations or operations without affected axes | Match the request class exactly: `execute` for plain, `inquire` for inquiry, and `submit` for a typed operation with non-empty affected axes. |
-| Caller-selected lifecycle IDs, priority, retry class, target, or settlement metadata | Owner-derived preparation metadata. Callers select a request and timeout, not protocol identity or scheduler policy. |
+| Caller-selected lifecycle IDs, retry class, target, or settlement metadata | Owner-derived preparation metadata. Callers select a request, a timeout, and a scheduling class; they do not select protocol identity or queue positions. |
+| `runtime::Priority` and the `*_priority` camera methods | `ControlClass` and the `*_with_class` / `set_command_class` surface. See [Submission priority](#submission-priority). |
 
 The built-in command classification remains one closed semantic ledger. A
 custom request must declare its class explicitly; wire opcode or response shape
 does not infer lifecycle semantics.
+
+## Submission priority
+
+1.x's `runtime::Priority` is gone; `ControlClass` is the 2.0 spelling of the
+same four scheduling lanes, and it is a public root export. The mapping is
+one-to-one:
+
+| 1.x `runtime::Priority` | 2.0 `ControlClass` |
+| --- | --- |
+| `Priority::Low` | `ControlClass::Background` |
+| `Priority::Normal` | `ControlClass::Normal` |
+| `Priority::High` | `ControlClass::User` |
+| `Priority::Critical` | `ControlClass::Urgent` |
+
+The levels are ordered identically and the dispatch rule is unchanged: highest
+occupied class first, admission order within a class, and the class decides only
+which *queued* request is written next. What changed is the vocabulary and the
+default. 1.x had no per-request classification, so a handle's priority was the
+only signal and everything a handle submitted sat in one lane. In 2.0 every
+request already carries a class — ordinary control is `Normal`, drives and
+absolute moves are `User`, and the typed stops and `CommandCancel` are `Urgent`
+— so an emergency stop preempts queued work with no API call at all, which is
+the case most 1.x `Priority::Critical` code existed to serve.
+
+| 1.x call | 2.0 call |
+| --- | --- |
+| `camera.set_command_priority(Priority::Low)` | `camera.set_command_class(Some(ControlClass::Background))` |
+| `camera.command_priority()` | `camera.command_class()` — returns `Option<ControlClass>`, where `None` means "each request's own class" |
+| `camera.execute_with_priority(cmd, Priority::Critical)` | `camera.execute_with_class(&cmd, ControlClass::Urgent)` |
+| — (no 1.x equivalent) | `camera.inquire_with_class(&inquiry, class)` and `camera.submit_with_class::<K, _>(&operation, class)` |
+| `BlockingClient` priority methods | The same names on `blocking::Camera` and `blocking::CameraSession` |
+| — (no 1.x equivalent) | `DynSessionCamera::execute_with_class`, `inquire_with_class`, `submit_targeted_with_class`, `submit_applied_with_class`, and `set_command_class` |
+
+Three behavioural differences are worth reading before porting:
+
+- **The handle default never demotes an urgent request.** A handle set to
+  `Background` still submits `PanTiltStop`, `ZoomStop`, `FocusStop`, and
+  `CommandCancel` as `Urgent`. 1.x had no such rule because it had no
+  per-request class. Only an explicit per-submission class
+  (`submit_with_class(&ZoomStop, ControlClass::Background)`) can demote a stop,
+  and it does so for that one submission.
+- **Inquiries are covered.** 1.x kept inquiries at a fixed polling priority; in
+  2.0 they share the same four lanes, so a handle demoted to `Background` moves
+  its telemetry reads out of the way as well as its commands. Owner-internal
+  traffic — settlement polling behind `settled()`, and the observation inquiries
+  behind `motion()` — keeps its own built-in class.
+- **The default is per handle, not per session.** Cloning an async `Camera`
+  copies the current value and then diverges, and two views taken from one
+  `Session` are independent. This matches 1.x.
+
+`runtime::testing::Priority` has no 2.0 equivalent, because 2.0's tests do not
+need one: `ControlClass` is public in every build configuration, so a test names
+the class through the same API an application uses, and the crate's own
+lane-ordering tests (`tests/issue_630_submission_class_*.rs`) assert the
+resulting dispatch order at the transport boundary rather than reaching into the
+scheduler. For deterministic scheduling in downstream tests, use the
+`test-utils` transports and executors.
 
 ## Drop never stops hardware
 
