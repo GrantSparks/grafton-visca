@@ -21,7 +21,7 @@ use crate::{
 use super::{DynAppliedOperation, DynFuture, DynSessionCamera, DynTargetedOperation};
 
 /// Number of target-facing built-in command methods in this projection.
-pub const DYN_NOUN_TARGET_METHOD_COUNT: usize = 143;
+pub const DYN_NOUN_TARGET_METHOD_COUNT: usize = 144;
 
 /// Number of typed inquiry methods in this projection.
 pub const DYN_NOUN_INQUIRY_METHOD_COUNT: usize = 66;
@@ -581,6 +581,8 @@ pub trait DynImage: Send + Sync {
     fn enable_flip(&self) -> DynFuture<'_, Result<(), Error>>;
     /// Enables horizontal image mirroring.
     fn enable_horizontal_flip(&self) -> DynFuture<'_, Result<(), Error>>;
+    /// Disables horizontal image mirroring.
+    fn disable_horizontal_flip(&self) -> DynFuture<'_, Result<(), Error>>;
     /// Sets the combined image-flip mode to both axes.
     fn set_flip_both(&self) -> DynFuture<'_, Result<(), Error>>;
     /// Sets the combined image-flip mode.
@@ -1323,6 +1325,7 @@ impl DynImage for DynSessionCamera {
         fn disable_flip() => builtin::ImageFlipCommand::new(command::Flip::Off);
         fn enable_flip() => builtin::ImageFlipCommand::new(command::Flip::On);
         fn enable_horizontal_flip() => builtin::ImageMirrorCommand::new(true);
+        fn disable_horizontal_flip() => builtin::ImageMirrorCommand::new(false);
         fn set_flip_both() => command::ImageFlipCombinedCommand::new(command::ImageFlipMode::Both);
         fn set_flip_mode(mode: command::ImageFlipMode) => command::ImageFlipCombinedCommand::new(mode);
         fn freeze_on() => command::ImageFreeze::on();

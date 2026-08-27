@@ -275,6 +275,7 @@ pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::contrast(&sel
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::decrease_sharpness(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasSharpnessControl
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::defog_level(&self) -> grafton_visca::Result<grafton_visca::types::DefogLevel>
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::disable_flip(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasImageFlip
+pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::disable_horizontal_flip(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasImageMirror
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::enable_flip(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasImageFlip
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::enable_horizontal_flip(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasImageMirror
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::flip(&self) -> grafton_visca::Result<grafton_visca::command::FlipState> where P: grafton_visca::capabilities::HasImageFlip
@@ -12517,6 +12518,7 @@ pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::contrast(&sel
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::decrease_sharpness(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasSharpnessControl
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::defog_level(&self) -> grafton_visca::Result<grafton_visca::types::DefogLevel>
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::disable_flip(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasImageFlip
+pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::disable_horizontal_flip(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasImageMirror
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::enable_flip(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasImageFlip
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::enable_horizontal_flip(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasImageMirror
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::flip(&self) -> grafton_visca::Result<grafton_visca::command::FlipState> where P: grafton_visca::capabilities::HasImageFlip

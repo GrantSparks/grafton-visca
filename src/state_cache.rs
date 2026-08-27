@@ -335,9 +335,9 @@ impl StateCache {
     /// axis in slot 1, both as `1`/`0`. Only the combined-flip opcode
     /// (`image().set_flip_mode()` and `image().set_flip_both()`) establishes
     /// both axes at once, so only those commands set the key. The single-axis
-    /// opcodes (`enable_flip`, `disable_flip`, `enable_horizontal_flip`) move
-    /// one axis without saying anything about the other and therefore
-    /// invalidate the key, which reads back as `None`.
+    /// opcodes (`enable_flip`, `disable_flip`, `enable_horizontal_flip`,
+    /// `disable_horizontal_flip`) move one axis without saying anything about
+    /// the other and therefore invalidate the key, which reads back as `None`.
     #[must_use]
     pub fn flip_state(&self) -> Option<crate::command::FlipState> {
         let StateEntry::Set(value) = self.value(StateKey::Flip) else {
