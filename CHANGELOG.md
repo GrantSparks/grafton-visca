@@ -9,17 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 2.0.0-rc.1 release candidate
 
-- **Dropping an in-flight movement operation now stops the camera** (#567).
-  An `Operation` handle that is dropped without being awaited, cancelled, or
-  detached — an early `?`, a panic unwinding past it, or a forgotten binding —
-  enqueues the typed STOP for every axis that operation affects, so no failure
-  path can leave hardware driving. This applies to the blocking, async, and
-  dynamic handles alike. Movement is the branch's existing classification: an
-  operation whose affected axes include pan/tilt, zoom, or focus and whose
-  control class is not `Urgent` (the closed stop/cancel set, so an abandoned
-  STOP never answers itself). `detach` is the explicit opt-out, and cancelling
-  or awaiting a handle consumes it, so neither adds a redundant STOP. The stop
-  is best effort and never blocks or panics in `Drop`.
+- Operation-handle drop semantics match 1.x exactly: drop is `detach` and
+  never stops hardware (#567). Dropping a handle relinquishes the observer and
+  nothing else, so an early `?`, a panic unwinding past it, or a forgotten
+  binding leaves physical movement running until an explicit stop ends it.
+  This is documented rather than changed — 1.x behaved identically — so it is
+  not a migration item, and the migration-table row that implied otherwise is
+  corrected. Callers who want motion bounded by a scope write a stop-on-exit
+  guard; the pattern is documented in `docs/migration_2_0.md` and demonstrated
+  in `examples/operation_handles.rs` (and in its async wrapper form in
+  `examples/operation_handles_async.rs`). No new public API.
 - Added owner-backed `Session`/`SessionConfig` construction and typed
   `Camera<P>` views for heterogeneous multi-camera sessions.
 - Added the final blocking, async, and dynamic noun surfaces with typed
@@ -88,6 +87,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The README feature-union table promised automated validation of
   `runtime-tokio,transport-serial`, which no matrix leg covered; that leg is
   back, and the table now names the CI job that checks each union.
+- Stopped shipping the public API snapshots to crates.io and shrank them
+  (#572). `api/` was 71% of the published tarball — 1.8 MiB of CI baseline text
+  with no use to consumers — and is now in the `exclude` list, taking the
+  package from 355 files / 2.5 MiB compressed to 347 files / 737 KiB. The seven
+  byte-compared surfaces are reduced to three (`blocking`, `tokio-dyn`,
+  `all-features`), which measurably cover the same items: `blocking` is a
+  strict superset of the retired no-default surface, `tokio-dyn` of the retired
+  async surface, and `all-features` of the rest. `--simplified` drops the
+  compiler-emitted blanket impls that were ~42% of every file and identical for
+  every public type; auto-trait and auto-derived impls are still tracked. The
+  snapshots and their regeneration procedure are now documented in
+  `CONTRIBUTING.md`, which also drops its stale instruction not to tag without
+  "both semver surfaces" — a gate that no longer exists.
 - Fixed the async owner terminating a session when a byte-stream read carried
   bytes without finishing a VISCA frame (#560). The actor treated the resulting
   empty decoded batch as end of stream and failed every in-flight request, so a

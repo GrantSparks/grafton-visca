@@ -2,9 +2,12 @@
 //!
 //! Every movement step runs inside `movement`, so an early `?` returns through
 //! `finish_session` and the session is closed on the failure path as well as
-//! the success path. That same early return drops any operation handle still
-//! alive, which stops the axes it was driving — the drop is the safety net,
-//! not a substitute for the explicit steps below.
+//! the success path.
+//!
+//! Dropping an operation handle is exactly `detach`: it relinquishes the
+//! observer and never stops hardware. Callers who want motion bounded by a
+//! scope write their own guard; `StopPanTiltOnExit` below is the whole pattern
+//! and uses nothing but the public API.
 //!
 //! This example moves real hardware. Set `VISCA_CAMERA_ADDR` or pass an
 //! address on the command line.
@@ -14,7 +17,7 @@ mod support;
 use std::{env, thread::sleep, time::Duration};
 
 use grafton_visca::{
-    blocking::{Connect, Session},
+    blocking::{Camera, Connect, Session},
     camera::{profiles::PtzOpticsG2, IdleWait},
     command::PanTiltDirection,
     types::{PanSpeed, TiltSpeed},
@@ -35,6 +38,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// Sends the typed pan/tilt STOP when it leaves scope, on every exit path.
+///
+/// This is the scoped stop-on-exit pattern from `docs/migration_2_0.md`. It is
+/// caller-owned code, not library API: the library never stops hardware on
+/// drop, so a caller who wants an early `?` or a panic to end motion writes a
+/// guard like this and holds it for the region that must stay bounded.
+///
+/// `Drop` cannot report a failure and may run while unwinding, so the stop is
+/// best effort here — exactly as in any scope guard.
+struct StopPanTiltOnExit<'a, 'session> {
+    camera: &'a Camera<'session, PtzOpticsG2>,
+}
+
+impl Drop for StopPanTiltOnExit<'_, '_> {
+    fn drop(&mut self) {
+        if let Ok(stop) = self.camera.pan_tilt().stop() {
+            let _ = stop.applied();
+        }
+    }
+}
+
 fn movement(session: &Session) -> Result<(), Error> {
     let camera = session.camera::<PtzOpticsG2>()?;
 
@@ -45,20 +69,23 @@ fn movement(session: &Session) -> Result<(), Error> {
     camera.zoom().tele()?.applied()?;
     camera.zoom().stop()?.applied()?;
 
-    // A handle held across fallible work is the case the drop stop exists for:
-    // if `applied` below returned an error, `drive` would already be gone and
-    // pan/tilt would already have been stopped.
-    let drive = camera.pan_tilt().move_direction(
-        PanTiltDirection::Up,
-        PanSpeed::new(6)?,
-        TiltSpeed::new(6)?,
-    )?;
-    sleep(Duration::from_millis(250));
-    drive.applied()?;
-    camera.pan_tilt().stop()?.applied()?;
+    // A handle held across fallible work is not a safety net: if `applied`
+    // below returned an error, `drive` would simply be dropped and pan/tilt
+    // would keep moving. The guard is what bounds the motion to this scope.
+    {
+        let _stop_on_exit = StopPanTiltOnExit { camera: &camera };
+        let drive = camera.pan_tilt().move_direction(
+            PanTiltDirection::Up,
+            PanSpeed::new(6)?,
+            TiltSpeed::new(6)?,
+        )?;
+        sleep(Duration::from_millis(250));
+        drive.applied()?;
+    }
 
-    // `detach` is the deliberate opt-out. The zoom keeps driving after this
-    // line, so it must be paired with an explicit bounded stop.
+    // `detach` is the explicit spelling of what drop already does. The zoom
+    // keeps driving after this line, so it must be paired with an explicit
+    // bounded stop.
     camera.zoom().tele()?.detach();
     sleep(Duration::from_millis(250));
     camera.zoom().stop()?.applied()?;

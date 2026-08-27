@@ -253,19 +253,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # Three surfaces, not seven. `blocking` is a strict superset of the bare
+        # `--no-default-features` surface and `tokio-dyn` is a strict superset of
+        # the `async` surface, so those two legs subsume four of the retired
+        # ones; `all-features` covers the rest (including the smol adapter,
+        # whose items mirror the tokio ones). See api/2.0.0-rc.1/README.md.
         include:
-          - name: no-default
-            cargo_args: --no-default-features
           - name: blocking
             cargo_args: --no-default-features --features blocking
-          - name: async
-            cargo_args: --no-default-features --features async
           - name: tokio-dyn
             cargo_args: --no-default-features --features runtime-tokio,dyn-api
-          - name: smol-dyn
-            cargo_args: --no-default-features --features runtime-smol,dyn-api
-          - name: coexistence
-            cargo_args: --no-default-features --features blocking,runtime-tokio,dyn-api
           - name: all-features
             cargo_args: --all-features
     steps:
@@ -294,7 +291,7 @@ jobs:
         run: |
           set -euo pipefail
           generated="${RUNNER_TEMP}/${{ matrix.name }}.txt"
-          cargo +nightly-2026-08-26 public-api --color never ${{ matrix.cargo_args }} >"${generated}"
+          cargo +nightly-2026-08-26 public-api --color never --simplified ${{ matrix.cargo_args }} >"${generated}"
           test -s "${generated}"
           diff -u "api/2.0.0-rc.1/${{ matrix.name }}.txt" "${generated}"
 
