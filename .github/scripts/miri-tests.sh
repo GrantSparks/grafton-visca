@@ -6,14 +6,32 @@ set -euo pipefail
 
 readonly YELLOW='\033[1;33m'
 readonly GREEN='\033[0;32m'
+readonly RED='\033[0;31m'
 readonly NC='\033[0m'
 
+# Every run below is filtered by module path. A libtest filter that matches
+# nothing exits 0 — the binary prints "running 0 tests" and reports success —
+# so renaming or moving a module would quietly turn this whole job vacuous
+# instead of turning it red. Each run therefore asserts that its filter
+# selected at least one test.
 run_miri() {
     local description="$1"
     shift
 
+    local log
+    log="${TMPDIR:-/tmp}/grafton-miri-${description//[^[:alnum:]]/_}.log"
+
     printf '%bMiri testing: %s%b\n' "$YELLOW" "$description" "$NC"
-    cargo miri test "$@"
+    if ! cargo miri test "$@" 2>&1 | tee "$log"; then
+        printf '%b✗ %s failed%b\n' "$RED" "$description" "$NC"
+        return 1
+    fi
+    if ! grep -Eq '^running [1-9][0-9]* tests?$' "$log"; then
+        printf '%b✗ %s matched zero tests%b\n' "$RED" "$description" "$NC"
+        printf 'The name filter selected nothing, so this check was vacuous.\n'
+        printf 'A renamed or moved module is the usual cause; update the filter.\n'
+        return 1
+    fi
     printf '%b✓ %s passed%b\n\n' "$GREEN" "$description" "$NC"
 }
 

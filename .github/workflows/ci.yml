@@ -97,8 +97,22 @@ jobs:
             command: --no-default-features --features runtime-tokio,transport-serial --all-targets
           - name: serde + schemars + ts-rs
             command: --no-default-features --features serde,schemars,ts-rs --all-targets
+          # `test-utils` alone proves the toolkit compiles with no facade
+          # selected. It cannot *run* the toolkit: `ScriptedBlockingTransport`
+          # needs `blocking`, `ScriptedTransport` and `DeterministicExecutor`
+          # need `async`, so every test that drives them is compiled away here.
           - name: test-utils
             command: --no-default-features --features test-utils --all-targets
+          # The union that actually executes the shipped test toolkit. Without
+          # it 37 tests — `tests/issue_566_scripted_error_recovery.rs`,
+          # `tests/inquiry_simulator_test.rs`,
+          # `tests/timeout_category_tests.rs`, the `testkit` library tests and
+          # the `src/blocking.rs` testkit unit test — exist in the tree and run
+          # in no job, because `test-utils` is never unioned with a facade
+          # anywhere else in this matrix and the all-features job below is a
+          # `cargo check`, not a `cargo test`.
+          - name: test-utils + blocking + Tokio
+            command: --no-default-features --features test-utils,blocking,runtime-tokio --all-targets
     steps:
       - uses: actions/checkout@v4
       - name: Install serial transport dependencies
