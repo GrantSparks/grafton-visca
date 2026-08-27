@@ -19,6 +19,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   supported runtime and transport combinations.
 - Removed the 1.x compatibility feature aliases and documented the 2.0
   request, construction, dynamic API, and release contracts.
+- Added `Error::requires_new_session()`, the spec-normative classifier that
+  separates transport-level session death (`ConnectionClosed`, `StreamPoisoned`,
+  and the transport/channel-unavailable errors) from the deliberate
+  `RuntimeShutdown` (#564). All of these share `ErrorKind::IoClosed`, so
+  applications could not tell a field disconnect apart from a shutdown they
+  requested without matching implementation details. `true` is positive proof
+  that the session is finished and must be rebuilt from the retained
+  `SessionConfig`; `false` only means the error alone does not prove it.
 - Added a hardware release evidence checklist. Hardware, registry, and
   Synemantic validation remain `Pending (Not run)` until release owners record
   bench evidence.

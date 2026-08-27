@@ -82,6 +82,38 @@ expect every cache entry to start `Unknown`. Re-query camera state explicitly;
 the owner never automatically resubmits commands. Old handles must report the
 old owner's terminal/closed outcome and cannot be rebound to the new owner.
 
+Classify the terminal condition with `Error::requires_new_session()` rather than
+matching `ErrorKind::IoClosed` or individual variants. Transport close, explicit
+shutdown, and poison are deliberately distinct errors that share one kind, so
+the kind alone cannot tell a field disconnect apart from a shutdown this
+application requested:
+
+| Terminal condition | Error | `requires_new_session()` |
+| --- | --- | --- |
+| The peer closed the connection | `ConnectionClosed` | `true` |
+| The stream position became unknowable | `StreamPoisoned` | `true` |
+| The owner's transport or channel is gone | `NoTransport`, `TransportChannelClosed`, … | `true` |
+| The application shut the session down | `RuntimeShutdown` | `false` |
+
+`true` is positive proof that the session is finished; `false` only means the
+error alone does not prove it. Ordinary per-request failures — timeouts, busy
+states, protocol and parameter errors — are `false`, and so is a raw `Io`
+failure, because a datagram write failure is isolated to its own transmission
+and a stream failure reaches the caller as `StreamPoisoned`.
+
+```rust,ignore
+match camera.execute(&command) {
+    Ok(()) => {}
+    Err(error) if error.requires_new_session() => {
+        // Drop the old session and views, then rebuild from the retained
+        // configuration. Re-query state before applying anything new.
+        let session = Session::open(new_transport()?, config.clone())?;
+        // ...
+    }
+    Err(error) => return Err(error),
+}
+```
+
 For the complete construction, transport, target, tuning, noun, and lifecycle
 examples, see [`usage_2_0.md`](usage_2_0.md). For bounded state and diagnostic
 behavior, see [`observability_and_recovery.md`](observability_and_recovery.md).
