@@ -17542,6 +17542,7 @@ pub const fn grafton_visca::Error::from_code(u8) -> Self
 pub fn grafton_visca::Error::invalid_response_length(usize, &[u8]) -> Self
 pub fn grafton_visca::Error::is_retryable(&self) -> bool
 pub fn grafton_visca::Error::kind(&self) -> grafton_visca::ErrorKind
+pub fn grafton_visca::Error::requires_new_session(&self) -> bool
 pub fn grafton_visca::Error::suggested_retry_delay(&self) -> core::option::Option<core::time::Duration>
 pub fn grafton_visca::Error::to_public_error(self) -> Self
 pub fn grafton_visca::Error::with_context(self, impl core::convert::Into<alloc::borrow::Cow<'static, str>>) -> Self
@@ -33478,6 +33479,7 @@ pub const fn grafton_visca::Error::from_code(u8) -> Self
 pub fn grafton_visca::Error::invalid_response_length(usize, &[u8]) -> Self
 pub fn grafton_visca::Error::is_retryable(&self) -> bool
 pub fn grafton_visca::Error::kind(&self) -> grafton_visca::ErrorKind
+pub fn grafton_visca::Error::requires_new_session(&self) -> bool
 pub fn grafton_visca::Error::suggested_retry_delay(&self) -> core::option::Option<core::time::Duration>
 pub fn grafton_visca::Error::to_public_error(self) -> Self
 pub fn grafton_visca::Error::with_context(self, impl core::convert::Into<alloc::borrow::Cow<'static, str>>) -> Self
