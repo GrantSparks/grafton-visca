@@ -197,18 +197,13 @@ destination.
 
 ### Changed
 
-- **The three noun facades are generated from one row table** (#617). The async
-  accessors, the blocking accessors, and the object-safe `Dyn*` traits were
-  three independent hand-written transcriptions of the same closed ledger:
-  every noun method was written out three times — name, arguments, capability
-  bound, return class, and rustdoc — with nothing in the type system relating
-  the copies, so adding one command meant five coordinated edits and the
-  published API snapshots only ever diffed each facade against its own
-  baseline. `src/noun_table.rs` now carries one row per noun method and hands
-  those rows to a per-facade consumer macro, in the same continuation-passing
-  style `builtin_inquiry_table!` already used for the inquiry ledger. The three
-  facades shrink from 5,751 lines to 2,083, and adding a command becomes one
-  row plus its semantic classification.
+- **The three noun facades are generated from one typed registry** (#617).
+  `command::surface` and the async, blocking, and object-safe `Dyn*` facades now
+  consume the same `src/noun_table.rs` registry. Request expressions are
+  anchored to concrete request types; canonical `BuiltinCommand` IDs and the
+  broadcast/cancellation exceptions are explicit; and independent wire-level
+  tests pin the expected VISCA frames. Maintaining the surface requires one
+  noun-registry row plus the separate semantic `BuiltinCommand` classification.
   **There is no public API change**: the pinned `api/2.0.0-rc.1/*.txt`
   snapshots regenerate byte-identically on all three legs, which is the machine
   proof that every signature, bound, and cfg gate survived. Rendered
