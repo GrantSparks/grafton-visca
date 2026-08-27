@@ -2007,13 +2007,8 @@ fn phase_one_protocol_fixture_replays_through_production_engine() {
                     }),
                     now,
                 );
-                pending_observation = Some(fixture_observation(
-                    &effects,
-                    &names,
-                    &fields,
-                    response_name,
-                    target,
-                ));
+                pending_observation =
+                    Some(fixture_observation(engine, &effects, &names, response_name));
             }
             "expect" => {
                 let expected = format!(
@@ -2064,12 +2059,45 @@ fn fixture_route(route: Option<&str>) -> InquiryRoute {
     }
 }
 
+/// Names the inquiry route the engine actually attributed to a reply.
+fn fixture_route_name(route: Option<InquiryRoute>) -> &'static str {
+    match route {
+        None => "unknown",
+        Some(route) if route == POWER => "power",
+        Some(route) if route == ZOOM => "zoom",
+        Some(route) if route == FOCUS => "focus",
+        Some(route) if route == InquiryRoute::UNKNOWN => "unknown",
+        Some(other) => panic!("engine reported an unknown inquiry route {other:?}"),
+    }
+}
+
+/// Recovers the VISCA error code the engine's terminal error stands for.
+///
+/// This is the inverse of [`Error::from_code`], so an engine that collapses
+/// distinct camera error codes onto one error renders the wrong code and the
+/// fixture's expectation column rejects it.
+fn fixture_error_code(error: &Error) -> String {
+    let code = match error {
+        Error::MessageLengthError => 0x01,
+        Error::SyntaxError => 0x02,
+        Error::CommandBufferFull => 0x03,
+        Error::CommandCanceled => 0x04,
+        Error::NoSocket => 0x05,
+        Error::CommandNotExecutable => 0x41,
+        Error::Unknown(code) => *code,
+        other => panic!("a camera error frame produced a non-camera error: {other:?}"),
+    };
+    format!("0x{code:02X}")
+}
+
+/// Every column below is read out of the engine's own effects. Nothing is
+/// rebuilt from the fixture's input record, so corrupting a reply payload, a
+/// reply route, an attributed socket or an error code fails the expectation.
 fn fixture_observation(
+    engine: &ProtocolEngine,
     effects: &[Effect],
     names: &BTreeMap<RequestId, String>,
-    fields: &BTreeMap<String, String>,
     response: &str,
-    target: u8,
 ) -> String {
     if let Some((id, socket)) = effects.iter().find_map(|effect| match effect {
         Effect::Transition {
@@ -2079,9 +2107,16 @@ fn fixture_observation(
         } => Some((*id, *socket)),
         _ => None,
     }) {
+        let target = engine
+            .entry(id)
+            .expect("an acknowledged request keeps its engine entry")
+            .request
+            .context()
+            .target;
         return format!(
-            "observer=engine outcome=ack:{}:target={target}:socket={}",
+            "observer=engine outcome=ack:{}:target={}:socket={}",
             names.get(&id).unwrap(),
+            target.id(),
             socket.as_socket_number()
         );
     }
@@ -2092,13 +2127,13 @@ fn fixture_observation(
         let name = names.get(&id).unwrap();
         let outcome = match outcome {
             RuntimeOutcome::Applied => "applied".to_owned(),
-            RuntimeOutcome::Reply { .. } => format!(
+            RuntimeOutcome::Reply { route, payload } => format!(
                 "reply:{}:{}",
-                fixture_required(fields, "route"),
-                fixture_required(fields, "payload")
+                fixture_route_name(*route),
+                String::from_utf8_lossy(payload)
             ),
-            RuntimeOutcome::Failed(_) => {
-                format!("error:{}", fixture_required(fields, "code"))
+            RuntimeOutcome::Failed(error) => {
+                format!("error:{}", fixture_error_code(error))
             }
             RuntimeOutcome::Cancelled => "cancelled".to_owned(),
         };
