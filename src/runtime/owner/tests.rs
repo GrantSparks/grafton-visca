@@ -3565,6 +3565,62 @@ mod metrics {
     }
 }
 
+/// Issue #637: the receive-error contract both owners now share. A read error
+/// that only reports "no bytes arrived" is an idle read, not a fault.
+#[test]
+fn an_idle_read_error_reports_no_data_rather_than_a_fault() {
+    use std::io::ErrorKind;
+    use std::sync::Arc;
+
+    for idle in [
+        Error::Timeout,
+        Error::Io(Arc::new(std::io::Error::from(ErrorKind::TimedOut))),
+        Error::Io(Arc::new(std::io::Error::from(ErrorKind::WouldBlock))),
+        Error::Io(Arc::new(std::io::Error::from(ErrorKind::Interrupted))),
+        Error::Timeout.with_context("idle poll"),
+    ] {
+        assert!(
+            receive_reported_no_data(&idle),
+            "an idle read must not be classified as a fault: {idle}"
+        );
+    }
+    for fault in [
+        Error::TransportError("ICMP port unreachable".into()),
+        Error::Io(Arc::new(std::io::Error::from(ErrorKind::ConnectionRefused))),
+        Error::ConnectionClosed { reason: None },
+    ] {
+        assert!(
+            !receive_reported_no_data(&fault),
+            "a real read failure must stay a fault: {fault}"
+        );
+    }
+}
+
+/// Issue #637: a datagram send failure fails one request while the session
+/// keeps running, so the value the caller sees must never claim a replacement
+/// session is required.
+#[test]
+fn a_datagram_send_failure_is_normalized_to_a_per_request_error() {
+    let normalized = normalize_datagram_send_error(Error::ConnectionClosed {
+        reason: Some("socket closed".into()),
+    });
+    assert!(matches!(normalized, Error::TransportError(_)));
+    assert!(!normalized.requires_new_session());
+    assert!(
+        normalized.to_string().contains("socket closed"),
+        "the original cause must survive normalization: {normalized}"
+    );
+
+    // Errors that are already per-request are passed through untouched.
+    assert!(matches!(
+        normalize_datagram_send_error(Error::Timeout),
+        Error::Timeout
+    ));
+    assert!(matches!(
+        normalize_datagram_send_error(Error::TransportError("serial encode failed".into())),
+        Error::TransportError(_)
+    ));
+}
 /// Issue #634: every normative issue-542 lifecycle fixture replays through the
 /// production owner and engine.
 ///

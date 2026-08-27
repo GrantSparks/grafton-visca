@@ -167,12 +167,37 @@ is gone (`ConnectionClosed`, or an `Io` failure whose kind is `ConnectionReset`,
 session, and it ends it as a close: a failed read consumes nothing and so
 cannot desynchronize framing.
 
-Writes are classified by transport instead. A failed datagram write fails
-exactly one request, with its own transport error, and the session continues. A
-failed stream write poisons the session: no transport trait in this crate
-reports how many bytes of a frame reached the wire, so a partial write must be
-assumed and the byte-stream position treated as unknowable. The exact transport
-cause is carried in the `StreamPoisoned` reason.
+A read that reports *no data* is a third case and not a fault at all.
+`Error::Timeout`, and the raw `Io` spellings `TimedOut`, `WouldBlock` and
+`Interrupted`, mean an idle read timeout expired with nothing to show for it.
+Both owners treat that as "this read produced no frames": the session lives,
+framing state is untouched, and no request's retry budget is spent. A transport
+with an internal read timeout — the shape `BlockingTransport::recv_into_with_timeout`
+documents, and the natural way to write a custom async transport — therefore
+costs nothing.
+
+A fault that never stops repeating stops being called transient. Consecutive
+transient faults, with no successful read between them, escalate their pause
+from 10 ms to a 250 ms ceiling, and a read that has failed twelve times in a row
+over at least a second ends the session with the underlying transport error
+rather than retrying against a dead adapter forever. One successful read, or a
+five-second gap between faults, clears the run.
+
+Decoding is classified by transport. On a byte stream a decode failure means the
+stream position is unknowable, so the session is poisoned. On a datagram
+transport one undecodable datagram is one bad datagram: nothing else was
+consumed and the next datagram frames independently, so it is discarded and
+recorded as `Ignored(MalformedFrame)` while the session keeps running.
+
+Writes are classified by transport too. A failed datagram write fails exactly
+one request, with its own transport error, and the session continues; because
+the session survives, an error value that claims a replacement session is
+required is normalized to a plain per-request transport error, and the receive
+side stays the authority on session death. A failed stream write poisons the
+session: no transport trait in this crate reports how many bytes of a frame
+reached the wire, so a partial write must be assumed and the byte-stream
+position treated as unknowable. The exact transport cause is carried in the
+`StreamPoisoned` reason.
 
 ## Fresh-session poison recovery
 

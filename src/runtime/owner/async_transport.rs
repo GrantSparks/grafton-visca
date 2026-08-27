@@ -137,6 +137,8 @@ where
         &mut self,
         write: WireWrite<'_>,
     ) -> impl Future<Output = Result<TransmissionMeta, Error>> + Send {
+        let datagram =
+            self.policy.protocol.transport != crate::runtime::engine::TransportKind::Stream;
         let frame_meta = if write.envelope != self.state.envelope.kind() {
             Err(Error::InvalidState(
                 "owner write envelope does not match transport adapter".into(),
@@ -155,7 +157,16 @@ where
 
         async move {
             let frame_meta = frame_meta?;
-            self.transport.send(write.frame_buffer.as_ref()).await?;
+            self.transport
+                .send(write.frame_buffer.as_ref())
+                .await
+                .map_err(|error| {
+                    if datagram {
+                        super::normalize_datagram_send_error(error)
+                    } else {
+                        error
+                    }
+                })?;
             Ok(TransmissionMeta {
                 sequence: frame_meta.sequence,
             })
@@ -176,6 +187,14 @@ where
             // Framing/decode failures below stay on the `Err` path.
             let received = match self.transport.recv_into(buffers.receive_mut()).await {
                 Ok(received) => received,
+                // An expired idle read timeout means no bytes arrived, not that
+                // the read failed. The blocking adapter has always normalized
+                // this; doing it here too keeps a transport with an internal
+                // read timeout — the shape the trait documents — from burning
+                // every in-flight retry budget (#625, #637).
+                Err(error) if super::receive_reported_no_data(&error) => {
+                    return Ok(AsyncReceive::NoData)
+                }
                 Err(error) => return Ok(AsyncReceive::Fault(error)),
             };
             // Only a zero-length read means the peer closed. A short read that
@@ -303,6 +322,58 @@ mod tests {
             matches!(third, AsyncReceive::Closed),
             "only a zero-length read closes the transport"
         );
+    }
+
+    /// Issue #625/#637: a transport with an internal read timeout is the shape
+    /// the public trait documents. An expired idle timeout is no data, not a
+    /// receive fault, so it must never provoke a retransmission.
+    #[test]
+    fn an_idle_read_timeout_decodes_as_no_data() {
+        for idle in [
+            Error::Timeout,
+            Error::Io(std::sync::Arc::new(std::io::Error::from(
+                std::io::ErrorKind::WouldBlock,
+            ))),
+            Error::Io(std::sync::Arc::new(std::io::Error::from(
+                std::io::ErrorKind::TimedOut,
+            ))),
+            Error::Io(std::sync::Arc::new(std::io::Error::from(
+                std::io::ErrorKind::Interrupted,
+            ))),
+        ] {
+            let transport = ScriptedTransport {
+                config: TransportConfig::default(),
+                sent: Vec::new(),
+                receives: [Err(idle)].into_iter().collect(),
+            };
+            let mut adapter =
+                AsyncTransportAdapter::new(transport, &profile(), CameraId::CAMERA_1).unwrap();
+            let mut buffers = OwnerBuffers::new(adapter.policy().limits).unwrap();
+            let received =
+                futures_lite::future::block_on(adapter.receive(&mut buffers, 4)).unwrap();
+            assert!(
+                matches!(received, AsyncReceive::NoData),
+                "an idle read timeout is not a receive fault: {received:?}"
+            );
+        }
+    }
+
+    /// A read failure that is not an idle timeout still reaches the owner as a
+    /// fault, which is what keeps #620's transient-retry semantics working.
+    #[test]
+    fn a_real_read_failure_still_reaches_the_owner_as_a_fault() {
+        let transport = ScriptedTransport {
+            config: TransportConfig::default(),
+            sent: Vec::new(),
+            receives: [Err(Error::TransportError("ICMP port unreachable".into()))]
+                .into_iter()
+                .collect(),
+        };
+        let mut adapter =
+            AsyncTransportAdapter::new(transport, &profile(), CameraId::CAMERA_1).unwrap();
+        let mut buffers = OwnerBuffers::new(adapter.policy().limits).unwrap();
+        let received = futures_lite::future::block_on(adapter.receive(&mut buffers, 4)).unwrap();
+        assert!(matches!(received, AsyncReceive::Fault(_)));
     }
 
     #[test]
