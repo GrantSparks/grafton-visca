@@ -35,6 +35,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the decision the engine actually took, not the policy that motivated it: a
   policy that permits retrying a deadline still fails the request once its
   attempt or duration budget is spent, and the event reports that honestly.
+- **Single-camera constructors return a camera, with the profile bound at
+  compile time** (#568). Every other entry point returns a `Session`, so a
+  one-camera program had to name its profile a second time through
+  `session.camera::<P>()?` — and that second naming was a runtime check, so
+  opening with `PtzOpticsG2` and asking for `PtzOpticsG3` compiled and failed
+  on the device. `Connect::open_tcp_camera::<P>` / `open_udp_camera::<P>` (and
+  the blocking equivalents) now return a `CameraSession<P>` that owns its
+  session and hands out the `P` camera view with no turbofish and no fallible
+  projection; a mismatch is not expressible, as in 1.x. The configured forms
+  are `CameraConfig::<P>::open_camera` / `open_camera_async`, and
+  `CameraSession::open` takes a caller-owned transport with the same bind.
+  `close` mirrors `Session::close`, and dropping the value tears the session
+  down. The multi-camera `Session`/`camera_for` path is unchanged.
 - **Restored the 1.x transport fault tolerance the rewrite dropped** (#565).
   A transient receive failure no longer destroys the session: the owner
   classifies the read error, and a transient one — the classic case is a UDP
