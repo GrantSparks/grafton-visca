@@ -234,6 +234,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The README feature-union table promised automated validation of
   `runtime-tokio,transport-serial`, which no matrix leg covered; that leg is
   back, and the table now names the CI job that checks each union.
+- Added the CI leg that runs the shipped test toolkit, and made a filtered test
+  run fail when its filter matches nothing (#628). `test-utils` was never
+  unioned with a facade in any job — the one `test-utils` leg selects neither
+  `blocking` nor a runtime, and the all-features job is a `cargo check` — so 37
+  tests existed in the tree and executed nowhere: all eight of
+  `tests/issue_566_scripted_error_recovery.rs` (whose header claimed the
+  opposite), five in `tests/inquiry_simulator_test.rs`, three in
+  `tests/timeout_category_tests.rs`, the twenty `testkit`
+  `deterministic_executor` and `scripted_transport` library tests that
+  `CONTRIBUTING.md` tells contributors to build on, and one in
+  `src/blocking.rs`. A `test-utils,blocking,runtime-tokio` leg in
+  `.github/workflows/ci.yml` and `.github/scripts/test-all-features.sh` takes
+  the count of never-executed tests from 37 to 0. Separately, every
+  name-filtered run in `.github/scripts/miri-tests.sh` and the property-test
+  entry in `.github/scripts/test-all-features.sh` now assert that the filter
+  selected at least one test: libtest exits 0 on a filter that matches nothing,
+  so a renamed module would have turned the whole Miri job green and vacuous.
 - Stopped shipping the public API snapshots to crates.io and shrank them
   (#572). `api/` was 71% of the published tarball — 1.8 MiB of CI baseline text
   with no use to consumers — and is now in the `exclude` list, taking the
