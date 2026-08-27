@@ -62,7 +62,7 @@ jobs:
         include:
           - name: no-default pure engine/domain
             command: --no-default-features --lib
-          - name: default blocking + tcp
+          - name: default blocking
             command: --workspace --all-targets
           - name: blocking-only
             command: --no-default-features --features blocking --all-targets
@@ -90,6 +90,11 @@ jobs:
             command: --no-default-features --features transport-serial --all-targets
           - name: Tokio serial
             command: --no-default-features --features runtime-tokio,transport-serial-tokio --all-targets
+          # Compatibility-only union: the async runtime alongside the *blocking*
+          # serial dependency. This is the leg the README feature-union table
+          # promises; `transport-serial-tokio` above is a different tree.
+          - name: Tokio + blocking serial
+            command: --no-default-features --features runtime-tokio,transport-serial --all-targets
           - name: serde + schemars + ts-rs
             command: --no-default-features --features serde,schemars,ts-rs --all-targets
           - name: test-utils
@@ -231,27 +236,6 @@ jobs:
       - name: Run bounded parser fuzz smoke test
         run: cargo +nightly-2026-08-26 fuzz run response_parser -- -runs=1000
 
-  removed-features:
-    name: removed feature names are unknown
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.98.0
-      - name: Check explicit unknown-feature diagnostics
-        shell: bash
-        run: |
-          set -euo pipefail
-          for feature in mode-async async-core mode-blocking; do
-            output_file="${RUNNER_TEMP}/removed-${feature}.log"
-            if cargo check --no-default-features --features "${feature}" >"${output_file}" 2>&1; then
-              cat "${output_file}"
-              echo "::error::removed feature ${feature} unexpectedly succeeded"
-              exit 1
-            fi
-            grep -Fq "does not contain this feature: ${feature}" "${output_file}"
-          done
-
   release-validation:
     name: release validator regression
     runs-on: ubuntu-latest
@@ -329,6 +313,76 @@ jobs:
           still targets the 1.x feature surface and private sibling paths; the
           local RC fixture above is the reproducible contract."
 
+  windows:
+    name: Windows check and serial tests
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.98.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: windows
+          # `trybuild` builds transient `target/tests/target` trees that are gone
+          # by the time the post-job cache scan walks them, which on Windows
+          # turns into ENOENT noise. Registry caching still covers most of the
+          # cost here.
+          cache-targets: false
+      - run: cargo check --workspace --all-targets
+      # `serialport` is a different implementation on Windows (the Win32 comms
+      # API rather than termios), so the blocking serial transport is the leg
+      # that actually needs a Windows runner.
+      - run: cargo test --no-default-features --features transport-serial
+
+  macos:
+    name: macOS check
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.98.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: macos
+      - run: cargo check --workspace --all-targets
+      # `serialport` binds IOKit on macOS; no system package is needed, unlike
+      # the libudev install every Linux job performs.
+      - run: cargo check --no-default-features --features transport-serial --all-targets
+
+  cargo-audit:
+    name: cargo-audit advisories
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.98.0
+      - uses: Swatinem/rust-cache@v2
+      - name: Install cargo-audit 0.22.2
+        # The workflow-wide `-D warnings` is meant for this crate's own code.
+        # Applying it to a third-party tool's dependency tree would make an
+        # unrelated upstream lint break the security gate.
+        env:
+          RUSTFLAGS: ""
+        run: cargo install cargo-audit --version 0.22.2 --locked
+      # `Cargo.lock` is not committed (this is a library), and `cargo audit`
+      # reads a lockfile rather than resolving one itself.
+      - name: Generate the lockfile to audit
+        run: cargo generate-lockfile
+      - name: Audit the resolved dependency tree
+        run: cargo audit
+
+  cargo-deny:
+    name: Cargo Deny
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      # Pinned to the commit behind v2.1.1: action tags are mutable, and this
+      # job is a supply-chain gate, so it must not follow a moving reference.
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        with:
+          command: check advisories bans licenses sources
+
   ci-success:
     name: CI success
     if: always()
@@ -342,10 +396,13 @@ jobs:
       - msrv
       - miri
       - fuzz
-      - removed-features
       - release-validation
       - public-api
       - downstream
+      - windows
+      - macos
+      - cargo-audit
+      - cargo-deny
     runs-on: ubuntu-latest
     steps:
       - name: Require every check to pass

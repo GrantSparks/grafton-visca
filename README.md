@@ -147,10 +147,13 @@ matrix fit together.
 
 ### Feature-union checks
 
+Each union below is a CI matrix leg, named by its job title in the feature
+matrix of `.github/workflows/ci.yml`.
+
 | Feature union | Scope | Automated validation |
 | ------------- | ----- | -------------------- |
-| `runtime-tokio,transport-serial` | Blocking serial plus Tokio async dependency coexistence; use `transport-serial-tokio` for Tokio serial. | Feature check |
-| `runtime-smol,dyn-api` | Dynamic API with smol and no test helpers. | smol dynamic feature check |
+| `runtime-tokio,transport-serial` | Blocking serial plus Tokio async dependency coexistence; use `transport-serial-tokio` for Tokio serial. | `Tokio + blocking serial` matrix leg |
+| `runtime-smol,dyn-api` | Dynamic API with smol and no test helpers. | `smol + dyn-api` matrix leg |
 
 ---
 

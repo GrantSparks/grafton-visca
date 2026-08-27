@@ -66,6 +66,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   installed that nightly explicitly in the snapshot job so `cargo public-api`
   can build rustdoc JSON instead of failing on a missing `nightly` toolchain
   (#562).
+- **Removed the `tcp` feature** (#573). It was in the default set but gated no
+  code — there was never a `cfg(feature = "tcp")` anywhere in the crate — so
+  enabling or omitting it built exactly the same library while implying that
+  standard TCP was optional. Standard TCP and UDP are not features: they are
+  built from `std` and the runtime adapters and compile with whichever facade
+  is enabled. Manifests that name `tcp` explicitly (`features = ["tcp"]`, or
+  `default-features = false` plus `tcp`) must drop it; nothing else changes,
+  because the default feature set is now `["blocking"]` and builds the same
+  code it did before. This is a feature-list change made while 2.0.0-rc.1 is
+  unpublished.
+- Removed dead CI machinery and restored the coverage 2.0 had silently dropped
+  (#573). Deleted `.github/workflows/test-features.yml`, a `workflow_call`-only
+  workflow nothing invoked, and `.github/actions/setup-sccache/`, referenced by
+  no workflow. `deny.toml` is now executed by a pinned `cargo-deny` job instead
+  of sitting in the tree unenforced, and `cargo audit` runs again. Added a
+  Windows job (the blocking serial transport is a different `serialport`
+  implementation there) and a macOS check job. The `removed-features` job,
+  which re-proved against a live compiler what the manifest inventory test
+  already pins, was folded into `tests/issue_548_supported_surface_inventory.rs`.
+  The README feature-union table promised automated validation of
+  `runtime-tokio,transport-serial`, which no matrix leg covered; that leg is
+  back, and the table now names the CI job that checks each union.
 - Fixed the async owner terminating a session when a byte-stream read carried
   bytes without finishing a VISCA frame (#560). The actor treated the resulting
   empty decoded batch as end of stream and failed every in-flight request, so a
