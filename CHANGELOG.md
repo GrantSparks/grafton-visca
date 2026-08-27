@@ -156,17 +156,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   matched another file's formatted source text — which rustfmt could break
   with correct code — are replaced by derivations that survive reformatting.
   Test-only: the public API is unchanged.
-- **Dropping an in-flight movement operation now stops the camera** (#567).
-  An `Operation` handle that is dropped without being awaited, cancelled, or
-  detached — an early `?`, a panic unwinding past it, or a forgotten binding —
-  enqueues the typed STOP for every axis that operation affects, so no failure
-  path can leave hardware driving. This applies to the blocking, async, and
-  dynamic handles alike. Movement is the branch's existing classification: an
-  operation whose affected axes include pan/tilt, zoom, or focus and whose
-  control class is not `Urgent` (the closed stop/cancel set, so an abandoned
-  STOP never answers itself). `detach` is the explicit opt-out, and cancelling
-  or awaiting a handle consumes it, so neither adds a redundant STOP. The stop
-  is best effort and never blocks or panics in `Drop`.
 - Operation-handle drop semantics match 1.x exactly: drop is `detach` and
   never stops hardware (#567). Dropping a handle relinquishes the observer and
   nothing else, so an early `?`, a panic unwinding past it, or a forgotten
