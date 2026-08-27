@@ -27,6 +27,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   public API. The default is unchanged (`Normal`), inquiries keep the scheduler's
   own polling priority, and priority only decides which **queued** command is
   dispatched next: it never interrupts or reorders a command already sent.
+- The async `Camera` now implements `Clone` (#597). The type-level docs, the
+  connection-pooling example in the `runtime` module, and the per-handle caveats
+  added by #584 and #589 all described cloning a camera, but no `Clone` impl
+  existed in either mode. Cloning is cheap and shares the connection: the
+  runtime task, its transport, the VISCA socket allocator, the command queue,
+  and the write-only state cache are all reference counted, so both handles
+  drive the same camera and commands from either are sequenced against each
+  other. Teardown happens when the **last** handle drops — dropping a clone
+  leaves the original working — while an explicit `shutdown()` still terminates
+  the runtime for every handle. Per-handle state (camera ID, `timeout_config`
+  view, `command_priority`) is copied at clone time and diverges afterwards,
+  which is what makes the #589 emergency-stop pattern work on a camera shared
+  behind an `Arc`: clone off a private handle, raise it to `Critical`, submit.
+  The blocking `Camera` owns its transport and remains non-`Clone`.
 - `CameraSession::into_inner()` on async sessions. `Connect::open_tcp_async()`
   and its siblings return a session, while `IntoDynCamera` is implemented for the
   owned `Camera`, so users of the convenience helpers could not reach
@@ -53,6 +67,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The `Camera` documentation no longer claims a `Clone` that does not apply
+  (#597). Both cfg blocks of the type-level docs stated "The `Camera` type is
+  `Clone`" over a `camera.clone()` example, and the `runtime` module built its
+  connection-pooling example on `Camera::clone()`. The async block now states
+  the real contract — shared runtime and connection, per-handle timeout view and
+  command priority, teardown on the last handle — and its example is a compiled
+  `rust,no_run` doctest. The blocking block now says what is true: the blocking
+  `Camera` owns its transport, is neither `Clone` nor `Sync`, and is shared by
+  keeping the one `BlockingClient` behind an `Rc<RefCell<_>>` or `Arc<Mutex<_>>`
+  (or by enabling `mode-async`). The connection-pool example is likewise a
+  compiled doctest built on the real `Connect` + `into_inner` path.
 - The `CameraBuilder` documentation no longer shows APIs that do not exist
   (#587). The `from_transport` example documented
   `Transport::tcp(...).build_async_with(runtime)`, but `Transport` and
