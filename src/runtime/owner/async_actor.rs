@@ -29,6 +29,10 @@ use super::{
 };
 use crate::runtime::engine::{Effect, TransportKind};
 
+/// Pause applied after a transient receive fault so a transport that fails
+/// immediately cannot spin the actor. 1.x used the same bound.
+const TRANSIENT_RECEIVE_PAUSE: Duration = Duration::from_millis(10);
+
 trait OwnerClock: Send + Sync + 'static {
     fn now(&self) -> Instant;
     fn sleep(&self, duration: Duration) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>;
@@ -84,6 +88,13 @@ pub(crate) enum AsyncReceive {
     /// source order. An empty batch means the chunk only advanced a partially
     /// received frame; the transport is still open.
     Frames(Vec<DecodedFrame>),
+    /// The transport read itself failed and consumed nothing, so framing state
+    /// is intact. The owner classifies the error: a transient fault retries
+    /// in-flight work and keeps the session, a fatal one ends it.
+    ///
+    /// This is deliberately distinct from `Err`, which the driver reserves for
+    /// a framing or decode failure over bytes that were already consumed.
+    Fault(Error),
 }
 
 /// Async transport/framing adapter. Both operations finish outside any mutable
@@ -1228,6 +1239,30 @@ where
                 false
             }
             ActorEvent::Receive {
+                result: Ok(AsyncReceive::Fault(error)),
+                received_at,
+            } => {
+                if !super::receive_fault_is_transient(&error) {
+                    self.terminate_at(
+                        driver,
+                        runtime,
+                        ShutdownReason::TransportClosed {
+                            reason: Some(error.to_string().into_boxed_str()),
+                        },
+                        received_at,
+                    )
+                    .await;
+                    return true;
+                }
+                // 1.x parity: retry every command still waiting for its ACK and
+                // keep the session. The pause mirrors 1.x's own guard against
+                // hot-looping on a transport that fails immediately.
+                let effects = self.state.input(Input::ReceiveFault { error }, received_at);
+                self.drive(driver, effects, runtime).await;
+                Executor::sleep(runtime, TRANSIENT_RECEIVE_PAUSE).await;
+                false
+            }
+            ActorEvent::Receive {
                 result: Err(error),
                 received_at,
             } => {
@@ -1622,7 +1657,9 @@ mod tests {
         DecodedFrame {
             target: CameraId::CAMERA_1,
             sequence: None,
-            response: DecodedResponse::Ack { socket },
+            response: DecodedResponse::Ack {
+                socket: Some(socket),
+            },
         }
     }
 
@@ -1630,7 +1667,9 @@ mod tests {
         DecodedFrame {
             target: CameraId::CAMERA_1,
             sequence: None,
-            response: DecodedResponse::Completion { socket },
+            response: DecodedResponse::Completion {
+                socket: Some(socket),
+            },
         }
     }
 
@@ -2554,6 +2593,111 @@ mod tests {
         let receipt = handle.submit(command()).await.unwrap();
         let _written = sent_rx.recv_async().await.unwrap();
         chunk_tx.send_async(Vec::new()).await.unwrap();
+
+        assert!(matches!(
+            receipt.terminal().await.unwrap(),
+            RuntimeOutcome::Failed(Error::ConnectionClosed { .. })
+        ));
+        let snapshot = actor_task.await.unwrap();
+        assert_eq!(snapshot.state, SessionState::Closed);
+    }
+
+    /// A command whose retry policy allows one more attempt.
+    fn retrying_command() -> RuntimeRequest {
+        let mut request = command();
+        if let RuntimeRequest::Command { context, .. } = &mut request {
+            context.retry = RetryPolicy {
+                max_retries: 2,
+                initial_backoff: Duration::ZERO,
+                maximum_backoff: Duration::ZERO,
+                total_budget: Duration::ZERO,
+                ack_timeout: true,
+                completion_timeout: true,
+                inquiry_timeout: true,
+                buffer_full: true,
+                movement_not_executable: true,
+                builtin_inquiry_syntax: true,
+            };
+        }
+        request
+    }
+
+    /// Issue #565: a transient receive failure (the classic case is a UDP
+    /// `recv` reporting ECONNREFUSED after an ICMP port-unreachable) retries
+    /// the in-flight command and leaves the session running.
+    #[cfg(feature = "runtime-tokio")]
+    #[tokio::test]
+    async fn transient_receive_fault_retries_and_keeps_the_session_running() {
+        let runtime = TokioRuntime::from_current().unwrap();
+        let (handle, actor) = AsyncOwnerActor::new(policy(1), runtime).unwrap();
+        let harness = harness();
+        let started = harness.started.clone();
+        let gates = harness.gates.clone();
+        let frames = harness.frames.clone();
+        let actor_task = tokio::spawn(actor.run(harness.driver));
+
+        let receipt = handle.submit(retrying_command()).await.unwrap();
+        assert_eq!(started.recv_async().await.unwrap(), receipt.id);
+        gates
+            .send_async(Ok(TransmissionMeta { sequence: None }))
+            .await
+            .unwrap();
+
+        frames
+            .send_async(Ok(AsyncReceive::Fault(Error::Io(Arc::new(
+                std::io::Error::from(std::io::ErrorKind::ConnectionRefused),
+            )))))
+            .await
+            .unwrap();
+
+        // The very same request is written again rather than failed.
+        assert_eq!(started.recv_async().await.unwrap(), receipt.id);
+        gates
+            .send_async(Ok(TransmissionMeta { sequence: None }))
+            .await
+            .unwrap();
+        frames
+            .send_async(batch(vec![ack(ViscaSocket::S1)]))
+            .await
+            .unwrap();
+        frames
+            .send_async(batch(vec![completion(ViscaSocket::S1)]))
+            .await
+            .unwrap();
+        assert!(matches!(
+            receipt.terminal().await.unwrap(),
+            RuntimeOutcome::Applied
+        ));
+        handle.shutdown().await.unwrap();
+        let snapshot = actor_task.await.unwrap();
+        assert_eq!(snapshot.state, SessionState::Shutdown);
+    }
+
+    /// A receive failure that proves the connection is gone still ends the
+    /// session, and does so as a close rather than a byte-stream poison.
+    #[cfg(feature = "runtime-tokio")]
+    #[tokio::test]
+    async fn fatal_receive_fault_closes_the_session() {
+        let runtime = TokioRuntime::from_current().unwrap();
+        let (handle, actor) = AsyncOwnerActor::new(stream_policy(1), runtime).unwrap();
+        let harness = harness();
+        let started = harness.started.clone();
+        let gates = harness.gates.clone();
+        let frames = harness.frames.clone();
+        let actor_task = tokio::spawn(actor.run(harness.driver));
+
+        let receipt = handle.submit(command()).await.unwrap();
+        assert_eq!(started.recv_async().await.unwrap(), receipt.id);
+        gates
+            .send_async(Ok(TransmissionMeta { sequence: None }))
+            .await
+            .unwrap();
+        frames
+            .send_async(Ok(AsyncReceive::Fault(Error::Io(Arc::new(
+                std::io::Error::from(std::io::ErrorKind::BrokenPipe),
+            )))))
+            .await
+            .unwrap();
 
         assert!(matches!(
             receipt.terminal().await.unwrap(),
