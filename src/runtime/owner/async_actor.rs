@@ -233,8 +233,12 @@ struct CancellationBoundary {
 
 #[derive(Debug)]
 enum ControlBoundary {
+    // Built only by `AsyncOwnerHandle::snapshot`, called only from this module's tests (#636).
+    #[allow(dead_code)]
     Snapshot(flume::Sender<OwnerSnapshot>),
     Metrics(flume::Sender<Result<crate::observability::MetricsSnapshot, Error>>),
+    // Built only by `AsyncOwnerHandle::subscribe_applied`, which has no caller yet (#636).
+    #[allow(dead_code)]
     Subscribe {
         target: Option<crate::CameraId>,
         capacity: usize,
@@ -258,6 +262,9 @@ enum ControlBoundary {
 
 /// Bounded diagnostic/metric copy safe to expose through a later public facade.
 #[derive(Debug, Clone)]
+// Every field is read only by this module's `#[cfg(test)] mod tests`; `AsyncSession`
+// drops the snapshot that `AsyncOwnerActor::run` returns (#636).
+#[allow(dead_code)]
 pub(crate) struct OwnerSnapshot {
     pub(crate) metrics: OwnerMetrics,
     pub(crate) diagnostics: Vec<DiagnosticEvent>,
@@ -315,6 +322,8 @@ pub(crate) struct AsyncSettlementWait {
 /// Type-erased targeted wait used by dynamic facades without duplicating any
 /// settlement policy or polling logic.
 #[derive(Debug)]
+// Built only by `AsyncSettlementWait::erase`, which only this module's tests call (#636).
+#[allow(dead_code)]
 pub(crate) struct ErasedAsyncSettlementWait(AsyncSettlementWait);
 
 /// Result of the applied portion of an async targeted settlement wait.
@@ -330,6 +339,8 @@ pub(crate) enum AsyncAfterApplied {
 /// Exact polling work delegated to Phase 6 without claiming settlement.
 #[derive(Debug)]
 pub(crate) struct AsyncPollingContinuation {
+    // Never read: `AsyncPollingContinuation::wait` destructures the rest and drops this (#636).
+    #[allow(dead_code)]
     pub(crate) id: RequestId,
     pub(crate) target: crate::CameraId,
     pub(crate) axes: AffectedAxes,
@@ -347,6 +358,8 @@ impl AsyncCommandReceipt {
             .and_then(normalize_command_outcome)
     }
 
+    // Consumed only by this module's tests; `AsyncSession::execute` calls `wait` instead (#636).
+    #[allow(dead_code)]
     pub(crate) async fn wait_with_timeout(
         self,
         control: AsyncReceiptControl,
@@ -357,6 +370,8 @@ impl AsyncCommandReceipt {
             .and_then(normalize_command_outcome)
     }
 
+    // Consumed only by this module's `#[cfg(test)] mod tests` (owner-binding test) (#636).
+    #[allow(dead_code)]
     pub(crate) fn detach(self) {}
 }
 
@@ -367,6 +382,8 @@ impl<T> AsyncInquiryReceipt<T> {
         normalize_inquiry_outcome(outcome, &self.decoder)
     }
 
+    // No consumer: `AsyncSession::inquire` uses `wait`, and settlement uses `wait_until` (#636).
+    #[allow(dead_code)]
     pub(crate) async fn wait_with_timeout(
         self,
         control: AsyncReceiptControl,
@@ -376,6 +393,9 @@ impl<T> AsyncInquiryReceipt<T> {
         normalize_inquiry_outcome(outcome, &self.decoder)
     }
 
+    // No consumer: the inquiry paths all end in `wait` or `wait_until`, and nothing
+    // hands an inquiry receipt back to a caller who could detach it (#636).
+    #[allow(dead_code)]
     pub(crate) fn detach(self) {}
 
     async fn wait_until(self, control: AsyncReceiptControl, deadline: Instant) -> Result<T, Error> {
@@ -439,6 +459,8 @@ impl AsyncOperationReceipt<completion::Targeted> {
 }
 
 impl AsyncSettlementWait {
+    // Consumed only by this module's `#[cfg(test)] mod tests`; no dyn facade erases yet (#636).
+    #[allow(dead_code)]
     pub(crate) fn erase(self) -> ErasedAsyncSettlementWait {
         ErasedAsyncSettlementWait(self)
     }
@@ -499,12 +521,16 @@ impl AsyncSettlementWait {
         }
     }
 
+    // No consumer; only the blocking twin's `selection` is asserted on, in owner/tests.rs (#636).
+    #[allow(dead_code)]
     pub(crate) const fn selection(&self) -> WaitSelection {
         self.selection
     }
 }
 
 impl ErasedAsyncSettlementWait {
+    // Reached only by this module's tests; `dynapi` still settles via `Operation::settled` (#636).
+    #[allow(dead_code)]
     pub(crate) async fn wait(self) -> Result<(), Error> {
         self.0.wait().await.map(drop)
     }
@@ -638,6 +664,8 @@ pub(crate) fn ensure_async_before_deadline(
 
 impl AsyncCancellationReceipt {
     #[cfg(test)]
+    // Used only by the runtime-tokio cancellation tests; dead on the runtime-smol leg (#636).
+    #[allow(dead_code)]
     async fn recv_test(self) -> Result<crate::runtime::engine::CancellationObservation, Error> {
         self.core
             .recv_async()
@@ -714,6 +742,9 @@ async fn wait_cancellation_until(
 }
 
 #[cfg(test)]
+// Only `AsyncCancellationReceipt::recv_test` calls this, and its callers are all
+// runtime-tokio tests, so it is dead on the runtime-smol leg (#636).
+#[allow(dead_code)]
 fn test_cancellation_observation(
     observation: ReceiptObservation,
 ) -> crate::runtime::engine::CancellationObservation {
@@ -890,6 +921,9 @@ impl AsyncOwnerHandle {
 
     /// Fails immediately when shared boundary/engine capacity is exhausted,
     /// then returns as soon as the actor applies the exact `Admitted` effect.
+    // Consumed only by this module's `#[cfg(test)] mod tests`; `AsyncSession` submits through
+    // `submit_command`/`submit_inquiry`/`submit_operation` instead (#636).
+    #[allow(dead_code)]
     pub(crate) async fn submit(&self, request: RuntimeRequest) -> Result<ReceiptCore, Error> {
         let timeout = if request.is_inquiry() {
             request.context().timeout.inquiry
@@ -953,6 +987,8 @@ impl AsyncOwnerHandle {
 
     /// Non-waiting admission used by capacity-sensitive facades. Failure occurs
     /// before an observer or engine ID is created.
+    // Consumed only by this module's runtime-tokio capacity tests; no facade calls it yet (#636).
+    #[allow(dead_code)]
     pub(crate) fn try_submit(
         &self,
         request: RuntimeRequest,
@@ -1002,6 +1038,8 @@ impl AsyncOwnerHandle {
     }
 
     #[cfg(test)]
+    // Used only by the runtime-tokio cancellation tests; dead on the runtime-smol leg (#636).
+    #[allow(dead_code)]
     pub(crate) async fn cancel_test(
         &self,
         receipt: ReceiptCore,
@@ -1009,6 +1047,8 @@ impl AsyncOwnerHandle {
         self.cancel_core(receipt).await
     }
 
+    // Consumed only by this module's `#[cfg(test)] mod tests`; no async facade reads it (#636).
+    #[allow(dead_code)]
     pub(crate) async fn snapshot(&self) -> Result<OwnerSnapshot, Error> {
         let (reply, receiver) = flume::bounded(1);
         self.control
@@ -1054,6 +1094,9 @@ impl AsyncOwnerHandle {
         self.await_boundary_reply(&receiver).await?
     }
 
+    // No consumer yet: no async facade exposes applied-state subscriptions; only the
+    // blocking `OwnerState::subscribe_applied` is driven, from `owner/tests.rs` (#636).
+    #[allow(dead_code)]
     pub(crate) async fn subscribe_applied(
         &self,
         target: Option<crate::CameraId>,
@@ -1216,6 +1259,9 @@ where
         ))
     }
 
+    // No consumer: `AsyncSession` never inspects actor state, and the blocking owner
+    // has its own `state()` twin used by `blocking.rs` (#636).
+    #[allow(dead_code)]
     pub(crate) const fn state(&self) -> &OwnerState {
         &self.state
     }
@@ -1878,6 +1924,8 @@ mod tests {
         .unwrap()
     }
 
+    // Used only by the runtime-tokio stream tests below; dead on the runtime-smol leg (#636).
+    #[allow(dead_code)]
     fn stream_policy(capacity: usize) -> OwnerPolicy {
         let mut owner = policy(capacity);
         owner.protocol.transport = TransportKind::Stream;
@@ -2859,6 +2907,8 @@ mod tests {
     }
 
     /// A command whose retry policy allows one more attempt.
+    // Used only by the runtime-tokio retry tests below; dead on the runtime-smol leg (#636).
+    #[allow(dead_code)]
     fn retrying_command() -> RuntimeRequest {
         let mut request = command();
         if let RuntimeRequest::Command { context, .. } = &mut request {

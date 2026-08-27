@@ -24,8 +24,20 @@
 //! inventory.  They are intentionally not silently mapped to an all-axis
 //! movement query.  The later preparation phase must add matching profile
 //! inquiry facts before exposing targeted iris/ND requests.
-
-#![allow(dead_code)]
+//!
+//! # Why the ledger carries `#[allow(dead_code)]`
+//!
+//! Issue #636: this module is an authoritative *ledger*, and its only in-crate
+//! consumer today is the closed noun/method surface in
+//! [`crate::command::surface`], which is `#[cfg(test)]` — it, `crate::noun_parity`
+//! and the `dynapi`/`blocking_nouns`/`async_nouns` audits are what force every
+//! row to stay classified. Nothing in a non-test build reads a classification
+//! yet; the production consumer is the typed-request lowering in
+//! [`crate::prepared`], which grows it as the #542 preparation phases land.
+//! Each item that is waiting for that consumer carries its own targeted
+//! `#[allow(dead_code)]` rather than the module-wide blanket allow this file
+//! used to open with. [`WriteOnlyState`] is deliberately not among them: the
+//! engine's applied-state projection already consumes it.
 
 /// A physical axis named by a built-in operation.
 ///
@@ -34,6 +46,8 @@
 /// semantic contract before the later settlement implementation grows exact
 /// iris and ND-filter inquiry plans.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+// Ledger row awaiting the `prepared` lowering; see the module note (#636).
+#[allow(dead_code)]
 pub enum BuiltinAxis {
     /// Pan and tilt mechanism.
     PanTilt,
@@ -54,8 +68,12 @@ pub enum BuiltinAxis {
 /// table and test tooling and rejects zero/unknown bits rather than using an
 /// all-axis fallback.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
+// Ledger row awaiting the `prepared` lowering; see the module note (#636).
+#[allow(dead_code)]
 pub struct BuiltinAxes(u8);
 
+// Ledger row awaiting the `prepared` lowering; see the module note (#636).
+#[allow(dead_code)]
 impl BuiltinAxes {
     const PAN_TILT_BIT: u8 = 1 << 0;
     const ZOOM_BIT: u8 = 1 << 1;
@@ -136,6 +154,8 @@ impl core::fmt::Debug for BuiltinAxes {
 
 /// Iterator returned by [`BuiltinAxes::iter`].
 #[derive(Debug, Clone, Copy)]
+// Ledger row awaiting the `prepared` lowering; see the module note (#636).
+#[allow(dead_code)]
 pub struct BuiltinAxisIter {
     bits: u8,
 }
@@ -168,6 +188,8 @@ impl Iterator for BuiltinAxisIter {
 
 /// Exact axis selection for an operation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+// Ledger row awaiting the `prepared` lowering; see the module note (#636).
+#[allow(dead_code)]
 pub enum BuiltinAxisSelection {
     /// The command always affects this exact non-empty set.
     Exact(BuiltinAxes),
@@ -178,6 +200,8 @@ pub enum BuiltinAxisSelection {
     ProfilePresetRecall,
 }
 
+// Ledger row awaiting the `prepared` lowering; see the module note (#636).
+#[allow(dead_code)]
 impl BuiltinAxisSelection {
     /// Returns whether this selection is known to be non-empty.
     #[must_use]
@@ -199,6 +223,8 @@ impl BuiltinAxisSelection {
 
 /// Built-in command families/domains audited by this ledger.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+// Ledger row awaiting the `prepared` lowering; see the module note (#636).
+#[allow(dead_code)]
 pub enum BuiltinCommandDomain {
     /// Pan/tilt movement and limits.
     PanTilt,
@@ -242,6 +268,8 @@ pub enum BuiltinCommandDomain {
     VariableSpeed,
 }
 
+// Ledger row awaiting the `prepared` lowering; see the module note (#636).
+#[allow(dead_code)]
 impl BuiltinCommandDomain {
     /// Every audited built-in command domain.
     pub const ALL: &[Self] = &[
@@ -287,6 +315,8 @@ pub(crate) use crate::state_cache::StateKey as WriteOnlyState;
 /// closed requirement tells preparation whether that value can be written,
 /// removed, or must be forgotten after exact application.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+// Ledger row awaiting the `prepared` lowering; see the module note (#636).
+#[allow(dead_code)]
 pub enum AppliedStateEffectRequirement {
     /// The request supplies a deterministic replacement value.
     Set(WriteOnlyState),
@@ -298,6 +328,8 @@ pub enum AppliedStateEffectRequirement {
     Invalidate(WriteOnlyState),
 }
 
+// Ledger row awaiting the `prepared` lowering; see the module note (#636).
+#[allow(dead_code)]
 impl AppliedStateEffectRequirement {
     /// Returns the affected write-only state key.
     #[must_use]
@@ -320,6 +352,8 @@ impl AppliedStateEffectRequirement {
 
 /// The verb selected by [`AppliedStateEffectRequirement`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+// Ledger row awaiting the `prepared` lowering; see the module note (#636).
+#[allow(dead_code)]
 pub enum AppliedStateEffectKind {
     /// Replace a known cached value.
     Set,
@@ -335,6 +369,8 @@ pub enum AppliedStateEffectKind {
 /// the enum.  It is therefore impossible for a ledger row to represent an
 /// operation without affected axes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+// Ledger row awaiting the `prepared` lowering; see the module note (#636).
+#[allow(dead_code)]
 pub enum BuiltinRequestClass {
     /// Configuration, mode, persistence, and stored-state edit.
     Plain {
@@ -354,6 +390,8 @@ pub enum BuiltinRequestClass {
     },
 }
 
+// Ledger row awaiting the `prepared` lowering; see the module note (#636).
+#[allow(dead_code)]
 impl BuiltinRequestClass {
     /// Returns whether this is either operation class.
     #[must_use]
@@ -392,6 +430,8 @@ impl BuiltinRequestClass {
 
 /// Completion class selected by a built-in operation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+// Ledger row awaiting the `prepared` lowering; see the module note (#636).
+#[allow(dead_code)]
 pub enum BuiltinCompletionClass {
     /// Physical motion has a meaningful terminal state.
     Targeted,
@@ -407,6 +447,8 @@ pub enum BuiltinCompletionClass {
 /// a semantic decision is a compile error.
 #[allow(missing_docs)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+// Ledger row awaiting the `prepared` lowering; see the module note (#636).
+#[allow(dead_code)]
 pub enum BuiltinCommand {
     // Pan/tilt.
     PanTiltHome,
@@ -573,6 +615,8 @@ pub enum BuiltinCommand {
     VariableSpeedMode,
 }
 
+// Ledger row awaiting the `prepared` lowering; see the module note (#636).
+#[allow(dead_code)]
 impl BuiltinCommand {
     /// The complete closed command inventory.
     ///
@@ -1129,450 +1173,6 @@ impl BuiltinCommand {
     #[must_use]
     pub const fn state_effect(self) -> Option<AppliedStateEffectRequirement> {
         self.classification().state_effect()
-    }
-}
-
-/// Returns the semantic row for one pan/tilt direction.
-#[must_use]
-pub(crate) const fn map_pan_tilt_direction(
-    direction: crate::command::PanTiltDirection,
-) -> BuiltinCommand {
-    use crate::command::PanTiltDirection;
-    match direction {
-        PanTiltDirection::Stop => BuiltinCommand::PanTiltStop,
-        PanTiltDirection::Up
-        | PanTiltDirection::Down
-        | PanTiltDirection::Left
-        | PanTiltDirection::Right
-        | PanTiltDirection::UpLeft
-        | PanTiltDirection::UpRight
-        | PanTiltDirection::DownLeft
-        | PanTiltDirection::DownRight => BuiltinCommand::PanTiltDrive,
-    }
-}
-
-/// Returns the semantic row for one pan/tilt command value.
-#[must_use]
-pub(crate) fn map_pan_tilt(command: &crate::command::PanTilt) -> BuiltinCommand {
-    use crate::command::PanTilt;
-    match command {
-        PanTilt::Home => BuiltinCommand::PanTiltHome,
-        PanTilt::Reset => BuiltinCommand::PanTiltReset,
-        PanTilt::Move { direction, .. } => map_pan_tilt_direction(*direction),
-        PanTilt::AbsolutePosition { .. } | PanTilt::AbsolutePositionRaw { .. } => {
-            BuiltinCommand::PanTiltAbsolute
-        }
-        PanTilt::RelativePosition { .. } | PanTilt::RelativePositionRaw { .. } => {
-            BuiltinCommand::PanTiltRelative
-        }
-        PanTilt::LimitSet { .. } | PanTilt::LimitSetRaw { .. } => BuiltinCommand::PanTiltLimitSet,
-        PanTilt::LimitClear { .. } => BuiltinCommand::PanTiltLimitClear,
-    }
-}
-
-/// Returns the semantic row for a pan/tilt limit corner operation.
-#[must_use]
-pub(crate) const fn map_pan_tilt_limit_corner(
-    _corner: crate::command::PanTiltLimitCorner,
-    clear: bool,
-) -> BuiltinCommand {
-    if clear {
-        BuiltinCommand::PanTiltLimitClear
-    } else {
-        BuiltinCommand::PanTiltLimitSet
-    }
-}
-
-/// Returns the semantic row for one zoom command value.
-#[must_use]
-pub(crate) fn map_zoom(command: &crate::command::Zoom) -> BuiltinCommand {
-    match command {
-        crate::command::Zoom::Stop => BuiltinCommand::ZoomStop,
-        crate::command::Zoom::TeleStd => BuiltinCommand::ZoomTele,
-        crate::command::Zoom::WideStd => BuiltinCommand::ZoomWide,
-        crate::command::Zoom::TeleVariable(_) => BuiltinCommand::ZoomTeleVariable,
-        crate::command::Zoom::WideVariable(_) => BuiltinCommand::ZoomWideVariable,
-        crate::command::Zoom::Position(_) => BuiltinCommand::ZoomPosition,
-    }
-}
-
-/// Returns the semantic row for one focus command value.
-#[must_use]
-pub(crate) fn map_focus(command: &crate::command::Focus) -> BuiltinCommand {
-    match command {
-        crate::command::Focus::Stop => BuiltinCommand::FocusStop,
-        crate::command::Focus::Far => BuiltinCommand::FocusFar,
-        crate::command::Focus::Near => BuiltinCommand::FocusNear,
-        crate::command::Focus::FarWithSpeed(_) => BuiltinCommand::FocusFarVariable,
-        crate::command::Focus::NearWithSpeed(_) => BuiltinCommand::FocusNearVariable,
-        crate::command::Focus::Position(_) => BuiltinCommand::FocusPosition,
-        crate::command::Focus::Auto => BuiltinCommand::FocusAuto,
-        crate::command::Focus::Manual => BuiltinCommand::FocusManual,
-        crate::command::Focus::OnePushTrigger => BuiltinCommand::FocusOnePush,
-        crate::command::Focus::Infinity => BuiltinCommand::FocusInfinity,
-        crate::command::Focus::Toggle => BuiltinCommand::FocusToggle,
-        crate::command::Focus::Snap => BuiltinCommand::FocusSnap,
-    }
-}
-
-/// Returns the semantic row for one exposure-compensation value.
-#[must_use]
-pub(crate) fn map_exposure_compensation(
-    command: &crate::command::ExposureCompensation,
-) -> BuiltinCommand {
-    match command {
-        crate::command::ExposureCompensation::On => BuiltinCommand::ExposureCompensationOn,
-        crate::command::ExposureCompensation::Off => BuiltinCommand::ExposureCompensationOff,
-        crate::command::ExposureCompensation::Reset => BuiltinCommand::ExposureCompensationReset,
-        crate::command::ExposureCompensation::Up => BuiltinCommand::ExposureCompensationUp,
-        crate::command::ExposureCompensation::Down => BuiltinCommand::ExposureCompensationDown,
-        crate::command::ExposureCompensation::SetLevel(_) => {
-            BuiltinCommand::ExposureCompensationDirect
-        }
-    }
-}
-
-/// Returns the semantic row for one exposure mode.
-#[must_use]
-pub(crate) const fn map_exposure_mode(mode: crate::command::ExposureMode) -> BuiltinCommand {
-    match mode {
-        crate::command::ExposureMode::Auto
-        | crate::command::ExposureMode::Manual
-        | crate::command::ExposureMode::Shutter
-        | crate::command::ExposureMode::Iris
-        | crate::command::ExposureMode::Bright => BuiltinCommand::ExposureMode,
-    }
-}
-
-/// Returns the semantic row for one anti-flicker mode.
-#[must_use]
-pub(crate) const fn map_anti_flicker_mode(mode: crate::command::AntiFlickerMode) -> BuiltinCommand {
-    match mode {
-        crate::command::AntiFlickerMode::Off
-        | crate::command::AntiFlickerMode::Hz50
-        | crate::command::AntiFlickerMode::Hz60 => BuiltinCommand::AntiFlicker,
-    }
-}
-
-/// Returns the semantic row for one iris command value.
-#[must_use]
-pub(crate) fn map_iris(command: &crate::command::Iris) -> BuiltinCommand {
-    match command {
-        crate::command::Iris::Reset => BuiltinCommand::IrisReset,
-        crate::command::Iris::Up => BuiltinCommand::IrisUp,
-        crate::command::Iris::Down => BuiltinCommand::IrisDown,
-        crate::command::Iris::SetAperture(_) => BuiltinCommand::IrisDirect,
-    }
-}
-
-/// Returns the semantic row for one shutter command value.
-#[must_use]
-pub(crate) fn map_shutter(command: &crate::command::Shutter) -> BuiltinCommand {
-    match command {
-        crate::command::Shutter::Reset => BuiltinCommand::ShutterReset,
-        crate::command::Shutter::Up => BuiltinCommand::ShutterUp,
-        crate::command::Shutter::Down => BuiltinCommand::ShutterDown,
-        crate::command::Shutter::SetSpeed(_) => BuiltinCommand::ShutterDirect,
-    }
-}
-
-/// Returns the semantic row for one brightness command value.
-#[must_use]
-pub(crate) fn map_brightness(command: &crate::command::Brightness) -> BuiltinCommand {
-    match command {
-        crate::command::Brightness::Reset => BuiltinCommand::BrightnessReset,
-        crate::command::Brightness::Up => BuiltinCommand::BrightnessUp,
-        crate::command::Brightness::Down => BuiltinCommand::BrightnessDown,
-        crate::command::Brightness::SetLevel(_) => BuiltinCommand::BrightnessSet,
-        crate::command::Brightness::Direct(_) => BuiltinCommand::BrightnessDirect,
-    }
-}
-
-/// Returns the semantic row for one gain command value.
-#[must_use]
-pub(crate) fn map_gain(command: &crate::command::Gain) -> BuiltinCommand {
-    match command {
-        crate::command::Gain::Reset => BuiltinCommand::GainReset,
-        crate::command::Gain::Up => BuiltinCommand::GainUp,
-        crate::command::Gain::Down => BuiltinCommand::GainDown,
-        crate::command::Gain::SetValue(_) => BuiltinCommand::GainDirect,
-    }
-}
-
-/// Returns the semantic row for one sharpness command value.
-#[must_use]
-pub(crate) fn map_sharpness(command: &crate::command::Sharpness) -> BuiltinCommand {
-    match command {
-        crate::command::Sharpness::Mode(_) => BuiltinCommand::SharpnessMode,
-        crate::command::Sharpness::Reset => BuiltinCommand::SharpnessReset,
-        crate::command::Sharpness::Up => BuiltinCommand::SharpnessUp,
-        crate::command::Sharpness::Down => BuiltinCommand::SharpnessDown,
-        crate::command::Sharpness::SetLevel { .. } => BuiltinCommand::SharpnessDirect,
-    }
-}
-
-/// Returns the semantic row for one sharpness mode.
-#[must_use]
-pub(crate) const fn map_sharpness_mode(mode: crate::command::SharpnessMode) -> BuiltinCommand {
-    match mode {
-        crate::command::SharpnessMode::Auto | crate::command::SharpnessMode::Manual => {
-            BuiltinCommand::SharpnessMode
-        }
-    }
-}
-
-/// Returns the semantic row for one color-temperature command value.
-#[must_use]
-pub(crate) fn map_color_temperature(command: &crate::command::ColorTemperature) -> BuiltinCommand {
-    match command {
-        crate::command::ColorTemperature::Reset => BuiltinCommand::ColorTemperatureReset,
-        crate::command::ColorTemperature::Up => BuiltinCommand::ColorTemperatureUp,
-        crate::command::ColorTemperature::Down => BuiltinCommand::ColorTemperatureDown,
-        crate::command::ColorTemperature::SetTemperature(_) => {
-            BuiltinCommand::ColorTemperatureDirect
-        }
-    }
-}
-
-/// Returns the semantic row for one red-gain command value.
-#[must_use]
-pub(crate) fn map_red_gain(command: &crate::command::RedGain) -> BuiltinCommand {
-    match command {
-        crate::command::RedGain::Reset => BuiltinCommand::RedGainReset,
-        crate::command::RedGain::Up => BuiltinCommand::RedGainUp,
-        crate::command::RedGain::Down => BuiltinCommand::RedGainDown,
-        crate::command::RedGain::SetValue(_) => BuiltinCommand::RedGainDirect,
-    }
-}
-
-/// Returns the semantic row for one blue-gain command value.
-#[must_use]
-pub(crate) fn map_blue_gain(command: &crate::command::BlueGain) -> BuiltinCommand {
-    match command {
-        crate::command::BlueGain::Reset => BuiltinCommand::BlueGainReset,
-        crate::command::BlueGain::Up => BuiltinCommand::BlueGainUp,
-        crate::command::BlueGain::Down => BuiltinCommand::BlueGainDown,
-        crate::command::BlueGain::SetValue(_) => BuiltinCommand::BlueGainDirect,
-    }
-}
-
-/// Returns the semantic row for one simple flip mode.
-#[must_use]
-pub(crate) const fn map_flip(mode: crate::command::Flip) -> BuiltinCommand {
-    match mode {
-        crate::command::Flip::On => BuiltinCommand::ImageFlipVertical,
-        crate::command::Flip::Off => BuiltinCommand::ImageFlipOff,
-    }
-}
-
-/// Returns the semantic row for one combined image-flip mode.
-#[must_use]
-pub(crate) const fn map_image_flip_mode(mode: crate::command::ImageFlipMode) -> BuiltinCommand {
-    match mode {
-        crate::command::ImageFlipMode::Off => BuiltinCommand::ImageFlipOff,
-        crate::command::ImageFlipMode::Horizontal => BuiltinCommand::ImageFlipHorizontal,
-        crate::command::ImageFlipMode::Vertical => BuiltinCommand::ImageFlipVertical,
-        crate::command::ImageFlipMode::Both => BuiltinCommand::ImageFlipBoth,
-    }
-}
-
-/// Returns the semantic row for one picture-effect mode.
-#[must_use]
-pub(crate) const fn map_picture_effect_mode(
-    mode: crate::command::PictureEffectMode,
-) -> BuiltinCommand {
-    match mode {
-        crate::command::PictureEffectMode::Off
-        | crate::command::PictureEffectMode::Negative
-        | crate::command::PictureEffectMode::BlackAndWhite
-        | crate::command::PictureEffectMode::Sepia
-        | crate::command::PictureEffectMode::Sketch
-        | crate::command::PictureEffectMode::Emboss
-        | crate::command::PictureEffectMode::Mosaic
-        | crate::command::PictureEffectMode::Unknown(_) => BuiltinCommand::PictureEffect,
-    }
-}
-
-/// Returns the semantic row for one menu direction.
-#[must_use]
-pub(crate) const fn map_menu_direction(direction: crate::command::MenuDirection) -> BuiltinCommand {
-    match direction {
-        crate::command::MenuDirection::Up
-        | crate::command::MenuDirection::Down
-        | crate::command::MenuDirection::Left
-        | crate::command::MenuDirection::Right => BuiltinCommand::MenuNavigate,
-    }
-}
-/// Returns the semantic row for one menu action.
-#[must_use]
-pub(crate) const fn map_menu_action(action: crate::command::MenuAction) -> BuiltinCommand {
-    match action {
-        crate::command::MenuAction::Select => BuiltinCommand::MenuSelect,
-        crate::command::MenuAction::Cancel => BuiltinCommand::MenuCancel,
-    }
-}
-
-/// Returns the semantic row for one ND-filter mode.
-#[must_use]
-pub(crate) const fn map_nd_filter_mode(mode: crate::command::NdFilterMode) -> BuiltinCommand {
-    match mode {
-        crate::command::NdFilterMode::Preset | crate::command::NdFilterMode::Variable => {
-            BuiltinCommand::NdFilterMode
-        }
-    }
-}
-
-/// Returns the semantic row for one ND-filter step.
-#[must_use]
-pub(crate) const fn map_nd_filter_step(step: crate::command::NdFilterStep) -> BuiltinCommand {
-    match step {
-        crate::command::NdFilterStep::Up => BuiltinCommand::NdFilterStepUp,
-        crate::command::NdFilterStep::Down => BuiltinCommand::NdFilterStepDown,
-    }
-}
-
-/// Returns the semantic row for one preset action.
-#[must_use]
-pub(crate) const fn map_preset_action(action: crate::command::PresetAction) -> BuiltinCommand {
-    match action {
-        crate::command::PresetAction::Reset => BuiltinCommand::PresetReset,
-        crate::command::PresetAction::Set => BuiltinCommand::PresetSet,
-        crate::command::PresetAction::Recall => BuiltinCommand::PresetRecall,
-    }
-}
-
-/// Returns the semantic row for one white-balance mode.
-#[must_use]
-pub(crate) const fn map_white_balance_mode(
-    mode: crate::command::WhiteBalanceMode,
-) -> BuiltinCommand {
-    match mode {
-        crate::command::WhiteBalanceMode::Auto => BuiltinCommand::WhiteBalanceAuto,
-        crate::command::WhiteBalanceMode::Indoor => BuiltinCommand::WhiteBalanceIndoor,
-        crate::command::WhiteBalanceMode::Outdoor => BuiltinCommand::WhiteBalanceOutdoor,
-        crate::command::WhiteBalanceMode::OnePush => BuiltinCommand::WhiteBalanceOnePush,
-        crate::command::WhiteBalanceMode::ATW => BuiltinCommand::WhiteBalanceAutoTracking,
-        crate::command::WhiteBalanceMode::Manual => BuiltinCommand::WhiteBalanceManual,
-        crate::command::WhiteBalanceMode::ColorTemperature => {
-            BuiltinCommand::WhiteBalanceColorTemperature
-        }
-    }
-}
-
-/// Returns the semantic row for one AWB-sensitivity mode.
-#[must_use]
-pub(crate) const fn map_awb_sensitivity(
-    sensitivity: crate::command::AutoWhiteBalanceSensitivity,
-) -> BuiltinCommand {
-    match sensitivity {
-        crate::command::AutoWhiteBalanceSensitivity::High
-        | crate::command::AutoWhiteBalanceSensitivity::Normal
-        | crate::command::AutoWhiteBalanceSensitivity::Low => {
-            BuiltinCommand::AutoWhiteBalanceSensitivity
-        }
-    }
-}
-
-/// Returns the semantic row for one multicast mode.
-#[must_use]
-pub(crate) const fn map_multicast_streaming(
-    mode: crate::command::MulticastStreaming,
-) -> BuiltinCommand {
-    match mode {
-        crate::command::MulticastStreaming::On => BuiltinCommand::MulticastStreamingOn,
-        crate::command::MulticastStreaming::Off => BuiltinCommand::MulticastStreamingOff,
-    }
-}
-
-/// Returns the semantic row for one USB-audio mode.
-#[must_use]
-pub(crate) const fn map_usb_audio(mode: crate::command::UsbAudio) -> BuiltinCommand {
-    match mode {
-        crate::command::UsbAudio::On => BuiltinCommand::UsbAudioOn,
-        crate::command::UsbAudio::Off => BuiltinCommand::UsbAudioOff,
-    }
-}
-
-/// Returns the semantic row for one NDI quality value.
-#[must_use]
-pub(crate) const fn map_ndi_quality(quality: crate::types::NdiQuality) -> BuiltinCommand {
-    match quality {
-        crate::types::NdiQuality::High
-        | crate::types::NdiQuality::Medium
-        | crate::types::NdiQuality::Low
-        | crate::types::NdiQuality::Off => BuiltinCommand::NdiQuality,
-    }
-}
-
-/// Returns the semantic row for one motion-sync mode.
-#[must_use]
-pub(crate) const fn map_motion_sync_mode(mode: crate::command::MotionSyncMode) -> BuiltinCommand {
-    match mode {
-        crate::command::MotionSyncMode::On | crate::command::MotionSyncMode::Off => {
-            BuiltinCommand::MotionSyncMode
-        }
-    }
-}
-
-/// Returns the semantic row for one motion-sync preset value.
-#[must_use]
-pub(crate) const fn map_motion_sync_preset(
-    preset: crate::command::MotionSyncPreset,
-) -> BuiltinCommand {
-    match preset {
-        crate::command::MotionSyncPreset::Slow
-        | crate::command::MotionSyncPreset::Normal
-        | crate::command::MotionSyncPreset::Fast => BuiltinCommand::MotionSyncPreset,
-    }
-}
-
-/// Returns the semantic row for one variable-speed mode.
-#[must_use]
-pub(crate) const fn map_variable_speed_mode(
-    mode: crate::command::VariableSpeedMode,
-) -> BuiltinCommand {
-    match mode {
-        crate::command::VariableSpeedMode::Standard24
-        | crate::command::VariableSpeedMode::Fine50 => BuiltinCommand::VariableSpeedMode,
-    }
-}
-
-/// Returns the semantic row for one focus-zone value.
-#[must_use]
-pub(crate) const fn map_focus_zone(zone: crate::command::FocusZone) -> BuiltinCommand {
-    match zone {
-        crate::command::FocusZone::Top
-        | crate::command::FocusZone::Center
-        | crate::command::FocusZone::Bottom => BuiltinCommand::FocusZone,
-    }
-}
-
-/// Returns the semantic row for one auto-focus sensitivity value.
-#[must_use]
-pub(crate) const fn map_focus_sensitivity(
-    sensitivity: crate::command::AutoFocusSensitivity,
-) -> BuiltinCommand {
-    match sensitivity {
-        crate::command::AutoFocusSensitivity::Low
-        | crate::command::AutoFocusSensitivity::Normal
-        | crate::command::AutoFocusSensitivity::High => BuiltinCommand::FocusAutoSensitivity,
-    }
-}
-
-/// Returns the semantic row for one focus-lock value.
-#[must_use]
-pub(crate) const fn map_focus_lock(lock: crate::command::FocusLock) -> BuiltinCommand {
-    match lock {
-        crate::command::FocusLock::On | crate::command::FocusLock::Off => BuiltinCommand::FocusLock,
-    }
-}
-
-/// Returns the semantic row for one Push-AF value.
-#[must_use]
-pub(crate) const fn map_push_af(push: crate::command::PushAF) -> BuiltinCommand {
-    match push {
-        crate::command::PushAF::Press => BuiltinCommand::PushAfPress,
-        crate::command::PushAF::Release => BuiltinCommand::PushAfRelease,
     }
 }
 

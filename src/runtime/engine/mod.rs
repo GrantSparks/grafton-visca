@@ -4,8 +4,6 @@
 //! retry, correlation, and protocol cancellation. It performs no I/O and knows
 //! nothing about channels, executors, facade cameras, or observers.
 
-#![allow(dead_code)] // Phase 3 will connect the crate-private owner boundary.
-
 mod types;
 
 pub(crate) use types::*;
@@ -91,16 +89,18 @@ pub(crate) struct Entry {
 }
 
 impl Entry {
+    // Read by `runtime::engine::tests` and by `OwnerState::request_state`, which
+    // is itself `#[cfg(test)]`; nothing in a non-test build projects a phase out
+    // of the engine yet (#636).
+    #[allow(dead_code)]
     pub(crate) const fn phase(&self) -> Phase {
         self.phase
     }
 
+    // Same test-only projection as `phase` (#636).
+    #[allow(dead_code)]
     pub(crate) const fn cancellation(&self) -> CancelState {
         self.cancellation
-    }
-
-    pub(crate) const fn attempt(&self) -> u32 {
-        self.attempt
     }
 }
 
@@ -172,7 +172,12 @@ pub(crate) struct InputTurn {
 /// Result of attempting one exact first dispatch without running due work.
 #[derive(Debug)]
 pub(crate) enum FirstDispatch {
+    // Both payloads are read by the blocking owner's caller-thread submission
+    // (`runtime::owner::blocking`) and by the engine tests; the async owner never
+    // takes this seam, so an async-only leg compiles neither reader (#636).
+    #[allow(dead_code)]
     Effects(Vec<Effect>),
+    #[allow(dead_code)]
     WaitUntil(Instant),
     /// The request stays queued: it is admitted and ready, but some other
     /// request currently owns the capacity it needs. It is never terminal.
@@ -269,6 +274,7 @@ impl ProtocolEngine {
             Some(_) => Ok(()),
             None => {
                 *slot = Some(policy);
+                self.debug_assert_invariants();
                 Ok(())
             }
         }
@@ -313,10 +319,17 @@ impl ProtocolEngine {
         self.state
     }
 
+    // Read-only inspection seams. `entry` and `active_len` are driven by
+    // `runtime::engine::tests` and by `OwnerState`'s own test-gated projections;
+    // `queued_dispatch_at` is projected by `OwnerState::dispatch_at`, which the
+    // blocking submission path will consume once it distinguishes pacing from
+    // socket backpressure (#636).
+    #[allow(dead_code)]
     pub(crate) fn entry(&self, id: RequestId) -> Option<&Entry> {
         self.entries.get(&id)
     }
 
+    #[allow(dead_code)] // See `entry` (#636).
     pub(crate) fn active_len(&self) -> usize {
         self.entries.len()
     }
@@ -324,6 +337,7 @@ impl ProtocolEngine {
     /// Earliest time a specific ready request may dispatch without waiting for
     /// another request to release protocol capacity. Blocking submission uses
     /// this to distinguish pacing from socket/inquiry backpressure.
+    #[allow(dead_code)] // See `entry` (#636).
     pub(crate) fn queued_dispatch_at(&self, id: RequestId) -> Option<Instant> {
         let entry = self.entries.get(&id)?;
         if !matches!(entry.phase, Phase::Ready { .. }) {
@@ -341,6 +355,25 @@ impl ProtocolEngine {
             }
         }
         Some(self.candidate_send_at(entry))
+    }
+
+    /// Audits every derived index against the authoritative entries.
+    ///
+    /// Issue #636: [`Self::assert_invariants`] had no production call site at
+    /// all — it was a test auditor, so an index corruption on a path no test
+    /// happened to exercise could ship. This hook closes each mutation entry
+    /// point over it. `debug_assert!` is compiled out of a release build, so a
+    /// shipped binary pays nothing; a debug build and every `cargo test` run
+    /// audit the full index set after every single input.
+    #[inline]
+    fn debug_assert_invariants(&self) {
+        debug_assert!(
+            self.assert_invariants().is_ok(),
+            "engine invariant violated: {}",
+            self.assert_invariants()
+                .err()
+                .unwrap_or_else(|| Box::from("unknown"))
+        );
     }
 
     /// Applies one ordered external input first, then all work due at `now`.
@@ -370,6 +403,7 @@ impl ProtocolEngine {
     pub(crate) fn handle_in_turn(&mut self, turn: &InputTurn, input: Input) -> Vec<Effect> {
         let mut effects = Vec::new();
         self.apply_input(input, turn.now, &mut effects);
+        self.debug_assert_invariants();
         effects
     }
 
@@ -382,6 +416,7 @@ impl ProtocolEngine {
         let mut effects = Vec::new();
         self.run_due(turn.now, &mut effects);
         self.dispatch_one(turn.now, &mut effects);
+        self.debug_assert_invariants();
         effects
     }
 
@@ -437,10 +472,15 @@ impl ProtocolEngine {
         let mut effects = Vec::new();
         self.run_due(now, &mut effects);
         self.dispatch_one(now, &mut effects);
+        self.debug_assert_invariants();
         effects
     }
 
     /// Admits one request without running due work or ordinary dispatch.
+    // The three `*_without_due` seams belong to the blocking owner's caller-thread
+    // pump (`runtime::owner::blocking`) and to the engine tests; an async-only leg
+    // compiles neither (#636).
+    #[allow(dead_code)]
     pub(crate) fn admit_without_due(
         &mut self,
         ticket: AdmissionTicket,
@@ -449,10 +489,12 @@ impl ProtocolEngine {
     ) -> Vec<Effect> {
         let mut effects = Vec::new();
         self.admit(ticket, request, now, &mut effects);
+        self.debug_assert_invariants();
         effects
     }
 
     /// Applies one identified write result without due work or dispatch.
+    #[allow(dead_code)] // See `admit_without_due` (#636).
     pub(crate) fn finish_write_without_due(
         &mut self,
         transmission: TransmissionId,
@@ -461,6 +503,7 @@ impl ProtocolEngine {
     ) -> Vec<Effect> {
         let mut effects = Vec::new();
         self.transmission_finished(transmission, result, now, &mut effects);
+        self.debug_assert_invariants();
         effects
     }
 
@@ -468,11 +511,19 @@ impl ProtocolEngine {
     /// No queue, peer request, deadline, or pacing state is mutated when a
     /// different request would win: [`FirstDispatch::Blocked`] leaves `id`
     /// queued so an ordinary later turn can dispatch it once capacity frees.
+    #[allow(dead_code)] // See `admit_without_due` (#636).
     pub(crate) fn first_dispatch_without_due(
         &mut self,
         id: RequestId,
         now: Instant,
     ) -> FirstDispatch {
+        let dispatch = self.first_dispatch_without_due_inner(id, now);
+        self.debug_assert_invariants();
+        dispatch
+    }
+
+    #[allow(dead_code)] // See `admit_without_due` (#636).
+    fn first_dispatch_without_due_inner(&mut self, id: RequestId, now: Instant) -> FirstDispatch {
         if self.state != SessionState::Running {
             return FirstDispatch::Missing;
         }
@@ -647,27 +698,6 @@ impl ProtocolEngine {
                     && entry.request.context().control.class.priority_index() == priority
             })
         });
-    }
-
-    fn eligible_ticket(
-        &mut self,
-        lane: Lane,
-        priority: usize,
-        now: Instant,
-    ) -> Option<(usize, QueueTicket)> {
-        self.prune_queue(lane, priority);
-        let len = match lane {
-            Lane::Command => self.command_queues[priority].len(),
-            Lane::Inquiry => self.inquiry_queues[priority].len(),
-        };
-        (0..len).find_map(|index| {
-            let ticket = match lane {
-                Lane::Command => self.command_queues[priority].get(index).copied(),
-                Lane::Inquiry => self.inquiry_queues[priority].get(index).copied(),
-            }?;
-            self.dispatch_eligible(ticket, now)
-                .then_some((index, ticket))
-        })
     }
 
     fn eligible_ticket_readonly(
@@ -1380,8 +1410,9 @@ impl ProtocolEngine {
                 // Issue #297: no request is awaiting an ACK yet because the
                 // write result for the frame this answers has not been applied.
                 // Attribute it to the command that is still being written so
-                // `ack` can latch it instead of dropping it.
-                .or_else(|| self.oldest_sending_command(target)),
+                // `ack` can latch it instead of dropping it — but only while
+                // exactly one command is, so the latch never guesses (#636).
+                .or_else(|| self.sole_sending_command(target)),
             DecodedResponse::Completion { socket } => match socket {
                 Some(socket) => self.socket_owner(target, *socket),
                 // A camera that answers `90 50 FF` sends no socket nibble, so
@@ -1485,17 +1516,33 @@ impl ProtocolEngine {
         }
     }
 
-    /// The command on `target` whose request frame is still being written.
-    fn oldest_sending_command(&self, target: CameraId) -> Option<RequestId> {
-        self.entries
-            .iter()
-            .filter(|(_, entry)| {
-                !entry.request.is_inquiry()
-                    && entry.request.context().target == target
-                    && matches!(entry.phase, Phase::Sending { .. })
-            })
-            .min_by_key(|(_, entry)| entry.admission_order)
-            .map(|(id, _)| *id)
+    /// The command on `target` whose request frame is still being written, if
+    /// exactly one is.
+    ///
+    /// Issue #636: this used to pick the *oldest* such command by admission
+    /// order. That is a guess, and it is wrong exactly where the deferred-ACK
+    /// latch is reachable at all — an owner whose reader is not ordered behind
+    /// its writer, which can have two frames in flight. Attributing both ACKs
+    /// to the older request reports it `Applied` (and caches its state) on the
+    /// strength of the younger request's completion, while the younger one
+    /// silently retries. The unique-candidate rule already used for socketless
+    /// completions ([`Self::sole_socket_holder`]) applies verbatim: a frame
+    /// that cannot be attributed to exactly one command stays inert.
+    fn sole_sending_command(&self, target: CameraId) -> Option<RequestId> {
+        let mut sole = None;
+        for (id, entry) in &self.entries {
+            if entry.request.is_inquiry()
+                || entry.request.context().target != target
+                || !matches!(entry.phase, Phase::Sending { .. })
+            {
+                continue;
+            }
+            if sole.is_some() {
+                return None;
+            }
+            sole = Some(*id);
+        }
+        sole
     }
 
     fn command_sockets(&self, target: CameraId) -> usize {
@@ -1559,8 +1606,16 @@ impl ProtocolEngine {
             // entry; `successful_transmission` applies it the instant the
             // request is authoritatively awaiting one. Dropping it here is what
             // reopens the race.
+            //
+            // Issue #636: the latch holds the first ACK this attempt raced and
+            // is never overwritten. A second ACK arriving while the same frame
+            // is still being written is either a duplicate or answers a frame
+            // this engine has not written yet; letting it replace the latch
+            // would hand the first ACK's socket to the wrong request.
             Phase::Sending { .. } => {
-                if let Some(entry) = self.entries.get_mut(&id) {
+                if entry.deferred_ack.is_some() {
+                    effects.push(Effect::Ignored(IgnoreReason::UnmatchedFrame));
+                } else if let Some(entry) = self.entries.get_mut(&id) {
                     entry.deferred_ack = Some(DeferredAck { socket });
                 }
                 return;
@@ -2590,10 +2645,22 @@ fn record_deadline_expiry(
 /// 1.x capped the ACK backoff exponent at 5 — 32x the initial delay — and left
 /// completion, inquiry, protocol-error and transport-fault retries uncapped
 /// (`main:src/runtime/core/mod.rs`, `delay_exponent_cap`). The rewrite dropped
-/// the cap. It matters whenever `maximum_backoff` is raised to accommodate a
-/// slow completion deadline: without it, a camera that simply stops ACKing
-/// would inherit that same long ceiling for a frame it has not even accepted
-/// yet.
+/// the cap; this restores it.
+///
+/// What it does is bound a lost-ACK retry at `initial_backoff << 5` regardless
+/// of `maximum_backoff`, so a session configured to wait a long time for a
+/// command the camera has already accepted does not inherit that same wait for
+/// a frame the camera never acknowledged at all.
+///
+/// It therefore binds only when `maximum_backoff > initial_backoff << 5`, and
+/// **no shipped profile reaches that**. Preparation derives `initial_backoff`
+/// 50ms and `maximum_backoff` `max(500ms, busy_timeout)`, and the largest
+/// `busy_timeout` in the profile registry is 240ms, so `maximum_backoff` is
+/// 500ms and already clamps every delay from exponent 4 — one below this cap,
+/// which consequently never changes a shipped delay. The cap becomes reachable
+/// only through an explicit `OperationalTuning::retry_timing` override that
+/// widens the ceiling past 32x the initial backoff; it is kept for that case
+/// rather than deleted as unreachable.
 const ACK_BACKOFF_EXPONENT_CAP: u32 = 5;
 
 /// Which backoff ceiling a retry is subject to.

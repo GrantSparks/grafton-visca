@@ -4,8 +4,13 @@
 //! error must not destroy the session, a failed stream write must still report
 //! its own transport error to the caller that owned it, a socketless ACK or
 //! completion must still work, an ACK naming an occupied socket must be
-//! reassigned instead of dropped, and an ACK that is already queued by the time
-//! the write returns must still be matched (#297).
+//! reassigned instead of dropped, and a camera that answers from inside the
+//! write must be matched on the owner's first read pump.
+//!
+//! The engine's deferred-ACK latch (#297) is *not* observable from here: these
+//! owners apply a write and its result back to back, so nothing can reach the
+//! engine in between. That guarantee is pinned in `runtime::engine::tests`
+//! instead, where inputs can be interleaved directly (#636).
 
 #![cfg(feature = "blocking")]
 
@@ -377,10 +382,22 @@ fn ack_naming_an_occupied_socket_is_reassigned() {
     session.shutdown().expect("owner shutdown");
 }
 
-/// Issue #297: the camera's ACK is already queued by the time the write
-/// returns. It must still be matched to the command that produced it.
+/// Issue #297: the camera answers from inside the write, so its ACK and
+/// completion are both already queued by the time the write returns. The owner
+/// must match them on its very first read pump — the command settles without
+/// waiting for its ACK deadline and without a second write.
+///
+/// This is deliberately **not** a test of the engine's deferred-ACK latch. The
+/// shipped owners apply the write and its result back to back, so no frame can
+/// reach the engine between them and `Phase::Sending` is unobservable from
+/// here; a facade test claiming otherwise passes with the latch replaced by a
+/// drop. The latch itself is pinned at engine level, where an `Input` sequence
+/// can actually produce that interleaving, by
+/// `runtime::engine::tests::ack_racing_its_own_write_result_is_latched_and_applied`,
+/// `racing_acks_are_never_attributed_while_two_commands_are_being_written` and
+/// `a_second_racing_ack_cannot_steal_the_latch_from_the_first` (#636).
 #[test]
-fn ack_queued_during_the_write_is_still_matched() {
+fn ack_answered_from_inside_the_write_is_matched_on_the_first_pump() {
     let transport = FaultTransport::new(
         SendSemantics::Datagram,
         vec![OnSend::Reply(standard_reply())],
@@ -397,7 +414,11 @@ fn ack_queued_during_the_write_is_still_matched() {
         .expect("submission")
         .applied()
         .expect("an immediately answered command must not wait for its ACK deadline");
-    assert_eq!(probe.writes().len(), 1);
+    assert_eq!(
+        probe.writes().len(),
+        1,
+        "a command answered inside its own write must never be rewritten"
+    );
 
     session.shutdown().expect("owner shutdown");
 }
