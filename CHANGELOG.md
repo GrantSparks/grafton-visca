@@ -13,6 +13,25 @@ destination.
 
 ### Added
 
+- **Added the serial single-camera constructors** (#650), so serial reaches a
+  compile-time-bound camera the same way TCP and UDP do. #568 gave the network
+  transports `Connect::open_tcp_camera` / `open_udp_camera` and
+  `CameraConfig::open_camera` / `open_camera_async`, but left serial with only
+  the owner-backed `open_serial`, so a one-camera serial program still had to
+  name its profile a second time through `session.camera::<P>()?` — the
+  runtime-checked naming #568 exists to remove. `Connect::open_serial_camera`
+  (blocking under `transport-serial`, Tokio async under
+  `transport-serial-tokio`) and the configured
+  `CameraConfig::<P>::open_serial_camera` / `open_serial_camera_async` now
+  return a `CameraSession<P>`. This restores 1.x's shape, where serial was a
+  first-class single-camera path on both facades
+  (`Connect::open_serial_blocking` / `open_serial_async` and
+  `CameraConfig::open_serial_blocking` / `open_serial_async`). The async bound
+  is unchanged and deliberately unwidened: async serial remains Tokio-only,
+  carrying the same `RuntimeSerial<SerialTransport = ...>` bound as
+  `Connect::open_serial`. `examples/serial_async_demo.rs` opens through the new
+  constructor, which returns it to the shape its 1.x counterpart had.
+
 - **Added runtime timeout and tuning reconfiguration** (#631), restoring the
   capability 1.2.0 shipped as `Camera::set_timeout_config` (#575). `set_tuning`
   and `tuning` are on the blocking and async `Session` and `CameraSession`, so

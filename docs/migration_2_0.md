@@ -44,7 +44,9 @@ migrate from wherever you are now:
 
 * `BlockingClient` for one camera → `blocking::Connect::open_tcp_camera::<P>`
   or `open_udp_camera::<P>` (configured form:
-  `blocking::CameraConfig::<P>::open_camera`). Both return
+  `blocking::CameraConfig::<P>::open_camera`), and, under `transport-serial`,
+  `blocking::Connect::open_serial_camera::<P>` (configured form:
+  `blocking::CameraConfig::<P>::open_serial_camera`). All return
   `blocking::CameraSession<P>`; `session.camera()` is the noun view and takes
   no turbofish.
 * `BlockingClient` for several cameras → `blocking::Connect::open_tcp` /

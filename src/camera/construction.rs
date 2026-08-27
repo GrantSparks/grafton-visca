@@ -117,6 +117,32 @@ impl Connect {
             .await
     }
 
+    /// Open one canonical owner-backed Tokio serial session for a single
+    /// camera.
+    ///
+    /// The profile is named once and bound at compile time: the returned
+    /// [`CameraSession`](crate::CameraSession) owns the `P` camera view
+    /// directly, with no second, runtime-checked profile naming.
+    ///
+    /// Async serial is Tokio-only, so this constructor carries the same
+    /// [`RuntimeSerial`](crate::runtime::RuntimeSerial) bound as
+    /// [`Self::open_serial`].
+    #[cfg(feature = "transport-serial-tokio")]
+    pub async fn open_serial_camera<P, R>(
+        port: impl Into<String>,
+        baud_rate: u32,
+        runtime: R,
+    ) -> crate::Result<crate::CameraSession<P>>
+    where
+        P: CompileTimeProfile + SupportsSerial,
+        R: crate::runtime::Runtime
+            + crate::runtime::RuntimeSerial<SerialTransport = crate::transport::tokio::serial::Serial>,
+    {
+        CameraConfig::<P>::serial(port, baud_rate)
+            .open_serial_camera_async(runtime)
+            .await
+    }
+
     /// Creates a typed standard transport builder.
     pub fn builder() -> ConnectBuilder {
         ConnectBuilder

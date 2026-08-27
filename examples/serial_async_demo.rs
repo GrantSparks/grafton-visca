@@ -75,14 +75,19 @@ async fn main() -> Result<(), Error> {
     let config = CameraConfig::<GenericVisca>::serial(args.port.clone(), 9600)
         .try_camera_id(args.camera_id)?;
     let runtime = TokioRuntime::from_current()?;
-    let session = config.open_serial_async(runtime).await.map_err(|error| {
-        error.context(format!(
-            "failed to open VISCA camera {} on serial port {}",
-            args.camera_id, args.port
-        ))
-    })?;
+    // The single-camera serial constructor names `GenericVisca` once, on the
+    // configuration: the camera view below is bound to it by construction.
+    let session = config
+        .open_serial_camera_async(runtime)
+        .await
+        .map_err(|error| {
+            error.context(format!(
+                "failed to open VISCA camera {} on serial port {}",
+                args.camera_id, args.port
+            ))
+        })?;
 
-    let camera = session.camera::<GenericVisca>()?;
+    let camera = session.camera();
     println!("Serial camera session established; running read-only inquiries.");
     let inquiry_result = async {
         let version = camera

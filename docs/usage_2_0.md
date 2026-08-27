@@ -43,8 +43,10 @@ session.close()?;
 ```
 
 Use `Connect::open_udp_camera` for UDP. With `transport-serial`,
-`Connect::open_serial::<P>(port, baud_rate)` opens the serial path and returns
-a `Session`; select its view with `session.camera::<P>()`.
+`Connect::open_serial_camera::<P>(port, baud_rate)` opens the serial path with
+the same single naming of the profile, and `Connect::open_serial::<P>(port,
+baud_rate)` returns the multi-target `Session` instead; select its view with
+`session.camera::<P>()`.
 
 ### Async
 
@@ -66,16 +68,21 @@ session.close().await?;
 Use `runtime-smol` with `SmolRuntime`, or use `Connect::open_udp_camera` for
 UDP. `Connect` and `CameraConfig` perform the same preflight; the `_camera`
 constructors return the single-camera `CameraSession<P>`, and `open_tcp` /
-`open_udp` return the multi-target owner-backed `Session`.
+`open_udp` return the multi-target owner-backed `Session`. Async serial is
+Tokio-only: with `transport-serial-tokio`, `Connect::open_serial_camera::<P,
+_>(port, baud_rate, runtime)` is the single-camera form of
+`Connect::open_serial`.
 
 ## Reusable configuration and target selection
 
 `CameraConfig<P>` is convenient profile-typed standard-transport data. It can
 set an address, `CameraId`, timeout policy, retry policy, transport options,
 and buffer/keepalive settings before calling `open`, `open_async`, or the
-serial-specific open method. `open_camera` and `open_camera_async` are the
-single-camera forms of `open` and `open_async`, and `CameraSession::open` takes
-a caller-owned transport with the same bind. `session_config()` lowers that pure
+serial-specific open methods. `open_camera` and `open_camera_async` are the
+single-camera forms of `open` and `open_async`, `open_serial_camera` and
+`open_serial_camera_async` are the single-camera forms of `open_serial` and
+`open_serial_async`, and `CameraSession::open` takes a caller-owned transport
+with the same bind. `session_config()` lowers that pure
 configuration into the shared mode-independent `SessionConfig` without DNS,
 socket, serial, executor, or protocol work.
 
