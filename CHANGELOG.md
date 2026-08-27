@@ -602,6 +602,20 @@ destination.
   makes a mechanical port fail with `Error::FeatureNotSupported` on eight of
   the nine built-in profiles. This 2.0 section is now organized in the
   Keep a Changelog subsections the file's own header promises.
+- Put `docs/usage_2_0.md` under the same compile gate as the README (#613).
+  The primary usage and construction guide fenced all five of its Rust
+  snippets `rust,ignore`, so the page most likely to be copied verbatim was
+  the one page nothing compiled — exactly the hole #563 came out of. A third
+  `cfg(doctest)` `include_str!` module in `src/lib.rs` now compiles the guide
+  under `cargo test --doc`, with the same per-block `#[cfg(feature = "...")]`
+  rule the README and migration guide use: the Tokio, caller-owned-executor,
+  and dynamic-view snippets carry `runtime-tokio`, `async`, and `dyn-api`
+  respectively. Compiling them exposed two things the guide had wrong: the
+  caller-owned `Session::open` snippet named an executor no bound tied to
+  `Executor`, and the `SessionConfig` snippet tuned `inquiry_spacing` down to
+  50 ms on a `PtzOpticsG2` target whose profile floor is 150 ms — a value the
+  same page's own "tuning cannot weaken a profile's minimum pacing" rule
+  rejects at run time. No snippet on the page is exempt from the gate.
 - **Fixed a livelock that made an async session unkillable when a transport
   failed every read** (#625). The actor's readiness race is left-biased towards
   the transport by design, so a read that failed *immediately* — a disconnected
