@@ -222,7 +222,7 @@ const EXPECTED_DYN_NOUN_METHOD_COUNTS: &[(&str, usize)] = &[
     ("DynPresets", 4),
     ("DynExposure", 43),
     ("DynWhiteBalance", 30),
-    ("DynImage", 40),
+    ("DynImage", 41),
     ("DynTally", 13),
     ("DynNdFilter", 9),
     ("DynMotionSync", 5),

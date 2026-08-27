@@ -2188,7 +2188,12 @@ pub(crate) const BUILTIN_TYPED_REQUEST_INVENTORY: &[BuiltinTypedRequestCoverage]
     typed_plain_coverage!(
         crate::command::semantics::BuiltinCommand::ImageFlipHorizontal,
         ImageMirrorCommand,
-        "false/true"
+        "true"
+    ),
+    typed_plain_coverage!(
+        crate::command::semantics::BuiltinCommand::ImageFlipHorizontalOff,
+        ImageMirrorCommand,
+        "false"
     ),
     typed_plain_coverage!(
         crate::command::semantics::BuiltinCommand::ImageFlipBoth,
@@ -4272,6 +4277,14 @@ mod tests {
             ImageMirrorCommand::new(true),
             &ptz,
             B::ImageFlipHorizontal,
+            Invalidate(S::Flip),
+            crate::runtime::engine::AppliedStateProjection::invalidate(S::Flip)
+        );
+        row!(
+            "separate horizontal mirror off",
+            ImageMirrorCommand::new(false),
+            &ptz,
+            B::ImageFlipHorizontalOff,
             Invalidate(S::Flip),
             crate::runtime::engine::AppliedStateProjection::invalidate(S::Flip)
         );

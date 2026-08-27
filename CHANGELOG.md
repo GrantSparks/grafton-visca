@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 2.0.0-rc.1 release candidate
 
+- Restored `image().disable_horizontal_flip()` on all three noun surfaces
+  (#635). The rewrite ledgered `BuiltinCommand::ImageFlipHorizontal` under the
+  single method spelling `enable_horizontal_flip`, so the noun surfaces only
+  ever emitted `ImageMirrorCommand::new(true)`. On a profile with
+  `HasImageMirror` but no `HasCombinedImageFlip` — SonyFR7, SonyBRCH900,
+  SonyEVIH100 — no noun method could return the mirror to off: `set_flip_mode`
+  is gated on the combined marker and rewrites the vertical axis too. 1.x
+  paired the two directions. The mirror-off opcode value (`81 01 04 61 03 FF`)
+  now has its own ledger row, `BuiltinCommand::ImageFlipHorizontalOff`, so the
+  per-row gates and the cross-surface parity test enforce both directions the
+  way they already do for the vertical flip and multicast pairs. Like every
+  single-axis flip opcode, it invalidates `StateKey::Flip` rather than
+  half-setting the pair.
 - Restored the 1.x convenience helpers the rewrite dropped, on all three noun
   surfaces (#569). `pan_tilt().up()/down()/left()/right()` are back as thin
   wrappers over `move_direction`; `zoom().set_normalized(UnitInterval)` and
