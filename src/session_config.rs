@@ -172,8 +172,8 @@ impl SessionConfig {
             .collect()
     }
 
-    /// Clone one profile reference for an owned async camera view.
-    #[cfg(feature = "async")]
+    /// Clone one profile reference for an owned camera view.
+    #[cfg(any(feature = "async", feature = "blocking"))]
     pub(crate) fn profile_arc(&self, target: CameraId) -> Option<Arc<ProfileSpec>> {
         Self::slot_checked(target).and_then(|slot| self.targets[slot].clone())
     }

@@ -64,6 +64,42 @@ impl Connect {
         CameraConfig::<P>::udp(address).open_async(runtime).await
     }
 
+    /// Open one canonical owner-backed TCP session for a single camera.
+    ///
+    /// The profile is named once and bound at compile time: the returned
+    /// [`CameraSession`](crate::CameraSession) owns the `P` camera view
+    /// directly, with no second, runtime-checked profile naming.
+    pub async fn open_tcp_camera<P, R>(
+        address: impl Into<String>,
+        runtime: R,
+    ) -> crate::Result<crate::CameraSession<P>>
+    where
+        P: CompileTimeProfile + crate::capabilities::SupportsTcp,
+        R: crate::runtime::Runtime,
+    {
+        CameraConfig::<P>::tcp(address)
+            .open_camera_async(runtime)
+            .await
+    }
+
+    /// Open one canonical owner-backed UDP session for a single camera.
+    ///
+    /// The profile is named once and bound at compile time: the returned
+    /// [`CameraSession`](crate::CameraSession) owns the `P` camera view
+    /// directly, with no second, runtime-checked profile naming.
+    pub async fn open_udp_camera<P, R>(
+        address: impl Into<String>,
+        runtime: R,
+    ) -> crate::Result<crate::CameraSession<P>>
+    where
+        P: CompileTimeProfile + crate::capabilities::SupportsUdp,
+        R: crate::runtime::Runtime,
+    {
+        CameraConfig::<P>::udp(address)
+            .open_camera_async(runtime)
+            .await
+    }
+
     /// Open one canonical owner-backed Tokio serial session.
     #[cfg(feature = "transport-serial-tokio")]
     pub async fn open_serial<P, R>(
