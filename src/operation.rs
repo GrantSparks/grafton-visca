@@ -7,12 +7,13 @@
 
 #![cfg(feature = "async")]
 
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use crate::{
     completion,
+    drop_stop::DropStopPlan,
     runtime::owner::{AsyncCancellationReceipt, AsyncOperationReceipt, AsyncReceiptControl},
-    CancellationOutcome, Error, OperationId,
+    CancellationOutcome, Error, OperationId, ProfileSpec,
 };
 
 /// A linear async operation handle.
@@ -21,6 +22,21 @@ use crate::{
 /// owns the exact owner receipt and its observer control, while the owner
 /// remains authoritative for protocol lifecycle, timeout, settlement, and
 /// cancellation policy.
+///
+/// # Dropping a movement handle stops the camera
+///
+/// Every terminal method consumes the handle, so a handle that is merely
+/// *dropped* is one no caller ever resolved: an early `?` return, a panic
+/// unwinding past it, or a forgotten binding.  When that handle belongs to a
+/// movement operation, dropping it enqueues the typed STOP for each axis the
+/// operation affects, so a failure path cannot leave hardware moving.
+///
+/// The stop is best effort and never blocks: it is placed on the same owner
+/// admission boundary every request uses, and is discarded if that boundary is
+/// closed or saturated.  Use [`detach`](Self::detach) for deliberate
+/// fire-and-forget movement, [`cancel`](Self::cancel) for protocol
+/// cancellation, or any of the waits for ordinary completion — none of those
+/// emit the drop STOP.
 #[must_use = "await, cancel, or explicitly detach this operation"]
 #[derive(Debug)]
 pub struct Operation<K>
@@ -30,6 +46,7 @@ where
     receipt: Option<AsyncOperationReceipt<K>>,
     control: AsyncReceiptControl,
     id: OperationId,
+    stop_on_drop: Option<DropStopPlan<Arc<ProfileSpec>>>,
 }
 
 impl<K> Operation<K>
@@ -44,12 +61,14 @@ where
     pub(crate) fn from_receipt(
         receipt: AsyncOperationReceipt<K>,
         control: AsyncReceiptControl,
+        stop_on_drop: Option<DropStopPlan<Arc<ProfileSpec>>>,
     ) -> Self {
         let id = OperationId::from_raw(receipt.id());
         Self {
             receipt: Some(receipt),
             control,
             id,
+            stop_on_drop,
         }
     }
 
@@ -99,8 +118,12 @@ where
 
     /// Explicitly relinquishes this operation's observer without changing
     /// protocol state, cancelling the request, or sending a physical STOP.
+    ///
+    /// This is the deliberate opt-out from the drop STOP described on
+    /// [`Operation`]: movement continues until something else ends it.
     pub fn detach(self) {
         let mut this = self;
+        this.stop_on_drop = None;
         if let Some(receipt) = this.receipt.take() {
             receipt.detach();
         }
@@ -139,8 +162,14 @@ where
     K: completion::Kind,
 {
     fn drop(&mut self) {
-        if let Some(receipt) = self.receipt.take() {
-            receipt.detach();
+        let Some(receipt) = self.receipt.take() else {
+            // A terminal method already consumed the receipt, so this is the
+            // trailing drop of an observed, cancelled, or detached handle.
+            return;
+        };
+        receipt.detach();
+        if let Some(plan) = self.stop_on_drop.take() {
+            plan.lower_each(|request| self.control.submit_detached(request));
         }
     }
 }
