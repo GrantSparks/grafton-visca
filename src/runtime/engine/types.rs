@@ -433,13 +433,18 @@ pub(crate) enum SequenceWidth {
 }
 
 /// Owned scheduler-independent decoded response data.
+///
+/// `Ack` and `Completion` carry an *optional* socket because the socket nibble
+/// is genuinely optional on the wire: a camera may answer `90 40 FF` /
+/// `90 50 FF` with no socket. The scheduler, not the transport adapter, decides
+/// what an absent socket means.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum DecodedResponse {
     Ack {
-        socket: ViscaSocket,
+        socket: Option<ViscaSocket>,
     },
     Completion {
-        socket: ViscaSocket,
+        socket: Option<ViscaSocket>,
     },
     InquiryReply {
         route: Option<InquiryRoute>,
@@ -497,14 +502,20 @@ pub(crate) enum IgnoreReason {
     SessionNotRunning,
 }
 
-/// Scheduler timeout source retained in terminal diagnostics.
+/// Which of a request's own protocol deadlines expired.
+///
+/// These are exactly the three deadlines 1.x counted as timeouts. Cancellation
+/// deadlines are deliberately not part of this vocabulary: they resolve a
+/// quarantine rather than the request's own protocol progress, and they are
+/// already reported through [`Effect::CancellationObservation`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum DeadlineKind {
-    CancellationAmbiguity,
+    /// The acknowledgement deadline for a sent command expired.
     Ack,
+    /// The completion deadline for an acknowledged command expired.
     Completion,
+    /// The reply deadline for a sent inquiry expired.
     InquiryReply,
-    CancellationResolution,
 }
 
 /// Public-observer-independent terminal engine result.
@@ -559,6 +570,16 @@ pub(crate) enum Input {
     Frame(DecodedFrame),
     Cancel {
         id: RequestId,
+    },
+    /// One receive-side transport failure the owner has already classified as
+    /// transient: the session survives it and every command still waiting for
+    /// its ACK is retried under its own bounded retry policy.
+    ///
+    /// A receive that proves the session is finished never reaches the engine
+    /// this way; it arrives as [`Input::Close`], [`Input::Poison`], or
+    /// [`Input::Shutdown`] instead.
+    ReceiveFault {
+        error: Error,
     },
     Close {
         reason: Option<Box<str>>,
@@ -654,6 +675,19 @@ pub(crate) enum Effect {
         id: RequestId,
         attempt: u32,
         ready_at: std::time::Instant,
+    },
+    /// One of a request's own protocol deadlines expired.
+    ///
+    /// `will_retry` is the engine's actual decision for this expiry rather than
+    /// the policy that motivated it: it is true exactly when the expiry produced
+    /// a [`Effect::RetryScheduled`] for the same request. A subscriber therefore
+    /// never has to infer the decision from a [`Effect::Transition`] plus the
+    /// absence of a retry, which is what 1.x's
+    /// `SchedulerAction::Timeout { will_retry }` carried directly.
+    DeadlineExpired {
+        id: RequestId,
+        deadline: DeadlineKind,
+        will_retry: bool,
     },
     CancellationRecorded {
         id: RequestId,

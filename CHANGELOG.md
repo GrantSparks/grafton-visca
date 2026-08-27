@@ -36,6 +36,107 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   counterpart, and the non-ledger convenience wrappers are declared in
   `DYN_NOUN_CONVENIENCE_METHODS` so the closed-projection inventory gate
   still rejects anything undeclared.
+- **Restored the owner metrics counters the rewrite dropped, and made the
+  retry decision observable** (#571). `MetricsSnapshot` carries `ack_timeouts`,
+  `completion_timeouts`, `inquiry_timeouts`, `busy_errors`, `protocol_errors`,
+  `retries_scheduled` and `ignored_unmatched_sequenced_replies` again — the
+  first numbers a field debugging session asks for in a crate whose failure
+  modes are timing- and hardware-dependent. 1.x carried a single `timeouts`
+  counter; the 2.0 engine distinguishes the ACK, completion and inquiry
+  deadlines, so each is counted separately. `busy_errors` covers the codes the
+  scheduler itself treats as transient camera-side backpressure — command
+  buffer full (`0x03`), no socket (`0x05`), and not executable in the current
+  state (`0x41`) — and `protocol_errors` covers every other error frame.
+  1.x bucketed `0x03 | 0x04` as busy instead; `0x04` is this engine's
+  cancellation reply, so counting it would make every successful cancellation
+  look like camera backpressure, and it is now counted as neither. Both error
+  counters count frames as they are decoded, including frames that no longer
+  correlate to an active request. `retries_scheduled` counts wherever the
+  engine emits a retry, so a transient receive-fault retry (#565) counts like
+  any other.
+- Added `DiagnosticEvent::DeadlineExpired` and `DiagnosticDeadline` (#571). A
+  subscriber that needs to know whether an expired deadline led to another
+  attempt reads `will_retry` off the event, instead of inferring it from a
+  `Transition` plus the absence of a following `RetryScheduled` — which is what
+  1.x's `SchedulerAction::Timeout { will_retry }` carried directly. The flag is
+  the decision the engine actually took, not the policy that motivated it: a
+  policy that permits retrying a deadline still fails the request once its
+  attempt or duration budget is spent, and the event reports that honestly.
+- **Single-camera constructors return a camera, with the profile bound at
+  compile time** (#568). Every other entry point returns a `Session`, so a
+  one-camera program had to name its profile a second time through
+  `session.camera::<P>()?` — and that second naming was a runtime check, so
+  opening with `PtzOpticsG2` and asking for `PtzOpticsG3` compiled and failed
+  on the device. `Connect::open_tcp_camera::<P>` / `open_udp_camera::<P>` (and
+  the blocking equivalents) now return a `CameraSession<P>` that owns its
+  session and hands out the `P` camera view with no turbofish and no fallible
+  projection; a mismatch is not expressible, as in 1.x. The configured forms
+  are `CameraConfig::<P>::open_camera` / `open_camera_async`, and
+  `CameraSession::open` takes a caller-owned transport with the same bind.
+  `close` mirrors `Session::close`, and dropping the value tears the session
+  down. The multi-camera `Session`/`camera_for` path is unchanged.
+- **Restored the 1.x retry coverage the rewrite narrowed** (#566). A post-ACK
+  completion timeout retries again — the rewrite hard-coded it off for every
+  request class, so a camera that acknowledged a command and then went silent
+  failed on its first deadline with no second attempt. A lost ACK retries for
+  every retry class except `Never`, instead of only `Standard`, which had left
+  all 32 movement requests and every preset dying on a single dropped ACK
+  frame. Per-category retry budgets are back in 1.x's shape — quick and inquiry
+  work gets two attempts more than the base, network work one fewer, and a
+  long-running command exactly one — replacing three flat numbers keyed on the
+  retry class. `OperationalTuning::retry_limit` overrides that *base*, which is
+  the knob 1.x exposed, so a request's effective count is derived from its
+  timeout category rather than taken literally.
+- Sized the retry budget against the request's own deadline (#566). It was two
+  seconds, shorter than every profile's completion deadline, so re-enabling
+  completion retries alone would have changed nothing. The budget is now
+  1.x's ten seconds or twice the request's governing deadline, whichever is
+  larger, which admits exactly one further full-length attempt.
+- Restored the ACK backoff exponent cap and added deterministic backoff jitter
+  (#566). 1.x capped the ACK backoff exponent at five — 32x the initial delay —
+  and left completion, inquiry, protocol-error and transport-fault retries
+  uncapped; that distinction is back. **1.x had no jitter at all**, so the
+  jitter here is new rather than restored: the rewrite's `maximum_backoff`
+  ceiling makes concurrent retries converge on the same instant and stay there,
+  which is the collision a backoff exists to break up. Each wait is now drawn
+  from the equal-jitter band `[ceiling / 2, ceiling]`, so no request waits
+  longer than 1.x would have. The draw is a pure function of the engine's seed,
+  the request identity and the attempt number — never of wall-clock time or
+  process entropy — so the engine remains a total function of its inputs and
+  the exact sequence is pinned by test.
+- **Restored the 1.x transport fault tolerance the rewrite dropped** (#565).
+  A transient receive failure no longer destroys the session: the owner
+  classifies the read error, and a transient one — the classic case is a UDP
+  `recv` reporting ECONNREFUSED after an ICMP port-unreachable — retries every
+  command still awaiting its ACK under that command's own bounded retry policy
+  and keeps the session running, exactly as 1.x's `SchedulerEvent::NetworkError`
+  did. Only a read that proves the connection is gone still ends the session,
+  and it now ends it as a close rather than a byte-stream poison, because a
+  failed read consumes nothing and cannot desynchronize framing.
+- Socketless VISCA ACKs and completions work again (#565). A camera answering
+  `90 40 FF` / `90 50 FF` carries no socket nibble; the transport adapter turned
+  that into a hard `Error::InvalidResponse` that killed the whole session. The
+  socket is now optional all the way to the scheduler, which assigns the first
+  free command socket to a socketless ACK — 1.x behavior — and attributes a
+  socketless completion by envelope sequence, or by sole socket ownership on
+  raw VISCA. Genuinely malformed frames are still rejected.
+- Restored socket reassignment on ACK (#565). A camera that names a command
+  socket another request already holds no longer costs that command its ACK
+  deadline: the ACK falls back to the target's other free socket, as 1.x did.
+  A one-socket target has nothing to fall back to and the frame stays inert.
+- Closed the #297 ACK race at the engine level (#565). An ACK that reaches the
+  engine before the write result for the frame it answers is now latched on
+  that request and applied the instant the write is confirmed, instead of being
+  dropped. The defense no longer depends on owner call ordering, so a future
+  concurrent reader and writer cannot silently reopen the race.
+- Documented the stream write-failure policy explicitly (#565). A failed
+  datagram write fails exactly one request, with its own transport error, and
+  the session keeps running. A failed stream write poisons the session on
+  purpose: no transport trait in this crate reports how many bytes of a frame
+  reached the wire, so a partial write must be assumed and the byte-stream
+  position treated as unknowable. `Error::StreamPoisoned` carries the exact
+  transport cause in its reason and is the one terminal error that answers
+  `Error::requires_new_session()` correctly (#564). 1.x drew the same line.
 - Gated the async noun surface and added a cross-surface parity test (#570).
   Only `blocking_nouns` carried a per-row ledger gate, so deleting or
   misclassifying an async noun method failed no test: the published API

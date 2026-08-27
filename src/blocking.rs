@@ -7,7 +7,7 @@
 
 #![allow(dead_code)]
 
-use std::{fmt, marker::PhantomData, time::Duration};
+use std::{fmt, marker::PhantomData, sync::Arc, time::Duration};
 
 use crate::{
     camera::{IdleWait, MotionQuery},
@@ -302,6 +302,30 @@ mod construction {
             CameraConfig::<P>::udp(address).open()
         }
 
+        /// Opens one owner-backed blocking TCP session for a single camera.
+        ///
+        /// The profile is named once and bound at compile time: the returned
+        /// [`CameraSession`] hands out the `P` camera
+        /// view directly, with no second, runtime-checked profile naming.
+        pub fn open_tcp_camera<P>(address: impl Into<String>) -> Result<CameraSession<P>>
+        where
+            P: CompileTimeProfile + crate::capabilities::SupportsTcp,
+        {
+            CameraConfig::<P>::tcp(address).open_camera()
+        }
+
+        /// Opens one owner-backed blocking UDP session for a single camera.
+        ///
+        /// The profile is named once and bound at compile time: the returned
+        /// [`CameraSession`] hands out the `P` camera
+        /// view directly, with no second, runtime-checked profile naming.
+        pub fn open_udp_camera<P>(address: impl Into<String>) -> Result<CameraSession<P>>
+        where
+            P: CompileTimeProfile + crate::capabilities::SupportsUdp,
+        {
+            CameraConfig::<P>::udp(address).open_camera()
+        }
+
         /// Opens one owner-backed blocking serial session.
         #[cfg(feature = "transport-serial")]
         pub fn open_serial<P>(port: impl Into<String>, baud_rate: u32) -> Result<Session>
@@ -497,6 +521,107 @@ impl Session {
                 .map(DiagnosticEvent::from_owner)
                 .collect()
         })
+    }
+}
+
+/// One blocking owner session that owns exactly one compile-time bound camera.
+///
+/// This is the single-target counterpart of [`Session`]. The profile is named
+/// once, at construction, and [`camera`](Self::camera) returns the view for
+/// that same profile parameter: the session path's second, runtime-checked
+/// profile naming (`session.camera::<P>()?`) has no equivalent here, so a
+/// profile mismatch is not expressible.
+///
+/// The value owns its session, so it is self-sufficient: dropping it drops the
+/// owner and its transport. Use [`close`](Self::close) for the explicit
+/// teardown that mirrors [`Session::close`].
+///
+/// The blocking [`Camera`] borrows its session, so the view is handed out by
+/// [`camera`](Self::camera) rather than stored; the async facade's owned
+/// `Camera<P>` needs no such step.
+pub struct CameraSession<P: CompileTimeProfile> {
+    session: Session,
+    target: CameraId,
+    profile: Arc<ProfileSpec>,
+    _profile: PhantomData<fn() -> P>,
+}
+
+impl<P: CompileTimeProfile> fmt::Debug for CameraSession<P> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("CameraSession")
+            .field("target", &self.target)
+            .field("profile", &self.profile)
+            .finish_non_exhaustive()
+    }
+}
+
+impl<P: CompileTimeProfile> CameraSession<P> {
+    /// Builds the single-camera view for a session whose sole target was
+    /// registered from the same `P`.
+    ///
+    /// This is crate-private and is only reachable from the `P`-typed
+    /// construction paths, where the registered [`ProfileSpec`] was lowered
+    /// from this exact `P`. That is what makes the bind structural instead of
+    /// a runtime profile comparison.
+    pub(crate) fn from_session(session: Session, target: CameraId) -> Result<Self, Error> {
+        let profile = session.config.profile_arc(target).ok_or_else(|| {
+            Error::InvalidState("single-camera session lost its registered target".into())
+        })?;
+        Ok(Self {
+            session,
+            target,
+            profile,
+            _profile: PhantomData,
+        })
+    }
+
+    /// Opens one single-camera owner session over a caller-owned transport.
+    ///
+    /// This is the [`Session::open`] counterpart for callers that already own
+    /// a transport. The profile comes from `config`, so the camera this
+    /// session hands out is bound to the same `P` the configuration was
+    /// written for.
+    pub fn open<T>(transport: T, config: &CameraConfig<P>) -> Result<Self, Error>
+    where
+        T: crate::transport::BlockingTransport + crate::transport::HasTransportConfig + 'static,
+    {
+        let target = config.camera_id;
+        Self::from_session(Session::open(transport, config.session_config()?)?, target)
+    }
+
+    /// Returns this session's compile-time bound camera view.
+    ///
+    /// The profile is not named again and the call cannot fail.
+    pub fn camera(&self) -> Camera<'_, P> {
+        Camera::from_core(BlockingCameraCore {
+            host: &self.session.host,
+            target: self.target,
+            profile: self.profile.as_ref(),
+            tuning: self.session.config.tuning(),
+        })
+    }
+
+    /// Returns the owned session behind this camera.
+    #[must_use]
+    pub const fn session(&self) -> &Session {
+        &self.session
+    }
+
+    /// Returns this session's sole camera target.
+    #[must_use]
+    pub const fn target(&self) -> CameraId {
+        self.target
+    }
+
+    /// Requests owner shutdown without consuming this value.
+    pub fn shutdown(&self) -> Result<(), Error> {
+        self.session.shutdown()
+    }
+
+    /// Explicitly shuts down this camera session.
+    pub fn close(self) -> Result<(), Error> {
+        self.session.close()
     }
 }
 

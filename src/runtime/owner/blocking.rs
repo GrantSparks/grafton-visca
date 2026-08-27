@@ -1312,17 +1312,29 @@ impl BlockingOwner {
                     return Err(Error::ConnectionClosed { reason: None });
                 }
                 Ok(BlockingReceive::Bytes(received)) => (received, Instant::now()),
+                Err(error) if super::receive_fault_is_transient(&error) => {
+                    // 1.x parity: retry every command still waiting for its
+                    // ACK and keep pumping. The read consumed nothing, so
+                    // framing state is intact and this pump simply produced no
+                    // frames.
+                    let effects = self
+                        .state
+                        .input(Input::ReceiveFault { error }, Instant::now());
+                    let _ = self.drive(driver, effects);
+                    pause_after_transient_receive_fault(owner_deadline);
+                    return Ok(0);
+                }
                 Err(error) => {
-                    let input = if self.state.policy().protocol.transport == TransportKind::Stream {
-                        Input::Poison {
-                            reason: error.to_string().into_boxed_str(),
-                        }
-                    } else {
+                    // A fatal read proves the connection is gone; it says
+                    // nothing about the byte-stream *position*, which is what
+                    // poison means. Framing failures below still poison a
+                    // stream, exactly as the async owner does.
+                    let effects = self.state.input(
                         Input::Close {
                             reason: Some(error.to_string().into_boxed_str()),
-                        }
-                    };
-                    let effects = self.state.input(input, Instant::now());
+                        },
+                        Instant::now(),
+                    );
                     let _ = self.drive(driver, effects);
                     return Err(error);
                 }
@@ -1533,6 +1545,20 @@ impl BlockingOwner {
     pub(super) fn mark_pumping_for_test(&mut self) {
         self.pumping = true;
     }
+}
+
+/// Pause applied after a transient receive fault so a transport that fails
+/// immediately cannot spin a caller's pump loop. 1.x used the same bound.
+const TRANSIENT_RECEIVE_PAUSE: Duration = Duration::from_millis(10);
+
+fn pause_after_transient_receive_fault(owner_deadline: Option<Instant>) {
+    let now = Instant::now();
+    let pause = match owner_deadline {
+        Some(deadline) if deadline <= now => return,
+        Some(deadline) => TRANSIENT_RECEIVE_PAUSE.min(deadline.duration_since(now)),
+        None => TRANSIENT_RECEIVE_PAUSE,
+    };
+    std::thread::sleep(pause);
 }
 
 fn min_deadline(left: Option<Instant>, right: Option<Instant>) -> Option<Instant> {

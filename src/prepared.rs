@@ -653,8 +653,14 @@ where
         timeout,
         retry: retry_policy(
             request.retry_class(),
+            request.timeout_class(),
             tuning,
             timing.busy_timeout(),
+            if inquiry {
+                timeout.inquiry
+            } else {
+                timeout.completion
+            },
             builtin_inquiry_syntax,
         ),
         control: ControlPolicy {
@@ -692,36 +698,94 @@ fn settlement_budget(
         .unwrap_or_else(|| completion_timeout(class, profile))
 }
 
+/// Base retry count every per-category budget is derived from.
+///
+/// This is 1.x's `RetryConfig::default().max_retries`, and
+/// [`OperationalTuning::retry_limit`] overrides exactly this number — not the
+/// final per-category count — because that is the knob 1.x exposed.
+const DEFAULT_RETRY_BASE: u32 = 3;
+
+/// Floor for the total wall-clock a request may spend retrying, counted from
+/// admission.
+///
+/// 1.x's `RetryConfig::default().max_retry_duration`. The rewrite had shrunk
+/// this to two seconds, which is shorter than every profile's completion
+/// deadline and therefore made post-ACK completion retries unreachable even
+/// once they were re-enabled.
+const MINIMUM_RETRY_BUDGET: Duration = Duration::from_secs(10);
+
+/// Bounded retry count for one timeout category.
+///
+/// This is 1.x's `RetryBudget::from_base` (`main:src/runtime/core/mod.rs`)
+/// restored verbatim: quick work gets two extra attempts because it is cheap
+/// to replay, network work gets one fewer because a failing link rarely
+/// recovers within a retry, and a long-running command gets exactly one
+/// attempt to spare the camera a second multi-minute operation. 1.x keyed this
+/// on `CommandCategory`, whose 2.0 spelling is [`TimeoutClass`]; its built-in
+/// inquiries were `CommandCategory::Quick`, so [`TimeoutClass::Inquiry`]
+/// inherits the quick budget.
+const fn retry_budget(base: u32, class: TimeoutClass) -> u32 {
+    match class {
+        TimeoutClass::Quick | TimeoutClass::Inquiry => base.saturating_add(2),
+        TimeoutClass::Movement | TimeoutClass::Preset => base,
+        TimeoutClass::Network => {
+            if base > 1 {
+                base - 1
+            } else {
+                1
+            }
+        }
+        TimeoutClass::LongRunning => 1,
+    }
+}
+
+/// Lowers one request's retry policy.
+///
+/// `deadline` is the request's own governing deadline — its completion
+/// deadline for a command, its reply deadline for an inquiry — and is what the
+/// total budget is sized against. A flat budget cannot work here: profiles in
+/// this crate carry completion deadlines from one to ten seconds, so any fixed
+/// number is either far longer than a quick profile needs or, for the ten
+/// second profiles, expires before the first completion timeout has even
+/// fired, which would leave the restored completion retry unreachable.
 fn retry_policy(
-    class: RetryClass,
+    retry_class: RetryClass,
+    timeout_class: TimeoutClass,
     tuning: OperationalTuning,
     busy_timeout: Duration,
+    deadline: Duration,
     builtin_inquiry_syntax: bool,
 ) -> RetryPolicy {
-    let default_limit = match class {
-        RetryClass::Never => 0,
-        RetryClass::Standard => 2,
-        RetryClass::Inquiry | RetryClass::Movement | RetryClass::Preset => 3,
-    };
     let default_initial = Duration::from_millis(50);
     let default_maximum = Duration::from_millis(500).max(busy_timeout);
-    let default_budget = Duration::from_secs(2).max(busy_timeout);
+    // Doubling the deadline admits exactly one further full-length attempt,
+    // which is what 1.x's ten seconds bought its five-second quick commands.
+    let default_budget = MINIMUM_RETRY_BUDGET
+        .max(deadline.saturating_mul(2))
+        .max(busy_timeout);
     let (initial, maximum, budget) = tuning.retry_timing_override();
-    let max_retries = if matches!(class, RetryClass::Never) {
+    let base = tuning.retry_limit_override().unwrap_or(DEFAULT_RETRY_BASE);
+    let max_retries = if matches!(retry_class, RetryClass::Never) {
         0
     } else {
-        tuning.retry_limit_override().unwrap_or(default_limit)
+        retry_budget(base, timeout_class)
     };
+    // `Never` is the sole opt-out from automatic replay. Every other class
+    // retries a lost ACK and a post-ACK completion timeout inside the budget
+    // above, which is what 1.x's source-agnostic `handle_timeout` did; the
+    // rewrite had narrowed ACK retries to `Standard` and disabled completion
+    // retries outright.
+    let replayable = !matches!(retry_class, RetryClass::Never);
     RetryPolicy {
         max_retries,
         initial_backoff: initial.unwrap_or(default_initial),
         maximum_backoff: maximum.unwrap_or(default_maximum),
         total_budget: budget.unwrap_or(default_budget),
-        ack_timeout: matches!(class, RetryClass::Standard),
-        completion_timeout: false,
-        inquiry_timeout: matches!(class, RetryClass::Inquiry),
-        buffer_full: !matches!(class, RetryClass::Never),
-        movement_not_executable: matches!(class, RetryClass::Movement | RetryClass::Preset),
+        ack_timeout: replayable,
+        completion_timeout: replayable,
+        inquiry_timeout: matches!(retry_class, RetryClass::Inquiry),
+        buffer_full: replayable,
+        movement_not_executable: matches!(retry_class, RetryClass::Movement | RetryClass::Preset),
         builtin_inquiry_syntax,
     }
 }
@@ -1364,11 +1428,177 @@ mod tests {
     #[test]
     fn never_retry_class_ignores_retry_limit_tuning() {
         let tuning = OperationalTuning::new().retry_limit(7);
-        let never = retry_policy(RetryClass::Never, tuning, Duration::ZERO, false);
-        let standard = retry_policy(RetryClass::Standard, tuning, Duration::ZERO, false);
+        let never = retry_policy(
+            RetryClass::Never,
+            TimeoutClass::Quick,
+            tuning,
+            Duration::ZERO,
+            Duration::from_secs(5),
+            false,
+        );
+        let standard = retry_policy(
+            RetryClass::Standard,
+            TimeoutClass::Movement,
+            tuning,
+            Duration::ZERO,
+            Duration::from_secs(5),
+            false,
+        );
 
         assert_eq!(never.max_retries, 0);
+        // `retry_limit` sets the base; a movement budget is the base itself.
         assert_eq!(standard.max_retries, 7);
+    }
+
+    /// Issue #566: the per-category retry budgets are 1.x's
+    /// `RetryBudget::from_base`, not one flat number per retry class.
+    #[test]
+    fn retry_budgets_follow_the_1x_per_category_table() {
+        let tuning = OperationalTuning::new();
+        let budget = |timeout_class| {
+            retry_policy(
+                RetryClass::Standard,
+                timeout_class,
+                tuning,
+                Duration::ZERO,
+                Duration::from_secs(5),
+                false,
+            )
+            .max_retries
+        };
+
+        // base 3: quick +2, movement/preset = base, network -1, long-running 1.
+        assert_eq!(budget(TimeoutClass::Quick), 5);
+        assert_eq!(budget(TimeoutClass::Inquiry), 5);
+        assert_eq!(budget(TimeoutClass::Movement), 3);
+        assert_eq!(budget(TimeoutClass::Preset), 3);
+        assert_eq!(budget(TimeoutClass::Network), 2);
+        assert_eq!(budget(TimeoutClass::LongRunning), 1);
+    }
+
+    /// A network budget never reaches zero, matching 1.x's clamp.
+    #[test]
+    fn a_network_budget_keeps_one_attempt_at_the_smallest_base() {
+        for base in [0, 1, 2] {
+            let policy = retry_policy(
+                RetryClass::Standard,
+                TimeoutClass::Network,
+                OperationalTuning::new().retry_limit(base),
+                Duration::ZERO,
+                Duration::from_secs(5),
+                false,
+            );
+            assert_eq!(policy.max_retries, 1, "base {base}");
+        }
+    }
+
+    /// Issue #566: a lost ACK and a post-ACK completion timeout are retryable
+    /// for every retry class except `Never`. The rewrite had gated ACK retries
+    /// to `Standard` and disabled completion retries for everything.
+    #[test]
+    fn every_replayable_class_retries_lost_acks_and_completion_timeouts() {
+        let tuning = OperationalTuning::new();
+        for class in [
+            RetryClass::Standard,
+            RetryClass::Inquiry,
+            RetryClass::Movement,
+            RetryClass::Preset,
+        ] {
+            let policy = retry_policy(
+                class,
+                TimeoutClass::Movement,
+                tuning,
+                Duration::ZERO,
+                Duration::from_secs(5),
+                false,
+            );
+            assert!(policy.ack_timeout, "{class:?} must retry a lost ACK");
+            assert!(
+                policy.completion_timeout,
+                "{class:?} must retry a post-ACK completion timeout"
+            );
+            assert!(policy.buffer_full, "{class:?} must retry a busy camera");
+            assert!(policy.max_retries > 0, "{class:?} must have a budget");
+        }
+
+        let never = retry_policy(
+            RetryClass::Never,
+            TimeoutClass::Movement,
+            tuning,
+            Duration::ZERO,
+            Duration::from_secs(5),
+            false,
+        );
+        assert!(!never.ack_timeout);
+        assert!(!never.completion_timeout);
+        assert!(!never.buffer_full);
+        assert_eq!(never.max_retries, 0);
+    }
+
+    /// Issue #566: `0x41` (`CommandNotExecutable`) stays a movement/preset
+    /// distinction. The classes differ in the terminal error a camera-refused
+    /// command produces, so this must not be widened along with the timeout
+    /// retries above.
+    #[test]
+    fn movement_not_executable_retry_is_reserved_for_movement_and_preset() {
+        let tuning = OperationalTuning::new();
+        let policy = |class| {
+            retry_policy(
+                class,
+                TimeoutClass::Movement,
+                tuning,
+                Duration::ZERO,
+                Duration::from_secs(5),
+                false,
+            )
+            .movement_not_executable
+        };
+
+        assert!(policy(RetryClass::Movement));
+        assert!(policy(RetryClass::Preset));
+        assert!(!policy(RetryClass::Standard));
+        assert!(!policy(RetryClass::Inquiry));
+        assert!(!policy(RetryClass::Never));
+    }
+
+    /// Issue #566: the retry budget must outlast a completion deadline, or
+    /// re-enabling completion retries changes nothing. 1.x allowed ten seconds.
+    #[test]
+    fn the_retry_budget_outlasts_a_profile_completion_deadline() {
+        let profile = ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()
+            .expect("built-in profile");
+        let prepared = prepare_builtin_operation::<completion::AppliedOnly, _>(
+            &crate::request::builtin::ZoomStop,
+            CameraId::CAMERA_1,
+            &profile,
+            OperationalTuning::new(),
+        )
+        .expect("preparation");
+
+        // The generic profile's completion deadline is itself ten seconds, so
+        // 1.x's flat ten-second budget would expire before the first
+        // completion timeout could even fire.
+        assert_eq!(
+            prepared.context.timeout.completion,
+            Duration::from_secs(10),
+            "fixture assumption"
+        );
+        assert_eq!(prepared.context.retry.total_budget, Duration::from_secs(20));
+        assert!(
+            prepared.context.retry.total_budget > prepared.context.timeout.completion,
+            "a completion timeout must be able to fire and still leave budget to retry"
+        );
+
+        // A quick profile keeps 1.x's ten-second floor rather than shrinking.
+        let quick = retry_policy(
+            RetryClass::Standard,
+            TimeoutClass::Quick,
+            OperationalTuning::new(),
+            Duration::ZERO,
+            Duration::from_secs(1),
+            false,
+        );
+        assert_eq!(quick.total_budget, MINIMUM_RETRY_BUDGET);
     }
 
     #[test]

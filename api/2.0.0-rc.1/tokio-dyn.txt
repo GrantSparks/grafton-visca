@@ -1572,6 +1572,7 @@ pub fn grafton_visca::CameraConfig<P>::udp(impl core::convert::Into<alloc::strin
 pub fn grafton_visca::CameraConfig<P>::validate(&self) -> core::result::Result<(), grafton_visca::Error>
 impl<P> grafton_visca::CameraConfig<P> where P: grafton_visca::profile::CompileTimeProfile
 pub async fn grafton_visca::CameraConfig<P>::open_async<R>(&self, R) -> grafton_visca::Result<grafton_visca::Session> where R: grafton_visca::Runtime
+pub async fn grafton_visca::CameraConfig<P>::open_camera_async<R>(&self, R) -> grafton_visca::Result<grafton_visca::CameraSession<P>> where R: grafton_visca::Runtime
 impl<P> grafton_visca::CameraConfig<P> where P: grafton_visca::profile::CompileTimeProfile
 pub fn grafton_visca::CameraConfig<P>::session_config(&self) -> grafton_visca::Result<grafton_visca::SessionConfig>
 impl<P: core::clone::Clone> core::clone::Clone for grafton_visca::CameraConfig<P>
@@ -1591,7 +1592,9 @@ pub struct grafton_visca::camera::Connect
 impl grafton_visca::Connect
 pub fn grafton_visca::Connect::builder() -> grafton_visca::ConnectBuilder
 pub async fn grafton_visca::Connect::open_tcp<P, R>(impl core::convert::Into<alloc::string::String>, R) -> grafton_visca::Result<grafton_visca::Session> where P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::SupportsTcp, R: grafton_visca::Runtime
+pub async fn grafton_visca::Connect::open_tcp_camera<P, R>(impl core::convert::Into<alloc::string::String>, R) -> grafton_visca::Result<grafton_visca::CameraSession<P>> where P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::SupportsTcp, R: grafton_visca::Runtime
 pub async fn grafton_visca::Connect::open_udp<P, R>(impl core::convert::Into<alloc::string::String>, R) -> grafton_visca::Result<grafton_visca::Session> where P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::SupportsUdp, R: grafton_visca::Runtime
+pub async fn grafton_visca::Connect::open_udp_camera<P, R>(impl core::convert::Into<alloc::string::String>, R) -> grafton_visca::Result<grafton_visca::CameraSession<P>> where P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::SupportsUdp, R: grafton_visca::Runtime
 impl core::clone::Clone for grafton_visca::Connect
 pub fn grafton_visca::Connect::clone(&self) -> grafton_visca::Connect
 impl core::fmt::Debug for grafton_visca::Connect
@@ -11532,6 +11535,28 @@ impl core::marker::Unpin for grafton_visca::observability::DiagnosticCancellatio
 impl core::marker::UnsafeUnpin for grafton_visca::observability::DiagnosticCancellation
 impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::observability::DiagnosticCancellation
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::observability::DiagnosticCancellation
+#[non_exhaustive] pub enum grafton_visca::observability::DiagnosticDeadline
+pub grafton_visca::observability::DiagnosticDeadline::Ack
+pub grafton_visca::observability::DiagnosticDeadline::Completion
+pub grafton_visca::observability::DiagnosticDeadline::InquiryReply
+impl core::clone::Clone for grafton_visca::observability::DiagnosticDeadline
+pub fn grafton_visca::observability::DiagnosticDeadline::clone(&self) -> grafton_visca::observability::DiagnosticDeadline
+impl core::cmp::Eq for grafton_visca::observability::DiagnosticDeadline
+impl core::cmp::PartialEq for grafton_visca::observability::DiagnosticDeadline
+pub fn grafton_visca::observability::DiagnosticDeadline::eq(&self, &grafton_visca::observability::DiagnosticDeadline) -> bool
+impl core::fmt::Debug for grafton_visca::observability::DiagnosticDeadline
+pub fn grafton_visca::observability::DiagnosticDeadline::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for grafton_visca::observability::DiagnosticDeadline
+pub fn grafton_visca::observability::DiagnosticDeadline::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for grafton_visca::observability::DiagnosticDeadline
+impl core::marker::StructuralPartialEq for grafton_visca::observability::DiagnosticDeadline
+impl core::marker::Freeze for grafton_visca::observability::DiagnosticDeadline
+impl core::marker::Send for grafton_visca::observability::DiagnosticDeadline
+impl core::marker::Sync for grafton_visca::observability::DiagnosticDeadline
+impl core::marker::Unpin for grafton_visca::observability::DiagnosticDeadline
+impl core::marker::UnsafeUnpin for grafton_visca::observability::DiagnosticDeadline
+impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::observability::DiagnosticDeadline
+impl core::panic::unwind_safe::UnwindSafe for grafton_visca::observability::DiagnosticDeadline
 #[non_exhaustive] pub enum grafton_visca::observability::DiagnosticEvent
 pub grafton_visca::observability::DiagnosticEvent::AdmissionRejected
 pub grafton_visca::observability::DiagnosticEvent::AdmissionRejected::error: grafton_visca::ErrorKind
@@ -11552,6 +11577,11 @@ pub grafton_visca::observability::DiagnosticEvent::CancellationObserved::target:
 pub grafton_visca::observability::DiagnosticEvent::CancellationRecorded
 pub grafton_visca::observability::DiagnosticEvent::CancellationRecorded::id: grafton_visca::observability::DiagnosticId
 pub grafton_visca::observability::DiagnosticEvent::CancellationRecorded::target: grafton_visca::CameraId
+pub grafton_visca::observability::DiagnosticEvent::DeadlineExpired
+pub grafton_visca::observability::DiagnosticEvent::DeadlineExpired::deadline: grafton_visca::observability::DiagnosticDeadline
+pub grafton_visca::observability::DiagnosticEvent::DeadlineExpired::id: grafton_visca::observability::DiagnosticId
+pub grafton_visca::observability::DiagnosticEvent::DeadlineExpired::target: grafton_visca::CameraId
+pub grafton_visca::observability::DiagnosticEvent::DeadlineExpired::will_retry: bool
 pub grafton_visca::observability::DiagnosticEvent::FrameReceived
 pub grafton_visca::observability::DiagnosticEvent::FrameReceived::response: grafton_visca::observability::DiagnosticResponse
 pub grafton_visca::observability::DiagnosticEvent::FrameReceived::target: grafton_visca::CameraId
@@ -11778,17 +11808,24 @@ impl core::marker::UnsafeUnpin for grafton_visca::observability::DiagnosticSubsc
 impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::observability::DiagnosticSubscription
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::observability::DiagnosticSubscription
 pub struct grafton_visca::observability::MetricsSnapshot
+pub grafton_visca::observability::MetricsSnapshot::ack_timeouts: u64
 pub grafton_visca::observability::MetricsSnapshot::active: usize
 pub grafton_visca::observability::MetricsSnapshot::admission_rejected: u64
 pub grafton_visca::observability::MetricsSnapshot::admitted: u64
+pub grafton_visca::observability::MetricsSnapshot::busy_errors: u64
 pub grafton_visca::observability::MetricsSnapshot::cache_updates: u64
 pub grafton_visca::observability::MetricsSnapshot::cancellations: u64
+pub grafton_visca::observability::MetricsSnapshot::completion_timeouts: u64
 pub grafton_visca::observability::MetricsSnapshot::dropped_applied_events: u64
 pub grafton_visca::observability::MetricsSnapshot::dropped_boundary_work: u64
 pub grafton_visca::observability::MetricsSnapshot::dropped_diagnostic_events: u64
 pub grafton_visca::observability::MetricsSnapshot::dropped_diagnostics: u64
 pub grafton_visca::observability::MetricsSnapshot::dropped_observer_events: u64
+pub grafton_visca::observability::MetricsSnapshot::ignored_unmatched_sequenced_replies: u64
+pub grafton_visca::observability::MetricsSnapshot::inquiry_timeouts: u64
 pub grafton_visca::observability::MetricsSnapshot::pending: usize
+pub grafton_visca::observability::MetricsSnapshot::protocol_errors: u64
+pub grafton_visca::observability::MetricsSnapshot::retries_scheduled: u64
 pub grafton_visca::observability::MetricsSnapshot::session: grafton_visca::observability::SessionStatus
 pub grafton_visca::observability::MetricsSnapshot::terminal: u64
 pub grafton_visca::observability::MetricsSnapshot::write_failures: u64
@@ -12365,6 +12402,7 @@ pub fn grafton_visca::CameraConfig<P>::udp(impl core::convert::Into<alloc::strin
 pub fn grafton_visca::CameraConfig<P>::validate(&self) -> core::result::Result<(), grafton_visca::Error>
 impl<P> grafton_visca::CameraConfig<P> where P: grafton_visca::profile::CompileTimeProfile
 pub async fn grafton_visca::CameraConfig<P>::open_async<R>(&self, R) -> grafton_visca::Result<grafton_visca::Session> where R: grafton_visca::Runtime
+pub async fn grafton_visca::CameraConfig<P>::open_camera_async<R>(&self, R) -> grafton_visca::Result<grafton_visca::CameraSession<P>> where R: grafton_visca::Runtime
 impl<P> grafton_visca::CameraConfig<P> where P: grafton_visca::profile::CompileTimeProfile
 pub fn grafton_visca::CameraConfig<P>::session_config(&self) -> grafton_visca::Result<grafton_visca::SessionConfig>
 impl<P: core::clone::Clone> core::clone::Clone for grafton_visca::CameraConfig<P>
@@ -12399,7 +12437,9 @@ pub struct grafton_visca::prelude::async::Connect
 impl grafton_visca::Connect
 pub fn grafton_visca::Connect::builder() -> grafton_visca::ConnectBuilder
 pub async fn grafton_visca::Connect::open_tcp<P, R>(impl core::convert::Into<alloc::string::String>, R) -> grafton_visca::Result<grafton_visca::Session> where P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::SupportsTcp, R: grafton_visca::Runtime
+pub async fn grafton_visca::Connect::open_tcp_camera<P, R>(impl core::convert::Into<alloc::string::String>, R) -> grafton_visca::Result<grafton_visca::CameraSession<P>> where P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::SupportsTcp, R: grafton_visca::Runtime
 pub async fn grafton_visca::Connect::open_udp<P, R>(impl core::convert::Into<alloc::string::String>, R) -> grafton_visca::Result<grafton_visca::Session> where P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::SupportsUdp, R: grafton_visca::Runtime
+pub async fn grafton_visca::Connect::open_udp_camera<P, R>(impl core::convert::Into<alloc::string::String>, R) -> grafton_visca::Result<grafton_visca::CameraSession<P>> where P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::SupportsUdp, R: grafton_visca::Runtime
 impl core::clone::Clone for grafton_visca::Connect
 pub fn grafton_visca::Connect::clone(&self) -> grafton_visca::Connect
 impl core::fmt::Debug for grafton_visca::Connect
@@ -20018,6 +20058,7 @@ pub fn grafton_visca::CameraConfig<P>::udp(impl core::convert::Into<alloc::strin
 pub fn grafton_visca::CameraConfig<P>::validate(&self) -> core::result::Result<(), grafton_visca::Error>
 impl<P> grafton_visca::CameraConfig<P> where P: grafton_visca::profile::CompileTimeProfile
 pub async fn grafton_visca::CameraConfig<P>::open_async<R>(&self, R) -> grafton_visca::Result<grafton_visca::Session> where R: grafton_visca::Runtime
+pub async fn grafton_visca::CameraConfig<P>::open_camera_async<R>(&self, R) -> grafton_visca::Result<grafton_visca::CameraSession<P>> where R: grafton_visca::Runtime
 impl<P> grafton_visca::CameraConfig<P> where P: grafton_visca::profile::CompileTimeProfile
 pub fn grafton_visca::CameraConfig<P>::session_config(&self) -> grafton_visca::Result<grafton_visca::SessionConfig>
 impl<P: core::clone::Clone> core::clone::Clone for grafton_visca::CameraConfig<P>
@@ -20033,11 +20074,31 @@ impl<P> core::marker::Unpin for grafton_visca::CameraConfig<P> where core::marke
 impl<P> core::marker::UnsafeUnpin for grafton_visca::CameraConfig<P> where core::marker::PhantomData<P>: core::marker::UnsafeUnpin
 impl<P> core::panic::unwind_safe::RefUnwindSafe for grafton_visca::CameraConfig<P> where core::marker::PhantomData<P>: core::panic::unwind_safe::RefUnwindSafe
 impl<P> core::panic::unwind_safe::UnwindSafe for grafton_visca::CameraConfig<P> where core::marker::PhantomData<P>: core::panic::unwind_safe::UnwindSafe
+pub struct grafton_visca::session::CameraSession<P: grafton_visca::profile::CompileTimeProfile>
+impl<P: grafton_visca::profile::CompileTimeProfile> grafton_visca::CameraSession<P>
+pub const fn grafton_visca::CameraSession<P>::camera(&self) -> &grafton_visca::Camera<P>
+pub async fn grafton_visca::CameraSession<P>::close(self) -> grafton_visca::Result<()>
+pub fn grafton_visca::CameraSession<P>::into_camera(self) -> grafton_visca::Camera<P>
+pub async fn grafton_visca::CameraSession<P>::open<E, T>(T, &grafton_visca::CameraConfig<P>, impl core::convert::Into<alloc::sync::Arc<E>>) -> grafton_visca::Result<Self> where E: grafton_visca::Executor, T: grafton_visca::transport::AsyncTransport + grafton_visca::transport::HasTransportConfig + 'static
+pub const fn grafton_visca::CameraSession<P>::session(&self) -> &grafton_visca::Session
+pub async fn grafton_visca::CameraSession<P>::shutdown(&self) -> grafton_visca::Result<()>
+pub const fn grafton_visca::CameraSession<P>::target(&self) -> grafton_visca::CameraId
+impl<P: grafton_visca::profile::CompileTimeProfile> core::fmt::Debug for grafton_visca::CameraSession<P>
+pub fn grafton_visca::CameraSession<P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<P> core::marker::Freeze for grafton_visca::CameraSession<P> where grafton_visca::Camera<P>: core::marker::Freeze
+impl<P> core::marker::Send for grafton_visca::CameraSession<P> where grafton_visca::Camera<P>: core::marker::Send
+impl<P> core::marker::Sync for grafton_visca::CameraSession<P> where grafton_visca::Camera<P>: core::marker::Sync
+impl<P> core::marker::Unpin for grafton_visca::CameraSession<P> where grafton_visca::Camera<P>: core::marker::Unpin
+impl<P> core::marker::UnsafeUnpin for grafton_visca::CameraSession<P> where grafton_visca::Camera<P>: core::marker::UnsafeUnpin
+impl<P> !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::CameraSession<P>
+impl<P> !core::panic::unwind_safe::UnwindSafe for grafton_visca::CameraSession<P>
 pub struct grafton_visca::session::Connect
 impl grafton_visca::Connect
 pub fn grafton_visca::Connect::builder() -> grafton_visca::ConnectBuilder
 pub async fn grafton_visca::Connect::open_tcp<P, R>(impl core::convert::Into<alloc::string::String>, R) -> grafton_visca::Result<grafton_visca::Session> where P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::SupportsTcp, R: grafton_visca::Runtime
+pub async fn grafton_visca::Connect::open_tcp_camera<P, R>(impl core::convert::Into<alloc::string::String>, R) -> grafton_visca::Result<grafton_visca::CameraSession<P>> where P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::SupportsTcp, R: grafton_visca::Runtime
 pub async fn grafton_visca::Connect::open_udp<P, R>(impl core::convert::Into<alloc::string::String>, R) -> grafton_visca::Result<grafton_visca::Session> where P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::SupportsUdp, R: grafton_visca::Runtime
+pub async fn grafton_visca::Connect::open_udp_camera<P, R>(impl core::convert::Into<alloc::string::String>, R) -> grafton_visca::Result<grafton_visca::CameraSession<P>> where P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::SupportsUdp, R: grafton_visca::Runtime
 impl core::clone::Clone for grafton_visca::Connect
 pub fn grafton_visca::Connect::clone(&self) -> grafton_visca::Connect
 impl core::fmt::Debug for grafton_visca::Connect
@@ -22730,6 +22791,28 @@ impl core::marker::Unpin for grafton_visca::observability::DiagnosticCancellatio
 impl core::marker::UnsafeUnpin for grafton_visca::observability::DiagnosticCancellation
 impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::observability::DiagnosticCancellation
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::observability::DiagnosticCancellation
+#[non_exhaustive] pub enum grafton_visca::DiagnosticDeadline
+pub grafton_visca::DiagnosticDeadline::Ack
+pub grafton_visca::DiagnosticDeadline::Completion
+pub grafton_visca::DiagnosticDeadline::InquiryReply
+impl core::clone::Clone for grafton_visca::observability::DiagnosticDeadline
+pub fn grafton_visca::observability::DiagnosticDeadline::clone(&self) -> grafton_visca::observability::DiagnosticDeadline
+impl core::cmp::Eq for grafton_visca::observability::DiagnosticDeadline
+impl core::cmp::PartialEq for grafton_visca::observability::DiagnosticDeadline
+pub fn grafton_visca::observability::DiagnosticDeadline::eq(&self, &grafton_visca::observability::DiagnosticDeadline) -> bool
+impl core::fmt::Debug for grafton_visca::observability::DiagnosticDeadline
+pub fn grafton_visca::observability::DiagnosticDeadline::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for grafton_visca::observability::DiagnosticDeadline
+pub fn grafton_visca::observability::DiagnosticDeadline::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for grafton_visca::observability::DiagnosticDeadline
+impl core::marker::StructuralPartialEq for grafton_visca::observability::DiagnosticDeadline
+impl core::marker::Freeze for grafton_visca::observability::DiagnosticDeadline
+impl core::marker::Send for grafton_visca::observability::DiagnosticDeadline
+impl core::marker::Sync for grafton_visca::observability::DiagnosticDeadline
+impl core::marker::Unpin for grafton_visca::observability::DiagnosticDeadline
+impl core::marker::UnsafeUnpin for grafton_visca::observability::DiagnosticDeadline
+impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::observability::DiagnosticDeadline
+impl core::panic::unwind_safe::UnwindSafe for grafton_visca::observability::DiagnosticDeadline
 #[non_exhaustive] pub enum grafton_visca::DiagnosticEvent
 pub grafton_visca::DiagnosticEvent::AdmissionRejected
 pub grafton_visca::DiagnosticEvent::AdmissionRejected::error: grafton_visca::ErrorKind
@@ -22750,6 +22833,11 @@ pub grafton_visca::DiagnosticEvent::CancellationObserved::target: grafton_visca:
 pub grafton_visca::DiagnosticEvent::CancellationRecorded
 pub grafton_visca::DiagnosticEvent::CancellationRecorded::id: grafton_visca::observability::DiagnosticId
 pub grafton_visca::DiagnosticEvent::CancellationRecorded::target: grafton_visca::CameraId
+pub grafton_visca::DiagnosticEvent::DeadlineExpired
+pub grafton_visca::DiagnosticEvent::DeadlineExpired::deadline: grafton_visca::observability::DiagnosticDeadline
+pub grafton_visca::DiagnosticEvent::DeadlineExpired::id: grafton_visca::observability::DiagnosticId
+pub grafton_visca::DiagnosticEvent::DeadlineExpired::target: grafton_visca::CameraId
+pub grafton_visca::DiagnosticEvent::DeadlineExpired::will_retry: bool
 pub grafton_visca::DiagnosticEvent::FrameReceived
 pub grafton_visca::DiagnosticEvent::FrameReceived::response: grafton_visca::observability::DiagnosticResponse
 pub grafton_visca::DiagnosticEvent::FrameReceived::target: grafton_visca::CameraId
@@ -23834,6 +23922,7 @@ pub fn grafton_visca::CameraConfig<P>::udp(impl core::convert::Into<alloc::strin
 pub fn grafton_visca::CameraConfig<P>::validate(&self) -> core::result::Result<(), grafton_visca::Error>
 impl<P> grafton_visca::CameraConfig<P> where P: grafton_visca::profile::CompileTimeProfile
 pub async fn grafton_visca::CameraConfig<P>::open_async<R>(&self, R) -> grafton_visca::Result<grafton_visca::Session> where R: grafton_visca::Runtime
+pub async fn grafton_visca::CameraConfig<P>::open_camera_async<R>(&self, R) -> grafton_visca::Result<grafton_visca::CameraSession<P>> where R: grafton_visca::Runtime
 impl<P> grafton_visca::CameraConfig<P> where P: grafton_visca::profile::CompileTimeProfile
 pub fn grafton_visca::CameraConfig<P>::session_config(&self) -> grafton_visca::Result<grafton_visca::SessionConfig>
 impl<P: core::clone::Clone> core::clone::Clone for grafton_visca::CameraConfig<P>
@@ -23888,6 +23977,24 @@ impl core::marker::Unpin for grafton_visca::CameraId
 impl core::marker::UnsafeUnpin for grafton_visca::CameraId
 impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::CameraId
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::CameraId
+pub struct grafton_visca::CameraSession<P: grafton_visca::profile::CompileTimeProfile>
+impl<P: grafton_visca::profile::CompileTimeProfile> grafton_visca::CameraSession<P>
+pub const fn grafton_visca::CameraSession<P>::camera(&self) -> &grafton_visca::Camera<P>
+pub async fn grafton_visca::CameraSession<P>::close(self) -> grafton_visca::Result<()>
+pub fn grafton_visca::CameraSession<P>::into_camera(self) -> grafton_visca::Camera<P>
+pub async fn grafton_visca::CameraSession<P>::open<E, T>(T, &grafton_visca::CameraConfig<P>, impl core::convert::Into<alloc::sync::Arc<E>>) -> grafton_visca::Result<Self> where E: grafton_visca::Executor, T: grafton_visca::transport::AsyncTransport + grafton_visca::transport::HasTransportConfig + 'static
+pub const fn grafton_visca::CameraSession<P>::session(&self) -> &grafton_visca::Session
+pub async fn grafton_visca::CameraSession<P>::shutdown(&self) -> grafton_visca::Result<()>
+pub const fn grafton_visca::CameraSession<P>::target(&self) -> grafton_visca::CameraId
+impl<P: grafton_visca::profile::CompileTimeProfile> core::fmt::Debug for grafton_visca::CameraSession<P>
+pub fn grafton_visca::CameraSession<P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<P> core::marker::Freeze for grafton_visca::CameraSession<P> where grafton_visca::Camera<P>: core::marker::Freeze
+impl<P> core::marker::Send for grafton_visca::CameraSession<P> where grafton_visca::Camera<P>: core::marker::Send
+impl<P> core::marker::Sync for grafton_visca::CameraSession<P> where grafton_visca::Camera<P>: core::marker::Sync
+impl<P> core::marker::Unpin for grafton_visca::CameraSession<P> where grafton_visca::Camera<P>: core::marker::Unpin
+impl<P> core::marker::UnsafeUnpin for grafton_visca::CameraSession<P> where grafton_visca::Camera<P>: core::marker::UnsafeUnpin
+impl<P> !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::CameraSession<P>
+impl<P> !core::panic::unwind_safe::UnwindSafe for grafton_visca::CameraSession<P>
 pub struct grafton_visca::Cancellation
 impl grafton_visca::Cancellation
 pub fn grafton_visca::Cancellation::detach(self)
@@ -23907,7 +24014,9 @@ pub struct grafton_visca::Connect
 impl grafton_visca::Connect
 pub fn grafton_visca::Connect::builder() -> grafton_visca::ConnectBuilder
 pub async fn grafton_visca::Connect::open_tcp<P, R>(impl core::convert::Into<alloc::string::String>, R) -> grafton_visca::Result<grafton_visca::Session> where P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::SupportsTcp, R: grafton_visca::Runtime
+pub async fn grafton_visca::Connect::open_tcp_camera<P, R>(impl core::convert::Into<alloc::string::String>, R) -> grafton_visca::Result<grafton_visca::CameraSession<P>> where P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::SupportsTcp, R: grafton_visca::Runtime
 pub async fn grafton_visca::Connect::open_udp<P, R>(impl core::convert::Into<alloc::string::String>, R) -> grafton_visca::Result<grafton_visca::Session> where P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::SupportsUdp, R: grafton_visca::Runtime
+pub async fn grafton_visca::Connect::open_udp_camera<P, R>(impl core::convert::Into<alloc::string::String>, R) -> grafton_visca::Result<grafton_visca::CameraSession<P>> where P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::SupportsUdp, R: grafton_visca::Runtime
 impl core::clone::Clone for grafton_visca::Connect
 pub fn grafton_visca::Connect::clone(&self) -> grafton_visca::Connect
 impl core::fmt::Debug for grafton_visca::Connect
@@ -24541,17 +24650,24 @@ impl<'a, P> core::marker::UnsafeUnpin for grafton_visca::MenuAccessor<'a, P> whe
 impl<'a, P> !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::MenuAccessor<'a, P>
 impl<'a, P> !core::panic::unwind_safe::UnwindSafe for grafton_visca::MenuAccessor<'a, P>
 pub struct grafton_visca::MetricsSnapshot
+pub grafton_visca::MetricsSnapshot::ack_timeouts: u64
 pub grafton_visca::MetricsSnapshot::active: usize
 pub grafton_visca::MetricsSnapshot::admission_rejected: u64
 pub grafton_visca::MetricsSnapshot::admitted: u64
+pub grafton_visca::MetricsSnapshot::busy_errors: u64
 pub grafton_visca::MetricsSnapshot::cache_updates: u64
 pub grafton_visca::MetricsSnapshot::cancellations: u64
+pub grafton_visca::MetricsSnapshot::completion_timeouts: u64
 pub grafton_visca::MetricsSnapshot::dropped_applied_events: u64
 pub grafton_visca::MetricsSnapshot::dropped_boundary_work: u64
 pub grafton_visca::MetricsSnapshot::dropped_diagnostic_events: u64
 pub grafton_visca::MetricsSnapshot::dropped_diagnostics: u64
 pub grafton_visca::MetricsSnapshot::dropped_observer_events: u64
+pub grafton_visca::MetricsSnapshot::ignored_unmatched_sequenced_replies: u64
+pub grafton_visca::MetricsSnapshot::inquiry_timeouts: u64
 pub grafton_visca::MetricsSnapshot::pending: usize
+pub grafton_visca::MetricsSnapshot::protocol_errors: u64
+pub grafton_visca::MetricsSnapshot::retries_scheduled: u64
 pub grafton_visca::MetricsSnapshot::session: grafton_visca::observability::SessionStatus
 pub grafton_visca::MetricsSnapshot::terminal: u64
 pub grafton_visca::MetricsSnapshot::write_failures: u64

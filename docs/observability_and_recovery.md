@@ -17,6 +17,13 @@ without granting control over the protocol engine.
 | `terminal` | Requests reaching a terminal outcome. |
 | `cancellations` | Cancellation requests observed by the owner. |
 | `cache_updates` | Exact applied-state effects committed to a target cache. |
+| `ack_timeouts` | Acknowledgement deadlines that expired on a sent command. |
+| `completion_timeouts` | Completion deadlines that expired on an acknowledged command. |
+| `inquiry_timeouts` | Reply deadlines that expired on a sent inquiry. |
+| `busy_errors` | Error frames saying the camera cannot accept the request now. |
+| `protocol_errors` | Every other error frame, excluding the cancellation reply. |
+| `retries_scheduled` | Requests re-queued for another attempt, for any reason. |
+| `ignored_unmatched_sequenced_replies` | Sequenced replies matching no request. |
 | `dropped_diagnostics` | Events evicted from the owner diagnostic ring. |
 | `dropped_diagnostic_events` | Events dropped because a subscriber queue was full. |
 | `dropped_observer_events` | Completion-observer events dropped after receiver loss. |
@@ -30,6 +37,15 @@ The counter fields saturate at `u64::MAX`; queue and active counts remain
 bounded by owner policy. `metrics()` is a separate bounded control request and
 does not clone the diagnostic ring, subscriber queues, wire buffers, or state
 registry.
+
+`busy_errors` counts the codes the scheduler itself treats as transient
+camera-side backpressure — command buffer full (`0x03`), no socket (`0x05`),
+and not executable in the current state (`0x41`). The cancellation reply
+(`0x04`) is an answer rather than a fault and is counted in neither error
+bucket. Both error counters count frames as the owner decodes them, so a
+camera answering requests the engine can no longer correlate still shows up.
+`retries_scheduled` counts wherever the engine emits a retry — a busy camera,
+an expired deadline, or a transient receive fault all count the same.
 
 ## Diagnostics
 
@@ -86,6 +102,55 @@ commit does not depend on an observer remaining attached. Preparing a command,
 an ACK alone, a failed write, a timeout, or a pre-ACK error does not change the
 cache. A fresh session starts every target at `Unknown`; target 1 and target 2
 views never read or mutate each other's entries.
+
+## What is retried, and for how long
+
+Every retry class except `RetryClass::Never` replays a lost ACK, a post-ACK
+completion timeout, and a camera reporting a full command buffer (`0x03`) or no
+free socket (`0x05`). `0x41` (`CommandNotExecutable`) is the one answer whose
+retryability depends on the class: it is transient for movement and preset
+work, where the camera is reporting a state that passes, and terminal
+everywhere else, where it is the camera's verdict on the command.
+
+How many attempts a request gets is derived from its *timeout* category, not
+its retry class: quick and inquiry work gets two attempts more than the
+configured base, network work one fewer, and a long-running command exactly
+one. `OperationalTuning::retry_limit` sets that base.
+
+Two bounds stop a request retrying. Its attempt budget above, and a wall-clock
+budget counted from admission — ten seconds, or twice the request's own
+governing deadline where that is longer, so one further full-length attempt
+always fits. Whichever is reached first produces the terminal error, and a
+request that runs out of wall-clock time reports the error that caused its last
+retry rather than an incidental later timeout.
+
+Backoff doubles from the initial delay up to `maximum_backoff`, with the
+exponent additionally capped at five for a lost ACK: a camera that has not even
+accepted a frame should not inherit a ceiling raised to accommodate slow
+completions. Each wait is then drawn from the equal-jitter band
+`[ceiling / 2, ceiling]`, so two commands that time out on the same instant do
+not retry on the same instant. That draw is a pure function of the engine's
+seed, the request identity and the attempt number: it never reads the clock or
+process entropy, so a replayed input sequence produces identical scheduling.
+
+## Transient transport faults are not session death
+
+Not every transport failure ends a session. A receive that fails without
+proving the connection is gone — the classic case is a UDP `recv` reporting
+ECONNREFUSED after an ICMP port-unreachable for an earlier datagram — retries
+every command still waiting for its ACK under that command's own bounded retry
+policy and leaves the session running. Only a read that proves the connection
+is gone (`ConnectionClosed`, or an `Io` failure whose kind is `ConnectionReset`,
+`ConnectionAborted`, `BrokenPipe`, `UnexpectedEof`, or `NotConnected`) ends the
+session, and it ends it as a close: a failed read consumes nothing and so
+cannot desynchronize framing.
+
+Writes are classified by transport instead. A failed datagram write fails
+exactly one request, with its own transport error, and the session continues. A
+failed stream write poisons the session: no transport trait in this crate
+reports how many bytes of a frame reached the wire, so a partial write must be
+assumed and the byte-stream position treated as unknowable. The exact transport
+cause is carried in the `StreamPoisoned` reason.
 
 ## Fresh-session poison recovery
 

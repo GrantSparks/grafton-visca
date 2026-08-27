@@ -355,7 +355,14 @@ impl OperationalTuning {
         self
     }
 
-    /// Overrides the bounded retry count.
+    /// Overrides the base bounded retry count.
+    ///
+    /// Each request's own budget is derived from this base by its timeout
+    /// category: quick and inquiry work gets two more attempts, network work
+    /// one fewer, and a long-running command exactly one, so the effective
+    /// count is not always the number given here. A request whose retry class
+    /// is [`RetryClass::Never`](crate::RetryClass::Never) is never replayed
+    /// regardless of this value.
     #[must_use]
     pub const fn retry_limit(mut self, maximum: u32) -> Self {
         self.retry_limit = Some(maximum);
