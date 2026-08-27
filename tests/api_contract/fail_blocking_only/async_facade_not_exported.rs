@@ -5,3 +5,6 @@ fn main() {
     let _: Option<Session> = None;
     let _: Option<Operation<grafton_visca::completion::AppliedOnly>> = None;
 }
+
+//~ E0432
+//~ "unresolved imports `grafton_visca::Camera`"

@@ -9,3 +9,5 @@ async fn ignore_dyn_operation_handle(pan_tilt: &dyn DynPanTilt) {
 fn main() {
     let _ = ignore_dyn_operation_handle;
 }
+
+//~ "unused `DynTargetedOperation` that must be used"

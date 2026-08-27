@@ -24,3 +24,6 @@ fn requires_operation<O: OperationCommand<Targeted>>(_: O) {}
 fn main() {
     requires_operation(MissingAffectedAxes);
 }
+
+//~ E0277
+//~ "the trait bound `MissingAffectedAxes: OperationCommand<grafton_visca::completion::Targeted>` is not satisfied"

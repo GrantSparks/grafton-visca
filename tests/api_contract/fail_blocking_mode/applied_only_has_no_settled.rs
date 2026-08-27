@@ -7,3 +7,6 @@ fn invalid(handle: Operation<'static, AppliedOnly>) {
 fn main() {
     let _ = invalid;
 }
+
+//~ E0599
+//~ "named `settled` found for struct"

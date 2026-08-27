@@ -5,3 +5,6 @@ async fn invalid(handle: DynAppliedOperation) {
 }
 
 fn main() {}
+
+//~ E0599
+//~ "named `settled` found for struct"
