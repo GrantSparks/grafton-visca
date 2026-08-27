@@ -391,6 +391,40 @@ destination.
 
 ### Fixed
 
+- **The noun parity gate now catches the five divergences a review demonstrated
+  it could not** (#638). `src/noun_parity.rs` compares the async, blocking and
+  dynamic noun facades against the closed ledger, and five classes of
+  cross-surface divergence were applied to the real sources, shown to pass every
+  gate, and reverted: a non-`async` public method added to an async accessor was
+  invisible because the reader keyed on the literal `pub async fn`; an
+  `impl SomeExt for XxxAccessor` added public methods no inherent-impl reader
+  sees; argument types, arity and receiver were not recorded at all, so an
+  `f32`/`f64` divergence between two facades passed; the `where` reader returned
+  on the *first* `P:` predicate, so `where P: A, P: B` silently dropped `B`; and
+  capability bounds were normalized to their terminal path segment, so a
+  blanket-implemented `shadow::HasDirectZoom` erased a capability gate. All five
+  now fail. The reader was also rewritten from column-exact needles to a
+  brace/paren-depth scanner over comment- and literal-stripped source, so legal
+  reformatting — a one-liner `accessor!` invocation, an attribute inside one, an
+  indented `impl` — no longer derails it with bogus errors, and anything the
+  scanner cannot read (a macro invocation inside an accessor impl, for instance)
+  is a hard failure rather than a silent skip. The dynamic facade carries no
+  compile-time bounds by construction; the gate now says so where it is defined
+  instead of comparing an empty set. Test-only; no public API change.
+- **Removed no-op and self-satisfying assertions from the inventory gates**
+  (#638). Several gates asserted things that could not fail: the class totals in
+  `src/command/surface.rs` were summed back to the ledger size across an
+  exhaustive match, and the noun count was added to its own complement. They are
+  replaced by a pinned class distribution and a derived check that no noun
+  method may reuse a reserved broadcast or cancellation spelling. The surface
+  files name their own accessors as string literals inside their in-file test
+  modules, so every positive `contains` gate now reads the declaration region
+  only; the `BuiltinCommand::ALL` row count is anchored on the `impl
+  BuiltinCommand` block instead of depending on being the last such slice in the
+  file; the dynamic inquiry-method count is checked against the generated
+  accessor table in `src/command/inquiry_structs.rs` rather than against the
+  file declaring it; and the dead `EXPECTED_CONTROL_TRAITS` table and
+  `macro_and_struct_names` helper are gone.
 - Corrected the shipped documentation against the real 2.0 API (#639). The
   docs.rs front page carried 1.x shapes: `TimeoutConfig` and `MotionQuery`
   imported from the crate root, `is_moving(query)` on a method that takes no
