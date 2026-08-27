@@ -27,11 +27,111 @@ use super::{
     OwnerPolicy, OwnerState, ReceiptCore, RequestId, RuntimeOutcome, RuntimeRequest, SessionState,
     ShutdownReason, TargetStateCache, TransmissionMeta, WaitSelection, WireWrite,
 };
-use crate::runtime::engine::{Effect, TransportKind};
+use crate::runtime::engine::{Effect, IgnoreReason, TransportKind};
 
-/// Pause applied after a transient receive fault so a transport that fails
-/// immediately cannot spin the actor. 1.x used the same bound.
+/// Pause applied after the first transient receive fault so a transport that
+/// fails immediately cannot spin the actor. 1.x used the same bound.
 const TRANSIENT_RECEIVE_PAUSE: Duration = Duration::from_millis(10);
+
+/// Ceiling on the escalating transient-fault pause.
+const MAXIMUM_TRANSIENT_RECEIVE_PAUSE: Duration = Duration::from_millis(250);
+
+/// Consecutive transient receive faults, with no successful read between them,
+/// after which the session ends with the underlying transport error.
+///
+/// A read that fails immediately and repeatedly is not a transient fault, it is
+/// a broken transport wearing one. The escalating pause spreads this many
+/// faults over roughly two seconds (10 + 20 + 40 + 80 + 160 ms, then 250 ms
+/// each), and [`TRANSIENT_RECEIVE_FAULT_SPAN`] holds that floor even when the
+/// pause is clamped away by a due deadline.
+const TRANSIENT_RECEIVE_FAULT_LIMIT: u32 = 12;
+
+/// Minimum wall-clock length of a fault run before it can end the session.
+const TRANSIENT_RECEIVE_FAULT_SPAN: Duration = Duration::from_secs(1);
+
+/// A gap this long between two transient faults proves the transport recovered
+/// in between, so the run starts over rather than accumulating over hours.
+const TRANSIENT_RECEIVE_FAULT_RESET: Duration = Duration::from_secs(5);
+
+/// Consecutive turns the receive branch may win before the boundary channels
+/// get one turn of priority.
+///
+/// #542 makes receive the left-biased winner when several sources are ready at
+/// once, which is the right answer for a transport delivering frames. It is the
+/// wrong answer for a transport that is *always* ready — one failing on every
+/// read, or flooding — because shutdown, cancellation, admission and control
+/// would then never be polled at all (#625). Every fault or empty read yields
+/// the next turn outright; this bound covers the flooding case as well.
+const RECEIVE_PRIORITY_TURNS: u32 = 8;
+
+/// Clamp a transient pause so it can never push a due scheduler deadline past
+/// its wake, mirroring the blocking owner's clamp to its caller's deadline.
+fn clamp_transient_pause(pause: Duration, next_wake: Option<Instant>, now: Instant) -> Duration {
+    next_wake.map_or(pause, |wake| pause.min(wake.saturating_duration_since(now)))
+}
+
+/// Escalating pause for the `run`-th consecutive transient receive fault.
+fn transient_receive_pause(run: u32) -> Duration {
+    let doublings = run.saturating_sub(1).min(6);
+    TRANSIENT_RECEIVE_PAUSE
+        .saturating_mul(1u32 << doublings)
+        .min(MAXIMUM_TRANSIENT_RECEIVE_PAUSE)
+}
+
+/// One run of consecutive transient receive faults.
+#[derive(Debug, Default)]
+struct TransientFaultRun {
+    length: u32,
+    first_at: Option<Instant>,
+    last_at: Option<Instant>,
+}
+
+impl TransientFaultRun {
+    /// Record one transient fault and report the run it belongs to.
+    fn record(&mut self, at: Instant) -> (u32, Duration) {
+        let continues = self
+            .last_at
+            .is_some_and(|last| at.saturating_duration_since(last) < TRANSIENT_RECEIVE_FAULT_RESET);
+        if continues {
+            self.length = self.length.saturating_add(1);
+        } else {
+            self.length = 1;
+            self.first_at = Some(at);
+        }
+        self.last_at = Some(at);
+        let span = self
+            .first_at
+            .map_or(Duration::ZERO, |first| at.saturating_duration_since(first));
+        (self.length, span)
+    }
+
+    /// A read that produced data, or that timed out cleanly, proves the
+    /// transport is answering again.
+    fn reset(&mut self) {
+        self.length = 0;
+        self.first_at = None;
+        self.last_at = None;
+    }
+
+    /// Whether this run is long enough, and old enough, to be called permanent.
+    const fn is_permanent(length: u32, span: Duration) -> bool {
+        length >= TRANSIENT_RECEIVE_FAULT_LIMIT
+            && span.as_nanos() >= TRANSIENT_RECEIVE_FAULT_SPAN.as_nanos()
+    }
+}
+
+/// What one actor turn asks of the next one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TurnOutcome {
+    /// Keep running with the normative #542 receive-first readiness order.
+    Continue,
+    /// Keep running, but poll the boundary channels before receive on the next
+    /// turn: this turn's receive produced no frames, so an always-ready
+    /// transport must not be allowed to win again first (#625).
+    Yield,
+    /// The session is over.
+    Stop,
+}
 
 trait OwnerClock: Send + Sync + 'static {
     fn now(&self) -> Instant;
@@ -88,6 +188,11 @@ pub(crate) enum AsyncReceive {
     /// source order. An empty batch means the chunk only advanced a partially
     /// received frame; the transport is still open.
     Frames(Vec<DecodedFrame>),
+    /// The read reported that no bytes arrived — an expired idle read timeout,
+    /// which is how a custom transport implements a non-blocking read. Nothing
+    /// was consumed and nothing failed: the owner keeps the session, keeps the
+    /// framing state, and does not touch any request's retry budget (#625).
+    NoData,
     /// The transport read itself failed and consumed nothing, so framing state
     /// is intact. The owner classifies the error: a transient fault retries
     /// in-flight work and keeps the session, a fatal one ends it.
@@ -641,6 +746,9 @@ pub(crate) struct AsyncOwnerHandle {
     cancellations: flume::Sender<CancellationBoundary>,
     control: flume::Sender<ControlBoundary>,
     shutdown: flume::Sender<()>,
+    /// Disconnects when the actor task ends. Nothing is ever sent on it; see
+    /// [`AsyncOwnerHandle::await_boundary_reply`].
+    actor_alive: flume::Receiver<()>,
     shutdown_requested: Arc<AtomicBool>,
     terminal_error: Arc<Mutex<Option<Error>>>,
     origin: Arc<()>,
@@ -649,6 +757,38 @@ pub(crate) struct AsyncOwnerHandle {
 }
 
 impl AsyncOwnerHandle {
+    /// Await one boundary reply, or the actor's disappearance, whichever
+    /// happens first.
+    ///
+    /// #626: `run` answers every boundary message its final drain can still
+    /// see, then drops its receivers. A message that reaches a queue between
+    /// that drain and that drop is stranded — this handle's own sender keeps
+    /// flume's queue alive, and with it the reply sender embedded in the
+    /// stranded message, so waiting on the reply alone never disconnects and
+    /// never returns. The actor's liveness sender drops as `run` returns, which
+    /// resolves that wait with the session's terminal error instead.
+    ///
+    /// The reply is polled first, and re-checked once the actor is gone, so a
+    /// message the drain *did* answer still returns its real answer.
+    async fn await_boundary_reply<T>(&self, reply: &flume::Receiver<T>) -> Result<T, Error>
+    where
+        T: Send,
+    {
+        let answered = async {
+            reply
+                .recv_async()
+                .await
+                .map_err(|_| self.disconnected_error())
+        };
+        let actor_gone = async {
+            // Nobody ever sends on this lane, so this resolves exactly once,
+            // when the actor task drops its end.
+            while self.actor_alive.recv_async().await.is_ok() {}
+            reply.try_recv().map_err(|_| self.disconnected_error())
+        };
+        future::or(answered, actor_gone).await
+    }
+
     pub(crate) fn now(&self) -> Instant {
         self.clock.now()
     }
@@ -753,7 +893,7 @@ impl AsyncOwnerHandle {
     ) -> Result<ReceiptCore, Error> {
         let target = request.context().target;
         let (completion, admission) = self.enqueue_admission(request)?;
-        match admission.recv_async().await {
+        match self.await_boundary_reply(&admission).await {
             Ok(Ok(id)) => Ok(ReceiptCore::new(
                 id,
                 target,
@@ -761,8 +901,7 @@ impl AsyncOwnerHandle {
                 configured_timeout,
                 Arc::clone(&self.origin),
             )),
-            Ok(Err(error)) => Err(error),
-            Err(_) => Err(self.disconnected_error()),
+            Ok(Err(error)) | Err(error) => Err(error),
         }
     }
 
@@ -779,9 +918,9 @@ impl AsyncOwnerHandle {
         let (completion, admission) = self.enqueue_admission(request)?;
         let remaining = deadline.saturating_duration_since(self.clock.now());
         let admitted = async {
-            match admission.recv_async().await {
+            match self.await_boundary_reply(&admission).await {
                 Ok(result) => result,
-                Err(_) => Err(self.disconnected_error()),
+                Err(error) => Err(error),
             }
         };
         let timed_out = async {
@@ -813,7 +952,7 @@ impl AsyncOwnerHandle {
         };
         let (completion, admission) = self.enqueue_admission(request)?;
         Ok(async move {
-            match admission.recv_async().await {
+            match self.await_boundary_reply(&admission).await {
                 Ok(Ok(id)) => Ok(ReceiptCore::new(
                     id,
                     target,
@@ -821,8 +960,7 @@ impl AsyncOwnerHandle {
                     configured_timeout,
                     Arc::clone(&self.origin),
                 )),
-                Ok(Err(error)) => Err(error),
-                Err(_) => Err(self.disconnected_error()),
+                Ok(Err(error)) | Err(error) => Err(error),
             }
         })
     }
@@ -845,10 +983,8 @@ impl AsyncOwnerHandle {
             .send_async(CancellationBoundary { receipt, reply })
             .await
             .map_err(|_| self.disconnected_error())?;
-        receiver
-            .recv_async()
-            .await
-            .map_err(|_| self.disconnected_error())?
+        self.await_boundary_reply(&receiver)
+            .await?
             .map(|core| AsyncCancellationReceipt { core })
     }
 
@@ -866,10 +1002,7 @@ impl AsyncOwnerHandle {
             .send_async(ControlBoundary::Snapshot(reply))
             .await
             .map_err(|_| self.disconnected_error())?;
-        receiver
-            .recv_async()
-            .await
-            .map_err(|_| self.disconnected_error())
+        self.await_boundary_reply(&receiver).await
     }
 
     /// Reads scalar owner metrics through a dedicated bounded control request.
@@ -880,10 +1013,7 @@ impl AsyncOwnerHandle {
             .send_async(ControlBoundary::Metrics(reply))
             .await
             .map_err(|_| self.disconnected_error())?;
-        receiver
-            .recv_async()
-            .await
-            .map_err(|_| self.disconnected_error())?
+        self.await_boundary_reply(&receiver).await?
     }
 
     pub(crate) fn state_cache(&self, target: crate::CameraId) -> crate::state_cache::StateCache {
@@ -904,10 +1034,7 @@ impl AsyncOwnerHandle {
             })
             .await
             .map_err(|_| self.disconnected_error())?;
-        receiver
-            .recv_async()
-            .await
-            .map_err(|_| self.disconnected_error())?
+        self.await_boundary_reply(&receiver).await?
     }
 
     pub(crate) async fn subscribe_diagnostics(
@@ -919,10 +1046,7 @@ impl AsyncOwnerHandle {
             .send_async(ControlBoundary::SubscribeDiagnostics { capacity, reply })
             .await
             .map_err(|_| self.disconnected_error())?;
-        receiver
-            .recv_async()
-            .await
-            .map_err(|_| self.disconnected_error())?
+        self.await_boundary_reply(&receiver).await?
     }
 
     /// Coalesced idempotent shutdown. Only the winning caller occupies the
@@ -996,7 +1120,11 @@ where
     cancellations: flume::Receiver<CancellationBoundary>,
     control: flume::Receiver<ControlBoundary>,
     shutdown: flume::Receiver<()>,
+    /// Dropped as `run` returns, disconnecting every handle's `actor_alive`
+    /// receiver. Nothing is ever sent on it (#626).
+    alive: flume::Sender<()>,
     terminal_error: Arc<Mutex<Option<Error>>>,
+    faults: TransientFaultRun,
     runtime: Arc<R>,
 }
 
@@ -1021,6 +1149,7 @@ where
         let (cancellation_tx, cancellations) = flume::bounded(cancellation_capacity);
         let (control_tx, control) = flume::bounded(control_capacity);
         let (shutdown_tx, shutdown) = flume::bounded(1);
+        let (alive, actor_alive) = flume::bounded(1);
         let shutdown_requested = Arc::new(AtomicBool::new(false));
         let terminal_error = Arc::new(Mutex::new(None));
         Ok((
@@ -1030,6 +1159,7 @@ where
                 cancellations: cancellation_tx,
                 control: control_tx,
                 shutdown: shutdown_tx,
+                actor_alive,
                 shutdown_requested,
                 terminal_error: Arc::clone(&terminal_error),
                 origin,
@@ -1042,7 +1172,9 @@ where
                 cancellations,
                 control,
                 shutdown,
+                alive,
                 terminal_error,
+                faults: TransientFaultRun::default(),
                 runtime,
             },
         ))
@@ -1057,10 +1189,17 @@ where
         D: AsyncOwnerDriver,
     {
         let runtime = Arc::clone(&self.runtime);
+        // Fairness state for the readiness race. `boundaries_first` is set by
+        // any turn whose receive produced no frames, and by a long enough run
+        // of receive wins; it guarantees that shutdown, cancellation, admission
+        // and control are polled before receive can win again (#625).
+        let mut yielded = false;
+        let mut receive_streak = 0u32;
         loop {
             if self.state.state() != SessionState::Running {
                 break;
             }
+            let boundaries_first = yielded || receive_streak >= RECEIVE_PRIORITY_TURNS;
 
             let wake_duration = self
                 .state
@@ -1103,24 +1242,35 @@ where
                     Executor::sleep(runtime.as_ref(), wake_duration).await;
                     ActorEvent::Wake
                 };
-                future::or(
-                    receive,
+                let boundaries = future::or(
+                    shutdown,
                     future::or(
-                        shutdown,
-                        future::or(
-                            cancellation,
-                            future::or(admission, future::or(control, wake)),
-                        ),
+                        cancellation,
+                        future::or(admission, future::or(control, wake)),
                     ),
-                )
-                .await
+                );
+                if boundaries_first {
+                    future::or(boundaries, receive).await
+                } else {
+                    future::or(receive, boundaries).await
+                }
             };
 
-            if self
+            // A boundary-first turn discharges the fairness obligation whoever
+            // won it, so the streak restarts either way.
+            receive_streak = if boundaries_first || !matches!(event, ActorEvent::Receive { .. }) {
+                0
+            } else {
+                receive_streak.saturating_add(1)
+            };
+
+            match self
                 .handle_event(event, &mut driver, runtime.as_ref())
                 .await
             {
-                break;
+                TurnOutcome::Stop => break,
+                TurnOutcome::Yield => yielded = true,
+                TurnOutcome::Continue => yielded = false,
             }
         }
         let boundary_error = self
@@ -1132,10 +1282,21 @@ where
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(boundary_error.clone());
         self.drain_boundaries(boundary_error);
-        self.snapshot_now()
+        let snapshot = self.snapshot_now();
+        // #626: every reply the drain could produce is queued by now, so
+        // disconnecting the liveness lane is safe and is what releases a
+        // boundary request that raced this teardown. The boundary receivers
+        // themselves drop with `self` immediately afterwards.
+        drop(self.alive);
+        snapshot
     }
 
-    async fn handle_event<D>(&mut self, event: ActorEvent, driver: &mut D, runtime: &R) -> bool
+    async fn handle_event<D>(
+        &mut self,
+        event: ActorEvent,
+        driver: &mut D,
+        runtime: &R,
+    ) -> TurnOutcome
     where
         D: AsyncOwnerDriver,
     {
@@ -1143,29 +1304,29 @@ where
             ActorEvent::Shutdown => {
                 self.terminate(driver, runtime, ShutdownReason::Explicit)
                     .await;
-                true
+                TurnOutcome::Stop
             }
             ActorEvent::Cancellation(cancel) => {
                 self.handle_cancellation(cancel, driver, runtime).await;
-                false
+                TurnOutcome::Continue
             }
             ActorEvent::Control(control) => {
                 self.handle_control(control);
-                false
+                TurnOutcome::Continue
             }
             ActorEvent::Admission(Ok(admission)) => {
                 self.handle_admission(admission, driver, runtime).await;
-                false
+                TurnOutcome::Continue
             }
             ActorEvent::Admission(Err(_)) => {
                 self.terminate(driver, runtime, ShutdownReason::Explicit)
                     .await;
-                true
+                TurnOutcome::Stop
             }
             ActorEvent::Wake => {
                 let effects = self.state.advance(Executor::now(runtime));
                 self.drive(driver, effects, runtime).await;
-                false
+                TurnOutcome::Continue
             }
             ActorEvent::Receive {
                 result: Ok(AsyncReceive::Closed),
@@ -1178,29 +1339,34 @@ where
                     received_at,
                 )
                 .await;
-                true
+                TurnOutcome::Stop
+            }
+            ActorEvent::Receive {
+                result: Ok(AsyncReceive::NoData),
+                ..
+            } => {
+                // An expired idle read timeout is not a fault: nothing was
+                // consumed, nothing failed, and no request's retry budget is
+                // touched. It is also not progress, so the boundary channels
+                // get the next turn (#625).
+                self.faults.reset();
+                TurnOutcome::Yield
             }
             ActorEvent::Receive {
                 result: Ok(AsyncReceive::Frames(frames)),
                 received_at,
             } => {
+                self.faults.reset();
                 if let Err(error) = self.state.validate_frame_batch(&frames) {
-                    self.terminate_at(
-                        driver,
-                        runtime,
-                        ShutdownReason::FramingFailure {
-                            reason: error.to_string().into_boxed_str(),
-                        },
-                        received_at,
-                    )
-                    .await;
-                    return true;
+                    return self
+                        .discard_undecodable_receive(driver, runtime, &error, received_at)
+                        .await;
                 }
                 if frames.is_empty() {
                     // The read carried bytes that did not finish a frame. The
                     // framer holds the partial frame; keep pumping so the rest
                     // of it can arrive in a later read.
-                    return false;
+                    return TurnOutcome::Yield;
                 }
                 let turn = self.state.begin_input_turn(received_at);
                 for frame in frames {
@@ -1209,12 +1375,19 @@ where
                 }
                 let due = self.state.finish_input_turn(turn);
                 self.drive(driver, due, runtime).await;
-                false
+                TurnOutcome::Continue
             }
             ActorEvent::Receive {
                 result: Ok(AsyncReceive::Fault(error)),
                 received_at,
             } => {
+                if super::receive_reported_no_data(&error) {
+                    // A driver that reports an idle timeout as a fault still
+                    // means "no bytes arrived". Normalizing here as well as at
+                    // the adapter keeps every driver on one contract (#637).
+                    self.faults.reset();
+                    return TurnOutcome::Yield;
+                }
                 if !super::receive_fault_is_transient(&error) {
                     self.terminate_at(
                         driver,
@@ -1225,33 +1398,87 @@ where
                         received_at,
                     )
                     .await;
-                    return true;
+                    return TurnOutcome::Stop;
+                }
+                let (length, span) = self.faults.record(received_at);
+                if TransientFaultRun::is_permanent(length, span) {
+                    // A read that has failed this many times in a row, over
+                    // this long, is a broken transport rather than a transient
+                    // fault. End the session with the cause rather than
+                    // retrying against it forever (#625).
+                    self.terminate_at(
+                        driver,
+                        runtime,
+                        ShutdownReason::TransportClosed {
+                            reason: Some(
+                                format!("{length} consecutive receive faults: {error}")
+                                    .into_boxed_str(),
+                            ),
+                        },
+                        received_at,
+                    )
+                    .await;
+                    return TurnOutcome::Stop;
                 }
                 // 1.x parity: retry every command still waiting for its ACK and
                 // keep the session. The pause mirrors 1.x's own guard against
-                // hot-looping on a transport that fails immediately.
+                // hot-looping on a transport that fails immediately; it grows
+                // with the run, and is clamped to the next scheduler deadline
+                // exactly as the blocking owner clamps to its caller's.
                 let effects = self.state.input(Input::ReceiveFault { error }, received_at);
                 self.drive(driver, effects, runtime).await;
-                Executor::sleep(runtime, TRANSIENT_RECEIVE_PAUSE).await;
-                false
+                let pause = clamp_transient_pause(
+                    transient_receive_pause(length),
+                    self.state.next_wake(),
+                    Executor::now(runtime),
+                );
+                if !pause.is_zero() {
+                    Executor::sleep(runtime, pause).await;
+                }
+                TurnOutcome::Yield
             }
             ActorEvent::Receive {
                 result: Err(error),
                 received_at,
             } => {
-                let reason = error.to_string().into_boxed_str();
-                let shutdown = if self.state.policy().protocol.transport == TransportKind::Stream {
-                    ShutdownReason::FramingFailure { reason }
-                } else {
-                    ShutdownReason::TransportClosed {
-                        reason: Some(reason),
-                    }
-                };
-                self.terminate_at(driver, runtime, shutdown, received_at)
-                    .await;
-                true
+                self.discard_undecodable_receive(driver, runtime, &error, received_at)
+                    .await
             }
         }
+    }
+
+    /// Handle bytes that were consumed but did not decode.
+    ///
+    /// On a byte stream the position is now unknowable, so the session is
+    /// poisoned. On a datagram transport it is one bad datagram: nothing else
+    /// was consumed, the next datagram frames independently, and the blocking
+    /// owner has always failed this per request and kept pumping (#637).
+    async fn discard_undecodable_receive<D>(
+        &mut self,
+        driver: &mut D,
+        runtime: &R,
+        error: &Error,
+        received_at: Instant,
+    ) -> TurnOutcome
+    where
+        D: AsyncOwnerDriver,
+    {
+        if self.state.policy().protocol.transport != TransportKind::Stream {
+            let _ = self
+                .state
+                .apply_effect(Effect::Ignored(IgnoreReason::MalformedFrame));
+            return TurnOutcome::Yield;
+        }
+        self.terminate_at(
+            driver,
+            runtime,
+            ShutdownReason::FramingFailure {
+                reason: error.to_string().into_boxed_str(),
+            },
+            received_at,
+        )
+        .await;
+        TurnOutcome::Stop
     }
 
     async fn handle_admission<D>(
@@ -1389,40 +1616,53 @@ where
         }
     }
 
+    /// Answer every queued boundary message with the session's terminal error.
+    ///
+    /// The lanes are drained repeatedly until one whole pass finds all three
+    /// empty, because a caller can enqueue on a lane that was already visited
+    /// while a later one is still being drained (#626). The residual window
+    /// between the last pass and the actor dropping its receivers is closed by
+    /// the liveness lane, not here.
     fn drain_boundaries(&mut self, error: Error) {
         let mut dropped = 0usize;
-        while let Ok(admission) = self.admissions.try_recv() {
-            let _ = admission.reply.try_send(Err(error.clone()));
-            drop(admission);
-            dropped = dropped.saturating_add(1);
-        }
-        while let Ok(cancel) = self.cancellations.try_recv() {
-            let buffered = cancel.receipt.completion.try_recv();
-            let result = match buffered {
-                Some(observation) => {
-                    Ok(cancellation_receipt_for(cancel.receipt, Some(observation)))
-                }
-                None => Err(error.clone()),
-            };
-            let _ = cancel.reply.try_send(result);
-            dropped = dropped.saturating_add(1);
-        }
-        while let Ok(control) = self.control.try_recv() {
-            match control {
-                ControlBoundary::Snapshot(reply) => {
-                    let _ = reply.try_send(self.snapshot_now());
-                }
-                ControlBoundary::Metrics(reply) => {
-                    let _ = reply.try_send(Err(error.clone()));
-                }
-                ControlBoundary::Subscribe { reply, .. } => {
-                    let _ = reply.try_send(Err(error.clone()));
-                }
-                ControlBoundary::SubscribeDiagnostics { reply, .. } => {
-                    let _ = reply.try_send(Err(error.clone()));
-                }
+        loop {
+            let before = dropped;
+            while let Ok(admission) = self.admissions.try_recv() {
+                let _ = admission.reply.try_send(Err(error.clone()));
+                drop(admission);
+                dropped = dropped.saturating_add(1);
             }
-            dropped = dropped.saturating_add(1);
+            while let Ok(cancel) = self.cancellations.try_recv() {
+                let buffered = cancel.receipt.completion.try_recv();
+                let result = match buffered {
+                    Some(observation) => {
+                        Ok(cancellation_receipt_for(cancel.receipt, Some(observation)))
+                    }
+                    None => Err(error.clone()),
+                };
+                let _ = cancel.reply.try_send(result);
+                dropped = dropped.saturating_add(1);
+            }
+            while let Ok(control) = self.control.try_recv() {
+                match control {
+                    ControlBoundary::Snapshot(reply) => {
+                        let _ = reply.try_send(self.snapshot_now());
+                    }
+                    ControlBoundary::Metrics(reply) => {
+                        let _ = reply.try_send(Err(error.clone()));
+                    }
+                    ControlBoundary::Subscribe { reply, .. } => {
+                        let _ = reply.try_send(Err(error.clone()));
+                    }
+                    ControlBoundary::SubscribeDiagnostics { reply, .. } => {
+                        let _ = reply.try_send(Err(error.clone()));
+                    }
+                }
+                dropped = dropped.saturating_add(1);
+            }
+            if dropped == before {
+                break;
+            }
         }
         self.state.fail_unstaged_boundary(dropped);
     }
@@ -2715,5 +2955,664 @@ mod tests {
             assert_eq!(snapshot.state, SessionState::Shutdown);
             assert_eq!(snapshot.active, 0);
         });
+    }
+
+    // ---------------------------------------------------------------------
+    // #625: a repeatedly-failing transport must not livelock the actor.
+    // ---------------------------------------------------------------------
+
+    /// A driver whose read always fails immediately, so the receive branch of
+    /// the event race is permanently ready. This is the shape a disconnected
+    /// USB-serial adapter has: `EIO`/`ENXIO` surface as `ErrorKind::Other`,
+    /// which classifies as a transient fault.
+    #[derive(Debug)]
+    struct AlwaysFailingReceive {
+        reads: Arc<std::sync::atomic::AtomicUsize>,
+    }
+
+    impl AsyncOwnerDriver for AlwaysFailingReceive {
+        // The private driver trait requires an explicitly `Send` future.
+        #[allow(clippy::manual_async_fn)]
+        fn write(
+            &mut self,
+            _write: WireWrite<'_>,
+        ) -> impl Future<Output = Result<TransmissionMeta, Error>> + Send {
+            async { Ok(TransmissionMeta { sequence: None }) }
+        }
+
+        fn receive(
+            &mut self,
+            _buffers: &mut super::super::OwnerBuffers,
+            _frame_limit: usize,
+        ) -> impl Future<Output = Result<AsyncReceive, Error>> + Send {
+            self.reads.fetch_add(1, Ordering::Relaxed);
+            async {
+                Ok(AsyncReceive::Fault(Error::Io(Arc::new(
+                    std::io::Error::other("simulated adapter unplugged"),
+                ))))
+            }
+        }
+    }
+
+    /// Issue #625. A transport that fails every read keeps the receive branch
+    /// of the left-biased race permanently ready. Before the fix that starved
+    /// shutdown, admissions, cancellations and control forever: `submit` never
+    /// returned, `shutdown` only queued a message nobody read, and the actor
+    /// kept reading hundreds of times a second with the session unkillable.
+    #[cfg(feature = "runtime-tokio")]
+    #[tokio::test]
+    async fn a_transport_failing_every_read_still_serves_the_boundary() {
+        let runtime = TokioRuntime::from_current().unwrap();
+        let (handle, actor) = AsyncOwnerActor::new(policy(2), runtime).unwrap();
+        let reads = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let actor_task = tokio::spawn(actor.run(AlwaysFailingReceive {
+            reads: Arc::clone(&reads),
+        }));
+
+        // Admission is polled even though the transport is always ready.
+        let receipt = tokio::time::timeout(Duration::from_secs(5), handle.submit(command()))
+            .await
+            .expect("admission must not be starved by a failing transport")
+            .unwrap();
+        drop(receipt);
+        // So is ordinary control.
+        let metrics = tokio::time::timeout(Duration::from_secs(5), handle.metrics())
+            .await
+            .expect("control must not be starved by a failing transport")
+            .unwrap();
+        assert_eq!(
+            metrics.session,
+            crate::observability::SessionStatus::Running
+        );
+
+        // And so is shutdown: the session is killable.
+        tokio::time::timeout(Duration::from_secs(5), handle.shutdown())
+            .await
+            .expect("shutdown must not be starved by a failing transport")
+            .unwrap();
+        let snapshot = tokio::time::timeout(Duration::from_secs(5), actor_task)
+            .await
+            .expect("the actor task must tear down within a bound")
+            .unwrap();
+        assert_eq!(snapshot.state, SessionState::Shutdown);
+        assert!(
+            reads.load(Ordering::Relaxed) < 500,
+            "the escalating pause must stop the actor hot-looping on a failing read"
+        );
+    }
+
+    /// The same guarantee on the other executor: the actor is executor-generic
+    /// and the fairness fix lives in its event race, not in tokio.
+    #[cfg(feature = "runtime-smol")]
+    #[test]
+    fn smol_transport_failing_every_read_still_serves_the_boundary() {
+        smol::block_on(async {
+            let runtime = SmolRuntime::new();
+            let (handle, actor) = AsyncOwnerActor::new(policy(2), runtime).unwrap();
+            let reads = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+            let task = smol::spawn(actor.run(AlwaysFailingReceive {
+                reads: Arc::clone(&reads),
+            }));
+
+            let receipt = handle.submit(command()).await.unwrap();
+            drop(receipt);
+            assert_eq!(
+                handle.snapshot().await.unwrap().state,
+                SessionState::Running
+            );
+            handle.shutdown().await.unwrap();
+            assert_eq!(task.await.state, SessionState::Shutdown);
+        });
+    }
+
+    /// Issue #625. A transport that never recovers is not transient. The run
+    /// escalates its pause and then ends the session with the underlying cause,
+    /// rather than retrying against a dead adapter for the process lifetime.
+    #[cfg(feature = "runtime-tokio")]
+    #[tokio::test]
+    async fn a_permanently_failing_transport_eventually_ends_the_session() {
+        let runtime = TokioRuntime::from_current().unwrap();
+        let (handle, actor) = AsyncOwnerActor::new(policy(1), runtime).unwrap();
+        let reads = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let snapshot = tokio::time::timeout(
+            Duration::from_secs(30),
+            actor.run(AlwaysFailingReceive {
+                reads: Arc::clone(&reads),
+            }),
+        )
+        .await
+        .expect("a permanently failing transport must terminate the session");
+
+        assert_eq!(snapshot.state, SessionState::Closed);
+        assert!(
+            reads.load(Ordering::Relaxed)
+                >= usize::try_from(TRANSIENT_RECEIVE_FAULT_LIMIT).unwrap(),
+            "the session must survive a genuinely transient burst first"
+        );
+        let error = handle.metrics().await.unwrap_err();
+        let Error::ConnectionClosed {
+            reason: Some(reason),
+        } = error
+        else {
+            panic!("the terminal error must name the transport cause: {error:?}");
+        };
+        assert!(
+            reason.contains("consecutive receive faults"),
+            "the reason must say why the fault run stopped counting as transient: {reason}"
+        );
+    }
+
+    /// Issue #625. Genuinely transient faults still behave exactly as #620
+    /// specified: every command still awaiting its ACK is retransmitted, the
+    /// session survives, and a successful read clears the run so the next burst
+    /// starts from zero.
+    #[cfg(feature = "runtime-tokio")]
+    #[tokio::test]
+    async fn a_burst_of_transient_faults_then_recovery_keeps_the_session() {
+        let runtime = TokioRuntime::from_current().unwrap();
+        let (handle, actor) = AsyncOwnerActor::new(policy(1), runtime).unwrap();
+        let harness = harness();
+        let started = harness.started.clone();
+        let gates = harness.gates.clone();
+        let frames = harness.frames.clone();
+        let actor_task = tokio::spawn(actor.run(harness.driver));
+
+        let receipt = handle.submit(retrying_command()).await.unwrap();
+        assert_eq!(started.recv_async().await.unwrap(), receipt.id);
+        gates
+            .send_async(Ok(TransmissionMeta { sequence: None }))
+            .await
+            .unwrap();
+
+        // Two consecutive faults, each retransmitting the very same request.
+        for _ in 0..2 {
+            frames
+                .send_async(Ok(AsyncReceive::Fault(Error::TransportError(
+                    "ICMP port unreachable".into(),
+                ))))
+                .await
+                .unwrap();
+            assert_eq!(started.recv_async().await.unwrap(), receipt.id);
+            gates
+                .send_async(Ok(TransmissionMeta { sequence: None }))
+                .await
+                .unwrap();
+        }
+
+        frames
+            .send_async(batch(vec![ack(ViscaSocket::S1)]))
+            .await
+            .unwrap();
+        frames
+            .send_async(batch(vec![completion(ViscaSocket::S1)]))
+            .await
+            .unwrap();
+        assert!(matches!(
+            receipt.terminal().await.unwrap(),
+            RuntimeOutcome::Applied
+        ));
+
+        // The successful read cleared the run, so more faults are still
+        // transient and the session is still answering.
+        for _ in 0..3 {
+            frames
+                .send_async(Ok(AsyncReceive::Fault(Error::TransportError(
+                    "ICMP port unreachable".into(),
+                ))))
+                .await
+                .unwrap();
+        }
+        assert_eq!(
+            handle.snapshot().await.unwrap().state,
+            SessionState::Running
+        );
+        handle.shutdown().await.unwrap();
+        assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
+    }
+
+    /// Issue #625. An idle read timeout is no data, not a fault. A transport
+    /// with an internal read timeout — the shape the public trait documents —
+    /// must not retransmit anything, and must not starve the boundary either.
+    #[cfg(feature = "runtime-tokio")]
+    #[tokio::test]
+    async fn an_idle_read_timeout_is_not_a_receive_fault() {
+        let runtime = TokioRuntime::from_current().unwrap();
+        let (handle, actor) = AsyncOwnerActor::new(policy(1), runtime).unwrap();
+        let harness = harness();
+        let started = harness.started.clone();
+        let gates = harness.gates.clone();
+        let frames = harness.frames.clone();
+        let writes = Arc::clone(&harness.writes);
+        let actor_task = tokio::spawn(actor.run(harness.driver));
+
+        let receipt = handle.submit(retrying_command()).await.unwrap();
+        assert_eq!(started.recv_async().await.unwrap(), receipt.id);
+        gates
+            .send_async(Ok(TransmissionMeta { sequence: None }))
+            .await
+            .unwrap();
+
+        for timeout in [
+            Error::Timeout,
+            Error::Io(Arc::new(std::io::Error::from(
+                std::io::ErrorKind::WouldBlock,
+            ))),
+            Error::Io(Arc::new(std::io::Error::from(std::io::ErrorKind::TimedOut))),
+            Error::Io(Arc::new(std::io::Error::from(
+                std::io::ErrorKind::Interrupted,
+            ))),
+        ] {
+            frames
+                .send_async(Ok(AsyncReceive::Fault(timeout)))
+                .await
+                .unwrap();
+        }
+        frames.send_async(Ok(AsyncReceive::NoData)).await.unwrap();
+
+        // Control still answers, and nothing was retransmitted.
+        assert_eq!(
+            handle.snapshot().await.unwrap().state,
+            SessionState::Running
+        );
+        assert_eq!(
+            writes.lock().unwrap().len(),
+            1,
+            "an idle read timeout must not spend a request's retry budget"
+        );
+
+        frames
+            .send_async(batch(vec![ack(ViscaSocket::S1)]))
+            .await
+            .unwrap();
+        frames
+            .send_async(batch(vec![completion(ViscaSocket::S1)]))
+            .await
+            .unwrap();
+        assert!(matches!(
+            receipt.terminal().await.unwrap(),
+            RuntimeOutcome::Applied
+        ));
+        handle.shutdown().await.unwrap();
+        assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
+    }
+
+    /// The escalation is bounded, monotonic, and long enough that a run only
+    /// ends the session after seconds of uninterrupted failure.
+    #[test]
+    fn the_transient_pause_escalates_and_stays_bounded() {
+        assert_eq!(transient_receive_pause(1), TRANSIENT_RECEIVE_PAUSE);
+        assert_eq!(transient_receive_pause(2), Duration::from_millis(20));
+        assert_eq!(transient_receive_pause(3), Duration::from_millis(40));
+        let mut previous = Duration::ZERO;
+        let mut total = Duration::ZERO;
+        for run in 1..TRANSIENT_RECEIVE_FAULT_LIMIT {
+            let pause = transient_receive_pause(run);
+            assert!(pause >= previous, "the pause must never shrink");
+            assert!(pause <= MAXIMUM_TRANSIENT_RECEIVE_PAUSE);
+            previous = pause;
+            total = total.saturating_add(pause);
+        }
+        assert!(
+            total >= TRANSIENT_RECEIVE_FAULT_SPAN,
+            "a full fault run must span at least the documented minimum: {total:?}"
+        );
+    }
+
+    /// A run only counts consecutive failures; a gap proves recovery, and a
+    /// successful read resets it outright.
+    #[test]
+    fn a_fault_run_only_counts_consecutive_failures() {
+        let start = Instant::now();
+        let mut run = TransientFaultRun::default();
+        assert_eq!(run.record(start).0, 1);
+        assert_eq!(run.record(start + Duration::from_millis(10)).0, 2);
+        run.reset();
+        assert_eq!(run.record(start + Duration::from_millis(20)).0, 1);
+        // A gap longer than the reset window starts a fresh run.
+        assert_eq!(
+            run.record(start + Duration::from_millis(20) + TRANSIENT_RECEIVE_FAULT_RESET)
+                .0,
+            1
+        );
+
+        // The limit alone is not enough; the run must also be old enough.
+        assert!(!TransientFaultRun::is_permanent(
+            TRANSIENT_RECEIVE_FAULT_LIMIT,
+            Duration::ZERO
+        ));
+        assert!(!TransientFaultRun::is_permanent(
+            TRANSIENT_RECEIVE_FAULT_LIMIT - 1,
+            TRANSIENT_RECEIVE_FAULT_SPAN
+        ));
+        assert!(TransientFaultRun::is_permanent(
+            TRANSIENT_RECEIVE_FAULT_LIMIT,
+            TRANSIENT_RECEIVE_FAULT_SPAN
+        ));
+    }
+
+    /// Issue #625. The blocking owner clamps its transient pause to the
+    /// caller's deadline; the async owner clamps to the next scheduler wake, so
+    /// a fault can never delay a due deadline by the length of the pause.
+    #[test]
+    fn the_transient_pause_never_outlives_the_next_wake() {
+        let now = Instant::now();
+        let pause = Duration::from_millis(250);
+        assert_eq!(clamp_transient_pause(pause, None, now), pause);
+        assert_eq!(
+            clamp_transient_pause(pause, Some(now + Duration::from_secs(1)), now),
+            pause
+        );
+        assert_eq!(
+            clamp_transient_pause(pause, Some(now + Duration::from_millis(3)), now),
+            Duration::from_millis(3)
+        );
+        assert_eq!(
+            clamp_transient_pause(pause, Some(now - Duration::from_millis(5)), now),
+            Duration::ZERO,
+            "an overdue deadline is serviced immediately"
+        );
+    }
+
+    // ---------------------------------------------------------------------
+    // #626: a boundary request racing teardown must never hang.
+    // ---------------------------------------------------------------------
+
+    /// Issue #626. `run` drains the boundary lanes once and then drops its
+    /// receivers. A message that lands in between used to be stranded forever:
+    /// this handle's own sender keeps flume's queue alive, and with it the
+    /// reply sender inside the stranded message, so the caller's wait never
+    /// disconnected. The losing caller is typically the one that just watched
+    /// the session die and immediately asked a follow-up question.
+    ///
+    /// The window is only reachable when the caller runs on another thread, so
+    /// this drives a multi-threaded runtime and repeats enough to hit it.
+    #[cfg(feature = "runtime-tokio")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_boundary_request_racing_teardown_never_hangs() {
+        for iteration in 0..64 {
+            let runtime = TokioRuntime::from_current().unwrap();
+            let (handle, actor) = AsyncOwnerActor::new(policy(4), runtime).unwrap();
+            let harness = harness();
+            let frames = harness.frames.clone();
+            let actor_task = tokio::spawn(actor.run(harness.driver));
+
+            let asking = handle.clone();
+            let questions = tokio::spawn(async move {
+                // Keep asking until the session answers with its terminal
+                // error. Under the bug one of these calls parks forever.
+                loop {
+                    if asking.metrics().await.is_err() {
+                        break;
+                    }
+                    if asking.snapshot().await.is_err() {
+                        break;
+                    }
+                    if let Err(error) = asking.submit(command()).await {
+                        assert!(
+                            !matches!(error, Error::RuntimeQueueFull { .. }),
+                            "capacity rejection is not a terminal answer"
+                        );
+                        break;
+                    }
+                }
+            });
+
+            frames.send_async(Ok(AsyncReceive::Closed)).await.unwrap();
+            tokio::time::timeout(Duration::from_secs(10), questions)
+                .await
+                .unwrap_or_else(|_| {
+                    panic!("iteration {iteration}: a boundary request outlived the actor")
+                })
+                .unwrap();
+            let snapshot = tokio::time::timeout(Duration::from_secs(10), actor_task)
+                .await
+                .unwrap_or_else(|_| panic!("iteration {iteration}: the actor never finished"))
+                .unwrap();
+            assert_eq!(snapshot.state, SessionState::Closed);
+        }
+    }
+
+    /// The drain still answers what it can see: a cancellation queued before
+    /// teardown keeps its buffered terminal observation rather than being
+    /// replaced by the session error.
+    #[cfg(feature = "runtime-tokio")]
+    #[tokio::test]
+    async fn teardown_answers_queued_work_before_the_liveness_lane_fires() {
+        let runtime = TokioRuntime::from_current().unwrap();
+        let (handle, actor) = AsyncOwnerActor::new(policy(1), runtime).unwrap();
+        let harness = harness();
+        let frames = harness.frames.clone();
+        let control_handle = handle.clone();
+        let queued = tokio::spawn(async move { control_handle.metrics().await });
+        while handle.control.is_empty() {
+            tokio::task::yield_now().await;
+        }
+        frames.send_async(Ok(AsyncReceive::Closed)).await.unwrap();
+        let snapshot = actor.run(harness.driver).await;
+        assert_eq!(snapshot.state, SessionState::Closed);
+        assert!(matches!(
+            queued.await.unwrap().unwrap_err(),
+            Error::ConnectionClosed { .. }
+        ));
+    }
+
+    // ---------------------------------------------------------------------
+    // #637: the owners agree on a malformed datagram.
+    // ---------------------------------------------------------------------
+
+    /// A datagram transport whose reads are handed over one datagram at a time.
+    #[cfg(feature = "runtime-tokio")]
+    #[derive(Debug)]
+    struct ScriptedDatagramTransport {
+        config: crate::transport::builder::TransportConfig,
+        datagrams: flume::Receiver<Vec<u8>>,
+        sent: flume::Sender<Vec<u8>>,
+    }
+
+    #[cfg(feature = "runtime-tokio")]
+    impl crate::transport::HasTransportConfig for ScriptedDatagramTransport {
+        fn transport_config(&self) -> &crate::transport::builder::TransportConfig {
+            &self.config
+        }
+    }
+
+    #[cfg(feature = "runtime-tokio")]
+    impl crate::transport::AsyncTransport for ScriptedDatagramTransport {
+        async fn send(&mut self, bytes: &[u8]) -> Result<(), Error> {
+            self.sent
+                .send_async(bytes.to_vec())
+                .await
+                .map_err(|_| Error::RuntimeShutdown)
+        }
+
+        async fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
+            let Ok(datagram) = self.datagrams.recv_async().await else {
+                return future::pending().await;
+            };
+            let len = datagram.len().min(dst.len());
+            dst[..len].copy_from_slice(&datagram[..len]);
+            Ok(len)
+        }
+
+        fn send_semantics(&self) -> crate::transport::SendSemantics {
+            crate::transport::SendSemantics::Datagram
+        }
+    }
+
+    /// Issue #637. One malformed datagram — the review's probe is `01 41 ff`,
+    /// a controller source byte that no camera ever sends — used to kill the
+    /// whole async session, while the blocking owner failed it per request and
+    /// kept pumping. A stray UDP datagram is not proof the session is dead.
+    #[cfg(feature = "runtime-tokio")]
+    #[tokio::test]
+    async fn a_malformed_datagram_does_not_kill_the_async_session() {
+        let runtime = TokioRuntime::from_current().unwrap();
+        let profile = crate::ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()
+            .expect("the generic profile is valid");
+        let (datagram_tx, datagrams) = flume::bounded(8);
+        let (sent, sent_rx) = flume::bounded(8);
+        let adapter = crate::runtime::owner::AsyncTransportAdapter::new(
+            ScriptedDatagramTransport {
+                config: crate::transport::builder::TransportConfig::default(),
+                datagrams,
+                sent,
+            },
+            &profile,
+            CameraId::CAMERA_1,
+        )
+        .unwrap();
+        assert_eq!(adapter.policy().protocol.transport, TransportKind::Datagram);
+        let (handle, actor) = AsyncOwnerActor::new(adapter.policy().clone(), runtime).unwrap();
+        let actor_task = tokio::spawn(actor.run(adapter));
+
+        let receipt = handle.submit(command()).await.unwrap();
+        let _written = sent_rx.recv_async().await.unwrap();
+        datagram_tx
+            .send_async(vec![0x01, 0x41, 0xff])
+            .await
+            .unwrap();
+        while !datagram_tx.is_empty() {
+            tokio::task::yield_now().await;
+        }
+
+        assert_eq!(
+            handle.snapshot().await.unwrap().state,
+            SessionState::Running,
+            "one undecodable datagram is not a session verdict"
+        );
+
+        // The next well-formed datagram still completes the in-flight command.
+        datagram_tx
+            .send_async(vec![0x90, 0x41, 0xff])
+            .await
+            .unwrap();
+        datagram_tx
+            .send_async(vec![0x90, 0x51, 0xff])
+            .await
+            .unwrap();
+        assert!(matches!(
+            receipt.terminal().await.unwrap(),
+            RuntimeOutcome::Applied
+        ));
+
+        handle.shutdown().await.unwrap();
+        let snapshot = actor_task.await.unwrap();
+        assert_eq!(snapshot.state, SessionState::Shutdown);
+        assert!(
+            snapshot.diagnostics.iter().any(|event| matches!(
+                event,
+                DiagnosticEvent::Ignored(IgnoreReason::MalformedFrame)
+            )),
+            "the discarded datagram must still be observable"
+        );
+    }
+
+    /// The byte-stream verdict is unchanged: a decode failure there means the
+    /// stream position is unknowable, so the session is poisoned.
+    #[cfg(feature = "runtime-tokio")]
+    #[tokio::test]
+    async fn a_malformed_stream_frame_still_poisons_the_session() {
+        let runtime = TokioRuntime::from_current().unwrap();
+        let profile = crate::ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()
+            .expect("the generic profile is valid");
+        let (chunk_tx, chunks) = flume::bounded(8);
+        let (sent, sent_rx) = flume::bounded(8);
+        let adapter = crate::runtime::owner::AsyncTransportAdapter::new(
+            ChunkedStreamTransport {
+                config: crate::transport::builder::TransportConfig::default(),
+                chunks,
+                sent,
+            },
+            &profile,
+            CameraId::CAMERA_1,
+        )
+        .unwrap();
+        assert_eq!(adapter.policy().protocol.transport, TransportKind::Stream);
+        let (handle, actor) = AsyncOwnerActor::new(adapter.policy().clone(), runtime).unwrap();
+        let actor_task = tokio::spawn(actor.run(adapter));
+
+        let receipt = handle.submit(command()).await.unwrap();
+        let _written = sent_rx.recv_async().await.unwrap();
+        chunk_tx.send_async(vec![0x01, 0x41, 0xff]).await.unwrap();
+
+        assert!(matches!(
+            receipt.terminal().await.unwrap(),
+            RuntimeOutcome::Failed(Error::StreamPoisoned { .. })
+        ));
+        let snapshot = actor_task.await.unwrap();
+        assert_eq!(snapshot.state, SessionState::Poisoned);
+        drop(handle);
+    }
+
+    /// A datagram transport whose every send reports the connection as closed.
+    #[cfg(feature = "runtime-tokio")]
+    #[derive(Debug)]
+    struct ClosedSendDatagramTransport {
+        config: crate::transport::builder::TransportConfig,
+    }
+
+    #[cfg(feature = "runtime-tokio")]
+    impl crate::transport::HasTransportConfig for ClosedSendDatagramTransport {
+        fn transport_config(&self) -> &crate::transport::builder::TransportConfig {
+            &self.config
+        }
+    }
+
+    #[cfg(feature = "runtime-tokio")]
+    impl crate::transport::AsyncTransport for ClosedSendDatagramTransport {
+        async fn send(&mut self, _bytes: &[u8]) -> Result<(), Error> {
+            Err(Error::ConnectionClosed {
+                reason: Some("socket closed".into()),
+            })
+        }
+
+        async fn recv_into(&mut self, _dst: &mut [u8]) -> Result<usize, Error> {
+            future::pending().await
+        }
+
+        fn send_semantics(&self) -> crate::transport::SendSemantics {
+            crate::transport::SendSemantics::Datagram
+        }
+    }
+
+    /// Issue #637. A datagram send failure fails exactly one request and the
+    /// session keeps running, so the error the caller observes must not tell it
+    /// to open a replacement session. Before the fix a custom transport reached
+    /// that self-contradiction just by returning `ConnectionClosed` from `send`.
+    #[cfg(feature = "runtime-tokio")]
+    #[tokio::test]
+    async fn a_datagram_send_failure_never_demands_a_new_session() {
+        let runtime = TokioRuntime::from_current().unwrap();
+        let profile = crate::ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()
+            .expect("the generic profile is valid");
+        let adapter = crate::runtime::owner::AsyncTransportAdapter::new(
+            ClosedSendDatagramTransport {
+                config: crate::transport::builder::TransportConfig::default(),
+            },
+            &profile,
+            CameraId::CAMERA_1,
+        )
+        .unwrap();
+        assert_eq!(adapter.policy().protocol.transport, TransportKind::Datagram);
+        let (handle, actor) = AsyncOwnerActor::new(adapter.policy().clone(), runtime).unwrap();
+        let actor_task = tokio::spawn(actor.run(adapter));
+
+        let receipt = handle.submit(command()).await.unwrap();
+        let RuntimeOutcome::Failed(error) = receipt.terminal().await.unwrap() else {
+            panic!("a datagram send failure fails its own request");
+        };
+        assert!(
+            !error.requires_new_session(),
+            "a live session must never hand out a replacement-session verdict: {error:?}"
+        );
+        assert!(matches!(error, Error::TransportError(_)));
+        assert_eq!(
+            handle.snapshot().await.unwrap().state,
+            SessionState::Running,
+            "a datagram send failure is per request, not a session verdict"
+        );
+
+        handle.shutdown().await.unwrap();
+        assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
     }
 }

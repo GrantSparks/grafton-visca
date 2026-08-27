@@ -1293,52 +1293,60 @@ impl BlockingOwner {
         F: BlockingFrameDecoder + ?Sized,
     {
         let owner_deadline = min_deadline(self.state.next_wake(), observer_deadline);
-        let (received, received_at) =
-            match reader.receive(self.state.buffers().receive_mut(), owner_deadline) {
-                Ok(BlockingReceive::TimedOut) => {
-                    let now = Instant::now();
-                    if self.state.next_wake().is_some_and(|wake| wake <= now) {
-                        let effects = self.state.advance(now);
-                        self.drive(driver, effects);
-                    }
-                    return Ok(0);
+        let read = reader.receive(self.state.buffers().receive_mut(), owner_deadline);
+        // An error that only reports "no bytes arrived" is an idle read, not a
+        // fault: it consumed nothing and must not burn any request's retry
+        // budget. The adapter normalizes this too; doing it here as well keeps
+        // every read driver on one contract (#637).
+        let read = match read {
+            Err(error) if super::receive_reported_no_data(&error) => Ok(BlockingReceive::TimedOut),
+            other => other,
+        };
+        let (received, received_at) = match read {
+            Ok(BlockingReceive::TimedOut) => {
+                let now = Instant::now();
+                if self.state.next_wake().is_some_and(|wake| wake <= now) {
+                    let effects = self.state.advance(now);
+                    self.drive(driver, effects);
                 }
-                Ok(BlockingReceive::Bytes(0)) => {
-                    let effects = self.state.input(
-                        Input::Shutdown(ShutdownReason::TransportClosed { reason: None }),
-                        Instant::now(),
-                    );
-                    let _ = self.drive(driver, effects);
-                    return Err(Error::ConnectionClosed { reason: None });
-                }
-                Ok(BlockingReceive::Bytes(received)) => (received, Instant::now()),
-                Err(error) if super::receive_fault_is_transient(&error) => {
-                    // 1.x parity: retry every command still waiting for its
-                    // ACK and keep pumping. The read consumed nothing, so
-                    // framing state is intact and this pump simply produced no
-                    // frames.
-                    let effects = self
-                        .state
-                        .input(Input::ReceiveFault { error }, Instant::now());
-                    let _ = self.drive(driver, effects);
-                    pause_after_transient_receive_fault(owner_deadline);
-                    return Ok(0);
-                }
-                Err(error) => {
-                    // A fatal read proves the connection is gone; it says
-                    // nothing about the byte-stream *position*, which is what
-                    // poison means. Framing failures below still poison a
-                    // stream, exactly as the async owner does.
-                    let effects = self.state.input(
-                        Input::Close {
-                            reason: Some(error.to_string().into_boxed_str()),
-                        },
-                        Instant::now(),
-                    );
-                    let _ = self.drive(driver, effects);
-                    return Err(error);
-                }
-            };
+                return Ok(0);
+            }
+            Ok(BlockingReceive::Bytes(0)) => {
+                let effects = self.state.input(
+                    Input::Shutdown(ShutdownReason::TransportClosed { reason: None }),
+                    Instant::now(),
+                );
+                let _ = self.drive(driver, effects);
+                return Err(Error::ConnectionClosed { reason: None });
+            }
+            Ok(BlockingReceive::Bytes(received)) => (received, Instant::now()),
+            Err(error) if super::receive_fault_is_transient(&error) => {
+                // 1.x parity: retry every command still waiting for its
+                // ACK and keep pumping. The read consumed nothing, so
+                // framing state is intact and this pump simply produced no
+                // frames.
+                let effects = self
+                    .state
+                    .input(Input::ReceiveFault { error }, Instant::now());
+                let _ = self.drive(driver, effects);
+                pause_after_transient_receive_fault(owner_deadline);
+                return Ok(0);
+            }
+            Err(error) => {
+                // A fatal read proves the connection is gone; it says
+                // nothing about the byte-stream *position*, which is what
+                // poison means. Framing failures below still poison a
+                // stream, exactly as the async owner does.
+                let effects = self.state.input(
+                    Input::Close {
+                        reason: Some(error.to_string().into_boxed_str()),
+                    },
+                    Instant::now(),
+                );
+                let _ = self.drive(driver, effects);
+                return Err(error);
+            }
+        };
 
         let frame_limit = self.state.policy().limits.frames_per_receive;
         let frames = match decoder.decode(self.state.buffers(), received, frame_limit) {

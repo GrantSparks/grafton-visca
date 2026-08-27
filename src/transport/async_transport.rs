@@ -36,6 +36,24 @@ pub trait AsyncTransport: Send {
     ///
     /// This method sends the provided bytes over the transport and returns
     /// when the bytes have been written to the underlying transport.
+    ///
+    /// # Error contract
+    ///
+    /// What a send failure costs is decided by [`AsyncTransport::send_semantics`],
+    /// not by the error value:
+    ///
+    /// - [`SendSemantics::Stream`]: the byte-stream position is now unknowable,
+    ///   so the runtime poisons the session. Every request in flight fails with
+    ///   [`Error::StreamPoisoned`] carrying this error's text.
+    /// - [`SendSemantics::Datagram`]: only the request being written fails and
+    ///   the session keeps running. Because the session survives, the runtime
+    ///   normalizes a session-fatal error value (any error for which
+    ///   [`Error::requires_new_session`] is true, such as
+    ///   [`Error::ConnectionClosed`]) into a plain per-request
+    ///   [`Error::TransportError`]: a caller must never be told to open a new
+    ///   session by an error raised on one that is still running. Report a
+    ///   genuinely dead socket from [`AsyncTransport::recv_into`], which is the
+    ///   side the runtime treats as authoritative about session death.
     fn send(&mut self, bytes: &[u8]) -> impl Future<Output = Result<(), Error>> + Send;
 
     /// Receive raw bytes from the device into the provided buffer.
@@ -45,8 +63,42 @@ pub trait AsyncTransport: Send {
     /// It may return partial frames, complete frames, or multiple frames.
     /// The runtime is responsible for aggregating chunks and extracting frames.
     ///
-    /// Returns `Ok(0)` when the connection is closed.
-    /// Stream-based transports should return `Err(Error::ConnectionClosed)` when encountering EOF.
+    /// # Error contract
+    ///
+    /// The runtime never guesses: the value this method returns decides whether
+    /// the session lives, and whether every command still waiting for its ACK
+    /// is retransmitted. A failed read must consume nothing, so that the
+    /// runtime's framing state stays intact.
+    ///
+    /// - `Ok(n)` with `n > 0` — bytes were read. Returning fewer bytes than a
+    ///   whole frame is normal and is not an error; the runtime buffers the
+    ///   remainder until a later read completes the frame.
+    /// - `Ok(0)` — end of stream: the peer closed. The runtime ends the session
+    ///   with [`Error::ConnectionClosed`]. Never return `Ok(0)` to mean "no data
+    ///   yet"; that is the one signal reserved for EOF. Returning
+    ///   `Err(Error::ConnectionClosed)` for EOF is also accepted and ends the
+    ///   session the same way, but `Ok(0)` is canonical.
+    /// - `Err(Error::Timeout)` — an idle read timeout expired and no bytes
+    ///   arrived. This is the recommended shape for a transport that must not
+    ///   block indefinitely. The runtime treats it as "no data": the session
+    ///   lives, framing state is untouched, and no request's retry budget is
+    ///   spent. The raw I/O spellings [`std::io::ErrorKind::TimedOut`],
+    ///   [`std::io::ErrorKind::WouldBlock`] and
+    ///   [`std::io::ErrorKind::Interrupted`] wrapped in [`Error::Io`] are
+    ///   normalized to the same meaning.
+    /// - A session-fatal error — any error for which
+    ///   [`Error::requires_new_session`] is true, plus [`Error::Io`] carrying
+    ///   `ConnectionReset`, `ConnectionAborted`, `BrokenPipe`, `UnexpectedEof`
+    ///   or `NotConnected`. The runtime ends the session and reports that cause.
+    /// - Any other error is a *transient* fault: the read failed but the
+    ///   connection may still be usable — a UDP `recv` reporting ECONNREFUSED
+    ///   after an ICMP port-unreachable is the canonical case. The runtime keeps
+    ///   the session and retransmits every command still waiting for its ACK,
+    ///   under each command's own retry policy. Faults that repeat with no
+    ///   successful read in between escalate: the pause between reads grows, and
+    ///   after roughly two seconds of uninterrupted failure the runtime stops
+    ///   believing the "transient" label and ends the session with the
+    ///   underlying error. Do not use this class for idle timeouts.
     fn recv_into<'a>(
         &'a mut self,
         dst: &'a mut [u8],

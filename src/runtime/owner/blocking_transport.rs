@@ -300,12 +300,23 @@ where
     } else {
         crate::command::CommandKind::Command
     };
+    let datagram = matches!(
+        state.transport.send_semantics(),
+        crate::transport::SendSemantics::Datagram
+    );
     let frame_meta = state
         .envelope
         .frame_into(write.bytes, kind, write.frame_buffer);
     state
         .transport
-        .send_with_kind(write.frame_buffer.as_ref(), kind)?;
+        .send_with_kind(write.frame_buffer.as_ref(), kind)
+        .map_err(|error| {
+            if datagram {
+                super::normalize_datagram_send_error(error)
+            } else {
+                error
+            }
+        })?;
     Ok(TransmissionMeta {
         sequence: frame_meta.sequence,
     })
@@ -335,7 +346,10 @@ where
         .recv_into_with_timeout(receive_buffer, timeout)
     {
         Ok(received) => Ok(BlockingReceive::Bytes(received)),
-        Err(Error::Timeout) => Ok(BlockingReceive::TimedOut),
+        // An expired idle read timeout is no data, not a failed read. The
+        // raw `WouldBlock`/`Interrupted`/`TimedOut` spellings a custom
+        // transport may forward mean the same thing (#637).
+        Err(error) if super::receive_reported_no_data(&error) => Ok(BlockingReceive::TimedOut),
         Err(error) => Err(error),
     }
 }
@@ -659,6 +673,46 @@ mod tests {
             reader.receive(&mut receive, None),
             Err(Error::TransportError(_))
         ));
+    }
+
+    /// Issue #637: the raw I/O spellings of an idle read mean the same thing as
+    /// `Error::Timeout`, so a custom transport that forwards them verbatim gets
+    /// the same "no data" treatment on both owners.
+    #[test]
+    fn reader_maps_raw_idle_io_kinds_to_the_same_no_data_answer() {
+        let mut cfg = config();
+        cfg.read_timeout = Duration::from_millis(1);
+        let transport = ScriptedTransport::new(
+            cfg,
+            [
+                Err(Error::Io(Arc::new(std::io::Error::from(
+                    std::io::ErrorKind::WouldBlock,
+                )))),
+                Err(Error::Io(Arc::new(std::io::Error::from(
+                    std::io::ErrorKind::TimedOut,
+                )))),
+                Err(Error::Io(Arc::new(std::io::Error::from(
+                    std::io::ErrorKind::Interrupted,
+                )))),
+                Err(Error::Io(Arc::new(std::io::Error::from(
+                    std::io::ErrorKind::ConnectionRefused,
+                )))),
+            ],
+        );
+        let adapter =
+            BlockingTransportAdapter::new(transport, &profile(), CameraId::CAMERA_1).unwrap();
+        let (_writer, mut reader, _decoder) = adapter.parts();
+        let mut receive = [0; 32];
+        for _ in 0..3 {
+            assert_eq!(
+                reader.receive(&mut receive, None).unwrap(),
+                BlockingReceive::TimedOut
+            );
+        }
+        assert!(
+            matches!(reader.receive(&mut receive, None), Err(Error::Io(_))),
+            "a real read failure is still a fault the owner gets to classify"
+        );
     }
 
     #[test]

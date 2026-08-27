@@ -165,6 +165,24 @@ pub trait BlockingTransport: Send {
     ///
     /// * `bytes` - The raw VISCA command bytes to send
     /// * `kind` - Whether this is a command or inquiry for proper framing
+    ///
+    /// # Error contract
+    ///
+    /// What a send failure costs is decided by
+    /// [`BlockingTransport::send_semantics`], not by the error value:
+    ///
+    /// - [`SendSemantics::Stream`]: the byte-stream position is now unknowable,
+    ///   so the runtime poisons the session. Every request in flight fails with
+    ///   [`Error::StreamPoisoned`] carrying this error's text.
+    /// - [`SendSemantics::Datagram`]: only the request being written fails and
+    ///   the session keeps running. Because the session survives, the runtime
+    ///   normalizes a session-fatal error value (any error for which
+    ///   [`Error::requires_new_session`] is true, such as
+    ///   [`Error::ConnectionClosed`]) into a plain per-request
+    ///   [`Error::TransportError`]: a caller must never be told to open a new
+    ///   session by an error raised on one that is still running. Report a
+    ///   genuinely dead socket from the receive side, which is the side the
+    ///   runtime treats as authoritative about session death.
     fn send_with_kind(&mut self, bytes: &[u8], kind: CommandKind) -> Result<(), Error>;
 
     /// Read raw bytes into caller-provided buffer.
@@ -181,6 +199,9 @@ pub trait BlockingTransport: Send {
     ///
     /// * `Ok(n)` - Number of bytes read (0 = EOF)
     /// * `Err(_)` - For transport errors
+    ///
+    /// The error contract is the same as
+    /// [`BlockingTransport::recv_into_with_timeout`].
     fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error>;
 
     /// Read raw bytes with a timeout (blocking).
@@ -192,6 +213,37 @@ pub trait BlockingTransport: Send {
     ///
     /// * `dst` - The buffer to read data into
     /// * `timeout` - Maximum time to wait for data
+    ///
+    /// # Error contract
+    ///
+    /// The runtime never guesses: the value this method returns decides whether
+    /// the session lives, and whether every command still waiting for its ACK is
+    /// retransmitted. A failed read must consume nothing, so that the runtime's
+    /// framing state stays intact.
+    ///
+    /// - `Ok(n)` with `n > 0` — bytes were read. Returning fewer bytes than a
+    ///   whole frame is normal and is not an error; the runtime buffers the
+    ///   remainder until a later read completes the frame.
+    /// - `Ok(0)` — end of stream: the peer closed. The runtime ends the session
+    ///   with [`Error::ConnectionClosed`]. Never return `Ok(0)` to mean "no data
+    ///   yet"; that is the one signal reserved for EOF.
+    /// - `Err(Error::Timeout)` — `timeout` expired and no bytes arrived. The
+    ///   runtime treats it as "no data": the session lives, framing state is
+    ///   untouched, and no request's retry budget is spent. The raw I/O
+    ///   spellings [`std::io::ErrorKind::TimedOut`],
+    ///   [`std::io::ErrorKind::WouldBlock`] and
+    ///   [`std::io::ErrorKind::Interrupted`] wrapped in [`Error::Io`] are
+    ///   normalized to the same meaning.
+    /// - A session-fatal error — any error for which
+    ///   [`Error::requires_new_session`] is true, plus [`Error::Io`] carrying
+    ///   `ConnectionReset`, `ConnectionAborted`, `BrokenPipe`, `UnexpectedEof`
+    ///   or `NotConnected`. The runtime ends the session and reports that cause.
+    /// - Any other error is a *transient* fault: the read failed but the
+    ///   connection may still be usable — a UDP `recv` reporting ECONNREFUSED
+    ///   after an ICMP port-unreachable is the canonical case. The runtime keeps
+    ///   the session and retransmits every command still waiting for its ACK,
+    ///   under each command's own retry policy. Do not use this class for idle
+    ///   timeouts.
     ///
     /// # Returns
     ///

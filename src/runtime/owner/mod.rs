@@ -1884,6 +1884,49 @@ fn boundary_error_for_input(input: &Input) -> Option<Error> {
     }
 }
 
+/// Whether one receive-side transport error means "no bytes arrived" rather
+/// than "this read failed".
+///
+/// A transport with an internal read timeout is the natural custom
+/// implementation — it is exactly the shape [`crate::transport::BlockingTransport::recv_into_with_timeout`]
+/// documents — and an expired idle timeout consumed nothing and proved nothing.
+/// Treating it as a receive fault would retransmit every command still waiting
+/// for its ACK, burning whole retry budgets in milliseconds, and on the async
+/// owner it would spin the actor's transient-fault arm (#625, #637).
+///
+/// Both owners therefore normalize these to "this read produced no frames" and
+/// keep pumping, which is what the blocking adapter has always done for
+/// [`Error::Timeout`].
+pub(crate) fn receive_reported_no_data(error: &Error) -> bool {
+    match error {
+        Error::Timeout => true,
+        Error::Io(io) => matches!(
+            io.kind(),
+            std::io::ErrorKind::TimedOut
+                | std::io::ErrorKind::WouldBlock
+                | std::io::ErrorKind::Interrupted
+        ),
+        Error::WithContext { source, .. } => receive_reported_no_data(source),
+        _ => false,
+    }
+}
+
+/// Normalize one datagram send failure into a per-request error.
+///
+/// A datagram send failure fails exactly one request and the session keeps
+/// running, so the value the caller observes must not claim that a replacement
+/// session is required: that combination is self-contradictory and a custom
+/// transport can reach it just by returning [`Error::ConnectionClosed`] from
+/// `send` (#637). The receive side is the authority on session death — it is
+/// always pumping, and a socket that is genuinely gone fails its next read.
+pub(crate) fn normalize_datagram_send_error(error: Error) -> Error {
+    if error.requires_new_session() {
+        Error::TransportError(format!("datagram send failed: {error}").into())
+    } else {
+        error
+    }
+}
+
 /// Whether one receive-side transport failure leaves the session usable.
 ///
 /// 1.x drew this line in the runtime loops: a `ConnectionClosed` read ended the
@@ -1896,6 +1939,10 @@ fn boundary_error_for_input(input: &Input) -> Option<Error> {
 /// Transient therefore includes the case the issue is about: a UDP `recv`
 /// reporting ECONNREFUSED after an ICMP port-unreachable, which says nothing
 /// about whether the camera is reachable now.
+///
+/// This answers "fatal or transient" only. Errors that report no data at all
+/// are separated out by [`receive_reported_no_data`] first and never reach a
+/// fault classification.
 pub(crate) fn receive_fault_is_transient(error: &Error) -> bool {
     match error {
         // Proof the session is finished: the peer closed, the byte stream

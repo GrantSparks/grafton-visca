@@ -9,6 +9,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 2.0.0-rc.1 release candidate
 
+- **Fixed a livelock that made an async session unkillable when a transport
+  failed every read** (#625). The actor's readiness race is left-biased towards
+  the transport by design, so a read that failed *immediately* — a disconnected
+  USB-serial adapter surfacing `EIO`/`ENXIO`, for example — kept the receive
+  branch permanently ready and shutdown, cancellation, admission and control
+  were never polled at all. `submit` never returned, `shutdown` only queued a
+  message nobody read, and the actor kept reading hundreds of times a second
+  with no way to stop it. Four things changed. A receive turn that produces no
+  frames now hands the next turn to the boundary channels, and a long run of
+  receive wins does the same, so a transport that is always ready — failing or
+  flooding — can never starve the boundary. An idle read timeout
+  (`Error::Timeout`, or `Io` carrying `TimedOut`/`WouldBlock`/`Interrupted`) is
+  now classified as *no data* rather than as a fault, so a custom transport with
+  an internal read timeout no longer burns every in-flight command's retry
+  budget in milliseconds. The pause after a transient fault is clamped to the
+  next scheduler wake, exactly as the blocking owner clamps to its caller's
+  deadline, so a fault can no longer delay a due deadline by the length of the
+  pause. And consecutive faults now escalate: the pause grows from 10 ms to a
+  250 ms ceiling, and a read that has failed twelve times in a row over at least
+  a second is no longer treated as transient — the session ends with the
+  underlying transport error instead of retrying against a dead adapter forever.
+  A successful read, or a gap of five seconds between faults, clears the run.
+- **Fixed a boundary request racing actor teardown hanging its caller forever**
+  (#626). The actor answered every queued admission, cancellation and control
+  message as it exited and then dropped its receivers, but a message that landed
+  in between was stranded: the handle's own sender keeps flume's queue alive,
+  and with it the reply sender inside the stranded message, so the caller's wait
+  never disconnected. This hit exactly the caller who had just watched the
+  session die from its own operation and immediately asked a follow-up question
+  — `metrics`, `snapshot`, `subscribe_applied`, `subscribe_diagnostics`,
+  `cancel` or `submit`. Every boundary wait is now raced against a liveness lane
+  that disconnects when the actor task ends, and re-checks the reply once it
+  does, so a message the drain *did* answer still returns its real answer while
+  a stranded one returns the session's terminal error promptly. The drain itself
+  now loops until one whole pass finds every lane empty.
+- **The async owner no longer kills the session over one malformed datagram**
+  (#637). A single undecodable datagram — a stray `01 41 ff` carrying a
+  controller source byte no camera ever sends — terminated the whole async
+  session, while the blocking owner had always failed it per request and kept
+  pumping. A datagram that does not decode is one bad datagram: nothing else was
+  consumed and the next one frames independently, so it is now discarded and
+  recorded as an ignored malformed frame. The byte-stream verdict is unchanged,
+  because there a decode failure means the stream position is unknowable.
+- Documented the receive and send error contract on `AsyncTransport` and
+  `BlockingTransport` (#637). The traits previously documented only EOF, while
+  the value a transport's `recv_into` returns decides whether the session
+  survives and whether every in-flight command is retransmitted. Both traits now
+  state exactly what `Ok(0)`, an idle timeout, a session-fatal error and a
+  transient fault each mean, and what the runtime does with them. On the send
+  side, a datagram send failure that reported a session-fatal error value (a
+  custom transport returning `Error::ConnectionClosed`) used to hand the caller
+  a per-request failure that claimed a replacement session was required, while
+  the session kept running; it is now normalized to a per-request
+  `Error::TransportError` preserving the original cause, and the receive side
+  stays the authority on session death.
 - Restored the 1.x convenience helpers the rewrite dropped, on all three noun
   surfaces (#569). `pan_tilt().up()/down()/left()/right()` are back as thin
   wrappers over `move_direction`; `zoom().set_normalized(UnitInterval)` and
