@@ -112,7 +112,6 @@ impl Session {
             owner: self.owner.clone(),
             target,
             profile,
-            tuning: self.config.tuning(),
             class: ClassSelection::Request,
         }))
     }
@@ -145,9 +144,60 @@ impl Session {
             owner: self.owner.clone(),
             target,
             profile,
-            tuning: self.config.tuning(),
             class: ClassSelection::Request,
         })
+    }
+
+    /// Returns the operational tuning this session is currently preparing
+    /// requests under.
+    ///
+    /// This is the live value, not the one the session was opened with: it
+    /// reflects the most recent successful [`set_tuning`](Self::set_tuning),
+    /// including one made through another clone of this session.
+    #[must_use]
+    pub fn tuning(&self) -> OperationalTuning {
+        self.owner.tuning()
+    }
+
+    /// Replaces this session's operational tuning at runtime.
+    ///
+    /// # Scope
+    ///
+    /// **Every request prepared after this future resolves uses the new
+    /// values** — its acknowledgement, completion, settlement, and inquiry
+    /// deadlines, its retry budget, and its pacing floor. The owner's
+    /// session-wide pacing and per-target command-socket capacity are
+    /// re-derived immediately, so work still queued behind pacing is released
+    /// under the new values too.
+    ///
+    /// **Requests already in flight keep the deadlines they were admitted
+    /// with.** 2.0 stamps a request's deadlines once, at preparation, and the
+    /// engine derives its absolute phase deadlines from that stamp; nothing is
+    /// re-timed underneath an [`Operation`] a caller is already holding. This
+    /// is the one deliberate difference from 1.2.0's
+    /// `Camera::set_timeout_config`, which recomputed deadlines on every
+    /// housekeeping pass and therefore also covered work in flight. To widen a
+    /// deadline for a command that is already running, cancel it and resubmit.
+    ///
+    /// The update is not a merge: `tuning` replaces the previous value whole,
+    /// so a field left unset returns to its profile default rather than keeping
+    /// the value a previous call installed.
+    ///
+    /// The update travels through the owner's control boundary and the owner is
+    /// its only writer, so two session clones reconfiguring concurrently
+    /// resolve last-writer-wins in the order the owner accepted them; no reader
+    /// ever observes a mixture of the two.
+    ///
+    /// # Errors
+    ///
+    /// Rejects exactly what construction rejects — tuning that weakens a
+    /// registered profile's pacing minima, raises its socket limit, undercuts
+    /// its deadlines, or specifies incoherent retry timing — leaving the
+    /// session's current tuning untouched. Returns the session's terminal error
+    /// if the owner has shut down.
+    pub async fn set_tuning(&self, tuning: OperationalTuning) -> Result<()> {
+        self.config.validate_tuning(tuning)?;
+        self.owner.reconfigure(tuning).await
     }
 
     /// Requests the single owner actor to shut down.
@@ -229,7 +279,6 @@ impl<P: CompileTimeProfile> CameraSession<P> {
             owner: session.owner.clone(),
             target,
             profile,
-            tuning: session.config.tuning(),
             class: ClassSelection::Request,
         });
         Ok(Self { session, camera })
@@ -300,6 +349,26 @@ impl<P: CompileTimeProfile> CameraSession<P> {
         self.camera.target()
     }
 
+    /// Returns the operational tuning this session is currently preparing
+    /// requests under.
+    #[must_use]
+    pub fn tuning(&self) -> OperationalTuning {
+        self.session.tuning()
+    }
+
+    /// Replaces this session's operational tuning at runtime.
+    ///
+    /// This is [`Session::set_tuning`] on the session this camera owns; see
+    /// there for the exact scope, in particular that requests already in flight
+    /// keep the deadlines they were admitted with.
+    ///
+    /// # Errors
+    ///
+    /// See [`Session::set_tuning`].
+    pub async fn set_tuning(&self, tuning: OperationalTuning) -> Result<()> {
+        self.session.set_tuning(tuning).await
+    }
+
     /// Requests owner shutdown without consuming this value.
     pub async fn shutdown(&self) -> Result<()> {
         self.session.shutdown().await
@@ -323,7 +392,6 @@ pub(crate) struct AsyncCameraCore {
     owner: AsyncOwnerHandle,
     target: CameraId,
     profile: Arc<ProfileSpec>,
-    tuning: OperationalTuning,
     class: ClassSelection,
 }
 
@@ -350,6 +418,15 @@ impl AsyncCameraCore {
 
     pub(crate) fn state_cache(&self) -> StateCache {
         self.owner.state_cache(self.target)
+    }
+
+    /// Reads the session's live operational tuning.
+    ///
+    /// This is read once per preparation rather than copied into the view, so a
+    /// [`Camera`] cloned before [`Session::set_tuning`] still prepares its next
+    /// request under the new values (#631).
+    fn tuning(&self) -> OperationalTuning {
+        self.owner.tuning()
     }
 
     pub(crate) const fn command_class(&self) -> Option<ControlClass> {
@@ -383,7 +460,7 @@ impl AsyncCameraCore {
             command,
             self.target,
             self.profile.as_ref(),
-            self.tuning,
+            self.tuning(),
             class,
         )?;
         let receipt = self.owner.submit_command(prepared).await?;
@@ -421,7 +498,7 @@ impl AsyncCameraCore {
             inquiry,
             self.target,
             self.profile.as_ref(),
-            self.tuning,
+            self.tuning(),
             class,
         )?;
         let receipt = self.owner.submit_inquiry(prepared).await?;
@@ -463,7 +540,7 @@ impl AsyncCameraCore {
             operation,
             self.target,
             self.profile.as_ref(),
-            self.tuning,
+            self.tuning(),
             class,
         )?;
         let receipt = self.owner.submit_operation(prepared).await?;
@@ -501,8 +578,12 @@ impl AsyncCameraCore {
     }
 
     pub(crate) async fn is_moving(&self, query: MotionQuery) -> Result<bool> {
-        let queries =
-            prepare_position_queries(self.target, self.profile.as_ref(), self.tuning, query.axes)?;
+        let queries = prepare_position_queries(
+            self.target,
+            self.profile.as_ref(),
+            self.tuning(),
+            query.axes,
+        )?;
         let deadline = self.owner.deadline_after(MOTION_QUERY_OBSERVER_BUDGET)?;
         let control = self.owner.receipt_control();
         let mut detector = crate::prepared::MotionDetector::new(query.axes, query.tolerance);
@@ -523,7 +604,7 @@ impl AsyncCameraCore {
 
     pub(crate) async fn wait_until_idle(&self, wait: IdleWait) -> Result<()> {
         let queries =
-            prepare_position_queries(self.target, self.profile.as_ref(), self.tuning, wait.axes)?;
+            prepare_position_queries(self.target, self.profile.as_ref(), self.tuning(), wait.axes)?;
         let deadline = self.owner.deadline_after(wait.timeout)?;
         let control = self.owner.receipt_control();
         let mut detector = crate::prepared::MotionDetector::new(wait.axes, wait.tolerance);

@@ -4,6 +4,22 @@ use std::time::Duration;
 
 use crate::{capabilities, AffectedAxes, Error, Result};
 
+/// Largest retry backoff ceiling or total retry budget an override may set.
+///
+/// Issue #636: the engine turns a request's total retry budget into a deadline
+/// with `submitted_at.checked_add(budget)` and falls back to `submitted_at`
+/// itself when that addition overflows. A budget near [`Duration::MAX`] would
+/// therefore *invert* into its own opposite — the deadline meant to mean
+/// "keep retrying for practically ever" lands in the past, the budget reads as
+/// already spent, and the request gets zero retries instead of unbounded ones.
+/// The same saturation turns an absurd backoff ceiling into no backoff at all.
+///
+/// One hour is orders of magnitude beyond any real VISCA retry window (the
+/// widest shipped profile deadline is ten seconds) and cannot overflow an
+/// `Instant` on any supported platform, so the inversion is unreachable
+/// without silently rewriting a caller's value.
+const MAXIMUM_RETRY_TIMING: Duration = Duration::from_secs(60 * 60);
+
 /// Position inquiries available for profile-aware physical settlement.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -715,6 +731,20 @@ impl ProfileSpec {
                     "retry timing requires non-zero ordered backoff and a sufficient budget".into(),
                 ));
             }
+        }
+        // The ordering rule above keeps `initial` below both of these, so
+        // bounding the ceiling and the budget bounds all three (see
+        // [`MAXIMUM_RETRY_TIMING`]).
+        if tuning
+            .maximum_retry_backoff
+            .is_some_and(|maximum| maximum > MAXIMUM_RETRY_TIMING)
+            || tuning
+                .retry_budget
+                .is_some_and(|budget| budget > MAXIMUM_RETRY_TIMING)
+        {
+            return Err(Error::InvalidRequest(
+                "retry backoff ceiling and budget cannot exceed one hour".into(),
+            ));
         }
         Ok(())
     }
@@ -1785,6 +1815,71 @@ mod tests {
         assert!(profile
             .validate_tuning(OperationalTuning::new().inquiry_timeout(Duration::from_nanos(1)))
             .is_err());
+    }
+
+    /// Issue #636: an absurd retry budget used to invert into *fewer* retries
+    /// than the default, because the engine's `submitted_at + budget` deadline
+    /// saturates back to `submitted_at` and reads as already spent. Validation
+    /// rejects the value instead of letting it silently mean its opposite.
+    #[test]
+    fn absurd_retry_timing_is_rejected_before_it_can_invert_into_zero_retries() {
+        let profile = runtime_builder(valid_runtime_capabilities())
+            .build()
+            .expect("valid runtime profile");
+        let sane = OperationalTuning::new().retry_timing(
+            Duration::from_millis(50),
+            Duration::from_millis(500),
+            Duration::from_secs(10),
+        );
+        assert!(profile.validate_tuning(sane).is_ok());
+
+        for budget in [
+            Duration::MAX,
+            Duration::MAX - Duration::from_secs(1),
+            MAXIMUM_RETRY_TIMING + Duration::from_nanos(1),
+        ] {
+            let inverted = OperationalTuning::new().retry_timing(
+                Duration::from_millis(50),
+                Duration::from_millis(500),
+                budget,
+            );
+            assert!(
+                profile.validate_tuning(inverted).is_err(),
+                "a {budget:?} retry budget must be rejected, not saturated into zero retries"
+            );
+        }
+
+        // The same saturation turns an absurd ceiling into no backoff at all.
+        assert!(profile
+            .validate_tuning(OperationalTuning::new().retry_timing(
+                Duration::from_millis(50),
+                Duration::MAX,
+                Duration::from_secs(10),
+            ))
+            .is_err());
+        // Exactly at the bound is still accepted.
+        assert!(profile
+            .validate_tuning(OperationalTuning::new().retry_timing(
+                Duration::from_millis(50),
+                MAXIMUM_RETRY_TIMING,
+                MAXIMUM_RETRY_TIMING,
+            ))
+            .is_ok());
+    }
+
+    /// The engine's own deadline arithmetic is what makes the bound necessary:
+    /// an unbounded budget saturates instead of extending.
+    #[test]
+    fn the_retry_budget_bound_is_below_instant_addition_saturation() {
+        let submitted = std::time::Instant::now();
+        assert!(
+            submitted.checked_add(MAXIMUM_RETRY_TIMING).is_some(),
+            "the accepted maximum must still produce a real deadline"
+        );
+        assert!(
+            submitted.checked_add(Duration::MAX).is_none(),
+            "an unbounded budget saturates, which is exactly the inversion"
+        );
     }
 
     #[test]

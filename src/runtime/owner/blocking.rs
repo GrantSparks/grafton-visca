@@ -96,10 +96,17 @@ pub(crate) struct BlockingCancellationReceipt {
 /// the entire session. `RefCell` is intentional: blocking sessions are
 /// caller-driven and non-`Sync`; a re-entrant method call is rejected as
 /// [`Error::TransportBusy`] rather than recursively entering the owner.
+// Constructed only by `BlockingSessionCore::new`, whose callers are in
+// src/runtime/owner/tests.rs `mod blocking` (cfg blocking-without-async) — which is why
+// this reads as never-constructed under `--all-features` (#636).
+#[allow(dead_code)]
 pub(crate) struct BlockingSessionCore<'a> {
     parts: RefCell<BlockingSessionParts<'a>>,
 }
 
+// Built only inside `BlockingSessionCore::new`, so it reads as never-constructed on any
+// leg where src/runtime/owner/tests.rs `mod blocking` is compiled out (#636).
+#[allow(dead_code)]
 struct BlockingSessionParts<'a> {
     owner: &'a mut BlockingOwner,
     driver: &'a mut dyn BlockingWireDriver,
@@ -107,6 +114,12 @@ struct BlockingSessionParts<'a> {
     decoder: &'a mut dyn BlockingFrameDecoder,
 }
 
+// Whole borrowed-session seam: `new` is called only by
+// `shared_blocking_control_allows_two_public_handles` and
+// `shared_blocking_handles_retain_out_of_order_success_and_error` in
+// src/runtime/owner/tests.rs `mod blocking` (cfg blocking-without-async), and
+// `with_parts` only serves this type's `BlockingControlHost` impl (#636).
+#[allow(dead_code)]
 impl<'a> BlockingSessionCore<'a> {
     /// Borrows one blocking session's owner and adapter seams into a shared,
     /// caller-thread control core. No operation handle allocation is needed.
@@ -129,10 +142,6 @@ impl<'a> BlockingSessionCore<'a> {
                 decoder,
             }),
         }
-    }
-
-    pub(crate) fn control(&'a self) -> BlockingReceiptControl<'a> {
-        BlockingReceiptControl::shared(self)
     }
 
     fn with_parts<T>(
@@ -242,6 +251,10 @@ impl BlockingControlHost for BlockingSessionCore<'_> {
 pub(crate) struct BlockingSessionHost {
     parts: RefCell<BlockingOwnedSessionParts>,
     state_cache: Arc<[std::sync::Mutex<super::TargetStateCache>; 9]>,
+    /// The owner's live operational tuning (#631). The blocking owner runs on
+    /// the caller thread, so the update and every subsequent preparation are
+    /// already ordered by the one owner turn each takes.
+    tuning: super::LiveTuning,
 }
 
 struct BlockingOwnedSessionParts {
@@ -266,6 +279,7 @@ impl BlockingSessionHost {
         let (driver, reader, decoder) = adapter.into_parts();
         let owner = BlockingOwner::new(policy)?;
         let state_cache = owner.state().state_cache_registry();
+        let tuning = owner.state().live_tuning();
         Ok(Self {
             parts: RefCell::new(BlockingOwnedSessionParts {
                 owner,
@@ -274,6 +288,7 @@ impl BlockingSessionHost {
                 decoder: Box::new(decoder),
             }),
             state_cache,
+            tuning,
         })
     }
 
@@ -339,6 +354,22 @@ impl BlockingSessionHost {
         crate::state_cache::StateCache::from_registry(Arc::clone(&self.state_cache), target)
     }
 
+    /// Reads the tuning the owner is currently preparing requests under.
+    pub(crate) fn tuning(&self) -> crate::OperationalTuning {
+        self.tuning.get()
+    }
+
+    /// Installs new session tuning on the caller-thread owner (#631).
+    ///
+    /// This is the blocking counterpart of the async control-boundary message:
+    /// the owner turn this takes is the same exclusive turn a submission takes,
+    /// so an update can never interleave with one. A re-entrant call — one made
+    /// from inside another owner turn — is rejected as
+    /// [`Error::TransportBusy`] rather than corrupting that turn.
+    pub(crate) fn reconfigure(&self, tuning: crate::OperationalTuning) -> Result<(), Error> {
+        self.with_parts(|owner, _, _, _| owner.state_mut().retune(tuning))
+    }
+
     /// Returns the caller-thread owner's monotonic clock instant.
     pub(crate) fn now(&self) -> Instant {
         Instant::now()
@@ -397,15 +428,20 @@ impl BlockingControlHost for BlockingSessionHost {
 /// The caller-thread transport/reader control needed while a blocking receipt
 /// is observed. It has no lifecycle identity of its own.
 ///
-/// The `Borrowed` variant preserves the owner-level receipt tests and the
-/// narrow pre-facade adapter seam. Public handles are created with `Shared`,
-/// which is the only variant that can outlive an individual method call.
+/// The `Borrowed` variant exists only for the owner-level receipt tests: its
+/// sole constructor is [`BlockingOwner::receipt_control`], and every caller of
+/// that is in `src/runtime/owner/tests.rs`. No adapter or facade path builds
+/// one. Public handles are created with `Shared`, which is the only variant
+/// that can outlive an individual method call.
 pub(crate) struct BlockingReceiptControl<'a> {
     kind: BlockingControlKind<'a>,
 }
 
 enum BlockingControlKind<'a> {
     Shared(&'a dyn BlockingControlHost),
+    // Constructed only by `BlockingOwner::receipt_control`, whose sole callers live in
+    // src/runtime/owner/tests.rs `mod blocking` (cfg blocking-without-async) (#636).
+    #[allow(dead_code)]
     Borrowed {
         owner: &'a mut BlockingOwner,
         driver: &'a mut dyn BlockingWireDriver,
@@ -545,6 +581,9 @@ pub(crate) enum BlockingAfterApplied<'a> {
 /// Exact polling work delegated to Phase 6 without claiming settlement.
 #[derive(Debug)]
 pub(crate) struct BlockingPollingContinuation<'a> {
+    // Never read: `wait` identifies its work by `target`/`axes`/`plan`, and the only
+    // writer is the constructor in `wait_applied_until` (#636).
+    #[allow(dead_code)]
     pub(crate) id: RequestId,
     pub(crate) target: crate::CameraId,
     pub(crate) axes: AffectedAxes,
@@ -559,6 +598,9 @@ impl BlockingCommandReceipt {
         wait_core_for(self.core, control, timeout).and_then(normalize_command_outcome)
     }
 
+    // Called by `observer_timeout_detaches_without_cancel_and_late_applied_still_caches`
+    // in src/runtime/owner/tests.rs `mod blocking` (blocking-without-async leg) (#636).
+    #[allow(dead_code)]
     pub(crate) fn wait_with_timeout(
         self,
         control: &mut BlockingReceiptControl<'_>,
@@ -567,6 +609,9 @@ impl BlockingCommandReceipt {
         wait_core_for(self.core, control, timeout).and_then(normalize_command_outcome)
     }
 
+    // Detached by `policy_and_raw_write_use_profile_and_transport_facts` in
+    // blocking_transport.rs `mod tests` and by tests.rs `mod blocking` (#636).
+    #[allow(dead_code)]
     pub(crate) fn detach(self) {}
 }
 
@@ -577,6 +622,9 @@ impl<R> BlockingInquiryReceipt<R> {
         normalize_inquiry_outcome(outcome, &self.decoder)
     }
 
+    // No consumer in src/ or tests/: every inquiry observer goes through `wait` or
+    // `wait_until`, so nothing yet passes an explicit inquiry timeout here (#636).
+    #[allow(dead_code)]
     pub(crate) fn wait_with_timeout(
         self,
         control: &mut BlockingReceiptControl<'_>,
@@ -586,6 +634,9 @@ impl<R> BlockingInquiryReceipt<R> {
         normalize_inquiry_outcome(outcome, &self.decoder)
     }
 
+    // No consumer in src/ or tests/: an inquiry receipt is always waited on, never
+    // relinquished (#636).
+    #[allow(dead_code)]
     pub(crate) fn detach(self) {}
 
     fn wait_until(
@@ -636,6 +687,9 @@ where
         self.core
     }
 
+    // No consumer in src/ or tests/: the public `blocking::Operation::detach` has an
+    // empty body and relinquishes this receipt by dropping it (#636).
+    #[allow(dead_code)]
     pub(crate) fn detach(self) {}
 }
 
@@ -721,6 +775,9 @@ impl<'a> BlockingSettlementWait<'a> {
         }
     }
 
+    // Asserted by `targeted_settlement_selection_retains_one_absolute_deadline` in
+    // src/runtime/owner/tests.rs `mod blocking` (cfg blocking-without-async) (#636).
+    #[allow(dead_code)]
     pub(crate) const fn selection(&self) -> WaitSelection {
         self.selection
     }
@@ -878,6 +935,9 @@ impl BlockingCancellationReceipt {
         }
     }
 
+    // No consumer in src/ or tests/: the public `blocking::Cancellation::detach` has an
+    // empty body and relinquishes this receipt by dropping it (#636).
+    #[allow(dead_code)]
     pub(crate) fn detach(self) {}
 }
 
@@ -999,14 +1059,25 @@ impl BlockingOwner {
         &self.state
     }
 
+    // No consumer in src/ or tests/: the blocking facade reads the cache through
+    // `BlockingSessionHost::state_cache` instead (#636).
+    #[allow(dead_code)]
     pub(crate) fn state_cache(&self, target: crate::CameraId) -> crate::state_cache::StateCache {
         self.state.state_cache(target)
     }
 
+    // Owner-state escape hatch for src/runtime/owner/tests.rs `mod blocking`
+    // (subscribe_applied/subscribe_diagnostics/buffers), blocking-without-async leg
+    // (#636).
+    #[allow(dead_code)]
     pub(crate) fn state_mut(&mut self) -> &mut OwnerState {
         &mut self.state
     }
 
+    // Builds the `Borrowed` control that src/runtime/owner/tests.rs `mod blocking` uses
+    // to observe receipts; that module only compiles on the blocking-without-async leg
+    // (#636).
+    #[allow(dead_code)]
     pub(crate) fn receipt_control<'a, D, R, F>(
         &'a mut self,
         driver: &'a mut D,
@@ -1103,6 +1174,9 @@ impl BlockingOwner {
     /// queued in the engine and is written by a later owner turn. No receive
     /// method is called here, so ACK/completion can only be consumed by an
     /// explicit pump.
+    // Untyped admission seam used by blocking_transport.rs `mod tests` and by
+    // src/runtime/owner/tests.rs `mod blocking` (blocking-without-async leg) (#636).
+    #[allow(dead_code)]
     pub(crate) fn submit<D: BlockingWireDriver>(
         &mut self,
         driver: &mut D,
@@ -1239,6 +1313,9 @@ impl BlockingOwner {
         ))
     }
 
+    // Frame-replay seam used throughout src/runtime/owner/tests.rs `mod blocking`, which
+    // only compiles on the blocking-without-async feature leg (#636).
+    #[allow(dead_code)]
     pub(crate) fn inject_frame<D: BlockingWireDriver>(
         &mut self,
         driver: &mut D,
@@ -1254,6 +1331,9 @@ impl BlockingOwner {
 
     /// Perform one raw receive, then frame/decode completely outside the engine
     /// mutation, and finally replay decoded frames in source order.
+    // Consumed by blocking_transport.rs `mod tests` and by src/runtime/owner/tests.rs
+    // `mod blocking`, which only compiles on the blocking-without-async leg (#636).
+    #[allow(dead_code)]
     pub(crate) fn pump_once<D, R, F>(
         &mut self,
         driver: &mut D,
@@ -1444,6 +1524,9 @@ impl BlockingOwner {
 
     /// Run only due scheduler work. This is intentionally distinct from a
     /// receive pump and is used for scheduler deadlines and pacing wakes.
+    // Driven by the deadline/pacing tests in src/runtime/owner/tests.rs `mod blocking`,
+    // which only compiles on the blocking-without-async feature leg (#636).
+    #[allow(dead_code)]
     pub(crate) fn wake<D: BlockingWireDriver>(
         &mut self,
         driver: &mut D,
@@ -1575,6 +1658,9 @@ impl BlockingOwner {
     }
 
     #[cfg(test)]
+    // Called by `blocking_reentrancy_fails_before_admission_or_write` in
+    // src/runtime/owner/tests.rs `mod blocking` (cfg blocking-without-async) (#636).
+    #[allow(dead_code)]
     pub(super) fn mark_pumping_for_test(&mut self) {
         self.pumping = true;
     }

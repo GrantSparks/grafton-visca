@@ -5,8 +5,10 @@
 //! in [`crate::request`] and from the low-level [`crate::command`] extension
 //! surface. A raw value is still admitted only through the async camera's
 //! `execute`, `inquire`, or `submit` methods (and their blocking projections);
-//! it cannot select a lifecycle ID, target, scheduler priority, or completion
-//! kind at submission time.
+//! it cannot select a lifecycle ID, target, or completion kind at submission
+//! time. Its [`crate::ControlClass`] is chosen in its [`crate::raw::Policy`],
+//! exactly as a built-in chooses one, and the camera handle's `*_with_class`
+//! methods and `set_command_class` default apply to it on the same terms.
 //!
 //! Raw constructors validate and own the complete VISCA frame. The first byte
 //! must be a valid VISCA camera address and the final byte must be `0xff`.

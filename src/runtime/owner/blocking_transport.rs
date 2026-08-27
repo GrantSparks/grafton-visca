@@ -44,9 +44,6 @@ pub(crate) struct BlockingTransportAdapter<T> {
     policy: OwnerPolicy,
 }
 
-/// Short alias used by owner construction code.
-pub(crate) type BlockingOwnerAdapter<T> = BlockingTransportAdapter<T>;
-
 /// Writer view into a [`BlockingTransportAdapter`].
 #[derive(Debug, Clone)]
 pub(crate) struct BlockingTransportWriter<T> {
@@ -71,6 +68,9 @@ where
 {
     /// Build an owner adapter from validated profile facts and the transport's
     /// immutable configuration.  No transport operation occurs here.
+    // Single-target convenience used only by this file's `#[cfg(test)] mod tests`;
+    // production builds go through `new_with_profile_registry` (src/blocking.rs) (#636).
+    #[allow(dead_code)]
     pub(crate) fn new(
         transport: T,
         profile: &ProfileSpec,
@@ -79,6 +79,9 @@ where
         Self::new_with_tuning(transport, profile, target, OperationalTuning::new())
     }
 
+    // Reached only through `BlockingTransportAdapter::new`, whose own callers are this
+    // file's `#[cfg(test)] mod tests` (#636).
+    #[allow(dead_code)]
     pub(crate) fn new_with_tuning(
         transport: T,
         profile: &ProfileSpec,
@@ -174,17 +177,6 @@ where
                 state: Arc::clone(&self.state),
             },
         )
-    }
-
-    /// Alias for [`Self::parts`] for callers that prefer split terminology.
-    pub(crate) fn split(
-        &self,
-    ) -> (
-        BlockingTransportWriter<T>,
-        BlockingTransportReader<T>,
-        BlockingTransportDecoder<T>,
-    ) {
-        self.parts()
     }
 
     /// Consume the adapter and return write/read/decode views.  The returned

@@ -4,8 +4,6 @@
 //! bounded resources around it (admission, observers, caches, diagnostics and
 //! reusable I/O storage) and exposes small mode-native driver seams.
 
-#![allow(dead_code)] // Connected to the public operation facades in phases 4/5.
-
 mod adapter;
 #[cfg(feature = "async")]
 mod async_actor;
@@ -31,9 +29,8 @@ pub(crate) use blocking_transport::*;
 
 #[allow(unused_imports)]
 pub(crate) use adapter::{
-    owner_policy_for, owner_policy_for_targets, owner_policy_for_targets_with_tuning,
-    profile_supports_transport, validate_profile_transport, OwnerEnvelope, RoutingState,
-    TargetRegistry,
+    owner_policy_for_targets_with_tuning, profile_supports_transport, validate_profile_transport,
+    OwnerEnvelope, RoutingState, TargetRegistry,
 };
 
 use std::{
@@ -65,6 +62,10 @@ mod tests;
 
 #[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+// Compared by `tests::blocking` (blocking without async) and by
+// `async_actor::tests` (async plus a runtime feature); neither compiles on the
+// plain `async` leg (#636).
+#[allow(dead_code)]
 pub(crate) enum CanonicalOwnerStep {
     Admitted,
     Sending,
@@ -76,7 +77,11 @@ pub(crate) enum CanonicalOwnerStep {
     Applied,
 }
 
+// Consumed by `tests::blocking` (blocking without async) and by
+// `async_actor::tests` (async plus a runtime feature); neither compiles on the
+// plain `async` leg (#636).
 #[cfg(test)]
+#[allow(dead_code)]
 pub(crate) const CANONICAL_OWNER_TRACE: &[CanonicalOwnerStep] = &[
     CanonicalOwnerStep::Admitted,
     CanonicalOwnerStep::Sending,
@@ -88,7 +93,11 @@ pub(crate) const CANONICAL_OWNER_TRACE: &[CanonicalOwnerStep] = &[
     CanonicalOwnerStep::Applied,
 ];
 
+// Consumed by `tests::blocking` (blocking without async) and by
+// `async_actor::tests` (async plus a runtime feature); neither compiles on the
+// plain `async` leg (#636).
 #[cfg(test)]
+#[allow(dead_code)]
 pub(crate) fn canonical_owner_trace(
     diagnostics: impl IntoIterator<Item = DiagnosticEvent>,
 ) -> Vec<CanonicalOwnerStep> {
@@ -159,13 +168,32 @@ impl Default for OwnerLimits {
     }
 }
 
-/// Immutable construction policy. Target registration cannot change after the
-/// owner begins accepting work.
+/// Profile-derived pacing and socket facts *before* any operational tuning was
+/// folded in.
+///
+/// Runtime reconfiguration (#631) re-derives the owner's live pacing and socket
+/// capacity from this baseline rather than from the already-tuned values.
+/// Deriving from the tuned values would be a ratchet: an override that widened
+/// command pacing could never be relaxed again, because the widened value would
+/// have become the new floor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct TuningBaseline {
+    pub(crate) command_spacing: Duration,
+    pub(crate) inquiry_spacing: Duration,
+    pub(crate) command_sockets: [Option<u8>; 9],
+}
+
+/// Construction policy. Target registration cannot change after the owner
+/// begins accepting work; pacing, socket capacity, and the session tuning that
+/// governs request preparation are reconfigurable through the owner's control
+/// boundary.
 #[derive(Debug, Clone)]
 pub(crate) struct OwnerPolicy {
     pub(crate) protocol: ProtocolPolicy,
     pub(crate) targets: [Option<TargetPolicy>; 9],
     pub(crate) limits: OwnerLimits,
+    pub(crate) tuning: crate::OperationalTuning,
+    pub(crate) baseline: TuningBaseline,
 }
 
 impl OwnerPolicy {
@@ -193,9 +221,21 @@ impl OwnerPolicy {
             protocol,
             targets,
             limits: OwnerLimits::default(),
+            tuning: crate::OperationalTuning::new(),
+            baseline: TuningBaseline {
+                command_spacing: protocol.command_spacing,
+                inquiry_spacing: protocol.inquiry_spacing,
+                command_sockets: array::from_fn(|index| {
+                    targets[index].map(|policy| policy.command_sockets)
+                }),
+            },
         })
     }
 
+    // Test-only today: `runtime::owner::tests` and `async_actor::tests` build
+    // single-target policies, while production goes through
+    // `adapter::owner_policy_for_targets_with_tuning` (#636).
+    #[allow(dead_code)]
     pub(crate) fn single_target(
         protocol: ProtocolPolicy,
         target: CameraId,
@@ -209,48 +249,6 @@ impl OwnerPolicy {
         let mut targets = [None; 9];
         targets[usize::from(target.id())] = Some(target_policy);
         Self::with_targets(protocol, targets)
-    }
-
-    /// Lower validated profile and transport facts into one immutable owner
-    /// policy. Request-specific semantics are supplied by prepared requests;
-    /// this method only maps session-wide protocol and resource facts.
-    pub(crate) fn from_profile(
-        profile: &crate::ProfileSpec,
-        config: &crate::transport::builder::TransportConfig,
-        target: CameraId,
-        semantics: crate::transport::SendSemantics,
-    ) -> Result<Self, Error> {
-        adapter::owner_policy_for(profile, config, target, semantics)
-    }
-
-    /// Lower one profile and immutable operational tuning into owner policy.
-    pub(crate) fn from_profile_with_tuning(
-        profile: &crate::ProfileSpec,
-        config: &crate::transport::builder::TransportConfig,
-        target: CameraId,
-        semantics: crate::transport::SendSemantics,
-        tuning: crate::OperationalTuning,
-    ) -> Result<Self, Error> {
-        adapter::owner_policy_for_with_tuning(profile, config, target, semantics, tuning)
-    }
-
-    /// Lowers one policy for several immutable target/profile registrations.
-    pub(crate) fn from_profiles(
-        profiles: &[(CameraId, &crate::ProfileSpec)],
-        config: &crate::transport::builder::TransportConfig,
-        semantics: crate::transport::SendSemantics,
-    ) -> Result<Self, Error> {
-        adapter::owner_policy_for_targets(profiles, config, semantics)
-    }
-
-    /// Tuning-aware multi-target policy lowering.
-    pub(crate) fn from_profiles_with_tuning(
-        profiles: &[(CameraId, &crate::ProfileSpec)],
-        config: &crate::transport::builder::TransportConfig,
-        semantics: crate::transport::SendSemantics,
-        tuning: crate::OperationalTuning,
-    ) -> Result<Self, Error> {
-        adapter::owner_policy_for_targets_with_tuning(profiles, config, semantics, tuning)
     }
 }
 
@@ -626,6 +624,10 @@ impl CompletionObserver {
         self.receiver.try_recv().ok()
     }
 
+    // Reached only through `CancellationCore::recv`, whose sole caller is the
+    // `#[cfg(test)]` `blocking::BlockingCancellationReceipt::recv_test`
+    // (#636).
+    #[allow(dead_code)]
     fn recv(&self) -> Result<ReceiptObservation, Error> {
         self.receiver.recv().map_err(|_| Error::RuntimeShutdown)
     }
@@ -704,7 +706,10 @@ impl ReceiptCore {
         self.try_outcome()
     }
 
+    // Consumed only by `async_actor::tests`, which additionally requires
+    // `runtime-tokio` or `runtime-smol` (#636).
     #[cfg(all(test, feature = "async"))]
+    #[allow(dead_code)]
     pub(crate) async fn terminal(&self) -> Result<RuntimeOutcome, Error> {
         self.completion.recv_async().await.map(observation_outcome)
     }
@@ -781,6 +786,8 @@ struct CancellationRegistration {
 /// exposed as a terminal token outcome.
 #[derive(Debug)]
 pub(crate) struct CancellationCore {
+    // Read only by `CancellationCore::id`, which itself has no caller (#636).
+    #[allow(dead_code)]
     id: RequestId,
     origin: Arc<()>,
     completion: CompletionObserver,
@@ -788,6 +795,9 @@ pub(crate) struct CancellationCore {
 }
 
 impl CancellationCore {
+    // No caller in `src/` or `tests/`: the cancellation receipts expose their
+    // request id through `ReceiptCore::id` before the cancel is issued (#636).
+    #[allow(dead_code)]
     const fn id(&self) -> RequestId {
         self.id
     }
@@ -796,6 +806,9 @@ impl CancellationCore {
         self.buffered.take().or_else(|| self.completion.try_recv())
     }
 
+    // Consumed only by `blocking::BlockingCancellationReceipt::recv_test`, a
+    // `#[cfg(test)]` helper on the `blocking` feature (#636).
+    #[allow(dead_code)]
     fn recv(mut self) -> Result<ReceiptObservation, Error> {
         match self.buffered.take() {
             Some(observation) => Ok(observation),
@@ -803,7 +816,10 @@ impl CancellationCore {
         }
     }
 
+    // Consumed only by `async_actor::AsyncCancellationReceipt::recv_test`, a
+    // `#[cfg(test)]` helper on the `async` feature (#636).
     #[cfg(feature = "async")]
+    #[allow(dead_code)]
     async fn recv_async(mut self) -> Result<ReceiptObservation, Error> {
         match self.buffered.take() {
             Some(observation) => Ok(observation),
@@ -845,12 +861,20 @@ fn normalize_cancellation_observation(
 pub(crate) struct AppliedStateEvent(pub(crate) AppliedStateEffect);
 
 #[derive(Debug)]
+// Constructed only by `OwnerState::subscribe_applied`, whose consumers are
+// feature-gated; `id` is read only by the as-yet-uncalled
+// `unsubscribe_applied` (#636).
+#[allow(dead_code)]
 pub(crate) struct AppliedStateSubscription {
     id: u64,
     receiver: flume::Receiver<AppliedStateEvent>,
 }
 
 impl AppliedStateSubscription {
+    // Consumed only by the owner tests (`tests::blocking` and
+    // `tests::lifecycle_trace`); no facade exposes applied-state events yet
+    // (#636).
+    #[allow(dead_code)]
     pub(crate) fn try_recv(&self) -> Option<AppliedStateEvent> {
         self.receiver.try_recv().ok()
     }
@@ -864,6 +888,9 @@ struct AppliedSubscriber {
 
 #[derive(Debug)]
 pub(crate) struct DiagnosticSubscription {
+    // Read only by `OwnerState::unsubscribe_diagnostics`, which itself has no
+    // caller yet (#636).
+    #[allow(dead_code)]
     id: u64,
     receiver: flume::Receiver<DiagnosticEvent>,
 }
@@ -963,16 +990,6 @@ impl OwnerBuffers {
         &self.framing
     }
 
-    pub(crate) fn append_framing(&mut self, bytes: &[u8]) -> Result<(), Error> {
-        if self.framing.len().saturating_add(bytes.len()) > self.framing_limit {
-            return Err(Error::ResponseTooLarge {
-                max_size: self.framing_limit,
-            });
-        }
-        self.framing.extend_from_slice(bytes);
-        Ok(())
-    }
-
     pub(crate) fn consume_framing(&mut self, count: usize) {
         let count = count.min(self.framing.len());
         self.framing.drain(..count);
@@ -982,13 +999,25 @@ impl OwnerBuffers {
 /// Borrowed exact write handed to a mode-native transport adapter.
 #[derive(Debug)]
 pub(crate) struct WireWrite<'a> {
+    // No reader in `src/` or `tests/`: adapters correlate a write through the
+    // `StagedWrite` the owner keeps, not through the borrowed write (#636).
+    #[allow(dead_code)]
     pub(crate) transmission: TransmissionId,
+    // Read only by the test wire drivers in `tests::blocking` and
+    // `async_actor::tests` (#636).
+    #[allow(dead_code)]
     pub(crate) request: RequestId,
+    // No reader in `src/` or `tests/`: the production adapters frame from
+    // `bytes`/`envelope` and let the transport carry addressing (#636).
+    #[allow(dead_code)]
     pub(crate) target: CameraId,
     pub(crate) bytes: &'a [u8],
     /// Reusable framing destination owned by the session. Envelope adapters
     /// must frame into this buffer instead of allocating per transmission.
     pub(crate) frame_buffer: &'a mut BytesMut,
+    // Read only by the test wire drivers in `tests::blocking` and
+    // `async_actor::tests` (#636).
+    #[allow(dead_code)]
     pub(crate) cancellation: bool,
     pub(crate) inquiry: bool,
     pub(crate) envelope: EnvelopeKind,
@@ -1020,10 +1049,45 @@ impl StagedWrite {
 #[derive(Debug)]
 pub(crate) enum AppliedEffect {
     None,
+    // Payload has no reader in `src/` or `tests/`: the admitted id is observed
+    // through the admission reply channel, never through this variant (#636).
+    #[allow(dead_code)]
     Admitted(RequestId),
+    // Payload read only by `tests::lifecycle_trace`'s rejection rendering
+    // (#636).
+    #[allow(dead_code)]
     AdmissionRejected(Error),
     Transmit(StagedWrite),
+    // Payload has no reader in `src/` or `tests/`: terminal ids reach callers
+    // through the completion observer, never through this variant (#636).
+    #[allow(dead_code)]
     Terminal(RequestId),
+}
+
+/// The owner's live operational tuning, shared with every handle that prepares
+/// requests against it.
+///
+/// The owner is the sole writer: an update reaches it through the async control
+/// boundary or, in the blocking mode, through the owner turn the caller thread
+/// takes. Readers therefore see one whole [`crate::OperationalTuning`] value —
+/// never a half-applied mixture of two updates — and two concurrent updates
+/// resolve last-writer-wins in the order the owner accepted them.
+#[derive(Debug, Clone)]
+pub(crate) struct LiveTuning(Arc<Mutex<crate::OperationalTuning>>);
+
+impl LiveTuning {
+    fn new(tuning: crate::OperationalTuning) -> Self {
+        Self(Arc::new(Mutex::new(tuning)))
+    }
+
+    /// Copies the tuning currently governing request preparation.
+    pub(crate) fn get(&self) -> crate::OperationalTuning {
+        *self.0.lock().unwrap_or_else(|poison| poison.into_inner())
+    }
+
+    fn set(&self, tuning: crate::OperationalTuning) {
+        *self.0.lock().unwrap_or_else(|poison| poison.into_inner()) = tuning;
+    }
 }
 
 /// Common serialized owner state shared by blocking and async modes.
@@ -1031,6 +1095,7 @@ pub(crate) enum AppliedEffect {
 pub(crate) struct OwnerState {
     engine: ProtocolEngine,
     policy: OwnerPolicy,
+    tuning: LiveTuning,
     permits: AdmissionPermitPool,
     pending: BTreeMap<AdmissionTicket, PendingAdmission>,
     active: BTreeMap<RequestId, ActiveRequest>,
@@ -1038,7 +1103,13 @@ pub(crate) struct OwnerState {
     target_cache: Arc<[Mutex<TargetStateCache>; 9]>,
     subscribers: BTreeMap<u64, AppliedSubscriber>,
     diagnostic_subscribers: BTreeMap<u64, DiagnosticSubscriber>,
+    // Read only by `subscribe_applied`, whose consumers are feature-gated
+    // (#636).
+    #[allow(dead_code)]
     next_subscription: u64,
+    // Read only by `subscribe_diagnostics`, whose consumers are feature-gated
+    // (#636).
+    #[allow(dead_code)]
     next_diagnostic_subscription: u64,
     next_ticket: u64,
     diagnostics: VecDeque<DiagnosticEvent>,
@@ -1081,9 +1152,11 @@ impl OwnerState {
         }
         let permits = AdmissionPermitPool::new(policy.protocol.capacity);
         let buffers = OwnerBuffers::new(policy.limits)?;
+        let tuning = LiveTuning::new(policy.tuning);
         Ok(Self {
             engine,
             policy,
+            tuning,
             permits,
             pending: BTreeMap::new(),
             active: BTreeMap::new(),
@@ -1114,6 +1187,62 @@ impl OwnerState {
         &self.policy
     }
 
+    /// Shares the live tuning cell with a handle that prepares requests.
+    pub(crate) fn live_tuning(&self) -> LiveTuning {
+        self.tuning.clone()
+    }
+
+    /// Installs new operational tuning on this owner (#631).
+    ///
+    /// Two things change, and the difference between them is the whole scope of
+    /// runtime reconfiguration:
+    ///
+    /// * the session-wide pacing floor and per-target socket capacity are
+    ///   re-derived from the profile baseline and applied to the engine at
+    ///   once, so *queued* work is dispatched under the new values;
+    /// * the tuning that request preparation reads is replaced, so every
+    ///   request prepared after this call carries the new deadlines, retry
+    ///   budget, and per-request pacing floor.
+    ///
+    /// A request that has already been admitted keeps the deadlines it was
+    /// prepared with. Those are stamped once, at preparation, and the engine
+    /// derives its absolute phase deadlines from them; nothing here rewrites an
+    /// admitted request's context, so an in-flight command is never re-timed
+    /// underneath its own observer.
+    ///
+    /// The caller is responsible for validating `tuning` against the registered
+    /// profiles first — the owner does not retain `ProfileSpec` values, and the
+    /// session facades reject exactly what construction rejects before the
+    /// update reaches this point.
+    pub(crate) fn retune(&mut self, tuning: crate::OperationalTuning) -> Result<(), Error> {
+        let baseline = self.policy.baseline;
+        let command_spacing = tuning
+            .command_spacing_override()
+            .unwrap_or(baseline.command_spacing);
+        let inquiry_spacing = tuning
+            .inquiry_spacing_override()
+            .unwrap_or(baseline.inquiry_spacing);
+        let command_sockets: [Option<u8>; 9] = array::from_fn(|index| {
+            baseline.command_sockets[index].map(|profile_sockets| {
+                tuning
+                    .maximum_command_sockets_override()
+                    .unwrap_or(profile_sockets)
+            })
+        });
+        self.engine
+            .retune(command_spacing, inquiry_spacing, command_sockets)?;
+        self.policy.protocol.command_spacing = command_spacing;
+        self.policy.protocol.inquiry_spacing = inquiry_spacing;
+        for (slot, sockets) in self.policy.targets.iter_mut().zip(command_sockets.iter()) {
+            if let (Some(policy), Some(sockets)) = (slot.as_mut(), sockets) {
+                policy.command_sockets = *sockets;
+            }
+        }
+        self.policy.tuning = tuning;
+        self.tuning.set(tuning);
+        Ok(())
+    }
+
     pub(crate) const fn state(&self) -> SessionState {
         self.engine.state()
     }
@@ -1122,10 +1251,17 @@ impl OwnerState {
         self.session_error.clone()
     }
 
+    // Consumed by `async_actor`'s `snapshot_now` (the `async` feature) and by
+    // `tests::blocking` (#636).
+    #[allow(dead_code)]
     pub(crate) fn active_len(&self) -> usize {
         self.active.len()
     }
 
+    // Consumed by `async_actor`'s `snapshot_now` (the `async` feature) and by
+    // `tests::metrics`; the public facades go through `metrics_snapshot`
+    // (#636).
+    #[allow(dead_code)]
     pub(crate) fn metrics(&self) -> OwnerMetrics {
         self.metrics
     }
@@ -1143,18 +1279,31 @@ impl OwnerState {
         Arc::clone(&self.target_cache)
     }
 
+    // Consumed by `blocking::BlockingOwner::state_cache` (the `blocking`
+    // feature); the async handle builds its view from the registry instead
+    // (#636).
+    #[allow(dead_code)]
     pub(crate) fn state_cache(&self, target: CameraId) -> crate::state_cache::StateCache {
         crate::state_cache::StateCache::from_registry(self.state_cache_registry(), target)
     }
 
+    // Consumed by `async_actor`'s `snapshot_now` (the `async` feature) and by
+    // the owner test modules (#636).
+    #[allow(dead_code)]
     pub(crate) fn diagnostics(&self) -> impl Iterator<Item = &DiagnosticEvent> {
         self.diagnostics.iter()
     }
 
+    // Consumed by `blocking::BlockingOwner::drain_diagnostics` (the `blocking`
+    // feature) and by `tests::blocking` (#636).
+    #[allow(dead_code)]
     pub(crate) fn drain_diagnostics(&mut self) -> Vec<DiagnosticEvent> {
         self.diagnostics.drain(..).collect()
     }
 
+    // Consumed only by `tests::blocking`, which compiles with `blocking` and
+    // without `async`; facades read the cache through `state_cache` (#636).
+    #[allow(dead_code)]
     pub(crate) fn cached(
         &self,
         target: CameraId,
@@ -1169,6 +1318,9 @@ impl OwnerState {
         self.engine.next_wake()
     }
 
+    // No caller in `src/` or `tests/`: the blocking owner reads its queued
+    // dispatch time out of `FirstDispatch::WaitUntil` instead (#636).
+    #[allow(dead_code)]
     pub(crate) fn dispatch_at(&self, id: RequestId) -> Option<Instant> {
         self.engine.queued_dispatch_at(id)
     }
@@ -1178,6 +1330,9 @@ impl OwnerState {
         self.engine.handle(input, now).into()
     }
 
+    // Consumed by `blocking::BlockingOwner` submission (the `blocking`
+    // feature) and by `tests::lifecycle_trace` (#636).
+    #[allow(dead_code)]
     pub(crate) fn admit_without_due(
         &mut self,
         ticket: AdmissionTicket,
@@ -1187,6 +1342,9 @@ impl OwnerState {
         self.engine.admit_without_due(ticket, request, now).into()
     }
 
+    // Consumed by `blocking::BlockingOwner`'s first-dispatch loop (the
+    // `blocking` feature) and by `tests::lifecycle_trace` (#636).
+    #[allow(dead_code)]
     pub(crate) fn first_dispatch_without_due(
         &mut self,
         id: RequestId,
@@ -1260,6 +1418,9 @@ impl OwnerState {
             .into()
     }
 
+    // Consumed by `blocking::BlockingOwner`'s undue write drain (the
+    // `blocking` feature) and by `tests::lifecycle_trace` (#636).
+    #[allow(dead_code)]
     pub(crate) fn finish_write_without_due(
         &mut self,
         staged: &StagedWrite,
@@ -1322,6 +1483,9 @@ impl OwnerState {
         });
     }
 
+    // Consumed by `blocking::BlockingOwner` submission (the `blocking`
+    // feature) and by `tests::metrics` / `tests::lifecycle_trace` (#636).
+    #[allow(dead_code)]
     pub(crate) fn stage_admission(
         &mut self,
         request: RuntimeRequest,
@@ -1396,6 +1560,9 @@ impl OwnerState {
         }
     }
 
+    // Consumed by the async actor's `Subscribe` control arm in `async_actor`
+    // (the `async` feature) and by `tests::lifecycle_trace` (#636).
+    #[allow(dead_code)]
     pub(crate) fn subscribe_applied(
         &mut self,
         target: Option<CameraId>,
@@ -1422,10 +1589,17 @@ impl OwnerState {
         Ok(AppliedStateSubscription { id, receiver })
     }
 
+    // No caller in `src/` or `tests/`: `subscribe_applied` reclaims slots whose
+    // `flume` receiver has already dropped, so nothing unsubscribes explicitly
+    // yet (#636).
+    #[allow(dead_code)]
     pub(crate) fn unsubscribe_applied(&mut self, subscription: &AppliedStateSubscription) {
         self.subscribers.remove(&subscription.id);
     }
 
+    // Consumed by the async actor's `SubscribeDiagnostics` control arm in
+    // `async_actor` (the `async` feature) and by `tests::blocking` (#636).
+    #[allow(dead_code)]
     pub(crate) fn subscribe_diagnostics(
         &mut self,
         event_capacity: usize,
@@ -1454,6 +1628,10 @@ impl OwnerState {
         Ok(DiagnosticSubscription { id, receiver })
     }
 
+    // No caller in `src/` or `tests/`: `subscribe_diagnostics` reclaims slots
+    // whose `flume` receiver has already dropped, so nothing unsubscribes
+    // explicitly yet (#636).
+    #[allow(dead_code)]
     pub(crate) fn unsubscribe_diagnostics(&mut self, subscription: &DiagnosticSubscription) {
         self.diagnostic_subscribers.remove(&subscription.id);
     }
@@ -1769,6 +1947,9 @@ impl OwnerState {
         }
     }
 
+    // Consumed only by the async actor's boundary drain in `async_actor`,
+    // which compiles only with the `async` feature (#636).
+    #[allow(dead_code)]
     pub(crate) fn fail_unstaged_boundary(&mut self, count: usize) {
         self.metrics.dropped_boundary_work = self
             .metrics
@@ -1794,15 +1975,17 @@ impl OwnerState {
         });
     }
 
-    pub(crate) fn shutdown_input(reason: ShutdownReason) -> Input {
-        Input::Shutdown(reason)
-    }
-
+    // Consumed only by `runtime::owner::tests::metrics`; both owners build
+    // `Input::Frame` inline from their decoded batches (#636).
+    #[allow(dead_code)]
     pub(crate) fn frame_input(frame: DecodedFrame) -> Input {
         Input::Frame(frame)
     }
 }
 
+// Private helper for `OwnerState::subscribe_applied` and
+// `subscribe_diagnostics`, whose own consumers are feature-gated (#636).
+#[allow(dead_code)]
 fn allocate_subscription_id<T>(next: &mut u64, values: &BTreeMap<u64, T>) -> u64 {
     loop {
         let id = *next;
@@ -1845,6 +2028,9 @@ fn cancellation_diagnostic(observation: &CancellationObservation) -> Cancellatio
     }
 }
 
+// No caller in `src/` or `tests/`: each owner maps outcomes with its own
+// `#[cfg(test)]` `test_cancellation_observation` helper instead (#636).
+#[allow(dead_code)]
 fn cancellation_observation_for(outcome: &RuntimeOutcome) -> CancellationObservation {
     match outcome {
         RuntimeOutcome::Applied => CancellationObservation::Completed,

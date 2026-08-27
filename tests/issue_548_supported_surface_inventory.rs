@@ -9,6 +9,11 @@ use grafton_visca::{
     ViscaEnum, ViscaInquiry, ViscaValue,
 };
 
+#[path = "common/source_scan.rs"]
+mod source_scan;
+
+use source_scan::{builtin_command_rows, declarations};
+
 #[derive(Debug, Clone, Copy, ViscaInquiry)]
 #[visca(opcode = 0x00, response = Power)]
 struct InventoryInquiry;
@@ -111,86 +116,6 @@ const EXPECTED_BLOCKING_ACCESSORS: &[&str] = &[
     "ZoomAccessor",
 ];
 
-#[allow(dead_code)]
-const EXPECTED_CONTROL_TRAITS: &[&str] = &[
-    "AutoFocusSensitivityControl",
-    "AutoFocusSensitivityInquiryControl",
-    "AutoTrackingWhiteBalanceControl",
-    "AutoWhiteBalanceSensitivityControl",
-    "AutoWhiteBalanceSensitivityInquiryControl",
-    "BacklightCompensationControl",
-    "BacklightCompensationInquiryControl",
-    "BrightnessControl",
-    "BrightnessInquiryControl",
-    "ColorControl",
-    "ColorTemperatureControl",
-    "ColorTemperatureInquiryControl",
-    "ContrastControl",
-    "ContrastInquiryControl",
-    "DigitalZoomControl",
-    "DigitalZoomRangeControl",
-    "DirectMenuControl",
-    "DirectZoomControl",
-    "ExposureCompensationControl",
-    "ExposureCompensationInquiryControl",
-    "ExposureControl",
-    "FocusControl",
-    "FocusLockControl",
-    "FocusNearLimitInquiryControl",
-    "FocusRangeInquiryControl",
-    "FocusZoneControl",
-    "FocusZoneInquiryControl",
-    "GammaControl",
-    "GammaInquiryControl",
-    "HueControl",
-    "HueInquiryControl",
-    "ImageFlipControl",
-    "ImageFlipInquiryControl",
-    "ImageFlipModeControl",
-    "ImageMirrorControl",
-    "InquiryControl",
-    "IrisControl",
-    "IrisInquiryControl",
-    "LuminanceControl",
-    "LuminanceInquiryControl",
-    "MenuControl",
-    "MotionControl",
-    "MotionSyncControl",
-    "NdFilterControl",
-    "NdFilterInquiryControl",
-    "NoiseReduction2DControl",
-    "NoiseReduction2DInquiryControl",
-    "NoiseReduction3DControl",
-    "NoiseReduction3DInquiryControl",
-    "NoiseReductionInquiryControl",
-    "OnePushFocusControl",
-    "OnePushWhiteBalanceControl",
-    "PanTiltControl",
-    "PanTiltInquiryControl",
-    "PictureEffectControl",
-    "PictureEffectInquiryControl",
-    "PowerControl",
-    "PresetsControl",
-    "PushAFControl",
-    "RgbGainControl",
-    "RgbGainInquiryControl",
-    "RgbTuningControl",
-    "RgbTuningInquiryControl",
-    "SaturationControl",
-    "SaturationInquiryControl",
-    "SharpnessControl",
-    "SharpnessInquiryControl",
-    "SnapFocusControl",
-    "StreamingControl",
-    "SystemControl",
-    "TallyControl",
-    "VariableSpeedControl",
-    "WhiteBalanceControl",
-    "WideDynamicRangeControl",
-    "WideDynamicRangeInquiryControl",
-    "ZoomControl",
-];
-
 const EXPECTED_DYN_TRAITS: &[&str] = &[
     "DynAdvanced",
     "DynAppliedRequest",
@@ -253,32 +178,6 @@ fn public_trait_names(sources: &[&str]) -> Vec<String> {
     names
 }
 
-#[allow(dead_code)]
-fn macro_and_struct_names(source: &str, suffix: &str) -> Vec<String> {
-    let mut names = Vec::new();
-    for line in source.lines() {
-        let line = line.trim();
-        if let Some(rest) = line.strip_prefix("pub struct ") {
-            let name = rest
-                .split(|ch: char| ch == '<' || ch.is_whitespace())
-                .next()
-                .unwrap_or_default();
-            if name.ends_with(suffix) {
-                names.push(name.to_owned());
-            }
-        } else if line.ends_with(suffix)
-            && line
-                .chars()
-                .all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
-        {
-            names.push(line.to_owned());
-        }
-    }
-    names.sort();
-    names.dedup();
-    names
-}
-
 /// Reads `pub const NAME: usize = N;` without depending on its formatting.
 fn declared_usize(source: &str, name: &str) -> usize {
     let needle = format!("{name}: usize");
@@ -288,15 +187,6 @@ fn declared_usize(source: &str, name: &str) -> usize {
         .and_then(|(_, rest)| rest.split_once(';'))
         .and_then(|(value, _)| value.trim().parse().ok())
         .unwrap_or_else(|| panic!("no usize constant named {name}"))
-}
-
-/// Rows listed in the closed `BuiltinCommand::ALL` slice.
-fn ledger_rows(semantics: &str) -> usize {
-    semantics
-        .rsplit_once("pub const ALL: &[Self] = &[")
-        .and_then(|(_, rest)| rest.split_once("    ];"))
-        .map(|(slice, _)| slice.matches("Self::").count())
-        .expect("BuiltinCommand::ALL slice")
 }
 
 fn trait_methods(source: &str, traits: &[&str]) -> Vec<String> {
@@ -364,9 +254,12 @@ fn typed_capability_gate_inventory_is_closed() {
 
 #[test]
 fn static_noun_and_control_inventory_is_closed() {
-    let async_nouns = include_str!("../src/async_nouns.rs");
-    let blocking_nouns = include_str!("../src/blocking_nouns.rs");
-    let surface = include_str!("../src/command/surface.rs");
+    // Declaration regions only: both noun files list every accessor name as a
+    // string literal inside their in-file inventory tests, so a `contains`
+    // check over the whole file survives deleting the accessor itself.
+    let async_nouns = declarations(include_str!("../src/async_nouns.rs"));
+    let blocking_nouns = declarations(include_str!("../src/blocking_nouns.rs"));
+    let surface = declarations(include_str!("../src/command/surface.rs"));
 
     for accessor in EXPECTED_ACCESSORS {
         assert!(async_nouns.contains(accessor), "missing async {accessor}");
@@ -382,23 +275,26 @@ fn static_noun_and_control_inventory_is_closed() {
 
     // Derived instead of matched against another file's formatted source: the
     // closed ledger must give every semantic row exactly one disposition.
-    let semantics = include_str!("../src/command/semantics.rs");
+    let semantics = declarations(include_str!("../src/command/semantics.rs"));
     let dispositions = surface.matches("noun_entry!(").count()
         + surface.matches("broadcast_entry!(").count()
         + surface.matches("internal_entry!(").count();
     assert_eq!(
         dispositions,
-        ledger_rows(semantics),
+        builtin_command_rows(&semantics),
         "the static surface ledger drifted from the semantic inventory"
     );
 }
 
 #[test]
 fn dynamic_control_inventory_is_closed() {
-    let owner = include_str!("../src/dynapi/owner_projection.rs");
-    let nouns = include_str!("../src/dynapi/nouns.rs");
-    let custom = include_str!("../src/dynapi/custom.rs");
-    let mut actual = public_trait_names(&[owner, nouns]);
+    let owner = declarations(include_str!("../src/dynapi/owner_projection.rs"));
+    let nouns = declarations(include_str!("../src/dynapi/nouns.rs"));
+    let custom = declarations(include_str!("../src/dynapi/custom.rs"));
+    // The forbidden-token gates below are negative, so they read the whole file:
+    // a legacy spelling hiding in a test module is still a legacy spelling.
+    let whole_nouns = include_str!("../src/dynapi/nouns.rs");
+    let mut actual = public_trait_names(&[&owner, &nouns]);
     actual.extend(["DynAppliedRequest", "DynTargetedRequest"].map(str::to_owned));
     actual.sort();
     actual.dedup();
@@ -406,7 +302,7 @@ fn dynamic_control_inventory_is_closed() {
 
     for (name, expected) in EXPECTED_DYN_NOUN_METHOD_COUNTS {
         assert_eq!(
-            trait_methods(nouns, &[*name]).len(),
+            trait_methods(&nouns, &[*name]).len(),
             *expected,
             "dynamic noun {name} drifted"
         );
@@ -423,14 +319,14 @@ fn dynamic_control_inventory_is_closed() {
         "fn unlock(",
     ] {
         assert!(
-            !nouns.contains(forbidden),
+            !whole_nouns.contains(forbidden),
             "forbidden legacy dynamic surface token {forbidden:?}"
         );
     }
     // The implementation may use private `*_result` adapters to preserve
     // fallible command constructors.  Only a public result-twin method would
     // violate the closed noun surface.
-    assert!(!nouns.contains("fn result("));
+    assert!(!whole_nouns.contains("fn result("));
     assert_eq!(nouns.matches("pub trait DynSessionCameraNouns").count(), 1);
 
     // Derived instead of matched against the constant's formatted source: the
@@ -440,16 +336,16 @@ fn dynamic_control_inventory_is_closed() {
     // of exactly three things: a command row, a typed inquiry, or one of the
     // declared non-ledger convenience wrappers, whose own membership is gated
     // in `src/dynapi/nouns.rs`.
-    let projected: usize = public_trait_names(&[nouns])
+    let projected: usize = public_trait_names(&[&nouns])
         .iter()
         .filter(|name| name.as_str() != "DynSessionCameraNouns" && name.as_str() != "DynMotion")
-        .map(|name| trait_methods(nouns, &[name.as_str()]).len())
+        .map(|name| trait_methods(&nouns, &[name.as_str()]).len())
         .sum();
     assert_eq!(
         projected,
-        declared_usize(nouns, "DYN_NOUN_TARGET_METHOD_COUNT")
-            + declared_usize(nouns, "DYN_NOUN_INQUIRY_METHOD_COUNT")
-            + declared_usize(nouns, "DYN_NOUN_CONVENIENCE_METHOD_COUNT"),
+        declared_usize(&nouns, "DYN_NOUN_TARGET_METHOD_COUNT")
+            + declared_usize(&nouns, "DYN_NOUN_INQUIRY_METHOD_COUNT")
+            + declared_usize(&nouns, "DYN_NOUN_CONVENIENCE_METHOD_COUNT"),
         "the dynamic noun traits drifted from the declared projection sizes"
     );
 }

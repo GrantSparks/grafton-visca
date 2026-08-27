@@ -1,10 +1,9 @@
 # 2.0 preservation inventory
 
-This is the release-candidate preservation baseline for issue #542. It records
-behavior that the 2.0 architecture must retain. The supported-surface inventory
-test checks the closed lists below against the current registry and source; an
-intentional change must update the implementation, this inventory, and that
-test together.
+This is the release-candidate preservation baseline. It records behavior that
+the 2.0 architecture must retain. The supported-surface inventory test checks
+the closed lists below against the current registry and source; an intentional
+change must update the implementation, this inventory, and that test together.
 
 ## Profiles, envelopes, and transports
 
@@ -112,12 +111,16 @@ Allocation behavior is characterized at the narrowest stable boundary:
 - `issue_548_allocation_baselines` checks zero-allocation built-in
   `write_into` encoding and warmed raw/Sony framing-buffer reuse.
 - `command::encode` keeps built-in encoded bytes inline for the current hot
-  path; the runtime engine retry unit test
-  `test_command_kind_preserved_through_retries`
-  proves retries reuse the exact encoded `Arc` rather than rebuilding wire data.
-- The bounded owner-submission and completion-subscriber unit tests establish
-  the current lifecycle/storage bounds.
-- `dyn_api_integration_test::test_dyn_direct_forwarding_future_construction_allocations_match_static`
+  path; the runtime engine unit test
+  `inert_wire_is_inline_and_reused_across_retry_without_reallocation`
+  proves retries reuse the exact encoded `Arc` rather than rebuilding wire
+  data, and the owner unit test
+  `warmed_raw_and_sony_retries_reuse_owner_buffers` proves the framing buffers
+  are reused with it.
+- `tests/issue_561_blocking_queue.rs` and the bounded owner-submission and
+  completion-subscriber unit tests in `runtime::owner` establish the current
+  lifecycle/storage bounds.
+- `dyn_api_integration_test::tokio_dynamic_future_construction_matches_one_explicit_static_box`
   establishes the dyn/static future-construction baseline.
 - `issue_517_inquiry_encoding` retains the downstream derive encoding baseline.
 

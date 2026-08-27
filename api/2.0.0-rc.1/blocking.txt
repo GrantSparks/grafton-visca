@@ -123,8 +123,10 @@ pub const fn grafton_visca::blocking::CameraSession<P>::command_class(&self) -> 
 pub fn grafton_visca::blocking::CameraSession<P>::open<T>(T, &grafton_visca::camera::CameraConfig<P>) -> grafton_visca::Result<Self, grafton_visca::Error> where T: grafton_visca::transport::BlockingTransport + grafton_visca::transport::HasTransportConfig + 'static
 pub const fn grafton_visca::blocking::CameraSession<P>::session(&self) -> &grafton_visca::blocking::Session
 pub fn grafton_visca::blocking::CameraSession<P>::set_command_class(&mut self, core::option::Option<grafton_visca::ControlClass>)
+pub fn grafton_visca::blocking::CameraSession<P>::set_tuning(&self, grafton_visca::profile::OperationalTuning) -> grafton_visca::Result<(), grafton_visca::Error>
 pub fn grafton_visca::blocking::CameraSession<P>::shutdown(&self) -> grafton_visca::Result<(), grafton_visca::Error>
 pub const fn grafton_visca::blocking::CameraSession<P>::target(&self) -> grafton_visca::CameraId
+pub fn grafton_visca::blocking::CameraSession<P>::tuning(&self) -> grafton_visca::profile::OperationalTuning
 impl<P: grafton_visca::profile::CompileTimeProfile> core::fmt::Debug for grafton_visca::blocking::CameraSession<P>
 pub fn grafton_visca::blocking::CameraSession<P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<P> !core::marker::Freeze for grafton_visca::blocking::CameraSession<P>
@@ -504,7 +506,9 @@ pub fn grafton_visca::blocking::Session::close(self) -> grafton_visca::Result<()
 pub fn grafton_visca::blocking::Session::drain_diagnostics(&self) -> grafton_visca::Result<alloc::vec::Vec<grafton_visca::observability::DiagnosticEvent>, grafton_visca::Error>
 pub fn grafton_visca::blocking::Session::metrics(&self) -> grafton_visca::Result<grafton_visca::observability::MetricsSnapshot, grafton_visca::Error>
 pub fn grafton_visca::blocking::Session::open<T>(T, grafton_visca::SessionConfig) -> grafton_visca::Result<Self, grafton_visca::Error> where T: grafton_visca::transport::BlockingTransport + grafton_visca::transport::HasTransportConfig + 'static
+pub fn grafton_visca::blocking::Session::set_tuning(&self, grafton_visca::profile::OperationalTuning) -> grafton_visca::Result<(), grafton_visca::Error>
 pub fn grafton_visca::blocking::Session::shutdown(&self) -> grafton_visca::Result<(), grafton_visca::Error>
+pub fn grafton_visca::blocking::Session::tuning(&self) -> grafton_visca::profile::OperationalTuning
 impl core::fmt::Debug for grafton_visca::blocking::Session
 pub fn grafton_visca::blocking::Session::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl !core::marker::Freeze for grafton_visca::blocking::Session
@@ -13660,7 +13664,9 @@ pub fn grafton_visca::blocking::Session::close(self) -> grafton_visca::Result<()
 pub fn grafton_visca::blocking::Session::drain_diagnostics(&self) -> grafton_visca::Result<alloc::vec::Vec<grafton_visca::observability::DiagnosticEvent>, grafton_visca::Error>
 pub fn grafton_visca::blocking::Session::metrics(&self) -> grafton_visca::Result<grafton_visca::observability::MetricsSnapshot, grafton_visca::Error>
 pub fn grafton_visca::blocking::Session::open<T>(T, grafton_visca::SessionConfig) -> grafton_visca::Result<Self, grafton_visca::Error> where T: grafton_visca::transport::BlockingTransport + grafton_visca::transport::HasTransportConfig + 'static
+pub fn grafton_visca::blocking::Session::set_tuning(&self, grafton_visca::profile::OperationalTuning) -> grafton_visca::Result<(), grafton_visca::Error>
 pub fn grafton_visca::blocking::Session::shutdown(&self) -> grafton_visca::Result<(), grafton_visca::Error>
+pub fn grafton_visca::blocking::Session::tuning(&self) -> grafton_visca::profile::OperationalTuning
 impl core::fmt::Debug for grafton_visca::blocking::Session
 pub fn grafton_visca::blocking::Session::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl !core::marker::Freeze for grafton_visca::blocking::Session

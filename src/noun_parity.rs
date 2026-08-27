@@ -4,15 +4,45 @@
 //! [`crate::dynapi::nouns`] are three independent transcriptions of the same
 //! closed ledger in [`crate::command::surface`].  Nothing in the type system
 //! relates them, and the published API snapshots diff each facade only against
-//! its own baseline, so a method dropped from one surface, reclassified, or
-//! given a different capability bound would otherwise pass every gate.
+//! its own baseline, so a method dropped from one surface, reclassified, given
+//! a different argument list, or given a different capability bound would
+//! otherwise pass every gate.
 //!
 //! This module reads the three sources and compares them against the ledger
-//! and against each other by method name, semantic return class, and required
-//! capability bound.  Nothing here is derived from a hand-maintained
-//! `EXPECTED_` table: the noun set, the method set, the classes, and the
-//! markers all come from [`surface_entry`].  Rustdoc prose is deliberately out
-//! of scope; only semantic identity is gated.
+//! and against each other by method name, receiver, argument-type list,
+//! semantic return class, and required capability bound.  Nothing here is
+//! derived from a hand-maintained `EXPECTED_` table: the noun set, the method
+//! set, the classes, and the markers all come from [`surface_entry`].  Rustdoc
+//! prose is deliberately out of scope; only semantic identity is gated.
+//!
+//! # Parsing contract
+//!
+//! The reader below is a small brace/paren-depth scanner over comment- and
+//! literal-stripped source, not a set of column-exact needles.  Attributes
+//! inside `accessor!` invocations, one-liner invocations, multi-line
+//! signatures, and re-indentation are all legal input.  Anything the scanner
+//! does *not* recognise is a hard panic naming the file and line: this gate
+//! must never silently skip a method it cannot read, because a skipped method
+//! is an ungated method.
+//!
+//! # What the erased facade cannot be compared on
+//!
+//! The dynamic facade is object safe, so it carries no compile-time capability
+//! bounds at all: `DynZoom::set_position` is a plain trait method whether or
+//! not the profile behind it has [`TypedSupportSurface::DirectZoom`].  Its
+//! capability enforcement is the run-time `validate_for_profile` check inside
+//! [`crate::prepared::prepare_command`], which every
+//! [`crate::dynapi::DynSessionCamera`] call reaches through the same
+//! `AsyncCameraCore` the typed owner uses.
+//!
+//! Capability parity for the dynamic surface is therefore *not* verifiable from
+//! the source text, and this gate deliberately does not pretend otherwise:
+//! [`DynMethodShape`] has no bounds field to leave conveniently empty, and no
+//! assertion here compares dynamic bounds against anything.  What is compared
+//! for the dynamic surface is the method set, the receiver, the argument types,
+//! and the semantic return class.  Any future gate on dynamic capability
+//! enforcement has to be a behavioural test against a profile that lacks the
+//! capability, not a source scan.
 
 #![allow(clippy::panic)]
 
@@ -37,6 +67,35 @@ const MOTION_FACADE: NounFacade = NounFacade {
     dyn_trait: "DynMotion",
 };
 
+/// Traits that may legally be implemented *for* an accessor type.
+///
+/// An `impl Trait for XxxAccessor` adds public methods to an accessor without
+/// appearing in any inherent impl, which is exactly how an extension-trait
+/// method escapes a parity gate that only reads inherent impls.  Rather than
+/// try to inventory such methods across three facades, this gate bans them:
+/// only the formatting impls below are allowed, and anything else is a hard
+/// failure telling the author to put the method on the inherent impl of all
+/// three surfaces instead.
+const ALLOWED_ACCESSOR_TRAIT_IMPLS: &[&str] = &["std::fmt::Debug", "fmt::Debug"];
+
+/// Module paths that really do hold the capability marker traits.
+///
+/// Bounds are compared by resolved full path, never by terminal segment, so a
+/// same-named trait from anywhere else cannot silently stand in for a
+/// capability gate.  A bound that resolves under one of these prefixes is the
+/// real marker and is reduced to its bare name; a bound that resolves anywhere
+/// else keeps its path and fails outright.
+const CAPABILITY_MODULE_PATHS: &[&str] = &["crate::capabilities::"];
+
+/// The profile trait every facade generic carries; never a capability gate.
+///
+/// The facades reach it through different re-exports, so both resolved paths
+/// are listed.
+const PROFILE_TRAIT_PATHS: &[&str] = &[
+    "crate::profile::CompileTimeProfile",
+    "crate::CompileTimeProfile",
+];
+
 /// The semantic return class a facade method advertises in its signature.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SurfaceClass {
@@ -50,11 +109,34 @@ enum SurfaceClass {
     Inquiry,
 }
 
-/// One facade method reduced to the facts the three surfaces must share.
+/// The call shape every facade must reproduce for one method.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct MethodShape {
+    class: SurfaceClass,
+    receiver: String,
+    arguments: Vec<String>,
+}
+
+/// One static facade method: its call shape and the bounds `P` carries.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct MethodFacts {
-    class: SurfaceClass,
+    shape: MethodShape,
     bounds: BTreeSet<String>,
+}
+
+/// One dynamic facade method.
+///
+/// There is deliberately no bounds field: see the module documentation on what
+/// the erased facade cannot be compared on.
+type DynMethodShape = MethodShape;
+
+/// One parsed static facade.
+#[derive(Debug, Default)]
+struct StaticFacade {
+    /// Accessor type name to method name to facts.
+    accessors: BTreeMap<String, BTreeMap<String, MethodFacts>>,
+    /// Accessor type name to the capability gate the type itself imposes.
+    gates: BTreeMap<String, BTreeSet<String>>,
 }
 
 /// The name each facade gives one noun.
@@ -161,6 +243,25 @@ const fn ledger_class(class: BuiltinRequestClass) -> SurfaceClass {
     }
 }
 
+/// Every capability marker trait the closed ledger can require.
+///
+/// A bound observed on a facade that is not in this set is either a typo, a
+/// trait that is not a capability gate, or a shadow trait standing in for one;
+/// all three are failures rather than something to normalise away.
+fn known_markers() -> BTreeSet<&'static str> {
+    let mut markers: BTreeSet<&'static str> = TypedSupportSurface::ALL
+        .iter()
+        .copied()
+        .map(typed_marker_trait)
+        .collect();
+    for command in BuiltinCommand::ALL {
+        if let StaticSurfaceDisposition::Noun { marker, .. } = surface_entry(*command).disposition {
+            markers.extend(marker_trait(marker));
+        }
+    }
+    markers
+}
+
 /// Returns the target-facing ledger rows grouped by noun, in ledger order.
 fn ledger_surface() -> Vec<(NounFacade, BTreeMap<&'static str, LedgerFacts>)> {
     let mut order = Vec::new();
@@ -205,79 +306,238 @@ fn ledger_surface() -> Vec<(NounFacade, BTreeMap<&'static str, LedgerFacts>)> {
         .collect()
 }
 
-/// Returns the leading identifier of `text`.
-fn leading_identifier(text: &str) -> &str {
-    let end = text
-        .find(|ch: char| !ch.is_alphanumeric() && ch != '_')
-        .unwrap_or(text.len());
-    &text[..end]
-}
+// ---------------------------------------------------------------------------
+// Source scanning primitives
+// ---------------------------------------------------------------------------
 
-/// Splits `text`, which must start with `<`, into the bracket body and rest.
-fn split_generics(text: &str) -> Option<(&str, &str)> {
-    let mut depth = 0_usize;
-    for (index, ch) in text.char_indices() {
-        match ch {
-            '<' => depth += 1,
-            '>' => {
-                depth -= 1;
-                if depth == 0 {
-                    return Some((&text[1..index], &text[index + 1..]));
+/// Blanks comments and literal contents while preserving the line structure.
+///
+/// Every subsequent scan runs over the result, so a brace, paren, semicolon,
+/// or keyword inside a comment or a string can never steer the parser.
+fn clean_source(source: &str, label: &str) -> String {
+    assert!(
+        !source.contains("r#\""),
+        "{label}: raw strings are not supported by the parity scanner",
+    );
+
+    let chars: Vec<char> = source.chars().collect();
+    let mut out: Vec<char> = Vec::with_capacity(chars.len());
+    let mut index = 0;
+
+    fn blank(ch: char) -> char {
+        if ch == '\n' {
+            '\n'
+        } else {
+            ' '
+        }
+    }
+
+    while index < chars.len() {
+        let current = chars[index];
+        let next = chars.get(index + 1).copied();
+        match (current, next) {
+            ('/', Some('/')) => {
+                while index < chars.len() && chars[index] != '\n' {
+                    out.push(' ');
+                    index += 1;
                 }
             }
-            _ => {}
-        }
-    }
-    None
-}
-
-/// Normalizes a `A + path::B` bound list into marker trait names.
-fn marker_bounds(list: &str) -> BTreeSet<String> {
-    list.split('+')
-        .map(|bound| {
-            bound
-                .trim()
-                .trim_end_matches(',')
-                .rsplit("::")
-                .next()
-                .unwrap_or_default()
-                .trim()
-                .to_owned()
-        })
-        .filter(|bound| !bound.is_empty() && bound != "CompileTimeProfile")
-        .collect()
-}
-
-/// Extracts the bounds placed on the profile parameter `P` in a generic list.
-fn profile_bounds(generics: &str) -> BTreeSet<String> {
-    for parameter in generics.split(',') {
-        if let Some((name, bounds)) = parameter.split_once(':') {
-            if name.trim() == "P" {
-                return marker_bounds(bounds);
+            ('/', Some('*')) => {
+                let mut depth = 1_usize;
+                out.push(' ');
+                out.push(' ');
+                index += 2;
+                while index < chars.len() && depth > 0 {
+                    if chars[index] == '*' && chars.get(index + 1) == Some(&'/') {
+                        depth -= 1;
+                        out.push(' ');
+                        out.push(' ');
+                        index += 2;
+                    } else if chars[index] == '/' && chars.get(index + 1) == Some(&'*') {
+                        depth += 1;
+                        out.push(' ');
+                        out.push(' ');
+                        index += 2;
+                    } else {
+                        out.push(blank(chars[index]));
+                        index += 1;
+                    }
+                }
+                assert_eq!(depth, 0, "{label}: unterminated block comment");
+            }
+            ('"', _) => {
+                out.push('"');
+                index += 1;
+                let mut closed = false;
+                while index < chars.len() {
+                    let ch = chars[index];
+                    if ch == '\\' {
+                        out.push(' ');
+                        index += 1;
+                        if index < chars.len() {
+                            out.push(blank(chars[index]));
+                            index += 1;
+                        }
+                        continue;
+                    }
+                    if ch == '"' {
+                        out.push('"');
+                        index += 1;
+                        closed = true;
+                        break;
+                    }
+                    out.push(blank(ch));
+                    index += 1;
+                }
+                assert!(closed, "{label}: unterminated string literal");
+            }
+            ('\'', _) => {
+                // `'a` is a lifetime, `'x'` and `'\n'` are character literals.
+                let literal = match next {
+                    Some('\\') => true,
+                    Some(_) => chars.get(index + 2) == Some(&'\''),
+                    None => false,
+                };
+                if literal {
+                    out.push(' ');
+                    index += 1;
+                    while index < chars.len() {
+                        let ch = chars[index];
+                        if ch == '\\' {
+                            out.push(' ');
+                            index += 1;
+                            if index < chars.len() {
+                                out.push(blank(chars[index]));
+                                index += 1;
+                            }
+                            continue;
+                        }
+                        out.push(' ');
+                        index += 1;
+                        if ch == '\'' {
+                            break;
+                        }
+                    }
+                } else {
+                    out.push('\'');
+                    index += 1;
+                }
+            }
+            _ => {
+                out.push(current);
+                index += 1;
             }
         }
     }
-    BTreeSet::new()
+
+    out.into_iter().collect()
 }
 
-/// Extracts the bounds placed on `P` by a `where` clause in a signature.
-fn where_bounds(signature: &str) -> BTreeSet<String> {
-    let Some((_, clause)) = signature.split_once(" where ") else {
-        return BTreeSet::new();
-    };
-    profile_bounds(clause)
+/// Marks the lines of `#[cfg(test)]` items and `macro_rules!` bodies.
+///
+/// Both regions describe the surface rather than declare it: the in-file
+/// inventory tests name every accessor as a string literal and the macro
+/// bodies contain `$name`-shaped method templates.  Reading either as surface
+/// is how a gate ends up asserting that a file contains its own test data.
+fn skipped_lines(lines: &[&str], label: &str) -> Vec<bool> {
+    masked_lines(lines, label, true)
 }
 
-/// Joins source lines from `start` until `terminator`, returning the text
-/// before it and the index of the line after it.
-fn join_until(lines: &[&str], start: usize, terminator: char) -> (String, usize) {
+/// Marks the lines belonging to `#[cfg(test)]` items, and optionally to
+/// `macro_rules!` bodies.
+fn masked_lines(lines: &[&str], label: &str, macros: bool) -> Vec<bool> {
+    let mut skip = vec![false; lines.len()];
+    let mut index = 0;
+    while index < lines.len() {
+        let trimmed = lines[index].trim();
+        if trimmed == "#[cfg(test)]" || (macros && trimmed.starts_with("macro_rules!")) {
+            let end = block_end(lines, index, label);
+            for entry in skip.iter_mut().take(end).skip(index) {
+                *entry = true;
+            }
+            index = end;
+            continue;
+        }
+        index += 1;
+    }
+    skip
+}
+
+/// Returns `source` with every `#[cfg(test)]` item blanked out.
+///
+/// A surface file names its own accessors and method spellings as string
+/// literals inside its in-file inventory tests, so a `contains` check over the
+/// whole file can be satisfied by the test data instead of by the surface it is
+/// supposed to be checking.  Every positive source gate must therefore read the
+/// declaration region only.  Line numbering is preserved so that a failure
+/// still points at the right place in the real file.
+pub(crate) fn without_test_modules(source: &str, label: &str) -> String {
+    let cleaned = clean_source(source, label);
+    let cleaned_lines: Vec<&str> = cleaned.lines().collect();
+    let skip = masked_lines(&cleaned_lines, label, false);
+    source
+        .lines()
+        .zip(skip)
+        .map(|(line, skip)| if skip { "" } else { line })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Returns the index just past the line closing the brace block at `start`.
+fn block_end(lines: &[&str], start: usize, label: &str) -> usize {
+    let mut depth = 0_i32;
+    let mut opened = false;
+    for (offset, line) in lines.iter().enumerate().skip(start) {
+        for ch in line.chars() {
+            match ch {
+                '{' => {
+                    depth += 1;
+                    opened = true;
+                }
+                '}' => depth -= 1,
+                _ => {}
+            }
+        }
+        if opened && depth <= 0 {
+            return offset + 1;
+        }
+    }
+    panic!("{label}:{}: unterminated block", start + 1)
+}
+
+/// Joins lines from `start` until the first terminator at delimiter depth zero.
+///
+/// Returns the joined text with the terminator excluded, the terminator that
+/// matched, and the index of the line to continue from.  Depth tracking is
+/// what keeps `[u8; 4]` from ending a trait-method signature and what lets a
+/// signature span as many lines as `rustfmt` wants.
+fn join_until(
+    lines: &[&str],
+    start: usize,
+    terminators: &[char],
+    label: &str,
+) -> (String, char, usize) {
     let mut text = String::new();
+    let mut depth = 0_i32;
     let mut index = start;
+
     while index < lines.len() {
         let line = lines[index];
-        let (fragment, done) = match line.find(terminator) {
-            Some(position) => (&line[..position], true),
-            None => (line, false),
+        let mut cut = None;
+        for (offset, ch) in line.char_indices() {
+            if depth == 0 && terminators.contains(&ch) {
+                cut = Some((offset, ch));
+                break;
+            }
+            match ch {
+                '(' | '[' | '{' => depth += 1,
+                ')' | ']' | '}' => depth -= 1,
+                _ => {}
+            }
+        }
+        let (fragment, terminator) = match cut {
+            Some((offset, ch)) => (&line[..offset], Some(ch)),
+            None => (line, None),
         };
         let fragment = fragment.trim();
         if !fragment.is_empty() {
@@ -287,19 +547,497 @@ fn join_until(lines: &[&str], start: usize, terminator: char) -> (String, usize)
             text.push_str(fragment);
         }
         index += 1;
-        if done {
-            break;
+        if let Some(terminator) = terminator {
+            return (collapse_whitespace(&text), terminator, index);
         }
     }
-    (text, index)
+
+    panic!(
+        "{label}:{}: no {terminators:?} terminator before end of file",
+        start + 1
+    )
 }
 
-/// Classifies a static facade method from its return type.
-fn static_class(signature: &str) -> SurfaceClass {
-    let Some((_, returns)) = signature.split_once("->") else {
-        return SurfaceClass::Plain;
+/// Returns the index just past the item starting at `start`.
+fn item_end(lines: &[&str], start: usize, label: &str) -> usize {
+    let (_, terminator, next) = join_until(lines, start, &['{', ';'], label);
+    if terminator == ';' {
+        next
+    } else {
+        block_end(lines, start, label)
+    }
+}
+
+/// Collapses runs of whitespace into single spaces.
+fn collapse_whitespace(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for ch in text.chars() {
+        if ch.is_whitespace() {
+            if !out.ends_with(' ') {
+                out.push(' ');
+            }
+        } else {
+            out.push(ch);
+        }
+    }
+    out.trim().to_owned()
+}
+
+/// Returns the leading identifier (or path) of `text`.
+fn leading_identifier(text: &str) -> &str {
+    let end = text
+        .find(|ch: char| !ch.is_alphanumeric() && ch != '_')
+        .unwrap_or(text.len());
+    &text[..end]
+}
+
+/// Splits `text`, which must start with `(`, into the paren body and rest.
+fn split_parens<'a>(text: &'a str, label: &str) -> (&'a str, &'a str) {
+    let mut depth = 0_usize;
+    for (index, ch) in text.char_indices() {
+        match ch {
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    return (&text[1..index], &text[index + 1..]);
+                }
+            }
+            _ => {}
+        }
+    }
+    panic!("{label}: unbalanced parentheses in {text:?}")
+}
+
+/// Splits `text`, which must start with `{`, into the brace body and rest.
+fn split_braces<'a>(text: &'a str, label: &str) -> (&'a str, &'a str) {
+    let mut depth = 0_usize;
+    for (index, ch) in text.char_indices() {
+        match ch {
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return (&text[1..index], &text[index + 1..]);
+                }
+            }
+            _ => {}
+        }
+    }
+    panic!("{label}: unbalanced braces in {text:?}")
+}
+
+/// Splits `text`, which must start with `<`, into the bracket body and rest.
+fn split_generics<'a>(text: &'a str, label: &str) -> (&'a str, &'a str) {
+    let mut depth = 0_usize;
+    let mut previous = ' ';
+    for (index, ch) in text.char_indices() {
+        match ch {
+            '<' => depth += 1,
+            '>' if previous != '-' => {
+                depth -= 1;
+                if depth == 0 {
+                    return (&text[1..index], &text[index + 1..]);
+                }
+            }
+            _ => {}
+        }
+        previous = ch;
+    }
+    panic!("{label}: unbalanced generics in {text:?}")
+}
+
+/// Splits `text` on `separator` occurrences that sit at delimiter depth zero.
+fn split_top_level(text: &str, separator: char) -> Vec<String> {
+    let mut parts = Vec::new();
+    let mut current = String::new();
+    let mut depth = 0_i32;
+    let mut previous = ' ';
+    for ch in text.chars() {
+        match ch {
+            '(' | '[' | '{' | '<' => depth += 1,
+            ')' | ']' | '}' => depth -= 1,
+            '>' if previous != '-' => depth -= 1,
+            _ => {}
+        }
+        if ch == separator && depth == 0 {
+            parts.push(current.trim().to_owned());
+            current = String::new();
+        } else {
+            current.push(ch);
+        }
+        previous = ch;
+    }
+    parts.push(current.trim().to_owned());
+    parts
+}
+
+/// Returns the byte offset of `keyword` used as a word at depth zero.
+fn find_keyword(text: &str, keyword: &str) -> Option<usize> {
+    let bytes = text.as_bytes();
+    let mut depth = 0_i32;
+    let mut previous = ' ';
+    for (index, ch) in text.char_indices() {
+        match ch {
+            '(' | '[' | '{' | '<' => depth += 1,
+            ')' | ']' | '}' => depth -= 1,
+            '>' if previous != '-' => depth -= 1,
+            _ => {}
+        }
+        previous = ch;
+        if depth != 0 || !text[index..].starts_with(keyword) {
+            continue;
+        }
+        let before_ok = index == 0 || !is_word_byte(bytes[index - 1]);
+        let after = index + keyword.len();
+        let after_ok = after >= bytes.len() || !is_word_byte(bytes[after]);
+        if before_ok && after_ok {
+            return Some(index);
+        }
+    }
+    None
+}
+
+/// Returns whether `byte` can appear inside a Rust identifier.
+const fn is_word_byte(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || byte == b'_'
+}
+
+/// Strips any leading `#[...]` attributes from `text`.
+fn strip_attributes<'a>(text: &'a str, label: &str) -> &'a str {
+    let mut rest = text.trim_start();
+    while let Some(after) = rest.strip_prefix("#[") {
+        let mut depth = 1_i32;
+        let mut end = None;
+        for (index, ch) in after.char_indices() {
+            match ch {
+                '[' => depth += 1,
+                ']' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        end = Some(index);
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        let Some(end) = end else {
+            panic!("{label}: unbalanced attribute in {text:?}")
+        };
+        rest = after[end + 1..].trim_start();
+    }
+    rest
+}
+
+/// Normalizes a type, receiver, or bound for cross-surface comparison.
+///
+/// Lifetimes are dropped because the blocking facade threads a session
+/// lifetime the async facade does not have; everything else is preserved so
+/// that `f32` and `f64`, or `&self` and `self`, cannot compare equal.
+fn normalize_type(text: &str) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    let mut spaced = String::with_capacity(text.len());
+    let mut index = 0;
+    while index < chars.len() {
+        let ch = chars[index];
+        if ch == '\'' {
+            index += 1;
+            while index < chars.len() && (chars[index].is_alphanumeric() || chars[index] == '_') {
+                index += 1;
+            }
+            continue;
+        }
+        if ch.is_whitespace() {
+            if !spaced.ends_with(' ') {
+                spaced.push(' ');
+            }
+            index += 1;
+            continue;
+        }
+        spaced.push(ch);
+        index += 1;
+    }
+
+    const TIGHT: &[char] = &['<', '>', '(', ')', '[', ']', ',', ':', '&', ';'];
+    let spaced: Vec<char> = spaced.trim().chars().collect();
+    let mut tight = String::with_capacity(spaced.len());
+    for (index, ch) in spaced.iter().enumerate() {
+        if *ch == ' ' {
+            let previous = tight.chars().last();
+            let next = spaced.get(index + 1).copied();
+            if previous.is_some_and(|ch| TIGHT.contains(&ch))
+                || next.is_some_and(|ch| TIGHT.contains(&ch))
+            {
+                continue;
+            }
+        }
+        tight.push(*ch);
+    }
+
+    // Dropping a lifetime can leave an empty generic slot behind.
+    let mut result = tight;
+    loop {
+        let collapsed = result
+            .replace("<,", "<")
+            .replace(",,", ",")
+            .replace(",>", ">")
+            .replace("(,", "(")
+            .replace(",)", ")")
+            .replace("<>", "");
+        if collapsed == result {
+            return collapsed;
+        }
+        result = collapsed;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Capability bounds
+// ---------------------------------------------------------------------------
+
+/// Maps every name a source imports onto the path it was imported from.
+///
+/// Path resolution is what lets the three facades be compared by full path
+/// rather than by terminal segment.  `types::ZoomSpeed` and
+/// `crate::types::ZoomSpeed` are the same type and must compare equal;
+/// `shadow::HasDirectZoom` resolves to nothing and stays qualified, so it can
+/// never collapse onto the capability marker whose name it borrowed.
+fn use_map(lines: &[&str], skip: &[bool], label: &str) -> BTreeMap<String, String> {
+    let mut imports = BTreeMap::new();
+    let mut index = 0;
+    while index < lines.len() {
+        if skip[index] || !lines[index].trim_start().starts_with("use ") {
+            index += 1;
+            continue;
+        }
+        let (text, _, next) = join_until(lines, index, &[';'], label);
+        let tree = text.trim_start().trim_start_matches("use ");
+        expand_use(tree, "", label, &mut imports);
+        index = next;
+    }
+    imports
+}
+
+/// Expands one `use` tree into `name -> path` leaves.
+fn expand_use(text: &str, prefix: &str, label: &str, imports: &mut BTreeMap<String, String>) {
+    let text = text.trim();
+    if text.is_empty() {
+        return;
+    }
+    if let Some(open) = text.find('{') {
+        let head = &text[..open];
+        let (inner, rest) = split_braces(&text[open..], label);
+        assert!(
+            rest.trim().is_empty(),
+            "{label}: unrecognized use tree {text:?}",
+        );
+        let prefix = format!("{prefix}{head}");
+        for part in split_top_level(inner, ',') {
+            expand_use(&part, &prefix, label, imports);
+        }
+        return;
+    }
+
+    assert!(
+        !text.contains('*'),
+        "{label}: glob import {text:?} defeats path resolution",
+    );
+    let (path, name) = match text.split_once(" as ") {
+        Some((path, alias)) => (format!("{prefix}{}", path.trim()), alias.trim().to_owned()),
+        None if text == "self" => {
+            let path = prefix.trim_end_matches("::").to_owned();
+            let name = path.rsplit("::").next().unwrap_or(&path).to_owned();
+            (path, name)
+        }
+        None => (
+            format!("{prefix}{text}"),
+            text.rsplit("::").next().unwrap_or(text).to_owned(),
+        ),
     };
-    let returns = returns.split(" where ").next().unwrap_or(returns);
+    imports.insert(name, path);
+}
+
+/// Rewrites every path in `text` through the source's own imports.
+fn resolve_paths(text: &str, imports: &BTreeMap<String, String>) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    let mut out = String::with_capacity(text.len());
+    let mut index = 0;
+    while index < chars.len() {
+        let ch = chars[index];
+        if !ch.is_alphabetic() && ch != '_' {
+            out.push(ch);
+            index += 1;
+            continue;
+        }
+        let start = index;
+        while index < chars.len() {
+            let ch = chars[index];
+            if ch.is_alphanumeric() || ch == '_' {
+                index += 1;
+            } else if ch == ':' && chars.get(index + 1) == Some(&':') {
+                index += 2;
+            } else {
+                break;
+            }
+        }
+        let path: String = chars[start..index].iter().collect();
+        let (root, rest) = path
+            .split_once("::")
+            .map_or((path.as_str(), ""), |(root, rest)| (root, rest));
+        match imports.get(root) {
+            Some(resolved) if rest.is_empty() => out.push_str(resolved),
+            Some(resolved) => {
+                out.push_str(resolved);
+                out.push_str("::");
+                out.push_str(rest);
+            }
+            None => out.push_str(&path),
+        }
+    }
+    out
+}
+
+/// Normalizes an `A + path::B` bound list into capability marker names.
+///
+/// Bounds are compared by full path: only the documented capability module
+/// paths are stripped, so `shadow::HasDirectZoom` stays `shadow::HasDirectZoom`
+/// and fails the known-marker check instead of collapsing onto the real gate.
+fn marker_bounds(list: &str, imports: &BTreeMap<String, String>, label: &str) -> BTreeSet<String> {
+    let mut bounds = BTreeSet::new();
+    for bound in split_top_level(list, '+') {
+        let bound = resolve_paths(&normalize_type(bound.trim_end_matches(',')), imports);
+        if bound.is_empty() || PROFILE_TRAIT_PATHS.contains(&bound.as_str()) {
+            continue;
+        }
+        let name = CAPABILITY_MODULE_PATHS
+            .iter()
+            .find_map(|prefix| bound.strip_prefix(prefix))
+            .unwrap_or_else(|| {
+                panic!(
+                    "{label}: capability bound {bound:?} does not resolve into a documented \
+                     capability module path",
+                )
+            });
+        bounds.insert(name.to_owned());
+    }
+    bounds
+}
+
+/// Unions the bounds placed on the profile parameter `P` by every predicate.
+///
+/// Every `P:` predicate is read, not just the first: `where P: A, P: B` places
+/// both `A` and `B` on `P` and dropping either one hides a capability change.
+fn profile_bounds(
+    predicates: &str,
+    imports: &BTreeMap<String, String>,
+    label: &str,
+) -> BTreeSet<String> {
+    let mut bounds = BTreeSet::new();
+    for predicate in split_top_level(predicates, ',') {
+        let Some((name, list)) = predicate.split_once(':') else {
+            continue;
+        };
+        if name.trim() == "P" {
+            bounds.extend(marker_bounds(list, imports, label));
+        }
+    }
+    bounds
+}
+
+// ---------------------------------------------------------------------------
+// Signatures
+// ---------------------------------------------------------------------------
+
+/// One parsed function signature.
+#[derive(Debug, Clone)]
+struct Signature {
+    name: String,
+    receiver: String,
+    arguments: Vec<String>,
+    returns: String,
+    where_clause: String,
+}
+
+/// Parses a joined `fn` signature, with the body brace or `;` already removed.
+fn parse_signature(
+    text: &str,
+    imports: &BTreeMap<String, String>,
+    label: &str,
+    line: usize,
+) -> Signature {
+    let origin = format!("{label}:{line}");
+    let Some(offset) = find_keyword(text, "fn") else {
+        panic!("{origin}: no `fn` keyword in signature {text:?}")
+    };
+    let rest = text[offset + 2..].trim_start();
+    let name = leading_identifier(rest).to_owned();
+    assert!(!name.is_empty(), "{origin}: unnamed function in {text:?}");
+
+    let rest = rest[name.len()..].trim_start();
+    let rest = if rest.starts_with('<') {
+        split_generics(rest, &origin).1.trim_start()
+    } else {
+        rest
+    };
+
+    assert!(
+        rest.starts_with('('),
+        "{origin}: no argument list in signature {text:?}",
+    );
+    let (arguments_text, rest) = split_parens(rest, &origin);
+    let rest = rest.trim_start();
+
+    let where_offset = find_keyword(rest, "where");
+    let (tail, where_clause) = match where_offset {
+        Some(offset) => (&rest[..offset], rest[offset + "where".len()..].trim()),
+        None => (rest, ""),
+    };
+    let returns = match tail.trim().strip_prefix("->") {
+        Some(returns) => normalize_type(returns),
+        None => {
+            assert!(
+                tail.trim().is_empty(),
+                "{origin}: unrecognized signature tail {tail:?}",
+            );
+            String::new()
+        }
+    };
+
+    let mut receiver = String::new();
+    let mut arguments = Vec::new();
+    for (index, argument) in split_top_level(arguments_text, ',').into_iter().enumerate() {
+        let argument = strip_attributes(&argument, &origin).trim().to_owned();
+        if argument.is_empty() {
+            continue;
+        }
+        let normalized = normalize_type(&argument);
+        if index == 0
+            && (normalized == "self" || normalized == "&self" || normalized == "&mut self")
+        {
+            receiver = normalized;
+            continue;
+        }
+        let Some((_, kind)) = argument.split_once(':') else {
+            panic!("{origin}: unrecognized argument {argument:?} in {text:?}")
+        };
+        arguments.push(resolve_paths(&normalize_type(kind), imports));
+    }
+
+    Signature {
+        name,
+        receiver,
+        arguments,
+        returns,
+        where_clause: where_clause.to_owned(),
+    }
+}
+
+/// Classifies a static facade method from its normalized return type.
+fn static_class(returns: &str) -> SurfaceClass {
+    if returns.is_empty() {
+        return SurfaceClass::Plain;
+    }
     if returns.contains("Operation<") {
         if returns.contains("AppliedOnly") {
             return SurfaceClass::AppliedOnly;
@@ -308,197 +1046,416 @@ fn static_class(signature: &str) -> SurfaceClass {
             return SurfaceClass::Targeted;
         }
     }
-    if returns.replace(' ', "").contains("Result<()>") {
+    if returns.contains("Result<()>") {
         return SurfaceClass::Plain;
     }
     SurfaceClass::Inquiry
 }
 
 /// Classifies a dynamic facade method from its erased return type.
-fn dyn_class(signature: &str) -> SurfaceClass {
-    if signature.contains("DynAppliedOperation") {
+fn dyn_class(returns: &str) -> SurfaceClass {
+    if returns.contains("DynAppliedOperation") {
         return SurfaceClass::AppliedOnly;
     }
-    if signature.contains("DynTargetedOperation") {
+    if returns.contains("DynTargetedOperation") {
         return SurfaceClass::Targeted;
     }
-    if signature.replace(' ', "").contains("Result<(),Error>") {
+    if returns.contains("Result<(),Error>") {
         return SurfaceClass::Plain;
     }
     SurfaceClass::Inquiry
 }
 
-/// Reads the capability gate each accessor type itself imposes on `P`.
-///
-/// Macro-generated accessors carry the gate on the `Camera` entry point (the
-/// third `accessor!` argument); hand-written accessors carry it in the struct
-/// generics.
-fn accessor_gates(source: &str) -> BTreeMap<String, BTreeSet<String>> {
-    let lines: Vec<&str> = source.lines().collect();
-    let mut gates = BTreeMap::new();
-    let mut index = 0;
-
-    while index < lines.len() {
-        let line = lines[index];
-        if line.starts_with("accessor!(") {
-            let mut arguments = Vec::new();
-            index += 1;
-            while index < lines.len() && !lines[index].starts_with(");") {
-                let text = lines[index].trim();
-                if !text.starts_with("//") {
-                    arguments.push(text.trim_end_matches(',').to_owned());
-                }
-                index += 1;
-            }
-            index += 1;
-            if let Some(name) = arguments.first() {
-                let bounds = arguments
-                    .get(2)
-                    .map_or_else(BTreeSet::new, |bound| marker_bounds(bound));
-                gates.insert(name.clone(), bounds);
-            }
-            continue;
-        }
-        if let Some(rest) = line.strip_prefix("pub struct ") {
-            let name = leading_identifier(rest);
-            if name.ends_with("Accessor") {
-                let generics = split_generics(&rest[name.len()..])
-                    .map(|(inner, _)| inner)
-                    .unwrap_or_default();
-                gates.insert(name.to_owned(), profile_bounds(generics));
-            }
-        }
-        index += 1;
-    }
-
-    gates
-}
+// ---------------------------------------------------------------------------
+// Static facades
+// ---------------------------------------------------------------------------
 
 /// Reads one static (async or blocking) facade into noun/method facts.
-fn static_surface(
-    source: &str,
-    method_keyword: &str,
-) -> BTreeMap<String, BTreeMap<String, MethodFacts>> {
-    let gates = accessor_gates(source);
-    let lines: Vec<&str> = source.lines().collect();
-    let mut surface: BTreeMap<String, BTreeMap<String, MethodFacts>> = BTreeMap::new();
-    let mut current: Option<(String, BTreeSet<String>)> = None;
+fn static_facade(source: &str, label: &'static str) -> StaticFacade {
+    let cleaned = clean_source(source, label);
+    let lines: Vec<&str> = cleaned.lines().collect();
+    let skip = skipped_lines(&lines, label);
+    let imports = use_map(&lines, &skip, label);
+    let mut facade = StaticFacade::default();
+
+    // First pass: the capability gate each accessor type itself imposes.
     let mut index = 0;
-
     while index < lines.len() {
-        let line = lines[index];
-
-        if line.starts_with("impl") {
-            let (header, next) = join_until(&lines, index, '{');
+        if skip[index] {
+            index += 1;
+            continue;
+        }
+        let trimmed = lines[index].trim();
+        if trimmed.starts_with("accessor!") {
+            let (name, bound, next) = accessor_invocation(&lines, index, label);
+            let bounds = bound.map_or_else(BTreeSet::new, |bound| {
+                marker_bounds(&bound, &imports, label)
+            });
+            facade.gates.insert(name, bounds);
             index = next;
-            current = accessor_impl(&header, &gates);
             continue;
         }
-        if line == "}" {
-            current = None;
-            index += 1;
-            continue;
-        }
-        if let Some((accessor, bounds)) = current.clone() {
-            if let Some(rest) = line.trim_start().strip_prefix(method_keyword) {
-                let method = leading_identifier(rest).to_owned();
-                let (signature, next) = join_until(&lines, index, '{');
-                index = next;
-                let mut method_bounds = bounds;
-                method_bounds.extend(where_bounds(&signature));
-                surface.entry(accessor).or_default().insert(
-                    method,
-                    MethodFacts {
-                        class: static_class(&signature),
-                        bounds: method_bounds,
-                    },
-                );
-                continue;
+        if let Some(rest) = trimmed.strip_prefix("pub struct ") {
+            let name = leading_identifier(rest);
+            if name.ends_with("Accessor") {
+                let (header, _, _) = join_until(&lines, index, &['{', ';'], label);
+                let after = header
+                    .split_once(name)
+                    .map_or("", |(_, after)| after)
+                    .trim_start();
+                let generics = if after.starts_with('<') {
+                    split_generics(after, label).0
+                } else {
+                    ""
+                };
+                facade
+                    .gates
+                    .insert(name.to_owned(), profile_bounds(generics, &imports, label));
             }
+            index = item_end(&lines, index, label);
+            continue;
         }
         index += 1;
     }
 
-    surface
-}
-
-/// Returns the accessor name and effective `P` bounds of an inherent impl.
-fn accessor_impl(
-    header: &str,
-    gates: &BTreeMap<String, BTreeSet<String>>,
-) -> Option<(String, BTreeSet<String>)> {
-    if header.contains(" for ") {
-        return None;
-    }
-    let rest = header.strip_prefix("impl")?.trim_start();
-    let (generics, rest) = if rest.starts_with('<') {
-        split_generics(rest)?
-    } else {
-        ("", rest)
-    };
-    let name = leading_identifier(rest.trim_start());
-    if !name.ends_with("Accessor") {
-        return None;
-    }
-    let mut bounds = profile_bounds(generics);
-    bounds.extend(gates.get(name).into_iter().flatten().cloned());
-    Some((name.to_owned(), bounds))
-}
-
-/// Reads the dynamic facade traits into noun/method facts.
-fn dyn_surface(source: &str) -> BTreeMap<String, BTreeMap<String, MethodFacts>> {
-    let lines: Vec<&str> = source.lines().collect();
-    let mut surface: BTreeMap<String, BTreeMap<String, MethodFacts>> = BTreeMap::new();
-    let mut current: Option<String> = None;
+    // Second pass: the inherent impls that carry the accessor methods.
     let mut index = 0;
-
     while index < lines.len() {
-        let line = lines[index];
+        if skip[index] {
+            index += 1;
+            continue;
+        }
+        let trimmed = lines[index].trim();
+        if !is_item_start(trimmed) {
+            index += 1;
+            continue;
+        }
+        if !trimmed.starts_with("impl") {
+            index = item_end(&lines, index, label);
+            continue;
+        }
 
-        if let Some(rest) = line.strip_prefix("pub trait ") {
-            current = Some(leading_identifier(rest).to_owned());
-            index += 1;
-            continue;
-        }
-        if line == "}" {
-            current = None;
-            index += 1;
-            continue;
-        }
-        if let Some(name) = current.clone() {
-            if let Some(rest) = line.trim_start().strip_prefix("fn ") {
-                let method = leading_identifier(rest).to_owned();
-                let (signature, next) = join_until(&lines, index, ';');
-                index = next;
-                surface.entry(name).or_default().insert(
-                    method,
-                    MethodFacts {
-                        class: dyn_class(&signature),
-                        // The erased facade gates capabilities at run time, so
-                        // it carries no compile-time marker bound to compare.
-                        bounds: BTreeSet::new(),
-                    },
+        let (header, _, body_start) = join_until(&lines, index, &['{'], label);
+        let end = block_end(&lines, index, label);
+        let target = impl_target(&header, label, index + 1);
+        match target {
+            ImplTarget::Inherent { name, generics } if name.ends_with("Accessor") => {
+                let mut bounds = profile_bounds(&generics, &imports, label);
+                bounds.extend(facade.gates.get(&name).into_iter().flatten().cloned());
+                let methods = accessor_methods(&lines, body_start, end, label, &imports, &bounds);
+                facade.accessors.entry(name).or_default().extend(methods);
+            }
+            ImplTarget::Trait { path, name } if name.ends_with("Accessor") => {
+                assert!(
+                    ALLOWED_ACCESSOR_TRAIT_IMPLS.contains(&path.as_str()),
+                    "{label}:{}: `impl {path} for {name}` adds methods to an accessor outside \
+                     the inherent impl the parity gate reads; put the method on all three \
+                     facades instead, or add the trait to ALLOWED_ACCESSOR_TRAIT_IMPLS",
+                    index + 1,
                 );
+            }
+            _ => {}
+        }
+        index = end;
+    }
+
+    facade
+}
+
+/// What an `impl` header targets.
+#[derive(Debug)]
+enum ImplTarget {
+    /// An inherent impl on `name` with the given generic parameter list.
+    Inherent { name: String, generics: String },
+    /// A `impl path for name` trait implementation.
+    Trait { path: String, name: String },
+}
+
+/// Splits an `impl` header into its generics, optional trait, and self type.
+fn impl_target(header: &str, label: &str, line: usize) -> ImplTarget {
+    let origin = format!("{label}:{line}");
+    let rest = header
+        .trim()
+        .strip_prefix("impl")
+        .unwrap_or_else(|| panic!("{origin}: not an impl header: {header:?}"))
+        .trim_start();
+    let (generics, rest) = if rest.starts_with('<') {
+        let (generics, rest) = split_generics(rest, &origin);
+        (generics.to_owned(), rest.trim_start())
+    } else {
+        (String::new(), rest)
+    };
+
+    match find_keyword(rest, "for") {
+        Some(offset) => {
+            let path = normalize_type(&rest[..offset]);
+            let name = leading_identifier(rest[offset + "for".len()..].trim_start()).to_owned();
+            ImplTarget::Trait { path, name }
+        }
+        None => ImplTarget::Inherent {
+            name: leading_identifier(rest).to_owned(),
+            generics,
+        },
+    }
+}
+
+/// Strips a leading visibility qualifier from a trimmed declaration.
+fn strip_visibility(trimmed: &str) -> &str {
+    if let Some(rest) = trimmed.strip_prefix("pub ") {
+        return rest.trim_start();
+    }
+    if trimmed.starts_with("pub(") {
+        if let Some((_, rest)) = trimmed.split_once(')') {
+            return rest.trim_start();
+        }
+    }
+    trimmed
+}
+
+/// Returns whether a declaration is an associated const or type rather than a
+/// method.  Neither can add a callable method, so neither affects parity.
+fn is_associated_data(declaration: &str) -> bool {
+    (declaration.starts_with("const ") && !declaration.starts_with("const fn "))
+        || declaration.starts_with("type ")
+}
+
+/// Returns whether a trimmed line starts a top-level item with a body.
+fn is_item_start(trimmed: &str) -> bool {
+    const STARTS: &[&str] = &[
+        "impl",
+        "pub trait ",
+        "trait ",
+        "pub struct ",
+        "struct ",
+        "pub enum ",
+        "enum ",
+        "pub mod ",
+        "mod ",
+        "pub fn ",
+        "fn ",
+        "pub async fn ",
+        "async fn ",
+        "macro_rules!",
+    ];
+    STARTS.iter().any(|start| trimmed.starts_with(start))
+}
+
+/// Reads one `accessor!` invocation, returning the type name and its bound.
+fn accessor_invocation(
+    lines: &[&str],
+    start: usize,
+    label: &str,
+) -> (String, Option<String>, usize) {
+    let origin = format!("{label}:{}", start + 1);
+    let (text, _, next) = join_until(lines, start, &[';'], label);
+    let open = text
+        .find('(')
+        .unwrap_or_else(|| panic!("{origin}: no argument list in {text:?}"));
+    let inner = split_parens(&text[open..], &origin).0;
+    let arguments: Vec<String> = split_top_level(inner, ',')
+        .into_iter()
+        .map(|argument| strip_attributes(&argument, &origin).trim().to_owned())
+        .filter(|argument| !argument.is_empty())
+        .collect();
+    assert!(
+        (2..=3).contains(&arguments.len()),
+        "{origin}: unrecognized accessor! invocation {text:?}",
+    );
+    let name = leading_identifier(&arguments[0]).to_owned();
+    assert!(
+        name.ends_with("Accessor"),
+        "{origin}: accessor! declared non-accessor type {name:?}",
+    );
+    (name, arguments.get(2).cloned(), next)
+}
+
+/// Reads the public methods of one accessor impl body.
+fn accessor_methods(
+    lines: &[&str],
+    body_start: usize,
+    end: usize,
+    label: &'static str,
+    imports: &BTreeMap<String, String>,
+    impl_bounds: &BTreeSet<String>,
+) -> BTreeMap<String, MethodFacts> {
+    let mut methods = BTreeMap::new();
+    let mut index = body_start;
+    let last = end.saturating_sub(1);
+
+    while index < last {
+        let trimmed = lines[index].trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            index += 1;
+            continue;
+        }
+
+        // Only bare `pub` reaches a consumer; `pub(crate)`/`pub(super)` items
+        // are internal helpers and are read but not inventoried.
+        let public = trimmed.starts_with("pub ");
+        let declaration = strip_visibility(trimmed);
+        if is_associated_data(declaration) {
+            index = item_end(lines, index, label);
+            continue;
+        }
+
+        let mut rest = declaration;
+        for keyword in ["default ", "const ", "async ", "unsafe ", "extern "] {
+            rest = rest.strip_prefix(keyword).unwrap_or(rest);
+        }
+        assert!(
+            rest.starts_with("fn "),
+            "{label}:{}: unrecognized item {trimmed:?} in an accessor impl; a macro invocation \
+             here can declare methods the parity gate would never see, so the gate refuses to \
+             skip what it cannot read",
+            index + 1,
+        );
+
+        let (text, _, _) = join_until(lines, index, &['{'], label);
+        let signature = parse_signature(&text, imports, label, index + 1);
+        if public {
+            let mut bounds = impl_bounds.clone();
+            bounds.extend(profile_bounds(&signature.where_clause, imports, label));
+            let facts = MethodFacts {
+                shape: MethodShape {
+                    class: static_class(&signature.returns),
+                    receiver: signature.receiver,
+                    arguments: signature.arguments,
+                },
+                bounds,
+            };
+            assert!(
+                methods.insert(signature.name.clone(), facts).is_none(),
+                "{label}:{}: duplicate accessor method {}",
+                index + 1,
+                signature.name,
+            );
+        }
+        index = block_end(lines, index, label);
+    }
+
+    methods
+}
+
+// ---------------------------------------------------------------------------
+// Dynamic facade
+// ---------------------------------------------------------------------------
+
+/// Reads the dynamic facade traits into noun/method shapes.
+///
+/// Capability bounds are absent by construction; see the module documentation.
+fn dyn_facade(
+    source: &str,
+    label: &'static str,
+) -> BTreeMap<String, BTreeMap<String, DynMethodShape>> {
+    let cleaned = clean_source(source, label);
+    let lines: Vec<&str> = cleaned.lines().collect();
+    let skip = skipped_lines(&lines, label);
+    let imports = use_map(&lines, &skip, label);
+    let mut surface: BTreeMap<String, BTreeMap<String, DynMethodShape>> = BTreeMap::new();
+
+    let mut index = 0;
+    while index < lines.len() {
+        if skip[index] {
+            index += 1;
+            continue;
+        }
+        let trimmed = lines[index].trim();
+        if !is_item_start(trimmed) {
+            index += 1;
+            continue;
+        }
+        let Some(rest) = trimmed.strip_prefix("pub trait ") else {
+            index = item_end(&lines, index, label);
+            continue;
+        };
+
+        let name = leading_identifier(rest).to_owned();
+        let (_, _, body_start) = join_until(&lines, index, &['{'], label);
+        let end = block_end(&lines, index, label);
+        let methods = surface.entry(name).or_default();
+
+        let mut cursor = body_start;
+        let last = end.saturating_sub(1);
+        while cursor < last {
+            let line = lines[cursor].trim();
+            if line.is_empty() || line.starts_with('#') {
+                cursor += 1;
                 continue;
             }
+            if is_associated_data(line) {
+                cursor = item_end(&lines, cursor, label);
+                continue;
+            }
+            assert!(
+                line.starts_with("fn ") || line.starts_with("async fn "),
+                "{label}:{}: unrecognized item {line:?} in a dynamic noun trait; a macro \
+                 invocation here can declare methods the parity gate would never see",
+                cursor + 1,
+            );
+            let (text, terminator, next) = join_until(&lines, cursor, &[';', '{'], label);
+            let signature = parse_signature(&text, &imports, label, cursor + 1);
+            let shape = MethodShape {
+                class: dyn_class(&signature.returns),
+                receiver: signature.receiver,
+                arguments: signature.arguments,
+            };
+            assert!(
+                methods.insert(signature.name.clone(), shape).is_none(),
+                "{label}:{}: duplicate dynamic method {}",
+                cursor + 1,
+                signature.name,
+            );
+            cursor = if terminator == ';' {
+                next
+            } else {
+                block_end(&lines, cursor, label)
+            };
         }
-        index += 1;
+
+        index = end;
     }
 
     surface
 }
 
 /// Returns the sorted method names of one parsed noun.
-fn method_names(noun: &BTreeMap<String, MethodFacts>) -> Vec<&str> {
+fn method_names<T>(noun: &BTreeMap<String, T>) -> Vec<&str> {
     noun.keys().map(String::as_str).collect()
 }
 
 #[test]
-fn noun_surfaces_agree_on_method_name_class_and_capability_bound() {
+fn noun_surfaces_agree_on_method_name_class_arguments_and_capability_bound() {
     let ledger = ledger_surface();
-    let async_surface = static_surface(ASYNC_SOURCE, "pub async fn ");
-    let blocking_surface = static_surface(BLOCKING_SOURCE, "pub fn ");
-    let dynamic_surface = dyn_surface(DYN_SOURCE);
+    let asynchronous = static_facade(ASYNC_SOURCE, "src/async_nouns.rs");
+    let blocking = static_facade(BLOCKING_SOURCE, "src/blocking_nouns.rs");
+    let dynamic = dyn_facade(DYN_SOURCE, "src/dynapi/nouns.rs");
+
+    let markers = known_markers();
+    for (label, facade) in [
+        ("src/async_nouns.rs", &asynchronous),
+        ("src/blocking_nouns.rs", &blocking),
+    ] {
+        for (accessor, bounds) in &facade.gates {
+            for bound in bounds {
+                assert!(
+                    markers.contains(bound.as_str()),
+                    "{label}: {accessor} is gated on {bound:?}, which is not a ledger \
+                     capability marker",
+                );
+            }
+        }
+        for (accessor, methods) in &facade.accessors {
+            for (method, facts) in methods {
+                for bound in &facts.bounds {
+                    assert!(
+                        markers.contains(bound.as_str()),
+                        "{label}: {accessor}::{method} is gated on {bound:?}, which is not a \
+                         ledger capability marker",
+                    );
+                }
+            }
+        }
+    }
 
     let facades: Vec<NounFacade> = ledger
         .iter()
@@ -507,76 +1464,217 @@ fn noun_surfaces_agree_on_method_name_class_and_capability_bound() {
         .collect();
 
     for facade in &facades {
-        let asynchronous = async_surface
-            .get(facade.accessor)
-            .unwrap_or_else(|| panic!("async facade is missing {}", facade.accessor));
-        let blocking = blocking_surface
-            .get(facade.accessor)
-            .unwrap_or_else(|| panic!("blocking facade is missing {}", facade.accessor));
-        let dynamic = dynamic_surface
+        let accessor = facade.accessor;
+        let asynchronous_noun = asynchronous
+            .accessors
+            .get(accessor)
+            .unwrap_or_else(|| panic!("async facade is missing {accessor}"));
+        let blocking_noun = blocking
+            .accessors
+            .get(accessor)
+            .unwrap_or_else(|| panic!("blocking facade is missing {accessor}"));
+        let dynamic_noun = dynamic
             .get(facade.dyn_trait)
             .unwrap_or_else(|| panic!("dynamic facade is missing {}", facade.dyn_trait));
 
         assert_eq!(
-            method_names(asynchronous),
-            method_names(blocking),
-            "async and blocking {} expose different methods",
-            facade.accessor,
+            asynchronous.gates.get(accessor),
+            blocking.gates.get(accessor),
+            "async and blocking {accessor} carry different type-level capability gates",
         );
         assert_eq!(
-            method_names(asynchronous),
-            method_names(dynamic),
-            "async {} and {} expose different methods",
-            facade.accessor,
+            method_names(asynchronous_noun),
+            method_names(blocking_noun),
+            "async and blocking {accessor} expose different methods",
+        );
+        assert_eq!(
+            method_names(asynchronous_noun),
+            method_names(dynamic_noun),
+            "async {accessor} and {} expose different methods",
             facade.dyn_trait,
         );
 
-        for (method, asynchronous_facts) in asynchronous {
-            let blocking_facts = &blocking[method];
-            let dynamic_facts = &dynamic[method];
+        for (method, asynchronous_facts) in asynchronous_noun {
+            let blocking_facts = &blocking_noun[method];
+            let dynamic_shape = &dynamic_noun[method];
             assert_eq!(
-                asynchronous_facts.class, blocking_facts.class,
-                "async and blocking {}::{method} disagree on return class",
-                facade.accessor,
+                asynchronous_facts.shape, blocking_facts.shape,
+                "async and blocking {accessor}::{method} disagree on receiver, argument \
+                 types, or return class",
             );
             assert_eq!(
-                asynchronous_facts.class, dynamic_facts.class,
-                "async {}::{method} and {}::{method} disagree on return class",
-                facade.accessor, facade.dyn_trait,
+                asynchronous_facts.shape.receiver, dynamic_shape.receiver,
+                "async {accessor}::{method} and {}::{method} disagree on receiver",
+                facade.dyn_trait,
+            );
+            assert_eq!(
+                asynchronous_facts.shape.arguments, dynamic_shape.arguments,
+                "async {accessor}::{method} and {}::{method} disagree on argument types",
+                facade.dyn_trait,
+            );
+            assert_eq!(
+                asynchronous_facts.shape.class, dynamic_shape.class,
+                "async {accessor}::{method} and {}::{method} disagree on return class",
+                facade.dyn_trait,
             );
             assert_eq!(
                 asynchronous_facts.bounds, blocking_facts.bounds,
-                "async and blocking {}::{method} disagree on capability bounds",
-                facade.accessor,
+                "async and blocking {accessor}::{method} disagree on capability bounds",
             );
         }
     }
 
-    let gates = accessor_gates(ASYNC_SOURCE);
     for (facade, rows) in &ledger {
-        let asynchronous = &async_surface[facade.accessor];
-        let gate = gates.get(facade.accessor).cloned().unwrap_or_default();
+        let accessor = facade.accessor;
+        let methods = &asynchronous.accessors[accessor];
+        let gate = asynchronous
+            .gates
+            .get(accessor)
+            .cloned()
+            .unwrap_or_default();
 
         for (method, facts) in rows {
-            let observed = asynchronous.get(*method).unwrap_or_else(|| {
-                panic!(
-                    "ledger row {}::{method} has no facade method",
-                    facade.accessor
-                )
-            });
+            let observed = methods
+                .get(*method)
+                .unwrap_or_else(|| panic!("ledger row {accessor}::{method} has no facade method"));
             assert_eq!(
-                observed.class, facts.class,
-                "{}::{method} does not carry its ledger return class",
-                facade.accessor,
+                observed.shape.class, facts.class,
+                "{accessor}::{method} does not carry its ledger return class",
             );
 
             let mut expected = gate.clone();
             expected.extend(facts.marker.map(str::to_owned));
             assert_eq!(
                 observed.bounds, expected,
-                "{}::{method} does not carry its ledger capability bound",
-                facade.accessor,
+                "{accessor}::{method} does not carry its ledger capability bound",
             );
         }
+    }
+}
+
+/// Unit tests for the scanner primitives.
+///
+/// The parity gate above is only as good as the reader underneath it, and a
+/// reader that quietly mis-parses is worse than no gate at all.  Each test here
+/// pins one property the gate depends on.
+#[cfg(test)]
+mod scanner {
+    use super::*;
+
+    #[test]
+    fn comments_and_literals_cannot_steer_the_scanner() {
+        let cleaned = clean_source(
+            "let needle = format!(\"pub fn {method}(\"); // }} not a brace\n",
+            "fixture",
+        );
+        assert!(!cleaned.contains('{'));
+        assert!(!cleaned.contains('}'));
+        assert_eq!(cleaned.lines().count(), 1);
+    }
+
+    #[test]
+    fn lifetimes_are_not_character_literals() {
+        let cleaned = clean_source("impl<'a, P> Foo<'a, P> {}\n", "fixture");
+        assert!(cleaned.contains("<'a, P>"));
+    }
+
+    #[test]
+    fn join_until_ignores_terminators_inside_delimiters() {
+        let lines = [
+            "    fn raw(&self) -> Result<[u8; 4], Error>;",
+            "    fn next();",
+        ];
+        let (text, terminator, next) = join_until(&lines, 0, &[';'], "fixture");
+        assert_eq!(terminator, ';');
+        assert_eq!(next, 1);
+        assert_eq!(text, "fn raw(&self) -> Result<[u8; 4], Error>");
+    }
+
+    #[test]
+    fn join_until_spans_lines_until_the_body_brace() {
+        let lines = [
+            "    pub async fn set(",
+            "        &self,",
+            "        value: u8,",
+            "    ) -> Result<()>",
+            "    where",
+            "        P: HasZoom,",
+            "    {",
+        ];
+        let (text, terminator, next) = join_until(&lines, 0, &['{'], "fixture");
+        assert_eq!(terminator, '{');
+        assert_eq!(next, 7);
+        assert_eq!(
+            text,
+            "pub async fn set( &self, value: u8, ) -> Result<()> where P: HasZoom,"
+        );
+    }
+
+    #[test]
+    fn split_top_level_keeps_generic_arguments_together() {
+        assert_eq!(
+            split_top_level("a: Result<u8, Error>, b: u8", ','),
+            vec!["a: Result<u8, Error>".to_owned(), "b: u8".to_owned()],
+        );
+    }
+
+    #[test]
+    fn normalize_type_drops_lifetimes_but_not_widths() {
+        assert_eq!(
+            normalize_type("Operation<'session, Targeted>"),
+            "Operation<Targeted>"
+        );
+        assert_ne!(normalize_type("f32"), normalize_type("f64"));
+        assert_ne!(normalize_type("&self"), normalize_type("self"));
+    }
+
+    #[test]
+    fn profile_bounds_read_every_predicate() {
+        let imports = BTreeMap::from([
+            (
+                "HasZoom".to_owned(),
+                "crate::capabilities::HasZoom".to_owned(),
+            ),
+            (
+                "HasTally".to_owned(),
+                "crate::capabilities::HasTally".to_owned(),
+            ),
+        ]);
+        let bounds = profile_bounds("P: HasZoom, P: HasTally", &imports, "fixture");
+        assert_eq!(
+            bounds,
+            BTreeSet::from(["HasZoom".to_owned(), "HasTally".to_owned()]),
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "does not resolve into a documented capability module path")]
+    fn a_shadow_trait_never_stands_in_for_a_capability() {
+        let imports = BTreeMap::new();
+        let _ = marker_bounds("shadow::HasDirectZoom", &imports, "fixture");
+    }
+
+    #[test]
+    fn declaration_scan_drops_in_file_test_data() {
+        let source = concat!(
+            "pub struct RealAccessor;\n",
+            "#[cfg(test)]\n",
+            "mod tests {\n",
+            "    const NAMES: &[&str] = &[\"GhostAccessor\"];\n",
+            "}\n",
+            "pub struct LaterAccessor;\n",
+        );
+        let declarations = without_test_modules(source, "fixture");
+        assert!(declarations.contains("RealAccessor"));
+        assert!(declarations.contains("LaterAccessor"));
+        assert!(!declarations.contains("GhostAccessor"));
+        assert_eq!(declarations.lines().count(), source.lines().count());
+    }
+
+    #[test]
+    fn the_real_sources_keep_their_declarations_out_of_their_tests() {
+        let declarations = without_test_modules(BLOCKING_SOURCE, "src/blocking_nouns.rs");
+        assert!(declarations.contains("pub struct MotionAccessor"));
+        assert!(!declarations.contains("mod inventory_tests"));
     }
 }

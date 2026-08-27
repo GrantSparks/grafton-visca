@@ -79,7 +79,8 @@ unbounded channel.
 ## StateCache
 
 Each `Camera<P>` and `DynSessionCamera` returns a cheap read-only `StateCache`
-view for exactly one target:
+view for exactly one target. `StateEntry` is `#[non_exhaustive]`, so a match
+over it needs a wildcard arm:
 
 ```rust,ignore
 let cache = camera.state_cache();
@@ -88,6 +89,7 @@ match cache.value(grafton_visca::StateKey::ImageFreeze) {
     grafton_visca::StateEntry::Unknown => { /* no exact applied value yet */ }
     grafton_visca::StateEntry::Set(value) => println!("{} values", value.len()),
     grafton_visca::StateEntry::Clear(value) => println!("cleared: {:?}", value.as_slice()),
+    _ => {}
 }
 ```
 
@@ -227,21 +229,47 @@ values from the poisoned owner.
 
 ## Memory bounds
 
-The current owner policy is intentionally explicit:
+The current owner policy is intentionally explicit. The first nine rows are
+fixed; the last two are the two buffer sizes a caller can tune, and their
+values come from the transport's `BufferConfig`, not from an owner constant:
 
-| Resource | Bound |
-| --- | ---: |
-| Registered targets | 7 |
-| State keys per target | 64 |
-| Scalars per state value | 4 |
-| Diagnostic history | 128 events |
-| Diagnostic subscribers | 4 |
-| Events per diagnostic subscriber | 128 |
-| Applied-state subscribers | 16 |
-| Events per applied subscriber | 64 |
-| Frames per receive batch | 64 |
-| Received payload bytes | 4096 |
-| Reusable framing bytes | 8192 |
+| Resource | Bound | Caller-tunable |
+| --- | ---: | --- |
+| Registered targets | 7 | no |
+| State keys per target | 64 | no |
+| Scalars per state value | 4 | no |
+| Diagnostic history | 128 events | no |
+| Diagnostic subscribers | 4 | no |
+| Events per diagnostic subscriber | 128 | no |
+| Applied-state subscribers | 16 | no |
+| Events per applied subscriber | 64 | no |
+| Frames per receive batch | 64 | no |
+| Received payload bytes | see below | yes — `BufferConfig::recv_buffer_size` |
+| Reusable framing bytes | 8192 | yes — `BufferConfig::max_buffer_size` |
+
+The two tunable rows are set from `TransportConfig::buffer_config` every time
+a session is built, so the receive row has no single number. Reach them with
+`CameraConfig::<P>::transport_config(TransportConfig { buffer_config, .. })`
+for a standard transport, with the blocking `NetTransportBuilder`'s
+`recv_buffer_size` / `max_buffer_size` methods, or from a caller-owned
+transport's `HasTransportConfig::transport_config()`. The per-transport
+defaults are:
+
+| Buffer profile | `recv_buffer_size` | Selected by |
+| --- | ---: | --- |
+| `BufferConfig::default()` | 128 | a caller-owned transport that does not override it |
+| `BufferConfig::for_udp()` | 1024 | the built-in UDP transports |
+| `BufferConfig::for_sony_ip()` | 512 | `NetTransportBuilder::sony_ip_buffers()` |
+| `BufferConfig::for_raw_ip()` | 256 | the built-in TCP transports |
+| `BufferConfig::for_serial()` | 256 | the built-in serial transports |
+
+Every one of these keeps `max_buffer_size` at 8192, which is where the framing
+row's number comes from. A caller that raises `recv_buffer_size` raises the
+owner's per-session receive allocation by exactly that amount; raising
+`max_buffer_size` raises the ceiling on retained incomplete framing bytes.
+`recv_buffer_size` is also the framer's maximum accepted frame size, so
+lowering it below a profile's largest reply turns that reply into
+`Error::ResponseTooLarge`.
 
 These are implementation policy limits surfaced here so integrations can
 budget memory. They are not permission to add per-frame, per-retry,

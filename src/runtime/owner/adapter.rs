@@ -88,16 +88,16 @@ impl TargetRegistry {
 
     /// Creates a registry for one target, preserving the existing constructor
     /// behavior.
+    // Single-target sessions are the common case, but only this module's own
+    // routing tests build a registry that way today; production construction
+    // goes through `from_targets` with the session's registered set (#636).
+    #[allow(dead_code)]
     pub(crate) fn single(target: CameraId) -> Result<Self, Error> {
         Self::from_targets(&[target])
     }
 
     pub(crate) fn contains(self, target: CameraId) -> bool {
         self.registered[target.id() as usize]
-    }
-
-    pub(crate) const fn len(self) -> usize {
-        self.count as usize
     }
 
     pub(crate) fn sole_target(self) -> Option<CameraId> {
@@ -114,26 +114,6 @@ impl TargetRegistry {
             id += 1;
         }
         None
-    }
-
-    pub(crate) fn targets(self) -> [Option<CameraId>; 7] {
-        [
-            self.target_at(1),
-            self.target_at(2),
-            self.target_at(3),
-            self.target_at(4),
-            self.target_at(5),
-            self.target_at(6),
-            self.target_at(7),
-        ]
-    }
-
-    fn target_at(self, id: u8) -> Option<CameraId> {
-        if self.registered[id as usize] {
-            CameraId::new(id).ok()
-        } else {
-            None
-        }
     }
 }
 
@@ -179,20 +159,6 @@ impl OwnerEnvelope {
         }
     }
 
-    pub(crate) const fn addressing(&self) -> AddressingMode {
-        match self {
-            Self::Raw(envelope) => envelope.addressing(),
-            Self::Sony(envelope) => envelope.addressing(),
-        }
-    }
-
-    pub(crate) const fn supports_sequence_correlation(&self) -> bool {
-        match self {
-            Self::Raw(_) => RawVisca::SUPPORTS_SEQUENCE_CORRELATION,
-            Self::Sony(_) => SonyEncapsulated::SUPPORTS_SEQUENCE_CORRELATION,
-        }
-    }
-
     pub(crate) fn frame_into(
         &self,
         visca_bytes: &[u8],
@@ -213,38 +179,14 @@ impl OwnerEnvelope {
     }
 }
 
-/// Lower validated profile and transport facts into the immutable owner
-/// policy.  Request-specific timeout/retry/control facts are lowered by
-/// `prepared`; this function only supplies session-wide bounds and protocol
-/// capabilities.
-pub(crate) fn owner_policy_for(
-    profile: &ProfileSpec,
-    config: &TransportConfig,
-    target: CameraId,
-    semantics: SendSemantics,
-) -> Result<OwnerPolicy, Error> {
-    owner_policy_for_with_tuning(profile, config, target, semantics, OperationalTuning::new())
-}
-
-/// Lower validated profile, transport, and immutable session tuning facts into
-/// one owner policy. Tuning is validated here as well as during request
-/// preparation so a session cannot start with a weaker pacing or deadline
-/// policy than the profile permits.
-pub(crate) fn owner_policy_for_with_tuning(
-    profile: &ProfileSpec,
-    config: &TransportConfig,
-    target: CameraId,
-    semantics: SendSemantics,
-    tuning: OperationalTuning,
-) -> Result<OwnerPolicy, Error> {
-    owner_policy_for_targets_with_tuning(&[(target, profile)], config, semantics, tuning)
-}
-
 /// Lower one immutable owner policy for a bounded set of target/profile
 /// registrations. All profiles must use the same envelope because one
 /// physical adapter owns one framer and one wire mode. Per-target socket and
 /// cancellation facts remain local, while shared pacing uses the strictest
 /// compatible profile requirement.
+// Untuned convenience over `owner_policy_for_targets_with_tuning`, exercised by
+// this module's own tests; session construction always supplies tuning (#636).
+#[allow(dead_code)]
 pub(crate) fn owner_policy_for_targets(
     profiles: &[(CameraId, &ProfileSpec)],
     config: &TransportConfig,
@@ -286,6 +228,14 @@ pub(crate) fn owner_policy_for_targets_with_tuning(
     let mut inquiry_spacing = std::time::Duration::ZERO;
     let mut inquiry_cooldown = std::time::Duration::ZERO;
     let mut seen = [false; 9];
+    // The profile-only facts, kept alongside the tuned ones so a later runtime
+    // reconfiguration can re-derive from the profile rather than ratcheting off
+    // the value a previous override installed (#631).
+    let mut baseline = super::TuningBaseline {
+        command_spacing: std::time::Duration::ZERO,
+        inquiry_spacing: std::time::Duration::ZERO,
+        command_sockets: [None; 9],
+    };
 
     for (target, profile) in profiles {
         if !(1..=7).contains(&target.id()) {
@@ -308,6 +258,13 @@ pub(crate) fn owner_policy_for_targets_with_tuning(
         }
 
         let timing = profile.timing();
+        baseline.command_spacing = baseline
+            .command_spacing
+            .max(timing.minimum_command_spacing());
+        baseline.inquiry_spacing = baseline
+            .inquiry_spacing
+            .max(timing.minimum_inquiry_spacing());
+        baseline.command_sockets[index] = Some(profile.maximum_command_sockets());
         command_spacing = command_spacing.max(
             tuning
                 .command_spacing_override()
@@ -370,26 +327,9 @@ pub(crate) fn owner_policy_for_targets_with_tuning(
     )?;
     policy.limits.receive_bytes = config.buffer_config.recv_buffer_size;
     policy.limits.framing_bytes = config.buffer_config.max_buffer_size;
+    policy.tuning = tuning;
+    policy.baseline = baseline;
     Ok(policy)
-}
-
-/// Decode one received chunk into scheduler-independent, owned frames.
-///
-/// `OwnerBuffers` supplies the bounded receive and framing stores while
-/// `ProtocolFramer` retains only incomplete source bytes between reads.  The
-/// returned frames own payload bytes and envelope sequence metadata, so the
-/// owner never observes a borrow into transport or framer storage.
-pub(crate) fn decode_frames(
-    envelope: &OwnerEnvelope,
-    framer: &mut ProtocolFramer,
-    target: CameraId,
-    buffers: &mut OwnerBuffers,
-    received: usize,
-    frame_limit: usize,
-) -> Result<Vec<DecodedFrame>, Error> {
-    let registry = TargetRegistry::single(target)?;
-    let routing = RoutingState::new(envelope.addressing(), registry);
-    decode_frames_with_routing(envelope, framer, routing, buffers, received, frame_limit)
 }
 
 /// Decode one received chunk using immutable multi-target routing state.

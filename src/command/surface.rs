@@ -742,10 +742,21 @@ mod tests {
             }
         }
 
-        // The class totals are derived from `BuiltinCommand::ALL` rather than
-        // written down: every row lands in exactly one class, so the three
-        // counters must add back up to the source inventory.
-        assert_eq!(plain + applied_only + targeted, BuiltinCommand::ALL.len());
+        // The class distribution is pinned, not re-derived.  Summing the three
+        // counters back to `ALL.len()` proves nothing — the match above is
+        // exhaustive, so the sum is an identity — while the split between the
+        // classes is exactly what a silent reclassification changes.
+        //
+        // Maintenance: adding a command row moves one of these three numbers by
+        // one, and reclassifying a row moves two.  Update the triple in the
+        // same commit as the ledger change and say in the commit message which
+        // class the row landed in; a change here that nobody intended is the
+        // regression this assertion exists to surface.
+        assert_eq!(
+            (plain, applied_only, targeted),
+            (116, 16, 15),
+            "the semantic class distribution of the closed ledger changed",
+        );
         assert_eq!(seen.len(), BuiltinCommand::ALL.len());
     }
 
@@ -781,10 +792,30 @@ mod tests {
             ]
         );
 
-        let noun_count = BuiltinCommand::ALL
+        // Counting the noun rows and adding the exceptions back is an identity,
+        // because `is_target_facing` is what splits the two groups.  The
+        // property worth asserting is that the two groups do not overlap in
+        // method spelling: the broadcast and cancellation rows own protocol
+        // names that must never resurface as a camera noun method on any of the
+        // three facades.
+        let reserved: Vec<&'static str> = BuiltinCommand::ALL
             .iter()
-            .filter(|command| surface_entry(**command).is_target_facing())
-            .count();
-        assert_eq!(noun_count + exceptions.len(), BuiltinCommand::ALL.len());
+            .filter_map(|command| match surface_entry(*command).disposition {
+                StaticSurfaceDisposition::BroadcastHandshake { method }
+                | StaticSurfaceDisposition::InternalCancellation { method } => Some(method),
+                StaticSurfaceDisposition::Noun { .. } => None,
+            })
+            .collect();
+        assert_eq!(reserved.len(), exceptions.len());
+        for command in BuiltinCommand::ALL {
+            if let StaticSurfaceDisposition::Noun { noun, method, .. } =
+                surface_entry(*command).disposition
+            {
+                assert!(
+                    !reserved.contains(&method),
+                    "noun {noun:?} reuses the reserved non-noun spelling {method}",
+                );
+            }
+        }
     }
 }
