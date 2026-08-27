@@ -874,6 +874,168 @@ mod tests {
         assert!(AffectedAxes::from_bits(0).is_err());
     }
 
+    /// An otherwise-valid frame one byte over the bound is rejected *by the
+    /// size branch*.
+    ///
+    /// The fixture carries a legal address byte and a legal terminator, so no
+    /// other rule in `validate_wire` can satisfy the assertion on its behalf;
+    /// deleting the `MAX_BYTES` branch fails this test.
+    #[test]
+    fn oversize_but_otherwise_valid_frame_is_rejected_by_the_size_bound() {
+        fn frame(len: usize) -> Vec<u8> {
+            let mut bytes = vec![0x00; len];
+            bytes[0] = 0x81;
+            bytes[len - 1] = VISCA_TERMINATOR;
+            bytes
+        }
+
+        let oversize = frame(MAX_BYTES + 1);
+        assert_eq!(oversize[0], 0x81, "fixture must carry a legal address byte");
+        assert_eq!(
+            oversize.last().copied(),
+            Some(VISCA_TERMINATOR),
+            "fixture must carry a legal terminator"
+        );
+
+        let error = Plain::new(
+            oversize,
+            TimeoutClass::Quick,
+            RetryClass::Never,
+            ControlClass::Normal,
+        )
+        .expect_err("a frame longer than MAX_BYTES must be rejected");
+        assert!(
+            matches!(
+                error,
+                Error::ResponseTooLarge {
+                    max_size: MAX_BYTES
+                }
+            ),
+            "expected the frame-size bound to reject the frame, got {error:?}"
+        );
+
+        // The same fixture at exactly the bound is accepted, so the assertion
+        // above cannot pass by way of an unrelated tightening.
+        let at_bound = frame(MAX_BYTES);
+        let accepted = Plain::new(
+            at_bound.clone(),
+            TimeoutClass::Quick,
+            RetryClass::Never,
+            ControlClass::Normal,
+        )
+        .expect("a frame of exactly MAX_BYTES must be accepted");
+        assert_eq!(accepted.bytes(), at_bound.as_slice());
+
+        // Every constructor shares `validate_wire`, so the bound holds for the
+        // axis- and route-carrying values too.
+        assert!(matches!(
+            Targeted::new(
+                frame(MAX_BYTES + 1),
+                AffectedAxes::PAN_TILT,
+                TimeoutClass::Movement,
+                RetryClass::Movement,
+                ControlClass::User,
+            )
+            .expect_err("oversize targeted frame"),
+            Error::ResponseTooLarge {
+                max_size: MAX_BYTES
+            }
+        ));
+        assert!(matches!(
+            AppliedOnly::new(
+                frame(MAX_BYTES + 1),
+                AffectedAxes::ZOOM,
+                TimeoutClass::Movement,
+                RetryClass::Movement,
+                ControlClass::User,
+            )
+            .expect_err("oversize applied-only frame"),
+            Error::ResponseTooLarge {
+                max_size: MAX_BYTES
+            }
+        ));
+    }
+
+    /// `validate_axes` is reachable and enforced through every public
+    /// axis-carrying constructor.
+    ///
+    /// `AffectedAxes::NONE` and any `BitAnd` of disjoint sets are constructible
+    /// without going through the checked constructors, so the raw boundary is
+    /// the only thing keeping an empty axis set out of an operation.
+    #[test]
+    fn axis_carrying_constructors_reject_an_empty_axis_set() {
+        const VALID: [u8; 4] = [0x81, 0x01, 0x06, 0xff];
+
+        let disjoint = AffectedAxes::PAN_TILT & AffectedAxes::ZOOM;
+        assert!(
+            disjoint.is_empty(),
+            "fixture assumption: intersecting disjoint sets yields the empty set"
+        );
+
+        for (label, axes) in [("NONE", AffectedAxes::NONE), ("BitAnd", disjoint)] {
+            let targeted = Targeted::new(
+                VALID,
+                axes,
+                TimeoutClass::Movement,
+                RetryClass::Movement,
+                ControlClass::User,
+            )
+            .expect_err("empty axes must not build a targeted operation");
+            assert!(
+                matches!(&targeted, Error::InvalidRequest(message) if message.contains("non-empty")),
+                "{label}: expected a non-empty axes rejection, got {targeted:?}"
+            );
+
+            let targeted_with_policy = Targeted::with_policy(
+                VALID,
+                axes,
+                Policy::new(
+                    TimeoutClass::Movement,
+                    RetryClass::Movement,
+                    ControlClass::User,
+                ),
+            )
+            .expect_err("empty axes must not build a targeted operation from a policy");
+            assert!(matches!(targeted_with_policy, Error::InvalidRequest(_)));
+
+            let applied = AppliedOnly::new(
+                VALID,
+                axes,
+                TimeoutClass::Movement,
+                RetryClass::Movement,
+                ControlClass::User,
+            )
+            .expect_err("empty axes must not build an applied-only operation");
+            assert!(
+                matches!(&applied, Error::InvalidRequest(message) if message.contains("non-empty")),
+                "{label}: expected a non-empty axes rejection, got {applied:?}"
+            );
+
+            let applied_with_policy = AppliedOnly::with_policy(
+                VALID,
+                axes,
+                Policy::new(
+                    TimeoutClass::Movement,
+                    RetryClass::Movement,
+                    ControlClass::User,
+                ),
+            )
+            .expect_err("empty axes must not build an applied-only operation from a policy");
+            assert!(matches!(applied_with_policy, Error::InvalidRequest(_)));
+        }
+
+        // A single named axis still constructs, so the assertions above are
+        // about emptiness rather than about the constructors being broken.
+        assert!(Targeted::new(
+            VALID,
+            AffectedAxes::PAN_TILT,
+            TimeoutClass::Movement,
+            RetryClass::Movement,
+            ControlClass::User,
+        )
+        .is_ok());
+    }
+
     #[test]
     fn owner_target_is_not_inferred_or_rewritten_from_raw_bytes() {
         let command = Plain::new(
