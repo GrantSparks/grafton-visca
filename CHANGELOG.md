@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 2.0.0-rc.1 release candidate
 
+- **Replaced the fake terminator tests with real encode-path coverage** (#627).
+  `tests/no_hardcoded_terminator_test.rs` had regressed to its pre-#586
+  revision: one test asserted that a `const` it declared itself equalled `0xFF`
+  and never touched the crate, another only `println!`ed and could not fail,
+  and the surviving source scanner matched uppercase `0xFF` only — structurally
+  blind to the lowercase literals in `src/` — while exempting any line
+  containing `// `. The file now drives the production encode path
+  (`Request::write_into`) for real typed commands across the power, pan/tilt,
+  zoom, focus, iris, preset and system families, for built-in inquiries, for
+  raw-frame admission, and for both transport envelopes, asserting that every
+  frame ends with the exported `VISCA_TERMINATOR` and carries it exactly once.
+  Because the frames are compared against the imported constant rather than a
+  literal, the constant and the encoders can no longer drift apart. The scanner
+  and `tests/terminator_validation_test.rs` (three file-existence and
+  string-presence assertions) are deleted: a text scan cannot tell a hardcoded
+  terminator from the legitimate `0xff` in response fixtures, simulator
+  scripts, framer comparisons, error codes and the constant's own definition,
+  so it can only be noisy or vacuous.
 - Restored the 1.x convenience helpers the rewrite dropped, on all three noun
   surfaces (#569). `pan_tilt().up()/down()/left()/right()` are back as thin
   wrappers over `move_direction`; `zoom().set_normalized(UnitInterval)` and
