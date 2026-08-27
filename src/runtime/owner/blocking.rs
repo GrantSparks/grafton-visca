@@ -192,37 +192,6 @@ pub(crate) trait BlockingControlHost {
     ) -> Result<ReceiptCore, Error>;
 
     fn cancel_operation(&self, receipt: ReceiptCore) -> Result<BlockingCancellationReceipt, Error>;
-
-    /// Admits and writes one request whose outcome nobody will observe.
-    ///
-    /// Blocking mode has no background actor, so the caller thread is the only
-    /// thing that can put bytes on the wire; a queued-but-unwritten STOP would
-    /// never leave if the session is torn down next. This therefore performs
-    /// the request's single first write, bounded by the transport's own send
-    /// timeout, and reports nothing. It takes the owner turn with a
-    /// non-blocking borrow, so a re-entrant call fails instead of deadlocking,
-    /// and it never panics — a dropped handle may be unwinding.
-    fn submit_detached(&self, request: RuntimeRequest);
-}
-
-/// One caller-thread owner turn that writes an unobserved request.
-///
-/// Shared by both [`BlockingControlHost`] implementations so drop-time stop
-/// submission behaves identically for a borrowed and an owning session.
-fn write_detached(
-    owner: &mut BlockingOwner,
-    driver: &mut dyn BlockingWireDriver,
-    reader: &mut dyn BlockingReadDriver,
-    decoder: &mut dyn BlockingFrameDecoder,
-    request: RuntimeRequest,
-) {
-    // Reclaim any command socket whose reply has already arrived. An abandoned
-    // multi-axis operation still holds one and each stop takes another, so
-    // without this a later axis would be refused for capacity. The deadline is
-    // already elapsed, so this drains what is buffered and returns instead of
-    // waiting for the camera.
-    let _ = owner.pump_once_until(driver, reader, decoder, Some(Instant::now()));
-    let _ = owner.submit(driver, request);
 }
 
 impl BlockingControlHost for BlockingSessionCore<'_> {
@@ -261,13 +230,6 @@ impl BlockingControlHost for BlockingSessionCore<'_> {
 
     fn cancel_operation(&self, receipt: ReceiptCore) -> Result<BlockingCancellationReceipt, Error> {
         self.with_parts(|owner, driver, _, _| owner.cancel_core(driver, receipt))
-    }
-
-    fn submit_detached(&self, request: RuntimeRequest) {
-        drop(self.with_parts(|owner, driver, reader, decoder| {
-            write_detached(owner, driver, reader, decoder, request);
-            Ok(())
-        }));
     }
 }
 
@@ -429,13 +391,6 @@ impl BlockingControlHost for BlockingSessionHost {
 
     fn cancel_operation(&self, receipt: ReceiptCore) -> Result<BlockingCancellationReceipt, Error> {
         self.with_parts(|owner, driver, _, _| owner.cancel_core(driver, receipt))
-    }
-
-    fn submit_detached(&self, request: RuntimeRequest) {
-        drop(self.with_parts(|owner, driver, reader, decoder| {
-            write_detached(owner, driver, reader, decoder, request);
-            Ok(())
-        }));
     }
 }
 
@@ -649,11 +604,6 @@ where
 {
     pub(crate) fn id(&self) -> u64 {
         self.core.id().get()
-    }
-
-    /// Returns the exact non-empty axis selection admitted with this operation.
-    pub(crate) const fn affected_axes(&self) -> AffectedAxes {
-        self.affected_axes
     }
 
     pub(crate) fn applied(self, control: &mut BlockingReceiptControl<'_>) -> Result<(), Error> {
@@ -1145,7 +1095,7 @@ impl BlockingOwner {
     /// queued in the engine and is written by a later owner turn. No receive
     /// method is called here, so ACK/completion can only be consumed by an
     /// explicit pump.
-    pub(crate) fn submit<D: BlockingWireDriver + ?Sized>(
+    pub(crate) fn submit<D: BlockingWireDriver>(
         &mut self,
         driver: &mut D,
         request: RuntimeRequest,

@@ -49,14 +49,18 @@ echo "Starting canonical 2.0 feature tests"
 echo "=========================================="
 
 # The compatibility names must remain unknown rather than silently selecting a
-# second implementation. Keep these as the only removed-name checks in CI.
+# second implementation. This is the only live-compiler proof of that; CI relies
+# on `ecosystem_feature_inventory_matches_cargo_manifest` and
+# `removed_1x_feature_aliases_are_absent_from_the_manifest` in
+# `tests/issue_548_supported_surface_inventory.rs`, which pin the same fact
+# against the manifest without paying for three extra `cargo check` runs.
 expect_unknown_feature "mode-async"
 expect_unknown_feature "async-core"
 expect_unknown_feature "mode-blocking"
 
 run_test "no-default pure engine/domain" \
     cargo test --no-default-features --lib
-run_test "default blocking + tcp" \
+run_test "default blocking" \
     cargo test --workspace --all-targets
 run_test "blocking-only" \
     cargo test --no-default-features --features blocking --all-targets
@@ -84,6 +88,8 @@ run_test "blocking serial transport" \
     cargo test --no-default-features --features transport-serial --all-targets
 run_test "Tokio serial transport" \
     cargo test --no-default-features --features runtime-tokio,transport-serial-tokio --all-targets
+run_test "Tokio + blocking serial transport" \
+    cargo test --no-default-features --features runtime-tokio,transport-serial --all-targets
 run_test "serde + schemars + ts-rs" \
     cargo test --no-default-features --features serde,schemars,ts-rs --all-targets
 run_test "test-utils" \

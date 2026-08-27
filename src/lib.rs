@@ -647,6 +647,10 @@ pub use crate::runtime::{Runtime, TransportHandle};
 mod error;
 pub(crate) mod macros;
 
+/// Cross-surface parity gate for the three hand-written noun facades.
+#[cfg(test)]
+mod noun_parity;
+
 #[cfg(feature = "async")]
 pub(crate) mod executor;
 
@@ -689,7 +693,7 @@ pub use requests::{
 
 mod prepared;
 
-mod drop_stop;
+mod stop_request;
 
 /// Bounded owner metrics and diagnostic subscriptions.
 pub mod observability;

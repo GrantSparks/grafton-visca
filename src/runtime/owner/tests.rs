@@ -618,8 +618,8 @@ mod blocking {
         let mut reader = DeadlineReader::default();
         let mut decoder = EmptyDecoder;
         let core = BlockingSessionCore::new(&mut owner, &mut driver, &mut reader, &mut decoder);
-        let first = crate::blocking::Operation::from_receipt(first_receipt, &core, None);
-        let second = crate::blocking::Operation::from_receipt(second_receipt, &core, None);
+        let first = crate::blocking::Operation::from_receipt(first_receipt, &core);
+        let second = crate::blocking::Operation::from_receipt(second_receipt, &core);
 
         assert!(matches!(
             first.applied_with_timeout(Duration::ZERO),
@@ -702,8 +702,8 @@ mod blocking {
         let mut reader = DeadlineReader::default();
         let mut decoder = EmptyDecoder;
         let core = BlockingSessionCore::new(&mut owner, &mut driver, &mut reader, &mut decoder);
-        let first = crate::blocking::Operation::from_receipt(first_receipt, &core, None);
-        let second = crate::blocking::Operation::from_receipt(second_receipt, &core, None);
+        let first = crate::blocking::Operation::from_receipt(first_receipt, &core);
+        let second = crate::blocking::Operation::from_receipt(second_receipt, &core);
 
         assert!(matches!(
             first.applied_with_timeout(Duration::ZERO),

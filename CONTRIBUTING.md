@@ -11,6 +11,7 @@ Thank you for your interest in contributing to grafton-visca! This guide will he
 - [Command Development](#command-development)
 - [Camera Profile Support](#camera-profile-support)
 - [Testing](#testing)
+- [Public API Snapshots](#public-api-snapshots)
 - [Documentation](#documentation)
 - [Pull Request Process](#pull-request-process)
 - [Release Process](#release-process)
@@ -286,6 +287,36 @@ cargo +nightly miri test --lib --no-default-features
 cargo test -- --nocapture
 ```
 
+## Public API Snapshots
+
+`api/2.0.0-rc.1/` holds the approved public-surface baseline for the 2.0
+release candidate: one `cargo public-api` listing per tracked feature surface.
+The `public API RC snapshot` CI job regenerates each listing and byte-compares
+it with the committed file, so any change to the crate's public API — including
+one you did not intend, such as a type escaping its feature gate or a public
+type quietly losing `Send` — fails the job with a readable diff instead of
+reaching downstream users.
+
+Three surfaces are tracked, and they are deliberately few: `blocking` subsumes
+the bare no-default-features surface, `tokio-dyn` subsumes the async surface,
+and `all-features` covers everything else. `--simplified` drops compiler-emitted
+blanket impls, which are ~42% of the raw output and identical for every public
+type. The baselines are CI-only; `api/` is excluded from the published crate.
+
+**If the job fails on your PR**, decide which case you are in:
+
+- The API change is intended. Regenerate the snapshots and commit them
+  alongside the change, so the diff is reviewed with the code that caused it.
+- The API change is not intended. Fix the code — the snapshot is telling you
+  something leaked.
+
+Regenerate with the pinned toolchain, never with a floating `+nightly`; the
+exact commands and the pins live in
+[api/2.0.0-rc.1/README.md](api/2.0.0-rc.1/README.md). Snapshot bytes depend on
+the nightly rustdoc that produced them, so bumping the pinned nightly in
+`.github/workflows/ci.yml` requires regenerating all three files in the same
+commit.
+
 ## Documentation
 
 For 2.0 release-candidate work, update the Unreleased section of `CHANGELOG.md` in the
@@ -361,8 +392,13 @@ depends on the same-version `grafton-visca-macros` package. Follow
 [RELEASING.md](RELEASING.md) for `2.0.0-rc.1` versioning, changelog
 finalization, validation, tagging, crates.io index verification, and recovery if
 the macro package publishes but the main package does not. Never create a
-release tag from a commit that has not passed both semver surfaces and the
-complete 2.0 matrix on a pull request.
+release tag from a commit that has not passed the complete 2.0 matrix — public
+API snapshots included — on a pull request.
+
+`cargo-semver-checks` is not part of that matrix while 2.0 is a release
+candidate: 2.0.0-rc.1 is unpublished, so there is no crates.io baseline to
+compare against, and comparing with 1.x would only re-report the intended major
+break. It returns once 2.0.0 is published.
 
 ## Feature Flags
 
