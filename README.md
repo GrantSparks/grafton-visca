@@ -346,11 +346,12 @@ let config = CameraConfig::<PtzOpticsG2>::tcp("192.168.0.110")
 
 TCP keepalive is a socket-level liveness mechanism. It can detect broken peers
 and may keep idle network-path state active, but it does not send VISCA commands
-or guarantee that camera firmware will retain an idle application session. If an
-operation reports a terminal connection failure such as `ConnectionClosed` or
-`StreamPoisoned`, discard that session and establish a new one before submitting
-more work. Do not automatically replay an operation whose completion is
-uncertain.
+or guarantee that camera firmware will retain an idle application session. When
+an operation fails, ask `Error::requires_new_session()`: it reports `true` for
+terminal connection failures such as `ConnectionClosed` and `StreamPoisoned`,
+and `false` for a `RuntimeShutdown` this application requested. On `true`,
+discard that session and establish a new one before submitting more work. Do not
+automatically replay an operation whose completion is uncertain.
 
 ### Feature flags
 

@@ -40,10 +40,14 @@ pub enum ErrorKind {
 
     /// Connection was closed or lost.
     ///
-    /// Terminal variants in this category, including [`Error::ConnectionClosed`]
-    /// and [`Error::StreamPoisoned`], require a new camera session. Do not
-    /// automatically replay a command whose completion is uncertain, because it
-    /// may have reached the camera before the connection failed.
+    /// This category deliberately covers every unusable-session condition,
+    /// including the deliberate [`Error::RuntimeShutdown`]. It therefore does
+    /// not by itself say whether a replacement session is needed. Use
+    /// [`Error::requires_new_session()`] for that classification instead of
+    /// matching this kind or individual variants.
+    ///
+    /// Do not automatically replay a command whose completion is uncertain,
+    /// because it may have reached the camera before the connection failed.
     IoClosed,
 
     /// Connection was refused.
@@ -94,6 +98,13 @@ pub enum ErrorKind {
 /// - `InvalidParameter` - Parameter value is invalid
 /// - `FeatureNotSupported` - Camera model doesn't support this feature
 /// - `PresetNotFound` - Requested preset doesn't exist
+///
+/// ## Terminal Session Failures
+/// A third category ends the session outright: the peer closed the connection,
+/// the byte stream position became unknowable, or the application shut the
+/// runtime down. Use [`Error::requires_new_session()`] to tell the first two
+/// apart from the last; retrying the operation on the same session cannot
+/// succeed in any of them.
 ///
 /// # VISCA Error Codes
 ///
@@ -617,6 +628,138 @@ impl Error {
                 | io::ErrorKind::NotConnected => ErrorKind::IoClosed,
                 _ => ErrorKind::Other,
             },
+        }
+    }
+
+    /// Reports whether the session that produced this error is permanently
+    /// unusable, so recovery must construct a replacement session.
+    ///
+    /// Transport close, explicit shutdown, and poison are given distinct
+    /// terminal errors, but they all share [`ErrorKind::IoClosed`]. Matching on
+    /// the kind therefore cannot separate "the camera dropped the connection"
+    /// from "this application asked the runtime to stop". This predicate draws
+    /// exactly that line without exposing implementation details:
+    ///
+    /// - `true` — the transport died underneath the session: the peer closed
+    ///   the connection ([`Error::ConnectionClosed`]), the byte stream position
+    ///   became unknowable ([`Error::StreamPoisoned`]), or the owner's
+    ///   transport/channel is gone. A poisoned session is terminal and is never
+    ///   revived; every retained and subsequently attempted operation keeps
+    ///   reporting its exact terminal session error.
+    /// - `false` — the condition does not prove the session is unusable. A
+    ///   deliberate [`Error::RuntimeShutdown`] is the important case: the
+    ///   application ended that session on purpose and must not treat it as a
+    ///   field disconnect to reconnect around. Ordinary per-request failures
+    ///   (timeouts, busy states, protocol and parameter errors) are also
+    ///   `false`, and so is a raw [`Error::Io`] failure, because a datagram
+    ///   write failure is isolated to its own transmission and a stream failure
+    ///   is reported to the caller as [`Error::StreamPoisoned`].
+    ///
+    /// `true` is positive proof that the session is finished. `false` only
+    /// means this error alone does not establish it.
+    ///
+    /// # Recovery
+    ///
+    /// Keep the reusable [`SessionConfig`], build a fresh transport, and open a
+    /// new session; the old session, camera views, operation handles, and
+    /// subscriptions cannot be rebound to it. The new session's state cache
+    /// starts `Unknown` and nothing is resubmitted automatically, so re-query
+    /// supported camera state before applying desired state. Do not blindly
+    /// replay a command whose completion is uncertain: it may have reached the
+    /// camera before the connection failed.
+    ///
+    /// [`SessionConfig`]: crate::SessionConfig
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use grafton_visca::Error;
+    ///
+    /// let dropped = Error::ConnectionClosed { reason: None };
+    /// assert!(dropped.requires_new_session());
+    ///
+    /// // A deliberate shutdown is not a field disconnect.
+    /// assert!(!Error::RuntimeShutdown.requires_new_session());
+    ///
+    /// // Both share one kind, so kind() alone cannot separate them.
+    /// assert_eq!(dropped.kind(), Error::RuntimeShutdown.kind());
+    /// ```
+    #[must_use]
+    pub fn requires_new_session(&self) -> bool {
+        match self {
+            // Terminal session death that the application did not ask for. The
+            // engine and both owners report exactly these variants when a
+            // session stops being usable because of the transport.
+            Self::ConnectionClosed { .. }
+            | Self::StreamPoisoned { .. }
+            | Self::ChannelClosed
+            | Self::TransportChannelClosed
+            | Self::ResponseChannelClosed
+            | Self::SocketManagerChannelClosed
+            | Self::SocketManagerUnavailable
+            | Self::NoTransport => true,
+
+            // Deliberate shutdown. The session is over because the application
+            // ended it, so reconnecting is a policy decision, not a repair.
+            Self::RuntimeShutdown => false,
+
+            // Delegated: an added context string never changes the condition.
+            Self::WithContext { source, .. } => source.requires_new_session(),
+
+            // Everything else is either a per-request outcome or a condition
+            // the session survives. `Io` and `TransportError` stay here on
+            // purpose: a datagram request-write failure is isolated to its own
+            // transmission, and a stream failure reaches the caller as
+            // `StreamPoisoned` from the owner, so the raw transport error is
+            // never the proof of session death.
+            Self::ConnectionFailed { .. }
+            | Self::CommandTimeout { .. }
+            | Self::CameraBusy
+            | Self::CommandPending
+            | Self::CameraMoving { .. }
+            | Self::CameraNotReady
+            | Self::InvalidResponse { .. }
+            | Self::CommandRejected { .. }
+            | Self::PresetNotFound { .. }
+            | Self::FeatureNotSupported { .. }
+            | Self::Io(..)
+            | Self::SyntaxError
+            | Self::CommandBufferFull
+            | Self::CommandCanceled
+            | Self::NoSocket
+            | Self::CommandNotExecutable
+            | Self::InvalidResponseFormat
+            | Self::InvalidResponseLength { .. }
+            | Self::UnexpectedResponseType
+            | Self::Unknown(..)
+            | Self::InvalidRequest(..)
+            | Self::MessageLengthError
+            | Self::ParseError(..)
+            | Self::TransportError(..)
+            | Self::InvalidParameter { .. }
+            | Self::BufferTooSmall { .. }
+            | Self::InvalidPreset { .. }
+            | Self::ParameterOutOfRange { .. }
+            | Self::Timeout
+            | Self::MaxRetriesExceeded
+            | Self::NotSupported
+            | Self::InvalidState(..)
+            | Self::TransportBusy
+            | Self::NoResponse
+            | Self::CancellationUnconfirmed
+            | Self::RuntimeIdentityExhausted
+            | Self::RuntimeQueueFull { .. }
+            | Self::ValidationError(..)
+            | Self::UnknownResponseKind { .. }
+            | Self::DecoderNotFound { .. }
+            | Self::InvalidCameraId { .. }
+            | Self::LockPoisoned(..)
+            | Self::ResponseTooLarge { .. }
+            | Self::InquiryNotCancelable
+            | Self::InvalidAddress { .. }
+            | Self::TransportMismatch { .. }
+            | Self::UnsupportedTransport { .. }
+            | Self::MissingRuntime => false,
         }
     }
 
@@ -1238,6 +1381,91 @@ mod tests {
             Error::Io(Arc::new(io::Error::other("test"))).kind(),
             ErrorKind::Other
         );
+    }
+
+    #[test]
+    fn requires_new_session_separates_transport_death_from_deliberate_shutdown() {
+        // Issue #564: `IoClosed` conflates the three distinct terminal session
+        // errors, so the classification must not be derived from the kind.
+        let dropped = Error::ConnectionClosed {
+            reason: Some(Cow::Borrowed("closed by peer")),
+        };
+        let poisoned = Error::StreamPoisoned {
+            reason: Cow::Borrowed("partial write"),
+        };
+        let shutdown = Error::RuntimeShutdown;
+
+        assert_eq!(dropped.kind(), ErrorKind::IoClosed);
+        assert_eq!(poisoned.kind(), ErrorKind::IoClosed);
+        assert_eq!(shutdown.kind(), ErrorKind::IoClosed);
+
+        assert!(dropped.requires_new_session());
+        assert!(poisoned.requires_new_session());
+        assert!(!shutdown.requires_new_session());
+    }
+
+    #[test]
+    fn requires_new_session_covers_every_unusable_transport_condition() {
+        for error in [
+            Error::ConnectionClosed { reason: None },
+            Error::StreamPoisoned {
+                reason: Cow::Borrowed("framing failure"),
+            },
+            Error::ChannelClosed,
+            Error::TransportChannelClosed,
+            Error::ResponseChannelClosed,
+            Error::SocketManagerChannelClosed,
+            Error::SocketManagerUnavailable,
+            Error::NoTransport,
+        ] {
+            assert!(
+                error.requires_new_session(),
+                "error should require a new session: {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn requires_new_session_is_false_for_recoverable_and_deliberate_conditions() {
+        for error in [
+            Error::RuntimeShutdown,
+            Error::Timeout,
+            Error::CameraBusy,
+            Error::CommandBufferFull,
+            Error::RuntimeQueueFull { capacity: 8 },
+            Error::CommandCanceled,
+            Error::CommandNotExecutable,
+            Error::SyntaxError,
+            Error::NoSocket,
+            Error::NoResponse,
+            Error::TransportBusy,
+            Error::MaxRetriesExceeded,
+            Error::CancellationUnconfirmed,
+            Error::TransportError(Cow::Borrowed("serial encode failed")),
+            Error::ConnectionFailed {
+                addr: Cow::Borrowed("192.168.1.100:5678"),
+                source: Arc::new(io::Error::other("refused")),
+            },
+            Error::Io(Arc::new(io::Error::new(io::ErrorKind::BrokenPipe, "pipe"))),
+        ] {
+            assert!(
+                !error.requires_new_session(),
+                "error should not require a new session: {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn requires_new_session_survives_added_context() {
+        let error = Error::StreamPoisoned {
+            reason: Cow::Borrowed("partial write"),
+        }
+        .with_context("recall preset 3")
+        .with_context("restore show state");
+        assert!(error.requires_new_session());
+
+        let deliberate = Error::RuntimeShutdown.with_context("application teardown");
+        assert!(!deliberate.requires_new_session());
     }
 
     #[test]
