@@ -2,19 +2,15 @@
 
 use std::{fs, path::PathBuf};
 
+#[path = "common/source_scan.rs"]
+mod source_scan;
+
+use source_scan::{builtin_command_rows, declarations, inquiry_accessor_rows};
+
 fn source(relative: &str) -> String {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     fs::read_to_string(root.join(relative))
         .unwrap_or_else(|error| panic!("read {relative}: {error}"))
-}
-
-/// Rows listed in the closed `BuiltinCommand::ALL` slice.
-fn ledger_rows(semantics: &str) -> usize {
-    semantics
-        .rsplit_once("pub const ALL: &[Self] = &[")
-        .and_then(|(_, rest)| rest.split_once("    ];"))
-        .map(|(slice, _)| slice.matches("Self::").count())
-        .expect("BuiltinCommand::ALL slice")
 }
 
 /// Variants declared by the `BuiltinCommand` enum body.
@@ -52,23 +48,10 @@ fn declared_usize(source: &str, name: &str) -> usize {
         .unwrap_or_else(|| panic!("no usize constant named {name}"))
 }
 
-/// Entries declared inside the `inquiry_methods!` projection blocks.
-fn dynamic_inquiry_methods(nouns: &str) -> usize {
-    let mut total = 0;
-    for block in nouns.split("inquiry_methods! {").skip(1) {
-        let body = block.split_once("\n    }").map_or(block, |(body, _)| body);
-        total += body
-            .lines()
-            .filter(|line| line.trim_start().starts_with("fn "))
-            .count();
-    }
-    total
-}
-
 #[test]
 fn semantic_ledger_is_single_source_and_class_balanced() {
-    let semantics = source("src/command/semantics.rs");
-    let surface = source("src/command/surface.rs");
+    let semantics = declarations(&source("src/command/semantics.rs"));
+    let surface = declarations(&source("src/command/surface.rs"));
 
     assert!(semantics.contains("pub enum BuiltinCommand"));
     assert!(semantics.contains("pub const ALL: &[Self]"));
@@ -80,7 +63,7 @@ fn semantic_ledger_is_single_source_and_class_balanced() {
     // satisfy the gate.  The closed `ALL` slice must list every declared
     // variant, and the surface match must give every listed row exactly one
     // disposition.
-    let rows = ledger_rows(&semantics);
+    let rows = builtin_command_rows(&semantics);
     assert_eq!(
         rows,
         ledger_variants(&semantics),
@@ -119,10 +102,14 @@ fn removed_legacy_semantic_vocabulary_does_not_return() {
 
 #[test]
 fn static_and_dynamic_ledgers_reference_the_same_command_rows() {
-    let surface = source("src/command/surface.rs");
-    let async_nouns = source("src/async_nouns.rs");
-    let blocking_nouns = source("src/blocking_nouns.rs");
-    let dynamic_nouns = source("src/dynapi/nouns.rs");
+    // Declaration regions only: each of these files names its own methods as
+    // string literals inside its in-file inventory tests, so scanning the whole
+    // file would let the test data satisfy the gate.
+    let surface = declarations(&source("src/command/surface.rs"));
+    let async_nouns = declarations(&source("src/async_nouns.rs"));
+    let blocking_nouns = declarations(&source("src/blocking_nouns.rs"));
+    let dynamic_nouns = declarations(&source("src/dynapi/nouns.rs"));
+    let inquiry_structs = declarations(&source("src/command/inquiry_structs.rs"));
 
     for text in [&async_nouns, &blocking_nouns, &dynamic_nouns] {
         assert!(text.contains("execute"));
@@ -139,9 +126,16 @@ fn static_and_dynamic_ledgers_reference_the_same_command_rows() {
         surface.matches("noun_entry!(").count(),
         "dynamic target-method count drifted from the static noun ledger"
     );
+    // Both sides of the inquiry count used to come out of `dynapi/nouns.rs`
+    // itself, which made the assertion self-referential.  The independent
+    // source is the generated accessor table in `command/inquiry_structs.rs`
+    // that `BUILTIN_INQUIRY_ACCESSORS` is built from; the crate's own
+    // `dynamic_inquiry_count_follows_generated_typed_accessor_ledger` test in
+    // `src/dynapi/nouns.rs` anchors the same constant against that slice at
+    // run time, and this gate is the source-level half of it.
     assert_eq!(
         declared_usize(&dynamic_nouns, "DYN_NOUN_INQUIRY_METHOD_COUNT"),
-        dynamic_inquiry_methods(&dynamic_nouns),
-        "dynamic inquiry-method count drifted from the projected inquiries"
+        inquiry_accessor_rows(&inquiry_structs),
+        "dynamic inquiry-method count drifted from the generated inquiry ledger"
     );
 }

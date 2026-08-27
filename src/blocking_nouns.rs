@@ -213,10 +213,16 @@ mod inventory_tests {
 
     use crate::command::semantics::BuiltinCommand;
     use crate::command::surface::{surface_entry, StaticSurfaceDisposition};
+    use crate::noun_parity::without_test_modules;
 
     #[test]
     fn every_ledger_method_has_one_blocking_definition_per_row() {
-        let source = include_str!("blocking_nouns.rs");
+        // Read the declaration region only: this very module names every
+        // accessor as a string literal, so scanning the whole file would let
+        // the test data satisfy the test.
+        let source =
+            without_test_modules(include_str!("blocking_nouns.rs"), "src/blocking_nouns.rs");
+        let source = source.as_str();
         for accessor in [
             "PowerAccessor",
             "ZoomAccessor",

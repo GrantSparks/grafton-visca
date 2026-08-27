@@ -168,13 +168,32 @@ impl Default for OwnerLimits {
     }
 }
 
-/// Immutable construction policy. Target registration cannot change after the
-/// owner begins accepting work.
+/// Profile-derived pacing and socket facts *before* any operational tuning was
+/// folded in.
+///
+/// Runtime reconfiguration (#631) re-derives the owner's live pacing and socket
+/// capacity from this baseline rather than from the already-tuned values.
+/// Deriving from the tuned values would be a ratchet: an override that widened
+/// command pacing could never be relaxed again, because the widened value would
+/// have become the new floor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct TuningBaseline {
+    pub(crate) command_spacing: Duration,
+    pub(crate) inquiry_spacing: Duration,
+    pub(crate) command_sockets: [Option<u8>; 9],
+}
+
+/// Construction policy. Target registration cannot change after the owner
+/// begins accepting work; pacing, socket capacity, and the session tuning that
+/// governs request preparation are reconfigurable through the owner's control
+/// boundary.
 #[derive(Debug, Clone)]
 pub(crate) struct OwnerPolicy {
     pub(crate) protocol: ProtocolPolicy,
     pub(crate) targets: [Option<TargetPolicy>; 9],
     pub(crate) limits: OwnerLimits,
+    pub(crate) tuning: crate::OperationalTuning,
+    pub(crate) baseline: TuningBaseline,
 }
 
 impl OwnerPolicy {
@@ -202,6 +221,14 @@ impl OwnerPolicy {
             protocol,
             targets,
             limits: OwnerLimits::default(),
+            tuning: crate::OperationalTuning::new(),
+            baseline: TuningBaseline {
+                command_spacing: protocol.command_spacing,
+                inquiry_spacing: protocol.inquiry_spacing,
+                command_sockets: array::from_fn(|index| {
+                    targets[index].map(|policy| policy.command_sockets)
+                }),
+            },
         })
     }
 
@@ -1037,11 +1064,38 @@ pub(crate) enum AppliedEffect {
     Terminal(RequestId),
 }
 
+/// The owner's live operational tuning, shared with every handle that prepares
+/// requests against it.
+///
+/// The owner is the sole writer: an update reaches it through the async control
+/// boundary or, in the blocking mode, through the owner turn the caller thread
+/// takes. Readers therefore see one whole [`crate::OperationalTuning`] value —
+/// never a half-applied mixture of two updates — and two concurrent updates
+/// resolve last-writer-wins in the order the owner accepted them.
+#[derive(Debug, Clone)]
+pub(crate) struct LiveTuning(Arc<Mutex<crate::OperationalTuning>>);
+
+impl LiveTuning {
+    fn new(tuning: crate::OperationalTuning) -> Self {
+        Self(Arc::new(Mutex::new(tuning)))
+    }
+
+    /// Copies the tuning currently governing request preparation.
+    pub(crate) fn get(&self) -> crate::OperationalTuning {
+        *self.0.lock().unwrap_or_else(|poison| poison.into_inner())
+    }
+
+    fn set(&self, tuning: crate::OperationalTuning) {
+        *self.0.lock().unwrap_or_else(|poison| poison.into_inner()) = tuning;
+    }
+}
+
 /// Common serialized owner state shared by blocking and async modes.
 #[derive(Debug)]
 pub(crate) struct OwnerState {
     engine: ProtocolEngine,
     policy: OwnerPolicy,
+    tuning: LiveTuning,
     permits: AdmissionPermitPool,
     pending: BTreeMap<AdmissionTicket, PendingAdmission>,
     active: BTreeMap<RequestId, ActiveRequest>,
@@ -1098,9 +1152,11 @@ impl OwnerState {
         }
         let permits = AdmissionPermitPool::new(policy.protocol.capacity);
         let buffers = OwnerBuffers::new(policy.limits)?;
+        let tuning = LiveTuning::new(policy.tuning);
         Ok(Self {
             engine,
             policy,
+            tuning,
             permits,
             pending: BTreeMap::new(),
             active: BTreeMap::new(),
@@ -1129,6 +1185,62 @@ impl OwnerState {
 
     pub(crate) const fn policy(&self) -> &OwnerPolicy {
         &self.policy
+    }
+
+    /// Shares the live tuning cell with a handle that prepares requests.
+    pub(crate) fn live_tuning(&self) -> LiveTuning {
+        self.tuning.clone()
+    }
+
+    /// Installs new operational tuning on this owner (#631).
+    ///
+    /// Two things change, and the difference between them is the whole scope of
+    /// runtime reconfiguration:
+    ///
+    /// * the session-wide pacing floor and per-target socket capacity are
+    ///   re-derived from the profile baseline and applied to the engine at
+    ///   once, so *queued* work is dispatched under the new values;
+    /// * the tuning that request preparation reads is replaced, so every
+    ///   request prepared after this call carries the new deadlines, retry
+    ///   budget, and per-request pacing floor.
+    ///
+    /// A request that has already been admitted keeps the deadlines it was
+    /// prepared with. Those are stamped once, at preparation, and the engine
+    /// derives its absolute phase deadlines from them; nothing here rewrites an
+    /// admitted request's context, so an in-flight command is never re-timed
+    /// underneath its own observer.
+    ///
+    /// The caller is responsible for validating `tuning` against the registered
+    /// profiles first — the owner does not retain `ProfileSpec` values, and the
+    /// session facades reject exactly what construction rejects before the
+    /// update reaches this point.
+    pub(crate) fn retune(&mut self, tuning: crate::OperationalTuning) -> Result<(), Error> {
+        let baseline = self.policy.baseline;
+        let command_spacing = tuning
+            .command_spacing_override()
+            .unwrap_or(baseline.command_spacing);
+        let inquiry_spacing = tuning
+            .inquiry_spacing_override()
+            .unwrap_or(baseline.inquiry_spacing);
+        let command_sockets: [Option<u8>; 9] = array::from_fn(|index| {
+            baseline.command_sockets[index].map(|profile_sockets| {
+                tuning
+                    .maximum_command_sockets_override()
+                    .unwrap_or(profile_sockets)
+            })
+        });
+        self.engine
+            .retune(command_spacing, inquiry_spacing, command_sockets)?;
+        self.policy.protocol.command_spacing = command_spacing;
+        self.policy.protocol.inquiry_spacing = inquiry_spacing;
+        for (slot, sockets) in self.policy.targets.iter_mut().zip(command_sockets.iter()) {
+            if let (Some(policy), Some(sockets)) = (slot.as_mut(), sockets) {
+                policy.command_sockets = *sockets;
+            }
+        }
+        self.policy.tuning = tuning;
+        self.tuning.set(tuning);
+        Ok(())
     }
 
     pub(crate) const fn state(&self) -> SessionState {

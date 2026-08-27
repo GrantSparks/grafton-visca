@@ -102,7 +102,12 @@ The equivalent builder form is `SessionConfig::for_target(...).with_target(...)`
 `SessionConfig::from_compile_time::<P>()` creates a reusable camera-1 config
 from a static profile. `register_target` and `with_target` accept only IDs 1
 through 7, reject broadcast and duplicate IDs, and cap the registry at seven
-targets. Registration and tuning are immutable after the session starts.
+targets. Registration is immutable after the session starts; tuning is not —
+`Session::set_tuning` replaces it at runtime, and `Session::tuning` reads back
+the live value. Every request prepared after the update uses the new deadlines,
+retry budget and pacing; a request already in flight keeps the deadlines it was
+admitted with. See
+[Reconfiguring timeouts at runtime](migration_2_0.md#reconfiguring-timeouts-at-runtime).
 
 For one target, prefer the single-camera constructors: they name the profile
 once and return a `CameraSession<P>` whose `camera()` is bound to that same `P`
@@ -182,7 +187,9 @@ Static cameras expose the same 14 noun views in blocking and async forms:
 `image`, `presets`, `tally`, `nd_filter`, `motion_sync`, `menu`, and
 `advanced`. Profile-gated methods are available only when the profile's
 `Has*` marker permits them. `motion()` separately owns
-`stop_all_motion`, `is_moving`, and `wait_until_idle`.
+`stop_all_motion`, `is_moving`, `is_moving_axes`, and `wait_until_idle`.
+`is_moving()` takes no argument and samples `AffectedAxes::MOVEMENT`;
+`is_moving_axes(MotionQuery)` is the axis-selecting form.
 
 Dynamic async code uses `DynSessionCamera` and its object-safe
 `DynSessionCameraControl` plus `DynPower`, `DynZoom`, `DynSystem`,
@@ -193,7 +200,7 @@ Dynamic async code uses `DynSessionCamera` and its object-safe
 ```rust,ignore
 let camera = grafton_visca::dynapi::DynSessionCamera::from_session(&session)?;
 camera.zoom().stop().await?.applied().await?;
-camera.motion().is_moving(query).await?;
+camera.motion().is_moving_axes(query).await?;
 # Ok::<(), grafton_visca::Error>(())
 ```
 

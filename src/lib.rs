@@ -168,19 +168,18 @@
 //!
 //! ### Type-Safe Parameters with Conservative Defaults
 //! All parameter types provide conservative VISCA-compliant ranges by default:
-//! ```ignore
-//! use grafton_visca::types::{PanSpeed, ZoomPosition, ZoomSpeed};
+//! ```rust
+//! use grafton_visca::types::{PanSpeed, SpeedLevel, ZoomSpeed};
 //!
 //! // All range types expose MIN/MAX constants for validation
 //! assert_eq!(PanSpeed::MIN.value(), 0);
 //! assert_eq!(PanSpeed::MAX.value(), 24);
 //!
 //! // Validated constructors provide clear error messages
-//! let speed = PanSpeed::new(15)?;  // Valid: 0-24
-//! match PanSpeed::new(30) {
-//!     Err(e) => println!("{}", e), // "PanSpeed must be between 0 and 24"
-//!     _ => {}
-//! }
+//! let speed = PanSpeed::new(15).expect("0..=24 is in range");
+//! assert_eq!(speed.value(), 15);
+//! let error = PanSpeed::new(30).expect_err("25..=255 is out of range");
+//! println!("{error}");
 //!
 //! // Speed types work seamlessly with SpeedLevel enum
 //! let zoom = ZoomSpeed::from(SpeedLevel::Fast); // Automatic conversion
@@ -189,26 +188,32 @@
 //!
 //! ### Profile-Based Compile-Time Safety
 //! Camera profiles carry model-specific limits and capabilities at compile time:
-//! ```ignore
-//! use grafton_visca::{blocking::Connect, camera::profiles::PtzOpticsG2, units::Degrees, SpeedLevel};
+//! ```rust
+//! # #[cfg(feature = "blocking")]
+//! fn absolute_move() -> Result<(), grafton_visca::Error> {
+//!     use grafton_visca::{blocking::Connect, camera::profiles::PtzOpticsG2, units::Degrees, SpeedLevel};
 //!
-//! let session = Connect::open_tcp::<PtzOpticsG2>("192.168.0.110")?;
-//! let camera = session.camera::<PtzOpticsG2>()?;
-//! camera.pan_tilt().absolute(Degrees(45.0), Degrees(10.0), SpeedLevel::Medium)?.settled()?;
-//! session.close()?;
+//!     let session = Connect::open_tcp::<PtzOpticsG2>("192.168.0.110")?;
+//!     let camera = session.camera::<PtzOpticsG2>()?;
+//!     camera.pan_tilt().absolute(Degrees(45.0), Degrees(10.0), SpeedLevel::Medium)?.settled()?;
+//!     session.close()
+//! }
 //! ```
 //!
 //! ### Compile-Time Capability Gating
 //! Vendor-specific controls are exposed through the same accessor path and are
 //! only available when the selected profile supports them:
-//! ```ignore
-//! use grafton_visca::{blocking::Connect, camera::profiles::PtzOpticsG2, FocusLock};
+//! ```rust
+//! # #[cfg(feature = "blocking")]
+//! fn toggle_focus_lock() -> Result<(), grafton_visca::Error> {
+//!     use grafton_visca::{blocking::Connect, camera::profiles::PtzOpticsG2, command::FocusLock};
 //!
-//! let session = Connect::open_tcp::<PtzOpticsG2>("192.168.0.110")?;
-//! let camera = session.camera::<PtzOpticsG2>()?;
-//! camera.focus().set_lock(FocusLock::On)?;
-//! camera.focus().set_lock(FocusLock::Off)?;
-//! session.close()?;
+//!     let session = Connect::open_tcp::<PtzOpticsG2>("192.168.0.110")?;
+//!     let camera = session.camera::<PtzOpticsG2>()?;
+//!     camera.focus().set_lock(FocusLock::On)?;
+//!     camera.focus().set_lock(FocusLock::Off)?;
+//!     session.close()
+//! }
 //! ```
 //!
 //! This multi-layered approach ensures:
@@ -219,14 +224,11 @@
 //! ## Quick Start
 //!
 //! ### Blocking Example
-//! ```ignore
-//! use grafton_visca::{
-//!     blocking::Connect,
-//!     camera::profiles::PtzOpticsG2,
-//!     Error,
-//! };
+//! ```rust
+//! # #[cfg(feature = "blocking")]
+//! fn quick_start() -> Result<(), grafton_visca::Error> {
+//!     use grafton_visca::{blocking::Connect, camera::profiles::PtzOpticsG2};
 //!
-//! fn main() -> Result<(), Error> {
 //!     // Create one owner-backed session using the convenience Connect helper
 //!     let session = Connect::open_tcp::<PtzOpticsG2>("192.168.0.110")?;
 //!     let camera = session.camera::<PtzOpticsG2>()?;
@@ -241,75 +243,63 @@
 //! ```
 //!
 //! ### Async Example with Multi-Runtime Support
-//! ```ignore
-//! use grafton_visca::{
-//!     camera::Connect,
-//!     camera::profiles::PtzOpticsG2,
-//!     runtime::TokioRuntime,
-//!     Error,
-//! };
+//! ```rust
+//! # #[cfg(feature = "runtime-tokio")]
+//! async fn quick_start() -> Result<(), grafton_visca::Error> {
+//!     use grafton_visca::{camera::profiles::PtzOpticsG2, runtime::TokioRuntime, Connect};
 //!
-//! #[tokio::main]
-//! async fn main() -> Result<(), Error> {
 //!     // Create one owner-backed session using Connect with a runtime
 //!     let runtime = TokioRuntime::from_current()?;
-//!     let session = Connect::open_tcp::<PtzOpticsG2, _>(
-//!         "192.168.0.110",
-//!         runtime
-//!     ).await?;
+//!     let session = Connect::open_tcp::<PtzOpticsG2, _>("192.168.0.110", runtime).await?;
 //!     let camera = session.camera::<PtzOpticsG2>()?;
 //!
 //!     let is_on = camera.power().state().await?;
 //!     let zoom = camera.zoom().position().await?;
 //!     println!("Power: {is_on}, zoom: 0x{:04X}", zoom.value());
 //!
-//!     session.close().await?;
-//!     Ok(())
+//!     session.close().await
 //! }
 //! ```
 //!
 //! ### Explicit Runtime Selection Example
-//! ```ignore
-//! // Multiple runtime features can coexist, but runtime selection is explicit.
+//!
+//! Multiple runtime features can coexist, but runtime selection is explicit:
+//!
+//! ```toml
 //! [dependencies]
 //! grafton-visca = { version = "2.0.0-rc.1", features = ["runtime-tokio", "runtime-smol"] }
+//! ```
 //!
-//! use grafton_visca::{
-//!     Error,
-//!     camera::{Connect, profiles::PtzOpticsG2},
-//!     runtime::SmolRuntime,
-//! };
+//! ```rust
+//! # #[cfg(feature = "runtime-smol")]
+//! fn quick_start() -> Result<(), grafton_visca::Error> {
+//!     use grafton_visca::{camera::profiles::PtzOpticsG2, runtime::SmolRuntime, Connect};
 //!
-//! fn main() -> Result<(), Error> {
 //!     smol::block_on(async {
 //!         let runtime = SmolRuntime::new();
-//!         let session = Connect::open_tcp::<PtzOpticsG2, _>(
-//!             "192.168.0.110",
-//!             runtime,
-//!         )
-//!             .await?;
+//!         let session =
+//!             Connect::open_tcp::<PtzOpticsG2, _>("192.168.0.110", runtime).await?;
 //!         let camera = session.camera::<PtzOpticsG2>()?;
 //!
 //!         let is_on = camera.power().state().await?;
 //!         println!("Power: {is_on}");
 //!
-//!         session.close().await?;
-//!         Ok(())
+//!         session.close().await
 //!     })
 //! }
 //! ```
 //!
 //! ### Configured Connection Example
-//! ```ignore
-//! use grafton_visca::{
-//!     Error,
-//!     camera::{CameraConfig, profiles::PtzOpticsG2},
-//!     runtime::SmolRuntime,
-//!     transport::{TcpKeepaliveConfig, TransportConfig},
-//! };
-//! use std::time::Duration;
+//! ```rust
+//! # #[cfg(feature = "runtime-smol")]
+//! fn configured() -> Result<(), grafton_visca::Error> {
+//!     use grafton_visca::{
+//!         camera::{profiles::PtzOpticsG2, CameraConfig},
+//!         runtime::SmolRuntime,
+//!         transport::{TcpKeepaliveConfig, TransportConfig},
+//!     };
+//!     use std::time::Duration;
 //!
-//! fn main() -> Result<(), Error> {
 //!     smol::block_on(async {
 //!         let config = CameraConfig::<PtzOpticsG2>::tcp("192.168.0.110")
 //!             .transport_config(TransportConfig {
@@ -323,8 +313,7 @@
 //!         let is_on = camera.power().state().await?;
 //!         println!("Power: {is_on}");
 //!
-//!         session.close().await?;
-//!         Ok(())
+//!         session.close().await
 //!     })
 //! }
 //! ```
@@ -335,15 +324,18 @@
 //! when one command needs an exact deadline, cancellation, detach, or a physical
 //! settle signal:
 //!
-//! ```ignore
-//! use std::time::Duration;
-//! use grafton_visca::{blocking::Connect, camera::profiles::PtzOpticsG2};
+//! ```rust
+//! # #[cfg(feature = "blocking")]
+//! fn bounded_moves() -> Result<(), grafton_visca::Error> {
+//!     use grafton_visca::{blocking::Connect, camera::profiles::PtzOpticsG2};
+//!     use std::time::Duration;
 //!
-//! let session = Connect::open_tcp::<PtzOpticsG2>("192.168.0.110")?;
-//! let camera = session.camera::<PtzOpticsG2>()?;
-//! camera.pan_tilt().home()?.settled_with_timeout(Duration::from_secs(20))?;
-//! camera.zoom().stop()?.applied_with_timeout(Duration::from_secs(2))?;
-//! session.close()?;
+//!     let session = Connect::open_tcp::<PtzOpticsG2>("192.168.0.110")?;
+//!     let camera = session.camera::<PtzOpticsG2>()?;
+//!     camera.pan_tilt().home()?.settled_with_timeout(Duration::from_secs(20))?;
+//!     camera.zoom().stop()?.applied_with_timeout(Duration::from_secs(2))?;
+//!     session.close()
+//! }
 //! ```
 //!
 //! `submit` manages lifecycle; it does not add profile capability or range
@@ -361,14 +353,25 @@
 //!
 //! The camera profile controls which accessors are available at compile time:
 //!
-//! ```ignore
-//! use grafton_visca::prelude::blocking::*;
+//! ```rust
+//! # #[cfg(feature = "blocking")]
+//! fn profile_gated_controls() -> Result<(), grafton_visca::Error> {
+//!     use grafton_visca::prelude::blocking::*;
 //!
-//! let sony = Connect::open_udp::<SonyFR7>("192.168.0.110")?;
-//! sony.nd_filter().set_mode(NdFilterMode::Clear)?;
+//!     let sony = Connect::open_udp::<SonyFR7>("192.168.0.110")?;
+//!     sony.camera::<SonyFR7>()?
+//!         .nd_filter()
+//!         .set_mode(NdFilterMode::Preset)?;
 //!
-//! let g2 = Connect::open_tcp::<PtzOpticsG2>("192.168.0.111")?;
-//! // g2.nd_filter().set_mode(NdFilterMode::Clear)?; // Compile error: G2 has no ND filter capability
+//!     let g2 = Connect::open_tcp::<PtzOpticsG2>("192.168.0.111")?;
+//!     let g2_camera = g2.camera::<PtzOpticsG2>()?;
+//!     // g2_camera.nd_filter().set_mode(NdFilterMode::Preset)?;
+//!     // ^ Compile error: G2 has no ND filter capability
+//!     let _ = g2_camera;
+//!
+//!     sony.close()?;
+//!     g2.close()
+//! }
 //! ```
 //!
 //! Runtime discovery metadata is available for every profile through
@@ -382,31 +385,61 @@
 //!
 //! ## Transport Implementation
 //!
-//! The library provides transport traits that you can implement for any communication method:
+//! The library provides transport traits that you can implement for any
+//! communication method. The receive side reads into a caller-provided buffer
+//! and returns the byte count, so a transport never allocates per frame.
+//! `Ok(0)` means the peer
+//! closed the connection; an idle timeout is *no data*, not a fault. A
+//! transport also declares its stream/datagram send semantics and its
+//! [`transport::TransportConfig`], which is what
+//! [`transport::HasTransportConfig`] carries.
 //!
-//! ```ignore
-//! use grafton_visca::{transport::BlockingTransport, command::CommandKind, Error};
-//! use bytes::Bytes;
+//! ```rust
+//! use grafton_visca::command::CommandKind;
+//! use grafton_visca::transport::{
+//!     BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig,
+//! };
+//! use grafton_visca::Error;
 //! use std::time::Duration;
 //!
 //! struct MyTransport {
-//!     // Your transport state
+//!     // Your transport state, plus the configuration the runtime reads.
+//!     config: TransportConfig,
 //! }
 //!
 //! impl BlockingTransport for MyTransport {
-//!     fn send_with_kind(&mut self, data: &[u8], kind: CommandKind) -> Result<(), Error> {
-//!         // Send data over your transport with proper framing based on kind
+//!     fn send_with_kind(&mut self, bytes: &[u8], kind: CommandKind) -> Result<(), Error> {
+//!         // Write the framed bytes; `kind` selects command vs inquiry framing.
+//!         let _ = (bytes, kind);
 //!         Ok(())
 //!     }
 //!
-//!     fn recv(&mut self) -> Result<Bytes, Error> {
-//!         // Receive response from your transport
-//!         Ok(Bytes::new())
+//!     fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
+//!         // Read into the caller's buffer. `Ok(0)` reports EOF.
+//!         let _ = dst;
+//!         Ok(0)
 //!     }
 //!
-//!     fn recv_with_timeout(&mut self, timeout: Duration) -> Result<Bytes, Error> {
-//!         // Receive response with timeout
-//!         Ok(Bytes::new())
+//!     fn recv_into_with_timeout(
+//!         &mut self,
+//!         dst: &mut [u8],
+//!         timeout: Duration,
+//!     ) -> Result<usize, Error> {
+//!         // Prefer an OS-level socket timeout. An expired idle timeout is
+//!         // reported as `Error::Timeout`, which the runtime reads as
+//!         // "this read produced no frames".
+//!         let _ = (dst, timeout);
+//!         Err(Error::Timeout)
+//!     }
+//!
+//!     fn send_semantics(&self) -> SendSemantics {
+//!         SendSemantics::Stream
+//!     }
+//! }
+//!
+//! impl HasTransportConfig for MyTransport {
+//!     fn transport_config(&self) -> &TransportConfig {
+//!         &self.config
 //!     }
 //! }
 //! ```
@@ -470,18 +503,34 @@
 //! Pass the runtime explicitly through `Connect` or `CameraConfig`; both return
 //! the canonical owner-backed `Session`:
 //!
-//! ```ignore
-//! // Tokio
-//! use grafton_visca::{camera::{Connect, profiles::PtzOpticsG2}, runtime::TokioRuntime};
-//! let runtime = TokioRuntime::from_current()?;
-//! let session = Connect::open_tcp::<PtzOpticsG2, _>("192.168.0.110", runtime).await?;
-//! let camera = session.camera::<PtzOpticsG2>()?;
+//! ```rust
+//! # #[cfg(feature = "runtime-tokio")]
+//! async fn with_tokio() -> Result<(), grafton_visca::Error> {
+//!     use grafton_visca::{
+//!         camera::{profiles::PtzOpticsG2, Connect},
+//!         runtime::TokioRuntime,
+//!     };
 //!
-//! // smol
-//! use grafton_visca::{camera::{Connect, profiles::PtzOpticsG2}, runtime::SmolRuntime};
-//! let runtime = SmolRuntime::new();
-//! let session = Connect::open_tcp::<PtzOpticsG2, _>("192.168.0.110", runtime).await?;
-//! let camera = session.camera::<PtzOpticsG2>()?;
+//!     let runtime = TokioRuntime::from_current()?;
+//!     let session = Connect::open_tcp::<PtzOpticsG2, _>("192.168.0.110", runtime).await?;
+//!     let camera = session.camera::<PtzOpticsG2>()?;
+//!     let _ = camera;
+//!     session.close().await
+//! }
+//!
+//! # #[cfg(feature = "runtime-smol")]
+//! async fn with_smol() -> Result<(), grafton_visca::Error> {
+//!     use grafton_visca::{
+//!         camera::{profiles::PtzOpticsG2, Connect},
+//!         runtime::SmolRuntime,
+//!     };
+//!
+//!     let runtime = SmolRuntime::new();
+//!     let session = Connect::open_tcp::<PtzOpticsG2, _>("192.168.0.110", runtime).await?;
+//!     let camera = session.camera::<PtzOpticsG2>()?;
+//!     let _ = camera;
+//!     session.close().await
+//! }
 //! ```
 //!
 //! #### Option 2: Provide an executor and transport adapter
@@ -529,26 +578,36 @@
 //!
 //! The Camera API supports multiple position unit types with automatic conversion:
 //!
-//! ```ignore
-//! // Work in degrees (recommended)
-//! camera.pan_tilt().absolute(Degrees(45.0), Degrees(-15.0), SpeedLevel::Medium)?;
+//! ```rust
+//! # #[cfg(feature = "blocking")]
+//! fn position_units(
+//!     camera: &grafton_visca::blocking::Camera<'_, grafton_visca::profiles::PtzOpticsG2>,
+//! ) -> Result<(), grafton_visca::Error> {
+//!     use grafton_visca::{units::Degrees, SpeedLevel};
 //!
-//! // Stop all movement
-//! camera.pan_tilt().stop()?;
+//!     // Work in degrees (recommended)
+//!     camera
+//!         .pan_tilt()
+//!         .absolute(Degrees(45.0), Degrees(-15.0), SpeedLevel::Medium)?
+//!         .settled()?;
 //!
-//! // Move to home position
-//! camera.pan_tilt().home()?;
+//!     // Stop all movement
+//!     camera.pan_tilt().stop()?.applied()?;
+//!
+//!     // Move to home position
+//!     camera.pan_tilt().home()?.settled()
+//! }
 //! ```
 //!
 //! ## Timeout Configuration
 //!
 //! Configure timeouts per command category based on your network and camera:
 //!
-//! ```ignore
-//! use grafton_visca::{camera::{CameraConfig, profiles::PtzOpticsG2}, TimeoutConfig};
+//! ```rust
+//! use grafton_visca::timeout::TimeoutConfig;
 //! use std::time::Duration;
 //!
-//! let config = TimeoutConfig::builder()
+//! let timeouts = TimeoutConfig::builder()
 //!     .ack_timeout(Duration::from_millis(300))
 //!     .quick_timeout(Duration::from_secs(3))
 //!     .movement_timeout(Duration::from_secs(20))
@@ -556,30 +615,51 @@
 //!     .build();
 //!
 //! // For the async facade
-//! use grafton_visca::runtime::TokioRuntime;
-//! let runtime = TokioRuntime::from_current()?;
-//! let camera = CameraConfig::<PtzOpticsG2>::tcp("192.168.0.110")
-//!     .timeouts(config)
-//!     .open_async(runtime)
-//!     .await?;
+//! # #[cfg(feature = "runtime-tokio")]
+//! async fn configured_async(timeouts: TimeoutConfig) -> Result<(), grafton_visca::Error> {
+//!     use grafton_visca::camera::{profiles::PtzOpticsG2, CameraConfig};
+//!     use grafton_visca::runtime::TokioRuntime;
+//!
+//!     let runtime = TokioRuntime::from_current()?;
+//!     let session = CameraConfig::<PtzOpticsG2>::tcp("192.168.0.110")
+//!         .timeouts(timeouts)
+//!         .open_async(runtime)
+//!         .await?;
+//!     session.close().await
+//! }
 //!
 //! // For the blocking facade
-//! #[cfg(feature = "blocking")]
-//! let camera = CameraConfig::<PtzOpticsG2>::tcp("192.168.0.110")
-//!     .timeouts(config)
-//!     .open()?;
+//! # #[cfg(feature = "blocking")]
+//! fn configured_blocking(timeouts: TimeoutConfig) -> Result<(), grafton_visca::Error> {
+//!     use grafton_visca::camera::profiles::PtzOpticsG2;
+//!     use grafton_visca::blocking::CameraConfig;
+//!
+//!     let session = CameraConfig::<PtzOpticsG2>::tcp("192.168.0.110")
+//!         .timeouts(timeouts)
+//!         .open()?;
+//!     session.close()
+//! }
+//! # let _ = timeouts;
 //! ```
 //!
 //! ## Command Cancellation (Async)
 //!
 //! Cancel specific commands or entire socket operations:
 //!
-//! ```ignore
-//! // Submit one typed operation and retain its owner-backed lifecycle handle.
-//! let operation = camera.zoom().tele().await?;
-//! let cancellation = operation.cancel().await?;
-//! let outcome = cancellation.outcome(Duration::from_secs(2)).await?;
-//! println!("cancellation outcome: {outcome:?}");
+//! ```rust
+//! # #[cfg(feature = "async")]
+//! async fn cancel_a_zoom(
+//!     camera: &grafton_visca::Camera<grafton_visca::profiles::PtzOpticsG2>,
+//! ) -> Result<(), grafton_visca::Error> {
+//!     use std::time::Duration;
+//!
+//!     // Submit one typed operation and retain its owner-backed lifecycle handle.
+//!     let operation = camera.zoom().tele().await?;
+//!     let cancellation = operation.cancel().await?;
+//!     let outcome = cancellation.outcome(Duration::from_secs(2)).await?;
+//!     println!("cancellation outcome: {outcome:?}");
+//!     Ok(())
+//! }
 //! ```
 //!
 //! Queued commands can always be removed locally. Cancelling a command that has
@@ -593,35 +673,53 @@
 //! [`camera::MotionQuery`] and [`camera::IdleWait`]. Unselected axes are never
 //! queried:
 //!
-//! ```ignore
-//! use std::time::Duration;
-//! use grafton_visca::{AffectedAxes, MotionQuery};
-//! use grafton_visca::camera::IdleWait;
+//! ```rust
+//! # #[cfg(feature = "async")]
+//! async fn observe_motion(
+//!     camera: &grafton_visca::Camera<grafton_visca::profiles::PtzOpticsG2>,
+//! ) -> Result<(), grafton_visca::Error> {
+//!     use grafton_visca::camera::{IdleWait, MotionQuery};
+//!     use grafton_visca::AffectedAxes;
+//!     use std::time::Duration;
 //!
-//! let axes = AffectedAxes::PAN_TILT.union(AffectedAxes::ZOOM);
-//! let moving = camera.motion().is_moving(MotionQuery::new(axes)).await?;
-//! camera.motion().wait_until_idle(IdleWait::new(axes, Duration::from_secs(30))).await?;
-//! # let _ = moving;
+//!     let axes = AffectedAxes::PAN_TILT.union(AffectedAxes::ZOOM);
+//!     // `is_moving()` takes no argument and samples `AffectedAxes::MOVEMENT`;
+//!     // `is_moving_axes` is the axis-selecting form.
+//!     let moving = camera.motion().is_moving_axes(MotionQuery::new(axes)).await?;
+//!     camera
+//!         .motion()
+//!         .wait_until_idle(IdleWait::new(axes, Duration::from_secs(30)))
+//!         .await?;
+//!     let _ = moving;
+//!     Ok(())
+//! }
 //! ```
 //!
 //! ## Error Handling
 //!
 //! The library provides comprehensive error types for all VISCA error conditions:
 //!
-//! ```ignore
-//! match camera
-//!     .pan_tilt()
-//!     .absolute(Degrees(180.0), Degrees(0.0), SpeedLevel::Medium)
-//!     .await
-//! {
-//!     Ok(_) => println!("Position set successfully"),
-//!     Err(Error::SyntaxError) => println!("Position out of range"),
-//!     Err(Error::CommandNotExecutable) => println!("Camera busy or powered off"),
-//!     Err(Error::CommandBufferFull) => {
-//!         // This error is automatically retried by the runtime
-//!         println!("Camera buffer full, command will retry");
+//! ```rust
+//! # #[cfg(feature = "async")]
+//! async fn classify_errors(
+//!     camera: &grafton_visca::Camera<grafton_visca::profiles::PtzOpticsG2>,
+//! ) {
+//!     use grafton_visca::{units::Degrees, Error, SpeedLevel};
+//!
+//!     match camera
+//!         .pan_tilt()
+//!         .absolute(Degrees(180.0), Degrees(0.0), SpeedLevel::Medium)
+//!         .await
+//!     {
+//!         Ok(_) => println!("Position set successfully"),
+//!         Err(Error::SyntaxError) => println!("Position out of range"),
+//!         Err(Error::CommandNotExecutable) => println!("Camera busy or powered off"),
+//!         Err(Error::CommandBufferFull) => {
+//!             // This error is automatically retried by the runtime
+//!             println!("Camera buffer full, command will retry");
+//!         }
+//!         Err(e) => println!("Other error: {e}"),
 //!     }
-//!     Err(e) => println!("Other error: {e}"),
 //! }
 //! ```
 
@@ -852,3 +950,15 @@ pub mod profiles {
 #[cfg(all(doctest, feature = "blocking"))]
 #[doc = include_str!("../README.md")]
 mod readme_snippets {}
+
+/// Compile gate for the Rust snippets in `docs/migration_2_0.md`.
+///
+/// The migration guide carries the canonical scoped stop-on-exit guard and the
+/// fresh-session recovery shape. Both are patterns callers copy verbatim, so
+/// they are compiled here for the same reason the README is: a snippet that
+/// only reads correctly is a snippet that drifts. The same feature gating rule
+/// applies — snippets needing more than the default feature set carry their own
+/// `#[cfg(feature = "...")]`.
+#[cfg(all(doctest, feature = "blocking"))]
+#[doc = include_str!("../docs/migration_2_0.md")]
+mod migration_guide_snippets {}
