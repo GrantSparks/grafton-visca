@@ -504,6 +504,25 @@ destination.
 
 ### Fixed
 
+- **The typed `tally()` noun is reachable again for the profiles that had tally
+  in 1.x** (#661). `TallyOn`, `TallyOff` and `TallyFlash` validated against the
+  PTZOptics profile ids alone, while the `tally()` accessor on all three noun
+  surfaces is gated on `HasTally`, which only `SonyFR7` and `SonyBRCH900`
+  declare. The two conditions can never both hold for a built-in profile, so
+  `tally().on()`, `.off()` and `.flash()` — and with them
+  `StateCache::tally_mode()` — were dead methods on the only profiles that can
+  reach them, and the sole route to the opcode was `camera.execute(&TallyOn)`.
+  1.x published exactly those three methods from the same `HasTally`-gated
+  `TallyControl` impl as the rest of the tally surface, so the capability
+  declarations were the side that was already right and the command validation
+  is the side that moved: the vendor tally-mode opcode now validates for a
+  profile with typed tally support **or** for the PTZOptics profiles the
+  reference documents it under (`docs/visca_reference.md` appendix A.11), which
+  leaves the `execute` route working exactly where it already worked. No
+  capability marker moved — 1.x recorded `tally: { supported: false }` for all
+  three PTZOptics profiles, and #524 deliberately removed `camera.tally()` from
+  them — so the README and `docs/camera_profile_support.md` matrices are
+  unchanged.
 - **Fixed the deferred-ACK latch mis-attributing an acknowledgement while two
   commands on one target were still being written** (#636). The latch that
   holds an ACK arriving before its own write result (#297) fell back to the

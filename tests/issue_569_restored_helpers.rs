@@ -630,14 +630,37 @@ fn typed_cache_getters_decode_pan_tilt_limit_updates() {
     session.shutdown().expect("shutdown");
 }
 
-/// `tally_mode` had no decode-side coverage at all, and it is the one key whose
-/// command is reachable only through `execute`: the vendor tally-mode opcode is
-/// validated for PTZOptics profiles alone, while the typed `tally()` noun is
-/// gated on `HasTally`, which only the two Sony profiles declare. The cache
-/// contract is the same either way, so the getter is driven over the profile
-/// the command is actually valid for.
+/// `tally_mode` had no decode-side coverage at all. The typed `tally()` noun is
+/// gated on `HasTally`, which only the two Sony profiles declare, so the noun is
+/// the primary driver for the key (see #661: the vendor tally-mode opcode used
+/// to validate for PTZOptics alone, which made these three methods unreachable
+/// for every built-in profile).
 #[test]
 fn typed_cache_getters_decode_the_vendor_tally_mode() {
+    let (session, _writes) = fr7_session();
+    let camera = session.camera::<SonyFR7>().expect("camera");
+    let cache = camera.state_cache();
+
+    assert_eq!(cache.tally_mode(), None);
+
+    camera.tally().on().expect("tally on");
+    assert_eq!(cache.tally_mode(), Some(true));
+    camera.tally().off().expect("tally off");
+    assert_eq!(cache.tally_mode(), Some(false));
+
+    // A flash does not determine the steady-state mode, so the key is
+    // invalidated rather than left reporting the last steady value.
+    camera.tally().flash().expect("tally flash");
+    assert_eq!(cache.tally_mode(), None);
+
+    session.shutdown().expect("shutdown");
+}
+
+/// The same key is also reachable through `execute` over the PTZOptics profiles
+/// the vendor opcode is documented for, which have no typed `tally()` noun. The
+/// cache contract has to be identical on both paths.
+#[test]
+fn executed_vendor_tally_mode_records_the_same_cache_key() {
     use grafton_visca::command::{TallyFlash, TallyOff, TallyOn};
 
     let (session, _writes) = ptz_session();
@@ -651,8 +674,6 @@ fn typed_cache_getters_decode_the_vendor_tally_mode() {
     camera.execute(&TallyOff).expect("tally off");
     assert_eq!(cache.tally_mode(), Some(false));
 
-    // A flash does not determine the steady-state mode, so the key is
-    // invalidated rather than left reporting the last steady value.
     camera.execute(&TallyFlash).expect("tally flash");
     assert_eq!(cache.tally_mode(), None);
 
