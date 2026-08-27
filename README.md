@@ -147,10 +147,13 @@ matrix fit together.
 
 ### Feature-union checks
 
+Each union below is a CI matrix leg, named by its job title in the feature
+matrix of `.github/workflows/ci.yml`.
+
 | Feature union | Scope | Automated validation |
 | ------------- | ----- | -------------------- |
-| `runtime-tokio,transport-serial` | Blocking serial plus Tokio async dependency coexistence; use `transport-serial-tokio` for Tokio serial. | Feature check |
-| `runtime-smol,dyn-api` | Dynamic API with smol and no test helpers. | smol dynamic feature check |
+| `runtime-tokio,transport-serial` | Blocking serial plus Tokio async dependency coexistence; use `transport-serial-tokio` for Tokio serial. | `Tokio + blocking serial` matrix leg |
+| `runtime-smol,dyn-api` | Dynamic API with smol and no test helpers. | `smol + dyn-api` matrix leg |
 
 ---
 
@@ -297,17 +300,20 @@ async fn move_home() -> Result<(), grafton_visca::Error> {
   removable locally; sent work requires profile support and otherwise returns
   `Error::NotSupported`. Success does not prove physical motion stopped, so use
   a bounded STOP for continuous movement.
-- Dropping a movement handle nobody resolved sends the typed STOP for every
-  axis that operation affects, so an early `?` or a panic cannot leave the
-  camera driving. The stop is best effort and never blocks the drop.
-- `detach` is explicit fire-and-forget and is the opt-out from that stop: the
-  submitted command remains owner-owned, may still be dispatched and complete,
-  and physical movement continues. `#[must_use]` warns only when a returned
-  handle is ignored directly.
+- Dropping a handle never stops hardware. Drop is `detach`: the submitted
+  command remains owner-owned, may still be dispatched and complete, and
+  physical movement continues, so an early `?` or a panic leaves the camera
+  driving until something ends it. This matches 1.x and is not a 2.0 change.
+  To bound movement by a scope, write a guard whose `Drop` submits the typed
+  STOP — see the pattern in
+  [`docs/migration_2_0.md`](docs/migration_2_0.md#drop-never-stops-hardware).
+- `detach` is explicit fire-and-forget, the spelled-out form of what drop
+  already does. `#[must_use]` warns only when a returned handle is ignored
+  directly.
 
 See the maintained [blocking](examples/operation_handles.rs) and
 [Tokio](examples/operation_handles_async.rs) examples for complete programs that
-close the session on every path and pair each detach with a bounded stop.
+close the session on every path and bound movement with a stop-on-exit guard.
 
 ---
 

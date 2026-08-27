@@ -12,13 +12,13 @@ use std::{fmt, marker::PhantomData, time::Duration};
 use crate::{
     camera::{IdleWait, MotionQuery},
     completion,
-    drop_stop::{pan_tilt_stop_request, DropStopPlan},
     prepared::prepare_position_queries,
     request::builtin::{FocusStop, PanTiltStop, ZoomStop},
     runtime::owner::{
         sample_positions_blocking, BlockingCancellationReceipt, BlockingControlHost,
         BlockingOperationReceipt, BlockingReceiptControl, BlockingSessionHost,
     },
+    stop_request::pan_tilt_stop_request,
     CameraId, CancellationOutcome, CompileTimeProfile, DiagnosticEvent, Error, Inquiry,
     MetricsSnapshot, OperationCommand, OperationalTuning, PlainCommand, ProfileSpec, Result,
     StateCache,
@@ -34,20 +34,22 @@ pub use crate::OperationId;
 /// the completion marker is the only type parameter. No profile, transport,
 /// executor, or runtime type appears in this public handle.
 ///
-/// # Dropping a movement handle stops the camera
+/// # Dropping never stops the camera
 ///
-/// Every terminal method consumes the handle, so a handle that is merely
-/// *dropped* is one no caller ever resolved: an early `?` return, a panic
-/// unwinding past it, or a forgotten binding. When that handle belongs to a
-/// movement operation, dropping it writes the typed STOP for each axis the
-/// operation affects, so a failure path cannot leave hardware moving.
+/// Dropping this handle is exactly [`detach`](Self::detach): it relinquishes
+/// the observer and nothing else. The owner keeps the protocol state, never
+/// interprets handle drop as cancellation, and no STOP is written, so an early
+/// `?` return or a panic unwinding past a live handle leaves physical movement
+/// running until something ends it. This matches 1.x exactly and is not a 2.0
+/// behaviour change.
 ///
-/// The stop is best effort. Blocking mode has no background actor, so the
-/// write happens on the dropping thread, bounded by the transport's own send
-/// timeout, and any failure is discarded. Use [`detach`](Self::detach) for
-/// deliberate fire-and-forget movement, [`cancel`](Self::cancel) for protocol
-/// cancellation, or any of the waits for ordinary completion — none of those
-/// emit the drop STOP.
+/// To bound movement by a scope, write a small guard whose own `Drop` submits
+/// the typed STOP — see the guard pattern in `docs/migration_2_0.md` and
+/// `examples/operation_handles.rs`. For an explicit stop on a path you
+/// control, use `camera.pan_tilt().stop()`, `camera.zoom().stop()`,
+/// `camera.focus().stop()`, or `camera.motion().stop_all_motion()`;
+/// [`cancel`](Self::cancel) records protocol cancellation but does not by
+/// itself prove motion ended.
 #[must_use = "observe, cancel, or explicitly detach this operation"]
 pub struct Operation<'session, K>
 where
@@ -59,7 +61,6 @@ where
     /// creates a short-lived receipt control from this reference.
     host: &'session dyn BlockingControlHost,
     id: OperationId,
-    stop_on_drop: Option<DropStopPlan<&'session ProfileSpec>>,
     marker: PhantomData<fn() -> K>,
 }
 
@@ -77,14 +78,12 @@ where
     pub(crate) fn from_receipt(
         receipt: BlockingOperationReceipt<K>,
         host: &'session dyn BlockingControlHost,
-        stop_on_drop: Option<DropStopPlan<&'session ProfileSpec>>,
     ) -> Self {
         let id = OperationId::from_raw(receipt.id());
         Self {
             receipt: Some(receipt),
             host,
             id,
-            stop_on_drop,
             marker: PhantomData,
         }
     }
@@ -120,13 +119,9 @@ where
     /// Explicitly relinquishes this operation's observation right.
     ///
     /// Detaching never records cancellation and never emits a physical STOP.
-    /// It is the deliberate opt-out from the drop STOP described on
-    /// [`Operation`]: movement continues until something else ends it.
-    pub fn detach(self) {
-        let mut this = self;
-        this.stop_on_drop = None;
-        let _ = this.receipt.take();
-    }
+    /// It is the explicit spelling of what dropping the handle already does;
+    /// movement continues until something else ends it.
+    pub fn detach(self) {}
 
     fn take_parts(
         mut self,
@@ -169,16 +164,9 @@ where
     K: completion::Kind,
 {
     fn drop(&mut self) {
-        // Dropping the receipt relinquishes observation only: the owner keeps
+        // Dropping the receipt relinquishes observation only. The owner keeps
         // protocol state and never interprets handle drop as cancellation.
-        // Physical motion is the exception — an unobserved movement handle
-        // must not leave the camera driving.
-        if self.receipt.take().is_none() {
-            return;
-        }
-        if let Some(plan) = self.stop_on_drop.take() {
-            plan.lower_each(|request| self.host.submit_detached(request));
-        }
+        let _ = self.receipt.take();
     }
 }
 
@@ -718,14 +706,7 @@ impl<'session> BlockingCameraCore<'session> {
             self.tuning,
         )?;
         let receipt = self.host.submit_operation(prepared)?;
-        let stop_on_drop = DropStopPlan::new(
-            operation.control_class(),
-            receipt.affected_axes(),
-            self.target,
-            self.profile,
-            self.tuning,
-        );
-        Ok(Operation::from_receipt(receipt, self.host, stop_on_drop))
+        Ok(Operation::from_receipt(receipt, self.host))
     }
 
     /// Stops pan/tilt, zoom, and focus through this camera's one owner.
