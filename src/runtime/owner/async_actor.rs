@@ -162,6 +162,16 @@ pub(crate) struct AsyncReceiptControl {
     owner: AsyncOwnerHandle,
 }
 
+impl AsyncReceiptControl {
+    /// Enqueues one unobserved request on the originating owner.
+    ///
+    /// See [`AsyncOwnerHandle::submit_detached`]: this never waits and never
+    /// panics, so a dropped handle can reach the owner from inside `Drop`.
+    pub(crate) fn submit_detached(&self, request: RuntimeRequest) {
+        self.owner.submit_detached(request);
+    }
+}
+
 /// A targeted settled selection awaiting Phase-6 execution.
 #[derive(Debug)]
 pub(crate) struct AsyncSettlementWait {
@@ -248,6 +258,11 @@ where
 {
     pub(crate) fn id(&self) -> u64 {
         self.core.id().get()
+    }
+
+    /// Returns the exact non-empty axis selection admitted with this operation.
+    pub(crate) const fn affected_axes(&self) -> AffectedAxes {
+        self.affected_axes
     }
 
     pub(crate) async fn applied(self, control: AsyncReceiptControl) -> Result<(), Error> {
@@ -798,6 +813,18 @@ impl AsyncOwnerHandle {
                 Err(_) => Err(self.disconnected_error()),
             }
         })
+    }
+
+    /// Fire-and-forget admission with no observation right, used only by
+    /// drop-time STOP submission.
+    ///
+    /// This is the same non-waiting boundary [`Self::try_submit`] uses, minus
+    /// the admitted-ID future: the observer and admission reply are dropped
+    /// immediately, which the actor already tolerates. It never blocks and
+    /// never panics, so it is safe to call while a `Drop` runs during panic
+    /// unwinding. A closed or saturated boundary silently discards the STOP.
+    pub(crate) fn submit_detached(&self, request: RuntimeRequest) {
+        drop(self.enqueue_admission(request));
     }
 
     /// A full cancellation queue applies backpressure; cancellation is never

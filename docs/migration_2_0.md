@@ -48,7 +48,7 @@ cache. There is no dynamic policy layer that can bypass static preparation.
 | `start_*`, `*_and_wait`, `_result`, and `*_op` twins | One noun method for ordinary completion, or one `submit` call for lifecycle control. No aliases or result twins. |
 | `await_completion` | `applied`; use `settled` only on a targeted operation. |
 | `InFlightDyn`/legacy dynamic operation wrappers | `DynTargetedOperation`, `DynAppliedOperation`, and `DynCancellation`. Applied-only handles have no settled operation. |
-| Dropping an operation to stop hardware | Explicit `cancel`, `detach`, or a typed STOP. Drop is not an automatic STOP. |
+| Dropping an operation to stop hardware | Still supported, and now the default: dropping an unobserved movement operation enqueues the typed STOP for each axis it affects, so an early `?` or a panic cannot leave hardware moving. `detach` is the explicit opt-out, `cancel` is protocol cancellation, and both — like any completed wait — consume the handle and emit no STOP. |
 | Raw `command::RawInquiryPayload`/untyped response assumptions | `raw::Plain`, `raw::Inquiry`, `raw::Targeted`, or `raw::AppliedOnly`, with an explicit response parser/spec. |
 | `ViscaCommand` response-associated-type extensions | The typed `Request`/`Inquiry`/`OperationCommand` contract and `ResponseParser` for custom decoding. |
 | Plain requests submitted as operations or operations without affected axes | Match the request class exactly: `execute` for plain, `inquire` for inquiry, and `submit` for a typed operation with non-empty affected axes. |
