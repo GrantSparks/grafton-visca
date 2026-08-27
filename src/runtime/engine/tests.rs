@@ -2721,7 +2721,11 @@ fn retry_backoff_must_fit_inside_total_budget() {
     let start = Instant::now();
     let mut retry = retrying();
     retry.total_budget = Duration::from_millis(15);
-    retry.initial_backoff = Duration::from_millis(10);
+    // Backoff is jittered into `[ceiling / 2, ceiling]`, so the *floor* of the
+    // first attempt's band has to overshoot the budget for this test to be
+    // about the budget rather than about the draw: 30ms/2 = 15ms, and the
+    // error below arrives 5ms in.
+    retry.initial_backoff = Duration::from_millis(30);
     let mut request_context = context(1, CancellationPolicy::Supported);
     request_context.retry = retry;
     let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
@@ -3494,5 +3498,574 @@ fn sony_socketless_completion_finishes_the_sequenced_request() {
         start,
     );
     assert_eq!(terminal_id(&done), Some(id));
+    engine.assert_invariants().unwrap();
+}
+
+// --- Issue #566: retry timing, exhaustion, and camera error codes ------------
+
+/// Retry policy with a wide ceiling, so the ACK exponent cap is the binding
+/// constraint rather than `maximum_backoff`.
+fn ack_capped_retry() -> RetryPolicy {
+    RetryPolicy {
+        max_retries: 12,
+        initial_backoff: Duration::from_millis(1),
+        maximum_backoff: Duration::from_secs(10),
+        total_budget: Duration::from_secs(600),
+        ..retrying()
+    }
+}
+
+fn command_with_retry(target: u8, retry: RetryPolicy) -> RuntimeRequest {
+    let mut request_context = context(target, CancellationPolicy::Supported);
+    request_context.retry = retry;
+    RuntimeRequest::Command {
+        wire: wire(0x80 | target),
+        context: request_context,
+        applied_state: None,
+    }
+}
+
+fn retry_scheduled(effects: &[Effect]) -> Option<(RequestId, u32, Instant)> {
+    effects.iter().find_map(|effect| match effect {
+        Effect::RetryScheduled {
+            id,
+            attempt,
+            ready_at,
+        } => Some((*id, *attempt, *ready_at)),
+        _ => None,
+    })
+}
+
+fn terminal_outcome(effects: &[Effect], id: RequestId) -> Option<RuntimeOutcome> {
+    effects.iter().find_map(|effect| match effect {
+        Effect::Terminal { id: seen, outcome } if *seen == id => Some(outcome.clone()),
+        _ => None,
+    })
+}
+
+/// Terminal failure error for one request, if it failed in this batch.
+fn terminal_failure(effects: &[Effect], id: RequestId) -> Option<Error> {
+    match terminal_outcome(effects, id) {
+        Some(RuntimeOutcome::Failed(error)) => Some(error),
+        _ => None,
+    }
+}
+
+/// Admits one command, confirms its write, and lets its ACK deadline lapse,
+/// returning the retry that was scheduled.
+fn ack_timeout_retry(
+    engine: &mut ProtocolEngine,
+    effects: &[Effect],
+    at: Instant,
+) -> (RequestId, u32, Instant) {
+    let id = admitted(effects);
+    send_ok(engine, effects, None, at);
+    let timed_out = engine.handle(Input::Wake, at + Duration::from_millis(20));
+    let scheduled = retry_scheduled(&timed_out).expect("a lost ACK schedules a retry");
+    assert_eq!(scheduled.0, id);
+    scheduled
+}
+
+/// Issue #566: the backoff is the 1.x exponential ceiling with an equal-jitter
+/// band under it, and the whole sequence is a pure function of the engine's
+/// seed, the request identity and the attempt number — no clock, no entropy.
+#[test]
+fn retry_backoff_follows_the_pinned_jitter_sequence() {
+    let start = Instant::now();
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+    // `retrying()` allows three retries; four draws need a wider budget.
+    let mut retry = retrying();
+    retry.max_retries = 6;
+    let admission = engine.handle(
+        Input::Admit {
+            ticket: AdmissionTicket(1),
+            request: command_with_retry(1, retry),
+        },
+        start,
+    );
+    let id = admitted(&admission);
+    assert_eq!(
+        id.get(),
+        1,
+        "the pinned sequence is keyed on the request id"
+    );
+    send_ok(&mut engine, &admission, None, start);
+
+    // `retrying()` is initial 10ms, ceiling 100ms. The exponential ceilings are
+    // 10, 20, 40 and 80ms; each wait is the deterministic draw inside
+    // `[ceiling / 2, ceiling]`.
+    let expected = [
+        Duration::from_nanos(9_659_429),
+        Duration::from_nanos(11_157_005),
+        Duration::from_nanos(32_133_684),
+        Duration::from_nanos(77_696_168),
+    ];
+    let ceilings = [
+        Duration::from_millis(10),
+        Duration::from_millis(20),
+        Duration::from_millis(40),
+        Duration::from_millis(80),
+    ];
+
+    let mut now = start;
+    for (index, (wait, ceiling)) in expected.iter().zip(ceilings).enumerate() {
+        let attempt = u32::try_from(index).unwrap() + 1;
+        let busy = engine.handle(
+            frame(
+                1,
+                None,
+                DecodedResponse::Error {
+                    socket: None,
+                    code: 0x03,
+                },
+            ),
+            now,
+        );
+        let (retried, seen_attempt, ready_at) = retry_scheduled(&busy)
+            .unwrap_or_else(|| panic!("attempt {attempt} must schedule a retry"));
+        assert_eq!(retried, id);
+        assert_eq!(seen_attempt, attempt);
+        assert_eq!(
+            ready_at,
+            now + *wait,
+            "attempt {attempt} must wait exactly the pinned draw"
+        );
+        assert!(
+            *wait >= ceiling / 2 && *wait <= ceiling,
+            "attempt {attempt} must stay inside its equal-jitter band"
+        );
+
+        // Nothing runs before the retry is due, and the frame is reissued once
+        // it is.
+        assert!(
+            request_transmit_optional(&engine.advance(ready_at - Duration::from_nanos(1)))
+                .is_none()
+        );
+        let promoted = engine.advance(ready_at);
+        let (transmission, sent, _) = request_transmit(&promoted);
+        assert_eq!(sent, id);
+        engine.handle(
+            Input::TransmissionFinished {
+                transmission,
+                result: Ok(TransmissionMeta { sequence: None }),
+            },
+            ready_at,
+        );
+        now = ready_at;
+    }
+    engine.assert_invariants().unwrap();
+}
+
+/// Two requests that fail on the same instant must not retry on the same
+/// instant. This is the whole reason the jitter exists.
+#[test]
+fn concurrent_retries_of_the_same_instant_are_separated() {
+    let start = Instant::now();
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+    let mut ready = Vec::new();
+    for (ticket, target) in [(1_u64, 1_u8), (2, 2)] {
+        let effects = engine.handle(
+            Input::Admit {
+                ticket: AdmissionTicket(ticket),
+                request: command(target, CancellationPolicy::Supported),
+            },
+            start,
+        );
+        ready.push(ack_timeout_retry(&mut engine, &effects, start));
+    }
+
+    assert_eq!(ready[0].1, 1);
+    assert_eq!(ready[1].1, 1);
+    assert_ne!(
+        ready[0].2, ready[1].2,
+        "two requests retrying from one instant must not collide again"
+    );
+    engine.assert_invariants().unwrap();
+}
+
+/// The spread is seed-derived, not clock-derived: the same inputs under a
+/// different seed produce a different — but still exact — sequence.
+#[test]
+fn the_jitter_sequence_moves_with_the_seed() {
+    let start = Instant::now();
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+    engine.seed_jitter(7);
+    let admission = engine.handle(
+        Input::Admit {
+            ticket: AdmissionTicket(1),
+            request: command(1, CancellationPolicy::Supported),
+        },
+        start,
+    );
+    let (_, attempt, ready_at) = ack_timeout_retry(&mut engine, &admission, start);
+    assert_eq!(attempt, 1);
+    assert_eq!(
+        ready_at,
+        start + Duration::from_millis(20) + Duration::from_nanos(6_093_771)
+    );
+    engine.assert_invariants().unwrap();
+}
+
+/// Issue #566: 1.x capped the ACK backoff exponent at five and left every
+/// other retry trigger uncapped. Only the ACK path stops doubling.
+#[test]
+fn the_ack_backoff_exponent_is_capped_and_other_triggers_are_not() {
+    let start = Instant::now();
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+    let admission = engine.handle(
+        Input::Admit {
+            ticket: AdmissionTicket(1),
+            request: command_with_retry(1, ack_capped_retry()),
+        },
+        start,
+    );
+    let id = admitted(&admission);
+    send_ok(&mut engine, &admission, None, start);
+
+    // 1ms initial, ceiling 10s: without a cap the seventh attempt would double
+    // to 64ms, and the eighth to 128ms.
+    let mut now = start;
+    let mut waits = Vec::new();
+    for _ in 0..8 {
+        let timed_out = engine.handle(Input::Wake, now + Duration::from_millis(20));
+        let (_, attempt, ready_at) = retry_scheduled(&timed_out).expect("ACK timeout retry");
+        waits.push(ready_at - (now + Duration::from_millis(20)));
+        assert_eq!(attempt, u32::try_from(waits.len()).unwrap());
+        let promoted = engine.advance(ready_at);
+        let (transmission, _, _) = request_transmit(&promoted);
+        engine.handle(
+            Input::TransmissionFinished {
+                transmission,
+                result: Ok(TransmissionMeta { sequence: None }),
+            },
+            ready_at,
+        );
+        now = ready_at;
+    }
+
+    // Attempts 1..=6 use exponents 0..=5; from attempt 7 the exponent stays 5,
+    // so the ceiling stops growing and every later wait stays inside 32ms.
+    assert_eq!(waits[5], Duration::from_nanos(26_176_335));
+    assert_eq!(waits[6], Duration::from_nanos(23_921_702));
+    assert_eq!(waits[7], Duration::from_nanos(28_562_151));
+    for (index, wait) in waits.iter().enumerate().skip(6) {
+        assert!(
+            *wait <= Duration::from_millis(32),
+            "attempt {} must not exceed the capped ceiling, got {wait:?}",
+            index + 1
+        );
+    }
+
+    // A completion timeout on the same policy is uncapped and doubles past it.
+    let uncapped = retry_delay(
+        ack_capped_retry(),
+        8,
+        Backoff::Uncapped,
+        Jitter::new().fraction(id, 8),
+    );
+    assert_eq!(uncapped, Duration::from_nanos(114_248_606));
+    assert!(uncapped > Duration::from_millis(32));
+    engine.assert_invariants().unwrap();
+}
+
+/// Issue #566: a request that keeps losing its ACK exhausts its attempt budget
+/// and fails, rather than retrying forever.
+#[test]
+fn a_command_that_never_acks_exhausts_its_attempt_budget() {
+    let start = Instant::now();
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+    let mut retry = retrying();
+    retry.max_retries = 3;
+    let admission = engine.handle(
+        Input::Admit {
+            ticket: AdmissionTicket(1),
+            request: command_with_retry(1, retry),
+        },
+        start,
+    );
+    let id = admitted(&admission);
+    send_ok(&mut engine, &admission, None, start);
+
+    let mut now = start;
+    for attempt in 1..=3 {
+        let timed_out = engine.handle(Input::Wake, now + Duration::from_millis(20));
+        let (_, seen, ready_at) = retry_scheduled(&timed_out).expect("ACK timeout retry");
+        assert_eq!(seen, attempt);
+        assert!(terminal_outcome(&timed_out, id).is_none());
+        let promoted = engine.advance(ready_at);
+        let (transmission, _, _) = request_transmit(&promoted);
+        engine.handle(
+            Input::TransmissionFinished {
+                transmission,
+                result: Ok(TransmissionMeta { sequence: None }),
+            },
+            ready_at,
+        );
+        now = ready_at;
+    }
+
+    let exhausted = engine.handle(Input::Wake, now + Duration::from_millis(20));
+    assert!(retry_scheduled(&exhausted).is_none(), "the budget is spent");
+    assert!(matches!(
+        terminal_failure(&exhausted, id),
+        Some(Error::Timeout)
+    ));
+    assert!(engine.entry(id).is_none());
+    engine.assert_invariants().unwrap();
+}
+
+/// Issue #566: the total-budget expiry arm — a request already waiting in
+/// backoff when its wall-clock budget runs out fails on the budget, carrying
+/// the error that caused the last retry rather than an incidental timeout.
+#[test]
+fn a_retry_waiting_in_backoff_fails_when_the_total_budget_expires() {
+    let start = Instant::now();
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+    let mut retry = retrying();
+    retry.initial_backoff = Duration::from_millis(10);
+    retry.maximum_backoff = Duration::from_millis(10);
+    retry.total_budget = Duration::from_millis(12);
+    let admission = engine.handle(
+        Input::Admit {
+            ticket: AdmissionTicket(1),
+            request: command_with_retry(1, retry),
+        },
+        start,
+    );
+    let id = admitted(&admission);
+    send_ok(&mut engine, &admission, None, start);
+
+    // A busy camera at 1ms schedules a retry inside the 12ms budget; the draw
+    // is 5..10ms, so the entry is still in backoff when the budget lapses.
+    let busy = engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::Error {
+                socket: None,
+                code: 0x03,
+            },
+        ),
+        start + Duration::from_millis(1),
+    );
+    let (_, attempt, ready_at) = retry_scheduled(&busy).expect("a busy camera retries");
+    assert_eq!(attempt, 1);
+    assert!(ready_at < start + Duration::from_millis(12));
+
+    // Nothing is due before the budget end, and the budget end is what fires.
+    let expired = engine.advance(start + Duration::from_millis(12));
+    assert!(
+        matches!(
+            terminal_failure(&expired, id),
+            Some(Error::CommandBufferFull)
+        ),
+        "the budget arm reports the error that caused the last retry"
+    );
+    assert!(engine.entry(id).is_none());
+    engine.assert_invariants().unwrap();
+}
+
+/// Issue #566: `0x41` (`CommandNotExecutable`) is retried for a movement or
+/// preset request and is terminal for a standard one. Nothing pinned this.
+#[test]
+fn command_not_executable_retries_only_where_the_policy_allows_it() {
+    let start = Instant::now();
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+
+    let mut movement = retrying();
+    movement.movement_not_executable = true;
+    let admission = engine.handle(
+        Input::Admit {
+            ticket: AdmissionTicket(1),
+            request: command_with_retry(1, movement),
+        },
+        start,
+    );
+    let movement_id = admitted(&admission);
+    send_ok(&mut engine, &admission, None, start);
+    let refused = engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::Error {
+                socket: None,
+                code: 0x41,
+            },
+        ),
+        start,
+    );
+    let (retried, attempt, _) =
+        retry_scheduled(&refused).expect("a movement request retries a refused command");
+    assert_eq!(retried, movement_id);
+    assert_eq!(attempt, 1);
+    assert!(terminal_outcome(&refused, movement_id).is_none());
+
+    let mut standard = retrying();
+    standard.movement_not_executable = false;
+    let admission = engine.handle(
+        Input::Admit {
+            ticket: AdmissionTicket(2),
+            request: command_with_retry(2, standard),
+        },
+        start,
+    );
+    let standard_id = admitted(&admission);
+    send_ok(&mut engine, &admission, None, start);
+    let refused = engine.handle(
+        frame(
+            2,
+            None,
+            DecodedResponse::Error {
+                socket: None,
+                code: 0x41,
+            },
+        ),
+        start,
+    );
+    assert!(retry_scheduled(&refused).is_none());
+    assert!(
+        matches!(
+            terminal_failure(&refused, standard_id),
+            Some(Error::CommandNotExecutable)
+        ),
+        "a standard request must surface the camera's refusal"
+    );
+    engine.assert_invariants().unwrap();
+}
+
+/// Issue #566: `0x05` (`NoSocket`) is a capacity answer like a full buffer, so
+/// it is retried wherever a full buffer is, and is terminal where it is not.
+#[test]
+fn no_socket_is_retried_like_a_full_command_buffer() {
+    let start = Instant::now();
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+    let admission = engine.handle(
+        Input::Admit {
+            ticket: AdmissionTicket(1),
+            request: command(1, CancellationPolicy::Supported),
+        },
+        start,
+    );
+    let id = admitted(&admission);
+    send_ok(&mut engine, &admission, None, start);
+    let no_socket = engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::Error {
+                socket: None,
+                code: 0x05,
+            },
+        ),
+        start,
+    );
+    assert_eq!(
+        retry_scheduled(&no_socket).map(|scheduled| scheduled.0),
+        Some(id)
+    );
+
+    let admission = engine.handle(
+        Input::Admit {
+            ticket: AdmissionTicket(2),
+            request: command_with_retry(2, RetryPolicy::NEVER),
+        },
+        start,
+    );
+    let never_id = admitted(&admission);
+    send_ok(&mut engine, &admission, None, start);
+    let no_socket = engine.handle(
+        frame(
+            2,
+            None,
+            DecodedResponse::Error {
+                socket: None,
+                code: 0x05,
+            },
+        ),
+        start,
+    );
+    assert!(retry_scheduled(&no_socket).is_none());
+    assert!(matches!(
+        terminal_failure(&no_socket, never_id),
+        Some(Error::NoSocket)
+    ));
+    engine.assert_invariants().unwrap();
+}
+
+/// Issue #566: a post-ACK completion timeout retries. The rewrite hard-coded
+/// this off, so a camera that ACKed and then went quiet failed on the first
+/// deadline with no second attempt.
+#[test]
+fn a_post_ack_completion_timeout_retries_the_command() {
+    let start = Instant::now();
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+    let admission = engine.handle(
+        Input::Admit {
+            ticket: AdmissionTicket(1),
+            request: command(1, CancellationPolicy::Supported),
+        },
+        start,
+    );
+    let id = admitted(&admission);
+    send_ok(&mut engine, &admission, None, start);
+    engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::Ack {
+                socket: Some(ViscaSocket::S1),
+            },
+        ),
+        start,
+    );
+    assert_eq!(socket_of(&engine, id), Some(ViscaSocket::S1));
+
+    // The completion deadline is 40ms after the ACK.
+    let lapsed = engine.handle(Input::Wake, start + Duration::from_millis(41));
+    let (retried, attempt, ready_at) =
+        retry_scheduled(&lapsed).expect("a completion timeout must retry");
+    assert_eq!(retried, id);
+    assert_eq!(attempt, 1);
+    assert!(terminal_outcome(&lapsed, id).is_none());
+    assert_eq!(
+        socket_of(&engine, id),
+        None,
+        "the retry releases the socket it held"
+    );
+
+    let promoted = engine.advance(ready_at);
+    let (transmission, sent, _) = request_transmit(&promoted);
+    assert_eq!(sent, id);
+    engine.handle(
+        Input::TransmissionFinished {
+            transmission,
+            result: Ok(TransmissionMeta { sequence: None }),
+        },
+        ready_at,
+    );
+    engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::Ack {
+                socket: Some(ViscaSocket::S1),
+            },
+        ),
+        ready_at,
+    );
+    let done = engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::Completion {
+                socket: Some(ViscaSocket::S1),
+            },
+        ),
+        ready_at,
+    );
+    assert!(
+        matches!(terminal_outcome(&done, id), Some(RuntimeOutcome::Applied)),
+        "the second attempt completes"
+    );
     engine.assert_invariants().unwrap();
 }
