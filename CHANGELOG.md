@@ -49,6 +49,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   installed that nightly explicitly in the snapshot job so `cargo public-api`
   can build rustdoc JSON instead of failing on a missing `nightly` toolchain
   (#562).
+- Fixed the async owner terminating a session when a byte-stream read carried
+  bytes without finishing a VISCA frame (#560). The actor treated the resulting
+  empty decoded batch as end of stream and failed every in-flight request, so a
+  reply split across two TCP or serial reads — routine on stream transports —
+  closed the session. Only a zero-length transport read now signals a close; a
+  short read that only advances a partial frame keeps the owner pumping, which
+  matches the blocking owner.
 
 ## [1.2.0] - 2026-08-27
 
