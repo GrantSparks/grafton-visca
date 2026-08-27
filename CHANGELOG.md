@@ -9,6 +9,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 2.0.0-rc.1 release candidate
 
+- **Packaging and release-machinery polish** (#642). `grafton-visca-macros`
+  now ships `LICENSE-MIT` and `LICENSE-APACHE` in its published tarball: it
+  declares `MIT OR Apache-2.0` and both licences require their text to
+  accompany the distribution, and its README linked two files the package did
+  not contain. `deny.toml` is excluded from the published main crate — it is
+  CI-only configuration, in the same class as the already-excluded `api/`
+  baselines — and the `exclude` list now states why `CHANGELOG.md` and
+  `CONTRIBUTING.md` are deliberately kept. The publication workflow pins its
+  toolchain and `actions/checkout` to the versions `ci.yml` pins, and refuses
+  to publish a tag whose commit has no successful `CI success` check run,
+  replacing RELEASING.md's honour-system instruction with a gate. CI gains an
+  advisory job that runs the release validator against the real repository
+  with the intended next tag, so manifest and version drift surfaces on the
+  pull request that introduces it rather than at publish time. The fuzz target
+  gains a committed seed corpus of well-formed and malformed frames, so each
+  bounded run starts warm and a crash can be pinned as a permanent regression
+  seed. Two orphaned `.github/scripts` setup scripts that referenced a v0.x
+  milestone and a nonexistent issue template — and that would have created
+  real GitHub issues if run — are deleted. Documentation fixes: the retry
+  budgets in `docs/observability_and_recovery.md` are now stated as retries
+  rather than attempts and carry the missing `Movement`/`Preset` row, the
+  busy-timeout term in the wall-clock budget and the backoff ceiling, the
+  half-open jitter band, and the built-in-inquiry `0x02` retry path; the
+  Windows CI job says that its serial tests drive a mock and that the Win32
+  backend is compiled but never executed; and CONTRIBUTING's nightly install
+  one-liner names the `rustfmt` and `miri` components that `--profile minimal`
+  omits.
 - Restored the 1.x convenience helpers the rewrite dropped, on all three noun
   surfaces (#569). `pan_tilt().up()/down()/left()/right()` are back as thin
   wrappers over `move_direction`; `zoom().set_normalized(UnitInterval)` and
