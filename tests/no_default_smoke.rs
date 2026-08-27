@@ -10,9 +10,20 @@
 #[path = "common/compile_fail.rs"]
 mod compile_fail;
 
-use std::{fs, path::PathBuf};
-
 use grafton_visca::{command::PowerOn, profiles::GenericVisca, CameraId, ProfileSpec, Request};
+
+/// Counts executable test declarations in one source file.
+///
+/// A trimmed line equal to `#[test]` cannot be a commented-out one: any `//`
+/// prefix makes the trimmed line something else. A bare `source.contains(...)`
+/// was satisfied by a comment, which is what this replaces.
+fn executable_test_declarations(source: &str) -> usize {
+    source
+        .lines()
+        .map(str::trim)
+        .filter(|line| *line == "#[test]")
+        .count()
+}
 
 #[test]
 fn no_default_pure_request_profile_smoke_and_facade_inventory() {
@@ -31,16 +42,30 @@ fn no_default_pure_request_profile_smoke_and_facade_inventory() {
     // The engine, request, and semantic/profile integration test modules are
     // deliberately feature-neutral. Their test declarations must remain
     // present in the pure matrix rather than being hidden behind a facade.
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    for relative in [
-        "src/runtime/engine/tests.rs",
-        "tests/issue_551_request_contract.rs",
+    //
+    // The sources are `include_str!`d rather than read at run time: a runtime
+    // read checks whatever is on disk when the binary happens to run, which can
+    // be a different tree from the one the binary was built from, and does not
+    // rebuild this test when those files change. The floors are deliberately
+    // well below the current counts — they exist to catch a module being gutted
+    // or feature-gated away, not to be a second inventory that has to be
+    // updated whenever a test is added or removed.
+    for (label, source, floor) in [
+        (
+            "src/runtime/engine/tests.rs",
+            include_str!("../src/runtime/engine/tests.rs"),
+            40_usize,
+        ),
+        (
+            "tests/issue_551_request_contract.rs",
+            include_str!("issue_551_request_contract.rs"),
+            3,
+        ),
     ] {
-        let source = fs::read_to_string(root.join(relative))
-            .unwrap_or_else(|error| panic!("read pure test inventory {relative}: {error}"));
+        let declared = executable_test_declarations(source);
         assert!(
-            source.contains("#[test]"),
-            "pure test inventory {relative} contains no executable tests"
+            declared >= floor,
+            "pure test inventory {label} declares {declared} executable tests, expected at least {floor}"
         );
     }
 

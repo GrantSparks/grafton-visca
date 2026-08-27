@@ -6,6 +6,9 @@
 #![cfg(feature = "blocking")]
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
+#[path = "common/profile_fixtures.rs"]
+mod profile_fixtures;
+
 use std::{
     collections::VecDeque,
     sync::{Arc, Mutex},
@@ -16,8 +19,8 @@ use grafton_visca::{
     blocking::{Session, SessionConfig},
     camera::{IdleWait, MotionQuery, TransportKind},
     command::{
-        CommandKind, FlipState, ImageFlipMode, NdFilterMode, PanTiltDirection, PanTiltLimitCorner,
-        PresetRecallSpeed,
+        CommandKind, FlipState, FocusLock, ImageFlipMode, NdFilterMode, PanTiltDirection,
+        PanTiltLimitCorner, PresetRecallSpeed, VariableSpeedMode,
     },
     profile::ProfileSpec,
     profiles::{PtzOpticsG2, SonyFR7},
@@ -26,6 +29,7 @@ use grafton_visca::{
     units::{Degrees, UnitInterval},
     AffectedAxes, Error, ZoomDomain,
 };
+use profile_fixtures::MotionSyncTypedSupport;
 
 /// A transport that records every frame and always answers ACK + completion,
 /// answering position inquiries from a canned constant position.
@@ -163,6 +167,14 @@ fn fr7_session() -> (Session, Arc<Mutex<Vec<Vec<u8>>>>) {
     (session, writes)
 }
 
+fn motion_sync_session() -> (Session, Arc<Mutex<Vec<Vec<u8>>>>) {
+    let profile =
+        ProfileSpec::from_compile_time::<MotionSyncTypedSupport>().expect("motion-sync profile");
+    let (transport, writes) = RecordingTransport::new();
+    let session = Session::open(transport, SessionConfig::new(profile)).expect("session");
+    (session, writes)
+}
+
 #[test]
 fn directional_pan_tilt_helpers_encode_their_explicit_drive() {
     let (session, writes) = ptz_session();
@@ -270,6 +282,61 @@ fn normalized_zoom_maps_the_unit_interval_across_the_documented_domain() {
     wide_explicit.applied().expect("explicit wide applied");
     assert_eq!(one_frame(&writes), wide_frame);
 
+    // The endpoints alone cannot tell the two domains apart from a mapping that
+    // merely clamps: 0.0 is raw 0 in both and 1.0 is each domain's own maximum
+    // whatever the curve in between. Probe the midpoint, where the two domains
+    // must land on different raw positions, each the round-half-up half of its
+    // own maximum.
+    let midpoint = UnitInterval::new(0.5).expect("the midpoint is inside the unit interval");
+    let half_optical = ZoomPosition::new(optical_max.div_ceil(2)).expect("half the optical range");
+    let half_digital = ZoomPosition::new(digital_max.div_ceil(2)).expect("half the digital range");
+    assert_ne!(half_optical, half_digital);
+
+    let explicit_half_optical = camera
+        .zoom()
+        .set_position(half_optical)
+        .expect("explicit optical midpoint");
+    explicit_half_optical
+        .applied()
+        .expect("explicit optical midpoint applied");
+    let half_optical_frame = one_frame(&writes);
+
+    let normalized_half = camera
+        .zoom()
+        .set_normalized(midpoint)
+        .expect("normalized midpoint");
+    normalized_half
+        .applied()
+        .expect("normalized midpoint applied");
+    assert_eq!(
+        one_frame(&writes),
+        half_optical_frame,
+        "the default domain's midpoint is half the optical range",
+    );
+
+    let explicit_half_digital = camera
+        .zoom()
+        .set_position(half_digital)
+        .expect("explicit digital midpoint");
+    explicit_half_digital
+        .applied()
+        .expect("explicit digital midpoint applied");
+    let half_digital_frame = one_frame(&writes);
+    assert_ne!(half_digital_frame, half_optical_frame);
+
+    let normalized_half_digital = camera
+        .zoom()
+        .set_normalized_in_domain(midpoint, ZoomDomain::OpticalPlusDigital)
+        .expect("normalized digital midpoint");
+    normalized_half_digital
+        .applied()
+        .expect("normalized digital midpoint applied");
+    assert_eq!(
+        one_frame(&writes),
+        half_digital_frame,
+        "the combined domain's midpoint is half the digital range",
+    );
+
     session.shutdown().expect("shutdown");
 }
 
@@ -318,30 +385,50 @@ fn nd_filter_stops_map_onto_the_raw_direct_value() {
     session.shutdown().expect("shutdown");
 }
 
-/// No built-in profile declares motion sync, so the wrapper is covered by the
-/// command it builds plus a compile-time use of the gated accessor.
+/// No built-in profile declares motion sync, so the accessor is driven here
+/// over a synthetic profile that does. The helper is exercised through the
+/// noun — not by rebuilding the command it happens to construct — so a
+/// `set_speed` that ignored its argument would fail this test.
 #[test]
-fn motion_sync_speed_builds_the_same_command_as_the_raw_preset() {
-    use grafton_visca::command::SetMotionSyncPreset;
+fn motion_sync_speed_helper_drives_its_explicit_preset() {
+    let (session, writes) = motion_sync_session();
+    let camera = session
+        .camera::<MotionSyncTypedSupport>()
+        .expect("motion-sync camera");
 
-    let typed = MotionSyncSpeed::new(12).expect("motion sync speed");
+    // The raw-`u8` twin is the explicit form the typed helper delegates to.
+    camera
+        .motion_sync()
+        .set_preset(12)
+        .expect("explicit preset");
+    let explicit_frame = one_frame(&writes);
+
+    camera
+        .motion_sync()
+        .set_speed(MotionSyncSpeed::new(12).expect("motion sync speed"))
+        .expect("typed helper");
     assert_eq!(
-        SetMotionSyncPreset::new(typed.value()).expect("typed preset"),
-        SetMotionSyncPreset::new(12).expect("raw preset"),
+        one_frame(&writes),
+        explicit_frame,
+        "set_speed must encode the speed it was given"
     );
+
+    // A different speed must not encode the same frame, which is what makes
+    // the equality above a statement about the argument rather than about the
+    // opcode alone.
+    camera
+        .motion_sync()
+        .set_speed(MotionSyncSpeed::new(1).expect("motion sync speed"))
+        .expect("typed helper");
+    assert_ne!(one_frame(&writes), explicit_frame);
+
+    // The bound lives in the argument type, so an out-of-range speed cannot be
+    // constructed and therefore cannot reach the wire.
     assert!(MotionSyncSpeed::new(0).is_err());
     assert!(MotionSyncSpeed::new(25).is_err());
-}
+    assert!(drain(&writes).is_empty());
 
-#[allow(dead_code)]
-fn motion_sync_speed_is_reachable<'session, P>(
-    camera: &grafton_visca::blocking::Camera<'session, P>,
-) where
-    P: grafton_visca::CompileTimeProfile + grafton_visca::capabilities::HasMotionSync,
-{
-    let _ = camera
-        .motion_sync()
-        .set_speed(MotionSyncSpeed::new(1).expect("motion sync speed"));
+    session.shutdown().expect("shutdown");
 }
 
 #[test]
@@ -408,7 +495,16 @@ fn typed_cameras_expose_their_runtime_capability_inventory() {
     let capabilities = camera.capabilities();
     assert_eq!(capabilities.model_name, "PtzOptics G2");
     assert!(capabilities.has_pan_tilt);
-    assert!(std::ptr::eq(capabilities, camera.profile().capabilities()));
+
+    // `camera.capabilities()` is defined as `camera.profile().capabilities()`,
+    // so comparing those two by address asserts nothing. Compare against an
+    // *independently* built spec for the same compile-time profile instead:
+    // separate storage (so the pointer check is a real inequality), equal
+    // content (so the camera view really is the registry's inventory).
+    let independent = ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("PTZOptics profile");
+    assert!(!std::ptr::eq(capabilities, independent.capabilities()));
+    assert_eq!(capabilities, independent.capabilities());
+
     session.shutdown().expect("shutdown");
 }
 
@@ -500,6 +596,28 @@ fn typed_cache_getters_decode_pan_tilt_limit_updates() {
         Some((0, 0))
     );
 
+    // The origin is the one point where both axes agree and both signs vanish,
+    // so it cannot see a swapped, dropped, or truncated axis. Probe a corner
+    // whose two axes differ: 90 degrees of pan and 30 of tilt, converted by the
+    // profile's own degrees-to-units factors.
+    camera
+        .pan_tilt()
+        .limit_set(
+            PanTiltLimitCorner::UpRight,
+            Degrees::new(90.0),
+            Degrees::new(30.0),
+        )
+        .expect("limit set");
+    let update = cache.pan_tilt_limits().expect("recorded limit update");
+    assert_eq!(update.corner(), PanTiltLimitCorner::UpRight);
+    assert!(!update.is_cleared());
+    let (pan, tilt) = update
+        .position()
+        .expect("a limit set records a position")
+        .raw_values();
+    assert_ne!(pan, tilt, "the probe must be able to see swapped axes");
+    assert_eq!((pan, tilt), (1296, 432));
+
     camera
         .pan_tilt()
         .limit_clear(PanTiltLimitCorner::DownLeft)
@@ -508,6 +626,100 @@ fn typed_cache_getters_decode_pan_tilt_limit_updates() {
     assert_eq!(update.corner(), PanTiltLimitCorner::DownLeft);
     assert!(update.is_cleared());
     assert_eq!(update.position(), None);
+
+    session.shutdown().expect("shutdown");
+}
+
+/// `tally_mode` had no decode-side coverage at all, and it is the one key whose
+/// command is reachable only through `execute`: the vendor tally-mode opcode is
+/// validated for PTZOptics profiles alone, while the typed `tally()` noun is
+/// gated on `HasTally`, which only the two Sony profiles declare. The cache
+/// contract is the same either way, so the getter is driven over the profile
+/// the command is actually valid for.
+#[test]
+fn typed_cache_getters_decode_the_vendor_tally_mode() {
+    use grafton_visca::command::{TallyFlash, TallyOff, TallyOn};
+
+    let (session, _writes) = ptz_session();
+    let camera = session.camera::<PtzOpticsG2>().expect("camera");
+    let cache = camera.state_cache();
+
+    assert_eq!(cache.tally_mode(), None);
+
+    camera.execute(&TallyOn).expect("tally on");
+    assert_eq!(cache.tally_mode(), Some(true));
+    camera.execute(&TallyOff).expect("tally off");
+    assert_eq!(cache.tally_mode(), Some(false));
+
+    // A flash does not determine the steady-state mode, so the key is
+    // invalidated rather than left reporting the last steady value.
+    camera.execute(&TallyFlash).expect("tally flash");
+    assert_eq!(cache.tally_mode(), None);
+
+    session.shutdown().expect("shutdown");
+}
+
+/// `focus_lock` had no decode-side coverage: the projection that stores `1`/`0`
+/// was tested, the getter that reads it back was not.
+#[test]
+fn typed_cache_getters_decode_the_focus_lock_mode() {
+    let (session, _writes) = ptz_session();
+    let camera = session.camera::<PtzOpticsG2>().expect("camera");
+    let cache = camera.state_cache();
+
+    assert_eq!(cache.focus_lock(), None);
+
+    camera
+        .focus()
+        .set_lock(FocusLock::On)
+        .expect("focus lock on");
+    assert_eq!(cache.focus_lock(), Some(true));
+
+    camera
+        .focus()
+        .set_lock(FocusLock::Off)
+        .expect("focus lock off");
+    assert_eq!(cache.focus_lock(), Some(false));
+
+    session.shutdown().expect("shutdown");
+}
+
+/// The remaining three typed getters without decode-side coverage. All three
+/// keys live on the FR7, the only built-in profile that documents digital-zoom
+/// toggling, tally brightness, and variable-speed mode together.
+#[test]
+fn typed_cache_getters_decode_the_remaining_write_only_keys() {
+    let (session, _writes) = fr7_session();
+    let camera = session.camera::<SonyFR7>().expect("camera");
+    let cache = camera.state_cache();
+
+    assert_eq!(cache.digital_zoom(), None);
+    assert_eq!(cache.tally_brightness_is_high(), None);
+    assert_eq!(cache.variable_speed_mode(), None);
+
+    camera.zoom().set_digital_zoom(true).expect("digital zoom");
+    assert_eq!(cache.digital_zoom(), Some(true));
+    camera.zoom().set_digital_zoom(false).expect("digital zoom");
+    assert_eq!(cache.digital_zoom(), Some(false));
+
+    camera.tally().bright_hi().expect("tally high brightness");
+    assert_eq!(cache.tally_brightness_is_high(), Some(true));
+    camera.tally().bright_lo().expect("tally low brightness");
+    assert_eq!(cache.tally_brightness_is_high(), Some(false));
+
+    camera
+        .advanced()
+        .set_variable_speed_mode(VariableSpeedMode::Fine50)
+        .expect("variable speed mode");
+    assert_eq!(cache.variable_speed_mode(), Some(VariableSpeedMode::Fine50));
+    camera
+        .advanced()
+        .set_variable_speed_mode(VariableSpeedMode::Standard24)
+        .expect("variable speed mode");
+    assert_eq!(
+        cache.variable_speed_mode(),
+        Some(VariableSpeedMode::Standard24)
+    );
 
     session.shutdown().expect("shutdown");
 }

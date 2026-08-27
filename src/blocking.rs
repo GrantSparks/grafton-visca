@@ -1204,12 +1204,38 @@ fn retain_first_error(first_error: &mut Option<Error>, result: Result<(), Error>
 mod tests {
     use super::*;
 
+    /// The owning `Session` is the host every camera view borrows from: two
+    /// views taken from the same session drive the one owned transport, and an
+    /// operation submitted through either of them settles rather than merely
+    /// being constructed.
     #[test]
     fn owning_blocking_session_builds_shared_handle_host() {
-        let transport = crate::testing::testkit::ScriptedBlockingTransport::new([]);
+        use crate::testing::testkit::{helpers, ScriptedBlockingTransport};
+
+        let transport = ScriptedBlockingTransport::new([
+            helpers::auto_respond_step(),
+            helpers::auto_respond_step(),
+        ]);
+        let probe = transport.clone();
         let config = SessionConfig::from_compile_time::<crate::profiles::PtzOpticsG2>().unwrap();
         let session = Session::open(transport, config).unwrap();
-        let camera = session.camera::<crate::profiles::PtzOpticsG2>().unwrap();
-        camera.zoom().stop().unwrap().detach();
+
+        let first = session.camera::<crate::profiles::PtzOpticsG2>().unwrap();
+        let second = session.camera::<crate::profiles::PtzOpticsG2>().unwrap();
+        assert_eq!(first.target(), second.target());
+
+        first.zoom().stop().unwrap().applied().unwrap();
+        second.zoom().stop().unwrap().applied().unwrap();
+
+        let sent = probe.sent();
+        assert_eq!(
+            sent,
+            vec![
+                vec![0x81, 0x01, 0x04, 0x07, 0x00, 0xff],
+                vec![0x81, 0x01, 0x04, 0x07, 0x00, 0xff],
+            ],
+            "both views wrote their zoom stop through the one owned transport"
+        );
+        session.shutdown().unwrap();
     }
 }

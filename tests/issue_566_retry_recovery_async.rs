@@ -325,22 +325,38 @@ async fn an_unresolvable_cancellation_reaches_the_caller<E: Executor>(executor: 
     session.shutdown().await.expect("owner shutdown");
 }
 
-async fn run_matrix<E: Executor>(executor: E) {
-    a_camera_refusal_is_replayed_only_for_movement(executor.clone()).await;
-    a_no_socket_answer_is_replayed_for_a_standard_command(executor.clone()).await;
-    a_silent_camera_is_retried_before_and_after_its_ack(executor.clone()).await;
-    an_unresolvable_cancellation_reaches_the_caller(executor).await;
+/// One independent libtest case per scenario per runtime.
+///
+/// These scenarios used to be awaited in sequence inside a single
+/// `#[tokio::test]`: the first panic ended the test and every later scenario
+/// went unreported, so a green run proved only "nothing failed before the first
+/// failure". Generating one case each keeps the failures independent and names
+/// the scenario that failed.
+macro_rules! runtime_matrix {
+    ($($scenario:ident),+ $(,)?) => {
+        $(
+            mod $scenario {
+                #[cfg(feature = "runtime-tokio")]
+                #[tokio::test]
+                async fn tokio() {
+                    let executor =
+                        grafton_visca::TokioRuntime::from_current().expect("Tokio runtime");
+                    super::$scenario(executor).await;
+                }
+
+                #[cfg(feature = "runtime-smol")]
+                #[test]
+                fn smol() {
+                    smol::block_on(super::$scenario(grafton_visca::SmolRuntime::new()));
+                }
+            }
+        )+
+    };
 }
 
-#[cfg(feature = "runtime-tokio")]
-#[tokio::test]
-async fn tokio_owner_restores_1x_retry_coverage() {
-    let executor = grafton_visca::TokioRuntime::from_current().expect("Tokio runtime");
-    run_matrix(executor).await;
-}
-
-#[cfg(feature = "runtime-smol")]
-#[test]
-fn smol_owner_restores_1x_retry_coverage() {
-    smol::block_on(run_matrix(grafton_visca::SmolRuntime::new()));
-}
+runtime_matrix!(
+    a_camera_refusal_is_replayed_only_for_movement,
+    a_no_socket_answer_is_replayed_for_a_standard_command,
+    a_silent_camera_is_retried_before_and_after_its_ack,
+    an_unresolvable_cancellation_reaches_the_caller,
+);

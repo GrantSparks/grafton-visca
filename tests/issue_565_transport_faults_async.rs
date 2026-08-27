@@ -474,24 +474,40 @@ async fn ack_answered_from_inside_the_write_is_matched_on_the_first_pump<E: Exec
     session.shutdown().await.expect("owner shutdown");
 }
 
-async fn run_matrix<E: Executor>(executor: E) {
-    transient_receive_error_retries_instead_of_destroying_the_session(executor.clone()).await;
-    datagram_write_failure_fails_one_command_and_keeps_the_session(executor.clone()).await;
-    stream_write_failure_poisons_and_names_the_transport_cause(executor.clone()).await;
-    socketless_ack_and_completion_still_complete_a_command(executor.clone()).await;
-    ack_naming_an_occupied_socket_is_reassigned(executor.clone()).await;
-    ack_answered_from_inside_the_write_is_matched_on_the_first_pump(executor).await;
+/// One independent libtest case per scenario per runtime.
+///
+/// These scenarios used to be awaited in sequence inside a single
+/// `#[tokio::test]`: the first panic ended the test and every later scenario
+/// went unreported, so a green run proved only "nothing failed before the first
+/// failure". Generating one case each keeps the failures independent and names
+/// the scenario that failed.
+macro_rules! runtime_matrix {
+    ($($scenario:ident),+ $(,)?) => {
+        $(
+            mod $scenario {
+                #[cfg(feature = "runtime-tokio")]
+                #[tokio::test]
+                async fn tokio() {
+                    let executor =
+                        grafton_visca::TokioRuntime::from_current().expect("Tokio runtime");
+                    super::$scenario(executor).await;
+                }
+
+                #[cfg(feature = "runtime-smol")]
+                #[test]
+                fn smol() {
+                    smol::block_on(super::$scenario(grafton_visca::SmolRuntime::new()));
+                }
+            }
+        )+
+    };
 }
 
-#[cfg(feature = "runtime-tokio")]
-#[tokio::test]
-async fn tokio_owner_restores_1x_transport_fault_tolerance() {
-    let executor = grafton_visca::TokioRuntime::from_current().expect("Tokio runtime");
-    run_matrix(executor).await;
-}
-
-#[cfg(feature = "runtime-smol")]
-#[test]
-fn smol_owner_restores_1x_transport_fault_tolerance() {
-    smol::block_on(run_matrix(grafton_visca::SmolRuntime::new()));
-}
+runtime_matrix!(
+    transient_receive_error_retries_instead_of_destroying_the_session,
+    datagram_write_failure_fails_one_command_and_keeps_the_session,
+    stream_write_failure_poisons_and_names_the_transport_cause,
+    socketless_ack_and_completion_still_complete_a_command,
+    ack_naming_an_occupied_socket_is_reassigned,
+    ack_answered_from_inside_the_write_is_matched_on_the_first_pump,
+);
