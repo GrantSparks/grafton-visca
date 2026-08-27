@@ -87,6 +87,25 @@ an ACK alone, a failed write, a timeout, or a pre-ACK error does not change the
 cache. A fresh session starts every target at `Unknown`; target 1 and target 2
 views never read or mutate each other's entries.
 
+## Transient transport faults are not session death
+
+Not every transport failure ends a session. A receive that fails without
+proving the connection is gone — the classic case is a UDP `recv` reporting
+ECONNREFUSED after an ICMP port-unreachable for an earlier datagram — retries
+every command still waiting for its ACK under that command's own bounded retry
+policy and leaves the session running. Only a read that proves the connection
+is gone (`ConnectionClosed`, or an `Io` failure whose kind is `ConnectionReset`,
+`ConnectionAborted`, `BrokenPipe`, `UnexpectedEof`, or `NotConnected`) ends the
+session, and it ends it as a close: a failed read consumes nothing and so
+cannot desynchronize framing.
+
+Writes are classified by transport instead. A failed datagram write fails
+exactly one request, with its own transport error, and the session continues. A
+failed stream write poisons the session: no transport trait in this crate
+reports how many bytes of a frame reached the wire, so a partial write must be
+assumed and the byte-stream position treated as unknowable. The exact transport
+cause is carried in the `StreamPoisoned` reason.
+
 ## Fresh-session poison recovery
 
 Treat a closed or poisoned owner as a completed session, not as a queue to

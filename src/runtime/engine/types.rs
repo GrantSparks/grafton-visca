@@ -433,13 +433,18 @@ pub(crate) enum SequenceWidth {
 }
 
 /// Owned scheduler-independent decoded response data.
+///
+/// `Ack` and `Completion` carry an *optional* socket because the socket nibble
+/// is genuinely optional on the wire: a camera may answer `90 40 FF` /
+/// `90 50 FF` with no socket. The scheduler, not the transport adapter, decides
+/// what an absent socket means.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum DecodedResponse {
     Ack {
-        socket: ViscaSocket,
+        socket: Option<ViscaSocket>,
     },
     Completion {
-        socket: ViscaSocket,
+        socket: Option<ViscaSocket>,
     },
     InquiryReply {
         route: Option<InquiryRoute>,
@@ -559,6 +564,16 @@ pub(crate) enum Input {
     Frame(DecodedFrame),
     Cancel {
         id: RequestId,
+    },
+    /// One receive-side transport failure the owner has already classified as
+    /// transient: the session survives it and every command still waiting for
+    /// its ACK is retried under its own bounded retry policy.
+    ///
+    /// A receive that proves the session is finished never reaches the engine
+    /// this way; it arrives as [`Input::Close`], [`Input::Poison`], or
+    /// [`Input::Shutdown`] instead.
+    ReceiveFault {
+        error: Error,
     },
     Close {
         reason: Option<Box<str>>,

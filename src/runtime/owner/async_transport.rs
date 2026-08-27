@@ -171,7 +171,13 @@ where
         frame_limit: usize,
     ) -> impl Future<Output = Result<AsyncReceive, Error>> + Send {
         async move {
-            let received = self.transport.recv_into(buffers.receive_mut()).await?;
+            // A failed read consumed nothing, so the framer is untouched and
+            // the owner still gets to decide whether the session survives.
+            // Framing/decode failures below stay on the `Err` path.
+            let received = match self.transport.recv_into(buffers.receive_mut()).await {
+                Ok(received) => received,
+                Err(error) => return Ok(AsyncReceive::Fault(error)),
+            };
             // Only a zero-length read means the peer closed. A short read that
             // carried bytes decodes to an empty batch when it did not finish a
             // frame, which is routine on byte-stream transports.

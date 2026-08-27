@@ -59,6 +59,18 @@ struct TransmissionOwner {
     kind: CorrelationKind,
 }
 
+/// A camera ACK that reached the engine before the write result for the very
+/// frame it answers.
+///
+/// Issue #297: an owner whose reader and writer are not strictly ordered can
+/// deliver the ACK first. The engine latches it on the entry instead of
+/// dropping it, and applies it verbatim as soon as the transmission is
+/// confirmed, so the race cannot silently reopen.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct DeferredAck {
+    socket: Option<ViscaSocket>,
+}
+
 /// The one authoritative lifecycle record for an admitted request.
 #[derive(Debug)]
 pub(crate) struct Entry {
@@ -75,6 +87,7 @@ pub(crate) struct Entry {
     sequence_history: SmallVec<[SequenceRecord; MAX_SEQUENCE_HISTORY]>,
     cancel_attempted_socket: Option<ViscaSocket>,
     cancellation_observation_open: bool,
+    deferred_ack: Option<DeferredAck>,
 }
 
 impl Entry {
@@ -344,6 +357,7 @@ impl ProtocolEngine {
             } => self.transmission_finished(transmission, result, now, effects),
             Input::Frame(frame) => self.frame(frame, now, effects),
             Input::Cancel { id } => self.cancel(id, now, effects),
+            Input::ReceiveFault { error } => self.receive_fault(&error, now, effects),
             Input::Close { reason } => self.terminate_session(
                 SessionState::Closed,
                 Error::ConnectionClosed {
@@ -532,6 +546,7 @@ impl ProtocolEngine {
                 sequence_history: SmallVec::new(),
                 cancel_attempted_socket: None,
                 cancellation_observation_open: false,
+                deferred_ack: None,
             },
         );
         self.queue_mut(inquiry, priority).push_back(queue_ticket);
@@ -942,6 +957,18 @@ impl ProtocolEngine {
                         cancellation,
                         effects,
                     );
+                    // Issue #297: an owner whose reader is not strictly ordered
+                    // behind its writer can hand the engine the camera's ACK
+                    // before this write result. That ACK was latched rather
+                    // than dropped, so apply it now that the request is
+                    // authoritatively awaiting one.
+                    let deferred = self
+                        .entries
+                        .get_mut(&owner.request)
+                        .and_then(|entry| entry.deferred_ack.take());
+                    if let Some(deferred) = deferred {
+                        self.ack(owner.request, deferred.socket, now, effects);
+                    }
                 }
             }
             CorrelationKind::Cancellation => {
@@ -980,6 +1007,31 @@ impl ProtocolEngine {
         }
     }
 
+    /// Applies one failed transport write.
+    ///
+    /// **Datagram**: exactly one request fails, with its own transport error,
+    /// and the session keeps running. A datagram is framed by its own boundary,
+    /// so a failed write cannot corrupt any other transmission.
+    ///
+    /// **Stream**: the session is poisoned. This is a deliberate, explicit
+    /// policy rather than an accident. The write seam is `Result<(), Error>`
+    /// for every transport implementation, public ones included, so a failed
+    /// stream write cannot prove that no byte of the frame reached the wire;
+    /// a partially written frame desynchronizes the camera's parser for every
+    /// frame that follows, which makes the byte-stream position unknowable.
+    /// Fail-one-command would therefore leave the caller believing a session
+    /// that is already unusable is healthy, and [`Error::StreamPoisoned`] is
+    /// the one terminal error that answers
+    /// [`Error::requires_new_session`](crate::Error::requires_new_session)
+    /// correctly (issue #564). Narrowing this to "poison only on a genuine
+    /// partial write" needs a write seam that reports how many bytes reached
+    /// the wire, which no transport trait in this crate offers.
+    ///
+    /// The exact transport cause is never lost: it is carried in the poison
+    /// reason. 1.x drew the same line — `fail_after_send_error` failed the one
+    /// command, and the runtime loops around it (`handle_send_failure!` in
+    /// `loop_task.rs`, the `SendSemantics::Stream` arms in `blocking_runner.rs`)
+    /// then poisoned every stream session anyway.
     fn failed_transmission(
         &mut self,
         owner: TransmissionOwner,
@@ -987,11 +1039,10 @@ impl ProtocolEngine {
         effects: &mut Vec<Effect>,
     ) {
         if self.policy.transport == TransportKind::Stream {
-            let reason = error.to_string();
             self.terminate_session(
                 SessionState::Poisoned,
                 Error::StreamPoisoned {
-                    reason: Cow::Owned(reason),
+                    reason: Cow::Owned(error.to_string()),
                 },
                 effects,
             );
@@ -1002,38 +1053,81 @@ impl ProtocolEngine {
                 self.finish(owner.request, RuntimeOutcome::Failed(error), effects);
             }
             CorrelationKind::Cancellation => {
-                let Some(entry) = self.entries.get(&owner.request) else {
-                    return;
-                };
-                let CancelState::Sending {
-                    socket,
-                    ambiguity_deadline,
-                    ..
-                } = entry.cancellation
-                else {
-                    effects.push(Effect::Ignored(
-                        IgnoreReason::IncompatibleTransmissionResult,
-                    ));
-                    return;
-                };
-                let phase = entry.phase;
-                self.transition(
-                    owner.request,
-                    phase,
-                    CancelState::ObservationFailed {
-                        socket,
-                        ambiguity_deadline,
-                    },
-                    effects,
-                );
-                if let Some(entry) = self.entries.get_mut(&owner.request) {
-                    entry.cancellation_observation_open = false;
-                }
-                effects.push(Effect::CancellationObservation {
-                    id: owner.request,
-                    observation: CancellationObservation::Failed(error),
-                });
+                self.failed_cancellation_transmission(owner, error, effects);
             }
+        }
+    }
+
+    fn failed_cancellation_transmission(
+        &mut self,
+        owner: TransmissionOwner,
+        error: Error,
+        effects: &mut Vec<Effect>,
+    ) {
+        let Some(entry) = self.entries.get(&owner.request) else {
+            return;
+        };
+        let CancelState::Sending {
+            socket,
+            ambiguity_deadline,
+            ..
+        } = entry.cancellation
+        else {
+            effects.push(Effect::Ignored(
+                IgnoreReason::IncompatibleTransmissionResult,
+            ));
+            return;
+        };
+        let phase = entry.phase;
+        self.transition(
+            owner.request,
+            phase,
+            CancelState::ObservationFailed {
+                socket,
+                ambiguity_deadline,
+            },
+            effects,
+        );
+        if let Some(entry) = self.entries.get_mut(&owner.request) {
+            entry.cancellation_observation_open = false;
+        }
+        effects.push(Effect::CancellationObservation {
+            id: owner.request,
+            observation: CancellationObservation::Failed(error),
+        });
+    }
+
+    /// Applies one transient receive-side transport failure.
+    ///
+    /// This restores the 1.x `SchedulerEvent::NetworkError` contract: the
+    /// session survives, and every command still waiting for its ACK is retried
+    /// under its own bounded retry policy. A command whose retry budget is
+    /// already spent fails with this transport error rather than an incidental
+    /// later timeout. The classic case is a UDP `recv` returning ECONNREFUSED
+    /// because an earlier datagram drew an ICMP port-unreachable.
+    ///
+    /// Two deliberate narrowings of the 1.x scan, both conservative:
+    /// inquiries are untouched (1.x scanned only its command table), and a
+    /// request with cancellation in flight is left to its ambiguity deadline,
+    /// because retrying it would abandon the quarantine that owns its socket.
+    fn receive_fault(&mut self, error: &Error, now: Instant, effects: &mut Vec<Effect>) {
+        if self.state != SessionState::Running {
+            effects.push(Effect::Ignored(IgnoreReason::SessionNotRunning));
+            return;
+        }
+        let mut affected: Vec<_> = self
+            .entries
+            .iter()
+            .filter(|(_, entry)| {
+                !entry.request.is_inquiry()
+                    && matches!(entry.phase, Phase::AwaitingAck { .. })
+                    && matches!(entry.cancellation, CancelState::None)
+            })
+            .map(|(id, entry)| (entry.admission_order, *id))
+            .collect();
+        affected.sort_unstable_by_key(|(order, _)| *order);
+        for (_, id) in affected {
+            self.schedule_retry(id, now, error.clone(), effects);
         }
     }
 
@@ -1237,15 +1331,27 @@ impl ProtocolEngine {
     fn resolve_raw(&self, frame: &DecodedFrame) -> Option<RequestId> {
         let target = frame.target;
         match &frame.response {
-            DecodedResponse::Ack { .. } => self.oldest_entry(|entry| {
-                !entry.request.is_inquiry()
-                    && entry.request.context().target == target
-                    && matches!(
-                        entry.phase,
-                        Phase::AwaitingAck { .. } | Phase::AwaitingLateAck { .. }
-                    )
-            }),
-            DecodedResponse::Completion { socket } => self.socket_owner(target, *socket),
+            DecodedResponse::Ack { .. } => self
+                .oldest_entry(|entry| {
+                    !entry.request.is_inquiry()
+                        && entry.request.context().target == target
+                        && matches!(
+                            entry.phase,
+                            Phase::AwaitingAck { .. } | Phase::AwaitingLateAck { .. }
+                        )
+                })
+                // Issue #297: no request is awaiting an ACK yet because the
+                // write result for the frame this answers has not been applied.
+                // Attribute it to the command that is still being written so
+                // `ack` can latch it instead of dropping it.
+                .or_else(|| self.oldest_sending_command(target)),
+            DecodedResponse::Completion { socket } => match socket {
+                Some(socket) => self.socket_owner(target, *socket),
+                // A camera that answers `90 50 FF` sends no socket nibble, so
+                // the frame is attributable only while exactly one command owns
+                // a socket on that target.
+                None => self.sole_socket_holder(target),
+            },
             DecodedResponse::InquiryReply { route, .. } => {
                 if let Some(route) = route.filter(|route| *route != InquiryRoute::UNKNOWN) {
                     let matches: SmallVec<[RequestId; 4]> = self
@@ -1329,28 +1435,117 @@ impl ProtocolEngine {
             .map(|_| owner.request)
     }
 
-    fn ack(&mut self, id: RequestId, socket: ViscaSocket, now: Instant, effects: &mut Vec<Effect>) {
+    /// The single request currently holding a command socket on `target`, if
+    /// exactly one does.
+    fn sole_socket_holder(&self, target: CameraId) -> Option<RequestId> {
+        match (
+            self.socket_owner(target, ViscaSocket::S1),
+            self.socket_owner(target, ViscaSocket::S2),
+        ) {
+            (Some(id), None) | (None, Some(id)) => Some(id),
+            (Some(first), Some(second)) if first == second => Some(first),
+            _ => None,
+        }
+    }
+
+    /// The command on `target` whose request frame is still being written.
+    fn oldest_sending_command(&self, target: CameraId) -> Option<RequestId> {
+        self.entries
+            .iter()
+            .filter(|(_, entry)| {
+                !entry.request.is_inquiry()
+                    && entry.request.context().target == target
+                    && matches!(entry.phase, Phase::Sending { .. })
+            })
+            .min_by_key(|(_, entry)| entry.admission_order)
+            .map(|(id, _)| *id)
+    }
+
+    fn command_sockets(&self, target: CameraId) -> usize {
+        self.targets[target.id() as usize].map_or(1, |policy| usize::from(policy.command_sockets))
+    }
+
+    fn socket_available(&self, target: CameraId, socket: ViscaSocket, id: RequestId) -> bool {
+        self.socket_owner(target, socket)
+            .is_none_or(|owner| owner == id)
+    }
+
+    /// Chooses the socket an ACK assigns, exactly as 1.x did.
+    ///
+    /// A camera that names a socket is authoritative about it whenever that
+    /// socket is free. When the named socket is held by another request the
+    /// ACK falls back to the target's other socket rather than being dropped,
+    /// and an ACK that carries no socket nibble at all takes the first free
+    /// socket the target is registered to have. `None` means every socket the
+    /// target owns is already taken, and the ACK stays inert.
+    fn assign_socket(
+        &self,
+        target: CameraId,
+        requested: Option<ViscaSocket>,
+        id: RequestId,
+    ) -> Option<ViscaSocket> {
+        if let Some(socket) = requested {
+            if self.socket_available(target, socket, id) {
+                return Some(socket);
+            }
+            let other = other_socket(socket);
+            if self.command_sockets(target) > 1 && self.socket_available(target, other, id) {
+                return Some(other);
+            }
+            return None;
+        }
+        [ViscaSocket::S1, ViscaSocket::S2]
+            .into_iter()
+            .take(self.command_sockets(target))
+            .find(|socket| self.socket_available(target, *socket, id))
+    }
+
+    fn ack(
+        &mut self,
+        id: RequestId,
+        socket: Option<ViscaSocket>,
+        now: Instant,
+        effects: &mut Vec<Effect>,
+    ) {
         let Some(entry) = self.entries.get(&id) else {
             effects.push(Effect::Ignored(IgnoreReason::UnknownRequest));
             return;
         };
-        if entry.request.is_inquiry()
-            || !matches!(
-                entry.phase,
-                Phase::AwaitingAck { .. } | Phase::AwaitingLateAck { .. }
-            )
-        {
+        if entry.request.is_inquiry() {
             effects.push(Effect::Ignored(IgnoreReason::UnmatchedFrame));
             return;
         }
+        match entry.phase {
+            Phase::AwaitingAck { .. } | Phase::AwaitingLateAck { .. } => {}
+            // Issue #297: the camera answered before this owner applied the
+            // write result for the frame being answered. Latch the ACK on the
+            // entry; `successful_transmission` applies it the instant the
+            // request is authoritatively awaiting one. Dropping it here is what
+            // reopens the race.
+            Phase::Sending { .. } => {
+                if let Some(entry) = self.entries.get_mut(&id) {
+                    entry.deferred_ack = Some(DeferredAck { socket });
+                }
+                return;
+            }
+            Phase::Ready { .. }
+            | Phase::Executing { .. }
+            | Phase::AwaitingReply { .. }
+            | Phase::Backoff { .. }
+            | Phase::AwaitingCancellationResolution { .. } => {
+                effects.push(Effect::Ignored(IgnoreReason::UnmatchedFrame));
+                return;
+            }
+        }
         let target = entry.request.context().target;
-        if self
-            .socket_owner(target, socket)
-            .is_some_and(|owner| owner != id)
-        {
+        let Some(socket) = self.assign_socket(target, socket, id) else {
             effects.push(Effect::Ignored(IgnoreReason::SocketConflict));
             return;
-        }
+        };
+        let Some(entry) = self.entries.get(&id) else {
+            effects.push(Effect::Ignored(IgnoreReason::UnknownRequest));
+            return;
+        };
         let generation = entry.generation;
         let cancellation = entry.cancellation;
         let deadline = add_duration(now, entry.request.context().timeout.completion);
@@ -1376,13 +1571,21 @@ impl ProtocolEngine {
         }
     }
 
-    fn completion(&mut self, id: RequestId, socket: ViscaSocket, effects: &mut Vec<Effect>) {
+    fn completion(
+        &mut self,
+        id: RequestId,
+        socket: Option<ViscaSocket>,
+        effects: &mut Vec<Effect>,
+    ) {
         let compatible = self.entries.get(&id).is_some_and(|entry| {
             !entry.request.is_inquiry()
                 && match entry.phase {
+                    // A completion that carries no socket nibble was already
+                    // attributed by sequence (Sony) or by sole socket ownership
+                    // (raw), so it completes whichever socket this request owns.
                     Phase::Executing { socket: owned, .. }
                     | Phase::AwaitingCancellationResolution { socket: owned, .. } => {
-                        owned == socket
+                        socket.is_none_or(|socket| socket == owned)
                     }
                     // A Sony exact completion can legitimately beat or replace an ACK.
                     Phase::AwaitingAck { .. } | Phase::AwaitingLateAck { .. } => {
@@ -1650,6 +1853,8 @@ impl ProtocolEngine {
         };
         entry.attempt = next_attempt;
         entry.last_error = Some(error);
+        // A latch belongs to exactly one attempt's write.
+        entry.deferred_ack = None;
         entry.queue_generation = entry.queue_generation.wrapping_add(1).max(1);
         let queue_generation = entry.queue_generation;
         let cancellation = entry.cancellation;
@@ -2160,6 +2365,9 @@ impl ProtocolEngine {
                     return Err("ready entry does not own exactly one queue position".into());
                 }
             }
+            if entry.deferred_ack.is_some() && !matches!(entry.phase, Phase::Sending { .. }) {
+                return Err("deferred ACK outlived the write it raced".into());
+            }
             if let Phase::Sending { transmission, .. } = entry.phase {
                 let Some(owner) = self.transmissions.get(&transmission) else {
                     return Err("sending entry has no transmission owner".into());
@@ -2246,6 +2454,13 @@ impl ProtocolEngine {
 
 fn add_duration(at: Instant, duration: Duration) -> Instant {
     at.checked_add(duration).unwrap_or(at)
+}
+
+const fn other_socket(socket: ViscaSocket) -> ViscaSocket {
+    match socket {
+        ViscaSocket::S1 => ViscaSocket::S2,
+        ViscaSocket::S2 => ViscaSocket::S1,
+    }
 }
 
 fn cancellation_ambiguity(cancellation: CancelState) -> Option<Instant> {
