@@ -251,7 +251,7 @@ fn explicit_target_not_wire_bytes_drives_independent_socket_ownership() {
             1,
             None,
             DecodedResponse::Ack {
-                socket: ViscaSocket::S1,
+                socket: Some(ViscaSocket::S1),
             },
         ),
         start,
@@ -261,7 +261,7 @@ fn explicit_target_not_wire_bytes_drives_independent_socket_ownership() {
             2,
             None,
             DecodedResponse::Ack {
-                socket: ViscaSocket::S1,
+                socket: Some(ViscaSocket::S1),
             },
         ),
         start,
@@ -271,7 +271,7 @@ fn explicit_target_not_wire_bytes_drives_independent_socket_ownership() {
             2,
             None,
             DecodedResponse::Completion {
-                socket: ViscaSocket::S1,
+                socket: Some(ViscaSocket::S1),
             },
         ),
         start,
@@ -632,7 +632,7 @@ fn raw_error_policy_is_socket_then_inquiry_fifo_then_recent_command() {
             1,
             None,
             DecodedResponse::Ack {
-                socket: ViscaSocket::S2,
+                socket: Some(ViscaSocket::S2),
             },
         ),
         start + Duration::from_micros(5),
@@ -670,7 +670,7 @@ fn response_at_exact_deadline_wins_and_equal_deadlines_use_admission_order() {
             1,
             None,
             DecodedResponse::Ack {
-                socket: ViscaSocket::S1,
+                socket: Some(ViscaSocket::S1),
             },
         ),
         start + Duration::from_millis(20),
@@ -825,7 +825,7 @@ fn ordered_input_turn_applies_all_frames_before_an_equal_deadline() {
             1,
             None,
             DecodedResponse::Ack {
-                socket: ViscaSocket::S1,
+                socket: Some(ViscaSocket::S1),
             },
         ),
         start,
@@ -863,7 +863,7 @@ fn ordered_input_turn_applies_all_frames_before_an_equal_deadline() {
             1,
             None,
             DecodedResponse::Ack {
-                socket: ViscaSocket::S2,
+                socket: Some(ViscaSocket::S2),
             },
         ),
     );
@@ -893,7 +893,7 @@ fn ordered_input_turn_applies_all_frames_before_an_equal_deadline() {
             1,
             None,
             DecodedResponse::Completion {
-                socket: ViscaSocket::S1,
+                socket: Some(ViscaSocket::S1),
             },
         ),
     ));
@@ -1090,7 +1090,7 @@ fn sending_and_pre_ack_cancellation_record_intent_then_emit_one_cancel_on_ack() 
             1,
             Some((0x1001, SequenceWidth::Full32)),
             DecodedResponse::Ack {
-                socket: ViscaSocket::S1,
+                socket: Some(ViscaSocket::S1),
             },
         ),
         start + Duration::from_millis(1),
@@ -1103,7 +1103,7 @@ fn sending_and_pre_ack_cancellation_record_intent_then_emit_one_cancel_on_ack() 
             1,
             Some((0x1001, SequenceWidth::Full32)),
             DecodedResponse::Ack {
-                socket: ViscaSocket::S1,
+                socket: Some(ViscaSocket::S1),
             },
         ),
         start + Duration::from_millis(2),
@@ -1197,7 +1197,7 @@ fn late_ack_ambiguity_keeps_capacity_and_correlation_until_quarantine() {
             1,
             Some((0x1010, SequenceWidth::Full32)),
             DecodedResponse::Completion {
-                socket: ViscaSocket::S1,
+                socket: Some(ViscaSocket::S1),
             },
         ),
         start + Duration::from_millis(50),
@@ -1274,7 +1274,7 @@ fn datagram_cancel_failure_resolves_token_but_original_remains_routable() {
             1,
             None,
             DecodedResponse::Ack {
-                socket: ViscaSocket::S1,
+                socket: Some(ViscaSocket::S1),
             },
         ),
         start + Duration::from_millis(1),
@@ -1302,7 +1302,7 @@ fn datagram_cancel_failure_resolves_token_but_original_remains_routable() {
             1,
             None,
             DecodedResponse::Completion {
-                socket: ViscaSocket::S1,
+                socket: Some(ViscaSocket::S1),
             },
         ),
         start + Duration::from_millis(3),
@@ -1338,7 +1338,7 @@ fn stream_cancel_failure_poisons_and_terminalizes_in_admission_order() {
             1,
             None,
             DecodedResponse::Ack {
-                socket: ViscaSocket::S1,
+                socket: Some(ViscaSocket::S1),
             },
         ),
         start,
@@ -1481,7 +1481,7 @@ fn applied_state_projection_is_target_qualified_and_emitted_only_on_applied() {
             2,
             None,
             DecodedResponse::Ack {
-                socket: ViscaSocket::S2,
+                socket: Some(ViscaSocket::S2),
             },
         ),
         start,
@@ -1491,7 +1491,7 @@ fn applied_state_projection_is_target_qualified_and_emitted_only_on_applied() {
             2,
             None,
             DecodedResponse::Completion {
-                socket: ViscaSocket::S2,
+                socket: Some(ViscaSocket::S2),
             },
         ),
         start,
@@ -1549,7 +1549,7 @@ fn applied_state_actions_are_closed_and_failure_does_not_emit_one() {
                 1,
                 None,
                 DecodedResponse::Ack {
-                    socket: ViscaSocket::S1,
+                    socket: Some(ViscaSocket::S1),
                 },
             ),
             start,
@@ -1559,7 +1559,7 @@ fn applied_state_actions_are_closed_and_failure_does_not_emit_one() {
                 1,
                 None,
                 DecodedResponse::Completion {
-                    socket: ViscaSocket::S1,
+                    socket: Some(ViscaSocket::S1),
                 },
             ),
             start,
@@ -1679,7 +1679,7 @@ fn dispatch_is_priority_fifo_with_equal_priority_inquiry_preference() {
             1,
             None,
             DecodedResponse::Ack {
-                socket: ViscaSocket::S1,
+                socket: Some(ViscaSocket::S1),
             },
         ),
         start,
@@ -1705,7 +1705,7 @@ fn dispatch_is_priority_fifo_with_equal_priority_inquiry_preference() {
             1,
             None,
             DecodedResponse::Completion {
-                socket: ViscaSocket::S1,
+                socket: Some(ViscaSocket::S1),
             },
         ),
         start,
@@ -1836,7 +1836,7 @@ fn replaying_identical_ordered_trace_produces_identical_effects() {
                 1,
                 Some((0x1234, SequenceWidth::Full32)),
                 DecodedResponse::Ack {
-                    socket: ViscaSocket::S2,
+                    socket: Some(ViscaSocket::S2),
                 },
             ),
             start + Duration::from_millis(1),
@@ -1847,7 +1847,7 @@ fn replaying_identical_ordered_trace_produces_identical_effects() {
                 1,
                 Some((0x1234, SequenceWidth::Full32)),
                 DecodedResponse::Completion {
-                    socket: ViscaSocket::S2,
+                    socket: Some(ViscaSocket::S2),
                 },
             ),
             start + Duration::from_millis(2),
@@ -1979,10 +1979,10 @@ fn phase_one_protocol_fixture_replays_through_production_engine() {
                 let response_name = fixture_required(&fields, "response");
                 let response = match response_name {
                     "ack" => DecodedResponse::Ack {
-                        socket: fixture_socket(&fields),
+                        socket: Some(fixture_socket(&fields)),
                     },
                     "completion" => DecodedResponse::Completion {
-                        socket: fixture_socket(&fields),
+                        socket: Some(fixture_socket(&fields)),
                     },
                     "reply" => DecodedResponse::InquiryReply {
                         route: fields
@@ -2174,8 +2174,12 @@ fn arbitrary_stale_and_reordered_inputs_preserve_invariants() {
                     ViscaSocket::S2
                 };
                 let response = match (random >> 12) % 4 {
-                    0 => DecodedResponse::Ack { socket },
-                    1 => DecodedResponse::Completion { socket },
+                    0 => DecodedResponse::Ack {
+                        socket: Some(socket),
+                    },
+                    1 => DecodedResponse::Completion {
+                        socket: Some(socket),
+                    },
                     2 => DecodedResponse::Error {
                         socket: (random & 0x8000 != 0).then_some(socket),
                         code: [0x01, 0x02, 0x03, 0x04, 0x41][(random as usize) % 5],
@@ -2290,8 +2294,8 @@ mod generated_invariant_properties {
                             ViscaSocket::S2
                         };
                         let response = match (action >> 12) % 4 {
-                            0 => DecodedResponse::Ack { socket },
-                            1 => DecodedResponse::Completion { socket },
+                            0 => DecodedResponse::Ack { socket: Some(socket) },
+                            1 => DecodedResponse::Completion { socket: Some(socket) },
                             2 => DecodedResponse::Error {
                                 socket: (action & 0x8000 != 0).then_some(socket),
                                 code: [0x01, 0x02, 0x03, 0x04, 0x41]
@@ -2375,7 +2379,7 @@ fn raw_late_ack_at_ambiguity_boundary_is_routed_and_cancel_remains_active() {
             1,
             None,
             DecodedResponse::Ack {
-                socket: ViscaSocket::S1,
+                socket: Some(ViscaSocket::S1),
             },
         ),
         start + Duration::from_millis(50),
@@ -2448,7 +2452,7 @@ fn cancellation_response_timeout_resolves_observer_but_retains_quarantine() {
             1,
             None,
             DecodedResponse::Ack {
-                socket: ViscaSocket::S1,
+                socket: Some(ViscaSocket::S1),
             },
         ),
         start + Duration::from_millis(1),
@@ -2508,7 +2512,7 @@ fn datagram_cancel_failure_keeps_ownership_until_ambiguity_deadline() {
             1,
             None,
             DecodedResponse::Ack {
-                socket: ViscaSocket::S1,
+                socket: Some(ViscaSocket::S1),
             },
         ),
         start + Duration::from_millis(1),
@@ -2669,7 +2673,7 @@ fn blocked_target_does_not_block_other_targets_or_accumulate_stale_tickets() {
             1,
             None,
             DecodedResponse::Ack {
-                socket: ViscaSocket::S1,
+                socket: Some(ViscaSocket::S1),
             },
         ),
         start,
@@ -2752,5 +2756,743 @@ fn retry_backoff_must_fit_inside_total_budget() {
     assert!(!exhausted
         .iter()
         .any(|effect| matches!(effect, Effect::RetryScheduled { .. })));
+    engine.assert_invariants().unwrap();
+}
+
+// ---------------------------------------------------------------------------
+// Issue #565: 1.x transport fault tolerance.
+// ---------------------------------------------------------------------------
+
+fn ignored_reasons(effects: &[Effect]) -> Vec<IgnoreReason> {
+    effects
+        .iter()
+        .filter_map(|effect| match effect {
+            Effect::Ignored(reason) => Some(*reason),
+            _ => None,
+        })
+        .collect()
+}
+
+fn socket_of(engine: &ProtocolEngine, id: RequestId) -> Option<ViscaSocket> {
+    match engine.entry(id)?.phase() {
+        Phase::Executing { socket, .. } | Phase::AwaitingCancellationResolution { socket, .. } => {
+            Some(socket)
+        }
+        _ => None,
+    }
+}
+
+/// A transient receive fault retries every command still awaiting an ACK and
+/// leaves the session running. Restores 1.x `SchedulerEvent::NetworkError`.
+#[test]
+fn transient_receive_fault_retries_awaiting_ack_work_and_keeps_the_session() {
+    let start = Instant::now();
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+    let first = engine.handle(
+        Input::Admit {
+            ticket: AdmissionTicket(1),
+            request: command(1, CancellationPolicy::Supported),
+        },
+        start,
+    );
+    let first_id = admitted(&first);
+    send_ok(&mut engine, &first, None, start);
+    let second = engine.handle(
+        Input::Admit {
+            ticket: AdmissionTicket(2),
+            request: command(2, CancellationPolicy::Supported),
+        },
+        start,
+    );
+    let second_id = admitted(&second);
+    send_ok(&mut engine, &second, None, start);
+
+    let fault = engine.handle(
+        Input::ReceiveFault {
+            error: Error::Io(Arc::new(std::io::Error::from(
+                std::io::ErrorKind::ConnectionRefused,
+            ))),
+        },
+        start,
+    );
+
+    assert_eq!(engine.state(), SessionState::Running);
+    let retried: Vec<_> = fault
+        .iter()
+        .filter_map(|effect| match effect {
+            Effect::RetryScheduled { id, attempt, .. } => Some((*id, *attempt)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(retried, vec![(first_id, 1), (second_id, 1)]);
+    assert!(
+        !fault
+            .iter()
+            .any(|effect| matches!(effect, Effect::Terminal { .. })),
+        "a transient receive fault must not fail retryable work"
+    );
+    assert!(engine.entry(first_id).is_some());
+    assert!(engine.entry(second_id).is_some());
+    engine.assert_invariants().unwrap();
+}
+
+/// An inquiry awaiting its reply is untouched, matching the 1.x command-only
+/// scan, and a request that cannot retry fails with the transport error
+/// without ending the session.
+#[test]
+fn receive_fault_fails_only_unretryable_work_and_never_the_session() {
+    let start = Instant::now();
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+    let mut once = context(1, CancellationPolicy::Supported);
+    once.retry = RetryPolicy::NEVER;
+    let admission = engine.handle(
+        Input::Admit {
+            ticket: AdmissionTicket(1),
+            request: RuntimeRequest::Command {
+                wire: wire(0x81),
+                context: once,
+                applied_state: None,
+            },
+        },
+        start,
+    );
+    let command_id = admitted(&admission);
+    send_ok(&mut engine, &admission, None, start);
+    let inquiry_admission = engine.handle(
+        Input::Admit {
+            ticket: AdmissionTicket(2),
+            request: inquiry(2, POWER),
+        },
+        start,
+    );
+    let inquiry_id = admitted(&inquiry_admission);
+    send_ok(&mut engine, &inquiry_admission, None, start);
+
+    let fault = engine.handle(
+        Input::ReceiveFault {
+            error: Error::TransportError("ICMP port unreachable".into()),
+        },
+        start,
+    );
+
+    assert_eq!(engine.state(), SessionState::Running);
+    assert!(fault.iter().any(|effect| matches!(
+        effect,
+        Effect::Terminal {
+            id,
+            outcome: RuntimeOutcome::Failed(Error::TransportError(_)),
+        } if *id == command_id
+    )));
+    assert!(
+        matches!(
+            engine.entry(inquiry_id).map(Entry::phase),
+            Some(Phase::AwaitingReply { .. })
+        ),
+        "an inquiry keeps its own reply deadline across a transient receive fault"
+    );
+    engine.assert_invariants().unwrap();
+}
+
+/// A receive fault applied to a terminated session is inert.
+#[test]
+fn receive_fault_after_termination_is_inert() {
+    let start = Instant::now();
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+    engine.handle(Input::Close { reason: None }, start);
+    let fault = engine.handle(
+        Input::ReceiveFault {
+            error: Error::Timeout,
+        },
+        start,
+    );
+    assert_eq!(
+        ignored_reasons(&fault),
+        vec![IgnoreReason::SessionNotRunning]
+    );
+    assert_eq!(engine.state(), SessionState::Closed);
+}
+
+/// A stream request-write failure is a session verdict on purpose: the poison
+/// reason names the exact transport cause, and every affected request reports
+/// the one error that classifies as needing a replacement session (#564).
+#[test]
+fn stream_write_failure_poisons_with_the_transport_cause_in_the_reason() {
+    let start = Instant::now();
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Stream);
+    let first = engine.handle(
+        Input::Admit {
+            ticket: AdmissionTicket(1),
+            request: command(1, CancellationPolicy::Supported),
+        },
+        start,
+    );
+    let first_id = admitted(&first);
+    send_ok(&mut engine, &first, None, start);
+    let second = engine.handle(
+        Input::Admit {
+            ticket: AdmissionTicket(2),
+            request: command(2, CancellationPolicy::Supported),
+        },
+        start,
+    );
+    let second_id = admitted(&second);
+    let (second_tx, _, _) = request_transmit(&second);
+
+    let failure = engine.handle(
+        Input::TransmissionFinished {
+            transmission: second_tx,
+            result: Err(Error::TransportError("short write".into())),
+        },
+        start,
+    );
+
+    let terminals: Vec<_> = failure
+        .iter()
+        .filter_map(|effect| match effect {
+            Effect::Terminal { id, outcome } => Some((*id, outcome.clone())),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        terminals.iter().map(|(id, _)| *id).collect::<Vec<_>>(),
+        vec![first_id, second_id]
+    );
+    for (_, outcome) in &terminals {
+        let RuntimeOutcome::Failed(Error::StreamPoisoned { reason }) = outcome else {
+            panic!("every request on a poisoned stream reports the session verdict: {outcome:?}");
+        };
+        assert!(
+            reason.contains("short write"),
+            "the exact transport cause must survive in the poison reason: {reason}"
+        );
+    }
+    assert_eq!(engine.state(), SessionState::Poisoned);
+    engine.assert_invariants().unwrap();
+}
+
+/// A datagram write failure stays isolated to its own request.
+#[test]
+fn datagram_write_failure_fails_exactly_one_request() {
+    let start = Instant::now();
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+    let first = engine.handle(
+        Input::Admit {
+            ticket: AdmissionTicket(1),
+            request: command(1, CancellationPolicy::Supported),
+        },
+        start,
+    );
+    let first_id = admitted(&first);
+    send_ok(&mut engine, &first, None, start);
+    let second = engine.handle(
+        Input::Admit {
+            ticket: AdmissionTicket(2),
+            request: command(2, CancellationPolicy::Supported),
+        },
+        start,
+    );
+    let second_id = admitted(&second);
+    let (second_tx, _, _) = request_transmit(&second);
+    let failure = engine.handle(
+        Input::TransmissionFinished {
+            transmission: second_tx,
+            result: Err(Error::TransportError("datagram refused".into())),
+        },
+        start,
+    );
+    assert_eq!(terminal_id(&failure), Some(second_id));
+    assert_eq!(engine.state(), SessionState::Running);
+    assert!(engine.entry(first_id).is_some());
+    engine.assert_invariants().unwrap();
+}
+
+/// `90 40 FF` carries no socket nibble: 1.x assigned the first free socket.
+#[test]
+fn socketless_ack_assigns_the_first_free_socket() {
+    let start = Instant::now();
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+    let admission = engine.handle(
+        Input::Admit {
+            ticket: AdmissionTicket(1),
+            request: command(1, CancellationPolicy::Supported),
+        },
+        start,
+    );
+    let id = admitted(&admission);
+    send_ok(&mut engine, &admission, None, start);
+    let acked = engine.handle(frame(1, None, DecodedResponse::Ack { socket: None }), start);
+    assert!(ignored_reasons(&acked).is_empty());
+    assert_eq!(socket_of(&engine, id), Some(ViscaSocket::S1));
+
+    // And the socketless completion that such a camera sends finishes it.
+    let done = engine.handle(
+        frame(1, None, DecodedResponse::Completion { socket: None }),
+        start,
+    );
+    assert_eq!(terminal_id(&done), Some(id));
+    engine.assert_invariants().unwrap();
+}
+
+/// With socket one already held, a socketless ACK takes socket two.
+#[test]
+fn socketless_ack_takes_the_second_socket_when_the_first_is_busy() {
+    let start = Instant::now();
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+    let first = engine.handle(
+        Input::Admit {
+            ticket: AdmissionTicket(1),
+            request: command(1, CancellationPolicy::Supported),
+        },
+        start,
+    );
+    let first_id = admitted(&first);
+    send_ok(&mut engine, &first, None, start);
+    engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::Ack {
+                socket: Some(ViscaSocket::S1),
+            },
+        ),
+        start,
+    );
+    let second = engine.handle(
+        Input::Admit {
+            ticket: AdmissionTicket(2),
+            request: command(1, CancellationPolicy::Supported),
+        },
+        start,
+    );
+    let second_id = admitted(&second);
+    send_ok(&mut engine, &second, None, start);
+    let acked = engine.handle(frame(1, None, DecodedResponse::Ack { socket: None }), start);
+    assert!(ignored_reasons(&acked).is_empty());
+    assert_eq!(socket_of(&engine, first_id), Some(ViscaSocket::S1));
+    assert_eq!(socket_of(&engine, second_id), Some(ViscaSocket::S2));
+    engine.assert_invariants().unwrap();
+}
+
+/// The assignment policy itself, including the exhausted case 1.x guarded
+/// against: a camera whose sockets are all taken gets no invented assignment,
+/// and a one-socket target has no second socket to fall back to.
+#[test]
+fn socket_assignment_follows_the_1x_fallback_order() {
+    let start = Instant::now();
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+    let first = engine.handle(
+        Input::Admit {
+            ticket: AdmissionTicket(1),
+            request: command(1, CancellationPolicy::Supported),
+        },
+        start,
+    );
+    let first_id = admitted(&first);
+    send_ok(&mut engine, &first, None, start);
+    engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::Ack {
+                socket: Some(ViscaSocket::S1),
+            },
+        ),
+        start,
+    );
+    let second = engine.handle(
+        Input::Admit {
+            ticket: AdmissionTicket(2),
+            request: command(1, CancellationPolicy::Supported),
+        },
+        start,
+    );
+    let second_id = admitted(&second);
+    send_ok(&mut engine, &second, None, start);
+
+    // Socket one is taken by another request: both the named-socket fallback
+    // and the socketless pick move to socket two.
+    assert_eq!(
+        engine.assign_socket(camera(1), Some(ViscaSocket::S1), second_id),
+        Some(ViscaSocket::S2)
+    );
+    assert_eq!(
+        engine.assign_socket(camera(1), None, second_id),
+        Some(ViscaSocket::S2)
+    );
+    // A request keeps the socket it already owns.
+    assert_eq!(
+        engine.assign_socket(camera(1), Some(ViscaSocket::S1), first_id),
+        Some(ViscaSocket::S1)
+    );
+
+    engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::Ack {
+                socket: Some(ViscaSocket::S2),
+            },
+        ),
+        start,
+    );
+    // Every socket is now held by another request: nothing is invented.
+    let stranger = RequestId::from_nonzero(NonZeroU64::new(u64::MAX).unwrap());
+    assert_eq!(engine.assign_socket(camera(1), None, stranger), None);
+    assert_eq!(
+        engine.assign_socket(camera(1), Some(ViscaSocket::S1), stranger),
+        None
+    );
+    engine.assert_invariants().unwrap();
+
+    // A one-socket target has no other socket to fall back to.
+    let mut single = engine_with_target(
+        EnvelopeKind::Raw,
+        TransportKind::Datagram,
+        1,
+        CancellationPolicy::Supported,
+    );
+    let only = single.handle(
+        Input::Admit {
+            ticket: AdmissionTicket(1),
+            request: command(1, CancellationPolicy::Supported),
+        },
+        start,
+    );
+    let only_id = admitted(&only);
+    send_ok(&mut single, &only, None, start);
+    single.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::Ack {
+                socket: Some(ViscaSocket::S1),
+            },
+        ),
+        start,
+    );
+    assert_eq!(socket_of(&single, only_id), Some(ViscaSocket::S1));
+    assert_eq!(single.assign_socket(camera(1), None, stranger), None);
+    assert_eq!(
+        single.assign_socket(camera(1), Some(ViscaSocket::S1), stranger),
+        None
+    );
+    single.assert_invariants().unwrap();
+}
+
+/// A socketless ACK that matches no in-flight command is inert, exactly like
+/// any other unattributable frame.
+#[test]
+fn unattributable_socketless_ack_is_inert() {
+    let start = Instant::now();
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+    let stray = engine.handle(frame(1, None, DecodedResponse::Ack { socket: None }), start);
+    assert_eq!(ignored_reasons(&stray), vec![IgnoreReason::UnmatchedFrame]);
+    engine.assert_invariants().unwrap();
+}
+
+/// An ACK naming an occupied socket falls back to the free one (1.x
+/// reassignment) instead of being dropped and eating the ACK deadline.
+#[test]
+fn ack_naming_an_occupied_socket_falls_back_to_the_free_socket() {
+    let start = Instant::now();
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+    let first = engine.handle(
+        Input::Admit {
+            ticket: AdmissionTicket(1),
+            request: command(1, CancellationPolicy::Supported),
+        },
+        start,
+    );
+    let first_id = admitted(&first);
+    send_ok(&mut engine, &first, None, start);
+    engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::Ack {
+                socket: Some(ViscaSocket::S1),
+            },
+        ),
+        start,
+    );
+    let second = engine.handle(
+        Input::Admit {
+            ticket: AdmissionTicket(2),
+            request: command(1, CancellationPolicy::Supported),
+        },
+        start,
+    );
+    let second_id = admitted(&second);
+    send_ok(&mut engine, &second, None, start);
+
+    // The camera repeats socket one, which the first request still owns.
+    let reassigned = engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::Ack {
+                socket: Some(ViscaSocket::S1),
+            },
+        ),
+        start,
+    );
+
+    assert!(ignored_reasons(&reassigned).is_empty());
+    assert_eq!(socket_of(&engine, first_id), Some(ViscaSocket::S1));
+    assert_eq!(socket_of(&engine, second_id), Some(ViscaSocket::S2));
+    // Each request still completes on the socket it actually owns.
+    let done = engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::Completion {
+                socket: Some(ViscaSocket::S2),
+            },
+        ),
+        start,
+    );
+    assert_eq!(terminal_id(&done), Some(second_id));
+    engine.assert_invariants().unwrap();
+}
+
+/// Issue #297: an ACK that arrives before the write result for the very frame
+/// it answers is latched, not dropped, and applied as soon as the write is
+/// confirmed. This is the engine-level guard: it holds no matter how a future
+/// owner orders its reader against its writer.
+#[test]
+fn ack_racing_its_own_write_result_is_latched_and_applied() {
+    let start = Instant::now();
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+    let admission = engine.handle(
+        Input::Admit {
+            ticket: AdmissionTicket(1),
+            request: command(1, CancellationPolicy::Supported),
+        },
+        start,
+    );
+    let id = admitted(&admission);
+    let (transmission, _, _) = request_transmit(&admission);
+    assert!(matches!(
+        engine.entry(id).map(Entry::phase),
+        Some(Phase::Sending { .. })
+    ));
+
+    // The camera answers before this owner applies the write result.
+    let early = engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::Ack {
+                socket: Some(ViscaSocket::S2),
+            },
+        ),
+        start,
+    );
+    assert!(
+        ignored_reasons(&early).is_empty(),
+        "the racing ACK must not be dropped: {early:?}"
+    );
+    assert!(matches!(
+        engine.entry(id).map(Entry::phase),
+        Some(Phase::Sending { .. })
+    ));
+    engine.assert_invariants().unwrap();
+
+    let confirmed = engine.handle(
+        Input::TransmissionFinished {
+            transmission,
+            result: Ok(TransmissionMeta { sequence: None }),
+        },
+        start,
+    );
+    assert!(confirmed.iter().any(|effect| matches!(
+        effect,
+        Effect::Transition {
+            to: Phase::Executing {
+                socket: ViscaSocket::S2,
+                ..
+            },
+            ..
+        }
+    )));
+    assert_eq!(socket_of(&engine, id), Some(ViscaSocket::S2));
+
+    let done = engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::Completion {
+                socket: Some(ViscaSocket::S2),
+            },
+        ),
+        start,
+    );
+    assert_eq!(terminal_id(&done), Some(id));
+    engine.assert_invariants().unwrap();
+}
+
+/// A latch belongs to exactly one attempt: a retried request starts clean.
+#[test]
+fn a_latched_ack_never_survives_into_the_next_attempt() {
+    let start = Instant::now();
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+    let admission = engine.handle(
+        Input::Admit {
+            ticket: AdmissionTicket(1),
+            request: command(1, CancellationPolicy::Supported),
+        },
+        start,
+    );
+    let id = admitted(&admission);
+    let (transmission, _, _) = request_transmit(&admission);
+    engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::Ack {
+                socket: Some(ViscaSocket::S1),
+            },
+        ),
+        start,
+    );
+    engine.handle(
+        Input::TransmissionFinished {
+            transmission,
+            result: Ok(TransmissionMeta { sequence: None }),
+        },
+        start,
+    );
+    assert_eq!(socket_of(&engine, id), Some(ViscaSocket::S1));
+    // Force a retry; the completion deadline releases the socket.
+    let retried = engine.advance(start + Duration::from_millis(40));
+    assert!(retried
+        .iter()
+        .any(|effect| matches!(effect, Effect::RetryScheduled { .. })));
+    let resent = engine.advance(start + Duration::from_millis(60));
+    let (retry_tx, _, _) = request_transmit(&resent);
+    engine.handle(
+        Input::TransmissionFinished {
+            transmission: retry_tx,
+            result: Ok(TransmissionMeta { sequence: None }),
+        },
+        start + Duration::from_millis(60),
+    );
+    assert!(
+        matches!(
+            engine.entry(id).map(Entry::phase),
+            Some(Phase::AwaitingAck { .. })
+        ),
+        "the retried attempt must await its own ACK"
+    );
+    engine.assert_invariants().unwrap();
+}
+
+/// A socketless completion is attributable only while exactly one command owns
+/// a socket on that target; otherwise it stays inert instead of guessing.
+#[test]
+fn socketless_completion_needs_a_sole_socket_holder() {
+    let start = Instant::now();
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+    let first = engine.handle(
+        Input::Admit {
+            ticket: AdmissionTicket(1),
+            request: command(1, CancellationPolicy::Supported),
+        },
+        start,
+    );
+    let first_id = admitted(&first);
+    send_ok(&mut engine, &first, None, start);
+    engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::Ack {
+                socket: Some(ViscaSocket::S1),
+            },
+        ),
+        start,
+    );
+    let second = engine.handle(
+        Input::Admit {
+            ticket: AdmissionTicket(2),
+            request: command(1, CancellationPolicy::Supported),
+        },
+        start,
+    );
+    let second_id = admitted(&second);
+    send_ok(&mut engine, &second, None, start);
+    engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::Ack {
+                socket: Some(ViscaSocket::S2),
+            },
+        ),
+        start,
+    );
+
+    let ambiguous = engine.handle(
+        frame(1, None, DecodedResponse::Completion { socket: None }),
+        start,
+    );
+    assert_eq!(
+        ignored_reasons(&ambiguous),
+        vec![IgnoreReason::UnmatchedFrame]
+    );
+    assert!(engine.entry(first_id).is_some());
+    assert!(engine.entry(second_id).is_some());
+
+    engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::Completion {
+                socket: Some(ViscaSocket::S1),
+            },
+        ),
+        start,
+    );
+    let resolved = engine.handle(
+        frame(1, None, DecodedResponse::Completion { socket: None }),
+        start,
+    );
+    assert_eq!(terminal_id(&resolved), Some(second_id));
+    engine.assert_invariants().unwrap();
+}
+
+/// Sony correlates by sequence, so a socketless completion completes exactly
+/// the request the envelope names.
+#[test]
+fn sony_socketless_completion_finishes_the_sequenced_request() {
+    let start = Instant::now();
+    let mut engine = engine(EnvelopeKind::Sony, TransportKind::Stream);
+    let admission = engine.handle(
+        Input::Admit {
+            ticket: AdmissionTicket(1),
+            request: command(1, CancellationPolicy::Supported),
+        },
+        start,
+    );
+    let id = admitted(&admission);
+    send_ok(&mut engine, &admission, Some(7), start);
+    engine.handle(
+        frame(
+            1,
+            Some((7, SequenceWidth::Full32)),
+            DecodedResponse::Ack { socket: None },
+        ),
+        start,
+    );
+    assert_eq!(socket_of(&engine, id), Some(ViscaSocket::S1));
+    let done = engine.handle(
+        frame(
+            1,
+            Some((7, SequenceWidth::Full32)),
+            DecodedResponse::Completion { socket: None },
+        ),
+        start,
+    );
+    assert_eq!(terminal_id(&done), Some(id));
     engine.assert_invariants().unwrap();
 }

@@ -279,8 +279,8 @@ pub(crate) enum RequestLane {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ResponseDiagnostic {
-    Ack(ViscaSocket),
-    Completion(ViscaSocket),
+    Ack(Option<ViscaSocket>),
+    Completion(Option<ViscaSocket>),
     InquiryReply,
     Error {
         socket: Option<ViscaSocket>,
@@ -1794,11 +1794,47 @@ fn boundary_error_for_input(input: &Input) -> Option<Error> {
                 reason: reason.to_string().into(),
             },
         }),
+        // A transient receive fault is explicitly not a boundary error: the
+        // session survives it and retried work keeps its own outcome.
         Input::Admit { .. }
         | Input::TransmissionFinished { .. }
         | Input::Frame(_)
         | Input::Cancel { .. }
+        | Input::ReceiveFault { .. }
         | Input::Wake => None,
+    }
+}
+
+/// Whether one receive-side transport failure leaves the session usable.
+///
+/// 1.x drew this line in the runtime loops: a `ConnectionClosed` read ended the
+/// session, and every other read error became a `NetworkError` that retried
+/// in-flight work and kept the loop alive. This keeps that contract and states
+/// the remaining fatal cases explicitly instead of inheriting them from
+/// [`ErrorKind`], which cannot separate "the peer went away" from "this read
+/// failed".
+///
+/// Transient therefore includes the case the issue is about: a UDP `recv`
+/// reporting ECONNREFUSED after an ICMP port-unreachable, which says nothing
+/// about whether the camera is reachable now.
+pub(crate) fn receive_fault_is_transient(error: &Error) -> bool {
+    match error {
+        // Proof the session is finished: the peer closed, the byte stream
+        // position is unknowable, or the owner's transport/channel is gone.
+        error if error.requires_new_session() => false,
+        Error::RuntimeShutdown => false,
+        // A raw I/O failure is fatal only when the operating system reported
+        // that this connection itself is dead.
+        Error::Io(io) => !matches!(
+            io.kind(),
+            std::io::ErrorKind::ConnectionReset
+                | std::io::ErrorKind::ConnectionAborted
+                | std::io::ErrorKind::BrokenPipe
+                | std::io::ErrorKind::UnexpectedEof
+                | std::io::ErrorKind::NotConnected
+        ),
+        Error::WithContext { source, .. } => receive_fault_is_transient(source),
+        _ => true,
     }
 }
 

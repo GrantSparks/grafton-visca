@@ -22,6 +22,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `CameraSession::open` takes a caller-owned transport with the same bind.
   `close` mirrors `Session::close`, and dropping the value tears the session
   down. The multi-camera `Session`/`camera_for` path is unchanged.
+- **Restored the 1.x transport fault tolerance the rewrite dropped** (#565).
+  A transient receive failure no longer destroys the session: the owner
+  classifies the read error, and a transient one — the classic case is a UDP
+  `recv` reporting ECONNREFUSED after an ICMP port-unreachable — retries every
+  command still awaiting its ACK under that command's own bounded retry policy
+  and keeps the session running, exactly as 1.x's `SchedulerEvent::NetworkError`
+  did. Only a read that proves the connection is gone still ends the session,
+  and it now ends it as a close rather than a byte-stream poison, because a
+  failed read consumes nothing and cannot desynchronize framing.
+- Socketless VISCA ACKs and completions work again (#565). A camera answering
+  `90 40 FF` / `90 50 FF` carries no socket nibble; the transport adapter turned
+  that into a hard `Error::InvalidResponse` that killed the whole session. The
+  socket is now optional all the way to the scheduler, which assigns the first
+  free command socket to a socketless ACK — 1.x behavior — and attributes a
+  socketless completion by envelope sequence, or by sole socket ownership on
+  raw VISCA. Genuinely malformed frames are still rejected.
+- Restored socket reassignment on ACK (#565). A camera that names a command
+  socket another request already holds no longer costs that command its ACK
+  deadline: the ACK falls back to the target's other free socket, as 1.x did.
+  A one-socket target has nothing to fall back to and the frame stays inert.
+- Closed the #297 ACK race at the engine level (#565). An ACK that reaches the
+  engine before the write result for the frame it answers is now latched on
+  that request and applied the instant the write is confirmed, instead of being
+  dropped. The defense no longer depends on owner call ordering, so a future
+  concurrent reader and writer cannot silently reopen the race.
+- Documented the stream write-failure policy explicitly (#565). A failed
+  datagram write fails exactly one request, with its own transport error, and
+  the session keeps running. A failed stream write poisons the session on
+  purpose: no transport trait in this crate reports how many bytes of a frame
+  reached the wire, so a partial write must be assumed and the byte-stream
+  position treated as unknowable. `Error::StreamPoisoned` carries the exact
+  transport cause in its reason and is the one terminal error that answers
+  `Error::requires_new_session()` correctly (#564). 1.x drew the same line.
 - Gated the async noun surface and added a cross-surface parity test (#570).
   Only `blocking_nouns` carried a per-row ledger gate, so deleting or
   misclassifying an async noun method failed no test: the published API

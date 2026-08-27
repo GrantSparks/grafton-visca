@@ -320,32 +320,32 @@ mod blocking {
                     frame(
                         CameraId::CAMERA_1,
                         DecodedResponse::Ack {
-                            socket: ViscaSocket::S1,
+                            socket: Some(ViscaSocket::S1),
                         },
                     ),
                     frame(
                         CameraId::CAMERA_1,
                         DecodedResponse::Ack {
-                            socket: ViscaSocket::S2,
+                            socket: Some(ViscaSocket::S2),
                         },
                     ),
                     frame(
                         CameraId::CAMERA_2,
                         DecodedResponse::Ack {
-                            socket: ViscaSocket::S1,
+                            socket: Some(ViscaSocket::S1),
                         },
                     ),
                     frame(
                         CameraId::CAMERA_2,
                         DecodedResponse::Ack {
-                            socket: ViscaSocket::S2,
+                            socket: Some(ViscaSocket::S2),
                         },
                     ),
                 ],
                 vec![frame(
                     CameraId::CAMERA_1,
                     DecodedResponse::Completion {
-                        socket: ViscaSocket::S1,
+                        socket: Some(ViscaSocket::S1),
                     },
                 )],
                 vec![frame(
@@ -358,13 +358,13 @@ mod blocking {
                 vec![frame(
                     CameraId::CAMERA_1,
                     DecodedResponse::Completion {
-                        socket: ViscaSocket::S2,
+                        socket: Some(ViscaSocket::S2),
                     },
                 )],
                 vec![frame(
                     CameraId::CAMERA_2,
                     DecodedResponse::Completion {
-                        socket: ViscaSocket::S1,
+                        socket: Some(ViscaSocket::S1),
                     },
                 )],
             ]),
@@ -541,7 +541,7 @@ mod blocking {
                 frame(
                     CameraId::CAMERA_1,
                     DecodedResponse::Ack {
-                        socket: ViscaSocket::S1,
+                        socket: Some(ViscaSocket::S1),
                     },
                 ),
                 now,
@@ -553,7 +553,7 @@ mod blocking {
                 frame(
                     CameraId::CAMERA_1,
                     DecodedResponse::Completion {
-                        socket: ViscaSocket::S1,
+                        socket: Some(ViscaSocket::S1),
                     },
                 ),
                 now,
@@ -655,7 +655,7 @@ mod blocking {
                 frame(
                     CameraId::CAMERA_1,
                     DecodedResponse::Ack {
-                        socket: ViscaSocket::S1,
+                        socket: Some(ViscaSocket::S1),
                     },
                 ),
                 now,
@@ -667,7 +667,7 @@ mod blocking {
                 frame(
                     CameraId::CAMERA_1,
                     DecodedResponse::Ack {
-                        socket: ViscaSocket::S2,
+                        socket: Some(ViscaSocket::S2),
                     },
                 ),
                 now,
@@ -679,7 +679,7 @@ mod blocking {
                 frame(
                     CameraId::CAMERA_1,
                     DecodedResponse::Completion {
-                        socket: ViscaSocket::S2,
+                        socket: Some(ViscaSocket::S2),
                     },
                 ),
                 now,
@@ -728,7 +728,7 @@ mod blocking {
                 frame(
                     CameraId::CAMERA_1,
                     DecodedResponse::Ack {
-                        socket: ViscaSocket::S1,
+                        socket: Some(ViscaSocket::S1),
                     },
                 ),
                 now,
@@ -740,7 +740,7 @@ mod blocking {
                 frame(
                     CameraId::CAMERA_1,
                     DecodedResponse::Completion {
-                        socket: ViscaSocket::S1,
+                        socket: Some(ViscaSocket::S1),
                     },
                 ),
                 now,
@@ -787,7 +787,7 @@ mod blocking {
                 frame(
                     CameraId::CAMERA_1,
                     DecodedResponse::Ack {
-                        socket: ViscaSocket::S1,
+                        socket: Some(ViscaSocket::S1),
                     },
                 ),
                 now,
@@ -799,7 +799,7 @@ mod blocking {
                 frame(
                     CameraId::CAMERA_1,
                     DecodedResponse::Completion {
-                        socket: ViscaSocket::S1,
+                        socket: Some(ViscaSocket::S1),
                     },
                 ),
                 now,
@@ -833,7 +833,7 @@ mod blocking {
                 frame(
                     CameraId::CAMERA_1,
                     DecodedResponse::Ack {
-                        socket: ViscaSocket::S1,
+                        socket: Some(ViscaSocket::S1),
                     },
                 ),
                 now,
@@ -845,7 +845,7 @@ mod blocking {
                 frame(
                     CameraId::CAMERA_1,
                     DecodedResponse::Completion {
-                        socket: ViscaSocket::S1,
+                        socket: Some(ViscaSocket::S1),
                     },
                 ),
                 now,
@@ -904,7 +904,7 @@ mod blocking {
                     frame(
                         CameraId::CAMERA_1,
                         DecodedResponse::Ack {
-                            socket: ViscaSocket::S1,
+                            socket: Some(ViscaSocket::S1),
                         },
                     ),
                     now,
@@ -916,7 +916,7 @@ mod blocking {
                     frame(
                         CameraId::CAMERA_1,
                         DecodedResponse::Completion {
-                            socket: ViscaSocket::S1,
+                            socket: Some(ViscaSocket::S1),
                         },
                     ),
                     now,
@@ -1039,7 +1039,7 @@ mod blocking {
                 frame(
                     CameraId::CAMERA_1,
                     DecodedResponse::Ack {
-                        socket: ViscaSocket::S1,
+                        socket: Some(ViscaSocket::S1),
                     },
                 ),
                 now,
@@ -1051,7 +1051,7 @@ mod blocking {
                 frame(
                     CameraId::CAMERA_1,
                     DecodedResponse::Completion {
-                        socket: ViscaSocket::S1,
+                        socket: Some(ViscaSocket::S1),
                     },
                 ),
                 now,
@@ -1154,7 +1154,7 @@ mod blocking {
                 frame(
                     CameraId::CAMERA_1,
                     DecodedResponse::Ack {
-                        socket: ViscaSocket::S1,
+                        socket: Some(ViscaSocket::S1),
                     },
                 ),
                 now,
@@ -1166,7 +1166,7 @@ mod blocking {
                 frame(
                     CameraId::CAMERA_1,
                     DecodedResponse::Completion {
-                        socket: ViscaSocket::S1,
+                        socket: Some(ViscaSocket::S1),
                     },
                 ),
                 now,
@@ -1200,13 +1200,13 @@ mod blocking {
                     frame(
                         CameraId::CAMERA_2,
                         DecodedResponse::Ack {
-                            socket: ViscaSocket::S1,
+                            socket: Some(ViscaSocket::S1),
                         },
                     ),
                     frame(
                         CameraId::CAMERA_2,
                         DecodedResponse::Completion {
-                            socket: ViscaSocket::S1,
+                            socket: Some(ViscaSocket::S1),
                         },
                     ),
                 ],
@@ -1269,7 +1269,7 @@ mod blocking {
                 frame(
                     CameraId::CAMERA_1,
                     DecodedResponse::Ack {
-                        socket: ViscaSocket::S1,
+                        socket: Some(ViscaSocket::S1),
                     },
                 ),
                 now,
@@ -1281,7 +1281,7 @@ mod blocking {
                 frame(
                     CameraId::CAMERA_1,
                     DecodedResponse::Completion {
-                        socket: ViscaSocket::S1,
+                        socket: Some(ViscaSocket::S1),
                     },
                 ),
                 now,
@@ -1304,13 +1304,84 @@ mod blocking {
             .unwrap();
         let mut reader = DeadlineReader {
             deadline: None,
-            result: Some(Err(Error::SyntaxError)),
+            result: Some(Err(Error::ConnectionClosed {
+                reason: Some("peer closed".into()),
+            })),
         };
         let mut decoder = EmptyDecoder;
         assert!(matches!(
             receipt.wait(&mut owner.receipt_control(&mut driver, &mut reader, &mut decoder,)),
-            Err(Error::StreamPoisoned { .. })
+            Err(Error::ConnectionClosed { .. })
         ));
+    }
+
+    /// Issue #565: a transient read failure retries the in-flight command and
+    /// leaves the session running; the pump reports "no frames", not an error.
+    #[test]
+    fn transient_blocking_read_fault_retries_and_keeps_the_session() {
+        let profile =
+            crate::ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>().unwrap();
+        let mut owner = BlockingOwner::new(policy(1, TransportKind::Datagram)).unwrap();
+        let mut driver = FakeDriver::default();
+        let _receipt = owner
+            .submit_command(&mut driver, prepared_focus(&profile, CameraId::CAMERA_1))
+            .unwrap();
+        let mut reader = DeadlineReader {
+            deadline: None,
+            result: Some(Err(Error::Io(std::sync::Arc::new(std::io::Error::from(
+                std::io::ErrorKind::ConnectionRefused,
+            ))))),
+        };
+        let mut decoder = EmptyDecoder;
+        assert_eq!(
+            owner
+                .pump_once(&mut driver, &mut reader, &mut decoder)
+                .unwrap(),
+            0,
+            "a transient read fault produces no frames and no error"
+        );
+        assert_eq!(owner.state().state(), SessionState::Running);
+        assert_eq!(
+            owner.state().active_len(),
+            1,
+            "the in-flight command is retried, not failed"
+        );
+        // The retry is dispatched by an ordinary later owner turn.
+        for _ in 0..4 {
+            if driver.writes.len() >= 2 {
+                break;
+            }
+            let Some(wake) = owner.state().next_wake() else {
+                break;
+            };
+            owner.wake(&mut driver, wake).unwrap();
+        }
+        assert_eq!(driver.writes.len(), 2, "the same request is written again");
+        assert_eq!(driver.writes[0].0, driver.writes[1].0);
+    }
+
+    /// A fatal read ends the session on a stream transport as a close, not as
+    /// a byte-stream poison: the read consumed nothing to desynchronize.
+    #[test]
+    fn fatal_blocking_read_fault_closes_the_stream_session() {
+        let profile =
+            crate::ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>().unwrap();
+        let mut owner = BlockingOwner::new(policy(1, TransportKind::Stream)).unwrap();
+        let mut driver = FakeDriver::default();
+        let _receipt = owner
+            .submit_command(&mut driver, prepared_focus(&profile, CameraId::CAMERA_1))
+            .unwrap();
+        let mut reader = DeadlineReader {
+            deadline: None,
+            result: Some(Err(Error::Io(std::sync::Arc::new(std::io::Error::from(
+                std::io::ErrorKind::BrokenPipe,
+            ))))),
+        };
+        let mut decoder = EmptyDecoder;
+        assert!(owner
+            .pump_once(&mut driver, &mut reader, &mut decoder)
+            .is_err());
+        assert_eq!(owner.state().state(), SessionState::Closed);
     }
 
     #[test]
@@ -1342,7 +1413,7 @@ mod blocking {
                 frame(
                     CameraId::CAMERA_1,
                     DecodedResponse::Ack {
-                        socket: ViscaSocket::S1,
+                        socket: Some(ViscaSocket::S1),
                     },
                 ),
                 a_ack_at,
@@ -1364,13 +1435,13 @@ mod blocking {
                 frame(
                     CameraId::CAMERA_1,
                     DecodedResponse::Ack {
-                        socket: ViscaSocket::S2,
+                        socket: Some(ViscaSocket::S2),
                     },
                 ),
                 frame(
                     CameraId::CAMERA_1,
                     DecodedResponse::Completion {
-                        socket: ViscaSocket::S1,
+                        socket: Some(ViscaSocket::S1),
                     },
                 ),
             ],
@@ -1385,7 +1456,7 @@ mod blocking {
                 matches!(
                     event,
                     DiagnosticEvent::FrameReceived {
-                        response: ResponseDiagnostic::Ack(ViscaSocket::S2),
+                        response: ResponseDiagnostic::Ack(Some(ViscaSocket::S2)),
                         ..
                     }
                 )
@@ -1410,7 +1481,7 @@ mod blocking {
                 matches!(
                     event,
                     DiagnosticEvent::FrameReceived {
-                        response: ResponseDiagnostic::Completion(ViscaSocket::S1),
+                        response: ResponseDiagnostic::Completion(Some(ViscaSocket::S1)),
                         ..
                     }
                 )
@@ -1455,7 +1526,7 @@ mod blocking {
                 frame(
                     CameraId::CAMERA_1,
                     DecodedResponse::Ack {
-                        socket: ViscaSocket::S1,
+                        socket: Some(ViscaSocket::S1),
                     },
                 ),
                 now,
@@ -1477,13 +1548,13 @@ mod blocking {
                 frame(
                     CameraId::CAMERA_1,
                     DecodedResponse::Ack {
-                        socket: ViscaSocket::S2,
+                        socket: Some(ViscaSocket::S2),
                     },
                 ),
                 frame(
                     CameraId::CAMERA_1,
                     DecodedResponse::Completion {
-                        socket: ViscaSocket::S1,
+                        socket: Some(ViscaSocket::S1),
                     },
                 ),
             ]]),
@@ -1516,7 +1587,7 @@ mod blocking {
                 matches!(
                     event,
                     DiagnosticEvent::FrameReceived {
-                        response: ResponseDiagnostic::Completion(ViscaSocket::S1),
+                        response: ResponseDiagnostic::Completion(Some(ViscaSocket::S1)),
                         ..
                     }
                 )
@@ -1556,7 +1627,7 @@ mod blocking {
                 frame(
                     CameraId::CAMERA_1,
                     DecodedResponse::Ack {
-                        socket: ViscaSocket::S1,
+                        socket: Some(ViscaSocket::S1),
                     },
                 ),
                 now,
@@ -1568,7 +1639,7 @@ mod blocking {
                 frame(
                     CameraId::CAMERA_1,
                     DecodedResponse::Ack {
-                        socket: ViscaSocket::S2,
+                        socket: Some(ViscaSocket::S2),
                     },
                 ),
                 now,
@@ -1580,7 +1651,7 @@ mod blocking {
                 frame(
                     CameraId::CAMERA_1,
                     DecodedResponse::Completion {
-                        socket: ViscaSocket::S2,
+                        socket: Some(ViscaSocket::S2),
                     },
                 ),
                 now,
@@ -1592,7 +1663,7 @@ mod blocking {
                 frame(
                     CameraId::CAMERA_1,
                     DecodedResponse::Completion {
-                        socket: ViscaSocket::S1,
+                        socket: Some(ViscaSocket::S1),
                     },
                 ),
                 now,
@@ -1621,7 +1692,7 @@ mod blocking {
                 frame(
                     CameraId::CAMERA_1,
                     DecodedResponse::Ack {
-                        socket: ViscaSocket::S1,
+                        socket: Some(ViscaSocket::S1),
                     },
                 ),
                 now,
@@ -1633,7 +1704,7 @@ mod blocking {
                 frame(
                     CameraId::CAMERA_1,
                     DecodedResponse::Completion {
-                        socket: ViscaSocket::S1,
+                        socket: Some(ViscaSocket::S1),
                     },
                 ),
                 now,
@@ -1786,7 +1857,7 @@ mod blocking {
                 frame(
                     CameraId::CAMERA_1,
                     DecodedResponse::Ack {
-                        socket: ViscaSocket::S1,
+                        socket: Some(ViscaSocket::S1),
                     },
                 ),
                 now,
@@ -1798,7 +1869,7 @@ mod blocking {
                 frame(
                     CameraId::CAMERA_1,
                     DecodedResponse::Completion {
-                        socket: ViscaSocket::S1,
+                        socket: Some(ViscaSocket::S1),
                     },
                 ),
                 now,
@@ -1878,7 +1949,12 @@ mod blocking {
             owner
                 .inject_frame(
                     &mut driver,
-                    frame(CameraId::CAMERA_1, DecodedResponse::Ack { socket }),
+                    frame(
+                        CameraId::CAMERA_1,
+                        DecodedResponse::Ack {
+                            socket: Some(socket),
+                        },
+                    ),
                     now,
                 )
                 .unwrap();
@@ -1889,7 +1965,7 @@ mod blocking {
                 frame(
                     CameraId::CAMERA_1,
                     DecodedResponse::Completion {
-                        socket: ViscaSocket::S1,
+                        socket: Some(ViscaSocket::S1),
                     },
                 ),
                 now,
@@ -1908,7 +1984,7 @@ mod blocking {
                 frame(
                     CameraId::CAMERA_1,
                     DecodedResponse::Completion {
-                        socket: ViscaSocket::S2,
+                        socket: Some(ViscaSocket::S2),
                     },
                 ),
                 now,
@@ -1924,7 +2000,7 @@ mod blocking {
                 frame(
                     CameraId::CAMERA_1,
                     DecodedResponse::Ack {
-                        socket: ViscaSocket::S1,
+                        socket: Some(ViscaSocket::S1),
                     },
                 ),
                 now,
@@ -1936,7 +2012,7 @@ mod blocking {
                 frame(
                     CameraId::CAMERA_1,
                     DecodedResponse::Completion {
-                        socket: ViscaSocket::S1,
+                        socket: Some(ViscaSocket::S1),
                     },
                 ),
                 now,
@@ -2031,7 +2107,7 @@ mod blocking {
                 frame(
                     CameraId::CAMERA_1,
                     DecodedResponse::Ack {
-                        socket: ViscaSocket::S1,
+                        socket: Some(ViscaSocket::S1),
                     },
                 ),
                 now,
@@ -2043,7 +2119,7 @@ mod blocking {
                 frame(
                     CameraId::CAMERA_1,
                     DecodedResponse::Completion {
-                        socket: ViscaSocket::S1,
+                        socket: Some(ViscaSocket::S1),
                     },
                 ),
                 now,
@@ -2099,7 +2175,7 @@ mod blocking {
                 frame(
                     CameraId::CAMERA_1,
                     DecodedResponse::Ack {
-                        socket: ViscaSocket::S1,
+                        socket: Some(ViscaSocket::S1),
                     },
                 ),
                 now,
@@ -2117,7 +2193,7 @@ mod blocking {
                 frame(
                     CameraId::CAMERA_1,
                     DecodedResponse::Completion {
-                        socket: ViscaSocket::S1,
+                        socket: Some(ViscaSocket::S1),
                     },
                 ),
                 now,
@@ -2155,7 +2231,7 @@ mod blocking {
                 frame(
                     CameraId::CAMERA_1,
                     DecodedResponse::Ack {
-                        socket: ViscaSocket::S1,
+                        socket: Some(ViscaSocket::S1),
                     },
                 ),
                 now,
@@ -2173,7 +2249,7 @@ mod blocking {
                 frame(
                     CameraId::CAMERA_1,
                     DecodedResponse::Completion {
-                        socket: ViscaSocket::S1,
+                        socket: Some(ViscaSocket::S1),
                     },
                 ),
                 now,
@@ -2293,7 +2369,7 @@ mod blocking {
                 frame(
                     CameraId::CAMERA_1,
                     DecodedResponse::Ack {
-                        socket: ViscaSocket::S1,
+                        socket: Some(ViscaSocket::S1),
                     },
                 ),
                 Instant::now(),
@@ -2306,7 +2382,7 @@ mod blocking {
                 frame(
                     CameraId::CAMERA_1,
                     DecodedResponse::Completion {
-                        socket: ViscaSocket::S1,
+                        socket: Some(ViscaSocket::S1),
                     },
                 ),
                 Instant::now(),
@@ -2331,7 +2407,7 @@ mod blocking {
                 frame(
                     CameraId::CAMERA_1,
                     DecodedResponse::Ack {
-                        socket: ViscaSocket::S1,
+                        socket: Some(ViscaSocket::S1),
                     },
                 ),
                 Instant::now(),
@@ -2357,7 +2433,7 @@ mod blocking {
                 frame(
                     CameraId::CAMERA_1,
                     DecodedResponse::Completion {
-                        socket: ViscaSocket::S1,
+                        socket: Some(ViscaSocket::S1),
                     },
                 ),
                 Instant::now(),
@@ -2382,7 +2458,7 @@ mod blocking {
                 frame(
                     CameraId::CAMERA_1,
                     DecodedResponse::Ack {
-                        socket: ViscaSocket::S1,
+                        socket: Some(ViscaSocket::S1),
                     },
                 ),
                 Instant::now(),
@@ -2425,7 +2501,7 @@ mod blocking {
                 frame(
                     CameraId::CAMERA_1,
                     DecodedResponse::Ack {
-                        socket: ViscaSocket::S1,
+                        socket: Some(ViscaSocket::S1),
                     },
                 ),
                 Instant::now(),
@@ -2477,7 +2553,7 @@ mod blocking {
                 frame(
                     CameraId::CAMERA_1,
                     DecodedResponse::Ack {
-                        socket: ViscaSocket::S1,
+                        socket: Some(ViscaSocket::S1),
                     },
                 ),
                 now,
@@ -2489,7 +2565,7 @@ mod blocking {
                 frame(
                     CameraId::CAMERA_1,
                     DecodedResponse::Completion {
-                        socket: ViscaSocket::S1,
+                        socket: Some(ViscaSocket::S1),
                     },
                 ),
                 now,
@@ -2724,10 +2800,10 @@ mod blocking {
                     let target = CameraId::CAMERA_1;
                     let response = match fields[3] {
                         "ack" => DecodedResponse::Ack {
-                            socket: trace_socket(&fields),
+                            socket: Some(trace_socket(&fields)),
                         },
                         "complete" => DecodedResponse::Completion {
-                            socket: trace_completion_socket(&fields),
+                            socket: Some(trace_completion_socket(&fields)),
                         },
                         "error" => DecodedResponse::Error {
                             socket: Some(trace_socket(&fields)),

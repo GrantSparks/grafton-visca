@@ -488,17 +488,17 @@ fn decode_response(routing: RoutingState, payload: &[u8]) -> Result<DecodedRespo
         });
     };
     Ok(match basic.kind {
+        // The socket nibble is optional on the wire. A camera that answers
+        // `90 40 FF` / `90 50 FF` is well formed, and deciding what an absent
+        // socket means is the scheduler's job, not the transport adapter's:
+        // an ACK takes the first free socket, and a completion is attributed
+        // by sequence or by sole socket ownership. Rejecting the frame here
+        // would kill an otherwise healthy session over real hardware.
         BasicKind::Ack => DecodedResponse::Ack {
-            socket: basic.socket.ok_or_else(|| Error::InvalidResponse {
-                expected: Cow::Borrowed("VISCA ACK with a command socket"),
-                actual: payload.to_vec(),
-            })?,
+            socket: basic.socket,
         },
         BasicKind::Completion => DecodedResponse::Completion {
-            socket: basic.socket.ok_or_else(|| Error::InvalidResponse {
-                expected: Cow::Borrowed("VISCA completion with a command socket"),
-                actual: payload.to_vec(),
-            })?,
+            socket: basic.socket,
         },
         BasicKind::DataReply => {
             let mut owned = SmallVec::<[u8; INLINE_BYTES]>::new();
@@ -711,7 +711,7 @@ mod tests {
         assert!(matches!(
             ack.response,
             DecodedResponse::Ack {
-                socket: crate::ViscaSocket::S2
+                socket: Some(crate::ViscaSocket::S2)
             }
         ));
 
@@ -758,6 +758,69 @@ mod tests {
             .unwrap();
         assert_eq!(frame.target, CameraId::CAMERA_2);
         assert!(matches!(frame.response, DecodedResponse::Unknown));
+    }
+
+    /// Issue #565: `90 40 FF` / `90 50 FF` carry no socket nibble. They are
+    /// well-formed VISCA and must reach the scheduler with `socket: None`
+    /// rather than failing the whole session with `InvalidResponse`.
+    #[test]
+    fn socketless_ack_and_completion_decode_without_a_socket() {
+        let envelope = OwnerEnvelope::Raw(RawVisca::new(AddressingMode::Ip));
+        let routing = RoutingState::new(
+            AddressingMode::Ip,
+            TargetRegistry::single(CameraId::CAMERA_1).unwrap(),
+        );
+        let ack = decode_frame(&envelope, routing, Bytes::from_static(&[0x90, 0x40, 0xff]))
+            .expect("a socketless ACK is not a decode failure")
+            .expect("a socketless ACK is attributable");
+        assert_eq!(ack.target, CameraId::CAMERA_1);
+        assert!(matches!(
+            ack.response,
+            DecodedResponse::Ack { socket: None }
+        ));
+
+        let completion = decode_frame(&envelope, routing, Bytes::from_static(&[0x90, 0x50, 0xff]))
+            .expect("a socketless completion is not a decode failure")
+            .expect("a socketless completion is attributable");
+        assert!(matches!(
+            completion.response,
+            DecodedResponse::Completion { socket: None }
+        ));
+
+        // The socket nibble is still carried through when the camera sends one.
+        let acked = decode_frame(&envelope, routing, Bytes::from_static(&[0x90, 0x42, 0xff]))
+            .unwrap()
+            .unwrap();
+        assert!(matches!(
+            acked.response,
+            DecodedResponse::Ack {
+                socket: Some(crate::ViscaSocket::S2)
+            }
+        ));
+    }
+
+    /// The other direction of the same contract: tolerating an absent socket
+    /// does not weaken frame validation.
+    #[test]
+    fn malformed_frames_are_still_rejected() {
+        let envelope = OwnerEnvelope::Raw(RawVisca::new(AddressingMode::Ip));
+        let routing = RoutingState::new(
+            AddressingMode::Ip,
+            TargetRegistry::single(CameraId::CAMERA_1).unwrap(),
+        );
+        for frame in [
+            // Too short to be any VISCA response.
+            &[0x90, 0xff][..],
+            // An error frame with no error code.
+            &[0x90, 0x61, 0xff][..],
+        ] {
+            assert!(
+                decode_frame(&envelope, routing, Bytes::copy_from_slice(frame)).is_err(),
+                "{frame:02x?} must remain a decode failure"
+            );
+        }
+        // A controller address is never a response source.
+        assert!(decode_frame(&envelope, routing, Bytes::from_static(&[0x80, 0x40, 0xff])).is_err());
     }
 
     #[test]
