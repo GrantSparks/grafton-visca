@@ -190,6 +190,47 @@ destination.
   transport-fault and retry scenarios that ran inside one `#[tokio::test]` each
   are now one libtest case per scenario per runtime, so an early panic no longer
   hides every scenario after it. No gate was relaxed.
+- Every compile-fail fixture now declares the diagnostic it expects, and the
+  fixtures pinning 1.x names that no longer exist are retired (#640). The
+  harness in `tests/common/compile_fail.rs` accepted any of nine error codes or
+  four loose substrings, so the 39 of 45 `fail/` fixtures without a trybuild
+  `.stderr` snapshot passed on any of them: a fixture importing a wholly bogus
+  path was demonstrably green, because the `E0432` from the rotted path
+  satisfied the same list a genuine `E0603` privacy contract satisfied.
+  A fixture now states its own expectation in its source — `//~ E0603`,
+  `` //~ "module `camera_id` is private" `` — and the harness matches the
+  declared codes against rustc's *exactly*: a declared code rustc does not
+  report fails, and so does a code rustc reports that the fixture does not
+  declare. A fixture declaring an absence code (`E0432`, `E0433`, `E0599`, and
+  the rest of the "cannot find" family — the codes a typo produces just as
+  readily as a real removal) must also pin the message naming the path that has
+  to be missing, and a fixture declaring nothing at all is rejected before it is
+  compiled. Ten fixtures were pinning modules 2.0 does not have
+  (`camera::accessors`, `camera::builder`, `camera::controls`,
+  `camera::convenience`, `camera::inflight`, `camera::session`, `camera_impl`,
+  `cache`, `constants`, `runtime::core`/`runtime::driver`): they failed with
+  "cannot find", not "is private", so they pinned nothing at all. Five are
+  rewritten against modules 2.0 really does keep internal (`camera::movement`,
+  `camera::construction`, `async_nouns`, `async_session`, and
+  `runtime::engine`/`runtime::owner`), five are deleted, and new fixtures pin
+  `blocking::blocking_nouns`, the blocking transport module, and the private
+  modules behind the root re-exports. `cache_module_is_internal` is gone
+  outright: the module it guarded was renamed `state_cache` and is deliberately
+  public. Four fixtures were failing for the wrong reason and are fixed: both
+  `ignored_operation_handle` fixtures submitted a wire-value enum rather than a
+  typed request, so they were rejected by `submit`'s `OperationCommand` bound
+  and never reached the `#[must_use]` lint they exist to pin;
+  `unsupported_optional_support_markers` named two profiles it never imported,
+  so six of its twenty-one capability-bound assertions were unresolved-name
+  errors instead; and `protocol_lift_helpers_are_internal` named a helper path
+  that does not exist, reporting an unresolved value beside the privacy error it
+  is about. `tests/camera_first_contract/`, a directory no test binary
+  referenced and which therefore never ran, is gone; its one live contract moved
+  into the blocking fail set. The #568 single-camera bind fixtures now declare
+  `E0308` and document where the compile-time bind ends: `CameraSession::session()`
+  hands back the profile-generic `Session`, whose `camera::<P>()` is
+  runtime-checked by design and *does* compile with a second profile. Test-only;
+  no public API change.
 - `ProtocolEngine::assert_invariants` now runs from the engine itself (#636). It
   had no production call site at all — every derived index was audited only
   where a test happened to remember to ask — so a corruption on an uncovered

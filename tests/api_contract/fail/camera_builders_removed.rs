@@ -5,3 +5,6 @@ fn main() {
     let _ = core::any::TypeId::of::<CameraBuilderWithTransport<(), ()>>();
     let _ = core::any::TypeId::of::<CameraBuilderWithTransportProfile<(), (), ()>>();
 }
+
+//~ E0432
+//~ "unresolved imports `grafton_visca::CameraBuilder`"

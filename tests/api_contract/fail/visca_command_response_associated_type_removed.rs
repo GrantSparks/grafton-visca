@@ -22,3 +22,6 @@ impl ViscaCommand for CustomCommand {
 }
 
 fn main() {}
+
+//~ E0432
+//~ "unresolved import `grafton_visca::command::ViscaCommand`"

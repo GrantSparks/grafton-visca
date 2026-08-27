@@ -15,3 +15,6 @@ fn main() {
     assert_send::<Operation<'static, Targeted>>();
     assert_sync::<Operation<'static, Targeted>>();
 }
+
+//~ E0277
+//~ "cannot be shared between threads safely"

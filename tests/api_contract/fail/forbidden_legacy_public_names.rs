@@ -8,3 +8,7 @@ use grafton_visca::{
 use grafton_visca::mode::{Async, Blocking, BlockingFutureExt, Mode};
 
 fn main() {}
+
+//~ E0432
+//~ "unresolved imports `grafton_visca::AsyncCamera`"
+//~ "unresolved import `grafton_visca::mode`"

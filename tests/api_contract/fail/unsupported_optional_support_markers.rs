@@ -3,7 +3,9 @@ use grafton_visca::{
         HasBrightnessControl, HasColorTemperature, HasContrastControl, HasMotionSync, HasNdFilter,
         HasSharpnessControl, HasTally, HasVariableSpeed,
     },
-    profiles::{GenericVisca, PtzOptics30X, PtzOpticsG2, PtzOpticsG3, SonyFR7},
+    profiles::{
+        GenericVisca, PtzOptics30X, PtzOpticsG2, PtzOpticsG3, SonyBRC300, SonyEVIH100, SonyFR7,
+    },
 };
 
 fn requires_color_temperature<P: HasColorTemperature>() {}
@@ -38,3 +40,13 @@ fn main() {
     requires_sharpness::<SonyEVIH100>();
     requires_sharpness::<SonyBRC300>();
 }
+
+// `SonyEVIH100` and `SonyBRC300` were named here without being imported, so
+// six of these twenty-one lines were rejected as unresolved names (E0425)
+// rather than as unsatisfied capability bounds. The imports are now present
+// and every line fails on the bound it is here to pin.
+
+//~ E0277
+//~ "profile `SonyEVIH100` does not declare exposure brightness support"
+//~ "profile `SonyBRC300` does not declare contrast control support"
+//~ "profile `SonyEVIH100` does not declare sharpness control support"

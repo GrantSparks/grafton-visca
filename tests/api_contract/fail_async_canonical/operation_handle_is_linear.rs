@@ -8,3 +8,6 @@ async fn use_after_terminal(handle: Operation<Targeted>) {
 fn main() {
     let _ = use_after_terminal;
 }
+
+//~ E0382
+//~ "use of moved value: `handle`"
