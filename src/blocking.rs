@@ -333,6 +333,22 @@ mod construction {
             CameraConfig::<P>::serial(port, baud_rate).open_serial()
         }
 
+        /// Opens one owner-backed blocking serial session for a single camera.
+        ///
+        /// The profile is named once and bound at compile time: the returned
+        /// [`CameraSession`] hands out the `P` camera
+        /// view directly, with no second, runtime-checked profile naming.
+        #[cfg(feature = "transport-serial")]
+        pub fn open_serial_camera<P>(
+            port: impl Into<String>,
+            baud_rate: u32,
+        ) -> Result<CameraSession<P>>
+        where
+            P: CompileTimeProfile + crate::capabilities::SupportsSerial,
+        {
+            CameraConfig::<P>::serial(port, baud_rate).open_serial_camera()
+        }
+
         /// Creates a typed blocking connection builder.
         pub fn builder() -> ConnectBuilder {
             ConnectBuilder

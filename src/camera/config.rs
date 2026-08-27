@@ -612,6 +612,31 @@ where
         )
         .await
     }
+
+    /// Opens the configured Tokio serial transport and starts one single-camera
+    /// owner session.
+    ///
+    /// This is the serial counterpart of [`Self::open_camera_async`] and the
+    /// configured counterpart of
+    /// [`Connect::open_serial_camera`](crate::camera::Connect::open_serial_camera):
+    /// the profile is named once, by this configuration, and the returned
+    /// [`crate::CameraSession`] owns the camera bound to that same `P`.
+    ///
+    /// Async serial is Tokio-only, so this method carries the same
+    /// [`RuntimeSerial`](crate::runtime::RuntimeSerial) bound as
+    /// [`Self::open_serial_async`].
+    #[cfg(feature = "transport-serial-tokio")]
+    pub async fn open_serial_camera_async<R>(
+        &self,
+        runtime: R,
+    ) -> crate::Result<crate::CameraSession<P>>
+    where
+        R: crate::runtime::Runtime
+            + crate::runtime::RuntimeSerial<SerialTransport = crate::transport::tokio::serial::Serial>,
+    {
+        let session = self.open_serial_async(runtime).await?;
+        crate::CameraSession::from_session(session, self.camera_id)
+    }
 }
 
 /// Canonical owner-backed blocking construction.
@@ -668,6 +693,20 @@ where
         )?;
         let transport = crate::transport::BlockingTransportHandle::Serial(serial);
         crate::blocking::Session::open(transport, session_config)
+    }
+
+    /// Opens a configured blocking serial single-camera session.
+    ///
+    /// This is the serial counterpart of [`Self::open_camera`] and the
+    /// configured counterpart of
+    /// [`blocking::Connect::open_serial_camera`](crate::blocking::Connect::open_serial_camera):
+    /// the profile is named once, by this configuration, and the returned
+    /// [`crate::blocking::CameraSession`] hands out the camera bound to that
+    /// same `P`.
+    #[cfg(feature = "transport-serial")]
+    pub fn open_serial_camera(&self) -> crate::Result<crate::blocking::CameraSession<P>> {
+        let session = self.open_serial()?;
+        crate::blocking::CameraSession::from_session(session, self.camera_id)
     }
 }
 
