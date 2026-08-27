@@ -9,6 +9,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 2.0.0-rc.1 release candidate
 
+- **Pinned the movement wire encodings to golden byte vectors, and closed two
+  validation gaps the suite could not see** (#633). Transposing the pan and
+  tilt fields of the absolute pan/tilt encoder, or swapping two rows of the
+  direction table, previously passed the entire test suite: the directional
+  coverage compared a helper frame against an explicit frame that routed
+  through the same table, and the only fixtures naming the bytes outright had
+  been orphaned out of the build. Every pan/tilt direction, the absolute and
+  relative position frames, and the zoom, focus, preset, and power encodings
+  now have absolute byte-vector assertions that no encoder recomputes. The
+  raw frame-size bound gets a fixture that is otherwise valid — legal address
+  byte, legal terminator — so deleting the `raw::MAX_BYTES` branch fails a
+  test instead of being covered by the terminator rule, and
+  `raw::validate_axes` is now exercised through every public axis-carrying
+  constructor.
+- **An operation that names no affected axis is rejected at preparation**
+  (#633). `AffectedAxes::NONE` and the `BitAnd` of two disjoint sets have been
+  constructible since #624, and `raw::Targeted` / `raw::AppliedOnly` already
+  refused them at construction — but a targeted operation that reached
+  preparation with an empty set lowered to a settlement plan that issued zero
+  position inquiries and reported "settled" without observing the camera.
+  Preparation now rejects an empty set for both completion kinds with the
+  same `Error::InvalidRequest` the raw path uses. This can change behaviour
+  for a downstream `OperationCommand` implementation that returns an empty
+  `affected_axes()`, which the trait has always documented as a non-empty set:
+  such an operation now fails admission instead of silently completing
+  unobserved. No public signature changed. Motion observation is deliberately
+  unaffected — `motion().is_moving(MotionQuery::new(AffectedAxes::NONE))`
+  still returns `Ok(false)` for 1.x parity, because a query may legitimately
+  select nothing even though an operation must name what it moves.
 - Restored `image().disable_horizontal_flip()` on all three noun surfaces
   (#635). The rewrite ledgered `BuiltinCommand::ImageFlipHorizontal` under the
   single method spelling `enable_horizontal_flip`, so the noun surfaces only
