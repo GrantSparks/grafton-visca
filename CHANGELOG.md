@@ -66,6 +66,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   installed that nightly explicitly in the snapshot job so `cargo public-api`
   can build rustdoc JSON instead of failing on a missing `nightly` toolchain
   (#562).
+- Stopped shipping the public API snapshots to crates.io and shrank them
+  (#572). `api/` was 71% of the published tarball — 1.8 MiB of CI baseline text
+  with no use to consumers — and is now in the `exclude` list, taking the
+  package from 355 files / 2.5 MiB compressed to 347 files / 737 KiB. The seven
+  byte-compared surfaces are reduced to three (`blocking`, `tokio-dyn`,
+  `all-features`), which measurably cover the same items: `blocking` is a
+  strict superset of the retired no-default surface, `tokio-dyn` of the retired
+  async surface, and `all-features` of the rest. `--simplified` drops the
+  compiler-emitted blanket impls that were ~42% of every file and identical for
+  every public type; auto-trait and auto-derived impls are still tracked. The
+  snapshots and their regeneration procedure are now documented in
+  `CONTRIBUTING.md`, which also drops its stale instruction not to tag without
+  "both semver surfaces" — a gate that no longer exists.
 - Fixed the async owner terminating a session when a byte-stream read carried
   bytes without finishing a VISCA frame (#560). The actor treated the resulting
   empty decoded batch as end of stream and failed every in-flight request, so a
