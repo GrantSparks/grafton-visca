@@ -70,6 +70,22 @@ impl std::fmt::Debug for BoundClock {
     }
 }
 
+/// Outcome of one async driver receive.
+///
+/// The distinction is load bearing on byte-stream transports: only a zero-length
+/// transport read means the peer closed. A read that carried bytes but did not
+/// finish a frame decodes to an empty batch, and the owner must keep pumping so
+/// the remainder of the frame can arrive in a later read.
+#[derive(Debug)]
+pub(crate) enum AsyncReceive {
+    /// The transport reported end of stream, i.e. a zero-length read.
+    Closed,
+    /// The read carried bytes and decoded to zero or more complete frames, in
+    /// source order. An empty batch means the chunk only advanced a partially
+    /// received frame; the transport is still open.
+    Frames(Vec<DecodedFrame>),
+}
+
 /// Async transport/framing adapter. Both operations finish outside any mutable
 /// engine borrow. A receive may return multiple decoded frames in source order.
 pub(crate) trait AsyncOwnerDriver: Send {
@@ -82,7 +98,7 @@ pub(crate) trait AsyncOwnerDriver: Send {
         &mut self,
         buffers: &mut super::OwnerBuffers,
         frame_limit: usize,
-    ) -> impl Future<Output = Result<Vec<DecodedFrame>, Error>> + Send;
+    ) -> impl Future<Output = Result<AsyncReceive, Error>> + Send;
 }
 
 #[derive(Debug)]
@@ -1141,7 +1157,20 @@ where
                 false
             }
             ActorEvent::Receive {
-                result: Ok(frames),
+                result: Ok(AsyncReceive::Closed),
+                received_at,
+            } => {
+                self.terminate_at(
+                    driver,
+                    runtime,
+                    ShutdownReason::TransportClosed { reason: None },
+                    received_at,
+                )
+                .await;
+                true
+            }
+            ActorEvent::Receive {
+                result: Ok(AsyncReceive::Frames(frames)),
                 received_at,
             } => {
                 if let Err(error) = self.state.validate_frame_batch(&frames) {
@@ -1157,14 +1186,10 @@ where
                     return true;
                 }
                 if frames.is_empty() {
-                    self.terminate_at(
-                        driver,
-                        runtime,
-                        ShutdownReason::TransportClosed { reason: None },
-                        received_at,
-                    )
-                    .await;
-                    return true;
+                    // The read carried bytes that did not finish a frame. The
+                    // framer holds the partial frame; keep pumping so the rest
+                    // of it can arrive in a later read.
+                    return false;
                 }
                 let turn = self.state.begin_input_turn(received_at);
                 for frame in frames {
@@ -1384,7 +1409,7 @@ enum ActorEvent {
     Control(ControlBoundary),
     Shutdown,
     Receive {
-        result: Result<Vec<DecodedFrame>, Error>,
+        result: Result<AsyncReceive, Error>,
         received_at: Instant,
     },
     Wake,
@@ -1561,6 +1586,11 @@ mod tests {
         }
     }
 
+    /// Wrap decoded frames as one nonzero-length read for the fake driver.
+    fn batch(frames: Vec<DecodedFrame>) -> Result<AsyncReceive, Error> {
+        Ok(AsyncReceive::Frames(frames))
+    }
+
     fn ack(socket: ViscaSocket) -> DecodedFrame {
         DecodedFrame {
             target: CameraId::CAMERA_1,
@@ -1582,7 +1612,7 @@ mod tests {
         writes: RecordedWrites,
         started: flume::Sender<RequestId>,
         gates: flume::Receiver<Result<TransmissionMeta, Error>>,
-        frames: flume::Receiver<Result<Vec<DecodedFrame>, Error>>,
+        frames: flume::Receiver<Result<AsyncReceive, Error>>,
     }
 
     impl AsyncOwnerDriver for FakeAsyncDriver {
@@ -1611,7 +1641,7 @@ mod tests {
             &mut self,
             _buffers: &mut super::super::OwnerBuffers,
             _frame_limit: usize,
-        ) -> impl Future<Output = Result<Vec<DecodedFrame>, Error>> + Send {
+        ) -> impl Future<Output = Result<AsyncReceive, Error>> + Send {
             let frames = self.frames.clone();
             async move {
                 frames
@@ -1626,7 +1656,7 @@ mod tests {
         driver: FakeAsyncDriver,
         started: flume::Receiver<RequestId>,
         gates: flume::Sender<Result<TransmissionMeta, Error>>,
-        frames: flume::Sender<Result<Vec<DecodedFrame>, Error>>,
+        frames: flume::Sender<Result<AsyncReceive, Error>>,
         writes: RecordedWrites,
     }
 
@@ -1696,11 +1726,11 @@ mod tests {
                 .await
                 .unwrap();
             frames
-                .send_async(Ok(vec![ack(ViscaSocket::S1)]))
+                .send_async(batch(vec![ack(ViscaSocket::S1)]))
                 .await
                 .unwrap();
             frames
-                .send_async(Ok(vec![completion(ViscaSocket::S1)]))
+                .send_async(batch(vec![completion(ViscaSocket::S1)]))
                 .await
                 .unwrap();
             assert_eq!(handle.snapshot().await.unwrap().active, 0);
@@ -1719,11 +1749,11 @@ mod tests {
                 .await
                 .unwrap();
             frames
-                .send_async(Ok(vec![ack(ViscaSocket::S1)]))
+                .send_async(batch(vec![ack(ViscaSocket::S1)]))
                 .await
                 .unwrap();
             frames
-                .send_async(Ok(vec![DecodedFrame {
+                .send_async(batch(vec![DecodedFrame {
                     target: CameraId::CAMERA_1,
                     sequence: None,
                     response: DecodedResponse::Error {
@@ -1749,11 +1779,11 @@ mod tests {
                 .await
                 .unwrap();
             frames
-                .send_async(Ok(vec![ack(ViscaSocket::S1)]))
+                .send_async(batch(vec![ack(ViscaSocket::S1)]))
                 .await
                 .unwrap();
             frames
-                .send_async(Ok(vec![completion(ViscaSocket::S1)]))
+                .send_async(batch(vec![completion(ViscaSocket::S1)]))
                 .await
                 .unwrap();
             assert_eq!(handle.snapshot().await.unwrap().active, 0);
@@ -1792,11 +1822,11 @@ mod tests {
                 "observer timeout never sends cancellation"
             );
             frames
-                .send_async(Ok(vec![ack(ViscaSocket::S1)]))
+                .send_async(batch(vec![ack(ViscaSocket::S1)]))
                 .await
                 .unwrap();
             frames
-                .send_async(Ok(vec![completion(ViscaSocket::S1)]))
+                .send_async(batch(vec![completion(ViscaSocket::S1)]))
                 .await
                 .unwrap();
             assert_eq!(handle.snapshot().await.unwrap().active, 0);
@@ -1830,11 +1860,11 @@ mod tests {
                 .await
                 .unwrap();
             frames
-                .send_async(Ok(vec![ack(ViscaSocket::S1)]))
+                .send_async(batch(vec![ack(ViscaSocket::S1)]))
                 .await
                 .unwrap();
             frames
-                .send_async(Ok(vec![completion(ViscaSocket::S1)]))
+                .send_async(batch(vec![completion(ViscaSocket::S1)]))
                 .await
                 .unwrap();
             assert_eq!(handle.snapshot().await.unwrap().active, 0);
@@ -1851,7 +1881,7 @@ mod tests {
                         .await
                         .unwrap();
                     frames
-                        .send_async(Ok(vec![DecodedFrame {
+                        .send_async(batch(vec![DecodedFrame {
                             target: CameraId::CAMERA_1,
                             sequence: None,
                             response: DecodedResponse::InquiryReply {
@@ -1914,11 +1944,11 @@ mod tests {
             .await
             .unwrap();
         frames
-            .send_async(Ok(vec![ack(ViscaSocket::S1)]))
+            .send_async(batch(vec![ack(ViscaSocket::S1)]))
             .await
             .unwrap();
         frames
-            .send_async(Ok(vec![completion(ViscaSocket::S1)]))
+            .send_async(batch(vec![completion(ViscaSocket::S1)]))
             .await
             .unwrap();
         assert_eq!(handle.snapshot().await.unwrap().active, 0);
@@ -1980,11 +2010,11 @@ mod tests {
             .await
             .unwrap();
         frames
-            .send_async(Ok(vec![ack(ViscaSocket::S1)]))
+            .send_async(batch(vec![ack(ViscaSocket::S1)]))
             .await
             .unwrap();
         frames
-            .send_async(Ok(vec![completion(ViscaSocket::S1)]))
+            .send_async(batch(vec![completion(ViscaSocket::S1)]))
             .await
             .unwrap();
         assert!(matches!(
@@ -2019,7 +2049,7 @@ mod tests {
             .await
             .unwrap();
         frames
-            .send_async(Ok(vec![ack(ViscaSocket::S1)]))
+            .send_async(batch(vec![ack(ViscaSocket::S1)]))
             .await
             .unwrap();
         assert_eq!(handle.snapshot().await.unwrap().active, 1);
@@ -2034,7 +2064,10 @@ mod tests {
 
         runtime.advance(Duration::from_secs(6));
         frames
-            .send_async(Ok(vec![ack(ViscaSocket::S2), completion(ViscaSocket::S1)]))
+            .send_async(batch(vec![
+                ack(ViscaSocket::S2),
+                completion(ViscaSocket::S1),
+            ]))
             .await
             .unwrap();
         assert_eq!(handle.snapshot().await.unwrap().active, 1);
@@ -2135,7 +2168,7 @@ mod tests {
         let frames = harness.frames.clone();
         let admission = handle.try_submit(command()).unwrap();
         handle.shutdown().await.unwrap();
-        frames.send_async(Ok(Vec::new())).await.unwrap();
+        frames.send_async(Ok(AsyncReceive::Closed)).await.unwrap();
         let snapshot = actor.run(harness.driver).await;
         assert_eq!(snapshot.state, SessionState::Closed);
         assert!(matches!(
@@ -2158,7 +2191,7 @@ mod tests {
         let harness = harness();
         let frames = harness.frames.clone();
         frames
-            .send_async(Ok(vec![DecodedFrame {
+            .send_async(batch(vec![DecodedFrame {
                 target: CameraId::CAMERA_1,
                 sequence: None,
                 response: DecodedResponse::Unknown,
@@ -2198,7 +2231,7 @@ mod tests {
             .await
             .unwrap();
         frames
-            .send_async(Ok(vec![ack(ViscaSocket::S1)]))
+            .send_async(batch(vec![ack(ViscaSocket::S1)]))
             .await
             .unwrap();
         let cancel_handle = handle.clone();
@@ -2210,7 +2243,7 @@ mod tests {
             .unwrap();
         let cancellation = cancel_task.await.unwrap().unwrap();
         frames
-            .send_async(Ok(vec![DecodedFrame {
+            .send_async(batch(vec![DecodedFrame {
                 target: CameraId::CAMERA_1,
                 sequence: None,
                 response: DecodedResponse::Error {
@@ -2248,7 +2281,10 @@ mod tests {
             tokio::task::yield_now().await;
         }
         frames
-            .send_async(Ok(vec![ack(ViscaSocket::S1), completion(ViscaSocket::S1)]))
+            .send_async(batch(vec![
+                ack(ViscaSocket::S1),
+                completion(ViscaSocket::S1),
+            ]))
             .await
             .unwrap();
         handle.shutdown().await.unwrap();
@@ -2368,6 +2404,138 @@ mod tests {
         );
     }
 
+    /// Byte-stream transport whose reads are handed over one chunk at a time,
+    /// so a test can split a single VISCA reply across two reads.
+    #[cfg(feature = "runtime-tokio")]
+    #[derive(Debug)]
+    struct ChunkedStreamTransport {
+        config: crate::transport::builder::TransportConfig,
+        chunks: flume::Receiver<Vec<u8>>,
+        sent: flume::Sender<Vec<u8>>,
+    }
+
+    #[cfg(feature = "runtime-tokio")]
+    impl crate::transport::HasTransportConfig for ChunkedStreamTransport {
+        fn transport_config(&self) -> &crate::transport::builder::TransportConfig {
+            &self.config
+        }
+    }
+
+    #[cfg(feature = "runtime-tokio")]
+    impl crate::transport::AsyncTransport for ChunkedStreamTransport {
+        async fn send(&mut self, bytes: &[u8]) -> Result<(), Error> {
+            self.sent
+                .send_async(bytes.to_vec())
+                .await
+                .map_err(|_| Error::RuntimeShutdown)
+        }
+
+        async fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
+            // An exhausted script parks instead of reporting end of stream, so
+            // the test controls exactly when the transport closes.
+            let Ok(chunk) = self.chunks.recv_async().await else {
+                return future::pending().await;
+            };
+            let len = chunk.len().min(dst.len());
+            dst[..len].copy_from_slice(&chunk[..len]);
+            Ok(len)
+        }
+
+        fn send_semantics(&self) -> crate::transport::SendSemantics {
+            crate::transport::SendSemantics::Stream
+        }
+    }
+
+    /// Regression test for a reply split across two stream reads (#560). A read
+    /// that only advances a partial frame decodes to an empty batch, which must
+    /// not be mistaken for a transport close.
+    #[cfg(feature = "runtime-tokio")]
+    #[tokio::test]
+    async fn stream_reply_split_across_two_reads_keeps_the_session_running() {
+        let runtime = TokioRuntime::from_current().unwrap();
+        let profile = crate::ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()
+            .expect("the generic profile is valid");
+        let (chunk_tx, chunks) = flume::bounded(8);
+        let (sent, sent_rx) = flume::bounded(8);
+        let adapter = crate::runtime::owner::AsyncTransportAdapter::new(
+            ChunkedStreamTransport {
+                config: crate::transport::builder::TransportConfig::default(),
+                chunks,
+                sent,
+            },
+            &profile,
+            CameraId::CAMERA_1,
+        )
+        .unwrap();
+        assert_eq!(adapter.policy().protocol.transport, TransportKind::Stream);
+        let (handle, actor) = AsyncOwnerActor::new(adapter.policy().clone(), runtime).unwrap();
+        let actor_task = tokio::spawn(actor.run(adapter));
+
+        let receipt = handle.submit(command()).await.unwrap();
+        let _written = sent_rx.recv_async().await.unwrap();
+
+        // Half of the ack. The framer buffers it and decodes nothing.
+        chunk_tx.send_async(vec![0x90, 0x41]).await.unwrap();
+        while !chunk_tx.is_empty() {
+            tokio::task::yield_now().await;
+        }
+        // A snapshot only answers while the actor is still pumping; under the
+        // #560 bug the actor has already terminated by this point.
+        assert_eq!(
+            handle.snapshot().await.unwrap().state,
+            SessionState::Running,
+            "a partial frame must not close the session"
+        );
+
+        // The rest of the ack, then the completion split the same way.
+        chunk_tx.send_async(vec![0xff]).await.unwrap();
+        chunk_tx.send_async(vec![0x90, 0x51]).await.unwrap();
+        chunk_tx.send_async(vec![0xff]).await.unwrap();
+
+        assert!(matches!(
+            receipt.terminal().await.unwrap(),
+            RuntimeOutcome::Applied
+        ));
+        assert_eq!(handle.snapshot().await.unwrap().active, 0);
+        handle.shutdown().await.unwrap();
+        let snapshot = actor_task.await.unwrap();
+        assert_eq!(snapshot.state, SessionState::Shutdown);
+    }
+
+    /// A zero-length stream read is still the only close signal.
+    #[cfg(feature = "runtime-tokio")]
+    #[tokio::test]
+    async fn zero_length_stream_read_still_closes_the_session() {
+        let runtime = TokioRuntime::from_current().unwrap();
+        let profile = crate::ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()
+            .expect("the generic profile is valid");
+        let (chunk_tx, chunks) = flume::bounded(8);
+        let (sent, sent_rx) = flume::bounded(8);
+        let adapter = crate::runtime::owner::AsyncTransportAdapter::new(
+            ChunkedStreamTransport {
+                config: crate::transport::builder::TransportConfig::default(),
+                chunks,
+                sent,
+            },
+            &profile,
+            CameraId::CAMERA_1,
+        )
+        .unwrap();
+        let (handle, actor) = AsyncOwnerActor::new(adapter.policy().clone(), runtime).unwrap();
+        let actor_task = tokio::spawn(actor.run(adapter));
+
+        let receipt = handle.submit(command()).await.unwrap();
+        let _written = sent_rx.recv_async().await.unwrap();
+        chunk_tx.send_async(Vec::new()).await.unwrap();
+
+        assert!(matches!(
+            receipt.terminal().await.unwrap(),
+            RuntimeOutcome::Failed(Error::ConnectionClosed { .. })
+        ));
+        let snapshot = actor_task.await.unwrap();
+        assert_eq!(snapshot.state, SessionState::Closed);
+    }
+
     #[cfg(feature = "runtime-smol")]
     #[test]
     fn smol_actor_has_the_same_admit_write_terminal_order() {
@@ -2387,11 +2555,11 @@ mod tests {
                 .await
                 .unwrap();
             frames
-                .send_async(Ok(vec![ack(ViscaSocket::S1)]))
+                .send_async(batch(vec![ack(ViscaSocket::S1)]))
                 .await
                 .unwrap();
             frames
-                .send_async(Ok(vec![completion(ViscaSocket::S1)]))
+                .send_async(batch(vec![completion(ViscaSocket::S1)]))
                 .await
                 .unwrap();
             assert!(matches!(
