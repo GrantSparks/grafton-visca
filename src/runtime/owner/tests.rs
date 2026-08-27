@@ -45,6 +45,114 @@ fn with_targets_rejects_broadcast_slot_without_panicking() {
     assert!(result.is_err());
 }
 
+/// Issue #631: the owner state used by the reconfiguration tests below.
+///
+/// The profile baseline is deliberately non-zero on both axes so a
+/// re-derivation that quietly kept a previous override would be visible.
+fn reconfigurable_owner_state() -> OwnerState {
+    let mut protocol = policy_for_target_validation();
+    protocol.command_spacing = Duration::from_millis(10);
+    protocol.inquiry_spacing = Duration::from_millis(20);
+    let policy = OwnerPolicy::single_target(
+        protocol,
+        CameraId::CAMERA_1,
+        TargetPolicy {
+            command_sockets: 2,
+            cancellation: CancellationPolicy::Supported,
+        },
+    )
+    .expect("single-target owner policy");
+    OwnerState::new(policy).expect("owner state")
+}
+
+fn command_sockets(state: &OwnerState) -> u8 {
+    state.policy().targets[usize::from(CameraId::CAMERA_1.id())]
+        .expect("camera one is registered")
+        .command_sockets
+}
+
+/// Issue #631: pacing and socket capacity are re-derived from the *profile*
+/// baseline, so an override can be relaxed again instead of becoming the new
+/// floor.
+#[test]
+fn retuning_re_derives_pacing_from_the_profile_baseline() {
+    let mut state = reconfigurable_owner_state();
+    assert_eq!(
+        state.policy().protocol.command_spacing,
+        Duration::from_millis(10)
+    );
+    assert_eq!(
+        state.policy().protocol.inquiry_spacing,
+        Duration::from_millis(20)
+    );
+    assert_eq!(command_sockets(&state), 2);
+
+    state
+        .retune(
+            crate::OperationalTuning::new()
+                .command_spacing(Duration::from_millis(200))
+                .inquiry_spacing(Duration::from_millis(300))
+                .maximum_command_sockets(1),
+        )
+        .expect("widening pacing and lowering socket capacity is accepted");
+    assert_eq!(
+        state.policy().protocol.command_spacing,
+        Duration::from_millis(200)
+    );
+    assert_eq!(
+        state.policy().protocol.inquiry_spacing,
+        Duration::from_millis(300)
+    );
+    assert_eq!(command_sockets(&state), 1);
+
+    // Clearing every override must return to the profile facts. Deriving the
+    // new value from the *tuned* one instead would leave 200 ms installed
+    // forever.
+    state
+        .retune(crate::OperationalTuning::new())
+        .expect("clearing the overrides is accepted");
+    assert_eq!(
+        state.policy().protocol.command_spacing,
+        Duration::from_millis(10)
+    );
+    assert_eq!(
+        state.policy().protocol.inquiry_spacing,
+        Duration::from_millis(20)
+    );
+    assert_eq!(command_sockets(&state), 2);
+}
+
+/// Issue #631: the live tuning cell handed to request-preparing handles follows
+/// the owner, and a rejected update leaves both the cell and the policy alone.
+#[test]
+fn a_rejected_retune_changes_neither_the_live_tuning_nor_the_policy() {
+    let mut state = reconfigurable_owner_state();
+    let live = state.live_tuning();
+    assert_eq!(live.get(), crate::OperationalTuning::new());
+
+    let accepted = crate::OperationalTuning::new().command_spacing(Duration::from_millis(50));
+    state.retune(accepted).expect("accepted");
+    assert_eq!(live.get(), accepted, "the shared cell follows the owner");
+
+    // The facades reject this before it reaches the owner; the engine's own
+    // socket bound is the second line of defence, and it must fail cleanly.
+    let error = state
+        .retune(crate::OperationalTuning::new().maximum_command_sockets(3))
+        .expect_err("three command sockets is not a VISCA capacity");
+    assert!(matches!(error, Error::InvalidRequest(_)), "got {error:?}");
+    assert_eq!(
+        live.get(),
+        accepted,
+        "a rejected update leaves the live tuning untouched"
+    );
+    assert_eq!(
+        state.policy().protocol.command_spacing,
+        Duration::from_millis(50),
+        "a rejected update leaves the owner policy untouched"
+    );
+    assert_eq!(command_sockets(&state), 2);
+}
+
 #[cfg(all(feature = "blocking", not(feature = "async")))]
 mod blocking {
     use std::{

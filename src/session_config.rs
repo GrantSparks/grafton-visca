@@ -131,10 +131,27 @@ impl SessionConfig {
         self.targets.iter().flatten().count()
     }
 
-    /// Returns the immutable session tuning.
+    /// Returns the session tuning this configuration was built with.
+    ///
+    /// This is the *construction* value. A session opened from it may since
+    /// have been reconfigured at runtime; read the session's own `tuning` for
+    /// the value requests are actually prepared under.
     #[must_use]
     pub const fn tuning(&self) -> OperationalTuning {
         self.tuning
+    }
+
+    /// Checks operational tuning against every registered profile.
+    ///
+    /// This is the same check [`Self::with_tuning`] performs, exposed for the
+    /// runtime reconfiguration path (#631) so an update is rejected on exactly
+    /// the grounds that would have rejected it at construction.
+    #[cfg(any(feature = "async", feature = "blocking"))]
+    pub(crate) fn validate_tuning(&self, tuning: OperationalTuning) -> Result<()> {
+        for profile in self.targets.iter().flatten() {
+            profile.validate_tuning(tuning)?;
+        }
+        Ok(())
     }
 
     /// Validate all registered profiles against a standard transport kind.

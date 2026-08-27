@@ -274,6 +274,41 @@ impl ProtocolEngine {
         }
     }
 
+    /// Replaces the session-wide pacing floor and per-target socket capacity.
+    ///
+    /// Target *registration* is still immutable: a slot that was never
+    /// registered stays unregistered, and `command_sockets` is only replaced
+    /// where a target policy already exists. Nothing else about an admitted
+    /// request changes, so this cannot reorder, cancel, or re-time work that is
+    /// already awaiting a protocol deadline; it only changes when the scheduler
+    /// is next willing to put a frame on the wire. Lowering socket capacity
+    /// below the number of commands currently in flight is therefore safe: the
+    /// excess drains normally and no further dispatch happens until it has.
+    pub(crate) fn retune(
+        &mut self,
+        command_spacing: Duration,
+        inquiry_spacing: Duration,
+        command_sockets: [Option<u8>; 9],
+    ) -> Result<(), Error> {
+        for (slot, sockets) in self.targets.iter().zip(command_sockets.iter()) {
+            if let (Some(_), Some(sockets)) = (slot, sockets) {
+                if !(1..=2).contains(sockets) {
+                    return Err(Error::InvalidRequest(
+                        "VISCA command socket capacity must be one or two".into(),
+                    ));
+                }
+            }
+        }
+        self.policy.command_spacing = command_spacing;
+        self.policy.inquiry_spacing = inquiry_spacing;
+        for (slot, sockets) in self.targets.iter_mut().zip(command_sockets.iter()) {
+            if let (Some(policy), Some(sockets)) = (slot.as_mut(), sockets) {
+                policy.command_sockets = *sockets;
+            }
+        }
+        Ok(())
+    }
+
     pub(crate) const fn state(&self) -> SessionState {
         self.state
     }

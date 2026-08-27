@@ -244,6 +244,16 @@ enum ControlBoundary {
         capacity: usize,
         reply: flume::Sender<Result<DiagnosticSubscription, Error>>,
     },
+    /// Installs new session tuning on the live owner (#631).
+    ///
+    /// This lane is what makes the update serialized: the actor is the only
+    /// writer of the shared tuning cell, so two handles reconfiguring at the
+    /// same time resolve last-writer-wins in the order the actor accepted them
+    /// and no reader ever observes a mixture of the two.
+    Reconfigure {
+        tuning: crate::OperationalTuning,
+        reply: flume::Sender<Result<(), Error>>,
+    },
 }
 
 /// Bounded diagnostic/metric copy safe to expose through a later public facade.
@@ -754,6 +764,9 @@ pub(crate) struct AsyncOwnerHandle {
     origin: Arc<()>,
     clock: BoundClock,
     state_cache: Arc<[Mutex<TargetStateCache>; 9]>,
+    /// The owner's live operational tuning (#631). Reading it is a lock and a
+    /// copy, so preparation never has to round-trip through the actor.
+    tuning: super::LiveTuning,
 }
 
 impl AsyncOwnerHandle {
@@ -1020,6 +1033,27 @@ impl AsyncOwnerHandle {
         crate::state_cache::StateCache::from_registry(Arc::clone(&self.state_cache), target)
     }
 
+    /// Reads the tuning the owner is currently preparing requests under.
+    pub(crate) fn tuning(&self) -> crate::OperationalTuning {
+        self.tuning.get()
+    }
+
+    /// Installs new session tuning through the owner's control boundary (#631).
+    ///
+    /// The actor applies the update on its own turn, so the write is ordered
+    /// against every other boundary message and against the scheduler itself.
+    /// This future resolves once the owner has applied it, which is what makes
+    /// "the next request I prepare uses the new values" a guarantee rather than
+    /// a race.
+    pub(crate) async fn reconfigure(&self, tuning: crate::OperationalTuning) -> Result<(), Error> {
+        let (reply, receiver) = flume::bounded(1);
+        self.control
+            .send_async(ControlBoundary::Reconfigure { tuning, reply })
+            .await
+            .map_err(|_| self.disconnected_error())?;
+        self.await_boundary_reply(&receiver).await?
+    }
+
     pub(crate) async fn subscribe_applied(
         &self,
         target: Option<crate::CameraId>,
@@ -1139,6 +1173,7 @@ where
         let origin = state.origin();
         let permits = state.permits();
         let state_cache = state.state_cache_registry();
+        let tuning = state.live_tuning();
         let boundary_capacity = permits.capacity();
         // Cancellation is deliberately a small independent lane. Saturation
         // applies backpressure through `send_async`; it never falls back to a
@@ -1165,6 +1200,7 @@ where
                 origin,
                 clock: clock.clone(),
                 state_cache,
+                tuning,
             },
             Self {
                 state,
@@ -1550,6 +1586,10 @@ where
                 let result = self.state.subscribe_diagnostics(capacity);
                 let _ = reply.try_send(result);
             }
+            ControlBoundary::Reconfigure { tuning, reply } => {
+                let result = self.state.retune(tuning);
+                let _ = reply.try_send(result);
+            }
         }
     }
 
@@ -1655,6 +1695,9 @@ where
                         let _ = reply.try_send(Err(error.clone()));
                     }
                     ControlBoundary::SubscribeDiagnostics { reply, .. } => {
+                        let _ = reply.try_send(Err(error.clone()));
+                    }
+                    ControlBoundary::Reconfigure { reply, .. } => {
                         let _ = reply.try_send(Err(error.clone()));
                     }
                 }

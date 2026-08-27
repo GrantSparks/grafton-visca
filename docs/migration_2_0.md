@@ -134,10 +134,53 @@ Both forms are demonstrated end to end in `examples/operation_handles.rs` and
 | Public `camera::*`, `command::*`, `protocol::*`, response, cache, runtime, or transport implementation modules | Supported root/module exports and owner methods. Implementation submodules are not extension points. |
 | `diagnostics::Diagnostics`/probe-style compatibility API | `Session::metrics`, async `subscribe_diagnostics`, and blocking `drain_diagnostics`. |
 | Legacy mutable `cache::StateCache` | Owner-backed read-only root `StateCache`; use `target()` and `value(StateKey)`. |
+| `Camera::set_timeout_config` / `timeout_config` | `Session::set_tuning` / `tuning` (and the same pair on `CameraSession`), taking an `OperationalTuning` instead of a `TimeoutConfig`. See [Reconfiguring timeouts at runtime](#reconfiguring-timeouts-at-runtime) — the scope is narrower than 1.2.0's. |
 
 Serialization features (`serde`, `schemars`, `ts-rs`) remain opt-in data-shape
 features. They do not reopen private modules or create a second semantic
 registry. `test-utils` is for deterministic tests, not production construction.
+
+### Reconfiguring timeouts at runtime
+
+1.2.0's `Camera::set_timeout_config` took a `TimeoutConfig`; 2.0's
+`Session::set_tuning` takes an `OperationalTuning`, which is the same knob
+lowered onto the owner's own vocabulary. The mapping is direct:
+
+| 1.2.0 `TimeoutConfig` field | 2.0 `OperationalTuning` builder |
+| --- | --- |
+| `ack_timeout` | `ack_timeout` |
+| `movement_timeout`, `preset_timeout`, `long_timeout`, `default_timeout` | `completion_timeout` (the owner has one completion budget; use the largest of the 1.x values) and `settlement_timeout` for the physical-settling budget |
+| `quick_timeout`, `network_timeout` | `inquiry_timeout` |
+| `RetryConfig::max_retries`, `base_retry_delay`, `max_retry_duration` | `retry_limit` and `retry_timing` |
+
+Two differences matter in practice.
+
+**The update is a whole replacement, not a merge.** Any field left unset returns
+to the profile default rather than keeping a value an earlier call installed.
+Build the complete `OperationalTuning` each time.
+
+**In-flight work is not re-timed.** 1.2.0 recomputed deadlines on every
+housekeeping pass, so widening `ack_timeout` also rescued a command that was
+already waiting for its acknowledgement. 2.0 stamps a request's deadlines once,
+at preparation, and the engine derives its absolute phase deadlines from that
+stamp, so `set_tuning` governs **every request prepared after it** and leaves a
+request already admitted on the deadlines it was admitted with. The owner's
+session-wide pacing floor and per-target socket capacity *are* applied at once,
+so work still queued behind pacing is released under the new values.
+
+If a command that is already running must move onto a widened deadline, cancel
+it and resubmit:
+
+```rust,ignore
+session.set_tuning(OperationalTuning::new().ack_timeout(Duration::from_secs(2)))?;
+// `operation` was admitted before the update and keeps its old deadline.
+let _ = operation.cancel()?.outcome(Duration::from_secs(1));
+let operation = camera.submit::<AppliedOnly, _>(&command)?;
+```
+
+Runtime updates are validated on exactly the grounds `SessionConfig::with_tuning`
+validates on, so tuning that would have been refused at construction is refused
+here too and leaves the live configuration untouched.
 
 ## Recovery changes
 
