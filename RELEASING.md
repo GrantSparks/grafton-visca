@@ -32,13 +32,20 @@ Run the release gates on the candidate commit. The hardware rows in
 must be assigned and have evidence before a hardware claim is made; an
 unfilled row is `Pending (Not run)`.
 
-The release workflow treats `2.0.0-rc.*` as a candidate: pending hardware rows
-are allowed and must remain honestly marked. A final `2.x.y` tag is different:
+The release workflow treats any pre-release tag (`2.0.0-rc.*` and later
+candidates) as a candidate: pending hardware rows are allowed and must remain
+honestly marked. A final stable tag from `2.0.0` onward is different — the rule
+is every stable release with major version 2 or higher, not literally `2.x.y`:
 the validation script rejects it when any checklist table cell is `Pending`,
-`Pending (Not run)`, `Blocked`, or `Fail`, or when the checklist has no
-non-pending `Final sign-off:` and `Evidence index:` records. Every checklist
-status cell must be `Pass`; candidate and software CI gates do not constitute
-hardware evidence.
+`Pending (Not run)`, `Blocked`, or `Fail` (in any letter case), when the
+checklist carries no table row under a `Status` column, or when the checklist
+has no non-placeholder `Final sign-off:` and `Evidence index:` records. Every
+checklist status cell must be `Pass`; candidate and software CI gates do not
+constitute hardware evidence.
+
+Release tags must not carry semver build metadata: `v2.0.0+meta` has exactly the
+same precedence as `v2.0.0`, so the validator refuses metadata-bearing tags
+outright rather than letting one release be published under two identities.
 
 ```sh
 cargo metadata --no-deps --format-version 1
