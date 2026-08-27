@@ -501,6 +501,21 @@ destination.
   The README feature-union table promised automated validation of
   `runtime-tokio,transport-serial`, which no matrix leg covered; that leg is
   back, and the table now names the CI job that checks each union.
+- **Removed `Error::to_public_error()`** (#614). The helper was a 1.x
+  carry-over with zero callers anywhere in the 2.0 tree, and its one mapping
+  with a reachable input was wrong for 2.0: it folded `Error::NoSocket` into
+  `Error::NoTransport`. `NoSocket` is the camera's `0x05` answer — transient
+  socket-table capacity on a healthy session, classified `ErrorKind::BufferFull`
+  and retryable (#501, #566) — while `NoTransport` is one of the variants
+  `Error::requires_new_session()` reports as session death, so anything that
+  had started calling the helper would have turned a retry into a spurious
+  reconnect. Its remaining arms mapped variants 2.0 never constructs.
+  Nothing is lost: in 1.x the helper had a single call site,
+  `RuntimeHandle::normalize_boundary_error`, whose preceding match arm already
+  claimed the whole channel-closed family, and 2.0 normalizes a closed
+  boundary channel to `Error::RuntimeShutdown` at the point of failure instead.
+  Callers that want the coarse view should match on `Error::kind()`, and
+  callers deciding whether to reconnect should use `requires_new_session()`.
 
 ### Fixed
 
