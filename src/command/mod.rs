@@ -205,26 +205,28 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::expect_used)]
     fn test_preset_commands_have_terminator() {
         use crate::command::preset::PresetCommand;
         use crate::command::preset::PresetNumber;
 
-        if let Ok(preset) = PresetNumber::new(1) {
-            assert_command_has_terminator(
-                PresetCommand {
-                    action: crate::command::preset::PresetAction::Recall,
-                    preset_number: preset,
-                },
-                "Preset::Recall(1)",
-            );
-            assert_command_has_terminator(
-                PresetCommand {
-                    action: crate::command::preset::PresetAction::Set,
-                    preset_number: preset,
-                },
-                "Preset::Set(1)",
-            );
-        }
+        // Not `if let Ok(..)`: a preset range that stopped admitting 1 would
+        // silently skip both assertions instead of failing.
+        let preset = PresetNumber::new(1).expect("preset 1 is inside every supported preset range");
+        assert_command_has_terminator(
+            PresetCommand {
+                action: crate::command::preset::PresetAction::Recall,
+                preset_number: preset,
+            },
+            "Preset::Recall(1)",
+        );
+        assert_command_has_terminator(
+            PresetCommand {
+                action: crate::command::preset::PresetAction::Set,
+                preset_number: preset,
+            },
+            "Preset::Set(1)",
+        );
     }
 
     #[test]
@@ -246,11 +248,15 @@ mod tests {
         );
     }
 
+    /// Only the positive half lives here: that a terminated builder yields a
+    /// terminated frame. The negative half — that the *unterminated* state has
+    /// no `as_bytes` at all — is a compile-time assertion in
+    /// `bytes::builder::tests::the_incomplete_state_has_no_inherent_as_bytes`,
+    /// because a commented-out line asserts nothing.
     #[test]
-    fn test_type_state_prevents_unterminated_commands() {
+    fn test_terminated_builder_yields_a_terminated_frame() {
         use crate::command::bytes::ConstCommandBuilder;
 
-        // Create a builder and terminate it
         let builder = ConstCommandBuilder::<8>::new()
             .push(0x81)
             .push(0x01)
@@ -259,14 +265,8 @@ mod tests {
             .push(0x02)
             .terminate();
 
-        // Verify the terminated command has the terminator
         let bytes = builder.as_bytes();
-        assert_eq!(bytes[bytes.len() - 1], VISCA_TERMINATOR);
-
-        // Verify we can't access bytes without terminating (compile-time check)
-        // The following would not compile:
-        // let unterminated = ConstCommandBuilder::<8>::new().push(0x81);
-        // let bytes = unterminated.as_bytes(); // ERROR: method not found
+        assert_eq!(bytes, &[0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]);
     }
 
     #[test]

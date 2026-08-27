@@ -424,13 +424,57 @@ impl PanTiltLimitUpdate {
 mod tests {
     use super::StateKey;
 
+    /// The declared order of [`StateKey`], expressed as an exhaustive match.
+    ///
+    /// `#[non_exhaustive]` closes the enum to *downstream* crates only: inside
+    /// the defining crate this match must still be total, so adding a variant
+    /// to [`StateKey`] stops this module compiling until the variant is given
+    /// a successor here. That is the compiler-enforced half of the ledger; the
+    /// test below is the half that then requires the same variant to appear in
+    /// [`StateKey::ALL`], which a bare `ALL.len() == 15` could never see.
+    const fn successor(key: StateKey) -> Option<StateKey> {
+        match key {
+            StateKey::PanTiltLimits => Some(StateKey::PresetRecallSpeed),
+            StateKey::PresetRecallSpeed => Some(StateKey::FocusLockMode),
+            StateKey::FocusLockMode => Some(StateKey::Spotlight),
+            StateKey::Spotlight => Some(StateKey::AutoSlowShutter),
+            StateKey::AutoSlowShutter => Some(StateKey::NdFilterMode),
+            StateKey::NdFilterMode => Some(StateKey::AutoNdFilter),
+            StateKey::AutoNdFilter => Some(StateKey::ImageFreeze),
+            StateKey::ImageFreeze => Some(StateKey::DigitalZoomMode),
+            StateKey::DigitalZoomMode => Some(StateKey::MulticastStreaming),
+            StateKey::MulticastStreaming => Some(StateKey::NdiQuality),
+            StateKey::NdiQuality => Some(StateKey::TallyBrightness),
+            StateKey::TallyBrightness => Some(StateKey::VariableSpeedMode),
+            StateKey::VariableSpeedMode => Some(StateKey::TallyMode),
+            StateKey::TallyMode => Some(StateKey::Flip),
+            StateKey::Flip => None,
+        }
+    }
+
     #[test]
     fn state_key_inventory_is_exact_and_unique() {
+        let mut declared = Vec::new();
+        let mut key = Some(StateKey::PanTiltLimits);
+        while let Some(current) = key {
+            assert!(
+                !declared.contains(&current),
+                "the declaration walk revisits {current:?}"
+            );
+            declared.push(current);
+            key = successor(current);
+        }
+
+        assert_eq!(
+            StateKey::ALL,
+            declared.as_slice(),
+            "StateKey::ALL drifted from the declared variants"
+        );
         let unique = StateKey::ALL
             .iter()
             .copied()
             .collect::<std::collections::BTreeSet<_>>();
-        assert_eq!(StateKey::ALL.len(), 15);
         assert_eq!(unique.len(), StateKey::ALL.len());
+        assert_eq!(StateKey::all(), StateKey::ALL);
     }
 }

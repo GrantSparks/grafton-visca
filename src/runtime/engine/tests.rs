@@ -4300,15 +4300,92 @@ fn the_ack_backoff_exponent_is_capped_and_other_triggers_are_not() {
         );
     }
 
-    // A completion timeout on the same policy is uncapped and doubles past it.
-    let uncapped = retry_delay(
-        ack_capped_retry(),
-        8,
-        Backoff::Uncapped,
-        Jitter::new().fraction(id, 8),
+    // The pure delay function agrees, which is what fixes the exact numbers
+    // above to the ACK *cap* rather than to `maximum_backoff`.
+    assert_eq!(
+        waits[7],
+        retry_delay(
+            ack_capped_retry(),
+            8,
+            Backoff::AckCapped,
+            Jitter::new().fraction(id, 8),
+        )
     );
-    assert_eq!(uncapped, Duration::from_nanos(114_248_606));
-    assert!(uncapped > Duration::from_millis(32));
+
+    // The other half of the claim, driven through the engine rather than by
+    // handing `Backoff::Uncapped` to the pure function: an identical policy
+    // whose *completion* deadline is what expires must have its exponent left
+    // uncapped by the engine's own trigger selection.
+    let mut uncapped_engine = self::engine(EnvelopeKind::Raw, TransportKind::Datagram);
+    let admission = uncapped_engine.handle(
+        Input::Admit {
+            ticket: AdmissionTicket(2),
+            request: command_with_retry(1, ack_capped_retry()),
+        },
+        start,
+    );
+    let uncapped_id = admitted(&admission);
+    send_ok(&mut uncapped_engine, &admission, None, start);
+
+    let mut now = start;
+    let mut uncapped_waits = Vec::new();
+    for _ in 0..8 {
+        // Acknowledge inside the ACK deadline so the only deadline that can
+        // fire below is the completion one.
+        uncapped_engine.handle(
+            frame(
+                1,
+                None,
+                DecodedResponse::Ack {
+                    socket: Some(ViscaSocket::S1),
+                },
+            ),
+            now,
+        );
+        let expired = now + Duration::from_millis(60);
+        let timed_out = uncapped_engine.handle(Input::Wake, expired);
+        let (retried, attempt, ready_at) =
+            retry_scheduled(&timed_out).expect("completion timeout retry");
+        assert_eq!(retried, uncapped_id);
+        uncapped_waits.push(ready_at - expired);
+        assert_eq!(attempt, u32::try_from(uncapped_waits.len()).unwrap());
+        let promoted = uncapped_engine.advance(ready_at);
+        let (transmission, _, _) = request_transmit(&promoted);
+        uncapped_engine.handle(
+            Input::TransmissionFinished {
+                transmission,
+                result: Ok(TransmissionMeta { sequence: None }),
+            },
+            ready_at,
+        );
+        now = ready_at;
+    }
+
+    // Attempts 7 and 8 use exponents 6 and 7, so their ceilings are 64ms and
+    // 128ms and every wait sits in the upper half-open band `[ceiling/2,
+    // ceiling)`. Both therefore clear the capped ceiling the ACK trigger is
+    // held to, which is exactly what selecting `Backoff::AckCapped` for a
+    // completion timeout would destroy.
+    assert!(
+        uncapped_waits[6] >= Duration::from_millis(32),
+        "attempt 7 must have grown past the ACK ceiling, got {:?}",
+        uncapped_waits[6]
+    );
+    assert!(
+        uncapped_waits[7] >= Duration::from_millis(64),
+        "attempt 8 must have doubled again, got {:?}",
+        uncapped_waits[7]
+    );
+    assert_eq!(
+        uncapped_waits[7],
+        retry_delay(
+            ack_capped_retry(),
+            8,
+            Backoff::Uncapped,
+            Jitter::new().fraction(uncapped_id, 8),
+        )
+    );
+    uncapped_engine.assert_invariants().unwrap();
     engine.assert_invariants().unwrap();
 }
 

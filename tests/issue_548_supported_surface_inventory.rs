@@ -138,22 +138,286 @@ const EXPECTED_DYN_TRAITS: &[&str] = &[
     "DynZoom",
 ];
 
-const EXPECTED_DYN_NOUN_METHOD_COUNTS: &[(&str, usize)] = &[
-    ("DynPower", 3),
-    ("DynZoom", 10),
-    ("DynSystem", 2),
-    ("DynPanTilt", 13),
-    ("DynFocus", 24),
-    ("DynPresets", 4),
-    ("DynExposure", 43),
-    ("DynWhiteBalance", 30),
-    ("DynImage", 41),
-    ("DynTally", 13),
-    ("DynNdFilter", 9),
-    ("DynMotionSync", 5),
-    ("DynMenu", 7),
-    ("DynAdvanced", 15),
-    ("DynMotion", 4),
+/// Every method each dynamic noun trait declares.
+///
+/// A per-trait *count* could not see a delete-one-add-one edit inside one
+/// trait, which is the drift a closed surface most needs to notice. The
+/// spellings are the surface, so the spellings are what is pinned.
+const EXPECTED_DYN_NOUN_METHODS: &[(&str, &[&str])] = &[
+    ("DynPower", &["off", "on", "state"]),
+    (
+        "DynZoom",
+        &[
+            "position",
+            "set_digital_zoom",
+            "set_normalized",
+            "set_normalized_in_domain",
+            "set_position",
+            "stop",
+            "tele",
+            "tele_variable",
+            "wide",
+            "wide_variable",
+        ],
+    ),
+    ("DynSystem", &["save_settings", "version"]),
+    (
+        "DynPanTilt",
+        &[
+            "absolute",
+            "down",
+            "home",
+            "left",
+            "limit_clear",
+            "limit_set",
+            "move_direction",
+            "position",
+            "relative",
+            "reset",
+            "right",
+            "stop",
+            "up",
+        ],
+    ),
+    (
+        "DynFocus",
+        &[
+            "auto",
+            "far",
+            "far_variable",
+            "infinity",
+            "manual",
+            "mode",
+            "near",
+            "near_limit",
+            "near_variable",
+            "one_push",
+            "position",
+            "push_af_press",
+            "push_af_release",
+            "range",
+            "sensitivity",
+            "set_lock",
+            "set_near_limit",
+            "set_position",
+            "set_sensitivity",
+            "set_zone",
+            "snap",
+            "stop",
+            "toggle",
+            "zone",
+        ],
+    ),
+    (
+        "DynPresets",
+        &["recall", "reset", "set", "set_recall_speed"],
+    ),
+    (
+        "DynExposure",
+        &[
+            "auto_slow_shutter_off",
+            "auto_slow_shutter_on",
+            "brightness",
+            "brightness_direct",
+            "brightness_down",
+            "brightness_reset",
+            "brightness_set",
+            "brightness_up",
+            "compensation",
+            "compensation_direct",
+            "compensation_down",
+            "compensation_enabled",
+            "compensation_off",
+            "compensation_on",
+            "compensation_position",
+            "compensation_reset",
+            "compensation_up",
+            "dynamic_range",
+            "flicker_mode",
+            "gain",
+            "gain_direct",
+            "gain_down",
+            "gain_limit",
+            "gain_reset",
+            "gain_up",
+            "iris",
+            "iris_control",
+            "iris_direct",
+            "iris_down",
+            "iris_reset",
+            "iris_up",
+            "mode",
+            "set_anti_flicker",
+            "set_dynamic_range",
+            "set_gain_limit",
+            "set_mode",
+            "shutter",
+            "shutter_direct",
+            "shutter_down",
+            "shutter_reset",
+            "shutter_up",
+            "spotlight_off",
+            "spotlight_on",
+        ],
+    ),
+    (
+        "DynWhiteBalance",
+        &[
+            "atw",
+            "auto",
+            "blue_gain",
+            "blue_tuning",
+            "color_temperature",
+            "color_temperature_mode",
+            "decrease_blue_gain",
+            "decrease_color_temperature",
+            "decrease_red_gain",
+            "increase_blue_gain",
+            "increase_color_temperature",
+            "increase_red_gain",
+            "indoor",
+            "manual",
+            "mode",
+            "one_push",
+            "one_push_trigger",
+            "outdoor",
+            "red_gain",
+            "red_tuning",
+            "reset_blue_gain",
+            "reset_color_temperature",
+            "reset_red_gain",
+            "sensitivity",
+            "set_blue_gain",
+            "set_blue_tuning",
+            "set_color_temperature",
+            "set_red_gain",
+            "set_red_tuning",
+            "set_sensitivity",
+        ],
+    ),
+    (
+        "DynImage",
+        &[
+            "backlight",
+            "black_white",
+            "black_white_mode",
+            "contrast",
+            "decrease_sharpness",
+            "defog_level",
+            "disable_flip",
+            "disable_horizontal_flip",
+            "enable_flip",
+            "enable_horizontal_flip",
+            "flip",
+            "flip_mode",
+            "freeze_off",
+            "freeze_on",
+            "gamma",
+            "hue",
+            "increase_sharpness",
+            "luminance",
+            "noise_reduction_2d",
+            "noise_reduction_3d",
+            "noise_reduction_level",
+            "noise_reduction_mode",
+            "picture_effect",
+            "reset_sharpness",
+            "resolution",
+            "saturation",
+            "set_backlight",
+            "set_contrast",
+            "set_flip_both",
+            "set_flip_mode",
+            "set_gamma",
+            "set_hue",
+            "set_luminance",
+            "set_noise_reduction_2d",
+            "set_noise_reduction_3d",
+            "set_picture_effect",
+            "set_saturation",
+            "set_sharpness",
+            "set_sharpness_mode",
+            "sharpness_level",
+            "sharpness_mode",
+        ],
+    ),
+    (
+        "DynTally",
+        &[
+            "auto_adjust_enabled",
+            "bright_hi",
+            "bright_lo",
+            "flash",
+            "green_off",
+            "green_on",
+            "green_status",
+            "off",
+            "on",
+            "red_off",
+            "red_on",
+            "red_status",
+            "status",
+        ],
+    ),
+    (
+        "DynNdFilter",
+        &[
+            "auto_off",
+            "auto_on",
+            "position",
+            "preset",
+            "set_mode",
+            "set_stops",
+            "set_value",
+            "step_down",
+            "step_up",
+        ],
+    ),
+    (
+        "DynMotionSync",
+        &["mode", "preset", "set_mode", "set_preset", "set_speed"],
+    ),
+    (
+        "DynMenu",
+        &[
+            "cancel",
+            "direct",
+            "display",
+            "navigate",
+            "select",
+            "status",
+            "toggle_display",
+        ],
+    ),
+    (
+        "DynAdvanced",
+        &[
+            "auto_trace_enabled",
+            "broadcast_domain",
+            "digital_mode_enabled",
+            "digital_ptz_enabled",
+            "focus_unlock",
+            "multicast_off",
+            "multicast_on",
+            "night_day_mode",
+            "set_ndi_quality",
+            "set_variable_speed_mode",
+            "standby_enabled",
+            "two_tone_mode_enabled",
+            "usb_audio_enabled",
+            "usb_audio_off",
+            "usb_audio_on",
+        ],
+    ),
+    (
+        "DynMotion",
+        &[
+            "is_moving",
+            "is_moving_axes",
+            "stop_all_motion",
+            "wait_until_idle",
+        ],
+    ),
 ];
 
 fn public_trait_names(sources: &[&str]) -> Vec<String> {
@@ -300,17 +564,49 @@ fn dynamic_control_inventory_is_closed() {
     actual.dedup();
     assert_eq!(actual, EXPECTED_DYN_TRAITS);
 
-    for (name, expected) in EXPECTED_DYN_NOUN_METHOD_COUNTS {
+    for (name, expected) in EXPECTED_DYN_NOUN_METHODS {
         assert_eq!(
-            trait_methods(&nouns, &[*name]).len(),
+            trait_methods(&nouns, &[*name]),
             *expected,
             "dynamic noun {name} drifted"
         );
     }
+    // Every declared trait is covered by the inventory above, so a whole new
+    // noun cannot appear without a row of its own.
+    let mut inventoried: Vec<String> = EXPECTED_DYN_NOUN_METHODS
+        .iter()
+        .map(|(name, _)| (*name).to_owned())
+        .collect();
+    inventoried.push("DynSessionCameraNouns".to_owned());
+    inventoried.sort();
+    assert_eq!(inventoried, public_trait_names(&[&nouns]));
     assert!(custom.contains("pub trait DynTargetedRequest"));
     assert!(custom.contains("pub trait DynAppliedRequest"));
+    // `_op` was a bare `contains` here: any innocent identifier containing that
+    // sequence — `set_optical_*`, `stop_operation`, a future `*_option` — would
+    // have tripped it, and a real legacy method could hide inside a longer
+    // word. The legacy spelling is a method *named* `<noun>_op`, so match
+    // declarations rather than characters.
+    let legacy_op_methods: Vec<&str> = whole_nouns
+        .lines()
+        .map(str::trim_start)
+        .filter_map(|line| {
+            let line = line
+                .strip_prefix("pub(crate) ")
+                .or_else(|| line.strip_prefix("pub "))
+                .unwrap_or(line);
+            line.strip_prefix("fn ")
+        })
+        .filter_map(|rest| rest.split('(').next())
+        .map(str::trim)
+        .filter(|name| name.ends_with("_op"))
+        .collect();
+    assert!(
+        legacy_op_methods.is_empty(),
+        "forbidden legacy `_op` dynamic methods: {legacy_op_methods:?}"
+    );
+
     for forbidden in [
-        "_op",
         "and_wait",
         "defog_mode",
         "nr_speed",

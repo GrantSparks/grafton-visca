@@ -1,6 +1,15 @@
 #!/usr/bin/env bash
 
 # Miri checks for the runtime-neutral engine and applicable library surfaces.
+#
+# Scope, stated so this job is not read as more than it is: the crate is
+# `#![forbid(unsafe_code)]`, so there is no unsafe block here for Miri to find
+# undefined behaviour in. What the filtered runs below actually buy is
+# interpreter-level checking of the pure, synchronous, I/O-free domain —
+# arithmetic, slicing, provenance in the borrowed buffers the engine and the
+# parsers pass around — over a small named subset of the library tests, not the
+# suite. Nothing concurrent, no owner, no transport, and no async runtime is
+# executed under Miri at all; those are covered by the ordinary test matrix.
 
 set -euo pipefail
 

@@ -2,10 +2,10 @@ use std::time::Duration;
 
 use grafton_visca::{
     capabilities::{
-        exposure::ShutterSpeed, CapabilityRange, Exposure, Focus, HasDirectZoom, ImageProcessing,
-        InquirySupport, MenuCapability, MotionSyncMetadata, NdFilterMetadata, PanTilt, Power,
-        Presets, ProfileMetadata, ProfileTypedSupport, Tally, TypedSupportSet, TypedSupportSurface,
-        VariableSpeedMetadata, WhiteBalance, Zoom,
+        exposure::ShutterSpeed, CapabilityRange, Exposure, Focus, HasDirectZoom, HasMotionSync,
+        ImageProcessing, InquirySupport, MenuCapability, MotionSyncMetadata, NdFilterMetadata,
+        PanTilt, Power, Presets, ProfileMetadata, ProfileTypedSupport, Tally, TypedSupportSet,
+        TypedSupportSurface, VariableSpeedMetadata, WhiteBalance, Zoom,
     },
     command::ExposureMode,
     transport::RawVisca,
@@ -113,7 +113,6 @@ macro_rules! synthetic_profile_impl {
 
         impl MenuCapability for $profile {}
         impl Tally for $profile {}
-        impl MotionSyncMetadata for $profile {}
         impl NdFilterMetadata for $profile {}
         impl VariableSpeedMetadata for $profile {}
 
@@ -167,4 +166,26 @@ synthetic_profile!(
     no_default
 );
 
+// No built-in profile declares motion sync (see the profile registry's
+// `MotionSync` note), so the typed accessor is only reachable from a profile
+// that opts in — which is what makes a behavioural test of the helper possible
+// at all.
+synthetic_profile!(
+    MotionSyncTypedSupport,
+    "Motion Sync Typed Support Only",
+    TypedSupportSet::from_surface(TypedSupportSurface::MotionSync)
+);
+
+impl MotionSyncMetadata for MetadataEnabledNoTypedSupport {}
+impl MotionSyncMetadata for DirectZoomOnlyTypedSupport {}
+impl MotionSyncMetadata for NonDefaultCompileTimeProfile {}
+
+/// The one fixture that documents the physical capability, so the typed
+/// `MotionSync` surface above has something real to gate.
+impl MotionSyncMetadata for MotionSyncTypedSupport {
+    const SUPPORTS_MOTION_SYNC: bool = true;
+}
+
 impl HasDirectZoom for DirectZoomOnlyTypedSupport {}
+
+impl HasMotionSync for MotionSyncTypedSupport {}

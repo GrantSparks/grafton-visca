@@ -2367,10 +2367,6 @@ pub(crate) const BUILTIN_TYPED_REQUEST_INVENTORY: &[BuiltinTypedRequestCoverage]
     ),
 ];
 
-/// Number of semantic Plain rows represented by the typed inventory.
-#[cfg(test)]
-pub(crate) const BUILTIN_TYPED_REQUEST_ROW_COUNT: usize = BUILTIN_TYPED_REQUEST_INVENTORY.len();
-
 impl OperationCommand<completion::Targeted> for PanTiltHome {
     fn affected_axes(&self) -> AffectedAxes {
         AffectedAxes::PAN_TILT
@@ -4633,9 +4629,13 @@ mod tests {
             })
             .collect();
         assert_eq!(inventory_rows, plain_rows);
+        // Set equality alone cannot see a row listed twice, so pin the entry
+        // count against the ledger the set came from rather than against the
+        // inventory's own length.
         assert_eq!(
-            BUILTIN_TYPED_REQUEST_ROW_COUNT,
-            BUILTIN_TYPED_REQUEST_INVENTORY.len()
+            BUILTIN_TYPED_REQUEST_INVENTORY.len(),
+            plain_rows.len(),
+            "the typed request inventory repeats a Plain ledger row"
         );
     }
 

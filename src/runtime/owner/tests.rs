@@ -268,6 +268,9 @@ mod blocking {
         frame_pointers: Vec<usize>,
         frame_capacities: Vec<usize>,
         frames: Vec<Vec<u8>>,
+        /// The envelope sequence this driver stamped on each write, in write
+        /// order, exactly as it was reported back to the owner.
+        sequences: Vec<Option<u32>>,
     }
 
     impl FramingDriver {
@@ -282,6 +285,7 @@ mod blocking {
                 frame_pointers: Vec::new(),
                 frame_capacities: Vec::new(),
                 frames: Vec::new(),
+                sequences: Vec::new(),
             }
         }
     }
@@ -306,6 +310,7 @@ mod blocking {
                 .push(write.frame_buffer.as_ptr() as usize);
             self.frame_capacities.push(write.frame_buffer.capacity());
             self.frames.push(write.frame_buffer.to_vec());
+            self.sequences.push(meta.sequence);
             Ok(TransmissionMeta {
                 sequence: meta.sequence,
             })
@@ -3330,17 +3335,95 @@ mod blocking {
         }
     }
 
+    /// The envelope sequence is decoder-owned end to end: the owner carries the
+    /// value its *driver* stamped on the write into the engine's correlation
+    /// table, rather than inventing one or matching on arrival order. A
+    /// socketless Sony reply naming a different sequence therefore belongs to
+    /// some other write and must leave this request exactly where it was.
     #[test]
-    fn sequenced_frame_type_stays_decoder_owned() {
-        let decoded = DecodedFrame {
+    fn a_sony_reply_is_correlated_by_the_sequence_the_driver_stamped() {
+        let mut owner_policy = policy(1, TransportKind::Datagram);
+        owner_policy.protocol.envelope = EnvelopeKind::Sony;
+        let mut owner = BlockingOwner::new(owner_policy).unwrap();
+        let mut driver = FramingDriver::new(EnvelopeKind::Sony);
+        let receipt = owner
+            .submit(
+                &mut driver,
+                command(CameraId::CAMERA_1, CancellationPolicy::Supported, None),
+            )
+            .unwrap();
+        let stamped = driver.sequences[0].expect("the Sony envelope stamps every write");
+        let now = Instant::now();
+
+        let sequenced = |value: u32, response| DecodedFrame {
             target: CameraId::CAMERA_1,
             sequence: Some(EnvelopeSequence {
-                value: 7,
+                value,
                 width: SequenceWidth::Full32,
             }),
-            response: DecodedResponse::Unknown,
+            response,
         };
-        assert_eq!(decoded.sequence.unwrap().value, 7);
+        let phase = |owner: &BlockingOwner| {
+            owner
+                .state()
+                .request_state(receipt.id)
+                .map(|state| state.0)
+                .expect("the request is still tracked")
+        };
+
+        owner
+            .inject_frame(
+                &mut driver,
+                sequenced(
+                    stamped.wrapping_add(1),
+                    DecodedResponse::Ack { socket: None },
+                ),
+                now,
+            )
+            .unwrap();
+        assert!(
+            matches!(phase(&owner), Phase::AwaitingAck { .. }),
+            "a foreign sequence must not acknowledge this request"
+        );
+
+        owner
+            .inject_frame(
+                &mut driver,
+                sequenced(stamped, DecodedResponse::Ack { socket: None }),
+                now,
+            )
+            .unwrap();
+        assert!(
+            matches!(phase(&owner), Phase::Executing { .. }),
+            "the stamped sequence is this request's acknowledgement"
+        );
+
+        owner
+            .inject_frame(
+                &mut driver,
+                sequenced(
+                    stamped.wrapping_add(1),
+                    DecodedResponse::Completion { socket: None },
+                ),
+                now,
+            )
+            .unwrap();
+        assert!(
+            matches!(phase(&owner), Phase::Executing { .. }),
+            "a foreign sequence must not complete this request"
+        );
+
+        owner
+            .inject_frame(
+                &mut driver,
+                sequenced(stamped, DecodedResponse::Completion { socket: None }),
+                now,
+            )
+            .unwrap();
+        assert!(
+            matches!(receipt.terminal(), Some(RuntimeOutcome::Applied)),
+            "the stamped sequence completes this request"
+        );
     }
 }
 

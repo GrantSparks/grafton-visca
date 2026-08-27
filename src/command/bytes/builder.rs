@@ -329,24 +329,47 @@ impl<const N: usize> Default for ConstCommandBuilder<N, Incomplete> {
 mod tests {
     use super::*;
 
+    /// Blanket fallback used to assert, at compile time, that the `Incomplete`
+    /// state carries no inherent `as_bytes`.
+    ///
+    /// Rust resolves inherent methods before trait methods, so a call to
+    /// `as_bytes` on a builder falls through to this fallback *only* while no
+    /// inherent method of that name applies. Binding each call's result to an
+    /// explicit type therefore turns "the method does not exist" into a type
+    /// error rather than a comment: give `ConstCommandBuilder<N, Incomplete>`
+    /// an inherent `as_bytes` and this module stops compiling.
+    ///
+    /// This cannot be a `trybuild` fixture: `command::bytes` is `pub(crate)`,
+    /// so no external fixture crate can name the builder at all, and a fixture
+    /// that tried would fail on the module privacy rather than on the type
+    /// state — a green check for the wrong reason.
+    trait AsBytesFallback {
+        fn as_bytes(&self) -> &'static str {
+            "fallback"
+        }
+    }
+
+    impl<T> AsBytesFallback for T {}
+
     #[test]
-    fn test_type_state_enforces_termination() {
-        // Create an incomplete builder
+    fn the_incomplete_state_has_no_inherent_as_bytes() {
         let builder = ConstCommandBuilder::<10>::new()
             .push(0x81)
             .push(0x01)
             .push(0x04)
             .push(0x47);
 
-        // Can't get bytes without terminating (this won't compile if uncommented)
-        // let bytes = builder.as_bytes(); // ERROR: method not found
+        // Resolves to the fallback, which is only possible while the
+        // `Incomplete` state has no `as_bytes` of its own.
+        let unterminated: &'static str = builder.as_bytes();
+        assert_eq!(unterminated, "fallback");
 
-        // Must terminate first
+        // The same call on the terminated state resolves to the inherent
+        // method instead, which is what makes the assertion above meaningful
+        // rather than a property of the fallback trait.
         let terminated = builder.terminate();
-
-        // Now we can get the bytes
-        let bytes = terminated.as_bytes();
-        assert_eq!(bytes[bytes.len() - 1], VISCA_TERMINATOR);
+        let bytes: &[u8] = terminated.as_bytes();
+        assert_eq!(bytes, &[0x81, 0x01, 0x04, 0x47, VISCA_TERMINATOR]);
     }
 
     #[test]

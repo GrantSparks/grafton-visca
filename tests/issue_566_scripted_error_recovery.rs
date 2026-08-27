@@ -36,13 +36,19 @@ use grafton_visca::{
         ScriptedBlockingTransport, Step,
     },
     types::ZoomPosition,
-    CameraId, ControlClass, Error, Request, RetryClass, TimeoutClass,
+    CameraId, ControlClass, Error, OperationalTuning, Request, RetryClass, TimeoutClass,
 };
 
 use profile_fixtures::NonDefaultCompileTimeProfile;
 
 /// The exact bytes a zoom-position inquiry puts on the wire for camera 1.
 const ZOOM_POSITION_INQUIRY: [u8; 5] = [0x81, 0x09, 0x04, 0x47, 0xff];
+
+/// Writes a quick-class request gets under the tuned sessions below: the first
+/// write plus the caller's base of one retry, plus the two extra attempts the
+/// quick timeout class grants. Named once so the two halves of the budget —
+/// staying inside it and running past it — cannot drift apart.
+const TUNED_QUICK_WRITES: usize = 4;
 
 /// A plain command in the standard retry class, so the class under test is
 /// stated rather than inherited from a built-in.
@@ -73,6 +79,26 @@ fn open(steps: Vec<Step>) -> (Session, ScriptedBlockingTransport) {
     let transport = ScriptedBlockingTransport::new(steps);
     let probe = transport.clone();
     let session = Session::open(transport, session_config()).expect("owner session");
+    (session, probe)
+}
+
+/// A session whose retry budget is the *caller's*, not the profile's.
+///
+/// The budget tests below assert an exact number of writes on both sides of the
+/// limit, which is only meaningful against a limit this file states. The
+/// backoff is compressed at the same time so that the wall-clock retry budget
+/// can never be what ends a scenario about the attempt count.
+fn tuned_open(steps: Vec<Step>) -> (Session, ScriptedBlockingTransport) {
+    let transport = ScriptedBlockingTransport::new(steps);
+    let probe = transport.clone();
+    let config = session_config()
+        .with_tuning(OperationalTuning::new().retry_limit(1).retry_timing(
+            Duration::from_millis(1),
+            Duration::from_millis(2),
+            Duration::from_secs(30),
+        ))
+        .expect("a lowered retry budget is valid operational tuning");
+    let session = Session::open(transport, config).expect("owner session");
     (session, probe)
 }
 
@@ -125,8 +151,11 @@ fn a_refused_movement_command_is_replayed_once_and_then_succeeds() {
     session.shutdown().expect("owner shutdown");
 }
 
-/// `helpers::not_executable_sequence_then_success`: the movement budget is
-/// three, so three refusals still resolve.
+/// `helpers::not_executable_sequence_then_success`: several consecutive
+/// refusals still resolve. `ZoomStop` is `RetryClass::Movement` but
+/// `TimeoutClass::Quick`, so the *count* it is allowed comes from the quick
+/// class; the movement retry class is what decides that `0x41` is replayable
+/// here at all.
 #[test]
 fn a_repeatedly_refused_movement_command_stays_inside_its_budget() {
     let (session, probe) = open(helpers::not_executable_sequence_then_success(0, 3));
@@ -233,5 +262,83 @@ fn a_healthy_inquiry_is_answered_on_the_first_write() {
     let position = camera.inquire(&ZoomPositionInquiry).expect("inquiry reply");
     assert_eq!(position, ZoomPosition::new(0x1234).expect("zoom position"));
     assert_eq!(probe.sent().len(), 1);
+    session.shutdown().expect("owner shutdown");
+}
+
+/// Both sides of one stated budget. Without the failing half the test above
+/// passes just as well under a raised budget, which is exactly what makes a
+/// budget invisible; without the succeeding half a budget of zero would pass.
+#[test]
+fn a_busy_camera_exhausts_exactly_the_configured_retry_budget() {
+    // One busy answer fewer than the budget allows: the last write wins.
+    let (session, probe) = tuned_open(helpers::buffer_full_sequence_then_success(
+        1,
+        TUNED_QUICK_WRITES - 1,
+    ));
+    let camera = session
+        .camera::<NonDefaultCompileTimeProfile>()
+        .expect("camera view");
+    camera
+        .execute(&StandardCommand)
+        .expect("the configured budget must absorb one answer fewer than it allows");
+    assert_eq!(probe.sent().len(), TUNED_QUICK_WRITES);
+    session.shutdown().expect("owner shutdown");
+
+    // One more, and the request fails carrying the camera's own answer. The
+    // trailing success step of this script is never reached.
+    let (session, probe) = tuned_open(helpers::buffer_full_sequence_then_success(
+        1,
+        TUNED_QUICK_WRITES,
+    ));
+    let camera = session
+        .camera::<NonDefaultCompileTimeProfile>()
+        .expect("camera view");
+    let error = camera
+        .execute(&StandardCommand)
+        .expect_err("the configured budget must run out rather than replaying on");
+    assert!(
+        matches!(error, Error::CommandBufferFull),
+        "expected the camera's own busy answer, got {error:?}"
+    );
+    assert_eq!(probe.sent().len(), TUNED_QUICK_WRITES);
+    session.shutdown().expect("owner shutdown");
+}
+
+/// The movement refusal follows the same budget, and running past it surfaces
+/// the camera's refusal rather than replaying forever.
+#[test]
+fn a_refused_movement_command_exhausts_exactly_the_configured_retry_budget() {
+    let (session, probe) = tuned_open(helpers::not_executable_sequence_then_success(
+        0,
+        TUNED_QUICK_WRITES - 1,
+    ));
+    let camera = session
+        .camera::<NonDefaultCompileTimeProfile>()
+        .expect("camera view");
+    camera
+        .submit::<AppliedOnly, _>(&ZoomStop)
+        .expect("submission")
+        .applied_with_timeout(Duration::from_secs(5))
+        .expect("the configured budget must absorb one refusal fewer than it allows");
+    assert_eq!(probe.sent().len(), TUNED_QUICK_WRITES);
+    session.shutdown().expect("owner shutdown");
+
+    let (session, probe) = tuned_open(helpers::not_executable_sequence_then_success(
+        0,
+        TUNED_QUICK_WRITES,
+    ));
+    let camera = session
+        .camera::<NonDefaultCompileTimeProfile>()
+        .expect("camera view");
+    let error = camera
+        .submit::<AppliedOnly, _>(&ZoomStop)
+        .expect("submission")
+        .applied_with_timeout(Duration::from_secs(5))
+        .expect_err("the configured budget must run out rather than replaying on");
+    assert!(
+        matches!(error, Error::CommandNotExecutable),
+        "expected the camera's own refusal, got {error:?}"
+    );
+    assert_eq!(probe.sent().len(), TUNED_QUICK_WRITES);
     session.shutdown().expect("owner shutdown");
 }

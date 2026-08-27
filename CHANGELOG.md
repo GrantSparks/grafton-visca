@@ -163,6 +163,33 @@ destination.
 
 ### Changed
 
+- Strengthened the weak and vacuous tests the second review round itemized
+  (#641). Each one asserted something that could not fail: a retry counter
+  compared against a count derived from the same event stream, so removing
+  retries engine-wide left it green; a motion-sync helper covered by rebuilding
+  the command it constructs rather than by calling it; `std::ptr::eq` between an
+  accessor and its own definition; a `7 == 7` on a struct the test had just
+  built; a preset terminator check wrapped in an `if let Ok(..)` that skipped
+  itself silently; `StateKey::ALL.len() == 15` on a `#[non_exhaustive]` enum,
+  which could not see a variant missing from the list; an
+  `x.len() == x.len()`; a "type-state prevents this" claim that existed only as
+  a commented-out line; an "other triggers are not capped" test that handed the
+  answer to a pure function instead of checking what the engine selects; a
+  shared-handle test with no assertions at all; retry-budget tests with only the
+  succeeding side; a source scan satisfied by a comment; and fifteen bare
+  per-trait method counts that could not see a delete-one-add-one rename. Each
+  replacement was verified by breaking the code under test and watching it fail.
+  Coverage was added where it was simply absent: decode-side tests for the five
+  typed `StateCache` getters that had none (`focus_lock`, `digital_zoom`,
+  `tally_mode`, `tally_brightness_is_high`, `variable_speed_mode`), a
+  pan/tilt-limit probe away from the `0,0` fixed point where a swapped axis is
+  visible, a normalized-zoom midpoint that tells the two zoom domains apart, and
+  the failing side of both retry budgets. The `_op` forbidden-token gate now
+  matches method declarations rather than the character sequence, which would
+  have false-positived on any innocent `*_optical_*` identifier. The six async
+  transport-fault and retry scenarios that ran inside one `#[tokio::test]` each
+  are now one libtest case per scenario per runtime, so an early panic no longer
+  hides every scenario after it. No gate was relaxed.
 - `ProtocolEngine::assert_invariants` now runs from the engine itself (#636). It
   had no production call site at all — every derived index was audited only
   where a test happened to remember to ask — so a corruption on an uncovered
