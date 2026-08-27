@@ -182,7 +182,9 @@ Static cameras expose the same 14 noun views in blocking and async forms:
 `image`, `presets`, `tally`, `nd_filter`, `motion_sync`, `menu`, and
 `advanced`. Profile-gated methods are available only when the profile's
 `Has*` marker permits them. `motion()` separately owns
-`stop_all_motion`, `is_moving`, and `wait_until_idle`.
+`stop_all_motion`, `is_moving`, `is_moving_axes`, and `wait_until_idle`.
+`is_moving()` takes no argument and samples `AffectedAxes::MOVEMENT`;
+`is_moving_axes(MotionQuery)` is the axis-selecting form.
 
 Dynamic async code uses `DynSessionCamera` and its object-safe
 `DynSessionCameraControl` plus `DynPower`, `DynZoom`, `DynSystem`,
@@ -193,7 +195,7 @@ Dynamic async code uses `DynSessionCamera` and its object-safe
 ```rust,ignore
 let camera = grafton_visca::dynapi::DynSessionCamera::from_session(&session)?;
 camera.zoom().stop().await?.applied().await?;
-camera.motion().is_moving(query).await?;
+camera.motion().is_moving_axes(query).await?;
 # Ok::<(), grafton_visca::Error>(())
 ```
 

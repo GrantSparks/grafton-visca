@@ -190,11 +190,29 @@ Profile support changes should include focused tests before relying on the full
 feature matrix:
 
 ```sh
+# Root exports and the feature matrix.
 cargo test --test api_stability_test --no-default-features
 cargo test --test api_stability_test --no-default-features --features async
+
+# Runtime discovery metadata and the typed support markers derived from it.
 cargo test --no-default-features --lib capabilities::discovery
-cargo test --no-default-features --test feature_detection_tests --test camera_profile_tests --test simple_compile_test
-cargo test --no-default-features --features test-utils --test compile_time_safety_test
+
+# The closed profile, transport, capability-gate, and noun inventories. These
+# are the tests that fail when a marker or registry row changes without the
+# matching inventory update.
+cargo test --no-default-features --test issue_548_supported_surface_inventory
+cargo test --no-default-features --test issue_542_semantic_inventory
+
+# Profile/transport pair rejection before any socket work.
+cargo test --no-default-features --features blocking --test issue_527_transport_compatibility
+
+# Cross-surface noun parity: async, blocking, and the dynamic projection must
+# agree on name, semantic class, and capability bound.
+cargo test --no-default-features --features blocking --lib noun_parity
+
+# The compile-fail contract for the typed request and marker gates.
+cargo test --no-default-features --test issue_551_compile_contract
+
 cargo clippy --all-targets --all-features -- -D warnings
 ```
 
@@ -213,6 +231,7 @@ test in the PR so reviewers know what remains unresolved.
 - `docs/visca_reference.md` explains protocol, model, firmware, and capability boundaries.
 - `examples/type_safe_commands.rs` demonstrates metadata and marker bounds without using unsupported built-in profiles.
 - `CHANGELOG.md` describes breaking changes and migration guidance.
-- Public examples and snippets use root control trait imports, `camera` module
-  re-exports, checked `UnitInterval` values, and checked camera ID conversion.
+- Public examples and snippets use the inherent noun accessors on `Camera<P>`,
+  `camera` module re-exports, checked `UnitInterval` values, and checked camera
+  ID conversion. Root control traits are 1.x vocabulary and are not 2.0 API.
 - Any source conflict is documented near the relevant capability, not only in the PR discussion.
