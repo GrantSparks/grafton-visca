@@ -7,13 +7,12 @@
 
 #![cfg(feature = "async")]
 
-use std::{sync::Arc, time::Duration};
+use std::time::Duration;
 
 use crate::{
     completion,
-    drop_stop::DropStopPlan,
     runtime::owner::{AsyncCancellationReceipt, AsyncOperationReceipt, AsyncReceiptControl},
-    CancellationOutcome, Error, OperationId, ProfileSpec,
+    CancellationOutcome, Error, OperationId,
 };
 
 /// A linear async operation handle.
@@ -23,20 +22,22 @@ use crate::{
 /// remains authoritative for protocol lifecycle, timeout, settlement, and
 /// cancellation policy.
 ///
-/// # Dropping a movement handle stops the camera
+/// # Dropping never stops the camera
 ///
-/// Every terminal method consumes the handle, so a handle that is merely
-/// *dropped* is one no caller ever resolved: an early `?` return, a panic
-/// unwinding past it, or a forgotten binding.  When that handle belongs to a
-/// movement operation, dropping it enqueues the typed STOP for each axis the
-/// operation affects, so a failure path cannot leave hardware moving.
+/// Dropping this handle is exactly [`detach`](Self::detach): it relinquishes
+/// the observer and nothing else.  The owner keeps the protocol lifecycle,
+/// never reads a dropped handle as cancellation, and no STOP is emitted, so
+/// an early `?` return or a panic unwinding past a live handle leaves physical
+/// movement running until something ends it.  This matches 1.x exactly and is
+/// not a 2.0 behaviour change.
 ///
-/// The stop is best effort and never blocks: it is placed on the same owner
-/// admission boundary every request uses, and is discarded if that boundary is
-/// closed or saturated.  Use [`detach`](Self::detach) for deliberate
-/// fire-and-forget movement, [`cancel`](Self::cancel) for protocol
-/// cancellation, or any of the waits for ordinary completion — none of those
-/// emit the drop STOP.
+/// To bound movement by a scope, write a small guard whose own `Drop` submits
+/// the typed STOP — see the guard pattern in `docs/migration_2_0.md` and
+/// `examples/operation_handles_async.rs`.  For an explicit stop on a path you
+/// control, use `camera.pan_tilt().stop()`, `camera.zoom().stop()`,
+/// `camera.focus().stop()`, or `camera.motion().stop_all_motion()`;
+/// [`cancel`](Self::cancel) records protocol cancellation but does not by
+/// itself prove motion ended.
 #[must_use = "await, cancel, or explicitly detach this operation"]
 #[derive(Debug)]
 pub struct Operation<K>
@@ -46,7 +47,6 @@ where
     receipt: Option<AsyncOperationReceipt<K>>,
     control: AsyncReceiptControl,
     id: OperationId,
-    stop_on_drop: Option<DropStopPlan<Arc<ProfileSpec>>>,
 }
 
 impl<K> Operation<K>
@@ -61,14 +61,12 @@ where
     pub(crate) fn from_receipt(
         receipt: AsyncOperationReceipt<K>,
         control: AsyncReceiptControl,
-        stop_on_drop: Option<DropStopPlan<Arc<ProfileSpec>>>,
     ) -> Self {
         let id = OperationId::from_raw(receipt.id());
         Self {
             receipt: Some(receipt),
             control,
             id,
-            stop_on_drop,
         }
     }
 
@@ -119,11 +117,10 @@ where
     /// Explicitly relinquishes this operation's observer without changing
     /// protocol state, cancelling the request, or sending a physical STOP.
     ///
-    /// This is the deliberate opt-out from the drop STOP described on
-    /// [`Operation`]: movement continues until something else ends it.
+    /// This is the explicit spelling of what dropping the handle already does;
+    /// movement continues until something else ends it.
     pub fn detach(self) {
         let mut this = self;
-        this.stop_on_drop = None;
         if let Some(receipt) = this.receipt.take() {
             receipt.detach();
         }
@@ -162,14 +159,11 @@ where
     K: completion::Kind,
 {
     fn drop(&mut self) {
-        let Some(receipt) = self.receipt.take() else {
-            // A terminal method already consumed the receipt, so this is the
-            // trailing drop of an observed, cancelled, or detached handle.
-            return;
-        };
-        receipt.detach();
-        if let Some(plan) = self.stop_on_drop.take() {
-            plan.lower_each(|request| self.control.submit_detached(request));
+        // Drop is detach: it relinquishes observation only. The owner keeps
+        // protocol state, never interprets handle drop as cancellation, and no
+        // STOP is emitted.
+        if let Some(receipt) = self.receipt.take() {
+            receipt.detach();
         }
     }
 }

@@ -39,6 +39,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   STOP never answers itself). `detach` is the explicit opt-out, and cancelling
   or awaiting a handle consumes it, so neither adds a redundant STOP. The stop
   is best effort and never blocks or panics in `Drop`.
+- Operation-handle drop semantics match 1.x exactly: drop is `detach` and
+  never stops hardware (#567). Dropping a handle relinquishes the observer and
+  nothing else, so an early `?`, a panic unwinding past it, or a forgotten
+  binding leaves physical movement running until an explicit stop ends it.
+  This is documented rather than changed — 1.x behaved identically — so it is
+  not a migration item, and the migration-table row that implied otherwise is
+  corrected. Callers who want motion bounded by a scope write a stop-on-exit
+  guard; the pattern is documented in `docs/migration_2_0.md` and demonstrated
+  in `examples/operation_handles.rs` (and in its async wrapper form in
+  `examples/operation_handles_async.rs`). No new public API.
 - Added owner-backed `Session`/`SessionConfig` construction and typed
   `Camera<P>` views for heterogeneous multi-camera sessions.
 - Added the final blocking, async, and dynamic noun surfaces with typed
@@ -85,6 +95,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   installed that nightly explicitly in the snapshot job so `cargo public-api`
   can build rustdoc JSON instead of failing on a missing `nightly` toolchain
   (#562).
+- **Removed the `tcp` feature** (#573). It was in the default set but gated no
+  code — there was never a `cfg(feature = "tcp")` anywhere in the crate — so
+  enabling or omitting it built exactly the same library while implying that
+  standard TCP was optional. Standard TCP and UDP are not features: they are
+  built from `std` and the runtime adapters and compile with whichever facade
+  is enabled. Manifests that name `tcp` explicitly (`features = ["tcp"]`, or
+  `default-features = false` plus `tcp`) must drop it; nothing else changes,
+  because the default feature set is now `["blocking"]` and builds the same
+  code it did before. This is a feature-list change made while 2.0.0-rc.1 is
+  unpublished.
+- Removed dead CI machinery and restored the coverage 2.0 had silently dropped
+  (#573). Deleted `.github/workflows/test-features.yml`, a `workflow_call`-only
+  workflow nothing invoked, and `.github/actions/setup-sccache/`, referenced by
+  no workflow. `deny.toml` is now executed by a pinned `cargo-deny` job instead
+  of sitting in the tree unenforced, and `cargo audit` runs again. Added a
+  Windows job (the blocking serial transport is a different `serialport`
+  implementation there) and a macOS check job. The `removed-features` job,
+  which re-proved against a live compiler what the manifest inventory test
+  already pins, was folded into `tests/issue_548_supported_surface_inventory.rs`.
+  The README feature-union table promised automated validation of
+  `runtime-tokio,transport-serial`, which no matrix leg covered; that leg is
+  back, and the table now names the CI job that checks each union.
+- Stopped shipping the public API snapshots to crates.io and shrank them
+  (#572). `api/` was 71% of the published tarball — 1.8 MiB of CI baseline text
+  with no use to consumers — and is now in the `exclude` list, taking the
+  package from 355 files / 2.5 MiB compressed to 347 files / 737 KiB. The seven
+  byte-compared surfaces are reduced to three (`blocking`, `tokio-dyn`,
+  `all-features`), which measurably cover the same items: `blocking` is a
+  strict superset of the retired no-default surface, `tokio-dyn` of the retired
+  async surface, and `all-features` of the rest. `--simplified` drops the
+  compiler-emitted blanket impls that were ~42% of every file and identical for
+  every public type; auto-trait and auto-derived impls are still tracked. The
+  snapshots and their regeneration procedure are now documented in
+  `CONTRIBUTING.md`, which also drops its stale instruction not to tag without
+  "both semver surfaces" — a gate that no longer exists.
 - Fixed the async owner terminating a session when a byte-stream read carried
   bytes without finishing a VISCA frame (#560). The actor treated the resulting
   empty decoded batch as end of stream and failed every in-flight request, so a

@@ -40,8 +40,8 @@ If you're new to the library, start with these examples in order:
 1. **[quickstart.rs](quickstart.rs)** - Blocking connection and read-only state query
 2. **[inquiry_quickstart.rs](inquiry_quickstart.rs)** - Blocking inquiry flow with the current accessor API
 3. **[quickstart_async.rs](quickstart_async.rs)** - Tokio async connection and read-only state query
-4. **[operation_handles.rs](operation_handles.rs)** - Blocking applied/settled waits, detach, and drop-safe cleanup
-5. **[operation_handles_async.rs](operation_handles_async.rs)** - Tokio waits, detach, and drop-safe cleanup
+4. **[operation_handles.rs](operation_handles.rs)** - Blocking applied/settled waits, detach, session close on every path, and a scoped stop-on-exit guard
+5. **[operation_handles_async.rs](operation_handles_async.rs)** - Tokio waits, detach, session close on every path, and the async form of a bounded drive
 6. **[type_safe_commands.rs](type_safe_commands.rs)** - Profile metadata, validation, and compile-time capability bounds
 7. **[transport_builder_demo.rs](transport_builder_demo.rs)** - Configured connection setup with `CameraConfig`
 

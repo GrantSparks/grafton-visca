@@ -28,9 +28,9 @@ use super::DynFuture;
 /// lifecycle implementation. Targeted operations additionally expose
 /// physical-settlement waits.
 ///
-/// Dropping this handle without resolving it stops the axes a movement
-/// operation affects, exactly as documented on [`Operation`]. Use
-/// [`detach`](Self::detach) to opt out.
+/// Dropping this handle without resolving it is exactly `detach`: it
+/// relinquishes observation and never stops hardware, as documented on
+/// [`Operation`].
 #[must_use = "await, cancel, or explicitly detach this dynamic operation"]
 #[derive(Debug)]
 pub struct DynTargetedOperation {
@@ -92,9 +92,9 @@ impl DynTargetedOperation {
 /// This type deliberately has no `settled` or `settled_with_timeout` method:
 /// its structural API represents the closed applied-only completion kind.
 ///
-/// Dropping this handle without resolving it stops the axes a movement
-/// operation affects, exactly as documented on [`Operation`]. Use
-/// [`detach`](Self::detach) to opt out.
+/// Dropping this handle without resolving it is exactly `detach`: it
+/// relinquishes observation and never stops hardware, as documented on
+/// [`Operation`].
 #[must_use = "await, cancel, or explicitly detach this dynamic operation"]
 #[derive(Debug)]
 pub struct DynAppliedOperation {

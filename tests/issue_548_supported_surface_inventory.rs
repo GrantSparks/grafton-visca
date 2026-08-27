@@ -517,11 +517,12 @@ fn downstream_derive_inventory_compiles_and_preserves_behavior() {
     assert!(InventoryValue::new(3).is_err());
 }
 
-#[test]
-fn ecosystem_feature_inventory_matches_cargo_manifest() {
+/// Every `name = value` entry of the manifest's `[features]` table, in
+/// declaration order and with comment lines dropped.
+fn manifest_feature_table() -> Vec<(&'static str, &'static str)> {
     let manifest = include_str!("../Cargo.toml");
     let mut in_features = false;
-    let mut features = Vec::new();
+    let mut entries = Vec::new();
     for line in manifest.lines() {
         let line = line.trim();
         if line == "[features]" {
@@ -532,15 +533,22 @@ fn ecosystem_feature_inventory_matches_cargo_manifest() {
             break;
         }
         if in_features && !line.starts_with('#') {
-            if let Some((name, _)) = line.split_once('=') {
-                let name = name.trim();
-                if name != "default" {
-                    features.push(name);
-                }
+            if let Some((name, value)) = line.split_once('=') {
+                entries.push((name.trim(), value.trim()));
             }
         }
     }
-    features.sort();
+    entries
+}
+
+#[test]
+fn ecosystem_feature_inventory_matches_cargo_manifest() {
+    let mut features: Vec<&str> = manifest_feature_table()
+        .into_iter()
+        .map(|(name, _)| name)
+        .filter(|name| *name != "default")
+        .collect();
+    features.sort_unstable();
     assert_eq!(
         features,
         [
@@ -551,13 +559,57 @@ fn ecosystem_feature_inventory_matches_cargo_manifest() {
             "runtime-tokio",
             "schemars",
             "serde",
-            "tcp",
             "test-utils",
             "transport-serial",
             "transport-serial-tokio",
             "ts-rs",
         ]
     );
+}
+
+/// The 1.x feature aliases removed by 2.0. A name absent from the whole
+/// `[features]` table — as a key *and* from every feature's implied list — is a
+/// name Cargo rejects outright with `does not contain this feature: <name>`,
+/// which is what the deleted `removed-features` CI job spent a job slot
+/// re-proving against a live compiler.
+const REMOVED_1X_FEATURE_ALIASES: [&str; 3] = ["mode-async", "async-core", "mode-blocking"];
+
+#[test]
+fn removed_1x_feature_aliases_are_absent_from_the_manifest() {
+    let table = manifest_feature_table();
+    for removed in REMOVED_1X_FEATURE_ALIASES {
+        for (name, value) in &table {
+            assert_ne!(
+                *name, removed,
+                "removed 1.x feature alias {removed} is declared again"
+            );
+            let implied = value
+                .trim_matches(|c: char| c == '[' || c == ']')
+                .split(',')
+                .map(|entry| entry.trim().trim_matches('"'));
+            for entry in implied {
+                assert_ne!(
+                    entry, removed,
+                    "removed 1.x feature alias {removed} is implied by feature {name}"
+                );
+            }
+        }
+    }
+}
+
+/// `tcp` gated no code: there was never a `cfg(feature = "tcp")` in the crate,
+/// so the marker only made a supported build look configurable. Standard TCP
+/// ships with whichever facade is enabled and this test pins that it stays a
+/// non-feature.
+#[test]
+fn tcp_is_not_a_feature() {
+    for (name, value) in manifest_feature_table() {
+        assert_ne!(name, "tcp", "`tcp` gates no code and must not be a feature");
+        assert!(
+            !value.contains("\"tcp\""),
+            "feature {name} implies the removed `tcp` marker"
+        );
+    }
 }
 
 #[cfg(feature = "test-utils")]
