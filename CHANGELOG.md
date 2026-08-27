@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 2.0.0-rc.1 release candidate
 
+- **Dropping an in-flight movement operation now stops the camera** (#567).
+  An `Operation` handle that is dropped without being awaited, cancelled, or
+  detached — an early `?`, a panic unwinding past it, or a forgotten binding —
+  enqueues the typed STOP for every axis that operation affects, so no failure
+  path can leave hardware driving. This applies to the blocking, async, and
+  dynamic handles alike. Movement is the branch's existing classification: an
+  operation whose affected axes include pan/tilt, zoom, or focus and whose
+  control class is not `Urgent` (the closed stop/cancel set, so an abandoned
+  STOP never answers itself). `detach` is the explicit opt-out, and cancelling
+  or awaiting a handle consumes it, so neither adds a redundant STOP. The stop
+  is best effort and never blocks or panics in `Drop`.
 - Added owner-backed `Session`/`SessionConfig` construction and typed
   `Camera<P>` views for heterogeneous multi-camera sessions.
 - Added the final blocking, async, and dynamic noun surfaces with typed
@@ -19,9 +30,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   supported runtime and transport combinations.
 - Removed the 1.x compatibility feature aliases and documented the 2.0
   request, construction, dynamic API, and release contracts.
+- Added `Error::requires_new_session()`, the spec-normative classifier that
+  separates transport-level session death (`ConnectionClosed`, `StreamPoisoned`,
+  and the transport/channel-unavailable errors) from the deliberate
+  `RuntimeShutdown` (#564). All of these share `ErrorKind::IoClosed`, so
+  applications could not tell a field disconnect apart from a shutdown they
+  requested without matching implementation details. `true` is positive proof
+  that the session is finished and must be rebuilt from the retained
+  `SessionConfig`; `false` only means the error alone does not prove it.
 - Added a hardware release evidence checklist. Hardware, registry, and
   Synemantic validation remain `Pending (Not run)` until release owners record
   bench evidence.
+- Pinned every CI toolchain to an exact version (stable 1.98.0, nightly
+  2026-08-26, MSRV 1.88.0) so the byte-compared gates stop breaking on
+  unrelated pull requests whenever rustc releases, re-blessed the three
+  `trybuild` contracts whose diagnostic wording drifted, regenerated the
+  `api/2.0.0-rc.1` public API snapshots against the pinned toolchain, and
+  installed that nightly explicitly in the snapshot job so `cargo public-api`
+  can build rustdoc JSON instead of failing on a missing `nightly` toolchain
+  (#562).
 - Fixed the async owner terminating a session when a byte-stream read carried
   bytes without finishing a VISCA frame (#560). The actor treated the resulting
   empty decoded batch as end of stream and failed every in-flight request, so a

@@ -48,7 +48,7 @@ cache. There is no dynamic policy layer that can bypass static preparation.
 | `start_*`, `*_and_wait`, `_result`, and `*_op` twins | One noun method for ordinary completion, or one `submit` call for lifecycle control. No aliases or result twins. |
 | `await_completion` | `applied`; use `settled` only on a targeted operation. |
 | `InFlightDyn`/legacy dynamic operation wrappers | `DynTargetedOperation`, `DynAppliedOperation`, and `DynCancellation`. Applied-only handles have no settled operation. |
-| Dropping an operation to stop hardware | Explicit `cancel`, `detach`, or a typed STOP. Drop is not an automatic STOP. |
+| Dropping an operation to stop hardware | Still supported, and now the default: dropping an unobserved movement operation enqueues the typed STOP for each axis it affects, so an early `?` or a panic cannot leave hardware moving. `detach` is the explicit opt-out, `cancel` is protocol cancellation, and both — like any completed wait — consume the handle and emit no STOP. |
 | Raw `command::RawInquiryPayload`/untyped response assumptions | `raw::Plain`, `raw::Inquiry`, `raw::Targeted`, or `raw::AppliedOnly`, with an explicit response parser/spec. |
 | `ViscaCommand` response-associated-type extensions | The typed `Request`/`Inquiry`/`OperationCommand` contract and `ResponseParser` for custom decoding. |
 | Plain requests submitted as operations or operations without affected axes | Match the request class exactly: `execute` for plain, `inquire` for inquiry, and `submit` for a typed operation with non-empty affected axes. |
@@ -81,6 +81,38 @@ handle. Keep `SessionConfig`, open a fresh session, select fresh views, and
 expect every cache entry to start `Unknown`. Re-query camera state explicitly;
 the owner never automatically resubmits commands. Old handles must report the
 old owner's terminal/closed outcome and cannot be rebound to the new owner.
+
+Classify the terminal condition with `Error::requires_new_session()` rather than
+matching `ErrorKind::IoClosed` or individual variants. Transport close, explicit
+shutdown, and poison are deliberately distinct errors that share one kind, so
+the kind alone cannot tell a field disconnect apart from a shutdown this
+application requested:
+
+| Terminal condition | Error | `requires_new_session()` |
+| --- | --- | --- |
+| The peer closed the connection | `ConnectionClosed` | `true` |
+| The stream position became unknowable | `StreamPoisoned` | `true` |
+| The owner's transport or channel is gone | `NoTransport`, `TransportChannelClosed`, … | `true` |
+| The application shut the session down | `RuntimeShutdown` | `false` |
+
+`true` is positive proof that the session is finished; `false` only means the
+error alone does not prove it. Ordinary per-request failures — timeouts, busy
+states, protocol and parameter errors — are `false`, and so is a raw `Io`
+failure, because a datagram write failure is isolated to its own transmission
+and a stream failure reaches the caller as `StreamPoisoned`.
+
+```rust,ignore
+match camera.execute(&command) {
+    Ok(()) => {}
+    Err(error) if error.requires_new_session() => {
+        // Drop the old session and views, then rebuild from the retained
+        // configuration. Re-query state before applying anything new.
+        let session = Session::open(new_transport()?, config.clone())?;
+        // ...
+    }
+    Err(error) => return Err(error),
+}
+```
 
 For the complete construction, transport, target, tuning, noun, and lifecycle
 examples, see [`usage_2_0.md`](usage_2_0.md). For bounded state and diagnostic

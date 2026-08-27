@@ -12,14 +12,14 @@ help: the trait `OperationCommand<grafton_visca::completion::Targeted>` is not i
  6 | struct MissingAffectedAxes;
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^
    = help: the following other types implement trait `OperationCommand<K>`:
-             `FocusDrive` implements `OperationCommand<grafton_visca::completion::AppliedOnly>`
-             `FocusInfinity` implements `OperationCommand<grafton_visca::completion::Targeted>`
-             `FocusStop` implements `OperationCommand<grafton_visca::completion::AppliedOnly>`
-             `FocusTarget` implements `OperationCommand<grafton_visca::completion::Targeted>`
-             `FocusTrigger` implements `OperationCommand<grafton_visca::completion::AppliedOnly>`
-             `IrisDirect` implements `OperationCommand<grafton_visca::completion::Targeted>`
-             `IrisReset` implements `OperationCommand<grafton_visca::completion::Targeted>`
-             `NdFilterDirect` implements `OperationCommand<grafton_visca::completion::Targeted>`
+             FocusInfinity
+             FocusTarget
+             IrisDirect
+             IrisReset
+             NdFilterDirect
+             NdFilterStepDown
+             NdFilterStepUp
+             PanTiltAbsolute
            and $N others
 note: required by a bound in `requires_operation`
   --> tests/api_contract/fail/operation_without_affected_axes_is_rejected.rs:22:26

@@ -13,6 +13,7 @@ use std::{fmt, marker::PhantomData, sync::Arc, time::Duration};
 use crate::{
     camera::{IdleWait, MotionQuery},
     completion,
+    drop_stop::{pan_tilt_stop_request, DropStopPlan},
     executor::Executor,
     operation::Operation,
     prepared::{prepare_command, prepare_inquiry, prepare_operation, prepare_position_queries},
@@ -25,7 +26,6 @@ use crate::{
         },
     },
     transport::{AsyncTransport, HasTransportConfig},
-    types::{PanSpeed, TiltSpeed},
     CameraId, DiagnosticSubscription, Error, Inquiry, MetricsSnapshot, OperationCommand,
     PlainCommand, Result, SessionConfig, StateCache,
 };
@@ -245,9 +245,17 @@ impl AsyncCameraCore {
         let prepared =
             prepare_operation::<K, _>(operation, self.target, self.profile.as_ref(), self.tuning)?;
         let receipt = self.owner.submit_operation(prepared).await?;
+        let stop_on_drop = DropStopPlan::new(
+            operation.control_class(),
+            receipt.affected_axes(),
+            self.target,
+            Arc::clone(&self.profile),
+            self.tuning,
+        );
         Ok(Operation::from_receipt(
             receipt,
             self.owner.receipt_control(),
+            stop_on_drop,
         ))
     }
 
@@ -336,20 +344,7 @@ impl AsyncCameraCore {
     }
 
     pub(crate) fn pan_tilt_stop_request(&self) -> Result<PanTiltStop> {
-        let capabilities = self.profile.capabilities();
-        let pan_value = if capabilities.pan_speed.contains(&12) {
-            12
-        } else {
-            *capabilities.pan_speed.start()
-        };
-        let tilt_value = if capabilities.tilt_speed.contains(&10) {
-            10
-        } else {
-            *capabilities.tilt_speed.start()
-        };
-        let pan_speed = PanSpeed::new(pan_value)?;
-        let tilt_speed = TiltSpeed::new(tilt_value)?;
-        Ok(PanTiltStop::new(pan_speed, tilt_speed))
+        pan_tilt_stop_request(self.profile.as_ref())
     }
 }
 
