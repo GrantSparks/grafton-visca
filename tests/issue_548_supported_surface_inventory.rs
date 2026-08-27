@@ -279,6 +279,26 @@ fn macro_and_struct_names(source: &str, suffix: &str) -> Vec<String> {
     names
 }
 
+/// Reads `pub const NAME: usize = N;` without depending on its formatting.
+fn declared_usize(source: &str, name: &str) -> usize {
+    let needle = format!("{name}: usize");
+    source
+        .split_once(needle.as_str())
+        .and_then(|(_, rest)| rest.split_once('='))
+        .and_then(|(_, rest)| rest.split_once(';'))
+        .and_then(|(value, _)| value.trim().parse().ok())
+        .unwrap_or_else(|| panic!("no usize constant named {name}"))
+}
+
+/// Rows listed in the closed `BuiltinCommand::ALL` slice.
+fn ledger_rows(semantics: &str) -> usize {
+    semantics
+        .rsplit_once("pub const ALL: &[Self] = &[")
+        .and_then(|(_, rest)| rest.split_once("    ];"))
+        .map(|(slice, _)| slice.matches("Self::").count())
+        .expect("BuiltinCommand::ALL slice")
+}
+
 fn trait_methods(source: &str, traits: &[&str]) -> Vec<String> {
     let mut methods = Vec::new();
     let mut selected = false;
@@ -359,8 +379,18 @@ fn static_noun_and_control_inventory_is_closed() {
     }
     assert!(surface.contains("pub(crate) const fn surface_entry"));
     assert!(surface.contains("BuiltinCommand::ALL"));
-    assert!(surface.contains("(plain, applied_only, targeted), (115, 16, 15)"));
-    assert!(surface.contains("assert_eq!(noun_count, 143)"));
+
+    // Derived instead of matched against another file's formatted source: the
+    // closed ledger must give every semantic row exactly one disposition.
+    let semantics = include_str!("../src/command/semantics.rs");
+    let dispositions = surface.matches("noun_entry!(").count()
+        + surface.matches("broadcast_entry!(").count()
+        + surface.matches("internal_entry!(").count();
+    assert_eq!(
+        dispositions,
+        ledger_rows(semantics),
+        "the static surface ledger drifted from the semantic inventory"
+    );
 }
 
 #[test]
@@ -402,8 +432,22 @@ fn dynamic_control_inventory_is_closed() {
     // violate the closed noun surface.
     assert!(!nouns.contains("fn result("));
     assert_eq!(nouns.matches("pub trait DynSessionCameraNouns").count(), 1);
-    assert!(nouns.contains("DYN_NOUN_TARGET_METHOD_COUNT: usize = 143"));
-    assert!(nouns.contains("DYN_NOUN_INQUIRY_METHOD_COUNT: usize = 66"));
+
+    // Derived instead of matched against the constant's formatted source: the
+    // declared projection sizes must add up to the methods the noun traits
+    // actually carry.  Motion is a safety/observation view, not a projection
+    // of the command or inquiry ledgers.
+    let projected: usize = public_trait_names(&[nouns])
+        .iter()
+        .filter(|name| name.as_str() != "DynSessionCameraNouns" && name.as_str() != "DynMotion")
+        .map(|name| trait_methods(nouns, &[name.as_str()]).len())
+        .sum();
+    assert_eq!(
+        projected,
+        declared_usize(nouns, "DYN_NOUN_TARGET_METHOD_COUNT")
+            + declared_usize(nouns, "DYN_NOUN_INQUIRY_METHOD_COUNT"),
+        "the dynamic noun traits drifted from the declared projection sizes"
+    );
 }
 
 #[test]

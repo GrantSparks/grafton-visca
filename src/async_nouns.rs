@@ -227,6 +227,74 @@ impl<P: CompileTimeProfile> Camera<P> {
     }
 }
 
+#[cfg(test)]
+#[allow(clippy::items_after_test_module)]
+mod inventory_tests {
+    use std::collections::BTreeMap;
+
+    use crate::command::semantics::BuiltinCommand;
+    use crate::command::surface::{surface_entry, StaticSurfaceDisposition};
+
+    #[test]
+    fn every_ledger_method_has_one_async_definition_per_row() {
+        let source = include_str!("async_nouns.rs");
+        for accessor in [
+            "PowerAccessor",
+            "ZoomAccessor",
+            "SystemAccessor",
+            "PanTiltAccessor",
+            "FocusAccessor",
+            "ExposureAccessor",
+            "WhiteBalanceAccessor",
+            "ImageAccessor",
+            "PresetsAccessor",
+            "TallyAccessor",
+            "NdFilterAccessor",
+            "MotionSyncAccessor",
+            "MenuAccessor",
+            "AdvancedAccessor",
+        ] {
+            assert!(
+                source.contains(&format!("{accessor}<'")),
+                "missing canonical async noun accessor {accessor}",
+            );
+        }
+        assert!(source.contains("pub struct MotionAccessor"));
+
+        let mut expected = BTreeMap::<&str, usize>::new();
+
+        for command in BuiltinCommand::ALL {
+            if let StaticSurfaceDisposition::Noun { method, .. } =
+                surface_entry(*command).disposition
+            {
+                *expected.entry(method).or_default() += 1;
+            }
+        }
+
+        for (method, rows) in expected {
+            let needle = format!("pub async fn {method}(");
+            assert_eq!(
+                source.matches(&needle).count(),
+                rows,
+                "async noun method {method} must represent exactly its ledger rows",
+            );
+        }
+
+        for forbidden in [
+            "address_set",
+            "interface_clear",
+            "cancel_command",
+            "pan_tilt_home",
+            "zoom_stop",
+            "defog_mode",
+            "nr_speed",
+        ] {
+            let declaration = format!("pub async fn {forbidden}(");
+            assert!(!source.contains(&declaration));
+        }
+    }
+}
+
 impl<'a, P: CompileTimeProfile> PowerAccessor<'a, P> {
     /// Inquires the camera's current power state.
     pub async fn state(&self) -> Result<bool> {
