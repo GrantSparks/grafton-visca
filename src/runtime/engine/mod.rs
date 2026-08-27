@@ -161,6 +161,8 @@ pub(crate) struct InputTurn {
 pub(crate) enum FirstDispatch {
     Effects(Vec<Effect>),
     WaitUntil(Instant),
+    /// The request stays queued: it is admitted and ready, but some other
+    /// request currently owns the capacity it needs. It is never terminal.
     Blocked,
     Missing,
 }
@@ -413,7 +415,8 @@ impl ProtocolEngine {
 
     /// Dispatches `id` only when it is the normative global scheduler winner.
     /// No queue, peer request, deadline, or pacing state is mutated when a
-    /// different request would win.
+    /// different request would win: [`FirstDispatch::Blocked`] leaves `id`
+    /// queued so an ordinary later turn can dispatch it once capacity frees.
     pub(crate) fn first_dispatch_without_due(
         &mut self,
         id: RequestId,
@@ -442,23 +445,6 @@ impl ProtocolEngine {
             None if ready_at > now => FirstDispatch::WaitUntil(ready_at),
             None => FirstDispatch::Blocked,
         }
-    }
-
-    /// Terminalizes exactly one still-unwritten ready request as busy.
-    pub(crate) fn fail_unwritten_without_due(&mut self, id: RequestId) -> Vec<Effect> {
-        let mut effects = Vec::new();
-        if self
-            .entries
-            .get(&id)
-            .is_some_and(|entry| matches!(entry.phase, Phase::Ready { .. }))
-        {
-            self.finish(
-                id,
-                RuntimeOutcome::Failed(Error::TransportBusy),
-                &mut effects,
-            );
-        }
-        effects
     }
 
     fn admit(

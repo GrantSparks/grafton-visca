@@ -22,6 +22,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added a hardware release evidence checklist. Hardware, registry, and
   Synemantic validation remain `Pending (Not run)` until release owners record
   bench evidence.
+- Fixed a blocking submission that loses the dispatch race being terminalized
+  as `Error::TransportBusy` (#561). A blocking caller holding more un-awaited
+  operation handles than the target has command sockets now queues the excess
+  work, which the owner writes as sockets free — matching both the async facade
+  and 1.x. Admission capacity (`max_pending_queue_depth`) still bounds the
+  queue and still rejects genuinely over-capacity submissions with
+  `Error::RuntimeQueueFull`.
 
 ## [1.2.0] - 2026-08-27
 

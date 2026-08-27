@@ -1724,8 +1724,10 @@ mod blocking {
         assert_eq!(owner.state().permits().available(), 0);
     }
 
+    /// Issue #561: a submission that cannot win the socket queues instead of
+    /// terminalizing, and it never waits on or disturbs the busy peer.
     #[test]
-    fn blocking_submission_never_waits_for_another_socket() {
+    fn blocking_submission_queues_instead_of_waiting_for_another_socket() {
         let mut owner_policy = policy(3, TransportKind::Datagram);
         owner_policy.targets[usize::from(CameraId::CAMERA_1.id())] = Some(TargetPolicy {
             command_sockets: 1,
@@ -1742,17 +1744,26 @@ mod blocking {
         let first_id = first.id();
         let first_before = owner.state().request_state(first_id).unwrap();
         let _ = owner.drain_diagnostics();
-        let error = owner
+        let queued = owner
             .submit(
                 &mut driver,
                 command(CameraId::CAMERA_1, CancellationPolicy::Supported, None),
             )
-            .unwrap_err();
-        assert!(matches!(error, Error::TransportBusy));
-        assert_eq!(driver.writes.len(), 1);
+            .expect("a busy socket queues rather than failing the submission");
+        let queued_id = queued.id();
+        assert!(queued.terminal().is_none());
+        assert!(matches!(
+            owner.state().request_state(queued_id),
+            Some((Phase::Ready { .. }, _))
+        ));
+        assert_eq!(
+            driver.writes.len(),
+            1,
+            "the queued request performs no write"
+        );
         assert_eq!(owner.state().request_state(first_id), Some(first_before));
-        assert_eq!(owner.state().active_len(), 1);
-        assert_eq!(owner.state().permits().available(), 2);
+        assert_eq!(owner.state().active_len(), 2);
+        assert_eq!(owner.state().permits().available(), 1);
         assert_eq!(
             driver
                 .writes
@@ -1766,7 +1777,176 @@ mod blocking {
             DiagnosticEvent::CancellationRecorded { .. }
                 | DiagnosticEvent::CancellationObserved { .. }
         )));
-        drop(first);
+
+        // Freeing the only socket drains the queue on the very same turn.
+        let now = Instant::now();
+        owner
+            .inject_frame(
+                &mut driver,
+                frame(
+                    CameraId::CAMERA_1,
+                    DecodedResponse::Ack {
+                        socket: ViscaSocket::S1,
+                    },
+                ),
+                now,
+            )
+            .unwrap();
+        owner
+            .inject_frame(
+                &mut driver,
+                frame(
+                    CameraId::CAMERA_1,
+                    DecodedResponse::Completion {
+                        socket: ViscaSocket::S1,
+                    },
+                ),
+                now,
+            )
+            .unwrap();
+        assert!(matches!(first.terminal(), Some(RuntimeOutcome::Applied)));
+        assert_eq!(driver.writes.len(), 2, "the queued request is written next");
+        assert_eq!(driver.writes[1].0, queued_id);
+        drop(queued);
+    }
+
+    /// Issue #561: queueing is bounded by admission capacity, not by sockets.
+    #[test]
+    fn blocking_queue_depth_still_rejects_beyond_admission_capacity() {
+        let mut owner_policy = policy(2, TransportKind::Datagram);
+        owner_policy.targets[usize::from(CameraId::CAMERA_1.id())] = Some(TargetPolicy {
+            command_sockets: 1,
+            cancellation: CancellationPolicy::Supported,
+        });
+        let mut owner = BlockingOwner::new(owner_policy).unwrap();
+        let mut driver = FakeDriver::default();
+        let written = owner
+            .submit(
+                &mut driver,
+                command(CameraId::CAMERA_1, CancellationPolicy::Supported, None),
+            )
+            .unwrap();
+        let queued = owner
+            .submit(
+                &mut driver,
+                command(CameraId::CAMERA_1, CancellationPolicy::Supported, None),
+            )
+            .expect("the second request fills the bounded queue");
+        let error = owner
+            .submit(
+                &mut driver,
+                command(CameraId::CAMERA_1, CancellationPolicy::Supported, None),
+            )
+            .unwrap_err();
+        assert!(matches!(error, Error::RuntimeQueueFull { capacity: 2 }));
+        assert_eq!(driver.writes.len(), 1);
+        assert_eq!(owner.state().active_len(), 2);
+        drop(written);
+        drop(queued);
+    }
+
+    /// Issue #561: three concurrent blocking submissions over two sockets all
+    /// succeed, and the queued one is written and completed in submit order.
+    #[test]
+    fn blocking_submissions_beyond_the_socket_count_all_complete_in_order() {
+        let mut owner = BlockingOwner::new(policy(8, TransportKind::Datagram)).unwrap();
+        let mut driver = FakeDriver::default();
+        let receipts: Vec<_> = (0..3)
+            .map(|index| {
+                owner
+                    .submit(
+                        &mut driver,
+                        command(CameraId::CAMERA_1, CancellationPolicy::Supported, None),
+                    )
+                    .unwrap_or_else(|error| panic!("submission {index} must not fail: {error:?}"))
+            })
+            .collect();
+        let ids: Vec<_> = receipts.iter().map(ReceiptCore::id).collect();
+        assert_eq!(driver.writes.len(), 2, "only two sockets are available");
+        assert_eq!(
+            driver
+                .writes
+                .iter()
+                .map(|(id, _, _)| *id)
+                .collect::<Vec<_>>(),
+            ids[..2]
+        );
+        assert!(receipts.iter().all(|receipt| receipt.terminal().is_none()));
+
+        let now = Instant::now();
+        for socket in [ViscaSocket::S1, ViscaSocket::S2] {
+            owner
+                .inject_frame(
+                    &mut driver,
+                    frame(CameraId::CAMERA_1, DecodedResponse::Ack { socket }),
+                    now,
+                )
+                .unwrap();
+        }
+        owner
+            .inject_frame(
+                &mut driver,
+                frame(
+                    CameraId::CAMERA_1,
+                    DecodedResponse::Completion {
+                        socket: ViscaSocket::S1,
+                    },
+                ),
+                now,
+            )
+            .unwrap();
+        assert!(matches!(
+            receipts[0].terminal(),
+            Some(RuntimeOutcome::Applied)
+        ));
+        assert_eq!(driver.writes.len(), 3, "the queued request drains next");
+        assert_eq!(driver.writes[2].0, ids[2]);
+
+        owner
+            .inject_frame(
+                &mut driver,
+                frame(
+                    CameraId::CAMERA_1,
+                    DecodedResponse::Completion {
+                        socket: ViscaSocket::S2,
+                    },
+                ),
+                now,
+            )
+            .unwrap();
+        assert!(matches!(
+            receipts[1].terminal(),
+            Some(RuntimeOutcome::Applied)
+        ));
+        owner
+            .inject_frame(
+                &mut driver,
+                frame(
+                    CameraId::CAMERA_1,
+                    DecodedResponse::Ack {
+                        socket: ViscaSocket::S1,
+                    },
+                ),
+                now,
+            )
+            .unwrap();
+        owner
+            .inject_frame(
+                &mut driver,
+                frame(
+                    CameraId::CAMERA_1,
+                    DecodedResponse::Completion {
+                        socket: ViscaSocket::S1,
+                    },
+                ),
+                now,
+            )
+            .unwrap();
+        assert!(matches!(
+            receipts[2].terminal(),
+            Some(RuntimeOutcome::Applied)
+        ));
+        assert_eq!(owner.state().active_len(), 0);
     }
 
     #[test]

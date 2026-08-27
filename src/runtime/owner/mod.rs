@@ -1159,10 +1159,6 @@ impl OwnerState {
         self.engine.first_dispatch_without_due(id, now)
     }
 
-    pub(crate) fn fail_unwritten_without_due(&mut self, id: RequestId) -> VecDeque<Effect> {
-        self.engine.fail_unwritten_without_due(id).into()
-    }
-
     pub(crate) fn begin_input_turn(&self, now: Instant) -> OwnerInputTurn {
         OwnerInputTurn(self.engine.begin_input_turn(now))
     }

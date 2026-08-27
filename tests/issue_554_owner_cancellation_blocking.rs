@@ -1,9 +1,9 @@
 //! Blocking owner cancellation acceptance for the built-in PTZOptics G2 profile.
 //!
-//! Blocking operation admission intentionally returns only after the initial
-//! write, so a pre-wire queued operation cannot be held by this mode-native
-//! facade.  The transmitted cancellation and terminal progression are still
-//! observable exactly through the caller-thread owner.
+//! Blocking operation admission performs the initial write whenever the
+//! request wins the dispatch race, so every operation exercised here is
+//! already transmitted.  The transmitted cancellation and terminal
+//! progression are observable exactly through the caller-thread owner.
 
 #![cfg(feature = "blocking")]
 

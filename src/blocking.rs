@@ -55,8 +55,9 @@ where
     /// caller-thread observation control.
     ///
     /// This constructor is crate-private: only the blocking admission path may
-    /// create a lifecycle handle, after the owner's first-write boundary has
-    /// succeeded.
+    /// create a lifecycle handle, after the owner admitted the request. The
+    /// request is either already written or queued behind the target's busy
+    /// sockets; a queued request is written by a later owner turn.
     pub(crate) fn from_receipt(
         receipt: BlockingOperationReceipt<K>,
         host: &'session dyn BlockingControlHost,
@@ -542,8 +543,10 @@ impl<'session> BlockingCameraCore<'session> {
         receipt.wait(&mut control)
     }
 
-    /// Admits a typed operation and returns its linear lifecycle handle after
-    /// its initial transport write succeeds.
+    /// Admits a typed operation and returns its linear lifecycle handle. The
+    /// initial transport write happens here whenever the request wins the
+    /// dispatch race; otherwise the request stays queued and is written by a
+    /// later owner turn.
     pub fn submit<K, O>(&self, operation: &O) -> Result<Operation<'session, K>, Error>
     where
         K: completion::Kind,

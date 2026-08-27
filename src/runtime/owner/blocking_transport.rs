@@ -880,11 +880,13 @@ mod tests {
         let first = owner
             .submit(&mut writer, serial_inquiry(CameraId::CAMERA_1))
             .unwrap();
-        assert!(matches!(
-            owner.submit(&mut writer, serial_inquiry(CameraId::CAMERA_2)),
-            Err(Error::TransportBusy)
-        ));
+        // Issue #561: the second inquiry queues behind the single flight
+        // instead of failing, and stays unwritten until the flight frees.
+        let queued = owner
+            .submit(&mut writer, serial_inquiry(CameraId::CAMERA_2))
+            .expect("a busy inquiry flight queues rather than failing");
         assert_eq!(io.lock().unwrap().sent.len(), 1);
+        assert!(try_terminal(&queued).is_none());
 
         assert_eq!(
             owner
@@ -896,5 +898,10 @@ mod tests {
             try_terminal(&first),
             Some(RuntimeOutcome::Reply { payload, .. }) if payload.as_slice() == [0x02]
         ));
+        assert_eq!(
+            io.lock().unwrap().sent.len(),
+            2,
+            "the queued inquiry is written once the single flight frees"
+        );
     }
 }
