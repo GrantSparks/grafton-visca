@@ -107,6 +107,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The cancel outbox now records which command each queued cancel targets, and a
   cancel is dropped if the command has completed or the camera has reassigned
   its VISCA socket before the frame is sent (#574).
+- Deferred cancels on a multi-camera transport are no longer dropped as stale
+  (#602). VISCA sockets are camera-local, but the async cancel outbox
+  re-validated each queued cancel with the camera-blind
+  `find_command_on_socket`, which returns whichever camera has held that socket
+  *number* longest. On a daisy chain an unrelated command on camera 1's socket 1
+  shadowed camera 2's own socket 1, so camera 2's perfectly valid cancel was
+  judged stale and silently discarded and its command ran on to completion or
+  timeout. The re-validation is now camera-scoped. The staleness guard from #574
+  is unchanged; it is simply evaluated against the right camera's state. The
+  direction was always fail-safe — a mismatch could only drop a cancel, never
+  emit one against another camera's command.
 - Async cameras can control the on-screen menu again: `Camera::menu()` was
   defined only in the blocking `impl` block, so enabling `mode-async` removed
   the OSD menu accessor from the camera surface entirely (#575).
@@ -114,6 +125,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   at construction time for async users; the new setter hands the configuration
   to the runtime loop, which re-evaluates deadlines against it on every
   housekeeping pass, so it also covers work already in flight.
+- `DeterministicExecutor` can no longer silently trap timeout tests. Its
+  `Executor::block_on` never advanced the virtual clock, so any future awaiting a
+  timer parked forever; it now panics immediately and names the working
+  alternatives. A new `DeterministicExecutor::run_until` drives a borrowing,
+  non-`Send` future while running background tasks and advancing virtual time,
+  and is the drop-in replacement used by the in-crate callers that previously
+  went through `block_on`. The five never-executed `DeterministicExecutor`
+  variants in `issue_339_timeout_behavior_test.rs` and
+  `issue_371_cancel_camera_id_test.rs` are deleted rather than left `#[ignore]`d:
+  per the #394 decision, timeout and cancel behaviour is tested on real runtimes,
+  and the equivalent tokio tests in the same files already assert those
+  guarantees. The one assertion without a tokio counterpart - a second command
+  still succeeding after an intervening recv timeout - was ported to
+  `runtime_resilient_to_timeout_errors_between_commands`. The orphan
+  `src/testing/testkit/deterministic_executor_test.rs`, never declared as a
+  module, is removed (#600).
 - Replies from serial-chain addresses 2-7 are no longer rejected by the response
   decoder (#590). A VISCA device at address *n* answers with the high nibble
   `8 + n`, so camera 1 replies `0x90` and camera 7 replies `0xF0`; the decoder
