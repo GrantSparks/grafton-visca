@@ -15,8 +15,8 @@ use crate::{
     capabilities::{Capabilities, TypedSupportSurface},
     completion::{AppliedOnly, Targeted},
     operation::{Cancellation, Operation},
-    CameraId, CancellationOutcome, CompileTimeProfile, ControlClass, Error, Inquiry,
-    OperationCommand, OperationId, PlainCommand, ProfileSpec, Result, StateCache,
+    CameraId, CancelRejected, CancellationOutcome, CompileTimeProfile, ControlClass, Error,
+    Inquiry, OperationCommand, OperationId, PlainCommand, ProfileSpec, Result, StateCache,
 };
 
 use super::DynFuture;
@@ -61,11 +61,22 @@ impl DynTargetedOperation {
     }
 
     /// Requests cancellation and returns its exact terminal observer.
-    pub async fn cancel(self) -> Result<DynCancellation, Error> {
-        self.inner
-            .cancel()
-            .await
-            .map(DynCancellation::from_cancellation)
+    ///
+    /// A profile without VISCA socket-cancel support refuses a cancellation
+    /// of an already-written request and leaves the original running; the
+    /// returned [`CancelRejected`] carries this handle back so the caller can
+    /// keep waiting on it, retry, or drop it to detach (#612).
+    pub async fn cancel(self) -> Result<DynCancellation, CancelRejected<Self>> {
+        match self.inner.cancel().await {
+            Ok(cancellation) => Ok(DynCancellation::from_cancellation(cancellation)),
+            Err(rejected) => {
+                let (operation, error) = rejected.into_parts();
+                Err(CancelRejected::new(
+                    operation.map(Self::from_operation),
+                    error,
+                ))
+            }
+        }
     }
 
     /// Waits for exact application and physical settling using the owner's
@@ -125,11 +136,22 @@ impl DynAppliedOperation {
     }
 
     /// Requests cancellation and returns its exact terminal observer.
-    pub async fn cancel(self) -> Result<DynCancellation, Error> {
-        self.inner
-            .cancel()
-            .await
-            .map(DynCancellation::from_cancellation)
+    ///
+    /// A profile without VISCA socket-cancel support refuses a cancellation
+    /// of an already-written request and leaves the original running; the
+    /// returned [`CancelRejected`] carries this handle back so the caller can
+    /// keep waiting on it, retry, or drop it to detach (#612).
+    pub async fn cancel(self) -> Result<DynCancellation, CancelRejected<Self>> {
+        match self.inner.cancel().await {
+            Ok(cancellation) => Ok(DynCancellation::from_cancellation(cancellation)),
+            Err(rejected) => {
+                let (operation, error) = rejected.into_parts();
+                Err(CancelRejected::new(
+                    operation.map(Self::from_operation),
+                    error,
+                ))
+            }
+        }
     }
 
     /// Relinquishes observation without changing the operation's protocol

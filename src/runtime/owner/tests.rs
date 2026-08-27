@@ -675,7 +675,7 @@ mod blocking {
                 now,
             )
             .unwrap();
-        let cancellation = operation.cancel(&mut owner, &mut driver).unwrap();
+        let cancellation = operation.cancel_test(&mut owner, &mut driver).unwrap();
         let mut reader = DeadlineReader::default();
         let mut decoder = EmptyDecoder;
         assert_eq!(
@@ -2626,8 +2626,14 @@ mod blocking {
             .unwrap();
         let id = operation.id();
         let before = owner.state().request_state(id).unwrap();
-        let error = owner.cancel_test(&mut driver, operation).unwrap_err();
-        assert!(matches!(error, Error::NotSupported));
+        let rejected = owner.cancel_test(&mut driver, operation).unwrap_err();
+        assert!(matches!(rejected.error, Error::NotSupported));
+        // A refused cancellation returns the receipt so the caller keeps the
+        // observer for the request the engine deliberately left running (#612).
+        let operation = rejected
+            .receipt
+            .expect("a refused cancellation returns the operation receipt");
+        assert_eq!(operation.id, id);
         assert_eq!(owner.state().request_state(id), Some(before));
         assert_eq!(owner.state().active_len(), 1);
         assert_eq!(

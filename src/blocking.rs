@@ -17,9 +17,9 @@ use crate::{
         BlockingOperationReceipt, BlockingReceiptControl, BlockingSessionHost,
     },
     stop_request::pan_tilt_stop_request,
-    CameraId, CancellationOutcome, CompileTimeProfile, ControlClass, DiagnosticEvent, Error,
-    Inquiry, MetricsSnapshot, OperationCommand, OperationalTuning, PlainCommand, ProfileSpec,
-    Result, StateCache,
+    CameraId, CancelRejected, CancellationOutcome, CompileTimeProfile, ControlClass,
+    DiagnosticEvent, Error, Inquiry, MetricsSnapshot, OperationCommand, OperationalTuning,
+    PlainCommand, ProfileSpec, Result, StateCache,
 };
 
 const MOTION_QUERY_OBSERVER_BUDGET: Duration = Duration::from_secs(30);
@@ -107,11 +107,45 @@ where
     }
 
     /// Records cancellation intent and returns its exact terminal observer.
-    pub fn cancel(self) -> Result<Cancellation<'session>, Error> {
+    ///
+    /// # A refused cancellation hands this handle back
+    ///
+    /// Cancelling a request that is still queued always succeeds. Cancelling
+    /// one that has already been written needs profile support for the
+    /// standard VISCA socket-cancel command; without it — [`PtzOpticsG2`] is
+    /// the only built-in profile in that position — the owner refuses with
+    /// [`Error::NotSupported`] and deliberately leaves the original request
+    /// scheduled, retryable, and able to complete.
+    ///
+    /// Because the original is still live, this method only consumes the
+    /// handle when it succeeds. A refusal returns [`CancelRejected`], which
+    /// carries the handle back so the caller can keep waiting on it, retry the
+    /// cancel, or drop it to detach. Recovering the handle does not stop the
+    /// camera; a moving axis ends with an applied typed STOP.
+    ///
+    /// `?` in a function returning [`Error`] still works — the [`From`]
+    /// conversion keeps the reason and detaches the handle.
+    ///
+    /// [`PtzOpticsG2`]: crate::profiles::PtzOpticsG2
+    pub fn cancel(self) -> Result<Cancellation<'session>, CancelRejected<Self>> {
         let host = self.host;
-        let (receipt, mut control) = self.take_parts()?;
-        let cancellation = control.cancel_operation(receipt)?;
-        Ok(Cancellation::from_receipt(cancellation, host))
+        let id = self.id;
+        let (receipt, mut control) = match self.take_parts() {
+            Ok(parts) => parts,
+            Err(error) => return Err(CancelRejected::new(None, error)),
+        };
+        match control.cancel_operation(receipt) {
+            Ok(cancellation) => Ok(Cancellation::from_receipt(cancellation, host)),
+            Err((receipt, error)) => Err(CancelRejected::new(
+                receipt.map(|receipt| Self {
+                    receipt: Some(receipt),
+                    host,
+                    id,
+                    marker: PhantomData,
+                }),
+                error,
+            )),
+        }
     }
 
     /// Explicitly relinquishes this operation's observation right.

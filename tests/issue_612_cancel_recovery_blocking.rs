@@ -1,9 +1,10 @@
-//! Blocking owner cancellation acceptance for the built-in PTZOptics G2 profile.
+//! A refused cancellation must never strand the blocking caller (#612).
 //!
-//! Blocking operation admission performs the initial write whenever the
-//! request wins the dispatch race, so every operation exercised here is
-//! already transmitted.  The transmitted cancellation and terminal
-//! progression are observable exactly through the caller-thread owner.
+//! The blocking twin of `issue_612_cancel_recovery.rs`.  1.x's blocking
+//! `BlockingInFlight::cancel` consumed the handle on the `NotSupported` path
+//! and discarded the retained result with it; 2.0 holds both facades to the
+//! same contract, so a refusal here hands the operation handle back exactly as
+//! it does on the async surface.
 
 #![cfg(feature = "blocking")]
 
@@ -15,29 +16,27 @@ use std::{
 
 use grafton_visca::{
     blocking::{Session, SessionConfig},
-    completion::AppliedOnly,
     profile::ProfileSpec,
     profiles::PtzOpticsG2,
-    request::builtin::FocusStop,
     transport::{BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig},
     Error,
 };
 
+const ZOOM_TELE: &[u8] = &[0x81, 0x01, 0x04, 0x07, 0x02, 0xff];
 const ZOOM_STOP: &[u8] = &[0x81, 0x01, 0x04, 0x07, 0x00, 0xff];
-const FOCUS_STOP: &[u8] = &[0x81, 0x01, 0x04, 0x08, 0x00, 0xff];
 const ACK_AND_COMPLETE_SOCKET_ONE: &[u8] = &[0x90, 0x41, 0xff, 0x90, 0x51, 0xff];
 
+/// Replays exactly the frames a test queues and records every write, so the
+/// wire transcript is the assertion surface.
 #[derive(Debug)]
-struct CancellationTransport {
+struct ScriptedTransport {
     config: TransportConfig,
     responses: Arc<Mutex<VecDeque<Vec<u8>>>>,
     writes: Arc<Mutex<Vec<Vec<u8>>>>,
-    send_count: usize,
-    auto_complete_after_first: bool,
 }
 
-impl CancellationTransport {
-    fn new(auto_complete_after_first: bool) -> (Self, CancellationProbe) {
+impl ScriptedTransport {
+    fn new() -> (Self, TransportProbe) {
         let responses = Arc::new(Mutex::new(VecDeque::new()));
         let writes = Arc::new(Mutex::new(Vec::new()));
         (
@@ -45,26 +44,24 @@ impl CancellationTransport {
                 config: TransportConfig::default(),
                 responses: Arc::clone(&responses),
                 writes: Arc::clone(&writes),
-                send_count: 0,
-                auto_complete_after_first,
             },
-            CancellationProbe { responses, writes },
+            TransportProbe { responses, writes },
         )
     }
 }
 
 #[derive(Clone, Debug)]
-struct CancellationProbe {
+struct TransportProbe {
     responses: Arc<Mutex<VecDeque<Vec<u8>>>>,
     writes: Arc<Mutex<Vec<Vec<u8>>>>,
 }
 
-impl CancellationProbe {
-    fn push(&self, bytes: Vec<u8>) {
+impl TransportProbe {
+    fn push(&self, bytes: &[u8]) {
         self.responses
             .lock()
             .expect("responses lock")
-            .push_back(bytes);
+            .push_back(bytes.to_vec());
     }
 
     fn writes(&self) -> Vec<Vec<u8>> {
@@ -72,29 +69,22 @@ impl CancellationProbe {
     }
 }
 
-impl HasTransportConfig for CancellationTransport {
+impl HasTransportConfig for ScriptedTransport {
     fn transport_config(&self) -> &TransportConfig {
         &self.config
     }
 }
 
-impl BlockingTransport for CancellationTransport {
+impl BlockingTransport for ScriptedTransport {
     fn send_with_kind(
         &mut self,
         bytes: &[u8],
         _kind: grafton_visca::command::CommandKind,
     ) -> Result<(), Error> {
-        self.send_count = self.send_count.saturating_add(1);
         self.writes
             .lock()
             .expect("writes lock")
             .push(bytes.to_vec());
-        if self.auto_complete_after_first && self.send_count > 1 {
-            self.responses
-                .lock()
-                .expect("responses lock")
-                .push_back(ACK_AND_COMPLETE_SOCKET_ONE.to_vec());
-        }
         Ok(())
     }
 
@@ -128,39 +118,55 @@ fn g2_config() -> SessionConfig {
 }
 
 #[test]
-fn blocking_g2_transmitted_cancel_is_not_supported_without_cancel_frame() {
-    let (transport, probe) = CancellationTransport::new(true);
+fn blocking_refused_cancellation_returns_the_handle_and_leaves_stop_available() {
+    let (transport, probe) = ScriptedTransport::new();
     let session = Session::open(transport, g2_config()).expect("owner session");
     let camera = session.camera::<PtzOpticsG2>().expect("G2 camera view");
 
-    let original = camera.zoom().stop().expect("transmitted operation");
-    assert_eq!(probe.writes(), vec![ZOOM_STOP.to_vec()]);
+    // A continuous zoom: the axis keeps moving until something stops it.
+    let moving = camera.zoom().tele().expect("continuous zoom admitted");
+    assert_eq!(probe.writes(), vec![ZOOM_TELE.to_vec()]);
 
-    let rejected = original
+    // The G2 has no socket-cancel, so the owner refuses — and hands the
+    // handle back rather than consuming it.
+    let rejected = moving
         .cancel()
         .expect_err("G2 sent cancellation must be rejected by profile policy");
     assert!(matches!(rejected.error(), Error::NotSupported));
-    // The rejection hands the operation handle back (#612).
-    let original = rejected
+    assert!(rejected.has_operation());
+    let moving = rejected
         .into_operation()
-        .expect("a rejected cancellation returns the operation handle");
-    assert_eq!(probe.writes(), vec![ZOOM_STOP.to_vec()]);
+        .expect("a refused cancellation returns the operation handle");
 
-    // The original frames are delivered before the next operation's frames.
-    // The next applied wait pumps them through the same caller-thread owner,
-    // proving that a rejected cancel left the original operation live until
-    // its protocol terminal state and emitted no cancellation transmission.
-    probe.push(ACK_AND_COMPLETE_SOCKET_ONE.to_vec());
-    original
+    // Recovery is repeatable: retrying in a loop can never fall off the end of
+    // the API.
+    let rejected = moving
+        .cancel()
+        .expect_err("the retry is refused on the same profile grounds");
+    let (moving, error) = rejected.into_parts();
+    assert!(matches!(error, Error::NotSupported));
+    let moving = moving.expect("the retry also returns the operation handle");
+
+    // No cancellation frame was ever written.
+    assert_eq!(probe.writes(), vec![ZOOM_TELE.to_vec()]);
+
+    // The recovered handle is a real observer, not a husk: it still reports
+    // the original operation's own terminal state, which is exactly the state
+    // 1.x's blocking facade discarded on this path.
+    probe.push(ACK_AND_COMPLETE_SOCKET_ONE);
+    moving
         .applied()
         .expect("the recovered handle still observes the original operation");
-    let next = camera
-        .submit::<AppliedOnly, _>(&FocusStop)
-        .expect("next operation");
-    next.applied().expect("next operation applied");
+
+    // The documented recourse for a profile without socket-cancel: an
+    // explicit typed STOP, which still reaches the wire.
+    let stop = camera.zoom().stop().expect("typed stop admitted");
+    probe.push(ACK_AND_COMPLETE_SOCKET_ONE);
+    stop.applied().expect("the stop applies");
     assert_eq!(
         probe.writes(),
-        vec![ZOOM_STOP.to_vec(), FOCUS_STOP.to_vec()]
+        vec![ZOOM_TELE.to_vec(), ZOOM_STOP.to_vec()],
+        "the STOP that ends physical movement must reach the wire"
     );
 
     session.shutdown().expect("owner shutdown");

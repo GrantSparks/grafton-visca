@@ -198,6 +198,43 @@ To end motion, submit a stop: `camera.pan_tilt().stop()`, `camera.zoom().stop()`
 `camera.focus().stop()`, or `camera.motion().stop_all_motion()`. `cancel` records
 protocol cancellation and does not by itself prove motion ended.
 
+### A refused `cancel` hands the handle back
+
+Cancelling a command that has already been written needs profile support for the
+standard VISCA socket-cancel command. `PtzOpticsG2` is the one built-in profile
+without it, and there the owner refuses with `Error::NotSupported` and
+deliberately leaves the original request scheduled and able to complete — the
+same per-phase contract 1.x had, where a still-queued command cancels locally on
+every profile.
+
+Because the original is still live, `cancel` consumes the handle only when it
+succeeds. A refusal returns `CancelRejected<H>`, which carries the handle back:
+
+```rust,ignore
+let operation = match operation.cancel().await {
+    Ok(cancellation) => return Ok(cancellation),
+    Err(rejected) => rejected
+        .into_operation()
+        .ok_or(Error::RuntimeShutdown)?,
+};
+// Still observable, still retryable — and the axis is stopped the usual way.
+camera.zoom().stop().await?.applied().await?;
+operation.detach();
+```
+
+`?` still works in a function returning `Error`: the `From<CancelRejected<H>>`
+conversion keeps the reason and detaches the handle, which is exactly what the
+consuming shape did before.
+
+1.x's async and dyn handles borrowed for `cancel` (`InFlight::cancel(&self)` at
+`src/camera/inflight.rs:344`, documented at `:337` as "This method borrows the
+handle, so its exact response may still be awaited"), so a `NotSupported` there
+also left the caller holding the handle. 2.0 keeps that recovery while keeping
+its linear consuming terminal methods. 1.x's *blocking* handle consumed on this
+path (`src/camera/inflight.rs:615`) and `src/runtime/blocking_runner.rs:413`
+discarded the retained result with it; 2.0 does not reproduce that asymmetry —
+both facades behave like the 1.x async one.
+
 ### Scoped stop-on-exit guard
 
 To bound movement by a scope rather than by an explicit call on every path,

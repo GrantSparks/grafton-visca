@@ -15,8 +15,8 @@ use super::{
     cancellation_receipt_for, normalize_cancellation_observation, normalize_command_outcome,
     normalize_inquiry_outcome, prepend_effects, AppliedEffect, BlockingTransportAdapter,
     CancellationCore, CompletionObserver, DiagnosticEvent, OwnerInputTurn, OwnerPolicy, OwnerState,
-    ReceiptCore, ReceiptObservation, RequestId, RuntimeOutcome, RuntimeRequest, ShutdownReason,
-    TransmissionMeta, WaitSelection, WireWrite,
+    ReceiptCore, ReceiptObservation, RejectedCancellation, RequestId, RuntimeOutcome,
+    RuntimeRequest, ShutdownReason, TransmissionMeta, WaitSelection, WireWrite,
 };
 use crate::runtime::engine::{DecodedFrame, Effect, FirstDispatch, Input, TransportKind};
 
@@ -165,6 +165,24 @@ impl<'a> BlockingSessionCore<'a> {
         } = &mut *parts;
         operation(owner, *driver, *reader, *decoder)
     }
+
+    /// Runs one cancellation turn, returning the receipt with the reason when
+    /// the turn itself cannot be taken (#612).
+    fn with_parts_cancelling<T>(
+        &self,
+        receipt: ReceiptCore,
+        operation: impl FnOnce(
+            &mut BlockingOwner,
+            &mut dyn BlockingWireDriver,
+            ReceiptCore,
+        ) -> Result<T, RejectedCancellation>,
+    ) -> Result<T, RejectedCancellation> {
+        let Ok(mut parts) = self.parts.try_borrow_mut() else {
+            return Err(RejectedCancellation::kept(receipt, Error::TransportBusy));
+        };
+        let BlockingSessionParts { owner, driver, .. } = &mut *parts;
+        operation(owner, *driver, receipt)
+    }
 }
 
 impl fmt::Debug for BlockingSessionCore<'_> {
@@ -200,7 +218,12 @@ pub(crate) trait BlockingControlHost {
         deadline: Instant,
     ) -> Result<ReceiptCore, Error>;
 
-    fn cancel_operation(&self, receipt: ReceiptCore) -> Result<BlockingCancellationReceipt, Error>;
+    /// Records cancellation intent, handing the receipt back when the owner
+    /// refuses so the caller keeps the original request's observer (#612).
+    fn cancel_operation(
+        &self,
+        receipt: ReceiptCore,
+    ) -> Result<BlockingCancellationReceipt, RejectedCancellation>;
 }
 
 impl BlockingControlHost for BlockingSessionCore<'_> {
@@ -237,8 +260,13 @@ impl BlockingControlHost for BlockingSessionCore<'_> {
         })
     }
 
-    fn cancel_operation(&self, receipt: ReceiptCore) -> Result<BlockingCancellationReceipt, Error> {
-        self.with_parts(|owner, driver, _, _| owner.cancel_core(driver, receipt))
+    fn cancel_operation(
+        &self,
+        receipt: ReceiptCore,
+    ) -> Result<BlockingCancellationReceipt, RejectedCancellation> {
+        self.with_parts_cancelling(receipt, |owner, driver, receipt| {
+            owner.cancel_core(driver, receipt)
+        })
     }
 }
 
@@ -312,6 +340,24 @@ impl BlockingSessionHost {
             decoder,
         } = &mut *parts;
         operation(owner, driver.as_mut(), reader.as_mut(), decoder.as_mut())
+    }
+
+    /// Runs one cancellation turn, returning the receipt with the reason when
+    /// the turn itself cannot be taken (#612).
+    fn with_parts_cancelling<T>(
+        &self,
+        receipt: ReceiptCore,
+        operation: impl FnOnce(
+            &mut BlockingOwner,
+            &mut dyn BlockingWireDriver,
+            ReceiptCore,
+        ) -> Result<T, RejectedCancellation>,
+    ) -> Result<T, RejectedCancellation> {
+        let Ok(mut parts) = self.parts.try_borrow_mut() else {
+            return Err(RejectedCancellation::kept(receipt, Error::TransportBusy));
+        };
+        let BlockingOwnedSessionParts { owner, driver, .. } = &mut *parts;
+        operation(owner, driver.as_mut(), receipt)
     }
 
     pub(crate) fn submit_command(
@@ -420,8 +466,13 @@ impl BlockingControlHost for BlockingSessionHost {
         })
     }
 
-    fn cancel_operation(&self, receipt: ReceiptCore) -> Result<BlockingCancellationReceipt, Error> {
-        self.with_parts(|owner, driver, _, _| owner.cancel_core(driver, receipt))
+    fn cancel_operation(
+        &self,
+        receipt: ReceiptCore,
+    ) -> Result<BlockingCancellationReceipt, RejectedCancellation> {
+        self.with_parts_cancelling(receipt, |owner, driver, receipt| {
+            owner.cancel_core(driver, receipt)
+        })
     }
 }
 
@@ -543,19 +594,43 @@ impl<'a> BlockingReceiptControl<'a> {
         }
     }
 
+    /// Records cancellation intent, returning the operation receipt intact
+    /// when the owner refuses it (#612).
+    ///
+    /// The large `Err` variant is the point: it is the caller's observation
+    /// right travelling back rather than being destroyed. The public
+    /// `blocking::Operation::cancel` boxes it into `CancelRejected` before it
+    /// reaches a caller, so no public `Result` carries this size.
+    #[allow(clippy::result_large_err)]
     pub(crate) fn cancel_operation<K>(
         &mut self,
         receipt: BlockingOperationReceipt<K>,
-    ) -> Result<BlockingCancellationReceipt, Error>
+    ) -> Result<BlockingCancellationReceipt, (Option<BlockingOperationReceipt<K>>, Error)>
     where
         K: completion::Kind,
     {
-        match &self.kind {
-            BlockingControlKind::Shared(host) => host.cancel_operation(receipt.into_core()),
+        let BlockingOperationReceipt {
+            core,
+            affected_axes,
+            settlement,
+            marker,
+        } = receipt;
+        let rebuild = |core| BlockingOperationReceipt {
+            core,
+            affected_axes,
+            settlement,
+            marker,
+        };
+        let outcome = match &self.kind {
+            BlockingControlKind::Shared(host) => host.cancel_operation(core),
             BlockingControlKind::Borrowed { .. } => {
-                self.with_parts(|owner, driver, _, _| receipt.cancel(owner, driver))
+                match self.with_parts(|owner, driver, _, _| Ok(owner.cancel_core(driver, core))) {
+                    Ok(outcome) => outcome,
+                    Err(error) => Err(RejectedCancellation::lost(error)),
+                }
             }
-        }
+        };
+        outcome.map_err(|RejectedCancellation { receipt, error }| (receipt.map(rebuild), error))
     }
 }
 
@@ -670,21 +745,17 @@ where
         wait_core_for(self.core, control, timeout).and_then(normalize_command_outcome)
     }
 
-    pub(crate) fn cancel<D: BlockingWireDriver + ?Sized>(
+    /// Owner-level cancellation used only by src/runtime/owner/tests.rs
+    /// `mod blocking`, which compiles on the blocking-without-async leg (#636).
+    /// The public path goes through `BlockingReceiptControl::cancel_operation`.
+    #[cfg(test)]
+    #[allow(dead_code)]
+    pub(crate) fn cancel_test<D: BlockingWireDriver + ?Sized>(
         self,
         owner: &mut BlockingOwner,
         driver: &mut D,
-    ) -> Result<BlockingCancellationReceipt, Error> {
-        if !Arc::ptr_eq(&self.core.origin, &owner.state.origin) {
-            return Err(Error::InvalidState(
-                "operation receipt belongs to a different owner".into(),
-            ));
-        }
+    ) -> Result<BlockingCancellationReceipt, RejectedCancellation> {
         owner.cancel_core(driver, self.core)
-    }
-
-    pub(crate) fn into_core(self) -> ReceiptCore {
-        self.core
     }
 
     // No consumer in src/ or tests/: the public `blocking::Operation::detach` has an
@@ -1490,8 +1561,16 @@ impl BlockingOwner {
         &mut self,
         driver: &mut D,
         receipt: ReceiptCore,
-    ) -> Result<BlockingCancellationReceipt, Error> {
-        self.enter()?;
+    ) -> Result<BlockingCancellationReceipt, RejectedCancellation> {
+        if !Arc::ptr_eq(&receipt.origin, &self.state.origin) {
+            return Err(RejectedCancellation::kept(
+                receipt,
+                Error::InvalidState("operation receipt belongs to a different owner".into()),
+            ));
+        }
+        if let Err(error) = self.enter() {
+            return Err(RejectedCancellation::kept(receipt, error));
+        }
         if let Some(observation) = receipt.completion.try_recv() {
             self.leave();
             return Ok(BlockingCancellationReceipt {
@@ -1507,10 +1586,14 @@ impl BlockingOwner {
             .recv()
             .map_err(|_| Error::RuntimeShutdown);
         self.leave();
-        acknowledged??;
-        Ok(BlockingCancellationReceipt {
-            core: cancellation_receipt_for(receipt, None),
-        })
+        // A refusal leaves the original request scheduled and observable, so
+        // the receipt goes back to the caller rather than dying here (#612).
+        match acknowledged {
+            Ok(Ok(())) => Ok(BlockingCancellationReceipt {
+                core: cancellation_receipt_for(receipt, None),
+            }),
+            Ok(Err(error)) | Err(error) => Err(RejectedCancellation::kept(receipt, error)),
+        }
     }
 
     #[cfg(test)]
@@ -1518,7 +1601,7 @@ impl BlockingOwner {
         &mut self,
         driver: &mut D,
         receipt: ReceiptCore,
-    ) -> Result<BlockingCancellationReceipt, Error> {
+    ) -> Result<BlockingCancellationReceipt, RejectedCancellation> {
         self.cancel_core(driver, receipt)
     }
 

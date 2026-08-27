@@ -403,7 +403,7 @@ pub fn grafton_visca::blocking::Operation<'_, grafton_visca::completion::Targete
 impl<'session, K> grafton_visca::blocking::Operation<'session, K> where K: grafton_visca::completion::Kind
 pub fn grafton_visca::blocking::Operation<'session, K>::applied(self) -> grafton_visca::Result<(), grafton_visca::Error>
 pub fn grafton_visca::blocking::Operation<'session, K>::applied_with_timeout(self, core::time::Duration) -> grafton_visca::Result<(), grafton_visca::Error>
-pub fn grafton_visca::blocking::Operation<'session, K>::cancel(self) -> grafton_visca::Result<grafton_visca::blocking::Cancellation<'session>, grafton_visca::Error>
+pub fn grafton_visca::blocking::Operation<'session, K>::cancel(self) -> grafton_visca::Result<grafton_visca::blocking::Cancellation<'session>, grafton_visca::CancelRejected<Self>>
 pub fn grafton_visca::blocking::Operation<'session, K>::detach(self)
 pub fn grafton_visca::blocking::Operation<'session, K>::id(&self) -> grafton_visca::OperationId
 impl<K> core::fmt::Debug for grafton_visca::blocking::Operation<'_, K> where K: grafton_visca::completion::Kind
@@ -11715,6 +11715,8 @@ impl core::fmt::Debug for grafton_visca::Error
 pub fn grafton_visca::Error::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::fmt::Display for grafton_visca::Error
 pub fn grafton_visca::Error::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<H> core::convert::From<grafton_visca::CancelRejected<H>> for grafton_visca::Error
+pub fn grafton_visca::Error::from(grafton_visca::CancelRejected<H>) -> Self
 impl core::marker::Freeze for grafton_visca::Error
 impl core::marker::Send for grafton_visca::Error
 impl core::marker::Sync for grafton_visca::Error
@@ -12188,6 +12190,28 @@ impl<P> core::marker::Unpin for grafton_visca::camera::CameraConfig<P> where cor
 impl<P> core::marker::UnsafeUnpin for grafton_visca::camera::CameraConfig<P> where core::marker::PhantomData<P>: core::marker::UnsafeUnpin
 impl<P> core::panic::unwind_safe::RefUnwindSafe for grafton_visca::camera::CameraConfig<P> where core::marker::PhantomData<P>: core::panic::unwind_safe::RefUnwindSafe
 impl<P> core::panic::unwind_safe::UnwindSafe for grafton_visca::camera::CameraConfig<P> where core::marker::PhantomData<P>: core::panic::unwind_safe::UnwindSafe
+pub struct grafton_visca::prelude::blocking::CancelRejected<H>
+impl<H> grafton_visca::CancelRejected<H>
+pub const fn grafton_visca::CancelRejected<H>::error(&self) -> &grafton_visca::Error
+pub const fn grafton_visca::CancelRejected<H>::has_operation(&self) -> bool
+pub fn grafton_visca::CancelRejected<H>::into_error(self) -> grafton_visca::Error
+pub fn grafton_visca::CancelRejected<H>::into_operation(self) -> core::option::Option<H>
+pub fn grafton_visca::CancelRejected<H>::into_parts(self) -> (core::option::Option<H>, grafton_visca::Error)
+impl<H: core::fmt::Debug> core::fmt::Debug for grafton_visca::CancelRejected<H>
+pub fn grafton_visca::CancelRejected<H>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<H> core::convert::From<grafton_visca::CancelRejected<H>> for grafton_visca::Error
+pub fn grafton_visca::Error::from(grafton_visca::CancelRejected<H>) -> Self
+impl<H> core::error::Error for grafton_visca::CancelRejected<H> where H: core::fmt::Debug
+pub fn grafton_visca::CancelRejected<H>::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
+impl<H> core::fmt::Display for grafton_visca::CancelRejected<H>
+pub fn grafton_visca::CancelRejected<H>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<H> core::marker::Freeze for grafton_visca::CancelRejected<H> where core::option::Option<alloc::boxed::Box<H>>: core::marker::Freeze
+impl<H> core::marker::Send for grafton_visca::CancelRejected<H> where core::option::Option<alloc::boxed::Box<H>>: core::marker::Send
+impl<H> core::marker::Sync for grafton_visca::CancelRejected<H> where core::option::Option<alloc::boxed::Box<H>>: core::marker::Sync
+impl<H> core::marker::Unpin for grafton_visca::CancelRejected<H> where core::option::Option<alloc::boxed::Box<H>>: core::marker::Unpin
+impl<H> core::marker::UnsafeUnpin for grafton_visca::CancelRejected<H> where core::option::Option<alloc::boxed::Box<H>>: core::marker::UnsafeUnpin
+impl<H> !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::CancelRejected<H>
+impl<H> !core::panic::unwind_safe::UnwindSafe for grafton_visca::CancelRejected<H>
 pub struct grafton_visca::prelude::blocking::Cancellation<'session>
 impl<'session> grafton_visca::blocking::Cancellation<'session>
 pub fn grafton_visca::blocking::Cancellation<'session>::detach(self)
@@ -12895,7 +12919,7 @@ pub fn grafton_visca::blocking::Operation<'_, grafton_visca::completion::Targete
 impl<'session, K> grafton_visca::blocking::Operation<'session, K> where K: grafton_visca::completion::Kind
 pub fn grafton_visca::blocking::Operation<'session, K>::applied(self) -> grafton_visca::Result<(), grafton_visca::Error>
 pub fn grafton_visca::blocking::Operation<'session, K>::applied_with_timeout(self, core::time::Duration) -> grafton_visca::Result<(), grafton_visca::Error>
-pub fn grafton_visca::blocking::Operation<'session, K>::cancel(self) -> grafton_visca::Result<grafton_visca::blocking::Cancellation<'session>, grafton_visca::Error>
+pub fn grafton_visca::blocking::Operation<'session, K>::cancel(self) -> grafton_visca::Result<grafton_visca::blocking::Cancellation<'session>, grafton_visca::CancelRejected<Self>>
 pub fn grafton_visca::blocking::Operation<'session, K>::detach(self)
 pub fn grafton_visca::blocking::Operation<'session, K>::id(&self) -> grafton_visca::OperationId
 impl<K> core::fmt::Debug for grafton_visca::blocking::Operation<'_, K> where K: grafton_visca::completion::Kind
@@ -20589,6 +20613,8 @@ impl core::fmt::Debug for grafton_visca::Error
 pub fn grafton_visca::Error::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::fmt::Display for grafton_visca::Error
 pub fn grafton_visca::Error::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<H> core::convert::From<grafton_visca::CancelRejected<H>> for grafton_visca::Error
+pub fn grafton_visca::Error::from(grafton_visca::CancelRejected<H>) -> Self
 impl core::marker::Freeze for grafton_visca::Error
 impl core::marker::Send for grafton_visca::Error
 impl core::marker::Sync for grafton_visca::Error
@@ -21287,6 +21313,28 @@ impl core::marker::Unpin for grafton_visca::CameraId
 impl core::marker::UnsafeUnpin for grafton_visca::CameraId
 impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::CameraId
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::CameraId
+pub struct grafton_visca::CancelRejected<H>
+impl<H> grafton_visca::CancelRejected<H>
+pub const fn grafton_visca::CancelRejected<H>::error(&self) -> &grafton_visca::Error
+pub const fn grafton_visca::CancelRejected<H>::has_operation(&self) -> bool
+pub fn grafton_visca::CancelRejected<H>::into_error(self) -> grafton_visca::Error
+pub fn grafton_visca::CancelRejected<H>::into_operation(self) -> core::option::Option<H>
+pub fn grafton_visca::CancelRejected<H>::into_parts(self) -> (core::option::Option<H>, grafton_visca::Error)
+impl<H: core::fmt::Debug> core::fmt::Debug for grafton_visca::CancelRejected<H>
+pub fn grafton_visca::CancelRejected<H>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<H> core::convert::From<grafton_visca::CancelRejected<H>> for grafton_visca::Error
+pub fn grafton_visca::Error::from(grafton_visca::CancelRejected<H>) -> Self
+impl<H> core::error::Error for grafton_visca::CancelRejected<H> where H: core::fmt::Debug
+pub fn grafton_visca::CancelRejected<H>::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
+impl<H> core::fmt::Display for grafton_visca::CancelRejected<H>
+pub fn grafton_visca::CancelRejected<H>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<H> core::marker::Freeze for grafton_visca::CancelRejected<H> where core::option::Option<alloc::boxed::Box<H>>: core::marker::Freeze
+impl<H> core::marker::Send for grafton_visca::CancelRejected<H> where core::option::Option<alloc::boxed::Box<H>>: core::marker::Send
+impl<H> core::marker::Sync for grafton_visca::CancelRejected<H> where core::option::Option<alloc::boxed::Box<H>>: core::marker::Sync
+impl<H> core::marker::Unpin for grafton_visca::CancelRejected<H> where core::option::Option<alloc::boxed::Box<H>>: core::marker::Unpin
+impl<H> core::marker::UnsafeUnpin for grafton_visca::CancelRejected<H> where core::option::Option<alloc::boxed::Box<H>>: core::marker::UnsafeUnpin
+impl<H> !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::CancelRejected<H>
+impl<H> !core::panic::unwind_safe::UnwindSafe for grafton_visca::CancelRejected<H>
 pub struct grafton_visca::DiagnosticId(_)
 impl core::clone::Clone for grafton_visca::observability::DiagnosticId
 pub fn grafton_visca::observability::DiagnosticId::clone(&self) -> grafton_visca::observability::DiagnosticId

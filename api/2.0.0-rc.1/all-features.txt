@@ -410,7 +410,7 @@ pub fn grafton_visca::blocking::Operation<'_, grafton_visca::completion::Targete
 impl<'session, K> grafton_visca::blocking::Operation<'session, K> where K: grafton_visca::completion::Kind
 pub fn grafton_visca::blocking::Operation<'session, K>::applied(self) -> grafton_visca::Result<(), grafton_visca::Error>
 pub fn grafton_visca::blocking::Operation<'session, K>::applied_with_timeout(self, core::time::Duration) -> grafton_visca::Result<(), grafton_visca::Error>
-pub fn grafton_visca::blocking::Operation<'session, K>::cancel(self) -> grafton_visca::Result<grafton_visca::blocking::Cancellation<'session>, grafton_visca::Error>
+pub fn grafton_visca::blocking::Operation<'session, K>::cancel(self) -> grafton_visca::Result<grafton_visca::blocking::Cancellation<'session>, grafton_visca::CancelRejected<Self>>
 pub fn grafton_visca::blocking::Operation<'session, K>::detach(self)
 pub fn grafton_visca::blocking::Operation<'session, K>::id(&self) -> grafton_visca::OperationId
 impl<K> core::fmt::Debug for grafton_visca::blocking::Operation<'_, K> where K: grafton_visca::completion::Kind
@@ -12346,7 +12346,7 @@ pub struct grafton_visca::dynapi::DynAppliedOperation
 impl grafton_visca::DynAppliedOperation
 pub async fn grafton_visca::DynAppliedOperation::applied(self) -> grafton_visca::Result<(), grafton_visca::Error>
 pub async fn grafton_visca::DynAppliedOperation::applied_with_timeout(self, core::time::Duration) -> grafton_visca::Result<(), grafton_visca::Error>
-pub async fn grafton_visca::DynAppliedOperation::cancel(self) -> grafton_visca::Result<grafton_visca::DynCancellation, grafton_visca::Error>
+pub async fn grafton_visca::DynAppliedOperation::cancel(self) -> grafton_visca::Result<grafton_visca::DynCancellation, grafton_visca::CancelRejected<Self>>
 pub fn grafton_visca::DynAppliedOperation::detach(self)
 pub fn grafton_visca::DynAppliedOperation::id(&self) -> grafton_visca::OperationId
 impl core::fmt::Debug for grafton_visca::DynAppliedOperation
@@ -12685,7 +12685,7 @@ pub struct grafton_visca::dynapi::DynTargetedOperation
 impl grafton_visca::DynTargetedOperation
 pub async fn grafton_visca::DynTargetedOperation::applied(self) -> grafton_visca::Result<(), grafton_visca::Error>
 pub async fn grafton_visca::DynTargetedOperation::applied_with_timeout(self, core::time::Duration) -> grafton_visca::Result<(), grafton_visca::Error>
-pub async fn grafton_visca::DynTargetedOperation::cancel(self) -> grafton_visca::Result<grafton_visca::DynCancellation, grafton_visca::Error>
+pub async fn grafton_visca::DynTargetedOperation::cancel(self) -> grafton_visca::Result<grafton_visca::DynCancellation, grafton_visca::CancelRejected<Self>>
 pub fn grafton_visca::DynTargetedOperation::detach(self)
 pub fn grafton_visca::DynTargetedOperation::id(&self) -> grafton_visca::OperationId
 pub async fn grafton_visca::DynTargetedOperation::settled(self) -> grafton_visca::Result<(), grafton_visca::Error>
@@ -13849,6 +13849,8 @@ impl core::fmt::Debug for grafton_visca::Error
 pub fn grafton_visca::Error::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::fmt::Display for grafton_visca::Error
 pub fn grafton_visca::Error::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<H> core::convert::From<grafton_visca::CancelRejected<H>> for grafton_visca::Error
+pub fn grafton_visca::Error::from(grafton_visca::CancelRejected<H>) -> Self
 impl core::marker::Freeze for grafton_visca::Error
 impl core::marker::Send for grafton_visca::Error
 impl core::marker::Sync for grafton_visca::Error
@@ -14454,6 +14456,28 @@ impl<P> core::marker::Unpin for grafton_visca::CameraConfig<P> where core::marke
 impl<P> core::marker::UnsafeUnpin for grafton_visca::CameraConfig<P> where core::marker::PhantomData<P>: core::marker::UnsafeUnpin
 impl<P> core::panic::unwind_safe::RefUnwindSafe for grafton_visca::CameraConfig<P> where core::marker::PhantomData<P>: core::panic::unwind_safe::RefUnwindSafe
 impl<P> core::panic::unwind_safe::UnwindSafe for grafton_visca::CameraConfig<P> where core::marker::PhantomData<P>: core::panic::unwind_safe::UnwindSafe
+pub struct grafton_visca::prelude::async::CancelRejected<H>
+impl<H> grafton_visca::CancelRejected<H>
+pub const fn grafton_visca::CancelRejected<H>::error(&self) -> &grafton_visca::Error
+pub const fn grafton_visca::CancelRejected<H>::has_operation(&self) -> bool
+pub fn grafton_visca::CancelRejected<H>::into_error(self) -> grafton_visca::Error
+pub fn grafton_visca::CancelRejected<H>::into_operation(self) -> core::option::Option<H>
+pub fn grafton_visca::CancelRejected<H>::into_parts(self) -> (core::option::Option<H>, grafton_visca::Error)
+impl<H: core::fmt::Debug> core::fmt::Debug for grafton_visca::CancelRejected<H>
+pub fn grafton_visca::CancelRejected<H>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<H> core::convert::From<grafton_visca::CancelRejected<H>> for grafton_visca::Error
+pub fn grafton_visca::Error::from(grafton_visca::CancelRejected<H>) -> Self
+impl<H> core::error::Error for grafton_visca::CancelRejected<H> where H: core::fmt::Debug
+pub fn grafton_visca::CancelRejected<H>::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
+impl<H> core::fmt::Display for grafton_visca::CancelRejected<H>
+pub fn grafton_visca::CancelRejected<H>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<H> core::marker::Freeze for grafton_visca::CancelRejected<H> where core::option::Option<alloc::boxed::Box<H>>: core::marker::Freeze
+impl<H> core::marker::Send for grafton_visca::CancelRejected<H> where core::option::Option<alloc::boxed::Box<H>>: core::marker::Send
+impl<H> core::marker::Sync for grafton_visca::CancelRejected<H> where core::option::Option<alloc::boxed::Box<H>>: core::marker::Sync
+impl<H> core::marker::Unpin for grafton_visca::CancelRejected<H> where core::option::Option<alloc::boxed::Box<H>>: core::marker::Unpin
+impl<H> core::marker::UnsafeUnpin for grafton_visca::CancelRejected<H> where core::option::Option<alloc::boxed::Box<H>>: core::marker::UnsafeUnpin
+impl<H> !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::CancelRejected<H>
+impl<H> !core::panic::unwind_safe::UnwindSafe for grafton_visca::CancelRejected<H>
 pub struct grafton_visca::prelude::async::Cancellation
 impl grafton_visca::Cancellation
 pub fn grafton_visca::Cancellation::detach(self)
@@ -14528,7 +14552,7 @@ pub struct grafton_visca::prelude::async::DynAppliedOperation
 impl grafton_visca::DynAppliedOperation
 pub async fn grafton_visca::DynAppliedOperation::applied(self) -> grafton_visca::Result<(), grafton_visca::Error>
 pub async fn grafton_visca::DynAppliedOperation::applied_with_timeout(self, core::time::Duration) -> grafton_visca::Result<(), grafton_visca::Error>
-pub async fn grafton_visca::DynAppliedOperation::cancel(self) -> grafton_visca::Result<grafton_visca::DynCancellation, grafton_visca::Error>
+pub async fn grafton_visca::DynAppliedOperation::cancel(self) -> grafton_visca::Result<grafton_visca::DynCancellation, grafton_visca::CancelRejected<Self>>
 pub fn grafton_visca::DynAppliedOperation::detach(self)
 pub fn grafton_visca::DynAppliedOperation::id(&self) -> grafton_visca::OperationId
 impl core::fmt::Debug for grafton_visca::DynAppliedOperation
@@ -14867,7 +14891,7 @@ pub struct grafton_visca::prelude::async::DynTargetedOperation
 impl grafton_visca::DynTargetedOperation
 pub async fn grafton_visca::DynTargetedOperation::applied(self) -> grafton_visca::Result<(), grafton_visca::Error>
 pub async fn grafton_visca::DynTargetedOperation::applied_with_timeout(self, core::time::Duration) -> grafton_visca::Result<(), grafton_visca::Error>
-pub async fn grafton_visca::DynTargetedOperation::cancel(self) -> grafton_visca::Result<grafton_visca::DynCancellation, grafton_visca::Error>
+pub async fn grafton_visca::DynTargetedOperation::cancel(self) -> grafton_visca::Result<grafton_visca::DynCancellation, grafton_visca::CancelRejected<Self>>
 pub fn grafton_visca::DynTargetedOperation::detach(self)
 pub fn grafton_visca::DynTargetedOperation::id(&self) -> grafton_visca::OperationId
 pub async fn grafton_visca::DynTargetedOperation::settled(self) -> grafton_visca::Result<(), grafton_visca::Error>
@@ -15493,7 +15517,7 @@ pub async fn grafton_visca::Operation<grafton_visca::completion::Targeted>::sett
 impl<K> grafton_visca::Operation<K> where K: grafton_visca::completion::Kind
 pub async fn grafton_visca::Operation<K>::applied(self) -> core::result::Result<(), grafton_visca::Error>
 pub async fn grafton_visca::Operation<K>::applied_with_timeout(self, core::time::Duration) -> core::result::Result<(), grafton_visca::Error>
-pub async fn grafton_visca::Operation<K>::cancel(self) -> core::result::Result<grafton_visca::Cancellation, grafton_visca::Error>
+pub async fn grafton_visca::Operation<K>::cancel(self) -> core::result::Result<grafton_visca::Cancellation, grafton_visca::CancelRejected<Self>>
 pub fn grafton_visca::Operation<K>::detach(self)
 pub fn grafton_visca::Operation<K>::id(&self) -> grafton_visca::OperationId
 impl<K> core::fmt::Debug for grafton_visca::Operation<K> where K: grafton_visca::completion::Kind + core::fmt::Debug
@@ -18043,6 +18067,8 @@ impl core::fmt::Debug for grafton_visca::Error
 pub fn grafton_visca::Error::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::fmt::Display for grafton_visca::Error
 pub fn grafton_visca::Error::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<H> core::convert::From<grafton_visca::CancelRejected<H>> for grafton_visca::Error
+pub fn grafton_visca::Error::from(grafton_visca::CancelRejected<H>) -> Self
 impl core::marker::Freeze for grafton_visca::Error
 impl core::marker::Send for grafton_visca::Error
 impl core::marker::Sync for grafton_visca::Error
@@ -18719,6 +18745,28 @@ impl<P> core::marker::Unpin for grafton_visca::CameraConfig<P> where core::marke
 impl<P> core::marker::UnsafeUnpin for grafton_visca::CameraConfig<P> where core::marker::PhantomData<P>: core::marker::UnsafeUnpin
 impl<P> core::panic::unwind_safe::RefUnwindSafe for grafton_visca::CameraConfig<P> where core::marker::PhantomData<P>: core::panic::unwind_safe::RefUnwindSafe
 impl<P> core::panic::unwind_safe::UnwindSafe for grafton_visca::CameraConfig<P> where core::marker::PhantomData<P>: core::panic::unwind_safe::UnwindSafe
+pub struct grafton_visca::prelude::blocking::CancelRejected<H>
+impl<H> grafton_visca::CancelRejected<H>
+pub const fn grafton_visca::CancelRejected<H>::error(&self) -> &grafton_visca::Error
+pub const fn grafton_visca::CancelRejected<H>::has_operation(&self) -> bool
+pub fn grafton_visca::CancelRejected<H>::into_error(self) -> grafton_visca::Error
+pub fn grafton_visca::CancelRejected<H>::into_operation(self) -> core::option::Option<H>
+pub fn grafton_visca::CancelRejected<H>::into_parts(self) -> (core::option::Option<H>, grafton_visca::Error)
+impl<H: core::fmt::Debug> core::fmt::Debug for grafton_visca::CancelRejected<H>
+pub fn grafton_visca::CancelRejected<H>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<H> core::convert::From<grafton_visca::CancelRejected<H>> for grafton_visca::Error
+pub fn grafton_visca::Error::from(grafton_visca::CancelRejected<H>) -> Self
+impl<H> core::error::Error for grafton_visca::CancelRejected<H> where H: core::fmt::Debug
+pub fn grafton_visca::CancelRejected<H>::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
+impl<H> core::fmt::Display for grafton_visca::CancelRejected<H>
+pub fn grafton_visca::CancelRejected<H>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<H> core::marker::Freeze for grafton_visca::CancelRejected<H> where core::option::Option<alloc::boxed::Box<H>>: core::marker::Freeze
+impl<H> core::marker::Send for grafton_visca::CancelRejected<H> where core::option::Option<alloc::boxed::Box<H>>: core::marker::Send
+impl<H> core::marker::Sync for grafton_visca::CancelRejected<H> where core::option::Option<alloc::boxed::Box<H>>: core::marker::Sync
+impl<H> core::marker::Unpin for grafton_visca::CancelRejected<H> where core::option::Option<alloc::boxed::Box<H>>: core::marker::Unpin
+impl<H> core::marker::UnsafeUnpin for grafton_visca::CancelRejected<H> where core::option::Option<alloc::boxed::Box<H>>: core::marker::UnsafeUnpin
+impl<H> !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::CancelRejected<H>
+impl<H> !core::panic::unwind_safe::UnwindSafe for grafton_visca::CancelRejected<H>
 pub struct grafton_visca::prelude::blocking::Cancellation<'session>
 impl<'session> grafton_visca::blocking::Cancellation<'session>
 pub fn grafton_visca::blocking::Cancellation<'session>::detach(self)
@@ -19459,7 +19507,7 @@ pub fn grafton_visca::blocking::Operation<'_, grafton_visca::completion::Targete
 impl<'session, K> grafton_visca::blocking::Operation<'session, K> where K: grafton_visca::completion::Kind
 pub fn grafton_visca::blocking::Operation<'session, K>::applied(self) -> grafton_visca::Result<(), grafton_visca::Error>
 pub fn grafton_visca::blocking::Operation<'session, K>::applied_with_timeout(self, core::time::Duration) -> grafton_visca::Result<(), grafton_visca::Error>
-pub fn grafton_visca::blocking::Operation<'session, K>::cancel(self) -> grafton_visca::Result<grafton_visca::blocking::Cancellation<'session>, grafton_visca::Error>
+pub fn grafton_visca::blocking::Operation<'session, K>::cancel(self) -> grafton_visca::Result<grafton_visca::blocking::Cancellation<'session>, grafton_visca::CancelRejected<Self>>
 pub fn grafton_visca::blocking::Operation<'session, K>::detach(self)
 pub fn grafton_visca::blocking::Operation<'session, K>::id(&self) -> grafton_visca::OperationId
 impl<K> core::fmt::Debug for grafton_visca::blocking::Operation<'_, K> where K: grafton_visca::completion::Kind
@@ -21279,7 +21327,7 @@ pub struct grafton_visca::prelude::dyn_api::DynAppliedOperation
 impl grafton_visca::DynAppliedOperation
 pub async fn grafton_visca::DynAppliedOperation::applied(self) -> grafton_visca::Result<(), grafton_visca::Error>
 pub async fn grafton_visca::DynAppliedOperation::applied_with_timeout(self, core::time::Duration) -> grafton_visca::Result<(), grafton_visca::Error>
-pub async fn grafton_visca::DynAppliedOperation::cancel(self) -> grafton_visca::Result<grafton_visca::DynCancellation, grafton_visca::Error>
+pub async fn grafton_visca::DynAppliedOperation::cancel(self) -> grafton_visca::Result<grafton_visca::DynCancellation, grafton_visca::CancelRejected<Self>>
 pub fn grafton_visca::DynAppliedOperation::detach(self)
 pub fn grafton_visca::DynAppliedOperation::id(&self) -> grafton_visca::OperationId
 impl core::fmt::Debug for grafton_visca::DynAppliedOperation
@@ -21618,7 +21666,7 @@ pub struct grafton_visca::prelude::dyn_api::DynTargetedOperation
 impl grafton_visca::DynTargetedOperation
 pub async fn grafton_visca::DynTargetedOperation::applied(self) -> grafton_visca::Result<(), grafton_visca::Error>
 pub async fn grafton_visca::DynTargetedOperation::applied_with_timeout(self, core::time::Duration) -> grafton_visca::Result<(), grafton_visca::Error>
-pub async fn grafton_visca::DynTargetedOperation::cancel(self) -> grafton_visca::Result<grafton_visca::DynCancellation, grafton_visca::Error>
+pub async fn grafton_visca::DynTargetedOperation::cancel(self) -> grafton_visca::Result<grafton_visca::DynCancellation, grafton_visca::CancelRejected<Self>>
 pub fn grafton_visca::DynTargetedOperation::detach(self)
 pub fn grafton_visca::DynTargetedOperation::id(&self) -> grafton_visca::OperationId
 pub async fn grafton_visca::DynTargetedOperation::settled(self) -> grafton_visca::Result<(), grafton_visca::Error>
@@ -30870,6 +30918,8 @@ impl core::fmt::Debug for grafton_visca::Error
 pub fn grafton_visca::Error::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::fmt::Display for grafton_visca::Error
 pub fn grafton_visca::Error::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<H> core::convert::From<grafton_visca::CancelRejected<H>> for grafton_visca::Error
+pub fn grafton_visca::Error::from(grafton_visca::CancelRejected<H>) -> Self
 impl core::marker::Freeze for grafton_visca::Error
 impl core::marker::Send for grafton_visca::Error
 impl core::marker::Sync for grafton_visca::Error
@@ -32086,6 +32136,28 @@ impl<P> core::marker::Unpin for grafton_visca::CameraSession<P> where grafton_vi
 impl<P> core::marker::UnsafeUnpin for grafton_visca::CameraSession<P> where grafton_visca::Camera<P>: core::marker::UnsafeUnpin
 impl<P> !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::CameraSession<P>
 impl<P> !core::panic::unwind_safe::UnwindSafe for grafton_visca::CameraSession<P>
+pub struct grafton_visca::CancelRejected<H>
+impl<H> grafton_visca::CancelRejected<H>
+pub const fn grafton_visca::CancelRejected<H>::error(&self) -> &grafton_visca::Error
+pub const fn grafton_visca::CancelRejected<H>::has_operation(&self) -> bool
+pub fn grafton_visca::CancelRejected<H>::into_error(self) -> grafton_visca::Error
+pub fn grafton_visca::CancelRejected<H>::into_operation(self) -> core::option::Option<H>
+pub fn grafton_visca::CancelRejected<H>::into_parts(self) -> (core::option::Option<H>, grafton_visca::Error)
+impl<H: core::fmt::Debug> core::fmt::Debug for grafton_visca::CancelRejected<H>
+pub fn grafton_visca::CancelRejected<H>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<H> core::convert::From<grafton_visca::CancelRejected<H>> for grafton_visca::Error
+pub fn grafton_visca::Error::from(grafton_visca::CancelRejected<H>) -> Self
+impl<H> core::error::Error for grafton_visca::CancelRejected<H> where H: core::fmt::Debug
+pub fn grafton_visca::CancelRejected<H>::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
+impl<H> core::fmt::Display for grafton_visca::CancelRejected<H>
+pub fn grafton_visca::CancelRejected<H>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<H> core::marker::Freeze for grafton_visca::CancelRejected<H> where core::option::Option<alloc::boxed::Box<H>>: core::marker::Freeze
+impl<H> core::marker::Send for grafton_visca::CancelRejected<H> where core::option::Option<alloc::boxed::Box<H>>: core::marker::Send
+impl<H> core::marker::Sync for grafton_visca::CancelRejected<H> where core::option::Option<alloc::boxed::Box<H>>: core::marker::Sync
+impl<H> core::marker::Unpin for grafton_visca::CancelRejected<H> where core::option::Option<alloc::boxed::Box<H>>: core::marker::Unpin
+impl<H> core::marker::UnsafeUnpin for grafton_visca::CancelRejected<H> where core::option::Option<alloc::boxed::Box<H>>: core::marker::UnsafeUnpin
+impl<H> !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::CancelRejected<H>
+impl<H> !core::panic::unwind_safe::UnwindSafe for grafton_visca::CancelRejected<H>
 pub struct grafton_visca::Cancellation
 impl grafton_visca::Cancellation
 pub fn grafton_visca::Cancellation::detach(self)
@@ -32174,7 +32246,7 @@ pub struct grafton_visca::DynAppliedOperation
 impl grafton_visca::DynAppliedOperation
 pub async fn grafton_visca::DynAppliedOperation::applied(self) -> grafton_visca::Result<(), grafton_visca::Error>
 pub async fn grafton_visca::DynAppliedOperation::applied_with_timeout(self, core::time::Duration) -> grafton_visca::Result<(), grafton_visca::Error>
-pub async fn grafton_visca::DynAppliedOperation::cancel(self) -> grafton_visca::Result<grafton_visca::DynCancellation, grafton_visca::Error>
+pub async fn grafton_visca::DynAppliedOperation::cancel(self) -> grafton_visca::Result<grafton_visca::DynCancellation, grafton_visca::CancelRejected<Self>>
 pub fn grafton_visca::DynAppliedOperation::detach(self)
 pub fn grafton_visca::DynAppliedOperation::id(&self) -> grafton_visca::OperationId
 impl core::fmt::Debug for grafton_visca::DynAppliedOperation
@@ -32513,7 +32585,7 @@ pub struct grafton_visca::DynTargetedOperation
 impl grafton_visca::DynTargetedOperation
 pub async fn grafton_visca::DynTargetedOperation::applied(self) -> grafton_visca::Result<(), grafton_visca::Error>
 pub async fn grafton_visca::DynTargetedOperation::applied_with_timeout(self, core::time::Duration) -> grafton_visca::Result<(), grafton_visca::Error>
-pub async fn grafton_visca::DynTargetedOperation::cancel(self) -> grafton_visca::Result<grafton_visca::DynCancellation, grafton_visca::Error>
+pub async fn grafton_visca::DynTargetedOperation::cancel(self) -> grafton_visca::Result<grafton_visca::DynCancellation, grafton_visca::CancelRejected<Self>>
 pub fn grafton_visca::DynTargetedOperation::detach(self)
 pub fn grafton_visca::DynTargetedOperation::id(&self) -> grafton_visca::OperationId
 pub async fn grafton_visca::DynTargetedOperation::settled(self) -> grafton_visca::Result<(), grafton_visca::Error>
@@ -32929,7 +33001,7 @@ pub async fn grafton_visca::Operation<grafton_visca::completion::Targeted>::sett
 impl<K> grafton_visca::Operation<K> where K: grafton_visca::completion::Kind
 pub async fn grafton_visca::Operation<K>::applied(self) -> core::result::Result<(), grafton_visca::Error>
 pub async fn grafton_visca::Operation<K>::applied_with_timeout(self, core::time::Duration) -> core::result::Result<(), grafton_visca::Error>
-pub async fn grafton_visca::Operation<K>::cancel(self) -> core::result::Result<grafton_visca::Cancellation, grafton_visca::Error>
+pub async fn grafton_visca::Operation<K>::cancel(self) -> core::result::Result<grafton_visca::Cancellation, grafton_visca::CancelRejected<Self>>
 pub fn grafton_visca::Operation<K>::detach(self)
 pub fn grafton_visca::Operation<K>::id(&self) -> grafton_visca::OperationId
 impl<K> core::fmt::Debug for grafton_visca::Operation<K> where K: grafton_visca::completion::Kind + core::fmt::Debug

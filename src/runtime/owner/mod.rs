@@ -657,6 +657,36 @@ fn completion_pair() -> (Arc<ObserverCell>, CompletionObserver) {
     (Arc::clone(&cell), CompletionObserver { cell, receiver })
 }
 
+/// A cancellation the owner refused, carrying the operation's observation
+/// authority back to the caller (#612).
+///
+/// A refused cancellation is never cancellation intent: the engine leaves the
+/// original request scheduled and able to complete, so its observer is still
+/// meaningful and must not be destroyed by the failure. `receipt` is `None`
+/// only when the owner itself is gone, which is the one case where no receipt
+/// could be observed anyway.
+#[derive(Debug)]
+pub(crate) struct RejectedCancellation {
+    pub(crate) receipt: Option<ReceiptCore>,
+    pub(crate) error: Error,
+}
+
+impl RejectedCancellation {
+    pub(crate) const fn kept(receipt: ReceiptCore, error: Error) -> Self {
+        Self {
+            receipt: Some(receipt),
+            error,
+        }
+    }
+
+    pub(crate) const fn lost(error: Error) -> Self {
+        Self {
+            receipt: None,
+            error,
+        }
+    }
+}
+
 /// Exact, linear observation authority shared by the mode-specific receipt
 /// wrappers. It is deliberately neither cloneable nor publicly nameable.
 #[derive(Debug)]

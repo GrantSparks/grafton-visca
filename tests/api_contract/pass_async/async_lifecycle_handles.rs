@@ -4,7 +4,7 @@ use std::{future::Future, marker::PhantomData, time::Duration};
 
 use grafton_visca::{
     completion::{AppliedOnly, Targeted},
-    Cancellation, CancellationOutcome, Error, Operation, OperationId,
+    CancelRejected, Cancellation, CancellationOutcome, Error, Operation, OperationId,
 };
 
 fn assert_send_sync<T: Send + Sync>() {}
@@ -24,6 +24,21 @@ async fn cancellation(token: Cancellation) -> Result<CancellationOutcome, Error>
     token.outcome(Duration::from_secs(1)).await
 }
 
+/// A refused cancellation hands the handle back, so the caller is never left
+/// holding nothing (#612), and `?` still coerces into [`Error`].
+async fn cancel_recovers(handle: Operation<AppliedOnly>) -> Result<Cancellation, Error> {
+    match handle.cancel().await {
+        Ok(token) => Ok(token),
+        Err(rejected) => {
+            let (handle, error): (Option<Operation<AppliedOnly>>, Error) = rejected.into_parts();
+            match handle {
+                Some(handle) => handle.cancel().await.map_err(Error::from),
+                None => Err(error),
+            }
+        }
+    }
+}
+
 fn generic_free_handles() {
     // The only operation parameter is the closed completion marker.  Profiles,
     // transports, executors, and runtime kinds do not occur in these types.
@@ -33,6 +48,7 @@ fn generic_free_handles() {
     assert_send_sync::<Operation<AppliedOnly>>();
     assert_send_sync::<Operation<Targeted>>();
     assert_send_sync::<Cancellation>();
+    assert_send_sync::<CancelRejected<Operation<AppliedOnly>>>();
 }
 
 fn consuming_terminal_actions() {
@@ -50,6 +66,7 @@ fn consuming_terminal_actions() {
         applied_only,
         targeted,
         cancellation,
+        cancel_recovers,
     );
 }
 

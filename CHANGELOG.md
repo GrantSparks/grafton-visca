@@ -504,6 +504,28 @@ destination.
 
 ### Fixed
 
+- **A refused `cancel` no longer consumes the operation handle** (#612).
+  Cancelling an already-written command needs profile support for the standard
+  VISCA socket-cancel command; `PtzOpticsG2` is the one built-in profile without
+  it, and there the owner refuses with `Error::NotSupported` and deliberately
+  leaves the original request scheduled and able to complete. `cancel` is a
+  consuming terminal method, so the refusal used to destroy the caller's only
+  observer for a command the engine had just promised to keep running — with
+  drop being exactly `detach` and no STOP emitted, a caller could be left
+  watching a moving axis with nothing to observe or retry through. `cancel` now
+  consumes the handle only when it succeeds: a refusal returns the new
+  `CancelRejected<H>`, which carries the handle back (`error()`,
+  `has_operation()`, `into_operation()`, `into_error()`, `into_parts()`).
+  `?` in a function returning `Error` is unchanged — the `From` conversion keeps
+  the reason and detaches the handle. This restores the recovery 1.x's async and
+  dyn surfaces had, where `InFlight::cancel(&self)` borrowed
+  (`src/camera/inflight.rs:344`, documented at `:337`), and declines to
+  reproduce 1.x's blocking asymmetry, where `BlockingInFlight::cancel(self)`
+  consumed (`src/camera/inflight.rs:615`) and `blocking_runner.rs:413` discarded
+  the retained result with it. Applies to `Operation::cancel` on the async and
+  blocking facades and to `DynTargetedOperation` / `DynAppliedOperation`.
+  Cancelling a still-queued command is unaffected: it succeeds locally on every
+  profile and consumes the handle as before.
 - **Fixed the deferred-ACK latch mis-attributing an acknowledgement while two
   commands on one target were still being written** (#636). The latch that
   holds an ACK arriving before its own write result (#297) fell back to the

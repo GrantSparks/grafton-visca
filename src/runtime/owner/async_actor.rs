@@ -24,8 +24,9 @@ use super::{
     normalize_command_outcome, normalize_inquiry_outcome, observation_outcome, prepend_effects,
     AdmissionPermit, AppliedEffect, AppliedStateSubscription, CancellationCore, CompletionObserver,
     DecodedFrame, DiagnosticEvent, DiagnosticSubscription, Input, OwnerInputTurn, OwnerMetrics,
-    OwnerPolicy, OwnerState, ReceiptCore, RequestId, RuntimeOutcome, RuntimeRequest, SessionState,
-    ShutdownReason, TargetStateCache, TransmissionMeta, WaitSelection, WireWrite,
+    OwnerPolicy, OwnerState, ReceiptCore, RejectedCancellation, RequestId, RuntimeOutcome,
+    RuntimeRequest, SessionState, ShutdownReason, TargetStateCache, TransmissionMeta,
+    WaitSelection, WireWrite,
 };
 use crate::runtime::engine::{Effect, IgnoreReason, TransportKind};
 
@@ -228,7 +229,10 @@ struct AdmissionBoundary {
 #[derive(Debug)]
 struct CancellationBoundary {
     receipt: ReceiptCore,
-    reply: flume::Sender<Result<CancellationCore, Error>>,
+    /// A refused cancellation returns the receipt with the reason, so the
+    /// caller keeps the observer for the original request the engine left
+    /// running (#612).
+    reply: flume::Sender<Result<CancellationCore, RejectedCancellation>>,
 }
 
 #[derive(Debug)]
@@ -429,8 +433,29 @@ where
             .and_then(normalize_command_outcome)
     }
 
-    pub(crate) async fn cancel(self) -> Result<AsyncCancellationReceipt, Error> {
-        self.owner.cancel_core(self.core).await
+    /// Records cancellation intent, returning this receipt intact when the
+    /// owner refuses (#612).
+    pub(crate) async fn cancel(self) -> Result<AsyncCancellationReceipt, (Option<Self>, Error)> {
+        let Self {
+            core,
+            affected_axes,
+            settlement,
+            owner,
+            marker,
+        } = self;
+        match owner.cancel_core(core).await {
+            Ok(cancellation) => Ok(cancellation),
+            Err(RejectedCancellation { receipt, error }) => Err((
+                receipt.map(|core| Self {
+                    core,
+                    affected_axes,
+                    settlement,
+                    owner,
+                    marker,
+                }),
+                error,
+            )),
+        }
     }
 
     pub(crate) fn detach(self) {}
@@ -1016,10 +1041,14 @@ impl AsyncOwnerHandle {
 
     /// A full cancellation queue applies backpressure; cancellation is never
     /// discarded. Actor termination disconnects the sender and wakes all waits.
-    async fn cancel_core(&self, receipt: ReceiptCore) -> Result<AsyncCancellationReceipt, Error> {
+    async fn cancel_core(
+        &self,
+        receipt: ReceiptCore,
+    ) -> Result<AsyncCancellationReceipt, RejectedCancellation> {
         if !Arc::ptr_eq(&receipt.origin, &self.origin) {
-            return Err(Error::InvalidState(
-                "operation receipt belongs to a different owner".into(),
+            return Err(RejectedCancellation::kept(
+                receipt,
+                Error::InvalidState("operation receipt belongs to a different owner".into()),
             ));
         }
         if let Some(observation) = receipt.completion.try_recv() {
@@ -1028,13 +1057,24 @@ impl AsyncOwnerHandle {
             });
         }
         let (reply, receiver) = flume::bounded(1);
-        self.cancellations
+        // A full cancellation lane is backpressure, not loss; only a closed
+        // lane fails, and it hands the boundary — receipt included — back.
+        if let Err(returned) = self
+            .cancellations
             .send_async(CancellationBoundary { receipt, reply })
             .await
-            .map_err(|_| self.disconnected_error())?;
-        self.await_boundary_reply(&receiver)
-            .await?
-            .map(|core| AsyncCancellationReceipt { core })
+        {
+            return Err(RejectedCancellation::kept(
+                returned.into_inner().receipt,
+                self.disconnected_error(),
+            ));
+        }
+        match self.await_boundary_reply(&receiver).await {
+            // The owner is gone, so no receipt survives to be handed back and
+            // none would be observable if it did.
+            Err(error) => Err(RejectedCancellation::lost(error)),
+            Ok(reply) => reply.map(|core| AsyncCancellationReceipt { core }),
+        }
     }
 
     #[cfg(test)]
@@ -1043,7 +1083,7 @@ impl AsyncOwnerHandle {
     pub(crate) async fn cancel_test(
         &self,
         receipt: ReceiptCore,
-    ) -> Result<AsyncCancellationReceipt, Error> {
+    ) -> Result<AsyncCancellationReceipt, RejectedCancellation> {
         self.cancel_core(receipt).await
     }
 
@@ -1602,11 +1642,14 @@ where
             .state
             .input(Input::Cancel { id }, Executor::now(runtime));
         self.drive(driver, effects, runtime).await;
+        // A refusal leaves the original request scheduled, so the receipt
+        // travels back to the caller instead of dying here (#612).
         let result = match registration.acknowledgement.try_recv() {
             Ok(Ok(())) => Ok(cancellation_receipt_for(cancellation.receipt, None)),
-            Ok(Err(error)) => Err(error),
-            Err(_) => Err(Error::InvalidState(
-                "engine did not acknowledge cancellation input".into(),
+            Ok(Err(error)) => Err(RejectedCancellation::kept(cancellation.receipt, error)),
+            Err(_) => Err(RejectedCancellation::kept(
+                cancellation.receipt,
+                Error::InvalidState("engine did not acknowledge cancellation input".into()),
             )),
         };
         let _ = cancellation.reply.try_send(result);
@@ -1724,7 +1767,10 @@ where
                     Some(observation) => {
                         Ok(cancellation_receipt_for(cancel.receipt, Some(observation)))
                     }
-                    None => Err(error.clone()),
+                    // The session is ending, but the receipt still travels
+                    // back: a refused cancellation never destroys the
+                    // caller's observer (#612).
+                    None => Err(RejectedCancellation::kept(cancel.receipt, error.clone())),
                 };
                 let _ = cancel.reply.try_send(result);
                 dropped = dropped.saturating_add(1);

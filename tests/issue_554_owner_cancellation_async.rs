@@ -233,11 +233,15 @@ async fn sent_cancel_is_not_supported<E: Executor>(executor: E, ack_before_cance
         executor.sleep(Duration::from_millis(5)).await;
     }
 
-    let error = original
+    let rejected = original
         .cancel()
         .await
         .expect_err("G2 sent cancellation must be rejected by profile policy");
-    assert!(matches!(error, Error::NotSupported));
+    assert!(matches!(rejected.error(), Error::NotSupported));
+    // The rejection hands the operation handle back (#612).
+    let original = rejected
+        .into_operation()
+        .expect("a rejected cancellation returns the operation handle");
     assert_eq!(probe.writes(), vec![ZOOM_STOP.to_vec()]);
 
     if ack_before_cancel {
@@ -245,6 +249,12 @@ async fn sent_cancel_is_not_supported<E: Executor>(executor: E, ack_before_cance
     } else {
         probe.push_ack_and_completion();
     }
+
+    executor
+        .timeout(Duration::from_secs(2), original.applied())
+        .await
+        .expect("recovered handle observer deadline")
+        .expect("the recovered handle still observes the original operation");
 
     // A one-socket tuning makes this next operation wait for the original
     // terminal frame.  Its successful applied wait therefore proves the

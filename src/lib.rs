@@ -703,8 +703,39 @@
 //!
 //! Queued commands can always be removed locally. Cancelling a command that has
 //! already been sent requires profile support for the standard VISCA socket-cancel
-//! command and otherwise returns [`Error::NotSupported`]. For bounded continuous
+//! command and otherwise fails with [`Error::NotSupported`]. For bounded continuous
 //! movement, send the relevant STOP command and await its application.
+//!
+//! A refused cancellation is not cancellation intent: the owner leaves the
+//! original request scheduled and able to complete, so `cancel` consumes the
+//! handle only when it succeeds. A refusal returns [`CancelRejected`], which
+//! carries the handle back — take it with `into_operation()` to keep waiting or
+//! to retry. `?` in a function returning [`Error`] still works and detaches the
+//! handle, exactly as dropping it does.
+//!
+//! ```rust
+//! # #[cfg(feature = "async")]
+//! async fn stop_a_zoom_the_profile_cannot_cancel(
+//!     camera: &grafton_visca::Camera<grafton_visca::profiles::PtzOpticsG2>,
+//! ) -> Result<(), grafton_visca::Error> {
+//!     let operation = camera.zoom().tele().await?;
+//!     let operation = match operation.cancel().await {
+//!         Ok(cancellation) => {
+//!             cancellation.detach();
+//!             return Ok(());
+//!         }
+//!         // The G2 has no socket-cancel; the handle comes back untouched.
+//!         Err(rejected) => match rejected.into_operation() {
+//!             Some(operation) => operation,
+//!             None => return Ok(()),
+//!         },
+//!     };
+//!     // The recourse that actually ends movement on such a profile.
+//!     camera.zoom().stop().await?.applied().await?;
+//!     operation.detach();
+//!     Ok(())
+//! }
+//! ```
 //!
 //! ## Movement Completion Tracking
 //!
@@ -862,7 +893,7 @@ mod session_config;
 pub use session_config::SessionConfig;
 
 mod outcome;
-pub use outcome::CancellationOutcome;
+pub use outcome::{CancelRejected, CancellationOutcome};
 
 mod operation_id;
 pub use operation_id::OperationId;
