@@ -7,151 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### 2.0.0-rc.1 release candidate
+The 2.0.0-rc.1 release candidate. 2.0 is a clean break from the 1.x API;
+`docs/migration_2_0.md` maps every pre-2.0 vocabulary item to its
+destination.
 
-- **The noun parity gate now catches the five divergences a review demonstrated
-  it could not** (#638). `src/noun_parity.rs` compares the async, blocking and
-  dynamic noun facades against the closed ledger, and five classes of
-  cross-surface divergence were applied to the real sources, shown to pass every
-  gate, and reverted: a non-`async` public method added to an async accessor was
-  invisible because the reader keyed on the literal `pub async fn`; an
-  `impl SomeExt for XxxAccessor` added public methods no inherent-impl reader
-  sees; argument types, arity and receiver were not recorded at all, so an
-  `f32`/`f64` divergence between two facades passed; the `where` reader returned
-  on the *first* `P:` predicate, so `where P: A, P: B` silently dropped `B`; and
-  capability bounds were normalized to their terminal path segment, so a
-  blanket-implemented `shadow::HasDirectZoom` erased a capability gate. All five
-  now fail. The reader was also rewritten from column-exact needles to a
-  brace/paren-depth scanner over comment- and literal-stripped source, so legal
-  reformatting — a one-liner `accessor!` invocation, an attribute inside one, an
-  indented `impl` — no longer derails it with bogus errors, and anything the
-  scanner cannot read (a macro invocation inside an accessor impl, for instance)
-  is a hard failure rather than a silent skip. The dynamic facade carries no
-  compile-time bounds by construction; the gate now says so where it is defined
-  instead of comparing an empty set. Test-only; no public API change.
-- **Removed no-op and self-satisfying assertions from the inventory gates**
-  (#638). Several gates asserted things that could not fail: the class totals in
-  `src/command/surface.rs` were summed back to the ledger size across an
-  exhaustive match, and the noun count was added to its own complement. They are
-  replaced by a pinned class distribution and a derived check that no noun
-  method may reuse a reserved broadcast or cancellation spelling. The surface
-  files name their own accessors as string literals inside their in-file test
-  modules, so every positive `contains` gate now reads the declaration region
-  only; the `BuiltinCommand::ALL` row count is anchored on the `impl
-  BuiltinCommand` block instead of depending on being the last such slice in the
-  file; the dynamic inquiry-method count is checked against the generated
-  accessor table in `src/command/inquiry_structs.rs` rather than against the
-  file declaring it; and the dead `EXPECTED_CONTROL_TRAITS` table and
-  `macro_and_struct_names` helper are gone.
-- **Fixed a livelock that made an async session unkillable when a transport
-  failed every read** (#625). The actor's readiness race is left-biased towards
-  the transport by design, so a read that failed *immediately* — a disconnected
-  USB-serial adapter surfacing `EIO`/`ENXIO`, for example — kept the receive
-  branch permanently ready and shutdown, cancellation, admission and control
-  were never polled at all. `submit` never returned, `shutdown` only queued a
-  message nobody read, and the actor kept reading hundreds of times a second
-  with no way to stop it. Four things changed. A receive turn that produces no
-  frames now hands the next turn to the boundary channels, and a long run of
-  receive wins does the same, so a transport that is always ready — failing or
-  flooding — can never starve the boundary. An idle read timeout
-  (`Error::Timeout`, or `Io` carrying `TimedOut`/`WouldBlock`/`Interrupted`) is
-  now classified as *no data* rather than as a fault, so a custom transport with
-  an internal read timeout no longer burns every in-flight command's retry
-  budget in milliseconds. The pause after a transient fault is clamped to the
-  next scheduler wake, exactly as the blocking owner clamps to its caller's
-  deadline, so a fault can no longer delay a due deadline by the length of the
-  pause. And consecutive faults now escalate: the pause grows from 10 ms to a
-  250 ms ceiling, and a read that has failed twelve times in a row over at least
-  a second is no longer treated as transient — the session ends with the
-  underlying transport error instead of retrying against a dead adapter forever.
-  A successful read, or a gap of five seconds between faults, clears the run.
-- **Fixed a boundary request racing actor teardown hanging its caller forever**
-  (#626). The actor answered every queued admission, cancellation and control
-  message as it exited and then dropped its receivers, but a message that landed
-  in between was stranded: the handle's own sender keeps flume's queue alive,
-  and with it the reply sender inside the stranded message, so the caller's wait
-  never disconnected. This hit exactly the caller who had just watched the
-  session die from its own operation and immediately asked a follow-up question
-  — `metrics`, `snapshot`, `subscribe_applied`, `subscribe_diagnostics`,
-  `cancel` or `submit`. Every boundary wait is now raced against a liveness lane
-  that disconnects when the actor task ends, and re-checks the reply once it
-  does, so a message the drain *did* answer still returns its real answer while
-  a stranded one returns the session's terminal error promptly. The drain itself
-  now loops until one whole pass finds every lane empty.
-- **The async owner no longer kills the session over one malformed datagram**
-  (#637). A single undecodable datagram — a stray `01 41 ff` carrying a
-  controller source byte no camera ever sends — terminated the whole async
-  session, while the blocking owner had always failed it per request and kept
-  pumping. A datagram that does not decode is one bad datagram: nothing else was
-  consumed and the next one frames independently, so it is now discarded and
-  recorded as an ignored malformed frame. The byte-stream verdict is unchanged,
-  because there a decode failure means the stream position is unknowable.
-- Documented the receive and send error contract on `AsyncTransport` and
-  `BlockingTransport` (#637). The traits previously documented only EOF, while
-  the value a transport's `recv_into` returns decides whether the session
-  survives and whether every in-flight command is retransmitted. Both traits now
-  state exactly what `Ok(0)`, an idle timeout, a session-fatal error and a
-  transient fault each mean, and what the runtime does with them. On the send
-  side, a datagram send failure that reported a session-fatal error value (a
-  custom transport returning `Error::ConnectionClosed`) used to hand the caller
-  a per-request failure that claimed a replacement session was required, while
-  the session kept running; it is now normalized to a per-request
-  `Error::TransportError` preserving the original cause, and the receive side
-  stays the authority on session death.
-- **Every normative issue-542 trace fixture is now replayed through the
-  production engine and owner** (#634). Four lifecycle fixtures — observer late
-  delivery, deadline classes, capacity and failures, and PTZOptics
-  cancellation — previously had no production replay at all, and the two that
-  did were weak: the engine replay rebuilt its expected reply route, reply
-  payload and camera error code from the fixture's *input* columns, so an
-  engine that corrupted every inquiry reply or collapsed every camera error
-  code onto one still passed; the owner replay consumed 17 of 70 records and
-  ignored the expectation columns entirely. All five lifecycle fixtures now
-  replay record for record against the real `OwnerState` — the real protocol
-  engine, admission permit pool, terminal observers and applied-state
-  subscribers — and the protocol replay reads its reply route, payload bytes,
-  attributed socket and error code out of the engine's own effects. The
-  1,357-line hand-written simulator the fixtures used to be checked against is
-  deleted; only the fixture-integrity checks a production replay cannot make
-  (versioned trace format, scoped scenario coverage, one recognized normative
-  #542 clause per expectation) survive, in
-  `tests/issue_542_trace_fixture_contract.rs`. The blocking out-of-order
-  fixture's first ACK block was corrected: it asserted that a raw VISCA ACK —
-  which carries no request identity — could be attributed to the *second* of
-  two outstanding commands. Raw ACKs are attributed in transmission order and
-  the socket the ACK carries becomes that request's socket, so out-of-order
-  settlement is expressed at completion, which is keyed by target and socket
-  together. No library behavior changed.
+### Added
 
-- **Pinned the movement wire encodings to golden byte vectors, and closed two
-  validation gaps the suite could not see** (#633). Transposing the pan and
-  tilt fields of the absolute pan/tilt encoder, or swapping two rows of the
-  direction table, previously passed the entire test suite: the directional
-  coverage compared a helper frame against an explicit frame that routed
-  through the same table, and the only fixtures naming the bytes outright had
-  been orphaned out of the build. Every pan/tilt direction, the absolute and
-  relative position frames, and the zoom, focus, preset, and power encodings
-  now have absolute byte-vector assertions that no encoder recomputes. The
-  raw frame-size bound gets a fixture that is otherwise valid — legal address
-  byte, legal terminator — so deleting the `raw::MAX_BYTES` branch fails a
-  test instead of being covered by the terminator rule, and
-  `raw::validate_axes` is now exercised through every public axis-carrying
-  constructor.
-- **An operation that names no affected axis is rejected at preparation**
-  (#633). `AffectedAxes::NONE` and the `BitAnd` of two disjoint sets have been
-  constructible since #624, and `raw::Targeted` / `raw::AppliedOnly` already
-  refused them at construction — but a targeted operation that reached
-  preparation with an empty set lowered to a settlement plan that issued zero
-  position inquiries and reported "settled" without observing the camera.
-  Preparation now rejects an empty set for both completion kinds with the
-  same `Error::InvalidRequest` the raw path uses. This can change behaviour
-  for a downstream `OperationCommand` implementation that returns an empty
-  `affected_axes()`, which the trait has always documented as a non-empty set:
-  such an operation now fails admission instead of silently completing
-  unobserved. No public signature changed. Motion observation is deliberately
-  unaffected — `motion().is_moving(MotionQuery::new(AffectedAxes::NONE))`
-  still returns `Ok(false)` for 1.x parity, because a query may legitimately
-  select nothing even though an operation must name what it moves.
+- **Added runtime timeout and tuning reconfiguration** (#631), restoring the
+  capability 1.2.0 shipped as `Camera::set_timeout_config` (#575). `set_tuning`
+  and `tuning` are on the blocking and async `Session` and `CameraSession`, so
+  an application that has to widen `ack_timeout` on a congested venue network no
+  longer has to `close()` and reopen, dropping every in-flight command to do it.
+  The update travels through the owner's control boundary — a control message to
+  the async actor, the caller's own owner turn in the blocking mode — so the
+  owner is its only writer and two handles reconfiguring at once resolve
+  last-writer-wins with no torn value in between. The scope is stated plainly
+  because it is narrower than 1.2.0's: **every request prepared after the update
+  uses the new values**, and the owner's session-wide pacing and per-target
+  socket capacity are re-derived immediately, but **a request already in flight
+  keeps the deadlines it was admitted with**. 2.0 stamps a request's deadlines
+  once, at preparation, where 1.2.0 recomputed them on every housekeeping pass;
+  nothing is re-timed underneath a receipt a caller is already holding. Cancel
+  and resubmit to move a running command onto a new deadline. The update is a
+  whole replacement rather than a merge, and it is validated on exactly the
+  grounds `SessionConfig::with_tuning` validates on, so a value construction
+  would have rejected is rejected here too and leaves the live tuning untouched.
+
 - Restored `image().disable_horizontal_flip()` on all three noun surfaces
   (#635). The rewrite ledgered `BuiltinCommand::ImageFlipHorizontal` under the
   single method spelling `enable_horizontal_flip`, so the noun surfaces only
@@ -165,51 +46,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   way they already do for the vertical flip and multicast pairs. Like every
   single-axis flip opcode, it invalidates `StateKey::Flip` rather than
   half-setting the pair.
-- **Packaging and release-machinery polish** (#642). `grafton-visca-macros`
-  now ships `LICENSE-MIT` and `LICENSE-APACHE` in its published tarball: it
-  declares `MIT OR Apache-2.0` and both licences require their text to
-  accompany the distribution, and its README linked two files the package did
-  not contain. `deny.toml` is excluded from the published main crate — it is
-  CI-only configuration, in the same class as the already-excluded `api/`
-  baselines — and the `exclude` list now states why `CHANGELOG.md` and
-  `CONTRIBUTING.md` are deliberately kept. The publication workflow pins its
-  toolchain and `actions/checkout` to the versions `ci.yml` pins, and refuses
-  to publish a tag whose commit has no successful `CI success` check run,
-  replacing RELEASING.md's honour-system instruction with a gate. CI gains an
-  advisory job that runs the release validator against the real repository
-  with the intended next tag, so manifest and version drift surfaces on the
-  pull request that introduces it rather than at publish time. The fuzz target
-  gains a committed seed corpus of well-formed and malformed frames, so each
-  bounded run starts warm and a crash can be pinned as a permanent regression
-  seed. Two orphaned `.github/scripts` setup scripts that referenced a v0.x
-  milestone and a nonexistent issue template — and that would have created
-  real GitHub issues if run — are deleted. Documentation fixes: the retry
-  budgets in `docs/observability_and_recovery.md` are now stated as retries
-  rather than attempts and carry the missing `Movement`/`Preset` row, the
-  busy-timeout term in the wall-clock budget and the backoff ceiling, the
-  half-open jitter band, and the built-in-inquiry `0x02` retry path; the
-  Windows CI job says that its serial tests drive a mock and that the Win32
-  backend is compiled but never executed; and CONTRIBUTING's nightly install
-  one-liner names the `rustfmt` and `miri` components that `--profile minimal`
-  omits.
-- **Replaced the fake terminator tests with real encode-path coverage** (#627).
-  `tests/no_hardcoded_terminator_test.rs` had regressed to its pre-#586
-  revision: one test asserted that a `const` it declared itself equalled `0xFF`
-  and never touched the crate, another only `println!`ed and could not fail,
-  and the surviving source scanner matched uppercase `0xFF` only — structurally
-  blind to the lowercase literals in `src/` — while exempting any line
-  containing `// `. The file now drives the production encode path
-  (`Request::write_into`) for real typed commands across the power, pan/tilt,
-  zoom, focus, iris, preset and system families, for built-in inquiries, for
-  raw-frame admission, and for both transport envelopes, asserting that every
-  frame ends with the exported `VISCA_TERMINATOR` and carries it exactly once.
-  Because the frames are compared against the imported constant rather than a
-  literal, the constant and the encoders can no longer drift apart. The scanner
-  and `tests/terminator_validation_test.rs` (three file-existence and
-  string-presence assertions) are deleted: a text scan cannot tell a hardcoded
-  terminator from the legitimate `0xff` in response fixtures, simulator
-  scripts, framer comparisons, error codes and the constant's own definition,
-  so it can only be noisy or vacuous.
 - Restored the 1.x convenience helpers the rewrite dropped, on all three noun
   surfaces (#569). `pan_tilt().up()/down()/left()/right()` are back as thin
   wrappers over `move_direction`; `zoom().set_normalized(UnitInterval)` and
@@ -263,6 +99,154 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the decision the engine actually took, not the policy that motivated it: a
   policy that permits retrying a deadline still fails the request once its
   attempt or duration budget is spent, and the event reports that honestly.
+- Added owner-backed `Session`/`SessionConfig` construction and typed
+  `Camera<P>` views for heterogeneous multi-camera sessions.
+- Added the final blocking, async, and dynamic noun surfaces with typed
+  completion classes, profile capability gates, and shared operation
+  lifecycle semantics.
+- Added `Error::requires_new_session()`, the spec-normative classifier that
+  separates transport-level session death (`ConnectionClosed`, `StreamPoisoned`,
+  and the transport/channel-unavailable errors) from the deliberate
+  `RuntimeShutdown` (#564). All of these share `ErrorKind::IoClosed`, so
+  applications could not tell a field disconnect apart from a shutdown they
+  requested without matching implementation details. `true` is positive proof
+  that the session is finished and must be rebuilt from the retained
+  `SessionConfig`; `false` only means the error alone does not prove it.
+- Added a hardware release evidence checklist. Hardware, registry, and
+  Synemantic validation remain `Pending (Not run)` until release owners record
+  bench evidence.
+- Added the CI leg that runs the shipped test toolkit, and made a filtered test
+  run fail when its filter matches nothing (#628). `test-utils` was never
+  unioned with a facade in any job — the one `test-utils` leg selects neither
+  `blocking` nor a runtime, and the all-features job is a `cargo check` — so 37
+  tests existed in the tree and executed nowhere: all eight of
+  `tests/issue_566_scripted_error_recovery.rs` (whose header claimed the
+  opposite), five in `tests/inquiry_simulator_test.rs`, three in
+  `tests/timeout_category_tests.rs`, the twenty `testkit`
+  `deterministic_executor` and `scripted_transport` library tests that
+  `CONTRIBUTING.md` tells contributors to build on, and one in
+  `src/blocking.rs`. A `test-utils,blocking,runtime-tokio` leg in
+  `.github/workflows/ci.yml` and `.github/scripts/test-all-features.sh` takes
+  the count of never-executed tests from 37 to 0. Separately, every
+  name-filtered run in `.github/scripts/miri-tests.sh` and the property-test
+  entry in `.github/scripts/test-all-features.sh` now assert that the filter
+  selected at least one test: libtest exits 0 on a filter that matches nothing,
+  so a renamed module would have turned the whole Miri job green and vacuous.
+- Documented the 2.0 request, construction, dynamic API, and release
+  contracts.
+
+### Changed
+
+- Documented the receive and send error contract on `AsyncTransport` and
+  `BlockingTransport` (#637). The traits previously documented only EOF, while
+  the value a transport's `recv_into` returns decides whether the session
+  survives and whether every in-flight command is retransmitted. Both traits now
+  state exactly what `Ok(0)`, an idle timeout, a session-fatal error and a
+  transient fault each mean, and what the runtime does with them. On the send
+  side, a datagram send failure that reported a session-fatal error value (a
+  custom transport returning `Error::ConnectionClosed`) used to hand the caller
+  a per-request failure that claimed a replacement session was required, while
+  the session kept running; it is now normalized to a per-request
+  `Error::TransportError` preserving the original cause, and the receive side
+  stays the authority on session death.
+- **Every normative issue-542 trace fixture is now replayed through the
+  production engine and owner** (#634). Four lifecycle fixtures — observer late
+  delivery, deadline classes, capacity and failures, and PTZOptics
+  cancellation — previously had no production replay at all, and the two that
+  did were weak: the engine replay rebuilt its expected reply route, reply
+  payload and camera error code from the fixture's *input* columns, so an
+  engine that corrupted every inquiry reply or collapsed every camera error
+  code onto one still passed; the owner replay consumed 17 of 70 records and
+  ignored the expectation columns entirely. All five lifecycle fixtures now
+  replay record for record against the real `OwnerState` — the real protocol
+  engine, admission permit pool, terminal observers and applied-state
+  subscribers — and the protocol replay reads its reply route, payload bytes,
+  attributed socket and error code out of the engine's own effects. The
+  1,357-line hand-written simulator the fixtures used to be checked against is
+  deleted; only the fixture-integrity checks a production replay cannot make
+  (versioned trace format, scoped scenario coverage, one recognized normative
+  #542 clause per expectation) survive, in
+  `tests/issue_542_trace_fixture_contract.rs`. The blocking out-of-order
+  fixture's first ACK block was corrected: it asserted that a raw VISCA ACK —
+  which carries no request identity — could be attributed to the *second* of
+  two outstanding commands. Raw ACKs are attributed in transmission order and
+  the socket the ACK carries becomes that request's socket, so out-of-order
+  settlement is expressed at completion, which is keyed by target and socket
+  together. No library behavior changed.
+- **Pinned the movement wire encodings to golden byte vectors, and closed two
+  validation gaps the suite could not see** (#633). Transposing the pan and
+  tilt fields of the absolute pan/tilt encoder, or swapping two rows of the
+  direction table, previously passed the entire test suite: the directional
+  coverage compared a helper frame against an explicit frame that routed
+  through the same table, and the only fixtures naming the bytes outright had
+  been orphaned out of the build. Every pan/tilt direction, the absolute and
+  relative position frames, and the zoom, focus, preset, and power encodings
+  now have absolute byte-vector assertions that no encoder recomputes. The
+  raw frame-size bound gets a fixture that is otherwise valid — legal address
+  byte, legal terminator — so deleting the `raw::MAX_BYTES` branch fails a
+  test instead of being covered by the terminator rule, and
+  `raw::validate_axes` is now exercised through every public axis-carrying
+  constructor.
+- **An operation that names no affected axis is rejected at preparation**
+  (#633). `AffectedAxes::NONE` and the `BitAnd` of two disjoint sets have been
+  constructible since #624, and `raw::Targeted` / `raw::AppliedOnly` already
+  refused them at construction — but a targeted operation that reached
+  preparation with an empty set lowered to a settlement plan that issued zero
+  position inquiries and reported "settled" without observing the camera.
+  Preparation now rejects an empty set for both completion kinds with the
+  same `Error::InvalidRequest` the raw path uses. This can change behaviour
+  for a downstream `OperationCommand` implementation that returns an empty
+  `affected_axes()`, which the trait has always documented as a non-empty set:
+  such an operation now fails admission instead of silently completing
+  unobserved. No public signature changed. Motion observation is deliberately
+  unaffected — `motion().is_moving(MotionQuery::new(AffectedAxes::NONE))`
+  still returns `Ok(false)` for 1.x parity, because a query may legitimately
+  select nothing even though an operation must name what it moves.
+- **Packaging and release-machinery polish** (#642). `grafton-visca-macros`
+  now ships `LICENSE-MIT` and `LICENSE-APACHE` in its published tarball: it
+  declares `MIT OR Apache-2.0` and both licences require their text to
+  accompany the distribution, and its README linked two files the package did
+  not contain. `deny.toml` is excluded from the published main crate — it is
+  CI-only configuration, in the same class as the already-excluded `api/`
+  baselines — and the `exclude` list now states why `CHANGELOG.md` and
+  `CONTRIBUTING.md` are deliberately kept. The publication workflow pins its
+  toolchain and `actions/checkout` to the versions `ci.yml` pins, and refuses
+  to publish a tag whose commit has no successful `CI success` check run,
+  replacing RELEASING.md's honour-system instruction with a gate. CI gains an
+  advisory job that runs the release validator against the real repository
+  with the intended next tag, so manifest and version drift surfaces on the
+  pull request that introduces it rather than at publish time. The fuzz target
+  gains a committed seed corpus of well-formed and malformed frames, so each
+  bounded run starts warm and a crash can be pinned as a permanent regression
+  seed. Two orphaned `.github/scripts` setup scripts that referenced a v0.x
+  milestone and a nonexistent issue template — and that would have created
+  real GitHub issues if run — are deleted. Documentation fixes: the retry
+  budgets in `docs/observability_and_recovery.md` are now stated as retries
+  rather than attempts and carry the missing `Movement`/`Preset` row, the
+  busy-timeout term in the wall-clock budget and the backoff ceiling, the
+  half-open jitter band, and the built-in-inquiry `0x02` retry path; the
+  Windows CI job says that its serial tests drive a mock and that the Win32
+  backend is compiled but never executed; and CONTRIBUTING's nightly install
+  one-liner names the `rustfmt` and `miri` components that `--profile minimal`
+  omits.
+- **Replaced the fake terminator tests with real encode-path coverage** (#627).
+  `tests/no_hardcoded_terminator_test.rs` had regressed to its pre-#586
+  revision: one test asserted that a `const` it declared itself equalled `0xFF`
+  and never touched the crate, another only `println!`ed and could not fail,
+  and the surviving source scanner matched uppercase `0xFF` only — structurally
+  blind to the lowercase literals in `src/` — while exempting any line
+  containing `// `. The file now drives the production encode path
+  (`Request::write_into`) for real typed commands across the power, pan/tilt,
+  zoom, focus, iris, preset and system families, for built-in inquiries, for
+  raw-frame admission, and for both transport envelopes, asserting that every
+  frame ends with the exported `VISCA_TERMINATOR` and carries it exactly once.
+  Because the frames are compared against the imported constant rather than a
+  literal, the constant and the encoders can no longer drift apart. The scanner
+  and `tests/terminator_validation_test.rs` (three file-existence and
+  string-presence assertions) are deleted: a text scan cannot tell a hardcoded
+  terminator from the legitimate `0xff` in response fixtures, simulator
+  scripts, framer comparisons, error codes and the constant's own definition,
+  so it can only be noisy or vacuous.
 - **Single-camera constructors return a camera, with the profile bound at
   compile time** (#568). Every other entry point returns a `Session`, so a
   one-camera program had to name its profile a second time through
@@ -276,18 +260,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `CameraSession::open` takes a caller-owned transport with the same bind.
   `close` mirrors `Session::close`, and dropping the value tears the session
   down. The multi-camera `Session`/`camera_for` path is unchanged.
-- **Restored the 1.x retry coverage the rewrite narrowed** (#566). A post-ACK
-  completion timeout retries again — the rewrite hard-coded it off for every
-  request class, so a camera that acknowledged a command and then went silent
-  failed on its first deadline with no second attempt. A lost ACK retries for
-  every retry class except `Never`, instead of only `Standard`, which had left
-  all 32 movement requests and every preset dying on a single dropped ACK
-  frame. Per-category retry budgets are back in 1.x's shape — quick and inquiry
-  work gets two attempts more than the base, network work one fewer, and a
-  long-running command exactly one — replacing three flat numbers keyed on the
-  retry class. `OperationalTuning::retry_limit` overrides that *base*, which is
-  the knob 1.x exposed, so a request's effective count is derived from its
-  timeout category rather than taken literally.
 - Sized the retry budget against the request's own deadline (#566). It was two
   seconds, shorter than every profile's completion deadline, so re-enabling
   completion retries alone would have changed nothing. The budget is now
@@ -305,31 +277,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the request identity and the attempt number — never of wall-clock time or
   process entropy — so the engine remains a total function of its inputs and
   the exact sequence is pinned by test.
-- **Restored the 1.x transport fault tolerance the rewrite dropped** (#565).
-  A transient receive failure no longer destroys the session: the owner
-  classifies the read error, and a transient one — the classic case is a UDP
-  `recv` reporting ECONNREFUSED after an ICMP port-unreachable — retries every
-  command still awaiting its ACK under that command's own bounded retry policy
-  and keeps the session running, exactly as 1.x's `SchedulerEvent::NetworkError`
-  did. Only a read that proves the connection is gone still ends the session,
-  and it now ends it as a close rather than a byte-stream poison, because a
-  failed read consumes nothing and cannot desynchronize framing.
-- Socketless VISCA ACKs and completions work again (#565). A camera answering
-  `90 40 FF` / `90 50 FF` carries no socket nibble; the transport adapter turned
-  that into a hard `Error::InvalidResponse` that killed the whole session. The
-  socket is now optional all the way to the scheduler, which assigns the first
-  free command socket to a socketless ACK — 1.x behavior — and attributes a
-  socketless completion by envelope sequence, or by sole socket ownership on
-  raw VISCA. Genuinely malformed frames are still rejected.
-- Restored socket reassignment on ACK (#565). A camera that names a command
-  socket another request already holds no longer costs that command its ACK
-  deadline: the ACK falls back to the target's other free socket, as 1.x did.
-  A one-socket target has nothing to fall back to and the frame stays inert.
-- Closed the #297 ACK race at the engine level (#565). An ACK that reaches the
-  engine before the write result for the frame it answers is now latched on
-  that request and applied the instant the write is confirmed, instead of being
-  dropped. The defense no longer depends on owner call ordering, so a future
-  concurrent reader and writer cannot silently reopen the race.
 - Documented the stream write-failure policy explicitly (#565). A failed
   datagram write fails exactly one request, with its own transport error, and
   the session keeps running. A failed stream write poisons the session on
@@ -338,21 +285,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   position treated as unknowable. `Error::StreamPoisoned` carries the exact
   transport cause in its reason and is the one terminal error that answers
   `Error::requires_new_session()` correctly (#564). 1.x drew the same line.
-- A blocking pump that ends the session now reports the session's boundary
-  error, not the raw transport cause (#629). A fatal read closed the session
-  and then returned the underlying `Error::Io` to whoever was pumping. `Io`
-  classifies as survivable, so a caller driving an auto-reconnect loop off
-  `Error::requires_new_session()` was told to keep using a session the owner
-  had already closed, and only learned the truth from the *next* call. The
-  observation paths that wait on a receipt hid this — a closed session fails
-  the request they are waiting on, and that terminal outcome carries the right
-  error — but the paths with no receipt to consult did not: settlement polling
-  between two position samples, above all. The verdict is now translated once,
-  where every pump caller shares it, so a settlement wait, a cancellation
-  observation, or any future pump caller sees `ConnectionClosed` (or
-  `StreamPoisoned` for a framing failure on a stream), with the transport cause
-  preserved in the reason. The async owner already reported boundary errors
-  this way.
 - Gated the async noun surface and added a cross-surface parity test (#570).
   Only `blocking_nouns` carried a per-row ledger gate, so deleting or
   misclassifying an async noun method failed no test: the published API
@@ -382,44 +314,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   guard; the pattern is documented in `docs/migration_2_0.md` and demonstrated
   in `examples/operation_handles.rs` (and in its async wrapper form in
   `examples/operation_handles_async.rs`). No new public API.
-- Added owner-backed `Session`/`SessionConfig` construction and typed
-  `Camera<P>` views for heterogeneous multi-camera sessions.
-- Added the final blocking, async, and dynamic noun surfaces with typed
-  completion classes, profile capability gates, and shared operation
-  lifecycle semantics.
 - Standardized endpoint defaults, transport configuration, preflight
   validation, cancellation, retry, and observability behavior across the
   supported runtime and transport combinations.
-- Removed the 1.x compatibility feature aliases and documented the 2.0
-  request, construction, dynamic API, and release contracts.
-- Added `Error::requires_new_session()`, the spec-normative classifier that
-  separates transport-level session death (`ConnectionClosed`, `StreamPoisoned`,
-  and the transport/channel-unavailable errors) from the deliberate
-  `RuntimeShutdown` (#564). All of these share `ErrorKind::IoClosed`, so
-  applications could not tell a field disconnect apart from a shutdown they
-  requested without matching implementation details. `true` is positive proof
-  that the session is finished and must be rebuilt from the retained
-  `SessionConfig`; `false` only means the error alone does not prove it.
-- Added a hardware release evidence checklist. Hardware, registry, and
-  Synemantic validation remain `Pending (Not run)` until release owners record
-  bench evidence.
-- Ported the README and `prelude` quick starts to the 2.0 API and made them
-  compile (#563). The README used the async-only `camera::Connect` path and
-  called noun accessors and `submit` on `Session`; it now uses
-  `blocking::Connect`, selects a typed view with `session.camera::<P>()`, and
-  submits `request::builtin` commands. The `prelude` snippets now observe the
-  `#[must_use]` operation handles with `applied()`/`settled()`, and the stale
-  claim that `UnitInterval` carries normalized control values is corrected to
-  the inquiry-conversion helpers that actually use it. A `cfg(doctest)`
-  `include_str!` gate in `src/lib.rs` compiles every README snippet under
-  `cargo test --doc`, so the front page can no longer drift from the API.
-- Fixed a blocking submission that loses the dispatch race being terminalized
-  as `Error::TransportBusy` (#561). A blocking caller holding more un-awaited
-  operation handles than the target has command sockets now queues the excess
-  work, which the owner writes as sockets free — matching both the async facade
-  and 1.x. Admission capacity (`max_pending_queue_depth`) still bounds the
-  queue and still rejects genuinely over-capacity submissions with
-  `Error::RuntimeQueueFull`.
 - Pinned every CI toolchain to an exact version (stable 1.98.0, nightly
   2026-08-26, MSRV 1.88.0) so the byte-compared gates stop breaking on
   unrelated pull requests whenever rustc releases, re-blessed the three
@@ -428,6 +325,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   installed that nightly explicitly in the snapshot job so `cargo public-api`
   can build rustdoc JSON instead of failing on a missing `nightly` toolchain
   (#562).
+- Stopped shipping the public API snapshots to crates.io and shrank them
+  (#572). `api/` was 71% of the published tarball — 1.8 MiB of CI baseline text
+  with no use to consumers — and is now in the `exclude` list, taking the
+  package from 355 files / 2.5 MiB compressed to 347 files / 737 KiB. The seven
+  byte-compared surfaces are reduced to three (`blocking`, `tokio-dyn`,
+  `all-features`), which measurably cover the same items: `blocking` is a
+  strict superset of the retired no-default surface, `tokio-dyn` of the retired
+  async surface, and `all-features` of the rest. `--simplified` drops the
+  compiler-emitted blanket impls that were ~42% of every file and identical for
+  every public type; auto-trait and auto-derived impls are still tracked. The
+  snapshots and their regeneration procedure are now documented in
+  `CONTRIBUTING.md`, which also drops its stale instruction not to tag without
+  "both semver surfaces" — a gate that no longer exists.
+
+### Removed
+
+- **Removed the 1.2.0 command-priority surface** (#630). `runtime::Priority`,
+  `Camera::set_command_priority` / `command_priority` /
+  `execute_with_priority`, their `BlockingClient` mirrors, and
+  `runtime::testing::Priority` are all gone. The engine still has four
+  dispatch lanes, and the built-in `PanTiltStop`, `ZoomStop`, `FocusStop`, and
+  `CommandCancel` requests are still `ControlClass::Urgent`, so an emergency
+  stop preempts queued work with no selector needed. What a caller can no
+  longer do is raise one arbitrary typed command for a single submission, or
+  demote a handle's traffic so operator input preempts a telemetry poller.
+  Whether a typed per-submission or per-handle `ControlClass` override is
+  restored before 2.0 is still an open decision in #630.
+- **Removed `BlockingClient`** (#542). The blocking facade is owner-backed:
+  `blocking::Connect`, `blocking::CameraConfig`, and
+  `blocking::Session::open` build a `blocking::Session`, and
+  `blocking::CameraSession<P>` is the single-camera handle. 1.2.0 had
+  deprecated the blocking `CameraSession` methods and pointed callers at
+  `BlockingClient`, so 2.0 inverts that advice and a caller who acted on the
+  deprecation warning has the furthest to travel. `docs/migration_2_0.md`
+  spells out the route.
+- **Removed `CameraBuilder`** (#542). Construction is `Connect` for the
+  simple cases, `CameraConfig` for configured standard transports,
+  `SessionConfig` for reusable multi-target registration, and `Session::open`
+  or `CameraSession::open` for a caller-owned transport. There is no separate
+  builder type and no builder-only construction path.
+- Removed the 1.x compatibility feature aliases.
 - **Removed the `tcp` feature** (#573). It was in the default set but gated no
   code — there was never a `cfg(feature = "tcp")` anywhere in the crate — so
   enabling or omitting it built exactly the same library while implying that
@@ -450,36 +388,183 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The README feature-union table promised automated validation of
   `runtime-tokio,transport-serial`, which no matrix leg covered; that leg is
   back, and the table now names the CI job that checks each union.
-- Added the CI leg that runs the shipped test toolkit, and made a filtered test
-  run fail when its filter matches nothing (#628). `test-utils` was never
-  unioned with a facade in any job — the one `test-utils` leg selects neither
-  `blocking` nor a runtime, and the all-features job is a `cargo check` — so 37
-  tests existed in the tree and executed nowhere: all eight of
-  `tests/issue_566_scripted_error_recovery.rs` (whose header claimed the
-  opposite), five in `tests/inquiry_simulator_test.rs`, three in
-  `tests/timeout_category_tests.rs`, the twenty `testkit`
-  `deterministic_executor` and `scripted_transport` library tests that
-  `CONTRIBUTING.md` tells contributors to build on, and one in
-  `src/blocking.rs`. A `test-utils,blocking,runtime-tokio` leg in
-  `.github/workflows/ci.yml` and `.github/scripts/test-all-features.sh` takes
-  the count of never-executed tests from 37 to 0. Separately, every
-  name-filtered run in `.github/scripts/miri-tests.sh` and the property-test
-  entry in `.github/scripts/test-all-features.sh` now assert that the filter
-  selected at least one test: libtest exits 0 on a filter that matches nothing,
-  so a renamed module would have turned the whole Miri job green and vacuous.
-- Stopped shipping the public API snapshots to crates.io and shrank them
-  (#572). `api/` was 71% of the published tarball — 1.8 MiB of CI baseline text
-  with no use to consumers — and is now in the `exclude` list, taking the
-  package from 355 files / 2.5 MiB compressed to 347 files / 737 KiB. The seven
-  byte-compared surfaces are reduced to three (`blocking`, `tokio-dyn`,
-  `all-features`), which measurably cover the same items: `blocking` is a
-  strict superset of the retired no-default surface, `tokio-dyn` of the retired
-  async surface, and `all-features` of the rest. `--simplified` drops the
-  compiler-emitted blanket impls that were ~42% of every file and identical for
-  every public type; auto-trait and auto-derived impls are still tracked. The
-  snapshots and their regeneration procedure are now documented in
-  `CONTRIBUTING.md`, which also drops its stale instruction not to tag without
-  "both semver surfaces" — a gate that no longer exists.
+
+### Fixed
+
+- **The noun parity gate now catches the five divergences a review demonstrated
+  it could not** (#638). `src/noun_parity.rs` compares the async, blocking and
+  dynamic noun facades against the closed ledger, and five classes of
+  cross-surface divergence were applied to the real sources, shown to pass every
+  gate, and reverted: a non-`async` public method added to an async accessor was
+  invisible because the reader keyed on the literal `pub async fn`; an
+  `impl SomeExt for XxxAccessor` added public methods no inherent-impl reader
+  sees; argument types, arity and receiver were not recorded at all, so an
+  `f32`/`f64` divergence between two facades passed; the `where` reader returned
+  on the *first* `P:` predicate, so `where P: A, P: B` silently dropped `B`; and
+  capability bounds were normalized to their terminal path segment, so a
+  blanket-implemented `shadow::HasDirectZoom` erased a capability gate. All five
+  now fail. The reader was also rewritten from column-exact needles to a
+  brace/paren-depth scanner over comment- and literal-stripped source, so legal
+  reformatting — a one-liner `accessor!` invocation, an attribute inside one, an
+  indented `impl` — no longer derails it with bogus errors, and anything the
+  scanner cannot read (a macro invocation inside an accessor impl, for instance)
+  is a hard failure rather than a silent skip. The dynamic facade carries no
+  compile-time bounds by construction; the gate now says so where it is defined
+  instead of comparing an empty set. Test-only; no public API change.
+- **Removed no-op and self-satisfying assertions from the inventory gates**
+  (#638). Several gates asserted things that could not fail: the class totals in
+  `src/command/surface.rs` were summed back to the ledger size across an
+  exhaustive match, and the noun count was added to its own complement. They are
+  replaced by a pinned class distribution and a derived check that no noun
+  method may reuse a reserved broadcast or cancellation spelling. The surface
+  files name their own accessors as string literals inside their in-file test
+  modules, so every positive `contains` gate now reads the declaration region
+  only; the `BuiltinCommand::ALL` row count is anchored on the `impl
+  BuiltinCommand` block instead of depending on being the last such slice in the
+  file; the dynamic inquiry-method count is checked against the generated
+  accessor table in `src/command/inquiry_structs.rs` rather than against the
+  file declaring it; and the dead `EXPECTED_CONTROL_TRAITS` table and
+  `macro_and_struct_names` helper are gone.
+- Corrected the shipped documentation against the real 2.0 API (#639). The
+  docs.rs front page carried 1.x shapes: `TimeoutConfig` and `MotionQuery`
+  imported from the crate root, `is_moving(query)` on a method that takes no
+  argument, `NdFilterMode::Clear`, `FocusLock` at the root, a noun accessor
+  called on a `Session`, and a `BlockingTransport` sketch whose
+  `recv() -> Bytes` the trait never had. Every one of the sixteen `ignore`
+  fences in `src/lib.rs` is now a compiled doctest, feature-gated per block
+  the way the README gate already is, so the front page cannot drift again.
+  `docs/migration_2_0.md` is compiled the same way, which is what pins the
+  canonical stop-on-exit guard to the API. Wrong claims fixed: the
+  heterogeneous-envelope sentence in `docs/architecture_2_0.md` (envelope
+  mismatches are always rejected; what is accepted is heterogeneous profiles
+  over one raw-VISCA envelope on a serial-addressed transport, built-in serial
+  included), the memory-bounds table in
+  `docs/observability_and_recovery.md` (two of its eleven rows are sized from
+  the transport's `BufferConfig`, so the receive row was never 4096), four
+  `cargo test --test` targets in `docs/camera_profile_support.md` that exist
+  only on the 1.x line, and 1.x module paths and test names cited as release
+  gates in `docs/allocation_and_validation.md` and
+  `docs/architecture_inventory.md`. The async stop-on-exit wrapper no longer
+  claims to cover what a synchronous `Drop` guard covers: it runs on the
+  body's `Ok` and `Err` returns, not on a panic or a dropped future.
+  `examples/quickstart.rs` and `examples/concurrent_control.rs` no longer leak
+  motion on an early `?`. Two migration gaps are filled — the `BlockingClient`
+  inversion, and `AffectedAxes::ALL` growing from three axes to five, which
+  makes a mechanical port fail with `Error::FeatureNotSupported` on eight of
+  the nine built-in profiles. This 2.0 section is now organized in the
+  Keep a Changelog subsections the file's own header promises.
+- **Fixed a livelock that made an async session unkillable when a transport
+  failed every read** (#625). The actor's readiness race is left-biased towards
+  the transport by design, so a read that failed *immediately* — a disconnected
+  USB-serial adapter surfacing `EIO`/`ENXIO`, for example — kept the receive
+  branch permanently ready and shutdown, cancellation, admission and control
+  were never polled at all. `submit` never returned, `shutdown` only queued a
+  message nobody read, and the actor kept reading hundreds of times a second
+  with no way to stop it. Four things changed. A receive turn that produces no
+  frames now hands the next turn to the boundary channels, and a long run of
+  receive wins does the same, so a transport that is always ready — failing or
+  flooding — can never starve the boundary. An idle read timeout
+  (`Error::Timeout`, or `Io` carrying `TimedOut`/`WouldBlock`/`Interrupted`) is
+  now classified as *no data* rather than as a fault, so a custom transport with
+  an internal read timeout no longer burns every in-flight command's retry
+  budget in milliseconds. The pause after a transient fault is clamped to the
+  next scheduler wake, exactly as the blocking owner clamps to its caller's
+  deadline, so a fault can no longer delay a due deadline by the length of the
+  pause. And consecutive faults now escalate: the pause grows from 10 ms to a
+  250 ms ceiling, and a read that has failed twelve times in a row over at least
+  a second is no longer treated as transient — the session ends with the
+  underlying transport error instead of retrying against a dead adapter forever.
+  A successful read, or a gap of five seconds between faults, clears the run.
+- **Fixed a boundary request racing actor teardown hanging its caller forever**
+  (#626). The actor answered every queued admission, cancellation and control
+  message as it exited and then dropped its receivers, but a message that landed
+  in between was stranded: the handle's own sender keeps flume's queue alive,
+  and with it the reply sender inside the stranded message, so the caller's wait
+  never disconnected. This hit exactly the caller who had just watched the
+  session die from its own operation and immediately asked a follow-up question
+  — `metrics`, `snapshot`, `subscribe_applied`, `subscribe_diagnostics`,
+  `cancel` or `submit`. Every boundary wait is now raced against a liveness lane
+  that disconnects when the actor task ends, and re-checks the reply once it
+  does, so a message the drain *did* answer still returns its real answer while
+  a stranded one returns the session's terminal error promptly. The drain itself
+  now loops until one whole pass finds every lane empty.
+- **The async owner no longer kills the session over one malformed datagram**
+  (#637). A single undecodable datagram — a stray `01 41 ff` carrying a
+  controller source byte no camera ever sends — terminated the whole async
+  session, while the blocking owner had always failed it per request and kept
+  pumping. A datagram that does not decode is one bad datagram: nothing else was
+  consumed and the next one frames independently, so it is now discarded and
+  recorded as an ignored malformed frame. The byte-stream verdict is unchanged,
+  because there a decode failure means the stream position is unknowable.
+- **Restored the 1.x retry coverage the rewrite narrowed** (#566). A post-ACK
+  completion timeout retries again — the rewrite hard-coded it off for every
+  request class, so a camera that acknowledged a command and then went silent
+  failed on its first deadline with no second attempt. A lost ACK retries for
+  every retry class except `Never`, instead of only `Standard`, which had left
+  all 32 movement requests and every preset dying on a single dropped ACK
+  frame. Per-category retry budgets are back in 1.x's shape — quick and inquiry
+  work gets two attempts more than the base, network work one fewer, and a
+  long-running command exactly one — replacing three flat numbers keyed on the
+  retry class. `OperationalTuning::retry_limit` overrides that *base*, which is
+  the knob 1.x exposed, so a request's effective count is derived from its
+  timeout category rather than taken literally.
+- **Restored the 1.x transport fault tolerance the rewrite dropped** (#565).
+  A transient receive failure no longer destroys the session: the owner
+  classifies the read error, and a transient one — the classic case is a UDP
+  `recv` reporting ECONNREFUSED after an ICMP port-unreachable — retries every
+  command still awaiting its ACK under that command's own bounded retry policy
+  and keeps the session running, exactly as 1.x's `SchedulerEvent::NetworkError`
+  did. Only a read that proves the connection is gone still ends the session,
+  and it now ends it as a close rather than a byte-stream poison, because a
+  failed read consumes nothing and cannot desynchronize framing.
+- Socketless VISCA ACKs and completions work again (#565). A camera answering
+  `90 40 FF` / `90 50 FF` carries no socket nibble; the transport adapter turned
+  that into a hard `Error::InvalidResponse` that killed the whole session. The
+  socket is now optional all the way to the scheduler, which assigns the first
+  free command socket to a socketless ACK — 1.x behavior — and attributes a
+  socketless completion by envelope sequence, or by sole socket ownership on
+  raw VISCA. Genuinely malformed frames are still rejected.
+- Restored socket reassignment on ACK (#565). A camera that names a command
+  socket another request already holds no longer costs that command its ACK
+  deadline: the ACK falls back to the target's other free socket, as 1.x did.
+  A one-socket target has nothing to fall back to and the frame stays inert.
+- Closed the #297 ACK race at the engine level (#565). An ACK that reaches the
+  engine before the write result for the frame it answers is now latched on
+  that request and applied the instant the write is confirmed, instead of being
+  dropped. The defense no longer depends on owner call ordering, so a future
+  concurrent reader and writer cannot silently reopen the race.
+- A blocking pump that ends the session now reports the session's boundary
+  error, not the raw transport cause (#629). A fatal read closed the session
+  and then returned the underlying `Error::Io` to whoever was pumping. `Io`
+  classifies as survivable, so a caller driving an auto-reconnect loop off
+  `Error::requires_new_session()` was told to keep using a session the owner
+  had already closed, and only learned the truth from the *next* call. The
+  observation paths that wait on a receipt hid this — a closed session fails
+  the request they are waiting on, and that terminal outcome carries the right
+  error — but the paths with no receipt to consult did not: settlement polling
+  between two position samples, above all. The verdict is now translated once,
+  where every pump caller shares it, so a settlement wait, a cancellation
+  observation, or any future pump caller sees `ConnectionClosed` (or
+  `StreamPoisoned` for a framing failure on a stream), with the transport cause
+  preserved in the reason. The async owner already reported boundary errors
+  this way.
+- Ported the README and `prelude` quick starts to the 2.0 API and made them
+  compile (#563). The README used the async-only `camera::Connect` path and
+  called noun accessors and `submit` on `Session`; it now uses
+  `blocking::Connect`, selects a typed view with `session.camera::<P>()`, and
+  submits `request::builtin` commands. The `prelude` snippets now observe the
+  `#[must_use]` operation handles with `applied()`/`settled()`, and the stale
+  claim that `UnitInterval` carries normalized control values is corrected to
+  the inquiry-conversion helpers that actually use it. A `cfg(doctest)`
+  `include_str!` gate in `src/lib.rs` compiles every README snippet under
+  `cargo test --doc`, so the front page can no longer drift from the API.
+- Fixed a blocking submission that loses the dispatch race being terminalized
+  as `Error::TransportBusy` (#561). A blocking caller holding more un-awaited
+  operation handles than the target has command sockets now queues the excess
+  work, which the owner writes as sockets free — matching both the async facade
+  and 1.x. Admission capacity (`max_pending_queue_depth`) still bounds the
+  queue and still rejects genuinely over-capacity submissions with
+  `Error::RuntimeQueueFull`.
 - Fixed the async owner terminating a session when a byte-stream read carried
   bytes without finishing a VISCA frame (#560). The actor treated the resulting
   empty decoded batch as end of stream and failed every in-flight request, so a

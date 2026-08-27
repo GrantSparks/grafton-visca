@@ -286,6 +286,14 @@ pub(crate) fn owner_policy_for_targets_with_tuning(
     let mut inquiry_spacing = std::time::Duration::ZERO;
     let mut inquiry_cooldown = std::time::Duration::ZERO;
     let mut seen = [false; 9];
+    // The profile-only facts, kept alongside the tuned ones so a later runtime
+    // reconfiguration can re-derive from the profile rather than ratcheting off
+    // the value a previous override installed (#631).
+    let mut baseline = super::TuningBaseline {
+        command_spacing: std::time::Duration::ZERO,
+        inquiry_spacing: std::time::Duration::ZERO,
+        command_sockets: [None; 9],
+    };
 
     for (target, profile) in profiles {
         if !(1..=7).contains(&target.id()) {
@@ -308,6 +316,13 @@ pub(crate) fn owner_policy_for_targets_with_tuning(
         }
 
         let timing = profile.timing();
+        baseline.command_spacing = baseline
+            .command_spacing
+            .max(timing.minimum_command_spacing());
+        baseline.inquiry_spacing = baseline
+            .inquiry_spacing
+            .max(timing.minimum_inquiry_spacing());
+        baseline.command_sockets[index] = Some(profile.maximum_command_sockets());
         command_spacing = command_spacing.max(
             tuning
                 .command_spacing_override()
@@ -370,6 +385,8 @@ pub(crate) fn owner_policy_for_targets_with_tuning(
     )?;
     policy.limits.receive_bytes = config.buffer_config.recv_buffer_size;
     policy.limits.framing_bytes = config.buffer_config.max_buffer_size;
+    policy.tuning = tuning;
+    policy.baseline = baseline;
     Ok(policy)
 }
 

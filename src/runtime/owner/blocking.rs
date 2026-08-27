@@ -242,6 +242,10 @@ impl BlockingControlHost for BlockingSessionCore<'_> {
 pub(crate) struct BlockingSessionHost {
     parts: RefCell<BlockingOwnedSessionParts>,
     state_cache: Arc<[std::sync::Mutex<super::TargetStateCache>; 9]>,
+    /// The owner's live operational tuning (#631). The blocking owner runs on
+    /// the caller thread, so the update and every subsequent preparation are
+    /// already ordered by the one owner turn each takes.
+    tuning: super::LiveTuning,
 }
 
 struct BlockingOwnedSessionParts {
@@ -266,6 +270,7 @@ impl BlockingSessionHost {
         let (driver, reader, decoder) = adapter.into_parts();
         let owner = BlockingOwner::new(policy)?;
         let state_cache = owner.state().state_cache_registry();
+        let tuning = owner.state().live_tuning();
         Ok(Self {
             parts: RefCell::new(BlockingOwnedSessionParts {
                 owner,
@@ -274,6 +279,7 @@ impl BlockingSessionHost {
                 decoder: Box::new(decoder),
             }),
             state_cache,
+            tuning,
         })
     }
 
@@ -337,6 +343,22 @@ impl BlockingSessionHost {
 
     pub(crate) fn state_cache(&self, target: crate::CameraId) -> crate::state_cache::StateCache {
         crate::state_cache::StateCache::from_registry(Arc::clone(&self.state_cache), target)
+    }
+
+    /// Reads the tuning the owner is currently preparing requests under.
+    pub(crate) fn tuning(&self) -> crate::OperationalTuning {
+        self.tuning.get()
+    }
+
+    /// Installs new session tuning on the caller-thread owner (#631).
+    ///
+    /// This is the blocking counterpart of the async control-boundary message:
+    /// the owner turn this takes is the same exclusive turn a submission takes,
+    /// so an update can never interleave with one. A re-entrant call — one made
+    /// from inside another owner turn — is rejected as
+    /// [`Error::TransportBusy`] rather than corrupting that turn.
+    pub(crate) fn reconfigure(&self, tuning: crate::OperationalTuning) -> Result<(), Error> {
+        self.with_parts(|owner, _, _, _| owner.state_mut().retune(tuning))
     }
 
     /// Returns the caller-thread owner's monotonic clock instant.

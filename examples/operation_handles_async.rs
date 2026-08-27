@@ -6,8 +6,10 @@
 //!
 //! Dropping an operation handle is exactly `detach`: it relinquishes the
 //! observer and never stops hardware. `Drop` cannot await, so the async form
-//! of a scoped stop is a wrapper that runs the stop on both exits — see
-//! `bounded_drive` below and the guard pattern in `docs/migration_2_0.md`.
+//! of a scoped stop is a wrapper that runs the stop on both of the body's
+//! return paths — but not on a panic or a dropped future, which a synchronous
+//! `Drop` guard does cover. See `bounded_drive` below and the guard pattern in
+//! `docs/migration_2_0.md`.
 //!
 //! This example moves real hardware. Set `VISCA_CAMERA_ADDR` or pass an
 //! address on the command line.
@@ -72,13 +74,22 @@ async fn movement(session: &Session) -> Result<(), Error> {
     Ok(())
 }
 
-/// Drives pan/tilt with a STOP that runs on both exit paths.
+/// Drives pan/tilt with a STOP that runs on both of `drive_up`'s return paths.
 ///
 /// This is the async form of the scoped stop-on-exit guard from
 /// `docs/migration_2_0.md`. `Drop` cannot await, so instead of a guard type the
-/// caller wraps the fallible region, stops unconditionally, and only then
-/// propagates the body's result. The stop is best effort, exactly as in a
-/// synchronous guard.
+/// caller wraps the fallible region, stops, and only then propagates the body's
+/// result. The stop itself is best effort, as in a synchronous guard.
+///
+/// It covers less than a synchronous `Drop` guard does. `Ok` and `Err` from
+/// `drive_up` both reach the stop; a panic inside `drive_up` and a caller that
+/// drops this future before it completes — a `select!` loser, an expired
+/// `tokio::time::timeout`, an aborted task — do not. In those cases the stop is
+/// never reached and pan/tilt keeps moving. A synchronous `Drop` guard covers
+/// both, because `Drop` runs while unwinding and runs whenever the value leaves
+/// scope. An async caller that must survive cancellation has to submit the STOP
+/// from a `Drop` that cannot await — through a channel or a detached task — or
+/// bound the movement at the camera instead of at the future.
 async fn bounded_drive(camera: &Camera<PtzOpticsG2>) -> Result<(), Error> {
     let result = drive_up(camera).await;
     if let Ok(stop) = camera.pan_tilt().stop().await {

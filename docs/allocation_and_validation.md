@@ -33,9 +33,9 @@ The stable test boundaries are:
 | --- | --- |
 | Representative built-in and typed request encoding | `tests/issue_548_allocation_baselines.rs`, zero-allocation tests near the end of the file |
 | Warmed raw/Sony framing reuse | `tests/issue_548_allocation_baselines.rs`, framing test near the end of the file |
-| Retry encoded-command reuse | `runtime::core` command-kind/retry unit coverage |
-| Bounded submission and completion observers | `tests/issue_477_bounded_submission_test.rs` and owner unit tests |
-| Dynamic/static future construction | `tests/dyn_api_integration_test.rs`, dynamic allocation test |
+| Retry encoded-command reuse | `runtime::engine` unit test `inert_wire_is_inline_and_reused_across_retry_without_reallocation`, plus `runtime::owner` unit test `warmed_raw_and_sony_retries_reuse_owner_buffers` |
+| Bounded submission and completion observers | `tests/issue_561_blocking_queue.rs` and the `runtime::owner` unit tests |
+| Dynamic/static future construction | `tests/dyn_api_integration_test.rs`, `tokio_dynamic_future_construction_matches_one_explicit_static_box` |
 | Downstream derive encoding | `tests/issue_517_inquiry_encoding` coverage |
 
 The release workflow should invoke these named tests explicitly in addition to
