@@ -9,6 +9,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 2.0.0-rc.1 release candidate
 
+- **Fixed the deferred-ACK latch mis-attributing an acknowledgement while two
+  commands on one target were still being written** (#636). The latch that
+  holds an ACK arriving before its own write result (#297) fell back to the
+  *oldest* command in `Phase::Sending` by admission order and overwrote any
+  latch already there. With two frames in flight to one camera — the only owner
+  shape that can produce the race at all — both ACKs were attributed to the
+  older request, which was then reported `Applied` (and its state cached) on the
+  strength of the younger request's completion while the younger one silently
+  retried a command the camera had already executed. The latch now applies the
+  same unique-candidate rule a socketless completion uses: it engages only while
+  exactly one command on that target is being written, and never replaces an
+  ACK already latched for that attempt. An unattributable racing ACK stays inert
+  instead of guessing.
+- `ProtocolEngine::assert_invariants` now runs from the engine itself (#636). It
+  had no production call site at all — every derived index was audited only
+  where a test happened to remember to ask — so a corruption on an uncovered
+  path could ship. A `debug_assert!` hook now closes every mutation entry point
+  over the full audit, which means it runs after every single input in a debug
+  build and in the whole test suite, and compiles out of a release build.
+- The invariant fuzzers now cover every session shape the engine can be
+  configured into (#636): raw and Sony framing across datagram and stream
+  transports, socketless ACK/completion/error frames, `Input::ReceiveFault` in
+  several error shapes, network-change frames, and both Sony sequence widths.
+  Each run also asserts it actually reached acknowledgement, completion, reply,
+  retry and cancellation, so the generators cannot decay into a stream of inert
+  frames while still passing.
+- Removed the blanket `#![allow(dead_code)]` module attributes that were hiding
+  roughly two hundred unused crate-private items behind stale "phase N will
+  connect this" comments (#636). Genuinely dead code is deleted — an entire
+  uncalled semantic-mapping layer, a superseded scheduler helper, a dead owner
+  policy wrapper chain and several compatibility aliases; everything that
+  survives carries a targeted `#[allow(dead_code)]` naming the consumer it is
+  waiting for. The one remaining exemption is conditional on no facade feature
+  being selected, where the engine and owner are unreferenced by construction.
+- An absurd retry budget no longer inverts into *fewer* retries than the default
+  (#636). `OperationalTuning::retry_timing` accepted a budget near
+  `Duration::MAX`, which the engine turns into `submitted_at + budget`; that
+  addition saturates back to `submitted_at`, so the deadline meant to mean "keep
+  retrying essentially forever" landed in the past and the request got zero
+  retries. Retry backoff ceilings and budgets are now bounded at one hour, far
+  beyond any real VISCA retry window and safely inside `Instant` arithmetic.
+
 - **Fixed a livelock that made an async session unkillable when a transport
   failed every read** (#625). The actor's readiness race is left-biased towards
   the transport by design, so a read that failed *immediately* — a disconnected

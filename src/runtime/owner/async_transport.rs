@@ -34,15 +34,15 @@ pub(crate) struct AsyncTransportAdapter<T> {
     policy: OwnerPolicy,
 }
 
-/// Short alias used by owner construction code.
-pub(crate) type AsyncOwnerAdapter<T> = AsyncTransportAdapter<T>;
-
 impl<T> AsyncTransportAdapter<T>
 where
     T: AsyncTransport + HasTransportConfig,
 {
     /// Build an owner adapter from validated profile facts and transport
     /// configuration.  Construction performs no transport I/O.
+    // Used only by tests here and in `async_actor`; production goes through
+    // `new_with_profile_registry` from `AsyncSession::from_transport` (#636).
+    #[allow(dead_code)]
     pub(crate) fn new(
         transport: T,
         profile: &ProfileSpec,
@@ -52,6 +52,8 @@ where
     }
 
     /// Build an owner adapter using immutable session tuning.
+    // Used only by this module's tests; `AsyncSession` builds via the registry ctor (#636).
+    #[allow(dead_code)]
     pub(crate) fn new_with_tuning(
         transport: T,
         profile: &ProfileSpec,

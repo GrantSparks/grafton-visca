@@ -1,7 +1,5 @@
 //! Pure profile-aware lowering from typed requests to inert engine inputs.
 
-#![allow(dead_code)] // Consumed by the phase-5 receipt/handle facade.
-
 use std::{marker::PhantomData, sync::Arc, time::Duration};
 
 use smallvec::SmallVec;
@@ -74,6 +72,11 @@ impl<R> PreparedInquiryTemplate<R> {
 }
 
 impl SettlementPlan {
+    // Convenience accessor over the target both variants already carry; the
+    // settlement poller in `crate::completion` is what will read it rather than
+    // re-matching the plan. Left in place because #630 is extending this module
+    // concurrently (#636).
+    #[allow(dead_code)]
     pub(crate) const fn target(&self) -> Option<CameraId> {
         match self {
             Self::CompletionIsSettled { target, .. } | Self::Poll { target, .. } => Some(*target),
@@ -428,6 +431,10 @@ where
 }
 
 /// Prepares a crate built-in command with its closed applied-state selection.
+// Driven today by the built-in request inventory audits in
+// `request::builtin`'s test module and by `runtime::owner::tests`; the typed
+// facades still call `prepare_command` directly (#636).
+#[allow(dead_code)]
 pub(crate) fn prepare_builtin_command<C>(
     command: &C,
     target: CameraId,
@@ -552,6 +559,8 @@ where
 }
 
 /// Prepares a crate built-in operation with its closed applied-state selection.
+// Same consumers as `prepare_builtin_command` (#636).
+#[allow(dead_code)]
 pub(crate) fn prepare_builtin_operation<K, O>(
     operation: &O,
     target: CameraId,
@@ -841,6 +850,9 @@ impl<R> PreparedInquiry<R> {
         }
     }
 
+    // Consumed by the blocking owner's inquiry submission seam
+    // (`runtime::owner::blocking`), which an async-only leg does not compile (#636).
+    #[allow(dead_code)]
     pub(crate) fn into_parts(self) -> (RuntimeRequest, ResponseDecoder<R>, Duration) {
         let timeout = self.context.timeout.inquiry;
         let request = RuntimeRequest::Inquiry {

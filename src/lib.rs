@@ -20,6 +20,19 @@
     clippy::todo
 )]
 #![allow(async_fn_in_trait)]
+// With no facade feature selected the crate still compiles the protocol
+// engine, the owner core, request preparation and the semantic ledger — that
+// configuration is deliberately a "does the pure engine/domain still build"
+// check (CI's `no-default pure engine/domain` leg), and in it every one of
+// those crate-private items is unreferenced *by construction*, because the
+// only things that ever call them are the blocking and async facades that the
+// leg switches off.
+//
+// This is the single remaining dead-code exemption in the crate. It is
+// conditional, so every configuration anyone actually ships reports dead code
+// normally and each surviving unused item has to carry its own targeted
+// `#[allow(dead_code)]` naming the consumer it is waiting for (#636).
+#![cfg_attr(not(any(feature = "blocking", feature = "async")), allow(dead_code))]
 
 //! ## What is VISCA?
 //!

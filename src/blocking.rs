@@ -5,8 +5,6 @@
 //! protocol and lifecycle authority; a handle only retains one owner receipt
 //! and the caller-thread control needed to observe it.
 
-#![allow(dead_code)]
-
 use std::{fmt, marker::PhantomData, sync::Arc, time::Duration};
 
 use crate::{

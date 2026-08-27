@@ -76,6 +76,9 @@ impl RequestId {
 pub(crate) struct TransmissionId(NonZeroU64);
 
 impl TransmissionId {
+    // Read back by `runtime::engine::tests` when it pins allocator wraparound; no
+    // production caller yet (#636).
+    #[allow(dead_code)]
     pub(crate) const fn get(self) -> u64 {
         self.0.get()
     }
@@ -191,6 +194,9 @@ pub(crate) struct RetryPolicy {
 }
 
 impl RetryPolicy {
+    // Consumed by `runtime::owner::blocking_transport` and the engine tests; the
+    // async legs compile neither, so it reads as dead there (#636).
+    #[allow(dead_code)]
     pub(crate) const NEVER: Self = Self {
         max_retries: 0,
         initial_backoff: Duration::ZERO,
@@ -225,9 +231,6 @@ pub(crate) struct AppliedStateValue {
     pub(crate) value_count: u8,
 }
 
-/// Compatibility name for the inline value carried by a `Set` action.
-pub(crate) type InlineStateValue = AppliedStateValue;
-
 impl AppliedStateValue {
     pub(crate) fn new(values: &[i64]) -> Result<Self, Error> {
         if values.len() > MAX_APPLIED_STATE_VALUES {
@@ -241,10 +244,6 @@ impl AppliedStateValue {
             values: stored,
             value_count: values.len() as u8,
         })
-    }
-
-    pub(crate) fn as_slice(&self) -> &[i64] {
-        &self.values[..usize::from(self.value_count)]
     }
 }
 
@@ -274,16 +273,7 @@ pub(crate) enum AppliedStateProjection {
     Invalidate { key: WriteOnlyState },
 }
 
-/// Alias emphasizing that projections are closed state actions.
-pub(crate) type AppliedStateAction = AppliedStateProjection;
-
 impl AppliedStateProjection {
-    /// Constructs a known replacement value. This alias keeps construction
-    /// concise at crate-internal preparation/test seams.
-    pub(crate) fn new(key: WriteOnlyState, values: &[i64]) -> Result<Self, Error> {
-        Self::set(key, values)
-    }
-
     pub(crate) fn set(key: WriteOnlyState, values: &[i64]) -> Result<Self, Error> {
         Ok(Self::Set {
             key,
@@ -291,6 +281,9 @@ impl AppliedStateProjection {
         })
     }
 
+    // Value-less clear used by the engine and owner tests; production preparation
+    // builds clears through `clear_with_values` (#636).
+    #[allow(dead_code)]
     pub(crate) const fn clear(key: WriteOnlyState) -> Self {
         Self::Clear {
             key,
@@ -318,23 +311,11 @@ impl AppliedStateProjection {
         }
     }
 
-    /// Alias for the state key carried by this effect.
-    pub(crate) const fn key(self) -> WriteOnlyState {
-        self.state()
-    }
-
+    // Consumed by `runtime::owner::tests`; the applied-state observer facade is
+    // its production caller (#636).
+    #[allow(dead_code)]
     pub(crate) const fn is_known(self) -> bool {
         matches!(self, Self::Set { .. } | Self::Clear { .. })
-    }
-
-    pub(crate) const fn kind(self) -> crate::command::semantics::AppliedStateEffectKind {
-        match self {
-            Self::Set { .. } => crate::command::semantics::AppliedStateEffectKind::Set,
-            Self::Clear { .. } => crate::command::semantics::AppliedStateEffectKind::Clear,
-            Self::Invalidate { .. } => {
-                crate::command::semantics::AppliedStateEffectKind::Invalidate
-            }
-        }
     }
 }
 
@@ -429,6 +410,9 @@ pub(crate) struct EnvelopeSequence {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SequenceWidth {
     Full32,
+    // Only the engine tests construct a truncated width today; the Sony envelope
+    // parser starts emitting it with the lower-16 correlation work (#636).
+    #[allow(dead_code)]
     Lower16,
 }
 
@@ -523,6 +507,9 @@ pub(crate) enum DeadlineKind {
 pub(crate) enum RuntimeOutcome {
     Applied,
     Reply {
+        // Reported to the owner's inquiry decoder; the blocking-only legs never read
+        // the route back out of the outcome (#636).
+        #[allow(dead_code)]
         route: Option<InquiryRoute>,
         payload: SmallVec<[u8; INLINE_BYTES]>,
     },
@@ -543,8 +530,15 @@ pub(crate) enum CancellationObservation {
 #[derive(Debug, Clone)]
 pub(crate) enum ShutdownReason {
     Explicit,
-    TransportClosed { reason: Option<Box<str>> },
-    FramingFailure { reason: Box<str> },
+    TransportClosed {
+        reason: Option<Box<str>>,
+    },
+    // Constructed by the async actor's framing seam; the blocking-only legs do not
+    // compile that seam (#636).
+    #[allow(dead_code)]
+    FramingFailure {
+        reason: Box<str>,
+    },
 }
 
 /// Session state is terminal except for `Running`.
@@ -581,13 +575,21 @@ pub(crate) enum Input {
     ReceiveFault {
         error: Error,
     },
+    // The owner routes an orderly close and a stream poisoning through
+    // `Input::Shutdown` today; these two stay as the engine's explicit
+    // vocabulary and are driven directly by `runtime::engine::tests` (#636).
+    #[allow(dead_code)]
     Close {
         reason: Option<Box<str>>,
     },
+    #[allow(dead_code)]
     Poison {
         reason: Box<str>,
     },
     Shutdown(ShutdownReason),
+    // A pure "re-evaluate deadlines now" input. The owners call `advance`
+    // directly; only `runtime::engine::tests` drives it as an input (#636).
+    #[allow(dead_code)]
     Wake,
 }
 
