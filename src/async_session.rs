@@ -181,6 +181,113 @@ impl Session {
     }
 }
 
+/// One async owner session that owns exactly one compile-time bound camera.
+///
+/// This is the single-target counterpart of [`Session`]. The profile is named
+/// once, at construction, and the [`Camera`] this type hands out was built from
+/// that same profile parameter: the session path's second, runtime-checked
+/// profile naming (`session.camera::<P>()?`) has no equivalent here, so a
+/// profile mismatch is not expressible.
+///
+/// The value owns its session, so it is self-sufficient: the connection lives
+/// as long as this camera session (or a [`Camera`] taken out of it) is alive.
+/// Use [`close`](Self::close) for the explicit teardown that mirrors
+/// [`Session::close`].
+pub struct CameraSession<P: CompileTimeProfile> {
+    session: Session,
+    camera: Camera<P>,
+}
+
+impl<P: CompileTimeProfile> fmt::Debug for CameraSession<P> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("CameraSession")
+            .field("target", &self.camera.target())
+            .field("profile", &self.camera.profile())
+            .finish_non_exhaustive()
+    }
+}
+
+impl<P: CompileTimeProfile> CameraSession<P> {
+    /// Builds the single-camera view for a session whose sole target was
+    /// registered from the same `P`.
+    ///
+    /// This is crate-private and is only reachable from the `P`-typed
+    /// construction paths, where the registered [`ProfileSpec`] was lowered
+    /// from this exact `P`. That is what makes the bind structural instead of
+    /// a runtime profile comparison.
+    pub(crate) fn from_session(session: Session, target: CameraId) -> Result<Self> {
+        let profile = session.config.profile_arc(target).ok_or_else(|| {
+            Error::InvalidState("single-camera session lost its registered target".into())
+        })?;
+        let camera = Camera::from_core(AsyncCameraCore {
+            owner: session.owner.clone(),
+            target,
+            profile,
+            tuning: session.config.tuning(),
+        });
+        Ok(Self { session, camera })
+    }
+
+    /// Starts one single-camera owner session over a caller-owned transport.
+    ///
+    /// This is the [`Session::open`] counterpart for callers that already own
+    /// a transport. The profile comes from `config`, so the returned camera is
+    /// bound to the same `P` the configuration was written for.
+    pub async fn open<E, T>(
+        transport: T,
+        config: &crate::camera::CameraConfig<P>,
+        executor: impl Into<Arc<E>>,
+    ) -> Result<Self>
+    where
+        E: Executor,
+        T: AsyncTransport + HasTransportConfig + 'static,
+    {
+        let target = config.camera_id;
+        let session = Session::open(transport, config.session_config()?, executor).await?;
+        Self::from_session(session, target)
+    }
+
+    /// Returns this session's compile-time bound camera view.
+    ///
+    /// The profile is not named again and the call cannot fail.
+    pub const fn camera(&self) -> &Camera<P> {
+        &self.camera
+    }
+
+    /// Consumes this value and returns the owned camera.
+    ///
+    /// The camera keeps the owner alive, so the connection survives; the
+    /// explicit [`close`](Self::close) is given up in exchange.
+    pub fn into_camera(self) -> Camera<P> {
+        self.camera
+    }
+
+    /// Returns the owned session behind this camera.
+    #[must_use]
+    pub const fn session(&self) -> &Session {
+        &self.session
+    }
+
+    /// Returns this session's sole camera target.
+    #[must_use]
+    pub const fn target(&self) -> CameraId {
+        self.camera.target()
+    }
+
+    /// Requests owner shutdown without consuming this value.
+    pub async fn shutdown(&self) -> Result<()> {
+        self.session.shutdown().await
+    }
+
+    /// Requests owner shutdown and consumes this camera session.
+    ///
+    /// Like [`Session::close`], this is not a task-join operation.
+    pub async fn close(self) -> Result<()> {
+        self.session.close().await
+    }
+}
+
 /// Erased owner-backed target view shared by typed and dynamic projections.
 ///
 /// This is crate-private so the public camera type cannot accidentally expose

@@ -729,7 +729,7 @@ pub use async_nouns::{
     SystemAccessor, TallyAccessor, WhiteBalanceAccessor, ZoomAccessor,
 };
 #[cfg(feature = "async")]
-pub use async_session::{Camera, Session};
+pub use async_session::{Camera, CameraSession, Session};
 #[cfg(feature = "async")]
 pub mod session {
     //! Profile-generic async session facade.
@@ -738,7 +738,9 @@ pub mod session {
     pub use crate::camera::{
         CameraConfig, Connect, ConnectBuilder, TcpConnectBuilder, UdpConnectBuilder,
     };
-    pub use crate::{async_session::Camera, async_session::Session, SessionConfig};
+    pub use crate::{
+        async_session::Camera, async_session::CameraSession, async_session::Session, SessionConfig,
+    };
     pub use crate::{
         AdvancedAccessor, ExposureAccessor, FocusAccessor, ImageAccessor, MenuAccessor,
         MotionAccessor, MotionSyncAccessor, NdFilterAccessor, PanTiltAccessor, PowerAccessor,

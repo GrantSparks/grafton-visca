@@ -30,50 +30,54 @@ checked before opening the connection.
 ### Blocking
 
 ```rust,ignore
-use grafton_visca::blocking::{Connect, Session};
+use grafton_visca::blocking::{CameraSession, Connect};
 use grafton_visca::camera::profiles::PtzOpticsG2;
 
-let session: Session = Connect::open_tcp::<PtzOpticsG2>("192.168.0.110")?;
-let camera = session.camera::<PtzOpticsG2>()?;
+let session: CameraSession<PtzOpticsG2> =
+    Connect::open_tcp_camera::<PtzOpticsG2>("192.168.0.110")?;
+let camera = session.camera();
 camera.power().on()?;
 camera.zoom().stop()?.applied()?;
 session.close()?;
 # Ok::<(), grafton_visca::Error>(())
 ```
 
-Use `Connect::open_udp` or, with `transport-serial`,
-`Connect::open_serial::<P>(port, baud_rate)` for the other standard blocking
-paths.
+Use `Connect::open_udp_camera` for UDP. With `transport-serial`,
+`Connect::open_serial::<P>(port, baud_rate)` opens the serial path and returns
+a `Session`; select its view with `session.camera::<P>()`.
 
 ### Async
 
 ```rust,ignore
-use grafton_visca::{Connect, Session};
+use grafton_visca::{CameraSession, Connect};
 use grafton_visca::camera::profiles::PtzOpticsG2;
 use grafton_visca::runtime::TokioRuntime;
 
 let runtime = TokioRuntime::from_current()?;
-let session: Session =
-    Connect::open_tcp::<PtzOpticsG2, _>("192.168.0.110", runtime).await?;
-let camera = session.camera::<PtzOpticsG2>()?;
+let session: CameraSession<PtzOpticsG2> =
+    Connect::open_tcp_camera::<PtzOpticsG2, _>("192.168.0.110", runtime).await?;
+let camera = session.camera();
 camera.power().on().await?;
 camera.zoom().stop().await?.applied().await?;
 session.close().await?;
 # Ok::<(), grafton_visca::Error>(())
 ```
 
-Use `runtime-smol` with `SmolRuntime`, or use `Connect::open_udp` for
-UDP. `Connect` and `CameraConfig` perform the same preflight and both return
-the canonical owner-backed `Session`.
+Use `runtime-smol` with `SmolRuntime`, or use `Connect::open_udp_camera` for
+UDP. `Connect` and `CameraConfig` perform the same preflight; the `_camera`
+constructors return the single-camera `CameraSession<P>`, and `open_tcp` /
+`open_udp` return the multi-target owner-backed `Session`.
 
 ## Reusable configuration and target selection
 
 `CameraConfig<P>` is convenient profile-typed standard-transport data. It can
 set an address, `CameraId`, timeout policy, retry policy, transport options,
 and buffer/keepalive settings before calling `open`, `open_async`, or the
-serial-specific open method. `session_config()` lowers that pure configuration
-into the shared mode-independent `SessionConfig` without DNS, socket, serial,
-executor, or protocol work.
+serial-specific open method. `open_camera` and `open_camera_async` are the
+single-camera forms of `open` and `open_async`, and `CameraSession::open` takes
+a caller-owned transport with the same bind. `session_config()` lowers that pure
+configuration into the shared mode-independent `SessionConfig` without DNS,
+socket, serial, executor, or protocol work.
 
 `SessionConfig` is the reusable multi-target boundary:
 
@@ -100,10 +104,17 @@ from a static profile. `register_target` and `with_target` accept only IDs 1
 through 7, reject broadcast and duplicate IDs, and cap the registry at seven
 targets. Registration and tuning are immutable after the session starts.
 
-For one target, `session.camera::<P>()` is the concise view selector. For two
-or more targets, it intentionally returns an error; use
-`session.camera_for::<P>(target)`. `camera_for` checks the complete registered
-`ProfileSpec`, not only a profile name. The dynamic equivalent is
+For one target, prefer the single-camera constructors: they name the profile
+once and return a `CameraSession<P>` whose `camera()` is bound to that same `P`
+at compile time, so there is no second profile naming for a mismatch to fail
+on and no projection error to handle.
+
+`session.camera::<P>()` remains the concise view selector for a `Session` that
+was opened with the multi-target constructors. For two or more targets it
+intentionally returns an error; use `session.camera_for::<P>(target)`.
+`camera` and `camera_for` check the complete registered `ProfileSpec` at run
+time, not only a profile name, because a `Session` carries no compile-time
+profile. The dynamic equivalent is
 `DynSessionCamera::from_session_target(&session, target)`.
 
 ## Standard transport and profile matrix
@@ -156,7 +167,10 @@ let session = grafton_visca::Session::open(
 ```
 
 The blocking counterpart is `grafton_visca::blocking::Session::open(transport,
-config)`. Implementors must
+config)`. `CameraSession::open(transport, &CameraConfig::<P>::new())` — with the
+executor as a third argument on the async side — is the single-camera form of
+the same boundary, taking the profile from `P` instead of a runtime
+`SessionConfig`. Implementors must
 declare `AsyncTransport` or `BlockingTransport`, `HasTransportConfig`, and the
 correct stream/datagram send semantics. A runtime-neutral async executor must
 provide coherent spawn, sleep, timeout, and clock behavior from one runtime.
