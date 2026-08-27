@@ -258,6 +258,8 @@ fn noun_surfaces(camera: &dyn DynSessionCameraNouns) {
     let _: DynFuture<'_, Result<(), Error>> = image.enable_flip();
     let _: DynFuture<'_, Result<(), Error>> = image.enable_horizontal_flip();
     let _: DynFuture<'_, Result<(), Error>> = image.disable_horizontal_flip();
+    let _: DynFuture<'_, Result<(), Error>> = image.disable_noise_reduction_2d();
+    let _: DynFuture<'_, Result<(), Error>> = image.disable_noise_reduction_3d();
     let _: DynFuture<'_, Result<(), Error>> = image.set_flip_both();
     let _: DynFuture<'_, Result<(), Error>> = image.set_flip_mode(ImageFlipMode::Both);
     let _: DynFuture<'_, Result<(), Error>> = image.freeze_on();

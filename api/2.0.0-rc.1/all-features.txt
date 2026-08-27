@@ -292,6 +292,8 @@ pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::decrease_shar
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::defog_level(&self) -> grafton_visca::Result<grafton_visca::types::DefogLevel>
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::disable_flip(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasImageFlip
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::disable_horizontal_flip(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasImageMirror
+pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::disable_noise_reduction_2d(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasNoiseReduction2D
+pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::disable_noise_reduction_3d(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasNoiseReduction3D
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::enable_flip(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasImageFlip
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::enable_horizontal_flip(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasImageMirror
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::flip(&self) -> grafton_visca::Result<grafton_visca::command::FlipState> where P: grafton_visca::capabilities::HasImageFlip
@@ -312,7 +314,7 @@ pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::resolution(&s
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::saturation(&self) -> grafton_visca::Result<grafton_visca::types::SaturationLevel> where P: grafton_visca::capabilities::HasSaturationControl
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::set_backlight(&self, bool) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasBacklightCompensation
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::set_contrast(&self, grafton_visca::types::ContrastLevel) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasContrastControl
-pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::set_flip_both(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasImageFlip
+pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::set_flip_both(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasCombinedImageFlip
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::set_flip_mode(&self, grafton_visca::command::ImageFlipMode) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasCombinedImageFlip
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::set_gamma(&self, grafton_visca::types::GammaLevel) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasGammaControl
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::set_hue(&self, grafton_visca::types::HueLevel) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasHueControl
@@ -12508,6 +12510,8 @@ pub fn grafton_visca::DynSessionCamera::decrease_sharpness(&self) -> grafton_vis
 pub fn grafton_visca::DynSessionCamera::defog_level(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::types::DefogLevel, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::disable_flip(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::disable_horizontal_flip(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::disable_noise_reduction_2d(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::disable_noise_reduction_3d(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::enable_flip(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::enable_horizontal_flip(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::flip(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::command::FlipState, grafton_visca::Error>>
@@ -12891,6 +12895,8 @@ pub fn grafton_visca::dynapi::DynImage::decrease_sharpness(&self) -> grafton_vis
 pub fn grafton_visca::dynapi::DynImage::defog_level(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::types::DefogLevel, grafton_visca::Error>>
 pub fn grafton_visca::dynapi::DynImage::disable_flip(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::dynapi::DynImage::disable_horizontal_flip(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
+pub fn grafton_visca::dynapi::DynImage::disable_noise_reduction_2d(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
+pub fn grafton_visca::dynapi::DynImage::disable_noise_reduction_3d(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::dynapi::DynImage::enable_flip(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::dynapi::DynImage::enable_horizontal_flip(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::dynapi::DynImage::flip(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::command::FlipState, grafton_visca::Error>>
@@ -12933,6 +12939,8 @@ pub fn grafton_visca::DynSessionCamera::decrease_sharpness(&self) -> grafton_vis
 pub fn grafton_visca::DynSessionCamera::defog_level(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::types::DefogLevel, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::disable_flip(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::disable_horizontal_flip(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::disable_noise_reduction_2d(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::disable_noise_reduction_3d(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::enable_flip(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::enable_horizontal_flip(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::flip(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::command::FlipState, grafton_visca::Error>>
@@ -14689,6 +14697,8 @@ pub fn grafton_visca::DynSessionCamera::decrease_sharpness(&self) -> grafton_vis
 pub fn grafton_visca::DynSessionCamera::defog_level(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::types::DefogLevel, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::disable_flip(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::disable_horizontal_flip(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::disable_noise_reduction_2d(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::disable_noise_reduction_3d(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::enable_flip(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::enable_horizontal_flip(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::flip(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::command::FlipState, grafton_visca::Error>>
@@ -15151,6 +15161,8 @@ pub async fn grafton_visca::ImageAccessor<'a, P>::decrease_sharpness(&self) -> g
 pub async fn grafton_visca::ImageAccessor<'a, P>::defog_level(&self) -> grafton_visca::Result<grafton_visca::types::DefogLevel>
 pub async fn grafton_visca::ImageAccessor<'a, P>::disable_flip(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasImageFlip
 pub async fn grafton_visca::ImageAccessor<'a, P>::disable_horizontal_flip(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasImageMirror
+pub async fn grafton_visca::ImageAccessor<'a, P>::disable_noise_reduction_2d(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasNoiseReduction2D
+pub async fn grafton_visca::ImageAccessor<'a, P>::disable_noise_reduction_3d(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasNoiseReduction3D
 pub async fn grafton_visca::ImageAccessor<'a, P>::enable_flip(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasImageFlip
 pub async fn grafton_visca::ImageAccessor<'a, P>::enable_horizontal_flip(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasImageMirror
 pub async fn grafton_visca::ImageAccessor<'a, P>::flip(&self) -> grafton_visca::Result<grafton_visca::command::FlipState> where P: grafton_visca::capabilities::HasImageFlip
@@ -15171,7 +15183,7 @@ pub async fn grafton_visca::ImageAccessor<'a, P>::resolution(&self) -> grafton_v
 pub async fn grafton_visca::ImageAccessor<'a, P>::saturation(&self) -> grafton_visca::Result<grafton_visca::types::SaturationLevel> where P: grafton_visca::capabilities::HasSaturationControl
 pub async fn grafton_visca::ImageAccessor<'a, P>::set_backlight(&self, bool) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasBacklightCompensation
 pub async fn grafton_visca::ImageAccessor<'a, P>::set_contrast(&self, grafton_visca::types::ContrastLevel) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasContrastControl
-pub async fn grafton_visca::ImageAccessor<'a, P>::set_flip_both(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasImageFlip
+pub async fn grafton_visca::ImageAccessor<'a, P>::set_flip_both(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasCombinedImageFlip
 pub async fn grafton_visca::ImageAccessor<'a, P>::set_flip_mode(&self, grafton_visca::command::ImageFlipMode) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasCombinedImageFlip
 pub async fn grafton_visca::ImageAccessor<'a, P>::set_gamma(&self, grafton_visca::types::GammaLevel) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasGammaControl
 pub async fn grafton_visca::ImageAccessor<'a, P>::set_hue(&self, grafton_visca::types::HueLevel) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasHueControl
@@ -17524,6 +17536,8 @@ pub fn grafton_visca::prelude::async::DynImage::decrease_sharpness(&self) -> gra
 pub fn grafton_visca::prelude::async::DynImage::defog_level(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::types::DefogLevel, grafton_visca::Error>>
 pub fn grafton_visca::prelude::async::DynImage::disable_flip(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::prelude::async::DynImage::disable_horizontal_flip(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
+pub fn grafton_visca::prelude::async::DynImage::disable_noise_reduction_2d(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
+pub fn grafton_visca::prelude::async::DynImage::disable_noise_reduction_3d(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::prelude::async::DynImage::enable_flip(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::prelude::async::DynImage::enable_horizontal_flip(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::prelude::async::DynImage::flip(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::command::FlipState, grafton_visca::Error>>
@@ -17566,6 +17580,8 @@ pub fn grafton_visca::DynSessionCamera::decrease_sharpness(&self) -> grafton_vis
 pub fn grafton_visca::DynSessionCamera::defog_level(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::types::DefogLevel, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::disable_flip(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::disable_horizontal_flip(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::disable_noise_reduction_2d(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::disable_noise_reduction_3d(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::enable_flip(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::enable_horizontal_flip(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::flip(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::command::FlipState, grafton_visca::Error>>
@@ -19075,6 +19091,8 @@ pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::decrease_shar
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::defog_level(&self) -> grafton_visca::Result<grafton_visca::types::DefogLevel>
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::disable_flip(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasImageFlip
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::disable_horizontal_flip(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasImageMirror
+pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::disable_noise_reduction_2d(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasNoiseReduction2D
+pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::disable_noise_reduction_3d(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasNoiseReduction3D
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::enable_flip(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasImageFlip
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::enable_horizontal_flip(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasImageMirror
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::flip(&self) -> grafton_visca::Result<grafton_visca::command::FlipState> where P: grafton_visca::capabilities::HasImageFlip
@@ -19095,7 +19113,7 @@ pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::resolution(&s
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::saturation(&self) -> grafton_visca::Result<grafton_visca::types::SaturationLevel> where P: grafton_visca::capabilities::HasSaturationControl
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::set_backlight(&self, bool) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasBacklightCompensation
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::set_contrast(&self, grafton_visca::types::ContrastLevel) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasContrastControl
-pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::set_flip_both(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasImageFlip
+pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::set_flip_both(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasCombinedImageFlip
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::set_flip_mode(&self, grafton_visca::command::ImageFlipMode) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasCombinedImageFlip
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::set_gamma(&self, grafton_visca::types::GammaLevel) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasGammaControl
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::set_hue(&self, grafton_visca::types::HueLevel) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasHueControl
@@ -21439,6 +21457,8 @@ pub fn grafton_visca::DynSessionCamera::decrease_sharpness(&self) -> grafton_vis
 pub fn grafton_visca::DynSessionCamera::defog_level(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::types::DefogLevel, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::disable_flip(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::disable_horizontal_flip(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::disable_noise_reduction_2d(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::disable_noise_reduction_3d(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::enable_flip(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::enable_horizontal_flip(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::flip(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::command::FlipState, grafton_visca::Error>>
@@ -21822,6 +21842,8 @@ pub fn grafton_visca::prelude::dyn_api::DynImage::decrease_sharpness(&self) -> g
 pub fn grafton_visca::prelude::dyn_api::DynImage::defog_level(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::types::DefogLevel, grafton_visca::Error>>
 pub fn grafton_visca::prelude::dyn_api::DynImage::disable_flip(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::prelude::dyn_api::DynImage::disable_horizontal_flip(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
+pub fn grafton_visca::prelude::dyn_api::DynImage::disable_noise_reduction_2d(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
+pub fn grafton_visca::prelude::dyn_api::DynImage::disable_noise_reduction_3d(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::prelude::dyn_api::DynImage::enable_flip(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::prelude::dyn_api::DynImage::enable_horizontal_flip(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::prelude::dyn_api::DynImage::flip(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::command::FlipState, grafton_visca::Error>>
@@ -21864,6 +21886,8 @@ pub fn grafton_visca::DynSessionCamera::decrease_sharpness(&self) -> grafton_vis
 pub fn grafton_visca::DynSessionCamera::defog_level(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::types::DefogLevel, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::disable_flip(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::disable_horizontal_flip(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::disable_noise_reduction_2d(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::disable_noise_reduction_3d(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::enable_flip(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::enable_horizontal_flip(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::flip(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::command::FlipState, grafton_visca::Error>>
@@ -26220,6 +26244,8 @@ pub async fn grafton_visca::ImageAccessor<'a, P>::decrease_sharpness(&self) -> g
 pub async fn grafton_visca::ImageAccessor<'a, P>::defog_level(&self) -> grafton_visca::Result<grafton_visca::types::DefogLevel>
 pub async fn grafton_visca::ImageAccessor<'a, P>::disable_flip(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasImageFlip
 pub async fn grafton_visca::ImageAccessor<'a, P>::disable_horizontal_flip(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasImageMirror
+pub async fn grafton_visca::ImageAccessor<'a, P>::disable_noise_reduction_2d(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasNoiseReduction2D
+pub async fn grafton_visca::ImageAccessor<'a, P>::disable_noise_reduction_3d(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasNoiseReduction3D
 pub async fn grafton_visca::ImageAccessor<'a, P>::enable_flip(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasImageFlip
 pub async fn grafton_visca::ImageAccessor<'a, P>::enable_horizontal_flip(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasImageMirror
 pub async fn grafton_visca::ImageAccessor<'a, P>::flip(&self) -> grafton_visca::Result<grafton_visca::command::FlipState> where P: grafton_visca::capabilities::HasImageFlip
@@ -26240,7 +26266,7 @@ pub async fn grafton_visca::ImageAccessor<'a, P>::resolution(&self) -> grafton_v
 pub async fn grafton_visca::ImageAccessor<'a, P>::saturation(&self) -> grafton_visca::Result<grafton_visca::types::SaturationLevel> where P: grafton_visca::capabilities::HasSaturationControl
 pub async fn grafton_visca::ImageAccessor<'a, P>::set_backlight(&self, bool) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasBacklightCompensation
 pub async fn grafton_visca::ImageAccessor<'a, P>::set_contrast(&self, grafton_visca::types::ContrastLevel) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasContrastControl
-pub async fn grafton_visca::ImageAccessor<'a, P>::set_flip_both(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasImageFlip
+pub async fn grafton_visca::ImageAccessor<'a, P>::set_flip_both(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasCombinedImageFlip
 pub async fn grafton_visca::ImageAccessor<'a, P>::set_flip_mode(&self, grafton_visca::command::ImageFlipMode) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasCombinedImageFlip
 pub async fn grafton_visca::ImageAccessor<'a, P>::set_gamma(&self, grafton_visca::types::GammaLevel) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasGammaControl
 pub async fn grafton_visca::ImageAccessor<'a, P>::set_hue(&self, grafton_visca::types::HueLevel) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasHueControl
@@ -32333,6 +32359,8 @@ pub fn grafton_visca::DynSessionCamera::decrease_sharpness(&self) -> grafton_vis
 pub fn grafton_visca::DynSessionCamera::defog_level(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::types::DefogLevel, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::disable_flip(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::disable_horizontal_flip(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::disable_noise_reduction_2d(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::disable_noise_reduction_3d(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::enable_flip(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::enable_horizontal_flip(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::flip(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::command::FlipState, grafton_visca::Error>>
@@ -32680,6 +32708,8 @@ pub async fn grafton_visca::ImageAccessor<'a, P>::decrease_sharpness(&self) -> g
 pub async fn grafton_visca::ImageAccessor<'a, P>::defog_level(&self) -> grafton_visca::Result<grafton_visca::types::DefogLevel>
 pub async fn grafton_visca::ImageAccessor<'a, P>::disable_flip(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasImageFlip
 pub async fn grafton_visca::ImageAccessor<'a, P>::disable_horizontal_flip(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasImageMirror
+pub async fn grafton_visca::ImageAccessor<'a, P>::disable_noise_reduction_2d(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasNoiseReduction2D
+pub async fn grafton_visca::ImageAccessor<'a, P>::disable_noise_reduction_3d(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasNoiseReduction3D
 pub async fn grafton_visca::ImageAccessor<'a, P>::enable_flip(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasImageFlip
 pub async fn grafton_visca::ImageAccessor<'a, P>::enable_horizontal_flip(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasImageMirror
 pub async fn grafton_visca::ImageAccessor<'a, P>::flip(&self) -> grafton_visca::Result<grafton_visca::command::FlipState> where P: grafton_visca::capabilities::HasImageFlip
@@ -32700,7 +32730,7 @@ pub async fn grafton_visca::ImageAccessor<'a, P>::resolution(&self) -> grafton_v
 pub async fn grafton_visca::ImageAccessor<'a, P>::saturation(&self) -> grafton_visca::Result<grafton_visca::types::SaturationLevel> where P: grafton_visca::capabilities::HasSaturationControl
 pub async fn grafton_visca::ImageAccessor<'a, P>::set_backlight(&self, bool) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasBacklightCompensation
 pub async fn grafton_visca::ImageAccessor<'a, P>::set_contrast(&self, grafton_visca::types::ContrastLevel) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasContrastControl
-pub async fn grafton_visca::ImageAccessor<'a, P>::set_flip_both(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasImageFlip
+pub async fn grafton_visca::ImageAccessor<'a, P>::set_flip_both(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasCombinedImageFlip
 pub async fn grafton_visca::ImageAccessor<'a, P>::set_flip_mode(&self, grafton_visca::command::ImageFlipMode) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasCombinedImageFlip
 pub async fn grafton_visca::ImageAccessor<'a, P>::set_gamma(&self, grafton_visca::types::GammaLevel) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasGammaControl
 pub async fn grafton_visca::ImageAccessor<'a, P>::set_hue(&self, grafton_visca::types::HueLevel) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasHueControl
@@ -34199,6 +34229,8 @@ pub fn grafton_visca::DynImage::decrease_sharpness(&self) -> grafton_visca::DynF
 pub fn grafton_visca::DynImage::defog_level(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::types::DefogLevel, grafton_visca::Error>>
 pub fn grafton_visca::DynImage::disable_flip(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynImage::disable_horizontal_flip(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
+pub fn grafton_visca::DynImage::disable_noise_reduction_2d(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
+pub fn grafton_visca::DynImage::disable_noise_reduction_3d(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynImage::enable_flip(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynImage::enable_horizontal_flip(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynImage::flip(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::command::FlipState, grafton_visca::Error>>
@@ -34241,6 +34273,8 @@ pub fn grafton_visca::DynSessionCamera::decrease_sharpness(&self) -> grafton_vis
 pub fn grafton_visca::DynSessionCamera::defog_level(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::types::DefogLevel, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::disable_flip(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::disable_horizontal_flip(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::disable_noise_reduction_2d(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::disable_noise_reduction_3d(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::enable_flip(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::enable_horizontal_flip(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::flip(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::command::FlipState, grafton_visca::Error>>

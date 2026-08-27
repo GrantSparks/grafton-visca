@@ -190,7 +190,7 @@ macro_rules! internal_entry {
 /// Derive the one surface row for a semantic command.
 ///
 /// This match is intentionally exhaustive and contains no default arm.  The
-/// 147-row source list remains [`BuiltinCommand::ALL`], not a parallel table.
+/// 149-row source list remains [`BuiltinCommand::ALL`], not a parallel table.
 #[must_use]
 pub(crate) const fn surface_entry(command: BuiltinCommand) -> StaticSurfaceEntry {
     match command {
@@ -607,10 +607,22 @@ pub(crate) const fn surface_entry(command: BuiltinCommand) -> StaticSurfaceEntry
             "set_noise_reduction_2d",
             StaticMarkerRequirement::Typed(TypedSupportSurface::NoiseReduction2D)
         ),
+        BuiltinCommand::NoiseReduction2dOff => noun_entry!(
+            NoiseReduction2dOff,
+            Image,
+            "disable_noise_reduction_2d",
+            StaticMarkerRequirement::Typed(TypedSupportSurface::NoiseReduction2D)
+        ),
         BuiltinCommand::NoiseReduction3d => noun_entry!(
             NoiseReduction3d,
             Image,
             "set_noise_reduction_3d",
+            StaticMarkerRequirement::Typed(TypedSupportSurface::NoiseReduction3D)
+        ),
+        BuiltinCommand::NoiseReduction3dOff => noun_entry!(
+            NoiseReduction3dOff,
+            Image,
+            "disable_noise_reduction_3d",
             StaticMarkerRequirement::Typed(TypedSupportSurface::NoiseReduction3D)
         ),
         BuiltinCommand::ImageFlipOff => noun_entry!(
@@ -637,11 +649,18 @@ pub(crate) const fn surface_entry(command: BuiltinCommand) -> StaticSurfaceEntry
             "enable_flip",
             StaticMarkerRequirement::Typed(TypedSupportSurface::ImageFlip)
         ),
+        // `set_flip_both` sends the *combined* flip opcode, so it is gated on
+        // the combined marker exactly like `set_flip_mode`.  Gating it on the
+        // single-axis `ImageFlip` marker instead let SonyFR7, SonyBRCH900 and
+        // SonyEVIH100 — which declare `ImageFlip` but not `CombinedImageFlip` —
+        // send the combined opcode's `Both` while having no way to send its
+        // `Off`.  1.x reached this opcode only through `set_image_flip(mode)`,
+        // gated on `HasCombinedImageFlip`.
         BuiltinCommand::ImageFlipBoth => noun_entry!(
             ImageFlipBoth,
             Image,
             "set_flip_both",
-            StaticMarkerRequirement::Typed(TypedSupportSurface::ImageFlip)
+            StaticMarkerRequirement::Typed(TypedSupportSurface::CombinedImageFlip)
         ),
         BuiltinCommand::ImageFlipCombined => noun_entry!(
             ImageFlipCombined,
@@ -754,10 +773,73 @@ mod tests {
         // regression this assertion exists to surface.
         assert_eq!(
             (plain, applied_only, targeted),
-            (116, 16, 15),
+            (118, 16, 15),
             "the semantic class distribution of the closed ledger changed",
         );
         assert_eq!(seen.len(), BuiltinCommand::ALL.len());
+    }
+
+    /// Issue #651: paired on/off rows agree on their capability gate.
+    ///
+    /// Both halves of a toggle must be reachable from the same set of
+    /// profiles, or a profile can reach one direction and get stuck there.
+    /// The noise-reduction pairs are the case that motivated this: the level
+    /// newtypes are bounded `1..=5` and `1..=8`, so `set_noise_reduction_*`
+    /// cannot express off and the disable rows are the only way to send the
+    /// `0x00` wire value.
+    ///
+    /// `set_flip_both` and `set_flip_mode` are here for the same reason.  They
+    /// send the *same* combined opcode, so a split gate would let a profile
+    /// send that opcode's `Both` without being able to send its `Off`.
+    #[test]
+    fn paired_rows_share_one_capability_gate() {
+        /// `None` marks a non-noun row, which the assertions below reject
+        /// rather than skip: a pair that stopped being a noun pair would
+        /// otherwise satisfy this test vacuously.
+        fn facts(command: BuiltinCommand) -> (&'static str, Option<StaticMarkerRequirement>) {
+            match surface_entry(command).disposition {
+                StaticSurfaceDisposition::Noun { method, marker, .. } => (method, Some(marker)),
+                StaticSurfaceDisposition::BroadcastHandshake { method }
+                | StaticSurfaceDisposition::InternalCancellation { method } => (method, None),
+            }
+        }
+
+        for (on, off) in [
+            (
+                BuiltinCommand::NoiseReduction2d,
+                BuiltinCommand::NoiseReduction2dOff,
+            ),
+            (
+                BuiltinCommand::NoiseReduction3d,
+                BuiltinCommand::NoiseReduction3dOff,
+            ),
+            (
+                BuiltinCommand::ImageFlipHorizontal,
+                BuiltinCommand::ImageFlipHorizontalOff,
+            ),
+            (
+                BuiltinCommand::ImageFlipOff,
+                BuiltinCommand::ImageFlipVertical,
+            ),
+            (
+                BuiltinCommand::ImageFlipBoth,
+                BuiltinCommand::ImageFlipCombined,
+            ),
+        ] {
+            let (on_method, on_marker) = facts(on);
+            let (off_method, off_marker) = facts(off);
+            assert!(
+                on_marker.is_some(),
+                "`{on_method}` stopped being a noun row, so this pair no \
+                 longer proves anything",
+            );
+            assert_eq!(
+                on_marker, off_marker,
+                "`{on_method}` and `{off_method}` are two directions of one \
+                 toggle but are gated differently, so a profile can reach one \
+                 direction and not the other",
+            );
+        }
     }
 
     #[test]

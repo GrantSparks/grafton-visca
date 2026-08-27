@@ -306,6 +306,8 @@ const EXPECTED_DYN_NOUN_METHODS: &[(&str, &[&str])] = &[
             "defog_level",
             "disable_flip",
             "disable_horizontal_flip",
+            "disable_noise_reduction_2d",
+            "disable_noise_reduction_3d",
             "enable_flip",
             "enable_horizontal_flip",
             "flip",
