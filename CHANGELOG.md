@@ -13,6 +13,25 @@ destination.
 
 ### Added
 
+- **Added the serial single-camera constructors** (#650), so serial reaches a
+  compile-time-bound camera the same way TCP and UDP do. #568 gave the network
+  transports `Connect::open_tcp_camera` / `open_udp_camera` and
+  `CameraConfig::open_camera` / `open_camera_async`, but left serial with only
+  the owner-backed `open_serial`, so a one-camera serial program still had to
+  name its profile a second time through `session.camera::<P>()?` — the
+  runtime-checked naming #568 exists to remove. `Connect::open_serial_camera`
+  (blocking under `transport-serial`, Tokio async under
+  `transport-serial-tokio`) and the configured
+  `CameraConfig::<P>::open_serial_camera` / `open_serial_camera_async` now
+  return a `CameraSession<P>`. This restores 1.x's shape, where serial was a
+  first-class single-camera path on both facades
+  (`Connect::open_serial_blocking` / `open_serial_async` and
+  `CameraConfig::open_serial_blocking` / `open_serial_async`). The async bound
+  is unchanged and deliberately unwidened: async serial remains Tokio-only,
+  carrying the same `RuntimeSerial<SerialTransport = ...>` bound as
+  `Connect::open_serial`. `examples/serial_async_demo.rs` opens through the new
+  constructor, which returns it to the shape its 1.x counterpart had.
+
 - **Added runtime timeout and tuning reconfiguration** (#631), restoring the
   capability 1.2.0 shipped as `Camera::set_timeout_config` (#575). `set_tuning`
   and `tuning` are on the blocking and async `Session` and `CameraSession`, so
@@ -59,6 +78,21 @@ destination.
   `Priority` → `ControlClass` mapping table and the notes on
   `runtime::testing::Priority`, which has no 2.0 equivalent and needs none.
 
+- Restored `image().disable_noise_reduction_2d()` and
+  `image().disable_noise_reduction_3d()` on all three noun surfaces (#651).
+  The rewrite ledgered `BuiltinCommand::NoiseReduction2d` / `NoiseReduction3d`
+  under the single method spellings `set_noise_reduction_2d` / `_3d`, whose
+  level newtypes are bounded `1..=5` and `1..=8`. The parameter therefore
+  cannot express off, and the `0x00` wire value — produced only by
+  `NoiseReduction2D::off()` / `NoiseReduction3D::off()` — was reachable from no
+  noun method on any profile: once noise reduction was turned on, nothing short
+  of `camera.execute(..)` could turn it back off. 1.x paired each setter with a
+  `disable_noise_reduction_2d` / `_3d`. Each off value now has its own ledger
+  row, `BuiltinCommand::NoiseReduction2dOff` / `NoiseReduction3dOff`, gated on
+  the same `HasNoiseReduction2D` / `HasNoiseReduction3D` markers as the
+  setters, so the per-row gates and the cross-surface parity test enforce both
+  directions the way they already do for the flip and multicast pairs. The
+  frames are `81 01 04 53 00 FF` and `81 01 04 54 00 FF`.
 - Restored `image().disable_horizontal_flip()` on all three noun surfaces
   (#635). The rewrite ledgered `BuiltinCommand::ImageFlipHorizontal` under the
   single method spelling `enable_horizontal_flip`, so the noun surfaces only
@@ -163,6 +197,17 @@ destination.
 
 ### Changed
 
+- `image().set_flip_both()` is now gated on `HasCombinedImageFlip` rather than
+  `HasImageFlip` (#651). It sends the *combined* flip opcode, the same one
+  `set_flip_mode` sends, so the split gate let SonyFR7, SonyBRCH900 and
+  SonyEVIH100 — which declare `ImageFlip` but not `CombinedImageFlip` — send
+  that opcode's `Both` while having no way to send its `Off`. 1.x reached the
+  combined opcode only through `set_image_flip(mode)`, gated on
+  `HasCombinedImageFlip`; those three profiles could not send it at all. A new
+  ledger assertion pins both halves of a toggle to one capability gate so the
+  split cannot reappear. Callers on a profile that only declares `ImageFlip`
+  should use `enable_flip()` / `enable_horizontal_flip()` and their disable
+  twins, which move the axes the profile actually documents.
 - Strengthened the weak and vacuous tests the second review round itemized
   (#641). Each one asserted something that could not fail: a retry counter
   compared against a count derived from the same event stream, so removing
@@ -501,9 +546,43 @@ destination.
   The README feature-union table promised automated validation of
   `runtime-tokio,transport-serial`, which no matrix leg covered; that leg is
   back, and the table now names the CI job that checks each union.
+- **Removed `Error::to_public_error()`** (#614). The helper was a 1.x
+  carry-over with zero callers anywhere in the 2.0 tree, and its one mapping
+  with a reachable input was wrong for 2.0: it folded `Error::NoSocket` into
+  `Error::NoTransport`. `NoSocket` is the camera's `0x05` answer — transient
+  socket-table capacity on a healthy session, classified `ErrorKind::BufferFull`
+  and retryable (#501, #566) — while `NoTransport` is one of the variants
+  `Error::requires_new_session()` reports as session death, so anything that
+  had started calling the helper would have turned a retry into a spurious
+  reconnect. Its remaining arms mapped variants 2.0 never constructs.
+  Nothing is lost: in 1.x the helper had a single call site,
+  `RuntimeHandle::normalize_boundary_error`, whose preceding match arm already
+  claimed the whole channel-closed family, and 2.0 normalizes a closed
+  boundary channel to `Error::RuntimeShutdown` at the point of failure instead.
+  Callers that want the coarse view should match on `Error::kind()`, and
+  callers deciding whether to reconnect should use `requires_new_session()`.
 
 ### Fixed
 
+- **The typed `tally()` noun is reachable again for the profiles that had tally
+  in 1.x** (#661). `TallyOn`, `TallyOff` and `TallyFlash` validated against the
+  PTZOptics profile ids alone, while the `tally()` accessor on all three noun
+  surfaces is gated on `HasTally`, which only `SonyFR7` and `SonyBRCH900`
+  declare. The two conditions can never both hold for a built-in profile, so
+  `tally().on()`, `.off()` and `.flash()` — and with them
+  `StateCache::tally_mode()` — were dead methods on the only profiles that can
+  reach them, and the sole route to the opcode was `camera.execute(&TallyOn)`.
+  1.x published exactly those three methods from the same `HasTally`-gated
+  `TallyControl` impl as the rest of the tally surface, so the capability
+  declarations were the side that was already right and the command validation
+  is the side that moved: the vendor tally-mode opcode now validates for a
+  profile with typed tally support **or** for the PTZOptics profiles the
+  reference documents it under (`docs/visca_reference.md` appendix A.11), which
+  leaves the `execute` route working exactly where it already worked. No
+  capability marker moved — 1.x recorded `tally: { supported: false }` for all
+  three PTZOptics profiles, and #524 deliberately removed `camera.tally()` from
+  them — so the README and `docs/camera_profile_support.md` matrices are
+  unchanged.
 - **A refused `cancel` no longer consumes the operation handle** (#612).
   Cancelling an already-written command needs profile support for the standard
   VISCA socket-cancel command; `PtzOpticsG2` is the one built-in profile without
@@ -609,6 +688,20 @@ destination.
   makes a mechanical port fail with `Error::FeatureNotSupported` on eight of
   the nine built-in profiles. This 2.0 section is now organized in the
   Keep a Changelog subsections the file's own header promises.
+- Put `docs/usage_2_0.md` under the same compile gate as the README (#613).
+  The primary usage and construction guide fenced all five of its Rust
+  snippets `rust,ignore`, so the page most likely to be copied verbatim was
+  the one page nothing compiled — exactly the hole #563 came out of. A third
+  `cfg(doctest)` `include_str!` module in `src/lib.rs` now compiles the guide
+  under `cargo test --doc`, with the same per-block `#[cfg(feature = "...")]`
+  rule the README and migration guide use: the Tokio, caller-owned-executor,
+  and dynamic-view snippets carry `runtime-tokio`, `async`, and `dyn-api`
+  respectively. Compiling them exposed two things the guide had wrong: the
+  caller-owned `Session::open` snippet named an executor no bound tied to
+  `Executor`, and the `SessionConfig` snippet tuned `inquiry_spacing` down to
+  50 ms on a `PtzOpticsG2` target whose profile floor is 150 ms — a value the
+  same page's own "tuning cannot weaken a profile's minimum pacing" rule
+  rejects at run time. No snippet on the page is exempt from the gate.
 - **Fixed a livelock that made an async session unkillable when a transport
   failed every read** (#625). The actor's readiness race is left-biased towards
   the transport by design, so a read that failed *immediately* — a disconnected

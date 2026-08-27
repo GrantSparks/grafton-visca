@@ -565,7 +565,9 @@ pub enum BuiltinCommand {
     Gamma,
     Backlight,
     NoiseReduction2d,
+    NoiseReduction2dOff,
     NoiseReduction3d,
+    NoiseReduction3dOff,
     ImageFlipOff,
     ImageFlipHorizontal,
     ImageFlipHorizontalOff,
@@ -729,7 +731,9 @@ impl BuiltinCommand {
         Self::Gamma,
         Self::Backlight,
         Self::NoiseReduction2d,
+        Self::NoiseReduction2dOff,
         Self::NoiseReduction3d,
+        Self::NoiseReduction3dOff,
         Self::ImageFlipOff,
         Self::ImageFlipHorizontal,
         Self::ImageFlipHorizontalOff,
@@ -884,7 +888,9 @@ impl BuiltinCommand {
             | Self::Gamma
             | Self::Backlight
             | Self::NoiseReduction2d
+            | Self::NoiseReduction2dOff
             | Self::NoiseReduction3d
+            | Self::NoiseReduction3dOff
             | Self::ImageFlipOff
             | Self::ImageFlipHorizontal
             | Self::ImageFlipHorizontalOff
@@ -1072,7 +1078,9 @@ impl BuiltinCommand {
             | Self::Gamma
             | Self::Backlight
             | Self::NoiseReduction2d
+            | Self::NoiseReduction2dOff
             | Self::NoiseReduction3d
+            | Self::NoiseReduction3dOff
             | Self::PictureEffect
             | Self::MenuDisplay
             | Self::MenuNavigate

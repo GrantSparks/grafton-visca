@@ -44,7 +44,9 @@ migrate from wherever you are now:
 
 * `BlockingClient` for one camera → `blocking::Connect::open_tcp_camera::<P>`
   or `open_udp_camera::<P>` (configured form:
-  `blocking::CameraConfig::<P>::open_camera`). Both return
+  `blocking::CameraConfig::<P>::open_camera`), and, under `transport-serial`,
+  `blocking::Connect::open_serial_camera::<P>` (configured form:
+  `blocking::CameraConfig::<P>::open_serial_camera`). All return
   `blocking::CameraSession<P>`; `session.camera()` is the noun view and takes
   no turbofish.
 * `BlockingClient` for several cameras → `blocking::Connect::open_tcp` /
@@ -414,6 +416,12 @@ error alone does not prove it. Ordinary per-request failures — timeouts, busy
 states, protocol and parameter errors — are `false`, and so is a raw `Io`
 failure, because a datagram write failure is isolated to its own transmission
 and a stream failure reaches the caller as `StreamPoisoned`.
+
+1.x's `Error::to_public_error()` is gone and has no replacement. It folded
+`NoSocket` into `NoTransport`, which in 2.0 would move the camera's transient
+`0x05` capacity answer into the set `requires_new_session()` calls session
+death — a reconnect where a retry was correct. Use `Error::kind()` for the
+coarse category and `requires_new_session()` for the reconnect decision.
 
 ```rust
 use grafton_visca::blocking::{Camera, Session};

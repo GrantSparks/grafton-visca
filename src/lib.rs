@@ -1032,3 +1032,14 @@ mod readme_snippets {}
 #[cfg(all(doctest, feature = "blocking"))]
 #[doc = include_str!("../docs/migration_2_0.md")]
 mod migration_guide_snippets {}
+
+/// Compile gate for the Rust snippets in `docs/usage_2_0.md`.
+///
+/// `usage_2_0.md` is the primary construction and calling-convention guide, so
+/// it is the page most likely to be copied verbatim and the page whose drift
+/// costs the most. It is compiled here for the same reason the README and the
+/// migration guide are, and under the same rule: snippets needing more than the
+/// default feature set carry their own `#[cfg(feature = "...")]`.
+#[cfg(all(doctest, feature = "blocking"))]
+#[doc = include_str!("../docs/usage_2_0.md")]
+mod usage_guide_snippets {}

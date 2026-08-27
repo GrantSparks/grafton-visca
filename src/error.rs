@@ -763,23 +763,6 @@ impl Error {
         }
     }
 
-    /// Map internal/detailed error variants to public API errors.
-    /// This provides a simpler error interface for end users while preserving
-    /// internal detail for debugging.
-    #[must_use]
-    pub fn to_public_error(self) -> Self {
-        match self {
-            // Map various "no transport" conditions to NoTransport
-            Self::NoSocket | Self::SocketManagerUnavailable => Self::NoTransport,
-            // Map various channel closure conditions to TransportChannelClosed
-            Self::ChannelClosed
-            | Self::SocketManagerChannelClosed
-            | Self::ResponseChannelClosed => Self::TransportChannelClosed,
-            // All other errors pass through unchanged
-            other => other,
-        }
-    }
-
     /// Create an `Error` from a VISCA error response code.
     ///
     /// ## Error Code Mapping
@@ -1453,6 +1436,25 @@ mod tests {
                 "error should not require a new session: {error}"
             );
         }
+    }
+
+    /// Issue #614: the `0x05` camera answer must never be normalized into a
+    /// session-death variant. It is a transient capacity answer from a live
+    /// session (issues #501/#566), so any helper that folded it into
+    /// `NoTransport` would turn a retry into a spurious reconnect.
+    #[test]
+    fn no_socket_is_never_a_session_death_condition() {
+        let from_camera = Error::from_code(0x05);
+        assert!(matches!(from_camera, Error::NoSocket));
+        assert!(from_camera.is_retryable());
+        assert!(!from_camera.requires_new_session());
+        let with_context = from_camera.with_context("cancel command");
+        assert!(!with_context.requires_new_session());
+
+        // The variant it used to be mapped onto is classified the opposite way,
+        // which is exactly why the mapping could not stay.
+        assert!(Error::NoTransport.requires_new_session());
+        assert!(!Error::NoTransport.is_retryable());
     }
 
     #[test]

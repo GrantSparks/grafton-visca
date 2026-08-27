@@ -21,7 +21,7 @@ use crate::{
 use super::{DynAppliedOperation, DynFuture, DynSessionCamera, DynTargetedOperation};
 
 /// Number of target-facing built-in command methods in this projection.
-pub const DYN_NOUN_TARGET_METHOD_COUNT: usize = 144;
+pub const DYN_NOUN_TARGET_METHOD_COUNT: usize = 146;
 
 /// Number of typed inquiry methods in this projection.
 pub const DYN_NOUN_INQUIRY_METHOD_COUNT: usize = 66;
@@ -564,6 +564,8 @@ pub trait DynImage: Send + Sync {
         &self,
         level: types::NoiseReduction2DLevel,
     ) -> DynFuture<'_, Result<(), Error>>;
+    /// Disables 2D noise reduction.
+    fn disable_noise_reduction_2d(&self) -> DynFuture<'_, Result<(), Error>>;
     /// Inquires 3D noise reduction level.
     fn noise_reduction_3d(&self) -> DynFuture<'_, Result<types::NoiseReduction3DLevel, Error>>;
     /// Sets 3D noise reduction level.
@@ -571,6 +573,8 @@ pub trait DynImage: Send + Sync {
         &self,
         level: types::NoiseReduction3DLevel,
     ) -> DynFuture<'_, Result<(), Error>>;
+    /// Disables 3D noise reduction.
+    fn disable_noise_reduction_3d(&self) -> DynFuture<'_, Result<(), Error>>;
     /// Inquires the aggregate noise-reduction level.
     fn noise_reduction_level(&self) -> DynFuture<'_, Result<types::NoiseReductionLevel, Error>>;
     /// Inquires the aggregate noise-reduction mode.
@@ -1321,7 +1325,9 @@ impl DynImage for DynSessionCamera {
         fn set_sharpness(level: types::SharpnessLevel) => command::Sharpness::SetLevel { value: level.value() };
         fn set_backlight(enabled: bool) => command::BacklightCommand::new(enabled);
         fn set_noise_reduction_2d(level: types::NoiseReduction2DLevel) => command::NoiseReduction2D::with_level(level);
+        fn disable_noise_reduction_2d() => command::NoiseReduction2D::off();
         fn set_noise_reduction_3d(level: types::NoiseReduction3DLevel) => command::NoiseReduction3D::with_level(level);
+        fn disable_noise_reduction_3d() => command::NoiseReduction3D::off();
         fn disable_flip() => builtin::ImageFlipCommand::new(command::Flip::Off);
         fn enable_flip() => builtin::ImageFlipCommand::new(command::Flip::On);
         fn enable_horizontal_flip() => builtin::ImageMirrorCommand::new(true);
