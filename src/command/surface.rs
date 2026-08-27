@@ -295,24 +295,42 @@ pub(crate) const fn surface_entry(command: BuiltinCommand) -> StaticSurfaceEntry
         BuiltinCommand::PowerStandby => noun_entry!(PowerStandby, Power, "off"),
         // Exposure, iris, shutter, brightness, and gain.
         BuiltinCommand::ExposureMode => noun_entry!(ExposureMode, Exposure, "set_mode"),
-        BuiltinCommand::ExposureCompensationOn => {
-            noun_entry!(ExposureCompensationOn, Exposure, "compensation_on")
-        }
-        BuiltinCommand::ExposureCompensationOff => {
-            noun_entry!(ExposureCompensationOff, Exposure, "compensation_off")
-        }
-        BuiltinCommand::ExposureCompensationReset => {
-            noun_entry!(ExposureCompensationReset, Exposure, "compensation_reset")
-        }
-        BuiltinCommand::ExposureCompensationUp => {
-            noun_entry!(ExposureCompensationUp, Exposure, "compensation_up")
-        }
-        BuiltinCommand::ExposureCompensationDown => {
-            noun_entry!(ExposureCompensationDown, Exposure, "compensation_down")
-        }
-        BuiltinCommand::ExposureCompensationDirect => {
-            noun_entry!(ExposureCompensationDirect, Exposure, "compensation_direct")
-        }
+        BuiltinCommand::ExposureCompensationOn => noun_entry!(
+            ExposureCompensationOn,
+            Exposure,
+            "compensation_on",
+            StaticMarkerRequirement::Typed(TypedSupportSurface::ExposureCompensation)
+        ),
+        BuiltinCommand::ExposureCompensationOff => noun_entry!(
+            ExposureCompensationOff,
+            Exposure,
+            "compensation_off",
+            StaticMarkerRequirement::Typed(TypedSupportSurface::ExposureCompensation)
+        ),
+        BuiltinCommand::ExposureCompensationReset => noun_entry!(
+            ExposureCompensationReset,
+            Exposure,
+            "compensation_reset",
+            StaticMarkerRequirement::Typed(TypedSupportSurface::ExposureCompensation)
+        ),
+        BuiltinCommand::ExposureCompensationUp => noun_entry!(
+            ExposureCompensationUp,
+            Exposure,
+            "compensation_up",
+            StaticMarkerRequirement::Typed(TypedSupportSurface::ExposureCompensation)
+        ),
+        BuiltinCommand::ExposureCompensationDown => noun_entry!(
+            ExposureCompensationDown,
+            Exposure,
+            "compensation_down",
+            StaticMarkerRequirement::Typed(TypedSupportSurface::ExposureCompensation)
+        ),
+        BuiltinCommand::ExposureCompensationDirect => noun_entry!(
+            ExposureCompensationDirect,
+            Exposure,
+            "compensation_direct",
+            StaticMarkerRequirement::Typed(TypedSupportSurface::ExposureCompensation)
+        ),
         BuiltinCommand::DynamicRange => noun_entry!(
             DynamicRange,
             Exposure,
@@ -347,15 +365,36 @@ pub(crate) const fn surface_entry(command: BuiltinCommand) -> StaticSurfaceEntry
         BuiltinCommand::ShutterUp => noun_entry!(ShutterUp, Exposure, "shutter_up"),
         BuiltinCommand::ShutterDown => noun_entry!(ShutterDown, Exposure, "shutter_down"),
         BuiltinCommand::ShutterDirect => noun_entry!(ShutterDirect, Exposure, "shutter_direct"),
-        BuiltinCommand::BrightnessReset => {
-            noun_entry!(BrightnessReset, Exposure, "brightness_reset")
-        }
-        BuiltinCommand::BrightnessUp => noun_entry!(BrightnessUp, Exposure, "brightness_up"),
-        BuiltinCommand::BrightnessDown => noun_entry!(BrightnessDown, Exposure, "brightness_down"),
-        BuiltinCommand::BrightnessSet => noun_entry!(BrightnessSet, Exposure, "brightness_set"),
-        BuiltinCommand::BrightnessDirect => {
-            noun_entry!(BrightnessDirect, Exposure, "brightness_direct")
-        }
+        BuiltinCommand::BrightnessReset => noun_entry!(
+            BrightnessReset,
+            Exposure,
+            "brightness_reset",
+            StaticMarkerRequirement::Typed(TypedSupportSurface::BrightnessControl)
+        ),
+        BuiltinCommand::BrightnessUp => noun_entry!(
+            BrightnessUp,
+            Exposure,
+            "brightness_up",
+            StaticMarkerRequirement::Typed(TypedSupportSurface::BrightnessControl)
+        ),
+        BuiltinCommand::BrightnessDown => noun_entry!(
+            BrightnessDown,
+            Exposure,
+            "brightness_down",
+            StaticMarkerRequirement::Typed(TypedSupportSurface::BrightnessControl)
+        ),
+        BuiltinCommand::BrightnessSet => noun_entry!(
+            BrightnessSet,
+            Exposure,
+            "brightness_set",
+            StaticMarkerRequirement::Typed(TypedSupportSurface::BrightnessControl)
+        ),
+        BuiltinCommand::BrightnessDirect => noun_entry!(
+            BrightnessDirect,
+            Exposure,
+            "brightness_direct",
+            StaticMarkerRequirement::Typed(TypedSupportSurface::BrightnessControl)
+        ),
         BuiltinCommand::AntiFlicker => noun_entry!(AntiFlicker, Exposure, "set_anti_flicker"),
         BuiltinCommand::SpotlightOn => noun_entry!(SpotlightOn, Exposure, "spotlight_on"),
         BuiltinCommand::SpotlightOff => noun_entry!(SpotlightOff, Exposure, "spotlight_off"),
@@ -674,13 +713,13 @@ mod tests {
 
     #[test]
     fn surface_ledger_is_exhaustive_unique_and_class_balanced() {
-        assert_eq!(BuiltinCommand::ALL.len(), 146);
-
+        let mut seen = std::collections::HashSet::new();
         let mut plain = 0;
         let mut applied_only = 0;
         let mut targeted = 0;
         for command in BuiltinCommand::ALL {
             let entry = surface_entry(*command);
+            assert!(seen.insert(*command), "duplicate surface ledger row");
             assert_eq!(entry.command, *command);
             assert_eq!(entry.class, command.classification());
             match entry.class {
@@ -696,7 +735,12 @@ mod tests {
                 }
             }
         }
-        assert_eq!((plain, applied_only, targeted), (115, 16, 15));
+
+        // The class totals are derived from `BuiltinCommand::ALL` rather than
+        // written down: every row lands in exactly one class, so the three
+        // counters must add back up to the source inventory.
+        assert_eq!(plain + applied_only + targeted, BuiltinCommand::ALL.len());
+        assert_eq!(seen.len(), BuiltinCommand::ALL.len());
     }
 
     #[test]
@@ -714,10 +758,27 @@ mod tests {
             StaticSurfaceDisposition::InternalCancellation { .. }
         ));
 
+        // The target-facing total is derived: the ledger is closed, so the
+        // noun rows are exactly the rows that are not one of the three named
+        // non-noun exceptions above.
+        let exceptions: Vec<BuiltinCommand> = BuiltinCommand::ALL
+            .iter()
+            .copied()
+            .filter(|command| !surface_entry(*command).is_target_facing())
+            .collect();
+        assert_eq!(
+            exceptions,
+            vec![
+                BuiltinCommand::AddressSet,
+                BuiltinCommand::InterfaceClear,
+                BuiltinCommand::CommandCancel,
+            ]
+        );
+
         let noun_count = BuiltinCommand::ALL
             .iter()
             .filter(|command| surface_entry(**command).is_target_facing())
             .count();
-        assert_eq!(noun_count, 143);
+        assert_eq!(noun_count + exceptions.len(), BuiltinCommand::ALL.len());
     }
 }

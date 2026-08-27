@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 2.0.0-rc.1 release candidate
 
+- Gated the async noun surface and added a cross-surface parity test (#570).
+  Only `blocking_nouns` carried a per-row ledger gate, so deleting or
+  misclassifying an async noun method failed no test: the published API
+  snapshots diff each facade only against its own baseline and never against
+  each other. `async_nouns` now carries the same gate against the closed
+  `command::surface` ledger, and a new crate-private parity test reads all
+  three noun facades — async, blocking, and the dynamic projection — and
+  asserts they agree method for method on name, semantic return class, and
+  capability bound, all derived from the ledger rather than from a
+  hand-maintained expected table. That gate found eleven exposure rows
+  (`brightness_*` and `compensation_*`) recorded in the ledger with only the
+  noun's own marker while all three facades gate them on
+  `HasBrightnessControl` / `HasExposureCompensation`; the ledger now records
+  those typed markers. The hardcoded ledger-size assertions
+  (146/143/115/16/15/66) are derived from `BuiltinCommand::ALL` and the
+  generated inquiry table instead of written down, and the assertions that
+  matched another file's formatted source text — which rustfmt could break
+  with correct code — are replaced by derivations that survive reformatting.
+  Test-only: the public API is unchanged.
 - **Dropping an in-flight movement operation now stops the camera** (#567).
   An `Operation` handle that is dropped without being awaited, cancelled, or
   detached — an early `?`, a panic unwinding past it, or a forgotten binding —

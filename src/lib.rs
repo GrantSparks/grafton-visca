@@ -647,6 +647,10 @@ pub use crate::runtime::{Runtime, TransportHandle};
 mod error;
 pub(crate) mod macros;
 
+/// Cross-surface parity gate for the three hand-written noun facades.
+#[cfg(test)]
+mod noun_parity;
+
 #[cfg(feature = "async")]
 pub(crate) mod executor;
 

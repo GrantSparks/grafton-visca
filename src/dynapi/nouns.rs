@@ -1125,7 +1125,6 @@ mod tests {
             }
         }
 
-        assert_eq!(BuiltinCommand::ALL.len(), 146);
         assert_eq!(
             exceptions,
             vec![
@@ -1134,13 +1133,27 @@ mod tests {
                 BuiltinCommand::CommandCancel,
             ]
         );
+
+        // Every total below is derived from `BuiltinCommand::ALL`; none of
+        // them is written down, so adding or removing a ledger row moves the
+        // declared projection sizes rather than breaking a literal.
         assert_eq!(noun_names.len(), DYN_NOUN_COUNT);
-        assert_eq!((target_facing, DYN_NOUN_TARGET_METHOD_COUNT), (143, 143));
+        assert_eq!(DYN_NOUN_TARGET_METHOD_COUNT, target_facing);
+        assert_eq!(target_facing + exceptions.len(), BuiltinCommand::ALL.len());
         assert_eq!(
-            (target_plain, target_applied_only, target_targeted),
-            (112, 16, 15)
+            all_plain + all_applied_only + all_targeted,
+            BuiltinCommand::ALL.len()
         );
-        assert_eq!((all_plain, all_applied_only, all_targeted), (115, 16, 15));
+        // Both broadcast handshakes and the cancellation primitive are plain
+        // rows, so the noun split moves only the plain class.
+        assert_eq!(
+            (
+                target_plain + exceptions.len(),
+                target_applied_only,
+                target_targeted
+            ),
+            (all_plain, all_applied_only, all_targeted)
+        );
     }
 
     #[test]
@@ -1153,8 +1166,7 @@ mod tests {
                 !matches!(metadata.query, BuiltinInquiryQuery::DecodeOnly) && metadata.typed
             })
             .count();
-        assert_eq!(typed_queryable, 66);
-        assert_eq!(BUILTIN_INQUIRY_ACCESSORS.len(), 66);
+        assert_eq!(typed_queryable, BUILTIN_INQUIRY_ACCESSORS.len());
         assert_eq!(
             DYN_NOUN_INQUIRY_METHOD_COUNT,
             BUILTIN_INQUIRY_ACCESSORS.len()
