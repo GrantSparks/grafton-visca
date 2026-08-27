@@ -197,6 +197,30 @@ destination.
 
 ### Changed
 
+- **The three noun facades are generated from one row table** (#617). The async
+  accessors, the blocking accessors, and the object-safe `Dyn*` traits were
+  three independent hand-written transcriptions of the same closed ledger:
+  every noun method was written out three times — name, arguments, capability
+  bound, return class, and rustdoc — with nothing in the type system relating
+  the copies, so adding one command meant five coordinated edits and the
+  published API snapshots only ever diffed each facade against its own
+  baseline. `src/noun_table.rs` now carries one row per noun method and hands
+  those rows to a per-facade consumer macro, in the same continuation-passing
+  style `builtin_inquiry_table!` already used for the inquiry ledger. The three
+  facades shrink from 5,751 lines to 2,083, and adding a command becomes one
+  row plus its semantic classification.
+  **There is no public API change**: the pinned `api/2.0.0-rc.1/*.txt`
+  snapshots regenerate byte-identically on all three legs, which is the machine
+  proof that every signature, bound, and cfg gate survived. Rendered
+  documentation does change: rustdoc is now a per-row attribute, so the three
+  surfaces can no longer document the same method differently, and the 94
+  method pairs whose prose had drifted are unified on one wording. Inquiry
+  methods now read "Returns …" on every surface, following 1.x's
+  `InquiryControl` prose rather than the async facade's "Inquires …". The #570
+  parity gates, the #651 paired-gate assertion, and the closed-inventory gates
+  all stay in place; the ones that read facade source text now read the shared
+  table instead, and each was re-verified by breaking the property it guards and
+  watching it fail.
 - `image().set_flip_both()` is now gated on `HasCombinedImageFlip` rather than
   `HasImageFlip` (#651). It sends the *combined* flip opcode, the same one
   `set_flip_mode` sends, so the split gate let SonyFR7, SonyBRCH900 and
