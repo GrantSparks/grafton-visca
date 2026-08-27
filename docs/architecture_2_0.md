@@ -62,10 +62,16 @@ compile-time profile exactly matches the registered `ProfileSpec`. Dynamic
 views use the same sole-target rule and an explicit target selection for
 multi-target sessions.
 
-Standard TCP, UDP, and Sony-encapsulated multi-target configurations are
-rejected before socket creation. Heterogeneous profile envelopes are accepted
-only where the transport can safely carry them: compatible raw profiles over a
-custom raw serial transport. A custom transport must still declare its
+Multi-target registration is rejected before socket creation on any
+IP-addressed transport, which is every standard TCP and UDP configuration and
+every Sony-encapsulated one. Heterogeneous *envelopes* are never accepted:
+admission requires every registered profile to report the same wire envelope
+as the first, and any mismatch is an error. What a multi-target session does
+accept is heterogeneous *profiles* that share one envelope — in practice
+several raw-VISCA profiles — carried by a serial-addressed transport. The
+built-in serial transports qualify: both `transport-serial` and
+`transport-serial-tokio` declare `AddressingMode::Serial`, so a caller-owned
+transport is not required. A custom transport must still declare its
 stream/datagram semantics and transport configuration; custom does not bypass
 profile or framing validation.
 
@@ -113,9 +119,10 @@ applied completion only. Dynamic handles preserve this distinction:
 
 Use the noun view for ordinary controls and `submit` when a caller needs an
 explicit operation lifecycle. `motion().stop_all_motion()`,
-`motion().is_moving(...)`, and `motion().wait_until_idle(...)` are the only
-camera-level motion safety/observation entry points. A dropped handle is not an
-automatic STOP; emergency stopping is an explicit STOP or motion operation.
+`motion().is_moving()`, `motion().is_moving_axes(...)`, and
+`motion().wait_until_idle(...)` are the only camera-level motion
+safety/observation entry points. A dropped handle is not an automatic STOP;
+emergency stopping is an explicit STOP or motion operation.
 
 ## Preserved implementation boundaries
 

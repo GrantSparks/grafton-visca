@@ -1,9 +1,9 @@
-# Built-in request semantics (Phase 7)
+# Built-in request semantics
 
-`command::semantics::BuiltinCommand` is the authoritative Phase 7 ledger.  A
-wire opcode, timeout category, or command module is not allowed to infer a
-request class.  Each enum variant has an exhaustive `classification()` arm;
-adding a future built-in variant without a reviewed arm fails to compile.
+`command::semantics::BuiltinCommand` is the authoritative ledger.  A wire
+opcode, timeout category, or command module is not allowed to infer a request
+class.  Each enum variant has an exhaustive `classification()` arm; adding a
+future built-in variant without a reviewed arm fails to compile.
 
 The rule is intentionally narrow:
 
