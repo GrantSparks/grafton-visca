@@ -3,6 +3,10 @@
 The 2.0 API has two static calling conventions and one erased async
 convention. All three end at the same owner-backed session model.
 
+Every Rust snippet on this page is compiled by the crate's own test suite, so
+the `#[cfg(feature = "...")]` attributes below are load-bearing: they name the
+Cargo feature a snippet needs.
+
 ## Feature selection
 
 | Need | Cargo features |
@@ -29,17 +33,18 @@ checked before opening the connection.
 
 ### Blocking
 
-```rust,ignore
+```rust
 use grafton_visca::blocking::{CameraSession, Connect};
 use grafton_visca::camera::profiles::PtzOpticsG2;
 
-let session: CameraSession<PtzOpticsG2> =
-    Connect::open_tcp_camera::<PtzOpticsG2>("192.168.0.110")?;
-let camera = session.camera();
-camera.power().on()?;
-camera.zoom().stop()?.applied()?;
-session.close()?;
-# Ok::<(), grafton_visca::Error>(())
+fn standard_connection() -> Result<(), grafton_visca::Error> {
+    let session: CameraSession<PtzOpticsG2> =
+        Connect::open_tcp_camera::<PtzOpticsG2>("192.168.0.110")?;
+    let camera = session.camera();
+    camera.power().on()?;
+    camera.zoom().stop()?.applied()?;
+    session.close()
+}
 ```
 
 Use `Connect::open_udp_camera` for UDP. With `transport-serial`,
@@ -48,19 +53,21 @@ a `Session`; select its view with `session.camera::<P>()`.
 
 ### Async
 
-```rust,ignore
-use grafton_visca::{CameraSession, Connect};
-use grafton_visca::camera::profiles::PtzOpticsG2;
-use grafton_visca::runtime::TokioRuntime;
+```rust
+#[cfg(feature = "runtime-tokio")]
+async fn standard_connection() -> Result<(), grafton_visca::Error> {
+    use grafton_visca::camera::profiles::PtzOpticsG2;
+    use grafton_visca::runtime::TokioRuntime;
+    use grafton_visca::{CameraSession, Connect};
 
-let runtime = TokioRuntime::from_current()?;
-let session: CameraSession<PtzOpticsG2> =
-    Connect::open_tcp_camera::<PtzOpticsG2, _>("192.168.0.110", runtime).await?;
-let camera = session.camera();
-camera.power().on().await?;
-camera.zoom().stop().await?.applied().await?;
-session.close().await?;
-# Ok::<(), grafton_visca::Error>(())
+    let runtime = TokioRuntime::from_current()?;
+    let session: CameraSession<PtzOpticsG2> =
+        Connect::open_tcp_camera::<PtzOpticsG2, _>("192.168.0.110", runtime).await?;
+    let camera = session.camera();
+    camera.power().on().await?;
+    camera.zoom().stop().await?.applied().await?;
+    session.close().await
+}
 ```
 
 Use `runtime-smol` with `SmolRuntime`, or use `Connect::open_udp_camera` for
@@ -81,7 +88,7 @@ socket, serial, executor, or protocol work.
 
 `SessionConfig` is the reusable multi-target boundary:
 
-```rust,ignore
+```rust
 use grafton_visca::{ProfileSpec, SessionConfig};
 use grafton_visca::camera::profiles::{GenericVisca, PtzOpticsG2};
 
@@ -90,10 +97,11 @@ let generic = ProfileSpec::from_compile_time::<GenericVisca>()?;
 let mut config = SessionConfig::new(g2);
 config.register_target(grafton_visca::CameraId::new(2)?, generic)?;
 
-// Apply one session-wide tuning value before opening.
+// Apply one session-wide tuning value before opening. Tuning may only be
+// more conservative than the profile floor, which is 150 ms here.
 let config = config.with_tuning(
     grafton_visca::OperationalTuning::new()
-        .inquiry_spacing(std::time::Duration::from_millis(50)),
+        .inquiry_spacing(std::time::Duration::from_millis(250)),
 )?;
 # Ok::<(), grafton_visca::Error>(())
 ```
@@ -161,14 +169,28 @@ operation may be acknowledged before the camera physically settles.
 Use `Session::open` when the application already owns a transport or needs a
 custom executor. The async path is:
 
-```rust,ignore
-let session = grafton_visca::Session::open(
-    custom_async_transport,
-    grafton_visca::SessionConfig::from_compile_time::<PtzOpticsG2>()?,
-    executor,
-)
-.await?;
-# Ok::<(), grafton_visca::Error>(())
+```rust
+#[cfg(feature = "async")]
+async fn open_caller_owned<E, T>(
+    custom_async_transport: T,
+    executor: E,
+) -> Result<(), grafton_visca::Error>
+where
+    E: grafton_visca::Executor,
+    T: grafton_visca::transport::AsyncTransport
+        + grafton_visca::transport::HasTransportConfig
+        + 'static,
+{
+    use grafton_visca::camera::profiles::PtzOpticsG2;
+
+    let session = grafton_visca::Session::open(
+        custom_async_transport,
+        grafton_visca::SessionConfig::from_compile_time::<PtzOpticsG2>()?,
+        executor,
+    )
+    .await?;
+    session.close().await
+}
 ```
 
 The blocking counterpart is `grafton_visca::blocking::Session::open(transport,
@@ -197,11 +219,19 @@ Dynamic async code uses `DynSessionCamera` and its object-safe
 `DynPresets`, `DynTally`, `DynNdFilter`, `DynMotionSync`, `DynMenu`,
 `DynAdvanced`, and `DynMotion` traits:
 
-```rust,ignore
-let camera = grafton_visca::dynapi::DynSessionCamera::from_session(&session)?;
-camera.zoom().stop().await?.applied().await?;
-camera.motion().is_moving_axes(query).await?;
-# Ok::<(), grafton_visca::Error>(())
+```rust
+#[cfg(feature = "dyn-api")]
+async fn dynamic_views(
+    session: &grafton_visca::Session,
+    query: grafton_visca::camera::MotionQuery,
+) -> Result<(), grafton_visca::Error> {
+    use grafton_visca::dynapi::{DynMotion, DynZoom};
+
+    let camera = grafton_visca::dynapi::DynSessionCamera::from_session(session)?;
+    camera.zoom().stop().await?.applied().await?;
+    camera.motion().is_moving_axes(query).await?;
+    Ok(())
+}
 ```
 
 Use the generic `execute` for a plain request, `inquire` for a typed inquiry,
