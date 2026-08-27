@@ -137,6 +137,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   position treated as unknowable. `Error::StreamPoisoned` carries the exact
   transport cause in its reason and is the one terminal error that answers
   `Error::requires_new_session()` correctly (#564). 1.x drew the same line.
+- A blocking pump that ends the session now reports the session's boundary
+  error, not the raw transport cause (#629). A fatal read closed the session
+  and then returned the underlying `Error::Io` to whoever was pumping. `Io`
+  classifies as survivable, so a caller driving an auto-reconnect loop off
+  `Error::requires_new_session()` was told to keep using a session the owner
+  had already closed, and only learned the truth from the *next* call. The
+  observation paths that wait on a receipt hid this — a closed session fails
+  the request they are waiting on, and that terminal outcome carries the right
+  error — but the paths with no receipt to consult did not: settlement polling
+  between two position samples, above all. The verdict is now translated once,
+  where every pump caller shares it, so a settlement wait, a cancellation
+  observation, or any future pump caller sees `ConnectionClosed` (or
+  `StreamPoisoned` for a framing failure on a stream), with the transport cause
+  preserved in the reason. The async owner already reported boundary errors
+  this way.
 - Gated the async noun surface and added a cross-surface parity test (#570).
   Only `blocking_nouns` carried a per-row ledger gate, so deleting or
   misclassifying an async noun method failed no test: the published API
