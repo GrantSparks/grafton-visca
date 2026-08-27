@@ -378,6 +378,12 @@ states, protocol and parameter errors — are `false`, and so is a raw `Io`
 failure, because a datagram write failure is isolated to its own transmission
 and a stream failure reaches the caller as `StreamPoisoned`.
 
+1.x's `Error::to_public_error()` is gone and has no replacement. It folded
+`NoSocket` into `NoTransport`, which in 2.0 would move the camera's transient
+`0x05` capacity answer into the set `requires_new_session()` calls session
+death — a reconnect where a retry was correct. Use `Error::kind()` for the
+coarse category and `requires_new_session()` for the reconnect decision.
+
 ```rust
 use grafton_visca::blocking::{Camera, Session};
 use grafton_visca::camera::profiles::PtzOpticsG2;
