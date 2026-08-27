@@ -315,6 +315,45 @@ See the maintained [blocking](examples/operation_handles.rs) and
 [Tokio](examples/operation_handles_async.rs) examples for complete programs that
 close the session on every path and bound movement with a stop-on-exit guard.
 
+### Checked normalized input
+
+`UnitInterval` is the checked `0.0..=1.0` value the zoom noun accepts directly.
+`set_normalized` always maps across the profile's documented optical range;
+`set_normalized_in_domain` selects the domain explicitly and refuses
+`OpticalPlusDigital` on a profile with no documented digital maximum.
+
+```rust
+use grafton_visca::blocking::Connect;
+use grafton_visca::camera::profiles::{PtzOpticsG2, SonyFR7};
+use grafton_visca::units::UnitInterval;
+use grafton_visca::ZoomDomain;
+
+fn half_zoom() -> Result<(), grafton_visca::Error> {
+    let session = Connect::open_tcp::<PtzOpticsG2>("192.168.0.110")?;
+    let camera = session.camera::<PtzOpticsG2>()?;
+
+    camera
+        .zoom()
+        .set_normalized(UnitInterval::new(0.5)?)?
+        .settled()?;
+
+    session.close()
+}
+
+// `set_normalized_in_domain` additionally requires `HasDigitalZoomRange`.
+fn full_range_zoom() -> Result<(), grafton_visca::Error> {
+    let session = Connect::open_udp::<SonyFR7>("192.168.0.110")?;
+    let camera = session.camera::<SonyFR7>()?;
+
+    camera
+        .zoom()
+        .set_normalized_in_domain(UnitInterval::ONE, ZoomDomain::OpticalPlusDigital)?
+        .settled()?;
+
+    session.close()
+}
+```
+
 ---
 
 ## Public API Boundaries
@@ -328,10 +367,11 @@ close the session on every path and bound movement with a stop-on-exit guard.
 - Use the 14 inherent noun accessors on `Camera<P>`; profile-gated methods are
   checked by `Has*` marker bounds and runtime `ProfileSpec` validation.
 - Use `UnitInterval::new(value)?` or `UnitInterval::try_from(value)?` for the
-  checked `0.0..=1.0` values used by the inquiry conversion helpers such as
-  `ZoomPositionExt::normalize_with_max` and `zoom_from_normalized`. No noun
-  accessor takes a normalized value directly; typed control input uses
-  `Degrees`, `SpeedLevel`, and the profile-checked `types` values.
+  checked `0.0..=1.0` values taken by `camera.zoom().set_normalized(..)` and
+  `set_normalized_in_domain(..)`, and by the inquiry conversion helpers such as
+  `ZoomPositionExt::normalize_with_max` and `zoom_from_normalized`. Other typed
+  control input uses `Degrees`, `SpeedLevel`, and the profile-checked `types`
+  values.
 - Use `CameraId` with `camera_id(...)`, or `try_camera_id(u8)` when converting
   a raw VISCA camera number from configuration.
 

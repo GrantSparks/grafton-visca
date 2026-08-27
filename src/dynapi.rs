@@ -37,7 +37,8 @@ pub use custom::{
 pub use nouns::{
     DynAdvanced, DynExposure, DynFocus, DynImage, DynMenu, DynMotion, DynMotionSync, DynNdFilter,
     DynPanTilt, DynPower, DynPresets, DynSessionCameraNouns, DynSystem, DynTally, DynWhiteBalance,
-    DynZoom, DYN_NOUN_COUNT, DYN_NOUN_INQUIRY_METHOD_COUNT, DYN_NOUN_TARGET_METHOD_COUNT,
+    DynZoom, DYN_NOUN_CONVENIENCE_METHODS, DYN_NOUN_CONVENIENCE_METHOD_COUNT, DYN_NOUN_COUNT,
+    DYN_NOUN_INQUIRY_METHOD_COUNT, DYN_NOUN_TARGET_METHOD_COUNT,
 };
 pub use owner_projection::{
     DynAppliedOperation, DynCancellation, DynSessionCamera, DynSessionCameraControl,

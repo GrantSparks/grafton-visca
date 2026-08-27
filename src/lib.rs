@@ -706,7 +706,7 @@ pub use observability::{
     DiagnosticIgnoreReason, DiagnosticLane, DiagnosticOutcome, DiagnosticPhase, DiagnosticResponse,
     DiagnosticSubscription, MetricsSnapshot, SessionStatus,
 };
-pub use state_cache::{StateCache, StateEntry, StateKey, StateValue};
+pub use state_cache::{PanTiltLimitUpdate, StateCache, StateEntry, StateKey, StateValue};
 
 mod session_config;
 pub use session_config::SessionConfig;

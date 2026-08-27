@@ -866,6 +866,22 @@ impl BuiltinValidation for crate::command::image::ImageFlipCombinedCommand {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
         validate_flip_mode(profile, self.mode)
     }
+
+    fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
+        // The combined opcode carries both axes in one parameter byte, so a
+        // successful application establishes the complete pair.
+        let (horizontal, vertical) = match self.mode {
+            crate::command::ImageFlipMode::Off => (false, false),
+            crate::command::ImageFlipMode::Horizontal => (true, false),
+            crate::command::ImageFlipMode::Vertical => (false, true),
+            crate::command::ImageFlipMode::Both => (true, true),
+        };
+        crate::runtime::engine::AppliedStateProjection::set(
+            crate::command::semantics::WriteOnlyState::Flip,
+            &[i64::from(horizontal), i64::from(vertical)],
+        )
+        .ok()
+    }
 }
 
 impl BuiltinValidation for crate::command::image::PictureEffectCommand {
@@ -1042,11 +1058,28 @@ impl BuiltinValidation for ImageFlipCommand {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
         validate_separate_flip(profile, false)
     }
+
+    fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
+        // This opcode moves only the vertical axis. The horizontal axis keeps
+        // whatever value it had, which this request does not know, so the
+        // complete pair stops being known.
+        Some(crate::runtime::engine::AppliedStateProjection::invalidate(
+            crate::command::semantics::WriteOnlyState::Flip,
+        ))
+    }
 }
 
 impl BuiltinValidation for ImageMirrorCommand {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
         validate_separate_flip(profile, true)
+    }
+
+    fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
+        // The mirror opcode is the horizontal twin of `ImageFlipCommand` and
+        // leaves the vertical axis unknown for the same reason.
+        Some(crate::runtime::engine::AppliedStateProjection::invalidate(
+            crate::command::semantics::WriteOnlyState::Flip,
+        ))
     }
 }
 
@@ -2611,6 +2644,40 @@ impl ZoomTarget {
     pub const fn new(position: ZoomPosition) -> Self {
         Self(position)
     }
+
+    /// Creates a direct zoom target from a normalized position.
+    ///
+    /// `0.0` is the wide end and `1.0` the telephoto end of the selected
+    /// domain. [`ZoomDomain::Optical`] always normalizes across the profile's
+    /// documented optical range; [`ZoomDomain::OpticalPlusDigital`] requires a
+    /// documented digital maximum and never falls back to the optical one.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the selected domain has no documented maximum for
+    /// `profile`, or when the mapped raw value is outside the VISCA zoom range.
+    ///
+    /// [`ZoomDomain::Optical`]: crate::ZoomDomain::Optical
+    /// [`ZoomDomain::OpticalPlusDigital`]: crate::ZoomDomain::OpticalPlusDigital
+    pub fn from_normalized(
+        position: crate::units::UnitInterval,
+        domain: crate::ZoomDomain,
+        profile: &crate::ProfileSpec,
+    ) -> Result<Self, Error> {
+        let capabilities = profile.capabilities();
+        let optical_max = *capabilities.zoom_range_optical.end();
+        let digital_max = capabilities
+            .zoom_range_digital
+            .as_ref()
+            .map(|range| *range.end());
+        let target = crate::inquiry_conversions::zoom_from_normalized(
+            position,
+            domain,
+            optical_max,
+            digital_max,
+        )?;
+        Ok(Self::new(target))
+    }
 }
 
 impl_request!(
@@ -4148,6 +4215,65 @@ mod tests {
             B::TallyFlash,
             Invalidate(S::TallyMode),
             crate::runtime::engine::AppliedStateProjection::invalidate(S::TallyMode)
+        );
+
+        // The combined-flip opcode carries both axes, so it records the pair
+        // as `[horizontal, vertical]`. The single-axis opcodes move one axis
+        // and leave the other unknown, so they invalidate the same key.
+        for (name, mode, horizontal, vertical) in [
+            (
+                "combined flip off",
+                crate::command::ImageFlipMode::Off,
+                0,
+                0,
+            ),
+            (
+                "combined flip horizontal",
+                crate::command::ImageFlipMode::Horizontal,
+                1,
+                0,
+            ),
+            (
+                "combined flip vertical",
+                crate::command::ImageFlipMode::Vertical,
+                0,
+                1,
+            ),
+            (
+                "combined flip both",
+                crate::command::ImageFlipMode::Both,
+                1,
+                1,
+            ),
+        ] {
+            assert_state_row(
+                name,
+                &crate::command::ImageFlipCombinedCommand::new(mode),
+                &ptz,
+                B::ImageFlipCombined,
+                Set(S::Flip),
+                crate::runtime::engine::AppliedStateProjection::set(
+                    S::Flip,
+                    &[horizontal, vertical],
+                )
+                .expect("combined flip projection"),
+            );
+        }
+        row!(
+            "separate vertical flip",
+            ImageFlipCommand::new(Flip::On),
+            &ptz,
+            B::ImageFlipVertical,
+            Invalidate(S::Flip),
+            crate::runtime::engine::AppliedStateProjection::invalidate(S::Flip)
+        );
+        row!(
+            "separate horizontal mirror",
+            ImageMirrorCommand::new(true),
+            &ptz,
+            B::ImageFlipHorizontal,
+            Invalidate(S::Flip),
+            crate::runtime::engine::AppliedStateProjection::invalidate(S::Flip)
         );
     }
 

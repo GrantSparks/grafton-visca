@@ -14,7 +14,7 @@ use crate::{
     capabilities::{
         HasAutoFocusSensitivity, HasAutoTrackingWhiteBalance, HasAutoWhiteBalanceSensitivity,
         HasBacklightCompensation, HasBrightnessControl, HasColorTemperature, HasCombinedImageFlip,
-        HasContrastControl, HasDigitalZoomToggle, HasDirectZoom, HasExposure,
+        HasContrastControl, HasDigitalZoomRange, HasDigitalZoomToggle, HasDirectZoom, HasExposure,
         HasExposureCompensation, HasFocus, HasFocusLock, HasFocusNearLimitInquiry, HasFocusZone,
         HasGammaControl, HasHueControl, HasImageFlip, HasImageMirror, HasImageProcessing,
         HasIrisControl, HasLuminanceControl, HasMenuControl, HasMotionSync, HasNdFilter,
@@ -29,8 +29,8 @@ use crate::{
     profile::CompileTimeProfile,
     request::builtin,
     types,
-    units::Degrees,
-    Result,
+    units::{Degrees, UnitInterval},
+    Result, ZoomDomain,
 };
 
 macro_rules! accessor_method {
@@ -209,8 +209,18 @@ impl<'a, P: CompileTimeProfile> MotionAccessor<'a, P> {
         self.camera.core().stop_all_motion().await
     }
 
+    /// Reports whether any mechanical movement axis is moving.
+    ///
+    /// This samples [`AffectedAxes::MOVEMENT`] with the default tolerance; use
+    /// [`Self::is_moving_axes`] to pick the axes or the tolerance.
+    ///
+    /// [`AffectedAxes::MOVEMENT`]: crate::AffectedAxes::MOVEMENT
+    pub async fn is_moving(&self) -> Result<bool> {
+        self.camera.core().is_moving(MotionQuery::default()).await
+    }
+
     /// Reports whether the selected physical axes are moving.
-    pub async fn is_moving(&self, query: MotionQuery) -> Result<bool> {
+    pub async fn is_moving_axes(&self, query: MotionQuery) -> Result<bool> {
         self.camera.core().is_moving(query).await
     }
 
@@ -360,6 +370,39 @@ impl<'a, P: CompileTimeProfile> ZoomAccessor<'a, P> {
         self.camera.submit::<Targeted, _>(&command).await
     }
 
+    /// Moves to a normalized position across the optical zoom range.
+    ///
+    /// `0.0` is the wide end and `1.0` the telephoto end of the profile's
+    /// documented optical range.
+    pub async fn set_normalized(&self, position: UnitInterval) -> Result<Operation<Targeted>>
+    where
+        P: HasDirectZoom,
+    {
+        let command = builtin::ZoomTarget::from_normalized(
+            position,
+            ZoomDomain::Optical,
+            self.camera.profile(),
+        )?;
+        self.camera.submit::<Targeted, _>(&command).await
+    }
+
+    /// Moves to a normalized position across a documented zoom domain.
+    ///
+    /// [`ZoomDomain::OpticalPlusDigital`] requires the profile to document a
+    /// digital maximum and never falls back to the optical range.
+    pub async fn set_normalized_in_domain(
+        &self,
+        position: UnitInterval,
+        domain: ZoomDomain,
+    ) -> Result<Operation<Targeted>>
+    where
+        P: HasDirectZoom + HasDigitalZoomRange,
+    {
+        let command =
+            builtin::ZoomTarget::from_normalized(position, domain, self.camera.profile())?;
+        self.camera.submit::<Targeted, _>(&command).await
+    }
+
     /// Enables or disables digital zoom.
     pub async fn set_digital_zoom(&self, enabled: bool) -> Result<()>
     where
@@ -414,6 +457,46 @@ impl<'a, P: CompileTimeProfile> PanTiltAccessor<'a, P> {
     ) -> Result<Operation<AppliedOnly>> {
         let command = builtin::PanTiltDrive::new(direction, pan_speed, tilt_speed)?;
         self.camera.submit::<AppliedOnly, _>(&command).await
+    }
+
+    /// Starts an upward pan/tilt drive.
+    pub async fn up(
+        &self,
+        pan_speed: types::PanSpeed,
+        tilt_speed: types::TiltSpeed,
+    ) -> Result<Operation<AppliedOnly>> {
+        self.move_direction(command::PanTiltDirection::Up, pan_speed, tilt_speed)
+            .await
+    }
+
+    /// Starts a downward pan/tilt drive.
+    pub async fn down(
+        &self,
+        pan_speed: types::PanSpeed,
+        tilt_speed: types::TiltSpeed,
+    ) -> Result<Operation<AppliedOnly>> {
+        self.move_direction(command::PanTiltDirection::Down, pan_speed, tilt_speed)
+            .await
+    }
+
+    /// Starts a leftward pan/tilt drive.
+    pub async fn left(
+        &self,
+        pan_speed: types::PanSpeed,
+        tilt_speed: types::TiltSpeed,
+    ) -> Result<Operation<AppliedOnly>> {
+        self.move_direction(command::PanTiltDirection::Left, pan_speed, tilt_speed)
+            .await
+    }
+
+    /// Starts a rightward pan/tilt drive.
+    pub async fn right(
+        &self,
+        pan_speed: types::PanSpeed,
+        tilt_speed: types::TiltSpeed,
+    ) -> Result<Operation<AppliedOnly>> {
+        self.move_direction(command::PanTiltDirection::Right, pan_speed, tilt_speed)
+            .await
     }
 
     /// Stops pan/tilt movement using profile-safe stop speeds.
@@ -1688,6 +1771,19 @@ impl<'a, P: CompileTimeProfile> MenuAccessor<'a, P> {
             .execute(&command::DirectMenuControl::new(control1, control2))
             .await
     }
+
+    /// Toggles the on-screen menu open or closed.
+    ///
+    /// This is the vendor open/close direct control, so it needs no prior
+    /// [`Self::status`] round trip to decide which way to move.
+    pub async fn toggle_display(&self) -> Result<()>
+    where
+        P: crate::capabilities::HasDirectMenuControl,
+    {
+        self.camera
+            .execute(&command::DirectMenuControl::open_close())
+            .await
+    }
 }
 
 impl<'a, P: CompileTimeProfile> AdvancedAccessor<'a, P> {
@@ -1884,6 +1980,17 @@ impl<'a, P: CompileTimeProfile + HasNdFilter> NdFilterAccessor<'a, P> {
         self.camera.submit::<Targeted, _>(&request).await
     }
 
+    /// Sets a direct variable ND-filter value in photographic stops.
+    ///
+    /// `stops` is the light reduction in stops and must lie in `2.0..=7.0`.
+    /// Each raw unit is a quarter stop, so `2.0` maps to the minimum density
+    /// and `7.0` to the maximum.
+    pub async fn set_stops(&self, stops: f32) -> Result<Operation<Targeted>> {
+        let value = command::NdFilterValue::from_stops(stops)?;
+        let request = builtin::NdFilterDirect::new(value);
+        self.camera.submit::<Targeted, _>(&request).await
+    }
+
     /// Increases ND-filter density by one step.
     pub async fn step_up(&self) -> Result<Operation<Targeted>> {
         self.camera
@@ -1949,6 +2056,16 @@ impl<'a, P: CompileTimeProfile + HasMotionSync> MotionSyncAccessor<'a, P> {
     pub async fn set_preset(&self, speed: u8) -> Result<()> {
         self.camera
             .execute(&command::SetMotionSyncPreset::new(speed)?)
+            .await
+    }
+
+    /// Sets the motion-sync speed from a range-checked speed value.
+    ///
+    /// This is [`Self::set_preset`] with the `1..=24` bound moved into the
+    /// argument type, so an out-of-range speed cannot be constructed.
+    pub async fn set_speed(&self, speed: types::MotionSyncSpeed) -> Result<()> {
+        self.camera
+            .execute(&command::SetMotionSyncPreset::new(speed.value())?)
             .await
     }
 }

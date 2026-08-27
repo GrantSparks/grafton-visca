@@ -1629,14 +1629,24 @@ pub grafton_visca::camera::IdleWait::interval: core::time::Duration
 pub grafton_visca::camera::IdleWait::timeout: core::time::Duration
 pub grafton_visca::camera::IdleWait::tolerance: grafton_visca::camera::MovementTolerance
 impl grafton_visca::camera::IdleWait
+pub const fn grafton_visca::camera::IdleWait::for_focus() -> Self
+pub const fn grafton_visca::camera::IdleWait::for_pan_tilt() -> Self
+pub const fn grafton_visca::camera::IdleWait::for_preset_recall() -> Self
+pub const fn grafton_visca::camera::IdleWait::for_zoom() -> Self
 pub const fn grafton_visca::camera::IdleWait::new(grafton_visca::AffectedAxes, core::time::Duration) -> Self
+pub const fn grafton_visca::camera::IdleWait::with_axes(self, grafton_visca::AffectedAxes) -> Self
 pub const fn grafton_visca::camera::IdleWait::with_interval(self, core::time::Duration) -> Self
+pub const fn grafton_visca::camera::IdleWait::with_timeout(self, core::time::Duration) -> Self
 pub const fn grafton_visca::camera::IdleWait::with_tolerance(self, grafton_visca::camera::MovementTolerance) -> Self
 impl core::clone::Clone for grafton_visca::camera::IdleWait
 pub fn grafton_visca::camera::IdleWait::clone(&self) -> grafton_visca::camera::IdleWait
 impl core::cmp::Eq for grafton_visca::camera::IdleWait
 impl core::cmp::PartialEq for grafton_visca::camera::IdleWait
 pub fn grafton_visca::camera::IdleWait::eq(&self, &grafton_visca::camera::IdleWait) -> bool
+impl core::convert::From<core::time::Duration> for grafton_visca::camera::IdleWait
+pub fn grafton_visca::camera::IdleWait::from(core::time::Duration) -> Self
+impl core::default::Default for grafton_visca::camera::IdleWait
+pub fn grafton_visca::camera::IdleWait::default() -> Self
 impl core::fmt::Debug for grafton_visca::camera::IdleWait
 pub fn grafton_visca::camera::IdleWait::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for grafton_visca::camera::IdleWait
@@ -1659,6 +1669,10 @@ pub fn grafton_visca::camera::MotionQuery::clone(&self) -> grafton_visca::camera
 impl core::cmp::Eq for grafton_visca::camera::MotionQuery
 impl core::cmp::PartialEq for grafton_visca::camera::MotionQuery
 pub fn grafton_visca::camera::MotionQuery::eq(&self, &grafton_visca::camera::MotionQuery) -> bool
+impl core::convert::From<grafton_visca::AffectedAxes> for grafton_visca::camera::MotionQuery
+pub fn grafton_visca::camera::MotionQuery::from(grafton_visca::AffectedAxes) -> Self
+impl core::default::Default for grafton_visca::camera::MotionQuery
+pub fn grafton_visca::camera::MotionQuery::default() -> Self
 impl core::fmt::Debug for grafton_visca::camera::MotionQuery
 pub fn grafton_visca::camera::MotionQuery::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for grafton_visca::camera::MotionQuery
@@ -10735,8 +10749,10 @@ pub fn grafton_visca::DynSessionCamera::display(&self, bool) -> grafton_visca::D
 pub fn grafton_visca::DynSessionCamera::navigate(&self, grafton_visca::command::MenuDirection) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::select(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::status(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<bool, grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::toggle_display(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 impl grafton_visca::DynMotion for grafton_visca::DynSessionCamera
-pub fn grafton_visca::DynSessionCamera::is_moving(&self, grafton_visca::camera::MotionQuery) -> grafton_visca::DynFuture<'_, grafton_visca::Result<bool, grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::is_moving(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<bool, grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::is_moving_axes(&self, grafton_visca::camera::MotionQuery) -> grafton_visca::DynFuture<'_, grafton_visca::Result<bool, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::stop_all_motion(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::wait_until_idle(&self, grafton_visca::camera::IdleWait) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 impl grafton_visca::DynMotionSync for grafton_visca::DynSessionCamera
@@ -10744,25 +10760,31 @@ pub fn grafton_visca::DynSessionCamera::mode(&self) -> grafton_visca::DynFuture<
 pub fn grafton_visca::DynSessionCamera::preset(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::MotionSyncPreset, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::set_mode(&self, grafton_visca::MotionSyncMode) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::set_preset(&self, u8) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::set_speed(&self, grafton_visca::types::MotionSyncSpeed) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 impl grafton_visca::DynNdFilter for grafton_visca::DynSessionCamera
 pub fn grafton_visca::DynSessionCamera::auto_off(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::auto_on(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::position(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::NdFilterPosition, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::preset(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::types::NdFilterPreset, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::set_mode(&self, grafton_visca::command::NdFilterMode) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::set_stops(&self, f32) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::set_value(&self, u16) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::step_down(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::step_up(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 impl grafton_visca::DynPanTilt for grafton_visca::DynSessionCamera
 pub fn grafton_visca::DynSessionCamera::absolute(&self, grafton_visca::units::Degrees<f32>, grafton_visca::units::Degrees<f32>, grafton_visca::types::SpeedLevel) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::down(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::home(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::left(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::limit_clear(&self, grafton_visca::command::PanTiltLimitCorner) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::limit_set(&self, grafton_visca::command::PanTiltLimitCorner, grafton_visca::units::Degrees<f32>, grafton_visca::units::Degrees<f32>) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::move_direction(&self, grafton_visca::command::PanTiltDirection, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::position(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::camera::PanTiltPosition, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::relative(&self, grafton_visca::units::Degrees<f32>, grafton_visca::units::Degrees<f32>, grafton_visca::types::SpeedLevel) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::reset(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::right(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::stop(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::up(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
 impl grafton_visca::DynPower for grafton_visca::DynSessionCamera
 pub fn grafton_visca::DynSessionCamera::off(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::on(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
@@ -10845,6 +10867,8 @@ pub fn grafton_visca::DynSessionCamera::set_sensitivity(&self, grafton_visca::co
 impl grafton_visca::DynZoom for grafton_visca::DynSessionCamera
 pub fn grafton_visca::DynSessionCamera::position(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::types::ZoomPosition, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::set_digital_zoom(&self, bool) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::set_normalized(&self, grafton_visca::units::UnitInterval) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::set_normalized_in_domain(&self, grafton_visca::units::UnitInterval, grafton_visca::inquiry_conversions::ZoomDomain) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::set_position(&self, grafton_visca::types::ZoomPosition) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::stop(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::tele(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
@@ -10876,6 +10900,8 @@ impl core::marker::Unpin for grafton_visca::DynTargetedOperation
 impl core::marker::UnsafeUnpin for grafton_visca::DynTargetedOperation
 impl !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::DynTargetedOperation
 impl !core::panic::unwind_safe::UnwindSafe for grafton_visca::DynTargetedOperation
+pub const grafton_visca::dynapi::DYN_NOUN_CONVENIENCE_METHODS: &[(&str, &str)]
+pub const grafton_visca::dynapi::DYN_NOUN_CONVENIENCE_METHOD_COUNT: usize
 pub const grafton_visca::dynapi::DYN_NOUN_COUNT: usize
 pub const grafton_visca::dynapi::DYN_NOUN_INQUIRY_METHOD_COUNT: usize
 pub const grafton_visca::dynapi::DYN_NOUN_TARGET_METHOD_COUNT: usize
@@ -11146,6 +11172,7 @@ pub fn grafton_visca::dynapi::DynMenu::display(&self, bool) -> grafton_visca::Dy
 pub fn grafton_visca::dynapi::DynMenu::navigate(&self, grafton_visca::command::MenuDirection) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::dynapi::DynMenu::select(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::dynapi::DynMenu::status(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<bool, grafton_visca::Error>>
+pub fn grafton_visca::dynapi::DynMenu::toggle_display(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 impl grafton_visca::DynMenu for grafton_visca::DynSessionCamera
 pub fn grafton_visca::DynSessionCamera::cancel(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::direct(&self, u8, u8) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
@@ -11153,12 +11180,15 @@ pub fn grafton_visca::DynSessionCamera::display(&self, bool) -> grafton_visca::D
 pub fn grafton_visca::DynSessionCamera::navigate(&self, grafton_visca::command::MenuDirection) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::select(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::status(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<bool, grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::toggle_display(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub trait grafton_visca::dynapi::DynMotion: core::marker::Send + core::marker::Sync
-pub fn grafton_visca::dynapi::DynMotion::is_moving(&self, grafton_visca::camera::MotionQuery) -> grafton_visca::DynFuture<'_, grafton_visca::Result<bool, grafton_visca::Error>>
+pub fn grafton_visca::dynapi::DynMotion::is_moving(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<bool, grafton_visca::Error>>
+pub fn grafton_visca::dynapi::DynMotion::is_moving_axes(&self, grafton_visca::camera::MotionQuery) -> grafton_visca::DynFuture<'_, grafton_visca::Result<bool, grafton_visca::Error>>
 pub fn grafton_visca::dynapi::DynMotion::stop_all_motion(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::dynapi::DynMotion::wait_until_idle(&self, grafton_visca::camera::IdleWait) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 impl grafton_visca::DynMotion for grafton_visca::DynSessionCamera
-pub fn grafton_visca::DynSessionCamera::is_moving(&self, grafton_visca::camera::MotionQuery) -> grafton_visca::DynFuture<'_, grafton_visca::Result<bool, grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::is_moving(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<bool, grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::is_moving_axes(&self, grafton_visca::camera::MotionQuery) -> grafton_visca::DynFuture<'_, grafton_visca::Result<bool, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::stop_all_motion(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::wait_until_idle(&self, grafton_visca::camera::IdleWait) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub trait grafton_visca::dynapi::DynMotionSync: core::marker::Send + core::marker::Sync
@@ -11166,17 +11196,20 @@ pub fn grafton_visca::dynapi::DynMotionSync::mode(&self) -> grafton_visca::DynFu
 pub fn grafton_visca::dynapi::DynMotionSync::preset(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::MotionSyncPreset, grafton_visca::Error>>
 pub fn grafton_visca::dynapi::DynMotionSync::set_mode(&self, grafton_visca::MotionSyncMode) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::dynapi::DynMotionSync::set_preset(&self, u8) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
+pub fn grafton_visca::dynapi::DynMotionSync::set_speed(&self, grafton_visca::types::MotionSyncSpeed) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 impl grafton_visca::DynMotionSync for grafton_visca::DynSessionCamera
 pub fn grafton_visca::DynSessionCamera::mode(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::MotionSyncMode, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::preset(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::MotionSyncPreset, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::set_mode(&self, grafton_visca::MotionSyncMode) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::set_preset(&self, u8) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::set_speed(&self, grafton_visca::types::MotionSyncSpeed) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub trait grafton_visca::dynapi::DynNdFilter: core::marker::Send + core::marker::Sync
 pub fn grafton_visca::dynapi::DynNdFilter::auto_off(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::dynapi::DynNdFilter::auto_on(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::dynapi::DynNdFilter::position(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::NdFilterPosition, grafton_visca::Error>>
 pub fn grafton_visca::dynapi::DynNdFilter::preset(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::types::NdFilterPreset, grafton_visca::Error>>
 pub fn grafton_visca::dynapi::DynNdFilter::set_mode(&self, grafton_visca::command::NdFilterMode) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
+pub fn grafton_visca::dynapi::DynNdFilter::set_stops(&self, f32) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub fn grafton_visca::dynapi::DynNdFilter::set_value(&self, u16) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub fn grafton_visca::dynapi::DynNdFilter::step_down(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub fn grafton_visca::dynapi::DynNdFilter::step_up(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
@@ -11186,29 +11219,38 @@ pub fn grafton_visca::DynSessionCamera::auto_on(&self) -> grafton_visca::DynFutu
 pub fn grafton_visca::DynSessionCamera::position(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::NdFilterPosition, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::preset(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::types::NdFilterPreset, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::set_mode(&self, grafton_visca::command::NdFilterMode) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::set_stops(&self, f32) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::set_value(&self, u16) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::step_down(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::step_up(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub trait grafton_visca::dynapi::DynPanTilt: core::marker::Send + core::marker::Sync
 pub fn grafton_visca::dynapi::DynPanTilt::absolute(&self, grafton_visca::units::Degrees<f32>, grafton_visca::units::Degrees<f32>, grafton_visca::types::SpeedLevel) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
+pub fn grafton_visca::dynapi::DynPanTilt::down(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
 pub fn grafton_visca::dynapi::DynPanTilt::home(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
+pub fn grafton_visca::dynapi::DynPanTilt::left(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
 pub fn grafton_visca::dynapi::DynPanTilt::limit_clear(&self, grafton_visca::command::PanTiltLimitCorner) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::dynapi::DynPanTilt::limit_set(&self, grafton_visca::command::PanTiltLimitCorner, grafton_visca::units::Degrees<f32>, grafton_visca::units::Degrees<f32>) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::dynapi::DynPanTilt::move_direction(&self, grafton_visca::command::PanTiltDirection, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
 pub fn grafton_visca::dynapi::DynPanTilt::position(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::camera::PanTiltPosition, grafton_visca::Error>>
 pub fn grafton_visca::dynapi::DynPanTilt::relative(&self, grafton_visca::units::Degrees<f32>, grafton_visca::units::Degrees<f32>, grafton_visca::types::SpeedLevel) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub fn grafton_visca::dynapi::DynPanTilt::reset(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
+pub fn grafton_visca::dynapi::DynPanTilt::right(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
 pub fn grafton_visca::dynapi::DynPanTilt::stop(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
+pub fn grafton_visca::dynapi::DynPanTilt::up(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
 impl grafton_visca::DynPanTilt for grafton_visca::DynSessionCamera
 pub fn grafton_visca::DynSessionCamera::absolute(&self, grafton_visca::units::Degrees<f32>, grafton_visca::units::Degrees<f32>, grafton_visca::types::SpeedLevel) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::down(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::home(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::left(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::limit_clear(&self, grafton_visca::command::PanTiltLimitCorner) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::limit_set(&self, grafton_visca::command::PanTiltLimitCorner, grafton_visca::units::Degrees<f32>, grafton_visca::units::Degrees<f32>) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::move_direction(&self, grafton_visca::command::PanTiltDirection, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::position(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::camera::PanTiltPosition, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::relative(&self, grafton_visca::units::Degrees<f32>, grafton_visca::units::Degrees<f32>, grafton_visca::types::SpeedLevel) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::reset(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::right(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::stop(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::up(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
 pub trait grafton_visca::dynapi::DynPower: core::marker::Send + core::marker::Sync
 pub fn grafton_visca::dynapi::DynPower::off(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::dynapi::DynPower::on(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
@@ -11372,6 +11414,8 @@ pub fn grafton_visca::DynSessionCamera::set_sensitivity(&self, grafton_visca::co
 pub trait grafton_visca::dynapi::DynZoom: core::marker::Send + core::marker::Sync
 pub fn grafton_visca::dynapi::DynZoom::position(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::types::ZoomPosition, grafton_visca::Error>>
 pub fn grafton_visca::dynapi::DynZoom::set_digital_zoom(&self, bool) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
+pub fn grafton_visca::dynapi::DynZoom::set_normalized(&self, grafton_visca::units::UnitInterval) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
+pub fn grafton_visca::dynapi::DynZoom::set_normalized_in_domain(&self, grafton_visca::units::UnitInterval, grafton_visca::inquiry_conversions::ZoomDomain) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub fn grafton_visca::dynapi::DynZoom::set_position(&self, grafton_visca::types::ZoomPosition) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub fn grafton_visca::dynapi::DynZoom::stop(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
 pub fn grafton_visca::dynapi::DynZoom::tele(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
@@ -11381,6 +11425,8 @@ pub fn grafton_visca::dynapi::DynZoom::wide_variable(&self, grafton_visca::types
 impl grafton_visca::DynZoom for grafton_visca::DynSessionCamera
 pub fn grafton_visca::DynSessionCamera::position(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::types::ZoomPosition, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::set_digital_zoom(&self, bool) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::set_normalized(&self, grafton_visca::units::UnitInterval) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::set_normalized_in_domain(&self, grafton_visca::units::UnitInterval, grafton_visca::inquiry_conversions::ZoomDomain) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::set_position(&self, grafton_visca::types::ZoomPosition) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::stop(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::tele(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
@@ -12195,6 +12241,7 @@ impl core::panic::unwind_safe::UnwindSafe for grafton_visca::state_cache::StateE
 pub grafton_visca::prelude::async::StateKey::AutoNdFilter
 pub grafton_visca::prelude::async::StateKey::AutoSlowShutter
 pub grafton_visca::prelude::async::StateKey::DigitalZoomMode
+pub grafton_visca::prelude::async::StateKey::Flip
 pub grafton_visca::prelude::async::StateKey::FocusLockMode
 pub grafton_visca::prelude::async::StateKey::ImageFreeze
 pub grafton_visca::prelude::async::StateKey::MulticastStreaming
@@ -12292,6 +12339,7 @@ pub struct grafton_visca::prelude::async::Camera<P: grafton_visca::profile::Comp
 impl<P: grafton_visca::profile::CompileTimeProfile> grafton_visca::Camera<P>
 pub fn grafton_visca::Camera<P>::advanced(&self) -> grafton_visca::AdvancedAccessor<'_, P>
 impl<P: grafton_visca::profile::CompileTimeProfile> grafton_visca::Camera<P>
+pub fn grafton_visca::Camera<P>::capabilities(&self) -> &grafton_visca::capabilities::Capabilities
 pub async fn grafton_visca::Camera<P>::execute<C>(&self, &C) -> grafton_visca::Result<()> where C: grafton_visca::PlainCommand + ?core::marker::Sized
 pub async fn grafton_visca::Camera<P>::inquire<Q>(&self, &Q) -> grafton_visca::Result<<Q as grafton_visca::Inquiry>::Response> where Q: grafton_visca::Inquiry + ?core::marker::Sized
 pub fn grafton_visca::Camera<P>::profile(&self) -> &grafton_visca::profile::ProfileSpec
@@ -12629,8 +12677,10 @@ pub fn grafton_visca::DynSessionCamera::display(&self, bool) -> grafton_visca::D
 pub fn grafton_visca::DynSessionCamera::navigate(&self, grafton_visca::command::MenuDirection) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::select(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::status(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<bool, grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::toggle_display(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 impl grafton_visca::DynMotion for grafton_visca::DynSessionCamera
-pub fn grafton_visca::DynSessionCamera::is_moving(&self, grafton_visca::camera::MotionQuery) -> grafton_visca::DynFuture<'_, grafton_visca::Result<bool, grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::is_moving(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<bool, grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::is_moving_axes(&self, grafton_visca::camera::MotionQuery) -> grafton_visca::DynFuture<'_, grafton_visca::Result<bool, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::stop_all_motion(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::wait_until_idle(&self, grafton_visca::camera::IdleWait) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 impl grafton_visca::DynMotionSync for grafton_visca::DynSessionCamera
@@ -12638,25 +12688,31 @@ pub fn grafton_visca::DynSessionCamera::mode(&self) -> grafton_visca::DynFuture<
 pub fn grafton_visca::DynSessionCamera::preset(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::MotionSyncPreset, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::set_mode(&self, grafton_visca::MotionSyncMode) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::set_preset(&self, u8) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::set_speed(&self, grafton_visca::types::MotionSyncSpeed) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 impl grafton_visca::DynNdFilter for grafton_visca::DynSessionCamera
 pub fn grafton_visca::DynSessionCamera::auto_off(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::auto_on(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::position(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::NdFilterPosition, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::preset(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::types::NdFilterPreset, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::set_mode(&self, grafton_visca::command::NdFilterMode) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::set_stops(&self, f32) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::set_value(&self, u16) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::step_down(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::step_up(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 impl grafton_visca::DynPanTilt for grafton_visca::DynSessionCamera
 pub fn grafton_visca::DynSessionCamera::absolute(&self, grafton_visca::units::Degrees<f32>, grafton_visca::units::Degrees<f32>, grafton_visca::types::SpeedLevel) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::down(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::home(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::left(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::limit_clear(&self, grafton_visca::command::PanTiltLimitCorner) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::limit_set(&self, grafton_visca::command::PanTiltLimitCorner, grafton_visca::units::Degrees<f32>, grafton_visca::units::Degrees<f32>) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::move_direction(&self, grafton_visca::command::PanTiltDirection, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::position(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::camera::PanTiltPosition, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::relative(&self, grafton_visca::units::Degrees<f32>, grafton_visca::units::Degrees<f32>, grafton_visca::types::SpeedLevel) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::reset(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::right(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::stop(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::up(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
 impl grafton_visca::DynPower for grafton_visca::DynSessionCamera
 pub fn grafton_visca::DynSessionCamera::off(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::on(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
@@ -12739,6 +12795,8 @@ pub fn grafton_visca::DynSessionCamera::set_sensitivity(&self, grafton_visca::co
 impl grafton_visca::DynZoom for grafton_visca::DynSessionCamera
 pub fn grafton_visca::DynSessionCamera::position(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::types::ZoomPosition, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::set_digital_zoom(&self, bool) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::set_normalized(&self, grafton_visca::units::UnitInterval) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::set_normalized_in_domain(&self, grafton_visca::units::UnitInterval, grafton_visca::inquiry_conversions::ZoomDomain) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::set_position(&self, grafton_visca::types::ZoomPosition) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::stop(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::tele(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
@@ -13002,14 +13060,24 @@ pub grafton_visca::prelude::async::IdleWait::interval: core::time::Duration
 pub grafton_visca::prelude::async::IdleWait::timeout: core::time::Duration
 pub grafton_visca::prelude::async::IdleWait::tolerance: grafton_visca::camera::MovementTolerance
 impl grafton_visca::camera::IdleWait
+pub const fn grafton_visca::camera::IdleWait::for_focus() -> Self
+pub const fn grafton_visca::camera::IdleWait::for_pan_tilt() -> Self
+pub const fn grafton_visca::camera::IdleWait::for_preset_recall() -> Self
+pub const fn grafton_visca::camera::IdleWait::for_zoom() -> Self
 pub const fn grafton_visca::camera::IdleWait::new(grafton_visca::AffectedAxes, core::time::Duration) -> Self
+pub const fn grafton_visca::camera::IdleWait::with_axes(self, grafton_visca::AffectedAxes) -> Self
 pub const fn grafton_visca::camera::IdleWait::with_interval(self, core::time::Duration) -> Self
+pub const fn grafton_visca::camera::IdleWait::with_timeout(self, core::time::Duration) -> Self
 pub const fn grafton_visca::camera::IdleWait::with_tolerance(self, grafton_visca::camera::MovementTolerance) -> Self
 impl core::clone::Clone for grafton_visca::camera::IdleWait
 pub fn grafton_visca::camera::IdleWait::clone(&self) -> grafton_visca::camera::IdleWait
 impl core::cmp::Eq for grafton_visca::camera::IdleWait
 impl core::cmp::PartialEq for grafton_visca::camera::IdleWait
 pub fn grafton_visca::camera::IdleWait::eq(&self, &grafton_visca::camera::IdleWait) -> bool
+impl core::convert::From<core::time::Duration> for grafton_visca::camera::IdleWait
+pub fn grafton_visca::camera::IdleWait::from(core::time::Duration) -> Self
+impl core::default::Default for grafton_visca::camera::IdleWait
+pub fn grafton_visca::camera::IdleWait::default() -> Self
 impl core::fmt::Debug for grafton_visca::camera::IdleWait
 pub fn grafton_visca::camera::IdleWait::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for grafton_visca::camera::IdleWait
@@ -13116,6 +13184,7 @@ pub async fn grafton_visca::MenuAccessor<'a, P>::display(&self, bool) -> grafton
 pub async fn grafton_visca::MenuAccessor<'a, P>::navigate(&self, grafton_visca::command::MenuDirection) -> grafton_visca::Result<()>
 pub async fn grafton_visca::MenuAccessor<'a, P>::select(&self) -> grafton_visca::Result<()>
 pub async fn grafton_visca::MenuAccessor<'a, P>::status(&self) -> grafton_visca::Result<bool>
+pub async fn grafton_visca::MenuAccessor<'a, P>::toggle_display(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::menu_control::HasDirectMenuControl
 impl<'a, P: grafton_visca::profile::CompileTimeProfile> core::fmt::Debug for grafton_visca::MenuAccessor<'a, P>
 pub fn grafton_visca::MenuAccessor<'a, P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'a, P> core::marker::Freeze for grafton_visca::MenuAccessor<'a, P> where &'a grafton_visca::Camera<P>: core::marker::Freeze
@@ -13127,7 +13196,8 @@ impl<'a, P> !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::MenuAcce
 impl<'a, P> !core::panic::unwind_safe::UnwindSafe for grafton_visca::MenuAccessor<'a, P>
 pub struct grafton_visca::prelude::async::MotionAccessor<'a, P: grafton_visca::profile::CompileTimeProfile>
 impl<'a, P: grafton_visca::profile::CompileTimeProfile> grafton_visca::MotionAccessor<'a, P>
-pub async fn grafton_visca::MotionAccessor<'a, P>::is_moving(&self, grafton_visca::camera::MotionQuery) -> grafton_visca::Result<bool>
+pub async fn grafton_visca::MotionAccessor<'a, P>::is_moving(&self) -> grafton_visca::Result<bool>
+pub async fn grafton_visca::MotionAccessor<'a, P>::is_moving_axes(&self, grafton_visca::camera::MotionQuery) -> grafton_visca::Result<bool>
 pub async fn grafton_visca::MotionAccessor<'a, P>::stop_all_motion(&self) -> grafton_visca::Result<()>
 pub async fn grafton_visca::MotionAccessor<'a, P>::wait_until_idle(&self, grafton_visca::camera::IdleWait) -> grafton_visca::Result<()>
 impl<'a, P: grafton_visca::profile::CompileTimeProfile> core::fmt::Debug for grafton_visca::MotionAccessor<'a, P>
@@ -13150,6 +13220,10 @@ pub fn grafton_visca::camera::MotionQuery::clone(&self) -> grafton_visca::camera
 impl core::cmp::Eq for grafton_visca::camera::MotionQuery
 impl core::cmp::PartialEq for grafton_visca::camera::MotionQuery
 pub fn grafton_visca::camera::MotionQuery::eq(&self, &grafton_visca::camera::MotionQuery) -> bool
+impl core::convert::From<grafton_visca::AffectedAxes> for grafton_visca::camera::MotionQuery
+pub fn grafton_visca::camera::MotionQuery::from(grafton_visca::AffectedAxes) -> Self
+impl core::default::Default for grafton_visca::camera::MotionQuery
+pub fn grafton_visca::camera::MotionQuery::default() -> Self
 impl core::fmt::Debug for grafton_visca::camera::MotionQuery
 pub fn grafton_visca::camera::MotionQuery::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for grafton_visca::camera::MotionQuery
@@ -13167,6 +13241,7 @@ pub async fn grafton_visca::MotionSyncAccessor<'a, P>::mode(&self) -> grafton_vi
 pub async fn grafton_visca::MotionSyncAccessor<'a, P>::preset(&self) -> grafton_visca::Result<grafton_visca::MotionSyncPreset>
 pub async fn grafton_visca::MotionSyncAccessor<'a, P>::set_mode(&self, grafton_visca::MotionSyncMode) -> grafton_visca::Result<()>
 pub async fn grafton_visca::MotionSyncAccessor<'a, P>::set_preset(&self, u8) -> grafton_visca::Result<()>
+pub async fn grafton_visca::MotionSyncAccessor<'a, P>::set_speed(&self, grafton_visca::types::MotionSyncSpeed) -> grafton_visca::Result<()>
 impl<'a, P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::HasMotionSync> core::fmt::Debug for grafton_visca::MotionSyncAccessor<'a, P>
 pub fn grafton_visca::MotionSyncAccessor<'a, P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'a, P> core::marker::Freeze for grafton_visca::MotionSyncAccessor<'a, P> where &'a grafton_visca::Camera<P>: core::marker::Freeze
@@ -13183,6 +13258,7 @@ pub async fn grafton_visca::NdFilterAccessor<'a, P>::auto_on(&self) -> grafton_v
 pub async fn grafton_visca::NdFilterAccessor<'a, P>::position(&self) -> grafton_visca::Result<grafton_visca::NdFilterPosition>
 pub async fn grafton_visca::NdFilterAccessor<'a, P>::preset(&self) -> grafton_visca::Result<grafton_visca::types::NdFilterPreset>
 pub async fn grafton_visca::NdFilterAccessor<'a, P>::set_mode(&self, grafton_visca::command::NdFilterMode) -> grafton_visca::Result<()>
+pub async fn grafton_visca::NdFilterAccessor<'a, P>::set_stops(&self, f32) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::Targeted>>
 pub async fn grafton_visca::NdFilterAccessor<'a, P>::set_value(&self, u16) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::Targeted>>
 pub async fn grafton_visca::NdFilterAccessor<'a, P>::step_down(&self) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::Targeted>>
 pub async fn grafton_visca::NdFilterAccessor<'a, P>::step_up(&self) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::Targeted>>
@@ -13426,14 +13502,18 @@ impl core::panic::unwind_safe::UnwindSafe for grafton_visca::types::PanSpeed
 pub struct grafton_visca::prelude::async::PanTiltAccessor<'a, P: grafton_visca::profile::CompileTimeProfile>
 impl<'a, P: grafton_visca::profile::CompileTimeProfile> grafton_visca::PanTiltAccessor<'a, P>
 pub async fn grafton_visca::PanTiltAccessor<'a, P>::absolute(&self, grafton_visca::units::Degrees<f32>, grafton_visca::units::Degrees<f32>, grafton_visca::types::SpeedLevel) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::Targeted>>
+pub async fn grafton_visca::PanTiltAccessor<'a, P>::down(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::AppliedOnly>>
 pub async fn grafton_visca::PanTiltAccessor<'a, P>::home(&self) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::Targeted>>
+pub async fn grafton_visca::PanTiltAccessor<'a, P>::left(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::AppliedOnly>>
 pub async fn grafton_visca::PanTiltAccessor<'a, P>::limit_clear(&self, grafton_visca::command::PanTiltLimitCorner) -> grafton_visca::Result<()>
 pub async fn grafton_visca::PanTiltAccessor<'a, P>::limit_set(&self, grafton_visca::command::PanTiltLimitCorner, grafton_visca::units::Degrees<f32>, grafton_visca::units::Degrees<f32>) -> grafton_visca::Result<()>
 pub async fn grafton_visca::PanTiltAccessor<'a, P>::move_direction(&self, grafton_visca::command::PanTiltDirection, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::AppliedOnly>>
 pub async fn grafton_visca::PanTiltAccessor<'a, P>::position(&self) -> grafton_visca::Result<grafton_visca::camera::PanTiltPosition>
 pub async fn grafton_visca::PanTiltAccessor<'a, P>::relative(&self, grafton_visca::units::Degrees<f32>, grafton_visca::units::Degrees<f32>, grafton_visca::types::SpeedLevel) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::Targeted>>
 pub async fn grafton_visca::PanTiltAccessor<'a, P>::reset(&self) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::Targeted>>
+pub async fn grafton_visca::PanTiltAccessor<'a, P>::right(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::AppliedOnly>>
 pub async fn grafton_visca::PanTiltAccessor<'a, P>::stop(&self) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::AppliedOnly>>
+pub async fn grafton_visca::PanTiltAccessor<'a, P>::up(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::AppliedOnly>>
 impl<'a, P: grafton_visca::profile::CompileTimeProfile> core::fmt::Debug for grafton_visca::PanTiltAccessor<'a, P>
 pub fn grafton_visca::PanTiltAccessor<'a, P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'a, P> core::marker::Freeze for grafton_visca::PanTiltAccessor<'a, P> where &'a grafton_visca::Camera<P>: core::marker::Freeze
@@ -13443,6 +13523,27 @@ impl<'a, P> core::marker::Unpin for grafton_visca::PanTiltAccessor<'a, P> where 
 impl<'a, P> core::marker::UnsafeUnpin for grafton_visca::PanTiltAccessor<'a, P> where &'a grafton_visca::Camera<P>: core::marker::UnsafeUnpin
 impl<'a, P> !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::PanTiltAccessor<'a, P>
 impl<'a, P> !core::panic::unwind_safe::UnwindSafe for grafton_visca::PanTiltAccessor<'a, P>
+pub struct grafton_visca::prelude::async::PanTiltLimitUpdate
+impl grafton_visca::state_cache::PanTiltLimitUpdate
+pub const fn grafton_visca::state_cache::PanTiltLimitUpdate::corner(self) -> grafton_visca::command::PanTiltLimitCorner
+pub const fn grafton_visca::state_cache::PanTiltLimitUpdate::is_cleared(self) -> bool
+pub const fn grafton_visca::state_cache::PanTiltLimitUpdate::position(self) -> core::option::Option<grafton_visca::camera::PanTiltPosition>
+impl core::clone::Clone for grafton_visca::state_cache::PanTiltLimitUpdate
+pub fn grafton_visca::state_cache::PanTiltLimitUpdate::clone(&self) -> grafton_visca::state_cache::PanTiltLimitUpdate
+impl core::cmp::Eq for grafton_visca::state_cache::PanTiltLimitUpdate
+impl core::cmp::PartialEq for grafton_visca::state_cache::PanTiltLimitUpdate
+pub fn grafton_visca::state_cache::PanTiltLimitUpdate::eq(&self, &grafton_visca::state_cache::PanTiltLimitUpdate) -> bool
+impl core::fmt::Debug for grafton_visca::state_cache::PanTiltLimitUpdate
+pub fn grafton_visca::state_cache::PanTiltLimitUpdate::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for grafton_visca::state_cache::PanTiltLimitUpdate
+impl core::marker::StructuralPartialEq for grafton_visca::state_cache::PanTiltLimitUpdate
+impl core::marker::Freeze for grafton_visca::state_cache::PanTiltLimitUpdate
+impl core::marker::Send for grafton_visca::state_cache::PanTiltLimitUpdate
+impl core::marker::Sync for grafton_visca::state_cache::PanTiltLimitUpdate
+impl core::marker::Unpin for grafton_visca::state_cache::PanTiltLimitUpdate
+impl core::marker::UnsafeUnpin for grafton_visca::state_cache::PanTiltLimitUpdate
+impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::state_cache::PanTiltLimitUpdate
+impl core::panic::unwind_safe::UnwindSafe for grafton_visca::state_cache::PanTiltLimitUpdate
 pub struct grafton_visca::prelude::async::Percentage<T>(pub T)
 impl<T> grafton_visca::units::Percentage<T>
 pub fn grafton_visca::units::Percentage<T>::into_inner(self) -> T
@@ -14756,8 +14857,23 @@ impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::camera::profiles
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::camera::profiles::SonyFR7
 pub struct grafton_visca::prelude::async::StateCache
 impl grafton_visca::state_cache::StateCache
+pub fn grafton_visca::state_cache::StateCache::auto_nd_filter(&self) -> core::option::Option<bool>
+pub fn grafton_visca::state_cache::StateCache::auto_slow_shutter(&self) -> core::option::Option<bool>
+pub fn grafton_visca::state_cache::StateCache::digital_zoom(&self) -> core::option::Option<bool>
+pub fn grafton_visca::state_cache::StateCache::flip_state(&self) -> core::option::Option<grafton_visca::command::FlipState>
+pub fn grafton_visca::state_cache::StateCache::focus_lock(&self) -> core::option::Option<bool>
+pub fn grafton_visca::state_cache::StateCache::image_freeze(&self) -> core::option::Option<bool>
+pub fn grafton_visca::state_cache::StateCache::multicast_streaming(&self) -> core::option::Option<bool>
+pub fn grafton_visca::state_cache::StateCache::nd_filter_mode(&self) -> core::option::Option<grafton_visca::command::NdFilterMode>
+pub fn grafton_visca::state_cache::StateCache::ndi_quality(&self) -> core::option::Option<grafton_visca::types::NdiQuality>
+pub fn grafton_visca::state_cache::StateCache::pan_tilt_limits(&self) -> core::option::Option<grafton_visca::state_cache::PanTiltLimitUpdate>
+pub fn grafton_visca::state_cache::StateCache::preset_recall_speed(&self) -> core::option::Option<u8>
+pub fn grafton_visca::state_cache::StateCache::spotlight(&self) -> core::option::Option<bool>
+pub fn grafton_visca::state_cache::StateCache::tally_brightness_is_high(&self) -> core::option::Option<bool>
+pub fn grafton_visca::state_cache::StateCache::tally_mode(&self) -> core::option::Option<bool>
 pub const fn grafton_visca::state_cache::StateCache::target(&self) -> grafton_visca::CameraId
 pub fn grafton_visca::state_cache::StateCache::value(&self, grafton_visca::state_cache::StateKey) -> grafton_visca::state_cache::StateEntry
+pub fn grafton_visca::state_cache::StateCache::variable_speed_mode(&self) -> core::option::Option<grafton_visca::command::VariableSpeedMode>
 impl core::clone::Clone for grafton_visca::state_cache::StateCache
 pub fn grafton_visca::state_cache::StateCache::clone(&self) -> grafton_visca::state_cache::StateCache
 impl core::fmt::Debug for grafton_visca::state_cache::StateCache
@@ -14976,6 +15092,8 @@ pub struct grafton_visca::prelude::async::ZoomAccessor<'a, P: grafton_visca::pro
 impl<'a, P: grafton_visca::profile::CompileTimeProfile> grafton_visca::ZoomAccessor<'a, P>
 pub async fn grafton_visca::ZoomAccessor<'a, P>::position(&self) -> grafton_visca::Result<grafton_visca::types::ZoomPosition>
 pub async fn grafton_visca::ZoomAccessor<'a, P>::set_digital_zoom(&self, bool) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasDigitalZoomToggle
+pub async fn grafton_visca::ZoomAccessor<'a, P>::set_normalized(&self, grafton_visca::units::UnitInterval) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::Targeted>> where P: grafton_visca::capabilities::HasDirectZoom
+pub async fn grafton_visca::ZoomAccessor<'a, P>::set_normalized_in_domain(&self, grafton_visca::units::UnitInterval, grafton_visca::inquiry_conversions::ZoomDomain) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::Targeted>> where P: grafton_visca::capabilities::HasDirectZoom + grafton_visca::capabilities::HasDigitalZoomRange
 pub async fn grafton_visca::ZoomAccessor<'a, P>::set_position(&self, grafton_visca::types::ZoomPosition) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::Targeted>> where P: grafton_visca::capabilities::HasDirectZoom
 pub async fn grafton_visca::ZoomAccessor<'a, P>::stop(&self) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::AppliedOnly>>
 pub async fn grafton_visca::ZoomAccessor<'a, P>::tele(&self) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::AppliedOnly>>
@@ -14991,6 +15109,8 @@ impl<'a, P> core::marker::Unpin for grafton_visca::ZoomAccessor<'a, P> where &'a
 impl<'a, P> core::marker::UnsafeUnpin for grafton_visca::ZoomAccessor<'a, P> where &'a grafton_visca::Camera<P>: core::marker::UnsafeUnpin
 impl<'a, P> !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::ZoomAccessor<'a, P>
 impl<'a, P> !core::panic::unwind_safe::UnwindSafe for grafton_visca::ZoomAccessor<'a, P>
+pub const grafton_visca::prelude::async::DYN_NOUN_CONVENIENCE_METHODS: &[(&str, &str)]
+pub const grafton_visca::prelude::async::DYN_NOUN_CONVENIENCE_METHOD_COUNT: usize
 pub const grafton_visca::prelude::async::DYN_NOUN_COUNT: usize
 pub const grafton_visca::prelude::async::DYN_NOUN_INQUIRY_METHOD_COUNT: usize
 pub const grafton_visca::prelude::async::DYN_NOUN_TARGET_METHOD_COUNT: usize
@@ -15261,6 +15381,7 @@ pub fn grafton_visca::prelude::async::DynMenu::display(&self, bool) -> grafton_v
 pub fn grafton_visca::prelude::async::DynMenu::navigate(&self, grafton_visca::command::MenuDirection) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::prelude::async::DynMenu::select(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::prelude::async::DynMenu::status(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<bool, grafton_visca::Error>>
+pub fn grafton_visca::prelude::async::DynMenu::toggle_display(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 impl grafton_visca::DynMenu for grafton_visca::DynSessionCamera
 pub fn grafton_visca::DynSessionCamera::cancel(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::direct(&self, u8, u8) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
@@ -15268,12 +15389,15 @@ pub fn grafton_visca::DynSessionCamera::display(&self, bool) -> grafton_visca::D
 pub fn grafton_visca::DynSessionCamera::navigate(&self, grafton_visca::command::MenuDirection) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::select(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::status(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<bool, grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::toggle_display(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub trait grafton_visca::prelude::async::DynMotion: core::marker::Send + core::marker::Sync
-pub fn grafton_visca::prelude::async::DynMotion::is_moving(&self, grafton_visca::camera::MotionQuery) -> grafton_visca::DynFuture<'_, grafton_visca::Result<bool, grafton_visca::Error>>
+pub fn grafton_visca::prelude::async::DynMotion::is_moving(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<bool, grafton_visca::Error>>
+pub fn grafton_visca::prelude::async::DynMotion::is_moving_axes(&self, grafton_visca::camera::MotionQuery) -> grafton_visca::DynFuture<'_, grafton_visca::Result<bool, grafton_visca::Error>>
 pub fn grafton_visca::prelude::async::DynMotion::stop_all_motion(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::prelude::async::DynMotion::wait_until_idle(&self, grafton_visca::camera::IdleWait) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 impl grafton_visca::DynMotion for grafton_visca::DynSessionCamera
-pub fn grafton_visca::DynSessionCamera::is_moving(&self, grafton_visca::camera::MotionQuery) -> grafton_visca::DynFuture<'_, grafton_visca::Result<bool, grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::is_moving(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<bool, grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::is_moving_axes(&self, grafton_visca::camera::MotionQuery) -> grafton_visca::DynFuture<'_, grafton_visca::Result<bool, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::stop_all_motion(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::wait_until_idle(&self, grafton_visca::camera::IdleWait) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub trait grafton_visca::prelude::async::DynMotionSync: core::marker::Send + core::marker::Sync
@@ -15281,17 +15405,20 @@ pub fn grafton_visca::prelude::async::DynMotionSync::mode(&self) -> grafton_visc
 pub fn grafton_visca::prelude::async::DynMotionSync::preset(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::MotionSyncPreset, grafton_visca::Error>>
 pub fn grafton_visca::prelude::async::DynMotionSync::set_mode(&self, grafton_visca::MotionSyncMode) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::prelude::async::DynMotionSync::set_preset(&self, u8) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
+pub fn grafton_visca::prelude::async::DynMotionSync::set_speed(&self, grafton_visca::types::MotionSyncSpeed) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 impl grafton_visca::DynMotionSync for grafton_visca::DynSessionCamera
 pub fn grafton_visca::DynSessionCamera::mode(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::MotionSyncMode, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::preset(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::MotionSyncPreset, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::set_mode(&self, grafton_visca::MotionSyncMode) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::set_preset(&self, u8) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::set_speed(&self, grafton_visca::types::MotionSyncSpeed) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub trait grafton_visca::prelude::async::DynNdFilter: core::marker::Send + core::marker::Sync
 pub fn grafton_visca::prelude::async::DynNdFilter::auto_off(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::prelude::async::DynNdFilter::auto_on(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::prelude::async::DynNdFilter::position(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::NdFilterPosition, grafton_visca::Error>>
 pub fn grafton_visca::prelude::async::DynNdFilter::preset(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::types::NdFilterPreset, grafton_visca::Error>>
 pub fn grafton_visca::prelude::async::DynNdFilter::set_mode(&self, grafton_visca::command::NdFilterMode) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
+pub fn grafton_visca::prelude::async::DynNdFilter::set_stops(&self, f32) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub fn grafton_visca::prelude::async::DynNdFilter::set_value(&self, u16) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub fn grafton_visca::prelude::async::DynNdFilter::step_down(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub fn grafton_visca::prelude::async::DynNdFilter::step_up(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
@@ -15301,29 +15428,38 @@ pub fn grafton_visca::DynSessionCamera::auto_on(&self) -> grafton_visca::DynFutu
 pub fn grafton_visca::DynSessionCamera::position(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::NdFilterPosition, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::preset(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::types::NdFilterPreset, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::set_mode(&self, grafton_visca::command::NdFilterMode) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::set_stops(&self, f32) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::set_value(&self, u16) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::step_down(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::step_up(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub trait grafton_visca::prelude::async::DynPanTilt: core::marker::Send + core::marker::Sync
 pub fn grafton_visca::prelude::async::DynPanTilt::absolute(&self, grafton_visca::units::Degrees<f32>, grafton_visca::units::Degrees<f32>, grafton_visca::types::SpeedLevel) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
+pub fn grafton_visca::prelude::async::DynPanTilt::down(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
 pub fn grafton_visca::prelude::async::DynPanTilt::home(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
+pub fn grafton_visca::prelude::async::DynPanTilt::left(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
 pub fn grafton_visca::prelude::async::DynPanTilt::limit_clear(&self, grafton_visca::command::PanTiltLimitCorner) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::prelude::async::DynPanTilt::limit_set(&self, grafton_visca::command::PanTiltLimitCorner, grafton_visca::units::Degrees<f32>, grafton_visca::units::Degrees<f32>) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::prelude::async::DynPanTilt::move_direction(&self, grafton_visca::command::PanTiltDirection, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
 pub fn grafton_visca::prelude::async::DynPanTilt::position(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::camera::PanTiltPosition, grafton_visca::Error>>
 pub fn grafton_visca::prelude::async::DynPanTilt::relative(&self, grafton_visca::units::Degrees<f32>, grafton_visca::units::Degrees<f32>, grafton_visca::types::SpeedLevel) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub fn grafton_visca::prelude::async::DynPanTilt::reset(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
+pub fn grafton_visca::prelude::async::DynPanTilt::right(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
 pub fn grafton_visca::prelude::async::DynPanTilt::stop(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
+pub fn grafton_visca::prelude::async::DynPanTilt::up(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
 impl grafton_visca::DynPanTilt for grafton_visca::DynSessionCamera
 pub fn grafton_visca::DynSessionCamera::absolute(&self, grafton_visca::units::Degrees<f32>, grafton_visca::units::Degrees<f32>, grafton_visca::types::SpeedLevel) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::down(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::home(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::left(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::limit_clear(&self, grafton_visca::command::PanTiltLimitCorner) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::limit_set(&self, grafton_visca::command::PanTiltLimitCorner, grafton_visca::units::Degrees<f32>, grafton_visca::units::Degrees<f32>) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::move_direction(&self, grafton_visca::command::PanTiltDirection, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::position(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::camera::PanTiltPosition, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::relative(&self, grafton_visca::units::Degrees<f32>, grafton_visca::units::Degrees<f32>, grafton_visca::types::SpeedLevel) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::reset(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::right(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::stop(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::up(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
 pub trait grafton_visca::prelude::async::DynPower: core::marker::Send + core::marker::Sync
 pub fn grafton_visca::prelude::async::DynPower::off(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::prelude::async::DynPower::on(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
@@ -15487,6 +15623,8 @@ pub fn grafton_visca::DynSessionCamera::set_sensitivity(&self, grafton_visca::co
 pub trait grafton_visca::prelude::async::DynZoom: core::marker::Send + core::marker::Sync
 pub fn grafton_visca::prelude::async::DynZoom::position(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::types::ZoomPosition, grafton_visca::Error>>
 pub fn grafton_visca::prelude::async::DynZoom::set_digital_zoom(&self, bool) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
+pub fn grafton_visca::prelude::async::DynZoom::set_normalized(&self, grafton_visca::units::UnitInterval) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
+pub fn grafton_visca::prelude::async::DynZoom::set_normalized_in_domain(&self, grafton_visca::units::UnitInterval, grafton_visca::inquiry_conversions::ZoomDomain) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub fn grafton_visca::prelude::async::DynZoom::set_position(&self, grafton_visca::types::ZoomPosition) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub fn grafton_visca::prelude::async::DynZoom::stop(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
 pub fn grafton_visca::prelude::async::DynZoom::tele(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
@@ -15496,6 +15634,8 @@ pub fn grafton_visca::prelude::async::DynZoom::wide_variable(&self, grafton_visc
 impl grafton_visca::DynZoom for grafton_visca::DynSessionCamera
 pub fn grafton_visca::DynSessionCamera::position(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::types::ZoomPosition, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::set_digital_zoom(&self, bool) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::set_normalized(&self, grafton_visca::units::UnitInterval) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::set_normalized_in_domain(&self, grafton_visca::units::UnitInterval, grafton_visca::inquiry_conversions::ZoomDomain) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::set_position(&self, grafton_visca::types::ZoomPosition) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::stop(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::tele(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
@@ -15705,8 +15845,10 @@ pub fn grafton_visca::DynSessionCamera::display(&self, bool) -> grafton_visca::D
 pub fn grafton_visca::DynSessionCamera::navigate(&self, grafton_visca::command::MenuDirection) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::select(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::status(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<bool, grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::toggle_display(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 impl grafton_visca::DynMotion for grafton_visca::DynSessionCamera
-pub fn grafton_visca::DynSessionCamera::is_moving(&self, grafton_visca::camera::MotionQuery) -> grafton_visca::DynFuture<'_, grafton_visca::Result<bool, grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::is_moving(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<bool, grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::is_moving_axes(&self, grafton_visca::camera::MotionQuery) -> grafton_visca::DynFuture<'_, grafton_visca::Result<bool, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::stop_all_motion(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::wait_until_idle(&self, grafton_visca::camera::IdleWait) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 impl grafton_visca::DynMotionSync for grafton_visca::DynSessionCamera
@@ -15714,25 +15856,31 @@ pub fn grafton_visca::DynSessionCamera::mode(&self) -> grafton_visca::DynFuture<
 pub fn grafton_visca::DynSessionCamera::preset(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::MotionSyncPreset, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::set_mode(&self, grafton_visca::MotionSyncMode) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::set_preset(&self, u8) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::set_speed(&self, grafton_visca::types::MotionSyncSpeed) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 impl grafton_visca::DynNdFilter for grafton_visca::DynSessionCamera
 pub fn grafton_visca::DynSessionCamera::auto_off(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::auto_on(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::position(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::NdFilterPosition, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::preset(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::types::NdFilterPreset, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::set_mode(&self, grafton_visca::command::NdFilterMode) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::set_stops(&self, f32) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::set_value(&self, u16) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::step_down(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::step_up(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 impl grafton_visca::DynPanTilt for grafton_visca::DynSessionCamera
 pub fn grafton_visca::DynSessionCamera::absolute(&self, grafton_visca::units::Degrees<f32>, grafton_visca::units::Degrees<f32>, grafton_visca::types::SpeedLevel) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::down(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::home(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::left(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::limit_clear(&self, grafton_visca::command::PanTiltLimitCorner) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::limit_set(&self, grafton_visca::command::PanTiltLimitCorner, grafton_visca::units::Degrees<f32>, grafton_visca::units::Degrees<f32>) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::move_direction(&self, grafton_visca::command::PanTiltDirection, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::position(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::camera::PanTiltPosition, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::relative(&self, grafton_visca::units::Degrees<f32>, grafton_visca::units::Degrees<f32>, grafton_visca::types::SpeedLevel) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::reset(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::right(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::stop(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::up(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
 impl grafton_visca::DynPower for grafton_visca::DynSessionCamera
 pub fn grafton_visca::DynSessionCamera::off(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::on(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
@@ -15815,6 +15963,8 @@ pub fn grafton_visca::DynSessionCamera::set_sensitivity(&self, grafton_visca::co
 impl grafton_visca::DynZoom for grafton_visca::DynSessionCamera
 pub fn grafton_visca::DynSessionCamera::position(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::types::ZoomPosition, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::set_digital_zoom(&self, bool) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::set_normalized(&self, grafton_visca::units::UnitInterval) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::set_normalized_in_domain(&self, grafton_visca::units::UnitInterval, grafton_visca::inquiry_conversions::ZoomDomain) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::set_position(&self, grafton_visca::types::ZoomPosition) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::stop(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::tele(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
@@ -15846,6 +15996,8 @@ impl core::marker::Unpin for grafton_visca::DynTargetedOperation
 impl core::marker::UnsafeUnpin for grafton_visca::DynTargetedOperation
 impl !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::DynTargetedOperation
 impl !core::panic::unwind_safe::UnwindSafe for grafton_visca::DynTargetedOperation
+pub const grafton_visca::prelude::dyn_api::DYN_NOUN_CONVENIENCE_METHODS: &[(&str, &str)]
+pub const grafton_visca::prelude::dyn_api::DYN_NOUN_CONVENIENCE_METHOD_COUNT: usize
 pub const grafton_visca::prelude::dyn_api::DYN_NOUN_COUNT: usize
 pub const grafton_visca::prelude::dyn_api::DYN_NOUN_INQUIRY_METHOD_COUNT: usize
 pub const grafton_visca::prelude::dyn_api::DYN_NOUN_TARGET_METHOD_COUNT: usize
@@ -16116,6 +16268,7 @@ pub fn grafton_visca::prelude::dyn_api::DynMenu::display(&self, bool) -> grafton
 pub fn grafton_visca::prelude::dyn_api::DynMenu::navigate(&self, grafton_visca::command::MenuDirection) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::prelude::dyn_api::DynMenu::select(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::prelude::dyn_api::DynMenu::status(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<bool, grafton_visca::Error>>
+pub fn grafton_visca::prelude::dyn_api::DynMenu::toggle_display(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 impl grafton_visca::DynMenu for grafton_visca::DynSessionCamera
 pub fn grafton_visca::DynSessionCamera::cancel(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::direct(&self, u8, u8) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
@@ -16123,12 +16276,15 @@ pub fn grafton_visca::DynSessionCamera::display(&self, bool) -> grafton_visca::D
 pub fn grafton_visca::DynSessionCamera::navigate(&self, grafton_visca::command::MenuDirection) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::select(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::status(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<bool, grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::toggle_display(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub trait grafton_visca::prelude::dyn_api::DynMotion: core::marker::Send + core::marker::Sync
-pub fn grafton_visca::prelude::dyn_api::DynMotion::is_moving(&self, grafton_visca::camera::MotionQuery) -> grafton_visca::DynFuture<'_, grafton_visca::Result<bool, grafton_visca::Error>>
+pub fn grafton_visca::prelude::dyn_api::DynMotion::is_moving(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<bool, grafton_visca::Error>>
+pub fn grafton_visca::prelude::dyn_api::DynMotion::is_moving_axes(&self, grafton_visca::camera::MotionQuery) -> grafton_visca::DynFuture<'_, grafton_visca::Result<bool, grafton_visca::Error>>
 pub fn grafton_visca::prelude::dyn_api::DynMotion::stop_all_motion(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::prelude::dyn_api::DynMotion::wait_until_idle(&self, grafton_visca::camera::IdleWait) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 impl grafton_visca::DynMotion for grafton_visca::DynSessionCamera
-pub fn grafton_visca::DynSessionCamera::is_moving(&self, grafton_visca::camera::MotionQuery) -> grafton_visca::DynFuture<'_, grafton_visca::Result<bool, grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::is_moving(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<bool, grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::is_moving_axes(&self, grafton_visca::camera::MotionQuery) -> grafton_visca::DynFuture<'_, grafton_visca::Result<bool, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::stop_all_motion(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::wait_until_idle(&self, grafton_visca::camera::IdleWait) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub trait grafton_visca::prelude::dyn_api::DynMotionSync: core::marker::Send + core::marker::Sync
@@ -16136,17 +16292,20 @@ pub fn grafton_visca::prelude::dyn_api::DynMotionSync::mode(&self) -> grafton_vi
 pub fn grafton_visca::prelude::dyn_api::DynMotionSync::preset(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::MotionSyncPreset, grafton_visca::Error>>
 pub fn grafton_visca::prelude::dyn_api::DynMotionSync::set_mode(&self, grafton_visca::MotionSyncMode) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::prelude::dyn_api::DynMotionSync::set_preset(&self, u8) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
+pub fn grafton_visca::prelude::dyn_api::DynMotionSync::set_speed(&self, grafton_visca::types::MotionSyncSpeed) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 impl grafton_visca::DynMotionSync for grafton_visca::DynSessionCamera
 pub fn grafton_visca::DynSessionCamera::mode(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::MotionSyncMode, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::preset(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::MotionSyncPreset, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::set_mode(&self, grafton_visca::MotionSyncMode) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::set_preset(&self, u8) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::set_speed(&self, grafton_visca::types::MotionSyncSpeed) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub trait grafton_visca::prelude::dyn_api::DynNdFilter: core::marker::Send + core::marker::Sync
 pub fn grafton_visca::prelude::dyn_api::DynNdFilter::auto_off(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::prelude::dyn_api::DynNdFilter::auto_on(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::prelude::dyn_api::DynNdFilter::position(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::NdFilterPosition, grafton_visca::Error>>
 pub fn grafton_visca::prelude::dyn_api::DynNdFilter::preset(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::types::NdFilterPreset, grafton_visca::Error>>
 pub fn grafton_visca::prelude::dyn_api::DynNdFilter::set_mode(&self, grafton_visca::command::NdFilterMode) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
+pub fn grafton_visca::prelude::dyn_api::DynNdFilter::set_stops(&self, f32) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub fn grafton_visca::prelude::dyn_api::DynNdFilter::set_value(&self, u16) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub fn grafton_visca::prelude::dyn_api::DynNdFilter::step_down(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub fn grafton_visca::prelude::dyn_api::DynNdFilter::step_up(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
@@ -16156,29 +16315,38 @@ pub fn grafton_visca::DynSessionCamera::auto_on(&self) -> grafton_visca::DynFutu
 pub fn grafton_visca::DynSessionCamera::position(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::NdFilterPosition, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::preset(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::types::NdFilterPreset, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::set_mode(&self, grafton_visca::command::NdFilterMode) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::set_stops(&self, f32) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::set_value(&self, u16) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::step_down(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::step_up(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub trait grafton_visca::prelude::dyn_api::DynPanTilt: core::marker::Send + core::marker::Sync
 pub fn grafton_visca::prelude::dyn_api::DynPanTilt::absolute(&self, grafton_visca::units::Degrees<f32>, grafton_visca::units::Degrees<f32>, grafton_visca::types::SpeedLevel) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
+pub fn grafton_visca::prelude::dyn_api::DynPanTilt::down(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
 pub fn grafton_visca::prelude::dyn_api::DynPanTilt::home(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
+pub fn grafton_visca::prelude::dyn_api::DynPanTilt::left(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
 pub fn grafton_visca::prelude::dyn_api::DynPanTilt::limit_clear(&self, grafton_visca::command::PanTiltLimitCorner) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::prelude::dyn_api::DynPanTilt::limit_set(&self, grafton_visca::command::PanTiltLimitCorner, grafton_visca::units::Degrees<f32>, grafton_visca::units::Degrees<f32>) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::prelude::dyn_api::DynPanTilt::move_direction(&self, grafton_visca::command::PanTiltDirection, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
 pub fn grafton_visca::prelude::dyn_api::DynPanTilt::position(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::camera::PanTiltPosition, grafton_visca::Error>>
 pub fn grafton_visca::prelude::dyn_api::DynPanTilt::relative(&self, grafton_visca::units::Degrees<f32>, grafton_visca::units::Degrees<f32>, grafton_visca::types::SpeedLevel) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub fn grafton_visca::prelude::dyn_api::DynPanTilt::reset(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
+pub fn grafton_visca::prelude::dyn_api::DynPanTilt::right(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
 pub fn grafton_visca::prelude::dyn_api::DynPanTilt::stop(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
+pub fn grafton_visca::prelude::dyn_api::DynPanTilt::up(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
 impl grafton_visca::DynPanTilt for grafton_visca::DynSessionCamera
 pub fn grafton_visca::DynSessionCamera::absolute(&self, grafton_visca::units::Degrees<f32>, grafton_visca::units::Degrees<f32>, grafton_visca::types::SpeedLevel) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::down(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::home(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::left(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::limit_clear(&self, grafton_visca::command::PanTiltLimitCorner) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::limit_set(&self, grafton_visca::command::PanTiltLimitCorner, grafton_visca::units::Degrees<f32>, grafton_visca::units::Degrees<f32>) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::move_direction(&self, grafton_visca::command::PanTiltDirection, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::position(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::camera::PanTiltPosition, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::relative(&self, grafton_visca::units::Degrees<f32>, grafton_visca::units::Degrees<f32>, grafton_visca::types::SpeedLevel) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::reset(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::right(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::stop(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::up(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
 pub trait grafton_visca::prelude::dyn_api::DynPower: core::marker::Send + core::marker::Sync
 pub fn grafton_visca::prelude::dyn_api::DynPower::off(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::prelude::dyn_api::DynPower::on(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
@@ -16342,6 +16510,8 @@ pub fn grafton_visca::DynSessionCamera::set_sensitivity(&self, grafton_visca::co
 pub trait grafton_visca::prelude::dyn_api::DynZoom: core::marker::Send + core::marker::Sync
 pub fn grafton_visca::prelude::dyn_api::DynZoom::position(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::types::ZoomPosition, grafton_visca::Error>>
 pub fn grafton_visca::prelude::dyn_api::DynZoom::set_digital_zoom(&self, bool) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
+pub fn grafton_visca::prelude::dyn_api::DynZoom::set_normalized(&self, grafton_visca::units::UnitInterval) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
+pub fn grafton_visca::prelude::dyn_api::DynZoom::set_normalized_in_domain(&self, grafton_visca::units::UnitInterval, grafton_visca::inquiry_conversions::ZoomDomain) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub fn grafton_visca::prelude::dyn_api::DynZoom::set_position(&self, grafton_visca::types::ZoomPosition) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub fn grafton_visca::prelude::dyn_api::DynZoom::stop(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
 pub fn grafton_visca::prelude::dyn_api::DynZoom::tele(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
@@ -16351,6 +16521,8 @@ pub fn grafton_visca::prelude::dyn_api::DynZoom::wide_variable(&self, grafton_vi
 impl grafton_visca::DynZoom for grafton_visca::DynSessionCamera
 pub fn grafton_visca::DynSessionCamera::position(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::types::ZoomPosition, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::set_digital_zoom(&self, bool) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::set_normalized(&self, grafton_visca::units::UnitInterval) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::set_normalized_in_domain(&self, grafton_visca::units::UnitInterval, grafton_visca::inquiry_conversions::ZoomDomain) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::set_position(&self, grafton_visca::types::ZoomPosition) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::stop(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::tele(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
@@ -18188,9 +18360,12 @@ impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::TimeoutClass
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::TimeoutClass
 pub struct grafton_visca::raw::AffectedAxes(_)
 impl grafton_visca::AffectedAxes
+pub const grafton_visca::AffectedAxes::ALL: Self
 pub const grafton_visca::AffectedAxes::FOCUS: Self
 pub const grafton_visca::AffectedAxes::IRIS: Self
+pub const grafton_visca::AffectedAxes::MOVEMENT: Self
 pub const grafton_visca::AffectedAxes::ND_FILTER: Self
+pub const grafton_visca::AffectedAxes::NONE: Self
 pub const grafton_visca::AffectedAxes::PAN_TILT: Self
 pub const grafton_visca::AffectedAxes::ZOOM: Self
 pub const fn grafton_visca::AffectedAxes::bits(self) -> u8
@@ -18209,6 +18384,8 @@ pub fn grafton_visca::AffectedAxes::clone(&self) -> grafton_visca::AffectedAxes
 impl core::cmp::Eq for grafton_visca::AffectedAxes
 impl core::cmp::PartialEq for grafton_visca::AffectedAxes
 pub fn grafton_visca::AffectedAxes::eq(&self, &grafton_visca::AffectedAxes) -> bool
+impl core::convert::From<grafton_visca::AffectedAxes> for grafton_visca::camera::MotionQuery
+pub fn grafton_visca::camera::MotionQuery::from(grafton_visca::AffectedAxes) -> Self
 impl core::convert::From<grafton_visca::AffectedAxes> for u8
 pub fn u8::from(grafton_visca::AffectedAxes) -> Self
 impl core::convert::TryFrom<u8> for grafton_visca::AffectedAxes
@@ -18220,6 +18397,14 @@ impl core::hash::Hash for grafton_visca::AffectedAxes
 pub fn grafton_visca::AffectedAxes::hash<__H: core::hash::Hasher>(&self, &mut __H)
 impl core::marker::Copy for grafton_visca::AffectedAxes
 impl core::marker::StructuralPartialEq for grafton_visca::AffectedAxes
+impl core::ops::bit::BitAnd for grafton_visca::AffectedAxes
+pub type grafton_visca::AffectedAxes::Output = grafton_visca::AffectedAxes
+pub fn grafton_visca::AffectedAxes::bitand(self, Self) -> Self
+impl core::ops::bit::BitOr for grafton_visca::AffectedAxes
+pub type grafton_visca::AffectedAxes::Output = grafton_visca::AffectedAxes
+pub fn grafton_visca::AffectedAxes::bitor(self, Self) -> Self
+impl core::ops::bit::BitOrAssign for grafton_visca::AffectedAxes
+pub fn grafton_visca::AffectedAxes::bitor_assign(&mut self, Self)
 impl core::marker::Freeze for grafton_visca::AffectedAxes
 impl core::marker::Send for grafton_visca::AffectedAxes
 impl core::marker::Sync for grafton_visca::AffectedAxes
@@ -19609,6 +19794,7 @@ impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::request::builtin
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::request::builtin::ZoomStop
 pub struct grafton_visca::request::builtin::ZoomTarget(_)
 impl grafton_visca::request::builtin::ZoomTarget
+pub fn grafton_visca::request::builtin::ZoomTarget::from_normalized(grafton_visca::units::UnitInterval, grafton_visca::inquiry_conversions::ZoomDomain, &grafton_visca::profile::ProfileSpec) -> core::result::Result<Self, grafton_visca::Error>
 pub const fn grafton_visca::request::builtin::ZoomTarget::new(grafton_visca::types::ZoomPosition) -> Self
 impl core::clone::Clone for grafton_visca::request::builtin::ZoomTarget
 pub fn grafton_visca::request::builtin::ZoomTarget::clone(&self) -> grafton_visca::request::builtin::ZoomTarget
@@ -19809,6 +19995,7 @@ pub struct grafton_visca::session::Camera<P: grafton_visca::profile::CompileTime
 impl<P: grafton_visca::profile::CompileTimeProfile> grafton_visca::Camera<P>
 pub fn grafton_visca::Camera<P>::advanced(&self) -> grafton_visca::AdvancedAccessor<'_, P>
 impl<P: grafton_visca::profile::CompileTimeProfile> grafton_visca::Camera<P>
+pub fn grafton_visca::Camera<P>::capabilities(&self) -> &grafton_visca::capabilities::Capabilities
 pub async fn grafton_visca::Camera<P>::execute<C>(&self, &C) -> grafton_visca::Result<()> where C: grafton_visca::PlainCommand + ?core::marker::Sized
 pub async fn grafton_visca::Camera<P>::inquire<Q>(&self, &Q) -> grafton_visca::Result<<Q as grafton_visca::Inquiry>::Response> where Q: grafton_visca::Inquiry + ?core::marker::Sized
 pub fn grafton_visca::Camera<P>::profile(&self) -> &grafton_visca::profile::ProfileSpec
@@ -20088,6 +20275,7 @@ pub async fn grafton_visca::MenuAccessor<'a, P>::display(&self, bool) -> grafton
 pub async fn grafton_visca::MenuAccessor<'a, P>::navigate(&self, grafton_visca::command::MenuDirection) -> grafton_visca::Result<()>
 pub async fn grafton_visca::MenuAccessor<'a, P>::select(&self) -> grafton_visca::Result<()>
 pub async fn grafton_visca::MenuAccessor<'a, P>::status(&self) -> grafton_visca::Result<bool>
+pub async fn grafton_visca::MenuAccessor<'a, P>::toggle_display(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::menu_control::HasDirectMenuControl
 impl<'a, P: grafton_visca::profile::CompileTimeProfile> core::fmt::Debug for grafton_visca::MenuAccessor<'a, P>
 pub fn grafton_visca::MenuAccessor<'a, P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'a, P> core::marker::Freeze for grafton_visca::MenuAccessor<'a, P> where &'a grafton_visca::Camera<P>: core::marker::Freeze
@@ -20099,7 +20287,8 @@ impl<'a, P> !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::MenuAcce
 impl<'a, P> !core::panic::unwind_safe::UnwindSafe for grafton_visca::MenuAccessor<'a, P>
 pub struct grafton_visca::session::MotionAccessor<'a, P: grafton_visca::profile::CompileTimeProfile>
 impl<'a, P: grafton_visca::profile::CompileTimeProfile> grafton_visca::MotionAccessor<'a, P>
-pub async fn grafton_visca::MotionAccessor<'a, P>::is_moving(&self, grafton_visca::camera::MotionQuery) -> grafton_visca::Result<bool>
+pub async fn grafton_visca::MotionAccessor<'a, P>::is_moving(&self) -> grafton_visca::Result<bool>
+pub async fn grafton_visca::MotionAccessor<'a, P>::is_moving_axes(&self, grafton_visca::camera::MotionQuery) -> grafton_visca::Result<bool>
 pub async fn grafton_visca::MotionAccessor<'a, P>::stop_all_motion(&self) -> grafton_visca::Result<()>
 pub async fn grafton_visca::MotionAccessor<'a, P>::wait_until_idle(&self, grafton_visca::camera::IdleWait) -> grafton_visca::Result<()>
 impl<'a, P: grafton_visca::profile::CompileTimeProfile> core::fmt::Debug for grafton_visca::MotionAccessor<'a, P>
@@ -20117,6 +20306,7 @@ pub async fn grafton_visca::MotionSyncAccessor<'a, P>::mode(&self) -> grafton_vi
 pub async fn grafton_visca::MotionSyncAccessor<'a, P>::preset(&self) -> grafton_visca::Result<grafton_visca::MotionSyncPreset>
 pub async fn grafton_visca::MotionSyncAccessor<'a, P>::set_mode(&self, grafton_visca::MotionSyncMode) -> grafton_visca::Result<()>
 pub async fn grafton_visca::MotionSyncAccessor<'a, P>::set_preset(&self, u8) -> grafton_visca::Result<()>
+pub async fn grafton_visca::MotionSyncAccessor<'a, P>::set_speed(&self, grafton_visca::types::MotionSyncSpeed) -> grafton_visca::Result<()>
 impl<'a, P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::HasMotionSync> core::fmt::Debug for grafton_visca::MotionSyncAccessor<'a, P>
 pub fn grafton_visca::MotionSyncAccessor<'a, P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'a, P> core::marker::Freeze for grafton_visca::MotionSyncAccessor<'a, P> where &'a grafton_visca::Camera<P>: core::marker::Freeze
@@ -20133,6 +20323,7 @@ pub async fn grafton_visca::NdFilterAccessor<'a, P>::auto_on(&self) -> grafton_v
 pub async fn grafton_visca::NdFilterAccessor<'a, P>::position(&self) -> grafton_visca::Result<grafton_visca::NdFilterPosition>
 pub async fn grafton_visca::NdFilterAccessor<'a, P>::preset(&self) -> grafton_visca::Result<grafton_visca::types::NdFilterPreset>
 pub async fn grafton_visca::NdFilterAccessor<'a, P>::set_mode(&self, grafton_visca::command::NdFilterMode) -> grafton_visca::Result<()>
+pub async fn grafton_visca::NdFilterAccessor<'a, P>::set_stops(&self, f32) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::Targeted>>
 pub async fn grafton_visca::NdFilterAccessor<'a, P>::set_value(&self, u16) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::Targeted>>
 pub async fn grafton_visca::NdFilterAccessor<'a, P>::step_down(&self) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::Targeted>>
 pub async fn grafton_visca::NdFilterAccessor<'a, P>::step_up(&self) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::Targeted>>
@@ -20148,14 +20339,18 @@ impl<'a, P> !core::panic::unwind_safe::UnwindSafe for grafton_visca::NdFilterAcc
 pub struct grafton_visca::session::PanTiltAccessor<'a, P: grafton_visca::profile::CompileTimeProfile>
 impl<'a, P: grafton_visca::profile::CompileTimeProfile> grafton_visca::PanTiltAccessor<'a, P>
 pub async fn grafton_visca::PanTiltAccessor<'a, P>::absolute(&self, grafton_visca::units::Degrees<f32>, grafton_visca::units::Degrees<f32>, grafton_visca::types::SpeedLevel) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::Targeted>>
+pub async fn grafton_visca::PanTiltAccessor<'a, P>::down(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::AppliedOnly>>
 pub async fn grafton_visca::PanTiltAccessor<'a, P>::home(&self) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::Targeted>>
+pub async fn grafton_visca::PanTiltAccessor<'a, P>::left(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::AppliedOnly>>
 pub async fn grafton_visca::PanTiltAccessor<'a, P>::limit_clear(&self, grafton_visca::command::PanTiltLimitCorner) -> grafton_visca::Result<()>
 pub async fn grafton_visca::PanTiltAccessor<'a, P>::limit_set(&self, grafton_visca::command::PanTiltLimitCorner, grafton_visca::units::Degrees<f32>, grafton_visca::units::Degrees<f32>) -> grafton_visca::Result<()>
 pub async fn grafton_visca::PanTiltAccessor<'a, P>::move_direction(&self, grafton_visca::command::PanTiltDirection, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::AppliedOnly>>
 pub async fn grafton_visca::PanTiltAccessor<'a, P>::position(&self) -> grafton_visca::Result<grafton_visca::camera::PanTiltPosition>
 pub async fn grafton_visca::PanTiltAccessor<'a, P>::relative(&self, grafton_visca::units::Degrees<f32>, grafton_visca::units::Degrees<f32>, grafton_visca::types::SpeedLevel) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::Targeted>>
 pub async fn grafton_visca::PanTiltAccessor<'a, P>::reset(&self) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::Targeted>>
+pub async fn grafton_visca::PanTiltAccessor<'a, P>::right(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::AppliedOnly>>
 pub async fn grafton_visca::PanTiltAccessor<'a, P>::stop(&self) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::AppliedOnly>>
+pub async fn grafton_visca::PanTiltAccessor<'a, P>::up(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::AppliedOnly>>
 impl<'a, P: grafton_visca::profile::CompileTimeProfile> core::fmt::Debug for grafton_visca::PanTiltAccessor<'a, P>
 pub fn grafton_visca::PanTiltAccessor<'a, P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'a, P> core::marker::Freeze for grafton_visca::PanTiltAccessor<'a, P> where &'a grafton_visca::Camera<P>: core::marker::Freeze
@@ -20352,6 +20547,8 @@ pub struct grafton_visca::session::ZoomAccessor<'a, P: grafton_visca::profile::C
 impl<'a, P: grafton_visca::profile::CompileTimeProfile> grafton_visca::ZoomAccessor<'a, P>
 pub async fn grafton_visca::ZoomAccessor<'a, P>::position(&self) -> grafton_visca::Result<grafton_visca::types::ZoomPosition>
 pub async fn grafton_visca::ZoomAccessor<'a, P>::set_digital_zoom(&self, bool) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasDigitalZoomToggle
+pub async fn grafton_visca::ZoomAccessor<'a, P>::set_normalized(&self, grafton_visca::units::UnitInterval) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::Targeted>> where P: grafton_visca::capabilities::HasDirectZoom
+pub async fn grafton_visca::ZoomAccessor<'a, P>::set_normalized_in_domain(&self, grafton_visca::units::UnitInterval, grafton_visca::inquiry_conversions::ZoomDomain) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::Targeted>> where P: grafton_visca::capabilities::HasDirectZoom + grafton_visca::capabilities::HasDigitalZoomRange
 pub async fn grafton_visca::ZoomAccessor<'a, P>::set_position(&self, grafton_visca::types::ZoomPosition) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::Targeted>> where P: grafton_visca::capabilities::HasDirectZoom
 pub async fn grafton_visca::ZoomAccessor<'a, P>::stop(&self) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::AppliedOnly>>
 pub async fn grafton_visca::ZoomAccessor<'a, P>::tele(&self) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::AppliedOnly>>
@@ -20394,6 +20591,7 @@ impl core::panic::unwind_safe::UnwindSafe for grafton_visca::state_cache::StateE
 pub grafton_visca::state_cache::StateKey::AutoNdFilter
 pub grafton_visca::state_cache::StateKey::AutoSlowShutter
 pub grafton_visca::state_cache::StateKey::DigitalZoomMode
+pub grafton_visca::state_cache::StateKey::Flip
 pub grafton_visca::state_cache::StateKey::FocusLockMode
 pub grafton_visca::state_cache::StateKey::ImageFreeze
 pub grafton_visca::state_cache::StateKey::MulticastStreaming
@@ -20430,10 +20628,46 @@ impl core::marker::Unpin for grafton_visca::state_cache::StateKey
 impl core::marker::UnsafeUnpin for grafton_visca::state_cache::StateKey
 impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::state_cache::StateKey
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::state_cache::StateKey
+pub struct grafton_visca::state_cache::PanTiltLimitUpdate
+impl grafton_visca::state_cache::PanTiltLimitUpdate
+pub const fn grafton_visca::state_cache::PanTiltLimitUpdate::corner(self) -> grafton_visca::command::PanTiltLimitCorner
+pub const fn grafton_visca::state_cache::PanTiltLimitUpdate::is_cleared(self) -> bool
+pub const fn grafton_visca::state_cache::PanTiltLimitUpdate::position(self) -> core::option::Option<grafton_visca::camera::PanTiltPosition>
+impl core::clone::Clone for grafton_visca::state_cache::PanTiltLimitUpdate
+pub fn grafton_visca::state_cache::PanTiltLimitUpdate::clone(&self) -> grafton_visca::state_cache::PanTiltLimitUpdate
+impl core::cmp::Eq for grafton_visca::state_cache::PanTiltLimitUpdate
+impl core::cmp::PartialEq for grafton_visca::state_cache::PanTiltLimitUpdate
+pub fn grafton_visca::state_cache::PanTiltLimitUpdate::eq(&self, &grafton_visca::state_cache::PanTiltLimitUpdate) -> bool
+impl core::fmt::Debug for grafton_visca::state_cache::PanTiltLimitUpdate
+pub fn grafton_visca::state_cache::PanTiltLimitUpdate::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for grafton_visca::state_cache::PanTiltLimitUpdate
+impl core::marker::StructuralPartialEq for grafton_visca::state_cache::PanTiltLimitUpdate
+impl core::marker::Freeze for grafton_visca::state_cache::PanTiltLimitUpdate
+impl core::marker::Send for grafton_visca::state_cache::PanTiltLimitUpdate
+impl core::marker::Sync for grafton_visca::state_cache::PanTiltLimitUpdate
+impl core::marker::Unpin for grafton_visca::state_cache::PanTiltLimitUpdate
+impl core::marker::UnsafeUnpin for grafton_visca::state_cache::PanTiltLimitUpdate
+impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::state_cache::PanTiltLimitUpdate
+impl core::panic::unwind_safe::UnwindSafe for grafton_visca::state_cache::PanTiltLimitUpdate
 pub struct grafton_visca::state_cache::StateCache
 impl grafton_visca::state_cache::StateCache
+pub fn grafton_visca::state_cache::StateCache::auto_nd_filter(&self) -> core::option::Option<bool>
+pub fn grafton_visca::state_cache::StateCache::auto_slow_shutter(&self) -> core::option::Option<bool>
+pub fn grafton_visca::state_cache::StateCache::digital_zoom(&self) -> core::option::Option<bool>
+pub fn grafton_visca::state_cache::StateCache::flip_state(&self) -> core::option::Option<grafton_visca::command::FlipState>
+pub fn grafton_visca::state_cache::StateCache::focus_lock(&self) -> core::option::Option<bool>
+pub fn grafton_visca::state_cache::StateCache::image_freeze(&self) -> core::option::Option<bool>
+pub fn grafton_visca::state_cache::StateCache::multicast_streaming(&self) -> core::option::Option<bool>
+pub fn grafton_visca::state_cache::StateCache::nd_filter_mode(&self) -> core::option::Option<grafton_visca::command::NdFilterMode>
+pub fn grafton_visca::state_cache::StateCache::ndi_quality(&self) -> core::option::Option<grafton_visca::types::NdiQuality>
+pub fn grafton_visca::state_cache::StateCache::pan_tilt_limits(&self) -> core::option::Option<grafton_visca::state_cache::PanTiltLimitUpdate>
+pub fn grafton_visca::state_cache::StateCache::preset_recall_speed(&self) -> core::option::Option<u8>
+pub fn grafton_visca::state_cache::StateCache::spotlight(&self) -> core::option::Option<bool>
+pub fn grafton_visca::state_cache::StateCache::tally_brightness_is_high(&self) -> core::option::Option<bool>
+pub fn grafton_visca::state_cache::StateCache::tally_mode(&self) -> core::option::Option<bool>
 pub const fn grafton_visca::state_cache::StateCache::target(&self) -> grafton_visca::CameraId
 pub fn grafton_visca::state_cache::StateCache::value(&self, grafton_visca::state_cache::StateKey) -> grafton_visca::state_cache::StateEntry
+pub fn grafton_visca::state_cache::StateCache::variable_speed_mode(&self) -> core::option::Option<grafton_visca::command::VariableSpeedMode>
 impl core::clone::Clone for grafton_visca::state_cache::StateCache
 pub fn grafton_visca::state_cache::StateCache::clone(&self) -> grafton_visca::state_cache::StateCache
 impl core::fmt::Debug for grafton_visca::state_cache::StateCache
@@ -23357,6 +23591,7 @@ impl core::panic::unwind_safe::UnwindSafe for grafton_visca::state_cache::StateE
 pub grafton_visca::StateKey::AutoNdFilter
 pub grafton_visca::StateKey::AutoSlowShutter
 pub grafton_visca::StateKey::DigitalZoomMode
+pub grafton_visca::StateKey::Flip
 pub grafton_visca::StateKey::FocusLockMode
 pub grafton_visca::StateKey::ImageFreeze
 pub grafton_visca::StateKey::MulticastStreaming
@@ -23549,9 +23784,12 @@ impl<'a, P> !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::Advanced
 impl<'a, P> !core::panic::unwind_safe::UnwindSafe for grafton_visca::AdvancedAccessor<'a, P>
 pub struct grafton_visca::AffectedAxes(_)
 impl grafton_visca::AffectedAxes
+pub const grafton_visca::AffectedAxes::ALL: Self
 pub const grafton_visca::AffectedAxes::FOCUS: Self
 pub const grafton_visca::AffectedAxes::IRIS: Self
+pub const grafton_visca::AffectedAxes::MOVEMENT: Self
 pub const grafton_visca::AffectedAxes::ND_FILTER: Self
+pub const grafton_visca::AffectedAxes::NONE: Self
 pub const grafton_visca::AffectedAxes::PAN_TILT: Self
 pub const grafton_visca::AffectedAxes::ZOOM: Self
 pub const fn grafton_visca::AffectedAxes::bits(self) -> u8
@@ -23570,6 +23808,8 @@ pub fn grafton_visca::AffectedAxes::clone(&self) -> grafton_visca::AffectedAxes
 impl core::cmp::Eq for grafton_visca::AffectedAxes
 impl core::cmp::PartialEq for grafton_visca::AffectedAxes
 pub fn grafton_visca::AffectedAxes::eq(&self, &grafton_visca::AffectedAxes) -> bool
+impl core::convert::From<grafton_visca::AffectedAxes> for grafton_visca::camera::MotionQuery
+pub fn grafton_visca::camera::MotionQuery::from(grafton_visca::AffectedAxes) -> Self
 impl core::convert::From<grafton_visca::AffectedAxes> for u8
 pub fn u8::from(grafton_visca::AffectedAxes) -> Self
 impl core::convert::TryFrom<u8> for grafton_visca::AffectedAxes
@@ -23581,6 +23821,14 @@ impl core::hash::Hash for grafton_visca::AffectedAxes
 pub fn grafton_visca::AffectedAxes::hash<__H: core::hash::Hasher>(&self, &mut __H)
 impl core::marker::Copy for grafton_visca::AffectedAxes
 impl core::marker::StructuralPartialEq for grafton_visca::AffectedAxes
+impl core::ops::bit::BitAnd for grafton_visca::AffectedAxes
+pub type grafton_visca::AffectedAxes::Output = grafton_visca::AffectedAxes
+pub fn grafton_visca::AffectedAxes::bitand(self, Self) -> Self
+impl core::ops::bit::BitOr for grafton_visca::AffectedAxes
+pub type grafton_visca::AffectedAxes::Output = grafton_visca::AffectedAxes
+pub fn grafton_visca::AffectedAxes::bitor(self, Self) -> Self
+impl core::ops::bit::BitOrAssign for grafton_visca::AffectedAxes
+pub fn grafton_visca::AffectedAxes::bitor_assign(&mut self, Self)
 impl core::marker::Freeze for grafton_visca::AffectedAxes
 impl core::marker::Send for grafton_visca::AffectedAxes
 impl core::marker::Sync for grafton_visca::AffectedAxes
@@ -23611,6 +23859,7 @@ pub struct grafton_visca::Camera<P: grafton_visca::profile::CompileTimeProfile>
 impl<P: grafton_visca::profile::CompileTimeProfile> grafton_visca::Camera<P>
 pub fn grafton_visca::Camera<P>::advanced(&self) -> grafton_visca::AdvancedAccessor<'_, P>
 impl<P: grafton_visca::profile::CompileTimeProfile> grafton_visca::Camera<P>
+pub fn grafton_visca::Camera<P>::capabilities(&self) -> &grafton_visca::capabilities::Capabilities
 pub async fn grafton_visca::Camera<P>::execute<C>(&self, &C) -> grafton_visca::Result<()> where C: grafton_visca::PlainCommand + ?core::marker::Sized
 pub async fn grafton_visca::Camera<P>::inquire<Q>(&self, &Q) -> grafton_visca::Result<<Q as grafton_visca::Inquiry>::Response> where Q: grafton_visca::Inquiry + ?core::marker::Sized
 pub fn grafton_visca::Camera<P>::profile(&self) -> &grafton_visca::profile::ProfileSpec
@@ -24027,8 +24276,10 @@ pub fn grafton_visca::DynSessionCamera::display(&self, bool) -> grafton_visca::D
 pub fn grafton_visca::DynSessionCamera::navigate(&self, grafton_visca::command::MenuDirection) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::select(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::status(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<bool, grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::toggle_display(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 impl grafton_visca::DynMotion for grafton_visca::DynSessionCamera
-pub fn grafton_visca::DynSessionCamera::is_moving(&self, grafton_visca::camera::MotionQuery) -> grafton_visca::DynFuture<'_, grafton_visca::Result<bool, grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::is_moving(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<bool, grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::is_moving_axes(&self, grafton_visca::camera::MotionQuery) -> grafton_visca::DynFuture<'_, grafton_visca::Result<bool, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::stop_all_motion(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::wait_until_idle(&self, grafton_visca::camera::IdleWait) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 impl grafton_visca::DynMotionSync for grafton_visca::DynSessionCamera
@@ -24036,25 +24287,31 @@ pub fn grafton_visca::DynSessionCamera::mode(&self) -> grafton_visca::DynFuture<
 pub fn grafton_visca::DynSessionCamera::preset(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::MotionSyncPreset, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::set_mode(&self, grafton_visca::MotionSyncMode) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::set_preset(&self, u8) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::set_speed(&self, grafton_visca::types::MotionSyncSpeed) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 impl grafton_visca::DynNdFilter for grafton_visca::DynSessionCamera
 pub fn grafton_visca::DynSessionCamera::auto_off(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::auto_on(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::position(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::NdFilterPosition, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::preset(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::types::NdFilterPreset, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::set_mode(&self, grafton_visca::command::NdFilterMode) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::set_stops(&self, f32) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::set_value(&self, u16) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::step_down(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::step_up(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 impl grafton_visca::DynPanTilt for grafton_visca::DynSessionCamera
 pub fn grafton_visca::DynSessionCamera::absolute(&self, grafton_visca::units::Degrees<f32>, grafton_visca::units::Degrees<f32>, grafton_visca::types::SpeedLevel) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::down(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::home(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::left(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::limit_clear(&self, grafton_visca::command::PanTiltLimitCorner) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::limit_set(&self, grafton_visca::command::PanTiltLimitCorner, grafton_visca::units::Degrees<f32>, grafton_visca::units::Degrees<f32>) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::move_direction(&self, grafton_visca::command::PanTiltDirection, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::position(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::camera::PanTiltPosition, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::relative(&self, grafton_visca::units::Degrees<f32>, grafton_visca::units::Degrees<f32>, grafton_visca::types::SpeedLevel) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::reset(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::right(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::stop(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::up(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
 impl grafton_visca::DynPower for grafton_visca::DynSessionCamera
 pub fn grafton_visca::DynSessionCamera::off(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::on(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
@@ -24137,6 +24394,8 @@ pub fn grafton_visca::DynSessionCamera::set_sensitivity(&self, grafton_visca::co
 impl grafton_visca::DynZoom for grafton_visca::DynSessionCamera
 pub fn grafton_visca::DynSessionCamera::position(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::types::ZoomPosition, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::set_digital_zoom(&self, bool) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::set_normalized(&self, grafton_visca::units::UnitInterval) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::set_normalized_in_domain(&self, grafton_visca::units::UnitInterval, grafton_visca::inquiry_conversions::ZoomDomain) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::set_position(&self, grafton_visca::types::ZoomPosition) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::stop(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::tele(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
@@ -24380,6 +24639,7 @@ pub async fn grafton_visca::MenuAccessor<'a, P>::display(&self, bool) -> grafton
 pub async fn grafton_visca::MenuAccessor<'a, P>::navigate(&self, grafton_visca::command::MenuDirection) -> grafton_visca::Result<()>
 pub async fn grafton_visca::MenuAccessor<'a, P>::select(&self) -> grafton_visca::Result<()>
 pub async fn grafton_visca::MenuAccessor<'a, P>::status(&self) -> grafton_visca::Result<bool>
+pub async fn grafton_visca::MenuAccessor<'a, P>::toggle_display(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::menu_control::HasDirectMenuControl
 impl<'a, P: grafton_visca::profile::CompileTimeProfile> core::fmt::Debug for grafton_visca::MenuAccessor<'a, P>
 pub fn grafton_visca::MenuAccessor<'a, P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'a, P> core::marker::Freeze for grafton_visca::MenuAccessor<'a, P> where &'a grafton_visca::Camera<P>: core::marker::Freeze
@@ -24432,7 +24692,8 @@ impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::observability::M
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::observability::MetricsSnapshot
 pub struct grafton_visca::MotionAccessor<'a, P: grafton_visca::profile::CompileTimeProfile>
 impl<'a, P: grafton_visca::profile::CompileTimeProfile> grafton_visca::MotionAccessor<'a, P>
-pub async fn grafton_visca::MotionAccessor<'a, P>::is_moving(&self, grafton_visca::camera::MotionQuery) -> grafton_visca::Result<bool>
+pub async fn grafton_visca::MotionAccessor<'a, P>::is_moving(&self) -> grafton_visca::Result<bool>
+pub async fn grafton_visca::MotionAccessor<'a, P>::is_moving_axes(&self, grafton_visca::camera::MotionQuery) -> grafton_visca::Result<bool>
 pub async fn grafton_visca::MotionAccessor<'a, P>::stop_all_motion(&self) -> grafton_visca::Result<()>
 pub async fn grafton_visca::MotionAccessor<'a, P>::wait_until_idle(&self, grafton_visca::camera::IdleWait) -> grafton_visca::Result<()>
 impl<'a, P: grafton_visca::profile::CompileTimeProfile> core::fmt::Debug for grafton_visca::MotionAccessor<'a, P>
@@ -24450,6 +24711,7 @@ pub async fn grafton_visca::MotionSyncAccessor<'a, P>::mode(&self) -> grafton_vi
 pub async fn grafton_visca::MotionSyncAccessor<'a, P>::preset(&self) -> grafton_visca::Result<grafton_visca::MotionSyncPreset>
 pub async fn grafton_visca::MotionSyncAccessor<'a, P>::set_mode(&self, grafton_visca::MotionSyncMode) -> grafton_visca::Result<()>
 pub async fn grafton_visca::MotionSyncAccessor<'a, P>::set_preset(&self, u8) -> grafton_visca::Result<()>
+pub async fn grafton_visca::MotionSyncAccessor<'a, P>::set_speed(&self, grafton_visca::types::MotionSyncSpeed) -> grafton_visca::Result<()>
 impl<'a, P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::HasMotionSync> core::fmt::Debug for grafton_visca::MotionSyncAccessor<'a, P>
 pub fn grafton_visca::MotionSyncAccessor<'a, P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'a, P> core::marker::Freeze for grafton_visca::MotionSyncAccessor<'a, P> where &'a grafton_visca::Camera<P>: core::marker::Freeze
@@ -24502,6 +24764,7 @@ pub async fn grafton_visca::NdFilterAccessor<'a, P>::auto_on(&self) -> grafton_v
 pub async fn grafton_visca::NdFilterAccessor<'a, P>::position(&self) -> grafton_visca::Result<grafton_visca::NdFilterPosition>
 pub async fn grafton_visca::NdFilterAccessor<'a, P>::preset(&self) -> grafton_visca::Result<grafton_visca::types::NdFilterPreset>
 pub async fn grafton_visca::NdFilterAccessor<'a, P>::set_mode(&self, grafton_visca::command::NdFilterMode) -> grafton_visca::Result<()>
+pub async fn grafton_visca::NdFilterAccessor<'a, P>::set_stops(&self, f32) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::Targeted>>
 pub async fn grafton_visca::NdFilterAccessor<'a, P>::set_value(&self, u16) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::Targeted>>
 pub async fn grafton_visca::NdFilterAccessor<'a, P>::step_down(&self) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::Targeted>>
 pub async fn grafton_visca::NdFilterAccessor<'a, P>::step_up(&self) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::Targeted>>
@@ -24596,14 +24859,18 @@ impl core::panic::unwind_safe::UnwindSafe for grafton_visca::profile::Operationa
 pub struct grafton_visca::PanTiltAccessor<'a, P: grafton_visca::profile::CompileTimeProfile>
 impl<'a, P: grafton_visca::profile::CompileTimeProfile> grafton_visca::PanTiltAccessor<'a, P>
 pub async fn grafton_visca::PanTiltAccessor<'a, P>::absolute(&self, grafton_visca::units::Degrees<f32>, grafton_visca::units::Degrees<f32>, grafton_visca::types::SpeedLevel) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::Targeted>>
+pub async fn grafton_visca::PanTiltAccessor<'a, P>::down(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::AppliedOnly>>
 pub async fn grafton_visca::PanTiltAccessor<'a, P>::home(&self) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::Targeted>>
+pub async fn grafton_visca::PanTiltAccessor<'a, P>::left(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::AppliedOnly>>
 pub async fn grafton_visca::PanTiltAccessor<'a, P>::limit_clear(&self, grafton_visca::command::PanTiltLimitCorner) -> grafton_visca::Result<()>
 pub async fn grafton_visca::PanTiltAccessor<'a, P>::limit_set(&self, grafton_visca::command::PanTiltLimitCorner, grafton_visca::units::Degrees<f32>, grafton_visca::units::Degrees<f32>) -> grafton_visca::Result<()>
 pub async fn grafton_visca::PanTiltAccessor<'a, P>::move_direction(&self, grafton_visca::command::PanTiltDirection, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::AppliedOnly>>
 pub async fn grafton_visca::PanTiltAccessor<'a, P>::position(&self) -> grafton_visca::Result<grafton_visca::camera::PanTiltPosition>
 pub async fn grafton_visca::PanTiltAccessor<'a, P>::relative(&self, grafton_visca::units::Degrees<f32>, grafton_visca::units::Degrees<f32>, grafton_visca::types::SpeedLevel) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::Targeted>>
 pub async fn grafton_visca::PanTiltAccessor<'a, P>::reset(&self) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::Targeted>>
+pub async fn grafton_visca::PanTiltAccessor<'a, P>::right(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::AppliedOnly>>
 pub async fn grafton_visca::PanTiltAccessor<'a, P>::stop(&self) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::AppliedOnly>>
+pub async fn grafton_visca::PanTiltAccessor<'a, P>::up(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::AppliedOnly>>
 impl<'a, P: grafton_visca::profile::CompileTimeProfile> core::fmt::Debug for grafton_visca::PanTiltAccessor<'a, P>
 pub fn grafton_visca::PanTiltAccessor<'a, P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'a, P> core::marker::Freeze for grafton_visca::PanTiltAccessor<'a, P> where &'a grafton_visca::Camera<P>: core::marker::Freeze
@@ -24633,6 +24900,27 @@ impl core::marker::Unpin for grafton_visca::profile::PanTiltCoordinateConversion
 impl core::marker::UnsafeUnpin for grafton_visca::profile::PanTiltCoordinateConversion
 impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::profile::PanTiltCoordinateConversion
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::profile::PanTiltCoordinateConversion
+pub struct grafton_visca::PanTiltLimitUpdate
+impl grafton_visca::state_cache::PanTiltLimitUpdate
+pub const fn grafton_visca::state_cache::PanTiltLimitUpdate::corner(self) -> grafton_visca::command::PanTiltLimitCorner
+pub const fn grafton_visca::state_cache::PanTiltLimitUpdate::is_cleared(self) -> bool
+pub const fn grafton_visca::state_cache::PanTiltLimitUpdate::position(self) -> core::option::Option<grafton_visca::camera::PanTiltPosition>
+impl core::clone::Clone for grafton_visca::state_cache::PanTiltLimitUpdate
+pub fn grafton_visca::state_cache::PanTiltLimitUpdate::clone(&self) -> grafton_visca::state_cache::PanTiltLimitUpdate
+impl core::cmp::Eq for grafton_visca::state_cache::PanTiltLimitUpdate
+impl core::cmp::PartialEq for grafton_visca::state_cache::PanTiltLimitUpdate
+pub fn grafton_visca::state_cache::PanTiltLimitUpdate::eq(&self, &grafton_visca::state_cache::PanTiltLimitUpdate) -> bool
+impl core::fmt::Debug for grafton_visca::state_cache::PanTiltLimitUpdate
+pub fn grafton_visca::state_cache::PanTiltLimitUpdate::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for grafton_visca::state_cache::PanTiltLimitUpdate
+impl core::marker::StructuralPartialEq for grafton_visca::state_cache::PanTiltLimitUpdate
+impl core::marker::Freeze for grafton_visca::state_cache::PanTiltLimitUpdate
+impl core::marker::Send for grafton_visca::state_cache::PanTiltLimitUpdate
+impl core::marker::Sync for grafton_visca::state_cache::PanTiltLimitUpdate
+impl core::marker::Unpin for grafton_visca::state_cache::PanTiltLimitUpdate
+impl core::marker::UnsafeUnpin for grafton_visca::state_cache::PanTiltLimitUpdate
+impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::state_cache::PanTiltLimitUpdate
+impl core::panic::unwind_safe::UnwindSafe for grafton_visca::state_cache::PanTiltLimitUpdate
 pub struct grafton_visca::PanTiltPositionDeg
 pub grafton_visca::PanTiltPositionDeg::pan: grafton_visca::units::Degrees<f32>
 pub grafton_visca::PanTiltPositionDeg::tilt: grafton_visca::units::Degrees<f32>
@@ -24920,8 +25208,23 @@ impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::SessionConfig
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::SessionConfig
 pub struct grafton_visca::StateCache
 impl grafton_visca::state_cache::StateCache
+pub fn grafton_visca::state_cache::StateCache::auto_nd_filter(&self) -> core::option::Option<bool>
+pub fn grafton_visca::state_cache::StateCache::auto_slow_shutter(&self) -> core::option::Option<bool>
+pub fn grafton_visca::state_cache::StateCache::digital_zoom(&self) -> core::option::Option<bool>
+pub fn grafton_visca::state_cache::StateCache::flip_state(&self) -> core::option::Option<grafton_visca::command::FlipState>
+pub fn grafton_visca::state_cache::StateCache::focus_lock(&self) -> core::option::Option<bool>
+pub fn grafton_visca::state_cache::StateCache::image_freeze(&self) -> core::option::Option<bool>
+pub fn grafton_visca::state_cache::StateCache::multicast_streaming(&self) -> core::option::Option<bool>
+pub fn grafton_visca::state_cache::StateCache::nd_filter_mode(&self) -> core::option::Option<grafton_visca::command::NdFilterMode>
+pub fn grafton_visca::state_cache::StateCache::ndi_quality(&self) -> core::option::Option<grafton_visca::types::NdiQuality>
+pub fn grafton_visca::state_cache::StateCache::pan_tilt_limits(&self) -> core::option::Option<grafton_visca::state_cache::PanTiltLimitUpdate>
+pub fn grafton_visca::state_cache::StateCache::preset_recall_speed(&self) -> core::option::Option<u8>
+pub fn grafton_visca::state_cache::StateCache::spotlight(&self) -> core::option::Option<bool>
+pub fn grafton_visca::state_cache::StateCache::tally_brightness_is_high(&self) -> core::option::Option<bool>
+pub fn grafton_visca::state_cache::StateCache::tally_mode(&self) -> core::option::Option<bool>
 pub const fn grafton_visca::state_cache::StateCache::target(&self) -> grafton_visca::CameraId
 pub fn grafton_visca::state_cache::StateCache::value(&self, grafton_visca::state_cache::StateKey) -> grafton_visca::state_cache::StateEntry
+pub fn grafton_visca::state_cache::StateCache::variable_speed_mode(&self) -> core::option::Option<grafton_visca::command::VariableSpeedMode>
 impl core::clone::Clone for grafton_visca::state_cache::StateCache
 pub fn grafton_visca::state_cache::StateCache::clone(&self) -> grafton_visca::state_cache::StateCache
 impl core::fmt::Debug for grafton_visca::state_cache::StateCache
@@ -25179,6 +25482,8 @@ pub struct grafton_visca::ZoomAccessor<'a, P: grafton_visca::profile::CompileTim
 impl<'a, P: grafton_visca::profile::CompileTimeProfile> grafton_visca::ZoomAccessor<'a, P>
 pub async fn grafton_visca::ZoomAccessor<'a, P>::position(&self) -> grafton_visca::Result<grafton_visca::types::ZoomPosition>
 pub async fn grafton_visca::ZoomAccessor<'a, P>::set_digital_zoom(&self, bool) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasDigitalZoomToggle
+pub async fn grafton_visca::ZoomAccessor<'a, P>::set_normalized(&self, grafton_visca::units::UnitInterval) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::Targeted>> where P: grafton_visca::capabilities::HasDirectZoom
+pub async fn grafton_visca::ZoomAccessor<'a, P>::set_normalized_in_domain(&self, grafton_visca::units::UnitInterval, grafton_visca::inquiry_conversions::ZoomDomain) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::Targeted>> where P: grafton_visca::capabilities::HasDirectZoom + grafton_visca::capabilities::HasDigitalZoomRange
 pub async fn grafton_visca::ZoomAccessor<'a, P>::set_position(&self, grafton_visca::types::ZoomPosition) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::Targeted>> where P: grafton_visca::capabilities::HasDirectZoom
 pub async fn grafton_visca::ZoomAccessor<'a, P>::stop(&self) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::AppliedOnly>>
 pub async fn grafton_visca::ZoomAccessor<'a, P>::tele(&self) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::AppliedOnly>>
@@ -25229,6 +25534,8 @@ impl core::marker::Unpin for grafton_visca::types::ZoomSpeed
 impl core::marker::UnsafeUnpin for grafton_visca::types::ZoomSpeed
 impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::types::ZoomSpeed
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::types::ZoomSpeed
+pub const grafton_visca::DYN_NOUN_CONVENIENCE_METHODS: &[(&str, &str)]
+pub const grafton_visca::DYN_NOUN_CONVENIENCE_METHOD_COUNT: usize
 pub const grafton_visca::DYN_NOUN_COUNT: usize
 pub const grafton_visca::DYN_NOUN_INQUIRY_METHOD_COUNT: usize
 pub const grafton_visca::DYN_NOUN_TARGET_METHOD_COUNT: usize
@@ -25579,6 +25886,7 @@ pub fn grafton_visca::DynMenu::display(&self, bool) -> grafton_visca::DynFuture<
 pub fn grafton_visca::DynMenu::navigate(&self, grafton_visca::command::MenuDirection) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynMenu::select(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynMenu::status(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<bool, grafton_visca::Error>>
+pub fn grafton_visca::DynMenu::toggle_display(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 impl grafton_visca::DynMenu for grafton_visca::DynSessionCamera
 pub fn grafton_visca::DynSessionCamera::cancel(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::direct(&self, u8, u8) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
@@ -25586,12 +25894,15 @@ pub fn grafton_visca::DynSessionCamera::display(&self, bool) -> grafton_visca::D
 pub fn grafton_visca::DynSessionCamera::navigate(&self, grafton_visca::command::MenuDirection) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::select(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::status(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<bool, grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::toggle_display(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub trait grafton_visca::DynMotion: core::marker::Send + core::marker::Sync
-pub fn grafton_visca::DynMotion::is_moving(&self, grafton_visca::camera::MotionQuery) -> grafton_visca::DynFuture<'_, grafton_visca::Result<bool, grafton_visca::Error>>
+pub fn grafton_visca::DynMotion::is_moving(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<bool, grafton_visca::Error>>
+pub fn grafton_visca::DynMotion::is_moving_axes(&self, grafton_visca::camera::MotionQuery) -> grafton_visca::DynFuture<'_, grafton_visca::Result<bool, grafton_visca::Error>>
 pub fn grafton_visca::DynMotion::stop_all_motion(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynMotion::wait_until_idle(&self, grafton_visca::camera::IdleWait) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 impl grafton_visca::DynMotion for grafton_visca::DynSessionCamera
-pub fn grafton_visca::DynSessionCamera::is_moving(&self, grafton_visca::camera::MotionQuery) -> grafton_visca::DynFuture<'_, grafton_visca::Result<bool, grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::is_moving(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<bool, grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::is_moving_axes(&self, grafton_visca::camera::MotionQuery) -> grafton_visca::DynFuture<'_, grafton_visca::Result<bool, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::stop_all_motion(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::wait_until_idle(&self, grafton_visca::camera::IdleWait) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub trait grafton_visca::DynMotionSync: core::marker::Send + core::marker::Sync
@@ -25599,17 +25910,20 @@ pub fn grafton_visca::DynMotionSync::mode(&self) -> grafton_visca::DynFuture<'_,
 pub fn grafton_visca::DynMotionSync::preset(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::MotionSyncPreset, grafton_visca::Error>>
 pub fn grafton_visca::DynMotionSync::set_mode(&self, grafton_visca::MotionSyncMode) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynMotionSync::set_preset(&self, u8) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
+pub fn grafton_visca::DynMotionSync::set_speed(&self, grafton_visca::types::MotionSyncSpeed) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 impl grafton_visca::DynMotionSync for grafton_visca::DynSessionCamera
 pub fn grafton_visca::DynSessionCamera::mode(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::MotionSyncMode, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::preset(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::MotionSyncPreset, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::set_mode(&self, grafton_visca::MotionSyncMode) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::set_preset(&self, u8) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::set_speed(&self, grafton_visca::types::MotionSyncSpeed) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub trait grafton_visca::DynNdFilter: core::marker::Send + core::marker::Sync
 pub fn grafton_visca::DynNdFilter::auto_off(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynNdFilter::auto_on(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynNdFilter::position(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::NdFilterPosition, grafton_visca::Error>>
 pub fn grafton_visca::DynNdFilter::preset(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::types::NdFilterPreset, grafton_visca::Error>>
 pub fn grafton_visca::DynNdFilter::set_mode(&self, grafton_visca::command::NdFilterMode) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
+pub fn grafton_visca::DynNdFilter::set_stops(&self, f32) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynNdFilter::set_value(&self, u16) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynNdFilter::step_down(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynNdFilter::step_up(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
@@ -25619,29 +25933,38 @@ pub fn grafton_visca::DynSessionCamera::auto_on(&self) -> grafton_visca::DynFutu
 pub fn grafton_visca::DynSessionCamera::position(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::NdFilterPosition, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::preset(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::types::NdFilterPreset, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::set_mode(&self, grafton_visca::command::NdFilterMode) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::set_stops(&self, f32) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::set_value(&self, u16) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::step_down(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::step_up(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub trait grafton_visca::DynPanTilt: core::marker::Send + core::marker::Sync
 pub fn grafton_visca::DynPanTilt::absolute(&self, grafton_visca::units::Degrees<f32>, grafton_visca::units::Degrees<f32>, grafton_visca::types::SpeedLevel) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
+pub fn grafton_visca::DynPanTilt::down(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynPanTilt::home(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
+pub fn grafton_visca::DynPanTilt::left(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynPanTilt::limit_clear(&self, grafton_visca::command::PanTiltLimitCorner) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynPanTilt::limit_set(&self, grafton_visca::command::PanTiltLimitCorner, grafton_visca::units::Degrees<f32>, grafton_visca::units::Degrees<f32>) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynPanTilt::move_direction(&self, grafton_visca::command::PanTiltDirection, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynPanTilt::position(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::camera::PanTiltPosition, grafton_visca::Error>>
 pub fn grafton_visca::DynPanTilt::relative(&self, grafton_visca::units::Degrees<f32>, grafton_visca::units::Degrees<f32>, grafton_visca::types::SpeedLevel) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynPanTilt::reset(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
+pub fn grafton_visca::DynPanTilt::right(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynPanTilt::stop(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
+pub fn grafton_visca::DynPanTilt::up(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
 impl grafton_visca::DynPanTilt for grafton_visca::DynSessionCamera
 pub fn grafton_visca::DynSessionCamera::absolute(&self, grafton_visca::units::Degrees<f32>, grafton_visca::units::Degrees<f32>, grafton_visca::types::SpeedLevel) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::down(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::home(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::left(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::limit_clear(&self, grafton_visca::command::PanTiltLimitCorner) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::limit_set(&self, grafton_visca::command::PanTiltLimitCorner, grafton_visca::units::Degrees<f32>, grafton_visca::units::Degrees<f32>) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::move_direction(&self, grafton_visca::command::PanTiltDirection, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::position(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::camera::PanTiltPosition, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::relative(&self, grafton_visca::units::Degrees<f32>, grafton_visca::units::Degrees<f32>, grafton_visca::types::SpeedLevel) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::reset(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::right(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::stop(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::up(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
 pub trait grafton_visca::DynPower: core::marker::Send + core::marker::Sync
 pub fn grafton_visca::DynPower::off(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
 pub fn grafton_visca::DynPower::on(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
@@ -25805,6 +26128,8 @@ pub fn grafton_visca::DynSessionCamera::set_sensitivity(&self, grafton_visca::co
 pub trait grafton_visca::DynZoom: core::marker::Send + core::marker::Sync
 pub fn grafton_visca::DynZoom::position(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::types::ZoomPosition, grafton_visca::Error>>
 pub fn grafton_visca::DynZoom::set_digital_zoom(&self, bool) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
+pub fn grafton_visca::DynZoom::set_normalized(&self, grafton_visca::units::UnitInterval) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
+pub fn grafton_visca::DynZoom::set_normalized_in_domain(&self, grafton_visca::units::UnitInterval, grafton_visca::inquiry_conversions::ZoomDomain) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynZoom::set_position(&self, grafton_visca::types::ZoomPosition) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynZoom::stop(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynZoom::tele(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
@@ -25814,6 +26139,8 @@ pub fn grafton_visca::DynZoom::wide_variable(&self, grafton_visca::types::ZoomSp
 impl grafton_visca::DynZoom for grafton_visca::DynSessionCamera
 pub fn grafton_visca::DynSessionCamera::position(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::types::ZoomPosition, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::set_digital_zoom(&self, bool) -> grafton_visca::DynFuture<'_, grafton_visca::Result<(), grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::set_normalized(&self, grafton_visca::units::UnitInterval) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
+pub fn grafton_visca::DynSessionCamera::set_normalized_in_domain(&self, grafton_visca::units::UnitInterval, grafton_visca::inquiry_conversions::ZoomDomain) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::set_position(&self, grafton_visca::types::ZoomPosition) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::stop(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
 pub fn grafton_visca::DynSessionCamera::tele(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>

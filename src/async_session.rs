@@ -496,6 +496,16 @@ impl<P: CompileTimeProfile> Camera<P> {
         self.core.profile()
     }
 
+    /// Returns this view's validated runtime capability inventory.
+    ///
+    /// This is the runtime discovery view of the same facts the compile-time
+    /// marker traits gate: it reports what the profile documents, not
+    /// permission to call a typed API.
+    #[must_use]
+    pub fn capabilities(&self) -> &crate::capabilities::Capabilities {
+        self.core.profile().capabilities()
+    }
+
     /// Returns a cheap live read-only view of this camera's target-local state.
     #[must_use]
     pub fn state_cache(&self) -> StateCache {

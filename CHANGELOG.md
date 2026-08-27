@@ -9,6 +9,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 2.0.0-rc.1 release candidate
 
+- Restored the 1.x convenience helpers the rewrite dropped, on all three noun
+  surfaces (#569). `pan_tilt().up()/down()/left()/right()` are back as thin
+  wrappers over `move_direction`; `zoom().set_normalized(UnitInterval)` and
+  `set_normalized_in_domain(UnitInterval, ZoomDomain)` make `UnitInterval` a
+  real noun input instead of an inquiry-conversion-only type;
+  `nd_filter().set_stops(f32)` restores photographic-stop input;
+  `motion_sync().set_speed(MotionSyncSpeed)` restores the range-checked speed
+  argument; and `menu().toggle_display()` restores the vendor open/close
+  control. `AffectedAxes` gains `ALL`, `MOVEMENT`, `NONE`, and the `BitOr` /
+  `BitOrAssign` / `BitAnd` operators, so "wait for everything that moves" is
+  one expression again; `IdleWait` gains `Default`, `From<Duration>`,
+  `with_axes`, `with_timeout`, and the named `for_preset_recall` /
+  `for_pan_tilt` / `for_zoom` / `for_focus` presets, and `MotionQuery` gains
+  `Default` and `From<AffectedAxes>`. `motion().is_moving()` is a
+  no-argument query again; the axis-selecting form keeps its 1.x spelling
+  `is_moving_axes(MotionQuery)`. `Camera<P>::capabilities()` is back on the
+  typed cameras, matching the dynamic projection. `StateCache` grows typed
+  getters for all fifteen keys — `auto_slow_shutter()`, `spotlight()`,
+  `flip_state()`, `pan_tilt_limits()`, and the rest — each documenting the
+  per-key decoding of the previously untyped `[i64; 4]` payload, and a new
+  `StateKey::Flip` records the combined horizontal/vertical flip pair (the
+  single-axis flip and mirror opcodes invalidate it rather than half-setting
+  it). The dynamic noun projection no longer carries
+  `#![allow(missing_docs)]`: every method is documented from its async
+  counterpart, and the non-ledger convenience wrappers are declared in
+  `DYN_NOUN_CONVENIENCE_METHODS` so the closed-projection inventory gate
+  still rejects anything undeclared.
 - **Restored the owner metrics counters the rewrite dropped, and made the
   retry decision observable** (#571). `MetricsSnapshot` carries `ack_timeouts`,
   `completion_timeouts`, `inquiry_timeouts`, `busy_errors`, `protocol_errors`,
