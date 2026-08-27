@@ -5,7 +5,7 @@ use std::{marker::PhantomData, time::Duration};
 use grafton_visca::{
     blocking::{Cancellation, Operation, OperationId},
     completion::{AppliedOnly, Targeted},
-    CancellationOutcome, Error,
+    CancelRejected, CancellationOutcome, Error,
 };
 
 fn applied_only(handle: Operation<'static, AppliedOnly>) -> Result<(), Error> {
@@ -19,8 +19,26 @@ fn applied_only_with_timeout(handle: Operation<'static, AppliedOnly>) -> Result<
 
 fn applied_only_cancel(
     handle: Operation<'static, AppliedOnly>,
-) -> Result<Cancellation<'static>, Error> {
+) -> Result<Cancellation<'static>, CancelRejected<Operation<'static, AppliedOnly>>> {
     handle.cancel()
+}
+
+/// A refused cancellation hands the handle back, so the caller is never left
+/// holding nothing (#612), and `?` still coerces into [`Error`].
+fn applied_only_cancel_recovers(
+    handle: Operation<'static, AppliedOnly>,
+) -> Result<Cancellation<'static>, Error> {
+    match handle.cancel() {
+        Ok(token) => Ok(token),
+        Err(rejected) => {
+            let (handle, error): (Option<Operation<'static, AppliedOnly>>, Error) =
+                rejected.into_parts();
+            match handle {
+                Some(handle) => handle.cancel().map_err(Error::from),
+                None => Err(error),
+            }
+        }
+    }
 }
 
 fn applied_only_detach(handle: Operation<'static, AppliedOnly>) {
@@ -39,7 +57,9 @@ fn targeted_applied(handle: Operation<'static, Targeted>) -> Result<(), Error> {
     handle.applied()
 }
 
-fn targeted_cancel(handle: Operation<'static, Targeted>) -> Result<Cancellation<'static>, Error> {
+fn targeted_cancel(
+    handle: Operation<'static, Targeted>,
+) -> Result<Cancellation<'static>, CancelRejected<Operation<'static, Targeted>>> {
     handle.cancel()
 }
 
@@ -59,6 +79,7 @@ fn generic_free_handles() {
         applied_only,
         applied_only_with_timeout,
         applied_only_cancel,
+        applied_only_cancel_recovers,
         applied_only_detach,
         targeted,
         targeted_with_timeout,

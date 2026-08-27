@@ -12,7 +12,7 @@ use std::time::Duration;
 use crate::{
     completion,
     runtime::owner::{AsyncCancellationReceipt, AsyncOperationReceipt, AsyncReceiptControl},
-    CancellationOutcome, Error, OperationId,
+    CancelRejected, CancellationOutcome, Error, OperationId,
 };
 
 /// A linear async operation handle.
@@ -102,16 +102,47 @@ where
 
     /// Records cancellation intent for this operation and returns its exact
     /// terminal cancellation observer.
-    pub async fn cancel(self) -> Result<Cancellation, Error> {
+    ///
+    /// # A refused cancellation hands this handle back
+    ///
+    /// Cancelling a request that is still queued always succeeds. Cancelling
+    /// one that has already been written needs profile support for the
+    /// standard VISCA socket-cancel command; without it — [`PtzOpticsG2`] is
+    /// the only built-in profile in that position — the owner refuses with
+    /// [`Error::NotSupported`] and deliberately leaves the original request
+    /// scheduled, retryable, and able to complete.
+    ///
+    /// Because the original is still live, this method only consumes the
+    /// handle when it succeeds. A refusal returns [`CancelRejected`], which
+    /// carries the handle back so the caller can keep waiting on it, retry the
+    /// cancel, or drop it to detach. Recovering the handle does not stop the
+    /// camera; a moving axis ends with an applied typed STOP.
+    ///
+    /// `?` in a function returning [`Error`] still works — the [`From`]
+    /// conversion keeps the reason and detaches the handle.
+    ///
+    /// [`PtzOpticsG2`]: crate::profiles::PtzOpticsG2
+    pub async fn cancel(self) -> Result<Cancellation, CancelRejected<Self>> {
         let mut this = self;
         let Some(receipt) = this.receipt.take() else {
-            return Err(consumed_handle_error("operation"));
+            return Err(CancelRejected::new(
+                None,
+                consumed_handle_error("operation"),
+            ));
         };
         let control = this.control.clone();
-        receipt
-            .cancel()
-            .await
-            .map(|receipt| Cancellation::from_receipt(receipt, control))
+        let id = this.id;
+        match receipt.cancel().await {
+            Ok(receipt) => Ok(Cancellation::from_receipt(receipt, control)),
+            Err((receipt, error)) => Err(CancelRejected::new(
+                receipt.map(|receipt| Self {
+                    receipt: Some(receipt),
+                    control,
+                    id,
+                }),
+                error,
+            )),
+        }
     }
 
     /// Explicitly relinquishes this operation's observer without changing

@@ -87,7 +87,7 @@ pub mod dyn_api {
 pub mod r#async {
     // Common enums for camera settings
     pub use crate::{
-        AdvancedAccessor, AutoWhiteBalanceSensitivity, Camera, Cancellation, Error,
+        AdvancedAccessor, AutoWhiteBalanceSensitivity, Camera, CancelRejected, Cancellation, Error,
         ExposureAccessor, ExposureMode, FocusAccessor, ImageAccessor, MenuAccessor, MotionAccessor,
         MotionSyncAccessor, NdFilterAccessor, NdFilterMode, Operation, OperationId,
         PanTiltAccessor, PanTiltDirection, PanTiltLimitCorner, PanTiltLimitUpdate, PowerAccessor,
@@ -134,9 +134,9 @@ pub mod r#async {
 pub mod blocking {
     // Common enums for camera settings
     pub use crate::{
-        AutoWhiteBalanceSensitivity, Error, ExposureMode, MetricsSnapshot, MotionSyncMode,
-        NdFilterMode, PanTiltDirection, PanTiltLimitCorner, PanTiltLimitUpdate, PresetNumber,
-        ResolutionMode, SessionStatus, StateCache, StateEntry, StateKey, StateValue,
+        AutoWhiteBalanceSensitivity, CancelRejected, Error, ExposureMode, MetricsSnapshot,
+        MotionSyncMode, NdFilterMode, PanTiltDirection, PanTiltLimitCorner, PanTiltLimitUpdate,
+        PresetNumber, ResolutionMode, SessionStatus, StateCache, StateEntry, StateKey, StateValue,
         WhiteBalanceMode,
     };
     // High-level owner-backed blocking session facade and camera view.
