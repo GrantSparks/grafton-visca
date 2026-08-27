@@ -7,7 +7,7 @@
 
 #![allow(dead_code)]
 
-use std::{fmt, marker::PhantomData, time::Duration};
+use std::{fmt, marker::PhantomData, sync::Arc, time::Duration};
 
 use crate::{
     camera::{IdleWait, MotionQuery},
@@ -539,15 +539,13 @@ impl Session {
 /// The blocking [`Camera`] borrows its session, so the view is handed out by
 /// [`camera`](Self::camera) rather than stored; the async facade's owned
 /// `Camera<P>` needs no such step.
-#[cfg(feature = "blocking")]
 pub struct CameraSession<P: CompileTimeProfile> {
     session: Session,
     target: CameraId,
-    profile: std::sync::Arc<ProfileSpec>,
+    profile: Arc<ProfileSpec>,
     _profile: PhantomData<fn() -> P>,
 }
 
-#[cfg(feature = "blocking")]
 impl<P: CompileTimeProfile> fmt::Debug for CameraSession<P> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
@@ -558,7 +556,6 @@ impl<P: CompileTimeProfile> fmt::Debug for CameraSession<P> {
     }
 }
 
-#[cfg(feature = "blocking")]
 impl<P: CompileTimeProfile> CameraSession<P> {
     /// Builds the single-camera view for a session whose sole target was
     /// registered from the same `P`.
