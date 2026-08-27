@@ -2150,7 +2150,7 @@ mod tests {
             executor.now(),
         );
         executor
-            .block_on(adapter.process_response(&[0x90, 0x41, VISCA_TERMINATOR], None))
+            .run_until(adapter.process_response(&[0x90, 0x41, VISCA_TERMINATOR], None))
             .expect("camera 1 ACK should be processed");
 
         // The cancelling camera's command is cancelled before its ACK, so the
@@ -2168,7 +2168,7 @@ mod tests {
             "Cancel before ACK should be deferred to socket assignment"
         );
         executor
-            .block_on(adapter.process_response(&[0xA0, 0x41, VISCA_TERMINATOR], None))
+            .run_until(adapter.process_response(&[0xA0, 0x41, VISCA_TERMINATOR], None))
             .expect("camera 2 ACK should be processed");
 
         assert_eq!(
@@ -2241,7 +2241,7 @@ mod tests {
         // The cancel's own target completes, freeing camera 2's socket 1 while
         // camera 1 keeps holding socket 1 of its own.
         executor
-            .block_on(adapter.process_response(&[0xA0, 0x51, VISCA_TERMINATOR], None))
+            .run_until(adapter.process_response(&[0xA0, 0x51, VISCA_TERMINATOR], None))
             .expect("camera 2 completion should be processed");
         assert!(
             !adapter.core.is_command_pending(cmd_id(403)),
