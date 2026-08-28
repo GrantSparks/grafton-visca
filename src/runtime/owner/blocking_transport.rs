@@ -296,9 +296,12 @@ where
         state.transport.send_semantics(),
         crate::transport::SendSemantics::Datagram
     );
-    let frame_meta = state
-        .envelope
-        .frame_into(write.bytes, kind, write.frame_buffer);
+    let frame_meta = state.envelope.frame_into_with_sequence(
+        write.bytes,
+        kind,
+        write.requested_sequence,
+        write.frame_buffer,
+    )?;
     state
         .transport
         .send_with_kind(write.frame_buffer.as_ref(), kind)
@@ -356,13 +359,27 @@ where
     T: BlockingTransport + HasTransportConfig,
 {
     let mut state = lock_state(state)?;
+    let transport = match state.transport.send_semantics() {
+        crate::transport::SendSemantics::Datagram => {
+            crate::runtime::engine::TransportKind::Datagram
+        }
+        crate::transport::SendSemantics::Stream => crate::runtime::engine::TransportKind::Stream,
+    };
     let BlockingAdapterState {
         envelope,
         framer,
         routing,
         ..
     } = &mut *state;
-    decode_frames_with_routing(envelope, framer, *routing, buffers, received, frame_limit)
+    decode_frames_with_routing(
+        envelope,
+        framer,
+        *routing,
+        buffers,
+        received,
+        frame_limit,
+        transport,
+    )
 }
 
 #[cfg(test)]
@@ -393,7 +410,7 @@ mod tests {
     #[derive(Debug)]
     struct ScriptedTransport {
         config: TransportConfig,
-        sent: Vec<Vec<u8>>,
+        sent: Arc<Mutex<Vec<Vec<u8>>>>,
         receives: VecDeque<Result<Vec<u8>, Error>>,
         semantics: SendSemantics,
     }
@@ -405,7 +422,7 @@ mod tests {
         ) -> Self {
             Self {
                 config,
-                sent: Vec::new(),
+                sent: Arc::new(Mutex::new(Vec::new())),
                 receives: receives.into_iter().collect(),
                 semantics: SendSemantics::Datagram,
             }
@@ -420,7 +437,7 @@ mod tests {
 
     impl BlockingTransport for ScriptedTransport {
         fn send_with_kind(&mut self, bytes: &[u8], _kind: CommandKind) -> Result<(), Error> {
-            self.sent.push(bytes.to_vec());
+            self.sent.lock().unwrap().push(bytes.to_vec());
             Ok(())
         }
 
@@ -767,6 +784,89 @@ mod tests {
     }
 
     #[test]
+    fn sony_retry_and_cancel_wire_capture_preserve_logical_sequence_identity() {
+        let payload = [0x90, 0x41, 0xff];
+        let first_reply = crate::protocol::sony::SonyHeader::new_reply(payload.len(), 0)
+            .encode()
+            .into_iter()
+            .chain(payload)
+            .collect::<Vec<_>>();
+        let transport = ScriptedTransport::new(config(), [Ok(first_reply)]);
+        let sent = Arc::clone(&transport.sent);
+        let profile = ProfileSpec::from_compile_time::<SonyFR7>().unwrap();
+        let adapter =
+            BlockingTransportAdapter::new(transport, &profile, CameraId::CAMERA_1).unwrap();
+        assert_eq!(
+            adapter.policy().protocol.envelope,
+            crate::runtime::engine::EnvelopeKind::Sony
+        );
+        let mut owner = super::super::BlockingOwner::new(adapter.policy().clone()).unwrap();
+        let (mut writer, mut reader, mut decoder) = adapter.parts();
+        let request = RuntimeRequest::Command {
+            wire: Arc::new(EncodedMessage::new(&[0x81, 0x01, 0x04, 0x00, 0xff]).unwrap()),
+            context: RequestContext {
+                target: CameraId::CAMERA_1,
+                timeout: TimeoutPolicy {
+                    ack: Duration::from_secs(1),
+                    completion: Duration::from_secs(1),
+                    inquiry: Duration::from_secs(1),
+                    cancellation: Duration::from_secs(1),
+                    ambiguity: Duration::from_secs(1),
+                },
+                retry: RetryPolicy {
+                    max_retries: 1,
+                    initial_backoff: Duration::ZERO,
+                    maximum_backoff: Duration::ZERO,
+                    total_budget: Duration::from_secs(10),
+                    ack_timeout: true,
+                    completion_timeout: false,
+                    inquiry_timeout: false,
+                    buffer_full: false,
+                    movement_not_executable: false,
+                    builtin_inquiry_syntax: false,
+                },
+                control: ControlPolicy::default(),
+                cancellation: CancellationPolicy::Supported,
+            },
+            applied_state: None,
+        };
+        let receipt = owner.submit(&mut writer, request).unwrap();
+        assert_eq!(sent.lock().unwrap().len(), 1);
+
+        // Force the ACK deadline. The first write result was successful, so the
+        // engine already owns sequence zero and the retry must be byte-identical.
+        owner
+            .wake(
+                &mut writer,
+                std::time::Instant::now() + Duration::from_secs(2),
+            )
+            .unwrap();
+        let writes = sent.lock().unwrap().clone();
+        assert_eq!(writes.len(), 2);
+        let first_header = crate::protocol::sony::SonyHeader::decode(&writes[0][..8]).unwrap();
+        let retry_header = crate::protocol::sony::SonyHeader::decode(&writes[1][..8]).unwrap();
+        assert_eq!(first_header.sequence_number, 0);
+        assert_eq!(retry_header.sequence_number, 0);
+        assert_eq!(writes[0], writes[1]);
+
+        // The retry is now the authoritative command. Its ACK causes a cancel
+        // write, which is a separate logical message and therefore receives a
+        // fresh Sony identity rather than inheriting the command's sequence.
+        assert_eq!(
+            owner
+                .pump_once(&mut writer, &mut reader, &mut decoder)
+                .unwrap(),
+            1,
+            "the queued Sony ACK should advance the retried command"
+        );
+        let _cancel = owner.cancel_test(&mut writer, receipt).unwrap();
+        let writes = sent.lock().unwrap().clone();
+        assert_eq!(writes.len(), 3);
+        let cancel_header = crate::protocol::sony::SonyHeader::decode(&writes[2][..8]).unwrap();
+        assert_eq!(cancel_header.sequence_number, 1);
+    }
+
+    #[test]
     fn decoder_maps_malformed_visca_to_invalid_response() {
         let transport = ScriptedTransport::new(config(), [Ok(vec![0x80, 0x41, 0xff])]);
         let adapter =
@@ -833,6 +933,7 @@ mod tests {
             [
                 Ok(vec![0xb0, 0x41, 0xff]), // valid camera 3 source, not registered
                 Ok(vec![0xa1, 0x41, 0xff]), // malformed camera 2 source nibble
+                Ok(vec![0x90, 0x41, 0xff, 0x90, 0x51, 0xff]),
             ],
             SendSemantics::Datagram,
         );
@@ -849,11 +950,25 @@ mod tests {
             1
         );
         assert!(try_terminal(&receipt).is_none());
-        assert!(matches!(
-            owner.pump_once(&mut writer, &mut reader, &mut decoder),
-            Err(Error::InvalidResponse { .. })
-        ));
+        assert_eq!(
+            owner
+                .pump_once(&mut writer, &mut reader, &mut decoder)
+                .unwrap(),
+            0,
+            "a malformed datagram is ignored at the owner boundary"
+        );
         assert!(!matches!(
+            try_terminal(&receipt),
+            Some(RuntimeOutcome::Applied)
+        ));
+        assert_eq!(
+            owner
+                .pump_once(&mut writer, &mut reader, &mut decoder)
+                .unwrap(),
+            2,
+            "a later valid datagram must still be decoded after the malformed one"
+        );
+        assert!(matches!(
             try_terminal(&receipt),
             Some(RuntimeOutcome::Applied)
         ));

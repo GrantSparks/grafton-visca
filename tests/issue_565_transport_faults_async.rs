@@ -385,6 +385,43 @@ async fn socketless_ack_and_completion_still_complete_a_command<E: Executor>(exe
     session.shutdown().await.expect("owner shutdown");
 }
 
+/// A malformed datagram is one bad receive, not session death. The owner must
+/// discard it and still apply the valid reply that follows on the same
+/// transport, without retrying the command or carrying the bad bytes into the
+/// next datagram.
+async fn malformed_datagram_is_ignored_and_later_valid_reply_succeeds<E: Executor>(executor: E) {
+    let transport = FaultTransport::new(
+        SendSemantics::Datagram,
+        vec![OnSend::Reply(vec![
+            vec![0x90, 0x61, 0xff], // malformed error frame: missing error code
+            ACK_SOCKET_ONE.to_vec(),
+            COMPLETE_SOCKET_ONE.to_vec(),
+        ])],
+    );
+    let probe = transport.probe();
+    let session = Session::open(transport, session_config(), executor)
+        .await
+        .expect("owner session");
+    let camera = session
+        .camera::<NonDefaultCompileTimeProfile>()
+        .expect("camera view");
+
+    camera
+        .submit::<AppliedOnly, _>(&ZoomStop)
+        .await
+        .expect("submission")
+        .applied()
+        .await
+        .expect("a later valid datagram must succeed after malformed input");
+    assert_eq!(
+        probe.writes().len(),
+        1,
+        "malformed input must not trigger a retry"
+    );
+
+    session.shutdown().await.expect("owner shutdown");
+}
+
 /// A camera repeating a socket nibble it already handed out must not cost the
 /// second command its ACK deadline.
 async fn ack_naming_an_occupied_socket_is_reassigned<E: Executor>(executor: E) {
@@ -508,6 +545,7 @@ runtime_matrix!(
     datagram_write_failure_fails_one_command_and_keeps_the_session,
     stream_write_failure_poisons_and_names_the_transport_cause,
     socketless_ack_and_completion_still_complete_a_command,
+    malformed_datagram_is_ignored_and_later_valid_reply_succeeds,
     ack_naming_an_occupied_socket_is_reassigned,
     ack_answered_from_inside_the_write_is_matched_on_the_first_pump,
 );

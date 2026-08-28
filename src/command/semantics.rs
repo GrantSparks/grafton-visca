@@ -25,19 +25,20 @@
 //! movement query.  The later preparation phase must add matching profile
 //! inquiry facts before exposing targeted iris/ND requests.
 //!
-//! # Why the ledger carries `#[allow(dead_code)]`
+//! The production typed-request lowering consumes this ledger through the
+//! private contracts near [`BuiltinRequestClass`].  Every concrete built-in
+//! request row supplies a monomorphized contract marker; the marker compares
+//! the request's closed class, fixed/profile-dependent axes, and (where
+//! applicable) applied-state requirement with this module's exhaustive
+//! [`BuiltinCommand::classification`] match.  The inventory is therefore
+//! useful in ordinary builds, not only in the independent semantic tests.
 //!
-//! Issue #636: this module is an authoritative *ledger*, and its only in-crate
-//! consumer today is the closed noun/method surface in
-//! [`crate::command::surface`], which is `#[cfg(test)]` — it, `crate::noun_parity`
-//! and the `dynapi`/`blocking_nouns`/`async_nouns` audits are what force every
-//! row to stay classified. Nothing in a non-test build reads a classification
-//! yet; the production consumer is the typed-request lowering in
-//! [`crate::prepared`], which grows it as the #542 preparation phases land.
-//! Each item that is waiting for that consumer carries its own targeted
-//! `#[allow(dead_code)]` rather than the module-wide blanket allow this file
-//! used to open with. [`WriteOnlyState`] is deliberately not among them: the
-//! engine's applied-state projection already consumes it.
+//! # Why some ledger items carry `#[allow(dead_code)]`
+//!
+//! The ledger also records domains and axis vocabulary needed by the source
+//! and parity audits. Items that are not yet needed by a runtime path carry a
+//! targeted allowance. [`WriteOnlyState`] is deliberately not among them: the
+//! engine's applied-state projection consumes it in production.
 
 /// A physical axis named by a built-in operation.
 ///
@@ -437,6 +438,246 @@ pub enum BuiltinCompletionClass {
     Targeted,
     /// Physical actuation is observed only through command application.
     AppliedOnly,
+}
+
+/// Private class contract implemented by the two closed operation markers.
+///
+/// This keeps the expected completion class in the type-level request
+/// contract. A coverage marker that names `Operation<Targeted>` therefore
+/// cannot accidentally validate an `AppliedOnly` ledger row (or vice versa).
+pub(crate) trait BuiltinCompletionContract {
+    /// Ledger completion class represented by this request marker.
+    const CLASS: BuiltinCompletionClass;
+}
+
+impl BuiltinCompletionContract for crate::completion::Targeted {
+    const CLASS: BuiltinCompletionClass = BuiltinCompletionClass::Targeted;
+}
+
+impl BuiltinCompletionContract for crate::completion::AppliedOnly {
+    const CLASS: BuiltinCompletionClass = BuiltinCompletionClass::AppliedOnly;
+}
+
+/// Private operation contract shared by concrete built-in operation types.
+///
+/// `AXIS_SELECTION` is the exact ledger spelling. Profile-dependent
+/// operations use [`BuiltinAxisSelection::ProfilePresetRecall`]; they never
+/// manufacture a broad fallback set.
+pub(crate) trait BuiltinOperationContract {
+    /// Exact fixed axes or the profile-selected preset-recall marker.
+    const AXIS_SELECTION: BuiltinAxisSelection;
+}
+
+/// Private fixed-axis contract consumed by production operation methods.
+///
+/// The associated constant is deliberately separate from
+/// [`BuiltinOperationContract::AXIS_SELECTION`]: a profile-dependent
+/// operation has no fixed `AffectedAxes` value and must retain its validated
+/// runtime profile selection.
+pub(crate) trait BuiltinFixedOperationContract: BuiltinOperationContract {
+    /// Concrete non-empty axes returned by `OperationCommand::affected_axes`.
+    const AFFECTED_AXES: crate::requests::AffectedAxes;
+}
+
+/// Private state-effect contract consumed by production applied-state
+/// projection.
+///
+/// Only built-in request types with a write-only state effect implement this
+/// trait. Plain rows without an effect use the `None` branch of the plain
+/// coverage marker, so an omitted implementation cannot hide a state row.
+pub(crate) trait BuiltinStateEffectContract {
+    /// Closed state effect required after exact protocol application.
+    const STATE_EFFECT: AppliedStateEffectRequirement;
+}
+
+/// Fails const evaluation when a plain ledger row and its typed request
+/// disagree about class or state effect.
+pub(crate) const fn assert_plain_request_contract(
+    row: BuiltinCommand,
+    expected_effect: Option<AppliedStateEffectRequirement>,
+) {
+    let contract_matches = match row.classification() {
+        BuiltinRequestClass::Plain { state_effect } => {
+            option_state_effect_equal(state_effect, expected_effect)
+        }
+        BuiltinRequestClass::Targeted { .. } | BuiltinRequestClass::AppliedOnly { .. } => false,
+    };
+    assert!(contract_matches);
+}
+
+const fn option_state_effect_equal(
+    left: Option<AppliedStateEffectRequirement>,
+    right: Option<AppliedStateEffectRequirement>,
+) -> bool {
+    match (left, right) {
+        (None, None) => true,
+        (Some(left), Some(right)) => state_effect_equal(left, right),
+        (None, Some(_)) | (Some(_), None) => false,
+    }
+}
+
+const fn state_effect_equal(
+    left: AppliedStateEffectRequirement,
+    right: AppliedStateEffectRequirement,
+) -> bool {
+    match (left, right) {
+        (AppliedStateEffectRequirement::Set(left), AppliedStateEffectRequirement::Set(right))
+        | (
+            AppliedStateEffectRequirement::Clear(left),
+            AppliedStateEffectRequirement::Clear(right),
+        )
+        | (
+            AppliedStateEffectRequirement::Invalidate(left),
+            AppliedStateEffectRequirement::Invalidate(right),
+        ) => state_key_equal(left, right),
+        _ => false,
+    }
+}
+
+const fn state_key_equal(left: WriteOnlyState, right: WriteOnlyState) -> bool {
+    matches!(
+        (left, right),
+        (WriteOnlyState::PanTiltLimits, WriteOnlyState::PanTiltLimits)
+            | (
+                WriteOnlyState::PresetRecallSpeed,
+                WriteOnlyState::PresetRecallSpeed
+            )
+            | (WriteOnlyState::FocusLockMode, WriteOnlyState::FocusLockMode)
+            | (WriteOnlyState::Spotlight, WriteOnlyState::Spotlight)
+            | (
+                WriteOnlyState::AutoSlowShutter,
+                WriteOnlyState::AutoSlowShutter
+            )
+            | (WriteOnlyState::NdFilterMode, WriteOnlyState::NdFilterMode)
+            | (WriteOnlyState::AutoNdFilter, WriteOnlyState::AutoNdFilter)
+            | (WriteOnlyState::ImageFreeze, WriteOnlyState::ImageFreeze)
+            | (
+                WriteOnlyState::DigitalZoomMode,
+                WriteOnlyState::DigitalZoomMode
+            )
+            | (
+                WriteOnlyState::MulticastStreaming,
+                WriteOnlyState::MulticastStreaming
+            )
+            | (WriteOnlyState::NdiQuality, WriteOnlyState::NdiQuality)
+            | (
+                WriteOnlyState::TallyBrightness,
+                WriteOnlyState::TallyBrightness
+            )
+            | (
+                WriteOnlyState::VariableSpeedMode,
+                WriteOnlyState::VariableSpeedMode
+            )
+            | (WriteOnlyState::TallyMode, WriteOnlyState::TallyMode)
+            | (WriteOnlyState::Flip, WriteOnlyState::Flip)
+    )
+}
+
+/// Monomorphizes the closed plain-request class marker and validates the
+/// ledger row in a production const initializer.
+pub(crate) const fn plain_request_contract<T>(
+    row: BuiltinCommand,
+    expected_effect: Option<AppliedStateEffectRequirement>,
+) -> fn()
+where
+    T: crate::requests::Request<Class = crate::request::Plain>,
+{
+    assert_plain_request_contract(row, expected_effect);
+    builtin_plain_marker::<T>
+}
+
+/// Monomorphizes a state-bearing plain request and derives its expected ledger
+/// effect from the private production state contract.
+pub(crate) const fn state_request_contract<T>(row: BuiltinCommand) -> fn()
+where
+    T: crate::requests::Request<Class = crate::request::Plain> + BuiltinStateEffectContract,
+{
+    assert_plain_request_contract(row, Some(<T as BuiltinStateEffectContract>::STATE_EFFECT));
+    builtin_plain_marker::<T>
+}
+
+const fn builtin_plain_marker<T>()
+where
+    T: crate::requests::Request<Class = crate::request::Plain>,
+{
+}
+
+/// Fails const evaluation when a fixed-axis operation row and its typed
+/// request disagree about completion class or axes.
+pub(crate) const fn assert_fixed_operation_contract<T, K>(row: BuiltinCommand) -> fn()
+where
+    T: crate::requests::Request<Class = crate::request::Operation<K>>
+        + crate::requests::OperationCommand<K>
+        + BuiltinFixedOperationContract,
+    K: crate::completion::Kind + BuiltinCompletionContract,
+{
+    let expected_axes = <T as BuiltinOperationContract>::AXIS_SELECTION;
+    let concrete_axes = <T as BuiltinFixedOperationContract>::AFFECTED_AXES;
+    assert!(matches!(expected_axes, BuiltinAxisSelection::Exact(_)));
+    if let BuiltinAxisSelection::Exact(axes) = expected_axes {
+        assert!(axes.bits() == concrete_axes.bits());
+    }
+    assert_operation_classification(row, K::CLASS, expected_axes);
+    builtin_operation_marker::<T, K>
+}
+
+/// Fails const evaluation when a profile-dependent operation row and its
+/// typed request disagree about completion class or axis-selection mode.
+pub(crate) const fn assert_profile_operation_contract<T, K>(row: BuiltinCommand) -> fn()
+where
+    T: crate::requests::Request<Class = crate::request::Operation<K>>
+        + crate::requests::OperationCommand<K>
+        + BuiltinOperationContract,
+    K: crate::completion::Kind + BuiltinCompletionContract,
+{
+    let expected_axes = <T as BuiltinOperationContract>::AXIS_SELECTION;
+    assert!(matches!(
+        expected_axes,
+        BuiltinAxisSelection::ProfilePresetRecall
+    ));
+    assert_operation_classification(row, K::CLASS, expected_axes);
+    builtin_operation_marker::<T, K>
+}
+
+const fn assert_operation_classification(
+    row: BuiltinCommand,
+    expected_class: BuiltinCompletionClass,
+    expected_axes: BuiltinAxisSelection,
+) {
+    let contract_matches = match (row.classification(), expected_class) {
+        (BuiltinRequestClass::Targeted { axes }, BuiltinCompletionClass::Targeted)
+        | (BuiltinRequestClass::AppliedOnly { axes }, BuiltinCompletionClass::AppliedOnly) => {
+            axis_selection_equal(axes, expected_axes)
+        }
+        (
+            BuiltinRequestClass::Plain { .. },
+            BuiltinCompletionClass::Targeted | BuiltinCompletionClass::AppliedOnly,
+        )
+        | (BuiltinRequestClass::Targeted { .. }, BuiltinCompletionClass::AppliedOnly)
+        | (BuiltinRequestClass::AppliedOnly { .. }, BuiltinCompletionClass::Targeted) => false,
+    };
+    assert!(contract_matches);
+}
+
+const fn axis_selection_equal(left: BuiltinAxisSelection, right: BuiltinAxisSelection) -> bool {
+    match (left, right) {
+        (BuiltinAxisSelection::Exact(left), BuiltinAxisSelection::Exact(right)) => {
+            left.bits() == right.bits()
+        }
+        (BuiltinAxisSelection::ProfilePresetRecall, BuiltinAxisSelection::ProfilePresetRecall) => {
+            true
+        }
+        (BuiltinAxisSelection::Exact(_), BuiltinAxisSelection::ProfilePresetRecall)
+        | (BuiltinAxisSelection::ProfilePresetRecall, BuiltinAxisSelection::Exact(_)) => false,
+    }
+}
+
+const fn builtin_operation_marker<T, K>()
+where
+    T: crate::requests::Request<Class = crate::request::Operation<K>>
+        + crate::requests::OperationCommand<K>,
+    K: crate::completion::Kind,
+{
 }
 
 /// Every built-in command request that must be audited before typed

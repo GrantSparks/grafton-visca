@@ -120,6 +120,73 @@ pub fn active_grafton_visca_features() -> Vec<&'static str> {
     features
 }
 
+/// Resolves the target namespace used by nested compile-fail Cargo projects.
+///
+/// Cargo exposes `CARGO_TARGET_DIR` to test processes using the same path
+/// semantics as its own command-line configuration: an absolute path is
+/// preserved, while a relative path is relative to the invoking process's
+/// current directory. Keeping that namespace here prevents concurrent matrix
+/// legs from sharing generated sources or nested Cargo artifacts by accident.
+fn compile_fail_target_root(
+    crate_root: &Path,
+    caller_target_dir: Option<&Path>,
+    current_dir: &Path,
+) -> PathBuf {
+    match caller_target_dir {
+        Some(path) if path.is_absolute() => path.to_path_buf(),
+        Some(path) => current_dir.join(path),
+        None => crate_root.join("target"),
+    }
+}
+
+fn configured_compile_fail_target_root(crate_root: &Path) -> PathBuf {
+    let current_dir = env::current_dir().unwrap_or_else(|error| {
+        panic!("failed to determine compile-fail current directory: {error}")
+    });
+    let caller_target_dir = env::var_os("CARGO_TARGET_DIR").map(PathBuf::from);
+    compile_fail_target_root(crate_root, caller_target_dir.as_deref(), &current_dir)
+}
+
+fn compile_fail_work_root(target_root: &Path, process_id: u32, fixture_dirs: &[&str]) -> PathBuf {
+    target_root.join("contract-compile-fail").join(format!(
+        "{}-{}",
+        process_id,
+        sanitize(&fixture_dirs.join("-"))
+    ))
+}
+
+fn compile_fail_nested_target_root(target_root: &Path) -> PathBuf {
+    target_root.join("contract-compile-fail-target")
+}
+
+/// Removes only the generated source/manifests for one harness process.
+///
+/// Nested Cargo artifacts deliberately live beside this directory, under the
+/// stable `contract-compile-fail-target` child of the caller's target root,
+/// so dropping this guard can never remove a reusable target cache.
+struct CompileFailWorkGuard {
+    path: PathBuf,
+}
+
+impl CompileFailWorkGuard {
+    fn new(path: PathBuf) -> Self {
+        Self { path }
+    }
+}
+
+impl Drop for CompileFailWorkGuard {
+    fn drop(&mut self) {
+        match fs::remove_dir_all(&self.path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => eprintln!(
+                "failed to clean up compile-fail work dir {}: {error}",
+                self.path.display()
+            ),
+        }
+    }
+}
+
 pub fn assert_compile_fail_fixtures(fixture_dirs: &[&str], crate_features: &[&str]) {
     let crate_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let fixtures = collect_fixtures(&crate_root, fixture_dirs);
@@ -129,14 +196,9 @@ pub fn assert_compile_fail_fixtures(fixture_dirs: &[&str], crate_features: &[&st
         fixture_dirs
     );
 
-    let work_root = crate_root
-        .join("target")
-        .join("contract-compile-fail")
-        .join(format!(
-            "{}-{}",
-            std::process::id(),
-            sanitize(&fixture_dirs.join("-"))
-        ));
+    let target_root = configured_compile_fail_target_root(&crate_root);
+    let nested_target_root = compile_fail_nested_target_root(&target_root);
+    let work_root = compile_fail_work_root(&target_root, std::process::id(), fixture_dirs);
     if work_root.exists() {
         fs::remove_dir_all(&work_root).unwrap_or_else(|error| {
             panic!(
@@ -145,6 +207,7 @@ pub fn assert_compile_fail_fixtures(fixture_dirs: &[&str], crate_features: &[&st
             )
         });
     }
+    let _work_cleanup = CompileFailWorkGuard::new(work_root.clone());
     fs::create_dir_all(&work_root).unwrap_or_else(|error| {
         panic!(
             "failed to create compile-fail work dir {}: {error}",
@@ -152,12 +215,18 @@ pub fn assert_compile_fail_fixtures(fixture_dirs: &[&str], crate_features: &[&st
         )
     });
 
-    prefetch_contract_dependencies(&crate_root, &work_root, crate_features);
+    prefetch_contract_dependencies(&crate_root, &work_root, &nested_target_root, crate_features);
 
     let mut failures = Vec::new();
     for (index, fixture) in fixtures.iter().enumerate() {
-        if let Err(failure) = check_fixture(&crate_root, &work_root, index, fixture, crate_features)
-        {
+        if let Err(failure) = check_fixture(
+            &crate_root,
+            &work_root,
+            &nested_target_root,
+            index,
+            fixture,
+            crate_features,
+        ) {
             failures.push(failure);
         }
     }
@@ -202,7 +271,12 @@ fn collect_fixtures(crate_root: &Path, fixture_dirs: &[&str]) -> Vec<PathBuf> {
     fixtures
 }
 
-fn prefetch_contract_dependencies(crate_root: &Path, work_root: &Path, crate_features: &[&str]) {
+fn prefetch_contract_dependencies(
+    crate_root: &Path,
+    work_root: &Path,
+    nested_target_root: &Path,
+    crate_features: &[&str],
+) {
     let prefetch_dir = work_root.join("prefetch-dependencies");
     let prefetch_src_dir = prefetch_dir.join("src");
     fs::create_dir_all(&prefetch_src_dir).unwrap_or_else(|error| {
@@ -234,6 +308,7 @@ fn prefetch_contract_dependencies(crate_root: &Path, work_root: &Path, crate_fea
         .arg("--quiet")
         .arg("--manifest-path")
         .arg(prefetch_dir.join("Cargo.toml"))
+        .env("CARGO_TARGET_DIR", nested_target_root)
         .env("CARGO_HTTP_MULTIPLEXING", "false")
         .env("CARGO_NET_RETRY", "10");
 
@@ -257,6 +332,7 @@ fn prefetch_contract_dependencies(crate_root: &Path, work_root: &Path, crate_fea
 fn check_fixture(
     crate_root: &Path,
     work_root: &Path,
+    nested_target_root: &Path,
     index: usize,
     fixture: &Path,
     crate_features: &[&str],
@@ -315,12 +391,7 @@ fn check_fixture(
         .arg("--quiet")
         .arg("--manifest-path")
         .arg(case_dir.join("Cargo.toml"))
-        .env(
-            "CARGO_TARGET_DIR",
-            crate_root
-                .join("target")
-                .join("contract-compile-fail-target"),
-        )
+        .env("CARGO_TARGET_DIR", nested_target_root)
         .output()
         .unwrap_or_else(|error| {
             panic!(
@@ -677,5 +748,59 @@ mod tests {
         ];
         let stderr = "error[E0603]: module `camera_id` is private\n";
         assert!(unmet_expectations(&declared, stderr).is_empty());
+    }
+
+    #[test]
+    fn target_root_unset_falls_back_to_crate_target() {
+        let crate_root = Path::new("/workspace/grafton-visca");
+        let current_dir = Path::new("/tmp/test-process");
+        assert_eq!(
+            compile_fail_target_root(crate_root, None, current_dir),
+            crate_root.join("target")
+        );
+    }
+
+    #[test]
+    fn absolute_caller_target_dir_is_preserved() {
+        let caller_target_dir = Path::new("/tmp/outer-target");
+        assert_eq!(
+            compile_fail_target_root(
+                Path::new("/workspace/grafton-visca"),
+                Some(caller_target_dir),
+                Path::new("/tmp/test-process"),
+            ),
+            caller_target_dir
+        );
+    }
+
+    #[test]
+    fn relative_caller_target_dir_is_resolved_against_current_dir() {
+        assert_eq!(
+            compile_fail_target_root(
+                Path::new("/workspace/grafton-visca"),
+                Some(Path::new("outer-target")),
+                Path::new("/tmp/test-process"),
+            ),
+            Path::new("/tmp/test-process/outer-target")
+        );
+    }
+
+    #[test]
+    fn process_ids_produce_distinct_generated_source_paths() {
+        let target_root = Path::new("/tmp/outer-target");
+        let fixture_dirs = ["tests/api_contract/fail"];
+        let first = compile_fail_work_root(target_root, 101, &fixture_dirs);
+        let second = compile_fail_work_root(target_root, 202, &fixture_dirs);
+        assert_ne!(first, second);
+        assert!(first.starts_with(target_root.join("contract-compile-fail")));
+        assert!(second.starts_with(target_root.join("contract-compile-fail")));
+    }
+
+    #[test]
+    fn nested_target_cache_is_stable_under_target_root() {
+        let target_root = Path::new("/tmp/outer-target");
+        let nested = compile_fail_nested_target_root(target_root);
+        assert_eq!(nested, target_root.join("contract-compile-fail-target"));
+        assert_eq!(nested, compile_fail_nested_target_root(target_root));
     }
 }

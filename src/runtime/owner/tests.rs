@@ -299,12 +299,18 @@ mod blocking {
             };
             self.raw_pointers.push(write.bytes.as_ptr() as usize);
             let meta = match &self.envelope {
-                TestEnvelope::Raw(envelope) => {
-                    envelope.frame_into(write.bytes, kind, write.frame_buffer)
-                }
-                TestEnvelope::Sony(envelope) => {
-                    envelope.frame_into(write.bytes, kind, write.frame_buffer)
-                }
+                TestEnvelope::Raw(envelope) => envelope.frame_into_with_sequence(
+                    write.bytes,
+                    kind,
+                    write.requested_sequence,
+                    write.frame_buffer,
+                )?,
+                TestEnvelope::Sony(envelope) => envelope.frame_into_with_sequence(
+                    write.bytes,
+                    kind,
+                    write.requested_sequence,
+                    write.frame_buffer,
+                )?,
             };
             self.frame_pointers
                 .push(write.frame_buffer.as_ptr() as usize);
@@ -2147,6 +2153,60 @@ mod blocking {
         drop(queued);
     }
 
+    /// Issue #542: a public operation handle cannot name an unwritten request.
+    /// The rejection must travel through the normal terminal effect so the
+    /// owner drops the engine entry and queue ticket, resolves the temporary
+    /// observer, and returns the shared admission permit.
+    #[test]
+    fn blocking_operation_rejection_terminalizes_only_the_new_request() {
+        let mut owner_policy = policy(2, TransportKind::Datagram);
+        owner_policy.targets[usize::from(CameraId::CAMERA_1.id())] = Some(TargetPolicy {
+            command_sockets: 1,
+            cancellation: CancellationPolicy::Supported,
+        });
+        let mut owner = BlockingOwner::new(owner_policy).unwrap();
+        let profile =
+            crate::ProfileSpec::from_compile_time::<crate::profiles::SonyBRC300>().unwrap();
+        let mut driver = FakeDriver::default();
+        let first = owner
+            .submit_operation(&mut driver, prepared_zoom_drive(&profile))
+            .unwrap();
+        let first_operation_id = first.id();
+        let first_id = owner.state().diagnostics().find_map(|event| match event {
+            DiagnosticEvent::Admitted { id, .. } => Some(*id),
+            _ => None,
+        });
+        let first_id = first_id.expect("first operation has one admission diagnostic");
+        let first_state = owner.state().request_state(first_id);
+
+        let error = owner
+            .submit_operation(&mut driver, prepared_zoom_drive(&profile))
+            .unwrap_err();
+        assert!(matches!(error, Error::TransportBusy));
+        assert_eq!(driver.writes.len(), 1);
+        assert_eq!(owner.state().active_len(), 1);
+        assert_eq!(owner.state().permits().available(), 1);
+        assert_eq!(owner.state().metrics().admitted, 2);
+        assert_eq!(owner.state().metrics().terminal, 1);
+        assert_eq!(owner.state().request_state(first_id), first_state);
+
+        let rejected_id = owner.state().diagnostics().find_map(|event| match event {
+            DiagnosticEvent::Terminal {
+                id,
+                outcome: OutcomeDiagnostic::Failed(ErrorKind::Busy),
+                ..
+            } => Some(*id),
+            _ => None,
+        });
+        let rejected_id = rejected_id.expect("rejected operation has one terminal diagnostic");
+        assert_ne!(rejected_id, first_id);
+        assert_eq!(first_operation_id, first_id.get());
+        assert!(owner.state().request_state(rejected_id).is_none());
+        assert!(owner.state().engine.entry(rejected_id).is_none());
+        owner.state().engine.assert_invariants().unwrap();
+        drop(first);
+    }
+
     /// Issue #561: queueing is bounded by admission capacity, not by sockets.
     #[test]
     fn blocking_queue_depth_still_rejects_beyond_admission_capacity() {
@@ -2966,6 +3026,10 @@ mod blocking {
             assert_eq!(driver.raw_pointers[0], driver.raw_pointers[1]);
             assert_eq!(driver.frame_pointers[0], driver.frame_pointers[1]);
             assert_eq!(driver.frame_capacities[0], driver.frame_capacities[1]);
+            if envelope == EnvelopeKind::Sony {
+                assert_eq!(driver.sequences, vec![Some(0), Some(0)]);
+                assert_eq!(driver.frames[0], driver.frames[1]);
+            }
             drop(receipt);
         }
     }
@@ -4774,14 +4838,14 @@ mod lifecycle_trace {
             self.next_transmission += 1;
             let transmission = self.next_transmission;
             match kind {
-                Transmission::Request { target, wire } => out.push(format!(
+                Transmission::Request { target, wire, .. } => out.push(format!(
                     "{} effect transmit tx={transmission} id={} kind=request target={} wire={}",
                     self.at,
                     request.get(),
                     target.id(),
                     hex_text(wire.as_bytes())
                 )),
-                Transmission::Cancel { target, socket } => {
+                Transmission::Cancel { target, socket, .. } => {
                     self.cancel_transmissions += 1;
                     out.push(format!(
                         "{} effect transmit tx={transmission} id={} kind=cancel target={} socket={}",

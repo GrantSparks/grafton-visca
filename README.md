@@ -53,7 +53,7 @@ transports.
 | Profile family | Protocol | 2.0 support |
 | -------------- | -------- | ----------- |
 | `GenericVisca` | Raw VISCA | Supported baseline profile with conservative capabilities |
-| `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` | Raw VISCA | Supported; G2/G3 TCP and UDP behavior is hardware-validated |
+| `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` | Raw VISCA | Supported by the software/profile registry; physical G2/G3 TCP and UDP validation remains pending — see the [hardware release checklist](docs/hardware_release_checklist.md) |
 | `SonyEVIH100`, `SonyBRC300`, `NearusBRC300` | Raw VISCA | Supported through profile capability gates and protocol tests |
 | `SonyBRCH900`, `SonyFR7` | Sony encapsulation | Supported through Sony encapsulation, profile capability gates, and protocol tests |
 

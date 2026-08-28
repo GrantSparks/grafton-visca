@@ -462,10 +462,18 @@ pub(crate) enum Transmission {
     Request {
         target: CameraId,
         wire: Arc<EncodedMessage>,
+        /// `None` asks the envelope to allocate a sequence for the first
+        /// logical transmission (or for a request whose first write never
+        /// succeeded).  A retry carries the request's last successful Sony
+        /// sequence so the exact logical message is replayed byte-for-byte.
+        requested_sequence: Option<u32>,
     },
     Cancel {
         target: CameraId,
         socket: ViscaSocket,
+        /// Cancellation is a separate logical message and therefore always
+        /// asks Sony framing for a fresh sequence.
+        requested_sequence: Option<u32>,
     },
 }
 

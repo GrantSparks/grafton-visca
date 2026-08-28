@@ -55,6 +55,7 @@ struct TransmissionOwner {
     generation: GenerationTicket,
     attempt: u32,
     kind: CorrelationKind,
+    requested_sequence: Option<u32>,
 }
 
 /// A camera ACK that reached the engine before the write result for the very
@@ -82,6 +83,10 @@ pub(crate) struct Entry {
     generation: GenerationTicket,
     queue_generation: u64,
     transmission_order: Option<u64>,
+    /// The most recently successful Sony sequence for this logical request.
+    /// Retries reuse it; cancellation has its own sequence and never changes
+    /// this value.
+    current_sequence: Option<u32>,
     sequence_history: SmallVec<[SequenceRecord; MAX_SEQUENCE_HISTORY]>,
     cancel_attempted_socket: Option<ViscaSocket>,
     cancellation_observation_open: bool,
@@ -522,6 +527,34 @@ impl ProtocolEngine {
         dispatch
     }
 
+    /// Rejects an admitted request that has not had its first write yet.
+    ///
+    /// This is the blocking operation admission boundary: a caller may ask
+    /// for a lifecycle handle only after this request's initial write has
+    /// succeeded.  The helper deliberately goes through the normal terminal
+    /// transition so queue tickets, correlations, and any engine-owned
+    /// admission state are cleaned up by one authority.  It does not run due
+    /// work or dispatch another request.
+    #[allow(dead_code)] // Consumed by the blocking owner (#542).
+    pub(crate) fn reject_unwritten_without_due(
+        &mut self,
+        id: RequestId,
+        error: Error,
+    ) -> Vec<Effect> {
+        let mut effects = Vec::new();
+        match self.entries.get(&id) {
+            Some(entry) if matches!(entry.phase, Phase::Ready { .. }) => {
+                self.finish(id, RuntimeOutcome::Failed(error), &mut effects);
+            }
+            Some(_) => effects.push(Effect::Ignored(
+                IgnoreReason::IncompatibleTransmissionResult,
+            )),
+            None => effects.push(Effect::Ignored(IgnoreReason::UnknownRequest)),
+        }
+        self.debug_assert_invariants();
+        effects
+    }
+
     #[allow(dead_code)] // See `admit_without_due` (#636).
     fn first_dispatch_without_due_inner(&mut self, id: RequestId, now: Instant) -> FirstDispatch {
         if self.state != SessionState::Running {
@@ -631,6 +664,7 @@ impl ProtocolEngine {
                 generation,
                 queue_generation,
                 transmission_order: None,
+                current_sequence: None,
                 sequence_history: SmallVec::new(),
                 cancel_attempted_socket: None,
                 cancellation_observation_open: false,
@@ -804,6 +838,11 @@ impl ProtocolEngine {
         let attempt = entry.attempt;
         let target = entry.request.context().target;
         let wire = Arc::clone(entry.request.wire());
+        let requested_sequence = if self.policy.envelope == EnvelopeKind::Sony {
+            entry.current_sequence
+        } else {
+            None
+        };
         let phase = Phase::Sending {
             transmission,
             started_at: now,
@@ -816,6 +855,7 @@ impl ProtocolEngine {
                 generation,
                 attempt,
                 kind: CorrelationKind::Request,
+                requested_sequence,
             },
         );
         self.last_request_sent = Some(now);
@@ -825,7 +865,11 @@ impl ProtocolEngine {
         effects.push(Effect::Transmit {
             transmission,
             request: ticket.request,
-            kind: Transmission::Request { target, wire },
+            kind: Transmission::Request {
+                target,
+                wire,
+                requested_sequence,
+            },
         });
     }
 
@@ -969,7 +1013,10 @@ impl ProtocolEngine {
             EnvelopeKind::Raw => meta.sequence.is_none(),
             EnvelopeKind::Sony => meta.sequence.is_some(),
         };
-        if !metadata_valid {
+        let requested_sequence_valid = owner
+            .requested_sequence
+            .is_none_or(|requested| meta.sequence == Some(requested));
+        if !metadata_valid || !requested_sequence_valid {
             self.finish(
                 owner.request,
                 RuntimeOutcome::Failed(Error::InvalidState(
@@ -987,6 +1034,13 @@ impl ProtocolEngine {
                 let Some(entry) = self.entries.get_mut(&owner.request) else {
                     return;
                 };
+                // Only the exact, currently-authoritative request write may
+                // establish the sequence reused by a later retry.  A
+                // cancellation is a separate logical message and deliberately
+                // does not enter this field.
+                if self.policy.envelope == EnvelopeKind::Sony {
+                    entry.current_sequence = meta.sequence;
+                }
                 entry.transmission_order = Some(self.next_transmission_order);
                 self.next_transmission_order = self.next_transmission_order.wrapping_add(1);
                 let request_is_inquiry = entry.request.is_inquiry();
@@ -1898,12 +1952,20 @@ impl ProtocolEngine {
                 generation,
                 attempt,
                 kind: CorrelationKind::Cancellation,
+                // A cancellation is not a retry of the command.  It must get
+                // a fresh Sony identity even when the command already has a
+                // successful sequence recorded.
+                requested_sequence: None,
             },
         );
         effects.push(Effect::Transmit {
             transmission,
             request: id,
-            kind: Transmission::Cancel { target, socket },
+            kind: Transmission::Cancel {
+                target,
+                socket,
+                requested_sequence: None,
+            },
         });
     }
 
@@ -2767,10 +2829,9 @@ fn unique_requests(
 ) -> SmallVec<[CorrelationOwner; 4]> {
     let mut unique = SmallVec::new();
     for owner in owners {
-        if !unique
-            .iter()
-            .any(|existing: &CorrelationOwner| existing.request == owner.request)
-        {
+        if !unique.iter().any(|existing: &CorrelationOwner| {
+            existing.request == owner.request && existing.kind == owner.kind
+        }) {
             unique.push(owner);
         }
     }

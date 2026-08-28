@@ -155,6 +155,23 @@ impl Envelope for RawVisca {
     }
 }
 
+impl RawVisca {
+    pub(crate) fn frame_into_with_sequence(
+        &self,
+        visca_bytes: &[u8],
+        kind: CommandKind,
+        requested_sequence: Option<u32>,
+        out: &mut bytes::BytesMut,
+    ) -> Result<FrameMeta, Error> {
+        if requested_sequence.is_some() {
+            return Err(Error::InvalidRequest(
+                "raw VISCA framing cannot accept an explicit Sony sequence".into(),
+            ));
+        }
+        Ok(self.frame_into(visca_bytes, kind, out))
+    }
+}
+
 impl Envelope for SonyEncapsulated {
     /// Sony encapsulated protocol supports sequence correlation via 8-byte header,
     /// enabling reliable concurrent inquiry execution.
@@ -173,33 +190,10 @@ impl Envelope for SonyEncapsulated {
         kind: CommandKind,
         out: &mut bytes::BytesMut,
     ) -> FrameMeta {
-        out.clear();
-
-        if visca_bytes.is_empty() {
-            return FrameMeta { sequence: None };
-        }
-
-        // Allocate sequence number atomically
-        let sequence = self.sequence_counter.fetch_add(1, Ordering::Relaxed);
-
-        // Normalize the address byte
-        let normalized_addr = normalize_address(visca_bytes[0], kind, self.addressing);
-
-        // Build Sony header
-        let header = match kind {
-            CommandKind::Inquiry => SonyHeader::new_inquiry(visca_bytes.len(), sequence),
-            CommandKind::Command => SonyHeader::new_command(visca_bytes.len(), sequence),
-        };
-
-        // Write header + normalized address + remaining bytes directly into out
-        out.reserve(SonyHeader::SIZE + visca_bytes.len());
-        out.extend_from_slice(&header.encode());
-        out.extend_from_slice(&[normalized_addr]);
-        out.extend_from_slice(&visca_bytes[1..]);
-
-        FrameMeta {
-            sequence: Some(sequence),
-        }
+        // Keep the existing infallible convenience API. Owner retries use the
+        // fallible explicit-sequence path below.
+        self.frame_into_with_sequence(visca_bytes, kind, None, out)
+            .unwrap_or(FrameMeta { sequence: None })
     }
 
     fn extract_response(&self, framed_bytes: &[u8]) -> Result<Bytes, Error> {
@@ -243,6 +237,51 @@ impl Envelope for SonyEncapsulated {
                 sequence: Some(header.sequence_number),
             },
         ))
+    }
+}
+
+impl SonyEncapsulated {
+    pub(crate) fn frame_into_with_sequence(
+        &self,
+        visca_bytes: &[u8],
+        kind: CommandKind,
+        requested_sequence: Option<u32>,
+        out: &mut bytes::BytesMut,
+    ) -> Result<FrameMeta, Error> {
+        out.clear();
+
+        if visca_bytes.is_empty() {
+            if requested_sequence.is_some() {
+                return Err(Error::InvalidRequest(
+                    "an explicit Sony sequence requires a non-empty VISCA message".into(),
+                ));
+            }
+            return Ok(FrameMeta { sequence: None });
+        }
+
+        // Allocate only for a new logical message. Retries provide their
+        // engine-owned sequence explicitly and must not advance this counter.
+        let sequence = requested_sequence
+            .unwrap_or_else(|| self.sequence_counter.fetch_add(1, Ordering::Relaxed));
+
+        // Normalize the address byte
+        let normalized_addr = normalize_address(visca_bytes[0], kind, self.addressing);
+
+        // Build Sony header
+        let header = match kind {
+            CommandKind::Inquiry => SonyHeader::new_inquiry(visca_bytes.len(), sequence),
+            CommandKind::Command => SonyHeader::new_command(visca_bytes.len(), sequence),
+        };
+
+        // Write header + normalized address + remaining bytes directly into out
+        out.reserve(SonyHeader::SIZE + visca_bytes.len());
+        out.extend_from_slice(&header.encode());
+        out.extend_from_slice(&[normalized_addr]);
+        out.extend_from_slice(&visca_bytes[1..]);
+
+        Ok(FrameMeta {
+            sequence: Some(sequence),
+        })
     }
 }
 
@@ -467,6 +506,38 @@ mod tests {
         assert_eq!(meta1.sequence, Some(0));
         assert_eq!(meta2.sequence, Some(1));
         assert_eq!(meta3.sequence, Some(2));
+    }
+
+    #[test]
+    fn explicit_sony_retransmission_reuses_sequence_without_advancing_counter() {
+        let envelope = SonyEncapsulated::new(AddressingMode::Ip);
+        let visca_cmd = vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR];
+        let mut out = bytes::BytesMut::new();
+
+        let first = envelope.frame_into(&visca_cmd, CommandKind::Command, &mut out);
+        let first_wire = out.to_vec();
+        assert_eq!(first.sequence, Some(0));
+
+        let retry = envelope
+            .frame_into_with_sequence(&visca_cmd, CommandKind::Command, first.sequence, &mut out)
+            .expect("explicit Sony retry sequence is valid");
+        assert_eq!(retry.sequence, Some(0));
+        assert_eq!(out.as_ref(), first_wire.as_slice());
+
+        let next = envelope.frame_into(&visca_cmd, CommandKind::Command, &mut out);
+        assert_eq!(next.sequence, Some(1));
+    }
+
+    #[test]
+    fn raw_framing_rejects_an_explicit_sony_sequence() {
+        let envelope = RawVisca::new(AddressingMode::Ip);
+        let visca_cmd = vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR];
+        let mut out = bytes::BytesMut::new();
+
+        assert!(matches!(
+            envelope.frame_into_with_sequence(&visca_cmd, CommandKind::Command, Some(0), &mut out,),
+            Err(Error::InvalidRequest(_))
+        ));
     }
 
     #[test]

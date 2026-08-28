@@ -151,10 +151,12 @@ where
             } else {
                 CommandKind::Command
             };
-            Ok(self
-                .state
-                .envelope
-                .frame_into(write.bytes, kind, write.frame_buffer))
+            self.state.envelope.frame_into_with_sequence(
+                write.bytes,
+                kind,
+                write.requested_sequence,
+                write.frame_buffer,
+            )
         };
 
         async move {
@@ -212,6 +214,7 @@ where
                 buffers,
                 received,
                 frame_limit,
+                self.policy.protocol.transport,
             )
             .map(AsyncReceive::Frames)
         }
@@ -233,6 +236,7 @@ mod tests {
         config: TransportConfig,
         sent: Vec<Vec<u8>>,
         receives: std::collections::VecDeque<Result<Vec<u8>, Error>>,
+        semantics: SendSemantics,
     }
 
     impl HasTransportConfig for ScriptedTransport {
@@ -255,7 +259,7 @@ mod tests {
         }
 
         fn send_semantics(&self) -> SendSemantics {
-            SendSemantics::Datagram
+            self.semantics
         }
     }
 
@@ -269,6 +273,7 @@ mod tests {
             config: TransportConfig::default(),
             sent: Vec::new(),
             receives: [Ok(vec![0x90, 0x41, 0xff])].into_iter().collect(),
+            semantics: SendSemantics::Datagram,
         };
         let mut adapter =
             AsyncTransportAdapter::new(transport, &profile(), CameraId::CAMERA_1).unwrap();
@@ -298,6 +303,7 @@ mod tests {
             receives: [Ok(vec![0x90, 0x41]), Ok(vec![0xff]), Ok(Vec::new())]
                 .into_iter()
                 .collect(),
+            semantics: SendSemantics::Stream,
         };
         let mut adapter =
             AsyncTransportAdapter::new(transport, &profile(), CameraId::CAMERA_1).unwrap();
@@ -347,6 +353,7 @@ mod tests {
                 config: TransportConfig::default(),
                 sent: Vec::new(),
                 receives: [Err(idle)].into_iter().collect(),
+                semantics: SendSemantics::Datagram,
             };
             let mut adapter =
                 AsyncTransportAdapter::new(transport, &profile(), CameraId::CAMERA_1).unwrap();
@@ -370,6 +377,7 @@ mod tests {
             receives: [Err(Error::TransportError("ICMP port unreachable".into()))]
                 .into_iter()
                 .collect(),
+            semantics: SendSemantics::Datagram,
         };
         let mut adapter =
             AsyncTransportAdapter::new(transport, &profile(), CameraId::CAMERA_1).unwrap();
@@ -393,6 +401,7 @@ mod tests {
             config: TransportConfig::default(),
             sent: Vec::new(),
             receives: std::collections::VecDeque::new(),
+            semantics: SendSemantics::Datagram,
         };
         let adapter =
             AsyncTransportAdapter::new_with_tuning(transport, &profile, CameraId::CAMERA_1, tuning)

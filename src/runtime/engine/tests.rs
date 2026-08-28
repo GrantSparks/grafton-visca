@@ -499,6 +499,244 @@ fn sony_exact_and_unique_lower16_are_target_safe_and_owner_deduplicated() {
 }
 
 #[test]
+fn sony_exact_request_and_cancellation_collision_is_ignored() {
+    let start = Instant::now();
+    let mut engine = engine(EnvelopeKind::Sony, TransportKind::Datagram);
+    let admitted_effects = engine.handle(
+        Input::Admit {
+            ticket: AdmissionTicket(1),
+            request: command(1, CancellationPolicy::Supported),
+        },
+        start,
+    );
+    let (request_tx, id, _) = request_transmit(&admitted_effects);
+    engine.handle(
+        Input::TransmissionFinished {
+            transmission: request_tx,
+            result: Ok(TransmissionMeta {
+                sequence: Some(0x1111_beef),
+            }),
+        },
+        start,
+    );
+    engine.handle(
+        frame(
+            1,
+            Some((0x1111_beef, SequenceWidth::Full32)),
+            DecodedResponse::Ack {
+                socket: Some(ViscaSocket::S1),
+            },
+        ),
+        start,
+    );
+    let cancellation = engine.handle(Input::Cancel { id }, start);
+    let (cancel_tx, cancel_id, _) = cancel_transmit(&cancellation);
+    assert_eq!(cancel_id, id);
+    engine.handle(
+        Input::TransmissionFinished {
+            transmission: cancel_tx,
+            result: Ok(TransmissionMeta {
+                // Deliberately collide with the original request identity.
+                sequence: Some(0x1111_beef),
+            }),
+        },
+        start,
+    );
+
+    let collision = engine.handle(
+        frame(
+            1,
+            Some((0x1111_beef, SequenceWidth::Full32)),
+            DecodedResponse::Completion { socket: None },
+        ),
+        start,
+    );
+    assert!(collision.iter().any(|effect| matches!(
+        effect,
+        Effect::Ignored(IgnoreReason::UnmatchedSequencedFrame)
+    )));
+    assert!(!collision
+        .iter()
+        .any(|effect| matches!(effect, Effect::Terminal { .. })));
+    assert!(!collision
+        .iter()
+        .any(|effect| matches!(effect, Effect::CancellationObservation { .. })));
+    assert!(engine.entry(id).is_some());
+    engine.assert_invariants().unwrap();
+}
+
+#[test]
+fn sony_lower16_request_and_cancellation_collision_is_ambiguous() {
+    let start = Instant::now();
+    let mut engine = engine(EnvelopeKind::Sony, TransportKind::Datagram);
+    let admitted_effects = engine.handle(
+        Input::Admit {
+            ticket: AdmissionTicket(1),
+            request: command(1, CancellationPolicy::Supported),
+        },
+        start,
+    );
+    let (request_tx, id, _) = request_transmit(&admitted_effects);
+    engine.handle(
+        Input::TransmissionFinished {
+            transmission: request_tx,
+            result: Ok(TransmissionMeta {
+                sequence: Some(0x1111_beef),
+            }),
+        },
+        start,
+    );
+    engine.handle(
+        frame(
+            1,
+            Some((0x1111_beef, SequenceWidth::Full32)),
+            DecodedResponse::Ack {
+                socket: Some(ViscaSocket::S1),
+            },
+        ),
+        start,
+    );
+    let cancellation = engine.handle(Input::Cancel { id }, start);
+    let (cancel_tx, cancel_id, _) = cancel_transmit(&cancellation);
+    assert_eq!(cancel_id, id);
+    engine.handle(
+        Input::TransmissionFinished {
+            transmission: cancel_tx,
+            result: Ok(TransmissionMeta {
+                // Distinct full identities still collide in the lower-16
+                // fallback, so this reply must remain ambiguous.
+                sequence: Some(0x2222_beef),
+            }),
+        },
+        start,
+    );
+
+    let collision = engine.handle(
+        frame(
+            1,
+            Some((0xbeef, SequenceWidth::Lower16)),
+            DecodedResponse::Completion { socket: None },
+        ),
+        start,
+    );
+    assert!(collision.iter().any(|effect| matches!(
+        effect,
+        Effect::Ignored(IgnoreReason::AmbiguousLower16Sequence)
+    )));
+    assert!(!collision
+        .iter()
+        .any(|effect| matches!(effect, Effect::Terminal { .. })));
+    assert!(!collision
+        .iter()
+        .any(|effect| matches!(effect, Effect::CancellationObservation { .. })));
+    assert!(engine.entry(id).is_some());
+    engine.assert_invariants().unwrap();
+}
+
+#[test]
+fn sony_retry_reuses_first_successful_sequence_and_ignores_stale_result() {
+    let start = Instant::now();
+    let mut engine = engine(EnvelopeKind::Sony, TransportKind::Datagram);
+    let first = engine.handle(
+        Input::Admit {
+            ticket: AdmissionTicket(1),
+            request: command(1, CancellationPolicy::Supported),
+        },
+        start,
+    );
+    let (first_tx, id, first_wire) = request_transmit(&first);
+    assert!(matches!(
+        &first[0..],
+        [
+            Effect::Admitted { .. },
+            Effect::Transition { .. },
+            Effect::Transmit {
+                kind: Transmission::Request {
+                    requested_sequence: None,
+                    ..
+                },
+                ..
+            }
+        ]
+    ));
+    engine.handle(
+        Input::TransmissionFinished {
+            transmission: first_tx,
+            result: Ok(TransmissionMeta {
+                sequence: Some(0x1020_3040),
+            }),
+        },
+        start,
+    );
+    assert_eq!(
+        engine.entry(id).and_then(|entry| entry.current_sequence),
+        Some(0x1020_3040)
+    );
+
+    let timeout = engine.advance(start + Duration::from_millis(20));
+    let retry_ready = timeout
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::RetryScheduled { ready_at, .. } => Some(*ready_at),
+            _ => None,
+        })
+        .expect("ACK timeout schedules a retry");
+    let retry = engine.advance(retry_ready);
+    let (retry_tx, retry_id, retry_wire) = request_transmit(&retry);
+    let requested = retry.iter().find_map(|effect| match effect {
+        Effect::Transmit {
+            kind: Transmission::Request {
+                requested_sequence, ..
+            },
+            ..
+        } => *requested_sequence,
+        _ => None,
+    });
+    assert_eq!(retry_id, id);
+    assert_ne!(retry_tx, first_tx);
+    assert!(Arc::ptr_eq(&first_wire, &retry_wire));
+    assert_eq!(requested, Some(0x1020_3040));
+
+    // The old attempt was removed when the retry became authoritative. Its
+    // late result must not overwrite the request's current sequence.
+    let stale = engine.finish_write_without_due(
+        first_tx,
+        Ok(TransmissionMeta {
+            sequence: Some(0xdead_beef),
+        }),
+        retry_ready,
+    );
+    assert!(stale
+        .iter()
+        .any(|effect| matches!(effect, Effect::Ignored(IgnoreReason::StaleTransmission))));
+    assert_eq!(
+        engine.entry(id).and_then(|entry| entry.current_sequence),
+        Some(0x1020_3040)
+    );
+
+    // A new logical request starts with no requested sequence, even while the
+    // previous request is in its retry transmission.
+    let next = engine.handle(
+        Input::Admit {
+            ticket: AdmissionTicket(2),
+            request: command(1, CancellationPolicy::Supported),
+        },
+        retry_ready,
+    );
+    let next_requested = next.iter().find_map(|effect| match effect {
+        Effect::Transmit {
+            kind: Transmission::Request {
+                requested_sequence, ..
+            },
+            ..
+        } => Some(*requested_sequence),
+        _ => None,
+    });
+    assert_eq!(next_requested, Some(None));
+    engine.assert_invariants().unwrap();
+}
+
+#[test]
 fn raw_inquiries_route_by_unique_content_then_per_target_fifo() {
     let start = Instant::now();
     let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);

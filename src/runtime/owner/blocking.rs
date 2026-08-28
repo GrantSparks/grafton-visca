@@ -18,7 +18,9 @@ use super::{
     ReceiptCore, ReceiptObservation, RejectedCancellation, RequestId, RuntimeOutcome,
     RuntimeRequest, ShutdownReason, TransmissionMeta, WaitSelection, WireWrite,
 };
-use crate::runtime::engine::{DecodedFrame, Effect, FirstDispatch, Input, TransportKind};
+use crate::runtime::engine::{
+    DecodedFrame, Effect, FirstDispatch, IgnoreReason, Input, TransportKind,
+};
 
 /// Exact blocking write seam. Envelope encoding and sequence allocation belong
 /// in the adapter; its returned metadata is fed to the engine before any other
@@ -1053,6 +1055,18 @@ fn buffered_submission_error(completion: &CompletionObserver) -> Option<Error> {
     completion.try_recv().map(submission_observation_error)
 }
 
+/// Submission behavior at the caller's admission boundary.
+///
+/// Ordinary blocking receipts may be admitted before their first write and
+/// remain in the owner's bounded ready queue. A public operation handle is
+/// different: it must name a request whose initial write already succeeded,
+/// so losing the first-dispatch race rejects that request immediately.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SubmitPolicy {
+    QueueAllowed,
+    RequireFirstWrite,
+}
+
 fn wait_core_for(
     core: ReceiptCore,
     control: &mut BlockingReceiptControl<'_>,
@@ -1230,19 +1244,24 @@ impl BlockingOwner {
         K: completion::Kind,
     {
         prepared.admit_with(|request, affected_axes, settlement, timeout| {
-            self.submit_with_timeout(driver, request, timeout)
-                .map(|core| BlockingOperationReceipt {
-                    core,
-                    affected_axes,
-                    settlement,
-                    marker: PhantomData,
-                })
+            self.submit_with_timeout_policy(
+                driver,
+                request,
+                timeout,
+                SubmitPolicy::RequireFirstWrite,
+            )
+            .map(|core| BlockingOperationReceipt {
+                core,
+                affected_axes,
+                settlement,
+                marker: PhantomData,
+            })
         })
     }
 
-    /// Admit and, when this exact request already wins the global dispatch
-    /// race, perform its first write. A request that cannot win yet stays
-    /// queued in the engine and is written by a later owner turn. No receive
+    /// Admit and perform the first write when this exact request wins the
+    /// global dispatch race. Ordinary receipts that cannot win yet stay
+    /// queued in the engine and are written by a later owner turn. No receive
     /// method is called here, so ACK/completion can only be consumed by an
     /// explicit pump.
     // Untyped admission seam used by blocking_transport.rs `mod tests` and by
@@ -1267,8 +1286,23 @@ impl BlockingOwner {
         request: RuntimeRequest,
         configured_timeout: Duration,
     ) -> Result<ReceiptCore, Error> {
+        self.submit_with_timeout_policy(
+            driver,
+            request,
+            configured_timeout,
+            SubmitPolicy::QueueAllowed,
+        )
+    }
+
+    fn submit_with_timeout_policy<D: BlockingWireDriver + ?Sized>(
+        &mut self,
+        driver: &mut D,
+        request: RuntimeRequest,
+        configured_timeout: Duration,
+        submit_policy: SubmitPolicy,
+    ) -> Result<ReceiptCore, Error> {
         self.enter()?;
-        let result = self.submit_inner(driver, request, configured_timeout, None);
+        let result = self.submit_inner(driver, request, configured_timeout, None, submit_policy);
         self.leave();
         result
     }
@@ -1280,6 +1314,23 @@ impl BlockingOwner {
         configured_timeout: Duration,
         deadline: Instant,
     ) -> Result<ReceiptCore, Error> {
+        self.submit_with_timeout_until_policy(
+            driver,
+            request,
+            configured_timeout,
+            deadline,
+            SubmitPolicy::QueueAllowed,
+        )
+    }
+
+    fn submit_with_timeout_until_policy<D: BlockingWireDriver + ?Sized>(
+        &mut self,
+        driver: &mut D,
+        request: RuntimeRequest,
+        configured_timeout: Duration,
+        deadline: Instant,
+        submit_policy: SubmitPolicy,
+    ) -> Result<ReceiptCore, Error> {
         // Match the async owner boundary: once the caller-owned observer
         // deadline has elapsed, reject before staging admission or writing a
         // new inquiry.
@@ -1287,7 +1338,13 @@ impl BlockingOwner {
             return Err(Error::Timeout);
         }
         self.enter()?;
-        let result = self.submit_inner(driver, request, configured_timeout, Some(deadline));
+        let result = self.submit_inner(
+            driver,
+            request,
+            configured_timeout,
+            Some(deadline),
+            submit_policy,
+        );
         self.leave();
         result
     }
@@ -1298,6 +1355,7 @@ impl BlockingOwner {
         request: RuntimeRequest,
         configured_timeout: Duration,
         observer_deadline: Option<Instant>,
+        submit_policy: SubmitPolicy,
     ) -> Result<ReceiptCore, Error> {
         let target = request.context().target;
         let origin = self.state.origin();
@@ -1320,11 +1378,10 @@ impl BlockingOwner {
         let mut report = self.drive_without_due(driver, effects);
         let id = admission.recv().map_err(|_| Error::RuntimeShutdown)??;
 
-        // Issue #561: losing the global dispatch race is not backpressure.
-        // Admission capacity (`max_pending_queue_depth`) already bounds how much
-        // work may be outstanding, so a request that cannot be written yet stays
-        // in the engine's ready queue and is dispatched by a later owner turn —
-        // exactly the way the async facade behaves.
+        // Admission capacity (`max_pending_queue_depth`) bounds how much work
+        // may be outstanding. Ordinary receipts keep the historical queueing
+        // behavior when they lose the global dispatch race; operation handles
+        // use the stricter first-write contract below.
         let mut queued = false;
         while report.first_write_for(id).is_none() {
             if let Some(error) = buffered_submission_error(&completion) {
@@ -1349,11 +1406,36 @@ impl BlockingOwner {
                     }
                 }
                 FirstDispatch::Blocked => {
-                    // Another request owns the only eligible socket right now.
-                    // Leave this one queued; no peer request, deadline, pacing,
-                    // or cancellation state is mutated here.
-                    queued = true;
-                    break;
+                    match submit_policy {
+                        SubmitPolicy::QueueAllowed => {
+                            // Another request owns the only eligible socket
+                            // right now. Leave this ordinary receipt queued;
+                            // no peer request, deadline, pacing, or
+                            // cancellation state is mutated here.
+                            queued = true;
+                            break;
+                        }
+                        SubmitPolicy::RequireFirstWrite => {
+                            // A public operation handle may not escape for an
+                            // unwritten request. Terminalize this entry via
+                            // the engine so its queue ticket and admission
+                            // permit are released, then observe the exact
+                            // rejection through the temporary completion
+                            // observer. No peer is pumped or waited on.
+                            let rejection = self
+                                .state
+                                .reject_unwritten_without_due(id, Error::TransportBusy);
+                            let _ = self.drive_without_due(driver, rejection);
+                            return Err(buffered_submission_error(&completion).unwrap_or_else(
+                                || {
+                                    Error::InvalidState(
+                                        "unwritten blocking operation rejection was not observed"
+                                            .into(),
+                                    )
+                                },
+                            ));
+                        }
+                    }
                 }
                 FirstDispatch::Missing => {
                     if let Some(error) = buffered_submission_error(&completion) {
@@ -1536,8 +1618,15 @@ impl BlockingOwner {
                         Instant::now(),
                     );
                     let _ = self.drive(driver, effects);
+                    return Err(error);
                 }
-                return Err(error);
+                // A datagram is an atomic receive boundary. Malformed
+                // framing/decoding discards that whole datagram and leaves
+                // the owner Running so the next datagram can be attempted.
+                let _ = self
+                    .state
+                    .apply_effect(Effect::Ignored(IgnoreReason::MalformedFrame));
+                return Ok(0);
             }
         };
         if let Err(error) = self.state.validate_frame_batch(&frames) {
@@ -1549,8 +1638,12 @@ impl BlockingOwner {
                     Instant::now(),
                 );
                 let _ = self.drive(driver, effects);
+                return Err(error);
             }
-            return Err(error);
+            let _ = self
+                .state
+                .apply_effect(Effect::Ignored(IgnoreReason::MalformedFrame));
+            return Ok(0);
         }
         let count = frames.len();
         self.drive_decoded_batch(driver, frames, received_at);

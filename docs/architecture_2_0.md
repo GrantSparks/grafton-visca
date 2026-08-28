@@ -71,9 +71,13 @@ accept is heterogeneous *profiles* that share one envelope — in practice
 several raw-VISCA profiles — carried by a serial-addressed transport. The
 built-in serial transports qualify: both `transport-serial` and
 `transport-serial-tokio` declare `AddressingMode::Serial`, so a caller-owned
-transport is not required. A custom transport must still declare its
-stream/datagram semantics and transport configuration; custom does not bypass
-profile or framing validation.
+transport is not required. A caller-owned transport that reports a standard
+kind is validated against the profile transport registry. A truly custom
+transport that reports no standard kind (`None`) may bypass only the standard
+profile/transport pair matrix as an intentional BYO escape hatch. It still
+undergoes target-registry, envelope, addressing/topology, pacing, framing,
+buffer, and bounded-owner validation, and must provide its stream/datagram
+semantics and transport configuration.
 
 The static profile marker gates remain compile-time permissions. A runtime
 `ProfileSpec` is validated in full before owner admission, and dynamic callers
@@ -103,6 +107,14 @@ The construction and request path has a fixed order:
    or merely prepared command cannot create a cache value.
 8. Record terminal outcome, release admission capacity, and retain only the
    bounded diagnostic/history state promised by the public API.
+
+Blocking operation submission has one additional ownership boundary: a
+returned operation handle always names a request whose initial transport write
+already succeeded. If the target's command sockets (or the global dispatch
+race) prevent that first write, the newly admitted request is terminalized as
+`Error::TransportBusy` immediately and no handle escapes. Ordinary blocking
+commands, inquiries, and owner-internal requests retain bounded queueing, as
+does the async operation API.
 
 This ordering is what permits a detached observer or a dropped subscription to
 miss an event without losing an already-applied state update.

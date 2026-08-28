@@ -983,7 +983,7 @@ impl OwnerBuffers {
                 }
                 self.send.extend_from_slice(wire.as_bytes());
             }
-            Transmission::Cancel { target, socket } => {
+            Transmission::Cancel { target, socket, .. } => {
                 self.send.extend_from_slice(&[
                     target.to_address_byte(),
                     socket.as_cancel_byte(),
@@ -1042,6 +1042,10 @@ pub(crate) struct WireWrite<'a> {
     #[allow(dead_code)]
     pub(crate) target: CameraId,
     pub(crate) bytes: &'a [u8],
+    /// Sequence requested by the engine. `None` lets Sony framing allocate a
+    /// fresh identity; an explicit value is a retry of the same logical wire
+    /// message. Raw framing rejects an explicit value.
+    pub(crate) requested_sequence: Option<u32>,
     /// Reusable framing destination owned by the session. Envelope adapters
     /// must frame into this buffer instead of allocating per transmission.
     pub(crate) frame_buffer: &'a mut BytesMut,
@@ -1058,6 +1062,7 @@ pub(crate) struct StagedWrite {
     pub(crate) transmission: TransmissionId,
     pub(crate) request: RequestId,
     pub(crate) kind: Transmission,
+    pub(crate) requested_sequence: Option<u32>,
 }
 
 /// Owner boundary token for one ordered decoded-input batch.
@@ -1381,6 +1386,19 @@ impl OwnerState {
         now: Instant,
     ) -> FirstDispatch {
         self.engine.first_dispatch_without_due(id, now)
+    }
+
+    /// Terminalizes an admitted, still-unwritten request through the engine's
+    /// normal lifecycle transition. Blocking operation submission uses this
+    /// when socket capacity is unavailable, so the temporary observer receives
+    /// the rejection and its shared admission permit is released immediately.
+    #[allow(dead_code)] // Consumed by the blocking owner (#542).
+    pub(crate) fn reject_unwritten_without_due(
+        &mut self,
+        id: RequestId,
+        error: Error,
+    ) -> VecDeque<Effect> {
+        self.engine.reject_unwritten_without_due(id, error).into()
     }
 
     pub(crate) fn begin_input_turn(&self, now: Instant) -> OwnerInputTurn {
@@ -1709,6 +1727,7 @@ impl OwnerState {
             request: staged.request,
             target,
             bytes,
+            requested_sequence: staged.requested_sequence,
             frame_buffer,
             cancellation,
             inquiry,
@@ -1795,11 +1814,22 @@ impl OwnerState {
                 transmission,
                 request,
                 kind,
-            } => AppliedEffect::Transmit(StagedWrite {
-                transmission,
-                request,
-                kind,
-            }),
+            } => {
+                let requested_sequence = match &kind {
+                    Transmission::Request {
+                        requested_sequence, ..
+                    }
+                    | Transmission::Cancel {
+                        requested_sequence, ..
+                    } => *requested_sequence,
+                };
+                AppliedEffect::Transmit(StagedWrite {
+                    transmission,
+                    request,
+                    kind,
+                    requested_sequence,
+                })
+            }
             Effect::RetryScheduled {
                 id,
                 attempt,

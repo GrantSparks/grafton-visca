@@ -155,8 +155,12 @@ encapsulation is not silently treated as raw VISCA.
 Standard TCP, UDP, and Sony multi-target configurations are rejected before a
 socket is created. Heterogeneous profiles are admitted only for a compatible
 raw serial/custom transport; the custom transport must preserve framing and
-response attribution. A custom transport is not a way to bypass profile,
-addressing, pacing, or bounded-owner validation.
+response attribution. A caller-owned transport that reports a standard kind is
+validated against the profile transport registry. A truly custom transport
+that reports no standard kind (`None`) may bypass only the standard
+profile/transport pair matrix as an intentional BYO escape hatch; it still
+undergoes target-registry, envelope, addressing/topology, pacing, framing,
+buffer, and bounded-owner validation.
 
 ## Operational tuning
 
@@ -206,8 +210,13 @@ executor as a third argument on the async side — is the single-camera form of
 the same boundary, taking the profile from `P` instead of a runtime
 `SessionConfig`. Implementors must
 declare `AsyncTransport` or `BlockingTransport`, `HasTransportConfig`, and the
-correct stream/datagram send semantics. A runtime-neutral async executor must
-provide coherent spawn, sleep, timeout, and clock behavior from one runtime.
+correct stream/datagram send semantics. A standard-kind caller-owned transport
+is checked against the profile transport registry; one that reports no standard
+kind (`None`) may bypass only that standard profile/transport pair matrix. The
+custom path still undergoes target-registry, envelope, addressing/topology,
+pacing, framing, buffer, and bounded-owner validation. A runtime-neutral async
+executor must provide coherent spawn, sleep, timeout, and clock behavior from
+one runtime.
 
 ## Static, dynamic, and generic operations
 

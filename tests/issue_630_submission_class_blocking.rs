@@ -1,11 +1,11 @@
-//! Issue #630: the engine's four control-class lanes, through blocking API.
+//! Issue #630: typed control-class selection through the blocking API.
 //!
-//! The owner has always dispatched ready work from the highest occupied
-//! control class first; before this issue the only public route into that
-//! choice was `raw::Policy` on hand-assembled bytes. These tests observe the
-//! restored typed route at the transport boundary: nothing is asserted about
-//! the private queues, only about which request is written when a socket
-//! frees.
+//! The owner has four control-class lanes, but the blocking operation API now
+//! requires each returned handle's first write to succeed. These tests keep
+//! the handle/default and per-submission class surface covered at the
+//! admission boundary while asserting that no class can make a blocked public
+//! operation queue behind occupied sockets. Actual queued class ordering
+//! remains covered by the async counterpart (and the engine tests).
 
 #![cfg(feature = "blocking")]
 
@@ -32,10 +32,7 @@ use grafton_visca::{
 use profile_fixtures::NonDefaultCompileTimeProfile;
 
 const ZOOM_TELE: &[u8] = &[0x81, 0x01, 0x04, 0x07, 0x02, 0xff];
-const ZOOM_WIDE: &[u8] = &[0x81, 0x01, 0x04, 0x07, 0x03, 0xff];
-const ZOOM_STOP: &[u8] = &[0x81, 0x01, 0x04, 0x07, 0x00, 0xff];
 const FOCUS_FAR: &[u8] = &[0x81, 0x01, 0x04, 0x08, 0x02, 0xff];
-const FOCUS_NEAR: &[u8] = &[0x81, 0x01, 0x04, 0x08, 0x03, 0xff];
 
 /// A two-socket camera: every accepted command is answered with an ACK and a
 /// completion on alternating sockets, in the order the commands were written.
@@ -111,8 +108,9 @@ fn written(writes: &Arc<Mutex<Vec<Vec<u8>>>>) -> Vec<Vec<u8>> {
     writes.lock().expect("writes lock").clone()
 }
 
-/// Fills both command sockets so that everything submitted afterwards is
-/// unambiguously queued, and returns the handles that free them again.
+/// Fills both command sockets so that a public operation submitted afterwards
+/// must satisfy the blocking first-write contract, and returns the handles
+/// that free them again.
 fn occupy_both_sockets<'session>(
     camera: &Camera<'session, NonDefaultCompileTimeProfile>,
     writes: &Arc<Mutex<Vec<Vec<u8>>>>,
@@ -126,15 +124,15 @@ fn occupy_both_sockets<'session>(
     assert_eq!(
         written(writes),
         vec![ZOOM_TELE.to_vec(), FOCUS_FAR.to_vec()],
-        "both sockets are occupied before anything is queued",
+        "both sockets are occupied before another operation is submitted",
     );
     [first, second]
 }
 
-/// A background-class submission yields the freed socket to a user-class
-/// submission made *after* it.
+/// A background-class public operation cannot wait in a blocking queue for a
+/// freed socket. Queued class ordering is covered by the async counterpart.
 #[test]
-fn a_background_submission_yields_the_socket_to_a_later_user_submission() {
+fn a_background_operation_cannot_queue_behind_busy_sockets() {
     let (transport, writes) = TwoSocketTransport::new();
     let session = Session::open(transport, session_config()).expect("owner session");
     let camera = session
@@ -144,44 +142,28 @@ fn a_background_submission_yields_the_socket_to_a_later_user_submission() {
 
     let background = camera
         .submit_with_class::<AppliedOnly, _>(&ZoomDrive::Wide, ControlClass::Background)
-        .expect("background submission is admitted and queued");
+        .expect_err("a blocking operation cannot queue behind busy sockets");
+    assert!(matches!(background, Error::TransportBusy));
     let user = camera
         .submit_with_class::<AppliedOnly, _>(&FocusDrive::Near, ControlClass::User)
-        .expect("user submission is admitted and queued");
+        .expect_err("a blocking operation cannot queue behind busy sockets");
+    assert!(matches!(user, Error::TransportBusy));
     assert_eq!(
         written(&writes).len(),
         2,
-        "neither queued request is written while both sockets are busy",
+        "neither rejected operation is written while both sockets are busy",
     );
 
     first.applied().expect("first socket freed");
-    assert_eq!(
-        written(&writes),
-        vec![ZOOM_TELE.to_vec(), FOCUS_FAR.to_vec(), FOCUS_NEAR.to_vec(),],
-        "issue #630: the later user-class request takes the freed socket",
-    );
-
     second.applied().expect("second socket freed");
-    assert_eq!(
-        written(&writes),
-        vec![
-            ZOOM_TELE.to_vec(),
-            FOCUS_FAR.to_vec(),
-            FOCUS_NEAR.to_vec(),
-            ZOOM_WIDE.to_vec(),
-        ],
-        "the background request is written once nothing outranks it",
-    );
-
-    user.applied().expect("user operation applied");
-    background.applied().expect("background operation applied");
+    assert_eq!(written(&writes).len(), 2);
     session.shutdown().expect("owner shutdown");
 }
 
-/// A handle default demotes everything that handle submits, including through
-/// its noun accessors, while a sibling view keeps the built-in classification.
+/// A handle-local default is independent of its sibling views and cannot
+/// bypass the blocking first-write boundary.
 #[test]
-fn a_handle_default_demotes_that_handles_traffic() {
+fn a_handle_default_does_not_bypass_blocking_first_write() {
     let (transport, writes) = TwoSocketTransport::new();
     let session = Session::open(transport, session_config()).expect("owner session");
     let camera = session
@@ -205,34 +187,24 @@ fn a_handle_default_demotes_that_handles_traffic() {
         "the default belongs to one handle, not to the session",
     );
 
-    // `ZoomDrive` is a `ControlClass::User` built-in, so the two submissions
-    // below differ only in which handle made them.
+    // `ZoomDrive` is a `ControlClass::User` built-in. The handle-local default
+    // is configured successfully, but cannot make an unwritten handle escape.
     let demoted = poller
         .submit::<AppliedOnly, _>(&ZoomDrive::Wide)
-        .expect("demoted submission");
-    let ordinary = camera
-        .submit::<AppliedOnly, _>(&FocusDrive::Near)
-        .expect("ordinary submission");
+        .expect_err("a demoted blocking operation cannot queue");
+    assert!(matches!(demoted, Error::TransportBusy));
     assert_eq!(written(&writes).len(), 2);
 
     first.applied().expect("first socket freed");
-    assert_eq!(
-        written(&writes)[2],
-        FOCUS_NEAR.to_vec(),
-        "issue #630: the demoted handle's earlier request yields the socket",
-    );
-
     second.applied().expect("second socket freed");
-    assert_eq!(written(&writes)[3], ZOOM_WIDE.to_vec());
-
-    demoted.applied().expect("demoted operation applied");
-    ordinary.applied().expect("ordinary operation applied");
+    assert_eq!(written(&writes).len(), 2);
     session.shutdown().expect("owner shutdown");
 }
 
-/// A per-submission class outranks the handle default for that one request.
+/// An explicit per-submission class does not alter the handle default and
+/// cannot bypass the first-write boundary.
 #[test]
-fn a_per_submission_class_overrides_the_handle_default() {
+fn a_per_submission_class_does_not_bypass_blocking_first_write() {
     let (transport, writes) = TwoSocketTransport::new();
     let session = Session::open(transport, session_config()).expect("owner session");
     let camera = session
@@ -245,14 +217,12 @@ fn a_per_submission_class_overrides_the_handle_default() {
         .expect("second camera view");
     poller.set_command_class(Some(ControlClass::Background));
 
-    // Submitted first, and from the demoted handle: it can only be written
-    // first if the per-submission class replaced that handle's default.
+    // Submitted first from the demoted handle: the explicit class is accepted
+    // as request configuration, but cannot bypass first-write rejection.
     let raised = poller
         .submit_with_class::<AppliedOnly, _>(&ZoomDrive::Wide, ControlClass::User)
-        .expect("raised submission");
-    let ordinary = camera
-        .submit::<AppliedOnly, _>(&FocusDrive::Near)
-        .expect("ordinary submission");
+        .expect_err("a raised blocking operation cannot queue");
+    assert!(matches!(raised, Error::TransportBusy));
     assert_eq!(written(&writes).len(), 2);
     assert_eq!(
         poller.command_class(),
@@ -261,23 +231,15 @@ fn a_per_submission_class_overrides_the_handle_default() {
     );
 
     first.applied().expect("first socket freed");
-    assert_eq!(
-        written(&writes)[2],
-        ZOOM_WIDE.to_vec(),
-        "issue #630: the per-submission class wins over the handle default",
-    );
-
     second.applied().expect("second socket freed");
-    assert_eq!(written(&writes)[3], FOCUS_NEAR.to_vec());
-
-    raised.applied().expect("raised operation applied");
-    ordinary.applied().expect("ordinary operation applied");
+    assert_eq!(written(&writes).len(), 2);
     session.shutdown().expect("owner shutdown");
 }
 
-/// The safety rule: a handle demoted to background still preempts with a stop.
+/// A handle default cannot bypass the blocking first-write boundary for an
+/// urgent operation.
 #[test]
-fn a_handle_default_never_demotes_an_urgent_stop() {
+fn a_handle_default_never_changes_the_first_write_boundary_for_an_urgent_stop() {
     let (transport, writes) = TwoSocketTransport::new();
     let session = Session::open(transport, session_config()).expect("owner session");
     let camera = session
@@ -285,38 +247,26 @@ fn a_handle_default_never_demotes_an_urgent_stop() {
         .expect("camera view");
     let [first, second] = occupy_both_sockets(&camera, &writes);
 
-    let ordinary = camera
-        .submit::<AppliedOnly, _>(&FocusDrive::Near)
-        .expect("ordinary user-class submission");
-
     let mut poller = session
         .camera::<NonDefaultCompileTimeProfile>()
         .expect("second camera view");
     poller.set_command_class(Some(ControlClass::Background));
     let stop = poller
         .submit::<AppliedOnly, _>(&ZoomStop)
-        .expect("stop from a demoted handle");
+        .expect_err("an urgent blocking operation cannot queue");
+    assert!(matches!(stop, Error::TransportBusy));
     assert_eq!(written(&writes).len(), 2);
 
     first.applied().expect("first socket freed");
-    assert_eq!(
-        written(&writes)[2],
-        ZOOM_STOP.to_vec(),
-        "issue #630: an urgent stop keeps its class under a demoted handle",
-    );
-
     second.applied().expect("second socket freed");
-    assert_eq!(written(&writes)[3], FOCUS_NEAR.to_vec());
-
-    stop.applied().expect("stop applied");
-    ordinary.applied().expect("ordinary operation applied");
+    assert_eq!(written(&writes).len(), 2);
     session.shutdown().expect("owner shutdown");
 }
 
-/// The documented escape hatch: an explicit per-submission class may demote a
-/// stop, which nothing else in the crate does.
+/// An explicit per-submission class cannot bypass the blocking first-write
+/// invariant when both sockets are occupied.
 #[test]
-fn an_explicit_per_submission_class_may_demote_an_urgent_stop() {
+fn an_explicit_per_submission_class_cannot_bypass_the_first_write_boundary() {
     let (transport, writes) = TwoSocketTransport::new();
     let session = Session::open(transport, session_config()).expect("owner session");
     let camera = session
@@ -326,24 +276,13 @@ fn an_explicit_per_submission_class_may_demote_an_urgent_stop() {
 
     let stop = camera
         .submit_with_class::<AppliedOnly, _>(&ZoomStop, ControlClass::Background)
-        .expect("deliberately demoted stop");
-    let ordinary = camera
-        .submit::<AppliedOnly, _>(&FocusDrive::Near)
-        .expect("ordinary user-class submission");
+        .expect_err("a deliberately demoted blocking stop cannot queue");
+    assert!(matches!(stop, Error::TransportBusy));
     assert_eq!(written(&writes).len(), 2);
 
     first.applied().expect("first socket freed");
-    assert_eq!(
-        written(&writes)[2],
-        FOCUS_NEAR.to_vec(),
-        "issue #630: an explicit background class demotes even a stop",
-    );
-
     second.applied().expect("second socket freed");
-    assert_eq!(written(&writes)[3], ZOOM_STOP.to_vec());
-
-    stop.applied().expect("stop applied");
-    ordinary.applied().expect("ordinary operation applied");
+    assert_eq!(written(&writes).len(), 2);
     session.shutdown().expect("owner shutdown");
 }
 

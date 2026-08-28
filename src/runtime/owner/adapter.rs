@@ -21,7 +21,7 @@ use crate::{
     raw::INLINE_BYTES,
     runtime::engine::{
         CancellationPolicy, DecodedFrame, DecodedResponse, EnvelopeKind, EnvelopeSequence,
-        ProtocolPolicy, SequenceWidth, TargetPolicy,
+        ProtocolPolicy, SequenceWidth, TargetPolicy, TransportKind,
     },
     transport::{
         builder::{AddressingMode, TransportConfig},
@@ -159,6 +159,7 @@ impl OwnerEnvelope {
         }
     }
 
+    #[allow(dead_code)]
     pub(crate) fn frame_into(
         &self,
         visca_bytes: &[u8],
@@ -168,6 +169,23 @@ impl OwnerEnvelope {
         match self {
             Self::Raw(envelope) => envelope.frame_into(visca_bytes, kind, out),
             Self::Sony(envelope) => envelope.frame_into(visca_bytes, kind, out),
+        }
+    }
+
+    pub(crate) fn frame_into_with_sequence(
+        &self,
+        visca_bytes: &[u8],
+        kind: CommandKind,
+        requested_sequence: Option<u32>,
+        out: &mut bytes::BytesMut,
+    ) -> Result<FrameMeta, Error> {
+        match self {
+            Self::Raw(envelope) => {
+                envelope.frame_into_with_sequence(visca_bytes, kind, requested_sequence, out)
+            }
+            Self::Sony(envelope) => {
+                envelope.frame_into_with_sequence(visca_bytes, kind, requested_sequence, out)
+            }
         }
     }
 
@@ -300,8 +318,8 @@ pub(crate) fn owner_policy_for_targets_with_tuning(
     }
 
     let transport = match semantics {
-        SendSemantics::Datagram => crate::runtime::engine::TransportKind::Datagram,
-        SendSemantics::Stream => crate::runtime::engine::TransportKind::Stream,
+        SendSemantics::Datagram => TransportKind::Datagram,
+        SendSemantics::Stream => TransportKind::Stream,
     };
 
     let capacity = config.max_pending_queue_depth.get();
@@ -340,7 +358,15 @@ pub(crate) fn decode_frames_with_routing(
     buffers: &mut OwnerBuffers,
     received: usize,
     frame_limit: usize,
+    transport: TransportKind,
 ) -> Result<Vec<DecodedFrame>, Error> {
+    let datagram = transport == TransportKind::Datagram;
+    // A datagram is already a complete transport boundary. Never let a
+    // partial/malformed datagram become the prefix of the next one. Streams,
+    // by contrast, deliberately retain partial bytes in the framer.
+    if datagram {
+        framer.clear();
+    }
     if received > buffers.receive_mut().len() {
         return Err(Error::InvalidResponse {
             expected: Cow::Borrowed("transport read fitting the owner receive buffer"),
@@ -351,27 +377,52 @@ pub(crate) fn decode_frames_with_routing(
         return Ok(Vec::new());
     }
 
-    // Keep the owner-owned framing scratch bounded independently of the
-    // protocol framer.  It is consumed immediately after the chunk is handed
-    // to the framer; incomplete protocol bytes remain only in `framer`.
-    buffers.append_received(received)?;
-    let pushed = framer.push_slice_with_resync(buffers.framing());
-    buffers.consume_framing(received);
-    pushed?;
+    let result = (|| {
+        // Keep the owner-owned framing scratch bounded independently of the
+        // protocol framer. It is consumed immediately after the chunk is
+        // handed to the framer; incomplete protocol bytes remain only in the
+        // persistent stream framer.
+        buffers.append_received(received)?;
+        // Strict push is required for streams: cumulative overflow is a
+        // framing failure and must poison the session, rather than silently
+        // resynchronizing and leaving the stream Running.
+        let pushed = framer.push_slice(buffers.framing());
+        buffers.consume_framing(received);
+        pushed?;
 
-    let mut frames = Vec::new();
-    for framed in framer.drain_frames() {
-        if frames.len() >= frame_limit {
-            return Err(Error::ResponseTooLarge {
-                max_size: frame_limit,
+        let mut frames = Vec::new();
+        loop {
+            let next = framer.drain_frames().next();
+            let Some(framed) = next else {
+                break;
+            };
+            if frames.len() >= frame_limit {
+                return Err(Error::ResponseTooLarge {
+                    max_size: frame_limit,
+                });
+            }
+            let framed = framed?;
+            if let Some(frame) = decode_frame(envelope, routing, framed)? {
+                frames.push(frame);
+            }
+        }
+
+        if datagram && framer.has_buffered_data() {
+            return Err(Error::InvalidResponse {
+                expected: Cow::Borrowed("complete VISCA frame at datagram boundary"),
+                actual: Vec::new(),
             });
         }
-        let framed = framed?;
-        if let Some(frame) = decode_frame(envelope, routing, framed)? {
-            frames.push(frame);
-        }
+        Ok(frames)
+    })();
+
+    if datagram {
+        // On success this is normally already empty; on every framing,
+        // batching, decode, or residual-partial error it atomically discards
+        // all bytes from this datagram before the next receive.
+        framer.clear();
     }
-    Ok(frames)
+    result
 }
 
 fn decode_frame(
@@ -594,6 +645,7 @@ mod tests {
         profile::ProfileSpec,
         profiles::{GenericVisca, PtzOpticsG2},
         runtime::engine::DecodedResponse,
+        runtime::owner::OwnerLimits,
         transport::envelope::RawVisca,
     };
 
@@ -761,6 +813,125 @@ mod tests {
         }
         // A controller address is never a response source.
         assert!(decode_frame(&envelope, routing, Bytes::from_static(&[0x80, 0x40, 0xff])).is_err());
+    }
+
+    #[test]
+    fn datagram_partial_bytes_are_discarded_before_the_next_datagram() {
+        let envelope = OwnerEnvelope::Raw(RawVisca::new(AddressingMode::Ip));
+        let routing = RoutingState::new(
+            AddressingMode::Ip,
+            TargetRegistry::single(CameraId::CAMERA_1).unwrap(),
+        );
+        let mut framer = ProtocolFramer::new_with_limits(32, 32, 32);
+        let mut buffers = OwnerBuffers::new(OwnerLimits::default()).unwrap();
+
+        buffers.receive_mut()[..2].copy_from_slice(&[0x90, 0x41]);
+        assert!(matches!(
+            decode_frames_with_routing(
+                &envelope,
+                &mut framer,
+                routing,
+                &mut buffers,
+                2,
+                4,
+                TransportKind::Datagram,
+            ),
+            Err(Error::InvalidResponse { .. })
+        ));
+        assert!(!framer.has_buffered_data());
+
+        buffers.receive_mut()[..3].copy_from_slice(&[0x90, 0x41, 0xff]);
+        let frames = decode_frames_with_routing(
+            &envelope,
+            &mut framer,
+            routing,
+            &mut buffers,
+            3,
+            4,
+            TransportKind::Datagram,
+        )
+        .expect("a valid later datagram must not inherit the partial prefix");
+        assert_eq!(frames.len(), 1);
+        assert!(!framer.has_buffered_data());
+    }
+
+    #[test]
+    fn datagram_frame_batch_overflow_discards_the_whole_datagram() {
+        let envelope = OwnerEnvelope::Raw(RawVisca::new(AddressingMode::Ip));
+        let routing = RoutingState::new(
+            AddressingMode::Ip,
+            TargetRegistry::single(CameraId::CAMERA_1).unwrap(),
+        );
+        let mut framer = ProtocolFramer::new_with_limits(32, 32, 32);
+        let mut buffers = OwnerBuffers::new(OwnerLimits::default()).unwrap();
+        buffers.receive_mut()[..6].copy_from_slice(&[0x90, 0x41, 0xff, 0x90, 0x51, 0xff]);
+        assert!(matches!(
+            decode_frames_with_routing(
+                &envelope,
+                &mut framer,
+                routing,
+                &mut buffers,
+                6,
+                1,
+                TransportKind::Datagram,
+            ),
+            Err(Error::ResponseTooLarge { max_size: 1 })
+        ));
+        assert!(!framer.has_buffered_data());
+
+        buffers.receive_mut()[..3].copy_from_slice(&[0x90, 0x51, 0xff]);
+        assert_eq!(
+            decode_frames_with_routing(
+                &envelope,
+                &mut framer,
+                routing,
+                &mut buffers,
+                3,
+                1,
+                TransportKind::Datagram,
+            )
+            .unwrap()
+            .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn stream_cumulative_framer_overflow_is_reported_without_resync() {
+        let envelope = OwnerEnvelope::Raw(RawVisca::new(AddressingMode::Ip));
+        let routing = RoutingState::new(
+            AddressingMode::Ip,
+            TargetRegistry::single(CameraId::CAMERA_1).unwrap(),
+        );
+        let mut framer = ProtocolFramer::new_with_limits(8, 32, 5);
+        let mut buffers = OwnerBuffers::new(OwnerLimits::default()).unwrap();
+
+        buffers.receive_mut()[..4].copy_from_slice(&[0x90, 0x41, 0x00, 0x00]);
+        assert!(decode_frames_with_routing(
+            &envelope,
+            &mut framer,
+            routing,
+            &mut buffers,
+            4,
+            4,
+            TransportKind::Stream,
+        )
+        .unwrap()
+        .is_empty());
+        buffers.receive_mut()[..2].copy_from_slice(&[0x00, 0x00]);
+        assert!(matches!(
+            decode_frames_with_routing(
+                &envelope,
+                &mut framer,
+                routing,
+                &mut buffers,
+                2,
+                4,
+                TransportKind::Stream,
+            ),
+            Err(Error::ResponseTooLarge { max_size: 5 })
+        ));
+        assert!(framer.has_buffered_data());
     }
 
     #[test]

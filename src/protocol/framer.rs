@@ -203,6 +203,13 @@ impl ProtocolFramer {
         self.buf.is_empty()
     }
 
+    /// Whether bytes remain buffered without yet forming a complete frame.
+    /// Transport owners use this to enforce datagram boundaries while keeping
+    /// stream partial-frame state across reads.
+    pub fn has_buffered_data(&self) -> bool {
+        !self.buf.is_empty()
+    }
+
     /// Clear the internal buffer, discarding any incomplete frames.
     pub fn clear(&mut self) {
         self.buf.clear();
@@ -235,6 +242,7 @@ impl ProtocolFramer {
     /// * `Ok(true)` - Push succeeded normally
     /// * `Ok(false)` - Push required resync (buffer was cleared and chunk re-pushed)
     /// * `Err(Error::ResponseTooLarge)` - Resync failed (chunk alone exceeds max_buffer_size)
+    #[allow(dead_code)]
     pub fn push_slice_with_resync(&mut self, chunk: &[u8]) -> Result<bool, Error> {
         match self.push_slice(chunk) {
             Ok(()) => Ok(true),
