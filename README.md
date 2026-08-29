@@ -30,7 +30,7 @@ transports.
 
 | Area | Supported 2.0 contract | Automated validation |
 | ---- | ---------------------- | -------------------- |
-| Blocking API | `blocking::Session`, `blocking::Camera<P>`, and blocking noun views | Blocking API contract tests |
+| Blocking API | `blocking::Session`, `blocking::Camera<P>`, and blocking noun views; native synchronous I/O with no async runtime/executor dependency | Blocking API contracts plus dependency-graph gate |
 | Runtime-neutral async | `Session`, `Camera<P>`, and a caller-provided `Executor` | Async API contract tests |
 | Tokio async | `runtime-tokio`, `TokioRuntime`, and Tokio TCP/UDP adapters | Tokio construction and noun suites |
 | smol async | `runtime-smol`, `SmolRuntime`, and smol TCP/UDP adapters | smol construction and noun suites |
@@ -137,7 +137,7 @@ matrix fit together.
 
 | Feature | 2.0 support |
 | ------- | ----------- |
-| `blocking` | Canonical owner-backed blocking facade (enabled by default) |
+| `blocking` | Canonical native blocking facade (enabled by default); it does not enable or link Tokio or another async runtime/executor |
 | `async` | Canonical owner-backed async facade; may be enabled with `blocking` |
 | `serde` | Stable serialization/deserialization for public value and configuration types |
 | `schemars` | Stable JSON Schema generation for serde-backed public types |
@@ -428,10 +428,12 @@ TCP keepalive is a socket-level liveness mechanism. It can detect broken peers
 and may keep idle network-path state active, but it does not send VISCA commands
 or guarantee that camera firmware will retain an idle application session. When
 an operation fails, ask `Error::requires_new_session()`: it reports `true` for
-terminal connection failures such as `ConnectionClosed` and `StreamPoisoned`,
-and `false` for a `RuntimeShutdown` this application requested. On `true`,
-discard that session and establish a new one before submitting more work. Do not
-automatically replay an operation whose completion is uncertain.
+terminal connection failures such as `ConnectionClosed`, `StreamPoisoned`, and
+the raw ambiguity error `UnsequencedCommandUnconfirmed`; it reports `false` for
+a `RuntimeShutdown` this application requested. On `true`, discard that session
+and establish a replacement from the retained configuration. Its state cache
+starts `Unknown`, so re-query and reconcile camera state before any deliberate
+resubmission. Never blindly replay an operation whose completion is uncertain.
 
 ### Feature flags
 

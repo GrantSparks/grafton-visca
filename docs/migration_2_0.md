@@ -119,7 +119,7 @@ inquiries.
 | `ViscaCommand` response-associated-type extensions | The typed `Request`/`Inquiry`/`OperationCommand` contract and `ResponseParser` for custom decoding. |
 | Plain requests submitted as operations or operations without affected axes | Match the request class exactly: `execute` for plain, `inquire` for inquiry, and `submit` for a typed operation with non-empty affected axes. |
 | Caller-selected lifecycle IDs, retry class, target, or settlement metadata | Owner-derived preparation metadata. Callers select a request, a timeout, and a scheduling class; they do not select protocol identity or queue positions. |
-| `runtime::Priority` and the `*_priority` camera methods | `ControlClass` and the `*_with_class` / `set_command_class` surface. See [Submission priority](#submission-priority). |
+| `runtime::Priority` and the `*_priority` camera methods | `SubmissionClass` and the `*_with_submission_class` / `set_submission_class` surface. `ControlClass::Urgent` is now intrinsic safety metadata, not caller QoS. See [Submission priority](#submission-priority). |
 
 The built-in command classification remains one closed semantic ledger. A
 custom request must declare its class explicitly; wire opcode or response shape
@@ -127,44 +127,46 @@ does not infer lifecycle semantics.
 
 ## Submission priority
 
-1.x's `runtime::Priority` is gone; `ControlClass` is the 2.0 spelling of the
-same four scheduling lanes, and it is a public root export. The mapping is
-one-to-one:
+1.x's `runtime::Priority` is gone. 2.0 separates caller-selected ordinary-work
+QoS (`SubmissionClass`) from a request's intrinsic classification
+(`ControlClass`). That separation prevents submission APIs from manufacturing
+or demoting the urgent lane used by stops and protocol cancellation.
 
-| 1.x `runtime::Priority` | 2.0 `ControlClass` |
+| 1.x `runtime::Priority` | 2.0 submission choice |
 | --- | --- |
-| `Priority::Low` | `ControlClass::Background` |
-| `Priority::Normal` | `ControlClass::Normal` |
-| `Priority::High` | `ControlClass::User` |
-| `Priority::Critical` | `ControlClass::Urgent` |
+| `Priority::Low` | `SubmissionClass::Background` |
+| `Priority::Normal` | `SubmissionClass::Normal` |
+| `Priority::High` | `SubmissionClass::User` |
+| `Priority::Critical` | No general submission override. Typed stops and owner-issued protocol cancellation are intrinsically `ControlClass::Urgent`; ordinary traffic may be raised only to `SubmissionClass::User`. |
 
-The levels are ordered identically and the dispatch rule is unchanged: highest
-occupied class first, admission order within a class, and the class decides only
-which *queued* request is written next. What changed is the vocabulary and the
-default. 1.x had no per-request classification, so a handle's priority was the
-only signal and everything a handle submitted sat in one lane. In 2.0 every
-request already carries a class — ordinary control is `Normal`, drives and
-absolute moves are `User`, and the typed stops and `CommandCancel` are `Urgent`
-— so an emergency stop preempts queued work with no API call at all, which is
-the case most 1.x `Priority::Critical` code existed to serve.
+The dispatch rule remains highest occupied class first and admission order
+within a class; a class decides only which *queued* request is written next.
+1.x had no per-request classification, so a handle's priority was the only
+signal and everything a handle submitted sat in one lane. In 2.0 every request
+already carries an intrinsic class — ordinary control is `Normal`, drives and
+absolute moves are `User`, and the typed stops plus owner-issued protocol cancellation are `Urgent`
+— so an emergency stop preempts queued work with no API call at all. Public QoS
+can move ordinary traffic among the lower three lanes but cannot cross that
+safety boundary.
 
 | 1.x call | 2.0 call |
 | --- | --- |
-| `camera.set_command_priority(Priority::Low)` | `camera.set_command_class(Some(ControlClass::Background))` |
-| `camera.command_priority()` | `camera.command_class()` — returns `Option<ControlClass>`, where `None` means "each request's own class" |
-| `camera.execute_with_priority(cmd, Priority::Critical)` | `camera.execute_with_class(&cmd, ControlClass::Urgent)` |
-| — (no 1.x equivalent) | `camera.inquire_with_class(&inquiry, class)` and `camera.submit_with_class::<K, _>(&operation, class)` |
+| `camera.set_command_priority(Priority::Low)` | `camera.set_submission_class(Some(SubmissionClass::Background))` |
+| `camera.command_priority()` | `camera.submission_class()` — returns `Option<SubmissionClass>`, where `None` means "use each request's intrinsic class" |
+| `camera.execute_with_priority(cmd, Priority::High)` | `camera.execute_with_submission_class(&cmd, SubmissionClass::User)` |
+| `camera.execute_with_priority(stop, Priority::Critical)` | Submit the typed stop normally; it is intrinsically `ControlClass::Urgent`. |
+| — (no 1.x equivalent) | `camera.inquire_with_submission_class(&inquiry, class)` and `camera.submit_with_submission_class::<K, _>(&operation, class)` |
 | `BlockingClient` priority methods | The same names on `blocking::Camera` and `blocking::CameraSession` |
-| — (no 1.x equivalent) | `DynSessionCamera::execute_with_class`, `inquire_with_class`, `submit_targeted_with_class`, `submit_applied_with_class`, and `set_command_class` |
+| — (no 1.x equivalent) | `DynSessionCamera::execute_with_submission_class`, `inquire_with_submission_class`, `submit_targeted_with_submission_class`, `submit_applied_with_submission_class`, and `set_submission_class` |
 
 Three behavioural differences are worth reading before porting:
 
-- **The handle default never demotes an urgent request.** A handle set to
-  `Background` still submits `PanTiltStop`, `ZoomStop`, `FocusStop`, and
-  `CommandCancel` as `Urgent`. 1.x had no such rule because it had no
-  per-request class. Only an explicit per-submission class
-  (`submit_with_class(&ZoomStop, ControlClass::Background)`) can demote a stop,
-  and it does so for that one submission.
+- **No public QoS override can weaken an urgent request.** A handle set to
+  `Background`, and even a per-submission
+  `SubmissionClass::Background`, still submits `PanTiltStop`, `ZoomStop`,
+  `FocusStop`, and owner-issued protocol cancellation as `ControlClass::Urgent`. The public QoS
+  type has no `Urgent` variant, so ordinary work cannot impersonate safety
+  traffic either.
 - **Inquiries are covered.** 1.x kept inquiries at a fixed polling priority; in
   2.0 they share the same four lanes, so a handle demoted to `Background` moves
   its telemetry reads out of the way as well as its commands. Owner-internal
@@ -175,8 +177,8 @@ Three behavioural differences are worth reading before porting:
   `Session` are independent. This matches 1.x.
 
 `runtime::testing::Priority` has no 2.0 equivalent, because 2.0's tests do not
-need one: `ControlClass` is public in every build configuration, so a test names
-the class through the same API an application uses, and the crate's own
+need one: `SubmissionClass` is public in every build configuration, so a test
+names the QoS through the same API an application uses, and the crate's own
 lane-ordering tests (`tests/issue_630_submission_class_*.rs`) assert the
 resulting dispatch order at the transport boundary rather than reaching into the
 scheduler. For deterministic scheduling in downstream tests, use the
@@ -408,8 +410,15 @@ application requested:
 | --- | --- | --- |
 | The peer closed the connection | `ConnectionClosed` | `true` |
 | The stream position became unknowable | `StreamPoisoned` | `true` |
+| A sent raw command's outcome cannot be correlated (ACK/completion/cancellation ambiguity, receive fault while awaiting ACK, or active retry-budget expiry in `Sending`/`AwaitingAck`/`Executing`) | `UnsequencedCommandUnconfirmed` | `true` |
 | The owner's transport or channel is gone | `NoTransport`, `TransportChannelClosed`, … | `true` |
 | The application shut the session down | `RuntimeShutdown` | `false` |
+
+`UnsequencedCommandUnconfirmed` is the raw-ambiguity mapping in that table:
+discard the old owner, open a replacement session from the retained
+`SessionConfig`, treat its cache as `Unknown`, and re-query/reconcile device
+state before any deliberate resubmission. Never blindly replay the uncertain
+command; it may already have acted on the camera.
 
 `true` is positive proof that the session is finished; `false` only means the
 error alone does not prove it. Ordinary per-request failures — timeouts, busy

@@ -1576,10 +1576,11 @@ impl BlockingOwner {
             }
             Ok(BlockingReceive::Bytes(received)) => (received, Instant::now()),
             Err(error) if super::receive_fault_is_transient(&error) => {
-                // 1.x parity: retry every command still waiting for its
-                // ACK and keep pumping. The read consumed nothing, so
-                // framing state is intact and this pump simply produced no
-                // frames.
+                // The engine safely retries sequenced Sony work with its same
+                // sequence; an ambiguous raw command poisons the session
+                // instead of risking a duplicate actuation. The read consumed
+                // nothing, so framing state is intact and this pump simply
+                // produced no frames.
                 let effects = self
                     .state
                     .input(Input::ReceiveFault { error }, Instant::now());
@@ -1719,6 +1720,13 @@ impl BlockingOwner {
         &mut self,
         driver: &mut D,
     ) -> Result<(), Error> {
+        // An explicit shutdown is idempotent once this owner has reached its
+        // own shutdown boundary. Keep the pumping check in `enter` for every
+        // other path so a re-entrant call is still rejected, and preserve
+        // close/poison errors rather than treating them as another shutdown.
+        if !self.pumping && matches!(self.state.boundary_error(), Some(Error::RuntimeShutdown)) {
+            return Ok(());
+        }
         self.enter()?;
         let effects = self
             .state

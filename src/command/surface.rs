@@ -10,8 +10,15 @@ use crate::{capabilities::TypedSupportSurface, noun_table::noun_table};
 
 use super::semantics::{BuiltinCommand, BuiltinRequestClass};
 
+// MSRV note: Rust 1.88's dead-code analysis does not follow uses produced by
+// the continuation-style `noun_table!` expansion or by the const ledger below.
+// These items are intentionally retained as production metadata, so scope the
+// allowances to this ledger (and only its genuinely unused marker variants)
+// instead of disabling dead-code diagnostics for the module.
+
 /// Static noun containing one target-facing built-in request.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[allow(dead_code)]
 pub(crate) enum StaticNoun {
     /// Power controls.
     Power,
@@ -47,8 +54,10 @@ pub(crate) enum StaticNoun {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum StaticMarkerRequirement {
     /// The base profile/domain marker is sufficient.
+    #[allow(dead_code)]
     None,
     /// A compile-time profile marker trait is required.
+    #[allow(dead_code)]
     Profile(&'static str),
     /// A runtime/static typed capability gate is required.
     Typed(TypedSupportSurface),
@@ -56,6 +65,7 @@ pub(crate) enum StaticMarkerRequirement {
 
 /// What kind of public surface disposition a built-in request has.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[allow(dead_code)]
 pub(crate) enum StaticSurfaceDisposition {
     /// A normal target-facing noun method.
     Noun {
@@ -80,6 +90,7 @@ pub(crate) enum StaticSurfaceDisposition {
 
 /// One derived row in the closed static noun ledger.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[allow(dead_code)]
 pub(crate) struct StaticSurfaceEntry {
     /// Exactly one source semantic row.
     pub(crate) command: BuiltinCommand,
@@ -92,6 +103,7 @@ pub(crate) struct StaticSurfaceEntry {
 impl StaticSurfaceEntry {
     /// Returns whether the row may become a target camera noun method.
     #[must_use]
+    #[cfg(test)]
     pub(crate) const fn is_target_facing(self) -> bool {
         matches!(self.disposition, StaticSurfaceDisposition::Noun { .. })
     }
@@ -169,6 +181,7 @@ macro_rules! internal_entry {
 /// the surface consumer lets the registry check that its `plain`/`applied`/
 /// `targeted` spelling agrees with the authoritative semantic ledger.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[allow(dead_code)]
 enum RegistryKind {
     Plain,
     AppliedOnly,
@@ -181,6 +194,7 @@ enum RegistryKind {
 /// does not match its command ID fails during const evaluation below, before a
 /// facade can accidentally expose the wrong operation handle.
 #[allow(clippy::panic)]
+#[allow(dead_code)]
 const fn registry_class(command: BuiltinCommand, kind: RegistryKind) -> BuiltinRequestClass {
     let class = command.classification();
     match (kind, class) {
@@ -195,8 +209,11 @@ const fn registry_class(command: BuiltinCommand, kind: RegistryKind) -> BuiltinR
 ///
 /// There are 149 command IDs: 146 target-facing noun rows and three protocol
 /// exceptions (the two broadcast handshakes and internal cancellation).
+#[allow(dead_code)]
 pub(crate) const BUILTIN_COMMAND_COUNT: usize = 149;
+#[allow(dead_code)]
 pub(crate) const TARGET_FACING_COMMAND_COUNT: usize = 146;
+#[allow(dead_code)]
 pub(crate) const NON_NOUN_COMMAND_COUNT: usize = 3;
 
 macro_rules! registry_class {
@@ -216,123 +233,223 @@ macro_rules! registry_class {
 /// TypedSupportSurface classification in the surface consumer only.
 macro_rules! surface_marker {
     (HasDirectZoom) => {
-        StaticMarkerRequirement::Typed(TypedSupportSurface::DirectZoom)
+        $crate::command::surface::StaticMarkerRequirement::Typed(
+            $crate::capabilities::TypedSupportSurface::DirectZoom,
+        )
     };
     (HasDigitalZoomToggle) => {
-        StaticMarkerRequirement::Typed(TypedSupportSurface::DigitalZoomToggle)
+        $crate::command::surface::StaticMarkerRequirement::Typed(
+            $crate::capabilities::TypedSupportSurface::DigitalZoomToggle,
+        )
     };
     (HasDigitalZoomRange) => {
-        StaticMarkerRequirement::Typed(TypedSupportSurface::DigitalZoomRange)
+        $crate::command::surface::StaticMarkerRequirement::Typed(
+            $crate::capabilities::TypedSupportSurface::DigitalZoomRange,
+        )
     };
     (HasIrisControl) => {
-        StaticMarkerRequirement::Typed(TypedSupportSurface::IrisControl)
+        $crate::command::surface::StaticMarkerRequirement::Typed(
+            $crate::capabilities::TypedSupportSurface::IrisControl,
+        )
     };
     (HasOnePushFocus) => {
-        StaticMarkerRequirement::Typed(TypedSupportSurface::OnePushFocus)
+        $crate::command::surface::StaticMarkerRequirement::Typed(
+            $crate::capabilities::TypedSupportSurface::OnePushFocus,
+        )
     };
     (HasPtzOpticsSnapFocus) => {
-        StaticMarkerRequirement::Typed(TypedSupportSurface::PtzOpticsSnapFocus)
+        $crate::command::surface::StaticMarkerRequirement::Typed(
+            $crate::capabilities::TypedSupportSurface::PtzOpticsSnapFocus,
+        )
     };
     (HasFocusLock) => {
-        StaticMarkerRequirement::Typed(TypedSupportSurface::FocusLock)
+        $crate::command::surface::StaticMarkerRequirement::Typed(
+            $crate::capabilities::TypedSupportSurface::FocusLock,
+        )
     };
     (HasPushAutoFocus) => {
-        StaticMarkerRequirement::Typed(TypedSupportSurface::PushAutoFocus)
+        $crate::command::surface::StaticMarkerRequirement::Typed(
+            $crate::capabilities::TypedSupportSurface::PushAutoFocus,
+        )
     };
     (HasFocusZone) => {
-        StaticMarkerRequirement::Typed(TypedSupportSurface::FocusZone)
+        $crate::command::surface::StaticMarkerRequirement::Typed(
+            $crate::capabilities::TypedSupportSurface::FocusZone,
+        )
     };
     (HasAutoFocusSensitivity) => {
-        StaticMarkerRequirement::Typed(TypedSupportSurface::AutoFocusSensitivity)
+        $crate::command::surface::StaticMarkerRequirement::Typed(
+            $crate::capabilities::TypedSupportSurface::AutoFocusSensitivity,
+        )
     };
     (HasFocusNearLimitInquiry) => {
-        StaticMarkerRequirement::Typed(TypedSupportSurface::FocusNearLimitInquiry)
+        $crate::command::surface::StaticMarkerRequirement::Typed(
+            $crate::capabilities::TypedSupportSurface::FocusNearLimitInquiry,
+        )
     };
     (HasBacklightCompensation) => {
-        StaticMarkerRequirement::Typed(TypedSupportSurface::BacklightCompensation)
+        $crate::command::surface::StaticMarkerRequirement::Typed(
+            $crate::capabilities::TypedSupportSurface::BacklightCompensation,
+        )
     };
     (HasWideDynamicRange) => {
-        StaticMarkerRequirement::Typed(TypedSupportSurface::WideDynamicRange)
+        $crate::command::surface::StaticMarkerRequirement::Typed(
+            $crate::capabilities::TypedSupportSurface::WideDynamicRange,
+        )
     };
     (HasExposureCompensation) => {
-        StaticMarkerRequirement::Typed(TypedSupportSurface::ExposureCompensation)
+        $crate::command::surface::StaticMarkerRequirement::Typed(
+            $crate::capabilities::TypedSupportSurface::ExposureCompensation,
+        )
     };
     (HasBrightnessControl) => {
-        StaticMarkerRequirement::Typed(TypedSupportSurface::BrightnessControl)
+        $crate::command::surface::StaticMarkerRequirement::Typed(
+            $crate::capabilities::TypedSupportSurface::BrightnessControl,
+        )
     };
     (HasOnePushWhiteBalance) => {
-        StaticMarkerRequirement::Typed(TypedSupportSurface::OnePushWhiteBalance)
+        $crate::command::surface::StaticMarkerRequirement::Typed(
+            $crate::capabilities::TypedSupportSurface::OnePushWhiteBalance,
+        )
     };
     (HasAutoTrackingWhiteBalance) => {
-        StaticMarkerRequirement::Typed(TypedSupportSurface::AutoTrackingWhiteBalance)
+        $crate::command::surface::StaticMarkerRequirement::Typed(
+            $crate::capabilities::TypedSupportSurface::AutoTrackingWhiteBalance,
+        )
     };
     (HasAutoWhiteBalanceSensitivity) => {
-        StaticMarkerRequirement::Typed(TypedSupportSurface::AutoWhiteBalanceSensitivity)
+        $crate::command::surface::StaticMarkerRequirement::Typed(
+            $crate::capabilities::TypedSupportSurface::AutoWhiteBalanceSensitivity,
+        )
     };
     (HasColorTemperature) => {
-        StaticMarkerRequirement::Typed(TypedSupportSurface::ColorTemperature)
+        $crate::command::surface::StaticMarkerRequirement::Typed(
+            $crate::capabilities::TypedSupportSurface::ColorTemperature,
+        )
     };
     (HasRgbGain) => {
-        StaticMarkerRequirement::Typed(TypedSupportSurface::RgbGain)
+        $crate::command::surface::StaticMarkerRequirement::Typed(
+            $crate::capabilities::TypedSupportSurface::RgbGain,
+        )
     };
     (HasRgbTuning) => {
-        StaticMarkerRequirement::Typed(TypedSupportSurface::RgbTuning)
+        $crate::command::surface::StaticMarkerRequirement::Typed(
+            $crate::capabilities::TypedSupportSurface::RgbTuning,
+        )
     };
     (HasImageFlip) => {
-        StaticMarkerRequirement::Typed(TypedSupportSurface::ImageFlip)
+        $crate::command::surface::StaticMarkerRequirement::Typed(
+            $crate::capabilities::TypedSupportSurface::ImageFlip,
+        )
     };
     (HasImageMirror) => {
-        StaticMarkerRequirement::Typed(TypedSupportSurface::ImageMirror)
+        $crate::command::surface::StaticMarkerRequirement::Typed(
+            $crate::capabilities::TypedSupportSurface::ImageMirror,
+        )
     };
     (HasCombinedImageFlip) => {
-        StaticMarkerRequirement::Typed(TypedSupportSurface::CombinedImageFlip)
+        $crate::command::surface::StaticMarkerRequirement::Typed(
+            $crate::capabilities::TypedSupportSurface::CombinedImageFlip,
+        )
     };
     (HasContrastControl) => {
-        StaticMarkerRequirement::Typed(TypedSupportSurface::ContrastControl)
+        $crate::command::surface::StaticMarkerRequirement::Typed(
+            $crate::capabilities::TypedSupportSurface::ContrastControl,
+        )
     };
     (HasSharpnessControl) => {
-        StaticMarkerRequirement::Typed(TypedSupportSurface::SharpnessControl)
+        $crate::command::surface::StaticMarkerRequirement::Typed(
+            $crate::capabilities::TypedSupportSurface::SharpnessControl,
+        )
     };
     (HasSaturationControl) => {
-        StaticMarkerRequirement::Typed(TypedSupportSurface::SaturationControl)
+        $crate::command::surface::StaticMarkerRequirement::Typed(
+            $crate::capabilities::TypedSupportSurface::SaturationControl,
+        )
     };
     (HasHueControl) => {
-        StaticMarkerRequirement::Typed(TypedSupportSurface::HueControl)
+        $crate::command::surface::StaticMarkerRequirement::Typed(
+            $crate::capabilities::TypedSupportSurface::HueControl,
+        )
     };
     (HasLuminanceControl) => {
-        StaticMarkerRequirement::Typed(TypedSupportSurface::LuminanceControl)
+        $crate::command::surface::StaticMarkerRequirement::Typed(
+            $crate::capabilities::TypedSupportSurface::LuminanceControl,
+        )
     };
     (HasGammaControl) => {
-        StaticMarkerRequirement::Typed(TypedSupportSurface::GammaControl)
+        $crate::command::surface::StaticMarkerRequirement::Typed(
+            $crate::capabilities::TypedSupportSurface::GammaControl,
+        )
     };
     (HasNoiseReduction) => {
-        StaticMarkerRequirement::Typed(TypedSupportSurface::NoiseReduction)
+        $crate::command::surface::StaticMarkerRequirement::Typed(
+            $crate::capabilities::TypedSupportSurface::NoiseReduction,
+        )
     };
     (HasNoiseReduction2D) => {
-        StaticMarkerRequirement::Typed(TypedSupportSurface::NoiseReduction2D)
+        $crate::command::surface::StaticMarkerRequirement::Typed(
+            $crate::capabilities::TypedSupportSurface::NoiseReduction2D,
+        )
     };
     (HasNoiseReduction3D) => {
-        StaticMarkerRequirement::Typed(TypedSupportSurface::NoiseReduction3D)
+        $crate::command::surface::StaticMarkerRequirement::Typed(
+            $crate::capabilities::TypedSupportSurface::NoiseReduction3D,
+        )
     };
     (HasPictureEffect) => {
-        StaticMarkerRequirement::Typed(TypedSupportSurface::PictureEffect)
+        $crate::command::surface::StaticMarkerRequirement::Typed(
+            $crate::capabilities::TypedSupportSurface::PictureEffect,
+        )
     };
     (HasTally) => {
-        StaticMarkerRequirement::Typed(TypedSupportSurface::Tally)
+        $crate::command::surface::StaticMarkerRequirement::Typed(
+            $crate::capabilities::TypedSupportSurface::Tally,
+        )
     };
     (HasDirectMenuControl) => {
-        StaticMarkerRequirement::Typed(TypedSupportSurface::DirectMenu)
+        $crate::command::surface::StaticMarkerRequirement::Typed(
+            $crate::capabilities::TypedSupportSurface::DirectMenu,
+        )
     };
     (HasNdFilter) => {
-        StaticMarkerRequirement::Typed(TypedSupportSurface::NdFilter)
+        $crate::command::surface::StaticMarkerRequirement::Typed(
+            $crate::capabilities::TypedSupportSurface::NdFilter,
+        )
     };
     (HasVariableSpeed) => {
-        StaticMarkerRequirement::Typed(TypedSupportSurface::VariableSpeed)
+        $crate::command::surface::StaticMarkerRequirement::Typed(
+            $crate::capabilities::TypedSupportSurface::VariableSpeed,
+        )
     };
     (HasMotionSync) => {
-        StaticMarkerRequirement::Typed(TypedSupportSurface::MotionSync)
+        $crate::command::surface::StaticMarkerRequirement::Typed(
+            $crate::capabilities::TypedSupportSurface::MotionSync,
+        )
     };
 }
+
+/// Resolve a profile marker name to the runtime typed-support surface that
+/// backs it.  The noun-table marker projection above remains the authority;
+/// this adapter lets generated built-in inquiries reuse the same mapping
+/// without maintaining a second per-inquiry table.
+macro_rules! typed_surface_for_marker {
+    (crate :: capabilities :: $marker:ident) => {
+        $crate::command::surface::typed_surface_for_marker!($marker)
+    };
+    ($marker:ident) => {{
+        match $crate::command::surface::surface_marker!($marker) {
+            $crate::command::surface::StaticMarkerRequirement::Typed(surface) => surface,
+            $crate::command::surface::StaticMarkerRequirement::None
+            | $crate::command::surface::StaticMarkerRequirement::Profile(_) => {
+                unreachable!("typed inquiry gate must map to a typed support surface")
+            }
+        }
+    }};
+}
+
+pub(crate) use surface_marker;
+pub(crate) use typed_surface_for_marker;
 
 macro_rules! noun_entry {
     ($kind:ident, $command:ident, $noun:ident, $method:expr) => {
@@ -562,6 +679,7 @@ macro_rules! surface_rows {
 /// remains the semantic authority for classification.
 #[must_use]
 #[deny(unreachable_patterns)]
+#[allow(dead_code)]
 pub(crate) const fn surface_entry(command: BuiltinCommand) -> StaticSurfaceEntry {
     macro_rules! surface_rows_for_entry {
         ($($rows:tt)*) => {

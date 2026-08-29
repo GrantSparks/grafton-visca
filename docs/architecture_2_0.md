@@ -49,6 +49,18 @@ or per-camera background workers. Dropping a camera view does not stop a
 session or another view. An operation handle must be explicitly cancelled or
 detached according to its documented lifecycle.
 
+Private request, transmission, and correlation identifiers advance
+monotonically within a session and are never reused. If the 64-bit identity
+space is exhausted, admission or transmission fails closed with
+`RuntimeIdentityExhausted`; an old owner input must never alias new work.
+
+The two execution modes share protocol state-machine semantics, not an async
+implementation hidden behind a blocking wrapper. `blocking` drives
+`BlockingTransport` directly and has no Tokio, smol, futures executor, or
+pollster dependency in its downstream graph. `async` drives `AsyncTransport`
+through the caller-selected executor. CI checks the native blocking dependency
+boundary for network and serial feature sets.
+
 ## Target registry and preflight
 
 `SessionConfig` has exactly seven individual target slots, VISCA IDs 1 through
@@ -108,6 +120,50 @@ The construction and request path has a fixed order:
 8. Record terminal outcome, release admission capacity, and retain only the
    bounded diagnostic/history state promised by the public API.
 
+Correlation before ACK is envelope-specific. A raw-VISCA target has at most
+one unacknowledged command candidate across `Sending`, `AwaitingAck`, and
+`AwaitingLateAck`. Once its ACK assigns a socket, the next command may be
+written while the first executes, so a two-socket camera retains its useful
+concurrency without asking FIFO order to identify an ACK. Raw ACK and error
+routing never uses command FIFO or temporal recency. Sony-encapsulated requests
+may pipeline before ACK because their envelope sequence provides an exact
+correlation key. An unsequenced ACK is never attributed by a guess.
+When a raw ACK names a socket, that socket is exact evidence: an occupied
+named socket produces `SocketConflict` and remains inert rather than being
+silently remapped to another free socket. Only a socketless ACK retains the
+compatibility rule of selecting the first free registered socket.
+
+For a raw socketless error, the evidence rule is equally strict: route the
+unique unacknowledged command only when no inquiry owner is live; otherwise
+route the legitimate per-target inquiry FIFO only when no unacknowledged
+command exists. A command-plus-inquiry collision is ignored. An explicit
+socket routes only the exact owner of that target/socket, and a socketless
+error never falls back to an `Executing` command.
+
+Retry follows the same evidence boundary. Sony timeout recovery resends the
+same logical request with the same sequence. A conclusive camera rejection
+such as buffer-full or no-socket proves that the command did not start and may
+be retried under policy. A raw command that was successfully written but then
+loses its ACK, completion, or cancellation resolution, or encounters a receive
+fault while awaiting ACK, is different: replay could perform a relative move
+or preset twice, while continuing could let a late reply bind to later work.
+The owner therefore ends that session with
+`Error::UnsequencedCommandUnconfirmed`; callers must establish a fresh session
+and reconcile camera state rather than blindly replaying the command. An active
+retry-budget expiry in `Sending`, `AwaitingAck`, or `Executing` follows the same
+raw poison rule; a retry that is still in a safe ready/backoff state can instead
+finish with its retained last error when the total budget expires. The budget
+applies to every later noncancelled retry phase; cancellation quarantine is
+separate and is never shortened by budget expiry.
+
+Fixed-format ACK, completion, error, and network-change frames are classified
+only at their exact lengths. A known fixed prefix with trailing bytes is
+malformed, not an `Unknown` response. For fixed ACK, completion, and error
+forms, the socket nibble is also strict: `0` decodes as the valid socketless
+compatibility form, `1` and `2` decode as S1/S2, and `3..=15` is malformed.
+The variable data-reply form is reserved for socket 0 with more than three
+bytes; the canonical three-byte `z0 50 FF` socket-0 completion remains valid.
+
 Blocking operation submission has one additional ownership boundary: a
 returned operation handle always names a request whose initial transport write
 already succeeded. If the target's command sockets (or the global dispatch
@@ -118,6 +174,43 @@ does the async operation API.
 
 This ordering is what permits a detached observer or a dropped subscription to
 miss an event without losing an already-applied state update.
+
+## Scheduling and async source arbitration
+
+Each request owns an intrinsic `ControlClass`. Typed stops and protocol
+cancellation are `Urgent`; that is safety metadata rather than caller QoS.
+Camera handles and individual calls may choose a `SubmissionClass` for ordinary
+traffic (`Background`, `Normal`, or `User`). The public QoS type has no urgent
+variant, and both override forms preserve an intrinsically urgent request.
+Within each effective class the owner retains admission order; class selection
+only chooses the next eligible queued write and never interrupts in-flight I/O.
+Urgency bypasses ordinary admission backlog, not the target's physical pacing
+floor. Owner-issued socket cancellation is selected before ordinary ready work
+when eligible, but is transmitted only after the shared command-spacing
+deadline and itself advances that deadline.
+
+The async actor expresses simultaneous readiness as deterministic,
+progress-sensitive phases rather than a randomized race or a history
+threshold:
+
+1. Receive is first while it produces a valid non-empty frame batch. Buffered
+   ACKs, completions, and replies therefore update protocol state before a
+   simultaneously ready control observer sees that state.
+2. A receive that makes no protocol progress — idle/no-data, a partial frame,
+   a transient fault, an empty UDP datagram discarded under the current overall
+   deadline, or a discarded malformed datagram — makes the next selection poll
+   boundary sources first in the fixed order shutdown, cancellation, admission,
+   control, then timer. Discarding an empty datagram never starts a fresh
+   deadline; the async UDP adapter also yields cooperatively before polling
+   again.
+3. A boundary win, or a later valid frame batch when no boundary was ready,
+   returns the actor to receive-first.
+
+This retains the protocol's strict source order for meaningful input while
+preventing an always-idle or always-failing transport from starving shutdown
+and control. The rule depends on the result of the current receive, never an
+arbitrary count of earlier wins. Transmission effects produced by either phase
+are driven immediately before the next selection.
 
 ## Request and motion semantics
 
@@ -136,6 +229,12 @@ explicit operation lifecycle. `motion().stop_all_motion()`,
 safety/observation entry points. A dropped handle is not an automatic STOP;
 emergency stopping is an explicit STOP or motion operation.
 
+Broadcast address assignment and interface clear are transport-lifecycle
+controls, not camera requests; the serial handshake owns them before the target
+registry starts. Socket cancellation is likewise owner-only because only the
+owner knows which live operation owns a camera-assigned socket. None of those
+three wire primitives is exposed as a generic `request::builtin` command.
+
 ## Preserved implementation boundaries
 
 The authoritative built-in semantic ledger remains
@@ -148,4 +247,6 @@ different.
 
 For the preservation inventory and ecosystem list, see
 [`architecture_inventory.md`](architecture_inventory.md). For construction and
-operational examples, see [`usage_2_0.md`](usage_2_0.md).
+operational examples, see [`usage_2_0.md`](usage_2_0.md). The critical 1.x/v2
+trade-off, size, and reuse analysis is recorded in
+[`issue_542_design_review.md`](issue_542_design_review.md).

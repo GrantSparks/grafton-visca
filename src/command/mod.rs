@@ -30,7 +30,6 @@ pub(crate) mod streaming;
 ///
 /// The mapping is an in-crate audit authority; production request preparation
 /// consumes typed request implementations directly.
-#[cfg(test)]
 pub(crate) mod surface;
 pub(crate) mod system;
 pub(crate) mod tally;

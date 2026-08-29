@@ -272,38 +272,23 @@ fn dyn_root_is_object_safe() {
 
 #[test]
 fn canonical_compile_contracts() {
-    let cases = trybuild::TestCases::new();
-
-    cases.pass("tests/api_contract/pass/derive_macro_extension.rs");
-    cases.pass("tests/api_contract/pass/final_typed_requests.rs");
-    cases.pass("tests/api_contract/pass/public_root_value_types.rs");
-    cases.pass("tests/api_contract/pass/raw_command_extension.rs");
-    cases.pass("tests/api_contract/pass/raw_typed_requests.rs");
-    cases.pass("tests/api_contract/pass/stable_command_root.rs");
-    cases.pass("tests/api_contract/pass/state_cache_key.rs");
-
+    // The base-only feature leg has no conditional directory to append.
+    #[allow(unused_mut)]
+    let mut pass_dirs = vec!["tests/api_contract/pass"];
     #[cfg(feature = "async")]
-    {
-        cases.pass("tests/api_contract/pass_async/async_lifecycle_handles.rs");
-        cases.pass("tests/api_contract/pass_async/canonical_camera_projection.rs");
-        cases.pass("tests/api_contract/pass_async/single_camera_profile_bind.rs");
-    }
+    pass_dirs.push("tests/api_contract/pass_async");
     #[cfg(feature = "blocking")]
-    {
-        cases.pass("tests/api_contract/pass_blocking/blocking_lifecycle_handles.rs");
-        cases.pass("tests/api_contract/pass_blocking/canonical_camera_projection.rs");
-        cases.pass("tests/api_contract/pass_blocking/single_camera_profile_bind.rs");
-    }
+    pass_dirs.push("tests/api_contract/pass_blocking");
     #[cfg(all(feature = "blocking", feature = "async"))]
-    cases.pass("tests/api_contract/pass_coexistence/canonical_facades.rs");
+    pass_dirs.push("tests/api_contract/pass_coexistence");
     #[cfg(feature = "dyn-api")]
-    cases.pass("tests/api_contract/pass_dyn/*.rs");
+    pass_dirs.push("tests/api_contract/pass_dyn");
     #[cfg(feature = "test-utils")]
-    cases.pass("tests/api_contract/pass_test_utils/*.rs");
+    pass_dirs.push("tests/api_contract/pass_test_utils");
     #[cfg(all(feature = "blocking", feature = "transport-serial"))]
-    cases.pass("tests/api_contract/pass_serial_blocking/*.rs");
+    pass_dirs.push("tests/api_contract/pass_serial_blocking");
     #[cfg(feature = "transport-serial-tokio")]
-    cases.pass("tests/api_contract/pass_serial_tokio/*.rs");
+    pass_dirs.push("tests/api_contract/pass_serial_tokio");
 
     let mut fail_dirs = vec!["tests/api_contract/fail"];
     #[cfg(feature = "async")]
@@ -328,5 +313,6 @@ fn canonical_compile_contracts() {
     fail_dirs.push("tests/api_contract/fail_no_test_utils");
 
     let active_features = compile_fail::active_grafton_visca_features();
+    compile_fail::assert_compile_pass_fixtures(&pass_dirs, &active_features);
     compile_fail::assert_compile_fail_fixtures(&fail_dirs, &active_features);
 }

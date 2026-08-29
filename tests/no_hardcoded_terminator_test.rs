@@ -31,12 +31,12 @@ use grafton_visca::{
     },
     raw,
     request::builtin::{
-        AddressSet, CommandCancel, FocusInfinity, FocusStop, InterfaceClear, IrisReset,
-        PanTiltHome, PanTiltReset, PresetSet, PushAfPress, ZoomDrive, ZoomStop,
+        FocusInfinity, FocusStop, IrisReset, PanTiltHome, PanTiltReset, PresetSet, PushAfPress,
+        ZoomDrive, ZoomStop,
     },
     transport::{AddressingMode, Envelope, RawVisca, SonyEncapsulated},
     CameraId, Coarse, ControlClass, Error, PresetNumber, Request, RetryClass, TimeoutClass,
-    ViscaSocket, ZoomSpeed,
+    ZoomSpeed,
 };
 
 /// Sony's encapsulation header, which precedes the VISCA payload.
@@ -133,9 +133,6 @@ fn built_in_commands_end_with_the_exported_terminator() {
         IrisReset,
         PushAfPress,
         PresetSet::new(PresetNumber::new(3).expect("preset 3 is valid")),
-        AddressSet,
-        InterfaceClear,
-        CommandCancel::new(ViscaSocket::S2),
     );
 }
 

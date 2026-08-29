@@ -17,6 +17,11 @@ readonly YELLOW='\033[1;33m'
 readonly GREEN='\033[0;32m'
 readonly RED='\033[0;31m'
 readonly NC='\033[0m'
+readonly GRAFTON_VISCA_MIRI_TOOLCHAIN='nightly-2026-08-26'
+
+cargo_miri_nightly() {
+    command cargo +"${GRAFTON_VISCA_MIRI_TOOLCHAIN}" "$@"
+}
 
 # Every run below is filtered by module path. A libtest filter that matches
 # nothing exits 0 — the binary prints "running 0 tests" and reports success —
@@ -31,7 +36,7 @@ run_miri() {
     log="${TMPDIR:-/tmp}/grafton-miri-${description//[^[:alnum:]]/_}.log"
 
     printf '%bMiri testing: %s%b\n' "$YELLOW" "$description" "$NC"
-    if ! cargo miri test "$@" 2>&1 | tee "$log"; then
+    if ! cargo_miri_nightly miri test "$@" 2>&1 | tee "$log"; then
         printf '%b✗ %s failed%b\n' "$RED" "$description" "$NC"
         return 1
     fi
@@ -49,7 +54,7 @@ run_check() {
     shift
 
     printf '%bFeature compile checking: %s%b\n' "$YELLOW" "$description" "$NC"
-    cargo check --lib "$@"
+    cargo_miri_nightly check --lib "$@"
     printf '%b✓ %s passed%b\n\n' "$GREEN" "$description" "$NC"
 }
 
@@ -58,7 +63,7 @@ echo "Starting Miri safety checks"
 echo "=========================================="
 
 export MIRIFLAGS="-Zmiri-disable-isolation -Zmiri-strict-provenance"
-cargo miri setup
+cargo_miri_nightly miri setup
 
 # Miri is applicable to the synchronous, I/O-free domain boundary.  A library
 # test target still compiles every unit-test module once, so keep that expensive

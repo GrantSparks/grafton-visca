@@ -23,7 +23,10 @@ Cargo feature a snippet needs.
 
 Runtime features imply the canonical `async` facade. `runtime-tokio`
 and `runtime-smol` may be enabled together; each session still receives one
-explicit runtime.
+explicit runtime. The default `blocking` feature is an independent native
+synchronous implementation: a blocking-only application does not enable or
+link Tokio, smol, or an async executor. CI checks that dependency boundary for
+both blocking network and blocking serial builds.
 
 ## One standard connection
 

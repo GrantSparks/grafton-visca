@@ -6,7 +6,7 @@ use grafton_visca::{
         PanTiltHome, PanTiltLimitClear, PushAfPress, PushAfRelease, ZoomStop,
     },
     types::IrisLevel,
-    OperationCommand, PlainCommand, Request,
+    OperationCommand, PlainCommand, Request, SubmissionClass,
 };
 
 fn plain<C: PlainCommand>() {}
@@ -45,5 +45,10 @@ fn main() -> Result<(), grafton_visca::Error> {
     let _ = NdFilterStepDown::new();
     let _ = PushAfPress::new();
     let _ = PushAfRelease::new();
+    let _ordinary_qos = [
+        SubmissionClass::Background,
+        SubmissionClass::Normal,
+        SubmissionClass::User,
+    ];
     Ok(())
 }

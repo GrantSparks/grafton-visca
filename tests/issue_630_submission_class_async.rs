@@ -22,7 +22,7 @@ use grafton_visca::{
     profiles::PtzOpticsG2,
     request::builtin::{FocusDrive, FocusModeCommand, ZoomDrive, ZoomStop},
     transport::{AsyncTransport, HasTransportConfig, SendSemantics, TransportConfig},
-    ControlClass, Error, Executor, Session, SessionConfig,
+    Error, Executor, Session, SessionConfig, SubmissionClass,
 };
 
 const ZOOM_TELE: &[u8] = &[0x81, 0x01, 0x04, 0x07, 0x02, 0xff];
@@ -182,11 +182,14 @@ async fn background_yields_to_a_later_user_submission<E: Executor>(executor: E) 
     wait_for_writes(&executor, &probe, 2).await;
 
     let background = camera
-        .submit_with_class::<AppliedOnly, _>(&ZoomDrive::Wide, ControlClass::Background)
+        .submit_with_submission_class::<AppliedOnly, _>(
+            &ZoomDrive::Wide,
+            SubmissionClass::Background,
+        )
         .await
         .expect("background submission is admitted and queued");
     let user = camera
-        .submit_with_class::<AppliedOnly, _>(&FocusDrive::Near, ControlClass::User)
+        .submit_with_submission_class::<AppliedOnly, _>(&FocusDrive::Near, SubmissionClass::User)
         .await
         .expect("user submission is admitted and queued");
     assert_stable_write_count(&executor, &probe, 2).await;
@@ -239,16 +242,16 @@ async fn handle_default_and_per_submission_override<E: Executor>(executor: E) {
     wait_for_writes(&executor, &probe, 2).await;
 
     let mut poller = camera.clone();
-    assert_eq!(poller.command_class(), None);
-    poller.set_command_class(Some(ControlClass::Background));
-    assert_eq!(poller.command_class(), Some(ControlClass::Background));
+    assert_eq!(poller.submission_class(), None);
+    poller.set_submission_class(Some(SubmissionClass::Background));
+    assert_eq!(poller.submission_class(), Some(SubmissionClass::Background));
     assert_eq!(
-        camera.command_class(),
+        camera.submission_class(),
         None,
         "a clone diverges rather than sharing the default",
     );
 
-    // Both are `ControlClass::User` built-ins, so only the handle they came
+    // Both are `SubmissionClass::User` built-ins, so only the handle they came
     // from can separate them.
     let demoted = poller
         .submit::<AppliedOnly, _>(&ZoomDrive::Wide)
@@ -274,7 +277,7 @@ async fn handle_default_and_per_submission_override<E: Executor>(executor: E) {
 
     // Now the override: the demoted handle submits first and still wins.
     let raised = poller
-        .submit_with_class::<AppliedOnly, _>(&ZoomDrive::Tele, ControlClass::User)
+        .submit_with_submission_class::<AppliedOnly, _>(&ZoomDrive::Tele, SubmissionClass::User)
         .await
         .expect("raised submission");
     let later = camera
@@ -283,8 +286,8 @@ async fn handle_default_and_per_submission_override<E: Executor>(executor: E) {
         .expect("later ordinary submission");
     assert_stable_write_count(&executor, &probe, 4).await;
     assert_eq!(
-        poller.command_class(),
-        Some(ControlClass::Background),
+        poller.submission_class(),
+        Some(SubmissionClass::Background),
         "a per-submission class does not change the handle default",
     );
 
@@ -305,8 +308,7 @@ async fn handle_default_and_per_submission_override<E: Executor>(executor: E) {
     session.shutdown().await.expect("owner shutdown");
 }
 
-/// A handle demoted to background still preempts with a typed stop; only an
-/// explicit per-submission class can demote one.
+/// A typed stop retains its urgent safety class under both QoS override forms.
 async fn urgent_is_demoted_only_by_an_explicit_class<E: Executor>(executor: E) {
     let (transport, probe) = LaneTransport::new();
     let session = Session::open(transport, g2_config(), executor.clone())
@@ -330,7 +332,7 @@ async fn urgent_is_demoted_only_by_an_explicit_class<E: Executor>(executor: E) {
         .await
         .expect("ordinary user-class submission");
     let mut poller = camera.clone();
-    poller.set_command_class(Some(ControlClass::Background));
+    poller.set_submission_class(Some(SubmissionClass::Background));
     let stop = poller
         .submit::<AppliedOnly, _>(&ZoomStop)
         .await
@@ -349,11 +351,12 @@ async fn urgent_is_demoted_only_by_an_explicit_class<E: Executor>(executor: E) {
     wait_for_writes(&executor, &probe, 4).await;
     assert_eq!(probe.writes()[3], FOCUS_NEAR.to_vec());
 
-    // The documented escape hatch, on the same session.
-    let demoted_stop = camera
-        .submit_with_class::<AppliedOnly, _>(&ZoomStop, ControlClass::Background)
+    // A per-submission QoS value is also unable to weaken the stop's intrinsic
+    // urgent safety floor.
+    let protected_stop = camera
+        .submit_with_submission_class::<AppliedOnly, _>(&ZoomStop, SubmissionClass::Background)
         .await
-        .expect("deliberately demoted stop");
+        .expect("stop with background ordinary-traffic QoS");
     let later = camera
         .submit::<AppliedOnly, _>(&FocusDrive::Far)
         .await
@@ -364,15 +367,15 @@ async fn urgent_is_demoted_only_by_an_explicit_class<E: Executor>(executor: E) {
     wait_for_writes(&executor, &probe, 5).await;
     assert_eq!(
         probe.writes()[4],
-        FOCUS_FAR.to_vec(),
-        "issue #630: an explicit background class demotes even a stop",
+        ZOOM_STOP.to_vec(),
+        "issue #630: per-submission QoS cannot demote an urgent stop",
     );
 
     first.detach();
     second.detach();
     ordinary.detach();
     stop.detach();
-    demoted_stop.detach();
+    protected_stop.detach();
     later.detach();
     session.shutdown().await.expect("owner shutdown");
 }
@@ -385,7 +388,8 @@ async fn classified_execute_reaches_the_wire<E: Executor>(executor: E) {
         .expect("owner session");
     let mut camera = session.camera::<PtzOpticsG2>().expect("G2 camera view");
 
-    let execute = camera.execute_with_class(&FocusModeCommand::Manual, ControlClass::Background);
+    let execute = camera
+        .execute_with_submission_class(&FocusModeCommand::Manual, SubmissionClass::Background);
     let completion = async {
         wait_for_writes(&executor, &probe, 1).await;
         probe.complete_socket(2);
@@ -393,7 +397,7 @@ async fn classified_execute_reaches_the_wire<E: Executor>(executor: E) {
     let (result, ()) = futures_lite::future::zip(execute, completion).await;
     result.expect("background plain command still executes");
 
-    camera.set_command_class(Some(ControlClass::Urgent));
+    camera.set_submission_class(Some(SubmissionClass::User));
     let execute = camera.execute(&FocusModeCommand::Auto);
     let completion = async {
         wait_for_writes(&executor, &probe, 2).await;
@@ -429,17 +433,17 @@ async fn dyn_projection_has_the_same_surface<E: Executor>(executor: E) {
     wait_for_writes(&executor, &probe, 2).await;
 
     let mut poller = dynamic.clone();
-    assert_eq!(poller.command_class(), None);
-    poller.set_command_class(Some(ControlClass::Background));
-    assert_eq!(poller.command_class(), Some(ControlClass::Background));
-    assert_eq!(dynamic.command_class(), None);
+    assert_eq!(poller.submission_class(), None);
+    poller.set_submission_class(Some(SubmissionClass::Background));
+    assert_eq!(poller.submission_class(), Some(SubmissionClass::Background));
+    assert_eq!(dynamic.submission_class(), None);
 
     let demoted = poller
         .submit_applied(&ZoomDrive::Wide)
         .await
         .expect("demoted submission");
     let ordinary = dynamic
-        .submit_applied_with_class(&FocusDrive::Near, ControlClass::User)
+        .submit_applied_with_submission_class(&FocusDrive::Near, SubmissionClass::User)
         .await
         .expect("ordinary submission");
     assert_stable_write_count(&executor, &probe, 2).await;
@@ -458,7 +462,7 @@ async fn dyn_projection_has_the_same_surface<E: Executor>(executor: E) {
 
     // A typed view projected out of the dynamic one inherits the default.
     let typed = poller.camera::<PtzOpticsG2>().expect("typed projection");
-    assert_eq!(typed.command_class(), Some(ControlClass::Background));
+    assert_eq!(typed.submission_class(), Some(SubmissionClass::Background));
 
     first.detach();
     second.detach();

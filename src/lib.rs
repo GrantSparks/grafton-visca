@@ -87,13 +87,14 @@
 //!
 //! Request values carry their timeout, retry, and control-policy classes. Camera
 //! targets, completion kinds, and retry behavior cannot be overridden at
-//! submission time. The scheduling class can: see [Submission priority] below.
+//! submission time. Ordinary submission QoS can: see [Submission priority] below.
 //! Supported `ViscaInquiry` derives implement this typed inquiry contract;
 //! downstream derives use the conservative inquiry retry class.
 //!
 //! ## Submission priority
 //!
-//! [`ControlClass`] names one of the owner's four scheduling lanes. The owner
+//! [`ControlClass`] is the request-owned intrinsic class; [`SubmissionClass`]
+//! is the caller's ordinary-traffic QoS. The owner
 //! dispatches ready work from the highest occupied class first and FIFO within
 //! a class, so the class only decides which **queued** request is written next;
 //! it never interrupts, cancels, or reorders a request already on the wire.
@@ -101,30 +102,31 @@
 //! Every request classifies itself — ordinary control traffic is
 //! [`ControlClass::Normal`], direct movement is [`ControlClass::User`], and the
 //! typed stops and cancels are [`ControlClass::Urgent`] so an emergency stop
-//! preempts queued work with no extra ceremony. Two typed routes select a class
-//! explicitly:
+//! preempts queued work with no extra ceremony. `SubmissionClass` deliberately
+//! has no urgent variant: caller QoS cannot create or demote the safety lane.
+//! Two routes select ordinary submission QoS:
 //!
-//! - Per handle: `set_command_class(Some(class))` on a camera view, its
+//! - Per handle: `set_submission_class(Some(class))` on a camera view, its
 //!   single-camera session, or the dynamic projection. Every later submission
 //!   from *that handle* uses `class`, including the ones its noun accessors
-//!   make — except that an urgent request is never demoted.
-//! - Per submission: `execute_with_class`, `inquire_with_class`, and
-//!   `submit_with_class` (`submit_targeted_with_class` /
-//!   `submit_applied_with_class` on the dynamic projection). These replace both
-//!   the request's own class and the handle default for one submission, and
-//!   they are the only route that can demote an urgent stop.
+//!   make. An urgent request ignores it.
+//! - Per submission: `execute_with_submission_class`, `inquire_with_submission_class`, and
+//!   `submit_with_submission_class` (`submit_targeted_with_submission_class` /
+//!   `submit_applied_with_submission_class` on the dynamic projection). These replace both
+//!   the handle default for one submission. An urgent request still ignores it.
 //!
 //! ```ignore
-//! use grafton_visca::ControlClass;
+//! use grafton_visca::SubmissionClass;
 //!
 //! // Keep a telemetry poller out of the operator's way.
 //! let mut poller = camera.clone();
-//! poller.set_command_class(Some(ControlClass::Background));
+//! poller.set_submission_class(Some(SubmissionClass::Background));
 //! let zoom = poller.zoom().position().await?;   // queued behind operator input
 //! poller.pan_tilt().stop().await?;              // still urgent
 //!
-//! // Raise one safety-interlock command without changing the handle.
-//! camera.execute_with_class(&command, ControlClass::Urgent).await?;
+//! // Raise one ordinary command for direct user interaction without changing
+//! // the handle. `Urgent` is intentionally not caller-selectable.
+//! camera.execute_with_submission_class(&command, SubmissionClass::User).await?;
 //! ```
 //!
 //! [Submission priority]: #submission-priority
@@ -875,7 +877,8 @@ pub mod raw;
 mod requests;
 pub use requests::{
     AffectedAxes, AffectedAxis, AffectedAxisIter, ControlClass, EncodeError, Inquiry, InquiryRoute,
-    OperationCommand, PlainCommand, Request, ResponseDecoder, RetryClass, TimeoutClass,
+    OperationCommand, PlainCommand, Request, ResponseDecoder, RetryClass, SubmissionClass,
+    TimeoutClass,
 };
 
 mod prepared;

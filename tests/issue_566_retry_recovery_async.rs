@@ -2,7 +2,10 @@
 //!
 //! The blocking twin is `tests/issue_566_retry_recovery_blocking.rs`; the two
 //! assert the same observable behavior against the two owners, because a retry
-//! policy that only holds on one of them is not a policy.
+//! policy that only holds on one of them is not a policy. The conclusive camera
+//! refusals stay on raw VISCA, while the ambiguous ACK/completion and
+//! cancellation cases use Sony's sequence envelope: raw traffic cannot safely
+//! identify a later reply after a successful write has gone unresolved.
 
 #![cfg(all(
     feature = "async",
@@ -22,6 +25,7 @@ use std::{
 use grafton_visca::{
     completion::AppliedOnly,
     profile::ProfileSpec,
+    profiles::SonyFR7,
     request::{self, builtin::ZoomStop},
     transport::{AsyncTransport, HasTransportConfig, SendSemantics, TransportConfig},
     CameraId, ControlClass, Error, Executor, Request, RetryClass, Session, SessionConfig,
@@ -69,6 +73,7 @@ struct Script {
 #[derive(Debug)]
 struct ScriptTransport {
     config: TransportConfig,
+    sony: bool,
     script: Arc<Mutex<Script>>,
     reads: flume::Sender<Vec<u8>>,
     replies: flume::Receiver<Vec<u8>>,
@@ -79,6 +84,7 @@ impl ScriptTransport {
         let (reads, replies) = flume::unbounded();
         Self {
             config: TransportConfig::default(),
+            sony: false,
             script: Arc::new(Mutex::new(Script {
                 steps: steps.into(),
                 trailing: Vec::new(),
@@ -92,6 +98,12 @@ impl ScriptTransport {
     /// Answer every write past the explicit script with these frames.
     fn with_trailing(self, trailing: Vec<Vec<u8>>) -> Self {
         self.script.lock().expect("script lock").trailing = trailing;
+        self
+    }
+
+    /// Use Sony's sequence-bearing envelope for requests and replies.
+    fn with_sony(mut self) -> Self {
+        self.sony = true;
         self
     }
 
@@ -121,6 +133,7 @@ impl HasTransportConfig for ScriptTransport {
 
 impl AsyncTransport for ScriptTransport {
     fn send(&mut self, bytes: &[u8]) -> impl Future<Output = Result<(), Error>> + Send {
+        let sony = self.sony;
         let replies = {
             let mut script = self.script.lock().expect("script lock");
             script.writes.push(bytes.to_vec());
@@ -129,6 +142,10 @@ impl AsyncTransport for ScriptTransport {
                 .pop_front()
                 .unwrap_or_else(|| script.trailing.clone())
         };
+        let replies = replies
+            .into_iter()
+            .map(|reply| frame_reply(bytes, &reply, sony))
+            .collect::<Vec<_>>();
         let reads = self.reads.clone();
         async move {
             for reply in replies {
@@ -166,6 +183,38 @@ fn session_config() -> SessionConfig {
         ProfileSpec::from_compile_time::<NonDefaultCompileTimeProfile>()
             .expect("two-socket runtime profile"),
     )
+}
+
+fn sony_session_config() -> SessionConfig {
+    SessionConfig::new(ProfileSpec::from_compile_time::<SonyFR7>().expect("Sony FR7 profile"))
+}
+
+fn frame_reply(request: &[u8], payload: &[u8], sony: bool) -> Vec<u8> {
+    if !sony {
+        return payload.to_vec();
+    }
+    assert!(
+        request.len() >= 8,
+        "Sony request must carry its sequence header"
+    );
+    let mut frame = Vec::with_capacity(payload.len() + 8);
+    frame.extend_from_slice(&[0x01, 0x11]);
+    frame.extend_from_slice(
+        &u16::try_from(payload.len())
+            .expect("Sony reply payload length")
+            .to_be_bytes(),
+    );
+    frame.extend_from_slice(&request[4..8]);
+    frame.extend_from_slice(payload);
+    frame
+}
+
+fn sony_sequence(frame: &[u8]) -> u32 {
+    assert!(
+        frame.len() >= 8,
+        "Sony write must carry its sequence header"
+    );
+    u32::from_be_bytes(frame[4..8].try_into().expect("Sony sequence bytes"))
 }
 
 fn standard_reply() -> Vec<Vec<u8>> {
@@ -242,19 +291,18 @@ async fn a_no_socket_answer_is_replayed_for_a_standard_command<E: Executor>(exec
     session.shutdown().await.expect("owner shutdown");
 }
 
-/// Issue #566: a movement request survives a lost ACK, and a command survives a
-/// camera that ACKs and then goes silent. The rewrite gated ACK retries to
-/// `RetryClass::Standard` and disabled completion retries outright.
+/// Issue #566: a sequence-correlated Sony movement request survives a lost ACK,
+/// and a command survives a camera that ACKs and then goes silent. Raw VISCA
+/// cannot replay either ambiguity safely because it has no request identity.
 async fn a_silent_camera_is_retried_before_and_after_its_ack<E: Executor>(executor: E) {
-    let transport =
-        ScriptTransport::new(vec![Vec::new(), standard_reply()]).with_trailing(standard_reply());
+    let transport = ScriptTransport::new(vec![Vec::new(), standard_reply()])
+        .with_sony()
+        .with_trailing(standard_reply());
     let probe = transport.probe();
-    let session = Session::open(transport, session_config(), executor.clone())
+    let session = Session::open(transport, sony_session_config(), executor.clone())
         .await
         .expect("owner session");
-    let camera = session
-        .camera::<NonDefaultCompileTimeProfile>()
-        .expect("camera view");
+    let camera = session.camera::<SonyFR7>().expect("camera view");
     camera
         .submit::<AppliedOnly, _>(&ZoomStop)
         .await
@@ -262,18 +310,23 @@ async fn a_silent_camera_is_retried_before_and_after_its_ack<E: Executor>(execut
         .applied_with_timeout(Duration::from_secs(5))
         .await
         .expect("a lost ACK must be retried for a movement request");
-    assert_eq!(probe.writes().len(), 2, "the lost ACK reissues the frame");
+    let writes = probe.writes();
+    assert_eq!(writes.len(), 2, "the lost ACK reissues the frame");
+    assert_eq!(
+        sony_sequence(&writes[0]),
+        sony_sequence(&writes[1]),
+        "an ACK retry preserves the logical Sony request sequence"
+    );
     session.shutdown().await.expect("owner shutdown");
 
     let transport = ScriptTransport::new(vec![vec![ACK_SOCKET_ONE.to_vec()], standard_reply()])
+        .with_sony()
         .with_trailing(standard_reply());
     let probe = transport.probe();
-    let session = Session::open(transport, session_config(), executor)
+    let session = Session::open(transport, sony_session_config(), executor)
         .await
         .expect("owner session");
-    let camera = session
-        .camera::<NonDefaultCompileTimeProfile>()
-        .expect("camera view");
+    let camera = session.camera::<SonyFR7>().expect("camera view");
     camera
         .submit::<AppliedOnly, _>(&ZoomStop)
         .await
@@ -281,26 +334,26 @@ async fn a_silent_camera_is_retried_before_and_after_its_ack<E: Executor>(execut
         .applied_with_timeout(Duration::from_secs(10))
         .await
         .expect("a post-ACK completion timeout must be retried");
+    let writes = probe.writes();
+    assert_eq!(writes.len(), 2, "the completion timeout reissues the frame");
     assert_eq!(
-        probe.writes().len(),
-        2,
-        "the completion timeout reissues the frame"
+        sony_sequence(&writes[0]),
+        sony_sequence(&writes[1]),
+        "a completion retry preserves the logical Sony request sequence"
     );
     session.shutdown().await.expect("owner shutdown");
 }
 
-/// Issue #566: `Error::CancellationUnconfirmed` had no path through the owner
-/// or the facade — it was reachable only from the engine's own tests.
+/// Issue #566: `Error::CancellationUnconfirmed` reaches the caller when a
+/// sequence-correlated Sony command and its cancellation both remain silent.
 async fn an_unresolvable_cancellation_reaches_the_caller<E: Executor>(executor: E) {
     // The camera never answers anything: neither the command nor the cancel.
-    let transport = ScriptTransport::new(vec![Vec::new()]);
+    let transport = ScriptTransport::new(vec![Vec::new()]).with_sony();
     let probe = transport.probe();
-    let session = Session::open(transport, session_config(), executor)
+    let session = Session::open(transport, sony_session_config(), executor)
         .await
         .expect("owner session");
-    let camera = session
-        .camera::<NonDefaultCompileTimeProfile>()
-        .expect("camera view");
+    let camera = session.camera::<SonyFR7>().expect("camera view");
 
     let operation = camera
         .submit::<AppliedOnly, _>(&ZoomStop)

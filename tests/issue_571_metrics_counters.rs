@@ -3,11 +3,11 @@
 //!
 //! The scenarios are scripted end to end — a camera that accepts writes and
 //! never answers — and the assertions are about what the owner reported. The
-//! first test says nothing about how many retries a profile chooses, so a
-//! profile retry-policy change cannot break it; the second deliberately sets
-//! the retry budget through public [`OperationalTuning`] so that "this scenario
-//! retries" is the caller's own request rather than a profile constant, and the
-//! counter has something it must show.
+//! first test pins raw ACK ambiguity as a terminal, session-poisoning outcome;
+//! the second deliberately sets the retry budget through public
+//! [`OperationalTuning`] so that "this scenario retries" is the caller's own
+//! request rather than a profile constant, and the counter has something it
+//! must show.
 
 #![cfg(feature = "blocking")]
 #![allow(clippy::expect_used, clippy::unwrap_used)]
@@ -17,8 +17,10 @@ use std::time::Duration;
 use grafton_visca::{
     blocking::Session,
     command::{CommandKind, ImageFreeze},
+    completion::AppliedOnly,
     profile::ProfileSpec,
-    profiles::PtzOpticsG2,
+    profiles::{PtzOpticsG2, SonyFR7},
+    request::builtin::ZoomDrive,
     transport::{
         AddressingMode, BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig,
     },
@@ -80,7 +82,7 @@ fn silent_session() -> Session {
 /// the counter has to show them.
 fn retrying_silent_session(retry_limit: u32) -> Session {
     let config = SessionConfig::new(
-        ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("built-in G2 profile"),
+        ProfileSpec::from_compile_time::<SonyFR7>().expect("built-in Sony FR7 profile"),
     )
     .with_tuning(
         OperationalTuning::new()
@@ -91,7 +93,7 @@ fn retrying_silent_session(retry_limit: u32) -> Session {
                 Duration::from_secs(30),
             ),
     )
-    .expect("a raised retry budget is valid operational tuning");
+    .expect("a caller-configured retry budget is valid operational tuning");
     Session::open(SilentCamera::default(), config).expect("session opens over a silent camera")
 }
 
@@ -106,9 +108,10 @@ fn an_unanswered_command_counts_ack_timeouts_and_reports_each_retry_decision() {
         .execute(&ImageFreeze::on())
         .expect_err("a silent camera cannot acknowledge");
     assert!(
-        matches!(error, Error::Timeout | Error::CommandTimeout { .. }),
-        "expected a timeout, got {error:?}"
+        matches!(error, Error::UnsequencedCommandUnconfirmed),
+        "a sent raw command with an ambiguous ACK must poison the session, got {error:?}"
     );
+    assert!(error.requires_new_session());
 
     let metrics = session.metrics().expect("metrics");
     let events = session.drain_diagnostics().expect("diagnostics");
@@ -128,38 +131,49 @@ fn an_unanswered_command_counts_ack_timeouts_and_reports_each_retry_decision() {
             _ => None,
         })
         .collect();
-    assert!(
-        !expiries.is_empty(),
-        "no ACK deadline expiry was reported: {events:?}"
+    assert_eq!(
+        expiries,
+        [false],
+        "the raw ACK ambiguity must not be retried: {events:?}"
     );
     let retries = events
         .iter()
         .filter(|event| matches!(event, DiagnosticEvent::RetryScheduled { .. }))
         .count();
     assert_eq!(
-        expiries.iter().filter(|will_retry| **will_retry).count(),
-        retries,
-        "each expiry claiming a retry must be matched by exactly one scheduled retry"
-    );
-    assert_eq!(
-        expiries.last(),
-        Some(&false),
-        "the expiry that gave up must say so"
+        retries, 0,
+        "raw ACK ambiguity must not schedule a replay: {events:?}"
     );
 
     assert_eq!(metrics.ack_timeouts, expiries.len() as u64);
-    assert_eq!(metrics.retries_scheduled, retries as u64);
+    assert_eq!(metrics.ack_timeouts, 1);
+    assert_eq!(metrics.retries_scheduled, 0);
     assert_eq!(metrics.completion_timeouts, 0);
     assert_eq!(metrics.inquiry_timeouts, 0);
     assert_eq!(metrics.busy_errors, 0);
     assert_eq!(metrics.protocol_errors, 0);
     assert_eq!(metrics.ignored_unmatched_sequenced_replies, 0);
-    session.shutdown().expect("shutdown");
+    assert_eq!(metrics.writes, 1);
+    assert_eq!(metrics.session, grafton_visca::SessionStatus::Poisoned);
+    // Explicit shutdown is idempotent but must not launder a poison verdict
+    // into a healthy/ordinary shutdown state.
+    session
+        .shutdown()
+        .expect("shutdown leaves the poison state unchanged");
+    assert_eq!(
+        session
+            .metrics()
+            .expect("poisoned metrics remain readable")
+            .session,
+        grafton_visca::SessionStatus::Poisoned
+    );
 }
 
 /// The pairing above holds even with retries removed engine-wide — every count
 /// on both sides would simply be zero — so this is the leg that pins the
-/// counter to a scenario that must retry.
+/// counter to a caller-configured scenario that safely retries. A movement
+/// request uses the base retry count directly; quick commands intentionally
+/// add their documented two extra retries.
 ///
 /// The retry budget here is the caller's own [`OperationalTuning`] override
 /// rather than a profile constant, so "this scenario retries" is a property of
@@ -168,17 +182,19 @@ fn an_unanswered_command_counts_ack_timeouts_and_reports_each_retry_decision() {
 /// report exactly one scheduled retry per attempt beyond the first, and the
 /// last expiry is the one that gave up.
 #[test]
-fn a_raised_retry_budget_is_visible_in_the_scheduled_retry_counter() {
+fn a_caller_configured_retry_budget_is_visible_in_the_scheduled_retry_counter() {
     const RETRY_LIMIT: u32 = 2;
 
     let session = retrying_silent_session(RETRY_LIMIT);
-    let camera = session.camera::<PtzOpticsG2>().expect("camera facade");
+    let camera = session.camera::<SonyFR7>().expect("camera facade");
     let error = camera
-        .execute(&ImageFreeze::on())
+        .submit::<AppliedOnly, _>(&ZoomDrive::Tele)
+        .expect("submission")
+        .applied()
         .expect_err("a silent camera cannot acknowledge");
     assert!(
-        matches!(error, Error::Timeout | Error::CommandTimeout { .. }),
-        "expected a timeout, got {error:?}"
+        matches!(error, Error::Timeout),
+        "the sequence-correlated retry budget must end in Timeout, got {error:?}"
     );
 
     let metrics = session.metrics().expect("metrics");
@@ -188,10 +204,7 @@ fn a_raised_retry_budget_is_visible_in_the_scheduled_retry_counter() {
         "the scenario must fit the diagnostic ring for the pairing below to hold"
     );
 
-    assert!(
-        metrics.retries_scheduled > 0,
-        "a caller-configured retry budget must produce scheduled retries, got {metrics:?}"
-    );
+    assert_eq!(metrics.retries_scheduled, RETRY_LIMIT as u64);
     assert_eq!(
         metrics.ack_timeouts,
         metrics.retries_scheduled + 1,
@@ -202,7 +215,9 @@ fn a_raised_retry_budget_is_visible_in_the_scheduled_retry_counter() {
         .iter()
         .filter(|event| matches!(event, DiagnosticEvent::RetryScheduled { .. }))
         .count();
+    assert_eq!(retries, RETRY_LIMIT as usize);
     assert_eq!(metrics.retries_scheduled, retries as u64);
+    assert_eq!(metrics.terminal, 1);
     assert_eq!(metrics.completion_timeouts, 0);
     assert_eq!(metrics.inquiry_timeouts, 0);
     session.shutdown().expect("shutdown");

@@ -11,8 +11,20 @@ use ts_rs::{Config, TS};
 use grafton_visca::{
     camera::{profiles::ProfileId, TransportOptions},
     types::{SpeedLevel, ZoomPosition},
-    PanTiltDirection, PresetNumber,
+    AffectedAxes, PanTiltDirection, PresetNumber, SubmissionClass,
 };
+
+#[test]
+fn test_request_contract_exports() {
+    let cfg = Config::default();
+    let axes = AffectedAxes::export_to_string(&cfg).expect("Failed to export AffectedAxes");
+    let qos = SubmissionClass::export_to_string(&cfg).expect("Failed to export SubmissionClass");
+    assert!(!axes.is_empty());
+    assert!(qos.contains("\"Background\""));
+    assert!(qos.contains("\"Normal\""));
+    assert!(qos.contains("\"User\""));
+    assert!(!qos.contains("\"Urgent\""));
+}
 
 #[test]
 fn test_transport_options_export() {

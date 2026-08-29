@@ -29,8 +29,8 @@ use crate::{
     },
     stop_request::pan_tilt_stop_request,
     transport::{AsyncTransport, HasTransportConfig},
-    CameraId, ControlClass, DiagnosticSubscription, Error, Inquiry, MetricsSnapshot,
-    OperationCommand, PlainCommand, Result, SessionConfig, StateCache,
+    CameraId, DiagnosticSubscription, Error, Inquiry, MetricsSnapshot, OperationCommand,
+    PlainCommand, Result, SessionConfig, StateCache, SubmissionClass,
 };
 
 const MOTION_QUERY_OBSERVER_BUDGET: Duration = Duration::from_secs(30);
@@ -312,21 +312,21 @@ impl<P: CompileTimeProfile> CameraSession<P> {
 
     /// Returns the submission-class default this session's camera carries.
     ///
-    /// See [`Camera::command_class`].
+    /// See [`Camera::submission_class`].
     #[must_use]
-    pub const fn command_class(&self) -> Option<ControlClass> {
-        self.camera.command_class()
+    pub const fn submission_class(&self) -> Option<SubmissionClass> {
+        self.camera.submission_class()
     }
 
     /// Sets the submission-class default for this session's camera.
     ///
-    /// This is [`Camera::set_command_class`] applied to the camera this
+    /// This is [`Camera::set_submission_class`] applied to the camera this
     /// session owns, so every view handed out by [`camera`](Self::camera) and
     /// every noun accessor reached through it submits in `class` afterwards.
     /// A [`Camera`] already taken out with [`into_camera`](Self::into_camera)
     /// carries its own copy and is unaffected.
-    pub fn set_command_class(&mut self, class: Option<ControlClass>) {
-        self.camera.set_command_class(class);
+    pub fn set_submission_class(&mut self, class: Option<SubmissionClass>) {
+        self.camera.set_submission_class(class);
     }
 
     /// Consumes this value and returns the owned camera.
@@ -429,11 +429,11 @@ impl AsyncCameraCore {
         self.owner.tuning()
     }
 
-    pub(crate) const fn command_class(&self) -> Option<ControlClass> {
+    pub(crate) const fn submission_class(&self) -> Option<SubmissionClass> {
         self.class.handle_default()
     }
 
-    pub(crate) fn set_command_class(&mut self, class: Option<ControlClass>) {
+    pub(crate) fn set_submission_class(&mut self, class: Option<SubmissionClass>) {
         self.class = ClassSelection::from_handle_default(class);
     }
 
@@ -444,7 +444,11 @@ impl AsyncCameraCore {
         self.execute_with_selection(command, self.class).await
     }
 
-    pub(crate) async fn execute_with_class<C>(&self, command: &C, class: ControlClass) -> Result<()>
+    pub(crate) async fn execute_with_submission_class<C>(
+        &self,
+        command: &C,
+        class: SubmissionClass,
+    ) -> Result<()>
     where
         C: PlainCommand + ?Sized,
     {
@@ -474,10 +478,10 @@ impl AsyncCameraCore {
         self.inquire_with_selection(inquiry, self.class).await
     }
 
-    pub(crate) async fn inquire_with_class<Q>(
+    pub(crate) async fn inquire_with_submission_class<Q>(
         &self,
         inquiry: &Q,
-        class: ControlClass,
+        class: SubmissionClass,
     ) -> Result<Q::Response>
     where
         Q: Inquiry + ?Sized,
@@ -514,10 +518,10 @@ impl AsyncCameraCore {
             .await
     }
 
-    pub(crate) async fn submit_with_class<K, O>(
+    pub(crate) async fn submit_with_submission_class<K, O>(
         &self,
         operation: &O,
-        class: ControlClass,
+        class: SubmissionClass,
     ) -> Result<Operation<K>>
     where
         K: completion::Kind,
@@ -714,16 +718,16 @@ impl<P: CompileTimeProfile> Camera<P> {
 
     /// Returns this handle's submission-class default, if it carries one.
     ///
-    /// `None` — the initial value — means every request is submitted in the
-    /// lane its own [`ControlClass`] names. See
-    /// [`set_command_class`](Self::set_command_class).
+    /// `None` — the initial value — means every request uses its intrinsic
+    /// [`crate::ControlClass`]. See
+    /// [`set_submission_class`](Self::set_submission_class).
     #[must_use]
-    pub const fn command_class(&self) -> Option<ControlClass> {
-        self.core.command_class()
+    pub const fn submission_class(&self) -> Option<SubmissionClass> {
+        self.core.submission_class()
     }
 
-    /// Sets the [`ControlClass`] every later submission from *this handle*
-    /// uses, or clears it with `None`.
+    /// Sets the ordinary-work [`SubmissionClass`] every later submission from
+    /// *this handle* uses, or clears it with `None`.
     ///
     /// The owner dispatches ready work from the highest occupied class first
     /// and FIFO within a class, so lowering this default makes the handle's
@@ -742,23 +746,20 @@ impl<P: CompileTimeProfile> Camera<P> {
     ///
     /// # Urgent requests are never demoted
     ///
-    /// A request the crate classifies [`ControlClass::Urgent`] — the typed
-    /// stops [`PanTiltStop`], [`ZoomStop`], [`FocusStop`], and
-    /// [`CommandCancel`](crate::request::builtin::CommandCancel) — ignores
-    /// this default and stays urgent. A handle demoted to
-    /// [`ControlClass::Background`] for telemetry polling therefore still
-    /// preempts with an emergency stop. Only
-    /// [`execute_with_class`](Self::execute_with_class),
-    /// [`inquire_with_class`](Self::inquire_with_class), and
-    /// [`submit_with_class`](Self::submit_with_class) can demote an urgent
-    /// request, and they do so for that one submission only.
+    /// A request the crate classifies [`crate::ControlClass::Urgent`] — the typed
+    /// stops [`PanTiltStop`], [`ZoomStop`], [`FocusStop`], and owner-issued
+    /// protocol cancellation — ignores this default and stays urgent. A handle demoted to
+    /// [`SubmissionClass::Background`] for telemetry polling therefore still
+    /// preempts with an emergency stop. Per-submission overrides obey the same
+    /// safety floor, and [`SubmissionClass`] deliberately has no urgent
+    /// variant for callers to manufacture.
     ///
     /// Owner-internal traffic that no caller submitted — the settlement
     /// polling behind [`Operation::settled`](crate::Operation::settled) and
     /// the observation inquiries behind `motion()` — keeps its own built-in
     /// class.
-    pub fn set_command_class(&mut self, class: Option<ControlClass>) {
-        self.core.set_command_class(class);
+    pub fn set_submission_class(&mut self, class: Option<SubmissionClass>) {
+        self.core.set_submission_class(class);
     }
 
     /// Executes a plain command through this camera's shared owner.
@@ -771,19 +772,21 @@ impl<P: CompileTimeProfile> Camera<P> {
 
     /// Executes a plain command in an explicitly named scheduling lane.
     ///
-    /// `class` replaces both the command's own [`ControlClass`] and this
-    /// handle's [`set_command_class`](Self::set_command_class) default, for
-    /// this submission only.
-    ///
-    /// Unlike the handle default, this **can demote an urgent request**:
-    /// naming [`ControlClass::Background`] for a stop or a cancel queues it
-    /// behind ordinary control traffic. Nothing in the crate does that for
-    /// you; it is only reachable by asking for it here.
-    pub async fn execute_with_class<C>(&self, command: &C, class: ControlClass) -> Result<()>
+    /// `class` replaces this handle's
+    /// [`set_submission_class`](Self::set_submission_class) default for this
+    /// submission only. It applies to ordinary work; an intrinsically
+    /// [`crate::ControlClass::Urgent`] command remains urgent.
+    pub async fn execute_with_submission_class<C>(
+        &self,
+        command: &C,
+        class: SubmissionClass,
+    ) -> Result<()>
     where
         C: PlainCommand + ?Sized,
     {
-        self.core.execute_with_class(command, class).await
+        self.core
+            .execute_with_submission_class(command, class)
+            .await
     }
 
     /// Sends an inquiry and decodes its response through the shared owner.
@@ -796,18 +799,20 @@ impl<P: CompileTimeProfile> Camera<P> {
 
     /// Sends an inquiry in an explicitly named scheduling lane.
     ///
-    /// `class` replaces both the inquiry's own [`ControlClass`] and this
-    /// handle's [`set_command_class`](Self::set_command_class) default, for
-    /// this submission only.
-    pub async fn inquire_with_class<Q>(
+    /// `class` replaces this handle's
+    /// [`set_submission_class`](Self::set_submission_class) default for this
+    /// submission only. It cannot weaken an intrinsic urgent safety class.
+    pub async fn inquire_with_submission_class<Q>(
         &self,
         inquiry: &Q,
-        class: ControlClass,
+        class: SubmissionClass,
     ) -> Result<Q::Response>
     where
         Q: Inquiry + ?Sized,
     {
-        self.core.inquire_with_class(inquiry, class).await
+        self.core
+            .inquire_with_submission_class(inquiry, class)
+            .await
     }
 
     /// Submits a typed operation and returns its owner-backed handle.
@@ -821,21 +826,23 @@ impl<P: CompileTimeProfile> Camera<P> {
 
     /// Submits a typed operation in an explicitly named scheduling lane.
     ///
-    /// `class` replaces both the operation's own [`ControlClass`] and this
-    /// handle's [`set_command_class`](Self::set_command_class) default, for
-    /// this submission only. As with
-    /// [`execute_with_class`](Self::execute_with_class), this is the one route
-    /// that can demote an urgent stop.
-    pub async fn submit_with_class<K, O>(
+    /// `class` replaces this handle's
+    /// [`set_submission_class`](Self::set_submission_class) default for this
+    /// submission only. As with
+    /// [`execute_with_submission_class`](Self::execute_with_submission_class),
+    /// an intrinsically urgent stop remains urgent.
+    pub async fn submit_with_submission_class<K, O>(
         &self,
         operation: &O,
-        class: ControlClass,
+        class: SubmissionClass,
     ) -> Result<Operation<K>>
     where
         K: completion::Kind,
         O: OperationCommand<K> + ?Sized,
     {
-        self.core.submit_with_class::<K, O>(operation, class).await
+        self.core
+            .submit_with_submission_class::<K, O>(operation, class)
+            .await
     }
 }
 

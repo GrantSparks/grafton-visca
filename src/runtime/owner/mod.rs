@@ -45,7 +45,7 @@ use std::{
 
 use bytes::BytesMut;
 
-use crate::command::semantics::WriteOnlyState;
+use crate::command::{encode::WireEncode, semantics::WriteOnlyState, system::CommandCancelCommand};
 use crate::{raw::MAX_BYTES, CameraId, CancellationOutcome, Error, ErrorKind, ViscaSocket};
 
 use super::engine::{
@@ -984,11 +984,16 @@ impl OwnerBuffers {
                 self.send.extend_from_slice(wire.as_bytes());
             }
             Transmission::Cancel { target, socket, .. } => {
-                self.send.extend_from_slice(&[
-                    target.to_address_byte(),
-                    socket.as_cancel_byte(),
-                    0xff,
-                ]);
+                let max_size = CommandCancelCommand::MAX_SIZE;
+                if max_size > self.send.capacity() {
+                    return Err(Error::ResponseTooLarge {
+                        max_size: self.send.capacity(),
+                    });
+                }
+                self.send.resize(max_size, 0);
+                let command = CommandCancelCommand::new(*socket);
+                let len = command.write_into(*target, &mut self.send)?;
+                self.send.truncate(len);
             }
         }
         Ok((&self.send, &mut self.transmit))

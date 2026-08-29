@@ -100,9 +100,10 @@ inquiry decoding, caller-owned blocking/async transports, raw/protocol command
 and inquiry escape hatches, custom profiles with typed capability gates, and
 runtime-neutral executor integration. The final 2.0 generic request surface is
 only `execute` for plain commands, `inquire` for inquiries, and `submit` for
-typed operations, each with a `_with_class` twin that names the submission's
-`ControlClass`; callers cannot inject lifecycle IDs, target, completion class,
-retry class, or settlement metadata at submission time.
+typed operations, each with a `_with_submission_class` twin that names its
+ordinary-work `SubmissionClass`; callers cannot manufacture or demote the
+intrinsic urgent safety class, or inject lifecycle IDs, target, completion
+class, retry class, or settlement metadata at submission time.
 
 ## Allocation baselines
 

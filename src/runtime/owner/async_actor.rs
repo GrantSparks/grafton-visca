@@ -54,17 +54,6 @@ const TRANSIENT_RECEIVE_FAULT_SPAN: Duration = Duration::from_secs(1);
 /// in between, so the run starts over rather than accumulating over hours.
 const TRANSIENT_RECEIVE_FAULT_RESET: Duration = Duration::from_secs(5);
 
-/// Consecutive turns the receive branch may win before the boundary channels
-/// get one turn of priority.
-///
-/// #542 makes receive the left-biased winner when several sources are ready at
-/// once, which is the right answer for a transport delivering frames. It is the
-/// wrong answer for a transport that is *always* ready — one failing on every
-/// read, or flooding — because shutdown, cancellation, admission and control
-/// would then never be polled at all (#625). Every fault or empty read yields
-/// the next turn outright; this bound covers the flooding case as well.
-const RECEIVE_PRIORITY_TURNS: u32 = 8;
-
 /// Clamp a transient pause so it can never push a due scheduler deadline past
 /// its wake, mirroring the blocking owner's clamp to its caller's deadline.
 fn clamp_transient_pause(pause: Duration, next_wake: Option<Instant>, now: Instant) -> Duration {
@@ -121,17 +110,57 @@ impl TransientFaultRun {
     }
 }
 
-/// What one actor turn asks of the next one.
+/// Whether one actor turn keeps the session alive.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TurnOutcome {
-    /// Keep running with the normative #542 receive-first readiness order.
+    /// Keep running with protocol input first.
     Continue,
-    /// Keep running, but poll the boundary channels before receive on the next
-    /// turn: this turn's receive produced no frames, so an always-ready
-    /// transport must not be allowed to win again first (#625).
-    Yield,
+    /// This receive turn made no protocol progress, so poll the ordered
+    /// boundary sources first on the next selection.
+    YieldBoundaries,
     /// The session is over.
     Stop,
+}
+
+/// Which source is the deterministic left-biased winner when both phases are
+/// ready at once.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+enum SourcePhase {
+    /// Poll meaningful protocol input before a simultaneous boundary.
+    #[default]
+    ReceiveFirst,
+    /// After a non-progressing receive, give the ordered boundary sources first
+    /// refusal.
+    BoundariesFirst,
+}
+
+impl TurnOutcome {
+    const fn next_source_phase(self) -> Option<SourcePhase> {
+        match self {
+            Self::Continue => Some(SourcePhase::ReceiveFirst),
+            Self::YieldBoundaries => Some(SourcePhase::BoundariesFirst),
+            Self::Stop => None,
+        }
+    }
+}
+
+/// Selects one source according to the actor's explicit phase.
+///
+/// `future::or` is left-biased, so this helper is also the executable contract
+/// for simultaneous readiness rather than relying on an executor's wake order.
+async fn select_source<T, Receive, Boundaries>(
+    phase: SourcePhase,
+    receive: Receive,
+    boundaries: Boundaries,
+) -> T
+where
+    Receive: Future<Output = T>,
+    Boundaries: Future<Output = T>,
+{
+    match phase {
+        SourcePhase::ReceiveFirst => future::or(receive, boundaries).await,
+        SourcePhase::BoundariesFirst => future::or(boundaries, receive).await,
+    }
 }
 
 trait OwnerClock: Send + Sync + 'static {
@@ -1318,18 +1347,18 @@ where
         D: AsyncOwnerDriver,
     {
         let runtime = Arc::clone(&self.runtime);
-        // Fairness state for the readiness race. `boundaries_first` is set by
-        // any turn whose receive produced no frames, and by a long enough run
-        // of receive wins; it guarantees that shutdown, cancellation, admission
-        // and control are polled before receive can win again (#625).
-        let mut yielded = false;
-        let mut receive_streak = 0u32;
+        // #542's deterministic source order keeps valid protocol input first:
+        // an already-buffered ACK/completion settles state before concurrent
+        // control observes it. A receive that makes no protocol progress
+        // yields the next selection to the boundary channels. That makes an
+        // always-failing or idle transport unable to starve shutdown,
+        // cancellation, admission, control, or a due timer (#625), without the
+        // previous arbitrary receive-history counter.
+        let mut source_phase = SourcePhase::ReceiveFirst;
         loop {
             if self.state.state() != SessionState::Running {
                 break;
             }
-            let boundaries_first = yielded || receive_streak >= RECEIVE_PRIORITY_TURNS;
-
             let wake_duration = self
                 .state
                 .next_wake()
@@ -1378,28 +1407,15 @@ where
                         future::or(admission, future::or(control, wake)),
                     ),
                 );
-                if boundaries_first {
-                    future::or(boundaries, receive).await
-                } else {
-                    future::or(receive, boundaries).await
-                }
+                select_source(source_phase, receive, boundaries).await
             };
 
-            // A boundary-first turn discharges the fairness obligation whoever
-            // won it, so the streak restarts either way.
-            receive_streak = if boundaries_first || !matches!(event, ActorEvent::Receive { .. }) {
-                0
-            } else {
-                receive_streak.saturating_add(1)
-            };
-
-            match self
+            let outcome = self
                 .handle_event(event, &mut driver, runtime.as_ref())
-                .await
-            {
-                TurnOutcome::Stop => break,
-                TurnOutcome::Yield => yielded = true,
-                TurnOutcome::Continue => yielded = false,
+                .await;
+            match outcome.next_source_phase() {
+                Some(next) => source_phase = next,
+                None => break,
             }
         }
         let boundary_error = self
@@ -1476,10 +1492,10 @@ where
             } => {
                 // An expired idle read timeout is not a fault: nothing was
                 // consumed, nothing failed, and no request's retry budget is
-                // touched. It is also not progress, so the boundary channels
-                // get the next turn (#625).
+                // touched. It made no protocol progress, so let a queued
+                // boundary run before another idle read (#625).
                 self.faults.reset();
-                TurnOutcome::Yield
+                TurnOutcome::YieldBoundaries
             }
             ActorEvent::Receive {
                 result: Ok(AsyncReceive::Frames(frames)),
@@ -1495,7 +1511,7 @@ where
                     // The read carried bytes that did not finish a frame. The
                     // framer holds the partial frame; keep pumping so the rest
                     // of it can arrive in a later read.
-                    return TurnOutcome::Yield;
+                    return TurnOutcome::YieldBoundaries;
                 }
                 let turn = self.state.begin_input_turn(received_at);
                 for frame in frames {
@@ -1515,7 +1531,7 @@ where
                     // means "no bytes arrived". Normalizing here as well as at
                     // the adapter keeps every driver on one contract (#637).
                     self.faults.reset();
-                    return TurnOutcome::Yield;
+                    return TurnOutcome::YieldBoundaries;
                 }
                 if !super::receive_fault_is_transient(&error) {
                     self.terminate_at(
@@ -1549,11 +1565,13 @@ where
                     .await;
                     return TurnOutcome::Stop;
                 }
-                // 1.x parity: retry every command still waiting for its ACK and
-                // keep the session. The pause mirrors 1.x's own guard against
-                // hot-looping on a transport that fails immediately; it grows
-                // with the run, and is clamped to the next scheduler deadline
-                // exactly as the blocking owner clamps to its caller's.
+                // The engine safely retries sequenced Sony work with its same
+                // sequence; an ambiguous raw command poisons the session
+                // instead of risking a duplicate actuation. The pause mirrors
+                // 1.x's guard against hot-looping on an immediately failing
+                // transport; it grows with the run and is clamped to the next
+                // scheduler deadline exactly as the blocking owner clamps to
+                // its caller's.
                 let effects = self.state.input(Input::ReceiveFault { error }, received_at);
                 self.drive(driver, effects, runtime).await;
                 let pause = clamp_transient_pause(
@@ -1564,7 +1582,7 @@ where
                 if !pause.is_zero() {
                     Executor::sleep(runtime, pause).await;
                 }
-                TurnOutcome::Yield
+                TurnOutcome::YieldBoundaries
             }
             ActorEvent::Receive {
                 result: Err(error),
@@ -1596,7 +1614,7 @@ where
             let _ = self
                 .state
                 .apply_effect(Effect::Ignored(IgnoreReason::MalformedFrame));
-            return TurnOutcome::Yield;
+            return TurnOutcome::YieldBoundaries;
         }
         self.terminate_at(
             driver,
@@ -1848,11 +1866,14 @@ mod tests {
     use crate::{
         runtime::engine::{
             CancellationPolicy, ControlPolicy, DecodedResponse, EncodedMessage, EnvelopeKind,
-            ProtocolPolicy, RequestContext, RetryPolicy, RuntimeRequest, TargetPolicy,
-            TimeoutPolicy, TransportKind,
+            InquiryRoute, ProtocolPolicy, RequestContext, RetryPolicy, RuntimeRequest,
+            TargetPolicy, TimeoutPolicy, TransportKind,
         },
         CameraId, ViscaSocket,
     };
+
+    #[cfg(feature = "runtime-tokio")]
+    use crate::runtime::engine::{EnvelopeSequence, SequenceWidth};
 
     #[cfg(feature = "runtime-tokio")]
     use crate::runtime::engine::CancellationObservation;
@@ -1957,6 +1978,37 @@ mod tests {
 
     type RecordedWrites = Arc<Mutex<Vec<(RequestId, Vec<u8>, bool)>>>;
 
+    #[test]
+    fn simultaneous_source_readiness_follows_the_explicit_phase() {
+        let receive = || std::future::ready("receive");
+        let boundary = || std::future::ready("boundary");
+
+        assert_eq!(
+            future::block_on(select_source(
+                SourcePhase::ReceiveFirst,
+                receive(),
+                boundary(),
+            )),
+            "receive",
+        );
+        assert_eq!(
+            future::block_on(select_source(
+                SourcePhase::BoundariesFirst,
+                receive(),
+                boundary(),
+            )),
+            "boundary",
+        );
+        assert_eq!(
+            TurnOutcome::Continue.next_source_phase(),
+            Some(SourcePhase::ReceiveFirst),
+        );
+        assert_eq!(
+            TurnOutcome::YieldBoundaries.next_source_phase(),
+            Some(SourcePhase::BoundariesFirst),
+        );
+    }
+
     fn policy(capacity: usize) -> OwnerPolicy {
         OwnerPolicy::single_target(
             ProtocolPolicy {
@@ -1975,6 +2027,17 @@ mod tests {
             },
         )
         .unwrap()
+    }
+
+    // Sony's envelope sequence is the correlation key that permits more than
+    // one command to wait for an ACK before any socket has been assigned.
+    // Keep this separate from the raw policy used by the rest of the actor
+    // fixtures so each test states which wire contract it exercises.
+    #[cfg(feature = "runtime-tokio")]
+    fn sony_policy(capacity: usize) -> OwnerPolicy {
+        let mut owner = policy(capacity);
+        owner.protocol.envelope = EnvelopeKind::Sony;
+        owner
     }
 
     // Used only by the runtime-tokio stream tests below; dead on the runtime-smol leg (#636).
@@ -2005,6 +2068,26 @@ mod tests {
         }
     }
 
+    fn inquiry() -> RuntimeRequest {
+        RuntimeRequest::Inquiry {
+            wire: Arc::new(EncodedMessage::new(&[0x81, 0x09, 0x04, 0x00, 0xff]).unwrap()),
+            context: RequestContext {
+                target: CameraId::CAMERA_1,
+                timeout: TimeoutPolicy {
+                    ack: Duration::from_secs(5),
+                    completion: Duration::from_secs(5),
+                    inquiry: Duration::from_secs(5),
+                    cancellation: Duration::from_secs(1),
+                    ambiguity: Duration::from_secs(1),
+                },
+                retry: RetryPolicy::NEVER,
+                control: ControlPolicy::default(),
+                cancellation: CancellationPolicy::Supported,
+            },
+            route: InquiryRoute::UNKNOWN,
+        }
+    }
+
     /// Wrap decoded frames as one nonzero-length read for the fake driver.
     fn batch(frames: Vec<DecodedFrame>) -> Result<AsyncReceive, Error> {
         Ok(AsyncReceive::Frames(frames))
@@ -2027,6 +2110,18 @@ mod tests {
             response: DecodedResponse::Completion {
                 socket: Some(socket),
             },
+        }
+    }
+
+    #[cfg(feature = "runtime-tokio")]
+    fn sequenced(sequence: u32, response: DecodedResponse) -> DecodedFrame {
+        DecodedFrame {
+            target: CameraId::CAMERA_1,
+            sequence: Some(EnvelopeSequence {
+                value: sequence,
+                width: SequenceWidth::Full32,
+            }),
+            response,
         }
     }
 
@@ -2510,7 +2605,11 @@ mod tests {
     #[tokio::test]
     async fn capacity_rejection_is_pre_identity_and_cancel_full_waits_without_drop() {
         let runtime = TokioRuntime::from_current().unwrap();
-        let (handle, actor) = AsyncOwnerActor::new(policy(2), runtime).unwrap();
+        // Raw VISCA admits only one unacknowledged command per target because
+        // the camera has not supplied a socket to correlate a second ACK. The
+        // capacity/cancellation assertion is about the bounded owner lanes,
+        // so use Sony's explicit sequence key for genuine pre-ACK pipelining.
+        let (handle, actor) = AsyncOwnerActor::new(sony_policy(2), runtime).unwrap();
         let harness = harness();
         let started = harness.started.clone();
         let gates = harness.gates.clone();
@@ -2519,7 +2618,7 @@ mod tests {
         let first = handle.submit(command()).await.unwrap();
         assert_eq!(started.recv_async().await.unwrap(), first.id);
         gates
-            .send_async(Ok(TransmissionMeta { sequence: None }))
+            .send_async(Ok(TransmissionMeta { sequence: Some(1) }))
             .await
             .unwrap();
         let second = handle.submit(command()).await.unwrap();
@@ -2541,7 +2640,7 @@ mod tests {
         );
 
         gates
-            .send_async(Ok(TransmissionMeta { sequence: None }))
+            .send_async(Ok(TransmissionMeta { sequence: Some(2) }))
             .await
             .unwrap();
         let first_observation = first_cancel.await.unwrap().unwrap();
@@ -2989,7 +3088,11 @@ mod tests {
     #[tokio::test]
     async fn transient_receive_fault_retries_and_keeps_the_session_running() {
         let runtime = TokioRuntime::from_current().unwrap();
-        let (handle, actor) = AsyncOwnerActor::new(policy(1), runtime).unwrap();
+        // A receive fault while a raw command awaits its socket is
+        // intentionally session-poisoning: replay could duplicate actuation.
+        // Sony's envelope gives the retry an exact same-sequence identity, so
+        // this fixture exercises the supported recovery path.
+        let (handle, actor) = AsyncOwnerActor::new(sony_policy(1), runtime).unwrap();
         let harness = harness();
         let started = harness.started.clone();
         let gates = harness.gates.clone();
@@ -2999,7 +3102,7 @@ mod tests {
         let receipt = handle.submit(retrying_command()).await.unwrap();
         assert_eq!(started.recv_async().await.unwrap(), receipt.id);
         gates
-            .send_async(Ok(TransmissionMeta { sequence: None }))
+            .send_async(Ok(TransmissionMeta { sequence: Some(1) }))
             .await
             .unwrap();
 
@@ -3013,15 +3116,25 @@ mod tests {
         // The very same request is written again rather than failed.
         assert_eq!(started.recv_async().await.unwrap(), receipt.id);
         gates
-            .send_async(Ok(TransmissionMeta { sequence: None }))
+            .send_async(Ok(TransmissionMeta { sequence: Some(1) }))
             .await
             .unwrap();
         frames
-            .send_async(batch(vec![ack(ViscaSocket::S1)]))
+            .send_async(batch(vec![sequenced(
+                1,
+                DecodedResponse::Ack {
+                    socket: Some(ViscaSocket::S1),
+                },
+            )]))
             .await
             .unwrap();
         frames
-            .send_async(batch(vec![completion(ViscaSocket::S1)]))
+            .send_async(batch(vec![sequenced(
+                1,
+                DecodedResponse::Completion {
+                    socket: Some(ViscaSocket::S1),
+                },
+            )]))
             .await
             .unwrap();
         assert!(matches!(
@@ -3157,7 +3270,11 @@ mod tests {
         }));
 
         // Admission is polled even though the transport is always ready.
-        let receipt = tokio::time::timeout(Duration::from_secs(5), handle.submit(command()))
+        // A raw command awaiting ACK would correctly poison on the first
+        // receive fault. Use an inquiry so this test isolates source
+        // arbitration and boundary liveness without creating an ambiguous
+        // actuation outcome.
+        let receipt = tokio::time::timeout(Duration::from_secs(5), handle.submit(inquiry()))
             .await
             .expect("admission must not be starved by a failing transport")
             .unwrap();
@@ -3201,7 +3318,10 @@ mod tests {
                 reads: Arc::clone(&reads),
             }));
 
-            let receipt = handle.submit(command()).await.unwrap();
+            // Keep the fixture focused on boundary progress. A raw command
+            // awaiting ACK would be poisoned by the first receive fault under
+            // the no-replay rule; an inquiry has no ambiguous actuation.
+            let receipt = handle.submit(inquiry()).await.unwrap();
             drop(receipt);
             assert_eq!(
                 handle.snapshot().await.unwrap().state,
@@ -3257,7 +3377,10 @@ mod tests {
     #[tokio::test]
     async fn a_burst_of_transient_faults_then_recovery_keeps_the_session() {
         let runtime = TokioRuntime::from_current().unwrap();
-        let (handle, actor) = AsyncOwnerActor::new(policy(1), runtime).unwrap();
+        // Same-sequence Sony retries are safe after a receive fault. A raw
+        // command in this phase must poison the session and is covered by the
+        // engine tests; this actor fixture must not weaken that rule.
+        let (handle, actor) = AsyncOwnerActor::new(sony_policy(1), runtime).unwrap();
         let harness = harness();
         let started = harness.started.clone();
         let gates = harness.gates.clone();
@@ -3267,7 +3390,7 @@ mod tests {
         let receipt = handle.submit(retrying_command()).await.unwrap();
         assert_eq!(started.recv_async().await.unwrap(), receipt.id);
         gates
-            .send_async(Ok(TransmissionMeta { sequence: None }))
+            .send_async(Ok(TransmissionMeta { sequence: Some(1) }))
             .await
             .unwrap();
 
@@ -3281,17 +3404,27 @@ mod tests {
                 .unwrap();
             assert_eq!(started.recv_async().await.unwrap(), receipt.id);
             gates
-                .send_async(Ok(TransmissionMeta { sequence: None }))
+                .send_async(Ok(TransmissionMeta { sequence: Some(1) }))
                 .await
                 .unwrap();
         }
 
         frames
-            .send_async(batch(vec![ack(ViscaSocket::S1)]))
+            .send_async(batch(vec![sequenced(
+                1,
+                DecodedResponse::Ack {
+                    socket: Some(ViscaSocket::S1),
+                },
+            )]))
             .await
             .unwrap();
         frames
-            .send_async(batch(vec![completion(ViscaSocket::S1)]))
+            .send_async(batch(vec![sequenced(
+                1,
+                DecodedResponse::Completion {
+                    socket: Some(ViscaSocket::S1),
+                },
+            )]))
             .await
             .unwrap();
         assert!(matches!(

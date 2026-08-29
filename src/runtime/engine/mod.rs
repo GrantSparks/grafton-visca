@@ -124,17 +124,17 @@ impl IdAllocator {
         Self { next }
     }
 
-    fn candidate(&mut self) -> NonZeroU64 {
-        let value = if self.next == 0 { 1 } else { self.next };
-        self.next = value.wrapping_add(1);
-        if self.next == 0 {
-            self.next = 1;
-        }
-        // `value` is normalized above and therefore non-zero.
-        match NonZeroU64::new(value) {
-            Some(nonzero) => nonzero,
-            None => NonZeroU64::MIN,
-        }
+    fn candidate(&mut self) -> Option<NonZeroU64> {
+        // Zero is the exhausted sentinel.  Once MAX has been issued, this
+        // allocator must never wrap and hand a stale owner input a reusable
+        // identity.
+        let value = NonZeroU64::new(self.next)?;
+        self.next = if value.get() == u64::MAX {
+            0
+        } else {
+            value.get() + 1
+        };
+        Some(value)
     }
 }
 
@@ -355,7 +355,9 @@ impl ProtocolEngine {
         } else {
             let target = entry.request.context().target;
             let policy = self.targets[target.id() as usize]?;
-            if self.commands_inflight(target) >= usize::from(policy.command_sockets) {
+            if self.raw_command_unacknowledged(target)
+                || self.commands_inflight(target) >= usize::from(policy.command_sockets)
+            {
                 return None;
             }
         }
@@ -412,7 +414,8 @@ impl ProtocolEngine {
         effects
     }
 
-    /// Ends an ordered input turn, then runs due work and one ordinary dispatch.
+    /// Ends an ordered input turn, then runs due work, pending cancellation,
+    /// and one ordinary dispatch.
     ///
     /// External inputs at the turn timestamp therefore win over deadlines at
     /// that same timestamp, while frame and recursively produced effect order
@@ -420,6 +423,7 @@ impl ProtocolEngine {
     pub(crate) fn finish_input_turn(&mut self, turn: InputTurn) -> Vec<Effect> {
         let mut effects = Vec::new();
         self.run_due(turn.now, &mut effects);
+        self.drain_pending_cancellations(turn.now, &mut effects);
         self.dispatch_one(turn.now, &mut effects);
         self.debug_assert_invariants();
         effects
@@ -472,10 +476,11 @@ impl ProtocolEngine {
         }
     }
 
-    /// Runs only due internal work and ordinary dispatch.
+    /// Runs due internal work, pending cancellation, and ordinary dispatch.
     pub(crate) fn advance(&mut self, now: Instant) -> Vec<Effect> {
         let mut effects = Vec::new();
         self.run_due(now, &mut effects);
+        self.drain_pending_cancellations(now, &mut effects);
         self.dispatch_one(now, &mut effects);
         self.debug_assert_invariants();
         effects
@@ -565,6 +570,9 @@ impl ProtocolEngine {
         };
         if !matches!(entry.phase, Phase::Ready { .. }) {
             return FirstDispatch::Missing;
+        }
+        if self.has_pending_cancellation() {
+            return FirstDispatch::Blocked;
         }
         if !self.capacity_available_for(entry) {
             return FirstDispatch::Blocked;
@@ -677,7 +685,7 @@ impl ProtocolEngine {
 
     fn allocate_request_id(&mut self) -> Option<RequestId> {
         for _ in 0..=self.entries.len() {
-            let candidate = RequestId::from_nonzero(self.next_request_id.candidate());
+            let candidate = RequestId::from_nonzero(self.next_request_id.candidate()?);
             if !self.entries.contains_key(&candidate) {
                 return Some(candidate);
             }
@@ -687,7 +695,7 @@ impl ProtocolEngine {
 
     fn allocate_transmission_id(&mut self) -> Option<TransmissionId> {
         for _ in 0..=self.transmissions.len() {
-            let candidate = TransmissionId::from_nonzero(self.next_transmission_id.candidate());
+            let candidate = TransmissionId::from_nonzero(self.next_transmission_id.candidate()?);
             if !self.transmissions.contains_key(&candidate) {
                 return Some(candidate);
             }
@@ -697,7 +705,7 @@ impl ProtocolEngine {
 
     fn allocate_generation(&mut self) -> Option<GenerationTicket> {
         for _ in 0..=self.entries.len() {
-            let candidate = GenerationTicket(self.next_generation.candidate().get());
+            let candidate = GenerationTicket(self.next_generation.candidate()?.get());
             if self
                 .entries
                 .values()
@@ -802,6 +810,53 @@ impl ProtocolEngine {
         self.dispatch_selected(selected, now, effects);
     }
 
+    /// Sends every pacing-eligible cancellation whose ACK has already
+    /// established a command socket.  Cancellation is urgent with respect to
+    /// ordinary queued work, but its wire write still advances the shared
+    /// command spacing deadline.  Re-scan after each write so zero-spacing
+    /// profiles drain the complete urgent set; a positive spacing naturally
+    /// stops the scan after the first write advances [`Self::last_request_sent`].
+    fn drain_pending_cancellations(&mut self, now: Instant, effects: &mut Vec<Effect>) {
+        if self.state != SessionState::Running {
+            return;
+        }
+        loop {
+            let pending = self
+                .entries
+                .iter()
+                .filter_map(|(id, entry)| {
+                    let socket = pending_cancellation_socket(entry)?;
+                    if self.cancellation_send_at(entry) > now {
+                        return None;
+                    }
+                    Some((entry.admission_order, *id, socket))
+                })
+                .min_by_key(|(admission_order, id, _)| (*admission_order, *id));
+            let Some((_, id, socket)) = pending else {
+                return;
+            };
+            let before = self
+                .entries
+                .get(&id)
+                .map(|entry| (entry.phase, entry.cancellation));
+            let last_sent = self.last_request_sent;
+            self.emit_cancel(id, socket, now, effects);
+            let after = self
+                .entries
+                .get(&id)
+                .map(|entry| (entry.phase, entry.cancellation));
+            if before == after && self.last_request_sent == last_sent {
+                return;
+            }
+        }
+    }
+
+    fn has_pending_cancellation(&self) -> bool {
+        self.entries
+            .values()
+            .any(|entry| pending_cancellation_socket(entry).is_some())
+    }
+
     fn dispatch_selected(
         &mut self,
         selected: DispatchSelection,
@@ -889,7 +944,9 @@ impl ProtocolEngine {
             let Some(policy) = self.targets[target.id() as usize] else {
                 return false;
             };
-            if self.commands_inflight(target) >= usize::from(policy.command_sockets) {
+            if self.raw_command_unacknowledged(target)
+                || self.commands_inflight(target) >= usize::from(policy.command_sockets)
+            {
                 return false;
             }
         }
@@ -913,6 +970,15 @@ impl ProtocolEngine {
             }
         }
         at
+    }
+
+    /// Earliest wire time for an owner-issued cancellation.  Unlike ordinary
+    /// requests, cancellation does not inherit the request's control-class
+    /// minimum spacing; only the shared profile command-spacing floor applies.
+    fn cancellation_send_at(&self, entry: &Entry) -> Instant {
+        self.last_request_sent.map_or(entry.submitted_at, |last| {
+            add_duration(last, self.policy.command_spacing)
+        })
     }
 
     fn inquiries_inflight(&self) -> usize {
@@ -944,6 +1010,23 @@ impl ProtocolEngine {
                     )
             })
             .count()
+    }
+
+    /// Raw VISCA has no request identity before the camera assigns a socket.
+    /// Keep one command per target in that unacknowledged window so a later
+    /// ACK can never require temporal guessing between multiple candidates.
+    fn raw_command_unacknowledged(&self, target: CameraId) -> bool {
+        self.policy.envelope == EnvelopeKind::Raw
+            && self.entries.values().any(|entry| {
+                !entry.request.is_inquiry()
+                    && entry.request.context().target == target
+                    && matches!(
+                        entry.phase,
+                        Phase::Sending { .. }
+                            | Phase::AwaitingAck { .. }
+                            | Phase::AwaitingLateAck { .. }
+                    )
+            })
     }
 
     fn transition(
@@ -1220,12 +1303,15 @@ impl ProtocolEngine {
 
     /// Applies one transient receive-side transport failure.
     ///
-    /// This restores the 1.x `SchedulerEvent::NetworkError` contract: the
-    /// session survives, and every command still waiting for its ACK is retried
-    /// under its own bounded retry policy. A command whose retry budget is
-    /// already spent fails with this transport error rather than an incidental
-    /// later timeout. The classic case is a UDP `recv` returning ECONNREFUSED
-    /// because an earlier datagram drew an ICMP port-unreachable.
+    /// This restores the 1.x `SchedulerEvent::NetworkError` contract only for
+    /// requests whose envelope supplies safe evidence. A sequenced Sony command
+    /// still waiting for its ACK is retried under its own bounded retry policy;
+    /// a raw command in that phase has no sequence key, so the same receive
+    /// fault poisons the session with [`Error::UnsequencedCommandUnconfirmed`]
+    /// rather than replaying a possibly executed action. A command whose retry
+    /// budget is already spent fails with this transport error rather than an
+    /// incidental later timeout. The classic case is a UDP `recv` returning
+    /// ECONNREFUSED because an earlier datagram drew an ICMP port-unreachable.
     ///
     /// Two deliberate narrowings of the 1.x scan, both conservative:
     /// inquiries are untouched (1.x scanned only its command table), and a
@@ -1247,6 +1333,14 @@ impl ProtocolEngine {
             .map(|(id, entry)| (entry.admission_order, *id))
             .collect();
         affected.sort_unstable_by_key(|(order, _)| *order);
+        if self.policy.envelope == EnvelopeKind::Raw && !affected.is_empty() {
+            self.terminate_session(
+                SessionState::Poisoned,
+                Error::UnsequencedCommandUnconfirmed,
+                effects,
+            );
+            return;
+        }
         for (_, id) in affected {
             self.schedule_retry(id, now, error.clone(), Backoff::Uncapped, effects);
         }
@@ -1452,21 +1546,7 @@ impl ProtocolEngine {
     fn resolve_raw(&self, frame: &DecodedFrame) -> Option<RequestId> {
         let target = frame.target;
         match &frame.response {
-            DecodedResponse::Ack { .. } => self
-                .oldest_entry(|entry| {
-                    !entry.request.is_inquiry()
-                        && entry.request.context().target == target
-                        && matches!(
-                            entry.phase,
-                            Phase::AwaitingAck { .. } | Phase::AwaitingLateAck { .. }
-                        )
-                })
-                // Issue #297: no request is awaiting an ACK yet because the
-                // write result for the frame this answers has not been applied.
-                // Attribute it to the command that is still being written so
-                // `ack` can latch it instead of dropping it — but only while
-                // exactly one command is, so the latch never guesses (#636).
-                .or_else(|| self.sole_sending_command(target)),
+            DecodedResponse::Ack { .. } => self.unique_raw_command_candidate(target),
             DecodedResponse::Completion { socket } => match socket {
                 Some(socket) => self.socket_owner(target, *socket),
                 // A camera that answers `90 50 FF` sends no socket nibble, so
@@ -1494,42 +1574,27 @@ impl ProtocolEngine {
             }
             DecodedResponse::Error { socket, .. } => {
                 if let Some(socket) = socket {
-                    if let Some(owner) = self.socket_owner(target, *socket) {
-                        return Some(owner);
-                    }
+                    // A named socket is authoritative.  An unowned socket is
+                    // not evidence for any other request, so never fall back
+                    // to inquiry FIFO or a command candidate.
+                    return self.socket_owner(target, *socket);
                 }
-                self.raw_inquiry_front(target).or_else(|| {
-                    self.newest_entry(|entry| {
-                        !entry.request.is_inquiry()
-                            && entry.request.context().target == target
-                            && matches!(
-                                entry.phase,
-                                Phase::AwaitingAck { .. }
-                                    | Phase::AwaitingLateAck { .. }
-                                    | Phase::Executing { .. }
-                                    | Phase::AwaitingCancellationResolution { .. }
-                            )
-                    })
-                })
+                let inquiry_owner = self.raw_inquiry_front(target);
+                let inquiry_live = inquiry_owner.is_some() || self.raw_inquiry_inflight(target);
+                if self.raw_command_unacknowledged(target) {
+                    // A socketless error can identify a command only when it
+                    // is the sole possible command owner and no inquiry is
+                    // competing for the same frame.  In particular, never
+                    // temporally attribute it to an Executing command.
+                    if !inquiry_live {
+                        return self.unique_raw_command_candidate(target);
+                    }
+                    return None;
+                }
+                inquiry_owner
             }
             DecodedResponse::NetworkChange | DecodedResponse::Unknown => None,
         }
-    }
-
-    fn oldest_entry(&self, predicate: impl Fn(&Entry) -> bool) -> Option<RequestId> {
-        self.entries
-            .iter()
-            .filter(|(_, entry)| predicate(entry))
-            .min_by_key(|(_, entry)| entry.transmission_order.unwrap_or(u64::MAX))
-            .map(|(id, _)| *id)
-    }
-
-    fn newest_entry(&self, predicate: impl Fn(&Entry) -> bool) -> Option<RequestId> {
-        self.entries
-            .iter()
-            .filter(|(_, entry)| predicate(entry))
-            .max_by_key(|(_, entry)| entry.transmission_order)
-            .map(|(id, _)| *id)
     }
 
     fn raw_inquiry_front(&self, target: CameraId) -> Option<RequestId> {
@@ -1543,6 +1608,21 @@ impl ProtocolEngine {
                 })
             })
             .map(|owner| owner.request)
+    }
+
+    /// Whether a raw inquiry has been sent or is awaiting its reply on
+    /// `target`.  `raw_inquiry_front` is the authoritative FIFO owner for
+    /// routing, but a Sending inquiry is still live and must make a concurrent
+    /// socketless error ambiguous with an unacknowledged command.
+    fn raw_inquiry_inflight(&self, target: CameraId) -> bool {
+        self.entries.values().any(|entry| {
+            entry.request.is_inquiry()
+                && entry.request.context().target == target
+                && matches!(
+                    entry.phase,
+                    Phase::Sending { .. } | Phase::AwaitingReply { .. }
+                )
+        })
     }
 
     fn socket_owner(&self, target: CameraId, socket: ViscaSocket) -> Option<RequestId> {
@@ -1570,24 +1650,24 @@ impl ProtocolEngine {
         }
     }
 
-    /// The command on `target` whose request frame is still being written, if
-    /// exactly one is.
+    /// The unique raw command on `target` whose ACK has not been established.
     ///
-    /// Issue #636: this used to pick the *oldest* such command by admission
-    /// order. That is a guess, and it is wrong exactly where the deferred-ACK
-    /// latch is reachable at all — an owner whose reader is not ordered behind
-    /// its writer, which can have two frames in flight. Attributing both ACKs
-    /// to the older request reports it `Applied` (and caches its state) on the
-    /// strength of the younger request's completion, while the younger one
-    /// silently retries. The unique-candidate rule already used for socketless
-    /// completions ([`Self::sole_socket_holder`]) applies verbatim: a frame
-    /// that cannot be attributed to exactly one command stays inert.
-    fn sole_sending_command(&self, target: CameraId) -> Option<RequestId> {
+    /// Raw dispatch normally guarantees one such command per target.  Keep
+    /// this resolver exact as well, so an invariant regression fails closed
+    /// rather than turning admission order into an ACK/error guess.  The
+    /// Sending phase is included for the deferred-ACK latch.
+    fn unique_raw_command_candidate(&self, target: CameraId) -> Option<RequestId> {
         let mut sole = None;
         for (id, entry) in &self.entries {
-            if entry.request.is_inquiry()
+            if self.policy.envelope != EnvelopeKind::Raw
+                || entry.request.is_inquiry()
                 || entry.request.context().target != target
-                || !matches!(entry.phase, Phase::Sending { .. })
+                || !matches!(
+                    entry.phase,
+                    Phase::Sending { .. }
+                        | Phase::AwaitingAck { .. }
+                        | Phase::AwaitingLateAck { .. }
+                )
             {
                 continue;
             }
@@ -1608,14 +1688,13 @@ impl ProtocolEngine {
             .is_none_or(|owner| owner == id)
     }
 
-    /// Chooses the socket an ACK assigns, exactly as 1.x did.
+    /// Chooses the socket an ACK assigns using only the evidence in that ACK.
     ///
-    /// A camera that names a socket is authoritative about it whenever that
-    /// socket is free. When the named socket is held by another request the
-    /// ACK falls back to the target's other socket rather than being dropped,
-    /// and an ACK that carries no socket nibble at all takes the first free
-    /// socket the target is registered to have. `None` means every socket the
-    /// target owns is already taken, and the ACK stays inert.
+    /// A camera that names a socket is authoritative about that exact socket:
+    /// if it is held by another request, the ACK cannot be safely remapped and
+    /// returns `None`. An ACK with no socket nibble is the sole compatibility
+    /// case that takes the first free socket the target is registered to have.
+    /// `None` means the ACK carries no assignable socket evidence.
     fn assign_socket(
         &self,
         target: CameraId,
@@ -1625,10 +1704,6 @@ impl ProtocolEngine {
         if let Some(socket) = requested {
             if self.socket_available(target, socket, id) {
                 return Some(socket);
-            }
-            let other = other_socket(socket);
-            if self.command_sockets(target) > 1 && self.socket_available(target, other, id) {
-                return Some(other);
             }
             return None;
         }
@@ -1908,6 +1983,9 @@ impl ProtocolEngine {
         if entry.cancel_attempted_socket == Some(socket) {
             return;
         }
+        if self.cancellation_send_at(entry) > now {
+            return;
+        }
         let ambiguity_deadline = match entry.cancellation {
             CancelState::Requested { ambiguity_deadline } => {
                 ambiguity_deadline.max(add_duration(now, entry.request.context().timeout.ambiguity))
@@ -1967,6 +2045,7 @@ impl ProtocolEngine {
                 requested_sequence: None,
             },
         });
+        self.last_request_sent = Some(now);
     }
 
     fn schedule_retry(
@@ -2094,7 +2173,7 @@ impl ProtocolEngine {
                 let retry_budget = entry.request.context().retry.total_budget;
                 let retry_budget_due = (entry.attempt > 0
                     && retry_budget != Duration::ZERO
-                    && matches!(entry.phase, Phase::Ready { .. } | Phase::Backoff { .. }))
+                    && matches!(entry.cancellation, CancelState::None))
                 .then(|| add_duration(entry.submitted_at, retry_budget));
                 let mut selected = phase_due;
                 if let Some(budget) = retry_budget_due {
@@ -2143,11 +2222,16 @@ impl ProtocolEngine {
         let ambiguity_due =
             cancellation_ambiguity(entry.cancellation).is_some_and(|deadline| deadline <= now);
         if due.kind_order == 0 && ambiguity_due {
-            self.finish(
-                due.request,
-                RuntimeOutcome::Failed(Error::CancellationUnconfirmed),
-                effects,
-            );
+            let error = if self.policy.envelope == EnvelopeKind::Raw {
+                Error::UnsequencedCommandUnconfirmed
+            } else {
+                Error::CancellationUnconfirmed
+            };
+            if self.policy.envelope == EnvelopeKind::Raw {
+                self.terminate_session(SessionState::Poisoned, error, effects);
+            } else {
+                self.finish(due.request, RuntimeOutcome::Failed(error), effects);
+            }
             return;
         }
         let cancellation_observation_due = entry.cancellation_observation_open
@@ -2169,13 +2253,31 @@ impl ProtocolEngine {
             return;
         }
         let retry = entry.request.context().retry;
-        let retry_budget_due = entry.attempt > 0
+        let retry_budget_at = (entry.attempt > 0
             && retry.total_budget != Duration::ZERO
-            && matches!(phase, Phase::Ready { .. } | Phase::Backoff { .. })
-            && add_duration(entry.submitted_at, retry.total_budget) <= now;
-        if due.kind_order == 1 && retry_budget_due {
+            && matches!(entry.cancellation, CancelState::None))
+        .then(|| add_duration(entry.submitted_at, retry.total_budget));
+        let retry_budget_due = retry_budget_at.is_some_and(|deadline| deadline <= now);
+        if due.kind_order == 1
+            && retry_budget_due
+            && retry_budget_at.is_some_and(|deadline| deadline == due.at)
+        {
             let error = entry.last_error.clone().unwrap_or(Error::Timeout);
-            self.finish(due.request, RuntimeOutcome::Failed(error), effects);
+            let raw_active_command = self.policy.envelope == EnvelopeKind::Raw
+                && !entry.request.is_inquiry()
+                && matches!(
+                    phase,
+                    Phase::Sending { .. } | Phase::AwaitingAck { .. } | Phase::Executing { .. }
+                );
+            if raw_active_command {
+                self.terminate_session(
+                    SessionState::Poisoned,
+                    Error::UnsequencedCommandUnconfirmed,
+                    effects,
+                );
+            } else {
+                self.finish(due.request, RuntimeOutcome::Failed(error), effects);
+            }
             return;
         }
         match phase {
@@ -2188,6 +2290,12 @@ impl ProtocolEngine {
                             deadline: ambiguity_deadline,
                         },
                         entry.cancellation,
+                        effects,
+                    );
+                } else if self.policy.envelope == EnvelopeKind::Raw {
+                    self.terminate_session(
+                        SessionState::Poisoned,
+                        Error::UnsequencedCommandUnconfirmed,
                         effects,
                     );
                 } else if entry.request.context().retry.ack_timeout {
@@ -2221,12 +2329,23 @@ impl ProtocolEngine {
                             effects,
                         );
                     } else {
-                        self.finish(
-                            due.request,
-                            RuntimeOutcome::Failed(Error::CancellationUnconfirmed),
-                            effects,
-                        );
+                        let error = if self.policy.envelope == EnvelopeKind::Raw {
+                            Error::UnsequencedCommandUnconfirmed
+                        } else {
+                            Error::CancellationUnconfirmed
+                        };
+                        if self.policy.envelope == EnvelopeKind::Raw {
+                            self.terminate_session(SessionState::Poisoned, error, effects);
+                        } else {
+                            self.finish(due.request, RuntimeOutcome::Failed(error), effects);
+                        }
                     }
+                } else if self.policy.envelope == EnvelopeKind::Raw {
+                    self.terminate_session(
+                        SessionState::Poisoned,
+                        Error::UnsequencedCommandUnconfirmed,
+                        effects,
+                    );
                 } else if entry.request.context().retry.completion_timeout {
                     self.schedule_retry(
                         due.request,
@@ -2265,11 +2384,16 @@ impl ProtocolEngine {
             | Phase::AwaitingLateAck { deadline }
                 if deadline <= now =>
             {
-                self.finish(
-                    due.request,
-                    RuntimeOutcome::Failed(Error::CancellationUnconfirmed),
-                    effects,
-                );
+                let error = if self.policy.envelope == EnvelopeKind::Raw {
+                    Error::UnsequencedCommandUnconfirmed
+                } else {
+                    Error::CancellationUnconfirmed
+                };
+                if self.policy.envelope == EnvelopeKind::Raw {
+                    self.terminate_session(SessionState::Poisoned, error, effects);
+                } else {
+                    self.finish(due.request, RuntimeOutcome::Failed(error), effects);
+                }
             }
             _ => effects.push(Effect::Ignored(IgnoreReason::StaleQueueTicket)),
         }
@@ -2304,11 +2428,19 @@ impl ProtocolEngine {
             return None;
         }
         let mut wake = self.next_due().map(|due| due.at);
-        for entry in self.entries.values().filter(|entry| {
-            matches!(entry.phase, Phase::Ready { .. }) && self.capacity_available_for(entry)
-        }) {
-            let candidate = self.candidate_send_at(entry);
-            wake = Some(wake.map_or(candidate, |current| current.min(candidate)));
+        for entry in self.entries.values() {
+            let candidate = if matches!(entry.phase, Phase::Ready { .. })
+                && self.capacity_available_for(entry)
+            {
+                Some(self.candidate_send_at(entry))
+            } else if pending_cancellation_socket(entry).is_some() {
+                Some(self.cancellation_send_at(entry))
+            } else {
+                None
+            };
+            if let Some(candidate) = candidate {
+                wake = Some(wake.map_or(candidate, |current| current.min(candidate)));
+            }
         }
         wake
     }
@@ -2319,7 +2451,8 @@ impl ProtocolEngine {
         } else {
             let target = entry.request.context().target;
             self.targets[target.id() as usize].is_some_and(|policy| {
-                self.commands_inflight(target) < usize::from(policy.command_sockets)
+                !self.raw_command_unacknowledged(target)
+                    && self.commands_inflight(target) < usize::from(policy.command_sockets)
             })
         }
     }
@@ -2647,13 +2780,6 @@ fn add_duration(at: Instant, duration: Duration) -> Instant {
     at.checked_add(duration).unwrap_or(at)
 }
 
-const fn other_socket(socket: ViscaSocket) -> ViscaSocket {
-    match socket {
-        ViscaSocket::S1 => ViscaSocket::S2,
-        ViscaSocket::S2 => ViscaSocket::S1,
-    }
-}
-
 fn cancellation_ambiguity(cancellation: CancelState) -> Option<Instant> {
     match cancellation {
         CancelState::Requested { ambiguity_deadline }
@@ -2668,6 +2794,13 @@ fn cancellation_ambiguity(cancellation: CancelState) -> Option<Instant> {
         } => Some(ambiguity_deadline),
         CancelState::None => None,
     }
+}
+
+fn pending_cancellation_socket(entry: &Entry) -> Option<ViscaSocket> {
+    let Phase::Executing { socket, .. } = entry.phase else {
+        return None;
+    };
+    matches!(entry.cancellation, CancelState::Requested { .. }).then_some(socket)
 }
 
 /// Records one expired request deadline ahead of whatever the expiry produced.

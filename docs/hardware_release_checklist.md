@@ -81,16 +81,16 @@ camera and recording the result.
 
 | ID | Scope | Required checks | Owner | Status | Firmware / bench | Evidence artifact / notes |
 | --- | --- | --- | --- | --- | --- | --- |
-| CR-01 | Raw TCP profiles | Queued cancellation, supported/unsupported sent cancellation, closed-owner outcome | Lifecycle QA | Pending (Not run) | Pending | Pending |
-| CR-02 | Raw UDP profiles | Datagram retry, cancellation result, duplicate/late reply handling | Lifecycle QA | Pending (Not run) | Pending | Pending |
-| CR-03 | Sony UDP profiles | Sequence-aware retry, cancellation result, late reply handling | Lifecycle QA | Pending (Not run) | Pending | Pending |
-| CR-04 | Blocking serial profiles | Serial retry, timeout, cancellation boundary, explicit STOP | Lifecycle QA | Pending (Not run) | Pending | Pending |
-| CR-05 | Tokio serial profile paths | Tokio serial timeout/retry and explicit STOP | Lifecycle QA | Pending (Not run) | Pending | Pending |
-| CR-06 | Every applicable profile | Fresh-session recovery after transport close; no automatic replay; cache starts unknown | Recovery QA | Pending (Not run) | Pending | Pending |
-| RT-01 | Raw TCP profiles | Ack timeout, completion timeout, retry limit/backoff, socket options | Runtime QA | Pending (Not run) | Pending | Pending |
-| RT-02 | Raw UDP profiles | Ack timeout, completion timeout, retry limit/backoff, connected/bind behavior | Runtime QA | Pending (Not run) | Pending | Pending |
-| RT-03 | Sony UDP profiles | Ack/completion timeout, retry limit/backoff, sequence reuse rules | Runtime QA | Pending (Not run) | Pending | Pending |
-| RT-04 | Serial profiles | Read/write timeout, retry limit/backoff, buffer sizing | Runtime QA | Pending (Not run) | Pending | Pending |
+| CR-01 | Raw TCP profiles | Urgent queued cancellation ahead of ordinary work, shared-spacing compliance, supported/unsupported sent cancellation, closed-owner outcome | Lifecycle QA | Pending (Not run) | Pending | Pending |
+| CR-02 | Raw UDP profiles | No replay after sent-command ACK/completion/cancellation ambiguity, receive fault while awaiting ACK, or active retry-budget expiry; conclusive-rejection retry handling; urgent cancellation obeys shared spacing; cancellation and late-reply handling | Lifecycle QA | Pending (Not run) | Pending | Pending |
+| CR-03 | Sony UDP profiles | Same-sequence retry, urgent cancellation obeying shared spacing, cancellation result, and late-reply handling | Lifecycle QA | Pending (Not run) | Pending | Pending |
+| CR-04 | Blocking serial profiles | Raw ambiguity/no-replay boundary, timeout, cancellation boundary, shared spacing, explicit STOP | Lifecycle QA | Pending (Not run) | Pending | Pending |
+| CR-05 | Tokio serial profile paths | Raw ambiguity/no-replay boundary, timeout, cancellation boundary, shared spacing, explicit STOP | Lifecycle QA | Pending (Not run) | Pending | Pending |
+| CR-06 | Every applicable profile | Fresh replacement session after transport close or `UnsequencedCommandUnconfirmed`; no automatic replay; cache starts unknown | Recovery QA | Pending (Not run) | Pending | Pending |
+| RT-01 | Raw TCP profiles | One-command pre-ACK gate per target, post-ACK socket concurrency, exact fixed-frame lengths, no replay on ambiguity or active retry-budget expiry, conclusive-rejection retry, total retry budget/cause | Runtime QA | Pending (Not run) | Pending | Pending |
+| RT-02 | Raw UDP profiles | One-command pre-ACK gate per target, post-ACK socket concurrency, exact fixed-frame lengths, empty-datagram discard under one deadline with async cooperative yield, no replay on ambiguity or active retry-budget expiry, conclusive-rejection retry, total retry budget/cause | Runtime QA | Pending (Not run) | Pending | Pending |
+| RT-03 | Sony UDP profiles | Pre-ACK pipeline, exact sequence correlation, same-sequence ACK/completion retry, active retry-budget expiry handling, retry limit/backoff and total budget/cause | Runtime QA | Pending (Not run) | Pending | Pending |
+| RT-04 | Serial profiles | Read/write timeout, raw ambiguity/no-replay boundary including active retry-budget expiry, retry limit/backoff and total budget/cause, buffer sizing | Runtime QA | Pending (Not run) | Pending | Pending |
 
 ## Multi-camera and addressing
 

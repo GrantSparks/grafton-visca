@@ -746,7 +746,7 @@ mod tests {
 
     #[test]
     fn dynamic_command_counts_follow_static_surface_ledger() {
-        // The public trybuild fixture type-checks every dynamic method.  Keep
+        // The public compile-pass fixture type-checks every dynamic method. Keep
         // its expected class totals anchored here to the authoritative
         // command ledger rather than relying only on dynamic constants.
         let mut target_facing = 0;

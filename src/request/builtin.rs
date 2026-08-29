@@ -12,7 +12,7 @@ use crate::{
         PresetNumber, PushAF, Zoom,
     },
     completion, request, AffectedAxes, CameraId, ControlClass, Error, OperationCommand, Request,
-    RetryClass, TimeoutClass, ViscaSocket,
+    RetryClass, TimeoutClass,
 };
 use std::borrow::Cow;
 
@@ -1055,19 +1055,19 @@ impl BuiltinValidation for crate::command::motion_sync::SetMotionSyncPreset {
     }
 }
 
-impl BuiltinValidation for AddressSet {
+impl BuiltinValidation for crate::command::system::AddressSetCommand {
     fn validate(&self, _profile: &crate::ProfileSpec) -> Result<(), Error> {
         Ok(())
     }
 }
 
-impl BuiltinValidation for InterfaceClear {
+impl BuiltinValidation for crate::command::system::InterfaceClearCommand {
     fn validate(&self, _profile: &crate::ProfileSpec) -> Result<(), Error> {
         Ok(())
     }
 }
 
-impl BuiltinValidation for CommandCancel {
+impl BuiltinValidation for crate::command::system::CommandCancelCommand {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
         require(
             profile.supports_command_cancel(),
@@ -1657,63 +1657,30 @@ impl_plain_request!(
     RetryClass::Standard,
     ControlClass::Normal
 );
-
-/// Broadcast VISCA address-set command.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
-pub struct AddressSet;
-
-impl_request!(
-    AddressSet,
-    request::Plain,
+// These three protocol controls deliberately have crate-private request
+// implementations. Address assignment and interface clear run only while the
+// serial transport handshake owns the wire; socket cancellation is emitted by
+// the operation owner that holds the exact request/socket correlation.
+impl_plain_request!(
+    crate::command::system::AddressSetCommand,
     4,
     TimeoutClass::Quick,
     RetryClass::Standard,
-    ControlClass::Normal,
-    |_: &AddressSet| crate::command::system::AddressSetCommand::new()
+    ControlClass::Normal
 );
-
-/// Broadcast VISCA interface-clear command.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
-pub struct InterfaceClear;
-
-impl_request!(
-    InterfaceClear,
-    request::Plain,
+impl_plain_request!(
+    crate::command::system::InterfaceClearCommand,
     5,
     TimeoutClass::Quick,
     RetryClass::Standard,
-    ControlClass::Normal,
-    |_: &InterfaceClear| crate::command::system::InterfaceClearCommand::new()
+    ControlClass::Normal
 );
-
-/// Cancel commands on one VISCA socket.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct CommandCancel {
-    socket: ViscaSocket,
-}
-
-impl CommandCancel {
-    /// Creates a socket-specific cancellation request.
-    #[must_use]
-    pub const fn new(socket: ViscaSocket) -> Self {
-        Self { socket }
-    }
-
-    /// Returns the socket selected for cancellation.
-    #[must_use]
-    pub const fn socket(self) -> ViscaSocket {
-        self.socket
-    }
-}
-
-impl_request!(
-    CommandCancel,
-    request::Plain,
+impl_plain_request!(
+    crate::command::system::CommandCancelCommand,
     3,
     TimeoutClass::Quick,
     RetryClass::Never,
-    ControlClass::Urgent,
-    |value: &CommandCancel| crate::command::system::CommandCancelCommand::new(value.socket)
+    ControlClass::Urgent
 );
 
 /// Separate vertical-flip command with its own VISCA opcode.
@@ -2596,17 +2563,17 @@ pub(crate) const BUILTIN_TYPED_REQUEST_INVENTORY: &[BuiltinTypedRequestCoverage]
     ),
     typed_plain_coverage!(
         crate::command::semantics::BuiltinCommand::AddressSet,
-        AddressSet,
+        crate::command::system::AddressSetCommand,
         "value"
     ),
     typed_plain_coverage!(
         crate::command::semantics::BuiltinCommand::InterfaceClear,
-        InterfaceClear,
+        crate::command::system::InterfaceClearCommand,
         "value"
     ),
     typed_plain_coverage!(
         crate::command::semantics::BuiltinCommand::CommandCancel,
-        CommandCancel,
+        crate::command::system::CommandCancelCommand,
         "socket"
     ),
     typed_plain_coverage!(

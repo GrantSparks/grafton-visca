@@ -297,8 +297,13 @@ async fn queued_cancel_still_succeeds_and_consumes<E: Executor>(executor: E) {
     // still queued when it is cancelled.
     let first = camera.zoom().tele().await.expect("first operation");
     wait_for_writes(&executor, &probe, 1).await;
+    probe.push(ACK_SOCKET_ONE);
+    wait_for_reads(&executor, &probe, 1).await;
+
     let second = camera.focus().stop().await.expect("second operation");
     wait_for_writes(&executor, &probe, 2).await;
+    probe.push(ACK_SOCKET_TWO);
+    wait_for_reads(&executor, &probe, 2).await;
 
     let queued = camera.pan_tilt().home().await.expect("queued operation");
     let cancellation = queued

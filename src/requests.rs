@@ -1,6 +1,6 @@
 //! Typed request contracts and immutable request semantics.
 
-use std::{fmt, sync::Arc};
+use std::{fmt, num::NonZeroU8, sync::Arc};
 
 use crate::{completion, request, CameraId, Error, Result};
 
@@ -66,13 +66,13 @@ pub enum RetryClass {
     Preset,
 }
 
-/// Scheduling class of one request: which of the owner's four ready lanes it
-/// is queued in.
+/// Intrinsic scheduling class of one request.
 ///
-/// Every request classifies itself through [`Request::control_class`], and a
-/// camera handle may name a class for one submission or for all of its own
-/// traffic — see `Camera::execute_with_class` and
-/// `Camera::set_command_class`.
+/// Every request classifies itself through [`Request::control_class`]. The
+/// urgent class is reserved for safety and protocol-control work and cannot be
+/// selected or demoted by a submission override. Request implementations and
+/// raw policies classify their own semantics; caller QoS uses
+/// [`SubmissionClass`].
 ///
 /// # Lane semantics
 ///
@@ -88,13 +88,8 @@ pub enum RetryClass {
 ///   request has been written to the transport nothing reorders, interrupts, or
 ///   cancels it, so raising a class cannot preempt work already in flight; use
 ///   a typed stop or a cancellation for that.
-/// - A request already queued keeps the class it was admitted with. Changing a
-///   handle's default affects later submissions only.
 /// - Classes are strictly ordered rather than weighted: while urgent work is
-///   ready and eligible, nothing below it is dispatched. Demoting a chatty
-///   handle to [`Background`](Self::Background) is therefore an effective way
-///   to keep it out of an operator's way, and promoting bulk traffic to
-///   [`Urgent`](Self::Urgent) is a good way to starve everything else.
+///   ready and eligible, nothing below it is dispatched.
 ///
 /// The owner retains sole authority over the queues themselves: a class selects
 /// a lane, never a position, a deadline, a retry budget, or a socket.
@@ -123,30 +118,94 @@ pub enum ControlClass {
     /// Time-sensitive control work that must reach the camera ahead of queued
     /// traffic: the typed stops and socket cancellation.
     ///
-    /// This is 1.x's `Priority::Critical`. A camera handle's default class
-    /// never demotes a request classified this way; only an explicit
-    /// per-submission class can.
+    /// This is 1.x's `Priority::Critical`. It is an immutable safety floor:
+    /// caller-selected submission QoS can neither create nor demote it.
     Urgent,
+}
+
+/// Caller-selected quality-of-service class for ordinary submissions.
+///
+/// This preserves 1.x's useful background/normal/interactive scheduling
+/// controls without exposing the owner's safety lane. When a request's
+/// intrinsic [`ControlClass`] is [`ControlClass::Urgent`], this value is
+/// ignored and the request remains urgent. For every other request it selects
+/// the ready lane used at admission.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
+#[non_exhaustive]
+pub enum SubmissionClass {
+    /// Opportunistic telemetry or bulk work.
+    Background,
+    /// Ordinary control traffic.
+    Normal,
+    /// Direct user interaction.
+    User,
+}
+
+impl SubmissionClass {
+    /// Returns the corresponding ordinary intrinsic class.
+    #[must_use]
+    pub const fn control_class(self) -> ControlClass {
+        match self {
+            Self::Background => ControlClass::Background,
+            Self::Normal => ControlClass::Normal,
+            Self::User => ControlClass::User,
+        }
+    }
+}
+
+impl From<SubmissionClass> for ControlClass {
+    fn from(class: SubmissionClass) -> Self {
+        class.control_class()
+    }
 }
 
 /// A set of physical camera axes affected by an operation.
 ///
-/// The validated constructors ([`Self::new`], [`Self::new_with_iris_nd`], and
-/// [`Self::from_bits`]) reject the empty set, because
-/// [`OperationCommand::affected_axes`] must name at least one axis. The empty
-/// set is still representable as the [`Self::NONE`] constant so that
-/// [`Self::union`] and `|` have an identity element and so that a motion
-/// observation can explicitly select nothing.
+/// Every value is non-empty, including values created by constants, safe
+/// constructors, deserialization, and set operations. Code that needs an
+/// optional selection uses `Option<AffectedAxes>` rather than a sentinel empty
+/// value.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(try_from = "u8", into = "u8"))]
-#[cfg_attr(
-    feature = "schemars",
-    derive(schemars::JsonSchema),
-    schemars(with = "u8")
-)]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
-pub struct AffectedAxes(u8);
+pub struct AffectedAxes(NonZeroU8);
+
+#[cfg(feature = "serde")]
+impl serde::Serialize for AffectedAxes {
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_u8(self.bits())
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de> serde::Deserialize<'de> for AffectedAxes {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let bits = <u8 as serde::Deserialize>::deserialize(deserializer)?;
+        Self::from_bits(bits).map_err(serde::de::Error::custom)
+    }
+}
+
+#[cfg(feature = "schemars")]
+impl schemars::JsonSchema for AffectedAxes {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "AffectedAxes".into()
+    }
+
+    fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        let mut schema = <u8 as schemars::JsonSchema>::json_schema(generator);
+        schema.insert("minimum".to_owned(), 1.into());
+        schema.insert("maximum".to_owned(), 31.into());
+        schema
+    }
+}
 
 /// One physical axis represented by [`AffectedAxes`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -211,16 +270,27 @@ impl AffectedAxes {
         | Self::IRIS_BIT
         | Self::ND_FILTER_BIT;
 
+    // Every caller either supplies one of the non-zero bit constants, combines
+    // a non-empty set with OR, or has already rejected zero in `from_bits`.
+    // Keep the proof at this single private construction boundary.
+    #[allow(clippy::panic, reason = "private callers prove bits is non-zero")]
+    const fn from_nonzero_bits(bits: u8) -> Self {
+        match NonZeroU8::new(bits) {
+            Some(bits) => Self(bits),
+            None => panic!("AffectedAxes requires at least one axis"),
+        }
+    }
+
     /// The pan and tilt axes.
-    pub const PAN_TILT: Self = Self(Self::PAN_TILT_BIT);
+    pub const PAN_TILT: Self = Self::from_nonzero_bits(Self::PAN_TILT_BIT);
     /// The zoom axis.
-    pub const ZOOM: Self = Self(Self::ZOOM_BIT);
+    pub const ZOOM: Self = Self::from_nonzero_bits(Self::ZOOM_BIT);
     /// The focus axis.
-    pub const FOCUS: Self = Self(Self::FOCUS_BIT);
+    pub const FOCUS: Self = Self::from_nonzero_bits(Self::FOCUS_BIT);
     /// The iris/aperture axis.
-    pub const IRIS: Self = Self(Self::IRIS_BIT);
+    pub const IRIS: Self = Self::from_nonzero_bits(Self::IRIS_BIT);
     /// The neutral-density filter axis.
-    pub const ND_FILTER: Self = Self(Self::ND_FILTER_BIT);
+    pub const ND_FILTER: Self = Self::from_nonzero_bits(Self::ND_FILTER_BIT);
 
     /// Every physical axis this type can represent.
     ///
@@ -228,25 +298,14 @@ impl AffectedAxes {
     /// pan/tilt, zoom, focus, iris, *and* ND-filter position inquiries. Use
     /// [`Self::MOVEMENT`] for the three mechanical movement axes that every
     /// profile with motion support declares.
-    pub const ALL: Self = Self(Self::VALID_BITS);
+    pub const ALL: Self = Self::from_nonzero_bits(Self::VALID_BITS);
 
     /// The three mechanical movement axes: pan/tilt, zoom, and focus.
     ///
     /// This is the "wait for everything that moves" selection used by
     /// [`crate::camera::IdleWait::default`] and the named wait presets.
-    pub const MOVEMENT: Self = Self(Self::PAN_TILT_BIT | Self::ZOOM_BIT | Self::FOCUS_BIT);
-
-    /// The empty axis set.
-    ///
-    /// This is the identity element of [`Self::union`] and of the
-    /// [`BitOr`](std::ops::BitOr) operator, and it selects nothing for a motion
-    /// observation. It is
-    /// deliberately outside the validated constructors: [`Self::new`],
-    /// [`Self::new_with_iris_nd`], and [`Self::from_bits`] still reject an
-    /// empty set, because an operation must name at least one affected axis.
-    /// For the same reason `NONE` does not survive a serde round trip through
-    /// its `u8` representation.
-    pub const NONE: Self = Self(0);
+    pub const MOVEMENT: Self =
+        Self::from_nonzero_bits(Self::PAN_TILT_BIT | Self::ZOOM_BIT | Self::FOCUS_BIT);
 
     /// Constructs an explicit non-empty set of affected axes.
     ///
@@ -293,49 +352,54 @@ impl AffectedAxes {
                 "affected axes must be non-empty and contain only known axes".into(),
             ));
         }
-        Ok(Self(bits))
+        Ok(Self::from_nonzero_bits(bits))
     }
 
     /// Returns the stable bit representation.
     #[must_use]
     pub const fn bits(self) -> u8 {
-        self.0
-    }
-
-    /// Returns whether no axis is selected.
-    #[must_use]
-    pub const fn is_empty(self) -> bool {
-        self.0 == 0
+        self.0.get()
     }
 
     /// Returns whether this set contains every axis in `other`.
     #[must_use]
     pub const fn contains(self, other: Self) -> bool {
-        self.0 & other.0 == other.0
+        self.bits() & other.bits() == other.bits()
     }
 
     /// Returns the number of selected physical axes.
     #[must_use]
-    pub const fn len(self) -> usize {
-        self.0.count_ones() as usize
+    pub const fn axis_count(self) -> usize {
+        self.bits().count_ones() as usize
     }
 
     /// Returns whether exactly one physical axis is selected.
     #[must_use]
     pub const fn is_single(self) -> bool {
-        self.0.count_ones() == 1
+        self.bits().count_ones() == 1
     }
 
     /// Returns an iterator over selected axes in canonical bit order.
     #[must_use]
     pub const fn iter(self) -> AffectedAxisIter {
-        AffectedAxisIter { bits: self.0 }
+        AffectedAxisIter { bits: self.bits() }
     }
 
     /// Combines two non-empty sets.
     #[must_use]
     pub const fn union(self, other: Self) -> Self {
-        Self(self.0 | other.0)
+        Self::from_nonzero_bits(self.bits() | other.bits())
+    }
+
+    /// Returns the non-empty intersection, or `None` when the sets are
+    /// disjoint.
+    #[must_use]
+    pub const fn intersection(self, other: Self) -> Option<Self> {
+        let bits = self.bits() & other.bits();
+        match NonZeroU8::new(bits) {
+            Some(bits) => Some(Self(bits)),
+            None => None,
+        }
     }
 
     /// Combines `other` only when `condition` is true.
@@ -360,14 +424,6 @@ impl std::ops::BitOr for AffectedAxes {
 impl std::ops::BitOrAssign for AffectedAxes {
     fn bitor_assign(&mut self, other: Self) {
         *self = self.union(other);
-    }
-}
-
-impl std::ops::BitAnd for AffectedAxes {
-    type Output = Self;
-
-    fn bitand(self, other: Self) -> Self {
-        Self(self.0 & other.0)
     }
 }
 
@@ -541,13 +597,10 @@ pub trait Request: Send + Sync {
 
     /// Returns this value's control class.
     ///
-    /// This is the request's own classification, and it is what the owner uses
-    /// unless the submitting camera handle names a class: a per-submission
-    /// class (`Camera::execute_with_class` and its twins) replaces it outright,
-    /// and a handle default (`Camera::set_command_class`) replaces it unless
-    /// this returns [`ControlClass::Urgent`]. The owner still lowers the
-    /// resolved class to its private ready queues; callers select a lane, not a
-    /// queue position.
+    /// This is the request's own classification. A caller may select ordinary
+    /// submission QoS through [`SubmissionClass`], but an urgent intrinsic
+    /// class is immutable. The owner lowers the resolved class to private ready
+    /// queues; callers never select the safety lane or a queue position.
     #[must_use]
     fn control_class(&self) -> ControlClass {
         Self::CONTROL_CLASS
@@ -634,6 +687,8 @@ where
 #[cfg(test)]
 #[allow(clippy::expect_used)]
 mod affected_axes_tests {
+    use std::mem::size_of;
+
     use super::AffectedAxes;
 
     #[test]
@@ -647,9 +702,9 @@ mod affected_axes_tests {
         ] {
             assert!(AffectedAxes::ALL.contains(axis));
         }
-        assert_eq!(AffectedAxes::ALL.len(), 5);
+        assert_eq!(AffectedAxes::ALL.axis_count(), 5);
 
-        assert_eq!(AffectedAxes::MOVEMENT.len(), 3);
+        assert_eq!(AffectedAxes::MOVEMENT.axis_count(), 3);
         assert!(AffectedAxes::MOVEMENT.contains(AffectedAxes::PAN_TILT));
         assert!(AffectedAxes::MOVEMENT.contains(AffectedAxes::ZOOM));
         assert!(AffectedAxes::MOVEMENT.contains(AffectedAxes::FOCUS));
@@ -659,30 +714,24 @@ mod affected_axes_tests {
     }
 
     #[test]
-    fn none_is_empty_and_is_the_union_identity() {
-        assert!(AffectedAxes::NONE.is_empty());
-        assert_eq!(AffectedAxes::NONE.len(), 0);
-        assert_eq!(AffectedAxes::NONE.iter().count(), 0);
-
-        for axes in [
-            AffectedAxes::PAN_TILT,
-            AffectedAxes::MOVEMENT,
-            AffectedAxes::ALL,
-        ] {
-            assert_eq!(axes | AffectedAxes::NONE, axes);
-            assert_eq!(AffectedAxes::NONE | axes, axes);
-        }
-    }
-
-    #[test]
-    fn none_remains_outside_the_validated_constructors() {
-        assert!(AffectedAxes::from_bits(AffectedAxes::NONE.bits()).is_err());
+    fn empty_values_cannot_be_constructed() {
+        assert!(AffectedAxes::from_bits(0).is_err());
         assert!(AffectedAxes::new(false, false, false).is_err());
         assert!(AffectedAxes::new_with_iris_nd(false, false, false, false, false).is_err());
+        assert_eq!(
+            size_of::<AffectedAxes>(),
+            size_of::<u8>(),
+            "the non-zero representation should retain the one-byte niche"
+        );
+        assert_eq!(
+            size_of::<Option<AffectedAxes>>(),
+            size_of::<u8>(),
+            "Option should use the non-zero niche instead of adding a sentinel state"
+        );
     }
 
     #[test]
-    fn bit_or_and_bit_and_agree_with_the_named_combinators() {
+    fn union_and_optional_intersection_preserve_non_empty_values() {
         let combined = AffectedAxes::PAN_TILT | AffectedAxes::ZOOM | AffectedAxes::FOCUS;
         assert_eq!(combined, AffectedAxes::MOVEMENT);
         assert_eq!(
@@ -692,16 +741,18 @@ mod affected_axes_tests {
                 .union(AffectedAxes::FOCUS)
         );
 
-        let mut accumulated = AffectedAxes::NONE;
-        accumulated |= AffectedAxes::PAN_TILT;
+        let mut accumulated = AffectedAxes::PAN_TILT;
         accumulated |= AffectedAxes::ZOOM;
         accumulated |= AffectedAxes::FOCUS;
         assert_eq!(accumulated, AffectedAxes::MOVEMENT);
 
-        assert_eq!(AffectedAxes::ALL & AffectedAxes::MOVEMENT, combined);
         assert_eq!(
-            AffectedAxes::MOVEMENT & AffectedAxes::IRIS,
-            AffectedAxes::NONE
+            AffectedAxes::ALL.intersection(AffectedAxes::MOVEMENT),
+            Some(combined)
+        );
+        assert_eq!(
+            AffectedAxes::MOVEMENT.intersection(AffectedAxes::IRIS),
+            None
         );
     }
 

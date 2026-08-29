@@ -808,10 +808,15 @@ mod tests {
                 target: CameraId::CAMERA_1,
                 timeout: TimeoutPolicy {
                     ack: Duration::from_secs(1),
-                    completion: Duration::from_secs(1),
-                    inquiry: Duration::from_secs(1),
-                    cancellation: Duration::from_secs(1),
-                    ambiguity: Duration::from_secs(1),
+                    // The retry is forced with a synthetic future timestamp
+                    // below.  Keep every post-ACK deadline beyond that
+                    // timestamp so the cancellation's pacing wake, rather
+                    // than an artificial completion/ambiguity expiry, is the
+                    // next owner event.
+                    completion: Duration::from_secs(10),
+                    inquiry: Duration::from_secs(10),
+                    cancellation: Duration::from_secs(10),
+                    ambiguity: Duration::from_secs(10),
                 },
                 retry: RetryPolicy {
                     max_retries: 1,
@@ -860,6 +865,16 @@ mod tests {
             "the queued Sony ACK should advance the retried command"
         );
         let _cancel = owner.cancel_test(&mut writer, receipt).unwrap();
+        assert_eq!(
+            sent.lock().unwrap().len(),
+            2,
+            "the urgent cancel is still subject to the shared Sony pacing floor"
+        );
+        let wake = owner
+            .state()
+            .next_wake()
+            .expect("pacing queues the cancellation for the next owner wake");
+        owner.wake(&mut writer, wake).unwrap();
         let writes = sent.lock().unwrap().clone();
         assert_eq!(writes.len(), 3);
         let cancel_header = crate::protocol::sony::SonyHeader::decode(&writes[2][..8]).unwrap();

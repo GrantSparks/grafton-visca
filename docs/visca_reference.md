@@ -227,6 +227,31 @@ Camera → Controller: 90 5y FF   # Completion, command finished
 
 `y` is the socket number. Most cameras have two command sockets.
 
+For raw VISCA, do not send a second command for the same target while its
+first command is still unacknowledged. The one raw candidate spans `Sending`,
+`AwaitingAck`, and `AwaitingLateAck`; once the ACK establishes the first
+command's socket, the scheduler may use the camera's remaining socket
+capacity while that command executes. Raw ACK and error routing never uses a
+command FIFO or temporal recency. A socketless error routes the unique
+unacknowledged command only when no inquiry owner is live; with no unacknowledged
+command it may route the legitimate per-target inquiry FIFO, while a
+command-plus-inquiry collision is ignored. An explicit socket routes only its
+exact target/socket owner, and a socketless error never targets `Executing`.
+A named ACK socket is exact evidence as well: if another request owns that
+socket, the ACK is inert with `SocketConflict` and is never remapped to the
+other free socket. Only a socketless ACK may select the first free registered
+socket. Sony-encapsulated commands may pipeline before ACK because their
+envelope sequence number provides exact correlation.
+
+The fixed response forms are length-exact: `z0 4y FF` ACK, `z0 5y FF`
+nonzero-socket completion, `z0 6y zz FF` error, and `z0 38 FF` network-change
+notification. In the ACK, completion, and error forms, `y=0` is the valid
+socketless compatibility spelling, `y=1`/`2` are sockets S1/S2, and `y=3..F`
+is malformed. A known fixed prefix with trailing bytes is malformed rather
+than an `Unknown` response. Variable data replies are accepted only for
+socket 0 with more than three bytes; the canonical `z0 50 FF` socket-0
+completion remains valid.
+
 ### 6.2 Inquiry lifecycle
 
 An inquiry begins with `8x 09 ... FF` over serial or `81 09 ... FF` for single-camera IP use.
@@ -702,11 +727,20 @@ The following commands are serial-only. Do not send them to raw or encapsulated 
 | Command | Packet | Purpose | Expected handling |
 |---|---|---|---|
 | Address Set | `88 30 01 FF` | Broadcast daisy-chain address assignment. | Send after power-up or network-change/hot-plug in a serial chain; final reply indicates the number of assigned cameras. |
-| I/F Clear | `88 01 00 01 FF` | Broadcast interface clear. | Send after Address Set or to recover from command-buffer state; clears sockets and cancels pending serial commands. |
+| I/F Clear | `88 01 00 01 FF` | Broadcast interface clear. | Owner-coordinated serial setup/recovery control; send after Address Set or to recover from command-buffer state; clears sockets and cancels pending serial commands. |
+
+Address Set and I/F Clear belong to the serial handshake owner; they are not
+generic public commands. Socket cancellation is likewise owner-only because
+the owner alone knows which live operation owns a camera-assigned socket.
 
 ### 11.4 Command scheduling, sockets, and cancel
 
-VISCA cameras generally expose two command sockets. Maintain a per-camera scheduler that tracks ACK socket numbers and frees sockets only when Completion or an error arrives.
+VISCA cameras generally expose two command sockets. Maintain an owner-only
+per-camera scheduler. For raw VISCA it gates only the target's one
+unacknowledged command, then tracks the ACK-assigned sockets and frees each
+socket on Completion or an error. It must not use FIFO order to guess which
+raw command an ACK belongs to. Sony sequence numbers permit pre-ACK pipeline
+and exact reply correlation.
 
 | Action | Packet / behavior |
 |---|---|
@@ -715,14 +749,28 @@ VISCA cameras generally expose two command sockets. Maintain a per-camera schedu
 | Cancel success | Camera returns `90 6y 04 FF`; no normal completion follows for that canceled command. |
 | Cancel invalid/empty socket | Camera returns `90 6y 05 FF`. |
 
-Use cancel for explicit user interrupts or emergency stops, not as a normal substitute for command pacing. Insert a profile-specific minimum spacing between sends. The uploaded unified guide gives `100 ms` as a hardware-tested PTZOptics G2/G3/30X starting point and `35 ms` for Sony FR7/BRC-H900; treat those as scheduler defaults that should be verified per target firmware and network path.
+Use cancel for explicit user interrupts or emergency stops, not as a normal substitute for command pacing. Owner-issued cancellation is selected ahead of ordinary queued work, but it still obeys the shared profile-specific minimum spacing between sends and advances that spacing deadline. The uploaded unified guide gives `100 ms` as a hardware-tested PTZOptics G2/G3/30X starting point and `35 ms` for Sony FR7/BRC-H900; treat those as scheduler defaults that should be verified per target firmware and network path.
 
 ### 11.5 Retry policy
 
+One total retry wall-clock budget starts at admission and remains active through
+every later noncancelled attempt phase: backoff, ready, send, ACK, execution,
+and reply.
+When that budget expires, the terminal result preserves the cause that
+authorized the prior retry rather than replacing it with an incidental timeout
+from a later phase. If an active raw retry reaches budget expiry while in
+`Sending`, `AwaitingAck`, or `Executing`, it instead poisons the session as an
+unconfirmed unsequenced command; a ready/backoff raw retry may finish with its
+retained last error. Cancellation quarantine is separate and is never shortened
+by budget expiry.
+Empty UDP datagrams are discarded while receiving and do not reset or extend
+the one overall receive deadline; the async adapter yields cooperatively before
+polling again.
+
 | Transport | Recommended retry behavior |
 |---|---|
-| Raw UDP PTZOptics | Retry inquiries or clearly idempotent commands cautiously because there is no sequence number; a retry can be indistinguishable from a new command. Prefer TCP `5678` for high-reliability PTZOptics control. |
-| Raw TCP PTZOptics | TCP handles delivery/order, but the application must still handle ACK, Completion, socket-full errors, and not-executable errors. |
+| Raw UDP PTZOptics | Do not automatically replay a successfully sent command after an ACK/completion/cancellation ambiguity, a receive fault while awaiting ACK, or active retry-budget expiry in `Sending`, `AwaitingAck`, or `Executing`: without a sequence, retry is indistinguishable from a new physical action. End the session with `UnsequencedCommandUnconfirmed` and reconcile state in a replacement session. A conclusive camera rejection may be retried under policy. Prefer TCP `5678` for high-reliability control. |
+| Raw TCP PTZOptics | TCP handles byte delivery/order but does not prove camera execution. Serialize the one-command pre-ACK window per target, retain socket concurrency after ACK, and treat an ACK/completion/cancellation ambiguity, a receive fault while awaiting ACK, or active retry-budget expiry in `Sending`, `AwaitingAck`, or `Executing` as `UnsequencedCommandUnconfirmed`, never a blind replay. A conclusive camera rejection may be retried under policy. |
 | Sony encapsulated UDP | Use the Sony sequence field to correlate replies. This document adopts the Sony-manual correction in §5.3: timeout recovery should retransmit the timed-out message with the same sequence number, rather than blindly issuing a new logical command. |
 | Axis | Respect Axis profile ranges and handle fixed replies, especially for inquiries documented as fixed on/off. |
 

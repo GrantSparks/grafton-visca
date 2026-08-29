@@ -21,7 +21,7 @@ use grafton_visca::{
     command::CommandKind,
     completion::AppliedOnly,
     profile::ProfileSpec,
-    profiles::PtzOpticsG2,
+    profiles::SonyFR7,
     request::builtin::{FocusStop, PanTiltStop, ZoomStop},
     transport::{BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig},
     types::{PanSpeed, TiltSpeed},
@@ -42,6 +42,7 @@ struct TwoSocketTransport {
     responses: VecDeque<Vec<u8>>,
     writes: Arc<Mutex<Vec<Vec<u8>>>>,
     next_socket: u8,
+    sony: bool,
 }
 
 impl TwoSocketTransport {
@@ -53,9 +54,15 @@ impl TwoSocketTransport {
                 responses: VecDeque::new(),
                 writes: Arc::clone(&writes),
                 next_socket: 0,
+                sony: false,
             },
             writes,
         )
+    }
+
+    fn with_sony(mut self) -> Self {
+        self.sony = true;
+        self
     }
 }
 
@@ -73,8 +80,15 @@ impl BlockingTransport for TwoSocketTransport {
             .push(bytes.to_vec());
         let socket = (self.next_socket % 2) + 1;
         self.next_socket = self.next_socket.wrapping_add(1);
-        self.responses.push_back(vec![0x90, 0x40 | socket, 0xff]);
-        self.responses.push_back(vec![0x90, 0x50 | socket, 0xff]);
+        let ack = vec![0x90, 0x40 | socket, 0xff];
+        let completion = vec![0x90, 0x50 | socket, 0xff];
+        if self.sony {
+            self.responses.push_back(sony_reply(bytes, &ack));
+            self.responses.push_back(sony_reply(bytes, &completion));
+        } else {
+            self.responses.push_back(ack);
+            self.responses.push_back(completion);
+        }
         Ok(())
     }
 
@@ -109,6 +123,35 @@ fn session_config() -> SessionConfig {
         ProfileSpec::from_compile_time::<NonDefaultCompileTimeProfile>()
             .expect("two-socket runtime profile"),
     )
+}
+
+fn sony_session_config() -> SessionConfig {
+    SessionConfig::new(ProfileSpec::from_compile_time::<SonyFR7>().expect("Sony FR7 profile"))
+}
+
+fn sony_reply(request: &[u8], payload: &[u8]) -> Vec<u8> {
+    assert!(
+        request.len() >= 8,
+        "Sony request must carry its sequence header"
+    );
+    let mut response = Vec::with_capacity(8 + payload.len());
+    response.extend_from_slice(&[0x01, 0x11]);
+    response.extend_from_slice(
+        &u16::try_from(payload.len())
+            .expect("Sony reply payload length")
+            .to_be_bytes(),
+    );
+    response.extend_from_slice(&request[4..8]);
+    response.extend_from_slice(payload);
+    response
+}
+
+fn sony_payload(frame: &[u8]) -> &[u8] {
+    assert!(
+        frame.len() >= 8,
+        "Sony write must carry its sequence header"
+    );
+    &frame[8..]
 }
 
 fn written(writes: &Arc<Mutex<Vec<Vec<u8>>>>) -> Vec<Vec<u8>> {
@@ -244,6 +287,7 @@ struct PacingTransport {
     minimum_spacing: Duration,
     next_eligible: Option<Instant>,
     next_socket: u8,
+    sony: bool,
 }
 
 impl PacingTransport {
@@ -257,16 +301,29 @@ impl PacingTransport {
                 minimum_spacing,
                 next_eligible: None,
                 next_socket: 0,
+                sony: false,
             },
             probe,
         )
     }
 
-    fn queue_reply(&mut self) {
+    fn with_sony(mut self) -> Self {
+        self.sony = true;
+        self
+    }
+
+    fn queue_reply(&mut self, request: &[u8]) {
         let socket = (self.next_socket % 2) + 1;
         self.next_socket = self.next_socket.wrapping_add(1);
-        self.responses.push_back(vec![0x90, 0x40 | socket, 0xff]);
-        self.responses.push_back(vec![0x90, 0x50 | socket, 0xff]);
+        let ack = vec![0x90, 0x40 | socket, 0xff];
+        let completion = vec![0x90, 0x50 | socket, 0xff];
+        if self.sony {
+            self.responses.push_back(sony_reply(request, &ack));
+            self.responses.push_back(sony_reply(request, &completion));
+        } else {
+            self.responses.push_back(ack);
+            self.responses.push_back(completion);
+        }
     }
 }
 
@@ -293,7 +350,7 @@ impl BlockingTransport for PacingTransport {
             .expect("writes lock")
             .push(bytes.to_vec());
         self.next_eligible = Some(now + self.minimum_spacing);
-        self.queue_reply();
+        self.queue_reply(bytes);
         Ok(())
     }
 
@@ -323,10 +380,9 @@ impl BlockingTransport for PacingTransport {
 #[test]
 fn third_blocking_operation_rejects_until_a_socket_frees() {
     let (transport, writes) = TwoSocketTransport::new(TransportConfig::default());
-    let session = Session::open(transport, session_config()).expect("owner session");
-    let camera = session
-        .camera::<NonDefaultCompileTimeProfile>()
-        .expect("camera view");
+    let session =
+        Session::open(transport.with_sony(), sony_session_config()).expect("owner session");
+    let camera = session.camera::<SonyFR7>().expect("camera view");
 
     let first = camera
         .submit::<AppliedOnly, _>(&ZoomStop)
@@ -345,8 +401,8 @@ fn third_blocking_operation_rejects_until_a_socket_frees() {
         2,
         "only the two successful operation submissions may write"
     );
-    assert_eq!(before[0], ZOOM_STOP);
-    assert_eq!(before[1], FOCUS_STOP);
+    assert_eq!(sony_payload(&before[0]), ZOOM_STOP);
+    assert_eq!(sony_payload(&before[1]), FOCUS_STOP);
 
     let metrics = session
         .metrics()
@@ -367,7 +423,7 @@ fn third_blocking_operation_rejects_until_a_socket_frees() {
         3,
         "the replacement request writes exactly once"
     );
-    assert!(drained[2].starts_with(PAN_TILT_STOP_PREFIX));
+    assert!(sony_payload(&drained[2]).starts_with(PAN_TILT_STOP_PREFIX));
 
     second.applied().expect("second operation applied");
     replacement
@@ -389,10 +445,9 @@ fn first_write_rejection_releases_admission_capacity() {
         ..TransportConfig::default()
     };
     let (transport, writes) = TwoSocketTransport::new(config);
-    let session = Session::open(transport, session_config()).expect("owner session");
-    let camera = session
-        .camera::<NonDefaultCompileTimeProfile>()
-        .expect("camera view");
+    let session =
+        Session::open(transport.with_sony(), sony_session_config()).expect("owner session");
+    let camera = session.camera::<SonyFR7>().expect("camera view");
 
     let first = camera
         .submit::<AppliedOnly, _>(&ZoomStop)
@@ -533,25 +588,25 @@ fn typed_operation_first_write_failure_returns_exact_error_and_releases_permit()
 }
 
 /// Profile pacing is a submission wait, not permission to pump an earlier
-/// request. The PTZOptics profile's nonzero command minimum makes the second
+/// request. The Sony FR7 profile's nonzero command minimum makes the second
 /// typed submission wait even though the second socket is available; the
 /// transport guard catches an implementation that skips that pacing wait.
 #[test]
 fn typed_operation_waits_for_profile_pacing_without_pumping_peer_replies() {
-    let profile = ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("PTZOptics profile");
+    let profile = ProfileSpec::from_compile_time::<SonyFR7>().expect("Sony FR7 profile");
     assert_eq!(
         profile.timing().minimum_command_spacing(),
-        Duration::from_millis(100),
+        Duration::from_millis(35),
         "the pacing precondition must be nonzero"
     );
-    let (transport, probe) = PacingTransport::new(Duration::from_millis(90));
+    let (transport, probe) = PacingTransport::new(Duration::from_millis(30));
     let config = SessionConfig::new(profile)
         // The intentional pacing wait must not let the first peer's short
         // profile ACK deadline expire before its explicit handle is observed.
         .with_tuning(OperationalTuning::new().ack_timeout(Duration::from_secs(1)))
         .expect("widened ACK deadline");
-    let session = Session::open(transport, config).expect("owner session");
-    let camera = session.camera::<PtzOpticsG2>().expect("camera view");
+    let session = Session::open(transport.with_sony(), config).expect("owner session");
+    let camera = session.camera::<SonyFR7>().expect("camera view");
 
     let first = camera
         .submit::<AppliedOnly, _>(&ZoomStop)

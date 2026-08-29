@@ -7,8 +7,9 @@
 //! `execute`, `inquire`, or `submit` methods (and their blocking projections);
 //! it cannot select a lifecycle ID, target, or completion kind at submission
 //! time. Its [`crate::ControlClass`] is chosen in its [`crate::raw::Policy`],
-//! exactly as a built-in chooses one, and the camera handle's `*_with_class`
-//! methods and `set_command_class` default apply to it on the same terms.
+//! exactly as a built-in chooses one, and the camera handle's
+//! `*_with_submission_class` methods and `set_submission_class` default apply
+//! to it on the same terms.
 //!
 //! Raw constructors validate and own the complete VISCA frame. The first byte
 //! must be a valid VISCA camera address and the final byte must be `0xff`.
@@ -204,15 +205,6 @@ fn validate_wire(bytes: &[u8]) -> Result<()> {
     if bytes.last().copied() != Some(VISCA_TERMINATOR) {
         return Err(Error::InvalidRequest(
             "raw VISCA frame must end with the 0xff terminator".into(),
-        ));
-    }
-    Ok(())
-}
-
-fn validate_axes(axes: AffectedAxes) -> Result<()> {
-    if axes.is_empty() {
-        return Err(Error::InvalidRequest(
-            "raw operation affected axes must be non-empty".into(),
         ));
     }
     Ok(())
@@ -529,7 +521,6 @@ impl Targeted {
     where
         P: Into<Policy>,
     {
-        validate_axes(axes)?;
         Ok(Self {
             wire: Wire::new(bytes)?,
             axes,
@@ -645,7 +636,6 @@ impl AppliedOnly {
     where
         P: Into<Policy>,
     {
-        validate_axes(axes)?;
         Ok(Self {
             wire: Wire::new(bytes)?,
             axes,
@@ -963,84 +953,31 @@ mod tests {
         ));
     }
 
-    /// `validate_axes` is reachable and enforced through every public
-    /// axis-carrying constructor.
-    ///
-    /// `AffectedAxes::NONE` and any `BitAnd` of disjoint sets are constructible
-    /// without going through the checked constructors, so the raw boundary is
-    /// the only thing keeping an empty axis set out of an operation.
+    /// Raw operation constructors accept the structurally non-empty axis type.
     #[test]
-    fn axis_carrying_constructors_reject_an_empty_axis_set() {
+    fn axis_carrying_constructors_preserve_the_explicit_axis_set() {
         const VALID: [u8; 4] = [0x81, 0x01, 0x06, 0xff];
-
-        let disjoint = AffectedAxes::PAN_TILT & AffectedAxes::ZOOM;
-        assert!(
-            disjoint.is_empty(),
-            "fixture assumption: intersecting disjoint sets yields the empty set"
-        );
-
-        for (label, axes) in [("NONE", AffectedAxes::NONE), ("BitAnd", disjoint)] {
-            let targeted = Targeted::new(
-                VALID,
-                axes,
-                TimeoutClass::Movement,
-                RetryClass::Movement,
-                ControlClass::User,
-            )
-            .expect_err("empty axes must not build a targeted operation");
-            assert!(
-                matches!(&targeted, Error::InvalidRequest(message) if message.contains("non-empty")),
-                "{label}: expected a non-empty axes rejection, got {targeted:?}"
-            );
-
-            let targeted_with_policy = Targeted::with_policy(
-                VALID,
-                axes,
-                Policy::new(
-                    TimeoutClass::Movement,
-                    RetryClass::Movement,
-                    ControlClass::User,
-                ),
-            )
-            .expect_err("empty axes must not build a targeted operation from a policy");
-            assert!(matches!(targeted_with_policy, Error::InvalidRequest(_)));
-
-            let applied = AppliedOnly::new(
-                VALID,
-                axes,
-                TimeoutClass::Movement,
-                RetryClass::Movement,
-                ControlClass::User,
-            )
-            .expect_err("empty axes must not build an applied-only operation");
-            assert!(
-                matches!(&applied, Error::InvalidRequest(message) if message.contains("non-empty")),
-                "{label}: expected a non-empty axes rejection, got {applied:?}"
-            );
-
-            let applied_with_policy = AppliedOnly::with_policy(
-                VALID,
-                axes,
-                Policy::new(
-                    TimeoutClass::Movement,
-                    RetryClass::Movement,
-                    ControlClass::User,
-                ),
-            )
-            .expect_err("empty axes must not build an applied-only operation from a policy");
-            assert!(matches!(applied_with_policy, Error::InvalidRequest(_)));
-        }
-
-        // A single named axis still constructs, so the assertions above are
-        // about emptiness rather than about the constructors being broken.
-        assert!(Targeted::new(
+        let targeted = Targeted::new(
             VALID,
             AffectedAxes::PAN_TILT,
             TimeoutClass::Movement,
             RetryClass::Movement,
             ControlClass::User,
         )
-        .is_ok());
+        .expect("non-empty targeted axes");
+        assert_eq!(targeted.affected_axes(), AffectedAxes::PAN_TILT);
+
+        let applied = AppliedOnly::with_policy(
+            VALID,
+            AffectedAxes::ZOOM,
+            Policy::new(
+                TimeoutClass::Movement,
+                RetryClass::Movement,
+                ControlClass::User,
+            ),
+        )
+        .expect("non-empty applied-only axes");
+        assert_eq!(applied.affected_axes(), AffectedAxes::ZOOM);
     }
 
     #[test]

@@ -1,5 +1,0 @@
-error[E0599]: no variant, associated function, or constant named `BuiltinInquiry` found for enum `RetryClass` in the current scope
- --> tests/api_contract/fail/builtin_inquiry_retry_is_private.rs:4:25
-  |
-4 |     let _ = RetryClass::BuiltinInquiry;
-  |                         ^^^^^^^^^^^^^^ variant, associated function, or constant not found in `RetryClass`

@@ -44,8 +44,10 @@ and not executable in the current state (`0x41`). The cancellation reply
 (`0x04`) is an answer rather than a fault and is counted in neither error
 bucket. Both error counters count frames as the owner decodes them, so a
 camera answering requests the engine can no longer correlate still shows up.
-`retries_scheduled` counts wherever the engine emits a retry — a busy camera,
-an expired deadline, or a transient receive fault all count the same.
+`retries_scheduled` counts wherever the engine emits a permitted retry — a busy
+camera, an eligible expired deadline, or an eligible sequenced receive fault
+all count the same. A raw receive fault while an unsequenced command awaits ACK
+ends the session instead of incrementing this retry path.
 
 ## Diagnostics
 
@@ -107,19 +109,33 @@ views never read or mutate each other's entries.
 
 ## What is retried, and for how long
 
-Every retry class except `RetryClass::Never` replays a lost ACK, a post-ACK
-completion timeout, and a camera reporting a full command buffer (`0x03`) or no
-free socket (`0x05`). `0x41` (`CommandNotExecutable`) is the one answer whose
-retryability depends on the class: it is transient for movement and preset
-work, where the camera is reporting a state that passes, and terminal
-everywhere else, where it is the camera's verdict on the command.
+Retry requires evidence that replay is safe. Every retry class except
+`RetryClass::Never` may retry a camera reporting a full command buffer (`0x03`)
+or no free socket (`0x05`), because that response conclusively rejected the
+attempt. `0x41` (`CommandNotExecutable`) is the one answer whose retryability
+depends on the class: it is transient for movement and preset work, where the
+camera is reporting a state that passes, and terminal everywhere else, where
+it is the camera's verdict on the command.
+
+For Sony-encapsulated traffic, a lost ACK or post-ACK completion timeout may be
+retried with the same sequence number, preserving the logical request's
+identity. Raw VISCA has no such key. After a raw command was successfully sent,
+an ACK timeout, completion timeout, unresolved cancellation, receive fault
+while awaiting ACK, or active retry-budget expiry while an attempt is in
+`Sending`, `AwaitingAck`, or `Executing` leaves both its physical outcome and
+any later reply ownership uncertain. The engine does not replay it; it ends the
+session with `Error::UnsequencedCommandUnconfirmed`, and callers must establish
+a replacement session. This rule deliberately covers non-idempotent relative
+motion and presets rather than asking a retry class to guess whether a
+particular payload is harmless.
 
 `0x02` (`SyntaxError`) is retried on one narrow path: an inquiry issued through
 this crate's own built-in typed inquiry surface. Cameras answer a built-in
 inquiry's exact syntax inconsistently enough that one replay is worth having.
-A raw or downstream-derived inquiry carries the application's own syntax, so
-`0x02` is that inquiry's terminal verdict and is never replayed. No command of
-any class retries `0x02`.
+An inquiry submitted through the downstream/custom raw-request API carries the
+application's own syntax, so `0x02` is that inquiry's terminal verdict and is
+never replayed. This distinction is about request provenance, not the raw or
+Sony transport envelope. No plain or operation command retries `0x02`.
 
 How many *retries* a request gets is derived from its *timeout* category, not
 its retry class. These are retries after the first attempt, so a request makes
@@ -136,14 +152,19 @@ at most one more attempt than its budget:
 `RetryClass::Never` overrides the table with zero retries — one attempt — for
 every timeout category.
 
-Two bounds stop a request retrying: the budget above, and a wall-clock budget
-counted from admission. That wall-clock budget is the largest of ten seconds,
-twice the request's own governing deadline (its completion deadline for a
-command, its reply deadline for an inquiry — doubling it always leaves room for
-one further full-length attempt), and the profile's busy timeout. Whichever
-bound is reached first produces the terminal error, and a request that runs out
-of wall-clock time reports the error that caused its last retry rather than an
-incidental later timeout.
+Two bounds stop a request retrying: the count above, and one wall-clock budget
+counted from admission. That same budget remains active through every later
+noncancelled attempt phase — backoff, ready, send, ACK, execution, and reply —
+so an active attempt cannot silently extend the total. Cancellation quarantine
+is separate and is never shortened by budget expiry. That wall-clock budget is
+the largest of ten seconds, twice the request's own governing deadline
+(its completion deadline for a command, its reply deadline for an inquiry —
+doubling it always leaves room for one further full-length attempt), and the
+profile's busy timeout. Whichever bound is reached first produces the terminal
+error, and a request that runs out of wall-clock time reports the error that
+caused its last retry rather than an incidental later timeout. If that expiry
+catches a successfully sent raw command in an ambiguous phase, the
+unsequenced-session rule above is stricter and wins.
 
 Backoff doubles from the initial delay (50 ms by default) up to
 `maximum_backoff` (500 ms by default, raised to the profile's busy timeout
@@ -154,17 +175,20 @@ half-open equal-jitter band `[ceiling / 2, ceiling)`, so no attempt ever waits
 longer than the undithered ceiling and two commands that time out on the same
 instant do not retry on the same instant. That draw is a pure function of the
 engine's seed, the request identity and the attempt number: it never reads the
-clock or process entropy, so a replayed input sequence produces identical
+clock or process entropy, so the same engine input sequence produces identical
 scheduling.
 
-## Transient transport faults are not session death
+## Transient transport faults and session death
 
 Not every transport failure ends a session. A receive that fails without
 proving the connection is gone — the classic case is a UDP `recv` reporting
-ECONNREFUSED after an ICMP port-unreachable for an earlier datagram — retries
-every command still waiting for its ACK under that command's own bounded retry
-policy and leaves the session running. Only a read that proves the connection
-is gone (`ConnectionClosed`, or an `Io` failure whose kind is `ConnectionReset`,
+ECONNREFUSED after an ICMP port-unreachable for an earlier datagram — may retry
+a sequenced Sony command still waiting for its ACK under that command's bounded
+policy. If a raw command is waiting for its ACK, however, any receive fault
+leaves acceptance and reply ownership uncertain; the owner ends the session
+with `UnsequencedCommandUnconfirmed` instead of risking duplicate actuation.
+When no such raw command is awaiting ACK, a read that proves the connection is
+gone (`ConnectionClosed`, or an `Io` failure whose kind is `ConnectionReset`,
 `ConnectionAborted`, `BrokenPipe`, `UnexpectedEof`, or `NotConnected`) ends the
 session, and it ends it as a close: a failed read consumes nothing and so
 cannot desynchronize framing.
@@ -176,7 +200,13 @@ Both owners treat that as "this read produced no frames": the session lives,
 framing state is untouched, and no request's retry budget is spent. A transport
 with an internal read timeout — the shape `BlockingTransport::recv_into_with_timeout`
 documents, and the natural way to write a custom async transport — therefore
-costs nothing.
+costs nothing. UDP adapters additionally discard valid zero-length datagrams
+inside the adapter and keep receiving; they never translate a datagram with no
+payload into the `Ok(0)` value reserved for stream EOF. A timed blocking
+receive retains one overall deadline while discarding such datagrams; an empty
+datagram cannot reset or extend that deadline. The async UDP adapter yields
+cooperatively after an empty datagram before polling again, so a stream of empty
+packets cannot starve owner controls.
 
 A fault that never stops repeating stops being called transient. Consecutive
 transient faults, with no successful read between them, escalate their pause
@@ -184,6 +214,13 @@ from 10 ms to a 250 ms ceiling, and a read that has failed twelve times in a row
 over at least a second ends the session with the underlying transport error
 rather than retrying against a dead adapter forever. One successful read, or a
 five-second gap between faults, clears the run.
+
+Fixed-format ACK, completion, error, and network-change frames are accepted
+only at their exact lengths: three bytes for ACK, completion, or network change,
+and four bytes for an error. A known fixed prefix with trailing bytes is
+malformed, never `Unknown`. Variable data replies are reserved for socket 0
+with more than three bytes; the canonical three-byte `z0 50 FF` completion
+remains valid.
 
 Decoding is classified by transport. On a byte stream a decode failure means the
 stream position is unknowable, so the session is poisoned. On a datagram
@@ -210,7 +247,8 @@ restart in place:
    for transport-level session death (`ConnectionClosed`, `StreamPoisoned`, and
    the transport/channel-unavailable errors) and `false` for the deliberate
    `RuntimeShutdown`, which all share `ErrorKind::IoClosed`. Do not match the
-   kind or individual variants to make this decision.
+   kind or individual variants to make this decision. This includes
+   `UnsequencedCommandUnconfirmed`, which always requires a replacement session.
 1. Keep the validated, reusable `SessionConfig` outside the session.
 2. Request `shutdown`/`close` and stop using views from the old owner.
 3. Resolve or discard every old operation handle. Handles from the old owner

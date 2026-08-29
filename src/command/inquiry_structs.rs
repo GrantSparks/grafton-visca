@@ -186,11 +186,15 @@ macro_rules! impl_builtin_response_parser {
 }
 
 macro_rules! builtin_profile_request_validation {
-    ([]) => {};
-    ([pan_tilt_position]) => {
+    ([], $struct:ident) => {
+        fn validate_for_profile(&self, profile: &crate::ProfileSpec) -> crate::Result<()> {
+            validate_builtin_inquiry_profile(stringify!($struct), profile)
+        }
+    };
+    ([pan_tilt_position], $struct:ident) => {
         fn validate_for_profile(&self, profile: &crate::ProfileSpec) -> Result<(), crate::Error> {
             if profile.capabilities().has_pan_tilt && profile.pan_tilt_coordinates().is_some() {
-                Ok(())
+                validate_builtin_inquiry_profile(stringify!($struct), profile)
             } else {
                 Err(crate::Error::FeatureNotSupported {
                     feature: "pan/tilt position inquiry",
@@ -230,6 +234,70 @@ macro_rules! builtin_profile_decoder_method {
     };
 }
 
+fn validate_builtin_inquiry_surface(
+    profile: &crate::ProfileSpec,
+    surface: crate::capabilities::TypedSupportSurface,
+    inquiry: &'static str,
+) -> Result<(), Error> {
+    if profile.capabilities().supports_typed(surface) {
+        Ok(())
+    } else {
+        Err(Error::FeatureNotSupported { feature: inquiry })
+    }
+}
+
+/// Generate runtime validation for the profile-gated inquiry accessors.
+///
+/// The accessor groups are the same closed metadata consumed by the static
+/// and dynamic surface audits.  Projecting their marker paths here keeps
+/// runtime admission in lockstep with those compile-time gates without a
+/// second per-inquiry capability list.
+macro_rules! define_builtin_inquiry_profile_validation {
+    (accessors { $($groups:tt)* }) => {
+        define_builtin_inquiry_profile_validation!(@arms [] profile; $($groups)*);
+    };
+    (@arms [$($arms:tt)*] $profile:ident;) => {
+        fn validate_builtin_inquiry_profile(
+            inquiry: &'static str,
+            $profile: &crate::ProfileSpec,
+        ) -> crate::Result<()> {
+            match inquiry {
+                $($arms)*
+                _ => Ok(()),
+            }
+        }
+    };
+    (@arms [$($arms:tt)*]
+        $profile:ident;
+        $trait_name:ident {
+            gate: none;
+            $($command:ident => $method:ident : $response_ty:ty;)*
+        }
+        $($rest:tt)*
+    ) => {
+        define_builtin_inquiry_profile_validation!(@arms [$($arms)*] $profile; $($rest)*);
+    };
+    (@arms [$($arms:tt)*]
+        $profile:ident;
+        $trait_name:ident {
+            gate: crate :: capabilities :: $profile_gate:ident;
+            $($command:ident => $method:ident : $response_ty:ty;)*
+        }
+        $($rest:tt)*
+    ) => {
+        define_builtin_inquiry_profile_validation!(@arms [
+            $($arms)*
+            $(
+                stringify!($command) => validate_builtin_inquiry_surface(
+                    $profile,
+                    crate::command::surface::typed_surface_for_marker!($profile_gate),
+                    concat!("typed inquiry ", stringify!($command)),
+                ),
+            )*
+        ] $profile; $($rest)*);
+    };
+}
+
 macro_rules! impl_builtin_typed_request {
     ($profile_decode:tt, none, $struct:ident, $kind:ident, $bytes_const:ident) => {
         impl crate::Request for $struct {
@@ -248,7 +316,7 @@ macro_rules! impl_builtin_typed_request {
                 WireEncode::write_into(self, camera_id, buffer)
             }
 
-            builtin_profile_request_validation!($profile_decode);
+            builtin_profile_request_validation!($profile_decode, $struct);
         }
 
         impl crate::Inquiry for $struct {
@@ -285,7 +353,7 @@ macro_rules! impl_builtin_typed_request {
                 WireEncode::write_into(self, camera_id, buffer)
             }
 
-            builtin_profile_request_validation!($profile_decode);
+            builtin_profile_request_validation!($profile_decode, $struct);
         }
 
         impl crate::Inquiry for $struct {
@@ -840,6 +908,10 @@ macro_rules! define_builtin_inquiries {
                     }
                 )*
             }
+        }
+
+        define_builtin_inquiry_profile_validation! {
+            accessors { $($accessor_groups)* }
         }
 
         /// Canonical request bytes for generated built-in inquiry commands.

@@ -2,10 +2,10 @@
 # result, and pumping one receipt retains exact terminal outcomes for all other
 # attached blocking receipts. Times are monotonic milliseconds.
 #
-# A raw VISCA ACK carries no request identity, so ACKs are attributed in
-# transmission order and the socket an ACK carries becomes that request's
-# socket. Out-of-order settlement therefore appears at completion, which is
-# keyed by target and socket together, and never at the ACK itself.
+# Raw VISCA allows only one same-target command in its unacknowledged window.
+# That gate makes each ACK's command candidate unique; the socket carried by
+# the ACK then establishes target-and-socket ownership. Out-of-order settlement
+# therefore appears at completion, which is keyed by target and socket.
 0 input session transport=datagram capacity=8 cancel=supported
 0 effect session state=running transport=datagram capacity=8 cancel=supported
 1 input blocking-submit a target=1 wire=81010604ff observer=blocking
@@ -16,17 +16,17 @@
 1 driver-input transmission-finished tx=1 result=ok
 1 effect state id=1 from=sending to=awaiting-ack
 1 outcome blocking-handle ticket=a id=1 initial-write=complete
-2 input blocking-submit b target=1 wire=8101040700ff observer=blocking
-2 effect admitted ticket=b id=2 target=1 permit=acquired state=ready observer=blocking
-2 outcome admission ticket=b id=2
-2 effect state id=2 from=ready to=sending
-2 effect transmit tx=2 id=2 kind=request target=1 wire=8101040700ff
-2 driver-input transmission-finished tx=2 result=ok
-2 effect state id=2 from=sending to=awaiting-ack
-2 outcome blocking-handle ticket=b id=2 initial-write=complete
-3 input frame ack a socket=1 bytes=9041ff
-3 effect frame-routed id=1 target=1 via=target-socket socket=1 bytes=9041ff
-3 effect state id=1 from=awaiting-ack to=executing(socket=1)
+2 input frame ack a socket=1 bytes=9041ff
+2 effect frame-routed id=1 target=1 via=target-socket socket=1 bytes=9041ff
+2 effect state id=1 from=awaiting-ack to=executing(socket=1)
+3 input blocking-submit b target=1 wire=8101040700ff observer=blocking
+3 effect admitted ticket=b id=2 target=1 permit=acquired state=ready observer=blocking
+3 outcome admission ticket=b id=2
+3 effect state id=2 from=ready to=sending
+3 effect transmit tx=2 id=2 kind=request target=1 wire=8101040700ff
+3 driver-input transmission-finished tx=2 result=ok
+3 effect state id=2 from=sending to=awaiting-ack
+3 outcome blocking-handle ticket=b id=2 initial-write=complete
 4 input frame ack b socket=2 bytes=9042ff
 4 effect frame-routed id=2 target=1 via=target-socket socket=2 bytes=9042ff
 4 effect state id=2 from=awaiting-ack to=executing(socket=2)
@@ -50,17 +50,17 @@
 10 driver-input transmission-finished tx=3 result=ok
 10 effect state id=3 from=sending to=awaiting-ack
 10 outcome blocking-handle ticket=c id=3 initial-write=complete
-11 input blocking-submit d target=1 wire=8101040700ff observer=blocking
-11 effect admitted ticket=d id=4 target=1 permit=acquired state=ready observer=blocking
-11 outcome admission ticket=d id=4
-11 effect state id=4 from=ready to=sending
-11 effect transmit tx=4 id=4 kind=request target=1 wire=8101040700ff
-11 driver-input transmission-finished tx=4 result=ok
-11 effect state id=4 from=sending to=awaiting-ack
-11 outcome blocking-handle ticket=d id=4 initial-write=complete
-12 input frame ack c socket=1 bytes=9041ff
-12 effect frame-routed id=3 target=1 via=target-socket socket=1 bytes=9041ff
-12 effect state id=3 from=awaiting-ack to=executing(socket=1)
+11 input frame ack c socket=1 bytes=9041ff
+11 effect frame-routed id=3 target=1 via=target-socket socket=1 bytes=9041ff
+11 effect state id=3 from=awaiting-ack to=executing(socket=1)
+12 input blocking-submit d target=1 wire=8101040700ff observer=blocking
+12 effect admitted ticket=d id=4 target=1 permit=acquired state=ready observer=blocking
+12 outcome admission ticket=d id=4
+12 effect state id=4 from=ready to=sending
+12 effect transmit tx=4 id=4 kind=request target=1 wire=8101040700ff
+12 driver-input transmission-finished tx=4 result=ok
+12 effect state id=4 from=sending to=awaiting-ack
+12 outcome blocking-handle ticket=d id=4 initial-write=complete
 13 input frame ack d socket=2 bytes=9042ff
 13 effect frame-routed id=4 target=1 via=target-socket socket=2 bytes=9042ff
 13 effect state id=4 from=awaiting-ack to=executing(socket=2)

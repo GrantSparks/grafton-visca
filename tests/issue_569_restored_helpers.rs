@@ -508,30 +508,6 @@ fn typed_cameras_expose_their_runtime_capability_inventory() {
     session.shutdown().expect("shutdown");
 }
 
-/// The owner correlates every reply by the target address the request encoded,
-/// so a broadcast frame cannot travel the per-target command path. 2.0 runs the
-/// address-set handshake during serial bring-up instead, which is why no camera
-/// noun carries a `trigger_address_assignment` method.
-#[test]
-fn address_assignment_stays_a_transport_handshake_rather_than_a_camera_command() {
-    let (session, writes) = ptz_session();
-    let camera = session.camera::<PtzOpticsG2>().expect("camera");
-
-    assert!(matches!(
-        camera.execute(&grafton_visca::request::builtin::AddressSet),
-        Err(Error::InvalidRequest(_))
-    ));
-    assert!(
-        drain(&writes).is_empty(),
-        "the broadcast frame is rejected before any transport write"
-    );
-
-    // The 2.0 replacement is `transport::serial::Config::address_set_on_connect`,
-    // applied while the transport is still owned by its builder.
-
-    session.shutdown().expect("shutdown");
-}
-
 #[test]
 fn typed_cache_getters_decode_the_combined_flip_pair() {
     let (session, _writes) = ptz_session();

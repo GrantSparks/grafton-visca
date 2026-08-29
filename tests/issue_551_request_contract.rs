@@ -22,7 +22,7 @@ fn affected_axes_supports_iris_nd_and_canonical_iteration() {
         AffectedAxes::new_with_iris_nd(false, false, false, true, true).expect("scalar axes");
     assert!(axes.contains(AffectedAxes::IRIS));
     assert!(axes.contains(AffectedAxes::ND_FILTER));
-    assert_eq!(axes.len(), 2);
+    assert_eq!(axes.axis_count(), 2);
     assert_eq!(
         axes.iter().collect::<Vec<_>>(),
         vec![
@@ -45,4 +45,13 @@ fn affected_axes_deserialization_revalidates_bits() {
         serde_json::from_str::<AffectedAxes>("3").expect("known nonempty axes"),
         AffectedAxes::PAN_TILT.union(AffectedAxes::ZOOM)
     );
+}
+
+#[cfg(feature = "schemars")]
+#[test]
+fn affected_axes_schema_excludes_every_invalid_bit_pattern() {
+    let schema = schemars::schema_for!(AffectedAxes);
+    let json = serde_json::to_value(schema).expect("schema serializes");
+    assert_eq!(json.pointer("/minimum"), Some(&serde_json::json!(1)));
+    assert_eq!(json.pointer("/maximum"), Some(&serde_json::json!(31)));
 }

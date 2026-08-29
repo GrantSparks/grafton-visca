@@ -43,10 +43,8 @@
 //!
 //! Three conventions keep the declarations honest:
 //!
-//! * Put the declaration block at the end of the fixture. Several fixtures
-//!   also have trybuild `.stderr` snapshots whose line numbers point into the
-//!   fixture source, and a declaration above the code would shift every one of
-//!   them.
+//! * Put the declaration block at the end of the fixture so the contract under
+//!   test remains visually primary and diagnostic anchors stay easy to audit.
 //! * Anchor a message on rustc's own prose ("unresolved import `x`", "module
 //!   `y` is private"), never on a bare identifier. rustc echoes the offending
 //!   source line into stderr, so `"grafton_visca::CameraBuilder"` on its own
@@ -63,14 +61,16 @@
 //! Failures are collected across the whole run and reported together, so one
 //! run tells you every fixture that needs attention.
 
+#![allow(dead_code)]
+
 use std::{
     collections::BTreeSet,
     env,
-    ffi::OsString,
+    ffi::{OsStr, OsString},
     fmt::Write as _,
     fs,
     path::{Path, PathBuf},
-    process::Command,
+    process::{Command, Output, Stdio},
 };
 
 /// Error codes that mean "this name did not resolve".
@@ -148,11 +148,19 @@ fn configured_compile_fail_target_root(crate_root: &Path) -> PathBuf {
 }
 
 fn compile_fail_work_root(target_root: &Path, process_id: u32, fixture_dirs: &[&str]) -> PathBuf {
-    target_root.join("contract-compile-fail").join(format!(
-        "{}-{}",
-        process_id,
-        sanitize(&fixture_dirs.join("-"))
-    ))
+    // Explicit fixture lists can contain many long paths. A fixed-width
+    // identity avoids the per-component filename limit while keeping separate
+    // harness invocations isolated.
+    let mut identity = 0xcbf2_9ce4_8422_2325_u64;
+    for item in fixture_dirs {
+        for byte in item.bytes().chain(std::iter::once(0xff)) {
+            identity ^= u64::from(byte);
+            identity = identity.wrapping_mul(0x0000_0100_0000_01b3);
+        }
+    }
+    target_root
+        .join("contract-compile-fail")
+        .join(format!("{process_id}-{identity:016x}"))
 }
 
 fn compile_fail_nested_target_root(target_root: &Path) -> PathBuf {
@@ -196,9 +204,113 @@ pub fn assert_compile_fail_fixtures(fixture_dirs: &[&str], crate_features: &[&st
         fixture_dirs
     );
 
-    let target_root = configured_compile_fail_target_root(&crate_root);
+    assert_compile_fixture_set(
+        &crate_root,
+        fixtures,
+        fixture_dirs,
+        crate_features,
+        ExpectedOutcome::Failure,
+    );
+}
+
+/// Compiles every Rust fixture in the supplied directories and requires it to
+/// succeed with the active public feature surface.
+pub fn assert_compile_pass_fixtures(fixture_dirs: &[&str], crate_features: &[&str]) {
+    let crate_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let fixtures = collect_fixtures(&crate_root, fixture_dirs);
+    assert!(
+        !fixtures.is_empty(),
+        "no compile-pass fixtures found in {:?}",
+        fixture_dirs
+    );
+
+    assert_compile_fixture_set(
+        &crate_root,
+        fixtures,
+        fixture_dirs,
+        crate_features,
+        ExpectedOutcome::Success,
+    );
+}
+
+/// Compiles an explicit fixture list through the declaration-based harness.
+///
+/// Issue-specific suites use this when they own only a subset of a shared
+/// fixture directory. Keeping those suites on this harness avoids relying on
+/// toolchain-sensitive rendered stderr snapshots.
+pub fn assert_compile_fail_fixture_paths(fixture_paths: &[&str], crate_features: &[&str]) {
+    let crate_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    assert!(
+        !fixture_paths.is_empty(),
+        "no compile-fail fixture paths supplied"
+    );
+    let mut fixtures = fixture_paths
+        .iter()
+        .map(|path| crate_root.join(path))
+        .collect::<Vec<_>>();
+    for fixture in &fixtures {
+        assert!(
+            fixture.is_file(),
+            "compile-fail fixture does not exist: {}",
+            fixture.display()
+        );
+    }
+    fixtures.sort();
+
+    assert_compile_fixture_set(
+        &crate_root,
+        fixtures,
+        fixture_paths,
+        crate_features,
+        ExpectedOutcome::Failure,
+    );
+}
+
+/// Compiles an explicit list of fixtures and requires each one to succeed.
+pub fn assert_compile_pass_fixture_paths(fixture_paths: &[&str], crate_features: &[&str]) {
+    let crate_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    assert!(
+        !fixture_paths.is_empty(),
+        "no compile-pass fixture paths supplied"
+    );
+    let mut fixtures = fixture_paths
+        .iter()
+        .map(|path| crate_root.join(path))
+        .collect::<Vec<_>>();
+    for fixture in &fixtures {
+        assert!(
+            fixture.is_file(),
+            "compile-pass fixture does not exist: {}",
+            fixture.display()
+        );
+    }
+    fixtures.sort();
+
+    assert_compile_fixture_set(
+        &crate_root,
+        fixtures,
+        fixture_paths,
+        crate_features,
+        ExpectedOutcome::Success,
+    );
+}
+
+#[derive(Clone, Copy)]
+enum ExpectedOutcome {
+    Success,
+    Failure,
+}
+
+fn assert_compile_fixture_set(
+    crate_root: &Path,
+    fixtures: Vec<PathBuf>,
+    work_identity: &[&str],
+    crate_features: &[&str],
+    expected: ExpectedOutcome,
+) {
+    let target_root = configured_compile_fail_target_root(crate_root);
     let nested_target_root = compile_fail_nested_target_root(&target_root);
-    let work_root = compile_fail_work_root(&target_root, std::process::id(), fixture_dirs);
+    let work_root = compile_fail_work_root(&target_root, std::process::id(), work_identity);
     if work_root.exists() {
         fs::remove_dir_all(&work_root).unwrap_or_else(|error| {
             panic!(
@@ -215,25 +327,41 @@ pub fn assert_compile_fail_fixtures(fixture_dirs: &[&str], crate_features: &[&st
         )
     });
 
-    prefetch_contract_dependencies(&crate_root, &work_root, &nested_target_root, crate_features);
+    prefetch_contract_dependencies(crate_root, &work_root, &nested_target_root, crate_features);
 
     let mut failures = Vec::new();
     for (index, fixture) in fixtures.iter().enumerate() {
-        if let Err(failure) = check_fixture(
-            &crate_root,
-            &work_root,
-            &nested_target_root,
-            index,
-            fixture,
-            crate_features,
-        ) {
+        let result = match expected {
+            ExpectedOutcome::Success => check_pass_fixture(
+                crate_root,
+                &work_root,
+                &nested_target_root,
+                index,
+                fixture,
+                crate_features,
+            ),
+            ExpectedOutcome::Failure => check_fail_fixture(
+                crate_root,
+                &work_root,
+                &nested_target_root,
+                index,
+                fixture,
+                crate_features,
+            ),
+        };
+        if let Err(failure) = result {
             failures.push(failure);
         }
     }
 
+    let contract_kind = match expected {
+        ExpectedOutcome::Success => "compile-pass",
+        ExpectedOutcome::Failure => "compile-fail",
+    };
+
     assert!(
         failures.is_empty(),
-        "{} of {} compile-fail fixture(s) did not match their declared diagnostics \
+        "{} of {} {contract_kind} fixture(s) violated their contract \
          (features {crate_features:?})\n\n{}",
         failures.len(),
         fixtures.len(),
@@ -302,7 +430,7 @@ fn prefetch_contract_dependencies(
         )
     });
 
-    let mut command = Command::new(cargo_executable());
+    let mut command = nested_cargo_command();
     command
         .arg("fetch")
         .arg("--quiet")
@@ -329,7 +457,7 @@ fn prefetch_contract_dependencies(
 ///
 /// Returns the report for a fixture that did not meet them; harness-level
 /// problems (unreadable files, an unspawnable cargo) still panic outright.
-fn check_fixture(
+fn check_fail_fixture(
     crate_root: &Path,
     work_root: &Path,
     nested_target_root: &Path,
@@ -337,10 +465,6 @@ fn check_fixture(
     fixture: &Path,
     crate_features: &[&str],
 ) -> Result<(), String> {
-    let fixture_name = fixture
-        .file_stem()
-        .and_then(|stem| stem.to_str())
-        .unwrap_or("fixture");
     let fixture_label = fixture
         .strip_prefix(crate_root)
         .unwrap_or(fixture)
@@ -360,45 +484,15 @@ fn check_fixture(
         return Err(format!("{fixture_label}: {problem}"));
     }
 
-    let case_dir = work_root.join(format!("{index:02}-{}", sanitize(fixture_name)));
-    let src_dir = case_dir.join("src");
-    fs::create_dir_all(&src_dir).unwrap_or_else(|error| {
-        panic!(
-            "failed to create compile-fail case dir {}: {error}",
-            src_dir.display()
-        )
-    });
-    fs::write(src_dir.join("main.rs"), &source).unwrap_or_else(|error| {
-        panic!(
-            "failed to write compile-fail case source for {}: {error}",
-            fixture.display()
-        )
-    });
-    fs::write(
-        case_dir.join("Cargo.toml"),
-        case_manifest(crate_root, index, fixture_name, crate_features),
-    )
-    .unwrap_or_else(|error| {
-        panic!(
-            "failed to write compile-fail case manifest for {}: {error}",
-            fixture.display()
-        )
-    });
-
-    let output = Command::new(cargo_executable())
-        .arg("check")
-        .arg("--offline")
-        .arg("--quiet")
-        .arg("--manifest-path")
-        .arg(case_dir.join("Cargo.toml"))
-        .env("CARGO_TARGET_DIR", nested_target_root)
-        .output()
-        .unwrap_or_else(|error| {
-            panic!(
-                "failed to run cargo check for {}: {error}",
-                fixture.display()
-            )
-        });
+    let output = compile_fixture(
+        crate_root,
+        work_root,
+        nested_target_root,
+        index,
+        fixture,
+        crate_features,
+        &source,
+    );
 
     if output.status.success() {
         return Err(format!(
@@ -421,6 +515,125 @@ fn check_fixture(
     let _ = write!(report, "\n  declared: {}", describe(&expectations));
     let _ = write!(report, "\n  stderr:\n{}", indent(&stderr));
     Err(report)
+}
+
+fn check_pass_fixture(
+    crate_root: &Path,
+    work_root: &Path,
+    nested_target_root: &Path,
+    index: usize,
+    fixture: &Path,
+    crate_features: &[&str],
+) -> Result<(), String> {
+    let fixture_label = fixture
+        .strip_prefix(crate_root)
+        .unwrap_or(fixture)
+        .display()
+        .to_string();
+    let source = fs::read_to_string(fixture)
+        .unwrap_or_else(|error| panic!("failed to read fixture {}: {error}", fixture.display()));
+    let output = compile_fixture(
+        crate_root,
+        work_root,
+        nested_target_root,
+        index,
+        fixture,
+        crate_features,
+        &source,
+    );
+
+    if output.status.success() {
+        return Ok(());
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    Err(format!(
+        "{fixture_label}: did not compile successfully\n  stdout:\n{}\n  stderr:\n{}",
+        indent(&stdout),
+        indent(&stderr),
+    ))
+}
+
+fn compile_fixture(
+    crate_root: &Path,
+    work_root: &Path,
+    nested_target_root: &Path,
+    index: usize,
+    fixture: &Path,
+    crate_features: &[&str],
+    source: &str,
+) -> Output {
+    let fixture_name = fixture
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or("fixture");
+    let case_dir = work_root.join(format!("{index:02}-{}", sanitize(fixture_name)));
+    let src_dir = case_dir.join("src");
+    fs::create_dir_all(&src_dir).unwrap_or_else(|error| {
+        panic!(
+            "failed to create compile-contract case dir {}: {error}",
+            src_dir.display()
+        )
+    });
+    fs::write(src_dir.join("main.rs"), source).unwrap_or_else(|error| {
+        panic!(
+            "failed to write compile-contract case source for {}: {error}",
+            fixture.display()
+        )
+    });
+    fs::write(
+        case_dir.join("Cargo.toml"),
+        case_manifest(crate_root, index, fixture_name, crate_features),
+    )
+    .unwrap_or_else(|error| {
+        panic!(
+            "failed to write compile-contract case manifest for {}: {error}",
+            fixture.display()
+        )
+    });
+
+    nested_cargo_command()
+        .arg("check")
+        .arg("--offline")
+        .arg("--quiet")
+        .arg("--manifest-path")
+        .arg(case_dir.join("Cargo.toml"))
+        .env("CARGO_TARGET_DIR", nested_target_root)
+        .output()
+        .unwrap_or_else(|error| {
+            panic!(
+                "failed to run cargo check for {}: {error}",
+                fixture.display()
+            )
+        })
+}
+
+/// Builds a Cargo command for the nested contract projects.
+///
+/// The outer test process may set compiler flags globally (CI does this with
+/// `RUSTFLAGS=-D warnings`). Those flags are not part of a fixture's public
+/// contract and can turn warnings from dependencies or generated metadata
+/// into unrelated errors. Keep the nested invocation's environment explicit:
+/// fixture-local `#![deny(...)]` attributes still apply because they are in
+/// the source being checked.
+fn nested_cargo_command() -> Command {
+    let mut command = Command::new(cargo_executable());
+    // Do not inherit the host's `/dev/null` for nested Cargo/rustc probes.
+    // Some CI/container environments expose a regular file there, and its
+    // contents can be consumed by rustc's `-` target-info probe instead of
+    // EOF. `output()` closes a piped stdin before waiting for the child,
+    // giving every nested process a real, deterministic empty stream.
+    command.stdin(Stdio::piped());
+    for variable in [
+        "RUSTFLAGS",
+        "CARGO_ENCODED_RUSTFLAGS",
+        "RUSTDOCFLAGS",
+        "CARGO_ENCODED_RUSTDOCFLAGS",
+    ] {
+        command.env_remove(variable);
+    }
+    command
 }
 
 /// Reads the `//~` declaration block out of a fixture's source.
@@ -594,11 +807,23 @@ publish = false
 
 [workspace]
 
+[features]
+default = {active_features}
+blocking = []
+async = []
+runtime-tokio = []
+runtime-smol = []
+transport-serial = []
+transport-serial-tokio = []
+dyn-api = []
+test-utils = []
+
 [dependencies]
 grafton-visca = {{ path = {}, default-features = false, features = {} }}
 "#,
         toml_string(&crate_root.to_string_lossy()),
         toml_array(crate_features),
+        active_features = toml_array(crate_features),
         fixture_name = sanitize(fixture_name),
     )
 }
@@ -802,5 +1027,23 @@ mod tests {
         let nested = compile_fail_nested_target_root(target_root);
         assert_eq!(nested, target_root.join("contract-compile-fail-target"));
         assert_eq!(nested, compile_fail_nested_target_root(target_root));
+    }
+
+    #[test]
+    fn nested_cargo_commands_remove_inherited_compiler_flags() {
+        let command = nested_cargo_command();
+        for variable in [
+            "RUSTFLAGS",
+            "CARGO_ENCODED_RUSTFLAGS",
+            "RUSTDOCFLAGS",
+            "CARGO_ENCODED_RUSTDOCFLAGS",
+        ] {
+            assert!(
+                command
+                    .get_envs()
+                    .any(|(name, value)| name == OsStr::new(variable) && value.is_none()),
+                "nested Cargo command must explicitly remove {variable}"
+            );
+        }
     }
 }

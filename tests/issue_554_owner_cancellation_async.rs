@@ -30,6 +30,7 @@ use grafton_visca::{
 const ZOOM_STOP: &[u8] = &[0x81, 0x01, 0x04, 0x07, 0x00, 0xff];
 const FOCUS_STOP: &[u8] = &[0x81, 0x01, 0x04, 0x08, 0x00, 0xff];
 const ACK_SOCKET_ONE: &[u8] = &[0x90, 0x41, 0xff];
+const ACK_SOCKET_TWO: &[u8] = &[0x90, 0x42, 0xff];
 const COMPLETE_SOCKET_ONE: &[u8] = &[0x90, 0x51, 0xff];
 
 #[derive(Debug)]
@@ -192,11 +193,15 @@ async fn queued_cancel_is_local<E: Executor>(executor: E) {
     // third typed operation so its cancellation is unambiguously pre-wire.
     let first = camera.zoom().stop().await.expect("first operation");
     wait_for_writes(&executor, &probe, 1).await;
+    probe.push(ACK_SOCKET_ONE.to_vec());
+    wait_for_reads(&executor, &probe, 1).await;
     let second = camera
         .submit::<AppliedOnly, _>(&FocusStop)
         .await
         .expect("second operation");
     wait_for_writes(&executor, &probe, 2).await;
+    probe.push(ACK_SOCKET_TWO.to_vec());
+    wait_for_reads(&executor, &probe, 2).await;
 
     let queued = camera.pan_tilt().home().await.expect("queued operation");
     let cancellation = queued.cancel().await.expect("queued cancellation");

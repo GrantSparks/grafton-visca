@@ -1,12 +1,12 @@
 //! Issue #565: 1.x transport fault tolerance, through the async facade.
 //!
 //! The blocking twin of this file is `issue_565_transport_faults_blocking.rs`.
-//! Both owners must answer these five cases identically: a transient receive
-//! error retries rather than destroying the session, a failed stream write
-//! reports its own transport error to the caller that owned it, a socketless
-//! ACK/completion still works, an ACK naming an occupied socket is reassigned,
-//! and a camera that answers from inside the write is matched on the owner's
-//! first read pump.
+//! Both owners must answer these transport boundaries identically: raw receive
+//! faults while an ACK is unconfirmed poison without replay, sequence-
+//! correlated Sony receive faults retry on the same sequence, stream writes
+//! preserve session poison, socketless frames still work, occupied sockets
+//! remain exact evidence, and write-racing replies match on the first read
+//! pump.
 //!
 //! The engine's deferred-ACK latch (#297) is *not* observable from here: these
 //! owners apply a write and its result back to back, so nothing can reach the
@@ -30,14 +30,18 @@ use std::{
 use grafton_visca::{
     completion::AppliedOnly,
     profile::ProfileSpec,
+    profiles::SonyFR7,
     request::builtin::{FocusStop, ZoomStop},
-    transport::{AsyncTransport, HasTransportConfig, SendSemantics, TransportConfig},
-    Error, Executor, Session, SessionConfig,
+    transport::{
+        AddressingMode, AsyncTransport, HasTransportConfig, SendSemantics, TransportConfig,
+    },
+    CameraId, Error, Executor, Session, SessionConfig,
 };
 
 use profile_fixtures::NonDefaultCompileTimeProfile;
 
 const ACK_SOCKET_ONE: &[u8] = &[0x90, 0x41, 0xff];
+const ACK_SOCKET_TWO: &[u8] = &[0x90, 0x42, 0xff];
 const COMPLETE_SOCKET_ONE: &[u8] = &[0x90, 0x51, 0xff];
 const COMPLETE_SOCKET_TWO: &[u8] = &[0x90, 0x52, 0xff];
 const ACK_NO_SOCKET: &[u8] = &[0x90, 0x40, 0xff];
@@ -48,8 +52,17 @@ const COMPLETE_NO_SOCKET: &[u8] = &[0x90, 0x50, 0xff];
 enum OnSend {
     /// Accept the write and queue these reads, in order.
     Reply(Vec<Vec<u8>>),
+    /// Accept the write and queue replies whose Sony sequence may come from
+    /// this write or the preceding one.
+    ReplyWithSequences(Vec<(ReplySequence, Vec<u8>)>),
     /// Fail the write itself.
     Fail(Error),
+}
+
+#[derive(Debug, Clone, Copy)]
+enum ReplySequence {
+    Current,
+    Previous,
 }
 
 #[derive(Debug)]
@@ -59,6 +72,7 @@ struct Script {
     faults: VecDeque<(usize, Error)>,
     writes: Vec<Vec<u8>>,
     sends: usize,
+    last_sequence: Option<[u8; 4]>,
 }
 
 /// A scripted async camera whose reads may fail.
@@ -66,6 +80,7 @@ struct Script {
 struct FaultTransport {
     config: TransportConfig,
     semantics: SendSemantics,
+    sony: bool,
     script: Arc<Mutex<Script>>,
     reads: flume::Sender<Result<Vec<u8>, Error>>,
     replies: flume::Receiver<Result<Vec<u8>, Error>>,
@@ -77,12 +92,14 @@ impl FaultTransport {
         Self {
             config: TransportConfig::default(),
             semantics,
+            sony: false,
             script: Arc::new(Mutex::new(Script {
                 steps: steps.into(),
                 trailing: Vec::new(),
                 faults: VecDeque::new(),
                 writes: Vec::new(),
                 sends: 0,
+                last_sequence: None,
             })),
             reads,
             replies,
@@ -98,6 +115,16 @@ impl FaultTransport {
     /// Replies used once the explicit script is exhausted.
     fn with_trailing_reply(self, replies: Vec<Vec<u8>>) -> Self {
         self.script.lock().expect("script lock").trailing = replies;
+        self
+    }
+
+    fn with_sony(mut self) -> Self {
+        self.sony = true;
+        self
+    }
+
+    fn with_serial_addressing(mut self) -> Self {
+        self.config.addressing = AddressingMode::Serial;
         self
     }
 
@@ -131,10 +158,12 @@ impl HasTransportConfig for FaultTransport {
 
 impl AsyncTransport for FaultTransport {
     fn send(&mut self, bytes: &[u8]) -> impl Future<Output = Result<(), Error>> + Send {
+        let sony = self.sony;
         let queued = {
             let mut script = self.script.lock().expect("script lock");
             script.sends = script.sends.saturating_add(1);
             let sends = script.sends;
+            let previous_sequence = script.last_sequence;
             let step = script
                 .steps
                 .pop_front()
@@ -143,6 +172,11 @@ impl AsyncTransport for FaultTransport {
                 OnSend::Fail(error) => Err(error),
                 OnSend::Reply(replies) => {
                     script.writes.push(bytes.to_vec());
+                    if sony {
+                        script.last_sequence = bytes
+                            .get(4..8)
+                            .and_then(|sequence| sequence.try_into().ok());
+                    }
                     let mut queued: Vec<Result<Vec<u8>, Error>> = Vec::new();
                     while script
                         .faults
@@ -152,7 +186,38 @@ impl AsyncTransport for FaultTransport {
                         let (_, error) = script.faults.pop_front().expect("checked above");
                         queued.push(Err(error));
                     }
-                    queued.extend(replies.into_iter().map(Ok));
+                    queued.extend(
+                        replies
+                            .into_iter()
+                            .map(|reply| Ok(frame_reply(bytes, &reply, sony))),
+                    );
+                    Ok(queued)
+                }
+                OnSend::ReplyWithSequences(replies) => {
+                    script.writes.push(bytes.to_vec());
+                    if sony {
+                        script.last_sequence = bytes
+                            .get(4..8)
+                            .and_then(|sequence| sequence.try_into().ok());
+                    }
+                    let mut queued: Vec<Result<Vec<u8>, Error>> = Vec::new();
+                    while script
+                        .faults
+                        .front()
+                        .is_some_and(|(number, _)| *number == sends)
+                    {
+                        let (_, error) = script.faults.pop_front().expect("checked above");
+                        queued.push(Err(error));
+                    }
+                    queued.extend(replies.into_iter().map(|(sequence, reply)| {
+                        let sequence = match sequence {
+                            ReplySequence::Current => Some(&bytes[4..8]),
+                            ReplySequence::Previous => previous_sequence
+                                .as_ref()
+                                .map(|sequence| sequence.as_slice()),
+                        };
+                        Ok(frame_reply_with_sequence(&reply, sony, sequence))
+                    }));
                     Ok(queued)
                 }
             }
@@ -187,6 +252,47 @@ impl AsyncTransport for FaultTransport {
     fn send_semantics(&self) -> SendSemantics {
         self.semantics
     }
+
+    fn addressing_mode_hint(&self) -> Option<AddressingMode> {
+        Some(self.config.addressing)
+    }
+}
+
+fn frame_reply(request: &[u8], payload: &[u8], sony: bool) -> Vec<u8> {
+    if !sony {
+        return payload.to_vec();
+    }
+    assert!(
+        request.len() >= 8,
+        "Sony request must carry its sequence header"
+    );
+    frame_reply_with_sequence(payload, sony, Some(&request[4..8]))
+}
+
+fn frame_reply_with_sequence(payload: &[u8], sony: bool, sequence: Option<&[u8]>) -> Vec<u8> {
+    if !sony {
+        return payload.to_vec();
+    }
+    let sequence = sequence.expect("Sony reply must carry a sequence");
+    assert_eq!(sequence.len(), 4, "Sony sequence has four bytes");
+    let mut frame = Vec::with_capacity(8 + payload.len());
+    frame.extend_from_slice(&[0x01, 0x11]);
+    frame.extend_from_slice(
+        &u16::try_from(payload.len())
+            .expect("Sony reply payload length")
+            .to_be_bytes(),
+    );
+    frame.extend_from_slice(sequence);
+    frame.extend_from_slice(payload);
+    frame
+}
+
+fn sony_sequence(frame: &[u8]) -> u32 {
+    assert!(
+        frame.len() >= 8,
+        "Sony write must carry its sequence header"
+    );
+    u32::from_be_bytes(frame[4..8].try_into().expect("Sony sequence bytes"))
 }
 
 fn session_config() -> SessionConfig {
@@ -196,26 +302,38 @@ fn session_config() -> SessionConfig {
     )
 }
 
+fn sony_session_config() -> SessionConfig {
+    SessionConfig::new(ProfileSpec::from_compile_time::<SonyFR7>().expect("Sony FR7 profile"))
+}
+
+fn multi_target_session_config() -> SessionConfig {
+    let mut config = session_config();
+    config
+        .register_target(
+            CameraId::CAMERA_2,
+            ProfileSpec::from_compile_time::<NonDefaultCompileTimeProfile>()
+                .expect("two-socket runtime profile"),
+        )
+        .expect("second raw target");
+    config
+}
+
 fn standard_reply() -> Vec<Vec<u8>> {
     vec![ACK_SOCKET_ONE.to_vec(), COMPLETE_SOCKET_ONE.to_vec()]
 }
 
-/// A transient receive error retries the in-flight command and keeps the
-/// session usable, exactly as 1.x's `SchedulerEvent::NetworkError` did.
-async fn transient_receive_error_retries_instead_of_destroying_the_session<E: Executor>(
-    executor: E,
-) {
-    let transport = FaultTransport::new(
-        SendSemantics::Datagram,
-        vec![OnSend::Reply(Vec::new()), OnSend::Reply(standard_reply())],
-    )
-    .with_trailing_reply(standard_reply())
-    .with_read_fault(
-        1,
-        Error::Io(Arc::new(std::io::Error::from(
-            std::io::ErrorKind::ConnectionRefused,
-        ))),
-    );
+/// A raw receive fault while a successfully sent command awaits its ACK leaves
+/// both acceptance and future reply ownership uncertain. The owner must poison
+/// the session, require a replacement, and never replay the command.
+async fn raw_transient_receive_fault_poisons_without_retry<E: Executor>(executor: E) {
+    let transport = FaultTransport::new(SendSemantics::Datagram, vec![OnSend::Reply(Vec::new())])
+        .with_trailing_reply(standard_reply())
+        .with_read_fault(
+            1,
+            Error::Io(Arc::new(std::io::Error::from(
+                std::io::ErrorKind::ConnectionRefused,
+            ))),
+        );
     let probe = transport.probe();
     let session = Session::open(transport, session_config(), executor)
         .await
@@ -224,17 +342,65 @@ async fn transient_receive_error_retries_instead_of_destroying_the_session<E: Ex
         .camera::<NonDefaultCompileTimeProfile>()
         .expect("camera view");
 
+    let error = camera
+        .submit::<AppliedOnly, _>(&ZoomStop)
+        .await
+        .expect("submission")
+        .applied()
+        .await
+        .expect_err("a raw receive fault must poison the session");
+    assert!(matches!(error, Error::UnsequencedCommandUnconfirmed));
+    assert!(error.requires_new_session());
+    assert_eq!(
+        probe.writes().len(),
+        1,
+        "an unconfirmed raw command is never replayed after a receive fault"
+    );
+}
+
+/// A sequence-correlated Sony receive fault can retry the same logical request
+/// and keep the session usable, exactly as 1.x's `SchedulerEvent::NetworkError`
+/// did. The classic trigger is UDP `recv` reporting ECONNREFUSED after an ICMP
+/// port-unreachable for an earlier datagram.
+async fn sony_transient_receive_fault_retries_same_sequence_and_keeps_session<E: Executor>(
+    executor: E,
+) {
+    let transport = FaultTransport::new(
+        SendSemantics::Datagram,
+        vec![OnSend::Reply(Vec::new()), OnSend::Reply(standard_reply())],
+    )
+    .with_sony()
+    .with_trailing_reply(standard_reply())
+    .with_read_fault(
+        1,
+        Error::Io(Arc::new(std::io::Error::from(
+            std::io::ErrorKind::ConnectionRefused,
+        ))),
+    );
+    let probe = transport.probe();
+    let session = Session::open(transport, sony_session_config(), executor)
+        .await
+        .expect("owner session");
+    let camera = session.camera::<SonyFR7>().expect("camera view");
+
     camera
         .submit::<AppliedOnly, _>(&ZoomStop)
         .await
         .expect("submission")
         .applied()
         .await
-        .expect("a transient receive error must retry, not fail the session");
+        .expect("a Sony receive fault retries on its existing sequence");
+
+    let writes = probe.writes();
     assert_eq!(
-        probe.writes().len(),
+        writes.len(),
         2,
-        "the in-flight command is written again after the transient fault"
+        "the sequence-correlated request gets one bounded retry"
+    );
+    assert_eq!(
+        sony_sequence(&writes[0]),
+        sony_sequence(&writes[1]),
+        "a Sony retry must preserve the logical request sequence"
     );
 
     camera
@@ -243,7 +409,7 @@ async fn transient_receive_error_retries_instead_of_destroying_the_session<E: Ex
         .expect("the session is still usable")
         .applied()
         .await
-        .expect("later work still completes");
+        .expect("later work still completes after the bounded retry");
 
     session.shutdown().await.expect("owner shutdown");
 }
@@ -301,6 +467,9 @@ async fn datagram_write_failure_fails_one_command_and_keeps_the_session<E: Execu
 /// A failed *stream* write is a session verdict on purpose: the byte-stream
 /// position becomes unknowable, so every affected caller must learn a
 /// replacement session is needed (#564), with the transport cause preserved.
+/// The two raw commands target different registered cameras so the raw
+/// same-target unacknowledged gate does not hide the session-wide stream
+/// boundary.
 async fn stream_write_failure_poisons_and_names_the_transport_cause<E: Executor>(executor: E) {
     let transport = FaultTransport::new(
         SendSemantics::Stream,
@@ -311,20 +480,24 @@ async fn stream_write_failure_poisons_and_names_the_transport_cause<E: Executor>
                 "peer went away mid-frame",
             )))),
         ],
-    );
+    )
+    .with_serial_addressing();
     let probe = transport.probe();
-    let session = Session::open(transport, session_config(), executor)
+    let session = Session::open(transport, multi_target_session_config(), executor)
         .await
         .expect("owner session");
-    let camera = session
-        .camera::<NonDefaultCompileTimeProfile>()
-        .expect("camera view");
+    let first_camera = session
+        .camera_for::<NonDefaultCompileTimeProfile>(CameraId::CAMERA_1)
+        .expect("camera one view");
+    let second_camera = session
+        .camera_for::<NonDefaultCompileTimeProfile>(CameraId::CAMERA_2)
+        .expect("camera two view");
 
-    let held = camera
+    let held = first_camera
         .submit::<AppliedOnly, _>(&ZoomStop)
         .await
         .expect("first submission");
-    let failing = camera
+    let failing = second_camera
         .submit::<AppliedOnly, _>(&FocusStop)
         .await
         .expect("the second submission is admitted before its write");
@@ -422,27 +595,34 @@ async fn malformed_datagram_is_ignored_and_later_valid_reply_succeeds<E: Executo
     session.shutdown().await.expect("owner shutdown");
 }
 
-/// A camera repeating a socket nibble it already handed out must not cost the
-/// second command its ACK deadline.
-async fn ack_naming_an_occupied_socket_is_reassigned<E: Executor>(executor: E) {
+/// A sequence-correlated Sony camera repeating a socket nibble it already
+/// handed out must not cause the second command to be silently remapped:
+/// sequence correlation preserves request identity while the occupied socket
+/// ACK is ignored. Once the first command completes and frees S1, the second
+/// command can advance on an exact ACK naming the available S2.
+async fn ack_naming_an_occupied_socket_is_ignored_until_available<E: Executor>(executor: E) {
     let transport = FaultTransport::new(
         SendSemantics::Datagram,
         vec![
             OnSend::Reply(vec![ACK_SOCKET_ONE.to_vec()]),
-            OnSend::Reply(vec![
-                ACK_SOCKET_ONE.to_vec(),
-                COMPLETE_SOCKET_ONE.to_vec(),
-                COMPLETE_SOCKET_TWO.to_vec(),
+            OnSend::ReplyWithSequences(vec![
+                // The first ACK for the second command names occupied S1.
+                // It is ignored, never remapped to S2. Completion of the
+                // first command frees S1; the later exact S2 ACK can then
+                // advance the second command before its exact completion.
+                (ReplySequence::Current, ACK_SOCKET_ONE.to_vec()),
+                (ReplySequence::Previous, COMPLETE_SOCKET_ONE.to_vec()),
+                (ReplySequence::Current, ACK_SOCKET_TWO.to_vec()),
+                (ReplySequence::Current, COMPLETE_SOCKET_TWO.to_vec()),
             ]),
         ],
-    );
+    )
+    .with_sony();
     let probe = transport.probe();
-    let session = Session::open(transport, session_config(), executor)
+    let session = Session::open(transport, sony_session_config(), executor)
         .await
         .expect("owner session");
-    let camera = session
-        .camera::<NonDefaultCompileTimeProfile>()
-        .expect("camera view");
+    let camera = session.camera::<SonyFR7>().expect("camera view");
 
     let first = camera
         .submit::<AppliedOnly, _>(&ZoomStop)
@@ -457,11 +637,11 @@ async fn ack_naming_an_occupied_socket_is_reassigned<E: Executor>(executor: E) {
     second
         .applied()
         .await
-        .expect("the reassigned ACK must complete the second operation");
+        .expect("the later exact ACK must complete the second operation");
     assert_eq!(
         probe.writes().len(),
         2,
-        "neither command needed a retry after reassignment"
+        "neither command needed a retransmit after the occupied ACK was ignored"
     );
 
     session.shutdown().await.expect("owner shutdown");
@@ -541,11 +721,12 @@ macro_rules! runtime_matrix {
 }
 
 runtime_matrix!(
-    transient_receive_error_retries_instead_of_destroying_the_session,
+    raw_transient_receive_fault_poisons_without_retry,
+    sony_transient_receive_fault_retries_same_sequence_and_keeps_session,
     datagram_write_failure_fails_one_command_and_keeps_the_session,
     stream_write_failure_poisons_and_names_the_transport_cause,
     socketless_ack_and_completion_still_complete_a_command,
     malformed_datagram_is_ignored_and_later_valid_reply_succeeds,
-    ack_naming_an_occupied_socket_is_reassigned,
+    ack_naming_an_occupied_socket_is_ignored_until_available,
     ack_answered_from_inside_the_write_is_matched_on_the_first_pump,
 );

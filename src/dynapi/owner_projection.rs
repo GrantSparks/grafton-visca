@@ -15,8 +15,8 @@ use crate::{
     capabilities::{Capabilities, TypedSupportSurface},
     completion::{AppliedOnly, Targeted},
     operation::{Cancellation, Operation},
-    CameraId, CancelRejected, CancellationOutcome, CompileTimeProfile, ControlClass, Error,
-    Inquiry, OperationCommand, OperationId, PlainCommand, ProfileSpec, Result, StateCache,
+    CameraId, CancelRejected, CancellationOutcome, CompileTimeProfile, Error, Inquiry,
+    OperationCommand, OperationId, PlainCommand, ProfileSpec, Result, StateCache, SubmissionClass,
 };
 
 use super::DynFuture;
@@ -269,24 +269,24 @@ impl DynSessionCamera {
 
     /// Returns this view's submission-class default, if it carries one.
     ///
-    /// This is the erased projection of [`Camera::command_class`].
+    /// This is the erased projection of [`Camera::submission_class`].
     #[must_use]
-    pub const fn command_class(&self) -> Option<ControlClass> {
-        self.core.command_class()
+    pub const fn submission_class(&self) -> Option<SubmissionClass> {
+        self.core.submission_class()
     }
 
-    /// Sets the [`ControlClass`] every later submission from *this view* uses,
-    /// or clears it with `None`.
+    /// Sets the ordinary-work [`SubmissionClass`] every later submission from
+    /// *this view* uses, or clears it with `None`.
     ///
-    /// This is the erased projection of [`Camera::set_command_class`] and
+    /// This is the erased projection of [`Camera::set_submission_class`] and
     /// carries exactly its semantics, including the rule that a request the
-    /// crate classifies [`ControlClass::Urgent`] is never demoted by a handle
+    /// crate classifies [`crate::ControlClass::Urgent`] is never demoted by a handle
     /// default. The value belongs to this view: a
     /// [`clone`](Clone::clone) copies it and then diverges, and a typed
     /// [`camera`](Self::camera) projected out of this view starts from the
     /// same value.
-    pub fn set_command_class(&mut self, class: Option<ControlClass>) {
-        self.core.set_command_class(class);
+    pub fn set_submission_class(&mut self, class: Option<SubmissionClass>) {
+        self.core.set_submission_class(class);
     }
 
     /// Executes a plain command through the shared owner.
@@ -299,14 +299,20 @@ impl DynSessionCamera {
 
     /// Executes a plain command in an explicitly named scheduling lane.
     ///
-    /// This is the erased projection of [`Camera::execute_with_class`];
-    /// `class` replaces both the command's own class and this view's default,
-    /// and it is the one route that can demote an urgent request.
-    pub async fn execute_with_class<C>(&self, command: &C, class: ControlClass) -> Result<(), Error>
+    /// This is the erased projection of [`Camera::execute_with_submission_class`];
+    /// `class` replaces this view's default for ordinary work. An
+    /// intrinsically urgent command remains urgent.
+    pub async fn execute_with_submission_class<C>(
+        &self,
+        command: &C,
+        class: SubmissionClass,
+    ) -> Result<(), Error>
     where
         C: PlainCommand + ?Sized,
     {
-        self.core.execute_with_class(command, class).await
+        self.core
+            .execute_with_submission_class(command, class)
+            .await
     }
 
     /// Sends a typed inquiry through the shared owner.
@@ -319,16 +325,18 @@ impl DynSessionCamera {
 
     /// Sends a typed inquiry in an explicitly named scheduling lane.
     ///
-    /// This is the erased projection of [`Camera::inquire_with_class`].
-    pub async fn inquire_with_class<Q>(
+    /// This is the erased projection of [`Camera::inquire_with_submission_class`].
+    pub async fn inquire_with_submission_class<Q>(
         &self,
         inquiry: &Q,
-        class: ControlClass,
+        class: SubmissionClass,
     ) -> Result<Q::Response, Error>
     where
         Q: Inquiry + ?Sized,
     {
-        self.core.inquire_with_class(inquiry, class).await
+        self.core
+            .inquire_with_submission_class(inquiry, class)
+            .await
     }
 
     /// Submits any typed targeted request through the same preparation and
@@ -346,17 +354,17 @@ impl DynSessionCamera {
     /// Submits a typed targeted request in an explicitly named scheduling
     /// lane.
     ///
-    /// This is the erased projection of [`Camera::submit_with_class`].
-    pub async fn submit_targeted_with_class<O>(
+    /// This is the erased projection of [`Camera::submit_with_submission_class`].
+    pub async fn submit_targeted_with_submission_class<O>(
         &self,
         operation: &O,
-        class: ControlClass,
+        class: SubmissionClass,
     ) -> Result<DynTargetedOperation, Error>
     where
         O: OperationCommand<Targeted> + Sync + ?Sized,
     {
         self.core
-            .submit_with_class::<Targeted, O>(operation, class)
+            .submit_with_submission_class::<Targeted, O>(operation, class)
             .await
             .map(DynTargetedOperation::from_operation)
     }
@@ -376,19 +384,19 @@ impl DynSessionCamera {
     /// Submits a typed applied-only request in an explicitly named scheduling
     /// lane.
     ///
-    /// This is the erased projection of [`Camera::submit_with_class`], and the
-    /// route that can demote an urgent stop such as
-    /// [`ZoomStop`](crate::request::builtin::ZoomStop).
-    pub async fn submit_applied_with_class<O>(
+    /// This is the erased projection of
+    /// [`Camera::submit_with_submission_class`]. An intrinsically urgent stop
+    /// such as [`ZoomStop`](crate::request::builtin::ZoomStop) remains urgent.
+    pub async fn submit_applied_with_submission_class<O>(
         &self,
         operation: &O,
-        class: ControlClass,
+        class: SubmissionClass,
     ) -> Result<DynAppliedOperation, Error>
     where
         O: OperationCommand<AppliedOnly> + Sync + ?Sized,
     {
         self.core
-            .submit_with_class::<AppliedOnly, O>(operation, class)
+            .submit_with_submission_class::<AppliedOnly, O>(operation, class)
             .await
             .map(DynAppliedOperation::from_operation)
     }

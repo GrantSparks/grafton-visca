@@ -64,21 +64,38 @@ scenario raw-inquiry-content-then-per-target-fifo
 000013 | expect | observer=t1-power-second outcome=reply:unknown:off | #542 absent raw inquiry content matching falls back to the established per-target FIFO.
 end
 
-scenario raw-error-socket-fifo-and-temporal-fallback
-000000 | transmit | id=old-command target=1 kind=command envelope=raw
-000005 | transmit | id=new-command target=1 kind=command envelope=raw
-000006 | frame | target=1 envelope=raw response=error code=0x41
-000006 | expect | observer=new-command outcome=error:0x41 | #542 raw errors without socket or inquiry ownership use the most-recent target-local pending command.
-000007 | frame | target=1 envelope=raw response=error code=0x02
-000007 | expect | observer=old-command outcome=error:0x02 | #542 raw errors retain the established target-local temporal attribution policy.
-000010 | transmit | id=inquiry-before-command target=1 kind=inquiry envelope=raw route=power
-000011 | transmit | id=command-after-inquiry target=1 kind=command envelope=raw
-000012 | frame | target=1 envelope=raw response=error code=0x03
-000012 | expect | observer=inquiry-before-command outcome=error:0x03 | #542 a raw error without socket uses per-target inquiry FIFO before temporal command fallback.
-000013 | frame | target=1 envelope=raw response=ack socket=2
-000013 | expect | observer=engine outcome=ack:command-after-inquiry:target=1:socket=2 | #542 raw command ACK and completion attribution is keyed by target and socket together.
-000014 | frame | target=1 envelope=raw response=error socket=2 code=0x04
-000014 | expect | observer=command-after-inquiry outcome=error:0x04 | #542 a raw error with an owned target and socket is attributed before FIFO or temporal fallback.
+scenario raw-error-unique-evidence-and-authority
+000000 | transmit | id=command-alone target=1 kind=command envelope=raw
+000001 | frame | target=1 envelope=raw response=error code=0x01
+000001 | expect | observer=command-alone outcome=error:0x01 | #542 socketless raw errors route a unique unacknowledged command only without an inquiry owner.
+000002 | transmit | id=inquiry-first target=1 kind=inquiry envelope=raw route=power
+000003 | transmit | id=inquiry-second target=1 kind=inquiry envelope=raw route=zoom
+000004 | frame | target=1 envelope=raw response=error code=0x01
+000004 | expect | observer=inquiry-first outcome=error:0x01 | #542 socketless raw errors use per-target inquiry FIFO only without an unacknowledged command.
+000005 | frame | target=1 envelope=raw response=error code=0x01
+000005 | expect | observer=inquiry-second outcome=error:0x01 | #542 socketless raw errors use per-target inquiry FIFO only without an unacknowledged command.
+000006 | transmit | id=collision-inquiry target=1 kind=inquiry envelope=raw route=power
+000007 | transmit | id=collision-command target=1 kind=command envelope=raw
+000008 | frame | target=1 envelope=raw response=error code=0x03
+000008 | expect | observer=diagnostics outcome=ignored:unmatched-raw-frame | #542 ambiguous socketless raw errors leave both live requests authoritative without terminal or retry.
+000009 | frame | target=1 envelope=raw response=reply route=power payload=on
+000009 | expect | observer=collision-inquiry outcome=reply:power:on | #542 raw inquiry replies use route and content matching before FIFO fallback.
+000010 | frame | target=1 envelope=raw response=ack socket=1
+000010 | expect | observer=engine outcome=ack:collision-command:target=1:socket=1 | #542 raw command ACK and completion attribution is keyed by target and socket together.
+000011 | frame | target=1 envelope=raw response=completion socket=1
+000011 | expect | observer=collision-command outcome=applied | #542 completion releases all target and socket ownership and emits Applied for the exact request.
+000012 | transmit | id=unowned-socket-command target=1 kind=command envelope=raw
+000013 | frame | target=1 envelope=raw response=error socket=2 code=0x01
+000013 | expect | observer=diagnostics outcome=ignored:unmatched-raw-frame | #542 named raw error sockets are authoritative and an unowned socket is ignored.
+000014 | frame | target=1 envelope=raw response=error code=0x01
+000014 | expect | observer=unowned-socket-command outcome=error:0x01 | #542 socketless raw errors route a unique unacknowledged command only without an inquiry owner.
+000015 | transmit | id=executing-command target=1 kind=command envelope=raw
+000016 | frame | target=1 envelope=raw response=ack socket=1
+000016 | expect | observer=engine outcome=ack:executing-command:target=1:socket=1 | #542 raw command ACK and completion attribution is keyed by target and socket together.
+000017 | frame | target=1 envelope=raw response=error code=0x01
+000017 | expect | observer=diagnostics outcome=ignored:unmatched-raw-frame | #542 socketless raw errors never target an already Executing command.
+000018 | frame | target=1 envelope=raw response=error socket=1 code=0x01
+000018 | expect | observer=executing-command outcome=error:0x01 | #542 a named raw error socket resolves only its exact target/socket owner.
 end
 
 scenario sony-stale-duplicate-and-unmatched-never-fallback

@@ -255,6 +255,46 @@ mod blocking {
         }
     }
 
+    /// Build the same low-level policy as [`policy`], but with Sony's
+    /// sequence-bearing envelope.  Tests that intentionally exercise
+    /// pre-ACK concurrency or safe retry must use this envelope: raw VISCA
+    /// cannot identify two same-target commands until one ACK assigns a
+    /// socket.
+    fn sony_policy(capacity: usize, transport: TransportKind) -> OwnerPolicy {
+        let mut owner = policy(capacity, transport);
+        owner.protocol.envelope = EnvelopeKind::Sony;
+        owner
+    }
+
+    /// Seed the fake driver's transmission metadata with the sequence values
+    /// that a Sony envelope would have returned.  The fake driver does not
+    /// frame bytes itself, so the test supplies the envelope metadata at the
+    /// driver boundary explicitly.
+    fn sony_driver(sequences: impl IntoIterator<Item = u32>) -> FakeDriver {
+        FakeDriver {
+            writes: Vec::new(),
+            results: sequences
+                .into_iter()
+                .map(|sequence| {
+                    Ok(TransmissionMeta {
+                        sequence: Some(sequence),
+                    })
+                })
+                .collect(),
+        }
+    }
+
+    fn sony_frame(target: CameraId, sequence: u32, response: DecodedResponse) -> DecodedFrame {
+        DecodedFrame {
+            target,
+            sequence: Some(EnvelopeSequence {
+                value: sequence,
+                width: SequenceWidth::Full32,
+            }),
+            response,
+        }
+    }
+
     #[derive(Debug)]
     enum TestEnvelope {
         Raw(RawVisca),
@@ -420,8 +460,8 @@ mod blocking {
     fn typed_blocking_wait_pumps_and_retains_out_of_order_peer_results() {
         let profile =
             crate::ProfileSpec::from_compile_time::<crate::profiles::SonyBRC300>().unwrap();
-        let mut owner = BlockingOwner::new(policy(8, TransportKind::Datagram)).unwrap();
-        let mut driver = FakeDriver::default();
+        let mut owner = BlockingOwner::new(sony_policy(8, TransportKind::Datagram)).unwrap();
+        let mut driver = sony_driver(0..4);
         let a = owner
             .submit_command(&mut driver, prepared_focus(&profile, CameraId::CAMERA_1))
             .unwrap();
@@ -439,52 +479,60 @@ mod blocking {
         let mut decoder = ScriptedDecoder {
             batches: VecDeque::from([
                 vec![
-                    frame(
+                    sony_frame(
                         CameraId::CAMERA_1,
+                        0,
                         DecodedResponse::Ack {
                             socket: Some(ViscaSocket::S1),
                         },
                     ),
-                    frame(
+                    sony_frame(
                         CameraId::CAMERA_1,
+                        1,
                         DecodedResponse::Ack {
                             socket: Some(ViscaSocket::S2),
                         },
                     ),
-                    frame(
+                    sony_frame(
                         CameraId::CAMERA_2,
+                        2,
                         DecodedResponse::Ack {
                             socket: Some(ViscaSocket::S1),
                         },
                     ),
-                    frame(
+                    sony_frame(
                         CameraId::CAMERA_2,
+                        3,
                         DecodedResponse::Ack {
                             socket: Some(ViscaSocket::S2),
                         },
                     ),
                 ],
-                vec![frame(
+                vec![sony_frame(
                     CameraId::CAMERA_1,
+                    0,
                     DecodedResponse::Completion {
                         socket: Some(ViscaSocket::S1),
                     },
                 )],
-                vec![frame(
+                vec![sony_frame(
                     CameraId::CAMERA_2,
+                    3,
                     DecodedResponse::Error {
                         socket: Some(ViscaSocket::S2),
                         code: 0x02,
                     },
                 )],
-                vec![frame(
+                vec![sony_frame(
                     CameraId::CAMERA_1,
+                    1,
                     DecodedResponse::Completion {
                         socket: Some(ViscaSocket::S2),
                     },
                 )],
-                vec![frame(
+                vec![sony_frame(
                     CameraId::CAMERA_2,
+                    2,
                     DecodedResponse::Completion {
                         socket: Some(ViscaSocket::S1),
                     },
@@ -729,8 +777,8 @@ mod blocking {
     fn shared_blocking_control_allows_two_public_handles() {
         let profile =
             crate::ProfileSpec::from_compile_time::<crate::profiles::SonyBRC300>().unwrap();
-        let mut owner = BlockingOwner::new(policy(2, TransportKind::Datagram)).unwrap();
-        let mut driver = FakeDriver::default();
+        let mut owner = BlockingOwner::new(sony_policy(2, TransportKind::Datagram)).unwrap();
+        let mut driver = sony_driver(0..2);
         let first_receipt = owner
             .submit_operation(&mut driver, prepared_zoom_drive(&profile))
             .unwrap();
@@ -757,8 +805,8 @@ mod blocking {
     fn shared_blocking_handles_retain_out_of_order_success_and_error() {
         let profile =
             crate::ProfileSpec::from_compile_time::<crate::profiles::SonyBRC300>().unwrap();
-        let mut owner = BlockingOwner::new(policy(2, TransportKind::Datagram)).unwrap();
-        let mut driver = FakeDriver::default();
+        let mut owner = BlockingOwner::new(sony_policy(2, TransportKind::Datagram)).unwrap();
+        let mut driver = sony_driver(0..2);
         let first_receipt = owner
             .submit_operation(&mut driver, prepared_zoom_drive(&profile))
             .unwrap();
@@ -774,8 +822,9 @@ mod blocking {
         owner
             .inject_frame(
                 &mut driver,
-                frame(
+                sony_frame(
                     CameraId::CAMERA_1,
+                    0,
                     DecodedResponse::Ack {
                         socket: Some(ViscaSocket::S1),
                     },
@@ -786,8 +835,9 @@ mod blocking {
         owner
             .inject_frame(
                 &mut driver,
-                frame(
+                sony_frame(
                     CameraId::CAMERA_1,
+                    1,
                     DecodedResponse::Ack {
                         socket: Some(ViscaSocket::S2),
                     },
@@ -798,8 +848,9 @@ mod blocking {
         owner
             .inject_frame(
                 &mut driver,
-                frame(
+                sony_frame(
                     CameraId::CAMERA_1,
+                    1,
                     DecodedResponse::Completion {
                         socket: Some(ViscaSocket::S2),
                     },
@@ -810,8 +861,9 @@ mod blocking {
         owner
             .inject_frame(
                 &mut driver,
-                frame(
+                sony_frame(
                     CameraId::CAMERA_1,
+                    0,
                     DecodedResponse::Error {
                         socket: Some(ViscaSocket::S1),
                         code: 0x02,
@@ -1442,9 +1494,9 @@ mod blocking {
     #[test]
     fn transient_blocking_read_fault_retries_and_keeps_the_session() {
         let profile =
-            crate::ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>().unwrap();
-        let mut owner = BlockingOwner::new(policy(1, TransportKind::Datagram)).unwrap();
-        let mut driver = FakeDriver::default();
+            crate::ProfileSpec::from_compile_time::<crate::profiles::SonyBRC300>().unwrap();
+        let mut owner = BlockingOwner::new(sony_policy(1, TransportKind::Datagram)).unwrap();
+        let mut driver = sony_driver([0, 0]);
         let _receipt = owner
             .submit_command(&mut driver, prepared_focus(&profile, CameraId::CAMERA_1))
             .unwrap();
@@ -1870,8 +1922,8 @@ mod blocking {
 
     #[test]
     fn blocking_fixture_first_write_and_out_of_order_retention() {
-        let mut owner = BlockingOwner::new(policy(8, TransportKind::Datagram)).unwrap();
-        let mut driver = FakeDriver::default();
+        let mut owner = BlockingOwner::new(sony_policy(8, TransportKind::Datagram)).unwrap();
+        let mut driver = sony_driver(0..2);
         let a = owner
             .submit(
                 &mut driver,
@@ -1896,8 +1948,9 @@ mod blocking {
         owner
             .inject_frame(
                 &mut driver,
-                frame(
+                sony_frame(
                     CameraId::CAMERA_1,
+                    0,
                     DecodedResponse::Ack {
                         socket: Some(ViscaSocket::S1),
                     },
@@ -1908,8 +1961,9 @@ mod blocking {
         owner
             .inject_frame(
                 &mut driver,
-                frame(
+                sony_frame(
                     CameraId::CAMERA_1,
+                    1,
                     DecodedResponse::Ack {
                         socket: Some(ViscaSocket::S2),
                     },
@@ -1920,8 +1974,9 @@ mod blocking {
         owner
             .inject_frame(
                 &mut driver,
-                frame(
+                sony_frame(
                     CameraId::CAMERA_1,
+                    1,
                     DecodedResponse::Completion {
                         socket: Some(ViscaSocket::S2),
                     },
@@ -1932,8 +1987,9 @@ mod blocking {
         owner
             .inject_frame(
                 &mut driver,
-                frame(
+                sony_frame(
                     CameraId::CAMERA_1,
+                    0,
                     DecodedResponse::Completion {
                         socket: Some(ViscaSocket::S1),
                     },
@@ -2246,8 +2302,8 @@ mod blocking {
     /// succeed, and the queued one is written and completed in submit order.
     #[test]
     fn blocking_submissions_beyond_the_socket_count_all_complete_in_order() {
-        let mut owner = BlockingOwner::new(policy(8, TransportKind::Datagram)).unwrap();
-        let mut driver = FakeDriver::default();
+        let mut owner = BlockingOwner::new(sony_policy(8, TransportKind::Datagram)).unwrap();
+        let mut driver = sony_driver(0..3);
         let receipts: Vec<_> = (0..3)
             .map(|index| {
                 owner
@@ -2275,8 +2331,9 @@ mod blocking {
             owner
                 .inject_frame(
                     &mut driver,
-                    frame(
+                    sony_frame(
                         CameraId::CAMERA_1,
+                        u32::from(socket.as_socket_number() - 1),
                         DecodedResponse::Ack {
                             socket: Some(socket),
                         },
@@ -2288,8 +2345,9 @@ mod blocking {
         owner
             .inject_frame(
                 &mut driver,
-                frame(
+                sony_frame(
                     CameraId::CAMERA_1,
+                    0,
                     DecodedResponse::Completion {
                         socket: Some(ViscaSocket::S1),
                     },
@@ -2307,8 +2365,9 @@ mod blocking {
         owner
             .inject_frame(
                 &mut driver,
-                frame(
+                sony_frame(
                     CameraId::CAMERA_1,
+                    1,
                     DecodedResponse::Completion {
                         socket: Some(ViscaSocket::S2),
                     },
@@ -2323,8 +2382,9 @@ mod blocking {
         owner
             .inject_frame(
                 &mut driver,
-                frame(
+                sony_frame(
                     CameraId::CAMERA_1,
+                    2,
                     DecodedResponse::Ack {
                         socket: Some(ViscaSocket::S1),
                     },
@@ -2335,8 +2395,9 @@ mod blocking {
         owner
             .inject_frame(
                 &mut driver,
-                frame(
+                sony_frame(
                     CameraId::CAMERA_1,
+                    2,
                     DecodedResponse::Completion {
                         socket: Some(ViscaSocket::S1),
                     },
@@ -2376,16 +2437,25 @@ mod blocking {
                 command(CameraId::CAMERA_1, CancellationPolicy::Supported, None),
             )
             .unwrap();
-        assert_eq!(driver.writes.len(), 2, "paced B performs its own write");
+        assert_eq!(
+            driver.writes.len(),
+            1,
+            "raw same-target B waits for A's ACK before it can be written"
+        );
         assert_eq!(owner.state().request_state(a_id), Some(before));
         assert!(a.terminal().is_none());
         assert_eq!(owner.state().active_len(), 2);
 
-        owner.wake(&mut driver, Instant::now()).unwrap();
+        let ack_deadline = match before.0 {
+            Phase::AwaitingAck { deadline, .. } => deadline,
+            phase => panic!("request A was not awaiting an ACK: {phase:?}"),
+        };
+        owner.wake(&mut driver, ack_deadline).unwrap();
         assert!(matches!(
             a.terminal(),
-            Some(RuntimeOutcome::Failed(Error::Timeout))
+            Some(RuntimeOutcome::Failed(Error::UnsequencedCommandUnconfirmed))
         ));
+        assert_eq!(owner.state().state(), SessionState::Poisoned);
         drop(b);
     }
 
@@ -3109,6 +3179,36 @@ mod blocking {
         ));
         assert_eq!(owner.state().active_len(), 0);
         assert_eq!(owner.state().permits().available(), 2);
+
+        // A repeated explicit shutdown is an idempotent no-op: it must not
+        // write again or resolve another terminal event.
+        let writes_after_shutdown = driver.writes.len();
+        let terminals_after_shutdown = owner.state().metrics().terminal;
+        owner.shutdown(&mut driver).unwrap();
+        assert_eq!(driver.writes.len(), writes_after_shutdown);
+        assert_eq!(owner.state().metrics().terminal, terminals_after_shutdown);
+
+        // A different fatal boundary must remain visible to a later explicit
+        // shutdown instead of being mistaken for an idempotent repeat.
+        let writes_after_poison = stream_driver.writes.len();
+        let error = stream_owner
+            .shutdown(&mut stream_driver)
+            .expect_err("stream poison must not be hidden by shutdown");
+        assert!(matches!(error, Error::StreamPoisoned { .. }));
+        assert_eq!(stream_driver.writes.len(), writes_after_poison);
+    }
+
+    #[test]
+    fn blocking_shutdown_preserves_reentrancy_error() {
+        let mut owner = BlockingOwner::new(policy(1, TransportKind::Datagram)).unwrap();
+        owner.mark_pumping_for_test();
+        let mut driver = FakeDriver::default();
+
+        let error = owner
+            .shutdown(&mut driver)
+            .expect_err("re-entrant shutdown must be rejected");
+        assert!(matches!(error, Error::TransportBusy));
+        assert!(driver.writes.is_empty());
     }
 
     /// Issue #634: the blocking facade is replayed against every expectation
@@ -3656,10 +3756,10 @@ mod metrics {
     }
 
     #[test]
-    fn expired_ack_deadline_counts_a_timeout_and_the_retry_it_scheduled() {
+    fn expired_ack_deadline_counts_a_timeout_and_the_retry_it_scheduled_for_sony() {
         let start = Instant::now();
-        let mut state = OwnerState::new(owner_policy(EnvelopeKind::Raw)).unwrap();
-        let _observer = sent(&mut state, command(retrying()), None, start);
+        let mut state = OwnerState::new(owner_policy(EnvelopeKind::Sony)).unwrap();
+        let _observer = sent(&mut state, command(retrying()), Some(1), start);
         assert_eq!(state.metrics().ack_timeouts, 0);
         advance(&mut state, start + ACK);
         let metrics = state.metrics();
@@ -3683,14 +3783,14 @@ mod metrics {
     }
 
     #[test]
-    fn expired_completion_deadline_counts_separately_from_the_ack_deadline() {
+    fn expired_completion_deadline_counts_separately_from_the_ack_deadline_for_sony() {
         let start = Instant::now();
-        let mut state = OwnerState::new(owner_policy(EnvelopeKind::Raw)).unwrap();
-        let _observer = sent(&mut state, command(retrying()), None, start);
+        let mut state = OwnerState::new(owner_policy(EnvelopeKind::Sony)).unwrap();
+        let _observer = sent(&mut state, command(retrying()), Some(1), start);
         apply(
             &mut state,
             frame(
-                None,
+                Some(1),
                 DecodedResponse::Ack {
                     socket: Some(ViscaSocket::S1),
                 },
@@ -3725,13 +3825,7 @@ mod metrics {
             let _observer = sent(&mut state, command(retrying()), None, start);
             apply(
                 &mut state,
-                frame(
-                    None,
-                    DecodedResponse::Error {
-                        socket: Some(ViscaSocket::S1),
-                        code,
-                    },
-                ),
+                frame(None, DecodedResponse::Error { socket: None, code }),
                 start,
             );
             let metrics = state.metrics();
@@ -3751,7 +3845,7 @@ mod metrics {
             frame(
                 None,
                 DecodedResponse::Error {
-                    socket: Some(ViscaSocket::S1),
+                    socket: None,
                     code: 0x02,
                 },
             ),
@@ -3805,13 +3899,14 @@ mod metrics {
         assert_eq!(state.metrics().terminal, 0);
     }
 
-    /// A transient receive fault (#565) retries in-flight work, and a retry is a
-    /// retry whatever provoked it.
+    /// A transient receive fault (#565) retries a sequenced Sony command while
+    /// it awaits its ACK. Raw commands poison the session because they have no
+    /// sequence key that can make replay safe.
     #[test]
-    fn a_transient_receive_fault_retry_counts_as_a_retry() {
+    fn a_transient_receive_fault_retry_counts_as_a_retry_for_sony() {
         let start = Instant::now();
-        let mut state = OwnerState::new(owner_policy(EnvelopeKind::Raw)).unwrap();
-        let _observer = sent(&mut state, command(retrying()), None, start);
+        let mut state = OwnerState::new(owner_policy(EnvelopeKind::Sony)).unwrap();
+        let _observer = sent(&mut state, command(retrying()), Some(1), start);
         apply(
             &mut state,
             Input::ReceiveFault {
@@ -3920,8 +4015,8 @@ mod lifecycle_trace {
     use crate::{
         protocol::response::{decode_basic, BasicKind},
         runtime::engine::{
-            CancellationPolicy, ControlPolicy, EncodedMessage, EnvelopeKind, RequestContext,
-            RetryPolicy, TimeoutPolicy, TransportKind,
+            CancellationPolicy, ControlPolicy, EncodedMessage, EnvelopeKind, InquiryRoute,
+            RequestContext, RetryPolicy, TimeoutPolicy, TransportKind,
         },
         CameraId, Error,
     };
@@ -4118,7 +4213,7 @@ mod lifecycle_trace {
             inquiry_cooldown: Duration::ZERO,
         };
         let mut targets = [None; 9];
-        for slot in targets.iter_mut().take(3).skip(1) {
+        for slot in targets.iter_mut().take(4).skip(1) {
             *slot = Some(TargetPolicy {
                 command_sockets: 2,
                 cancellation,
@@ -4153,6 +4248,31 @@ mod lifecycle_trace {
             applied_state: Some(
                 AppliedStateProjection::set(WriteOnlyState::Spotlight, &[1]).unwrap(),
             ),
+        }
+    }
+
+    fn inquiry(
+        target: CameraId,
+        wire: &str,
+        cancellation: CancellationPolicy,
+        reply: Duration,
+    ) -> RuntimeRequest {
+        RuntimeRequest::Inquiry {
+            wire: Arc::new(EncodedMessage::new(&hex(wire)).unwrap()),
+            context: RequestContext {
+                target,
+                timeout: TimeoutPolicy {
+                    ack: UNREACHABLE,
+                    completion: UNREACHABLE,
+                    inquiry: reply,
+                    cancellation: UNREACHABLE,
+                    ambiguity: UNREACHABLE,
+                },
+                retry: RetryPolicy::NEVER,
+                control: ControlPolicy::default(),
+                cancellation,
+            },
+            route: InquiryRoute::UNKNOWN,
         }
     }
 
@@ -4314,7 +4434,11 @@ mod lifecycle_trace {
                 return;
             };
 
-            let request = command(target, wire, self.cancellation, ack);
+            let request = match field(input, "kind").unwrap_or("command") {
+                "command" => command(target, wire, self.cancellation, ack),
+                "inquiry" => inquiry(target, wire, self.cancellation, ack),
+                other => panic!("unknown fixture request kind {other}"),
+            };
             let now = self.now;
             let (staged, observer, admission) = self.state_mut().stage_admission(request, permit);
             let Input::Admit { ticket, request } = staged else {

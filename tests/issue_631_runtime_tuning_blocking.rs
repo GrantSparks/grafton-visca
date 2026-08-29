@@ -16,9 +16,6 @@
 
 #![cfg(feature = "blocking")]
 
-#[path = "common/profile_fixtures.rs"]
-mod profile_fixtures;
-
 use std::{
     collections::VecDeque,
     sync::{Arc, Mutex},
@@ -31,6 +28,7 @@ use grafton_visca::{
     command::CommandKind,
     completion::AppliedOnly,
     profile::ProfileSpec,
+    profiles::SonyFR7,
     request, AffectedAxes, CameraId, ControlClass, Error, Inquiry, InquiryRoute, OperationCommand,
     OperationalTuning, Request, ResponseDecoder, RetryClass, TimeoutClass,
 };
@@ -39,11 +37,9 @@ use grafton_visca::transport::{
     BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig,
 };
 
-use profile_fixtures::NonDefaultCompileTimeProfile;
-
-/// The fixture profile's own acknowledgement deadline.
-const PROFILE_ACK_TIMEOUT: Duration = Duration::from_millis(100);
-/// A deliberately wide acknowledgement deadline, ten times the profile's.
+/// The Sony FR7 profile's own acknowledgement deadline.
+const PROFILE_ACK_TIMEOUT: Duration = Duration::from_millis(200);
+/// A deliberately wide acknowledgement deadline, five times the profile's.
 const WIDE_ACK_TIMEOUT: Duration = Duration::from_secs(1);
 
 /// A never-retried operation, so exactly one acknowledgement deadline decides
@@ -170,18 +166,13 @@ impl BlockingTransport for SilentTransport {
 }
 
 fn session_config() -> SessionConfig {
-    SessionConfig::new(
-        ProfileSpec::from_compile_time::<NonDefaultCompileTimeProfile>()
-            .expect("two-socket runtime profile"),
-    )
+    SessionConfig::new(ProfileSpec::from_compile_time::<SonyFR7>().expect("Sony FR7 profile"))
 }
 
 /// Submits one never-retried operation into silence and reports how long the
 /// owner took to fail it.
 fn time_to_ack_timeout(session: &Session) -> Duration {
-    let camera = session
-        .camera::<NonDefaultCompileTimeProfile>()
-        .expect("camera view");
+    let camera = session.camera::<SonyFR7>().expect("camera view");
     let started = Instant::now();
     let error = camera
         .submit::<AppliedOnly, _>(&SilentOperation)
@@ -268,9 +259,7 @@ fn a_narrowed_ack_timeout_governs_the_next_submission() {
 fn a_widened_inquiry_timeout_governs_the_next_inquiry() {
     let transport = SilentTransport::new();
     let session = Session::open(transport, session_config()).expect("owner session");
-    let camera = session
-        .camera::<NonDefaultCompileTimeProfile>()
-        .expect("camera view");
+    let camera = session.camera::<SonyFR7>().expect("camera view");
 
     session
         .set_tuning(OperationalTuning::new().inquiry_timeout(Duration::from_secs(2)))
@@ -302,7 +291,7 @@ fn a_view_taken_before_the_update_prepares_under_the_new_tuning() {
     let transport = SilentTransport::new();
     let session = Session::open(transport, session_config()).expect("owner session");
     let camera = session
-        .camera::<NonDefaultCompileTimeProfile>()
+        .camera::<SonyFR7>()
         .expect("camera view taken before the update");
 
     session
@@ -340,7 +329,7 @@ fn the_installed_tuning_reads_back_through_the_session() {
 
     let tuning = OperationalTuning::new()
         .ack_timeout(WIDE_ACK_TIMEOUT)
-        .completion_timeout(Duration::from_secs(4))
+        .completion_timeout(Duration::from_secs(9))
         .retry_limit(5);
     session.set_tuning(tuning).expect("accepted");
     assert_eq!(session.tuning(), tuning, "the getter reports what was set");
@@ -420,9 +409,7 @@ fn an_update_while_a_receipt_is_outstanding_leaves_it_alone() {
     let transport = SilentTransport::new();
     let writes = transport.probe();
     let session = Session::open(transport, session_config()).expect("owner session");
-    let camera = session
-        .camera::<NonDefaultCompileTimeProfile>()
-        .expect("camera view");
+    let camera = session.camera::<SonyFR7>().expect("camera view");
 
     let operation = camera
         .submit::<AppliedOnly, _>(&SilentOperation)
@@ -434,7 +421,7 @@ fn an_update_while_a_receipt_is_outstanding_leaves_it_alone() {
          already stamped as an absolute instant"
     );
 
-    // The request is admitted under the profile's 100 ms deadline. Widening to
+    // The request is admitted under the profile's 200 ms deadline. Widening to
     // a full second now must not extend it.
     session
         .set_tuning(OperationalTuning::new().ack_timeout(WIDE_ACK_TIMEOUT))
@@ -474,7 +461,7 @@ fn an_update_while_a_receipt_is_outstanding_leaves_it_alone() {
 #[test]
 fn a_camera_session_reconfigures_its_own_session() {
     let transport = SilentTransport::new();
-    let config = CameraConfig::<NonDefaultCompileTimeProfile>::new();
+    let config = CameraConfig::<SonyFR7>::new();
     let session = CameraSession::open(transport, &config).expect("single-camera session");
 
     let opened = session.tuning();

@@ -1,6 +1,9 @@
 //! Blocking UDP transport implementation with IPv6 support.
 
-use std::{net::UdpSocket, time::Duration};
+use std::{
+    net::UdpSocket,
+    time::{Duration, Instant},
+};
 
 use crate::{
     command::CommandKind,
@@ -88,10 +91,18 @@ impl BlockingTransport for Udp {
     }
 
     fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
-        match self.socket.recv(dst) {
-            Ok(n) => Ok(n),
-            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => Err(Error::Timeout),
-            Err(e) => Err(e.into()),
+        loop {
+            match self.socket.recv(dst) {
+                Ok(0) => continue,
+                Ok(n) => return Ok(n),
+                Err(e)
+                    if e.kind() == std::io::ErrorKind::TimedOut
+                        || e.kind() == std::io::ErrorKind::WouldBlock =>
+                {
+                    return Err(Error::Timeout);
+                }
+                Err(e) => return Err(e.into()),
+            }
         }
     }
 
@@ -102,27 +113,39 @@ impl BlockingTransport for Udp {
     ) -> Result<usize, Error> {
         // Save the current timeout
         let original_timeout = self.socket.read_timeout()?;
+        let deadline = Instant::now()
+            .checked_add(duration)
+            .unwrap_or_else(Instant::now);
 
-        // Set the new timeout for this operation
-        self.socket.set_read_timeout(Some(duration))?;
+        // Keep one deadline for the whole operation. Empty datagrams must not
+        // give the caller a fresh full timeout on every receive attempt.
+        let result = loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                break Err(Error::Timeout);
+            }
 
-        // Perform the receive operation
-        let result = self.socket.recv(dst);
+            if let Err(error) = self.socket.set_read_timeout(Some(remaining)) {
+                break Err(error.into());
+            }
+
+            match self.socket.recv(dst) {
+                Ok(0) => continue,
+                Ok(n) => break Ok(n),
+                Err(e)
+                    if e.kind() == std::io::ErrorKind::TimedOut
+                        || e.kind() == std::io::ErrorKind::WouldBlock =>
+                {
+                    break Err(Error::Timeout);
+                }
+                Err(e) => break Err(e.into()),
+            }
+        };
 
         // Restore the original timeout
         self.socket.set_read_timeout(original_timeout)?;
 
-        // Handle the result
-        match result {
-            Ok(n) => Ok(n),
-            Err(e)
-                if e.kind() == std::io::ErrorKind::TimedOut
-                    || e.kind() == std::io::ErrorKind::WouldBlock =>
-            {
-                Err(Error::Timeout)
-            }
-            Err(e) => Err(e.into()),
-        }
+        result
     }
 
     fn addressing_mode_hint(&self) -> Option<AddressingMode> {
@@ -133,5 +156,93 @@ impl BlockingTransport for Udp {
         // UDP sends are atomic at the datagram boundary - a failed send
         // does not affect the state for subsequent sends
         SendSemantics::Datagram
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::expect_used)]
+mod tests {
+    use std::{
+        net::UdpSocket,
+        thread,
+        time::{Duration, Instant},
+    };
+
+    use super::*;
+    use crate::transport::{BlockingTransport, TransportConfig};
+
+    fn connected_socket_pair() -> (UdpSocket, UdpSocket) {
+        let receiver = UdpSocket::bind("127.0.0.1:0").expect("bind receiver");
+        let sender = UdpSocket::bind("127.0.0.1:0").expect("bind sender");
+        receiver
+            .connect(sender.local_addr().expect("sender address"))
+            .expect("connect receiver");
+        sender
+            .connect(receiver.local_addr().expect("receiver address"))
+            .expect("connect sender");
+        (receiver, sender)
+    }
+
+    #[test]
+    fn recv_discards_empty_datagram_before_valid_datagram() {
+        let (receiver, sender) = connected_socket_pair();
+        sender.send(&[]).expect("send empty datagram");
+        sender.send(b"valid").expect("send valid datagram");
+
+        let mut transport = Udp {
+            socket: receiver,
+            config: TransportConfig::default(),
+        };
+        let mut dst = [0; 16];
+
+        let received = transport.recv_into(&mut dst).expect("valid datagram");
+
+        assert_eq!(received, 5);
+        assert_eq!(&dst[..received], b"valid");
+    }
+
+    #[test]
+    fn recv_into_with_timeout_expires_after_empty_datagram() {
+        let (receiver, sender) = connected_socket_pair();
+        sender.send(&[]).expect("send empty datagram");
+
+        let mut transport = Udp {
+            socket: receiver,
+            config: TransportConfig::default(),
+        };
+        let mut dst = [0; 16];
+        let timeout = Duration::from_millis(80);
+        let started = Instant::now();
+
+        let result = transport.recv_into_with_timeout(&mut dst, timeout);
+
+        assert!(matches!(result, Err(Error::Timeout)));
+        assert!(started.elapsed() >= timeout.saturating_sub(Duration::from_millis(20)));
+    }
+
+    #[test]
+    fn recv_into_with_timeout_does_not_restart_after_empty_datagram() {
+        let (receiver, sender) = connected_socket_pair();
+        let receiver_address = receiver.local_addr().expect("receiver address");
+        let sender = thread::spawn(move || {
+            thread::sleep(Duration::from_millis(40));
+            sender
+                .send_to(&[], receiver_address)
+                .expect("send empty datagram");
+            thread::sleep(Duration::from_millis(60));
+            sender
+                .send_to(b"too late", receiver_address)
+                .expect("send valid datagram");
+        });
+
+        let mut transport = Udp {
+            socket: receiver,
+            config: TransportConfig::default(),
+        };
+        let mut dst = [0; 16];
+        let result = transport.recv_into_with_timeout(&mut dst, Duration::from_millis(70));
+
+        sender.join().expect("sender thread");
+        assert!(matches!(result, Err(Error::Timeout)));
     }
 }

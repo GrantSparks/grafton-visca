@@ -13,9 +13,6 @@
     any(feature = "runtime-tokio", feature = "runtime-smol")
 ))]
 
-#[path = "common/profile_fixtures.rs"]
-mod profile_fixtures;
-
 use std::{
     future::Future,
     sync::{Arc, Mutex},
@@ -26,6 +23,7 @@ use grafton_visca::{
     camera::CameraConfig,
     completion::AppliedOnly,
     profile::ProfileSpec,
+    profiles::SonyFR7,
     request,
     transport::{AsyncTransport, HasTransportConfig, SendSemantics, TransportConfig},
     AffectedAxes, CameraId, CameraSession, ControlClass, Error, Executor, Inquiry, InquiryRoute,
@@ -33,11 +31,9 @@ use grafton_visca::{
     SessionConfig, TimeoutClass,
 };
 
-use profile_fixtures::NonDefaultCompileTimeProfile;
-
 /// The fixture profile's own acknowledgement deadline.
-const PROFILE_ACK_TIMEOUT: Duration = Duration::from_millis(100);
-/// A deliberately wide acknowledgement deadline, ten times the profile's.
+const PROFILE_ACK_TIMEOUT: Duration = Duration::from_millis(200);
+/// A deliberately wide acknowledgement deadline, five times the profile's.
 const WIDE_ACK_TIMEOUT: Duration = Duration::from_secs(1);
 
 /// A never-retried operation, so exactly one acknowledgement deadline decides
@@ -161,18 +157,13 @@ impl AsyncTransport for SilentTransport {
 }
 
 fn session_config() -> SessionConfig {
-    SessionConfig::new(
-        ProfileSpec::from_compile_time::<NonDefaultCompileTimeProfile>()
-            .expect("two-socket runtime profile"),
-    )
+    SessionConfig::new(ProfileSpec::from_compile_time::<SonyFR7>().expect("Sony FR7 profile"))
 }
 
 /// Submits one never-retried operation into silence and reports how long the
 /// owner took to fail it.
 async fn time_to_ack_timeout(session: &Session) -> Duration {
-    let camera = session
-        .camera::<NonDefaultCompileTimeProfile>()
-        .expect("camera view");
+    let camera = session.camera::<SonyFR7>().expect("camera view");
     let started = Instant::now();
     let error = camera
         .submit::<AppliedOnly, _>(&SilentOperation)
@@ -246,7 +237,7 @@ async fn a_widened_inquiry_timeout_governs_a_pre_existing_view<E: Executor>(exec
         .await
         .expect("owner session");
     let camera = session
-        .camera::<NonDefaultCompileTimeProfile>()
+        .camera::<SonyFR7>()
         .expect("camera view taken before the update");
 
     session
@@ -279,16 +270,14 @@ async fn an_update_mid_flight_leaves_the_live_operation_alone<E: Executor>(execu
     let session = Session::open(transport, session_config(), executor)
         .await
         .expect("owner session");
-    let camera = session
-        .camera::<NonDefaultCompileTimeProfile>()
-        .expect("camera view");
+    let camera = session.camera::<SonyFR7>().expect("camera view");
 
     let operation = camera
         .submit::<AppliedOnly, _>(&SilentOperation)
         .await
         .expect("submission");
 
-    // The request is admitted under the profile's 100 ms deadline. Widening to
+    // The request is admitted under the profile's 200 ms deadline. Widening to
     // a full second now must not extend it.
     session
         .set_tuning(OperationalTuning::new().ack_timeout(WIDE_ACK_TIMEOUT))
@@ -344,7 +333,7 @@ async fn the_installed_tuning_reads_back_and_invalid_updates_are_rejected<E: Exe
 
     let accepted = OperationalTuning::new()
         .ack_timeout(WIDE_ACK_TIMEOUT)
-        .completion_timeout(Duration::from_secs(4))
+        .completion_timeout(Duration::from_secs(9))
         .retry_limit(5);
     session.set_tuning(accepted).await.expect("accepted");
     assert_eq!(
@@ -404,11 +393,11 @@ async fn concurrent_updates_from_two_handles_are_last_writer_wins<E: Executor>(e
     // one field from each; the boundary makes that unrepresentable.
     let first = OperationalTuning::new()
         .ack_timeout(Duration::from_millis(500))
-        .completion_timeout(Duration::from_secs(2))
+        .completion_timeout(Duration::from_secs(9))
         .retry_limit(1);
     let second = OperationalTuning::new()
         .ack_timeout(Duration::from_millis(900))
-        .completion_timeout(Duration::from_secs(7))
+        .completion_timeout(Duration::from_secs(11))
         .retry_limit(9);
 
     for _ in 0..16 {
@@ -438,7 +427,7 @@ async fn concurrent_updates_from_two_handles_are_last_writer_wins<E: Executor>(e
 /// its inner `Session`.
 async fn a_camera_session_reconfigures_its_own_session<E: Executor>(executor: E) {
     let transport = SilentTransport::new();
-    let config = CameraConfig::<NonDefaultCompileTimeProfile>::new();
+    let config = CameraConfig::<SonyFR7>::new();
     let session = CameraSession::open(transport, &config, executor)
         .await
         .expect("single-camera session");

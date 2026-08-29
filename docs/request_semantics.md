@@ -76,8 +76,18 @@ the profile's exact preset axes.  It must not substitute all axes.
 | Menu | `MenuDisplay`, `MenuNavigate`, `MenuSelect`, `MenuCancel`, `DirectMenu` | Plain | — |
 | Streaming | `MulticastStreamingOn`, `MulticastStreamingOff`, `NdiQuality` | Plain | Set corresponding state |
 | Streaming | `UsbAudioOn`, `UsbAudioOff` | Plain | — (USB audio inquiry exists) |
-| System | `AddressSet`, `InterfaceClear`, `CommandCancel`, `SettingsSave` | Plain | — |
+| System | `SettingsSave` | Plain | — |
+| Serial setup/recovery | `AddressSet`, `InterfaceClear` wire commands | Owner-only transport handshake | — |
+| Cancellation | socket-specific `CommandCancel` wire command | Owner-only operation lifecycle | — |
 | Motion configuration | `MotionSyncMode`, `MotionSyncPreset`, `VariableSpeedMode` | Plain | Set `VariableSpeedMode` for the latter |
+
+The three owner-only rows are deliberately absent from
+`request::builtin`. Address assignment and interface clear require exclusive
+ownership of a serial bus before target registration; a target-scoped
+`execute` call cannot represent that authority. Socket cancellation is emitted
+only from an operation handle, after the owner has correlated that exact
+operation to the camera-assigned socket. Letting a caller construct a generic
+socket cancel could cancel unrelated work.
 
 ### Domain rationale for settings and stored state
 

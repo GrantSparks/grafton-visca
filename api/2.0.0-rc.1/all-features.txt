@@ -34,16 +34,16 @@ impl<'session, P: grafton_visca::profile::CompileTimeProfile> grafton_visca::blo
 pub fn grafton_visca::blocking::Camera<'session, P>::advanced(&self) -> grafton_visca::blocking::AdvancedAccessor<'_, 'session, P>
 impl<'session, P: grafton_visca::profile::CompileTimeProfile> grafton_visca::blocking::Camera<'session, P>
 pub const fn grafton_visca::blocking::Camera<'session, P>::capabilities(&self) -> &grafton_visca::capabilities::Capabilities
-pub const fn grafton_visca::blocking::Camera<'session, P>::command_class(&self) -> core::option::Option<grafton_visca::ControlClass>
 pub fn grafton_visca::blocking::Camera<'session, P>::execute<C>(&self, &C) -> grafton_visca::Result<(), grafton_visca::Error> where C: grafton_visca::PlainCommand + ?core::marker::Sized
-pub fn grafton_visca::blocking::Camera<'session, P>::execute_with_class<C>(&self, &C, grafton_visca::ControlClass) -> grafton_visca::Result<(), grafton_visca::Error> where C: grafton_visca::PlainCommand + ?core::marker::Sized
+pub fn grafton_visca::blocking::Camera<'session, P>::execute_with_submission_class<C>(&self, &C, grafton_visca::SubmissionClass) -> grafton_visca::Result<(), grafton_visca::Error> where C: grafton_visca::PlainCommand + ?core::marker::Sized
 pub fn grafton_visca::blocking::Camera<'session, P>::inquire<Q>(&self, &Q) -> grafton_visca::Result<<Q as grafton_visca::Inquiry>::Response, grafton_visca::Error> where Q: grafton_visca::Inquiry + ?core::marker::Sized
-pub fn grafton_visca::blocking::Camera<'session, P>::inquire_with_class<Q>(&self, &Q, grafton_visca::ControlClass) -> grafton_visca::Result<<Q as grafton_visca::Inquiry>::Response, grafton_visca::Error> where Q: grafton_visca::Inquiry + ?core::marker::Sized
+pub fn grafton_visca::blocking::Camera<'session, P>::inquire_with_submission_class<Q>(&self, &Q, grafton_visca::SubmissionClass) -> grafton_visca::Result<<Q as grafton_visca::Inquiry>::Response, grafton_visca::Error> where Q: grafton_visca::Inquiry + ?core::marker::Sized
 pub const fn grafton_visca::blocking::Camera<'session, P>::profile(&self) -> &grafton_visca::profile::ProfileSpec
-pub fn grafton_visca::blocking::Camera<'session, P>::set_command_class(&mut self, core::option::Option<grafton_visca::ControlClass>)
+pub fn grafton_visca::blocking::Camera<'session, P>::set_submission_class(&mut self, core::option::Option<grafton_visca::SubmissionClass>)
 pub fn grafton_visca::blocking::Camera<'session, P>::state_cache(&self) -> grafton_visca::state_cache::StateCache
+pub const fn grafton_visca::blocking::Camera<'session, P>::submission_class(&self) -> core::option::Option<grafton_visca::SubmissionClass>
 pub fn grafton_visca::blocking::Camera<'session, P>::submit<K, O>(&self, &O) -> grafton_visca::Result<grafton_visca::blocking::Operation<'session, K>, grafton_visca::Error> where K: grafton_visca::completion::Kind, O: grafton_visca::OperationCommand<K> + ?core::marker::Sized
-pub fn grafton_visca::blocking::Camera<'session, P>::submit_with_class<K, O>(&self, &O, grafton_visca::ControlClass) -> grafton_visca::Result<grafton_visca::blocking::Operation<'session, K>, grafton_visca::Error> where K: grafton_visca::completion::Kind, O: grafton_visca::OperationCommand<K> + ?core::marker::Sized
+pub fn grafton_visca::blocking::Camera<'session, P>::submit_with_submission_class<K, O>(&self, &O, grafton_visca::SubmissionClass) -> grafton_visca::Result<grafton_visca::blocking::Operation<'session, K>, grafton_visca::Error> where K: grafton_visca::completion::Kind, O: grafton_visca::OperationCommand<K> + ?core::marker::Sized
 pub const fn grafton_visca::blocking::Camera<'session, P>::target(&self) -> grafton_visca::CameraId
 impl<'session, P: grafton_visca::profile::CompileTimeProfile> grafton_visca::blocking::Camera<'session, P>
 pub fn grafton_visca::blocking::Camera<'session, P>::exposure(&self) -> grafton_visca::blocking::ExposureAccessor<'_, 'session, P> where P: grafton_visca::capabilities::HasExposure
@@ -126,12 +126,12 @@ pub struct grafton_visca::blocking::CameraSession<P: grafton_visca::profile::Com
 impl<P: grafton_visca::profile::CompileTimeProfile> grafton_visca::blocking::CameraSession<P>
 pub fn grafton_visca::blocking::CameraSession<P>::camera(&self) -> grafton_visca::blocking::Camera<'_, P>
 pub fn grafton_visca::blocking::CameraSession<P>::close(self) -> grafton_visca::Result<(), grafton_visca::Error>
-pub const fn grafton_visca::blocking::CameraSession<P>::command_class(&self) -> core::option::Option<grafton_visca::ControlClass>
 pub fn grafton_visca::blocking::CameraSession<P>::open<T>(T, &grafton_visca::CameraConfig<P>) -> grafton_visca::Result<Self, grafton_visca::Error> where T: grafton_visca::transport::BlockingTransport + grafton_visca::transport::HasTransportConfig + 'static
 pub const fn grafton_visca::blocking::CameraSession<P>::session(&self) -> &grafton_visca::blocking::Session
-pub fn grafton_visca::blocking::CameraSession<P>::set_command_class(&mut self, core::option::Option<grafton_visca::ControlClass>)
+pub fn grafton_visca::blocking::CameraSession<P>::set_submission_class(&mut self, core::option::Option<grafton_visca::SubmissionClass>)
 pub fn grafton_visca::blocking::CameraSession<P>::set_tuning(&self, grafton_visca::profile::OperationalTuning) -> grafton_visca::Result<(), grafton_visca::Error>
 pub fn grafton_visca::blocking::CameraSession<P>::shutdown(&self) -> grafton_visca::Result<(), grafton_visca::Error>
+pub const fn grafton_visca::blocking::CameraSession<P>::submission_class(&self) -> core::option::Option<grafton_visca::SubmissionClass>
 pub const fn grafton_visca::blocking::CameraSession<P>::target(&self) -> grafton_visca::CameraId
 pub fn grafton_visca::blocking::CameraSession<P>::tuning(&self) -> grafton_visca::profile::OperationalTuning
 impl<P: grafton_visca::profile::CompileTimeProfile> core::fmt::Debug for grafton_visca::blocking::CameraSession<P>
@@ -12398,21 +12398,21 @@ pub fn grafton_visca::DynSessionCamera::zoom(&self) -> &dyn grafton_visca::DynZo
 impl grafton_visca::DynSessionCamera
 pub fn grafton_visca::DynSessionCamera::camera<P>(&self) -> grafton_visca::Result<grafton_visca::Camera<P>> where P: grafton_visca::profile::CompileTimeProfile
 pub fn grafton_visca::DynSessionCamera::capabilities(&self) -> &grafton_visca::capabilities::Capabilities
-pub const fn grafton_visca::DynSessionCamera::command_class(&self) -> core::option::Option<grafton_visca::ControlClass>
 pub async fn grafton_visca::DynSessionCamera::execute<C>(&self, &C) -> grafton_visca::Result<(), grafton_visca::Error> where C: grafton_visca::PlainCommand + ?core::marker::Sized
-pub async fn grafton_visca::DynSessionCamera::execute_with_class<C>(&self, &C, grafton_visca::ControlClass) -> grafton_visca::Result<(), grafton_visca::Error> where C: grafton_visca::PlainCommand + ?core::marker::Sized
+pub async fn grafton_visca::DynSessionCamera::execute_with_submission_class<C>(&self, &C, grafton_visca::SubmissionClass) -> grafton_visca::Result<(), grafton_visca::Error> where C: grafton_visca::PlainCommand + ?core::marker::Sized
 pub fn grafton_visca::DynSessionCamera::from_session(&grafton_visca::Session) -> grafton_visca::Result<Self>
 pub fn grafton_visca::DynSessionCamera::from_session_target(&grafton_visca::Session, grafton_visca::CameraId) -> grafton_visca::Result<Self>
 pub async fn grafton_visca::DynSessionCamera::inquire<Q>(&self, &Q) -> grafton_visca::Result<<Q as grafton_visca::Inquiry>::Response, grafton_visca::Error> where Q: grafton_visca::Inquiry + ?core::marker::Sized
-pub async fn grafton_visca::DynSessionCamera::inquire_with_class<Q>(&self, &Q, grafton_visca::ControlClass) -> grafton_visca::Result<<Q as grafton_visca::Inquiry>::Response, grafton_visca::Error> where Q: grafton_visca::Inquiry + ?core::marker::Sized
+pub async fn grafton_visca::DynSessionCamera::inquire_with_submission_class<Q>(&self, &Q, grafton_visca::SubmissionClass) -> grafton_visca::Result<<Q as grafton_visca::Inquiry>::Response, grafton_visca::Error> where Q: grafton_visca::Inquiry + ?core::marker::Sized
 pub fn grafton_visca::DynSessionCamera::motion(&self) -> &dyn grafton_visca::DynMotion
 pub fn grafton_visca::DynSessionCamera::profile(&self) -> &grafton_visca::profile::ProfileSpec
-pub fn grafton_visca::DynSessionCamera::set_command_class(&mut self, core::option::Option<grafton_visca::ControlClass>)
+pub fn grafton_visca::DynSessionCamera::set_submission_class(&mut self, core::option::Option<grafton_visca::SubmissionClass>)
 pub fn grafton_visca::DynSessionCamera::state_cache(&self) -> grafton_visca::state_cache::StateCache
+pub const fn grafton_visca::DynSessionCamera::submission_class(&self) -> core::option::Option<grafton_visca::SubmissionClass>
 pub async fn grafton_visca::DynSessionCamera::submit_applied<O>(&self, &O) -> grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error> where O: grafton_visca::OperationCommand<grafton_visca::completion::AppliedOnly> + core::marker::Sync + ?core::marker::Sized
-pub async fn grafton_visca::DynSessionCamera::submit_applied_with_class<O>(&self, &O, grafton_visca::ControlClass) -> grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error> where O: grafton_visca::OperationCommand<grafton_visca::completion::AppliedOnly> + core::marker::Sync + ?core::marker::Sized
+pub async fn grafton_visca::DynSessionCamera::submit_applied_with_submission_class<O>(&self, &O, grafton_visca::SubmissionClass) -> grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error> where O: grafton_visca::OperationCommand<grafton_visca::completion::AppliedOnly> + core::marker::Sync + ?core::marker::Sized
 pub async fn grafton_visca::DynSessionCamera::submit_targeted<O>(&self, &O) -> grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error> where O: grafton_visca::OperationCommand<grafton_visca::completion::Targeted> + core::marker::Sync + ?core::marker::Sized
-pub async fn grafton_visca::DynSessionCamera::submit_targeted_with_class<O>(&self, &O, grafton_visca::ControlClass) -> grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error> where O: grafton_visca::OperationCommand<grafton_visca::completion::Targeted> + core::marker::Sync + ?core::marker::Sized
+pub async fn grafton_visca::DynSessionCamera::submit_targeted_with_submission_class<O>(&self, &O, grafton_visca::SubmissionClass) -> grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error> where O: grafton_visca::OperationCommand<grafton_visca::completion::Targeted> + core::marker::Sync + ?core::marker::Sized
 pub fn grafton_visca::DynSessionCamera::supports_typed(&self, grafton_visca::capabilities::TypedSupportSurface) -> bool
 pub const fn grafton_visca::DynSessionCamera::target(&self) -> grafton_visca::CameraId
 impl core::clone::Clone for grafton_visca::DynSessionCamera
@@ -13828,6 +13828,7 @@ pub grafton_visca::prelude::async::Error::Unknown(u8)
 pub grafton_visca::prelude::async::Error::UnknownResponseKind
 pub grafton_visca::prelude::async::Error::UnknownResponseKind::data: alloc::vec::Vec<u8>
 pub grafton_visca::prelude::async::Error::UnknownResponseKind::response_type: alloc::borrow::Cow<'static, str>
+pub grafton_visca::prelude::async::Error::UnsequencedCommandUnconfirmed
 pub grafton_visca::prelude::async::Error::UnsupportedTransport
 pub grafton_visca::prelude::async::Error::UnsupportedTransport::profile: grafton_visca::camera::profiles::ProfileId
 pub grafton_visca::prelude::async::Error::UnsupportedTransport::transport: grafton_visca::camera::TransportKind
@@ -14381,16 +14382,16 @@ impl<P: grafton_visca::profile::CompileTimeProfile> grafton_visca::Camera<P>
 pub fn grafton_visca::Camera<P>::advanced(&self) -> grafton_visca::AdvancedAccessor<'_, P>
 impl<P: grafton_visca::profile::CompileTimeProfile> grafton_visca::Camera<P>
 pub fn grafton_visca::Camera<P>::capabilities(&self) -> &grafton_visca::capabilities::Capabilities
-pub const fn grafton_visca::Camera<P>::command_class(&self) -> core::option::Option<grafton_visca::ControlClass>
 pub async fn grafton_visca::Camera<P>::execute<C>(&self, &C) -> grafton_visca::Result<()> where C: grafton_visca::PlainCommand + ?core::marker::Sized
-pub async fn grafton_visca::Camera<P>::execute_with_class<C>(&self, &C, grafton_visca::ControlClass) -> grafton_visca::Result<()> where C: grafton_visca::PlainCommand + ?core::marker::Sized
+pub async fn grafton_visca::Camera<P>::execute_with_submission_class<C>(&self, &C, grafton_visca::SubmissionClass) -> grafton_visca::Result<()> where C: grafton_visca::PlainCommand + ?core::marker::Sized
 pub async fn grafton_visca::Camera<P>::inquire<Q>(&self, &Q) -> grafton_visca::Result<<Q as grafton_visca::Inquiry>::Response> where Q: grafton_visca::Inquiry + ?core::marker::Sized
-pub async fn grafton_visca::Camera<P>::inquire_with_class<Q>(&self, &Q, grafton_visca::ControlClass) -> grafton_visca::Result<<Q as grafton_visca::Inquiry>::Response> where Q: grafton_visca::Inquiry + ?core::marker::Sized
+pub async fn grafton_visca::Camera<P>::inquire_with_submission_class<Q>(&self, &Q, grafton_visca::SubmissionClass) -> grafton_visca::Result<<Q as grafton_visca::Inquiry>::Response> where Q: grafton_visca::Inquiry + ?core::marker::Sized
 pub fn grafton_visca::Camera<P>::profile(&self) -> &grafton_visca::profile::ProfileSpec
-pub fn grafton_visca::Camera<P>::set_command_class(&mut self, core::option::Option<grafton_visca::ControlClass>)
+pub fn grafton_visca::Camera<P>::set_submission_class(&mut self, core::option::Option<grafton_visca::SubmissionClass>)
 pub fn grafton_visca::Camera<P>::state_cache(&self) -> grafton_visca::state_cache::StateCache
+pub const fn grafton_visca::Camera<P>::submission_class(&self) -> core::option::Option<grafton_visca::SubmissionClass>
 pub async fn grafton_visca::Camera<P>::submit<K, O>(&self, &O) -> grafton_visca::Result<grafton_visca::Operation<K>> where K: grafton_visca::completion::Kind, O: grafton_visca::OperationCommand<K> + ?core::marker::Sized
-pub async fn grafton_visca::Camera<P>::submit_with_class<K, O>(&self, &O, grafton_visca::ControlClass) -> grafton_visca::Result<grafton_visca::Operation<K>> where K: grafton_visca::completion::Kind, O: grafton_visca::OperationCommand<K> + ?core::marker::Sized
+pub async fn grafton_visca::Camera<P>::submit_with_submission_class<K, O>(&self, &O, grafton_visca::SubmissionClass) -> grafton_visca::Result<grafton_visca::Operation<K>> where K: grafton_visca::completion::Kind, O: grafton_visca::OperationCommand<K> + ?core::marker::Sized
 pub const fn grafton_visca::Camera<P>::target(&self) -> grafton_visca::CameraId
 impl<P: grafton_visca::profile::CompileTimeProfile> grafton_visca::Camera<P>
 pub fn grafton_visca::Camera<P>::exposure(&self) -> grafton_visca::ExposureAccessor<'_, P> where P: grafton_visca::capabilities::HasExposure
@@ -14612,21 +14613,21 @@ pub fn grafton_visca::DynSessionCamera::zoom(&self) -> &dyn grafton_visca::DynZo
 impl grafton_visca::DynSessionCamera
 pub fn grafton_visca::DynSessionCamera::camera<P>(&self) -> grafton_visca::Result<grafton_visca::Camera<P>> where P: grafton_visca::profile::CompileTimeProfile
 pub fn grafton_visca::DynSessionCamera::capabilities(&self) -> &grafton_visca::capabilities::Capabilities
-pub const fn grafton_visca::DynSessionCamera::command_class(&self) -> core::option::Option<grafton_visca::ControlClass>
 pub async fn grafton_visca::DynSessionCamera::execute<C>(&self, &C) -> grafton_visca::Result<(), grafton_visca::Error> where C: grafton_visca::PlainCommand + ?core::marker::Sized
-pub async fn grafton_visca::DynSessionCamera::execute_with_class<C>(&self, &C, grafton_visca::ControlClass) -> grafton_visca::Result<(), grafton_visca::Error> where C: grafton_visca::PlainCommand + ?core::marker::Sized
+pub async fn grafton_visca::DynSessionCamera::execute_with_submission_class<C>(&self, &C, grafton_visca::SubmissionClass) -> grafton_visca::Result<(), grafton_visca::Error> where C: grafton_visca::PlainCommand + ?core::marker::Sized
 pub fn grafton_visca::DynSessionCamera::from_session(&grafton_visca::Session) -> grafton_visca::Result<Self>
 pub fn grafton_visca::DynSessionCamera::from_session_target(&grafton_visca::Session, grafton_visca::CameraId) -> grafton_visca::Result<Self>
 pub async fn grafton_visca::DynSessionCamera::inquire<Q>(&self, &Q) -> grafton_visca::Result<<Q as grafton_visca::Inquiry>::Response, grafton_visca::Error> where Q: grafton_visca::Inquiry + ?core::marker::Sized
-pub async fn grafton_visca::DynSessionCamera::inquire_with_class<Q>(&self, &Q, grafton_visca::ControlClass) -> grafton_visca::Result<<Q as grafton_visca::Inquiry>::Response, grafton_visca::Error> where Q: grafton_visca::Inquiry + ?core::marker::Sized
+pub async fn grafton_visca::DynSessionCamera::inquire_with_submission_class<Q>(&self, &Q, grafton_visca::SubmissionClass) -> grafton_visca::Result<<Q as grafton_visca::Inquiry>::Response, grafton_visca::Error> where Q: grafton_visca::Inquiry + ?core::marker::Sized
 pub fn grafton_visca::DynSessionCamera::motion(&self) -> &dyn grafton_visca::DynMotion
 pub fn grafton_visca::DynSessionCamera::profile(&self) -> &grafton_visca::profile::ProfileSpec
-pub fn grafton_visca::DynSessionCamera::set_command_class(&mut self, core::option::Option<grafton_visca::ControlClass>)
+pub fn grafton_visca::DynSessionCamera::set_submission_class(&mut self, core::option::Option<grafton_visca::SubmissionClass>)
 pub fn grafton_visca::DynSessionCamera::state_cache(&self) -> grafton_visca::state_cache::StateCache
+pub const fn grafton_visca::DynSessionCamera::submission_class(&self) -> core::option::Option<grafton_visca::SubmissionClass>
 pub async fn grafton_visca::DynSessionCamera::submit_applied<O>(&self, &O) -> grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error> where O: grafton_visca::OperationCommand<grafton_visca::completion::AppliedOnly> + core::marker::Sync + ?core::marker::Sized
-pub async fn grafton_visca::DynSessionCamera::submit_applied_with_class<O>(&self, &O, grafton_visca::ControlClass) -> grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error> where O: grafton_visca::OperationCommand<grafton_visca::completion::AppliedOnly> + core::marker::Sync + ?core::marker::Sized
+pub async fn grafton_visca::DynSessionCamera::submit_applied_with_submission_class<O>(&self, &O, grafton_visca::SubmissionClass) -> grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error> where O: grafton_visca::OperationCommand<grafton_visca::completion::AppliedOnly> + core::marker::Sync + ?core::marker::Sized
 pub async fn grafton_visca::DynSessionCamera::submit_targeted<O>(&self, &O) -> grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error> where O: grafton_visca::OperationCommand<grafton_visca::completion::Targeted> + core::marker::Sync + ?core::marker::Sized
-pub async fn grafton_visca::DynSessionCamera::submit_targeted_with_class<O>(&self, &O, grafton_visca::ControlClass) -> grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error> where O: grafton_visca::OperationCommand<grafton_visca::completion::Targeted> + core::marker::Sync + ?core::marker::Sized
+pub async fn grafton_visca::DynSessionCamera::submit_targeted_with_submission_class<O>(&self, &O, grafton_visca::SubmissionClass) -> grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error> where O: grafton_visca::OperationCommand<grafton_visca::completion::Targeted> + core::marker::Sync + ?core::marker::Sized
 pub fn grafton_visca::DynSessionCamera::supports_typed(&self, grafton_visca::capabilities::TypedSupportSurface) -> bool
 pub const fn grafton_visca::DynSessionCamera::target(&self) -> grafton_visca::CameraId
 impl core::clone::Clone for grafton_visca::DynSessionCamera
@@ -18056,6 +18057,7 @@ pub grafton_visca::prelude::blocking::Error::Unknown(u8)
 pub grafton_visca::prelude::blocking::Error::UnknownResponseKind
 pub grafton_visca::prelude::blocking::Error::UnknownResponseKind::data: alloc::vec::Vec<u8>
 pub grafton_visca::prelude::blocking::Error::UnknownResponseKind::response_type: alloc::borrow::Cow<'static, str>
+pub grafton_visca::prelude::blocking::Error::UnsequencedCommandUnconfirmed
 pub grafton_visca::prelude::blocking::Error::UnsupportedTransport
 pub grafton_visca::prelude::blocking::Error::UnsupportedTransport::profile: grafton_visca::camera::profiles::ProfileId
 pub grafton_visca::prelude::blocking::Error::UnsupportedTransport::transport: grafton_visca::camera::TransportKind
@@ -18682,16 +18684,16 @@ impl<'session, P: grafton_visca::profile::CompileTimeProfile> grafton_visca::blo
 pub fn grafton_visca::blocking::Camera<'session, P>::advanced(&self) -> grafton_visca::blocking::AdvancedAccessor<'_, 'session, P>
 impl<'session, P: grafton_visca::profile::CompileTimeProfile> grafton_visca::blocking::Camera<'session, P>
 pub const fn grafton_visca::blocking::Camera<'session, P>::capabilities(&self) -> &grafton_visca::capabilities::Capabilities
-pub const fn grafton_visca::blocking::Camera<'session, P>::command_class(&self) -> core::option::Option<grafton_visca::ControlClass>
 pub fn grafton_visca::blocking::Camera<'session, P>::execute<C>(&self, &C) -> grafton_visca::Result<(), grafton_visca::Error> where C: grafton_visca::PlainCommand + ?core::marker::Sized
-pub fn grafton_visca::blocking::Camera<'session, P>::execute_with_class<C>(&self, &C, grafton_visca::ControlClass) -> grafton_visca::Result<(), grafton_visca::Error> where C: grafton_visca::PlainCommand + ?core::marker::Sized
+pub fn grafton_visca::blocking::Camera<'session, P>::execute_with_submission_class<C>(&self, &C, grafton_visca::SubmissionClass) -> grafton_visca::Result<(), grafton_visca::Error> where C: grafton_visca::PlainCommand + ?core::marker::Sized
 pub fn grafton_visca::blocking::Camera<'session, P>::inquire<Q>(&self, &Q) -> grafton_visca::Result<<Q as grafton_visca::Inquiry>::Response, grafton_visca::Error> where Q: grafton_visca::Inquiry + ?core::marker::Sized
-pub fn grafton_visca::blocking::Camera<'session, P>::inquire_with_class<Q>(&self, &Q, grafton_visca::ControlClass) -> grafton_visca::Result<<Q as grafton_visca::Inquiry>::Response, grafton_visca::Error> where Q: grafton_visca::Inquiry + ?core::marker::Sized
+pub fn grafton_visca::blocking::Camera<'session, P>::inquire_with_submission_class<Q>(&self, &Q, grafton_visca::SubmissionClass) -> grafton_visca::Result<<Q as grafton_visca::Inquiry>::Response, grafton_visca::Error> where Q: grafton_visca::Inquiry + ?core::marker::Sized
 pub const fn grafton_visca::blocking::Camera<'session, P>::profile(&self) -> &grafton_visca::profile::ProfileSpec
-pub fn grafton_visca::blocking::Camera<'session, P>::set_command_class(&mut self, core::option::Option<grafton_visca::ControlClass>)
+pub fn grafton_visca::blocking::Camera<'session, P>::set_submission_class(&mut self, core::option::Option<grafton_visca::SubmissionClass>)
 pub fn grafton_visca::blocking::Camera<'session, P>::state_cache(&self) -> grafton_visca::state_cache::StateCache
+pub const fn grafton_visca::blocking::Camera<'session, P>::submission_class(&self) -> core::option::Option<grafton_visca::SubmissionClass>
 pub fn grafton_visca::blocking::Camera<'session, P>::submit<K, O>(&self, &O) -> grafton_visca::Result<grafton_visca::blocking::Operation<'session, K>, grafton_visca::Error> where K: grafton_visca::completion::Kind, O: grafton_visca::OperationCommand<K> + ?core::marker::Sized
-pub fn grafton_visca::blocking::Camera<'session, P>::submit_with_class<K, O>(&self, &O, grafton_visca::ControlClass) -> grafton_visca::Result<grafton_visca::blocking::Operation<'session, K>, grafton_visca::Error> where K: grafton_visca::completion::Kind, O: grafton_visca::OperationCommand<K> + ?core::marker::Sized
+pub fn grafton_visca::blocking::Camera<'session, P>::submit_with_submission_class<K, O>(&self, &O, grafton_visca::SubmissionClass) -> grafton_visca::Result<grafton_visca::blocking::Operation<'session, K>, grafton_visca::Error> where K: grafton_visca::completion::Kind, O: grafton_visca::OperationCommand<K> + ?core::marker::Sized
 pub const fn grafton_visca::blocking::Camera<'session, P>::target(&self) -> grafton_visca::CameraId
 impl<'session, P: grafton_visca::profile::CompileTimeProfile> grafton_visca::blocking::Camera<'session, P>
 pub fn grafton_visca::blocking::Camera<'session, P>::exposure(&self) -> grafton_visca::blocking::ExposureAccessor<'_, 'session, P> where P: grafton_visca::capabilities::HasExposure
@@ -21399,21 +21401,21 @@ pub fn grafton_visca::DynSessionCamera::zoom(&self) -> &dyn grafton_visca::DynZo
 impl grafton_visca::DynSessionCamera
 pub fn grafton_visca::DynSessionCamera::camera<P>(&self) -> grafton_visca::Result<grafton_visca::Camera<P>> where P: grafton_visca::profile::CompileTimeProfile
 pub fn grafton_visca::DynSessionCamera::capabilities(&self) -> &grafton_visca::capabilities::Capabilities
-pub const fn grafton_visca::DynSessionCamera::command_class(&self) -> core::option::Option<grafton_visca::ControlClass>
 pub async fn grafton_visca::DynSessionCamera::execute<C>(&self, &C) -> grafton_visca::Result<(), grafton_visca::Error> where C: grafton_visca::PlainCommand + ?core::marker::Sized
-pub async fn grafton_visca::DynSessionCamera::execute_with_class<C>(&self, &C, grafton_visca::ControlClass) -> grafton_visca::Result<(), grafton_visca::Error> where C: grafton_visca::PlainCommand + ?core::marker::Sized
+pub async fn grafton_visca::DynSessionCamera::execute_with_submission_class<C>(&self, &C, grafton_visca::SubmissionClass) -> grafton_visca::Result<(), grafton_visca::Error> where C: grafton_visca::PlainCommand + ?core::marker::Sized
 pub fn grafton_visca::DynSessionCamera::from_session(&grafton_visca::Session) -> grafton_visca::Result<Self>
 pub fn grafton_visca::DynSessionCamera::from_session_target(&grafton_visca::Session, grafton_visca::CameraId) -> grafton_visca::Result<Self>
 pub async fn grafton_visca::DynSessionCamera::inquire<Q>(&self, &Q) -> grafton_visca::Result<<Q as grafton_visca::Inquiry>::Response, grafton_visca::Error> where Q: grafton_visca::Inquiry + ?core::marker::Sized
-pub async fn grafton_visca::DynSessionCamera::inquire_with_class<Q>(&self, &Q, grafton_visca::ControlClass) -> grafton_visca::Result<<Q as grafton_visca::Inquiry>::Response, grafton_visca::Error> where Q: grafton_visca::Inquiry + ?core::marker::Sized
+pub async fn grafton_visca::DynSessionCamera::inquire_with_submission_class<Q>(&self, &Q, grafton_visca::SubmissionClass) -> grafton_visca::Result<<Q as grafton_visca::Inquiry>::Response, grafton_visca::Error> where Q: grafton_visca::Inquiry + ?core::marker::Sized
 pub fn grafton_visca::DynSessionCamera::motion(&self) -> &dyn grafton_visca::DynMotion
 pub fn grafton_visca::DynSessionCamera::profile(&self) -> &grafton_visca::profile::ProfileSpec
-pub fn grafton_visca::DynSessionCamera::set_command_class(&mut self, core::option::Option<grafton_visca::ControlClass>)
+pub fn grafton_visca::DynSessionCamera::set_submission_class(&mut self, core::option::Option<grafton_visca::SubmissionClass>)
 pub fn grafton_visca::DynSessionCamera::state_cache(&self) -> grafton_visca::state_cache::StateCache
+pub const fn grafton_visca::DynSessionCamera::submission_class(&self) -> core::option::Option<grafton_visca::SubmissionClass>
 pub async fn grafton_visca::DynSessionCamera::submit_applied<O>(&self, &O) -> grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error> where O: grafton_visca::OperationCommand<grafton_visca::completion::AppliedOnly> + core::marker::Sync + ?core::marker::Sized
-pub async fn grafton_visca::DynSessionCamera::submit_applied_with_class<O>(&self, &O, grafton_visca::ControlClass) -> grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error> where O: grafton_visca::OperationCommand<grafton_visca::completion::AppliedOnly> + core::marker::Sync + ?core::marker::Sized
+pub async fn grafton_visca::DynSessionCamera::submit_applied_with_submission_class<O>(&self, &O, grafton_visca::SubmissionClass) -> grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error> where O: grafton_visca::OperationCommand<grafton_visca::completion::AppliedOnly> + core::marker::Sync + ?core::marker::Sized
 pub async fn grafton_visca::DynSessionCamera::submit_targeted<O>(&self, &O) -> grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error> where O: grafton_visca::OperationCommand<grafton_visca::completion::Targeted> + core::marker::Sync + ?core::marker::Sized
-pub async fn grafton_visca::DynSessionCamera::submit_targeted_with_class<O>(&self, &O, grafton_visca::ControlClass) -> grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error> where O: grafton_visca::OperationCommand<grafton_visca::completion::Targeted> + core::marker::Sync + ?core::marker::Sized
+pub async fn grafton_visca::DynSessionCamera::submit_targeted_with_submission_class<O>(&self, &O, grafton_visca::SubmissionClass) -> grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error> where O: grafton_visca::OperationCommand<grafton_visca::completion::Targeted> + core::marker::Sync + ?core::marker::Sized
 pub fn grafton_visca::DynSessionCamera::supports_typed(&self, grafton_visca::capabilities::TypedSupportSurface) -> bool
 pub const fn grafton_visca::DynSessionCamera::target(&self) -> grafton_visca::CameraId
 impl core::clone::Clone for grafton_visca::DynSessionCamera
@@ -24184,6 +24186,8 @@ pub fn grafton_visca::ControlClass::clone(&self) -> grafton_visca::ControlClass
 impl core::cmp::Eq for grafton_visca::ControlClass
 impl core::cmp::PartialEq for grafton_visca::ControlClass
 pub fn grafton_visca::ControlClass::eq(&self, &grafton_visca::ControlClass) -> bool
+impl core::convert::From<grafton_visca::SubmissionClass> for grafton_visca::ControlClass
+pub fn grafton_visca::ControlClass::from(grafton_visca::SubmissionClass) -> Self
 impl core::fmt::Debug for grafton_visca::ControlClass
 pub fn grafton_visca::ControlClass::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::hash::Hash for grafton_visca::ControlClass
@@ -24319,16 +24323,15 @@ pub const grafton_visca::AffectedAxes::FOCUS: Self
 pub const grafton_visca::AffectedAxes::IRIS: Self
 pub const grafton_visca::AffectedAxes::MOVEMENT: Self
 pub const grafton_visca::AffectedAxes::ND_FILTER: Self
-pub const grafton_visca::AffectedAxes::NONE: Self
 pub const grafton_visca::AffectedAxes::PAN_TILT: Self
 pub const grafton_visca::AffectedAxes::ZOOM: Self
+pub const fn grafton_visca::AffectedAxes::axis_count(self) -> usize
 pub const fn grafton_visca::AffectedAxes::bits(self) -> u8
 pub const fn grafton_visca::AffectedAxes::contains(self, Self) -> bool
 pub fn grafton_visca::AffectedAxes::from_bits(u8) -> grafton_visca::Result<Self>
-pub const fn grafton_visca::AffectedAxes::is_empty(self) -> bool
+pub const fn grafton_visca::AffectedAxes::intersection(self, Self) -> core::option::Option<Self>
 pub const fn grafton_visca::AffectedAxes::is_single(self) -> bool
 pub const fn grafton_visca::AffectedAxes::iter(self) -> grafton_visca::AffectedAxisIter
-pub const fn grafton_visca::AffectedAxes::len(self) -> usize
 pub fn grafton_visca::AffectedAxes::new(bool, bool, bool) -> grafton_visca::Result<Self>
 pub fn grafton_visca::AffectedAxes::new_with_iris_nd(bool, bool, bool, bool, bool) -> grafton_visca::Result<Self>
 pub const fn grafton_visca::AffectedAxes::union(self, Self) -> Self
@@ -24351,21 +24354,16 @@ impl core::hash::Hash for grafton_visca::AffectedAxes
 pub fn grafton_visca::AffectedAxes::hash<__H: core::hash::Hasher>(&self, &mut __H)
 impl core::marker::Copy for grafton_visca::AffectedAxes
 impl core::marker::StructuralPartialEq for grafton_visca::AffectedAxes
-impl core::ops::bit::BitAnd for grafton_visca::AffectedAxes
-pub type grafton_visca::AffectedAxes::Output = grafton_visca::AffectedAxes
-pub fn grafton_visca::AffectedAxes::bitand(self, Self) -> Self
 impl core::ops::bit::BitOr for grafton_visca::AffectedAxes
 pub type grafton_visca::AffectedAxes::Output = grafton_visca::AffectedAxes
 pub fn grafton_visca::AffectedAxes::bitor(self, Self) -> Self
 impl core::ops::bit::BitOrAssign for grafton_visca::AffectedAxes
 pub fn grafton_visca::AffectedAxes::bitor_assign(&mut self, Self)
 impl schemars::JsonSchema for grafton_visca::AffectedAxes
-pub fn grafton_visca::AffectedAxes::inline_schema() -> bool
 pub fn grafton_visca::AffectedAxes::json_schema(&mut schemars::generate::SchemaGenerator) -> schemars::schema::Schema
-pub fn grafton_visca::AffectedAxes::schema_id() -> alloc::borrow::Cow<'static, str>
 pub fn grafton_visca::AffectedAxes::schema_name() -> alloc::borrow::Cow<'static, str>
 impl serde_core::ser::Serialize for grafton_visca::AffectedAxes
-pub fn grafton_visca::AffectedAxes::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+pub fn grafton_visca::AffectedAxes::serialize<S>(&self, S) -> core::result::Result<<S as serde_core::ser::Serializer>::Ok, <S as serde_core::ser::Serializer>::Error> where S: serde_core::ser::Serializer
 impl ts_rs::TS for grafton_visca::AffectedAxes
 pub type grafton_visca::AffectedAxes::OptionInnerType = grafton_visca::AffectedAxes
 pub type grafton_visca::AffectedAxes::WithoutGenerics = grafton_visca::AffectedAxes
@@ -24380,7 +24378,7 @@ pub fn grafton_visca::AffectedAxes::output_path() -> core::option::Option<std::p
 pub fn grafton_visca::AffectedAxes::visit_dependencies(&mut impl ts_rs::TypeVisitor) where Self: 'static
 pub fn grafton_visca::AffectedAxes::visit_generics(&mut impl ts_rs::TypeVisitor) where Self: 'static
 impl<'de> serde_core::de::Deserialize<'de> for grafton_visca::AffectedAxes
-pub fn grafton_visca::AffectedAxes::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub fn grafton_visca::AffectedAxes::deserialize<D>(D) -> core::result::Result<Self, <D as serde_core::de::Deserializer>::Error> where D: serde_core::de::Deserializer<'de>
 impl core::marker::Freeze for grafton_visca::AffectedAxes
 impl core::marker::Send for grafton_visca::AffectedAxes
 impl core::marker::Sync for grafton_visca::AffectedAxes
@@ -24782,73 +24780,6 @@ impl core::marker::Unpin for grafton_visca::request::builtin::ZoomDrive
 impl core::marker::UnsafeUnpin for grafton_visca::request::builtin::ZoomDrive
 impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::request::builtin::ZoomDrive
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::request::builtin::ZoomDrive
-pub struct grafton_visca::request::builtin::AddressSet
-impl core::clone::Clone for grafton_visca::request::builtin::AddressSet
-pub fn grafton_visca::request::builtin::AddressSet::clone(&self) -> grafton_visca::request::builtin::AddressSet
-impl core::cmp::Eq for grafton_visca::request::builtin::AddressSet
-impl core::cmp::PartialEq for grafton_visca::request::builtin::AddressSet
-pub fn grafton_visca::request::builtin::AddressSet::eq(&self, &grafton_visca::request::builtin::AddressSet) -> bool
-impl core::default::Default for grafton_visca::request::builtin::AddressSet
-pub fn grafton_visca::request::builtin::AddressSet::default() -> grafton_visca::request::builtin::AddressSet
-impl core::fmt::Debug for grafton_visca::request::builtin::AddressSet
-pub fn grafton_visca::request::builtin::AddressSet::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::hash::Hash for grafton_visca::request::builtin::AddressSet
-pub fn grafton_visca::request::builtin::AddressSet::hash<__H: core::hash::Hasher>(&self, &mut __H)
-impl core::marker::Copy for grafton_visca::request::builtin::AddressSet
-impl core::marker::StructuralPartialEq for grafton_visca::request::builtin::AddressSet
-impl grafton_visca::Request for grafton_visca::request::builtin::AddressSet
-pub type grafton_visca::request::builtin::AddressSet::Class = grafton_visca::request::Plain
-pub const grafton_visca::request::builtin::AddressSet::CONTROL_CLASS: grafton_visca::ControlClass
-pub const grafton_visca::request::builtin::AddressSet::MAX_SIZE: usize
-pub const grafton_visca::request::builtin::AddressSet::RETRY_CLASS: grafton_visca::RetryClass
-pub const grafton_visca::request::builtin::AddressSet::TIMEOUT_CLASS: grafton_visca::TimeoutClass
-pub fn grafton_visca::request::builtin::AddressSet::control_class(&self) -> grafton_visca::ControlClass
-pub fn grafton_visca::request::builtin::AddressSet::encoded_size(&self) -> usize
-pub fn grafton_visca::request::builtin::AddressSet::retry_class(&self) -> grafton_visca::RetryClass
-pub fn grafton_visca::request::builtin::AddressSet::timeout_class(&self) -> grafton_visca::TimeoutClass
-pub fn grafton_visca::request::builtin::AddressSet::validate_for_profile(&self, &grafton_visca::profile::ProfileSpec) -> core::result::Result<(), grafton_visca::Error>
-pub fn grafton_visca::request::builtin::AddressSet::write_into(&self, grafton_visca::CameraId, &mut [u8]) -> core::result::Result<usize, grafton_visca::Error>
-impl core::marker::Freeze for grafton_visca::request::builtin::AddressSet
-impl core::marker::Send for grafton_visca::request::builtin::AddressSet
-impl core::marker::Sync for grafton_visca::request::builtin::AddressSet
-impl core::marker::Unpin for grafton_visca::request::builtin::AddressSet
-impl core::marker::UnsafeUnpin for grafton_visca::request::builtin::AddressSet
-impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::request::builtin::AddressSet
-impl core::panic::unwind_safe::UnwindSafe for grafton_visca::request::builtin::AddressSet
-pub struct grafton_visca::request::builtin::CommandCancel
-impl grafton_visca::request::builtin::CommandCancel
-pub const fn grafton_visca::request::builtin::CommandCancel::new(grafton_visca::ViscaSocket) -> Self
-pub const fn grafton_visca::request::builtin::CommandCancel::socket(self) -> grafton_visca::ViscaSocket
-impl core::clone::Clone for grafton_visca::request::builtin::CommandCancel
-pub fn grafton_visca::request::builtin::CommandCancel::clone(&self) -> grafton_visca::request::builtin::CommandCancel
-impl core::cmp::Eq for grafton_visca::request::builtin::CommandCancel
-impl core::cmp::PartialEq for grafton_visca::request::builtin::CommandCancel
-pub fn grafton_visca::request::builtin::CommandCancel::eq(&self, &grafton_visca::request::builtin::CommandCancel) -> bool
-impl core::fmt::Debug for grafton_visca::request::builtin::CommandCancel
-pub fn grafton_visca::request::builtin::CommandCancel::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::hash::Hash for grafton_visca::request::builtin::CommandCancel
-pub fn grafton_visca::request::builtin::CommandCancel::hash<__H: core::hash::Hasher>(&self, &mut __H)
-impl core::marker::Copy for grafton_visca::request::builtin::CommandCancel
-impl core::marker::StructuralPartialEq for grafton_visca::request::builtin::CommandCancel
-impl grafton_visca::Request for grafton_visca::request::builtin::CommandCancel
-pub type grafton_visca::request::builtin::CommandCancel::Class = grafton_visca::request::Plain
-pub const grafton_visca::request::builtin::CommandCancel::CONTROL_CLASS: grafton_visca::ControlClass
-pub const grafton_visca::request::builtin::CommandCancel::MAX_SIZE: usize
-pub const grafton_visca::request::builtin::CommandCancel::RETRY_CLASS: grafton_visca::RetryClass
-pub const grafton_visca::request::builtin::CommandCancel::TIMEOUT_CLASS: grafton_visca::TimeoutClass
-pub fn grafton_visca::request::builtin::CommandCancel::control_class(&self) -> grafton_visca::ControlClass
-pub fn grafton_visca::request::builtin::CommandCancel::encoded_size(&self) -> usize
-pub fn grafton_visca::request::builtin::CommandCancel::retry_class(&self) -> grafton_visca::RetryClass
-pub fn grafton_visca::request::builtin::CommandCancel::timeout_class(&self) -> grafton_visca::TimeoutClass
-pub fn grafton_visca::request::builtin::CommandCancel::validate_for_profile(&self, &grafton_visca::profile::ProfileSpec) -> core::result::Result<(), grafton_visca::Error>
-pub fn grafton_visca::request::builtin::CommandCancel::write_into(&self, grafton_visca::CameraId, &mut [u8]) -> core::result::Result<usize, grafton_visca::Error>
-impl core::marker::Freeze for grafton_visca::request::builtin::CommandCancel
-impl core::marker::Send for grafton_visca::request::builtin::CommandCancel
-impl core::marker::Sync for grafton_visca::request::builtin::CommandCancel
-impl core::marker::Unpin for grafton_visca::request::builtin::CommandCancel
-impl core::marker::UnsafeUnpin for grafton_visca::request::builtin::CommandCancel
-impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::request::builtin::CommandCancel
-impl core::panic::unwind_safe::UnwindSafe for grafton_visca::request::builtin::CommandCancel
 pub struct grafton_visca::request::builtin::FocusInfinity
 impl core::clone::Clone for grafton_visca::request::builtin::FocusInfinity
 pub fn grafton_visca::request::builtin::FocusInfinity::clone(&self) -> grafton_visca::request::builtin::FocusInfinity
@@ -25017,39 +24948,6 @@ impl core::marker::Unpin for grafton_visca::request::builtin::ImageMirrorCommand
 impl core::marker::UnsafeUnpin for grafton_visca::request::builtin::ImageMirrorCommand
 impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::request::builtin::ImageMirrorCommand
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::request::builtin::ImageMirrorCommand
-pub struct grafton_visca::request::builtin::InterfaceClear
-impl core::clone::Clone for grafton_visca::request::builtin::InterfaceClear
-pub fn grafton_visca::request::builtin::InterfaceClear::clone(&self) -> grafton_visca::request::builtin::InterfaceClear
-impl core::cmp::Eq for grafton_visca::request::builtin::InterfaceClear
-impl core::cmp::PartialEq for grafton_visca::request::builtin::InterfaceClear
-pub fn grafton_visca::request::builtin::InterfaceClear::eq(&self, &grafton_visca::request::builtin::InterfaceClear) -> bool
-impl core::default::Default for grafton_visca::request::builtin::InterfaceClear
-pub fn grafton_visca::request::builtin::InterfaceClear::default() -> grafton_visca::request::builtin::InterfaceClear
-impl core::fmt::Debug for grafton_visca::request::builtin::InterfaceClear
-pub fn grafton_visca::request::builtin::InterfaceClear::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::hash::Hash for grafton_visca::request::builtin::InterfaceClear
-pub fn grafton_visca::request::builtin::InterfaceClear::hash<__H: core::hash::Hasher>(&self, &mut __H)
-impl core::marker::Copy for grafton_visca::request::builtin::InterfaceClear
-impl core::marker::StructuralPartialEq for grafton_visca::request::builtin::InterfaceClear
-impl grafton_visca::Request for grafton_visca::request::builtin::InterfaceClear
-pub type grafton_visca::request::builtin::InterfaceClear::Class = grafton_visca::request::Plain
-pub const grafton_visca::request::builtin::InterfaceClear::CONTROL_CLASS: grafton_visca::ControlClass
-pub const grafton_visca::request::builtin::InterfaceClear::MAX_SIZE: usize
-pub const grafton_visca::request::builtin::InterfaceClear::RETRY_CLASS: grafton_visca::RetryClass
-pub const grafton_visca::request::builtin::InterfaceClear::TIMEOUT_CLASS: grafton_visca::TimeoutClass
-pub fn grafton_visca::request::builtin::InterfaceClear::control_class(&self) -> grafton_visca::ControlClass
-pub fn grafton_visca::request::builtin::InterfaceClear::encoded_size(&self) -> usize
-pub fn grafton_visca::request::builtin::InterfaceClear::retry_class(&self) -> grafton_visca::RetryClass
-pub fn grafton_visca::request::builtin::InterfaceClear::timeout_class(&self) -> grafton_visca::TimeoutClass
-pub fn grafton_visca::request::builtin::InterfaceClear::validate_for_profile(&self, &grafton_visca::profile::ProfileSpec) -> core::result::Result<(), grafton_visca::Error>
-pub fn grafton_visca::request::builtin::InterfaceClear::write_into(&self, grafton_visca::CameraId, &mut [u8]) -> core::result::Result<usize, grafton_visca::Error>
-impl core::marker::Freeze for grafton_visca::request::builtin::InterfaceClear
-impl core::marker::Send for grafton_visca::request::builtin::InterfaceClear
-impl core::marker::Sync for grafton_visca::request::builtin::InterfaceClear
-impl core::marker::Unpin for grafton_visca::request::builtin::InterfaceClear
-impl core::marker::UnsafeUnpin for grafton_visca::request::builtin::InterfaceClear
-impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::request::builtin::InterfaceClear
-impl core::panic::unwind_safe::UnwindSafe for grafton_visca::request::builtin::InterfaceClear
 pub struct grafton_visca::request::builtin::IrisDirect(_)
 impl grafton_visca::request::builtin::IrisDirect
 pub const fn grafton_visca::request::builtin::IrisDirect::level(self) -> grafton_visca::types::IrisLevel
@@ -26058,16 +25956,16 @@ impl<P: grafton_visca::profile::CompileTimeProfile> grafton_visca::Camera<P>
 pub fn grafton_visca::Camera<P>::advanced(&self) -> grafton_visca::AdvancedAccessor<'_, P>
 impl<P: grafton_visca::profile::CompileTimeProfile> grafton_visca::Camera<P>
 pub fn grafton_visca::Camera<P>::capabilities(&self) -> &grafton_visca::capabilities::Capabilities
-pub const fn grafton_visca::Camera<P>::command_class(&self) -> core::option::Option<grafton_visca::ControlClass>
 pub async fn grafton_visca::Camera<P>::execute<C>(&self, &C) -> grafton_visca::Result<()> where C: grafton_visca::PlainCommand + ?core::marker::Sized
-pub async fn grafton_visca::Camera<P>::execute_with_class<C>(&self, &C, grafton_visca::ControlClass) -> grafton_visca::Result<()> where C: grafton_visca::PlainCommand + ?core::marker::Sized
+pub async fn grafton_visca::Camera<P>::execute_with_submission_class<C>(&self, &C, grafton_visca::SubmissionClass) -> grafton_visca::Result<()> where C: grafton_visca::PlainCommand + ?core::marker::Sized
 pub async fn grafton_visca::Camera<P>::inquire<Q>(&self, &Q) -> grafton_visca::Result<<Q as grafton_visca::Inquiry>::Response> where Q: grafton_visca::Inquiry + ?core::marker::Sized
-pub async fn grafton_visca::Camera<P>::inquire_with_class<Q>(&self, &Q, grafton_visca::ControlClass) -> grafton_visca::Result<<Q as grafton_visca::Inquiry>::Response> where Q: grafton_visca::Inquiry + ?core::marker::Sized
+pub async fn grafton_visca::Camera<P>::inquire_with_submission_class<Q>(&self, &Q, grafton_visca::SubmissionClass) -> grafton_visca::Result<<Q as grafton_visca::Inquiry>::Response> where Q: grafton_visca::Inquiry + ?core::marker::Sized
 pub fn grafton_visca::Camera<P>::profile(&self) -> &grafton_visca::profile::ProfileSpec
-pub fn grafton_visca::Camera<P>::set_command_class(&mut self, core::option::Option<grafton_visca::ControlClass>)
+pub fn grafton_visca::Camera<P>::set_submission_class(&mut self, core::option::Option<grafton_visca::SubmissionClass>)
 pub fn grafton_visca::Camera<P>::state_cache(&self) -> grafton_visca::state_cache::StateCache
+pub const fn grafton_visca::Camera<P>::submission_class(&self) -> core::option::Option<grafton_visca::SubmissionClass>
 pub async fn grafton_visca::Camera<P>::submit<K, O>(&self, &O) -> grafton_visca::Result<grafton_visca::Operation<K>> where K: grafton_visca::completion::Kind, O: grafton_visca::OperationCommand<K> + ?core::marker::Sized
-pub async fn grafton_visca::Camera<P>::submit_with_class<K, O>(&self, &O, grafton_visca::ControlClass) -> grafton_visca::Result<grafton_visca::Operation<K>> where K: grafton_visca::completion::Kind, O: grafton_visca::OperationCommand<K> + ?core::marker::Sized
+pub async fn grafton_visca::Camera<P>::submit_with_submission_class<K, O>(&self, &O, grafton_visca::SubmissionClass) -> grafton_visca::Result<grafton_visca::Operation<K>> where K: grafton_visca::completion::Kind, O: grafton_visca::OperationCommand<K> + ?core::marker::Sized
 pub const fn grafton_visca::Camera<P>::target(&self) -> grafton_visca::CameraId
 impl<P: grafton_visca::profile::CompileTimeProfile> grafton_visca::Camera<P>
 pub fn grafton_visca::Camera<P>::exposure(&self) -> grafton_visca::ExposureAccessor<'_, P> where P: grafton_visca::capabilities::HasExposure
@@ -26152,13 +26050,13 @@ pub struct grafton_visca::session::CameraSession<P: grafton_visca::profile::Comp
 impl<P: grafton_visca::profile::CompileTimeProfile> grafton_visca::CameraSession<P>
 pub const fn grafton_visca::CameraSession<P>::camera(&self) -> &grafton_visca::Camera<P>
 pub async fn grafton_visca::CameraSession<P>::close(self) -> grafton_visca::Result<()>
-pub const fn grafton_visca::CameraSession<P>::command_class(&self) -> core::option::Option<grafton_visca::ControlClass>
 pub fn grafton_visca::CameraSession<P>::into_camera(self) -> grafton_visca::Camera<P>
 pub async fn grafton_visca::CameraSession<P>::open<E, T>(T, &grafton_visca::CameraConfig<P>, impl core::convert::Into<alloc::sync::Arc<E>>) -> grafton_visca::Result<Self> where E: grafton_visca::Executor, T: grafton_visca::transport::AsyncTransport + grafton_visca::transport::HasTransportConfig + 'static
 pub const fn grafton_visca::CameraSession<P>::session(&self) -> &grafton_visca::Session
-pub fn grafton_visca::CameraSession<P>::set_command_class(&mut self, core::option::Option<grafton_visca::ControlClass>)
+pub fn grafton_visca::CameraSession<P>::set_submission_class(&mut self, core::option::Option<grafton_visca::SubmissionClass>)
 pub async fn grafton_visca::CameraSession<P>::set_tuning(&self, grafton_visca::profile::OperationalTuning) -> grafton_visca::Result<()>
 pub async fn grafton_visca::CameraSession<P>::shutdown(&self) -> grafton_visca::Result<()>
+pub const fn grafton_visca::CameraSession<P>::submission_class(&self) -> core::option::Option<grafton_visca::SubmissionClass>
 pub const fn grafton_visca::CameraSession<P>::target(&self) -> grafton_visca::CameraId
 pub fn grafton_visca::CameraSession<P>::tuning(&self) -> grafton_visca::profile::OperationalTuning
 impl<P: grafton_visca::profile::CompileTimeProfile> core::fmt::Debug for grafton_visca::CameraSession<P>
@@ -30559,6 +30457,8 @@ pub fn grafton_visca::ControlClass::clone(&self) -> grafton_visca::ControlClass
 impl core::cmp::Eq for grafton_visca::ControlClass
 impl core::cmp::PartialEq for grafton_visca::ControlClass
 pub fn grafton_visca::ControlClass::eq(&self, &grafton_visca::ControlClass) -> bool
+impl core::convert::From<grafton_visca::SubmissionClass> for grafton_visca::ControlClass
+pub fn grafton_visca::ControlClass::from(grafton_visca::SubmissionClass) -> Self
 impl core::fmt::Debug for grafton_visca::ControlClass
 pub fn grafton_visca::ControlClass::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::hash::Hash for grafton_visca::ControlClass
@@ -30922,6 +30822,7 @@ pub grafton_visca::Error::Unknown(u8)
 pub grafton_visca::Error::UnknownResponseKind
 pub grafton_visca::Error::UnknownResponseKind::data: alloc::vec::Vec<u8>
 pub grafton_visca::Error::UnknownResponseKind::response_type: alloc::borrow::Cow<'static, str>
+pub grafton_visca::Error::UnsequencedCommandUnconfirmed
 pub grafton_visca::Error::UnsupportedTransport
 pub grafton_visca::Error::UnsupportedTransport::profile: grafton_visca::camera::profiles::ProfileId
 pub grafton_visca::Error::UnsupportedTransport::transport: grafton_visca::camera::TransportKind
@@ -31717,6 +31618,54 @@ impl core::marker::Unpin for grafton_visca::state_cache::StateKey
 impl core::marker::UnsafeUnpin for grafton_visca::state_cache::StateKey
 impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::state_cache::StateKey
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::state_cache::StateKey
+#[non_exhaustive] pub enum grafton_visca::SubmissionClass
+pub grafton_visca::SubmissionClass::Background
+pub grafton_visca::SubmissionClass::Normal
+pub grafton_visca::SubmissionClass::User
+impl grafton_visca::SubmissionClass
+pub const fn grafton_visca::SubmissionClass::control_class(self) -> grafton_visca::ControlClass
+impl core::clone::Clone for grafton_visca::SubmissionClass
+pub fn grafton_visca::SubmissionClass::clone(&self) -> grafton_visca::SubmissionClass
+impl core::cmp::Eq for grafton_visca::SubmissionClass
+impl core::cmp::PartialEq for grafton_visca::SubmissionClass
+pub fn grafton_visca::SubmissionClass::eq(&self, &grafton_visca::SubmissionClass) -> bool
+impl core::convert::From<grafton_visca::SubmissionClass> for grafton_visca::ControlClass
+pub fn grafton_visca::ControlClass::from(grafton_visca::SubmissionClass) -> Self
+impl core::fmt::Debug for grafton_visca::SubmissionClass
+pub fn grafton_visca::SubmissionClass::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for grafton_visca::SubmissionClass
+pub fn grafton_visca::SubmissionClass::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for grafton_visca::SubmissionClass
+impl core::marker::StructuralPartialEq for grafton_visca::SubmissionClass
+impl schemars::JsonSchema for grafton_visca::SubmissionClass
+pub fn grafton_visca::SubmissionClass::inline_schema() -> bool
+pub fn grafton_visca::SubmissionClass::json_schema(&mut schemars::generate::SchemaGenerator) -> schemars::schema::Schema
+pub fn grafton_visca::SubmissionClass::schema_id() -> alloc::borrow::Cow<'static, str>
+pub fn grafton_visca::SubmissionClass::schema_name() -> alloc::borrow::Cow<'static, str>
+impl serde_core::ser::Serialize for grafton_visca::SubmissionClass
+pub fn grafton_visca::SubmissionClass::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl ts_rs::TS for grafton_visca::SubmissionClass
+pub type grafton_visca::SubmissionClass::OptionInnerType = grafton_visca::SubmissionClass
+pub type grafton_visca::SubmissionClass::WithoutGenerics = grafton_visca::SubmissionClass
+pub fn grafton_visca::SubmissionClass::decl(&ts_rs::Config) -> alloc::string::String
+pub fn grafton_visca::SubmissionClass::decl_concrete(&ts_rs::Config) -> alloc::string::String
+pub fn grafton_visca::SubmissionClass::docs() -> core::option::Option<alloc::string::String>
+pub fn grafton_visca::SubmissionClass::ident(&ts_rs::Config) -> alloc::string::String
+pub fn grafton_visca::SubmissionClass::inline(&ts_rs::Config) -> alloc::string::String
+pub fn grafton_visca::SubmissionClass::inline_flattened(&ts_rs::Config) -> alloc::string::String
+pub fn grafton_visca::SubmissionClass::name(&ts_rs::Config) -> alloc::string::String
+pub fn grafton_visca::SubmissionClass::output_path() -> core::option::Option<std::path::PathBuf>
+pub fn grafton_visca::SubmissionClass::visit_dependencies(&mut impl ts_rs::TypeVisitor) where Self: 'static
+pub fn grafton_visca::SubmissionClass::visit_generics(&mut impl ts_rs::TypeVisitor) where Self: 'static
+impl<'de> serde_core::de::Deserialize<'de> for grafton_visca::SubmissionClass
+pub fn grafton_visca::SubmissionClass::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+impl core::marker::Freeze for grafton_visca::SubmissionClass
+impl core::marker::Send for grafton_visca::SubmissionClass
+impl core::marker::Sync for grafton_visca::SubmissionClass
+impl core::marker::Unpin for grafton_visca::SubmissionClass
+impl core::marker::UnsafeUnpin for grafton_visca::SubmissionClass
+impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::SubmissionClass
+impl core::panic::unwind_safe::UnwindSafe for grafton_visca::SubmissionClass
 #[non_exhaustive] pub enum grafton_visca::TimeoutClass
 pub grafton_visca::TimeoutClass::Inquiry
 pub grafton_visca::TimeoutClass::LongRunning
@@ -31932,16 +31881,15 @@ pub const grafton_visca::AffectedAxes::FOCUS: Self
 pub const grafton_visca::AffectedAxes::IRIS: Self
 pub const grafton_visca::AffectedAxes::MOVEMENT: Self
 pub const grafton_visca::AffectedAxes::ND_FILTER: Self
-pub const grafton_visca::AffectedAxes::NONE: Self
 pub const grafton_visca::AffectedAxes::PAN_TILT: Self
 pub const grafton_visca::AffectedAxes::ZOOM: Self
+pub const fn grafton_visca::AffectedAxes::axis_count(self) -> usize
 pub const fn grafton_visca::AffectedAxes::bits(self) -> u8
 pub const fn grafton_visca::AffectedAxes::contains(self, Self) -> bool
 pub fn grafton_visca::AffectedAxes::from_bits(u8) -> grafton_visca::Result<Self>
-pub const fn grafton_visca::AffectedAxes::is_empty(self) -> bool
+pub const fn grafton_visca::AffectedAxes::intersection(self, Self) -> core::option::Option<Self>
 pub const fn grafton_visca::AffectedAxes::is_single(self) -> bool
 pub const fn grafton_visca::AffectedAxes::iter(self) -> grafton_visca::AffectedAxisIter
-pub const fn grafton_visca::AffectedAxes::len(self) -> usize
 pub fn grafton_visca::AffectedAxes::new(bool, bool, bool) -> grafton_visca::Result<Self>
 pub fn grafton_visca::AffectedAxes::new_with_iris_nd(bool, bool, bool, bool, bool) -> grafton_visca::Result<Self>
 pub const fn grafton_visca::AffectedAxes::union(self, Self) -> Self
@@ -31964,21 +31912,16 @@ impl core::hash::Hash for grafton_visca::AffectedAxes
 pub fn grafton_visca::AffectedAxes::hash<__H: core::hash::Hasher>(&self, &mut __H)
 impl core::marker::Copy for grafton_visca::AffectedAxes
 impl core::marker::StructuralPartialEq for grafton_visca::AffectedAxes
-impl core::ops::bit::BitAnd for grafton_visca::AffectedAxes
-pub type grafton_visca::AffectedAxes::Output = grafton_visca::AffectedAxes
-pub fn grafton_visca::AffectedAxes::bitand(self, Self) -> Self
 impl core::ops::bit::BitOr for grafton_visca::AffectedAxes
 pub type grafton_visca::AffectedAxes::Output = grafton_visca::AffectedAxes
 pub fn grafton_visca::AffectedAxes::bitor(self, Self) -> Self
 impl core::ops::bit::BitOrAssign for grafton_visca::AffectedAxes
 pub fn grafton_visca::AffectedAxes::bitor_assign(&mut self, Self)
 impl schemars::JsonSchema for grafton_visca::AffectedAxes
-pub fn grafton_visca::AffectedAxes::inline_schema() -> bool
 pub fn grafton_visca::AffectedAxes::json_schema(&mut schemars::generate::SchemaGenerator) -> schemars::schema::Schema
-pub fn grafton_visca::AffectedAxes::schema_id() -> alloc::borrow::Cow<'static, str>
 pub fn grafton_visca::AffectedAxes::schema_name() -> alloc::borrow::Cow<'static, str>
 impl serde_core::ser::Serialize for grafton_visca::AffectedAxes
-pub fn grafton_visca::AffectedAxes::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+pub fn grafton_visca::AffectedAxes::serialize<S>(&self, S) -> core::result::Result<<S as serde_core::ser::Serializer>::Ok, <S as serde_core::ser::Serializer>::Error> where S: serde_core::ser::Serializer
 impl ts_rs::TS for grafton_visca::AffectedAxes
 pub type grafton_visca::AffectedAxes::OptionInnerType = grafton_visca::AffectedAxes
 pub type grafton_visca::AffectedAxes::WithoutGenerics = grafton_visca::AffectedAxes
@@ -31993,7 +31936,7 @@ pub fn grafton_visca::AffectedAxes::output_path() -> core::option::Option<std::p
 pub fn grafton_visca::AffectedAxes::visit_dependencies(&mut impl ts_rs::TypeVisitor) where Self: 'static
 pub fn grafton_visca::AffectedAxes::visit_generics(&mut impl ts_rs::TypeVisitor) where Self: 'static
 impl<'de> serde_core::de::Deserialize<'de> for grafton_visca::AffectedAxes
-pub fn grafton_visca::AffectedAxes::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub fn grafton_visca::AffectedAxes::deserialize<D>(D) -> core::result::Result<Self, <D as serde_core::de::Deserializer>::Error> where D: serde_core::de::Deserializer<'de>
 impl core::marker::Freeze for grafton_visca::AffectedAxes
 impl core::marker::Send for grafton_visca::AffectedAxes
 impl core::marker::Sync for grafton_visca::AffectedAxes
@@ -32025,16 +31968,16 @@ impl<P: grafton_visca::profile::CompileTimeProfile> grafton_visca::Camera<P>
 pub fn grafton_visca::Camera<P>::advanced(&self) -> grafton_visca::AdvancedAccessor<'_, P>
 impl<P: grafton_visca::profile::CompileTimeProfile> grafton_visca::Camera<P>
 pub fn grafton_visca::Camera<P>::capabilities(&self) -> &grafton_visca::capabilities::Capabilities
-pub const fn grafton_visca::Camera<P>::command_class(&self) -> core::option::Option<grafton_visca::ControlClass>
 pub async fn grafton_visca::Camera<P>::execute<C>(&self, &C) -> grafton_visca::Result<()> where C: grafton_visca::PlainCommand + ?core::marker::Sized
-pub async fn grafton_visca::Camera<P>::execute_with_class<C>(&self, &C, grafton_visca::ControlClass) -> grafton_visca::Result<()> where C: grafton_visca::PlainCommand + ?core::marker::Sized
+pub async fn grafton_visca::Camera<P>::execute_with_submission_class<C>(&self, &C, grafton_visca::SubmissionClass) -> grafton_visca::Result<()> where C: grafton_visca::PlainCommand + ?core::marker::Sized
 pub async fn grafton_visca::Camera<P>::inquire<Q>(&self, &Q) -> grafton_visca::Result<<Q as grafton_visca::Inquiry>::Response> where Q: grafton_visca::Inquiry + ?core::marker::Sized
-pub async fn grafton_visca::Camera<P>::inquire_with_class<Q>(&self, &Q, grafton_visca::ControlClass) -> grafton_visca::Result<<Q as grafton_visca::Inquiry>::Response> where Q: grafton_visca::Inquiry + ?core::marker::Sized
+pub async fn grafton_visca::Camera<P>::inquire_with_submission_class<Q>(&self, &Q, grafton_visca::SubmissionClass) -> grafton_visca::Result<<Q as grafton_visca::Inquiry>::Response> where Q: grafton_visca::Inquiry + ?core::marker::Sized
 pub fn grafton_visca::Camera<P>::profile(&self) -> &grafton_visca::profile::ProfileSpec
-pub fn grafton_visca::Camera<P>::set_command_class(&mut self, core::option::Option<grafton_visca::ControlClass>)
+pub fn grafton_visca::Camera<P>::set_submission_class(&mut self, core::option::Option<grafton_visca::SubmissionClass>)
 pub fn grafton_visca::Camera<P>::state_cache(&self) -> grafton_visca::state_cache::StateCache
+pub const fn grafton_visca::Camera<P>::submission_class(&self) -> core::option::Option<grafton_visca::SubmissionClass>
 pub async fn grafton_visca::Camera<P>::submit<K, O>(&self, &O) -> grafton_visca::Result<grafton_visca::Operation<K>> where K: grafton_visca::completion::Kind, O: grafton_visca::OperationCommand<K> + ?core::marker::Sized
-pub async fn grafton_visca::Camera<P>::submit_with_class<K, O>(&self, &O, grafton_visca::ControlClass) -> grafton_visca::Result<grafton_visca::Operation<K>> where K: grafton_visca::completion::Kind, O: grafton_visca::OperationCommand<K> + ?core::marker::Sized
+pub async fn grafton_visca::Camera<P>::submit_with_submission_class<K, O>(&self, &O, grafton_visca::SubmissionClass) -> grafton_visca::Result<grafton_visca::Operation<K>> where K: grafton_visca::completion::Kind, O: grafton_visca::OperationCommand<K> + ?core::marker::Sized
 pub const fn grafton_visca::Camera<P>::target(&self) -> grafton_visca::CameraId
 impl<P: grafton_visca::profile::CompileTimeProfile> grafton_visca::Camera<P>
 pub fn grafton_visca::Camera<P>::exposure(&self) -> grafton_visca::ExposureAccessor<'_, P> where P: grafton_visca::capabilities::HasExposure
@@ -32158,13 +32101,13 @@ pub struct grafton_visca::CameraSession<P: grafton_visca::profile::CompileTimePr
 impl<P: grafton_visca::profile::CompileTimeProfile> grafton_visca::CameraSession<P>
 pub const fn grafton_visca::CameraSession<P>::camera(&self) -> &grafton_visca::Camera<P>
 pub async fn grafton_visca::CameraSession<P>::close(self) -> grafton_visca::Result<()>
-pub const fn grafton_visca::CameraSession<P>::command_class(&self) -> core::option::Option<grafton_visca::ControlClass>
 pub fn grafton_visca::CameraSession<P>::into_camera(self) -> grafton_visca::Camera<P>
 pub async fn grafton_visca::CameraSession<P>::open<E, T>(T, &grafton_visca::CameraConfig<P>, impl core::convert::Into<alloc::sync::Arc<E>>) -> grafton_visca::Result<Self> where E: grafton_visca::Executor, T: grafton_visca::transport::AsyncTransport + grafton_visca::transport::HasTransportConfig + 'static
 pub const fn grafton_visca::CameraSession<P>::session(&self) -> &grafton_visca::Session
-pub fn grafton_visca::CameraSession<P>::set_command_class(&mut self, core::option::Option<grafton_visca::ControlClass>)
+pub fn grafton_visca::CameraSession<P>::set_submission_class(&mut self, core::option::Option<grafton_visca::SubmissionClass>)
 pub async fn grafton_visca::CameraSession<P>::set_tuning(&self, grafton_visca::profile::OperationalTuning) -> grafton_visca::Result<()>
 pub async fn grafton_visca::CameraSession<P>::shutdown(&self) -> grafton_visca::Result<()>
+pub const fn grafton_visca::CameraSession<P>::submission_class(&self) -> core::option::Option<grafton_visca::SubmissionClass>
 pub const fn grafton_visca::CameraSession<P>::target(&self) -> grafton_visca::CameraId
 pub fn grafton_visca::CameraSession<P>::tuning(&self) -> grafton_visca::profile::OperationalTuning
 impl<P: grafton_visca::profile::CompileTimeProfile> core::fmt::Debug for grafton_visca::CameraSession<P>
@@ -32331,21 +32274,21 @@ pub fn grafton_visca::DynSessionCamera::zoom(&self) -> &dyn grafton_visca::DynZo
 impl grafton_visca::DynSessionCamera
 pub fn grafton_visca::DynSessionCamera::camera<P>(&self) -> grafton_visca::Result<grafton_visca::Camera<P>> where P: grafton_visca::profile::CompileTimeProfile
 pub fn grafton_visca::DynSessionCamera::capabilities(&self) -> &grafton_visca::capabilities::Capabilities
-pub const fn grafton_visca::DynSessionCamera::command_class(&self) -> core::option::Option<grafton_visca::ControlClass>
 pub async fn grafton_visca::DynSessionCamera::execute<C>(&self, &C) -> grafton_visca::Result<(), grafton_visca::Error> where C: grafton_visca::PlainCommand + ?core::marker::Sized
-pub async fn grafton_visca::DynSessionCamera::execute_with_class<C>(&self, &C, grafton_visca::ControlClass) -> grafton_visca::Result<(), grafton_visca::Error> where C: grafton_visca::PlainCommand + ?core::marker::Sized
+pub async fn grafton_visca::DynSessionCamera::execute_with_submission_class<C>(&self, &C, grafton_visca::SubmissionClass) -> grafton_visca::Result<(), grafton_visca::Error> where C: grafton_visca::PlainCommand + ?core::marker::Sized
 pub fn grafton_visca::DynSessionCamera::from_session(&grafton_visca::Session) -> grafton_visca::Result<Self>
 pub fn grafton_visca::DynSessionCamera::from_session_target(&grafton_visca::Session, grafton_visca::CameraId) -> grafton_visca::Result<Self>
 pub async fn grafton_visca::DynSessionCamera::inquire<Q>(&self, &Q) -> grafton_visca::Result<<Q as grafton_visca::Inquiry>::Response, grafton_visca::Error> where Q: grafton_visca::Inquiry + ?core::marker::Sized
-pub async fn grafton_visca::DynSessionCamera::inquire_with_class<Q>(&self, &Q, grafton_visca::ControlClass) -> grafton_visca::Result<<Q as grafton_visca::Inquiry>::Response, grafton_visca::Error> where Q: grafton_visca::Inquiry + ?core::marker::Sized
+pub async fn grafton_visca::DynSessionCamera::inquire_with_submission_class<Q>(&self, &Q, grafton_visca::SubmissionClass) -> grafton_visca::Result<<Q as grafton_visca::Inquiry>::Response, grafton_visca::Error> where Q: grafton_visca::Inquiry + ?core::marker::Sized
 pub fn grafton_visca::DynSessionCamera::motion(&self) -> &dyn grafton_visca::DynMotion
 pub fn grafton_visca::DynSessionCamera::profile(&self) -> &grafton_visca::profile::ProfileSpec
-pub fn grafton_visca::DynSessionCamera::set_command_class(&mut self, core::option::Option<grafton_visca::ControlClass>)
+pub fn grafton_visca::DynSessionCamera::set_submission_class(&mut self, core::option::Option<grafton_visca::SubmissionClass>)
 pub fn grafton_visca::DynSessionCamera::state_cache(&self) -> grafton_visca::state_cache::StateCache
+pub const fn grafton_visca::DynSessionCamera::submission_class(&self) -> core::option::Option<grafton_visca::SubmissionClass>
 pub async fn grafton_visca::DynSessionCamera::submit_applied<O>(&self, &O) -> grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error> where O: grafton_visca::OperationCommand<grafton_visca::completion::AppliedOnly> + core::marker::Sync + ?core::marker::Sized
-pub async fn grafton_visca::DynSessionCamera::submit_applied_with_class<O>(&self, &O, grafton_visca::ControlClass) -> grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error> where O: grafton_visca::OperationCommand<grafton_visca::completion::AppliedOnly> + core::marker::Sync + ?core::marker::Sized
+pub async fn grafton_visca::DynSessionCamera::submit_applied_with_submission_class<O>(&self, &O, grafton_visca::SubmissionClass) -> grafton_visca::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error> where O: grafton_visca::OperationCommand<grafton_visca::completion::AppliedOnly> + core::marker::Sync + ?core::marker::Sized
 pub async fn grafton_visca::DynSessionCamera::submit_targeted<O>(&self, &O) -> grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error> where O: grafton_visca::OperationCommand<grafton_visca::completion::Targeted> + core::marker::Sync + ?core::marker::Sized
-pub async fn grafton_visca::DynSessionCamera::submit_targeted_with_class<O>(&self, &O, grafton_visca::ControlClass) -> grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error> where O: grafton_visca::OperationCommand<grafton_visca::completion::Targeted> + core::marker::Sync + ?core::marker::Sized
+pub async fn grafton_visca::DynSessionCamera::submit_targeted_with_submission_class<O>(&self, &O, grafton_visca::SubmissionClass) -> grafton_visca::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error> where O: grafton_visca::OperationCommand<grafton_visca::completion::Targeted> + core::marker::Sync + ?core::marker::Sized
 pub fn grafton_visca::DynSessionCamera::supports_typed(&self, grafton_visca::capabilities::TypedSupportSurface) -> bool
 pub const fn grafton_visca::DynSessionCamera::target(&self) -> grafton_visca::CameraId
 impl core::clone::Clone for grafton_visca::DynSessionCamera
@@ -36680,30 +36623,6 @@ pub fn grafton_visca::raw::Targeted::retry_class(&self) -> grafton_visca::RetryC
 pub fn grafton_visca::raw::Targeted::timeout_class(&self) -> grafton_visca::TimeoutClass
 pub fn grafton_visca::raw::Targeted::validate_for_profile(&self, &grafton_visca::profile::ProfileSpec) -> grafton_visca::Result<()>
 pub fn grafton_visca::raw::Targeted::write_into(&self, grafton_visca::CameraId, &mut [u8]) -> grafton_visca::Result<usize>
-impl grafton_visca::Request for grafton_visca::request::builtin::AddressSet
-pub type grafton_visca::request::builtin::AddressSet::Class = grafton_visca::request::Plain
-pub const grafton_visca::request::builtin::AddressSet::CONTROL_CLASS: grafton_visca::ControlClass
-pub const grafton_visca::request::builtin::AddressSet::MAX_SIZE: usize
-pub const grafton_visca::request::builtin::AddressSet::RETRY_CLASS: grafton_visca::RetryClass
-pub const grafton_visca::request::builtin::AddressSet::TIMEOUT_CLASS: grafton_visca::TimeoutClass
-pub fn grafton_visca::request::builtin::AddressSet::control_class(&self) -> grafton_visca::ControlClass
-pub fn grafton_visca::request::builtin::AddressSet::encoded_size(&self) -> usize
-pub fn grafton_visca::request::builtin::AddressSet::retry_class(&self) -> grafton_visca::RetryClass
-pub fn grafton_visca::request::builtin::AddressSet::timeout_class(&self) -> grafton_visca::TimeoutClass
-pub fn grafton_visca::request::builtin::AddressSet::validate_for_profile(&self, &grafton_visca::profile::ProfileSpec) -> core::result::Result<(), grafton_visca::Error>
-pub fn grafton_visca::request::builtin::AddressSet::write_into(&self, grafton_visca::CameraId, &mut [u8]) -> core::result::Result<usize, grafton_visca::Error>
-impl grafton_visca::Request for grafton_visca::request::builtin::CommandCancel
-pub type grafton_visca::request::builtin::CommandCancel::Class = grafton_visca::request::Plain
-pub const grafton_visca::request::builtin::CommandCancel::CONTROL_CLASS: grafton_visca::ControlClass
-pub const grafton_visca::request::builtin::CommandCancel::MAX_SIZE: usize
-pub const grafton_visca::request::builtin::CommandCancel::RETRY_CLASS: grafton_visca::RetryClass
-pub const grafton_visca::request::builtin::CommandCancel::TIMEOUT_CLASS: grafton_visca::TimeoutClass
-pub fn grafton_visca::request::builtin::CommandCancel::control_class(&self) -> grafton_visca::ControlClass
-pub fn grafton_visca::request::builtin::CommandCancel::encoded_size(&self) -> usize
-pub fn grafton_visca::request::builtin::CommandCancel::retry_class(&self) -> grafton_visca::RetryClass
-pub fn grafton_visca::request::builtin::CommandCancel::timeout_class(&self) -> grafton_visca::TimeoutClass
-pub fn grafton_visca::request::builtin::CommandCancel::validate_for_profile(&self, &grafton_visca::profile::ProfileSpec) -> core::result::Result<(), grafton_visca::Error>
-pub fn grafton_visca::request::builtin::CommandCancel::write_into(&self, grafton_visca::CameraId, &mut [u8]) -> core::result::Result<usize, grafton_visca::Error>
 impl grafton_visca::Request for grafton_visca::request::builtin::FocusDrive
 pub type grafton_visca::request::builtin::FocusDrive::Class = grafton_visca::request::Operation<grafton_visca::completion::AppliedOnly>
 pub const grafton_visca::request::builtin::FocusDrive::CONTROL_CLASS: grafton_visca::ControlClass
@@ -36800,18 +36719,6 @@ pub fn grafton_visca::request::builtin::ImageMirrorCommand::retry_class(&self) -
 pub fn grafton_visca::request::builtin::ImageMirrorCommand::timeout_class(&self) -> grafton_visca::TimeoutClass
 pub fn grafton_visca::request::builtin::ImageMirrorCommand::validate_for_profile(&self, &grafton_visca::profile::ProfileSpec) -> core::result::Result<(), grafton_visca::Error>
 pub fn grafton_visca::request::builtin::ImageMirrorCommand::write_into(&self, grafton_visca::CameraId, &mut [u8]) -> core::result::Result<usize, grafton_visca::Error>
-impl grafton_visca::Request for grafton_visca::request::builtin::InterfaceClear
-pub type grafton_visca::request::builtin::InterfaceClear::Class = grafton_visca::request::Plain
-pub const grafton_visca::request::builtin::InterfaceClear::CONTROL_CLASS: grafton_visca::ControlClass
-pub const grafton_visca::request::builtin::InterfaceClear::MAX_SIZE: usize
-pub const grafton_visca::request::builtin::InterfaceClear::RETRY_CLASS: grafton_visca::RetryClass
-pub const grafton_visca::request::builtin::InterfaceClear::TIMEOUT_CLASS: grafton_visca::TimeoutClass
-pub fn grafton_visca::request::builtin::InterfaceClear::control_class(&self) -> grafton_visca::ControlClass
-pub fn grafton_visca::request::builtin::InterfaceClear::encoded_size(&self) -> usize
-pub fn grafton_visca::request::builtin::InterfaceClear::retry_class(&self) -> grafton_visca::RetryClass
-pub fn grafton_visca::request::builtin::InterfaceClear::timeout_class(&self) -> grafton_visca::TimeoutClass
-pub fn grafton_visca::request::builtin::InterfaceClear::validate_for_profile(&self, &grafton_visca::profile::ProfileSpec) -> core::result::Result<(), grafton_visca::Error>
-pub fn grafton_visca::request::builtin::InterfaceClear::write_into(&self, grafton_visca::CameraId, &mut [u8]) -> core::result::Result<usize, grafton_visca::Error>
 impl grafton_visca::Request for grafton_visca::request::builtin::IrisDirect
 pub type grafton_visca::request::builtin::IrisDirect::Class = grafton_visca::request::Operation<grafton_visca::completion::Targeted>
 pub const grafton_visca::request::builtin::IrisDirect::CONTROL_CLASS: grafton_visca::ControlClass

@@ -19,25 +19,31 @@ env:
 
 # Toolchain pinning policy
 #
-# Several gates in this workflow compare compiler output byte for byte: the
-# `trybuild` `.stderr` snapshots under `tests/api_contract/` and the
-# `api/2.0.0-rc.1/*.txt` public API snapshots. Floating `@stable`/`@nightly`
-# refs make those gates fail on every rustc release even when the pull request
-# changes nothing, so every toolchain used here is pinned to an exact version:
+# The public API gate compares `api/2.0.0-rc.1/*.txt` byte for byte, while the
+# compile-contract gate checks exact diagnostic codes and stable message
+# anchors declared inside each fixture. Floating `@stable`/`@nightly` refs
+# would still make those gates move without a source change, so every toolchain
+# used here is pinned to an exact compiler version and every action invocation
+# is pinned to immutable action code:
 #
-#   * stable  -> dtolnay/rust-toolchain@1.98.0
-#   * nightly -> dtolnay/rust-toolchain@master with `toolchain: nightly-2026-08-26`
-#   * MSRV    -> dtolnay/rust-toolchain@1.88.0 (the documented minimum)
+#   * stable compiler 1.98.0 -> generated action commit
+#     f8be11a05b1d4f3fcebe6410cc16743212b999b0
+#   * nightly compiler nightly-2026-08-26 -> action commit
+#     6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 (the master's 2026-08-28 code)
+#   * MSRV compiler 1.88.0 -> generated action commit
+#     2eae45db285e407f22119950686d47e1101e071b
 #
 # A `rust-toolchain.toml` is deliberately not used: `dtolnay/rust-toolchain`
 # selects a toolchain with `rustup default`, which a `rust-toolchain.toml`
 # directory override would silently win over, breaking the MSRV and nightly
-# jobs. Pinning the action refs keeps each job's toolchain explicit.
+# jobs. The generated stable/MSRV actions embed their compiler version; the
+# nightly action commit is only the installer code and the `toolchain:` input
+# selects the exact nightly compiler. Keeping both values visible prevents
+# an action-code pin from being mistaken for a compiler-version pin.
 #
-# Bumping stable requires re-blessing the trybuild snapshots
-# (`TRYBUILD=overwrite cargo test --test issue_551_compile_contract`, once per
-# affected feature leg). Bumping nightly requires regenerating the public API
-# snapshots; see `api/2.0.0-rc.1/README.md`.
+# Bumping stable requires running every compile-contract feature leg and
+# reviewing any diagnostic anchors rustc changed. Bumping nightly requires
+# regenerating the public API snapshots; see `api/2.0.0-rc.1/README.md`.
 
 jobs:
   format:
@@ -45,8 +51,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@master
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # action commit 6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 (master snapshot 2026-08-28; compiler set below)
         with:
           toolchain: nightly-2026-08-26
           components: rustfmt
@@ -114,26 +120,36 @@ jobs:
           - name: test-utils + blocking + Tokio
             command: --no-default-features --features test-utils,blocking,runtime-tokio --all-targets
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Install serial transport dependencies
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install --yes libudev-dev
-      - uses: dtolnay/rust-toolchain@1.98.0
-      - uses: Swatinem/rust-cache@v2
+      - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0 # 1.98.0
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           shared-key: matrix-${{ matrix.name }}
       - run: cargo test ${{ matrix.command }}
+
+  blocking-dependency-boundary:
+    name: native blocking dependency boundary
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0 # 1.98.0
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - run: bash .github/scripts/check-blocking-dependency-boundary.sh
 
   macro-derives:
     name: macro derives
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.98.0
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0 # 1.98.0
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - run: cargo test -p grafton-visca-macros
 
   all-features:
@@ -141,13 +157,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Install serial transport dependencies
         run: |
           sudo apt-get update
           sudo apt-get install --yes libudev-dev
-      - uses: dtolnay/rust-toolchain@1.98.0
-      - uses: Swatinem/rust-cache@v2
+      - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0 # 1.98.0
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - run: cargo check --workspace --all-features --all-targets
 
   examples:
@@ -155,13 +171,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Install serial transport dependencies
         run: |
           sudo apt-get update
           sudo apt-get install --yes libudev-dev
-      - uses: dtolnay/rust-toolchain@1.98.0
-      - uses: Swatinem/rust-cache@v2
+      - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0 # 1.98.0
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - name: Build supported example surfaces
         run: |
           set -euo pipefail
@@ -187,15 +203,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Install serial transport dependencies
         run: |
           sudo apt-get update
           sudo apt-get install --yes libudev-dev
-      - uses: dtolnay/rust-toolchain@1.98.0
+      - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0 # 1.98.0
         with:
           components: clippy
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
       - run: cargo clippy --lib --no-default-features -- -D warnings
       - env:
@@ -207,9 +223,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.88.0
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@2eae45db285e407f22119950686d47e1101e071b # 1.88.0
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - run: cargo check --workspace --all-targets
       - run: cargo check --lib --no-default-features --features async
       - run: cargo check --lib --no-default-features --features runtime-tokio,dyn-api
@@ -219,12 +235,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@master
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # action commit 6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 (master snapshot 2026-08-28; compiler set below)
         with:
           toolchain: nightly-2026-08-26
           components: miri
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - run: bash .github/scripts/miri-tests.sh
 
   fuzz:
@@ -232,17 +248,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       # `cargo-fuzz` is built with the pinned stable and the harness runs on
       # the pinned nightly, so both toolchains are installed explicitly instead
       # of relying on whatever the runner image happens to ship.
       - name: Install the pinned nightly used to run the fuzz harness
-        uses: dtolnay/rust-toolchain@master
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # action commit 6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 (master snapshot 2026-08-28; compiler set below)
         with:
           toolchain: nightly-2026-08-26
       - name: Install the pinned stable used to build cargo-fuzz
-        uses: dtolnay/rust-toolchain@1.98.0
-      - uses: Swatinem/rust-cache@v2
+        uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0 # 1.98.0
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - name: Install cargo-fuzz 0.12.0
         run: cargo +1.98.0 install cargo-fuzz --version 0.12.0 --locked
       - name: Check parser fuzz target
@@ -261,7 +277,7 @@ jobs:
       # it can be committed into the corpus as a permanent regression seed.
       - name: Upload crash artifacts
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: fuzz-artifacts
           path: fuzz/artifacts/
@@ -272,10 +288,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.98.0
-      - name: Check clean-checkout and hardware gates
-        run: bash .github/scripts/test-validate-release.sh
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0 # 1.98.0
+      - name: Check clean-checkout, hardware, and registry-payload gates
+        run: |
+          bash .github/scripts/test-validate-release.sh
+          bash .github/scripts/test-verify-crate-payload.sh
+          bash .github/scripts/test-verify-release-tag.sh
 
   release-drift:
     name: release validator vs. real repository (advisory)
@@ -306,8 +325,8 @@ jobs:
     # (a workspace version, an exact macro dependency pin, or a manifest that
     # no longer agrees with the tag being prepared).
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.98.0
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0 # 1.98.0
       # The tag the next publication is expected to use. Bump it in the same
       # commit that bumps `[workspace.package].version`.
       - name: Validate the intended next tag against this checkout
@@ -352,7 +371,7 @@ jobs:
           - name: all-features
             cargo_args: --all-features
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Install serial transport dependencies
         run: |
           sudo apt-get update
@@ -364,12 +383,12 @@ jobs:
       # snapshot bytes come from one known rustdoc rather than from whatever the
       # runner image happens to carry.
       - name: Install the pinned nightly used for rustdoc JSON
-        uses: dtolnay/rust-toolchain@master
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # action commit 6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 (master snapshot 2026-08-28; compiler set below)
         with:
           toolchain: nightly-2026-08-26
       - name: Install the pinned stable used to build cargo-public-api
-        uses: dtolnay/rust-toolchain@1.98.0
-      - uses: Swatinem/rust-cache@v2
+        uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0 # 1.98.0
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - name: Install pinned cargo-public-api
         run: cargo install cargo-public-api --version 0.52.0 --locked
       - name: Diff ${{ matrix.name }} snapshot
@@ -386,9 +405,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.98.0
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0 # 1.98.0
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - run: cargo check --manifest-path tests/fixtures/synemantic_2_0/Cargo.toml
       - name: Report external-head limitation
         run: >-
@@ -401,15 +420,15 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.98.0
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0 # 1.98.0
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           shared-key: windows
-          # `trybuild` builds transient `target/tests/target` trees that are gone
-          # by the time the post-job cache scan walks them, which on Windows
-          # turns into ENOENT noise. Registry caching still covers most of the
-          # cost here.
+          # Compile-contract fixtures build transient nested target trees that
+          # are gone by the time the post-job cache scan walks them, which on
+          # Windows turns into ENOENT noise. Registry caching still covers most
+          # of the cost here.
           cache-targets: false
       - run: cargo check --workspace --all-targets
       # `serialport` is a different implementation on Windows (the Win32 comms
@@ -431,9 +450,9 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.98.0
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0 # 1.98.0
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           shared-key: macos
       - run: cargo check --workspace --all-targets
@@ -446,9 +465,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.98.0
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0 # 1.98.0
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - name: Install cargo-audit 0.22.2
         # The workflow-wide `-D warnings` is meant for this crate's own code.
         # Applying it to a third-party tool's dependency tree would make an
@@ -468,7 +487,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       # Pinned to the commit behind v2.1.1: action tags are mutable, and this
       # job is a supply-chain gate, so it must not follow a moving reference.
       - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
@@ -481,6 +500,7 @@ jobs:
     needs:
       - format
       - feature-matrix
+      - blocking-dependency-boundary
       - macro-derives
       - all-features
       - examples
@@ -498,9 +518,38 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Require every check to pass
+        env:
+          REQUIRED_JOBS: ${{ toJSON(needs) }}
+          # Keep this set in lockstep with `needs` above.  `toJSON(needs)` is
+          # supplied by GitHub after the dependency graph has been evaluated;
+          # an accidentally removed dependency would otherwise turn a partial
+          # all-success object into a false green aggregate.
+          EXPECTED_JOB_IDS: >-
+            ["format", "feature-matrix", "blocking-dependency-boundary",
+             "macro-derives", "all-features", "examples", "lint", "msrv",
+             "miri", "fuzz", "release-validation", "public-api", "downstream",
+             "windows", "macos", "cargo-audit", "cargo-deny"]
         run: |
-          if [[ "${{ contains(needs.*.result, 'failure') }}" == "true" || \
-                "${{ contains(needs.*.result, 'cancelled') }}" == "true" ]]; then
-            echo "One or more required CI jobs failed or was cancelled."
+          set -euo pipefail
+          if ! jq -e --argjson expected "${EXPECTED_JOB_IDS}" '
+            type == "object"
+            and (keys_unsorted | sort) == ($expected | sort)
+            and all(.[]; .result == "success")
+          ' <<<"${REQUIRED_JOBS}" >/dev/null; then
+            echo "Required CI jobs must match the expected set and all conclude success:"
+            jq -r --argjson expected "${EXPECTED_JOB_IDS}" '
+              if type != "object" then
+                "  needs must be a JSON object (got \(type))"
+              else
+                "Missing required jobs:"
+                , (($expected - keys_unsorted) | sort[]? | "  \(.)")
+                , "Unexpected jobs:"
+                , ((keys_unsorted - $expected) | sort[]? | "  \(.)")
+                , "Present job results:"
+                , (to_entries[]
+                   | "  \(.key): \(if (.value | type) == "object" then (.value.result // "<missing>") else "<missing>" end)")
+              end
+            ' <<<"${REQUIRED_JOBS}"
             exit 1
           fi
+          echo "Every required CI job concluded success."

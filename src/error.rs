@@ -371,6 +371,14 @@ pub enum Error {
     #[error("Cancellation could not be confirmed")]
     CancellationUnconfirmed,
 
+    /// A raw/unsequenced command was successfully sent, but its ACK, completion,
+    /// or cancellation outcome became unknowable. A receive fault while its ACK
+    /// was outstanding, or an active retry-budget expiry while an attempt was in
+    /// `Sending`, `AwaitingAck`, or `Executing`, has the same consequence. The
+    /// session cannot safely correlate later replies to that command.
+    #[error("Unsequenced command outcome could not be confirmed")]
+    UnsequencedCommandUnconfirmed,
+
     /// A private runtime identity space was exhausted without a safe non-aliasing value.
     #[error("Runtime identity space exhausted")]
     RuntimeIdentityExhausted,
@@ -403,7 +411,11 @@ pub enum Error {
     ///
     /// # Recovery
     ///
-    /// Create a new transport connection and re-submit the failed commands.
+    /// Create a new transport connection, re-query/reconcile device state, and
+    /// only then deliberately resubmit work whose desired effect is still
+    /// needed. Never blindly replay a command whose completion is uncertain:
+    /// a raw command may already have reached the camera before its outcome was
+    /// lost, and the replacement session cannot prove otherwise.
     #[error("Stream transport poisoned: {reason}")]
     StreamPoisoned {
         /// Description of why the transport was poisoned.
@@ -566,7 +578,8 @@ impl Error {
             | Self::SocketManagerChannelClosed
             | Self::ResponseChannelClosed
             | Self::NoTransport
-            | Self::TransportChannelClosed => ErrorKind::IoClosed,
+            | Self::TransportChannelClosed
+            | Self::UnsequencedCommandUnconfirmed => ErrorKind::IoClosed,
 
             // IoRefused: connection attempt rejected
             Self::ConnectionFailed { .. } => ErrorKind::IoRefused,
@@ -642,10 +655,16 @@ impl Error {
     ///
     /// - `true` — the transport died underneath the session: the peer closed
     ///   the connection ([`Error::ConnectionClosed`]), the byte stream position
-    ///   became unknowable ([`Error::StreamPoisoned`]), or the owner's
-    ///   transport/channel is gone. A poisoned session is terminal and is never
-    ///   revived; every retained and subsequently attempted operation keeps
-    ///   reporting its exact terminal session error.
+    ///   became unknowable ([`Error::StreamPoisoned`]), the owner's
+    ///   transport/channel is gone, or an unsequenced command's outcome became
+    ///   unknowable ([`Error::UnsequencedCommandUnconfirmed`]). A poisoned
+    ///   session is terminal and is never revived; every retained and
+    ///   subsequently attempted operation keeps reporting its exact terminal
+    ///   session error. For a raw/unsequenced command, an ACK or completion
+    ///   timeout, a receive fault while awaiting the ACK, an active retry-budget
+    ///   expiry while an attempt is in `Sending`, `AwaitingAck`, or `Executing`,
+    ///   or expiry of a cancellation ambiguity quarantine is enough to poison
+    ///   the session, because a later datagram cannot be safely correlated.
     /// - `false` — the condition does not prove the session is unusable. A
     ///   deliberate [`Error::RuntimeShutdown`] is the important case: the
     ///   application ended that session on purpose and must not treat it as a
@@ -666,7 +685,7 @@ impl Error {
     /// starts `Unknown` and nothing is resubmitted automatically, so re-query
     /// supported camera state before applying desired state. Do not blindly
     /// replay a command whose completion is uncertain: it may have reached the
-    /// camera before the connection failed.
+    /// camera before the connection failed or raw correlation was poisoned.
     ///
     /// [`SessionConfig`]: crate::SessionConfig
     ///
@@ -697,7 +716,8 @@ impl Error {
             | Self::ResponseChannelClosed
             | Self::SocketManagerChannelClosed
             | Self::SocketManagerUnavailable
-            | Self::NoTransport => true,
+            | Self::NoTransport
+            | Self::UnsequencedCommandUnconfirmed => true,
 
             // Deliberate shutdown. The session is over because the application
             // ended it, so reconnecting is a policy decision, not a repair.
@@ -1133,6 +1153,7 @@ mod tests {
         assert!(Error::CommandPending.is_retryable());
         // Issue #501: MaxRetriesExceeded must NOT be retryable (prevents infinite loops)
         assert!(!Error::MaxRetriesExceeded.is_retryable());
+        assert!(!Error::UnsequencedCommandUnconfirmed.is_retryable());
 
         assert!(!Error::SyntaxError.is_retryable());
         assert!(!Error::CommandNotExecutable.is_retryable());
@@ -1181,6 +1202,10 @@ mod tests {
         assert_eq!(
             Error::NoSocket.suggested_retry_delay(),
             Some(Duration::from_millis(200))
+        );
+        assert_eq!(
+            Error::UnsequencedCommandUnconfirmed.suggested_retry_delay(),
+            None
         );
 
         assert_eq!(Error::SyntaxError.suggested_retry_delay(), None);
@@ -1231,6 +1256,7 @@ mod tests {
                 reason: Cow::Borrowed("test reason"),
             },
             Error::MaxRetriesExceeded,
+            Error::UnsequencedCommandUnconfirmed,
         ];
 
         for error in non_retryable_errors {
@@ -1295,6 +1321,10 @@ mod tests {
         assert_eq!(Error::ResponseChannelClosed.kind(), ErrorKind::IoClosed);
         assert_eq!(Error::NoTransport.kind(), ErrorKind::IoClosed);
         assert_eq!(Error::TransportChannelClosed.kind(), ErrorKind::IoClosed);
+        assert_eq!(
+            Error::UnsequencedCommandUnconfirmed.kind(),
+            ErrorKind::IoClosed
+        );
 
         // Protocol
         assert_eq!(Error::Unknown(0xFF).kind(), ErrorKind::Protocol);
@@ -1385,6 +1415,7 @@ mod tests {
         assert!(dropped.requires_new_session());
         assert!(poisoned.requires_new_session());
         assert!(!shutdown.requires_new_session());
+        assert!(Error::UnsequencedCommandUnconfirmed.requires_new_session());
     }
 
     #[test]
@@ -1400,6 +1431,7 @@ mod tests {
             Error::SocketManagerChannelClosed,
             Error::SocketManagerUnavailable,
             Error::NoTransport,
+            Error::UnsequencedCommandUnconfirmed,
         ] {
             assert!(
                 error.requires_new_session(),

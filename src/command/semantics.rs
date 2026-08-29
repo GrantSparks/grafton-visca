@@ -40,152 +40,12 @@
 //! targeted allowance. [`WriteOnlyState`] is deliberately not among them: the
 //! engine's applied-state projection consumes it in production.
 
-/// A physical axis named by a built-in operation.
-///
-/// This is intentionally separate from the current movement-only
-/// [`crate::AffectedAxes`] type.  It lets this phase record the complete
-/// semantic contract before the later settlement implementation grows exact
-/// iris and ND-filter inquiry plans.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-// Ledger row awaiting the `prepared` lowering; see the module note (#636).
-#[allow(dead_code)]
-pub enum BuiltinAxis {
-    /// Pan and tilt mechanism.
-    PanTilt,
-    /// Optical/digital zoom mechanism.
-    Zoom,
-    /// Focus mechanism.
-    Focus,
-    /// Iris/aperture mechanism.
-    Iris,
-    /// Neutral-density filter mechanism.
-    NdFilter,
-}
-
 /// A validated, non-empty set of physical axes used by a built-in operation.
 ///
-/// The only constructors are the non-empty constants and [`Self::union`], so
-/// an operation row cannot carry an empty set.  `from_bits` is provided for
-/// table and test tooling and rejects zero/unknown bits rather than using an
-/// all-axis fallback.
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
-// Ledger row awaiting the `prepared` lowering; see the module note (#636).
-#[allow(dead_code)]
-pub struct BuiltinAxes(u8);
-
-// Ledger row awaiting the `prepared` lowering; see the module note (#636).
-#[allow(dead_code)]
-impl BuiltinAxes {
-    const PAN_TILT_BIT: u8 = 1 << 0;
-    const ZOOM_BIT: u8 = 1 << 1;
-    const FOCUS_BIT: u8 = 1 << 2;
-    const IRIS_BIT: u8 = 1 << 3;
-    const ND_FILTER_BIT: u8 = 1 << 4;
-    const VALID_BITS: u8 = Self::PAN_TILT_BIT
-        | Self::ZOOM_BIT
-        | Self::FOCUS_BIT
-        | Self::IRIS_BIT
-        | Self::ND_FILTER_BIT;
-
-    /// Pan/tilt axis set.
-    pub const PAN_TILT: Self = Self(Self::PAN_TILT_BIT);
-    /// Zoom axis set.
-    pub const ZOOM: Self = Self(Self::ZOOM_BIT);
-    /// Focus axis set.
-    pub const FOCUS: Self = Self(Self::FOCUS_BIT);
-    /// Iris axis set.
-    pub const IRIS: Self = Self(Self::IRIS_BIT);
-    /// ND-filter axis set.
-    pub const ND_FILTER: Self = Self(Self::ND_FILTER_BIT);
-
-    /// Reconstruct a set from its stable bit representation.
-    ///
-    /// Returns `None` for an empty set or unknown bits.
-    #[must_use]
-    pub const fn from_bits(bits: u8) -> Option<Self> {
-        if bits == 0 || bits & !Self::VALID_BITS != 0 {
-            None
-        } else {
-            Some(Self(bits))
-        }
-    }
-
-    /// Returns the stable bit representation.
-    #[must_use]
-    pub const fn bits(self) -> u8 {
-        self.0
-    }
-
-    /// Returns whether `other` is included in this set.
-    #[must_use]
-    pub const fn contains(self, other: Self) -> bool {
-        self.0 & other.0 == other.0
-    }
-
-    /// Combines two already-valid, non-empty sets.
-    #[must_use]
-    pub const fn union(self, other: Self) -> Self {
-        Self(self.0 | other.0)
-    }
-
-    /// Returns the number of individual axes in this set.
-    #[must_use]
-    pub const fn len(self) -> u8 {
-        self.0.count_ones() as u8
-    }
-
-    /// Returns whether exactly one physical axis is selected.
-    #[must_use]
-    pub const fn is_single(self) -> bool {
-        self.len() == 1
-    }
-
-    /// Returns an iterator over the individual axes.
-    #[must_use]
-    pub const fn iter(self) -> BuiltinAxisIter {
-        BuiltinAxisIter { bits: self.0 }
-    }
-}
-
-impl core::fmt::Debug for BuiltinAxes {
-    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        formatter.debug_set().entries(self.iter()).finish()
-    }
-}
-
-/// Iterator returned by [`BuiltinAxes::iter`].
-#[derive(Debug, Clone, Copy)]
-// Ledger row awaiting the `prepared` lowering; see the module note (#636).
-#[allow(dead_code)]
-pub struct BuiltinAxisIter {
-    bits: u8,
-}
-
-impl Iterator for BuiltinAxisIter {
-    type Item = BuiltinAxis;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let axis = if self.bits & BuiltinAxes::PAN_TILT_BIT != 0 {
-            self.bits &= !BuiltinAxes::PAN_TILT_BIT;
-            BuiltinAxis::PanTilt
-        } else if self.bits & BuiltinAxes::ZOOM_BIT != 0 {
-            self.bits &= !BuiltinAxes::ZOOM_BIT;
-            BuiltinAxis::Zoom
-        } else if self.bits & BuiltinAxes::FOCUS_BIT != 0 {
-            self.bits &= !BuiltinAxes::FOCUS_BIT;
-            BuiltinAxis::Focus
-        } else if self.bits & BuiltinAxes::IRIS_BIT != 0 {
-            self.bits &= !BuiltinAxes::IRIS_BIT;
-            BuiltinAxis::Iris
-        } else if self.bits & BuiltinAxes::ND_FILTER_BIT != 0 {
-            self.bits &= !BuiltinAxes::ND_FILTER_BIT;
-            BuiltinAxis::NdFilter
-        } else {
-            return None;
-        };
-        Some(axis)
-    }
-}
+/// The ledger deliberately reuses the request contract's canonical axis type:
+/// keeping another bit layout, validator, iterator, and formatter here once
+/// caused the semantic and preparation domains to evolve independently.
+pub type BuiltinAxes = crate::AffectedAxes;
 
 /// Exact axis selection for an operation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -1470,7 +1330,7 @@ mod tests {
                 | BuiltinRequestClass::AppliedOnly { axes } => {
                     assert!(axes.is_non_empty());
                     if let BuiltinAxisSelection::Exact(axes) = axes {
-                        assert!(axes.is_single() || axes.len() > 1);
+                        assert!(axes.is_single() || axes.axis_count() > 1);
                     }
                 }
                 BuiltinRequestClass::Plain { .. } => {}

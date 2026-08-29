@@ -23,10 +23,10 @@ use grafton_visca::{
     command::CommandKind,
     completion::AppliedOnly,
     profile::ProfileSpec,
-    profiles::PtzOpticsG2,
+    profiles::{PtzOpticsG2, SonyFR7},
     request::builtin::{FocusDrive, FocusModeCommand, ZoomDrive, ZoomStop},
     transport::{BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig},
-    ControlClass, Error,
+    Error, SubmissionClass,
 };
 
 use profile_fixtures::NonDefaultCompileTimeProfile;
@@ -36,12 +36,15 @@ const FOCUS_FAR: &[u8] = &[0x81, 0x01, 0x04, 0x08, 0x02, 0xff];
 
 /// A two-socket camera: every accepted command is answered with an ACK and a
 /// completion on alternating sockets, in the order the commands were written.
+/// Sony mode wraps each reply with the exact sequence from its request so the
+/// two pre-ACK writes are correlated by the same evidence as the real camera.
 #[derive(Debug)]
 struct TwoSocketTransport {
     config: TransportConfig,
     responses: VecDeque<Vec<u8>>,
     writes: Arc<Mutex<Vec<Vec<u8>>>>,
     next_socket: u8,
+    sony: bool,
 }
 
 impl TwoSocketTransport {
@@ -53,9 +56,15 @@ impl TwoSocketTransport {
                 responses: VecDeque::new(),
                 writes: Arc::clone(&writes),
                 next_socket: 0,
+                sony: false,
             },
             writes,
         )
+    }
+
+    fn with_sony(mut self) -> Self {
+        self.sony = true;
+        self
     }
 }
 
@@ -73,8 +82,15 @@ impl BlockingTransport for TwoSocketTransport {
             .push(bytes.to_vec());
         let socket = (self.next_socket % 2) + 1;
         self.next_socket = self.next_socket.wrapping_add(1);
-        self.responses.push_back(vec![0x90, 0x40 | socket, 0xff]);
-        self.responses.push_back(vec![0x90, 0x50 | socket, 0xff]);
+        let ack = vec![0x90, 0x40 | socket, 0xff];
+        let completion = vec![0x90, 0x50 | socket, 0xff];
+        if self.sony {
+            self.responses.push_back(sony_reply(bytes, &ack));
+            self.responses.push_back(sony_reply(bytes, &completion));
+        } else {
+            self.responses.push_back(ack);
+            self.responses.push_back(completion);
+        }
         Ok(())
     }
 
@@ -104,6 +120,35 @@ fn session_config() -> SessionConfig {
     )
 }
 
+fn sony_session_config() -> SessionConfig {
+    SessionConfig::new(ProfileSpec::from_compile_time::<SonyFR7>().expect("Sony FR7 profile"))
+}
+
+fn sony_reply(request: &[u8], payload: &[u8]) -> Vec<u8> {
+    assert!(
+        request.len() >= 8,
+        "Sony request must carry its sequence header"
+    );
+    let mut response = Vec::with_capacity(8 + payload.len());
+    response.extend_from_slice(&[0x01, 0x11]);
+    response.extend_from_slice(
+        &u16::try_from(payload.len())
+            .expect("Sony reply payload length")
+            .to_be_bytes(),
+    );
+    response.extend_from_slice(&request[4..8]);
+    response.extend_from_slice(payload);
+    response
+}
+
+fn sony_payload(frame: &[u8]) -> &[u8] {
+    assert!(
+        frame.len() >= 8,
+        "Sony write must carry its sequence header"
+    );
+    &frame[8..]
+}
+
 fn written(writes: &Arc<Mutex<Vec<Vec<u8>>>>) -> Vec<Vec<u8>> {
     writes.lock().expect("writes lock").clone()
 }
@@ -112,7 +157,7 @@ fn written(writes: &Arc<Mutex<Vec<Vec<u8>>>>) -> Vec<Vec<u8>> {
 /// must satisfy the blocking first-write contract, and returns the handles
 /// that free them again.
 fn occupy_both_sockets<'session>(
-    camera: &Camera<'session, NonDefaultCompileTimeProfile>,
+    camera: &Camera<'session, SonyFR7>,
     writes: &Arc<Mutex<Vec<Vec<u8>>>>,
 ) -> [grafton_visca::blocking::Operation<'session, AppliedOnly>; 2] {
     let first = camera
@@ -121,11 +166,10 @@ fn occupy_both_sockets<'session>(
     let second = camera
         .submit::<AppliedOnly, _>(&FocusDrive::Far)
         .expect("second socket");
-    assert_eq!(
-        written(writes),
-        vec![ZOOM_TELE.to_vec(), FOCUS_FAR.to_vec()],
-        "both sockets are occupied before another operation is submitted",
-    );
+    let written = written(writes);
+    assert_eq!(written.len(), 2);
+    assert_eq!(sony_payload(&written[0]), ZOOM_TELE);
+    assert_eq!(sony_payload(&written[1]), FOCUS_FAR);
     [first, second]
 }
 
@@ -134,18 +178,20 @@ fn occupy_both_sockets<'session>(
 #[test]
 fn a_background_operation_cannot_queue_behind_busy_sockets() {
     let (transport, writes) = TwoSocketTransport::new();
-    let session = Session::open(transport, session_config()).expect("owner session");
-    let camera = session
-        .camera::<NonDefaultCompileTimeProfile>()
-        .expect("camera view");
+    let session =
+        Session::open(transport.with_sony(), sony_session_config()).expect("owner session");
+    let camera = session.camera::<SonyFR7>().expect("camera view");
     let [first, second] = occupy_both_sockets(&camera, &writes);
 
     let background = camera
-        .submit_with_class::<AppliedOnly, _>(&ZoomDrive::Wide, ControlClass::Background)
+        .submit_with_submission_class::<AppliedOnly, _>(
+            &ZoomDrive::Wide,
+            SubmissionClass::Background,
+        )
         .expect_err("a blocking operation cannot queue behind busy sockets");
     assert!(matches!(background, Error::TransportBusy));
     let user = camera
-        .submit_with_class::<AppliedOnly, _>(&FocusDrive::Near, ControlClass::User)
+        .submit_with_submission_class::<AppliedOnly, _>(&FocusDrive::Near, SubmissionClass::User)
         .expect_err("a blocking operation cannot queue behind busy sockets");
     assert!(matches!(user, Error::TransportBusy));
     assert_eq!(
@@ -165,29 +211,26 @@ fn a_background_operation_cannot_queue_behind_busy_sockets() {
 #[test]
 fn a_handle_default_does_not_bypass_blocking_first_write() {
     let (transport, writes) = TwoSocketTransport::new();
-    let session = Session::open(transport, session_config()).expect("owner session");
-    let camera = session
-        .camera::<NonDefaultCompileTimeProfile>()
-        .expect("camera view");
+    let session =
+        Session::open(transport.with_sony(), sony_session_config()).expect("owner session");
+    let camera = session.camera::<SonyFR7>().expect("camera view");
     let [first, second] = occupy_both_sockets(&camera, &writes);
 
-    let mut poller = session
-        .camera::<NonDefaultCompileTimeProfile>()
-        .expect("second camera view");
+    let mut poller = session.camera::<SonyFR7>().expect("second camera view");
     assert_eq!(
-        poller.command_class(),
+        poller.submission_class(),
         None,
         "a fresh view submits in each request's own class",
     );
-    poller.set_command_class(Some(ControlClass::Background));
-    assert_eq!(poller.command_class(), Some(ControlClass::Background));
+    poller.set_submission_class(Some(SubmissionClass::Background));
+    assert_eq!(poller.submission_class(), Some(SubmissionClass::Background));
     assert_eq!(
-        camera.command_class(),
+        camera.submission_class(),
         None,
         "the default belongs to one handle, not to the session",
     );
 
-    // `ZoomDrive` is a `ControlClass::User` built-in. The handle-local default
+    // `ZoomDrive` is a `SubmissionClass::User` built-in. The handle-local default
     // is configured successfully, but cannot make an unwritten handle escape.
     let demoted = poller
         .submit::<AppliedOnly, _>(&ZoomDrive::Wide)
@@ -206,27 +249,24 @@ fn a_handle_default_does_not_bypass_blocking_first_write() {
 #[test]
 fn a_per_submission_class_does_not_bypass_blocking_first_write() {
     let (transport, writes) = TwoSocketTransport::new();
-    let session = Session::open(transport, session_config()).expect("owner session");
-    let camera = session
-        .camera::<NonDefaultCompileTimeProfile>()
-        .expect("camera view");
+    let session =
+        Session::open(transport.with_sony(), sony_session_config()).expect("owner session");
+    let camera = session.camera::<SonyFR7>().expect("camera view");
     let [first, second] = occupy_both_sockets(&camera, &writes);
 
-    let mut poller = session
-        .camera::<NonDefaultCompileTimeProfile>()
-        .expect("second camera view");
-    poller.set_command_class(Some(ControlClass::Background));
+    let mut poller = session.camera::<SonyFR7>().expect("second camera view");
+    poller.set_submission_class(Some(SubmissionClass::Background));
 
     // Submitted first from the demoted handle: the explicit class is accepted
     // as request configuration, but cannot bypass first-write rejection.
     let raised = poller
-        .submit_with_class::<AppliedOnly, _>(&ZoomDrive::Wide, ControlClass::User)
+        .submit_with_submission_class::<AppliedOnly, _>(&ZoomDrive::Wide, SubmissionClass::User)
         .expect_err("a raised blocking operation cannot queue");
     assert!(matches!(raised, Error::TransportBusy));
     assert_eq!(written(&writes).len(), 2);
     assert_eq!(
-        poller.command_class(),
-        Some(ControlClass::Background),
+        poller.submission_class(),
+        Some(SubmissionClass::Background),
         "a per-submission class does not change the handle default",
     );
 
@@ -241,16 +281,13 @@ fn a_per_submission_class_does_not_bypass_blocking_first_write() {
 #[test]
 fn a_handle_default_never_changes_the_first_write_boundary_for_an_urgent_stop() {
     let (transport, writes) = TwoSocketTransport::new();
-    let session = Session::open(transport, session_config()).expect("owner session");
-    let camera = session
-        .camera::<NonDefaultCompileTimeProfile>()
-        .expect("camera view");
+    let session =
+        Session::open(transport.with_sony(), sony_session_config()).expect("owner session");
+    let camera = session.camera::<SonyFR7>().expect("camera view");
     let [first, second] = occupy_both_sockets(&camera, &writes);
 
-    let mut poller = session
-        .camera::<NonDefaultCompileTimeProfile>()
-        .expect("second camera view");
-    poller.set_command_class(Some(ControlClass::Background));
+    let mut poller = session.camera::<SonyFR7>().expect("second camera view");
+    poller.set_submission_class(Some(SubmissionClass::Background));
     let stop = poller
         .submit::<AppliedOnly, _>(&ZoomStop)
         .expect_err("an urgent blocking operation cannot queue");
@@ -268,15 +305,14 @@ fn a_handle_default_never_changes_the_first_write_boundary_for_an_urgent_stop() 
 #[test]
 fn an_explicit_per_submission_class_cannot_bypass_the_first_write_boundary() {
     let (transport, writes) = TwoSocketTransport::new();
-    let session = Session::open(transport, session_config()).expect("owner session");
-    let camera = session
-        .camera::<NonDefaultCompileTimeProfile>()
-        .expect("camera view");
+    let session =
+        Session::open(transport.with_sony(), sony_session_config()).expect("owner session");
+    let camera = session.camera::<SonyFR7>().expect("camera view");
     let [first, second] = occupy_both_sockets(&camera, &writes);
 
     let stop = camera
-        .submit_with_class::<AppliedOnly, _>(&ZoomStop, ControlClass::Background)
-        .expect_err("a deliberately demoted blocking stop cannot queue");
+        .submit_with_submission_class::<AppliedOnly, _>(&ZoomStop, SubmissionClass::Background)
+        .expect_err("an urgent blocking stop cannot queue behind occupied sockets");
     assert!(matches!(stop, Error::TransportBusy));
     assert_eq!(written(&writes).len(), 2);
 
@@ -296,24 +332,27 @@ fn a_camera_session_default_reaches_the_views_it_hands_out() {
     )
     .expect("single-camera session");
 
-    assert_eq!(session.command_class(), None);
-    assert_eq!(session.camera().command_class(), None);
+    assert_eq!(session.submission_class(), None);
+    assert_eq!(session.camera().submission_class(), None);
 
-    session.set_command_class(Some(ControlClass::Background));
-    assert_eq!(session.command_class(), Some(ControlClass::Background));
+    session.set_submission_class(Some(SubmissionClass::Background));
     assert_eq!(
-        session.camera().command_class(),
-        Some(ControlClass::Background),
+        session.submission_class(),
+        Some(SubmissionClass::Background)
+    );
+    assert_eq!(
+        session.camera().submission_class(),
+        Some(SubmissionClass::Background),
         "issue #630: a view taken after the call carries the session default",
     );
 
-    session.set_command_class(None);
-    assert_eq!(session.camera().command_class(), None);
+    session.set_submission_class(None);
+    assert_eq!(session.camera().submission_class(), None);
 
     session.close().expect("owner shutdown");
 }
 
-/// `execute_with_class` and `inquire_with_class` reach the wire on the same
+/// `execute_with_submission_class` and `inquire_with_submission_class` reach the wire on the same
 /// path as their unclassified twins.
 #[test]
 fn classified_execute_reaches_the_wire() {
@@ -324,9 +363,9 @@ fn classified_execute_reaches_the_wire() {
         .expect("camera view");
 
     camera
-        .execute_with_class(&FocusModeCommand::Manual, ControlClass::Background)
+        .execute_with_submission_class(&FocusModeCommand::Manual, SubmissionClass::Background)
         .expect("background plain command still executes");
-    camera.set_command_class(Some(ControlClass::Urgent));
+    camera.set_submission_class(Some(SubmissionClass::User));
     camera
         .execute(&FocusModeCommand::Auto)
         .expect("handle default plain command still executes");

@@ -27,6 +27,11 @@ pub(crate) struct AddressSetCommand;
 
 impl AddressSetCommand {
     /// Create a new address set command.
+    #[cfg(any(
+        test,
+        feature = "transport-serial-tokio",
+        all(feature = "blocking", feature = "transport-serial")
+    ))]
     pub fn new() -> Self {
         AddressSetCommand
     }
@@ -63,6 +68,11 @@ pub(crate) struct InterfaceClearCommand;
 
 impl InterfaceClearCommand {
     /// Create a new interface clear command.
+    #[cfg(any(
+        test,
+        feature = "transport-serial-tokio",
+        all(feature = "blocking", feature = "transport-serial")
+    ))]
     pub fn new() -> Self {
         InterfaceClearCommand
     }

@@ -339,7 +339,7 @@ mod tests {
     /// error rather than a comment: give `ConstCommandBuilder<N, Incomplete>`
     /// an inherent `as_bytes` and this module stops compiling.
     ///
-    /// This cannot be a `trybuild` fixture: `command::bytes` is `pub(crate)`,
+    /// This cannot be a public compile-contract fixture: `command::bytes` is `pub(crate)`,
     /// so no external fixture crate can name the builder at all, and a fixture
     /// that tried would fail on the module privacy rather than on the type
     /// state — a green check for the wrong reason.

@@ -22,6 +22,21 @@ pub struct Udp<S: AsyncDatagram> {
     config: TransportConfig,
 }
 
+/// Yield once to the current executor without depending on a runtime.
+async fn cooperative_yield() {
+    let mut yielded = false;
+    std::future::poll_fn(move |context| {
+        if yielded {
+            std::task::Poll::Ready(())
+        } else {
+            yielded = true;
+            context.waker().wake_by_ref();
+            std::task::Poll::Pending
+        }
+    })
+    .await;
+}
+
 impl<S: AsyncDatagram> Udp<S> {
     /// Create a new UDP transport from a connected socket.
     ///
@@ -44,9 +59,16 @@ impl<S: AsyncDatagram> AsyncTransport for Udp<S> {
     }
 
     async fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
-        // Receive data directly into the provided buffer
-        let n = self.socket.recv(dst).await?;
-        Ok(n)
+        // An empty UDP datagram is a valid packet, but `Ok(0)` is reserved for
+        // stream EOF by the transport contract. Keep receiving until a packet
+        // with payload arrives or the socket reports an error.
+        loop {
+            let n = self.socket.recv(dst).await?;
+            if n > 0 {
+                return Ok(n);
+            }
+            cooperative_yield().await;
+        }
     }
 
     fn addressing_mode_hint(&self) -> Option<AddressingMode> {
@@ -67,5 +89,136 @@ impl<S: AsyncDatagram> HasTransportConfig for Udp<S> {
 
     fn standard_transport_kind(&self) -> Option<crate::camera::TransportKind> {
         Some(crate::camera::TransportKind::Udp)
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::expect_used, clippy::panic)]
+mod tests {
+    use std::{
+        collections::VecDeque,
+        future::{ready, Future},
+        sync::{atomic::AtomicUsize, Arc, Mutex},
+        task::{Context, Poll, Wake, Waker},
+    };
+
+    use futures_lite::future::block_on;
+
+    use super::*;
+
+    type ReceiveQueue = Arc<Mutex<VecDeque<Result<Vec<u8>, Error>>>>;
+
+    #[derive(Debug)]
+    struct ScriptedDatagram {
+        receives: ReceiveQueue,
+    }
+
+    impl ScriptedDatagram {
+        fn new(receives: impl IntoIterator<Item = Result<Vec<u8>, Error>>) -> Self {
+            Self {
+                receives: Arc::new(Mutex::new(receives.into_iter().collect())),
+            }
+        }
+    }
+
+    impl AsyncDatagram for ScriptedDatagram {
+        fn send(&self, buf: &[u8]) -> impl Future<Output = Result<usize, Error>> + Send {
+            ready(Ok(buf.len()))
+        }
+
+        async fn recv(&self, buf: &mut [u8]) -> Result<usize, Error> {
+            let datagram = self
+                .receives
+                .lock()
+                .expect("scripted datagram queue is not poisoned")
+                .pop_front()
+                .expect("scripted datagram queue should contain a receive result");
+            let datagram = datagram?;
+            let len = datagram.len().min(buf.len());
+            buf[..len].copy_from_slice(&datagram[..len]);
+            Ok(len)
+        }
+    }
+
+    #[derive(Debug, Default)]
+    struct CountingWaker {
+        wakes: AtomicUsize,
+    }
+
+    impl CountingWaker {
+        fn wake_count(&self) -> usize {
+            self.wakes.load(std::sync::atomic::Ordering::Relaxed)
+        }
+    }
+
+    impl Wake for CountingWaker {
+        fn wake(self: Arc<Self>) {
+            self.wakes
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
+
+        fn wake_by_ref(self: &Arc<Self>) {
+            self.wakes
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
+    }
+
+    #[test]
+    fn recv_discards_empty_datagram_before_valid_datagram() {
+        let socket = ScriptedDatagram::new([Ok(Vec::new()), Ok(b"valid".to_vec())]);
+        let mut transport = Udp::new(socket, TransportConfig::default());
+        let mut dst = [0; 16];
+
+        let received = block_on(transport.recv_into(&mut dst)).expect("valid datagram");
+
+        assert_eq!(received, 5);
+        assert_eq!(&dst[..received], b"valid");
+    }
+
+    #[test]
+    fn recv_yields_before_polling_after_empty_datagram() {
+        let socket = ScriptedDatagram::new([Ok(Vec::new()), Ok(b"valid".to_vec())]);
+        let mut transport = Udp::new(socket, TransportConfig::default());
+        let mut dst = [0; 16];
+        let counting_waker = Arc::new(CountingWaker::default());
+        let waker = Waker::from(Arc::clone(&counting_waker));
+        let mut context = Context::from_waker(&waker);
+
+        let received = {
+            let mut receive = std::pin::pin!(transport.recv_into(&mut dst));
+            assert!(matches!(receive.as_mut().poll(&mut context), Poll::Pending));
+            assert_eq!(counting_waker.wake_count(), 1);
+
+            match receive.as_mut().poll(&mut context) {
+                Poll::Ready(Ok(received)) => received,
+                other => panic!("expected valid datagram after cooperative yield, got {other:?}"),
+            }
+        };
+        assert_eq!(received, 5);
+        assert_eq!(&dst[..received], b"valid");
+    }
+
+    #[test]
+    fn recv_yields_after_each_empty_datagram() {
+        let socket = ScriptedDatagram::new([Ok(Vec::new()), Ok(Vec::new()), Ok(b"valid".to_vec())]);
+        let mut transport = Udp::new(socket, TransportConfig::default());
+        let mut dst = [0; 16];
+        let counting_waker = Arc::new(CountingWaker::default());
+        let waker = Waker::from(Arc::clone(&counting_waker));
+        let mut context = Context::from_waker(&waker);
+
+        let received = {
+            let mut receive = std::pin::pin!(transport.recv_into(&mut dst));
+            assert!(matches!(receive.as_mut().poll(&mut context), Poll::Pending));
+            assert!(matches!(receive.as_mut().poll(&mut context), Poll::Pending));
+            assert_eq!(counting_waker.wake_count(), 2);
+
+            match receive.as_mut().poll(&mut context) {
+                Poll::Ready(Ok(received)) => received,
+                other => panic!("expected valid datagram after cooperative yields, got {other:?}"),
+            }
+        };
+        assert_eq!(received, 5);
+        assert_eq!(&dst[..received], b"valid");
     }
 }

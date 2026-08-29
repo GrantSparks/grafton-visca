@@ -28,14 +28,14 @@ Before contributing, please:
 
 ### Toolchains
 
-CI pins every toolchain to an exact version in `.github/workflows/ci.yml`,
-because two gates compare compiler output byte for byte: the `trybuild`
-`.stderr` files under `tests/api_contract/` and the `api/2.0.0-rc.1/*.txt`
-public API snapshots. Reproducing a CI failure locally means using the same
-versions:
+CI pins every toolchain to an exact version in `.github/workflows/ci.yml`.
+Compile-contract fixtures declare exact error codes and stable diagnostic
+anchors in their source, while the `api/2.0.0-rc.1/*.txt` public API snapshots
+are compared byte for byte. Reproducing a CI failure locally means using the
+same versions:
 
 ```bash
-rustup toolchain install 1.98.0          # stable jobs, trybuild snapshots
+rustup toolchain install 1.98.0          # stable jobs and compile contracts
 # `--profile minimal` installs rustc/cargo/rust-std only, so the components the
 # nightly jobs actually use must be named explicitly. `--component` takes one
 # comma-separated list; a space-separated second name is parsed as another
@@ -44,11 +44,10 @@ rustup toolchain install nightly-2026-08-26 --profile minimal --component rustfm
 rustup toolchain install 1.88.0          # MSRV job
 ```
 
-A newer stable will report `trybuild` mismatches that CI does not see; re-bless
-them only when the workflow's pinned stable is bumped in the same change, with
-`TRYBUILD=overwrite cargo test --test issue_551_compile_contract` run once per
-affected feature leg. Regenerating the public API snapshots is documented in
-`api/2.0.0-rc.1/README.md`.
+A newer stable can change diagnostic prose. Update a fixture's in-source
+message anchor only when the workflow's pinned stable is bumped in the same
+change and the new diagnostic still proves the intended contract. Regenerating
+the public API snapshots is documented in `api/2.0.0-rc.1/README.md`.
 
 ```bash
 # Clone your fork

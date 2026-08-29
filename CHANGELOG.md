@@ -52,30 +52,30 @@ destination.
   grounds `SessionConfig::with_tuning` validates on, so a value construction
   would have rejected is rejected here too and leaves the live tuning untouched.
 
-- **Added a typed submission-priority API over the owner's four control-class
-  lanes** (#630), restoring in 2.0 shape the capability 1.2.0 shipped as
+- **Added a typed submission-QoS API without exposing the owner's urgent safety
+  lane** (#630), restoring in 2.0 shape the capability 1.2.0 shipped as
   `runtime::Priority` with `set_command_priority` / `command_priority` /
   `execute_with_priority`. The engine always had the four lanes and dispatched
   the highest occupied class first, but the only public route into that choice
   was `raw::Policy` on hand-assembled bytes, so a typed command could not be
   raised for one submission and a chatty handle could not be demoted out of an
-  operator's way. `ControlClass` — already a public root export, now documented
-  with its lane semantics — is the selector; no separate `Priority` enum
-  returns. Every camera handle gained `set_command_class` / `command_class` for
-  a per-handle default and `execute_with_class` / `inquire_with_class` /
-  `submit_with_class` for a single submission, on the async `Camera` and
-  `CameraSession`, the blocking `Camera` and `CameraSession`, and
-  `DynSessionCamera` (whose operation twins are `submit_targeted_with_class`
-  and `submit_applied_with_class`). Two rules make the safety case explicit: a
-  handle default **never** demotes a request the crate classifies
-  `ControlClass::Urgent` — the typed stops and `CommandCancel` — so a telemetry
-  poller demoted to `Background` still preempts with an emergency stop; and an
-  explicit per-submission class replaces the request's own class outright,
-  which is the only way to demote a stop and is documented as such. Unlike
-  1.x's priority, the class also covers inquiries, since 2.0 queues them in the
-  same four lanes; owner-internal settlement polling and motion observation
-  keep their built-in class. `docs/migration_2_0.md` gains the
-  `Priority` → `ControlClass` mapping table and the notes on
+  operator's way. `SubmissionClass` is the selector for the lower three lanes;
+  it deliberately has no `Urgent` variant. Every camera handle gained
+  `set_submission_class` / `submission_class` for a per-handle default and
+  `execute_with_submission_class` / `inquire_with_submission_class` /
+  `submit_with_submission_class` for a single submission, on the async
+  `Camera` and `CameraSession`, the blocking `Camera` and `CameraSession`, and
+  `DynSessionCamera` (whose operation twins are
+  `submit_targeted_with_submission_class` and
+  `submit_applied_with_submission_class`). Both override forms preserve a
+  request the crate classifies `ControlClass::Urgent` — the typed stops and
+  owner-issued protocol cancellation — so neither accidental handle configuration nor an explicit
+  per-call override can weaken STOP safety. Ordinary traffic likewise cannot
+  impersonate the safety lane. Unlike 1.x's priority, QoS also covers
+  inquiries, since 2.0 queues them in the same lanes; owner-internal settlement
+  polling and motion observation keep their built-in class.
+  `docs/migration_2_0.md` maps `Priority` to `SubmissionClass` and explains why
+  `Priority::Critical` becomes request-owned safety metadata. The notes on
   `runtime::testing::Priority`, which has no 2.0 equivalent and needs none.
 
 - Restored `image().disable_noise_reduction_2d()` and
@@ -114,9 +114,11 @@ destination.
   `nd_filter().set_stops(f32)` restores photographic-stop input;
   `motion_sync().set_speed(MotionSyncSpeed)` restores the range-checked speed
   argument; and `menu().toggle_display()` restores the vendor open/close
-  control. `AffectedAxes` gains `ALL`, `MOVEMENT`, `NONE`, and the `BitOr` /
-  `BitOrAssign` / `BitAnd` operators, so "wait for everything that moves" is
-  one expression again; `IdleWait` gains `Default`, `From<Duration>`,
+  control. `AffectedAxes` gains `ALL`, `MOVEMENT`, and the `BitOr` /
+  `BitOrAssign` operators, so "wait for everything that moves" is one
+  expression again; its representation remains non-empty by construction, and
+  `intersection` returns `Option<AffectedAxes>` when two sets may be disjoint.
+  `IdleWait` gains `Default`, `From<Duration>`,
   `with_axes`, `with_timeout`, and the named `for_preset_recall` /
   `for_pan_tilt` / `for_zoom` / `for_focus` presets, and `MotionQuery` gains
   `Default` and `From<AffectedAxes>`. `motion().is_moving()` is a
@@ -149,8 +151,9 @@ destination.
   look like camera backpressure, and it is now counted as neither. Both error
   counters count frames as they are decoded, including frames that no longer
   correlate to an active request. `retries_scheduled` counts wherever the
-  engine emits a retry, so a transient receive-fault retry (#565) counts like
-  any other.
+  engine emits a permitted retry, so an eligible sequenced receive-fault retry
+  (#565) counts like any other; a raw receive fault while an unacknowledged
+  command awaits ACK poisons instead.
 - Added `DiagnosticEvent::DeadlineExpired` and `DiagnosticDeadline` (#571). A
   subscriber that needs to know whether an expired deadline led to another
   attempt reads `will_retry` off the event, instead of inferring it from a
@@ -257,8 +260,8 @@ destination.
 - Every compile-fail fixture now declares the diagnostic it expects, and the
   fixtures pinning 1.x names that no longer exist are retired (#640). The
   harness in `tests/common/compile_fail.rs` accepted any of nine error codes or
-  four loose substrings, so the 39 of 45 `fail/` fixtures without a trybuild
-  `.stderr` snapshot passed on any of them: a fixture importing a wholly bogus
+  four loose substrings, so the 39 of 45 `fail/` fixtures without a declared
+  compile contract passed on any of them: a fixture importing a wholly bogus
   path was demonstrably green, because the `E0432` from the rotted path
   satisfied the same list a genuine `E0603` privacy contract satisfied.
   A fixture now states its own expectation in its source — `//~ E0603`,
@@ -348,10 +351,10 @@ destination.
   `tests/issue_542_trace_fixture_contract.rs`. The blocking out-of-order
   fixture's first ACK block was corrected: it asserted that a raw VISCA ACK —
   which carries no request identity — could be attributed to the *second* of
-  two outstanding commands. Raw ACKs are attributed in transmission order and
-  the socket the ACK carries becomes that request's socket, so out-of-order
-  settlement is expressed at completion, which is keyed by target and socket
-  together. No library behavior changed.
+  two outstanding commands. The fixture now exercises the one-candidate raw
+  pre-ACK gate; the ACK's socket establishes target/socket ownership and
+  out-of-order settlement is expressed at completion, while Sony sequence
+  correlation remains explicit. No library behavior changed.
 - **Pinned the movement wire encodings to golden byte vectors, and closed two
   validation gaps the suite could not see** (#633). Transposing the pan and
   tilt fields of the absolute pan/tilt encoder, or swapping two rows of the
@@ -366,21 +369,15 @@ destination.
   test instead of being covered by the terminator rule, and
   `raw::validate_axes` is now exercised through every public axis-carrying
   constructor.
-- **An operation that names no affected axis is rejected at preparation**
-  (#633). `AffectedAxes::NONE` and the `BitAnd` of two disjoint sets have been
-  constructible since #624, and `raw::Targeted` / `raw::AppliedOnly` already
-  refused them at construction — but a targeted operation that reached
-  preparation with an empty set lowered to a settlement plan that issued zero
-  position inquiries and reported "settled" without observing the camera.
-  Preparation now rejects an empty set for both completion kinds with the
-  same `Error::InvalidRequest` the raw path uses. This can change behaviour
-  for a downstream `OperationCommand` implementation that returns an empty
-  `affected_axes()`, which the trait has always documented as a non-empty set:
-  such an operation now fails admission instead of silently completing
-  unobserved. No public signature changed. Motion observation is deliberately
-  unaffected — `motion().is_moving(MotionQuery::new(AffectedAxes::NONE))`
-  still returns `Ok(false)` for 1.x parity, because a query may legitimately
-  select nothing even though an operation must name what it moves.
+- **Made empty `AffectedAxes` values unrepresentable** (#633). The public type
+  now stores a `NonZeroU8`; `from_bits(0)` and deserializing zero fail, there is
+  no `NONE` sentinel, and intersection returns `Option<AffectedAxes>` because
+  disjoint sets have no valid result. Safe constructors, constants, unions,
+  and downstream `OperationCommand::affected_axes()` implementations therefore
+  carry the promised non-empty guarantee without a second preparation-time
+  validation branch. The niche keeps `AffectedAxes` and
+  `Option<AffectedAxes>` compact while preventing a targeted operation from
+  vacuously reporting settled without observing any axis.
 - **Packaging and release-machinery polish** (#642). `grafton-visca-macros`
   now ships `LICENSE-MIT` and `LICENSE-APACHE` in its published tarball: it
   declares `MIT OR Apache-2.0` and both licences require their text to
@@ -388,10 +385,12 @@ destination.
   not contain. `deny.toml` is excluded from the published main crate — it is
   CI-only configuration, in the same class as the already-excluded `api/`
   baselines — and the `exclude` list now states why `CHANGELOG.md` and
-  `CONTRIBUTING.md` are deliberately kept. The publication workflow pins its
-  toolchain and `actions/checkout` to the versions `ci.yml` pins, and refuses
-  to publish a tag whose commit has no successful `CI success` check run,
-  replacing RELEASING.md's honour-system instruction with a gate. CI gains an
+  `CONTRIBUTING.md` are deliberately kept. All third-party workflow actions are
+  pinned to immutable commits, including `actions/checkout`; the publication
+  workflow also pins its toolchain, and refuses to publish
+  unless the remote tag object still matches the validated annotated object and
+  the latest exact-head `ci.yml` workflow run is completed successfully,
+  replacing RELEASING.md's honour-system instruction with gates. CI gains an
   advisory job that runs the release validator against the real repository
   with the intended next tag, so manifest and version drift surfaces on the
   pull request that introduces it rather than at publish time. The fuzz target
@@ -407,7 +406,9 @@ destination.
   Windows CI job says that its serial tests drive a mock and that the Win32
   backend is compiled but never executed; and CONTRIBUTING's nightly install
   one-liner names the `rustfmt` and `miri` components that `--profile minimal`
-  omits.
+  omits. The Miri script now invokes the pinned nightly explicitly as well, so
+  a developer's default toolchain or directory override cannot silently select
+  a stable toolchain without the Miri component.
 - **Replaced the fake terminator tests with real encode-path coverage** (#627).
   `tests/no_hardcoded_terminator_test.rs` had regressed to its pre-#586
   revision: one test asserted that a `const` it declared itself equalled `0xFF`
@@ -451,7 +452,7 @@ destination.
   jitter here is new rather than restored: the rewrite's `maximum_backoff`
   ceiling makes concurrent retries converge on the same instant and stay there,
   which is the collision a backoff exists to break up. Each wait is now drawn
-  from the equal-jitter band `[ceiling / 2, ceiling]`, so no request waits
+  from the half-open equal-jitter band `[ceiling / 2, ceiling)`, so no request waits
   longer than 1.x would have. The draw is a pure function of the engine's seed,
   the request identity and the attempt number — never of wall-clock time or
   process entropy — so the engine remains a total function of its inputs and
@@ -498,12 +499,11 @@ destination.
   supported runtime and transport combinations.
 - Pinned every CI toolchain to an exact version (stable 1.98.0, nightly
   2026-08-26, MSRV 1.88.0) so the byte-compared gates stop breaking on
-  unrelated pull requests whenever rustc releases, re-blessed the three
-  `trybuild` contracts whose diagnostic wording drifted, regenerated the
-  `api/2.0.0-rc.1` public API snapshots against the pinned toolchain, and
-  installed that nightly explicitly in the snapshot job so `cargo public-api`
-  can build rustdoc JSON instead of failing on a missing `nightly` toolchain
-  (#562).
+  unrelated pull requests whenever rustc releases, kept the declaration-based
+  compile-contract harness on that pinned toolchain, regenerated the
+  `api/2.0.0-rc.1` public API snapshots against it, and installed the nightly
+  explicitly in the snapshot job so `cargo public-api` can build rustdoc JSON
+  instead of failing on a missing `nightly` toolchain (#562).
 - Stopped shipping the public API snapshots to crates.io and shrank them
   (#572). `api/` was 71% of the published tarball — 1.8 MiB of CI baseline text
   with no use to consumers — and is now in the `exclude` list, taking the
@@ -624,19 +624,42 @@ destination.
   blocking facades and to `DynTargetedOperation` / `DynAppliedOperation`.
   Cancelling a still-queued command is unaffected: it succeeds locally on every
   profile and consumes the handle as before.
-- **Fixed the deferred-ACK latch mis-attributing an acknowledgement while two
-  commands on one target were still being written** (#636). The latch that
-  holds an ACK arriving before its own write result (#297) fell back to the
-  *oldest* command in `Phase::Sending` by admission order and overwrote any
-  latch already there. With two frames in flight to one camera — the only owner
-  shape that can produce the race at all — both ACKs were attributed to the
-  older request, which was then reported `Applied` (and its state cached) on the
-  strength of the younger request's completion while the younger one silently
-  retried a command the camera had already executed. The latch now applies the
-  same unique-candidate rule a socketless completion uses: it engages only while
-  exactly one command on that target is being written, and never replaces an
-  ACK already latched for that attempt. An unattributable racing ACK stays inert
-  instead of guessing.
+- **Hardened raw/envelope admission and response framing.** Raw VISCA now
+  allows only one unacknowledged command per target; socket concurrency opens
+  after ACK, while Sony sequence-based pipelines remain intact. A raw command
+  whose successful send leaves its outcome ambiguous is never replayed: this
+  includes ACK/completion/cancellation ambiguity, a receive fault while
+  awaiting ACK, and active retry-budget expiry in `Sending`, `AwaitingAck`, or
+  `Executing`. It requires a fresh session and returns
+  `Error::UnsequencedCommandUnconfirmed`; fixed ACK, completion, and error
+  frames now require their exact lengths and reject trailing bytes. Raw errors
+  use exact socket/inquiry evidence rather than command recency.
+- **Kept transport progress and retry/cancel timing bounded.** Empty UDP
+  datagrams are discarded without closing the session and share a single timed
+  receive deadline; async UDP yields cooperatively after each discard. The
+  total retry budget remains enforced through every later noncancelled phase,
+  including active ACK, execution, reply, and active-budget expiry; cancellation
+  quarantine is never shortened, and owner-issued cancellation uses the shared
+  pacing gate for writes.
+- **Closed profile and owner-control escape hatches.** Applied-only commands
+  and optional built-in inquiries now enforce per-profile support before
+  admission. Blocking shutdown is idempotent after `RuntimeShutdown` and
+  performs no second I/O or resolution. Address/interface setup and socket
+  cancellation remain owner-issued wire controls, with owner-issued
+  cancellation intrinsically urgent; private request/transmission IDs do not
+  recycle retired numeric values.
+- **Strengthened release provenance and retry recovery.** Publication resolves
+  only an immutable annotated tag whose peeled commit is `HEAD`, and an exact
+  existing crates.io version must match the locally packaged `.crate` by
+  SHA-256 and byte-for-byte comparison before publication or retry succeeds.
+- **Hardened the deferred-ACK path during raw admission tightening** (#636).
+  The unique-candidate latch for an ACK arriving before its write result (#297)
+  was an intermediate hardening: it engaged only with exactly one candidate in
+  `Phase::Sending` and never replaced an ACK already latched for that attempt.
+  The stricter raw-VISCA gate now allows only one unacknowledged command per
+  target, so that latch is subsumed for raw frames; Sony sequence-correlated
+  envelopes retain their pipeline handling. An unattributable racing ACK stays
+  inert instead of guessing.
 - An absurd retry budget no longer inverts into *fewer* retries than the default
   (#636). `OperationalTuning::retry_timing` accepted a budget near
   `Duration::MAX`, which the engine turns into `submitted_at + budget`; that
@@ -728,10 +751,14 @@ destination.
   branch permanently ready and shutdown, cancellation, admission and control
   were never polled at all. `submit` never returned, `shutdown` only queued a
   message nobody read, and the actor kept reading hundreds of times a second
-  with no way to stop it. Four things changed. A receive turn that produces no
-  frames now hands the next turn to the boundary channels, and a long run of
-  receive wins does the same, so a transport that is always ready — failing or
-  flooding — can never starve the boundary. An idle read timeout
+  with no way to stop it. Four things changed. Source arbitration now keeps
+  valid non-empty protocol frames strictly receive-first, but a receive that
+  makes no progress (idle/no-data, a partial frame, a transient fault, or a
+  discarded malformed datagram) gives ordered boundary-first polling
+  (shutdown, cancellation, admission, control, timer) the next turn. This
+  removes the old arbitrary eight-receive history rule, retains the required
+  frame-before-observer ordering, and prevents an always-idle or always-failing
+  transport from starving control. An idle read timeout
   (`Error::Timeout`, or `Io` carrying `TimedOut`/`WouldBlock`/`Interrupted`) is
   now classified as *no data* rather than as a fault, so a custom transport with
   an internal read timeout no longer burns every in-flight command's retry
@@ -764,27 +791,32 @@ destination.
   consumed and the next one frames independently, so it is now discarded and
   recorded as an ignored malformed frame. The byte-stream verdict is unchanged,
   because there a decode failure means the stream position is unknowable.
-- **Restored the 1.x retry coverage the rewrite narrowed** (#566). A post-ACK
-  completion timeout retries again — the rewrite hard-coded it off for every
-  request class, so a camera that acknowledged a command and then went silent
-  failed on its first deadline with no second attempt. A lost ACK retries for
-  every retry class except `Never`, instead of only `Standard`, which had left
-  all 32 movement requests and every preset dying on a single dropped ACK
-  frame. Per-category retry budgets are back in 1.x's shape — quick and inquiry
-  work gets two attempts more than the base, network work one fewer, and a
+- **Restored the 1.x retry coverage the rewrite narrowed** (#566). Lost-ACK and
+  post-ACK completion-timeout replay now applies only to sequence-correlated
+  Sony traffic, where the same sequence permits recovery; raw timeout replay
+  after a successful send is intentionally superseded by
+  `Error::UnsequencedCommandUnconfirmed`. Conclusive camera rejections remain
+  retryable. In that sequence-correlated path, a lost ACK retries for every
+  retry class except `Never`, instead of only `Standard`, which had left all 32
+  movement requests and every preset dying on a single dropped ACK frame.
+  Per-category retry budgets are back in 1.x's shape — quick and inquiry work
+  gets two attempts more than the base, network work one fewer, and a
   long-running command exactly one — replacing three flat numbers keyed on the
   retry class. `OperationalTuning::retry_limit` overrides that *base*, which is
   the knob 1.x exposed, so a request's effective count is derived from its
   timeout category rather than taken literally.
 - **Restored the 1.x transport fault tolerance the rewrite dropped** (#565).
-  A transient receive failure no longer destroys the session: the owner
-  classifies the read error, and a transient one — the classic case is a UDP
-  `recv` reporting ECONNREFUSED after an ICMP port-unreachable — retries every
-  command still awaiting its ACK under that command's own bounded retry policy
-  and keeps the session running, exactly as 1.x's `SchedulerEvent::NetworkError`
-  did. Only a read that proves the connection is gone still ends the session,
-  and it now ends it as a close rather than a byte-stream poison, because a
-  failed read consumes nothing and cannot desynchronize framing.
+  A transient receive failure no longer destroys the session for
+  sequence-correlated Sony traffic: the owner classifies the read error, and a
+  transient one — the classic case is a UDP `recv` reporting ECONNREFUSED after
+  an ICMP port-unreachable — retries Sony commands still awaiting their ACK
+  under their bounded policy and keeps the session running. A raw command
+  awaiting ACK has no sequence evidence, so the same fault poisons the session
+  with `Error::UnsequencedCommandUnconfirmed` rather than replaying a possibly
+  executed action. Inquiries are not retried on this path. Only a read that
+  proves the connection is gone still ends the session, and it now ends it as a
+  close rather than a byte-stream poison, because a failed read consumes
+  nothing and cannot desynchronize framing.
 - Socketless VISCA ACKs and completions work again (#565). A camera answering
   `90 40 FF` / `90 50 FF` carries no socket nibble; the transport adapter turned
   that into a hard `Error::InvalidResponse` that killed the whole session. The
@@ -792,10 +824,10 @@ destination.
   free command socket to a socketless ACK — 1.x behavior — and attributes a
   socketless completion by envelope sequence, or by sole socket ownership on
   raw VISCA. Genuinely malformed frames are still rejected.
-- Restored socket reassignment on ACK (#565). A camera that names a command
-  socket another request already holds no longer costs that command its ACK
-  deadline: the ACK falls back to the target's other free socket, as 1.x did.
-  A one-socket target has nothing to fall back to and the frame stays inert.
+- Named ACK sockets are exact (#565). If a camera names a command socket
+  another request already holds, the ACK stays inert with `SocketConflict`
+  rather than being remapped to the target's other free socket. Only a
+  socketless ACK may select the first free registered socket.
 - Closed the #297 ACK race at the engine level (#565). An ACK that reaches the
   engine before the write result for the frame it answers is now latched on
   that request and applied the instant the write is confirmed, instead of being

@@ -95,11 +95,30 @@ git tag -a v2.0.0-rc.1 -m "grafton-visca 2.0.0-rc.1"
 git push origin v2.0.0-rc.1
 ```
 
+An external repository ruleset must make release tags protected and immutable
+before this workflow is enabled: disallow force-updates and deletion of
+release tags, and limit who can create them. The workflow checks
+`git ls-remote --refs` at
+provenance, immediately before each crate publication, and during final
+verification, comparing the remote tag object's ID with the validated local
+annotated-tag object. Those repeated checks detect a tag that drifted between
+checkpoints, but they cannot atomically prevent a force-move after a check and
+do not replace server-side protected/immutable-tag enforcement.
+
 The release automation should validate the tag and manifests, package the
 macro crate, dry-run and publish `grafton-visca-macros`, wait for its exact
 registry index entry, then package, dry-run, and publish `grafton-visca`.
-Manual publication is not part of this checklist, and no release is complete
-until both package results are independently verified.
+Before any source or CI validation, the automation accepts only the strict tag
+syntax, resolves the fully qualified `refs/tags/<tag>` ref, and verifies that
+it is an annotated tag whose peeled commit is the checked-out `HEAD`. It then
+queries the Actions workflow-runs API for `.github/workflows/ci.yml` at that
+exact commit, follows pagination, and requires the latest run/attempt to be
+completed successfully. Manual publication is not part of this checklist. For
+each crate, the automation builds the local `.crate` payload and, after the
+exact registry version is visible, downloads the crates.io payload and requires
+SHA-256 and byte-for-byte equality before treating publication (including a
+retry of an existing version) as successful. No release is complete until both
+package results are independently verified.
 
 For a final release, repeat the same process with `2.0.0`: update both
 workspace packages and the exact macro dependency together, move the changelog
@@ -112,10 +131,14 @@ row complete without the required bench evidence.
 
 If the macro crate publishes but the main crate fails, do not change the
 source behind that version. Diagnose the failure and retry the main package
-from the exact tagged commit only when its payload is unchanged. If source or
-package metadata must change, choose a new patch version, update both crates
-and the changelog, and run the complete candidate process again. Never move a
-tag to bypass a failed validation gate.
+from the exact tagged commit only when its payload is unchanged; the automated
+registry-payload equality gate must pass for that retry. If source or package
+metadata must change, choose a new patch version, update both crates and the
+changelog, and run the complete candidate process again. Never move a tag to
+bypass a failed validation gate. Protected/immutable tag rules remain a
+repository prerequisite: the workflow's repeated remote-object checks can
+detect drift between checkpoints, but cannot atomically prevent a force-move
+after a check or substitute for server-side enforcement.
 
 After successful publication, verify both package pages and generated docs,
 then create the repository release from the matching annotated tag. These are

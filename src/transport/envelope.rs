@@ -42,17 +42,23 @@ pub struct FrameMeta {
 pub trait Envelope: private::Sealed + Send + Sync + 'static {
     /// Whether this envelope supports sequence-based request/response correlation.
     ///
-    /// When `true`, the runtime can send multiple concurrent inquiries because
-    /// each response carries a sequence number that identifies the original request.
+    /// When `true`, the runtime can correlate concurrent requests exactly
+    /// because each response carries a sequence number that identifies the
+    /// original request.
     ///
-    /// When `false`, the runtime must serialize inquiries because responses cannot
-    /// be reliably correlated to requests without sequence numbers.
+    /// When `false`, correlation must come from VISCA evidence and bounded
+    /// owner policy rather than an envelope identity. The raw owner gates
+    /// unacknowledged commands and applies its separately documented inquiry
+    /// route/FIFO policy.
     ///
     /// # Protocol Implications
     ///
-    /// - **Raw VISCA** (`RawVisca`): Returns `false` - no sequence numbers, responses
-    ///   must be matched by content or FIFO ordering, which is unreliable for
-    ///   concurrent requests.
+    /// - **Raw VISCA** (`RawVisca`): Returns `false` - no sequence numbers. The
+    ///   owner permits only one unacknowledged command per target, then uses
+    ///   the socket assigned by its ACK; it never guesses command ownership by
+    ///   FIFO order. Inquiry replies use content/route evidence and a
+    ///   per-target FIFO fallback, so concurrent raw inquiries remain bounded
+    ///   by that weaker correlation model.
     ///
     /// - **Sony Encapsulated** (`SonyEncapsulated`): Returns `true` - 8-byte header
     ///   includes sequence numbers for reliable concurrent operation.
