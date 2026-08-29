@@ -341,6 +341,12 @@ macro_rules! __define_builtin_profiles {
                     metadata: {
                         model_name: $model_name:literal,
                         default_camera_id: $default_camera_id:expr,
+                        // Acknowledgement deadline. Every built-in profile
+                        // uses 500 ms, restored to the 1.x `TimeoutConfig`
+                        // default as an interim value (issue #689); the final
+                        // per-profile numbers are to come from the hardware
+                        // pass. `validate_tuning` lets an override only widen
+                        // this, never undercut the profile floor.
                         ack_timeout_ms: $ack_timeout_ms:expr,
                         command_timeouts_ms: {
                             quick: $quick_timeout_ms:expr,
@@ -349,6 +355,12 @@ macro_rules! __define_builtin_profiles {
                             long_running: $long_running_timeout_ms:expr,
                             network: $network_timeout_ms:expr,
                         },
+                        // Inquiry-response deadline. Every built-in profile
+                        // uses 1000 ms: an intentional interim change from 1.x,
+                        // where inquiries had no dedicated deadline and used the
+                        // 5 s `Quick` category budget (issue #689, parity waiver
+                        // `inquiry-deadline-interim-default`). Hardware pass to
+                        // finalize per profile.
                         inquiry_timeout_ms: $inquiry_timeout_ms:expr,
                         cancellation_timeout_ms: $cancellation_timeout_ms:expr,
                         ambiguity_timeout_ms: $ambiguity_timeout_ms:expr,
@@ -1355,6 +1367,49 @@ macro_rules! __define_builtin_profiles {
                 )*
             }
 
+            /// Pins the per-profile protocol *defaults* the parity row
+            /// `timeout-category-defaults-selection` depends on. Every built-in
+            /// profile's acknowledgement deadline must equal the 1.x
+            /// `TimeoutConfig` default of 500 ms, restored as the interim value
+            /// (issue #689); its inquiry-response deadline must be the interim
+            /// 1000 ms. The mapped selection test installs explicit tuning, so
+            /// it cannot see these defaults drift — this sweep can, and covers
+            /// every profile automatically so a newly added one cannot slip in
+            /// a tighter default unnoticed.
+            #[test]
+            fn builtin_profile_default_deadlines_match_the_1x_ack_and_interim_inquiry() {
+                // 1.x `TimeoutConfig::default().ack_timeout` — the deadline every
+                // 1.x profile actually scheduled under (the per-profile
+                // `ACK_TIMEOUT` const was defined but never read).
+                const ONE_X_ACK_TIMEOUT: std::time::Duration =
+                    std::time::Duration::from_millis(500);
+                // Interim inquiry-response deadline. 1.x inquiries carried no
+                // dedicated deadline and used the 5 s `Quick` category budget;
+                // v2 holds this at 1000 ms pending the hardware pass (waiver
+                // `inquiry-deadline-interim-default`).
+                const INTERIM_INQUIRY_TIMEOUT: std::time::Duration =
+                    std::time::Duration::from_millis(1000);
+                $(
+                    let timing = $crate::ProfileSpec::from_compile_time::<$profile>()
+                        .unwrap_or_else(|error| {
+                            panic!("{} ProfileSpec failed: {error}", stringify!($profile))
+                        })
+                        .timing();
+                    assert_eq!(
+                        timing.ack_timeout(),
+                        ONE_X_ACK_TIMEOUT,
+                        "{} ACK deadline must match the restored 1.x 500 ms default",
+                        stringify!($profile)
+                    );
+                    assert_eq!(
+                        timing.inquiry_timeout(),
+                        INTERIM_INQUIRY_TIMEOUT,
+                        "{} inquiry deadline must be the interim 1000 ms value",
+                        stringify!($profile)
+                    );
+                )*
+            }
+
             #[test]
             fn scalar_position_inquiry_matrix_is_conservative_and_explicit() {
                 let expected = [
@@ -1850,7 +1905,7 @@ macro_rules! define_builtin_profiles {
                     metadata: {
                         model_name: "PtzOptics G2",
                         default_camera_id: 1,
-                        ack_timeout_ms: 100,
+                        ack_timeout_ms: 500,
                         command_timeouts_ms: {
                             quick: 5000,
                             movement: 30000,
@@ -2024,7 +2079,7 @@ macro_rules! define_builtin_profiles {
                     metadata: {
                         model_name: "PtzOptics G3",
                         default_camera_id: 1,
-                        ack_timeout_ms: 100,
+                        ack_timeout_ms: 500,
                         command_timeouts_ms: {
                             quick: 5000,
                             movement: 30000,
@@ -2198,7 +2253,7 @@ macro_rules! define_builtin_profiles {
                     metadata: {
                         model_name: "PtzOptics 30X",
                         default_camera_id: 1,
-                        ack_timeout_ms: 100,
+                        ack_timeout_ms: 500,
                         command_timeouts_ms: {
                             quick: 5000,
                             movement: 30000,
@@ -2376,7 +2431,7 @@ macro_rules! define_builtin_profiles {
                     metadata: {
                         model_name: "Sony FR7",
                         default_camera_id: 1,
-                        ack_timeout_ms: 200,
+                        ack_timeout_ms: 500,
                         command_timeouts_ms: {
                             quick: 8000,
                             movement: 30000,
@@ -2560,7 +2615,7 @@ macro_rules! define_builtin_profiles {
                     metadata: {
                         model_name: "Sony BRC-H900",
                         default_camera_id: 1,
-                        ack_timeout_ms: 150,
+                        ack_timeout_ms: 500,
                         command_timeouts_ms: {
                             quick: 6000,
                             movement: 30000,
@@ -2728,7 +2783,7 @@ macro_rules! define_builtin_profiles {
                     metadata: {
                         model_name: "Sony EVI-H100",
                         default_camera_id: 1,
-                        ack_timeout_ms: 100,
+                        ack_timeout_ms: 500,
                         command_timeouts_ms: {
                             quick: 5000,
                             movement: 30000,
@@ -2884,7 +2939,7 @@ macro_rules! define_builtin_profiles {
                     metadata: {
                         model_name: "Sony BRC-300",
                         default_camera_id: 1,
-                        ack_timeout_ms: 100,
+                        ack_timeout_ms: 500,
                         command_timeouts_ms: {
                             quick: 5000,
                             movement: 30000,
@@ -3033,7 +3088,7 @@ macro_rules! define_builtin_profiles {
                     metadata: {
                         model_name: "Nearus BRC-300",
                         default_camera_id: 1,
-                        ack_timeout_ms: 100,
+                        ack_timeout_ms: 500,
                         command_timeouts_ms: {
                             quick: 5000,
                             movement: 30000,
@@ -3183,7 +3238,7 @@ macro_rules! define_builtin_profiles {
                     metadata: {
                         model_name: "Generic VISCA Camera",
                         default_camera_id: 1,
-                        ack_timeout_ms: 200,
+                        ack_timeout_ms: 500,
                         command_timeouts_ms: {
                             quick: 10000,
                             movement: 30000,

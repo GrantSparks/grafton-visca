@@ -210,6 +210,29 @@ destination.
 
 ### Changed
 
+- **Restored the 1.x acknowledgement default and documented the inquiry
+  deadline** (#689), superseding the 2.0-preview timeout defaults. Every
+  built-in profile shipped an `ack_timeout` of 100 ms (150 ms and 200 ms on two
+  Sony profiles) — as much as 5× tighter than 1.x, whose `TimeoutConfig` default
+  and actual scheduling deadline were both 500 ms — so ordinary network jitter
+  tripped a command far more readily than under 1.x. All nine built-in profiles
+  now use the 1.x 500 ms acknowledgement default again, as an interim value; the
+  final per-profile numbers are to come from the hardware pass. Because an
+  operational override may only widen a profile deadline and never undercut it,
+  raising this floor also means an `ack_timeout` override below 500 ms is now
+  rejected where the tighter preview default would have accepted it. The
+  inquiry-response deadline, by contrast, is a genuine documented 2.0 change and
+  not a restoration: 1.x inquiries had no dedicated deadline and used the 5 s
+  `Quick` category budget, while 2.0 gives inquiries their own deadline, held at
+  an interim 1 s pending the same hardware pass. That divergence is recorded in
+  the parity corpus (`tests/fixtures/1x_oracle/manifest.json`) as the
+  `timeout-category-defaults-selection` row, reclassified from `preserved` to
+  `intentional-change` under the new maintainer-ratified waiver
+  `inquiry-deadline-interim-default`; a new `v2-profile-default-deadlines` test
+  pins both defaults on every profile so neither can drift unnoticed. Since #671
+  a deadline trip fails only the one request, not the session. See
+  `docs/migration_2_0.md` for the row a 1.x user feels.
+
 - **A raw command that cannot be confirmed now fails per request instead of
   poisoning the whole session** (#671), superseding the earlier 2.0-preview
   behavior in which a lost ACK/completion datagram, a transient receive fault
