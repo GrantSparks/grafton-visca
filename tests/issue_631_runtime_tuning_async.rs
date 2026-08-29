@@ -31,10 +31,11 @@ use grafton_visca::{
     SessionConfig, TimeoutClass,
 };
 
-/// The fixture profile's own acknowledgement deadline.
-const PROFILE_ACK_TIMEOUT: Duration = Duration::from_millis(200);
-/// A deliberately wide acknowledgement deadline, five times the profile's.
-const WIDE_ACK_TIMEOUT: Duration = Duration::from_secs(1);
+/// The fixture profile's own acknowledgement deadline (the restored 1.x
+/// 500 ms default; see issue #689).
+const PROFILE_ACK_TIMEOUT: Duration = Duration::from_millis(500);
+/// A deliberately wide acknowledgement deadline, four times the profile's.
+const WIDE_ACK_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// A never-retried operation, so exactly one acknowledgement deadline decides
 /// when a silent camera fails the request.
@@ -277,8 +278,8 @@ async fn an_update_mid_flight_leaves_the_live_operation_alone<E: Executor>(execu
         .await
         .expect("submission");
 
-    // The request is admitted under the profile's 200 ms deadline. Widening to
-    // a full second now must not extend it.
+    // The request is admitted under the profile's 500 ms deadline. Widening to
+    // two seconds now must not extend it.
     session
         .set_tuning(OperationalTuning::new().ack_timeout(WIDE_ACK_TIMEOUT))
         .await

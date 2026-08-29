@@ -80,8 +80,10 @@ destination.
   `submit_applied_with_submission_class`). Both override forms preserve a
   request the crate classifies `ControlClass::Urgent` — the typed stops and
   owner-issued protocol cancellation — so neither accidental handle configuration nor an explicit
-  per-call override can weaken STOP safety. Ordinary traffic likewise cannot
-  impersonate the safety lane. Unlike 1.x's priority, QoS also covers
+  per-call override can weaken STOP safety. `SubmissionClass` has no `Urgent`
+  variant, so a QoS override cannot manufacture the safety lane either (the raw
+  policy path into the urgent lane is closed separately; see the #678/#679
+  Changed entry). Unlike 1.x's priority, QoS also covers
   inquiries, since 2.0 queues them in the same lanes; owner-internal settlement
   polling and motion observation keep their built-in class.
   `docs/migration_2_0.md` maps `Priority` to `SubmissionClass` and explains why
@@ -209,6 +211,56 @@ destination.
   contracts.
 
 ### Changed
+
+- **The raw escape hatch now refuses owner-only wire primitives and the urgent
+  safety lane** (#678, #679), closing two ways ordinary `execute`/`inquire`/
+  `submit` traffic could reach owner-only behavior. `raw`'s wire validation
+  previously checked only length, the header address byte, and the trailing
+  `0xff`, so a caller could submit a socket cancel (`8x 2y ff`) or a per-camera
+  interface clear (`8x 01 00 01 ff`) through `camera.execute()`; the socket
+  cancel could cancel an *unrelated* operation's socket (a victim `FocusStop`
+  came back `CommandCanceled`), and the interface clear reset the shared command
+  buffer — the exact outcome `docs/request_semantics.md` said was impossible.
+  Both shapes are now rejected at construction (the broadcast address-set form
+  was already refused by the target-address check), so `raw::Plain::new`,
+  `raw::Inquiry::*`, `raw::Targeted::new`, and `raw::AppliedOnly::new` return
+  `Error::InvalidRequest` for them; a legitimate custom frame (including USB
+  audio, whose command byte `0x2a` sits in the cancel nibble range but is not
+  the 3-byte cancel frame) is unaffected. Separately, `raw::Policy::new` and
+  `raw::Spec::new` — public `const fn`s that previously accepted any
+  `ControlClass` — now **return `Result` and reject `ControlClass::Urgent`**
+  (the two constructors changed from `-> Self` to `-> Result<Self>`, and the
+  four `raw::*::new` constructors propagate that error). Urgent is FIFO within
+  its class and bypasses admission backlog, so a raw flood in that lane delayed a
+  genuine `PanTiltStop`; a raw caller who needs preemption issues the typed stop
+  (`pan_tilt().stop()`, and the like), which the crate classifies urgent on the
+  caller's behalf. This corrects the #630 entry above, `docs/migration_2_0.md`,
+  and `docs/architecture_inventory.md`, which stated unqualified that ordinary
+  work could not reach the safety lane while this raw path was open. The
+  `api/2.0.0-rc.1/*.txt` snapshots are regenerated for the two changed
+  signatures.
+- **Restored the 1.x acknowledgement default and documented the inquiry
+  deadline** (#689), superseding the 2.0-preview timeout defaults. Every
+  built-in profile shipped an `ack_timeout` of 100 ms (150 ms and 200 ms on two
+  Sony profiles) — as much as 5× tighter than 1.x, whose `TimeoutConfig` default
+  and actual scheduling deadline were both 500 ms — so ordinary network jitter
+  tripped a command far more readily than under 1.x. All nine built-in profiles
+  now use the 1.x 500 ms acknowledgement default again, as an interim value; the
+  final per-profile numbers are to come from the hardware pass. Because an
+  operational override may only widen a profile deadline and never undercut it,
+  raising this floor also means an `ack_timeout` override below 500 ms is now
+  rejected where the tighter preview default would have accepted it. The
+  inquiry-response deadline, by contrast, is a genuine documented 2.0 change and
+  not a restoration: 1.x inquiries had no dedicated deadline and used the 5 s
+  `Quick` category budget, while 2.0 gives inquiries their own deadline, held at
+  an interim 1 s pending the same hardware pass. That divergence is recorded in
+  the parity corpus (`tests/fixtures/1x_oracle/manifest.json`) as the
+  `timeout-category-defaults-selection` row, reclassified from `preserved` to
+  `intentional-change` under the new maintainer-ratified waiver
+  `inquiry-deadline-interim-default`; a new `v2-profile-default-deadlines` test
+  pins both defaults on every profile so neither can drift unnoticed. Since #671
+  a deadline trip fails only the one request, not the session. See
+  `docs/migration_2_0.md` for the row a 1.x user feels.
 
 - **A raw command that cannot be confirmed now fails per request instead of
   poisoning the whole session** (#671), superseding the earlier 2.0-preview

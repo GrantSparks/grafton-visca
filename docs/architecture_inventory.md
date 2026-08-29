@@ -110,8 +110,10 @@ runtime-neutral executor integration. The final 2.0 generic request surface is
 only `execute` for plain commands, `inquire` for inquiries, and `submit` for
 typed operations, each with a `_with_submission_class` twin that names its
 ordinary-work `SubmissionClass`; callers cannot manufacture or demote the
-intrinsic urgent safety class, or inject lifecycle IDs, target, completion
-class, retry class, or settlement metadata at submission time.
+intrinsic urgent safety class — `SubmissionClass` has no `Urgent` variant and
+the raw escape hatch rejects `ControlClass::Urgent` at construction — or inject
+lifecycle IDs, target, completion class, retry class, or settlement metadata at
+submission time.
 
 ## Allocation baselines
 

@@ -1434,4 +1434,90 @@ mod tests {
                 .is_some_and(|effect| effect.kind() == AppliedStateEffectKind::Invalidate)
         }));
     }
+
+    /// Machine-checks the parity count `docs/behavioral_parity_1x.md` publishes:
+    /// of the 149 `BuiltinCommand` rows, exactly 29 carry an intentional
+    /// timeout-category change and the remaining 120 preserve their 1.x
+    /// category. Pinning the universe size and the changed set here means adding
+    /// a command or editing the changed list fails this test until that doc's
+    /// table and count are updated to match (issue #689). It does not re-derive
+    /// the 1.x categories — that is the parity oracle's job — but it stops the
+    /// count itself from silently rotting the way it did when `ImageFlipBoth`
+    /// was omitted (miscounting 120 as 121).
+    #[test]
+    fn intentional_timeout_category_changes_account_for_the_preserved_remainder() {
+        // The rows whose v2 `TimeoutClass` intentionally differs from their 1.x
+        // timeout category, grouped exactly as the migration table lists them.
+        const TIMEOUT_CATEGORY_CHANGES: &[BuiltinCommand] = &[
+            // Movement -> Quick: urgent stops, plain limit/mode edits, and
+            // focus-mode/trigger commands.
+            BuiltinCommand::PanTiltStop,
+            BuiltinCommand::ZoomStop,
+            BuiltinCommand::FocusStop,
+            BuiltinCommand::PanTiltLimitSet,
+            BuiltinCommand::PanTiltLimitClear,
+            BuiltinCommand::FocusAuto,
+            BuiltinCommand::FocusManual,
+            BuiltinCommand::FocusToggle,
+            BuiltinCommand::FocusOnePush,
+            BuiltinCommand::FocusSnap,
+            // Quick -> Movement: targeted physical iris / ND filter operations.
+            BuiltinCommand::IrisReset,
+            BuiltinCommand::IrisUp,
+            BuiltinCommand::IrisDown,
+            BuiltinCommand::IrisDirect,
+            BuiltinCommand::NdFilterDirect,
+            BuiltinCommand::NdFilterStepUp,
+            BuiltinCommand::NdFilterStepDown,
+            // Custom -> Quick: explicit configuration writes 1.x left in the
+            // uncategorized 60-second fallback. `ImageFlipBoth` shares the
+            // combined-flip opcode's treatment with `ImageFlipCombined`.
+            BuiltinCommand::SharpnessMode,
+            BuiltinCommand::SharpnessReset,
+            BuiltinCommand::SharpnessUp,
+            BuiltinCommand::SharpnessDown,
+            BuiltinCommand::SharpnessDirect,
+            BuiltinCommand::Gamma,
+            BuiltinCommand::NoiseReduction2d,
+            BuiltinCommand::NoiseReduction2dOff,
+            BuiltinCommand::NoiseReduction3d,
+            BuiltinCommand::NoiseReduction3dOff,
+            BuiltinCommand::ImageFlipBoth,
+            BuiltinCommand::ImageFlipCombined,
+        ];
+
+        // Universe size is pinned; a new command must be triaged into the
+        // changed or preserved count (and the doc updated) rather than silently
+        // shifting the total.
+        assert_eq!(
+            BuiltinCommand::ALL.len(),
+            149,
+            "BuiltinCommand universe changed; re-derive the parity counts in \
+             docs/behavioral_parity_1x.md"
+        );
+
+        // The changed set is distinct and every entry is a real command row.
+        let mut seen = HashSet::new();
+        for command in TIMEOUT_CATEGORY_CHANGES {
+            assert!(
+                seen.insert(*command),
+                "{command:?} listed twice in the timeout-category change set"
+            );
+            assert!(
+                BuiltinCommand::ALL.contains(command),
+                "{command:?} is not a BuiltinCommand row"
+            );
+        }
+
+        let changed = TIMEOUT_CATEGORY_CHANGES.len();
+        let preserved = BuiltinCommand::ALL.len() - changed;
+        assert_eq!(
+            changed, 29,
+            "documented intentional timeout-category changes"
+        );
+        assert_eq!(
+            preserved, 120,
+            "command rows that retain their 1.x timeout category"
+        );
+    }
 }

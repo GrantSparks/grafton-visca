@@ -165,9 +165,12 @@ Three behavioural differences are worth reading before porting:
 - **No public QoS override can weaken an urgent request.** A handle set to
   `Background`, and even a per-submission
   `SubmissionClass::Background`, still submits `PanTiltStop`, `ZoomStop`,
-  `FocusStop`, and owner-issued protocol cancellation as `ControlClass::Urgent`. The public QoS
-  type has no `Urgent` variant, so ordinary work cannot impersonate safety
-  traffic either.
+  `FocusStop`, and owner-issued protocol cancellation as `ControlClass::Urgent`.
+  Nor can ordinary work manufacture the urgent lane: `SubmissionClass` has no
+  `Urgent` variant, and the raw escape hatch's `raw::Policy` / `raw::Spec` reject
+  `ControlClass::Urgent` at construction (a raw caller who needs preemption
+  issues the typed stop instead). The urgent lane is reachable only by the
+  crate's own stops and owner-issued cancellation.
 - **Inquiries are covered.** 1.x kept inquiries at a fixed polling priority; in
   2.0 they share the same four lanes, so a handle demoted to `Background` moves
   its telemetry reads out of the way as well as its commands. Owner-internal
@@ -366,8 +369,25 @@ fields map directly to the corresponding tuning methods:
 | `long_timeout` | `long_running_timeout` |
 | `network_timeout` | `network_timeout` |
 | `default_timeout` | No direct counterpart: every 2.0 request selects a `TimeoutClass`; set the corresponding category deadline. |
-| *(no 1.x field)* | `settlement_timeout` for the physical-settling budget; `inquiry_timeout` remains the profile inquiry-response deadline |
+| *(no 1.x field)* | `settlement_timeout` for the physical-settling budget; `inquiry_timeout` is the profile inquiry-response deadline (a new dedicated field whose default differs from 1.x — see the note below) |
 | `RetryConfig::max_retries`, `base_retry_delay`, `max_retry_duration` | `retry_limit` and `retry_timing` |
+
+Two profile deadlines changed value relative to 1.x, and both are interim
+figures pending a hardware-measurement pass:
+
+- **Acknowledgement (`ack_timeout`).** 1.x's `TimeoutConfig` default was 500 ms,
+  and that was the deadline every 1.x profile actually scheduled under. The
+  2.0-preview built-in profiles briefly tightened this to 100 ms (150 ms and
+  200 ms on two Sony profiles); every built-in profile is now restored to the
+  1.x **500 ms** default. An operational override may only widen a profile
+  deadline, so an `ack_timeout` below 500 ms is now rejected where the tighter
+  preview default would have accepted it.
+- **Inquiry response (`inquiry_timeout`).** 1.x inquiries had no dedicated
+  deadline and used the 5 s `Quick` category budget. 2.0 gives inquiries their
+  own deadline, defaulting to **1 s** on every built-in profile — the one
+  intentional divergence from 1.x among these defaults. If your cameras or
+  network make an inquiry legitimately take longer than 1 s to answer, widen it
+  with `OperationalTuning::inquiry_timeout`.
 
 `CommandTimeouts` is the profile's exact command policy. Its default table
 preserves the 1.x values (Quick 5 seconds, Movement 30 seconds, Preset 60
