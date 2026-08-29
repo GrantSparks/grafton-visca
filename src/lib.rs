@@ -652,7 +652,7 @@
 //! use std::time::Duration;
 //!
 //! let tuning = OperationalTuning::new()
-//!     .ack_timeout(Duration::from_millis(300))
+//!     .ack_timeout(Duration::from_millis(600))
 //!     .quick_timeout(Duration::from_secs(6))
 //!     .movement_timeout(Duration::from_secs(40))
 //!     .preset_timeout(Duration::from_secs(90))
