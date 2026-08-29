@@ -19,9 +19,23 @@ Every row pins the complete 1.x commit
 `6c7a9d3783861189745536372c4d21de24d4252d`, names the old source file and test
 symbol, cites the applicable [issue #542](https://github.com/GrantSparks/grafton-visca/issues/542)
 contract, and points to the v2 production-path test(s) or fixture(s) that
-exercise the behavior. The validator also checks that every referenced symbol
-still exists, so a renamed or deleted test fails loudly instead of reducing
-coverage silently.
+exercise the behavior. Each v2 row also records the transport `envelope`
+(`sony`, `raw`, or `neutral`), the camera `profile` it drives (a concrete type
+such as `SonyFR7`, or `n/a` for engine-level and pure encode/decode tests), and
+the terminal `receipt_class` it asserts.
+
+The validator is enforcing, not advisory. It checks that every referenced
+symbol still exists; that the recorded envelope/profile match the mapped test's
+own body (a `Sony*` profile must appear in the body and pair with envelope
+`sony`; a row declared `raw` must not run a Sony-only test), so an
+evidence-laundering raw→Sony swap under an unchanged name is a visible, checked
+diff instead of a silent re-baseline; and — when it runs the mapped `cargo test`
+commands — that each mapped symbol *actually executed*. A libtest filter that
+matches nothing exits `0` after printing `running 0 tests`, and an `#[ignore]`d
+test prints `... ignored` while the binary still exits `0`, so the gate parses
+the libtest output and fails unless every mapped symbol appears as an executed
+(`ok`) test. Renaming an enclosing `mod tests`, filtering to zero of the mapped
+symbols, or ignoring one all fail loudly instead of reducing coverage silently.
 
 Run it with:
 
@@ -85,26 +99,41 @@ not as a public API compatibility requirement.
 
 ## Adding or waiving a row
 
-Add a stable lowercase behavior ID to `required_families`, then add one verified
-row with:
+Add a stable lowercase behavior ID to `required_families` **and to
+`EXPECTED_REQUIRED_FAMILIES` in `validate.py`** — the required set is pinned in
+the validator, so a family cannot be dropped from coverage in a lone manifest
+edit. Then add one verified row with:
 
 1. the 1.x path and one or more concrete function symbols;
-2. one or more v2 test definitions, each with a current source symbol and a
-   direct `cargo test` command; and
+2. one or more v2 test definitions, each with a current source symbol, its
+   `envelope`/`profile`/`receipt_class`, and a direct `cargo test` command; and
 3. a `#542` clause plus a short rationale.
 
 The validator rejects missing, duplicate, placeholder, unverified, or
-unreferenced IDs. It also runs each unique command once after grouping rows by
-command, while still checking every mapped symbol. Keep mappings pointed at
+unreferenced IDs, and a family set that does not match the pinned constant. It
+runs each unique command once after grouping rows by command, and asserts every
+mapped symbol executed (not filtered, not ignored). Keep mappings pointed at
 existing production replay tests and fixtures. A new integration test should
 drive the public owner/facade/testkit; do not add a second scheduler or a
 hand-written simulator just to satisfy this corpus.
 
-An intentional 2.0 behavior change is not a waiver by omission. Mark the row
-`intentional-change` only with an explicit `approved_change` that is listed in
-`approved_intentional_changes`, and document the approved rationale in the row.
-An unapproved classification fails the gate. If the behavior is still required
-by #542, keep it `preserved` and repair the production path or its test.
+An intentional 2.0 behavior change is not a waiver by omission, and it is not a
+self-approval either. Mark the row `intentional-change` only with an explicit
+`approved_change` listed in `approved_intentional_changes`, document the
+rationale in the row, **and add the same id verbatim to `CHANGELOG.md`** — the
+gate requires every approved waiver to appear in the changelog, so a waiver
+forces a reviewed, user-visible entry naming what it supersedes rather than a
+manifest line that blesses itself. An unapproved classification, or an approved
+id with no changelog entry, fails the gate. If the behavior is still required by
+#542, keep it `preserved` and repair the production path or its test.
+
+The three current waivers are `deterministic-equal-jitter` and
+`evidence-based-raw-correlation` (both maintainer-ratified per #692) and
+`evidence-bounded-retry`. **TODO(#671):** `evidence-bounded-retry` is being
+rewritten to describe the new per-request (not whole-session) failure model;
+its rationale below is provisional and will be ratified once #671 lands. Its
+changelog entry says the same, so the coupling is satisfied without implying it
+is settled.
 
 Retry-count categories and bounded exponential scheduling retain their 1.x
 provenance, but replay is no longer inferred merely from elapsed time. Sony

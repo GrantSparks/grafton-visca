@@ -295,4 +295,14 @@ pub mod preset {
 
     /// Preset reset (clear) for slot 1.
     pub const RESET_1: &[u8] = &[0x81, 0x01, 0x04, 0x3F, 0x00, 0x01, VISCA_TERMINATOR];
+
+    /// Preset set for slot 255. The slot number 0xFF is a data byte and must be
+    /// followed by the terminator: `... 01 FF FF` (regression pin for #683).
+    pub const SET_255: &[u8] = &[0x81, 0x01, 0x04, 0x3F, 0x01, 0xFF, VISCA_TERMINATOR];
+
+    /// Preset recall for slot 255: `... 02 FF FF`.
+    pub const RECALL_255: &[u8] = &[0x81, 0x01, 0x04, 0x3F, 0x02, 0xFF, VISCA_TERMINATOR];
+
+    /// Preset reset (clear) for slot 255: `... 00 FF FF`.
+    pub const RESET_255: &[u8] = &[0x81, 0x01, 0x04, 0x3F, 0x00, 0xFF, VISCA_TERMINATOR];
 }

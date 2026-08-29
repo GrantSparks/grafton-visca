@@ -62,7 +62,13 @@ default = ["blocking"]
 blocking = []
 # Runtime-agnostic async support. Runtime features add their adapter while
 # applications may also enable the independent blocking facade.
-async = ["dep:futures-lite", "dep:async-lock"]
+#
+# `async-executor` is pulled here rather than by `test-utils`: the only code
+# that uses it is the async testkit's deterministic executor, which compiles
+# only under `async` + `test-utils`. Riding it on `async` keeps a blocking-only
+# consumer that enables `test-utils` free of any executor, which the
+# dependency-boundary gate enforces (`blocking,test-utils` must stay clean).
+async = ["dep:futures-lite", "dep:async-lock", "dep:async-executor"]
 
 # Runtime features imply the canonical async facade.
 runtime-tokio = ["async", "dep:tokio"]
@@ -81,7 +87,15 @@ ts-rs = ["serde", "dep:ts-rs"]
 dyn-api = ["async"]
 
 # Internal features
-test-utils = ["dep:async-executor", "dep:futures-lite"]
+#
+# Build-time marker for the deterministic and scripted-transport testkits used
+# by this crate and by downstream test suites. It deliberately links no async
+# runtime or executor: the blocking testkit (`ScriptedBlockingTransport`,
+# `Step`, `helpers`) is available under `blocking,test-utils` with a native
+# synchronous graph, while the async testkit (`DeterministicExecutor`, the async
+# `ScriptedTransport`) and its `async-executor`/`futures-lite` dependencies are
+# compiled and pulled only when `async` is also enabled.
+test-utils = []
 
 [dependencies]
 bytes = "1.11"

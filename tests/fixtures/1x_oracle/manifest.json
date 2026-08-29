@@ -28,96 +28,219 @@
       "id": "v2-prepared-timeout-selection",
       "file": "src/prepared.rs",
       "symbol": "tests::command_completion_uses_category_overrides_then_profile_values",
-      "command": ["cargo", "test", "--lib", "prepared::tests"]
+      "envelope": "neutral",
+      "profile": "PtzOpticsG2",
+      "receipt_class": "timeout",
+      "command": [
+        "cargo",
+        "test",
+        "--lib",
+        "prepared::tests"
+      ]
     },
     {
       "id": "v2-prepared-retry-table",
       "file": "src/prepared.rs",
       "symbol": "tests::retry_budgets_follow_the_1x_per_category_table",
-      "command": ["cargo", "test", "--lib", "prepared::tests"]
+      "envelope": "neutral",
+      "profile": "n/a",
+      "receipt_class": "retry-budget",
+      "command": [
+        "cargo",
+        "test",
+        "--lib",
+        "prepared::tests"
+      ]
     },
     {
       "id": "v2-engine-deterministic-jitter",
       "file": "src/runtime/engine/tests.rs",
       "symbol": "retry_backoff_follows_the_pinned_jitter_sequence",
-      "command": ["cargo", "test", "--lib", "runtime::engine::tests"]
+      "envelope": "neutral",
+      "profile": "n/a",
+      "receipt_class": "retry-budget",
+      "command": [
+        "cargo",
+        "test",
+        "--lib",
+        "runtime::engine::tests"
+      ]
     },
     {
       "id": "v2-engine-lower16",
       "file": "src/runtime/engine/tests.rs",
       "symbol": "sony_exact_and_unique_lower16_are_target_safe_and_owner_deduplicated",
-      "command": ["cargo", "test", "--lib", "runtime::engine::tests"]
+      "envelope": "sony",
+      "profile": "n/a",
+      "receipt_class": "sequenced",
+      "command": [
+        "cargo",
+        "test",
+        "--lib",
+        "runtime::engine::tests"
+      ]
     },
     {
       "id": "v2-engine-stale-retry",
       "file": "src/runtime/engine/tests.rs",
       "symbol": "sony_retry_reuses_first_successful_sequence_and_ignores_stale_result",
-      "command": ["cargo", "test", "--lib", "runtime::engine::tests"]
+      "envelope": "sony",
+      "profile": "n/a",
+      "receipt_class": "sequenced",
+      "command": [
+        "cargo",
+        "test",
+        "--lib",
+        "runtime::engine::tests"
+      ]
     },
     {
       "id": "v2-engine-stale-command-error",
       "file": "src/runtime/engine/tests.rs",
       "symbol": "sony_stale_command_errors_do_not_spend_retry_during_backoff_or_ready",
-      "command": ["cargo", "test", "--lib", "runtime::engine::tests"]
+      "envelope": "sony",
+      "profile": "n/a",
+      "receipt_class": "sequenced",
+      "command": [
+        "cargo",
+        "test",
+        "--lib",
+        "runtime::engine::tests"
+      ]
     },
     {
       "id": "v2-engine-stale-inquiry-error",
       "file": "src/runtime/engine/tests.rs",
       "symbol": "sony_stale_inquiry_errors_do_not_spend_retry_during_backoff_or_ready",
-      "command": ["cargo", "test", "--lib", "runtime::engine::tests"]
+      "envelope": "sony",
+      "profile": "n/a",
+      "receipt_class": "inquiry",
+      "command": [
+        "cargo",
+        "test",
+        "--lib",
+        "runtime::engine::tests"
+      ]
     },
     {
       "id": "v2-engine-raw-routing",
       "file": "src/runtime/engine/tests.rs",
       "symbol": "raw_inquiries_route_by_unique_content_then_per_target_fifo",
-      "command": ["cargo", "test", "--lib", "runtime::engine::tests"]
+      "envelope": "raw",
+      "profile": "n/a",
+      "receipt_class": "routing",
+      "command": [
+        "cargo",
+        "test",
+        "--lib",
+        "runtime::engine::tests"
+      ]
     },
     {
       "id": "v2-engine-raw-error-routing",
       "file": "src/runtime/engine/tests.rs",
       "symbol": "raw_error_policy_requires_unique_socketless_evidence",
-      "command": ["cargo", "test", "--lib", "runtime::engine::tests"]
+      "envelope": "raw",
+      "profile": "n/a",
+      "receipt_class": "routing",
+      "command": [
+        "cargo",
+        "test",
+        "--lib",
+        "runtime::engine::tests"
+      ]
     },
     {
       "id": "v2-owner-transport-receive",
       "file": "src/runtime/owner/tests.rs",
-      "symbol": "tests::transient_blocking_read_fault_retries_and_keeps_the_session",
-      "command": ["cargo", "test", "--lib", "runtime::owner::tests"]
+      "symbol": "tests::blocking::sony_transient_blocking_read_fault_retries_and_keeps_the_session",
+      "envelope": "sony",
+      "profile": "SonyBRC300",
+      "receipt_class": "transport",
+      "command": [
+        "cargo",
+        "test",
+        "--lib",
+        "runtime::owner::tests"
+      ]
     },
     {
       "id": "v2-owner-out-of-order",
       "file": "src/runtime/owner/tests.rs",
-      "symbol": "tests::typed_blocking_wait_pumps_and_retains_out_of_order_peer_results",
-      "command": ["cargo", "test", "--lib", "runtime::owner::tests"]
+      "symbol": "tests::blocking::sony_typed_blocking_wait_pumps_and_retains_out_of_order_peer_results",
+      "envelope": "sony",
+      "profile": "SonyBRC300",
+      "receipt_class": "targeted",
+      "command": [
+        "cargo",
+        "test",
+        "--lib",
+        "runtime::owner::tests"
+      ]
     },
     {
       "id": "v2-owner-lifecycle-trace",
       "file": "src/runtime/owner/tests.rs",
-      "symbol": "tests::blocking_owner_matches_canonical_lifecycle_trace",
-      "command": ["cargo", "test", "--lib", "runtime::owner::tests"]
+      "symbol": "tests::blocking::blocking_owner_matches_canonical_lifecycle_trace",
+      "envelope": "raw",
+      "profile": "n/a",
+      "receipt_class": "trace",
+      "command": [
+        "cargo",
+        "test",
+        "--lib",
+        "runtime::owner::tests"
+      ]
     },
     {
       "id": "v2-owner-observer-late",
       "file": "src/runtime/owner/tests.rs",
-      "symbol": "tests::observer_timeout_detaches_without_cancel_and_late_applied_still_caches",
-      "command": ["cargo", "test", "--lib", "runtime::owner::tests"]
+      "symbol": "tests::blocking::observer_timeout_detaches_without_cancel_and_late_applied_still_caches",
+      "envelope": "raw",
+      "profile": "GenericVisca",
+      "receipt_class": "detach",
+      "command": [
+        "cargo",
+        "test",
+        "--lib",
+        "runtime::owner::tests"
+      ]
     },
     {
       "id": "v2-owner-detached-late",
       "file": "src/runtime/owner/tests.rs",
-      "symbol": "tests::detached_late_completion_still_updates_cache_and_subscription",
-      "command": ["cargo", "test", "--lib", "runtime::owner::tests"]
+      "symbol": "tests::blocking::detached_late_completion_still_updates_cache_and_subscription",
+      "envelope": "raw",
+      "profile": "n/a",
+      "receipt_class": "detach",
+      "command": [
+        "cargo",
+        "test",
+        "--lib",
+        "runtime::owner::tests"
+      ]
     },
     {
       "id": "v2-faults-blocking",
       "file": "tests/issue_565_transport_faults_blocking.rs",
       "symbol": "raw_receive_fault_fails_one_command_and_keeps_the_session",
-      "command": ["cargo", "test", "--test", "issue_565_transport_faults_blocking"]
+      "envelope": "raw",
+      "profile": "NonDefaultCompileTimeProfile",
+      "receipt_class": "transport",
+      "command": [
+        "cargo",
+        "test",
+        "--test",
+        "issue_565_transport_faults_blocking"
+      ]
     },
     {
       "id": "v2-faults-async",
       "file": "tests/issue_565_transport_faults_async.rs",
       "symbol": "raw_receive_fault_fails_one_command_and_keeps_the_session",
+      "envelope": "raw",
+      "profile": "NonDefaultCompileTimeProfile",
+      "receipt_class": "transport",
       "command": [
         "cargo",
         "test",
@@ -131,13 +254,24 @@
     {
       "id": "v2-retries-blocking",
       "file": "tests/issue_566_retry_recovery_blocking.rs",
-      "symbol": "a_movement_command_survives_a_lost_ack",
-      "command": ["cargo", "test", "--test", "issue_566_retry_recovery_blocking"]
+      "symbol": "a_sony_movement_command_survives_a_lost_ack",
+      "envelope": "sony",
+      "profile": "SonyFR7",
+      "receipt_class": "applied",
+      "command": [
+        "cargo",
+        "test",
+        "--test",
+        "issue_566_retry_recovery_blocking"
+      ]
     },
     {
       "id": "v2-retries-async",
       "file": "tests/issue_566_retry_recovery_async.rs",
-      "symbol": "a_silent_camera_is_retried_before_and_after_its_ack",
+      "symbol": "a_silent_sony_camera_is_retried_before_and_after_its_ack",
+      "envelope": "sony",
+      "profile": "SonyFR7",
+      "receipt_class": "applied",
       "command": [
         "cargo",
         "test",
@@ -152,6 +286,9 @@
       "id": "v2-retries-scripted",
       "file": "tests/issue_566_scripted_error_recovery.rs",
       "symbol": "a_busy_camera_is_replayed_once_and_then_succeeds",
+      "envelope": "raw",
+      "profile": "NonDefaultCompileTimeProfile",
+      "receipt_class": "retry-budget",
       "command": [
         "cargo",
         "test",
@@ -166,36 +303,79 @@
       "id": "v2-raw-lifecycle-trace",
       "file": "tests/issue_542_trace_fixture_contract.rs",
       "symbol": "protocol_correlation_trace_stays_a_well_formed_normative_record",
-      "command": ["cargo", "test", "--test", "issue_542_trace_fixture_contract"]
+      "envelope": "neutral",
+      "profile": "n/a",
+      "receipt_class": "trace",
+      "command": [
+        "cargo",
+        "test",
+        "--test",
+        "issue_542_trace_fixture_contract"
+      ]
     },
     {
       "id": "v2-wire-golden",
       "file": "tests/issue_633_golden_wire_bytes.rs",
       "symbol": "cardinal_pan_tilt_directions_match_golden_frames",
-      "command": ["cargo", "test", "--test", "issue_633_golden_wire_bytes"]
+      "envelope": "neutral",
+      "profile": "n/a",
+      "receipt_class": "wire",
+      "command": [
+        "cargo",
+        "test",
+        "--test",
+        "issue_633_golden_wire_bytes"
+      ]
     },
     {
       "id": "v2-inquiry-golden",
       "file": "tests/inquiry_golden_tests_simple.rs",
       "symbol": "test_power_inquiry_on",
-      "command": ["cargo", "test", "--test", "inquiry_golden_tests_simple"]
+      "envelope": "neutral",
+      "profile": "n/a",
+      "receipt_class": "decode",
+      "command": [
+        "cargo",
+        "test",
+        "--test",
+        "inquiry_golden_tests_simple"
+      ]
     },
     {
       "id": "v2-inquiry-decoding",
       "file": "tests/inquiry_response_parsing_tests.rs",
       "symbol": "test_parse_power_inquiry_responses",
-      "command": ["cargo", "test", "--test", "inquiry_response_parsing_tests"]
+      "envelope": "neutral",
+      "profile": "n/a",
+      "receipt_class": "decode",
+      "command": [
+        "cargo",
+        "test",
+        "--test",
+        "inquiry_response_parsing_tests"
+      ]
     },
     {
       "id": "v2-cancel-blocking",
       "file": "tests/issue_612_cancel_recovery_blocking.rs",
       "symbol": "blocking_refused_cancellation_returns_the_handle_and_leaves_stop_available",
-      "command": ["cargo", "test", "--test", "issue_612_cancel_recovery_blocking"]
+      "envelope": "raw",
+      "profile": "PtzOpticsG2",
+      "receipt_class": "cancel",
+      "command": [
+        "cargo",
+        "test",
+        "--test",
+        "issue_612_cancel_recovery_blocking"
+      ]
     },
     {
       "id": "v2-cancel-async",
       "file": "tests/issue_612_cancel_recovery.rs",
       "symbol": "tokio_refused_cancellation_is_recoverable",
+      "envelope": "raw",
+      "profile": "n/a",
+      "receipt_class": "cancel",
       "command": [
         "cargo",
         "test",
@@ -210,6 +390,9 @@
       "id": "v2-detach-facade",
       "file": "tests/issue_542_async_facade.rs",
       "symbol": "dropping_or_detaching_operation_is_observation_only",
+      "envelope": "raw",
+      "profile": "PtzOpticsG2",
+      "receipt_class": "detach",
       "command": [
         "cargo",
         "test",
@@ -224,7 +407,15 @@
       "id": "v2-wire-encoder-unit",
       "file": "src/command/flip.rs",
       "symbol": "tests::test_byte_sequence_correctness",
-      "command": ["cargo", "test", "--lib", "command::flip::tests"]
+      "envelope": "neutral",
+      "profile": "n/a",
+      "receipt_class": "wire",
+      "command": [
+        "cargo",
+        "test",
+        "--lib",
+        "command::flip::tests"
+      ]
     }
   ],
   "behaviors": [
@@ -242,7 +433,9 @@
           ]
         }
       ],
-      "v2_tests": ["v2-prepared-timeout-selection"],
+      "v2_tests": [
+        "v2-prepared-timeout-selection"
+      ],
       "clause": "#542 §3: preserve category-specific timeout policy and keep scheduler, observer, and transport deadlines independent.",
       "rationale": "2.0 renames the public tuning type and lowers it through Prepared requests, but the category defaults and selection behavior remain an explicit preservation floor."
     },
@@ -290,8 +483,10 @@
           ]
         }
       ],
-      "v2_tests": ["v2-engine-deterministic-jitter"],
-      "clause": "#542 §3: preserve bounded retry behavior while allowing an explicit 2.0 scheduling improvement.",
+      "v2_tests": [
+        "v2-engine-deterministic-jitter"
+      ],
+      "clause": "#542 \u00a73: preserve bounded retry behavior while allowing an explicit 2.0 scheduling improvement.",
       "rationale": "1.x computes an exact exponential delay with no jitter. 2.0 uses a 50ms initial delay and deterministic equal jitter within a bounded ceiling, preventing synchronized retries while remaining reproducible. Retry counts remain category-based and the total budget follows the separate evidence-bounded retry decision."
     },
     {
@@ -311,8 +506,11 @@
           ]
         }
       ],
-      "v2_tests": ["v2-engine-lower16", "v2-raw-lifecycle-trace"],
-      "clause": "#542 §3 Correlation: full-width Sony sequence provenance is exact, and potentially truncated lower-16-bit provenance is accepted only when its target-compatible owner is unique.",
+      "v2_tests": [
+        "v2-engine-lower16",
+        "v2-raw-lifecycle-trace"
+      ],
+      "clause": "#542 \u00a73 Correlation: full-width Sony sequence provenance is exact, and potentially truncated lower-16-bit provenance is accepted only when its target-compatible owner is unique.",
       "rationale": "The 2.0 engine carries explicit target and sequence-width metadata; the lower-16 cases are replayed through that production engine and the normative trace fixture."
     },
     {
@@ -345,7 +543,7 @@
         "v2-engine-stale-inquiry-error",
         "v2-raw-lifecycle-trace"
       ],
-      "clause": "#542 §3 Correlation: an unmatched sequenced reply is stale or duplicate traffic and never falls back to socket, FIFO, or temporal heuristics.",
+      "clause": "#542 \u00a73 Correlation: an unmatched sequenced reply is stale or duplicate traffic and never falls back to socket, FIFO, or temporal heuristics.",
       "rationale": "The stale completion, error, and inquiry cases are retained as inertness checks at the engine boundary; no observer or neighboring request may be mutated."
     },
     {
@@ -375,8 +573,12 @@
           ]
         }
       ],
-      "v2_tests": ["v2-engine-raw-routing", "v2-engine-raw-error-routing", "v2-raw-lifecycle-trace"],
-      "clause": "#542 §3 Correlation: raw commands keep one unacknowledged candidate per target and never use FIFO or recency for ACK/error ownership; named sockets are exact, while compatible inquiries may use their per-target FIFO only when no command candidate collides.",
+      "v2_tests": [
+        "v2-engine-raw-routing",
+        "v2-engine-raw-error-routing",
+        "v2-raw-lifecycle-trace"
+      ],
+      "clause": "#542 \u00a73 Correlation: raw commands keep one unacknowledged candidate per target and never use FIFO or recency for ACK/error ownership; named sockets are exact, while compatible inquiries may use their per-target FIFO only when no command candidate collides.",
       "rationale": "1.x temporal command fallback is intentionally rejected because raw VISCA carries no request identity. The v2 production engine serializes only the pre-ACK raw window, restores socket concurrency after ACK, ignores ambiguous collisions, and retains FIFO solely for compatible inquiry replies."
     },
     {
@@ -387,7 +589,9 @@
       "oracle_sources": [
         {
           "path": "src/runtime/core/tests.rs",
-          "symbols": ["test_fail_after_receive_error_frees_socket"]
+          "symbols": [
+            "test_fail_after_receive_error_frees_socket"
+          ]
         },
         {
           "path": "src/runtime/blocking_runner.rs",
@@ -398,8 +602,12 @@
           ]
         }
       ],
-      "v2_tests": ["v2-owner-transport-receive", "v2-faults-blocking", "v2-faults-async"],
-      "clause": "#542 §3 Transport failure: isolate a conclusive datagram write failure, poison an ambiguous stream, and apply envelope-specific receive-fault recovery.",
+      "v2_tests": [
+        "v2-owner-transport-receive",
+        "v2-faults-blocking",
+        "v2-faults-async"
+      ],
+      "clause": "#542 \u00a73 Transport failure: isolate a conclusive datagram write failure, poison an ambiguous stream, and apply envelope-specific receive-fault recovery.",
       "rationale": "Datagram request-write failures remain isolated and stream position loss remains terminal. A Sony request may recover with the same sequence; a receive fault while a successfully sent raw command awaits ACK makes its physical outcome unknowable and requires a replacement session."
     },
     {
@@ -417,15 +625,22 @@
         },
         {
           "path": "src/command/flip.rs",
-          "symbols": ["tests::test_byte_sequence_correctness"]
+          "symbols": [
+            "tests::test_byte_sequence_correctness"
+          ]
         },
         {
           "path": "src/command/mod.rs",
-          "symbols": ["tests::test_all_command_categories_terminate"]
+          "symbols": [
+            "tests::test_all_command_categories_terminate"
+          ]
         }
       ],
-      "v2_tests": ["v2-wire-golden", "v2-wire-encoder-unit"],
-      "clause": "#542 §2 Prepared requests: wire bytes are inert, built-in encoders remain allocation-free, and encoding validates the VISCA terminator.",
+      "v2_tests": [
+        "v2-wire-golden",
+        "v2-wire-encoder-unit"
+      ],
+      "clause": "#542 \u00a72 Prepared requests: wire bytes are inert, built-in encoders remain allocation-free, and encoding validates the VISCA terminator.",
       "rationale": "The v2 golden tests compare absolute byte vectors and the unit test exercises the retained encoder path; no expected byte is generated by the implementation under test."
     },
     {
@@ -465,8 +680,11 @@
           ]
         }
       ],
-      "v2_tests": ["v2-inquiry-golden", "v2-inquiry-decoding"],
-      "clause": "#542 §2 Prepared requests: typed inquiry decoding runs after engine attribution and outside mutable owner state.",
+      "v2_tests": [
+        "v2-inquiry-golden",
+        "v2-inquiry-decoding"
+      ],
+      "clause": "#542 \u00a72 Prepared requests: typed inquiry decoding runs after engine attribution and outside mutable owner state.",
       "rationale": "The checked-in golden response vectors and parser tests remain the decoding floor; they are run as independent integration targets so a stale mapping cannot silently disappear."
     },
     {
@@ -487,7 +705,7 @@
         "v2-owner-lifecycle-trace",
         "v2-raw-lifecycle-trace"
       ],
-      "clause": "#542 §4 Blocking owner: pump receipts while retaining exact terminal outcomes for other observed blocking receipts; blocking completion attribution is independent per request.",
+      "clause": "#542 \u00a74 Blocking owner: pump receipts while retaining exact terminal outcomes for other observed blocking receipts; blocking completion attribution is independent per request.",
       "rationale": "The owner test and blocking lifecycle fixture exercise real caller-thread receipt retention and out-of-order protocol completion, including an error alongside a success."
     },
     {
@@ -520,7 +738,7 @@
         "v2-cancel-async",
         "v2-detach-facade"
       ],
-      "clause": "#542 §3 Lifecycle: observer detach/timeout does not change protocol state; cancellation and observer delivery remain distinct operations.",
+      "clause": "#542 \u00a73 Lifecycle: observer detach/timeout does not change protocol state; cancellation and observer delivery remain distinct operations.",
       "rationale": "2.0 intentionally breaks the public API shape, but it preserves the observable safety rule: cancel is explicit, drop/detach never stops hardware, and late terminal delivery still finalizes target-local state."
     }
   ]

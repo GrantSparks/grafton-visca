@@ -295,7 +295,7 @@ fn a_no_socket_answer_is_replayed_for_a_standard_command() {
 /// there would be unsafe; a raw command instead fails per-request and
 /// quarantines its slot (issue #671), covered by the engine and #565 tests.
 #[test]
-fn a_movement_command_survives_a_lost_ack() {
+fn a_sony_movement_command_survives_a_lost_ack() {
     // The first write draws no answer at all; the ACK deadline lapses and the
     // frame is reissued.
     let transport = ScriptTransport::new(vec![Vec::new(), standard_reply()])

@@ -29,6 +29,63 @@ FUNCTION_RE_TEMPLATE = (
 )
 PENDING_WORDS = ("pending", "missing", "todo", "tbd")
 
+# The complete set of behavior families the corpus is required to cover, pinned
+# here and not only in the manifest. A family can now be dropped from coverage
+# only by editing this validator as well, so a single quiet manifest edit that
+# deletes a family (and its row) no longer passes the gate silently.
+EXPECTED_REQUIRED_FAMILIES = frozenset(
+    {
+        "timeout-category-defaults-selection",
+        "retry-counts-exhaustion-and-ceiling",
+        "deterministic-equal-jitter",
+        "lower16-exact-unique-collision-recovery",
+        "stale-sequenced-responses",
+        "raw-evidence-based-routing",
+        "transport-failure-isolation",
+        "command-wire-bytes",
+        "inquiry-decode-golden",
+        "blocking-out-of-order-receipt-retention",
+        "cancellation-detach-observer-late-delivery",
+    }
+)
+
+# Every mapped v2 test records the transport envelope, camera profile, and
+# terminal receipt class it actually exercises. Recording and asserting these
+# makes an evidence-laundering swap — e.g. re-pointing a "raw" behavior row at a
+# Sony-only test under an unchanged name — a visible manifest diff that the gate
+# then checks against the test body, instead of an invisible re-baseline.
+VALID_ENVELOPES = frozenset({"sony", "raw", "neutral"})
+VALID_RECEIPT_CLASSES = frozenset(
+    {
+        "applied",
+        "targeted",
+        "sequenced",
+        "inquiry",
+        "routing",
+        "wire",
+        "decode",
+        "cancel",
+        "detach",
+        "poison",
+        "transport",
+        "retry-budget",
+        "timeout",
+        "trace",
+    }
+)
+PROFILE_TYPE_RE = re.compile(r"[A-Z][A-Za-z0-9]+")
+CONFIG_TOKEN_RE = re.compile(r"[a-z][a-z0-9-]*")
+# A Sony-envelope marker in a test body: the sequence-bearing VISCA-over-IP
+# path always names a `Sony*` profile, a `sony_*` helper, or the word Sony.
+SONY_MARKER_RE = re.compile(r"[Ss]ony")
+
+# A libtest "running N tests" banner and per-test result line. A name filter
+# that matches nothing still exits 0 after printing "running 0 tests", and an
+# #[ignore] test prints "... ignored" while the binary exits 0, so exit status
+# alone certifies nothing about whether a specific mapped test executed.
+RUNNING_RE = re.compile(r"(?m)^running (?P<count>[0-9]+) tests?$")
+TEST_LINE_RE = re.compile(r"(?m)^test (?P<path>\S+) \.\.\. (?P<status>ok|FAILED|ignored)")
+
 
 class ValidationError(Exception):
     """A corpus validation failure that should be reported as one gate error."""
@@ -101,19 +158,200 @@ def function_exists(source: str, symbol: str) -> bool:
     return pattern.search(source) is not None
 
 
+def extract_symbol_body(source: str, symbol: str) -> str | None:
+    """Return the source text of one test function, signature through its brace.
+
+    rustfmt closes a function's block at the same indentation the `fn` keyword
+    sits at, so the first line at that indentation beginning with `}` ends the
+    body. This lets a configuration assertion read exactly the test it names
+    rather than the whole file, so a Sony helper elsewhere in a raw test file
+    cannot satisfy a raw row.
+    """
+
+    name = symbol.rsplit("::", 1)[-1]
+    signature = re.compile(
+        r"(?m)^(?P<indent>[ \t]*)(?:(?:pub(?:\([^)]*\))?)\s+)?(?:async\s+)?fn\s+"
+        + re.escape(name)
+        + r"(?:<[^>\n]*>)?\s*\("
+    )
+    match = signature.search(source)
+    if match is None:
+        return None
+    indent = match.group("indent")
+    closing = re.compile(r"(?m)^" + re.escape(indent) + r"\}")
+    close_match = closing.search(source, match.end())
+    end = close_match.end() if close_match else len(source)
+    return source[match.start() : end]
+
+
+def symbol_executed(symbol: str, executed_paths: list[str]) -> bool:
+    """Did a libtest path for this symbol appear among the executed tests?
+
+    The manifest symbol is matched as a contiguous run of `::` segments inside a
+    printed test path. That covers a bare integration function (`name`), a lib
+    module test (`prepared::tests::name` for symbol `tests::name`), and a
+    generated matrix case where the symbol is the wrapping module
+    (`name::tokio` for symbol `name`). Renaming the enclosing `mod tests`
+    changes the printed path, so the same rule that finds the test also fails a
+    silent module rename.
+    """
+
+    wanted = symbol.split("::")
+    span = len(wanted)
+    for path in executed_paths:
+        segments = path.split("::")
+        for start in range(len(segments) - span + 1):
+            if segments[start : start + span] == wanted:
+                return True
+    return False
+
+
 def command_display(command: list[str]) -> str:
     return " ".join(shlex.quote(part) for part in command)
 
 
-def run_command(root: Path, command: list[str], test_ids: list[str]) -> None:
+def run_command(root: Path, command: list[str], symbols: dict[str, str]) -> None:
+    """Run one grouped cargo command and prove every mapped symbol executed.
+
+    A green exit code is not enough: a filter that matches nothing, a test that
+    is `#[ignore]`d, and a module rename that empties the filter all exit 0. So
+    the captured libtest output must show a non-empty run, and every mapped
+    symbol must appear as an executed (`ok`) test — not filtered out, not
+    ignored.
+    """
+
+    test_ids = list(symbols)
     print(
         f"[behavioral-parity] running {', '.join(test_ids)}: {command_display(command)}",
         flush=True,
     )
-    result = subprocess.run(command, cwd=root, check=False)
+    result = subprocess.run(
+        command,
+        cwd=root,
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    output = result.stdout or ""
+    # Surface the captured output so CI logs still show the underlying run.
+    print(output, end="", flush=True)
     if result.returncode:
         raise ValidationError(
             f"mapped v2 target failed ({', '.join(test_ids)}): exit {result.returncode}"
+        )
+
+    if not any(int(match.group("count")) > 0 for match in RUNNING_RE.finditer(output)):
+        raise ValidationError(
+            f"mapped v2 target ran zero tests: {command_display(command)}; the name filter "
+            "selected nothing (a renamed or moved test/module is the usual cause)"
+        )
+
+    executed: dict[str, str] = {}
+    for match in TEST_LINE_RE.finditer(output):
+        executed.setdefault(match.group("path"), match.group("status"))
+    ok_paths = [path for path, status in executed.items() if status == "ok"]
+    ignored_paths = [path for path, status in executed.items() if status == "ignored"]
+
+    for test_id, symbol in symbols.items():
+        if symbol_executed(symbol, ok_paths):
+            continue
+        if symbol_executed(symbol, ignored_paths):
+            raise ValidationError(
+                f"mapped symbol {symbol!r} ({test_id}) was ignored, not executed; an "
+                "#[ignore] on a mapped test makes the gate certify a test that never runs"
+            )
+        raise ValidationError(
+            f"mapped symbol {symbol!r} ({test_id}) did not run under "
+            f"{command_display(command)}; it was filtered out, renamed, or moved"
+        )
+
+
+def reject_placeholder(value: str, label: str) -> None:
+    if any(word in value.lower() for word in PENDING_WORDS):
+        raise ValidationError(f"{label}: placeholder value {value!r} is not allowed")
+
+
+def validate_configuration(
+    source: str, symbol: str, test: dict[str, Any], label: str
+) -> None:
+    """Assert the recorded envelope/profile/receipt_class match the test body.
+
+    The v2 rewrite quietly re-pointed several "raw" behavior rows at Sony-only
+    tests under unchanged names. Recording the configuration is only half the
+    fix; the other half is checking it against the code the row actually runs so
+    the record cannot drift from reality:
+
+    * a concrete `profile` must appear inside the mapped test's own body;
+    * `envelope == "sony"` iff the profile is a `Sony*` type, and a Sony body
+      marker must be present;
+    * an envelope declared `raw` must carry no Sony marker in the test body, so
+      a raw->Sony swap can no longer hide behind an unchanged row.
+    """
+
+    envelope = require_string(test.get("envelope"), f"{label}.envelope")
+    reject_placeholder(envelope, f"{label}.envelope")
+    if envelope not in VALID_ENVELOPES:
+        raise ValidationError(
+            f"{label}.envelope must be one of {sorted(VALID_ENVELOPES)}, got {envelope!r}"
+        )
+
+    receipt_class = require_string(test.get("receipt_class"), f"{label}.receipt_class")
+    reject_placeholder(receipt_class, f"{label}.receipt_class")
+    if not CONFIG_TOKEN_RE.fullmatch(receipt_class):
+        raise ValidationError(
+            f"{label}.receipt_class must be a lowercase token, got {receipt_class!r}"
+        )
+    if receipt_class not in VALID_RECEIPT_CLASSES:
+        raise ValidationError(
+            f"{label}.receipt_class {receipt_class!r} is not a known receipt class; add it to "
+            "VALID_RECEIPT_CLASSES if it is a deliberate new class"
+        )
+
+    profile = require_string(test.get("profile"), f"{label}.profile")
+    reject_placeholder(profile, f"{label}.profile")
+
+    body = extract_symbol_body(source, symbol)
+    if body is None:
+        raise ValidationError(
+            f"{label}: cannot locate the body of {symbol!r} to verify its recorded configuration"
+        )
+    has_sony_marker = SONY_MARKER_RE.search(body) is not None
+
+    if profile == "n/a":
+        # Engine-level and pure encode/decode tests name no profile type. The
+        # envelope is still asserted against a body marker where it is a claim.
+        if envelope == "sony" and not has_sony_marker:
+            raise ValidationError(
+                f"{label}: envelope 'sony' but the body of {symbol!r} carries no Sony marker"
+            )
+        if envelope == "raw" and has_sony_marker:
+            raise ValidationError(
+                f"{label}: envelope 'raw' but the body of {symbol!r} uses a Sony marker; "
+                "a raw row must not run a Sony-only test"
+            )
+        return
+
+    if not PROFILE_TYPE_RE.fullmatch(profile):
+        raise ValidationError(
+            f"{label}.profile must be a concrete profile type (e.g. SonyFR7) or 'n/a', "
+            f"got {profile!r}"
+        )
+    is_sony_profile = profile.startswith("Sony")
+    if is_sony_profile != (envelope == "sony"):
+        raise ValidationError(
+            f"{label}: envelope/profile disagree (envelope={envelope!r}, profile={profile!r}); "
+            "a Sony profile requires envelope 'sony' and vice versa"
+        )
+    if profile not in body:
+        raise ValidationError(
+            f"{label}: profile {profile!r} does not appear in the body of {symbol!r}; the "
+            "recorded configuration is not the one the mapped test actually runs"
+        )
+    if envelope == "raw" and has_sony_marker:
+        raise ValidationError(
+            f"{label}: envelope 'raw' but the body of {symbol!r} uses a Sony marker; "
+            "a raw row must not run a Sony-only test"
         )
 
 
@@ -171,6 +409,24 @@ def validate_manifest(root: Path, manifest_path: Path, run_tests: bool) -> tuple
     if len(set(required_family_names)) != len(required_family_names):
         raise ValidationError("manifest.required_families contains duplicate IDs")
 
+    # The required family set is pinned in this validator, so shrinking coverage
+    # takes a validator edit, not a lone manifest edit.
+    declared_family_set = set(required_family_names)
+    dropped_families = EXPECTED_REQUIRED_FAMILIES - declared_family_set
+    if dropped_families:
+        raise ValidationError(
+            "manifest.required_families is missing families pinned in the validator: "
+            + ", ".join(sorted(dropped_families))
+            + " (removing a required family must also edit EXPECTED_REQUIRED_FAMILIES)"
+        )
+    added_families = declared_family_set - EXPECTED_REQUIRED_FAMILIES
+    if added_families:
+        raise ValidationError(
+            "manifest.required_families adds families not pinned in the validator: "
+            + ", ".join(sorted(added_families))
+            + " (add them to EXPECTED_REQUIRED_FAMILIES so the set stays reviewed)"
+        )
+
     approved_changes_value = corpus.get("approved_intentional_changes", [])
     if not isinstance(approved_changes_value, list):
         raise ValidationError("manifest.approved_intentional_changes must be a list")
@@ -178,6 +434,22 @@ def validate_manifest(root: Path, manifest_path: Path, run_tests: bool) -> tuple
         validate_id(change, "manifest.approved_intentional_changes entry")
         for change in approved_changes_value
     }
+
+    # A waiver cannot approve itself inside this file alone. Every approved
+    # intentional-change id must also appear verbatim in the changelog, so a new
+    # waiver forces a reviewed, user-visible CHANGELOG entry naming what it
+    # supersedes rather than a self-blessed manifest line.
+    changelog_path = root / "CHANGELOG.md"
+    try:
+        changelog_text = changelog_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise ValidationError(f"cannot read CHANGELOG.md to verify waivers: {exc}") from exc
+    for change_id in sorted(approved_changes):
+        if change_id not in changelog_text:
+            raise ValidationError(
+                f"approved intentional change {change_id!r} is not documented in CHANGELOG.md; "
+                "an approved waiver must appear verbatim in the changelog so it is reviewed there"
+            )
 
     v2_tests_raw = require_list(corpus.get("v2_tests"), "manifest.v2_tests")
     v2_tests: dict[str, dict[str, Any]] = {}
@@ -199,6 +471,7 @@ def validate_manifest(root: Path, manifest_path: Path, run_tests: bool) -> tuple
             raise ValidationError(
                 f"{label}: v2 symbol {symbol!r} is missing from {path}; update the mapping"
             )
+        validate_configuration(source, symbol, test, label)
         command_value = require_list(test.get("command"), f"{label}.command")
         if not all(isinstance(part, str) and part for part in command_value):
             raise ValidationError(f"{label}.command must contain non-empty strings")
@@ -338,7 +611,8 @@ def validate_manifest(root: Path, manifest_path: Path, run_tests: bool) -> tuple
 
     if run_tests:
         for command, test_ids in command_groups.items():
-            run_command(root, list(command), test_ids)
+            symbols = {test_id: str(v2_tests[test_id]["symbol"]) for test_id in test_ids}
+            run_command(root, list(command), symbols)
     else:
         print("[behavioral-parity] structural validation complete (--skip-tests; no cargo targets run)")
 

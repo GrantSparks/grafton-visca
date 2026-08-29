@@ -83,7 +83,9 @@ implementation hidden behind a blocking wrapper. `blocking` drives
 `BlockingTransport` directly and has no Tokio, smol, futures executor, or
 pollster dependency in its downstream graph. `async` drives `AsyncTransport`
 through the caller-selected executor. CI checks the native blocking dependency
-boundary for network and serial feature sets.
+boundary for the network, serial, and `test-utils` feature sets; the async
+testkit's executor rides on `async`, so enabling `test-utils` on a blocking-only
+build links no executor.
 
 ## Target registry and preflight
 

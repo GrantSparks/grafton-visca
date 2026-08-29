@@ -294,7 +294,7 @@ async fn a_no_socket_answer_is_replayed_for_a_standard_command<E: Executor>(exec
 /// Issue #566: a sequence-correlated Sony movement request survives a lost ACK,
 /// and a command survives a camera that ACKs and then goes silent. Raw VISCA
 /// cannot replay either ambiguity safely because it has no request identity.
-async fn a_silent_camera_is_retried_before_and_after_its_ack<E: Executor>(executor: E) {
+async fn a_silent_sony_camera_is_retried_before_and_after_its_ack<E: Executor>(executor: E) {
     let transport = ScriptTransport::new(vec![Vec::new(), standard_reply()])
         .with_sony()
         .with_trailing(standard_reply());
@@ -410,6 +410,6 @@ macro_rules! runtime_matrix {
 runtime_matrix!(
     a_camera_refusal_is_replayed_only_for_movement,
     a_no_socket_answer_is_replayed_for_a_standard_command,
-    a_silent_camera_is_retried_before_and_after_its_ack,
+    a_silent_sony_camera_is_retried_before_and_after_its_ack,
     an_unresolvable_cancellation_reaches_the_caller,
 );
