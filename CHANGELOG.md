@@ -48,6 +48,40 @@ destination.
     feature-resolution inversion (1.x's blocking-XOR-async `mode-async` versus
     2.0's co-enableable `default = ["blocking"]`).
 
+- **Added `CommandTimeouts`** (audit #685), the public five-field value
+  (`quick`, `movement`, `preset`, `long_running`, `network`) for a profile's
+  exact command-category completion deadlines. It is the public replacement for
+  the withdrawn `timeout` module's configuration types (see Removed); its
+  default table preserves the 1.x values (Quick 5 s, Movement 30 s, Preset 60 s,
+  LongRunning 300 s, Network 5 s), each built-in profile records its exact
+  values, and they are surfaced through `ProfileMetadata::COMMAND_TIMEOUTS`.
+- **Added `ProfileTimingBuilder` and `ProfileTiming::builder()`** (audit #685),
+  a validated builder for the cohesive `ProfileTiming` value that
+  `ProfileSpecBuilder::timing(ProfileTiming)` now takes, so a profile cannot
+  accidentally mix fields from two timing policies. Every timing fact is
+  required and there are no silent protocol defaults.
+- **Added `AffectedAxes::axis_count`** (audit #685), the renamed `len` (see
+  Removed): a count of the axes a value carries, always `>= 1` because
+  `AffectedAxes` is non-empty by construction (#633).
+- **Added `DEFAULT_ADMISSION_CAPACITY` and the `CameraConfig` tuning/admission
+  builders** (#631, #561), mirroring the documented session-level surface on the
+  standard-transport config: `CameraConfig::{with_tuning, tuning,
+  with_admission_capacity, admission_capacity}` and the
+  `DEFAULT_ADMISSION_CAPACITY` constant behind the bounded-admission default.
+- **Recorded the 2.0 raw-lifecycle `Error` variants** (audit #685).
+  `Error::CancellationUnconfirmed` (a recorded cancellation the engine could not
+  prove either completed or protocol-cancelled before its correlation quarantine
+  expired) and `Error::RuntimeIdentityExhausted` (a private runtime identity
+  space exhausted without a safe non-aliasing value) are part of the 2.0 error
+  taxonomy — both classify `ErrorKind::Other` and report
+  `requires_new_session() == false`. They are new relative to 1.x; the audit
+  found them present in the public surface but unlisted, and records them here
+  for completeness.
+- **Added the `behavioral-parity-1x` CI gate and its 1.x behavioral oracle**
+  (#676). A required CI job runs `tests/fixtures/1x_oracle/validate.py` against
+  the pinned 1.x oracle commit, proving each mapped v2 test still exists and
+  executes and that every approved parity waiver is named in this changelog. See
+  the waiver-ratification entry under Changed and `docs/behavioral_parity_1x.md`.
 - **Added `OperationalTuning::strict_unconfirmed_poison`** (#671), an opt-in
   (default off) that restores the pre-fix whole-session poison for an
   unconfirmable raw command. The default per-request behavior (see the Changed
@@ -247,6 +281,49 @@ destination.
 
 ### Changed
 
+- **Breaking: the custom-transport `FrameMeta::sequence` field changed type**
+  (audit #685; design decision D16). `transport::FrameMeta::sequence` is now
+  `Option<FrameSequence>` instead of `Option<u32>`, and the new public
+  `transport::FrameSequence` enum — `Full32(u32)`, `Lower16(u16)`, with a
+  `value()` accessor — preserves whether a Sony reply carried a full 32-bit
+  sequence or only a potentially truncated low 16 bits, so the engine applies
+  its collision-safe fallback instead of trusting a zero upper half. The
+  `Envelope` trait is sealed, so there are no out-of-tree implementations; the
+  break falls on advanced callers who read `FrameMeta::sequence` from the public
+  `Envelope::extract_with_meta` / `frame_into` methods (and the `RawVisca` /
+  `SonyEncapsulated` inherent forms), who now match on `FrameSequence` or call
+  `.value()` instead of using a bare `u32`. Ordinary construction and the
+  built-in transports are unaffected.
+- **Finalized submission-QoS semantics: an override can never demote the urgent
+  lane** (#630, #679; decision D1; supersedes the interim #656 rule). The public
+  QoS API is `SubmissionClass`, which exposes only the lower three dispatch
+  lanes; `ControlClass::Urgent` is request-owned safety metadata. The final rule
+  is that **no public route — a per-handle default, a per-call override, or a raw
+  policy — can demote a request the crate classifies `Urgent`, nor manufacture
+  the urgent lane.** This consciously reverses the short-lived #656 preview rule,
+  under which an explicit per-call override could demote `Urgent`; closing that
+  route means neither an accidental handle configuration nor a deliberate
+  override can weaken STOP safety. `docs/migration_2_0.md` states the final
+  `Priority` → `SubmissionClass` mapping.
+- **Documented the async `shutdown` / `close` lifecycle distinction** (decision
+  D14; previously disclosed only in the design self-review). `shutdown` is the
+  idempotent, non-joining signal — safe to call repeatedly and after
+  `RuntimeShutdown`, performing no second I/O — while the consuming `close` is a
+  deterministic transport-teardown barrier: it waits until the sole owner has
+  finished its boundary drain and dropped its driver/transport (without promising
+  an executor-specific task join), maps an explicit `RuntimeShutdown` result to
+  success, and preserves a transport or poison cause that won the source
+  ordering. `docs/migration_2_0.md` records the distinction a lifecycle-sensitive
+  caller feels.
+- **Documented the operational-tuning "more conservative only" ratchet**
+  (decision D15; previously disclosed only in the design self-review).
+  `OperationalTuning` may only make a validated profile's timing facts *more*
+  conservative: an override that would undercut a profile's category deadline,
+  its `ack_timeout` floor, or a pacing minimum is rejected. This extends spec
+  §102's "more conservative only" rule — which by its wording constrains pacing
+  alone — to timeout durations as well, and so consciously removes the 1.x
+  capability to install a *shorter*, fail-fast timeout below the profile value.
+  `docs/migration_2_0.md` records the row a 1.x user feels.
 - **`read_timeout` and `write_timeout` now take effect on async sessions**
   (#675), superseding the earlier 2.0-preview behavior in which both knobs were
   silently ignored on every async transport (only the blocking sockets applied
@@ -349,12 +426,12 @@ destination.
   it only keeps the next command from wedging. Composed with the #671 model, no
   cascade to session death remains.
 
-- **Ratified two of the three 1.x behavioral-parity waivers and hardened the
-  gate that records them** (#676, ratification per #692). The parity corpus
+- **Ratified all three 1.x behavioral-parity waivers and hardened the gate that
+  records them** (#676, ratification per #692). The parity corpus
   (`tests/fixtures/1x_oracle/manifest.json`) marks three behaviors as
   intentional 2.0 changes rather than preserved 1.x contracts, and those
   waivers were originally self-approved in the same commit that introduced the
-  behavior. Two are now maintainer-ratified as sound:
+  behavior. All three are now maintainer-ratified. Two were sound as written:
   - `deterministic-equal-jitter` supersedes 1.x's exact, jitter-free
     exponential backoff: 2.0 starts at a 50 ms delay and applies deterministic
     equal jitter within a bounded ceiling, so retries stay reproducible but no
@@ -364,11 +441,13 @@ destination.
     request identity, so a raw command keeps one unacknowledged candidate per
     target and never attributes an ACK or error by FIFO or recency.
 
-  The third, `evidence-bounded-retry`, is **not** ratified in this entry: it is
-  being rewritten under #671 to describe the new per-request (not whole-session)
-  failure model, and will be ratified once that wording lands. It is listed here
-  only so the gate's changelog-coupling can see it; treat its current rationale
-  as provisional. See `docs/behavioral_parity_1x.md`.
+  The third waiver, `evidence-bounded-retry`, is **now ratified as well** (per
+  #692), rewritten under #671 to describe the shipped per-request failure model:
+  an ambiguous successfully sent raw command is never replayed and, by default,
+  fails only that one command with `UnsequencedCommandUnconfirmed` while the
+  session survives (the `strict_unconfirmed_poison` opt-in instead poisons the
+  whole session). Retry counts stay category-based and the single
+  admission-to-terminal budget is unchanged. See `docs/behavioral_parity_1x.md`.
 
   The gate itself was advisory and is now enforcing (#676): it runs each mapped
   `cargo test` and asserts every mapped symbol actually executed (not filtered,
@@ -698,6 +777,44 @@ destination.
 
 ### Removed
 
+- **Withdrew the public `timeout` module** (audit #685; the change landed in the
+  newest rc commits with no changelog note). `pub mod timeout` is now
+  `pub(crate)`, removing `timeout::{TimeoutConfig, TimeoutConfigBuilder,
+  TimeoutPolicy, CommandCategory, Deadline, TimeoutGuard}`, the
+  `timeout::TimeoutManager` trait and its implementations, and the
+  `CameraConfig::timeouts(TimeoutConfig)` builder setter from the public API.
+  A profile's command-category completion deadlines are now expressed by the
+  public `CommandTimeouts` value (see Added) and reconfigured through
+  `OperationalTuning`; `docs/migration_2_0.md` maps `TimeoutConfig` to that
+  surface.
+- **Removed the public transport retry-configuration surface** (audit #685).
+  `transport::{RetryConfig, BackoffStrategy, RetryAttempt}`, the
+  `transport::DEFAULT_MAX_PENDING_QUEUE_DEPTH` constant, the
+  `CameraConfig::retry_config(RetryConfig)` builder setter, and the
+  `NetTransportBuilder` setters `retry_config`, `backoff_strategy`,
+  `max_retries`, `max_retry_duration`, `retry_delay`, and
+  `max_pending_queue_depth` are gone. Retry counts, backoff, and the wall-clock
+  budget are owner policy derived from the request's timeout category and
+  reconfigured through `OperationalTuning::{retry_limit, retry_timing}`;
+  `docs/migration_2_0.md` maps the old `RetryConfig` fields to it.
+- **Removed the public owner-only wire-primitive request types** (#678, #679).
+  `request::builtin::{AddressSet, CommandCancel, InterfaceClear}` — Address Set,
+  socket cancel, and interface clear — are no longer public: they are
+  owner-coordinated lifecycle controls, not target-scoped `execute` payloads,
+  and the raw escape hatch already refuses their wire shapes (see the #678/#679
+  Changed entry). Public cancellation stays available through the operation
+  handle, and the rest of `request::builtin` is unchanged.
+- **Removed the eight-`Duration` profile-timing construction surface** (audit
+  #685). The `ProfileSpecBuilder::timing(...)` form that took eight positional
+  `Duration`s, the `ProfileTiming::completion_timeout` /
+  `OperationalTuning::completion_timeout` accessors, and the
+  `ProfileMetadata::COMPLETION_TIMEOUT` / `GenericVisca::COMPLETION_TIMEOUT`
+  constants are removed in favor of the validated `ProfileTiming` value carrying
+  a `CommandTimeouts` (see Added).
+- **Removed `AffectedAxes::len` and `AffectedAxes::is_empty`** (audit #685).
+  `len` is renamed `axis_count` (see Added) because the value counts axes, not a
+  collection length, and `is_empty` is gone: `AffectedAxes` had already been made
+  non-empty by construction (#633), so it could only ever have returned `false`.
 - **Removed eight never-constructed public `Error` variants** (#687):
   `Error::LockPoisoned`, `Error::ChannelClosed`,
   `Error::SocketManagerUnavailable`, `Error::SocketManagerChannelClosed`,
@@ -714,10 +831,12 @@ destination.
   `NoTransport` and `TransportChannelClosed` — recovery arms that could never
   fire. `SocketManager*` was 1.x vocabulary for a component 2.0 deleted, and
   `LockPoisoned` cannot occur because every lock recovers its guard with
-  `into_inner()` instead of surfacing a poison error. The reachable terminal
-  variants are unchanged: `ConnectionClosed`, `StreamPoisoned`, and
-  `UnsequencedCommandUnconfirmed` still report `requires_new_session() == true`,
-  and an internally closed boundary channel still normalizes to
+  `into_inner()` instead of surfacing a poison error. The reachable
+  session-death variants are unchanged: `ConnectionClosed` and `StreamPoisoned`
+  still report `requires_new_session() == true` (`UnsequencedCommandUnconfirmed`
+  is no longer one of them — since #671 it is a per-request failure a live
+  session survives and reports `false`), and an internally closed boundary
+  channel still normalizes to
   `Error::RuntimeShutdown` (never `ChannelClosed`) at the point of failure.
   Because `Error` is `#[non_exhaustive]` a wildcard arm was already required;
   only callers that named a removed variant explicitly need to drop that arm.
@@ -785,6 +904,20 @@ destination.
 
 ### Fixed
 
+- **Corrected the red/blue tuning and NDI-mode wire bytes in
+  `docs/visca_reference.md`, and added a test that pins the reference to the
+  encoders** (#688). The reference — cited in `README.md` as the evidence base
+  for built-in profile decisions — documented red/blue tuning as a fabricated
+  6-byte `0A 01 12`/`0A 01 13` vendor extension and NDI mode as a 5-byte
+  `0B 01 01/02/03/04` frame. Both contradicted the shipped (1.x-identical)
+  encoders, which emit `81 01 04 43/44 00 00 00 pq FF` for tuning and
+  `81 0B 01 01 01/02/03/04 FF` for NDI mode. The rows now match the encoders, a
+  new erratum records that red/blue *tuning* and *gain* share the `04 43`/`04 44`
+  opcode and byte-identical inquiries (`81 09 04 43`/`44`), and
+  `command::tests::visca_reference_wire_rows_match_encoders` now cross-checks a
+  set of the reference's wire rows against the live encoder output so the two
+  cannot silently drift apart again. Documentation only; no encoder behavior
+  changed.
 - **A babbling peer can no longer starve async shutdown, `close()`, admission,
   or an emergency stop** (#675). Decision D2 (#625) bounded only the *failing*
   arm of the receive/boundary livelock. The *succeeding* arm was unbounded: a
@@ -1052,10 +1185,12 @@ destination.
   whose successful send leaves its outcome ambiguous is never replayed: this
   includes ACK/completion/cancellation ambiguity, a receive fault while
   awaiting ACK, and active retry-budget expiry in `Sending`, `AwaitingAck`, or
-  `Executing`. It requires a fresh session and returns
-  `Error::UnsequencedCommandUnconfirmed`; fixed ACK, completion, and error
-  frames now require their exact lengths and reject trailing bytes. Raw errors
-  use exact socket/inquiry evidence rather than command recency.
+  `Executing`. By default (since #671) it fails only that one command with
+  `Error::UnsequencedCommandUnconfirmed` while the session survives — the
+  whole-session poison is the `strict_unconfirmed_poison` opt-in; fixed ACK,
+  completion, and error frames now require their exact lengths and reject
+  trailing bytes. Raw errors use exact socket/inquiry evidence rather than
+  command recency.
 - **Kept transport progress and retry/cancel timing bounded.** Empty UDP
   datagrams are discarded without closing the session and share a single timed
   receive deadline; async UDP yields cooperatively after each discard. The

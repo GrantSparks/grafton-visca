@@ -1708,10 +1708,15 @@ impl ProtocolEngine {
 
     /// The unique raw command on `target` whose ACK has not been established.
     ///
-    /// Raw dispatch normally guarantees one such command per target.  Keep
-    /// this resolver exact as well, so an invariant regression fails closed
-    /// rather than turning admission order into an ACK/error guess.  The
-    /// Sending phase is included for the deferred-ACK latch.
+    /// Raw dispatch admits only one unacknowledged command per target (decision
+    /// D7), so a raw target can never hold two entries at once in
+    /// `Sending`, `AwaitingAck`, or `AwaitingLateAck`. A multi-`AwaitingAck` raw
+    /// state is therefore unreachable, which is what makes the ambiguous
+    /// multi-candidate raw correlation raised in #669 impossible to reach in the
+    /// first place. Keep this resolver exact regardless: if an invariant
+    /// regression ever produced a second candidate it returns `None` (fails
+    /// closed) rather than turning admission order into an ACK/error guess. The
+    /// `Sending` phase is included for the deferred-ACK latch.
     fn unique_raw_command_candidate(&self, target: CameraId) -> Option<RequestId> {
         let mut sole = None;
         for (id, entry) in &self.entries {
