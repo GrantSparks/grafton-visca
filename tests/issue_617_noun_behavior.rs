@@ -640,4 +640,39 @@ mod async_surface {
         assert!(writes.lock().expect("writes lock").is_empty());
         session.shutdown().await.expect("shutdown");
     }
+
+    /// Issue #684: the erased tally noun is coherent on PtzOpticsG2 — which has
+    /// no typed tally support — so `tally().on()/.off()/.flash()` are refused
+    /// exactly like `tally().red_on()`, instead of the tally-mode opcodes
+    /// slipping through while the red row was refused.
+    #[cfg(feature = "dyn-api")]
+    #[tokio::test]
+    async fn dynamic_tally_noun_refuses_as_one_on_a_profile_without_tally() {
+        let (transport, writes) = ProbeTransport::new();
+        let session = open_session(
+            transport,
+            ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2 profile"),
+        )
+        .await;
+        let camera = DynSessionCamera::from_session(&session).expect("dynamic camera");
+
+        // The tally-mode opcodes are refused, not admitted through a vendor
+        // fallback: the whole noun shares one `HasTally` gate.
+        for result in [
+            camera.tally().on().await,
+            camera.tally().off().await,
+            camera.tally().flash().await,
+            camera.tally().red_on().await,
+        ] {
+            assert!(
+                matches!(result, Err(Error::FeatureNotSupported { .. })),
+                "tally rows must be refused together on a profile without tally: {result:?}",
+            );
+        }
+        assert!(
+            writes.lock().expect("writes lock").is_empty(),
+            "refused tally rows must not reach the wire",
+        );
+        session.shutdown().await.expect("shutdown");
+    }
 }

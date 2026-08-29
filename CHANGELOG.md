@@ -734,6 +734,37 @@ destination.
 
 ### Fixed
 
+- **The erased (dynamic) noun surface no longer exposes controls the static
+  surface forbids** (#684). Two gaps let a `DynSessionCamera` reach operations
+  that the compile-time `camera.<noun>()` accessor could not name:
+  - *Tally mode on PTZOptics.* `TallyOn`/`TallyOff`/`TallyFlash` validated for a
+    profile with typed tally support **or** for the three PTZOptics profile ids,
+    while the rest of the tally noun (`red_on()`, `bright_hi()`, ...) required
+    typed tally support. On `PtzOpticsG2/G3/30X` — which declare
+    `tally: { supported: false }` — the erased noun was therefore incoherent:
+    `tally().on()` succeeded while `tally().red_on()` was refused. PTZOptics
+    tally mode is an *unvalidated candidate* in the reference
+    (`docs/visca_reference.md` A.11: "Confirm support on target model/firmware"),
+    so admitting it exposed an unsupported typed operation, contradicting
+    `docs/architecture_2_0.md` ("metadata is discovery, not a fallback"). The
+    whole tally noun now shares one `HasTally` gate on every surface. This
+    supersedes the "**or** for the PTZOptics profiles the reference documents it
+    under" allowance introduced with #661: the erased/`execute` route no longer
+    admits tally mode on PTZOptics. A caller that has confirmed a specific
+    PTZOptics firmware supports the opcode can still send it through the raw
+    escape hatch (`raw::Plain::new(&[0x81, 0x0A, 0x02, 0x02, 0x02, 0xFF])`).
+  - *Base-domain inquiries.* Fifteen inquiries (`power().state()`,
+    `zoom().position()`, `focus().position()`/`mode()`/`range()`, the base
+    `exposure()` and `image()` and `white_balance()` inquiries) carried no
+    runtime capability gate, so a caller-built `ProfileSpec` with e.g.
+    `has_power = false` could reach `dyn power().state()` though static `power()`
+    cannot be named without `HasPower`. Each base-domain inquiry is now gated at
+    runtime on its noun's base-domain capability, derived from the same
+    `noun_marker!` the static accessors use. This is a no-op for the nine
+    built-in profiles (all declare every base domain) and only tightens
+    caller-built runtime profiles. A `noun_parity` test now asserts the erased
+    and static inquiry gate sets are identical so they cannot drift again.
+
 - **Preset number 255 and a `0xFF` direct-menu control parameter can be sent
   again** (#683). The stack builder that assembles every command terminated a
   frame by inferring, from the trailing byte, whether a VISCA terminator was
@@ -796,19 +827,21 @@ destination.
 
 - **The typed `tally()` noun is reachable again for the profiles that had tally
   in 1.x** (#661). `TallyOn`, `TallyOff` and `TallyFlash` validated against the
-  PTZOptics profile ids alone, while the `tally()` accessor on all three noun
-  surfaces is gated on `HasTally`, which only `SonyFR7` and `SonyBRCH900`
-  declare. The two conditions can never both hold for a built-in profile, so
-  `tally().on()`, `.off()` and `.flash()` — and with them
-  `StateCache::tally_mode()` — were dead methods on the only profiles that can
-  reach them, and the sole route to the opcode was `camera.execute(&TallyOn)`.
-  1.x published exactly those three methods from the same `HasTally`-gated
-  `TallyControl` impl as the rest of the tally surface, so the capability
-  declarations were the side that was already right and the command validation
-  is the side that moved: the vendor tally-mode opcode now validates for a
-  profile with typed tally support **or** for the PTZOptics profiles the
-  reference documents it under (`docs/visca_reference.md` appendix A.11), which
-  leaves the `execute` route working exactly where it already worked. No
+  PTZOptics profile ids alone, while the static `tally()` accessor is gated on
+  `HasTally`, which only `SonyFR7` and `SonyBRCH900` declare (the erased surface
+  enforces the same gate per operation at runtime). The two conditions can never
+  both hold for a built-in profile, so `tally().on()`, `.off()` and `.flash()` —
+  and with them `StateCache::tally_mode()` — were dead methods on the only
+  profiles that can reach them, and the sole route to the opcode was
+  `camera.execute(&TallyOn)`. 1.x published exactly those three methods from the
+  same `HasTally`-gated `TallyControl` impl as the rest of the tally surface, so
+  the capability declarations were the side that was already right and the
+  command validation is the side that moved: the vendor tally-mode opcode now
+  validates for a profile with typed tally support, exactly like the rest of the
+  tally noun. (The initial fix also admitted the PTZOptics profile ids, on the
+  strength of `docs/visca_reference.md` appendix A.11; #684 removed that
+  allowance because A.11 records those rows as *unvalidated candidates*, and
+  admitting them left the erased tally noun incoherent — see the #684 entry.) No
   capability marker moved — 1.x recorded `tally: { supported: false }` for all
   three PTZOptics profiles, and #524 deliberately removed `camera.tally()` from
   them — so the README and `docs/camera_profile_support.md` matrices are
