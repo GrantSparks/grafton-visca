@@ -1590,12 +1590,12 @@ where
                     return TurnOutcome::Stop;
                 }
                 // The engine safely retries sequenced Sony work with its same
-                // sequence; an ambiguous raw command poisons the session
-                // instead of risking a duplicate actuation. The pause mirrors
-                // 1.x's guard against hot-looping on an immediately failing
-                // transport; it grows with the run and is clamped to the next
-                // scheduler deadline exactly as the blocking owner clamps to
-                // its caller's.
+                // sequence; a raw command awaiting ACK is left to its own ACK
+                // deadline (issue #671; the strict opt-in poisons instead)
+                // rather than being replayed. The pause mirrors 1.x's guard
+                // against hot-looping on an immediately failing transport; it
+                // grows with the run and is clamped to the next scheduler
+                // deadline exactly as the blocking owner clamps to its caller's.
                 let effects = self.state.input(Input::ReceiveFault { error }, received_at);
                 self.drive(driver, effects, runtime).await;
                 let pause = clamp_transient_pause(
@@ -2037,6 +2037,7 @@ mod tests {
                 command_spacing: Duration::ZERO,
                 inquiry_spacing: Duration::ZERO,
                 inquiry_cooldown: Duration::ZERO,
+                strict_unconfirmed_poison: false,
             },
             CameraId::CAMERA_1,
             TargetPolicy {
@@ -3314,10 +3315,10 @@ mod tests {
         }));
 
         // Admission is polled even though the transport is always ready.
-        // A raw command awaiting ACK would correctly poison on the first
-        // receive fault. Use an inquiry so this test isolates source
-        // arbitration and boundary liveness without creating an ambiguous
-        // actuation outcome.
+        // A raw command awaiting ACK would, by default, ride to its ACK
+        // deadline and quarantine per-request (issue #671). Use an inquiry so
+        // this test isolates source arbitration and boundary liveness without
+        // creating an unconfirmed-command outcome.
         let receipt = tokio::time::timeout(Duration::from_secs(5), handle.submit(inquiry()))
             .await
             .expect("admission must not be starved by a failing transport")

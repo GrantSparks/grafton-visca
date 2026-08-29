@@ -17,6 +17,7 @@ fn policy_for_target_validation() -> ProtocolPolicy {
         command_spacing: Duration::ZERO,
         inquiry_spacing: Duration::ZERO,
         inquiry_cooldown: Duration::ZERO,
+        strict_unconfirmed_poison: false,
     }
 }
 
@@ -197,6 +198,7 @@ mod blocking {
             command_spacing: Duration::ZERO,
             inquiry_spacing: Duration::ZERO,
             inquiry_cooldown: Duration::ZERO,
+            strict_unconfirmed_poison: false,
         };
         let mut owner = OwnerPolicy::single_target(
             protocol,
@@ -2465,11 +2467,17 @@ mod blocking {
             phase => panic!("request A was not awaiting an ACK: {phase:?}"),
         };
         owner.wake(&mut driver, ack_deadline).unwrap();
+        // Issue #671: A's lost ACK quarantines it per-request rather than
+        // poisoning the session. A's own deadline still fired at exactly
+        // `ack_deadline` (B's paced submission never advanced it), moving A into
+        // its late-ACK quarantine while the session stays live and B keeps
+        // waiting behind A's still-reserved unacknowledged slot.
+        assert!(a.terminal().is_none());
         assert!(matches!(
-            a.terminal(),
-            Some(RuntimeOutcome::Failed(Error::UnsequencedCommandUnconfirmed))
+            owner.state().request_state(a_id).map(|state| state.0),
+            Some(Phase::AwaitingLateAck { .. })
         ));
-        assert_eq!(owner.state().state(), SessionState::Poisoned);
+        assert_eq!(owner.state().state(), SessionState::Running);
         drop(b);
     }
 
@@ -3141,6 +3149,7 @@ mod blocking {
         let send_ptr = owner.state_mut().buffers().send.as_ptr();
         let receive_ptr = owner.state_mut().buffers().receive_mut().as_ptr();
         let mut driver = FakeDriver::default();
+        let base = Instant::now();
         let receipt = owner
             .submit(
                 &mut driver,
@@ -3148,8 +3157,17 @@ mod blocking {
             )
             .unwrap();
         drop(receipt);
+        // Issue #671: a raw command whose ACK is lost quarantines at its ACK
+        // deadline (10ms) rather than poisoning immediately, then fails at the
+        // ambiguity deadline (a further 10ms). Wake once past each so the
+        // detached request drains; the quarantine window is measured from the
+        // wake that processes the ACK deadline. Diagnostics and buffers stay
+        // bounded across both deadline events.
         owner
-            .wake(&mut driver, Instant::now() + Duration::from_millis(11))
+            .wake(&mut driver, base + Duration::from_millis(20))
+            .unwrap();
+        owner
+            .wake(&mut driver, base + Duration::from_millis(50))
             .unwrap();
         assert!(owner.state().diagnostics().count() <= 3);
         assert!(owner.state().metrics().dropped_diagnostics > 0);
@@ -3675,6 +3693,7 @@ mod metrics {
             command_spacing: Duration::ZERO,
             inquiry_spacing: Duration::ZERO,
             inquiry_cooldown: Duration::ZERO,
+            strict_unconfirmed_poison: false,
         };
         OwnerPolicy::single_target(
             protocol,
@@ -4241,6 +4260,7 @@ mod lifecycle_trace {
             command_spacing: Duration::ZERO,
             inquiry_spacing: Duration::ZERO,
             inquiry_cooldown: Duration::ZERO,
+            strict_unconfirmed_poison: false,
         };
         let mut targets = [None; 9];
         for slot in targets.iter_mut().take(4).skip(1) {

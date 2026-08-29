@@ -397,6 +397,19 @@ pub(crate) struct ProtocolPolicy {
     pub(crate) command_spacing: Duration,
     pub(crate) inquiry_spacing: Duration,
     pub(crate) inquiry_cooldown: Duration,
+    /// Opt-in strict recovery mode for the raw envelope.
+    ///
+    /// When `false` (the default), a raw command whose ACK or completion can no
+    /// longer be confirmed — a lost ACK/completion datagram, a spent retry
+    /// budget, or an expired cancellation-ambiguity window — fails on its own
+    /// with [`Error::UnsequencedCommandUnconfirmed`] while its socket or
+    /// unacknowledged-command slot is quarantined for the ambiguity window so a
+    /// late reply cannot misbind; the session and every unrelated request keep
+    /// running. When `true`, the same events instead poison the whole session
+    /// (the pre-fix behavior), for deployments that would rather hard-fail than
+    /// risk a subtle correlation error. This flag is meaningless for the Sony
+    /// envelope, whose sequence correlation never needs the quarantine.
+    pub(crate) strict_unconfirmed_poison: bool,
 }
 
 /// Identifies full-width and known-truncated Sony envelope correlation data.
@@ -573,8 +586,11 @@ pub(crate) enum Input {
     /// One receive-side transport failure the owner has already classified as
     /// transient at the transport layer. The engine still applies the
     /// envelope-specific evidence rule: a Sony request may retry with its exact
-    /// sequence, while a successfully sent raw command awaiting ACK makes the
-    /// session unconfirmable and terminal.
+    /// sequence, while a successfully sent raw command awaiting ACK is, by
+    /// default, left untouched to ride to its own ACK deadline — a transient
+    /// fault consumes nothing and a raw command has no sequence to safely replay
+    /// (issue #671). The strict `strict_unconfirmed_poison` opt-in instead
+    /// poisons the session on such a fault.
     ///
     /// A receive that proves the session is finished never reaches the engine
     /// this way; it arrives as [`Input::Close`], [`Input::Poison`], or

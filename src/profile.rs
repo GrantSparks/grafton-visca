@@ -518,6 +518,7 @@ pub struct OperationalTuning {
     initial_retry_backoff: Option<Duration>,
     maximum_retry_backoff: Option<Duration>,
     retry_budget: Option<Duration>,
+    strict_unconfirmed_poison: Option<bool>,
 }
 
 impl OperationalTuning {
@@ -540,6 +541,7 @@ impl OperationalTuning {
             initial_retry_backoff: None,
             maximum_retry_backoff: None,
             retry_budget: None,
+            strict_unconfirmed_poison: None,
         }
     }
 
@@ -656,6 +658,27 @@ impl OperationalTuning {
         self
     }
 
+    /// Selects strict whole-session poisoning for unconfirmable raw commands.
+    ///
+    /// The default (`false`) fails only the affected raw command with
+    /// [`Error::UnsequencedCommandUnconfirmed`]
+    /// and quarantines its socket or its unacknowledged-command slot for the
+    /// ambiguity window, so a late ACK or completion cannot bind to a later
+    /// command while the session and every unrelated request keep running.
+    /// Setting `true` restores the conservative behavior in which any such
+    /// event — a lost ACK/completion, a spent retry budget, or an expired
+    /// cancellation-ambiguity window — poisons the whole session, for
+    /// deployments that would rather hard-fail an entire session than risk a
+    /// subtle correlation error. The flag has no effect on the Sony envelope,
+    /// whose sequence correlation never needs the quarantine. Like the wire
+    /// envelope, it is applied when the session is built and is not changed by a
+    /// later runtime reconfiguration.
+    #[must_use]
+    pub const fn strict_unconfirmed_poison(mut self, enabled: bool) -> Self {
+        self.strict_unconfirmed_poison = Some(enabled);
+        self
+    }
+
     pub(crate) const fn command_spacing_override(self) -> Option<Duration> {
         self.command_spacing
     }
@@ -712,6 +735,10 @@ impl OperationalTuning {
             self.maximum_retry_backoff,
             self.retry_budget,
         )
+    }
+
+    pub(crate) const fn strict_unconfirmed_poison_override(self) -> Option<bool> {
+        self.strict_unconfirmed_poison
     }
 }
 

@@ -111,13 +111,13 @@
     {
       "id": "v2-faults-blocking",
       "file": "tests/issue_565_transport_faults_blocking.rs",
-      "symbol": "raw_transient_receive_fault_poisons_without_retry",
+      "symbol": "raw_receive_fault_fails_one_command_and_keeps_the_session",
       "command": ["cargo", "test", "--test", "issue_565_transport_faults_blocking"]
     },
     {
       "id": "v2-faults-async",
       "file": "tests/issue_565_transport_faults_async.rs",
-      "symbol": "raw_transient_receive_fault_poisons_without_retry",
+      "symbol": "raw_receive_fault_fails_one_command_and_keeps_the_session",
       "command": [
         "cargo",
         "test",
@@ -269,7 +269,7 @@
         "v2-retries-scripted"
       ],
       "clause": "#542 §3: preserve category-specific retry counts and conclusive camera-error retry classification while making replay depend on correlation evidence.",
-      "rationale": "2.0 keeps the category retry-count table and bounded exponential scheduling, but sizes one admission-to-terminal budget from the governing deadline and profile busy timeout. Sony ambiguity may retry only with the same sequence; an ambiguous successfully sent raw command poisons the session instead of being replayed."
+      "rationale": "2.0 keeps the category retry-count table and bounded exponential scheduling, but sizes one admission-to-terminal budget from the governing deadline and profile busy timeout. Sony ambiguity may retry only with the same sequence; an ambiguous successfully sent raw command is never replayed. By default (issue #671) it fails only that one command with UnsequencedCommandUnconfirmed and quarantines its correlation slot while the session survives; the strict strict_unconfirmed_poison opt-in instead poisons the whole session."
     },
     {
       "id": "deterministic-equal-jitter",

@@ -16655,6 +16655,7 @@ pub const fn grafton_visca::profile::OperationalTuning::quick_timeout(self, core
 pub const fn grafton_visca::profile::OperationalTuning::retry_limit(self, u32) -> Self
 pub const fn grafton_visca::profile::OperationalTuning::retry_timing(self, core::time::Duration, core::time::Duration, core::time::Duration) -> Self
 pub const fn grafton_visca::profile::OperationalTuning::settlement_timeout(self, core::time::Duration) -> Self
+pub const fn grafton_visca::profile::OperationalTuning::strict_unconfirmed_poison(self, bool) -> Self
 impl core::clone::Clone for grafton_visca::profile::OperationalTuning
 pub fn grafton_visca::profile::OperationalTuning::clone(&self) -> grafton_visca::profile::OperationalTuning
 impl core::cmp::Eq for grafton_visca::profile::OperationalTuning
@@ -24750,6 +24751,7 @@ pub const fn grafton_visca::profile::OperationalTuning::quick_timeout(self, core
 pub const fn grafton_visca::profile::OperationalTuning::retry_limit(self, u32) -> Self
 pub const fn grafton_visca::profile::OperationalTuning::retry_timing(self, core::time::Duration, core::time::Duration, core::time::Duration) -> Self
 pub const fn grafton_visca::profile::OperationalTuning::settlement_timeout(self, core::time::Duration) -> Self
+pub const fn grafton_visca::profile::OperationalTuning::strict_unconfirmed_poison(self, bool) -> Self
 impl core::clone::Clone for grafton_visca::profile::OperationalTuning
 pub fn grafton_visca::profile::OperationalTuning::clone(&self) -> grafton_visca::profile::OperationalTuning
 impl core::cmp::Eq for grafton_visca::profile::OperationalTuning

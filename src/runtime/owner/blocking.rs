@@ -1520,10 +1520,11 @@ impl BlockingOwner {
             Ok(BlockingReceive::Bytes(received)) => (received, Instant::now()),
             Err(error) if super::receive_fault_is_transient(&error) => {
                 // The engine safely retries sequenced Sony work with its same
-                // sequence; an ambiguous raw command poisons the session
-                // instead of risking a duplicate actuation. The read consumed
-                // nothing, so framing state is intact and this pump simply
-                // produced no frames.
+                // sequence; a raw command awaiting ACK is left to its own ACK
+                // deadline (issue #671; the strict opt-in poisons instead)
+                // rather than being replayed. The read consumed nothing, so
+                // framing state is intact and this pump simply produced no
+                // frames.
                 let effects = self
                     .state
                     .input(Input::ReceiveFault { error }, Instant::now());

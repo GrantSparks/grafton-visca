@@ -333,6 +333,11 @@ pub(crate) fn owner_policy_for_targets_with_tuning(
             // profile busy/cooldown fact. Ordinary inquiries do not incur this
             // wait.
             inquiry_cooldown,
+            // Off by default: a raw command that can no longer be confirmed
+            // fails on its own and quarantines its correlation, rather than
+            // poisoning the whole session. The strict opt-in restores the
+            // whole-session poison for deployments that prefer it.
+            strict_unconfirmed_poison: tuning.strict_unconfirmed_poison_override().unwrap_or(false),
         },
         target_policies,
     )?;

@@ -28,7 +28,35 @@ fn policy(envelope: EnvelopeKind, transport: TransportKind) -> ProtocolPolicy {
         command_spacing: Duration::ZERO,
         inquiry_spacing: Duration::ZERO,
         inquiry_cooldown: Duration::from_millis(25),
+        strict_unconfirmed_poison: false,
     }
+}
+
+/// A raw datagram policy that keeps the pre-fix whole-session poison behavior,
+/// so a test can pin the strict opt-in mode explicitly.
+fn strict_poison_policy() -> ProtocolPolicy {
+    ProtocolPolicy {
+        strict_unconfirmed_poison: true,
+        ..policy(EnvelopeKind::Raw, TransportKind::Datagram)
+    }
+}
+
+/// A two-target raw datagram engine in the strict `strict_unconfirmed_poison`
+/// opt-in mode, mirroring [`engine`] for the whole-session poison tests.
+fn strict_poison_engine() -> ProtocolEngine {
+    let mut engine = ProtocolEngine::new(strict_poison_policy()).unwrap();
+    for target in [camera(1), camera(2)] {
+        engine
+            .register_target(
+                target,
+                TargetPolicy {
+                    command_sockets: 2,
+                    cancellation: CancellationPolicy::Supported,
+                },
+            )
+            .unwrap();
+    }
+    engine
 }
 
 fn retrying() -> RetryPolicy {
@@ -2031,18 +2059,35 @@ fn unsupported_target_cancels_queued_locally_but_sent_without_intent() {
         engine.entry(active_id).unwrap().cancellation(),
         CancelState::None
     );
+    // Issue #671: the active command's lost ACK is quarantined per-request, not
+    // poisoned. At the ACK deadline it moves into its late-ACK quarantine and
+    // the session stays live; nothing is retried (a raw command is never
+    // replayed) and no terminal is emitted yet.
     let timeout = engine.advance(start + Duration::from_millis(20));
-    assert_eq!(engine.state(), SessionState::Poisoned);
-    assert!(timeout.iter().any(|effect| matches!(
+    assert_eq!(engine.state(), SessionState::Running);
+    assert!(matches!(
+        engine.entry(active_id).map(Entry::phase),
+        Some(Phase::AwaitingLateAck { .. })
+    ));
+    assert!(!timeout
+        .iter()
+        .any(|effect| matches!(effect, Effect::Terminal { .. })));
+    assert!(!timeout
+        .iter()
+        .any(|effect| matches!(effect, Effect::RetryScheduled { .. })));
+    // The one request fails at its ambiguity deadline (20ms + 50ms); the session
+    // is still running for any other work.
+    let ambiguity_deadline = start + Duration::from_millis(70);
+    assert_eq!(engine.next_wake(), Some(ambiguity_deadline));
+    let resolved = engine.advance(ambiguity_deadline);
+    assert!(resolved.iter().any(|effect| matches!(
         effect,
         Effect::Terminal {
             id,
             outcome: RuntimeOutcome::Failed(Error::UnsequencedCommandUnconfirmed),
         } if *id == active_id
     )));
-    assert!(!timeout
-        .iter()
-        .any(|effect| matches!(effect, Effect::RetryScheduled { .. })));
+    assert_eq!(engine.state(), SessionState::Running);
     engine.assert_invariants().unwrap();
 }
 
@@ -2428,7 +2473,9 @@ fn cancellation_ambiguity_deadline_wins_over_later_pacing_eligibility() {
             outcome: RuntimeOutcome::Failed(Error::UnsequencedCommandUnconfirmed),
         } if *seen == id
     )));
-    assert_eq!(engine.state(), SessionState::Poisoned);
+    // Issue #671: the ambiguity expiry fails only this request; the raw session
+    // stays live rather than poisoning.
+    assert_eq!(engine.state(), SessionState::Running);
     engine.assert_invariants().unwrap();
 }
 
@@ -4132,11 +4179,15 @@ fn arbitrary_stale_and_reordered_inputs_preserve_invariants() {
                 && coverage.ignored > 0,
             "{envelope:?}/{transport:?} reached too little of the engine: {coverage:?}"
         );
-        // A stream write and an ambiguous raw datagram outcome both poison the
-        // session; Sony datagrams retain ordinary retry/liveness semantics.
+        // A failed stream write poisons the session (its byte-stream position is
+        // unknowable). A raw datagram's unconfirmed outcome no longer does:
+        // issue #671 fails only that command and quarantines its correlation, so
+        // the session survives. Datagram sessions therefore stay live in default
+        // mode regardless of envelope; only a stream ends poisoned here (the
+        // fuzz never drives the strict opt-in or an explicit poison input).
         assert_eq!(
             engine.state() == SessionState::Poisoned,
-            transport == TransportKind::Stream || envelope == EnvelopeKind::Raw,
+            transport == TransportKind::Stream,
             "{envelope:?}/{transport:?} ended in {:?}",
             engine.state()
         );
@@ -4315,7 +4366,9 @@ fn cancellation_response_timeout_resolves_observer_but_retains_quarantine() {
             outcome: RuntimeOutcome::Failed(Error::UnsequencedCommandUnconfirmed)
         } if *seen == id
     )));
-    assert_eq!(engine.state(), SessionState::Poisoned);
+    // Issue #671: failing the request at the quarantine deadline no longer
+    // poisons the raw session.
+    assert_eq!(engine.state(), SessionState::Running);
     engine.assert_invariants().unwrap();
 }
 
@@ -4914,11 +4967,11 @@ fn socketless_ack_takes_the_second_socket_when_the_first_is_busy() {
     engine.assert_invariants().unwrap();
 }
 
-/// The assignment policy uses exact evidence for named sockets while retaining
-/// the socketless compatibility path. A camera whose sockets are all taken
-/// gets no invented assignment, and a one-socket target has no second socket.
+/// Issue #620/#682: a named socket already held by another request falls back
+/// to the target's free socket, while a camera whose sockets are all taken gets
+/// no invented assignment and a one-socket target has no second socket to use.
 #[test]
-fn socket_assignment_requires_exact_named_socket_and_keeps_socketless_fallback() {
+fn socket_assignment_falls_back_from_an_occupied_named_socket_and_never_invents_one() {
     let start = Instant::now();
     let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
     let first = engine.handle(
@@ -4950,11 +5003,11 @@ fn socket_assignment_requires_exact_named_socket_and_keeps_socketless_fallback()
     let second_id = admitted(&second);
     send_ok(&mut engine, &second, None, start);
 
-    // Socket one is taken by another request: an explicit socket conflict is
-    // not remapped, while a socketless ACK may use socket two.
+    // Socket one is taken by another request: the named-socket ACK falls back to
+    // the free socket two (issue #620/#682), and a socketless ACK also uses it.
     assert_eq!(
         engine.assign_socket(camera(1), Some(ViscaSocket::S1), second_id),
-        None
+        Some(ViscaSocket::S2)
     );
     assert_eq!(
         engine.assign_socket(camera(1), None, second_id),
@@ -5031,11 +5084,15 @@ fn unattributable_socketless_ack_is_inert() {
     engine.assert_invariants().unwrap();
 }
 
-/// An ACK naming an occupied socket is inert rather than being remapped to a
-/// different request's free socket. The request remains awaiting ACK until a
-/// later ACK names the socket that is actually available for it.
+/// Issue #620/#682: an ACK naming a socket another request still owns — the
+/// classic case is a lost completion frame that made the camera reuse the
+/// socket — falls back to the target's free socket instead of being dropped.
+/// The candidate was already uniquely identified (the sole unacknowledged raw
+/// command), so this cannot mis-attribute the ACK; it only keeps the command
+/// from wedging on `AwaitingAck`, which before issue #671 cascaded into a
+/// session poison at that command's ACK deadline. Nothing is poisoned.
 #[test]
-fn ack_naming_an_occupied_socket_is_inert_until_correct_ack() {
+fn ack_naming_an_occupied_socket_falls_back_to_the_free_socket() {
     let start = Instant::now();
     let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
     let first = engine.handle(
@@ -5067,9 +5124,10 @@ fn ack_naming_an_occupied_socket_is_inert_until_correct_ack() {
     let second_id = admitted(&second);
     send_ok(&mut engine, &second, None, start);
 
-    // The camera names socket one again, which the first request still owns.
-    // That explicit evidence cannot be reassigned to socket two.
-    let conflicting = engine.handle(
+    // The camera names socket one for the second command (it reused the socket
+    // after losing the first command's completion). The second command falls
+    // back to the free socket two rather than being wedged.
+    let reused = engine.handle(
         frame(
             1,
             None,
@@ -5080,32 +5138,17 @@ fn ack_naming_an_occupied_socket_is_inert_until_correct_ack() {
         start,
     );
 
-    assert_eq!(
-        ignored_reasons(&conflicting),
-        vec![IgnoreReason::SocketConflict]
-    );
+    assert!(ignored_reasons(&reused).is_empty());
+    assert_eq!(engine.state(), SessionState::Running);
     assert_eq!(socket_of(&engine, first_id), Some(ViscaSocket::S1));
-    assert_eq!(socket_of(&engine, second_id), None);
+    assert_eq!(socket_of(&engine, second_id), Some(ViscaSocket::S2));
     assert!(matches!(
         engine.entry(second_id).map(Entry::phase),
-        Some(Phase::AwaitingAck { .. })
+        Some(Phase::Executing { .. })
     ));
 
-    // A later ACK naming the free socket supplies the missing exact evidence.
-    let correct_ack = engine.handle(
-        frame(
-            1,
-            None,
-            DecodedResponse::Ack {
-                socket: Some(ViscaSocket::S2),
-            },
-        ),
-        start,
-    );
-    assert!(ignored_reasons(&correct_ack).is_empty());
-    assert_eq!(socket_of(&engine, second_id), Some(ViscaSocket::S2));
-
-    // Each request now completes on the socket it actually owns.
+    // The second command completes on the socket it actually owns; no cascade to
+    // a session poison anywhere.
     let done = engine.handle(
         frame(
             1,
@@ -5117,6 +5160,7 @@ fn ack_naming_an_occupied_socket_is_inert_until_correct_ack() {
         start,
     );
     assert_eq!(terminal_id(&done), Some(second_id));
+    assert_eq!(engine.state(), SessionState::Running);
     engine.assert_invariants().unwrap();
 }
 
@@ -5709,7 +5753,21 @@ fn ack_deadline_expiry_without_retry_policy_reports_no_retry() {
         deadline_expiries(&expired, id),
         [(DeadlineKind::Ack, false)]
     );
-    assert_eq!(terminal_id(&expired), Some(id));
+    // Issue #671: the ACK expiry is still reported as a non-retrying deadline,
+    // but a raw command is now quarantined per-request rather than terminated
+    // outright at the deadline; the terminal follows at the ambiguity deadline.
+    assert!(terminal_id(&expired).is_none());
+    assert!(matches!(
+        engine.entry(id).map(Entry::phase),
+        Some(Phase::AwaitingLateAck { .. })
+    ));
+    assert_eq!(engine.state(), SessionState::Running);
+    let resolved = engine.advance(start + Duration::from_millis(70));
+    assert!(matches!(
+        terminal_failure(&resolved, id),
+        Some(Error::UnsequencedCommandUnconfirmed)
+    ));
+    assert_eq!(engine.state(), SessionState::Running);
     engine.assert_invariants().unwrap();
 }
 
@@ -5745,18 +5803,24 @@ fn completion_deadline_expiry_is_reported_as_a_completion_deadline() {
     assert!(expired.iter().all(|effect| {
         !matches!(effect, Effect::RetryScheduled { id: seen, .. } if *seen == id)
     }));
-    assert!(expired.iter().any(|effect| matches!(
-        effect,
-        Effect::SessionChanged {
-            to: SessionState::Poisoned,
-            ..
-        }
-    )));
+    // Issue #671: the completion deadline is still reported, but it now holds the
+    // owned socket quarantined and fails only this request at the ambiguity
+    // deadline; the session is not poisoned.
+    assert!(!expired
+        .iter()
+        .any(|effect| matches!(effect, Effect::SessionChanged { .. })));
+    assert!(terminal_failure(&expired, id).is_none());
+    assert_eq!(engine.state(), SessionState::Running);
     assert!(matches!(
-        terminal_failure(&expired, id),
+        engine.entry(id).map(Entry::phase),
+        Some(Phase::AwaitingCancellationResolution { .. })
+    ));
+    let resolved = engine.advance(start + Duration::from_millis(90));
+    assert!(matches!(
+        terminal_failure(&resolved, id),
         Some(Error::UnsequencedCommandUnconfirmed)
     ));
-    assert_eq!(engine.state(), SessionState::Poisoned);
+    assert_eq!(engine.state(), SessionState::Running);
     engine.assert_invariants().unwrap();
 }
 
@@ -6479,10 +6543,12 @@ fn raw_ready_retry_budget_expiry_reports_last_error_without_poisoning() {
     engine.assert_invariants().unwrap();
 }
 
-/// A raw retry budget cannot release a command from an emitted attempt: the
-/// session is poisoned because a delayed ACK could otherwise be misattributed.
+/// Issue #671: a raw retry budget spent while an attempt is still in flight
+/// cannot replay the command (a delayed ACK could otherwise be misattributed),
+/// but by default it fails only that request and quarantines its
+/// unacknowledged-command slot until the ambiguity deadline. The session lives.
 #[test]
-fn raw_active_retry_budget_expiry_poisons_the_session() {
+fn raw_active_retry_budget_expiry_quarantines_and_fails_per_request() {
     let start = Instant::now();
     let retry = immediate_retry_budget(Duration::from_millis(21));
     let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
@@ -6516,9 +6582,63 @@ fn raw_active_retry_budget_expiry_poisons_the_session() {
     let budget_deadline = start + Duration::from_millis(21);
     assert_eq!(engine.next_wake(), Some(budget_deadline));
     let expired = engine.advance(budget_deadline);
+    // The in-flight attempt is quarantined, not terminated or poisoned.
+    assert!(!expired
+        .iter()
+        .any(|effect| matches!(effect, Effect::Terminal { .. })));
+    assert!(!expired
+        .iter()
+        .any(|effect| matches!(effect, Effect::SessionChanged { .. })));
+    assert_eq!(engine.state(), SessionState::Running);
+    assert!(matches!(
+        engine.entry(id).map(Entry::phase),
+        Some(Phase::AwaitingLateAck { .. })
+    ));
+
+    // The command fails per-request at the ambiguity deadline (21ms + 50ms), and
+    // the session is still running.
+    let resolved = engine.advance(start + Duration::from_millis(71));
+    assert!(matches!(
+        terminal_failure(&resolved, id),
+        Some(Error::UnsequencedCommandUnconfirmed)
+    ));
+    assert_eq!(engine.state(), SessionState::Running);
+    engine.assert_invariants().unwrap();
+}
+
+/// Issue #671 strict opt-in: with `strict_unconfirmed_poison`, the same active
+/// budget expiry restores the pre-fix whole-session poison, surfaced as
+/// [`Error::StreamPoisoned`] so a poisoned session is still rebuildable.
+#[test]
+fn raw_active_retry_budget_expiry_poisons_under_strict_opt_in() {
+    let start = Instant::now();
+    let retry = immediate_retry_budget(Duration::from_millis(21));
+    let mut engine = strict_poison_engine();
+    let admission = engine.handle(
+        Input::Admit {
+            ticket: AdmissionTicket(1),
+            request: command_with_retry(1, retry),
+        },
+        start,
+    );
+    let id = admitted(&admission);
+    send_ok(&mut engine, &admission, None, start);
+
+    engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::Error {
+                socket: None,
+                code: 0x03,
+            },
+        ),
+        start + Duration::from_millis(1),
+    );
+    let expired = engine.advance(start + Duration::from_millis(21));
     assert!(matches!(
         terminal_failure(&expired, id),
-        Some(Error::UnsequencedCommandUnconfirmed)
+        Some(Error::StreamPoisoned { .. })
     ));
     assert_eq!(engine.state(), SessionState::Poisoned);
     assert!(
@@ -6529,8 +6649,244 @@ fn raw_active_retry_budget_expiry_poisons_the_session() {
                 ..
             }
         )),
-        "raw active budget expiry must poison the session"
+        "strict mode must poison the session"
     );
+    engine.assert_invariants().unwrap();
+}
+
+/// Issue #671: a transient receive fault no longer poisons a raw session. A raw
+/// command awaiting its ACK is left in place — never replayed, because a raw
+/// command cannot be safely re-sent — to ride to its own ACK deadline, and the
+/// session keeps running.
+#[test]
+fn raw_receive_fault_leaves_unacked_command_and_keeps_the_session() {
+    let start = Instant::now();
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+    let admission = engine.handle(
+        Input::Admit {
+            ticket: AdmissionTicket(1),
+            request: command(1, CancellationPolicy::Supported),
+        },
+        start,
+    );
+    let id = admitted(&admission);
+    send_ok(&mut engine, &admission, None, start);
+    assert!(matches!(
+        engine.entry(id).map(Entry::phase),
+        Some(Phase::AwaitingAck { .. })
+    ));
+
+    let fault = engine.handle(
+        Input::ReceiveFault {
+            error: Error::Io(Arc::new(std::io::Error::from(
+                std::io::ErrorKind::ConnectionRefused,
+            ))),
+        },
+        start,
+    );
+    assert_eq!(engine.state(), SessionState::Running);
+    assert!(!fault
+        .iter()
+        .any(|effect| matches!(effect, Effect::Terminal { .. })));
+    assert!(!fault
+        .iter()
+        .any(|effect| matches!(effect, Effect::RetryScheduled { .. })));
+    assert!(
+        matches!(
+            engine.entry(id).map(Entry::phase),
+            Some(Phase::AwaitingAck { .. })
+        ),
+        "a raw command awaiting its ACK rides to its own deadline after a fault"
+    );
+    engine.assert_invariants().unwrap();
+}
+
+/// Issue #671 strict opt-in: `strict_unconfirmed_poison` restores the pre-fix
+/// whole-session poison when a receive fault strikes an unacknowledged raw
+/// command, surfaced as [`Error::StreamPoisoned`].
+#[test]
+fn raw_receive_fault_poisons_under_strict_opt_in() {
+    let start = Instant::now();
+    let mut engine = strict_poison_engine();
+    let admission = engine.handle(
+        Input::Admit {
+            ticket: AdmissionTicket(1),
+            request: command(1, CancellationPolicy::Supported),
+        },
+        start,
+    );
+    let id = admitted(&admission);
+    send_ok(&mut engine, &admission, None, start);
+
+    let fault = engine.handle(
+        Input::ReceiveFault {
+            error: Error::Io(Arc::new(std::io::Error::from(
+                std::io::ErrorKind::ConnectionRefused,
+            ))),
+        },
+        start,
+    );
+    assert_eq!(engine.state(), SessionState::Poisoned);
+    assert!(matches!(
+        terminal_failure(&fault, id),
+        Some(Error::StreamPoisoned { .. })
+    ));
+    engine.assert_invariants().unwrap();
+}
+
+/// Issue #671 core safety (ACK path): a raw command whose ACK is lost fails only
+/// itself and quarantines its unacknowledged slot for the ambiguity window. A
+/// late ACK arriving during the quarantine is ignored — never applied, never
+/// misattributed — the slot blocks a new command on that target until it
+/// releases, and the session never poisons.
+#[test]
+fn raw_ack_timeout_quarantines_and_ignores_a_late_ack() {
+    let start = Instant::now();
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+    let admission = engine.handle(
+        Input::Admit {
+            ticket: AdmissionTicket(1),
+            request: command(1, CancellationPolicy::Supported),
+        },
+        start,
+    );
+    let id = admitted(&admission);
+    send_ok(&mut engine, &admission, None, start);
+
+    // ACK deadline (20ms): the command quarantines; the session stays live and
+    // emits no terminal yet.
+    let expired = engine.advance(start + Duration::from_millis(20));
+    assert_eq!(engine.state(), SessionState::Running);
+    assert!(!expired
+        .iter()
+        .any(|effect| matches!(effect, Effect::Terminal { .. })));
+    assert!(matches!(
+        engine.entry(id).map(Entry::phase),
+        Some(Phase::AwaitingLateAck { .. })
+    ));
+
+    // The slot is reserved: a new command on the same target queues rather than
+    // dispatching while the quarantine holds.
+    let queued = engine.handle(
+        Input::Admit {
+            ticket: AdmissionTicket(2),
+            request: command(1, CancellationPolicy::Supported),
+        },
+        start + Duration::from_millis(21),
+    );
+    let queued_id = admitted(&queued);
+    assert!(request_transmit_optional(&queued).is_none());
+    assert!(matches!(
+        engine.entry(queued_id).map(Entry::phase),
+        Some(Phase::Ready { .. })
+    ));
+
+    // A late ACK for the quarantined command is ignored, not applied: it must not
+    // re-open the request nor bind to the queued command.
+    let late = engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::Ack {
+                socket: Some(ViscaSocket::S1),
+            },
+        ),
+        start + Duration::from_millis(30),
+    );
+    assert_eq!(ignored_reasons(&late), vec![IgnoreReason::UnmatchedFrame]);
+    assert!(matches!(
+        engine.entry(id).map(Entry::phase),
+        Some(Phase::AwaitingLateAck { .. })
+    ));
+    assert!(matches!(
+        engine.entry(queued_id).map(Entry::phase),
+        Some(Phase::Ready { .. })
+    ));
+
+    // At the ambiguity deadline (20ms + 50ms) the command fails and the slot
+    // releases, letting the queued command finally dispatch. Never poisoned.
+    let resolved = engine.advance(start + Duration::from_millis(70));
+    assert!(matches!(
+        terminal_failure(&resolved, id),
+        Some(Error::UnsequencedCommandUnconfirmed)
+    ));
+    assert_eq!(engine.state(), SessionState::Running);
+    assert!(matches!(
+        engine.entry(queued_id).map(Entry::phase),
+        Some(Phase::Sending { .. })
+    ));
+    engine.assert_invariants().unwrap();
+}
+
+/// Issue #671 core safety (completion path): a raw command whose completion is
+/// lost holds its already-owned socket quarantined (correlation is exact there).
+/// A late completion for that socket is ignored, not applied, and the socket is
+/// released only when the command fails at the ambiguity deadline. No poison.
+#[test]
+fn raw_completion_timeout_quarantines_socket_and_ignores_a_late_completion() {
+    let start = Instant::now();
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+    let admission = engine.handle(
+        Input::Admit {
+            ticket: AdmissionTicket(1),
+            request: command(1, CancellationPolicy::Supported),
+        },
+        start,
+    );
+    let id = admitted(&admission);
+    send_ok(&mut engine, &admission, None, start);
+    engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::Ack {
+                socket: Some(ViscaSocket::S1),
+            },
+        ),
+        start,
+    );
+    assert_eq!(socket_of(&engine, id), Some(ViscaSocket::S1));
+
+    // Completion deadline (40ms): the owned socket is held quarantined; the
+    // session stays live with no terminal yet.
+    let expired = engine.advance(start + Duration::from_millis(40));
+    assert_eq!(engine.state(), SessionState::Running);
+    assert!(!expired
+        .iter()
+        .any(|effect| matches!(effect, Effect::Terminal { .. })));
+    assert!(matches!(
+        engine.entry(id).map(Entry::phase),
+        Some(Phase::AwaitingCancellationResolution { .. })
+    ));
+    assert_eq!(socket_of(&engine, id), Some(ViscaSocket::S1));
+
+    // A late completion for the quarantined socket is ignored, not applied.
+    let late = engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::Completion {
+                socket: Some(ViscaSocket::S1),
+            },
+        ),
+        start + Duration::from_millis(50),
+    );
+    assert_eq!(ignored_reasons(&late), vec![IgnoreReason::UnmatchedFrame]);
+    assert!(matches!(
+        engine.entry(id).map(Entry::phase),
+        Some(Phase::AwaitingCancellationResolution { .. })
+    ));
+    assert_eq!(engine.state(), SessionState::Running);
+
+    // At the ambiguity deadline (40ms + 50ms) the command fails and the socket
+    // releases.
+    let resolved = engine.advance(start + Duration::from_millis(90));
+    assert!(matches!(
+        terminal_failure(&resolved, id),
+        Some(Error::UnsequencedCommandUnconfirmed)
+    ));
+    assert_eq!(engine.state(), SessionState::Running);
+    assert_eq!(socket_of(&engine, id), None);
     engine.assert_invariants().unwrap();
 }
 

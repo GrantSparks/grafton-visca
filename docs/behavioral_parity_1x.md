@@ -109,16 +109,20 @@ by #542, keep it `preserved` and repair the production path or its test.
 Retry-count categories and bounded exponential scheduling retain their 1.x
 provenance, but replay is no longer inferred merely from elapsed time. Sony
 ambiguity can retry only with the same sequence; an ambiguous successfully sent
-raw command ends the session with `UnsequencedCommandUnconfirmed`. The default
-backoff starts at 50 ms and uses deterministic equal jitter within a bounded
-ceiling. One admission-to-terminal budget stays active through every later
+raw command is never replayed. By default (issue #671) it fails only that one
+command with `UnsequencedCommandUnconfirmed` and quarantines its correlation
+while the session survives; the opt-in `strict_unconfirmed_poison` mode restores
+the whole-session poison. The default backoff starts at 50 ms and uses
+deterministic equal jitter within a bounded ceiling. One admission-to-terminal budget stays active through every later
 noncancelled phase and is the largest of ten seconds, twice the request's
 governing deadline, and the profile busy timeout.
 
 The raw-correlation row is likewise an explicit v2 safety change, not a waiver
 by omission. Raw commands keep one unacknowledged candidate per target and
-never use FIFO or temporal recency for ACK/error attribution. Exact named
-sockets remain exact; an occupied named socket is an inert conflict. The only
+never use FIFO or temporal recency for ACK/error attribution. A named socket
+that is free is exact evidence; an occupied named socket falls back to the
+target's other free socket (issues #620/#682) because the ACK's candidate is
+already uniquely identified, and is inert only when no socket is free. The only
 remaining FIFO rule belongs to route/content-compatible raw inquiries when no
 command candidate creates ambiguous ownership.
 

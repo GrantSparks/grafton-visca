@@ -1,11 +1,12 @@
 //! Issue #565: 1.x transport fault tolerance, through the blocking facade.
 //!
-//! Each test pins one transport boundary: raw receive faults while an ACK is
-//! unconfirmed poison the session without replay, sequence-correlated Sony
+//! Each test pins one transport boundary: a raw receive fault while an ACK is
+//! unconfirmed fails only that command without replay and keeps the session
+//! alive (issue #671; the strict opt-in still poisons), sequence-correlated Sony
 //! receive faults retry on the same sequence, failed stream writes still
 //! report their session-wide poison, socketless frames still work, occupied
-//! sockets remain exact evidence, and write-racing replies are matched on the
-//! first read pump.
+//! sockets fall back to the free socket, and write-racing replies are matched on
+//! the first read pump.
 //!
 //! The engine's deferred-ACK latch (#297) is *not* observable from here: these
 //! owners apply a write and its result back to back, so nothing can reach the
@@ -279,11 +280,14 @@ fn standard_reply() -> Vec<Vec<u8>> {
     vec![ACK_SOCKET_ONE.to_vec(), COMPLETE_SOCKET_ONE.to_vec()]
 }
 
-/// A raw receive fault while a successfully sent command awaits its ACK leaves
-/// both acceptance and future reply ownership uncertain. The owner must poison
-/// the session, require a replacement, and never replay the command.
+/// Issue #671: a raw receive fault while a successfully sent command awaits its
+/// ACK leaves that one command's acceptance uncertain, but by default it does
+/// not poison the session. The command is never replayed (a raw command may
+/// already have reached the camera) and eventually fails
+/// `UnsequencedCommandUnconfirmed` — a per-request outcome that does *not*
+/// require a new session — while the session stays usable for later work.
 #[test]
-fn raw_transient_receive_fault_poisons_without_retry() {
+fn raw_receive_fault_fails_one_command_and_keeps_the_session() {
     let transport = FaultTransport::new(SendSemantics::Datagram, vec![OnSend::Reply(Vec::new())])
         .with_trailing_reply(standard_reply())
         .with_read_fault(
@@ -302,15 +306,27 @@ fn raw_transient_receive_fault_poisons_without_retry() {
         .submit::<AppliedOnly, _>(&ZoomStop)
         .expect("submission")
         .applied()
-        .expect_err("a raw receive fault must poison the session");
+        .expect_err("the unconfirmed raw command fails on its own");
 
     assert!(matches!(error, Error::UnsequencedCommandUnconfirmed));
-    assert!(error.requires_new_session());
+    assert!(
+        !error.requires_new_session(),
+        "a raw command that fails on a live session is a per-request outcome, not session death"
+    );
     assert_eq!(
         probe.writes().len(),
         1,
         "an unconfirmed raw command is never replayed after a receive fault"
     );
+
+    // The session survived the receive fault: later work still completes.
+    camera
+        .submit::<AppliedOnly, _>(&FocusStop)
+        .expect("the session survives a transient receive fault")
+        .applied()
+        .expect("later work still completes");
+
+    session.shutdown().expect("owner shutdown");
 }
 
 /// A sequence-correlated Sony receive fault can retry the same logical request
