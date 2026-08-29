@@ -86,8 +86,13 @@ The three owner-only rows are deliberately absent from
 ownership of a serial bus before target registration; a target-scoped
 `execute` call cannot represent that authority. Socket cancellation is emitted
 only from an operation handle, after the owner has correlated that exact
-operation to the camera-assigned socket. Letting a caller construct a generic
-socket cancel could cancel unrelated work.
+operation to the camera-assigned socket; letting a caller construct a generic
+socket cancel could cancel unrelated work. The raw escape hatch enforces this
+too — its wire validation rejects the socket-cancel (`8x 2y ff`) and per-camera
+interface-clear (`8x 01 00 01 ff`) shapes at construction, and the broadcast
+address-set form is refused by the target-address check during preparation — so
+no `execute`/`inquire`/`submit` path, typed or raw, can emit an owner-only
+primitive.
 
 ### Domain rationale for settings and stored state
 

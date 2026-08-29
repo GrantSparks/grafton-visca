@@ -47,11 +47,13 @@ fn main() {
     let applied = raw::AppliedOnly::with_policy(
         [0x81, 0x01, 0x07, 0xff],
         grafton_visca::AffectedAxes::ZOOM,
+        // The urgent lane is owner-only; `User` is the ceiling for raw (#679).
         raw::Spec::new(
             grafton_visca::TimeoutClass::Quick,
             grafton_visca::RetryClass::Never,
-            grafton_visca::ControlClass::Urgent,
-        ),
+            grafton_visca::ControlClass::User,
+        )
+        .expect("spec"),
     )
     .expect("applied-only");
 

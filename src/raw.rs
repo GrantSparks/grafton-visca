@@ -6,13 +6,19 @@
 //! surface. A raw value is still admitted only through the async camera's
 //! `execute`, `inquire`, or `submit` methods (and their blocking projections);
 //! it cannot select a lifecycle ID, target, or completion kind at submission
-//! time. Its [`crate::ControlClass`] is chosen in its [`crate::raw::Policy`],
-//! exactly as a built-in chooses one, and the camera handle's
-//! `*_with_submission_class` methods and `set_submission_class` default apply
-//! to it on the same terms.
+//! time. Its [`crate::ControlClass`] is chosen in its [`crate::raw::Policy`]
+//! from the ordinary lanes (`Background`, `Normal`, `User`); the urgent safety
+//! lane is reserved for the owner's stops and protocol cancellation and is not
+//! selectable here. The camera handle's `*_with_submission_class` methods and
+//! `set_submission_class` default apply to it on the same terms.
 //!
 //! Raw constructors validate and own the complete VISCA frame. The first byte
 //! must be a valid VISCA camera address and the final byte must be `0xff`.
+//! Owner-only wire primitives are refused at construction: a socket cancel
+//! (`8x 2y ff`) or a per-camera interface clear (`8x 01 00 01 ff`) would let a
+//! target-scoped `execute` cancel another operation's socket or reset the
+//! shared command buffer, so both are rejected. The broadcast address-set form
+//! is refused by the target check during preparation.
 //! The camera view supplies the authoritative target during preparation, so a
 //! frame addressed to another target is rejected rather than being silently
 //! rewritten or inspected to infer target identity. Frames up to
@@ -26,7 +32,7 @@
 //! [`crate::raw::Policy`] or [`crate::raw::Spec`]); no default, optional metadata, byte-based
 //! inference, or caller-selected operation class exists.
 
-use std::fmt;
+use std::{borrow::Cow, fmt};
 
 use smallvec::SmallVec;
 
@@ -60,9 +66,12 @@ const VISCA_TERMINATOR: u8 = 0xff;
 /// public value never exposes a queue position or a lifecycle identifier.
 ///
 /// The [`ControlClass`] here is the raw request's *own* classification, exactly
-/// as a built-in's associated constant is. A camera handle's default class and
-/// a per-submission class replace ordinary classifications, but neither can
-/// replace or demote [`ControlClass::Urgent`].
+/// as an ordinary built-in's associated constant is. It may name the
+/// `Background`, `Normal`, or `User` lane; it may not name
+/// [`ControlClass::Urgent`], which [`Policy::new`] rejects, because the urgent
+/// lane is the owner's stop and protocol-cancel reserve. A camera handle's
+/// default class and a per-submission class replace ordinary classifications,
+/// but neither can replace or demote an urgent request.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Policy {
     timeout: TimeoutClass,
@@ -81,13 +90,38 @@ pub struct Spec {
     policy: Policy,
 }
 
+/// The error every raw policy/spec constructor returns for an urgent request.
+///
+/// Shared so [`Policy::new`] and [`Spec::new`] cannot drift in wording. It is a
+/// free `const fn` returning the [`Error`] by value: a `const fn` cannot drop an
+/// intermediate `Result`, so each constructor keeps its own one-line `matches!`
+/// guard (pinned together by `raw_policy_rejects_urgent_control_class`) rather
+/// than delegating through a fallible call.
+const fn urgent_control_class_error() -> Error {
+    Error::InvalidRequest(Cow::Borrowed(
+        "raw policy cannot select ControlClass::Urgent; the urgent lane is reserved for owner-issued stops and protocol cancellation (issue pan_tilt().stop() for preemption)",
+    ))
+}
+
 impl Spec {
     /// Creates an explicit raw-request specification.
-    #[must_use]
-    pub const fn new(timeout: TimeoutClass, retry: RetryClass, control: ControlClass) -> Self {
-        Self {
-            policy: Policy::new(timeout, retry, control),
+    ///
+    /// Rejects [`ControlClass::Urgent`] on the same grounds as [`Policy::new`].
+    pub const fn new(
+        timeout: TimeoutClass,
+        retry: RetryClass,
+        control: ControlClass,
+    ) -> Result<Self> {
+        if matches!(control, ControlClass::Urgent) {
+            return Err(urgent_control_class_error());
         }
+        Ok(Self {
+            policy: Policy {
+                timeout,
+                retry,
+                control,
+            },
+        })
     }
 
     /// Returns the normalized policy represented by this specification.
@@ -111,13 +145,27 @@ impl From<Spec> for Policy {
 
 impl Policy {
     /// Creates an explicit raw-request policy.
-    #[must_use]
-    pub const fn new(timeout: TimeoutClass, retry: RetryClass, control: ControlClass) -> Self {
-        Self {
+    ///
+    /// Returns [`Error::InvalidRequest`] when `control` is
+    /// [`ControlClass::Urgent`]. The urgent lane is FIFO within its class and
+    /// bypasses admission backlog so owner-issued stops and protocol
+    /// cancellation always preempt; letting ordinary raw traffic enter it would
+    /// dilute that reserve and delay a genuine `PanTiltStop`. A raw caller who
+    /// needs preemption issues the typed stop (`pan_tilt().stop()`, and the
+    /// like), which the crate classifies urgent on the caller's behalf.
+    pub const fn new(
+        timeout: TimeoutClass,
+        retry: RetryClass,
+        control: ControlClass,
+    ) -> Result<Self> {
+        if matches!(control, ControlClass::Urgent) {
+            return Err(urgent_control_class_error());
+        }
+        Ok(Self {
             timeout,
             retry,
             control,
-        }
+        })
     }
 
     /// Returns the selected timeout class.
@@ -207,6 +255,36 @@ fn validate_wire(bytes: &[u8]) -> Result<()> {
             "raw VISCA frame must end with the 0xff terminator".into(),
         ));
     }
+    reject_owner_only_primitive(bytes)?;
+    Ok(())
+}
+
+/// Rejects the owner-only wire primitives a target-scoped `execute` must never
+/// be able to emit.
+///
+/// A socket cancel (`8x 2y ff`) could cancel an *unrelated* operation's socket,
+/// and a per-camera interface clear (`8x 01 00 01 ff`) resets the shared
+/// command buffer; both are legitimate only from the owner, which correlates
+/// the exact camera-assigned socket first. Address assignment (`88 30 0y ff`)
+/// is a broadcast primitive whose `0x88` address is refused by the target
+/// check during preparation, so it is not re-checked here.
+///
+/// The socket-cancel guard is deliberately length-bounded to the exact 3-byte
+/// cancel frame: a longer frame whose command byte falls in `0x20..=0x2f` (for
+/// example USB audio, `81 2a 02 a0 04 02 ff`) is an ordinary command and stays
+/// admissible.
+fn reject_owner_only_primitive(bytes: &[u8]) -> Result<()> {
+    // Caller guarantees `bytes.len() >= 2` and `bytes.last() == Some(0xff)`.
+    if bytes.len() == 3 && (bytes[1] & 0xf0) == 0x20 {
+        return Err(Error::InvalidRequest(
+            "raw VISCA frame must not be a socket cancel (8x 2y ff); the owner cancels a correlated operation through its handle, not through execute()".into(),
+        ));
+    }
+    if bytes.len() == 5 && bytes[1] == 0x01 && bytes[2] == 0x00 && bytes[3] == 0x01 {
+        return Err(Error::InvalidRequest(
+            "raw VISCA frame must not be an interface clear (8x 01 00 01 ff); it resets the shared command buffer and is owner-only".into(),
+        ));
+    }
     Ok(())
 }
 
@@ -225,7 +303,7 @@ impl Plain {
         retry: RetryClass,
         control: ControlClass,
     ) -> Result<Self> {
-        Self::with_policy(bytes, Policy::new(timeout, retry, control))
+        Self::with_policy(bytes, Policy::new(timeout, retry, control)?)
     }
 
     /// Creates a bounded raw plain command from an explicit policy value.
@@ -324,7 +402,7 @@ impl<R> Inquiry<R> {
         retry: RetryClass,
         control: ControlClass,
     ) -> Result<Self> {
-        Self::with_policy(bytes, route, decoder, Policy::new(timeout, retry, control))
+        Self::with_policy(bytes, route, decoder, Policy::new(timeout, retry, control)?)
     }
 
     /// Creates a raw inquiry from explicit route, decoder, and policy values.
@@ -513,7 +591,7 @@ impl Targeted {
         retry: RetryClass,
         control: ControlClass,
     ) -> Result<Self> {
-        Self::with_policy(bytes, axes, Policy::new(timeout, retry, control))
+        Self::with_policy(bytes, axes, Policy::new(timeout, retry, control)?)
     }
 
     /// Creates a raw targeted operation from an explicit policy value.
@@ -628,7 +706,7 @@ impl AppliedOnly {
         retry: RetryClass,
         control: ControlClass,
     ) -> Result<Self> {
-        Self::with_policy(bytes, axes, Policy::new(timeout, retry, control))
+        Self::with_policy(bytes, axes, Policy::new(timeout, retry, control)?)
     }
 
     /// Creates a raw applied-only operation from an explicit policy value.
@@ -830,11 +908,12 @@ mod tests {
         let applied = AppliedOnly::with_policy(
             [0x81, 0x01, 0x07, 0xff],
             AffectedAxes::ZOOM,
-            Policy::new(TimeoutClass::Quick, RetryClass::Never, ControlClass::Urgent),
+            Policy::new(TimeoutClass::Quick, RetryClass::Never, ControlClass::User)
+                .expect("valid raw policy"),
         )
         .expect("valid applied-only operation");
         assert_eq!(applied.affected_axes(), AffectedAxes::ZOOM);
-        assert_eq!(applied.control_class(), ControlClass::Urgent);
+        assert_eq!(applied.control_class(), ControlClass::User);
     }
 
     #[test]
@@ -974,7 +1053,8 @@ mod tests {
                 TimeoutClass::Movement,
                 RetryClass::Movement,
                 ControlClass::User,
-            ),
+            )
+            .expect("valid raw policy"),
         )
         .expect("non-empty applied-only axes");
         assert_eq!(applied.affected_axes(), AffectedAxes::ZOOM);
@@ -1001,5 +1081,177 @@ mod tests {
         .expect_err("the owner target must reject a mismatched wire address");
         assert!(matches!(error, Error::InvalidRequest(_)));
         assert_eq!(command.bytes(), &[0x82, 0x01, 0xff]);
+    }
+
+    /// #679: raw policy cannot manufacture the urgent safety lane.
+    ///
+    /// `Policy::new`, `Spec::new`, and every raw constructor that funnels
+    /// through them reject [`ControlClass::Urgent`], so ordinary raw traffic can
+    /// never enter the FIFO safety lane and dilute a genuine stop. The three
+    /// ordinary lanes stay admissible, so the guard rejects only urgent and
+    /// nothing wider.
+    #[test]
+    fn raw_policy_rejects_urgent_control_class() {
+        const FRAME: [u8; 4] = [0x81, 0x01, 0x02, 0xff];
+
+        assert!(
+            matches!(
+                Policy::new(TimeoutClass::Quick, RetryClass::Never, ControlClass::Urgent),
+                Err(Error::InvalidRequest(_))
+            ),
+            "Policy::new must reject the urgent safety lane"
+        );
+        assert!(
+            matches!(
+                Spec::new(TimeoutClass::Quick, RetryClass::Never, ControlClass::Urgent),
+                Err(Error::InvalidRequest(_))
+            ),
+            "Spec::new must reject the urgent safety lane"
+        );
+
+        // Every raw request constructor funnels its class through `Policy::new`,
+        // so the rejection reaches each of the four request classes.
+        assert!(Plain::new(
+            FRAME,
+            TimeoutClass::Quick,
+            RetryClass::Never,
+            ControlClass::Urgent
+        )
+        .is_err());
+        assert!(Inquiry::from_fn(
+            [0x81, 0x09, 0x04, 0xff],
+            InquiryRoute::RAW,
+            decode_first,
+            TimeoutClass::Inquiry,
+            RetryClass::Never,
+            ControlClass::Urgent,
+        )
+        .is_err());
+        assert!(Targeted::new(
+            [0x81, 0x01, 0x06, 0xff],
+            AffectedAxes::PAN_TILT,
+            TimeoutClass::Movement,
+            RetryClass::Movement,
+            ControlClass::Urgent,
+        )
+        .is_err());
+        assert!(AppliedOnly::new(
+            [0x81, 0x01, 0x07, 0xff],
+            AffectedAxes::ZOOM,
+            TimeoutClass::Quick,
+            RetryClass::Never,
+            ControlClass::Urgent,
+        )
+        .is_err());
+
+        // The three ordinary lanes remain selectable, so the guard is exactly
+        // the urgent lane and not a blanket refusal.
+        for control in [
+            ControlClass::Background,
+            ControlClass::Normal,
+            ControlClass::User,
+        ] {
+            let policy = Policy::new(TimeoutClass::Quick, RetryClass::Never, control)
+                .expect("ordinary lanes are admissible");
+            assert_eq!(policy.control_class(), control);
+            assert!(Plain::new(FRAME, TimeoutClass::Quick, RetryClass::Never, control).is_ok());
+        }
+    }
+
+    /// #678: the raw hatch refuses owner-only wire primitives.
+    ///
+    /// A socket cancel (`8x 2y ff`) or a per-camera interface clear
+    /// (`8x 01 00 01 ff`) submitted through `execute()` could cancel an
+    /// unrelated operation's socket or reset the shared command buffer. Because
+    /// every raw constructor validates through `validate_wire`, these frames
+    /// cannot be built at all, so they can never reach the owner or hijack a
+    /// victim operation — the reported repro is prevented at construction.
+    #[test]
+    fn construction_rejects_owner_only_wire_primitives() {
+        // Socket cancel, every socket nibble, for every camera address.
+        for address in 0x81_u8..=0x88 {
+            for socket in 0x0_u8..=0xf {
+                let cancel: [u8; 3] = [address, 0x20 | socket, 0xff];
+                assert!(
+                    Plain::new(
+                        cancel,
+                        TimeoutClass::Quick,
+                        RetryClass::Never,
+                        ControlClass::Normal
+                    )
+                    .is_err(),
+                    "socket cancel {cancel:x?} must be rejected"
+                );
+            }
+        }
+
+        // Per-camera and broadcast interface clear.
+        for address in [0x81_u8, 0x82, 0x88] {
+            let clear: [u8; 5] = [address, 0x01, 0x00, 0x01, 0xff];
+            assert!(
+                Plain::new(
+                    clear,
+                    TimeoutClass::Quick,
+                    RetryClass::Never,
+                    ControlClass::Normal
+                )
+                .is_err(),
+                "interface clear {clear:x?} must be rejected"
+            );
+        }
+
+        // The guard is shared by every raw request class, not just `Plain`.
+        assert!(Inquiry::from_fn(
+            [0x81, 0x21, 0xff],
+            InquiryRoute::RAW,
+            decode_first,
+            TimeoutClass::Inquiry,
+            RetryClass::Never,
+            ControlClass::Normal,
+        )
+        .is_err());
+        assert!(Targeted::new(
+            [0x81, 0x21, 0xff],
+            AffectedAxes::PAN_TILT,
+            TimeoutClass::Movement,
+            RetryClass::Movement,
+            ControlClass::User,
+        )
+        .is_err());
+        assert!(AppliedOnly::new(
+            [0x81, 0x01, 0x00, 0x01, 0xff],
+            AffectedAxes::ZOOM,
+            TimeoutClass::Quick,
+            RetryClass::Never,
+            ControlClass::User,
+        )
+        .is_err());
+
+        // Legitimate custom frames stay admissible — including the two shapes
+        // the guard sits closest to, proving it rejects exactly the owner-only
+        // primitives and nothing wider:
+        //   * a 3-byte non-cancel command (`8x 01 ff`) is not caught by the
+        //     length-3 cancel guard, which is gated on the `0x2y` command byte;
+        //   * USB audio (`81 2a 02 a0 04 02 ff`) carries command byte `0x2a`
+        //     inside the cancel nibble range but is not the 3-byte cancel frame;
+        //   * `8x 01 00 02 ff` shares the interface-clear prefix but is not the
+        //     exact `01 00 01` clear payload.
+        for frame in [
+            &[0x81, 0x01, 0xff][..],
+            &[0x81, 0x01, 0x04, 0x08, 0x02, 0xff][..],
+            &[0x81, 0x2a, 0x02, 0xa0, 0x04, 0x02, 0xff][..],
+            &[0x81, 0x01, 0x00, 0x02, 0xff][..],
+        ] {
+            assert!(
+                Plain::new(
+                    frame,
+                    TimeoutClass::Quick,
+                    RetryClass::Never,
+                    ControlClass::Normal
+                )
+                .is_ok(),
+                "legitimate custom frame {frame:x?} must stay admissible"
+            );
+        }
     }
 }
