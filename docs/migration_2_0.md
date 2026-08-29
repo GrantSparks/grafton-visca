@@ -470,6 +470,23 @@ session instead. If you preferred the old hard-fail behavior, opt into
 `OperationalTuning::strict_unconfirmed_poison(true)`, which poisons the session
 and reports `StreamPoisoned` (`true`) exactly as before.
 
+**Behavior change (issue #675).** `read_timeout` and `write_timeout` now take
+effect on async sessions. In an earlier 2.0 preview both knobs were silently
+ignored on every async transport (only the blocking sockets applied them), so an
+async read or write could block indefinitely. The async owner now bounds each
+one: a read that outlasts `read_timeout` is treated as an idle no-data receive
+(nothing consumed, no request penalized), and a write that outlasts
+`write_timeout` is abandoned as a send failure — a stream write poisons, a
+datagram write fails only its own request — so a stalled peer can no longer hang
+`close()`. The defaults are unchanged (5 s each). If your async application set
+either knob expecting it to matter, it now does; if it relied on async
+reads/writes never timing out, set the value you want explicitly. A custom
+`AsyncTransport` should be cancellation-safe (a timed-out read/write future is
+dropped) — futures built from the standard async socket readers/writers already
+are. The same fix bounds a *babbling* peer (one that returns a valid frame on
+every poll): it can no longer starve shutdown, `close()`, admission, or an
+emergency stop on the async facade.
+
 `true` is positive proof that the session is finished; `false` only means the
 error alone does not prove it. Ordinary per-request failures — timeouts, busy
 states, protocol and parameter errors — are `false`, and so is a raw `Io`

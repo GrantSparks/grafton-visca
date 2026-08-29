@@ -343,6 +343,12 @@ pub(crate) fn owner_policy_for_targets_with_tuning(
     )?;
     policy.limits.receive_bytes = config.buffer_config.recv_buffer_size;
     policy.limits.framing_bytes = config.buffer_config.max_buffer_size;
+    // Lower the caller's advertised read/write timeouts onto the owner policy so
+    // the async owner can enforce them (the runtime-agnostic async transports
+    // hold no timer of their own). The blocking owner keeps applying them at the
+    // socket; this makes the same builder knobs live on the async surface (#675).
+    policy.read_timeout = config.read_timeout;
+    policy.write_timeout = config.write_timeout;
     policy.tuning = tuning;
     policy.baseline = baseline;
     Ok(policy)

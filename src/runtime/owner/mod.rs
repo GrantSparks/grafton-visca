@@ -210,6 +210,20 @@ pub(crate) struct OwnerPolicy {
     pub(crate) limits: OwnerLimits,
     pub(crate) tuning: crate::OperationalTuning,
     pub(crate) baseline: TuningBaseline,
+    /// Maximum time one async transport read may take before the owner treats
+    /// the read as "no data arrived" (#675). The blocking owner applies the
+    /// same value at the socket; the async owner enforces it around
+    /// [`AsyncOwnerDriver::receive`](super::AsyncOwnerDriver) because the
+    /// runtime-agnostic async transports have no timer of their own. Lowered
+    /// from the transport [`TransportConfig`](crate::transport::TransportConfig)
+    /// by the production policy builder; the test constructors default it.
+    pub(crate) read_timeout: Duration,
+    /// Maximum time one async transport write may take before the owner
+    /// abandons it as a stalled write (#675). A byte-stream write that cannot
+    /// be confirmed poisons the session; a datagram write fails only its own
+    /// request. Without this bound a stalled peer parks the actor and
+    /// `close()` never returns.
+    pub(crate) write_timeout: Duration,
 }
 
 impl OwnerPolicy {
@@ -245,6 +259,10 @@ impl OwnerPolicy {
                     targets[index].map(|policy| policy.command_sockets)
                 }),
             },
+            // Matches `TransportConfig`'s default; the production builder
+            // lowers the caller's configured values over these (#675).
+            read_timeout: Duration::from_secs(5),
+            write_timeout: Duration::from_secs(5),
         })
     }
 

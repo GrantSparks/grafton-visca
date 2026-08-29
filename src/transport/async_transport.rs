@@ -54,6 +54,18 @@ pub trait AsyncTransport: Send {
     ///   session by an error raised on one that is still running. Report a
     ///   genuinely dead socket from [`AsyncTransport::recv_into`], which is the
     ///   side the runtime treats as authoritative about session death.
+    ///
+    /// # Timeout and cancellation
+    ///
+    /// The async runtime bounds every write with the session's configured
+    /// `write_timeout` (the `TransportConfig` knob), because the runtime-agnostic
+    /// transports carry no timer of their own. If the write outlasts that budget
+    /// the runtime drops this future and treats the write as failed under the
+    /// semantics above — a stream write that can no longer be confirmed poisons
+    /// the session; a datagram write fails only its own request. Implementations
+    /// should therefore be cancellation-safe (dropping a partly-issued write must
+    /// not corrupt later writes beyond what the stream/datagram contract already
+    /// allows); futures built from the standard async socket writers already are.
     fn send(&mut self, bytes: &[u8]) -> impl Future<Output = Result<(), Error>> + Send;
 
     /// Receive raw bytes from the device into the provided buffer.
@@ -99,6 +111,18 @@ pub trait AsyncTransport: Send {
     ///   after roughly two seconds of uninterrupted failure the runtime stops
     ///   believing the "transient" label and ends the session with the
     ///   underlying error. Do not use this class for idle timeouts.
+    ///
+    /// # Timeout and cancellation
+    ///
+    /// A transport may block until data arrives; it need not implement its own
+    /// read timeout. The async runtime bounds every read with the session's
+    /// configured `read_timeout` (the `TransportConfig` knob) and, if it elapses,
+    /// drops this future and treats the read as an idle no-data receive — exactly
+    /// as if it had returned `Err(Error::Timeout)`. A read that consumed nothing
+    /// on cancellation keeps framing state intact, so implementations should be
+    /// cancellation-safe; futures built from the standard async socket readers
+    /// already are. A transport that *does* enforce its own internal timeout and
+    /// returns `Err(Error::Timeout)` also works and composes with this bound.
     fn recv_into<'a>(
         &'a mut self,
         dst: &'a mut [u8],

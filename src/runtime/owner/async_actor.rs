@@ -1303,6 +1303,11 @@ where
     alive: flume::Sender<()>,
     terminal_error: Arc<Mutex<Option<Error>>>,
     faults: TransientFaultRun,
+    /// Consecutive receives that carried no data (an idle read timeout, or a
+    /// driver that reports "no data" immediately). Escalates a cooperative
+    /// pause so an immediately-returning idle read cannot hot-spin the actor,
+    /// without recording a transport fault or spending any retry budget (#675).
+    idle_receive_run: u32,
     runtime: Arc<R>,
 }
 
@@ -1355,6 +1360,7 @@ where
                 alive,
                 terminal_error,
                 faults: TransientFaultRun::default(),
+                idle_receive_run: 0,
                 runtime,
             },
         ))
@@ -1372,7 +1378,25 @@ where
         // always-failing or idle transport unable to starve shutdown,
         // cancellation, admission, control, or a due timer (#625), without the
         // previous arbitrary receive-history counter.
+        //
+        // The *succeeding* arm needs its own bound (#675): a peer that returns a
+        // valid frame on every poll keeps winning the left-biased receive-first
+        // selection forever and would starve those same boundary sources. A
+        // fairness ceiling forces one boundary-first turn after this many
+        // consecutive receive-first wins, restoring #625's acceptance criterion
+        // — the boundary channels are always eventually polled — even against an
+        // unbounded flood of valid frames. It is tied to the receive batch limit
+        // because a burst that large is adversarial rather than a real camera's
+        // reply stream, so the settle-first ordering above still holds for real
+        // traffic.
+        let fairness_ceiling = self.state.policy().limits.frames_per_receive.max(1);
+        // Enforced around each receive so the caller's advertised read timeout is
+        // live on the async surface, where the runtime-agnostic transports have
+        // no timer of their own (#675). A timed-out read consumed nothing, so it
+        // is reported as an idle no-data receive.
+        let read_timeout = self.state.policy().read_timeout;
         let mut source_phase = SourcePhase::ReceiveFirst;
+        let mut receive_first_streak: usize = 0;
         loop {
             if self.state.state() != SessionState::Running {
                 break;
@@ -1383,13 +1407,34 @@ where
                 .map(|wake| wake.saturating_duration_since(Executor::now(runtime.as_ref())))
                 .unwrap_or(Duration::from_secs(86_400));
 
+            // Even while the peer keeps making receive-first progress, force the
+            // ordered boundary sources to the front once the streak reaches the
+            // ceiling, then restart the count. When nothing is queued on a
+            // boundary the receive still wins this turn, so a busy transport is
+            // never stalled — only guaranteed to yield the front periodically.
+            let effective_phase = if source_phase == SourcePhase::ReceiveFirst
+                && receive_first_streak >= fairness_ceiling
+            {
+                receive_first_streak = 0;
+                SourcePhase::BoundariesFirst
+            } else {
+                source_phase
+            };
+
             let event = {
                 let frame_limit = self.state.policy().limits.frames_per_receive;
                 // `future::or` is deliberately left-biased. Its nesting is the
                 // normative all-ready order from #542; unlike `race`, it never
                 // randomizes simultaneous readiness.
                 let receive = async {
-                    let result = driver.receive(self.state.buffers(), frame_limit).await;
+                    let result = Self::receive_within(
+                        &mut driver,
+                        self.state.buffers(),
+                        frame_limit,
+                        runtime.as_ref(),
+                        read_timeout,
+                    )
+                    .await;
                     ActorEvent::Receive {
                         result,
                         received_at: Executor::now(runtime.as_ref()),
@@ -1425,12 +1470,22 @@ where
                         future::or(admission, future::or(control, wake)),
                     ),
                 );
-                select_source(source_phase, receive, boundaries).await
+                select_source(effective_phase, receive, boundaries).await
             };
 
+            // A receive that keeps the session running and makes protocol
+            // progress is the only thing that lengthens the streak; any boundary
+            // turn (or a non-progressing receive, which already yields) resets it
+            // so the ceiling only ever fires against a genuine receive flood.
+            let event_was_receive = matches!(event, ActorEvent::Receive { .. });
             let outcome = self
                 .handle_event(event, &mut driver, runtime.as_ref())
                 .await;
+            if event_was_receive && outcome == TurnOutcome::Continue {
+                receive_first_streak = receive_first_streak.saturating_add(1);
+            } else {
+                receive_first_streak = 0;
+            }
             match outcome.next_source_phase() {
                 Some(next) => source_phase = next,
                 None => break,
@@ -1516,16 +1571,20 @@ where
             } => {
                 // An expired idle read timeout is not a fault: nothing was
                 // consumed, nothing failed, and no request's retry budget is
-                // touched. It made no protocol progress, so let a queued
-                // boundary run before another idle read (#625).
-                self.faults.reset();
-                TurnOutcome::YieldBoundaries
+                // touched. It made no protocol progress, so let a queued boundary
+                // run before another idle read (#625). A driver that returns
+                // NoData immediately would otherwise spin the actor, so pace the
+                // idle-read rate (#675).
+                self.absorb_idle_receive(runtime).await
             }
             ActorEvent::Receive {
                 result: Ok(AsyncReceive::Frames(frames)),
                 received_at,
             } => {
                 self.faults.reset();
+                // Real bytes decoded: the transport is not idle, so restart the
+                // no-data escalation (#675).
+                self.idle_receive_run = 0;
                 // #672: a stream tolerates a delimited frame that did not
                 // classify by discarding it and staying Running, exactly as a
                 // datagram already does and as 1.x did (log-and-continue). Record
@@ -1551,7 +1610,7 @@ where
                 let turn = self.state.begin_input_turn(received_at);
                 for frame in frames {
                     let effects = self.state.input_in_turn(&turn, Input::Frame(frame));
-                    self.drive_in_turn(driver, &turn, effects).await;
+                    self.drive_in_turn(driver, &turn, effects, runtime).await;
                 }
                 let due = self.state.finish_input_turn(turn);
                 self.drive(driver, due, runtime).await;
@@ -1564,9 +1623,9 @@ where
                 if super::receive_reported_no_data(&error) {
                     // A driver that reports an idle timeout as a fault still
                     // means "no bytes arrived". Normalizing here as well as at
-                    // the adapter keeps every driver on one contract (#637).
-                    self.faults.reset();
-                    return TurnOutcome::YieldBoundaries;
+                    // the adapter keeps every driver on one contract (#637), and
+                    // paces the idle-read rate so it cannot hot-spin (#675).
+                    return self.absorb_idle_receive(runtime).await;
                 }
                 if !super::receive_fault_is_transient(&error) {
                     self.terminate_at(
@@ -1663,6 +1722,28 @@ where
         TurnOutcome::Stop
     }
 
+    /// A receive that carried no data made no protocol progress, so yield the
+    /// next selection to the boundary sources. Before doing so, pace the
+    /// idle-read rate: a transport that returns "no data" immediately (rather
+    /// than after its read timeout) would otherwise spin the actor at hundreds
+    /// of thousands of reads a second (#675). The pause escalates with the run
+    /// and is clamped to the next scheduler deadline, exactly like the transient
+    /// receive-fault pause — but it records no fault and spends no retry budget,
+    /// so an indefinitely idle transport is never mistaken for a broken one.
+    async fn absorb_idle_receive(&mut self, runtime: &R) -> TurnOutcome {
+        self.faults.reset();
+        self.idle_receive_run = self.idle_receive_run.saturating_add(1);
+        let pause = clamp_transient_pause(
+            transient_receive_pause(self.idle_receive_run),
+            self.state.next_wake(),
+            Executor::now(runtime),
+        );
+        if !pause.is_zero() {
+            Executor::sleep(runtime, pause).await;
+        }
+        TurnOutcome::YieldBoundaries
+    }
+
     async fn handle_admission<D>(
         &mut self,
         admission: AdmissionBoundary,
@@ -1735,14 +1816,72 @@ where
         }
     }
 
+    /// Run one transport read under the session's read timeout, expressed as a
+    /// left-biased race so the caller's advertised knob is live on the async
+    /// surface, where the runtime-agnostic transports carry no timer of their
+    /// own (#675). A read that produces data always wins the left bias; only a
+    /// read that outlasts `read_timeout` yields the idle branch, which consumed
+    /// nothing and so reports no data rather than a fault. Free of `self`, with
+    /// explicit borrows, so the spawned actor future stays `Send` for any
+    /// lifetime.
+    async fn receive_within<D>(
+        driver: &mut D,
+        buffers: &mut super::OwnerBuffers,
+        frame_limit: usize,
+        runtime: &R,
+        read_timeout: Duration,
+    ) -> Result<AsyncReceive, Error>
+    where
+        D: AsyncOwnerDriver,
+    {
+        let idle_after_timeout = async {
+            Executor::sleep(runtime, read_timeout).await;
+            Ok(AsyncReceive::NoData)
+        };
+        future::or(driver.receive(buffers, frame_limit), idle_after_timeout).await
+    }
+
+    /// Run one transport write under the session's write timeout so a stalled
+    /// peer (a zero receive window, serial flow control) cannot park the actor
+    /// and block `close()` forever (#675). A timeout surfaces as a write
+    /// failure, which the engine turns into a byte-stream poison or an isolated
+    /// datagram failure exactly as an underlying `send` error would — never an
+    /// indefinite park. Free of `self` so it can run while the `WireWrite`
+    /// borrows the owner state.
+    async fn write_frame<D>(
+        driver: &mut D,
+        write: WireWrite<'_>,
+        runtime: &R,
+        write_timeout: Duration,
+    ) -> Result<TransmissionMeta, Error>
+    where
+        D: AsyncOwnerDriver,
+    {
+        // A left-biased race, matching the actor's other bounded waits: the
+        // write is polled first, so a write that completes always wins and only
+        // one that outlasts `write_timeout` yields the failure branch. Using
+        // `future::or` over `Executor::timeout` keeps the spawned actor future
+        // `Send` for any lifetime (the trait's `timeout` return type binds the
+        // wrapped future to the executor borrow's lifetime, which a spawn cannot
+        // prove generally); both are executor-neutral and behave identically.
+        let timed_out = async {
+            Executor::sleep(runtime, write_timeout).await;
+            Err(Error::TransportError(
+                format!("transport write did not complete within {write_timeout:?}").into(),
+            ))
+        };
+        future::or(driver.write(write), timed_out).await
+    }
+
     async fn drive<D>(&mut self, driver: &mut D, mut effects: VecDeque<Effect>, runtime: &R)
     where
         D: AsyncOwnerDriver,
     {
+        let write_timeout = self.state.policy().write_timeout;
         while let Some(effect) = effects.pop_front() {
             if let AppliedEffect::Transmit(staged) = self.state.apply_effect(effect) {
                 let write_result = match self.state.prepare_write(&staged) {
-                    Ok(write) => driver.write(write).await,
+                    Ok(write) => Self::write_frame(driver, write, runtime, write_timeout).await,
                     Err(error) => Err(error),
                 };
                 let produced =
@@ -1760,13 +1899,15 @@ where
         driver: &mut D,
         turn: &OwnerInputTurn,
         mut effects: VecDeque<Effect>,
+        runtime: &R,
     ) where
         D: AsyncOwnerDriver,
     {
+        let write_timeout = self.state.policy().write_timeout;
         while let Some(effect) = effects.pop_front() {
             if let AppliedEffect::Transmit(staged) = self.state.apply_effect(effect) {
                 let write_result = match self.state.prepare_write(&staged) {
-                    Ok(write) => driver.write(write).await,
+                    Ok(write) => Self::write_frame(driver, write, runtime, write_timeout).await,
                     Err(error) => Err(error),
                 };
                 let produced = self.state.finish_write_in_turn(turn, &staged, write_result);
@@ -2089,6 +2230,28 @@ mod tests {
                     inquiry: Duration::from_secs(5),
                     cancellation: Duration::from_secs(1),
                     ambiguity: Duration::from_secs(1),
+                },
+                retry: RetryPolicy::NEVER,
+                control: ControlPolicy::default(),
+                cancellation: CancellationPolicy::Supported,
+            },
+            applied_state: None,
+        }
+    }
+
+    /// A command whose deadlines are all short, so a liveness test that leaves it
+    /// in flight settles quickly on the fix's success path (#675).
+    fn command_with_short_deadlines() -> RuntimeRequest {
+        RuntimeRequest::Command {
+            wire: Arc::new(EncodedMessage::new(&[0x81, 0x01, 0x04, 0x00, 0xff]).unwrap()),
+            context: RequestContext {
+                target: CameraId::CAMERA_1,
+                timeout: TimeoutPolicy {
+                    ack: Duration::from_millis(100),
+                    completion: Duration::from_millis(100),
+                    inquiry: Duration::from_millis(100),
+                    cancellation: Duration::from_millis(100),
+                    ambiguity: Duration::from_millis(100),
                 },
                 retry: RetryPolicy::NEVER,
                 control: ControlPolicy::default(),
@@ -4162,5 +4325,325 @@ mod tests {
 
         handle.shutdown().await.unwrap();
         assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
+    }
+
+    // ---- #675: async arbitration liveness ----
+    //
+    // These run the actor on a spawned task (a real worker thread on the
+    // multi-thread tokio runtime and on smol's global executor) so an adversarial
+    // transport that never yields the CPU cannot wedge the single test thread —
+    // a regression fails the bounded wait cleanly instead of hanging the suite.
+
+    /// A peer that produces a valid frame on every poll. `receive` returns
+    /// immediately, so without the fairness ceiling it wins the left-biased
+    /// receive-first selection forever and starves every boundary source.
+    #[derive(Debug, Default)]
+    struct BabblingDriver;
+
+    impl AsyncOwnerDriver for BabblingDriver {
+        #[allow(clippy::manual_async_fn)]
+        fn write(
+            &mut self,
+            _write: WireWrite<'_>,
+        ) -> impl Future<Output = Result<TransmissionMeta, Error>> + Send {
+            async { Ok(TransmissionMeta { sequence: None }) }
+        }
+
+        #[allow(clippy::manual_async_fn)]
+        fn receive(
+            &mut self,
+            _buffers: &mut super::super::OwnerBuffers,
+            _frame_limit: usize,
+        ) -> impl Future<Output = Result<AsyncReceive, Error>> + Send {
+            async {
+                Ok(AsyncReceive::Frames(vec![DecodedFrame {
+                    target: CameraId::CAMERA_1,
+                    sequence: None,
+                    response: DecodedResponse::Unknown,
+                }]))
+            }
+        }
+    }
+
+    /// A peer that accepts the write but never completes it, and never delivers a
+    /// read. Without a write timeout the actor parks in the write and `close()`
+    /// never returns.
+    #[derive(Debug, Default)]
+    struct StallingWriteDriver;
+
+    impl AsyncOwnerDriver for StallingWriteDriver {
+        #[allow(clippy::manual_async_fn)]
+        fn write(
+            &mut self,
+            _write: WireWrite<'_>,
+        ) -> impl Future<Output = Result<TransmissionMeta, Error>> + Send {
+            async { future::pending().await }
+        }
+
+        #[allow(clippy::manual_async_fn)]
+        fn receive(
+            &mut self,
+            _buffers: &mut super::super::OwnerBuffers,
+            _frame_limit: usize,
+        ) -> impl Future<Output = Result<AsyncReceive, Error>> + Send {
+            async { future::pending().await }
+        }
+    }
+
+    /// A peer that reports "no data" on every poll, immediately. Without the
+    /// idle-read pace this spins the actor at hundreds of thousands of reads a
+    /// second.
+    #[derive(Debug)]
+    struct NoDataDriver {
+        reads: Arc<std::sync::atomic::AtomicU64>,
+    }
+
+    impl AsyncOwnerDriver for NoDataDriver {
+        #[allow(clippy::manual_async_fn)]
+        fn write(
+            &mut self,
+            _write: WireWrite<'_>,
+        ) -> impl Future<Output = Result<TransmissionMeta, Error>> + Send {
+            async { Ok(TransmissionMeta { sequence: None }) }
+        }
+
+        fn receive(
+            &mut self,
+            _buffers: &mut super::super::OwnerBuffers,
+            _frame_limit: usize,
+        ) -> impl Future<Output = Result<AsyncReceive, Error>> + Send {
+            let reads = Arc::clone(&self.reads);
+            async move {
+                reads.fetch_add(1, Ordering::Relaxed);
+                Ok(AsyncReceive::NoData)
+            }
+        }
+    }
+
+    // Shared assertions, generic over the runtime used for the *test's* bounded
+    // waits. The actor itself runs on a dedicated OS thread with its own runtime
+    // instance (see the harnesses below), so an adversarial peer that never
+    // yields cannot wedge the test thread, and the actor's own timers are driven
+    // by that thread rather than the one running these bounds.
+
+    async fn assert_babble_never_starves_boundaries<R>(
+        runtime: R,
+        handle: AsyncOwnerHandle,
+        terminated: flume::Receiver<OwnerSnapshot>,
+    ) where
+        R: Runtime,
+    {
+        // Admission is a boundary source; it must be serviced within a bound
+        // despite the continuous flood of valid frames.
+        let receipt = Executor::timeout(&runtime, Duration::from_secs(5), handle.submit(command()))
+            .await
+            .expect("a babbling peer must not starve admission")
+            .expect("admission rejected");
+        // Shutdown enters its one-slot lane; the actor must then terminate — the
+        // `close()` liveness the P0 is about — within a bound.
+        handle.shutdown().await.unwrap();
+        let snapshot = Executor::timeout(&runtime, Duration::from_secs(5), terminated.recv_async())
+            .await
+            .expect("a babbling peer must not starve shutdown/close")
+            .expect("actor terminated");
+        assert_eq!(snapshot.state, SessionState::Shutdown);
+        drop(receipt);
+    }
+
+    async fn assert_stalled_write_never_parks_close<R>(
+        runtime: R,
+        handle: AsyncOwnerHandle,
+        terminated: flume::Receiver<OwnerSnapshot>,
+    ) where
+        R: Runtime,
+    {
+        // Short request deadlines so the fix's success path (the write is
+        // abandoned at its timeout, then the request settles on its own
+        // deadline) completes quickly and is cleanly separated from the broken
+        // "never returns" case the bound catches.
+        let receipt = Executor::timeout(
+            &runtime,
+            Duration::from_secs(5),
+            handle.submit(command_with_short_deadlines()),
+        )
+        .await
+        .expect("admission must resolve before the stalled write")
+        .expect("admission rejected");
+        // The write is abandoned at its 50 ms timeout, unparking the actor, so
+        // shutdown/close is serviced rather than blocked behind the stalled peer.
+        handle.shutdown().await.unwrap();
+        let snapshot = Executor::timeout(&runtime, Duration::from_secs(5), terminated.recv_async())
+            .await
+            .expect("a stalled write must not park close")
+            .expect("actor terminated");
+        assert_eq!(snapshot.state, SessionState::Shutdown);
+        drop(receipt);
+    }
+
+    async fn assert_nodata_never_hot_spins<R>(
+        runtime: R,
+        handle: AsyncOwnerHandle,
+        terminated: flume::Receiver<OwnerSnapshot>,
+        reads: Arc<std::sync::atomic::AtomicU64>,
+    ) where
+        R: Runtime,
+    {
+        // Let the idle transport run for a bounded wall-clock window.
+        Executor::sleep(&runtime, Duration::from_millis(500)).await;
+        let observed = reads.load(Ordering::Relaxed);
+        handle.shutdown().await.unwrap();
+        let _ = Executor::timeout(&runtime, Duration::from_secs(5), terminated.recv_async()).await;
+        // The escalating idle pause caps at 250 ms, so a correctly paced actor
+        // does single digits of reads here; the unbounded spin does hundreds of
+        // thousands.
+        assert!(
+            observed < 2_000,
+            "idle no-data receive hot-spun: {observed} reads in 500 ms"
+        );
+    }
+
+    // Per-runtime harnesses: run `actor` on its own OS thread with its own
+    // runtime instance, returning the terminal snapshot on a channel. tokio
+    // timers are driven by that thread's runtime; smol timers by that thread's
+    // `block_on`, which reacts on async-io whenever the actor parks.
+    #[cfg(feature = "runtime-tokio")]
+    fn run_isolated_tokio_actor<D>(
+        owner_policy: OwnerPolicy,
+        driver: D,
+    ) -> (
+        AsyncOwnerHandle,
+        flume::Receiver<OwnerSnapshot>,
+        std::thread::JoinHandle<()>,
+    )
+    where
+        D: AsyncOwnerDriver + Send + 'static,
+    {
+        let actor_rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let actor_runtime = TokioRuntime::from_handle(actor_rt.handle().clone());
+        let (handle, actor) = AsyncOwnerActor::new(owner_policy, actor_runtime).unwrap();
+        let (tx, rx) = flume::bounded::<OwnerSnapshot>(1);
+        let join = std::thread::spawn(move || {
+            let snapshot = actor_rt.block_on(actor.run(driver));
+            let _ = tx.send(snapshot);
+        });
+        (handle, rx, join)
+    }
+
+    #[cfg(feature = "runtime-smol")]
+    fn run_isolated_smol_actor<D>(
+        owner_policy: OwnerPolicy,
+        driver: D,
+    ) -> (
+        AsyncOwnerHandle,
+        flume::Receiver<OwnerSnapshot>,
+        std::thread::JoinHandle<()>,
+    )
+    where
+        D: AsyncOwnerDriver + Send + 'static,
+    {
+        let (handle, actor) = AsyncOwnerActor::new(owner_policy, SmolRuntime::new()).unwrap();
+        let (tx, rx) = flume::bounded::<OwnerSnapshot>(1);
+        let join = std::thread::spawn(move || {
+            let snapshot = smol::block_on(actor.run(driver));
+            let _ = tx.send(snapshot);
+        });
+        (handle, rx, join)
+    }
+
+    #[cfg(feature = "runtime-tokio")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn tokio_babbling_peer_never_starves_boundaries() {
+        let (handle, terminated, join) = run_isolated_tokio_actor(policy(1), BabblingDriver);
+        assert_babble_never_starves_boundaries(
+            TokioRuntime::from_current().unwrap(),
+            handle,
+            terminated,
+        )
+        .await;
+        join.join().unwrap();
+    }
+
+    #[cfg(feature = "runtime-tokio")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn tokio_stalled_write_never_parks_close() {
+        let mut owner_policy = policy(1);
+        owner_policy.write_timeout = Duration::from_millis(50);
+        let (handle, terminated, join) =
+            run_isolated_tokio_actor(owner_policy, StallingWriteDriver);
+        assert_stalled_write_never_parks_close(
+            TokioRuntime::from_current().unwrap(),
+            handle,
+            terminated,
+        )
+        .await;
+        join.join().unwrap();
+    }
+
+    #[cfg(feature = "runtime-tokio")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn tokio_nodata_receive_never_hot_spins() {
+        let reads = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let (handle, terminated, join) = run_isolated_tokio_actor(
+            policy(1),
+            NoDataDriver {
+                reads: Arc::clone(&reads),
+            },
+        );
+        assert_nodata_never_hot_spins(
+            TokioRuntime::from_current().unwrap(),
+            handle,
+            terminated,
+            reads,
+        )
+        .await;
+        join.join().unwrap();
+    }
+
+    #[cfg(feature = "runtime-smol")]
+    #[test]
+    fn smol_babbling_peer_never_starves_boundaries() {
+        let (handle, terminated, join) = run_isolated_smol_actor(policy(1), BabblingDriver);
+        smol::block_on(assert_babble_never_starves_boundaries(
+            SmolRuntime::new(),
+            handle,
+            terminated,
+        ));
+        join.join().unwrap();
+    }
+
+    #[cfg(feature = "runtime-smol")]
+    #[test]
+    fn smol_stalled_write_never_parks_close() {
+        let mut owner_policy = policy(1);
+        owner_policy.write_timeout = Duration::from_millis(50);
+        let (handle, terminated, join) = run_isolated_smol_actor(owner_policy, StallingWriteDriver);
+        smol::block_on(assert_stalled_write_never_parks_close(
+            SmolRuntime::new(),
+            handle,
+            terminated,
+        ));
+        join.join().unwrap();
+    }
+
+    #[cfg(feature = "runtime-smol")]
+    #[test]
+    fn smol_nodata_receive_never_hot_spins() {
+        let reads = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let (handle, terminated, join) = run_isolated_smol_actor(
+            policy(1),
+            NoDataDriver {
+                reads: Arc::clone(&reads),
+            },
+        );
+        smol::block_on(assert_nodata_never_hot_spins(
+            SmolRuntime::new(),
+            handle,
+            terminated,
+            reads,
+        ));
+        join.join().unwrap();
     }
 }

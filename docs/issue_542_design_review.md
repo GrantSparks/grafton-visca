@@ -146,7 +146,22 @@ encoding.
    simultaneously ready control sources. Only a non-progressing receive yields
    to shutdown, cancellation, admission, control, and timer, in that fixed
    order. This removes the arbitrary eight-read fairness flip without
-   reintroducing the always-failing-transport livelock.
+   reintroducing the always-failing-transport livelock. **Revised (issue #675):**
+   the progress-sensitive rule alone bounded only the *failing* arm; a peer that
+   returned a valid frame on every poll (the *succeeding* arm) still won the
+   left-biased selection forever and starved every boundary source, so
+   `close()` never returned and an emergency stop could not be admitted (fatal
+   on smol, latent on tokio). The decision now adds a bounded **fairness
+   ceiling** — after a run of consecutive receive-first wins tied to
+   `frames_per_receive`, one boundary-first turn is forced regardless of
+   progress — which restores #625's own acceptance criterion (the boundary
+   channels are always eventually polled) for the succeeding arm too. This is a
+   bounded backstop, not the old open-ended history counter, and it does not fire
+   for real reply bursts, so the settle-first ordering is preserved. The same
+   revision makes the async owner enforce `read_timeout` and `write_timeout`
+   around the transport (they were previously inert on the async surface) and
+   paces a run of immediately-returning no-data reads so an idle transport cannot
+   hot-spin.
 3. The Rust 1.98 compile-pass and compile-fail gates use the repository's
    declaration-based harness rather than toolchain-sensitive rendered
    diagnostics. The pinned job checks the declared compile contract directly.
