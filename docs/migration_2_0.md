@@ -431,7 +431,6 @@ application requested:
 | The peer closed the connection | `ConnectionClosed` | `true` |
 | The stream position became unknowable | `StreamPoisoned` | `true` |
 | A sent raw command's outcome cannot be correlated (ACK/completion/cancellation ambiguity, receive fault while awaiting ACK, or active retry-budget expiry in `Sending`/`AwaitingAck`/`Executing`) | `UnsequencedCommandUnconfirmed` | `true` |
-| The owner's transport or channel is gone | `NoTransport`, `TransportChannelClosed`, … | `true` |
 | The application shut the session down | `RuntimeShutdown` | `false` |
 
 `UnsequencedCommandUnconfirmed` is the raw-ambiguity mapping in that table:
@@ -447,10 +446,11 @@ failure, because a datagram write failure is isolated to its own transmission
 and a stream failure reaches the caller as `StreamPoisoned`.
 
 1.x's `Error::to_public_error()` is gone and has no replacement. It folded
-`NoSocket` into `NoTransport`, which in 2.0 would move the camera's transient
-`0x05` capacity answer into the set `requires_new_session()` calls session
-death — a reconnect where a retry was correct. Use `Error::kind()` for the
-coarse category and `requires_new_session()` for the reconnect decision.
+`NoSocket` into a transport-unavailable session-death error, which in 2.0 would
+move the camera's transient `0x05` capacity answer into the set
+`requires_new_session()` calls session death — a reconnect where a retry was
+correct. Use `Error::kind()` for the coarse category and
+`requires_new_session()` for the reconnect decision.
 
 ```rust
 use grafton_visca::blocking::{Camera, Session};

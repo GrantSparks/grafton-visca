@@ -521,6 +521,29 @@ destination.
 
 ### Removed
 
+- **Removed eight never-constructed public `Error` variants** (#687):
+  `Error::LockPoisoned`, `Error::ChannelClosed`,
+  `Error::SocketManagerUnavailable`, `Error::SocketManagerChannelClosed`,
+  `Error::ResponseChannelClosed`, `Error::TransportMismatch`,
+  `Error::NoTransport`, and `Error::TransportChannelClosed`. None was ever
+  constructed, matched, or converted into anywhere in `src/`, `tests/`,
+  `examples/`, or `fuzz/` — the only uses were the enum declaration, `kind()`,
+  `requires_new_session()`, and unit tests that built them by hand. Six of them
+  (`ChannelClosed`, `SocketManagerUnavailable`, `SocketManagerChannelClosed`,
+  `ResponseChannelClosed`, `NoTransport`, `TransportChannelClosed`) were
+  classified `requires_new_session() == true`, so the terminal session-recovery
+  taxonomy advertised conditions the runtime cannot produce, and the
+  `docs/migration_2_0.md` recovery table told migrating callers to match
+  `NoTransport` and `TransportChannelClosed` — recovery arms that could never
+  fire. `SocketManager*` was 1.x vocabulary for a component 2.0 deleted, and
+  `LockPoisoned` cannot occur because every lock recovers its guard with
+  `into_inner()` instead of surfacing a poison error. The reachable terminal
+  variants are unchanged: `ConnectionClosed`, `StreamPoisoned`, and
+  `UnsequencedCommandUnconfirmed` still report `requires_new_session() == true`,
+  and an internally closed boundary channel still normalizes to
+  `Error::RuntimeShutdown` (never `ChannelClosed`) at the point of failure.
+  Because `Error` is `#[non_exhaustive]` a wildcard arm was already required;
+  only callers that named a removed variant explicitly need to drop that arm.
 - **Removed the 1.2.0 command-priority *vocabulary*** (#630).
   `runtime::Priority`, `Camera::set_command_priority` / `command_priority` /
   `execute_with_priority`, their `BlockingClient` mirrors, and
@@ -571,10 +594,11 @@ destination.
   with a reachable input was wrong for 2.0: it folded `Error::NoSocket` into
   `Error::NoTransport`. `NoSocket` is the camera's `0x05` answer — transient
   socket-table capacity on a healthy session, classified `ErrorKind::BufferFull`
-  and retryable (#501, #566) — while `NoTransport` is one of the variants
-  `Error::requires_new_session()` reports as session death, so anything that
-  had started calling the helper would have turned a retry into a spurious
-  reconnect. Its remaining arms mapped variants 2.0 never constructs.
+  and retryable (#501, #566) — while `NoTransport` was one of the variants
+  `Error::requires_new_session()` reported as session death (itself since
+  removed as never-constructed, #687), so anything that had started calling the
+  helper would have turned a retry into a spurious reconnect. Its remaining arms
+  mapped variants 2.0 never constructs.
   Nothing is lost: in 1.x the helper had a single call site,
   `RuntimeHandle::normalize_boundary_error`, whose preceding match arm already
   claimed the whole channel-closed family, and 2.0 normalizes a closed
