@@ -608,6 +608,27 @@ destination.
 
 ### Fixed
 
+- **`blocking` + `test-utils` no longer links an async executor** (#691),
+  making the README's "native synchronous I/O with no async runtime/executor
+  dependency" guarantee true for every blocking feature set rather than only the
+  network and serial ones the gate already covered. `test-utils` unconditionally
+  enabled `async-executor` and `futures-lite`, so
+  `cargo tree --no-default-features --features blocking,test-utils --edges normal`
+  linked `async-executor`, `async-task`, and `futures-lite` into a blocking-only
+  graph — the exact dependency the blocking facade promises to avoid. Those two
+  crates back only the async testkit (`DeterministicExecutor` and the async
+  `ScriptedTransport`), which already compiles solely under `async`, so they now
+  ride on the `async` feature and `test-utils` links neither. A blocking consumer
+  that enables `test-utils` for `ScriptedBlockingTransport`, `Step`, and the
+  `helpers` gets the same native synchronous graph as plain `blocking`; the async
+  testkit is unchanged under `async`/`runtime-*`. The dependency-boundary gate
+  (`.github/scripts/check-blocking-dependency-boundary.sh`) now also checks
+  `blocking,test-utils` — the leg that fails before this change and passes after
+  — resolves the graph with `--target all` so a `cfg(windows)`-only async crate
+  cannot hide on the Linux CI host, asserts a known dependency is present so a
+  change in `cargo tree` output can no longer make every check match nothing and
+  pass green, and denies `futures-executor`, `async-std`, and
+  `async-global-executor` alongside the existing names.
 - **A UDP session opened through the async `TransportHandle` wrapper is governed
   by datagram rules, not stream-poison rules** (#677). `impl AsyncTransport for
   TransportHandle<R>` forwarded `send`, `recv_into`, and `addressing_mode_hint`
