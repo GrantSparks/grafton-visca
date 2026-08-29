@@ -428,9 +428,12 @@ TCP keepalive is a socket-level liveness mechanism. It can detect broken peers
 and may keep idle network-path state active, but it does not send VISCA commands
 or guarantee that camera firmware will retain an idle application session. When
 an operation fails, ask `Error::requires_new_session()`: it reports `true` for
-terminal connection failures such as `ConnectionClosed`, `StreamPoisoned`, and
-the raw ambiguity error `UnsequencedCommandUnconfirmed`; it reports `false` for
-a `RuntimeShutdown` this application requested. On `true`, discard that session
+terminal connection failures such as `ConnectionClosed` and `StreamPoisoned`; it
+reports `false` for a `RuntimeShutdown` this application requested and for the raw
+ambiguity error `UnsequencedCommandUnconfirmed`, which since #671 fails only that
+one command while the session keeps running (opt into
+`OperationalTuning::strict_unconfirmed_poison` for the old whole-session poison,
+surfaced as `StreamPoisoned`). On `true`, discard that session
 and establish a replacement from the retained configuration. Its state cache
 starts `Unknown`, so re-query and reconcile camera state before any deliberate
 resubmission. Never blindly replay an operation whose completion is uncertain.

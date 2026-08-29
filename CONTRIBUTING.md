@@ -328,6 +328,23 @@ workflow changes, update the matching README, example, or contributor docs
 before closing the task. `submit` examples must distinguish lifecycle management
 from profile-aware input validation and applied completion from physical settling.
 
+### Changelog discipline for reversals and waivers
+
+A decision must not reuse the issue number of the finding it reverses. When a
+change reverts or supersedes earlier behavior — an earlier 2.0 preview decision
+or a prior review verdict included — it gets its own `### Changed` or
+`### Removed` entry in `CHANGELOG.md` that names the superseded finding by its
+issue number, plus a migration-guide row wherever a 1.x or prior user would feel
+it. Rewriting the original entry in place, or filing the reversal under the same
+issue number, hides the reversal from the record and is not allowed.
+
+This is the same discipline the 1.x behavioral-parity gate already enforces for
+waivers: every id in `approved_intentional_changes`
+(`tests/fixtures/1x_oracle/manifest.json`) must appear verbatim in `CHANGELOG.md`,
+and the `behavioral-parity-1x` CI job fails if it does not — so an intentional
+2.0 change cannot bless itself in the manifest without a reviewed, user-visible
+changelog entry naming what it supersedes. See `docs/behavioral_parity_1x.md`.
+
 ### Code Documentation
 
 - All public items must have doc comments

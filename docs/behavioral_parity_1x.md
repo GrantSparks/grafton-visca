@@ -147,13 +147,12 @@ manifest line that blesses itself. An unapproved classification, or an approved
 id with no changelog entry, fails the gate. If the behavior is still required by
 #542, keep it `preserved` and repair the production path or its test.
 
-The three current waivers are `deterministic-equal-jitter` and
-`evidence-based-raw-correlation` (both maintainer-ratified per #692) and
-`evidence-bounded-retry`. **TODO(#671):** `evidence-bounded-retry` is being
-rewritten to describe the new per-request (not whole-session) failure model;
-its rationale below is provisional and will be ratified once #671 lands. Its
-changelog entry says the same, so the coupling is satisfied without implying it
-is settled.
+The three current waivers — `deterministic-equal-jitter`,
+`evidence-based-raw-correlation`, and `evidence-bounded-retry` — are all
+maintainer-ratified per #692. `evidence-bounded-retry` was ratified once #671
+landed and its rationale below was rewritten to describe the shipped per-request
+(not whole-session) failure model; its CHANGELOG entry records the same, so the
+gate's changelog-coupling stays satisfied against the settled wording.
 
 Retry-count categories and bounded exponential scheduling retain their 1.x
 provenance, but replay is no longer inferred merely from elapsed time. Sony
