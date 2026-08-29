@@ -17,11 +17,39 @@ historical names are not part of the 2.0 contract.
 | One implicit camera ID or raw camera-ID setters | `CameraId`, `SessionConfig::for_target`, `try_camera_id`, and explicit `camera_for`. |
 | `CameraVariant` and root camera-number constants | `CameraId` plus a validated `ProfileSpec`/compile-time profile. |
 | `RuntimeHandle` and private scheduler/runtime modules | `TokioRuntime`, `SmolRuntime`, or a coherent public `Executor`; never construct the owner directly. |
+| `CameraBuilder` and its `with_executor(...).from_transport(...).profile::<P>().open_async()` chain | `Connect`, `CameraConfig`, or `Connect::builder()` for standard transports; `Session::open(transport, SessionConfig)` for a caller-owned one. `camera_id(...)` becomes a `SessionConfig` target (`for_target`/`register_target`) or `CameraConfig::camera_id`; `timeout_config`/`retry_config` become an `OperationalTuning` supplied through `with_tuning`. |
+| `Runtime::connect_tcp` / `connect_udp` and the `TransportHandle` enum | Both remain under `async` as `runtime::{Runtime, TransportHandle}`. Prefer `Connect`/`CameraConfig`; reach for `Session::open(TransportHandle::Tcp(runtime.connect_tcp(addr, cfg).await?), config)` only when you drive the transport yourself. |
 
 `SessionConfig` accepts only individual VISCA IDs 1–7. Broadcast, duplicate
 registration, an empty registry, and unsupported profile/transport pairs are
 errors before I/O. `camera()` is only for a sole target; multi-target code must
 select `camera_for(target)`.
+
+### Feature resolution inverted
+
+1.x had **no `blocking` feature** and shipped `default = []`. The blocking API
+was the implicit baseline, and `mode-async` — pulled in transitively by
+`runtime-tokio`, `runtime-smol`, `dyn-api`, and `transport-serial-tokio` —
+structurally *replaced* it: enabling any async feature dropped the blocking
+types (`BlockingCamera`, `BlockingClient`) from the crate and exported
+`AsyncCamera` instead. A build was therefore guaranteed to be blocking **XOR**
+async. There was no `compile_error!` guard, because the exclusion was enforced
+by `cfg(mode-async)` on the exported items rather than by a check.
+
+2.0 inverts this:
+
+| 1.x feature reality | 2.0 |
+| --- | --- |
+| `default = []`, blocking implicit | `default = ["blocking"]`, blocking explicit |
+| `mode-async` (the only mode toggle) | `async`; add `runtime-tokio` or `runtime-smol` for a built-in runtime |
+| blocking XOR async, enforced by `cfg` | `blocking` and `async` are independent and **co-enableable** in one build |
+| `--no-default-features` ⇒ blocking crate | `--no-default-features` (no facade) ⇒ pure engine/domain layers only |
+
+So one 2.0 build can expose both `grafton_visca::Camera` (async) and
+`grafton_visca::blocking::Camera`. If you relied on 1.x's implicit-blocking
+default you are unaffected — it is now the explicit default. If you enabled
+`mode-async`, switch to `async` (or a `runtime-*` feature) and add `blocking`
+only if you also want the blocking facade in the same build.
 
 ### The `BlockingClient` inversion
 
@@ -67,33 +95,39 @@ the async `Session` / `CameraSession<P>` rows above.
 | 1.x category | 2.0 destination |
 | --- | --- |
 | Root control-trait calls that duplicate noun views | `camera.power()`, `zoom()`, `system()`, `pan_tilt()`, `focus()`, `exposure()`, `white_balance()`, `image()`, `presets()`, `tally()`, `nd_filter()`, `motion_sync()`, `menu()`, and `advanced()`. |
-| Root `is_moving`, `wait_until_idle`, and `stop_all_motion` aliases | `camera.motion().is_moving()` (no argument, samples `AffectedAxes::MOVEMENT`), `is_moving_axes(MotionQuery)` for an explicit axis set, `wait_until_idle(IdleWait)`, and `stop_all_motion()`. |
+| 1.x `is_moving` / `stop_all_motion`, and the movement waits `await_idle` / `await_pan_tilt_idle` / `await_zoom_idle` / `await_focus_idle` / `await_axes_idle` (each taking a `Duration`) | `camera.motion().is_moving()` (no argument, samples `AffectedAxes::MOVEMENT`), `is_moving_axes(MotionQuery)` for an explicit axis set, `wait_until_idle(IdleWait)`, and `stop_all_motion()`. There was **no** 1.x `wait_until_idle`; that name is 2.0's. |
+| 1.x `AwaitConfig` and `await_with_config(&AwaitConfig)` (`for_pan_tilt`/`for_zoom`/`for_focus`/`for_preset_recall`, `poll_interval`, `tolerance`, `debug`) | `camera::IdleWait` (same `for_*` presets plus `with_interval`/`with_tolerance`/`with_timeout`) passed to `wait_until_idle`, or `camera::MotionQuery` for `is_moving_axes`. The `debug` field has no counterpart — use `tracing`. |
 | Noun-specific idle/wait aliases | The separate `motion()` safety/observation view. |
-| `AffectedAxes::ALL` as "everything that moves" | `AffectedAxes::MOVEMENT` — see [`AffectedAxes::ALL` changed meaning](#affectedaxesall-changed-meaning) below. `ALL` now also selects iris and ND filter. |
+| 1.x `Axes::ALL` as "everything that moves" | `AffectedAxes::MOVEMENT`. The 1.x `Axes` type is renamed `AffectedAxes` **and** `ALL` changed meaning — see [`Axes` → `AffectedAxes`: rename and `ALL` meaning change](#axes--affectedaxes-rename-and-all-meaning-change) below. |
 | `DynCameraControl` | `DynSessionCameraControl` plus `DynSessionCameraNouns`. |
 | `DynPanTiltControl`, `DynZoomControl`, `DynFocusControl`, `DynPresetsControl`, and `DynMotionControl` | `DynPanTilt`, `DynZoom`, `DynFocus`, `DynPresets`, and `DynMotion`. The final dynamic surface also has `DynPower`, `DynSystem`, `DynExposure`, `DynWhiteBalance`, `DynImage`, `DynTally`, `DynNdFilter`, `DynMotionSync`, `DynMenu`, and `DynAdvanced`. |
 | `IntoDynCamera` and wrapper-specific dynamic constructors | `DynSessionCamera::from_session` or `from_session_target`. |
 | Metadata-only optional control fallback | Static `Has*` marker gates, or dynamic `supports_typed(...)` followed by the matching `Dyn*` noun. |
 | Duplicate `NdFilterInquiry` accessor vocabulary | `nd_filter().position()` only. |
 | Separate focus `lock()`/`unlock()` twins | One parameterized `focus().set_lock(FocusLock)`. |
+| Root `toggle_menu()` (the 1.x `DirectMenuControl` method on the camera) | The `menu()` noun: `menu().display(true)` / `menu().display(false)` for explicit open/close, `menu().status()` to read whether it is open, and `menu().navigate(...)` / `menu().select()` for cursor control. There is no single toggle; choose the state explicitly. |
+| Zoom `set_normalized(UnitInterval)` / `set_normalized_in_domain(UnitInterval, ZoomDomain)` | Same names on `zoom()`: `zoom().set_normalized(UnitInterval)` and `zoom().set_normalized_in_domain(UnitInterval, ZoomDomain)`. They are now **targeted operations** returning an `Operation<Targeted>`; await it with `applied()`/`settled()` instead of getting a bare `Result<()>`. |
 
 Dynamic views remain async and object-safe. They erase profile/request types but
 share the static session's owner, timeout, pacing, cancellation, and state
 cache. There is no dynamic policy layer that can bypass static preparation.
 
-### `AffectedAxes::ALL` changed meaning
+### `Axes` → `AffectedAxes`: rename and `ALL` meaning change
 
-This is the one motion change that ports cleanly and then fails on the device,
-so port it deliberately.
+This axis change is both a rename and a semantic change, and the semantic half
+ports cleanly then fails on the device — so port it deliberately.
 
-In 1.x `AffectedAxes::ALL` was the three mechanical movement axes: pan/tilt,
-zoom, and focus. In 2.0 `AffectedAxes` has five axes — pan/tilt, zoom, focus,
-iris, and ND filter — and `ALL` means all five.
+1.x's axis type was `Axes` (`grafton_visca::camera::Axes`), whose `ALL` was the
+three mechanical movement axes: pan/tilt, zoom, and focus (`Axes::default()` was
+`Axes::ALL`). 2.0 renames the type to `AffectedAxes` and gives it five axes —
+pan/tilt, zoom, focus, iris, and ND filter — so `AffectedAxes::ALL` now means
+all five. A mechanical `Axes::ALL` → `AffectedAxes::ALL` rename therefore
+silently widens the selection.
 
 A motion observation only queries the axes it is given, and preparation
 requires the profile to declare a position inquiry for every selected axis.
-`ALL` therefore now demands iris **and** ND-filter position inquiries.
-`SonyFR7` is the only built-in profile that declares both, so
+`AffectedAxes::ALL` therefore now demands iris **and** ND-filter position
+inquiries. `SonyFR7` is the only built-in profile that declares both, so
 `motion().is_moving_axes(MotionQuery::new(AffectedAxes::ALL))`,
 `wait_until_idle(IdleWait::new(AffectedAxes::ALL, ..))`, and any operation
 declaring `ALL` fail on eight of the nine built-in profiles with
@@ -101,10 +135,10 @@ declaring `ALL` fail on eight of the nine built-in profiles with
 never runs.
 
 Use `AffectedAxes::MOVEMENT` for "wait for everything that moves". It is
-exactly 1.x's three axes and is what `MotionQuery::default()`,
+exactly 1.x's three `Axes::ALL` axes and is what `MotionQuery::default()`,
 `IdleWait::default()`, and the named `IdleWait` presets already select. Reserve
-`ALL` for a profile you have checked declares iris and ND-filter position
-inquiries.
+`AffectedAxes::ALL` for a profile you have checked declares iris and ND-filter
+position inquiries.
 
 ## Requests, inquiries, and operations
 
@@ -113,6 +147,10 @@ inquiries.
 | Concrete async `_op` methods (`pan_tilt_*_op`, `set_*_op`, `preset_recall_op`, and similar) | Construct the typed request and call `submit`; use the returned targeted/applied-only handle. |
 | `start_*`, `*_and_wait`, `_result`, and `*_op` twins | One noun method for ordinary completion, or one `submit` call for lifecycle control. No aliases or result twins. |
 | `await_completion` | `applied`; use `settled` only on a targeted operation. |
+| `InFlight::await_applied(timeout)` / `BlockingInFlight::await_applied(timeout)`, and `await_settled(timeout)` | `Operation::applied()` / `settled()` for the request's configured deadline, or `applied_with_timeout(timeout)` / `settled_with_timeout(timeout)` for an explicit one. `settled*` exists only on a targeted operation. |
+| `send_command_with_id(&cmd) -> (CommandId, _)` followed later by `cancel(command_id)` | `camera.submit::<K, _>(&op)` returns a linear `Operation<K>` **handle**; hold it and call `operation.cancel()`. The handle itself is the cancellation authority. |
+| `CommandId` used as a cancellation key | `OperationId` (from `operation.id()`) is read-only observability only; it can no longer authorize waiting or cancellation. Cancel through the owning `Operation` / `Cancellation` handle. |
+| `cancel_command(ViscaSocket)` and `cancel_socket(ViscaSocket)` (cancel by socket) | There is no public cancel-by-socket call — socket cancellation is owner-only and is driven by cancelling the specific `Operation`. `ViscaSocket` still exists (`grafton_visca::ViscaSocket`) as a value type but is not a cancellation entry point. To force motion to end, submit the typed STOP. |
 | `InFlightDyn`/legacy dynamic operation wrappers | `DynTargetedOperation`, `DynAppliedOperation`, and `DynCancellation`. Applied-only handles have no settled operation. |
 | Dropping an operation handle | Unchanged from 1.x: drop is `detach` and never stops hardware. See [Drop never stops hardware](#drop-never-stops-hardware) for the scoped stop-on-exit pattern. |
 | Raw `command::RawInquiryPayload`/untyped response assumptions | `raw::Plain`, `raw::Inquiry`, `raw::Targeted`, or `raw::AppliedOnly`, with an explicit response parser/spec. |
@@ -348,6 +386,8 @@ Both forms are demonstrated end to end in `examples/operation_handles.rs` and
 | 1.x category | 2.0 destination |
 | --- | --- |
 | Raw normalized floats, root normalized helpers, `ZoomPosition` float conversions | Checked public values such as `UnitInterval::new/try_from`, `ZoomPosition`, and profile-aware noun methods. |
+| `inquiry_conversions` module (`ZoomDomain`, `ZoomPositionExt`, `PanTiltPositionRaw`, `PanTiltPositionDeg`, `zoom_from_normalized`) | Preserved: the `grafton_visca::inquiry_conversions` module and those exports remain, so raw↔degrees and normalized↔units conversions port unchanged. Prefer the profile-aware noun methods when a profile is in hand. |
+| `capabilities::Capabilities` runtime discovery (`from_profile::<P>()`, `supports_typed`, zoom/magnification helpers) | Preserved: `Capabilities` stays at `grafton_visca::capabilities::Capabilities`. Reach it with `camera.capabilities()` (static or dynamic) or `Capabilities::from_profile::<P>()`; build a runtime profile from `Capabilities::runtime_baseline(..)` plus `ProfileSpec::builder`. |
 | Model-aware constructors that embed a profile in a value | Plain checked values plus the profile-gated camera noun; profile validation belongs at preparation. |
 | Generic optional accessors or unsupported PTZOptics/Sony controls | Compile-time `Has*` gates; dynamic callers inspect capability support. Unsupported controls are not exposed through metadata fallback. |
 | Direct PTZOptics ND filter, Motion Sync, variable-speed, Sony color-temperature, or legacy quality controls | The matching supported noun only when its profile marker permits it; otherwise use a raw extension deliberately. |

@@ -212,3 +212,27 @@ name = "validate_inquiries"
 
 [[example]]
 name = "validate_ae_commands"
+
+[[example]]
+name = "cancellation"
+required-features = ["runtime-tokio"]
+
+[[example]]
+name = "motion_safety"
+required-features = ["blocking"]
+
+[[example]]
+name = "dyn_quickstart"
+required-features = ["runtime-tokio", "dyn-api"]
+
+[[example]]
+name = "custom_request"
+required-features = ["blocking"]
+
+[[example]]
+name = "multi_camera"
+required-features = ["blocking"]
+
+[[example]]
+name = "recovery"
+required-features = ["blocking"]

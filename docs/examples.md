@@ -16,6 +16,10 @@ The maintained examples in `examples/` fall into these categories:
 | Operational patterns | `concurrent_control`, `error_handling`, `runtime_demo`, `runtime_agnostic` | Demonstrate runtime and application patterns without relying on private runtime internals. |
 | Presets | `preset_demo` | One owner-backed blocking preset operation selected on the command line: `set`, `recall` (targeted, so it waits for settled), or `clear`. Closes the session on every path. |
 | Operation handles | `operation_handles`, `operation_handles_async` | Demonstrate blocking and Tokio submission, exact applied waits, physical settled waits, explicit detach paired with a bounded stop, a session that is closed on every path, and the caller-written stop-on-exit guard that bounds movement to a scope. |
+| Cancellation and safety | `cancellation`, `motion_safety` | Tokio `.cancel()` — both the supported `Cancellation`/`outcome` path and the PTZOptics G2 unsupported-post-send `NotSupported`/`CancelRejected` recovery — and the blocking `motion()` safety view: `is_moving`, `is_moving_axes`, `wait_until_idle`, and the `stop_all_motion` composite. |
+| Custom requests and profiles | `custom_request` | A downstream custom `PlainCommand` and `OperationCommand`, encoded with `write_into` and submitted through `execute`/`submit`, plus a runtime `ProfileSpec` value. Runs its encoding and profile parts without a camera. |
+| Dynamic API | `dyn_quickstart` | The profile-erased `DynSessionCamera`: a `DynTargetedOperation` (has `settled`) and a `DynAppliedOperation` (no `settled`), with `supports_typed` capability discovery. Requires `dyn-api`. |
+| Multi-camera and recovery | `multi_camera`, `recovery` | A multi-target session addressed by `camera_for` with explicit `applied_with_timeout`/`settled_with_timeout` waits, and fresh-session recovery after a `requires_new_session()` failure using a re-callable transport factory, a reused `SessionConfig`, and end-to-end state re-query. |
 | Protocol and lab validation | `sony_encapsulation`, `validate_inquiries`, `validate_ae_commands` | Advanced or lab-oriented material that should stay consistent with `docs/visca_reference.md`; not the recommended first path. |
 
 ## Rules
@@ -69,6 +73,8 @@ cargo check --examples --no-default-features --features runtime-tokio
 cargo check --examples --no-default-features --features runtime-smol
 cargo check --example serial_async_demo --no-default-features --features runtime-tokio,transport-serial-tokio
 cargo clippy --examples --no-default-features --features runtime-tokio -- -D warnings
+cargo clippy --examples --no-default-features --features runtime-tokio,dyn-api -- -D warnings
+cargo clippy --examples --no-default-features --features blocking -- -D warnings
 bash .github/scripts/test-all-features.sh
 ```
 

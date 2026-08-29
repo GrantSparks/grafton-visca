@@ -76,6 +76,135 @@
 //! - Use the typed [`Request`] and [`Inquiry`] contracts for built-in and custom
 //!   requests, and [`command::ResponseParser`] for typed inquiry responses.
 //!
+//! ## Terminology
+//!
+//! The 2.0 lifecycle vocabulary is precise: the same words appear in these APIs,
+//! in the design notes, and in the phase/cancellation transition table in
+//! `docs/architecture_2_0.md`. This section defines each term once, consistent
+//! with the current behavior (issue #671).
+//!
+//! **Ownership**
+//!
+//! - **Session** — the sole owner of one transport, its framer/envelope state,
+//!   the protocol engine, the observer registry, the target-local state caches,
+//!   and the session metrics. A blocking session is driven on the caller's
+//!   thread; an async session owns one detached actor. Every camera view is a
+//!   view onto this one owner, never a second connection.
+//! - **Target** — one registered camera: a [`CameraId`] plus a validated
+//!   profile. Targets are registered before the owner starts and are immutable
+//!   while it runs.
+//! - **Prepared** — a request that passed domain, profile, range, encoding,
+//!   routing, classification, and settlement selection and now carries every
+//!   immutable datum the owner needs. Preparation is pure and shared by the
+//!   blocking, async, and dynamic facades; a preparation failure never touches
+//!   session state.
+//! - **Admitted** — the owner inserted a prepared request into engine state,
+//!   assigned its private request id, and reserved its bounded capacity.
+//!   Admission does *not* mean any bytes were written, and admission over
+//!   capacity fails immediately rather than waiting.
+//!
+//! **Completion**
+//!
+//! - **Applied** — the exact submitted command reached its successful VISCA
+//!   terminal response. Plain commands finish at applied; typed operations
+//!   expose it through `applied()`.
+//! - **Targeted operation** — an operation with a meaningful physical end state
+//!   (home, absolute/relative move, target position, preset recall). It can be
+//!   observed as applied and as settled.
+//! - **Applied-only operation** — an operation with no meaningful physical rest
+//!   state: a continuous drive, a STOP, or an instantaneous trigger. It exposes
+//!   `applied()` and has no `settled()`.
+//! - **Settled** — a targeted operation was applied *and* physical motion
+//!   ended, proven by an exact operation-complete signal where the profile
+//!   supports one, or by affected-axis position polling otherwise. Settling is a
+//!   caller wait, not an engine phase.
+//!
+//! **Deadline classes** (three independent kinds; none is derived from another)
+//!
+//! - **Scheduler deadline** — an engine-owned deadline for ACK, completion,
+//!   inquiry reply, cancellation response, retry eligibility, pacing, cooldown,
+//!   or ambiguity quarantine. It is stamped at preparation and drives the
+//!   protocol state machine.
+//! - **Observer deadline** — the caller's wait bound. `applied()`/`settled()`
+//!   use the request's configured class; the `applied_with_timeout` /
+//!   `settled_with_timeout` forms replace *only* this deadline. An observer
+//!   timeout returns [`Error::Timeout`], detaches the observer, and never sends
+//!   cancellation or changes a scheduler deadline.
+//! - **Transport timeout** — the driver-level bound on one read or write
+//!   (`read_timeout`/`write_timeout`), independent of both of the above.
+//!
+//! **Cancellation**
+//!
+//! - **Cancel intent** — the owner deliberately accepted a request to cancel one
+//!   exact admitted operation. It suppresses every later retry but does not by
+//!   itself prove cancellation. `cancel()` returns once intent is recorded (or
+//!   an outcome was already buffered); it does not wait for the camera.
+//! - **Cancelled** — the engine proved the operation cannot later succeed: it
+//!   was removed before transmission, a conclusive rejection left no executing
+//!   attempt with retry suppressed, or the camera returned the socket-specific
+//!   protocol-cancel terminal. Reported as [`CancellationOutcome::Cancelled`].
+//! - **Completed** — the original operation succeeded before a confirmed
+//!   cancellation could win, reported as [`CancellationOutcome::Completed`].
+//!   Cancellation never claims physical motion stopped.
+//! - **Cancellation unconfirmed** — a cancellation could not be assigned a
+//!   socket or conclusively resolved before its ambiguity deadline. This is
+//!   [`Error::CancellationUnconfirmed`], never `Cancelled`. Its per-request
+//!   sibling [`Error::UnsequencedCommandUnconfirmed`] is the default outcome
+//!   when a *sent* raw command loses its ACK or completion correlation with no
+//!   cancel involved: it fails that one command on a still-live session
+//!   ([`requires_new_session`](Error::requires_new_session) is `false`) and
+//!   quarantines the correlation until the ambiguity deadline so a late reply
+//!   cannot misbind (issue #671).
+//! - **Detach** — relinquish the sole observation right without changing any
+//!   protocol state. Dropping a handle is exactly detach; it never cancels or
+//!   stops hardware.
+//!
+//! **Termination**
+//!
+//! - **Close** — consume the session, signal shutdown, and wait for the owner to
+//!   drain and drop its transport. It is the deterministic teardown barrier for
+//!   reopening an endpoint, distinct from a peer-initiated
+//!   [`Error::ConnectionClosed`] and from the deliberate
+//!   [`Error::RuntimeShutdown`].
+//! - **Poison** — irreversible termination of a stream session after framing or
+//!   write progress became unknowable (a stream write failure or an
+//!   unrecoverable framing loss). A poisoned session is terminal, reports
+//!   [`Error::StreamPoisoned`]
+//!   ([`requires_new_session`](Error::requires_new_session) is `true`), and
+//!   shares no state with any session built afterward. By default a raw command
+//!   that merely loses its ACK/completion does *not* poison (see *cancellation
+//!   unconfirmed* above); the whole-session poison is restored only behind the
+//!   opt-in `strict_unconfirmed_poison` tuning.
+//!
+//! Recovery from a poisoned or closed session builds a fresh session from the
+//! reused configuration, starts with an unknown state cache, re-queries camera
+//! state, and then deliberately restores desired state; the owner never
+//! resubmits automatically. Use
+//! [`requires_new_session`](Error::requires_new_session) for the reconnect
+//! decision, and see `examples/recovery.rs` for the end-to-end supervisor
+//! pattern.
+//!
+//! ```no_run
+//! # #[cfg(feature = "blocking")]
+//! # fn terminology_walkthrough() -> Result<(), grafton_visca::Error> {
+//! use grafton_visca::{blocking::Connect, camera::profiles::PtzOpticsG2};
+//! use std::time::Duration;
+//!
+//! // A session owns the transport; the camera is a view onto its one owner.
+//! let session = Connect::open_tcp::<PtzOpticsG2>("192.168.0.110")?;
+//! let camera = session.camera::<PtzOpticsG2>()?;
+//!
+//! // `home` is a targeted operation: `settled` waits past applied to physical rest.
+//! camera.pan_tilt().home()?.settled()?;
+//!
+//! // `stop` is applied-only: it has an applied wait and no settled state. The
+//! // `_with_timeout` form overrides only the observer deadline.
+//! camera.zoom().stop()?.applied_with_timeout(Duration::from_secs(2))?;
+//!
+//! session.close()
+//! # }
+//! ```
+//!
 //! ## Typed Request Extensions
 //!
 //! The final request contract classifies every value at the type level. Implement

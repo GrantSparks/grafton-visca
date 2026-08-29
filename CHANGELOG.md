@@ -13,6 +13,41 @@ destination.
 
 ### Added
 
+- **Published the remaining 2.0 documentation and example deliverables** (#686),
+  the spec's §1193–1204 release items that were still missing. Docs-only; no
+  public API or snapshot change.
+  - The crate docs gain a `## Terminology` section defining the 2.0 lifecycle
+    vocabulary — session, target, prepared, admitted, applied, targeted,
+    applied-only, settled, the three deadline classes, cancel intent, cancelled,
+    completed, cancellation unconfirmed, detach, close, and poison — written to
+    the settled post-#671 behavior (the per-request `UnsequencedCommandUnconfirmed`
+    is distinguished from the pre-ACK cancellation-ambiguity `CancellationUnconfirmed`,
+    and whole-session poison is the strict opt-in / genuine correlation loss).
+  - `docs/architecture_2_0.md` now publishes the engine phase/cancellation
+    transition table (documenting the `pub(crate)` `Phase` and `CancelState`
+    variants that never reach rustdoc) and the §10 operational-invariants list,
+    both derived from `src/runtime/engine`.
+  - Six runnable example programs are added and listed in `docs/examples.md`:
+    `cancellation` (the supported `Cancellation`/`outcome` path and the
+    PTZOptics G2 unsupported-post-send `NotSupported`/`CancelRejected` recovery),
+    `motion_safety` (`is_moving`/`is_moving_axes`/`wait_until_idle`/`stop_all_motion`),
+    `custom_request` (a custom `PlainCommand` and `OperationCommand` plus a runtime
+    `ProfileSpec`), `dyn_quickstart` (a `DynTargetedOperation` and a
+    `DynAppliedOperation`, using the explicit `settled_with_timeout` /
+    `applied_with_timeout` forms), `multi_camera` (`camera_for` over two serial
+    targets), and `recovery` (fresh-session rebuild after `requires_new_session()`
+    with a re-callable transport factory and end-to-end re-query).
+  - `docs/migration_2_0.md` corrects the wrong 1.x-side names (`wait_until_idle`
+    and `AffectedAxes` never existed in 1.x — the real names are the `await_*_idle`
+    family and `Axes`) and maps the previously unmapped 1.x clusters:
+    `CameraBuilder`, `AwaitConfig`, the async cancellation surface
+    (`send_command_with_id`, `cancel(CommandId)`, `cancel_command(ViscaSocket)`,
+    `cancel_socket`), `await_applied`/`await_settled`, `toggle_menu`,
+    `set_normalized`/`set_normalized_in_domain`, the `inquiry_conversions` exports,
+    `Capabilities`, `Runtime::connect_tcp`/`TransportHandle`, and the
+    feature-resolution inversion (1.x's blocking-XOR-async `mode-async` versus
+    2.0's co-enableable `default = ["blocking"]`).
+
 - **Added `CommandTimeouts`** (audit #685), the public five-field value
   (`quick`, `movement`, `preset`, `long_running`, `network`) for a profile's
   exact command-category completion deadlines. It is the public replacement for
