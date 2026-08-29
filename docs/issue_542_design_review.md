@@ -142,6 +142,19 @@ encoding.
    or raw policy — can create or demote urgent work. The raw hatch likewise
    rejects the owner-only socket-cancel and interface-clear wire shapes (#678),
    so no target-scoped `execute` can emit an owner-only primitive.
+   **Extended (issue #700):** the raw hatch no longer assumes every command
+   follows the ACK-then-completion protocol. `raw::Policy`/`raw::Spec` carry a
+   `raw::RawReplyShape` axis (`AckThenCompletion` default, `CompletionOnly`,
+   `NoReply`), lowered through `prepared.rs` into the engine's `RequestContext` as
+   a protocol-policy fact — the engine never infers the shape from wire bytes. A
+   `CompletionOnly` command skips `AwaitingAck`, owns no socket, holds its
+   target's command channel exclusively (so its socketless completion cannot
+   misbind), and has no ACK-timeout path; a `NoReply` command terminates on a
+   successful send. This is what makes a *legitimate* completion-only vendor frame
+   expressible without it failing at an ACK deadline it will never meet. It does
+   **not** relax the owner-only rejection above: a socket cancel or interface
+   clear stays refused at construction regardless of reply shape, and `#678`'s
+   `validate_wire` guard is independent of it.
 2. Valid non-empty async receive batches retain strict priority over
    simultaneously ready control sources. Only a non-progressing receive yields
    to shutdown, cancellation, admission, control, and timer, in that fixed

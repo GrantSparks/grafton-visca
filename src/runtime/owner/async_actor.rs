@@ -2036,7 +2036,7 @@ mod tests {
     use crate::{
         runtime::engine::{
             CancellationPolicy, ControlPolicy, DecodedResponse, EncodedMessage, EnvelopeKind,
-            InquiryRoute, ProtocolPolicy, RequestContext, RetryPolicy, RuntimeRequest,
+            InquiryRoute, ProtocolPolicy, ReplyShape, RequestContext, RetryPolicy, RuntimeRequest,
             TargetPolicy, TimeoutPolicy, TransportKind,
         },
         CameraId, ViscaSocket,
@@ -2234,6 +2234,7 @@ mod tests {
                 retry: RetryPolicy::NEVER,
                 control: ControlPolicy::default(),
                 cancellation: CancellationPolicy::Supported,
+                reply_shape: ReplyShape::AckThenCompletion,
             },
             applied_state: None,
         }
@@ -2256,6 +2257,7 @@ mod tests {
                 retry: RetryPolicy::NEVER,
                 control: ControlPolicy::default(),
                 cancellation: CancellationPolicy::Supported,
+                reply_shape: ReplyShape::AckThenCompletion,
             },
             applied_state: None,
         }
@@ -2276,6 +2278,7 @@ mod tests {
                 retry: RetryPolicy::NEVER,
                 control: ControlPolicy::default(),
                 cancellation: CancellationPolicy::Supported,
+                reply_shape: ReplyShape::AckThenCompletion,
             },
             route: InquiryRoute::UNKNOWN,
         }

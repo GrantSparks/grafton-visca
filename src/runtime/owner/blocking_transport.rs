@@ -410,8 +410,8 @@ mod tests {
         profiles::{GenericVisca, SonyFR7},
         runtime::engine::{
             CancellationObservation, CancellationPolicy, ControlPolicy, DecodedResponse,
-            EncodedMessage, EnvelopeSequence, RequestContext, RetryPolicy, RuntimeOutcome,
-            RuntimeRequest, SequenceWidth, TimeoutPolicy,
+            EncodedMessage, EnvelopeSequence, ReplyShape, RequestContext, RetryPolicy,
+            RuntimeOutcome, RuntimeRequest, SequenceWidth, TimeoutPolicy,
         },
         transport::{
             builder::{AddressingMode, TransportConfig},
@@ -625,6 +625,7 @@ mod tests {
                 retry: RetryPolicy::NEVER,
                 control: ControlPolicy::default(),
                 cancellation: CancellationPolicy::Supported,
+                reply_shape: ReplyShape::AckThenCompletion,
             },
             applied_state: None,
         }
@@ -647,6 +648,7 @@ mod tests {
                 retry: RetryPolicy::NEVER,
                 control: ControlPolicy::default(),
                 cancellation: CancellationPolicy::Supported,
+                reply_shape: ReplyShape::AckThenCompletion,
             },
             route: crate::runtime::engine::InquiryRoute::UNKNOWN,
         }
@@ -963,6 +965,7 @@ mod tests {
                 },
                 control: ControlPolicy::default(),
                 cancellation: CancellationPolicy::Supported,
+                reply_shape: ReplyShape::AckThenCompletion,
             },
             applied_state: None,
         };

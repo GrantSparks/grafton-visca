@@ -70,6 +70,21 @@ struct DeferredAck {
     socket: Option<ViscaSocket>,
 }
 
+/// A camera completion that reached the engine before the write result for the
+/// very frame it answers, for a completion-only raw command.
+///
+/// The mirror of [`DeferredAck`] for [`ReplyShape::CompletionOnly`]: a
+/// completion-only command receives no ACK, so its terminal frame is the
+/// completion. An owner whose reader is not strictly ordered behind its writer
+/// can deliver that completion first; the engine latches it on the entry while
+/// the write is still `Sending` and applies it as soon as the send is confirmed,
+/// so the race cannot silently drop the completion and strand the command until
+/// its completion deadline.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct DeferredCompletion {
+    socket: Option<ViscaSocket>,
+}
+
 /// The one authoritative lifecycle record for an admitted request.
 #[derive(Debug)]
 pub(crate) struct Entry {
@@ -91,6 +106,7 @@ pub(crate) struct Entry {
     cancel_attempted_socket: Option<ViscaSocket>,
     cancellation_observation_open: bool,
     deferred_ack: Option<DeferredAck>,
+    deferred_completion: Option<DeferredCompletion>,
 }
 
 impl Entry {
@@ -692,6 +708,7 @@ impl ProtocolEngine {
                 cancel_attempted_socket: None,
                 cancellation_observation_open: false,
                 deferred_ack: None,
+                deferred_completion: None,
             },
         );
         self.queue_mut(inquiry, priority).push_back(queue_ticket);
@@ -961,6 +978,7 @@ impl ProtocolEngine {
             };
             if self.raw_command_unacknowledged(target)
                 || self.commands_inflight(target) >= usize::from(policy.command_sockets)
+                || self.completion_only_blocked(entry, target)
             {
                 return false;
             }
@@ -1019,6 +1037,7 @@ impl ProtocolEngine {
                         entry.phase,
                         Phase::Sending { .. }
                             | Phase::AwaitingAck { .. }
+                            | Phase::AwaitingCompletion { .. }
                             | Phase::Executing { .. }
                             | Phase::AwaitingCancellationResolution { .. }
                             | Phase::AwaitingLateAck { .. }
@@ -1030,6 +1049,12 @@ impl ProtocolEngine {
     /// Raw VISCA has no request identity before the camera assigns a socket.
     /// Keep one command per target in that unacknowledged window so a later
     /// ACK can never require temporal guessing between multiple candidates.
+    ///
+    /// A completion-only command (issue #700) is uncorrelated for its whole
+    /// lifetime — it never earns a socket — so its [`Phase::AwaitingCompletion`]
+    /// is included here: while it is in flight no other command may be
+    /// dispatched to the target, which is what keeps its completion (and any
+    /// socketless error) attributable to it alone.
     fn raw_command_unacknowledged(&self, target: CameraId) -> bool {
         self.policy.envelope == EnvelopeKind::Raw
             && self.entries.values().any(|entry| {
@@ -1039,9 +1064,26 @@ impl ProtocolEngine {
                         entry.phase,
                         Phase::Sending { .. }
                             | Phase::AwaitingAck { .. }
+                            | Phase::AwaitingCompletion { .. }
                             | Phase::AwaitingLateAck { .. }
                     )
             })
+    }
+
+    /// Whether a completion-only raw command (issue #700) is barred from
+    /// dispatch because it needs the target's command channel to itself.
+    ///
+    /// A completion-only command earns no socket, so its completion (or a
+    /// socketless error) can be attributed to it only while it is the sole
+    /// in-flight command on the target. It may therefore start only when nothing
+    /// else is in flight; the reverse — nothing else starting while it runs — is
+    /// already enforced by [`Self::raw_command_unacknowledged`] counting its
+    /// phase. The rule is raw-only: Sony correlates by sequence, so a
+    /// completion-only command there needs no exclusivity.
+    fn completion_only_blocked(&self, entry: &Entry, target: CameraId) -> bool {
+        self.policy.envelope == EnvelopeKind::Raw
+            && entry.request.context().reply_shape == ReplyShape::CompletionOnly
+            && self.commands_inflight(target) > 0
     }
 
     /// Whether the raw single-candidate pre-ACK gate — and not genuine
@@ -1188,27 +1230,66 @@ impl ProtocolEngine {
                         );
                     }
                 } else {
-                    let deadline = add_duration(now, context.timeout.ack);
-                    self.transition(
-                        owner.request,
-                        Phase::AwaitingAck {
-                            sent_at: now,
-                            deadline,
-                        },
-                        cancellation,
-                        effects,
-                    );
-                    // Issue #297: an owner whose reader is not strictly ordered
-                    // behind its writer can hand the engine the camera's ACK
-                    // before this write result. That ACK was latched rather
-                    // than dropped, so apply it now that the request is
-                    // authoritatively awaiting one.
-                    let deferred = self
-                        .entries
-                        .get_mut(&owner.request)
-                        .and_then(|entry| entry.deferred_ack.take());
-                    if let Some(deferred) = deferred {
-                        self.ack(owner.request, deferred.socket, now, effects);
+                    match context.reply_shape {
+                        ReplyShape::AckThenCompletion => {
+                            let deadline = add_duration(now, context.timeout.ack);
+                            self.transition(
+                                owner.request,
+                                Phase::AwaitingAck {
+                                    sent_at: now,
+                                    deadline,
+                                },
+                                cancellation,
+                                effects,
+                            );
+                            // Issue #297: an owner whose reader is not strictly
+                            // ordered behind its writer can hand the engine the
+                            // camera's ACK before this write result. That ACK was
+                            // latched rather than dropped, so apply it now that
+                            // the request is authoritatively awaiting one.
+                            let deferred = self
+                                .entries
+                                .get_mut(&owner.request)
+                                .and_then(|entry| entry.deferred_ack.take());
+                            if let Some(deferred) = deferred {
+                                self.ack(owner.request, deferred.socket, now, effects);
+                            }
+                        }
+                        ReplyShape::CompletionOnly => {
+                            // Issue #700: a completion-only command receives no
+                            // ACK and is never assigned a socket, so it skips the
+                            // AwaitingAck phase (and its ACK-timeout/poison path)
+                            // and waits for its completion under the completion
+                            // deadline. Any ACK that raced the write is spurious
+                            // for this shape and is discarded with the latch.
+                            let deadline = add_duration(now, context.timeout.completion);
+                            self.transition(
+                                owner.request,
+                                Phase::AwaitingCompletion {
+                                    sent_at: now,
+                                    deadline,
+                                },
+                                cancellation,
+                                effects,
+                            );
+                            // The completion can race the write result the same
+                            // way an ACK can; apply it now if it was latched, and
+                            // drop any spurious raced ACK.
+                            let deferred = self.entries.get_mut(&owner.request).and_then(|entry| {
+                                entry.deferred_ack = None;
+                                entry.deferred_completion.take()
+                            });
+                            if let Some(deferred) = deferred {
+                                self.completion(owner.request, deferred.socket, effects);
+                            }
+                        }
+                        ReplyShape::NoReply => {
+                            // Issue #700: a fire-and-forget command expects
+                            // nothing back and reaches its terminal the instant
+                            // the transport write succeeds. Any reply the camera
+                            // nonetheless sends finds no entry and is ignored.
+                            self.finish(owner.request, RuntimeOutcome::Applied, effects);
+                        }
                     }
                 }
             }
@@ -1604,11 +1685,20 @@ impl ProtocolEngine {
         match &frame.response {
             DecodedResponse::Ack { .. } => self.unique_raw_command_candidate(target),
             DecodedResponse::Completion { socket } => match socket {
-                Some(socket) => self.socket_owner(target, *socket),
+                // A completion-only command owns no socket, so socket ownership
+                // resolves nothing for it; because it holds the target's command
+                // channel alone (issue #700), a completion that resolves to no
+                // socket owner falls back to it. When a socket *is* owned, that
+                // ownership is authoritative and wins.
+                Some(socket) => self
+                    .socket_owner(target, *socket)
+                    .or_else(|| self.completion_only_candidate(target)),
                 // A camera that answers `90 50 FF` sends no socket nibble, so
-                // the frame is attributable only while exactly one command owns
-                // a socket on that target.
-                None => self.sole_socket_holder(target),
+                // the frame is attributable to the sole socket holder or, failing
+                // that, the sole completion-only command on the target.
+                None => self
+                    .sole_socket_holder(target)
+                    .or_else(|| self.completion_only_candidate(target)),
             },
             DecodedResponse::InquiryReply { route, .. } => {
                 if let Some(route) = route.filter(|route| *route != InquiryRoute::UNKNOWN) {
@@ -1740,6 +1830,38 @@ impl ProtocolEngine {
         sole
     }
 
+    /// The unique completion-only raw command on `target` awaiting (or about to
+    /// await) its completion, if exactly one exists (issue #700).
+    ///
+    /// A completion-only command owns no socket, so a completion for it cannot be
+    /// resolved by [`Self::socket_owner`]/[`Self::sole_socket_holder`]. It is the
+    /// sole in-flight command on its target (the dispatch gate guarantees it), so
+    /// its completion is unambiguous. [`Phase::Sending`] is included so a
+    /// completion that races ahead of the write result can be latched and applied
+    /// once the send is confirmed, mirroring the deferred-ACK latch. Fails closed
+    /// (returns `None`) if a second candidate is ever present, so it never guesses.
+    fn completion_only_candidate(&self, target: CameraId) -> Option<RequestId> {
+        let mut sole = None;
+        for (id, entry) in &self.entries {
+            if self.policy.envelope != EnvelopeKind::Raw
+                || entry.request.is_inquiry()
+                || entry.request.context().target != target
+                || entry.request.context().reply_shape != ReplyShape::CompletionOnly
+                || !matches!(
+                    entry.phase,
+                    Phase::Sending { .. } | Phase::AwaitingCompletion { .. }
+                )
+            {
+                continue;
+            }
+            if sole.is_some() {
+                return None;
+            }
+            sole = Some(*id);
+        }
+        sole
+    }
+
     fn command_sockets(&self, target: CameraId) -> usize {
         self.targets[target.id() as usize].map_or(1, |policy| usize::from(policy.command_sockets))
     }
@@ -1820,7 +1942,11 @@ impl ProtocolEngine {
                 }
                 return;
             }
-            Phase::Ready { .. }
+            // Issue #700: a completion-only command receives no ACK. If the
+            // camera nonetheless sends one it is spurious for this shape, so it
+            // is ignored — it must never assign the command a socket.
+            Phase::AwaitingCompletion { .. }
+            | Phase::Ready { .. }
             | Phase::Executing { .. }
             | Phase::AwaitingReply { .. }
             | Phase::Backoff { .. }
@@ -1869,24 +1995,49 @@ impl ProtocolEngine {
         socket: Option<ViscaSocket>,
         effects: &mut Vec<Effect>,
     ) {
-        let compatible = self.entries.get(&id).is_some_and(|entry| {
-            !entry.request.is_inquiry()
-                && match entry.phase {
-                    // A completion that carries no socket nibble was already
-                    // attributed by sequence (Sony) or by sole socket ownership
-                    // (raw), so it completes whichever socket this request owns.
-                    Phase::Executing { socket: owned, .. }
-                    | Phase::AwaitingCancellationResolution { socket: owned, .. } => {
-                        socket.is_none_or(|socket| socket == owned)
-                    }
-                    // A Sony exact completion can legitimately beat or replace an ACK.
-                    Phase::AwaitingAck { .. } | Phase::AwaitingLateAck { .. } => {
-                        self.policy.envelope == EnvelopeKind::Sony
-                    }
-                    _ => false,
+        let Some(entry) = self.entries.get(&id) else {
+            effects.push(Effect::Ignored(IgnoreReason::UnknownRequest));
+            return;
+        };
+        if entry.request.is_inquiry() {
+            effects.push(Effect::Ignored(IgnoreReason::UnmatchedFrame));
+            return;
+        }
+        let phase = entry.phase;
+        let completion_only = entry.request.context().reply_shape == ReplyShape::CompletionOnly;
+        let has_deferred = entry.deferred_completion.is_some();
+        let accept = match phase {
+            // A completion that carries no socket nibble was already
+            // attributed by sequence (Sony) or by sole socket ownership
+            // (raw), so it completes whichever socket this request owns.
+            Phase::Executing { socket: owned, .. }
+            | Phase::AwaitingCancellationResolution { socket: owned, .. } => {
+                socket.is_none_or(|socket| socket == owned)
+            }
+            // A Sony exact completion can legitimately beat or replace an ACK.
+            Phase::AwaitingAck { .. } | Phase::AwaitingLateAck { .. } => {
+                self.policy.envelope == EnvelopeKind::Sony
+            }
+            // Issue #700: a completion-only command owns no socket. The resolver
+            // established it as the sole completion-only candidate on the target,
+            // so accept its completion regardless of any socket nibble the vendor
+            // frame echoes.
+            Phase::AwaitingCompletion { .. } => true,
+            // Issue #700 / #297: the completion raced ahead of the write result
+            // for a completion-only command. Latch it, as a deferred ACK is
+            // latched, and apply it once `successful_transmission` confirms the
+            // send. The first latch wins; a second is a duplicate.
+            Phase::Sending { .. } if completion_only => {
+                if has_deferred {
+                    effects.push(Effect::Ignored(IgnoreReason::UnmatchedFrame));
+                } else if let Some(entry) = self.entries.get_mut(&id) {
+                    entry.deferred_completion = Some(DeferredCompletion { socket });
                 }
-        });
-        if !compatible {
+                return;
+            }
+            _ => false,
+        };
+        if !accept {
             effects.push(Effect::Ignored(IgnoreReason::UnmatchedFrame));
             return;
         }
@@ -2016,6 +2167,7 @@ impl ProtocolEngine {
             }
             Phase::Sending { .. }
             | Phase::AwaitingAck { .. }
+            | Phase::AwaitingCompletion { .. }
             | Phase::AwaitingLateAck { .. }
             | Phase::Executing { .. }
             | Phase::AwaitingCancellationResolution { .. }
@@ -2177,6 +2329,7 @@ impl ProtocolEngine {
         entry.last_error = Some(error);
         // A latch belongs to exactly one attempt's write.
         entry.deferred_ack = None;
+        entry.deferred_completion = None;
         entry.queue_generation = entry.queue_generation.wrapping_add(1).max(1);
         let queue_generation = entry.queue_generation;
         let cancellation = entry.cancellation;
@@ -2243,6 +2396,7 @@ impl ProtocolEngine {
             .filter_map(|(id, entry)| {
                 let phase_due = match entry.phase {
                     Phase::AwaitingAck { deadline, .. } => Some((deadline, 1, 0)),
+                    Phase::AwaitingCompletion { deadline, .. } => Some((deadline, 1, 0)),
                     Phase::Executing { deadline, .. } => Some((deadline, 1, 0)),
                     Phase::AwaitingReply { deadline, .. } => Some((deadline, 1, 0)),
                     Phase::Backoff {
@@ -2390,14 +2544,32 @@ impl ProtocolEngine {
                     effects,
                 );
             }
+            Phase::AwaitingCompletion { .. } => {
+                // Issue #700: a completion-only command owns no socket, so — like
+                // AwaitingAck — it holds the sole-command slot rather than a
+                // socket. Reuse the same late-slot quarantine: it keeps the target
+                // reserved so no later command can be dispatched into the
+                // ambiguity window, and any late completion is dropped by the
+                // resolver (it no longer matches a completion-only candidate) or
+                // by the quarantine guard in `frame`.
+                self.transition(
+                    id,
+                    Phase::AwaitingLateAck {
+                        deadline: ambiguity_deadline,
+                    },
+                    cancellation,
+                    effects,
+                );
+            }
             Phase::Sending { transmission, .. } => {
                 // The write is still in flight. Drop its correlation so the
-                // returning transmission result is inert, abandon any ACK that
-                // raced the write (issue #297 latch — this attempt is over), and
-                // hold the unacknowledged slot the same way.
+                // returning transmission result is inert, abandon any ACK or
+                // completion that raced the write (issue #297/#700 latches — this
+                // attempt is over), and hold the unacknowledged slot the same way.
                 self.transmissions.remove(&transmission);
                 if let Some(entry) = self.entries.get_mut(&id) {
                     entry.deferred_ack = None;
+                    entry.deferred_completion = None;
                 }
                 self.transition(
                     id,
@@ -2477,7 +2649,10 @@ impl ProtocolEngine {
                 && !entry.request.is_inquiry()
                 && matches!(
                     phase,
-                    Phase::Sending { .. } | Phase::AwaitingAck { .. } | Phase::Executing { .. }
+                    Phase::Sending { .. }
+                        | Phase::AwaitingAck { .. }
+                        | Phase::AwaitingCompletion { .. }
+                        | Phase::Executing { .. }
                 );
             if raw_active_command {
                 // The active attempt still owns correlation (socket or the
@@ -2518,6 +2693,41 @@ impl ProtocolEngine {
                     self.finish(due.request, RuntimeOutcome::Failed(Error::Timeout), effects);
                 }
                 record_deadline_expiry(due.request, DeadlineKind::Ack, mark, effects);
+            }
+            Phase::AwaitingCompletion { deadline, .. } if deadline <= now => {
+                let mark = effects.len();
+                if let CancelState::Requested { ambiguity_deadline } = entry.cancellation {
+                    // Cancelled but never socketed (issue #700): hold the
+                    // socketless sole-command slot until the ambiguity deadline,
+                    // exactly as the AwaitingAck cancel path does.
+                    self.transition(
+                        due.request,
+                        Phase::AwaitingLateAck {
+                            deadline: ambiguity_deadline,
+                        },
+                        entry.cancellation,
+                        effects,
+                    );
+                } else if self.policy.envelope == EnvelopeKind::Raw {
+                    // Issue #700: the completion never arrived. This shape has no
+                    // ACK-timeout path; the completion deadline governs. Quarantine
+                    // the sole-command slot and fail this one request
+                    // UnsequencedCommandUnconfirmed at the ambiguity deadline
+                    // (default), or poison (strict) — the #671 per-request model,
+                    // never a session-wide poison by default.
+                    self.terminate_unconfirmed_raw(due.request, now, effects);
+                } else if entry.request.context().retry.completion_timeout {
+                    self.schedule_retry(
+                        due.request,
+                        now,
+                        Error::Timeout,
+                        Backoff::Uncapped,
+                        effects,
+                    );
+                } else {
+                    self.finish(due.request, RuntimeOutcome::Failed(Error::Timeout), effects);
+                }
+                record_deadline_expiry(due.request, DeadlineKind::Completion, mark, effects);
             }
             Phase::Executing {
                 socket, deadline, ..
@@ -2666,6 +2876,7 @@ impl ProtocolEngine {
             self.targets[target.id() as usize].is_some_and(|policy| {
                 !self.raw_command_unacknowledged(target)
                     && self.commands_inflight(target) < usize::from(policy.command_sockets)
+                    && !self.completion_only_blocked(entry, target)
             })
         }
     }
@@ -2897,6 +3108,10 @@ impl ProtocolEngine {
             }
             if entry.deferred_ack.is_some() && !matches!(entry.phase, Phase::Sending { .. }) {
                 return Err("deferred ACK outlived the write it raced".into());
+            }
+            if entry.deferred_completion.is_some() && !matches!(entry.phase, Phase::Sending { .. })
+            {
+                return Err("deferred completion outlived the write it raced".into());
             }
             if let Phase::Sending { transmission, .. } = entry.phase {
                 let Some(owner) = self.transmissions.get(&transmission) else {

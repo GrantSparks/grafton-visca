@@ -23,8 +23,8 @@ use crate::{Error, Result};
 
 use crate::raw::{INLINE_BYTES, MAX_BYTES};
 use crate::runtime::engine::{
-    AppliedStateProjection, CancellationPolicy, ControlPolicy, EncodedMessage, RequestContext,
-    RetryPolicy, RuntimeRequest, TimeoutPolicy,
+    AppliedStateProjection, CancellationPolicy, ControlPolicy, EncodedMessage, ReplyShape,
+    RequestContext, RetryPolicy, RuntimeRequest, TimeoutPolicy,
 };
 
 /// How one submission's scheduling lane is chosen.
@@ -775,6 +775,11 @@ where
         } else {
             CancellationPolicy::Unsupported
         },
+        // The reply shape is a caller-declared protocol fact, lowered here from
+        // the request rather than inferred from the wire bytes. Inquiries always
+        // await a reply, so their (validated) default lowers to
+        // `AckThenCompletion` and the engine's inquiry path ignores it.
+        reply_shape: lower_reply_shape(request.reply_shape()),
     }
 }
 
@@ -909,6 +914,14 @@ const fn lower_control(class: ControlClass) -> crate::runtime::engine::ControlCl
         ControlClass::Normal => crate::runtime::engine::ControlClass::Normal,
         ControlClass::User => crate::runtime::engine::ControlClass::User,
         ControlClass::Urgent => crate::runtime::engine::ControlClass::Urgent,
+    }
+}
+
+const fn lower_reply_shape(shape: crate::raw::RawReplyShape) -> ReplyShape {
+    match shape {
+        crate::raw::RawReplyShape::AckThenCompletion => ReplyShape::AckThenCompletion,
+        crate::raw::RawReplyShape::CompletionOnly => ReplyShape::CompletionOnly,
+        crate::raw::RawReplyShape::NoReply => ReplyShape::NoReply,
     }
 }
 
@@ -2568,5 +2581,63 @@ mod tests {
                 "issue #542: per-submission QoS must never demote an urgent stop",
             );
         }
+    }
+
+    /// #700: a raw command's declared reply shape lowers into the engine request
+    /// context as a protocol-policy fact. The engine reads it there rather than
+    /// inferring it from the wire bytes.
+    #[test]
+    fn raw_reply_shape_lowers_into_request_context() {
+        let profile = ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()
+            .expect("built-in profile");
+        for (declared, expected) in [
+            (
+                crate::raw::RawReplyShape::AckThenCompletion,
+                ReplyShape::AckThenCompletion,
+            ),
+            (
+                crate::raw::RawReplyShape::CompletionOnly,
+                ReplyShape::CompletionOnly,
+            ),
+            (crate::raw::RawReplyShape::NoReply, ReplyShape::NoReply),
+        ] {
+            let policy = crate::raw::Policy::new(
+                TimeoutClass::Quick,
+                RetryClass::Never,
+                ControlClass::Normal,
+            )
+            .expect("policy")
+            .with_reply_shape(declared);
+            let command =
+                crate::raw::Plain::with_policy([0x81, 0x01, 0x02, 0xff], policy).expect("plain");
+            let prepared = prepare_command(
+                &command,
+                CameraId::CAMERA_1,
+                &profile,
+                OperationalTuning::new(),
+                ClassSelection::Request,
+            )
+            .expect("prepares");
+            assert_eq!(prepared.context.reply_shape, expected);
+        }
+
+        // A raw command built with no explicit shape — and, by the same trait
+        // default, every built-in — lowers to AckThenCompletion.
+        let default_command = crate::raw::Plain::new(
+            [0x81, 0x01, 0x02, 0xff],
+            TimeoutClass::Quick,
+            RetryClass::Never,
+            ControlClass::Normal,
+        )
+        .expect("plain");
+        let prepared = prepare_command(
+            &default_command,
+            CameraId::CAMERA_1,
+            &profile,
+            OperationalTuning::new(),
+            ClassSelection::Request,
+        )
+        .expect("prepares");
+        assert_eq!(prepared.context.reply_shape, ReplyShape::AckThenCompletion);
     }
 }

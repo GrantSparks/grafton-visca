@@ -13,6 +13,32 @@ destination.
 
 ### Added
 
+- **Added a raw reply-shape axis (`raw::RawReplyShape`)** (#700) so a raw caller
+  can declare what the camera will send back, instead of every raw command being
+  assumed to follow the ACK-then-completion protocol. The axis is carried on
+  `raw::Policy`/`raw::Spec` (set with `Policy::with_reply_shape`, read with
+  `reply_shape()`) and lowered through preparation into the engine as a
+  protocol-policy fact — the engine never infers it from the wire bytes:
+  - `AckThenCompletion` is the default, so existing raw code and every built-in
+    command are unchanged.
+  - `CompletionOnly` expresses a vendor frame that completes with no
+    acknowledgement: it earns no socket, skips the unacknowledged-ACK gate (so a
+    missing ACK can neither fail nor poison it, fixing the pre-#671 poison and the
+    post-#671 single-request `UnsequencedCommandUnconfirmed` failure for such
+    frames), terminates on the completion frame or a bounded completion deadline,
+    and holds the target's command channel exclusively so its completion cannot
+    misbind to another command.
+  - `NoReply` expresses a fire-and-forget frame that terminates on a successful
+    transport write; a later reply the camera nonetheless sends is ignored.
+  - A `reply_shape()` accessor is added to `raw::Plain`, `raw::Targeted`,
+    `raw::AppliedOnly`, and the `Request` trait (defaulting to
+    `AckThenCompletion`). `raw::Inquiry` rejects any non-default shape at
+    construction, since an inquiry always awaits its reply. A new
+    `observability::DiagnosticPhase::AwaitingCompletion` reports the new phase.
+    This is a follow-up to #678/#679 (PR #699); owner-only wire primitives (socket
+    cancel / interface clear) remain rejected at construction regardless of reply
+    shape. Public API snapshots regenerated.
+
 - **Published the remaining 2.0 documentation and example deliverables** (#686),
   the spec's §1193–1204 release items that were still missing. Docs-only; no
   public API or snapshot change.
