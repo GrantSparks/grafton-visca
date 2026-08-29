@@ -324,4 +324,118 @@ mod tests {
             );
         }
     }
+
+    /// Guard the wire-byte rows in `docs/visca_reference.md` against the actual
+    /// encoders.
+    ///
+    /// `docs/visca_reference.md` is cited in `README.md` as the evidence base for
+    /// built-in profile decisions, yet nothing tied its documented bytes to the
+    /// code. Issue #688 found the red/blue tuning rows and the NDI-mode row
+    /// carrying wire bytes that contradicted the encoders. Each case below asserts
+    /// both that the documented hex prefix still appears verbatim in the reference
+    /// and that the live encoder emits a frame starting with those exact bytes, so
+    /// the two cannot silently drift apart again.
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn visca_reference_wire_rows_match_encoders() {
+        use crate::command::color::{
+            BlueGain, BlueTuningCommand, HueCommand, RedGain, RedTuningCommand, SaturationCommand,
+        };
+        use crate::command::streaming::{MulticastStreaming, SetNdiQuality, UsbAudio};
+        use crate::types::{
+            BlueChannel, BlueTuning, HueLevel, NdiQuality, RedChannel, RedTuning, SaturationLevel,
+        };
+
+        const REFERENCE: &str = include_str!("../../docs/visca_reference.md");
+
+        fn parse_hex(spec: &str) -> Vec<u8> {
+            spec.split_whitespace()
+                .map(|h| u8::from_str_radix(h, 16).unwrap())
+                .collect()
+        }
+
+        // (row label, documented hex prefix that must appear verbatim in the
+        //  reference, live wire frame from the encoder).
+        let cases = [
+            (
+                "red tuning direct",
+                "81 01 04 43 00 00 00",
+                super::test_wire_bytes(
+                    &RedTuningCommand::new(RedTuning::NEUTRAL),
+                    CameraId::CAMERA_1,
+                )
+                .unwrap(),
+            ),
+            (
+                "blue tuning direct",
+                "81 01 04 44 00 00 00",
+                super::test_wire_bytes(
+                    &BlueTuningCommand::new(BlueTuning::NEUTRAL),
+                    CameraId::CAMERA_1,
+                )
+                .unwrap(),
+            ),
+            (
+                "red gain direct (shares 04 43 with red tuning)",
+                "81 01 04 43 00 00",
+                super::test_wire_bytes(
+                    &RedGain::SetValue(RedChannel::new(0x00).unwrap()),
+                    CameraId::CAMERA_1,
+                )
+                .unwrap(),
+            ),
+            (
+                "blue gain direct (shares 04 44 with blue tuning)",
+                "81 01 04 44 00 00",
+                super::test_wire_bytes(
+                    &BlueGain::SetValue(BlueChannel::new(0x00).unwrap()),
+                    CameraId::CAMERA_1,
+                )
+                .unwrap(),
+            ),
+            (
+                "NDI mode",
+                "81 0B 01 01 01",
+                super::test_wire_bytes(&SetNdiQuality::new(NdiQuality::High), CameraId::CAMERA_1)
+                    .unwrap(),
+            ),
+            (
+                "multicast mode",
+                "81 0B 01 23",
+                super::test_wire_bytes(&MulticastStreaming::On, CameraId::CAMERA_1).unwrap(),
+            ),
+            (
+                "USB audio / UAC",
+                "81 2A 02 A0 04",
+                super::test_wire_bytes(&UsbAudio::On, CameraId::CAMERA_1).unwrap(),
+            ),
+            (
+                "saturation direct",
+                "81 01 04 49 00 00 00",
+                super::test_wire_bytes(
+                    &SaturationCommand::new(SaturationLevel::MIN),
+                    CameraId::CAMERA_1,
+                )
+                .unwrap(),
+            ),
+            (
+                "hue direct",
+                "81 01 04 4F 00 00 00",
+                super::test_wire_bytes(&HueCommand::new(HueLevel::MIN), CameraId::CAMERA_1)
+                    .unwrap(),
+            ),
+        ];
+
+        for (label, documented, frame) in &cases {
+            assert!(
+                REFERENCE.contains(*documented),
+                "docs/visca_reference.md is missing the documented wire bytes `{documented}` for {label}"
+            );
+            let prefix = parse_hex(documented);
+            assert!(
+                frame.starts_with(&prefix),
+                "{label}: encoder emits {frame:02X?}, which does not start with the documented `{documented}` in docs/visca_reference.md"
+            );
+        }
+    }
 }
