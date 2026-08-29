@@ -410,6 +410,19 @@ later noncancelled phase and is the largest of ten seconds, twice the request's
 governing deadline, and the profile busy timeout. `retry_timing` may make those
 bounds more conservative; it cannot make an ambiguous raw replay safe.
 
+**Tuning is a one-way ratchet toward *more* conservative (design decision D15).**
+`OperationalTuning` may only lengthen a validated profile's timing facts, never
+shorten them: an override that would undercut a category completion deadline, the
+profile's `ack_timeout` floor (now 500 ms on every built-in profile), or a pacing
+minimum is rejected at validation, live and at construction alike. This is
+stricter than issue #542 §102, whose "more conservative only" wording constrains
+*pacing* alone; 2.0 consciously extends the same rule to timeout durations. The
+practical consequence a 1.x user feels: 1.x let you install an aggressively
+*short*, fail-fast timeout to trip a command early, and 2.0 removes that — a
+command now waits at least the profile floor before it fails. If you relied on a
+sub-floor deadline for fast failure, drive that from the caller side (cancel on
+your own deadline) rather than from tuning.
+
 Two differences matter in practice.
 
 **The update is a whole replacement, not a merge.** Any field left unset returns
@@ -486,6 +499,21 @@ dropped) — futures built from the standard async socket readers/writers alread
 are. The same fix bounds a *babbling* peer (one that returns a valid frame on
 every poll): it can no longer starve shutdown, `close()`, admission, or an
 emergency stop on the async facade.
+
+**`shutdown` vs `close` (design decision D14).** These are two distinct lifecycle
+methods, and the difference is load-bearing for orderly teardown. `shutdown` is
+the idempotent, non-joining signal: it asks the owner to stop, is safe to call
+repeatedly and again after a `RuntimeShutdown` has already been observed, and
+performs no second round of I/O or resolution. The consuming `close` is a
+deterministic transport-teardown barrier: it takes the session by value and
+returns only once the sole owner has finished its boundary drain and dropped its
+driver and transport, so on return the socket or serial port is released — though
+it does not promise an executor-specific task join. `close` maps an explicit
+`RuntimeShutdown` result to `Ok(())` (a shutdown you asked for is not an error),
+while a transport or poison cause that won the source ordering is preserved and
+returned. Use `shutdown` to signal from a handle or a second task; use `close`
+when the next step needs the transport actually torn down (reopening the same
+address, or exiting cleanly).
 
 `true` is positive proof that the session is finished; `false` only means the
 error alone does not prove it. Ordinary per-request failures — timeouts, busy
