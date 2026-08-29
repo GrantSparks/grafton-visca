@@ -359,6 +359,9 @@ pub(crate) fn decode_frames_with_routing(
     transport: TransportKind,
 ) -> Result<Vec<DecodedFrame>, Error> {
     let datagram = transport == TransportKind::Datagram;
+    // Reset the side-channel discard counter for this decode; the owner reads it
+    // after a successful decode and never sees a stale value from a prior turn.
+    buffers.set_discarded_malformed(0);
     // A datagram is already a complete transport boundary. Never let a
     // partial/malformed datagram become the prefix of the next one. Streams,
     // by contrast, deliberately retain partial bytes in the framer.
@@ -371,7 +374,13 @@ pub(crate) fn decode_frames_with_routing(
             actual: received.to_le_bytes().to_vec(),
         });
     }
-    if received == 0 {
+    // A read that carried no new bytes is normally an idle read with nothing to
+    // frame. It still runs the drain below when a prior stream receive stopped
+    // at the per-receive frame limit and left complete frames buffered (#674),
+    // so the remainder is attributed on the next turn without waiting for more
+    // bytes to arrive. A datagram framer is always cleared, so this only ever
+    // matters for streams.
+    if received == 0 && (datagram || !framer.has_buffered_data()) {
         return Ok(Vec::new());
     }
 
@@ -389,19 +398,49 @@ pub(crate) fn decode_frames_with_routing(
         pushed?;
 
         let mut frames = Vec::new();
+        let mut discarded_malformed = 0_usize;
         loop {
+            // #674: on a stream, stop draining once the per-receive frame limit
+            // is reached and leave any remaining complete frames buffered for
+            // the next receive. Draining past the limit and then failing both
+            // loses a frame and declares a perfectly framed byte stream
+            // desynchronized. A datagram cannot defer its remainder to a later
+            // receive (its framer is cleared at the boundary), so an over-limit
+            // datagram stays a hard `ResponseTooLarge`.
+            if !datagram && frames.len() >= frame_limit {
+                break;
+            }
             let next = framer.drain_frames().next();
             let Some(framed) = next else {
                 break;
             };
-            if frames.len() >= frame_limit {
+            if datagram && frames.len() >= frame_limit {
                 return Err(Error::ResponseTooLarge {
                     max_size: frame_limit,
                 });
             }
             let framed = framed?;
-            if let Some(frame) = decode_frame(envelope, routing, framed)? {
-                frames.push(frame);
+            match decode_frame(envelope, routing, framed) {
+                Ok(Some(frame)) => frames.push(frame),
+                // An IP source is ambiguous when more than one target is
+                // registered; the frame was already dropped without a target.
+                Ok(None) => {}
+                Err(error) => {
+                    if datagram {
+                        // A datagram is atomic: a single malformed frame in it
+                        // discards the whole datagram, exactly as before.
+                        return Err(error);
+                    }
+                    // #672: a frame the framer already delimited at an `FF`
+                    // boundary but that did not classify is a malformed frame to
+                    // discard, not a lost framing position. The framer keeps its
+                    // place, so the stream stays Running and the frame is counted
+                    // as ignored — the behavior 1.x had (log-and-continue) and
+                    // the behavior a datagram already has. Only a genuine framing
+                    // failure (buffer overflow above, or an oversized single
+                    // frame via `framed?`) still poisons.
+                    discarded_malformed = discarded_malformed.saturating_add(1);
+                }
             }
         }
 
@@ -411,7 +450,7 @@ pub(crate) fn decode_frames_with_routing(
                 actual: Vec::new(),
             });
         }
-        Ok(frames)
+        Ok((frames, discarded_malformed))
     })();
 
     if datagram {
@@ -420,7 +459,13 @@ pub(crate) fn decode_frames_with_routing(
         // all bytes from this datagram before the next receive.
         framer.clear();
     }
-    result
+    match result {
+        Ok((frames, discarded_malformed)) => {
+            buffers.set_discarded_malformed(discarded_malformed);
+            Ok(frames)
+        }
+        Err(error) => Err(error),
+    }
 }
 
 fn decode_frame(
@@ -545,10 +590,36 @@ fn decode_response_target(
             Ok(Some(target))
         }
         AddressingMode::Ip => {
-            if source != 0x90 {
-                return Err(invalid_source(payload));
+            // #590/#598/#681: an IP VISCA reply carries no routable camera
+            // source, so it is attributable only when exactly one target is
+            // registered. A camera configured with a non-default chain address
+            // answers with *that* address (e.g. `0xA0` for VISCA address 2) even
+            // on a single-target IP session. 1.x attributed any such reply to the
+            // sole outstanding command (camera-blind: `core::reply_scope`
+            // returned `None`, so attribution fell through to the single
+            // command). Restore that: for exactly one registered target, accept
+            // any VISCA reply source (high nibble `0x9..=0xF`) and bind it to the
+            // sole target. `decode_basic` already accepts the whole `0x9y..=0xFy`
+            // range, so the classifier that follows still reads the frame.
+            match routing.targets().sole_target() {
+                Some(target) => {
+                    if source < 0x90 {
+                        // Below `0x90` is the controller/broadcast range
+                        // (`0x80`-`0x8F`), never a reply source.
+                        return Err(invalid_source(payload));
+                    }
+                    Ok(Some(target))
+                }
+                None => {
+                    // More than one target registered: an IP source cannot
+                    // disambiguate between them, so keep the strict `0x90` check
+                    // and drop anything ambiguous without guessing a target.
+                    if source != 0x90 {
+                        return Err(invalid_source(payload));
+                    }
+                    Ok(None)
+                }
             }
-            Ok(routing.targets().sole_target())
         }
     }
 }
@@ -728,18 +799,66 @@ mod tests {
         ));
     }
 
+    /// Issue #590/#598/#681: an IP session has exactly one registered target, so
+    /// any VISCA reply source is attributed to that sole target (1.x's
+    /// camera-blind attribution). A camera configured with a non-default chain
+    /// address answers with *that* address (e.g. `0xA0` for VISCA address 2), and
+    /// that reply must still settle the sole outstanding command rather than
+    /// poisoning the session. Only lead bytes below `0x90` (controller/broadcast)
+    /// are rejected.
     #[test]
-    fn ip_and_sony_style_single_target_responses_require_exact_90_source() {
+    fn ip_single_target_attributes_any_reply_source_to_the_sole_target() {
         let envelope = OwnerEnvelope::Raw(RawVisca::new(AddressingMode::Ip));
         let routing = RoutingState::new(
             AddressingMode::Ip,
             TargetRegistry::single(CameraId::CAMERA_2).unwrap(),
         );
-        let frame = decode_frame(&envelope, routing, Bytes::from_static(&[0x90, 0x42, 0xff]))
-            .unwrap()
-            .unwrap();
-        assert_eq!(frame.target, CameraId::CAMERA_2);
-        assert!(decode_frame(&envelope, routing, Bytes::from_static(&[0xa0, 0x42, 0xff])).is_err());
+        // The default `0x90` reply attributes to the sole target.
+        let default_source =
+            decode_frame(&envelope, routing, Bytes::from_static(&[0x90, 0x42, 0xff]))
+                .unwrap()
+                .unwrap();
+        assert_eq!(default_source.target, CameraId::CAMERA_2);
+        // A camera answering with its chain address `0xA0` still attributes to
+        // the sole target, and its ACK still classifies (socket S2).
+        let chain_source =
+            decode_frame(&envelope, routing, Bytes::from_static(&[0xa0, 0x42, 0xff]))
+                .expect(
+                    "a chain-address reply on a single-target IP session is not a decode failure",
+                )
+                .expect("a single-target IP session attributes any reply source");
+        assert_eq!(chain_source.target, CameraId::CAMERA_2);
+        assert!(matches!(
+            chain_source.response,
+            DecodedResponse::Ack {
+                socket: Some(crate::ViscaSocket::S2)
+            }
+        ));
+        // A controller/broadcast lead byte is never a reply source.
+        assert!(decode_frame(&envelope, routing, Bytes::from_static(&[0x80, 0x42, 0xff])).is_err());
+    }
+
+    /// The strict `0x90` check is retained when more than one target is
+    /// registered: an IP source cannot disambiguate between targets there, so a
+    /// non-`0x90` source is rejected and a bare `0x90` is dropped without
+    /// guessing a target (this configuration is rejected at session construction,
+    /// so the branch is defensive).
+    #[test]
+    fn ip_multi_target_keeps_the_strict_source_check() {
+        let envelope = OwnerEnvelope::Raw(RawVisca::new(AddressingMode::Ip));
+        let routing = RoutingState::new(
+            AddressingMode::Ip,
+            TargetRegistry::from_targets(&[CameraId::CAMERA_1, CameraId::CAMERA_2]).unwrap(),
+        );
+        // A bare `0x90` reply is ambiguous across the registered targets: it is
+        // dropped (Ok(None)) rather than attributed to a guessed target.
+        assert!(
+            decode_frame(&envelope, routing, Bytes::from_static(&[0x90, 0x41, 0xff]))
+                .unwrap()
+                .is_none()
+        );
+        // A non-`0x90` source stays a hard error with more than one target.
+        assert!(decode_frame(&envelope, routing, Bytes::from_static(&[0xa0, 0x41, 0xff])).is_err());
     }
 
     #[test]
@@ -936,6 +1055,156 @@ mod tests {
             Err(Error::ResponseTooLarge { max_size: 5 })
         ));
         assert!(framer.has_buffered_data());
+    }
+
+    /// Issue #672: a delimited-but-unclassifiable frame on a stream is discarded
+    /// as malformed and counted, not turned into a framing failure. Decoding
+    /// continues with the following well-formed frame, and the framer keeps its
+    /// place, so the session (which reads this result) is never poisoned.
+    #[test]
+    fn stream_malformed_frame_is_discarded_and_counted_not_poisoned() {
+        let envelope = OwnerEnvelope::Raw(RawVisca::new(AddressingMode::Ip));
+        let routing = RoutingState::new(
+            AddressingMode::Ip,
+            TargetRegistry::single(CameraId::CAMERA_1).unwrap(),
+        );
+        let mut framer = ProtocolFramer::new_with_limits(64, 64, 64);
+        let mut buffers = OwnerBuffers::new(OwnerLimits::default()).unwrap();
+
+        // A padded ACK (four bytes where an ACK is exactly three) followed by a
+        // well-formed completion, in one stream read.
+        let bytes = [0x90, 0x41, 0x00, 0xff, 0x90, 0x51, 0xff];
+        buffers.receive_mut()[..bytes.len()].copy_from_slice(&bytes);
+        let frames = decode_frames_with_routing(
+            &envelope,
+            &mut framer,
+            routing,
+            &mut buffers,
+            bytes.len(),
+            8,
+            TransportKind::Stream,
+        )
+        .expect("a malformed stream frame is discarded, not a framing failure");
+        assert_eq!(frames.len(), 1, "only the well-formed completion survives");
+        assert!(matches!(
+            frames[0].response,
+            DecodedResponse::Completion { .. }
+        ));
+        assert_eq!(
+            buffers.take_discarded_malformed(),
+            1,
+            "the padded ACK is reported as one discarded malformed frame"
+        );
+        assert!(!framer.has_buffered_data());
+    }
+
+    /// Issue #672 on a datagram is unchanged: a datagram is atomic, so a single
+    /// malformed frame in it discards the whole datagram as an `Err` the owner
+    /// turns into `Ignored(MalformedFrame)` — it never decodes the good frames
+    /// around it.
+    #[test]
+    fn datagram_malformed_frame_still_discards_the_whole_datagram() {
+        let envelope = OwnerEnvelope::Raw(RawVisca::new(AddressingMode::Ip));
+        let routing = RoutingState::new(
+            AddressingMode::Ip,
+            TargetRegistry::single(CameraId::CAMERA_1).unwrap(),
+        );
+        let mut framer = ProtocolFramer::new_with_limits(64, 64, 64);
+        let mut buffers = OwnerBuffers::new(OwnerLimits::default()).unwrap();
+        let bytes = [0x90, 0x41, 0x00, 0xff, 0x90, 0x51, 0xff];
+        buffers.receive_mut()[..bytes.len()].copy_from_slice(&bytes);
+        assert!(matches!(
+            decode_frames_with_routing(
+                &envelope,
+                &mut framer,
+                routing,
+                &mut buffers,
+                bytes.len(),
+                8,
+                TransportKind::Datagram,
+            ),
+            Err(Error::InvalidResponse { .. })
+        ));
+        assert!(!framer.has_buffered_data());
+    }
+
+    /// Issue #674: a stream read that decodes more than the per-receive frame
+    /// limit stops at the limit and leaves the remaining complete frames
+    /// buffered for the next receive (drained here with a zero-length read),
+    /// rather than failing with `ResponseTooLarge` and poisoning the session.
+    #[test]
+    fn stream_over_limit_stops_at_limit_and_buffers_remainder() {
+        let envelope = OwnerEnvelope::Raw(RawVisca::new(AddressingMode::Ip));
+        let routing = RoutingState::new(
+            AddressingMode::Ip,
+            TargetRegistry::single(CameraId::CAMERA_1).unwrap(),
+        );
+        let mut framer = ProtocolFramer::new_with_limits(64, 64, 64);
+        let mut buffers = OwnerBuffers::new(OwnerLimits::default()).unwrap();
+
+        // Three well-formed frames in one read, with a per-receive limit of two.
+        let bytes = [0x90, 0x41, 0xff, 0x90, 0x51, 0xff, 0x90, 0x38, 0xff];
+        buffers.receive_mut()[..bytes.len()].copy_from_slice(&bytes);
+        let first = decode_frames_with_routing(
+            &envelope,
+            &mut framer,
+            routing,
+            &mut buffers,
+            bytes.len(),
+            2,
+            TransportKind::Stream,
+        )
+        .expect("an over-limit stream read is not a framing failure");
+        assert_eq!(first.len(), 2, "the read stops at the frame limit");
+        assert_eq!(buffers.take_discarded_malformed(), 0);
+        assert!(
+            framer.has_buffered_data(),
+            "the third frame is left buffered for the next receive"
+        );
+
+        // A zero-length read drains the buffered remainder without new bytes.
+        let second = decode_frames_with_routing(
+            &envelope,
+            &mut framer,
+            routing,
+            &mut buffers,
+            0,
+            2,
+            TransportKind::Stream,
+        )
+        .expect("draining the remainder is not a framing failure");
+        assert_eq!(second.len(), 1, "the buffered remainder is drained next");
+        assert!(matches!(second[0].response, DecodedResponse::NetworkChange));
+        assert!(!framer.has_buffered_data());
+    }
+
+    /// Issue #674 boundary: a stream read of exactly the per-receive frame limit
+    /// decodes every frame and leaves nothing buffered — the limit itself is not
+    /// an error.
+    #[test]
+    fn stream_exactly_frame_limit_decodes_all_and_buffers_nothing() {
+        let envelope = OwnerEnvelope::Raw(RawVisca::new(AddressingMode::Ip));
+        let routing = RoutingState::new(
+            AddressingMode::Ip,
+            TargetRegistry::single(CameraId::CAMERA_1).unwrap(),
+        );
+        let mut framer = ProtocolFramer::new_with_limits(64, 64, 64);
+        let mut buffers = OwnerBuffers::new(OwnerLimits::default()).unwrap();
+
+        let bytes = [0x90, 0x41, 0xff, 0x90, 0x51, 0xff];
+        buffers.receive_mut()[..bytes.len()].copy_from_slice(&bytes);
+        let frames = decode_frames_with_routing(
+            &envelope,
+            &mut framer,
+            routing,
+            &mut buffers,
+            bytes.len(),
+            2,
+            TransportKind::Stream,
+        )
+        .expect("exactly the frame limit is not a framing failure");
+        assert_eq!(frames.len(), 2);
+        assert!(!framer.has_buffered_data());
     }
 
     #[test]

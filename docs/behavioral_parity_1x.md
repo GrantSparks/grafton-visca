@@ -52,9 +52,24 @@ The current corpus covers timeout category defaults and selection; retry counts,
 bounded exhaustion, and evidence-aware recovery; exact/unique/colliding
 lower-16 sequence handling; stale sequenced completion, error, and inquiry
 inertness; raw exact-socket and unique-candidate routing; compatible inquiry
-FIFO; datagram isolation; stream poison; envelope-specific receive faults;
-command wire bytes; inquiry decoding and golden replies; blocking out-of-order
-receipt retention; and cancellation, detach, and late observer delivery.
+FIFO; datagram isolation; stream poison; byte-stream malformed-frame tolerance;
+envelope-specific receive faults; command wire bytes; inquiry decoding and
+golden replies; blocking out-of-order receipt retention; and cancellation,
+detach, and late observer delivery.
+
+The `malformed-frame-tolerance` family (#672) pins that a delimited-but-
+unclassifiable VISCA response is discarded and logged rather than fatal. 1.x
+reported such a frame as `ReceiveDisposition::Malformed` and logged-and-continued
+in both runners without disturbing any pending command; the 2.0 rewrite briefly
+regressed this on byte streams, where the strict decoder's rejection became a
+framing poison that killed the whole session. The v2 production replay drives the
+real owner over a stream and asserts every quirky-but-delimited shape (padded
+ACKs, vendor socket nibbles, RS-485 echoes, controller/broadcast lead bytes,
+address-set replies, truncated frames, stray terminator bytes) is discarded as
+`Ignored(MalformedFrame)` while the session stays `Running` and the command is
+still settled by the next well-formed reply. A genuine loss of the framing
+position (buffer overflow, or a boundary-free read past `max_buffer_size`) still
+poisons, and that terminal case is preserved.
 
 ## Built-in request policy audit
 

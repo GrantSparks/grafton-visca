@@ -682,6 +682,50 @@ destination.
 
 ### Fixed
 
+- **A quirky-but-delimited stream frame no longer poisons the session** (#672),
+  restoring the 1.x log-and-continue tolerance the rewrite lost on byte streams.
+  On a stream transport (TCP, and serial), a single frame the framer already
+  delimited at its `FF` boundary but that the strict decoder does not classify —
+  a padded ACK (`90 41 00 FF`), a vendor socket nibble (`90 43 FF`), an RS-485
+  echo of the controller's own frame (`81 01 04 07 00 FF`), a late address-set
+  reply (`88 30 02 FF`), a truncated frame (`90 FF`), a stray `FF` line-noise
+  byte, and the other shapes the review demonstrated fatal — turned an
+  `InvalidResponse` classifier verdict into a framing poison that killed the
+  whole session and every in-flight request. The datagram path already discarded
+  such a frame as `Ignored(MalformedFrame)`, and 1.x logged and continued in
+  both runners; the classifier verdict is now decoupled from the session
+  consequence, so a delimited-but-unclassifiable frame is discarded and counted
+  (new `OwnerMetrics::ignored_malformed_frames`) on streams too while the session
+  stays running and the command is settled by the next well-formed reply. Only a
+  genuine loss of the framing position (cumulative buffer overflow, or a
+  boundary-free read past `max_buffer_size`) still poisons a stream. A
+  `malformed-frame-tolerance` family and a production stream replay are pinned in
+  the 1.x behavioral-parity oracle.
+
+- **More than 64 decodable frames in one stream read no longer poisons the
+  session** (#674). A single read that decoded past `frames_per_receive`
+  (default 64) returned `Error::ResponseTooLarge` — treated as a fatal framing
+  failure — and a 256-byte receive buffer holds up to ~85 three-byte VISCA
+  frames, so any burst of ≥65 replies (well within the admission window of
+  outstanding ACK+completion frames) killed the session. The decode now stops at
+  the frame limit and leaves the remaining complete frames buffered for the next
+  receive (the framer already retains bytes across reads, bounded by
+  `max_buffer_size`, which still fails loudly on a genuine overflow) instead of
+  poisoning over a large-but-valid burst. The remainder is drained promptly on
+  the next owner turn without waiting for more bytes. The frame-count error also
+  no longer mislabels a frame *count* as a byte count.
+
+- **A misaddressed IP camera answering with its chain address no longer poisons a
+  single-target session** (#681), restoring the #590/#598 compatibility the
+  rewrite dropped. A single-target IP session required the reply source to be
+  exactly `0x90`, so a camera configured with VISCA address 2 answering
+  `A0 41 FF` got `StreamPoisoned` (stream) or `UnsequencedCommandUnconfirmed`
+  (datagram). 1.x attributed any reply to the sole outstanding command
+  (camera-blind), because an IP reply carries no routable source. A single-target
+  IP session now accepts any `0x9y..=0xFy` reply source and attributes it to the
+  sole target; the strict `0x90` check is kept when more than one target is
+  registered, where the source cannot disambiguate.
+
 - **Preset number 255 and a `0xFF` direct-menu control parameter can be sent
   again** (#683). The stack builder that assembles every command terminated a
   frame by inferring, from the trailing byte, whether a VISCA terminator was

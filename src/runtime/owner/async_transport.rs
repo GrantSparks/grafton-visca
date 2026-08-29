@@ -196,6 +196,25 @@ where
         frame_limit: usize,
     ) -> impl Future<Output = Result<AsyncReceive, Error>> + Send {
         async move {
+            // #674 / #542 protocol-input-first: attribute any complete frames a
+            // prior receive that hit the per-receive frame limit left buffered
+            // before reading again, so a burst larger than one batch is drained
+            // across turns rather than stalling until more bytes arrive. A
+            // datagram framer is always cleared, so this drains nothing there and
+            // falls straight through to a read. A genuine framing failure on the
+            // buffered bytes still surfaces as `Err` and poisons.
+            let buffered = decode_frames_with_routing(
+                &self.state.envelope,
+                &mut self.state.framer,
+                self.state.routing,
+                buffers,
+                0,
+                frame_limit,
+                self.policy.protocol.transport,
+            )?;
+            if !buffered.is_empty() || buffers.discarded_malformed() > 0 {
+                return Ok(AsyncReceive::Frames(buffered));
+            }
             // A failed read consumed nothing, so the framer is untouched and
             // the owner still gets to decide whether the session survives.
             // Framing/decode failures below stay on the `Err` path.

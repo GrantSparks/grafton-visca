@@ -46,6 +46,7 @@ EXPECTED_REQUIRED_FAMILIES = frozenset(
         "inquiry-decode-golden",
         "blocking-out-of-order-receipt-retention",
         "cancellation-detach-observer-late-delivery",
+        "malformed-frame-tolerance",
     }
 )
 

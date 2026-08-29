@@ -3985,7 +3985,7 @@ mod metrics {
         const fn assert_copy<T: Copy>() {}
         assert_copy::<OwnerMetrics>();
         assert_copy::<DiagnosticEvent>();
-        assert_eq!(size_of::<OwnerMetrics>(), 19 * size_of::<u64>());
+        assert_eq!(size_of::<OwnerMetrics>(), 20 * size_of::<u64>());
     }
 }
 

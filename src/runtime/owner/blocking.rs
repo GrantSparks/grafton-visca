@@ -1552,10 +1552,48 @@ impl BlockingOwner {
         };
 
         let frame_limit = self.state.policy().limits.frames_per_receive;
-        let frames = match decoder.decode(self.state.buffers(), received, frame_limit) {
-            Ok(frames) => frames,
-            Err(error) => {
-                if self.state.policy().protocol.transport == TransportKind::Stream {
+        let is_stream = self.state.policy().protocol.transport == TransportKind::Stream;
+        // The first pass decodes the bytes just read. On a stream, subsequent
+        // passes drain (received == 0) any complete frames a receive that hit
+        // the per-receive frame limit left buffered, so a burst larger than one
+        // batch is fully attributed in this pump instead of stalling until more
+        // bytes happen to arrive (#674).
+        let mut input_len = received;
+        let mut driven = 0usize;
+        loop {
+            let frames = match decoder.decode(self.state.buffers(), input_len, frame_limit) {
+                Ok(frames) => frames,
+                Err(error) => {
+                    if is_stream {
+                        let effects = self.state.input(
+                            Input::Poison {
+                                reason: error.to_string().into_boxed_str(),
+                            },
+                            Instant::now(),
+                        );
+                        let _ = self.drive(driver, effects);
+                        return Err(error);
+                    }
+                    // A datagram is an atomic receive boundary. Malformed
+                    // framing/decoding discards that whole datagram and leaves
+                    // the owner Running so the next datagram can be attempted.
+                    let _ = self
+                        .state
+                        .apply_effect(Effect::Ignored(IgnoreReason::MalformedFrame));
+                    return Ok(driven);
+                }
+            };
+            // #672: a stream tolerates a delimited frame that did not classify by
+            // discarding it and staying Running, exactly as a datagram already
+            // does and as 1.x did (log-and-continue). Record one Ignored per
+            // discarded frame so the discard stays observable.
+            for _ in 0..self.state.buffers().take_discarded_malformed() {
+                let _ = self
+                    .state
+                    .apply_effect(Effect::Ignored(IgnoreReason::MalformedFrame));
+            }
+            if let Err(error) = self.state.validate_frame_batch(&frames) {
+                if is_stream {
                     let effects = self.state.input(
                         Input::Poison {
                             reason: error.to_string().into_boxed_str(),
@@ -1565,34 +1603,23 @@ impl BlockingOwner {
                     let _ = self.drive(driver, effects);
                     return Err(error);
                 }
-                // A datagram is an atomic receive boundary. Malformed
-                // framing/decoding discards that whole datagram and leaves
-                // the owner Running so the next datagram can be attempted.
                 let _ = self
                     .state
                     .apply_effect(Effect::Ignored(IgnoreReason::MalformedFrame));
-                return Ok(0);
+                return Ok(driven);
             }
-        };
-        if let Err(error) = self.state.validate_frame_batch(&frames) {
-            if self.state.policy().protocol.transport == TransportKind::Stream {
-                let effects = self.state.input(
-                    Input::Poison {
-                        reason: error.to_string().into_boxed_str(),
-                    },
-                    Instant::now(),
-                );
-                let _ = self.drive(driver, effects);
-                return Err(error);
+            let count = frames.len();
+            self.drive_decoded_batch(driver, frames, received_at);
+            driven = driven.saturating_add(count);
+            // Only a stream buffers a remainder, and only a batch that filled the
+            // limit can have left one; drain and drive it without reading again.
+            if is_stream && frame_limit > 0 && count >= frame_limit {
+                input_len = 0;
+                continue;
             }
-            let _ = self
-                .state
-                .apply_effect(Effect::Ignored(IgnoreReason::MalformedFrame));
-            return Ok(0);
+            break;
         }
-        let count = frames.len();
-        self.drive_decoded_batch(driver, frames, received_at);
-        Ok(count)
+        Ok(driven)
     }
 
     fn cancel_core<D: BlockingWireDriver + ?Sized>(

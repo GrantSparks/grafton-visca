@@ -16,7 +16,8 @@
     "command-wire-bytes",
     "inquiry-decode-golden",
     "blocking-out-of-order-receipt-retention",
-    "cancellation-detach-observer-late-delivery"
+    "cancellation-detach-observer-late-delivery",
+    "malformed-frame-tolerance"
   ],
   "approved_intentional_changes": [
     "deterministic-equal-jitter",
@@ -416,6 +417,20 @@
         "--lib",
         "command::flip::tests"
       ]
+    },
+    {
+      "id": "v2-stream-malformed-tolerance",
+      "file": "tests/issue_672_674_681_decode_consequence.rs",
+      "symbol": "stream_quirky_frames_are_discarded_and_keep_the_session",
+      "envelope": "raw",
+      "profile": "GenericVisca",
+      "receipt_class": "decode",
+      "command": [
+        "cargo",
+        "test",
+        "--test",
+        "issue_672_674_681_decode_consequence"
+      ]
     }
   ],
   "behaviors": [
@@ -740,6 +755,25 @@
       ],
       "clause": "#542 \u00a73 Lifecycle: observer detach/timeout does not change protocol state; cancellation and observer delivery remain distinct operations.",
       "rationale": "2.0 intentionally breaks the public API shape, but it preserves the observable safety rule: cancel is explicit, drop/detach never stops hardware, and late terminal delivery still finalizes target-local state."
+    },
+    {
+      "id": "malformed-frame-tolerance",
+      "state": "verified",
+      "classification": "preserved",
+      "oracle_sources": [
+        {
+          "path": "src/runtime/driver/receive.rs",
+          "symbols": [
+            "tests::malformed_payload_is_reported_without_state_mutation",
+            "tests::non_reply_addresses_and_truncated_frames_are_still_malformed"
+          ]
+        }
+      ],
+      "v2_tests": [
+        "v2-stream-malformed-tolerance"
+      ],
+      "clause": "#542 \u00a73 Transport failure: a classifier verdict on a delimited frame is not a session verdict; only a genuine loss of the byte-stream framing position is terminal.",
+      "rationale": "1.x reported an unclassifiable but delimited VISCA response as ReceiveDisposition::Malformed and logged-and-continued in both runners without disturbing any pending command (the oracle tests assert the command stays pending across padded ACKs, vendor socket nibbles, controller/broadcast lead bytes, address-set replies, and truncated frames). The 2.0 rewrite regressed this on byte streams: the strict decoder's Err became a framing poison that killed the whole session (#672). The production replay drives the real owner over a stream and asserts every quirky-but-delimited shape is discarded as Ignored(MalformedFrame) while the session stays Running and the command is still settled by the next well-formed reply, restoring the 1.x tolerance; genuine framing-position loss (buffer overflow / no boundary) still poisons."
     }
   ]
 }

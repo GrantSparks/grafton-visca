@@ -11547,6 +11547,7 @@ pub grafton_visca::observability::MetricsSnapshot::dropped_boundary_work: u64
 pub grafton_visca::observability::MetricsSnapshot::dropped_diagnostic_events: u64
 pub grafton_visca::observability::MetricsSnapshot::dropped_diagnostics: u64
 pub grafton_visca::observability::MetricsSnapshot::dropped_observer_events: u64
+pub grafton_visca::observability::MetricsSnapshot::ignored_malformed_frames: u64
 pub grafton_visca::observability::MetricsSnapshot::ignored_unmatched_sequenced_replies: u64
 pub grafton_visca::observability::MetricsSnapshot::inquiry_timeouts: u64
 pub grafton_visca::observability::MetricsSnapshot::pending: usize
@@ -12672,6 +12673,7 @@ pub grafton_visca::prelude::blocking::MetricsSnapshot::dropped_boundary_work: u6
 pub grafton_visca::prelude::blocking::MetricsSnapshot::dropped_diagnostic_events: u64
 pub grafton_visca::prelude::blocking::MetricsSnapshot::dropped_diagnostics: u64
 pub grafton_visca::prelude::blocking::MetricsSnapshot::dropped_observer_events: u64
+pub grafton_visca::prelude::blocking::MetricsSnapshot::ignored_malformed_frames: u64
 pub grafton_visca::prelude::blocking::MetricsSnapshot::ignored_unmatched_sequenced_replies: u64
 pub grafton_visca::prelude::blocking::MetricsSnapshot::inquiry_timeouts: u64
 pub grafton_visca::prelude::blocking::MetricsSnapshot::pending: usize
@@ -21193,6 +21195,7 @@ pub grafton_visca::MetricsSnapshot::dropped_boundary_work: u64
 pub grafton_visca::MetricsSnapshot::dropped_diagnostic_events: u64
 pub grafton_visca::MetricsSnapshot::dropped_diagnostics: u64
 pub grafton_visca::MetricsSnapshot::dropped_observer_events: u64
+pub grafton_visca::MetricsSnapshot::ignored_malformed_frames: u64
 pub grafton_visca::MetricsSnapshot::ignored_unmatched_sequenced_replies: u64
 pub grafton_visca::MetricsSnapshot::inquiry_timeouts: u64
 pub grafton_visca::MetricsSnapshot::pending: usize
