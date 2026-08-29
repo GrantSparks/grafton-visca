@@ -34,7 +34,7 @@ use grafton_visca::{
     transport::{
         AddressingMode, BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig,
     },
-    CameraId, Error,
+    CameraId, Error, OperationalTuning,
 };
 
 use profile_fixtures::NonDefaultCompileTimeProfile;
@@ -327,6 +327,47 @@ fn raw_receive_fault_fails_one_command_and_keeps_the_session() {
         .expect("later work still completes");
 
     session.shutdown().expect("owner shutdown");
+}
+
+/// Issue #671 strict opt-in, end to end: with
+/// `OperationalTuning::strict_unconfirmed_poison(true)`, the same receive fault
+/// poisons the whole session, surfaced as `StreamPoisoned` (which requires a
+/// replacement session). This exercises the full tuning → adapter → engine
+/// plumbing of the opt-in through the real facade.
+#[test]
+fn strict_opt_in_raw_receive_fault_poisons_the_session() {
+    let transport = FaultTransport::new(SendSemantics::Datagram, vec![OnSend::Reply(Vec::new())])
+        .with_trailing_reply(standard_reply())
+        .with_read_fault(
+            1,
+            Error::Io(Arc::new(std::io::Error::from(
+                std::io::ErrorKind::ConnectionRefused,
+            ))),
+        );
+    let session = Session::open(
+        transport,
+        session_config()
+            .with_tuning(OperationalTuning::new().strict_unconfirmed_poison(true))
+            .expect("strict tuning is valid"),
+    )
+    .expect("owner session");
+    let camera = session
+        .camera::<NonDefaultCompileTimeProfile>()
+        .expect("camera view");
+
+    let error = camera
+        .submit::<AppliedOnly, _>(&ZoomStop)
+        .expect("submission")
+        .applied()
+        .expect_err("strict mode poisons the session on the receive fault");
+    assert!(
+        matches!(error, Error::StreamPoisoned { .. }),
+        "strict mode surfaces the poison as StreamPoisoned, got {error:?}"
+    );
+    assert!(
+        error.requires_new_session(),
+        "a poisoned session must require a replacement"
+    );
 }
 
 /// A sequence-correlated Sony receive fault can retry the same logical request
