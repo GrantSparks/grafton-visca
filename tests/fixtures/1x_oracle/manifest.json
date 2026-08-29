@@ -16,12 +16,14 @@
     "command-wire-bytes",
     "inquiry-decode-golden",
     "blocking-out-of-order-receipt-retention",
-    "cancellation-detach-observer-late-delivery"
+    "cancellation-detach-observer-late-delivery",
+    "malformed-frame-tolerance"
   ],
   "approved_intentional_changes": [
     "deterministic-equal-jitter",
     "evidence-based-raw-correlation",
-    "evidence-bounded-retry"
+    "evidence-bounded-retry",
+    "inquiry-deadline-interim-default"
   ],
   "v2_tests": [
     {
@@ -36,6 +38,20 @@
         "test",
         "--lib",
         "prepared::tests"
+      ]
+    },
+    {
+      "id": "v2-profile-default-deadlines",
+      "file": "src/camera/profile_registry.rs",
+      "symbol": "registry_tests::builtin_profile_default_deadlines_match_the_1x_ack_and_interim_inquiry",
+      "envelope": "neutral",
+      "profile": "n/a",
+      "receipt_class": "timeout",
+      "command": [
+        "cargo",
+        "test",
+        "--lib",
+        "builtin_profile_default_deadlines_match_the_1x_ack_and_interim_inquiry"
       ]
     },
     {
@@ -416,13 +432,28 @@
         "--lib",
         "command::flip::tests"
       ]
+    },
+    {
+      "id": "v2-stream-malformed-tolerance",
+      "file": "tests/issue_672_674_681_decode_consequence.rs",
+      "symbol": "stream_quirky_frames_are_discarded_and_keep_the_session",
+      "envelope": "raw",
+      "profile": "GenericVisca",
+      "receipt_class": "decode",
+      "command": [
+        "cargo",
+        "test",
+        "--test",
+        "issue_672_674_681_decode_consequence"
+      ]
     }
   ],
   "behaviors": [
     {
       "id": "timeout-category-defaults-selection",
       "state": "verified",
-      "classification": "preserved",
+      "classification": "intentional-change",
+      "approved_change": "inquiry-deadline-interim-default",
       "oracle_sources": [
         {
           "path": "src/timeout.rs",
@@ -434,10 +465,11 @@
         }
       ],
       "v2_tests": [
-        "v2-prepared-timeout-selection"
+        "v2-prepared-timeout-selection",
+        "v2-profile-default-deadlines"
       ],
       "clause": "#542 §3: preserve category-specific timeout policy and keep scheduler, observer, and transport deadlines independent.",
-      "rationale": "2.0 renames the public tuning type and lowers it through Prepared requests, but the category defaults and selection behavior remain an explicit preservation floor."
+      "rationale": "2.0 keeps the 1.x category-selection behavior and restores the acknowledgement default to the 1.x 500 ms value on every built-in profile (interim; final per-profile numbers come from the hardware pass). The one intentional divergence is the inquiry-response deadline: 1.x inquiries had no dedicated deadline and used the 5 s Quick budget, while v2 gives inquiries their own deadline held at an interim 1 s (waiver inquiry-deadline-interim-default). The mapped selection test installs explicit tuning, so v2-profile-default-deadlines additionally pins the per-profile ACK (500 ms) and inquiry (1 s) defaults against drift."
     },
     {
       "id": "retry-counts-exhaustion-and-ceiling",
@@ -740,6 +772,25 @@
       ],
       "clause": "#542 \u00a73 Lifecycle: observer detach/timeout does not change protocol state; cancellation and observer delivery remain distinct operations.",
       "rationale": "2.0 intentionally breaks the public API shape, but it preserves the observable safety rule: cancel is explicit, drop/detach never stops hardware, and late terminal delivery still finalizes target-local state."
+    },
+    {
+      "id": "malformed-frame-tolerance",
+      "state": "verified",
+      "classification": "preserved",
+      "oracle_sources": [
+        {
+          "path": "src/runtime/driver/receive.rs",
+          "symbols": [
+            "tests::malformed_payload_is_reported_without_state_mutation",
+            "tests::non_reply_addresses_and_truncated_frames_are_still_malformed"
+          ]
+        }
+      ],
+      "v2_tests": [
+        "v2-stream-malformed-tolerance"
+      ],
+      "clause": "#542 \u00a73 Transport failure: a classifier verdict on a delimited frame is not a session verdict; only a genuine loss of the byte-stream framing position is terminal.",
+      "rationale": "1.x reported an unclassifiable but delimited VISCA response as ReceiveDisposition::Malformed and logged-and-continued in both runners without disturbing any pending command (the oracle tests assert the command stays pending across padded ACKs, vendor socket nibbles, controller/broadcast lead bytes, address-set replies, and truncated frames). The 2.0 rewrite regressed this on byte streams: the strict decoder's Err became a framing poison that killed the whole session (#672). The production replay drives the real owner over a stream and asserts every quirky-but-delimited shape is discarded as Ignored(MalformedFrame) while the session stays Running and the command is still settled by the next well-formed reply, restoring the 1.x tolerance; genuine framing-position loss (buffer overflow / no boundary) still poisons."
     }
   ]
 }

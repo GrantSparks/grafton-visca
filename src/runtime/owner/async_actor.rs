@@ -1585,15 +1585,26 @@ where
                 // Real bytes decoded: the transport is not idle, so restart the
                 // no-data escalation (#675).
                 self.idle_receive_run = 0;
+                // #672: a stream tolerates a delimited frame that did not
+                // classify by discarding it and staying Running, exactly as a
+                // datagram already does and as 1.x did (log-and-continue). Record
+                // one Ignored per discarded frame so the discard stays
+                // observable; the session is never poisoned for it.
+                for _ in 0..self.state.buffers().take_discarded_malformed() {
+                    let _ = self
+                        .state
+                        .apply_effect(Effect::Ignored(IgnoreReason::MalformedFrame));
+                }
                 if let Err(error) = self.state.validate_frame_batch(&frames) {
                     return self
                         .discard_undecodable_receive(driver, runtime, &error, received_at)
                         .await;
                 }
                 if frames.is_empty() {
-                    // The read carried bytes that did not finish a frame. The
-                    // framer holds the partial frame; keep pumping so the rest
-                    // of it can arrive in a later read.
+                    // The read carried bytes that did not finish a frame, or only
+                    // frames that were discarded above. The framer holds any
+                    // partial frame; keep pumping so the rest of it can arrive in
+                    // a later read.
                     return TurnOutcome::YieldBoundaries;
                 }
                 let turn = self.state.begin_input_turn(received_at);
@@ -4078,11 +4089,16 @@ mod tests {
         );
     }
 
-    /// The byte-stream verdict is unchanged: a decode failure there means the
-    /// stream position is unknowable, so the session is poisoned.
+    /// #672: a delimited-but-unclassifiable frame on a byte stream is a
+    /// malformed frame to discard, not a lost framing position. The framer kept
+    /// its place, so the stream stays Running, the frame is recorded as
+    /// `Ignored(MalformedFrame)`, and the in-flight command is settled by the
+    /// next well-formed reply — the log-and-continue tolerance 1.x had. A genuine
+    /// framing failure (buffer overflow / no boundary) still poisons and is
+    /// pinned separately.
     #[cfg(feature = "runtime-tokio")]
     #[tokio::test]
-    async fn a_malformed_stream_frame_still_poisons_the_session() {
+    async fn a_malformed_stream_frame_is_discarded_and_keeps_the_session() {
         let runtime = TokioRuntime::from_current().unwrap();
         let profile = crate::ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()
             .expect("the generic profile is valid");
@@ -4104,15 +4120,139 @@ mod tests {
 
         let receipt = handle.submit(command()).await.unwrap();
         let _written = sent_rx.recv_async().await.unwrap();
-        chunk_tx.send_async(vec![0x01, 0x41, 0xff]).await.unwrap();
+        // A padded ACK: delimited at its `FF`, but four bytes where an ACK is
+        // exactly three, so it does not classify.
+        chunk_tx
+            .send_async(vec![0x90, 0x41, 0x00, 0xff])
+            .await
+            .unwrap();
+        while !chunk_tx.is_empty() {
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(
+            handle.snapshot().await.unwrap().state,
+            SessionState::Running,
+            "one malformed stream frame is not a session verdict"
+        );
+
+        // The next well-formed ACK and completion still settle the command.
+        chunk_tx.send_async(vec![0x90, 0x41, 0xff]).await.unwrap();
+        chunk_tx.send_async(vec![0x90, 0x51, 0xff]).await.unwrap();
+        assert!(matches!(
+            receipt.terminal().await.unwrap(),
+            RuntimeOutcome::Applied
+        ));
+
+        handle.shutdown().await.unwrap();
+        let snapshot = actor_task.await.unwrap();
+        assert_eq!(snapshot.state, SessionState::Shutdown);
+        assert!(
+            snapshot.diagnostics.iter().any(|event| matches!(
+                event,
+                DiagnosticEvent::Ignored(IgnoreReason::MalformedFrame)
+            )),
+            "the discarded malformed stream frame must still be observable"
+        );
+    }
+
+    /// #674: a single stream read that decodes more than the per-receive frame
+    /// limit (default 64) must not poison the session. The read stops at the
+    /// limit and the async owner drains the buffered remainder on the next turn
+    /// (protocol input first), so all frames are attributed and the command is
+    /// settled. Sixty-three harmless network-change notices sit ahead of the ACK
+    /// and completion, so the completion falls past the limit and is only
+    /// reachable through the drain path.
+    #[cfg(feature = "runtime-tokio")]
+    #[tokio::test]
+    async fn a_stream_burst_over_the_frame_limit_keeps_the_session() {
+        let runtime = TokioRuntime::from_current().unwrap();
+        let profile = crate::ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()
+            .expect("the generic profile is valid");
+        let (chunk_tx, chunks) = flume::bounded(8);
+        let (sent, sent_rx) = flume::bounded(8);
+        // A large receive buffer so one read can carry a burst past the frame
+        // limit, as a real 256-byte raw-IP session would.
+        let mut config = crate::transport::builder::TransportConfig::default();
+        config.buffer_config.recv_buffer_size = 1024;
+        let adapter = crate::runtime::owner::AsyncTransportAdapter::new(
+            ChunkedStreamTransport {
+                config,
+                chunks,
+                sent,
+            },
+            &profile,
+            CameraId::CAMERA_1,
+        )
+        .unwrap();
+        assert_eq!(adapter.policy().protocol.transport, TransportKind::Stream);
+        let frame_limit = adapter.policy().limits.frames_per_receive;
+        let (handle, actor) = AsyncOwnerActor::new(adapter.policy().clone(), runtime).unwrap();
+        let actor_task = tokio::spawn(actor.run(adapter));
+
+        let receipt = handle.submit(command()).await.unwrap();
+        let _written = sent_rx.recv_async().await.unwrap();
+        // One read: (frame_limit - 1) network-change notices, then the ACK and
+        // completion. The completion is the (frame_limit + 1)-th frame, so it is
+        // only reached after the limit-saturated read is drained.
+        let mut burst = Vec::new();
+        for _ in 0..frame_limit.saturating_sub(1) {
+            burst.extend_from_slice(&[0x90, 0x38, 0xff]);
+        }
+        burst.extend_from_slice(&[0x90, 0x41, 0xff]);
+        burst.extend_from_slice(&[0x90, 0x51, 0xff]);
+        chunk_tx.send_async(burst).await.unwrap();
 
         assert!(matches!(
             receipt.terminal().await.unwrap(),
-            RuntimeOutcome::Failed(Error::StreamPoisoned { .. })
+            RuntimeOutcome::Applied
         ));
-        let snapshot = actor_task.await.unwrap();
-        assert_eq!(snapshot.state, SessionState::Poisoned);
-        drop(handle);
+        assert_eq!(
+            handle.snapshot().await.unwrap().state,
+            SessionState::Running,
+            "a large-but-valid burst is not a session verdict"
+        );
+
+        handle.shutdown().await.unwrap();
+        assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
+    }
+
+    /// #681: a single-target IP session whose camera answers with its non-default
+    /// chain address (`0xA0` for VISCA address 2) still attributes the reply to
+    /// the sole outstanding command, rather than poisoning the stream.
+    #[cfg(feature = "runtime-tokio")]
+    #[tokio::test]
+    async fn a_single_target_ip_chain_address_reply_settles_the_command() {
+        let runtime = TokioRuntime::from_current().unwrap();
+        let profile = crate::ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()
+            .expect("the generic profile is valid");
+        let (chunk_tx, chunks) = flume::bounded(8);
+        let (sent, sent_rx) = flume::bounded(8);
+        let adapter = crate::runtime::owner::AsyncTransportAdapter::new(
+            ChunkedStreamTransport {
+                config: crate::transport::builder::TransportConfig::default(),
+                chunks,
+                sent,
+            },
+            &profile,
+            CameraId::CAMERA_1,
+        )
+        .unwrap();
+        let (handle, actor) = AsyncOwnerActor::new(adapter.policy().clone(), runtime).unwrap();
+        let actor_task = tokio::spawn(actor.run(adapter));
+
+        let receipt = handle.submit(command()).await.unwrap();
+        let _written = sent_rx.recv_async().await.unwrap();
+        // The camera answers with chain address 2 for both frames.
+        chunk_tx.send_async(vec![0xa0, 0x41, 0xff]).await.unwrap();
+        chunk_tx.send_async(vec![0xa0, 0x51, 0xff]).await.unwrap();
+
+        assert!(matches!(
+            receipt.terminal().await.unwrap(),
+            RuntimeOutcome::Applied
+        ));
+
+        handle.shutdown().await.unwrap();
+        assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
     }
 
     /// A datagram transport whose every send reports the connection as closed.

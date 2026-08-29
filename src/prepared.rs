@@ -965,6 +965,16 @@ impl<K> PreparedOperation<K>
 where
     K: completion::Kind,
 {
+    /// The target and the ACK budget the blocking owner uses to drain the raw
+    /// single-candidate pre-ACK gate before this operation's first-write submit
+    /// (issue #673), read without consuming the prepared operation. The budget
+    /// is this request's own ACK deadline, so the drain waits no longer for a
+    /// prior command's ACK than the request itself would wait for its own.
+    #[cfg(feature = "blocking")]
+    pub(crate) fn preack_drain_hint(&self) -> (CameraId, Duration) {
+        (self.context.target, self.context.timeout.ack)
+    }
+
     pub(crate) fn admit_with<T>(
         self,
         admit: impl FnOnce(RuntimeRequest, AffectedAxes, completion::Settlement<K>, Duration) -> T,
@@ -989,7 +999,8 @@ mod tests {
         capabilities::{Capabilities, InquirySupport, TypedSupportSet},
         command::{
             FocusNearLimitInquiry, NdFilterPosition, PanTilt, PanTiltLimitCorner,
-            PanTiltPositionInquiry, PowerInquiry, VISCA_TERMINATOR,
+            PanTiltPositionInquiry, PowerInquiry, VersionInquiry, ZoomPositionInquiry,
+            VISCA_TERMINATOR,
         },
         request::builtin::{
             request_write_count, reset_request_write_count, FocusTrigger, IrisReset,
@@ -1284,6 +1295,81 @@ mod tests {
         )
         .expect_err("unsupported gated inquiry must not be prepared");
         assert!(matches!(error, Error::FeatureNotSupported { .. }));
+    }
+
+    /// Issue #684: a base-domain inquiry (`power().state()`, `zoom().position()`,
+    /// ...) is gated on its noun's base-domain capability, so a runtime
+    /// `ProfileSpec` that drops the domain refuses the erased inquiry exactly
+    /// where the static `<noun>()` accessor could not be named. Built-ins always
+    /// declare every base domain, so this only bites caller-built profiles.
+    #[test]
+    fn base_domain_inquiry_follows_the_static_noun_gate() {
+        fn minimal_profile(mutate: impl FnOnce(&mut Capabilities)) -> ProfileSpec {
+            let mut capabilities =
+                Capabilities::runtime_baseline("Downstream capability probe", 1).expect("baseline");
+            // Grant inquiry support so the base-domain gate under test is the
+            // only thing that can refuse a query.
+            capabilities.inquiry_support = InquirySupport::Full;
+            mutate(&mut capabilities);
+            ProfileSpec::builder(capabilities)
+                .transports(TransportCompatibility::new(Some(5678), None, false))
+                .envelope(ProfileEnvelope::RawVisca)
+                .timing(
+                    ProfileTiming::builder()
+                        .ack_timeout(Duration::from_millis(100))
+                        .command_timeouts(crate::CommandTimeouts::default())
+                        .inquiry_timeout(Duration::from_secs(1))
+                        .cancellation_timeout(Duration::from_secs(1))
+                        .ambiguity_timeout(Duration::from_secs(1))
+                        .busy_timeout(Duration::ZERO)
+                        .minimum_inquiry_spacing(Duration::ZERO)
+                        .minimum_command_spacing(Duration::ZERO)
+                        .build()
+                        .expect("valid timing"),
+                )
+                .maximum_command_sockets(1)
+                .supports_operation_complete(false)
+                .supports_command_cancel(false)
+                .preset_recall_axes(None)
+                .position_inquiries(PositionInquirySupport::new(false, false, false))
+                .build()
+                .expect("valid minimal profile")
+        }
+
+        fn admits<Q>(query: &Q, profile: &ProfileSpec) -> bool
+        where
+            Q: crate::Inquiry,
+        {
+            prepare_inquiry(
+                query,
+                CameraId::CAMERA_1,
+                profile,
+                OperationalTuning::new(),
+                ClassSelection::Request,
+            )
+            .is_ok()
+        }
+
+        // A runtime profile that declares no base domain refuses every
+        // base-domain inquiry before any I/O, exactly where the static noun
+        // accessor could not be named.
+        let bare = minimal_profile(|_| {});
+        assert!(!admits(&PowerInquiry, &bare));
+        assert!(!admits(&ZoomPositionInquiry, &bare));
+        // `VersionInquiry` sits on the `System` noun (`noun_marker!` = `None`),
+        // so it stays reachable regardless of the base domains.
+        assert!(admits(&VersionInquiry, &bare));
+
+        // Opting the power domain in flips the power inquiry to admitted while
+        // the still-absent zoom domain keeps its inquiry refused: the erased
+        // gate tracks each noun's base marker independently.
+        let power_only = minimal_profile(|capabilities| {
+            capabilities.has_power = true;
+            capabilities.power_on_time = Duration::from_millis(750);
+        });
+        assert!(admits(&PowerInquiry, &power_only));
+        assert!(!admits(&ZoomPositionInquiry, &power_only));
+        assert!(admits(&VersionInquiry, &power_only));
     }
 
     #[test]

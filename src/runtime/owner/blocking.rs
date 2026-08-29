@@ -375,7 +375,20 @@ impl BlockingSessionHost {
     where
         K: completion::Kind,
     {
-        self.with_parts(|owner, driver, _, _| owner.submit_operation(driver, prepared))
+        self.with_parts(|owner, driver, reader, decoder| {
+            // Issue #673: before the first-write submit, drain the raw
+            // single-candidate pre-ACK gate if that alone is what blocks this
+            // target. Without it, an emergency `stop_all_motion`/`Urgent` stop —
+            // or any second operation — submitted while a caller still holds an
+            // un-awaited raw operation handle would lose the first-dispatch race
+            // and be rejected `TransportBusy` with zero bytes on the wire while
+            // the camera keeps moving. The drain pumps the peer's ACK (bounded
+            // by this request's own ACK budget) so a command socket frees and
+            // the subsequent first write wins.
+            let (target, ack_budget) = prepared.preack_drain_hint();
+            owner.drain_raw_preack_gate(driver, reader, decoder, target, ack_budget)?;
+            owner.submit_operation(driver, prepared)
+        })
     }
 
     pub(crate) fn shutdown(&self) -> Result<(), Error> {
@@ -405,9 +418,11 @@ impl BlockingSessionHost {
     /// the owner turn this takes is the same exclusive turn a submission takes,
     /// so an update can never interleave with one. A re-entrant call — one made
     /// from inside another owner turn — is rejected as
-    /// [`Error::TransportBusy`] rather than corrupting that turn.
+    /// [`Error::TransportBusy`] rather than corrupting that turn, and a call on
+    /// a session that has already reached its terminal boundary returns that
+    /// boundary error rather than silently succeeding (issue #690).
     pub(crate) fn reconfigure(&self, tuning: crate::OperationalTuning) -> Result<(), Error> {
-        self.with_parts(|owner, _, _, _| owner.state_mut().retune(tuning))
+        self.with_parts(|owner, _, _, _| owner.reconfigure(tuning))
     }
 
     /// Returns the caller-thread owner's monotonic clock instant.
@@ -1179,6 +1194,80 @@ impl BlockingOwner {
         self.submit_with_timeout_until(driver, request, configured_timeout, deadline)
     }
 
+    /// Drain the raw single-candidate pre-ACK gate before an operation's
+    /// first-write submit, when that gate alone blocks a new command on
+    /// `target` (issue #673).
+    ///
+    /// On a raw-VISCA target the engine keeps at most one *unacknowledged*
+    /// command in flight so a socketless ACK can never be misattributed to the
+    /// wrong request. While a caller holds an un-awaited operation handle whose
+    /// command is still awaiting its ACK, a second operation — including an
+    /// emergency `stop_all_motion`/`Urgent` stop — loses the first-dispatch
+    /// race and, under the `RequireFirstWrite` policy, would be rejected
+    /// [`Error::TransportBusy`] with no write even though a command socket is
+    /// free the instant that ACK lands. This pumps the owner (reading the
+    /// peer's ACK off the socket) until the gate clears, bounded by the
+    /// submitting request's own ACK budget, so the subsequent first write wins
+    /// and the returned handle still names a request whose first write
+    /// succeeded.
+    ///
+    /// It is deliberately narrow. When the block is genuine socket-capacity
+    /// contention — every command socket already occupied, independent of the
+    /// pre-ACK gate — [`OwnerState::raw_preack_gate_frees_socket_on_ack`] is
+    /// `false`, no pump is attempted, and the fail-fast rejection the caller
+    /// then receives from the first-write submit stands. If the pump ends the
+    /// session (a close or poison observed while waiting), the session's own
+    /// boundary verdict is returned rather than the raw transport cause, so an
+    /// auto-reconnect loop keyed on `requires_new_session()` still behaves
+    /// (issue #629).
+    fn drain_raw_preack_gate<D, R, F>(
+        &mut self,
+        driver: &mut D,
+        reader: &mut R,
+        decoder: &mut F,
+        target: crate::CameraId,
+        ack_budget: Duration,
+    ) -> Result<(), Error>
+    where
+        D: BlockingWireDriver + ?Sized,
+        R: BlockingReadDriver + ?Sized,
+        F: BlockingFrameDecoder + ?Sized,
+    {
+        if !self.state.raw_preack_gate_frees_socket_on_ack(target) {
+            return Ok(());
+        }
+        let Some(deadline) = Instant::now().checked_add(ack_budget) else {
+            return Ok(());
+        };
+        self.enter()?;
+        let result = self.drain_raw_preack_gate_inner(driver, reader, decoder, target, deadline);
+        self.leave();
+        result.map_err(|error| self.boundary_error_or(error))
+    }
+
+    fn drain_raw_preack_gate_inner<D, R, F>(
+        &mut self,
+        driver: &mut D,
+        reader: &mut R,
+        decoder: &mut F,
+        target: crate::CameraId,
+        deadline: Instant,
+    ) -> Result<(), Error>
+    where
+        D: BlockingWireDriver + ?Sized,
+        R: BlockingReadDriver + ?Sized,
+        F: BlockingFrameDecoder + ?Sized,
+    {
+        // Each `pump_once_inner` blocks no later than `deadline`, so this loop
+        // cannot spin; it exits when the pending ACK clears the gate, when the
+        // budget elapses (the first write then fails fast), or when the pump
+        // itself ends the session.
+        while self.state.raw_preack_gate_frees_socket_on_ack(target) && Instant::now() < deadline {
+            self.pump_once_inner(driver, reader, decoder, Some(deadline))?;
+        }
+        Ok(())
+    }
+
     /// Class-specific typed admission seam retaining operation semantics.
     pub(crate) fn submit_operation<D, K>(
         &mut self,
@@ -1552,10 +1641,48 @@ impl BlockingOwner {
         };
 
         let frame_limit = self.state.policy().limits.frames_per_receive;
-        let frames = match decoder.decode(self.state.buffers(), received, frame_limit) {
-            Ok(frames) => frames,
-            Err(error) => {
-                if self.state.policy().protocol.transport == TransportKind::Stream {
+        let is_stream = self.state.policy().protocol.transport == TransportKind::Stream;
+        // The first pass decodes the bytes just read. On a stream, subsequent
+        // passes drain (received == 0) any complete frames a receive that hit
+        // the per-receive frame limit left buffered, so a burst larger than one
+        // batch is fully attributed in this pump instead of stalling until more
+        // bytes happen to arrive (#674).
+        let mut input_len = received;
+        let mut driven = 0usize;
+        loop {
+            let frames = match decoder.decode(self.state.buffers(), input_len, frame_limit) {
+                Ok(frames) => frames,
+                Err(error) => {
+                    if is_stream {
+                        let effects = self.state.input(
+                            Input::Poison {
+                                reason: error.to_string().into_boxed_str(),
+                            },
+                            Instant::now(),
+                        );
+                        let _ = self.drive(driver, effects);
+                        return Err(error);
+                    }
+                    // A datagram is an atomic receive boundary. Malformed
+                    // framing/decoding discards that whole datagram and leaves
+                    // the owner Running so the next datagram can be attempted.
+                    let _ = self
+                        .state
+                        .apply_effect(Effect::Ignored(IgnoreReason::MalformedFrame));
+                    return Ok(driven);
+                }
+            };
+            // #672: a stream tolerates a delimited frame that did not classify by
+            // discarding it and staying Running, exactly as a datagram already
+            // does and as 1.x did (log-and-continue). Record one Ignored per
+            // discarded frame so the discard stays observable.
+            for _ in 0..self.state.buffers().take_discarded_malformed() {
+                let _ = self
+                    .state
+                    .apply_effect(Effect::Ignored(IgnoreReason::MalformedFrame));
+            }
+            if let Err(error) = self.state.validate_frame_batch(&frames) {
+                if is_stream {
                     let effects = self.state.input(
                         Input::Poison {
                             reason: error.to_string().into_boxed_str(),
@@ -1565,34 +1692,23 @@ impl BlockingOwner {
                     let _ = self.drive(driver, effects);
                     return Err(error);
                 }
-                // A datagram is an atomic receive boundary. Malformed
-                // framing/decoding discards that whole datagram and leaves
-                // the owner Running so the next datagram can be attempted.
                 let _ = self
                     .state
                     .apply_effect(Effect::Ignored(IgnoreReason::MalformedFrame));
-                return Ok(0);
+                return Ok(driven);
             }
-        };
-        if let Err(error) = self.state.validate_frame_batch(&frames) {
-            if self.state.policy().protocol.transport == TransportKind::Stream {
-                let effects = self.state.input(
-                    Input::Poison {
-                        reason: error.to_string().into_boxed_str(),
-                    },
-                    Instant::now(),
-                );
-                let _ = self.drive(driver, effects);
-                return Err(error);
+            let count = frames.len();
+            self.drive_decoded_batch(driver, frames, received_at);
+            driven = driven.saturating_add(count);
+            // Only a stream buffers a remainder, and only a batch that filled the
+            // limit can have left one; drain and drive it without reading again.
+            if is_stream && frame_limit > 0 && count >= frame_limit {
+                input_len = 0;
+                continue;
             }
-            let _ = self
-                .state
-                .apply_effect(Effect::Ignored(IgnoreReason::MalformedFrame));
-            return Ok(0);
+            break;
         }
-        let count = frames.len();
-        self.drive_decoded_batch(driver, frames, received_at);
-        Ok(count)
+        Ok(driven)
     }
 
     fn cancel_core<D: BlockingWireDriver + ?Sized>(
@@ -1657,6 +1773,23 @@ impl BlockingOwner {
         let _ = self.drive(driver, effects);
         self.leave();
         Ok(())
+    }
+
+    /// Installs new operational tuning through the same boundary/terminal gate
+    /// every other blocking entry point takes (issue #690).
+    ///
+    /// `reconfigure` previously mutated owner state directly, never consulting
+    /// [`Self::enter`], so `set_tuning` returned `Ok(())` on a poisoned or
+    /// closed session — contradicting its documented contract that it "returns
+    /// the session's terminal error if the owner is gone." Taking an `enter`
+    /// turn restores that: a terminal session yields its `boundary_error()` and
+    /// a re-entrant call yields [`Error::TransportBusy`], exactly as a
+    /// submission would, before any tuning is applied.
+    pub(crate) fn reconfigure(&mut self, tuning: crate::OperationalTuning) -> Result<(), Error> {
+        self.enter()?;
+        let result = self.state_mut().retune(tuning);
+        self.leave();
+        result
     }
 
     pub(crate) fn shutdown<D: BlockingWireDriver + ?Sized>(

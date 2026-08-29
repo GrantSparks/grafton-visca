@@ -11547,6 +11547,7 @@ pub grafton_visca::observability::MetricsSnapshot::dropped_boundary_work: u64
 pub grafton_visca::observability::MetricsSnapshot::dropped_diagnostic_events: u64
 pub grafton_visca::observability::MetricsSnapshot::dropped_diagnostics: u64
 pub grafton_visca::observability::MetricsSnapshot::dropped_observer_events: u64
+pub grafton_visca::observability::MetricsSnapshot::ignored_malformed_frames: u64
 pub grafton_visca::observability::MetricsSnapshot::ignored_unmatched_sequenced_replies: u64
 pub grafton_visca::observability::MetricsSnapshot::inquiry_timeouts: u64
 pub grafton_visca::observability::MetricsSnapshot::pending: usize
@@ -12672,6 +12673,7 @@ pub grafton_visca::prelude::blocking::MetricsSnapshot::dropped_boundary_work: u6
 pub grafton_visca::prelude::blocking::MetricsSnapshot::dropped_diagnostic_events: u64
 pub grafton_visca::prelude::blocking::MetricsSnapshot::dropped_diagnostics: u64
 pub grafton_visca::prelude::blocking::MetricsSnapshot::dropped_observer_events: u64
+pub grafton_visca::prelude::blocking::MetricsSnapshot::ignored_malformed_frames: u64
 pub grafton_visca::prelude::blocking::MetricsSnapshot::ignored_unmatched_sequenced_replies: u64
 pub grafton_visca::prelude::blocking::MetricsSnapshot::inquiry_timeouts: u64
 pub grafton_visca::prelude::blocking::MetricsSnapshot::pending: usize
@@ -16672,7 +16674,7 @@ impl core::panic::unwind_safe::UnwindSafe for grafton_visca::raw::Plain
 pub struct grafton_visca::raw::Policy
 impl grafton_visca::raw::Policy
 pub const fn grafton_visca::raw::Policy::control_class(self) -> grafton_visca::ControlClass
-pub const fn grafton_visca::raw::Policy::new(grafton_visca::TimeoutClass, grafton_visca::RetryClass, grafton_visca::ControlClass) -> Self
+pub const fn grafton_visca::raw::Policy::new(grafton_visca::TimeoutClass, grafton_visca::RetryClass, grafton_visca::ControlClass) -> grafton_visca::Result<Self>
 pub const fn grafton_visca::raw::Policy::retry_class(self) -> grafton_visca::RetryClass
 pub const fn grafton_visca::raw::Policy::timeout_class(self) -> grafton_visca::TimeoutClass
 impl core::clone::Clone for grafton_visca::raw::Policy
@@ -16715,7 +16717,7 @@ impl<R> !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::ResponseDeco
 impl<R> !core::panic::unwind_safe::UnwindSafe for grafton_visca::ResponseDecoder<R>
 pub struct grafton_visca::raw::Spec
 impl grafton_visca::raw::Spec
-pub const fn grafton_visca::raw::Spec::new(grafton_visca::TimeoutClass, grafton_visca::RetryClass, grafton_visca::ControlClass) -> Self
+pub const fn grafton_visca::raw::Spec::new(grafton_visca::TimeoutClass, grafton_visca::RetryClass, grafton_visca::ControlClass) -> grafton_visca::Result<Self>
 pub const fn grafton_visca::raw::Spec::policy(self) -> grafton_visca::raw::Policy
 impl core::clone::Clone for grafton_visca::raw::Spec
 pub fn grafton_visca::raw::Spec::clone(&self) -> grafton_visca::raw::Spec
@@ -21193,6 +21195,7 @@ pub grafton_visca::MetricsSnapshot::dropped_boundary_work: u64
 pub grafton_visca::MetricsSnapshot::dropped_diagnostic_events: u64
 pub grafton_visca::MetricsSnapshot::dropped_diagnostics: u64
 pub grafton_visca::MetricsSnapshot::dropped_observer_events: u64
+pub grafton_visca::MetricsSnapshot::ignored_malformed_frames: u64
 pub grafton_visca::MetricsSnapshot::ignored_unmatched_sequenced_replies: u64
 pub grafton_visca::MetricsSnapshot::inquiry_timeouts: u64
 pub grafton_visca::MetricsSnapshot::pending: usize

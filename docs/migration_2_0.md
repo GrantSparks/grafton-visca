@@ -117,6 +117,7 @@ inquiries.
 | Dropping an operation handle | Unchanged from 1.x: drop is `detach` and never stops hardware. See [Drop never stops hardware](#drop-never-stops-hardware) for the scoped stop-on-exit pattern. |
 | Raw `command::RawInquiryPayload`/untyped response assumptions | `raw::Plain`, `raw::Inquiry`, `raw::Targeted`, or `raw::AppliedOnly`, with an explicit response parser/spec. |
 | `ViscaCommand` response-associated-type extensions | The typed `Request`/`Inquiry`/`OperationCommand` contract and `ResponseParser` for custom decoding. |
+| Unvalidated vendor opcodes that 1.x let through because it validated nothing on send (e.g. vendor tally mode `0A 02 02 0p` on a PTZOptics profile) | The typed and `execute` routes validate against profile capability, so a profile without the typed surface refuses the opcode (tally mode needs `HasTally`). Send a firmware-confirmed vendor opcode through `raw::Plain` instead. |
 | Plain requests submitted as operations or operations without affected axes | Match the request class exactly: `execute` for plain, `inquire` for inquiry, and `submit` for a typed operation with non-empty affected axes. |
 | Caller-selected lifecycle IDs, retry class, target, or settlement metadata | Owner-derived preparation metadata. Callers select a request, a timeout, and a scheduling class; they do not select protocol identity or queue positions. |
 | `runtime::Priority` and the `*_priority` camera methods | `SubmissionClass` and the `*_with_submission_class` / `set_submission_class` surface. `ControlClass::Urgent` is now intrinsic safety metadata, not caller QoS. See [Submission priority](#submission-priority). |
@@ -147,7 +148,13 @@ already carries an intrinsic class — ordinary control is `Normal`, drives and
 absolute moves are `User`, and the typed stops plus owner-issued protocol cancellation are `Urgent`
 — so an emergency stop preempts queued work with no API call at all. Public QoS
 can move ordinary traffic among the lower three lanes but cannot cross that
-safety boundary.
+safety boundary. On the blocking facade this holds even on a raw profile while a
+caller still holds an un-awaited operation handle: the emergency stop's first
+write no longer fails `TransportBusy` against the raw single-candidate pre-ACK
+gate, because the owner pumps the pending ACK to free a command socket first
+(#673). Only genuine socket-capacity contention — every command socket occupied
+by a distinct in-flight command — still fails a blocking operation submit fast
+with `TransportBusy`.
 
 | 1.x call | 2.0 call |
 | --- | --- |
@@ -164,9 +171,12 @@ Three behavioural differences are worth reading before porting:
 - **No public QoS override can weaken an urgent request.** A handle set to
   `Background`, and even a per-submission
   `SubmissionClass::Background`, still submits `PanTiltStop`, `ZoomStop`,
-  `FocusStop`, and owner-issued protocol cancellation as `ControlClass::Urgent`. The public QoS
-  type has no `Urgent` variant, so ordinary work cannot impersonate safety
-  traffic either.
+  `FocusStop`, and owner-issued protocol cancellation as `ControlClass::Urgent`.
+  Nor can ordinary work manufacture the urgent lane: `SubmissionClass` has no
+  `Urgent` variant, and the raw escape hatch's `raw::Policy` / `raw::Spec` reject
+  `ControlClass::Urgent` at construction (a raw caller who needs preemption
+  issues the typed stop instead). The urgent lane is reachable only by the
+  crate's own stops and owner-issued cancellation.
 - **Inquiries are covered.** 1.x kept inquiries at a fixed polling priority; in
   2.0 they share the same four lanes, so a handle demoted to `Background` moves
   its telemetry reads out of the way as well as its commands. Owner-internal
@@ -365,8 +375,25 @@ fields map directly to the corresponding tuning methods:
 | `long_timeout` | `long_running_timeout` |
 | `network_timeout` | `network_timeout` |
 | `default_timeout` | No direct counterpart: every 2.0 request selects a `TimeoutClass`; set the corresponding category deadline. |
-| *(no 1.x field)* | `settlement_timeout` for the physical-settling budget; `inquiry_timeout` remains the profile inquiry-response deadline |
+| *(no 1.x field)* | `settlement_timeout` for the physical-settling budget; `inquiry_timeout` is the profile inquiry-response deadline (a new dedicated field whose default differs from 1.x — see the note below) |
 | `RetryConfig::max_retries`, `base_retry_delay`, `max_retry_duration` | `retry_limit` and `retry_timing` |
+
+Two profile deadlines changed value relative to 1.x, and both are interim
+figures pending a hardware-measurement pass:
+
+- **Acknowledgement (`ack_timeout`).** 1.x's `TimeoutConfig` default was 500 ms,
+  and that was the deadline every 1.x profile actually scheduled under. The
+  2.0-preview built-in profiles briefly tightened this to 100 ms (150 ms and
+  200 ms on two Sony profiles); every built-in profile is now restored to the
+  1.x **500 ms** default. An operational override may only widen a profile
+  deadline, so an `ack_timeout` below 500 ms is now rejected where the tighter
+  preview default would have accepted it.
+- **Inquiry response (`inquiry_timeout`).** 1.x inquiries had no dedicated
+  deadline and used the 5 s `Quick` category budget. 2.0 gives inquiries their
+  own deadline, defaulting to **1 s** on every built-in profile — the one
+  intentional divergence from 1.x among these defaults. If your cameras or
+  network make an inquiry legitimately take longer than 1 s to answer, widen it
+  with `OperationalTuning::inquiry_timeout`.
 
 `CommandTimeouts` is the profile's exact command policy. Its default table
 preserves the 1.x values (Quick 5 seconds, Movement 30 seconds, Preset 60

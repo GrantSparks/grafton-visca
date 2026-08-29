@@ -201,13 +201,44 @@ compatibility form, `1` and `2` decode as S1/S2, and `3..=15` is malformed.
 The variable data-reply form is reserved for socket 0 with more than three
 bytes; the canonical three-byte `z0 50 FF` socket-0 completion remains valid.
 
+That strict classifier verdict is not a session verdict. A frame the framer
+already delimited at an `FF` boundary but that the classifier rejects is a
+*malformed frame to discard* on a byte stream — recorded as
+`Ignored(MalformedFrame)` and counted in
+`OwnerMetrics::ignored_malformed_frames` — exactly as a datagram already
+discards it and as 1.x logged-and-continued over the same padded ACKs, vendor
+socket nibbles, RS-485 echoes, address-set replies, and truncated frames. The
+session stays `Running` and the frame's real reply still settles the outstanding
+command. Only the framer *losing its position* — cumulative buffer overflow, or
+a boundary-free read growing past `max_buffer_size` — is a genuine framing
+failure that still poisons a stream. By the same decoupling, a single stream
+read that decodes more than `frames_per_receive` frames stops at the limit and
+leaves the remaining complete frames buffered for the next receive (the framer
+retains bytes across reads, bounded by `max_buffer_size`), rather than failing
+`ResponseTooLarge` over a large-but-valid burst. A single-target IP session,
+which carries no routable source, accepts any `0x9y..=0xFy` reply source and
+attributes it to its sole target, so a camera configured with a non-default
+chain address still settles its command (#590/#598); the strict `0x90` check is
+kept only when more than one target is registered.
+
 Blocking operation submission has one additional ownership boundary: a
 returned operation handle always names a request whose initial transport write
-already succeeded. If the target's command sockets (or the global dispatch
-race) prevent that first write, the newly admitted request is terminalized as
-`Error::TransportBusy` immediately and no handle escapes. Ordinary blocking
-commands, inquiries, and owner-internal requests retain bounded queueing, as
-does the async operation API.
+already succeeded. One obstacle is drained rather than rejected. On a raw
+profile the engine keeps at most one command in its unacknowledged window (the
+single-candidate gate), so a first write submitted while a caller still holds an
+un-awaited raw operation handle would otherwise lose the dispatch race even
+though a command socket is free the instant the prior command's ACK lands. When
+that pre-ACK gate is the *sole* obstacle and socket capacity would be available
+once it clears, the blocking owner pumps the peer's ACK — bounded by the
+submitting request's own ACK budget — so the first write wins and an emergency
+`stop_all_motion`/`Urgent` stop still reaches a moving camera (#673). Genuine
+socket-capacity contention (every command socket already occupied) and losing
+the global dispatch race are *not* drained: the newly admitted request is
+terminalized as `Error::TransportBusy` immediately and no handle escapes, since
+pumping an ACK there would not free a socket. Ordinary blocking commands,
+inquiries, and owner-internal requests retain bounded queueing, as does the
+async operation API — whose always-running actor already pumps the ACK, so it
+never exhibited the raw first-write stall.
 
 This ordering is what permits a detached observer or a dropped subscription to
 miss an event without losing an already-applied state update.
@@ -235,11 +266,12 @@ threshold:
    simultaneously ready control observer sees that state.
 2. A receive that makes no protocol progress — idle/no-data, a partial frame,
    a transient fault, an empty UDP datagram discarded under the current overall
-   deadline, or a discarded malformed datagram — makes the next selection poll
-   boundary sources first in the fixed order shutdown, cancellation, admission,
-   control, then timer. Discarding an empty datagram never starts a fresh
-   deadline; the async UDP adapter also yields cooperatively before polling
-   again.
+   deadline, or a receive whose only frames were discarded as malformed (a whole
+   bad datagram, or delimited-but-unclassifiable frames on a stream) — makes the
+   next selection poll boundary sources first in the fixed order shutdown,
+   cancellation, admission, control, then timer. Discarding an empty datagram
+   never starts a fresh deadline; the async UDP adapter also yields cooperatively
+   before polling again.
 3. A boundary win, or a later valid frame batch when no boundary was ready,
    returns the actor to receive-first.
 4. A **fairness ceiling** bounds the *succeeding* arm as well. After a run of

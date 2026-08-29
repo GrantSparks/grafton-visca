@@ -100,6 +100,17 @@ returned unchanged. An immediate error while sending `close()`'s signal is
 also preserved. Dropping a view or calling `shutdown()` alone is not a
 transport-release barrier.
 
+On either facade, `shutdown()`/`close()` called on a session the *engine* has
+already terminated — a deadline expiry, the strict `strict_unconfirmed_poison`
+opt-in, or a stream/framing self-poison, none of which is an owner-supplied
+`Close`/`Poison`/`Shutdown` input — returns that terminal error rather than
+masking it as a deliberate `RuntimeShutdown` (#680). This matters for a cleanup
+path, a `Drop` guard, or a supervisor that keys its rebuild on the result of
+`shutdown()`/`close()` itself: it still sees `requires_new_session() == true`
+and rebuilds, instead of treating the dead session as one that ended on purpose.
+`set_tuning` observes the same terminal boundary and returns the session's
+terminal error rather than silently succeeding (#690).
+
 ## StateCache
 
 Each `Camera<P>` and `DynSessionCamera` returns a cheap read-only `StateCache`

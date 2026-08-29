@@ -324,6 +324,21 @@ impl ProtocolEngine {
         self.state
     }
 
+    /// The exact error the engine recorded when it left `Running`, if it has.
+    ///
+    /// Every terminal transition — an owner-supplied `Close`/`Poison`/`Shutdown`
+    /// and every engine-initiated verdict alike (deadline expiry, the strict
+    /// `strict_unconfirmed_poison` opt-in, a stream/framing self-poison) — is
+    /// funneled through [`Self::terminate_session`], which stamps this field
+    /// before emitting [`Effect::SessionChanged`]. The effect itself carries no
+    /// payload, so the owner reads this to learn the true terminal cause and
+    /// latch it into its own `session_error` (issue #680); without it an
+    /// engine-initiated poison is invisible to `shutdown()`/`close()` and the
+    /// documented recovery loop re-latches `RuntimeShutdown` instead.
+    pub(crate) fn terminal_error(&self) -> Option<Error> {
+        self.terminal_error.clone()
+    }
+
     // Read-only inspection seams. `entry` and `active_len` are driven by
     // `runtime::engine::tests` and by `OwnerState`'s own test-gated projections;
     // `queued_dispatch_at` is projected by `OwnerState::dispatch_at`, which the
@@ -1026,6 +1041,28 @@ impl ProtocolEngine {
                             | Phase::AwaitingAck { .. }
                             | Phase::AwaitingLateAck { .. }
                     )
+            })
+    }
+
+    /// Whether the raw single-candidate pre-ACK gate — and not genuine
+    /// socket-capacity exhaustion — is what currently blocks a *new* command on
+    /// `target`, such that pumping the pending peer ACK would free a socket for
+    /// it.
+    ///
+    /// True iff a prior raw command is still in its unacknowledged window
+    /// (`raw_command_unacknowledged`) while a command socket remains free
+    /// (`commands_inflight < command_sockets`). The instant that ACK lands the
+    /// prior command becomes `Executing`, the gate clears, and the free socket
+    /// admits the next command. When every socket is already occupied this is
+    /// `false`, because the pending ACK only moves a command from
+    /// awaiting-ACK to executing without releasing a socket — that is real
+    /// contention, and the caller's fail-fast rejection must stand. Consumed by
+    /// the blocking operation-submit path (issue #673).
+    #[cfg(feature = "blocking")]
+    pub(crate) fn raw_preack_gate_frees_socket_on_ack(&self, target: CameraId) -> bool {
+        self.raw_command_unacknowledged(target)
+            && self.targets[target.id() as usize].is_some_and(|policy| {
+                self.commands_inflight(target) < usize::from(policy.command_sockets)
             })
     }
 

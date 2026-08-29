@@ -52,9 +52,24 @@ The current corpus covers timeout category defaults and selection; retry counts,
 bounded exhaustion, and evidence-aware recovery; exact/unique/colliding
 lower-16 sequence handling; stale sequenced completion, error, and inquiry
 inertness; raw exact-socket and unique-candidate routing; compatible inquiry
-FIFO; datagram isolation; stream poison; envelope-specific receive faults;
-command wire bytes; inquiry decoding and golden replies; blocking out-of-order
-receipt retention; and cancellation, detach, and late observer delivery.
+FIFO; datagram isolation; stream poison; byte-stream malformed-frame tolerance;
+envelope-specific receive faults; command wire bytes; inquiry decoding and
+golden replies; blocking out-of-order receipt retention; and cancellation,
+detach, and late observer delivery.
+
+The `malformed-frame-tolerance` family (#672) pins that a delimited-but-
+unclassifiable VISCA response is discarded and logged rather than fatal. 1.x
+reported such a frame as `ReceiveDisposition::Malformed` and logged-and-continued
+in both runners without disturbing any pending command; the 2.0 rewrite briefly
+regressed this on byte streams, where the strict decoder's rejection became a
+framing poison that killed the whole session. The v2 production replay drives the
+real owner over a stream and asserts every quirky-but-delimited shape (padded
+ACKs, vendor socket nibbles, RS-485 echoes, controller/broadcast lead bytes,
+address-set replies, truncated frames, stray terminator bytes) is discarded as
+`Ignored(MalformedFrame)` while the session stays `Running` and the command is
+still settled by the next well-formed reply. A genuine loss of the framing
+position (buffer overflow, or a boundary-free read past `max_buffer_size`) still
+poisons, and that terminal case is preserved.
 
 ## Built-in request policy audit
 
@@ -79,11 +94,16 @@ The rows with an intentional timeout-category decision are:
 | `FocusOnePush`, `FocusSnap` | Movement | Quick / Movement | Applied-only focus triggers retain movement retry/error semantics with an urgent deadline. |
 | `IrisReset`, `IrisUp`, `IrisDown`, `IrisDirect` | Quick | Movement / Movement | Targeted physical aperture operations now have exact iris settlement inquiries. |
 | `NdFilterDirect`, `NdFilterStepUp`, `NdFilterStepDown` | Quick | Movement / Movement | Targeted physical filter operations now have exact ND settlement inquiries. |
-| `Sharpness*`, `Gamma`, `NoiseReduction2d*`, `NoiseReduction3d*`, `ImageFlipCombined` | Custom | Quick / Standard | `Custom` was only the uncategorized 60-second fallback; these are explicit quick configuration writes in v2. |
-| 68 queryable built-in inquiries | Quick | Inquiry / Inquiry | Inquiry response timing is a separate profile fact; the inquiry retry budget remains the old quick budget. |
+| `Sharpness*`, `Gamma`, `NoiseReduction2d*`, `NoiseReduction3d*`, `ImageFlipBoth`, `ImageFlipCombined` | Custom | Quick / Standard | `Custom` was only the uncategorized 60-second fallback; these are explicit quick configuration writes in v2. `ImageFlipBoth` carries both axes in one opcode and shares the combined-flip treatment with `ImageFlipCombined`. |
+| 68 queryable built-in inquiries | Quick | Inquiry / Inquiry | Inquiry response timing is a separate profile fact: v2 gives inquiries their own deadline, an interim 1 s on every built-in profile, down from the 5 s `Quick` budget 1.x inquiries used (parity waiver `inquiry-deadline-interim-default`). The inquiry retry *budget* still uses the old quick budget. |
 
-The remaining 121 command rows retain their 1.x timeout category, and every
-command row has an explicit retry class. `CommandCancel` is deliberately
+The remaining 120 command rows retain their 1.x timeout category, and every
+command row has an explicit retry class. The `BuiltinCommand` universe size
+(149) and this 29-changed / 120-preserved split are pinned by
+`intentional_timeout_category_changes_account_for_the_preserved_remainder` in
+`src/command/semantics.rs`, so adding or reclassifying a command fails that test
+until this table and the count above are updated to match. `CommandCancel` is
+deliberately
 `Quick`/`Never` because replaying a cancellation is not a safe generic retry;
 `PushAfPress` and `PushAfRelease` are `Quick`/`Movement` because they are
 focus actuation and may receive the movement-specific transient `0x41` retry.
