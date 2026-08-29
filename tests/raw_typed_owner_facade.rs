@@ -58,12 +58,14 @@ fn raw_values() -> (
         ControlClass::User,
     )
     .expect("targeted frame");
+    // A raw applied-only operation classifies itself `User`, the highest lane a
+    // raw caller may select; the urgent safety lane is owner-only (#679).
     let applied = raw::AppliedOnly::new(
         [0x81, 0x01, 0x07, 0xff],
         AffectedAxes::ZOOM,
         TimeoutClass::Quick,
         RetryClass::Never,
-        ControlClass::Urgent,
+        ControlClass::User,
     )
     .expect("applied-only frame");
     (plain, inquiry, targeted, applied)

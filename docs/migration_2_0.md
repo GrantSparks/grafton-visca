@@ -164,9 +164,12 @@ Three behavioural differences are worth reading before porting:
 - **No public QoS override can weaken an urgent request.** A handle set to
   `Background`, and even a per-submission
   `SubmissionClass::Background`, still submits `PanTiltStop`, `ZoomStop`,
-  `FocusStop`, and owner-issued protocol cancellation as `ControlClass::Urgent`. The public QoS
-  type has no `Urgent` variant, so ordinary work cannot impersonate safety
-  traffic either.
+  `FocusStop`, and owner-issued protocol cancellation as `ControlClass::Urgent`.
+  Nor can ordinary work manufacture the urgent lane: `SubmissionClass` has no
+  `Urgent` variant, and the raw escape hatch's `raw::Policy` / `raw::Spec` reject
+  `ControlClass::Urgent` at construction (a raw caller who needs preemption
+  issues the typed stop instead). The urgent lane is reachable only by the
+  crate's own stops and owner-issued cancellation.
 - **Inquiries are covered.** 1.x kept inquiries at a fixed polling priority; in
   2.0 they share the same four lanes, so a handle demoted to `Background` moves
   its telemetry reads out of the way as well as its commands. Owner-internal
