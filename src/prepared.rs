@@ -965,6 +965,16 @@ impl<K> PreparedOperation<K>
 where
     K: completion::Kind,
 {
+    /// The target and the ACK budget the blocking owner uses to drain the raw
+    /// single-candidate pre-ACK gate before this operation's first-write submit
+    /// (issue #673), read without consuming the prepared operation. The budget
+    /// is this request's own ACK deadline, so the drain waits no longer for a
+    /// prior command's ACK than the request itself would wait for its own.
+    #[cfg(feature = "blocking")]
+    pub(crate) fn preack_drain_hint(&self) -> (CameraId, Duration) {
+        (self.context.target, self.context.timeout.ack)
+    }
+
     pub(crate) fn admit_with<T>(
         self,
         admit: impl FnOnce(RuntimeRequest, AffectedAxes, completion::Settlement<K>, Duration) -> T,

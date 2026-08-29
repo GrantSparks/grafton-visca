@@ -734,6 +734,49 @@ destination.
 
 ### Fixed
 
+- **A blocking emergency stop reaches the wire on a raw profile even while an
+  operation handle is still un-awaited** (#673). A public blocking operation
+  handle must name a request whose first transport write already succeeded, and
+  on a raw profile the engine keeps at most one command in its unacknowledged
+  window (the single-candidate gate). Together these meant that while a caller
+  held one un-awaited raw operation handle, a second operation submit — including
+  `motion().stop_all_motion()` and typed `Urgent` stops (`PanTiltStop`,
+  `ZoomStop`, `FocusStop`) — lost the first-dispatch race and was rejected
+  `Error::TransportBusy` with **zero** bytes written while the camera kept
+  moving, an unbounded window not closed by any ACK deadline. The blocking owner
+  now drains that pre-ACK gate before the first write: when the gate is the sole
+  obstacle and a command socket would be free once the pending ACK lands, it
+  pumps the peer's ACK — bounded by the submitting request's own ACK budget — so
+  the stop's first write wins and the returned handle still names a written
+  request. Genuine socket-capacity contention (every command socket occupied by a
+  distinct in-flight command) still fails fast with `TransportBusy`, since
+  pumping an ACK there would not free a socket. The async facade already pumped
+  the ACK through its always-running actor and never exhibited the stall.
+- **An engine-initiated session poison is surfaced by `shutdown()`/`close()`
+  instead of masked as a deliberate `RuntimeShutdown`** (#680). The owner's
+  session error was set only for owner-supplied `Close`/`Poison`/`Shutdown`
+  inputs and a stream write failure. An engine-initiated terminal transition — a
+  deadline expiry, the strict `strict_unconfirmed_poison` opt-in, or a
+  stream/framing self-poison — reaches the owner only as a payload-free
+  `SessionChanged` effect, so the session error stayed unset: a subsequent
+  `shutdown()`/`close()` returned `Ok(())` and then re-latched `RuntimeShutdown`
+  (`requires_new_session() == false`), defeating a cleanup path or supervisor
+  that keys its rebuild on that result, and the `SessionChanged` diagnostic
+  `reason` collapsed to `Other`. The owner now learns the engine's actual
+  terminal error on the first non-`Running` transition and latches it, so
+  `shutdown()`/`close()` return the true cause (e.g. `StreamPoisoned`, which
+  `requires_new_session()`), the diagnostic reason is the real `ErrorKind`
+  (`IoClosed`), and the documented recovery loop rebuilds.
+- **`set_tuning` on a poisoned or closed blocking session returns the session's
+  terminal error instead of silently succeeding** (#690). The blocking
+  `reconfigure` path mutated owner state directly and never consulted the
+  boundary/terminal gate every other blocking entry point takes, so
+  `Session::set_tuning` returned `Ok(())` on a poisoned or shut-down session —
+  contradicting its documented contract that it "returns the session's terminal
+  error if the owner is gone." It now takes the same `enter` turn a submission
+  does: a live session still reconfigures, a re-entrant call is `TransportBusy`,
+  and a terminated session yields its terminal error. (Together with #680 the
+  poisoned-session case now surfaces the true poison rather than nothing.)
 - **The erased (dynamic) noun surface no longer exposes controls the static
   surface forbids** (#684). Two gaps let a `DynSessionCamera` reach operations
   that the compile-time `camera.<noun>()` accessor could not name:

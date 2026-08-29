@@ -148,7 +148,13 @@ already carries an intrinsic class — ordinary control is `Normal`, drives and
 absolute moves are `User`, and the typed stops plus owner-issued protocol cancellation are `Urgent`
 — so an emergency stop preempts queued work with no API call at all. Public QoS
 can move ordinary traffic among the lower three lanes but cannot cross that
-safety boundary.
+safety boundary. On the blocking facade this holds even on a raw profile while a
+caller still holds an un-awaited operation handle: the emergency stop's first
+write no longer fails `TransportBusy` against the raw single-candidate pre-ACK
+gate, because the owner pumps the pending ACK to free a command socket first
+(#673). Only genuine socket-capacity contention — every command socket occupied
+by a distinct in-flight command — still fails a blocking operation submit fast
+with `TransportBusy`.
 
 | 1.x call | 2.0 call |
 | --- | --- |
