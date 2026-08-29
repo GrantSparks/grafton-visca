@@ -74,6 +74,21 @@ destination.
     feature-resolution inversion (1.x's blocking-XOR-async `mode-async` versus
     2.0's co-enableable `default = ["blocking"]`).
 
+- **Documented idle TCP disconnects and connection liveness** (#544). A new
+  "Idle disconnects and connection liveness" section in
+  `docs/observability_and_recovery.md` explains why an idle TCP control session
+  can be closed by a camera even though the network is healthy: OS-level TCP
+  keepalive (enabled by default, idle 10 s / interval 10 s) detects dead peers
+  and preserves network-path state but is not VISCA traffic, so a firmware
+  application idle timeout can still close a silent session. It gives the two
+  application-side levers — a periodic inquiry as a heartbeat to prevent the
+  close, and a `requires_new_session()` supervisor rebuild to recover from it
+  (with the #680 retained terminal cause keeping later calls informative). The
+  `recovery` example header now frames the same idle-drop supervisor scenario,
+  and a new `CR-07` row in `docs/hardware_release_checklist.md` records the
+  hardware evidence (idle interval, heartbeat efficacy, FIN/RST direction).
+  Docs-only; no public API or snapshot change.
+
 - **Added `CommandTimeouts`** (audit #685), the public five-field value
   (`quick`, `movement`, `preset`, `long_running`, `network`) for a profile's
   exact command-category completion deadlines. It is the public replacement for

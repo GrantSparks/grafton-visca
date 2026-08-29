@@ -305,6 +305,72 @@ reached the wire, so a partial write must be assumed and the byte-stream
 position treated as unknowable. The exact transport cause is carried in the
 `StreamPoisoned` reason.
 
+## Idle disconnects and connection liveness
+
+A long-lived TCP control link that sits idle can be closed by the camera even
+though the network is healthy and the same camera answers a vendor app. The
+close surfaces here as `Error::ConnectionClosed`
+(`requires_new_session() == true`) with the reason `peer closed connection`,
+and — because a dead session retains its original terminal cause (#680) — every
+later command, inquiry, cancellation, or control call on that session keeps
+reporting the same peer-closure cause rather than a generic channel error. This
+is the failure a long-running supervisor must expect during quiet periods.
+
+There are two independent layers of liveness, and it is worth being precise
+about which one a given close belongs to:
+
+- **OS-level TCP keepalive.** Enabled by default on every TCP transport
+  (blocking, Tokio, and smol) via `TransportConfig::tcp_keepalive`, whose
+  default `TcpKeepaliveConfig` starts probing after ten seconds idle and repeats
+  every ten seconds. Tune it with the blocking builder's `tcp_keepalive(...)` /
+  `disable_tcp_keepalive()`, or by setting `TransportConfig::tcp_keepalive`
+  before handing the config to a runtime connector or `CameraConfig`. Keepalive
+  probes detect a peer that has gone away and keep NAT/firewall path state warm
+  across an idle gap. They are **OS-level packets, not VISCA traffic**, so their
+  presence does not tell the camera's firmware that the *application* session is
+  still in use.
+- **Application-level VISCA activity.** Some camera firmwares close an idle
+  control session on their own timer, counting only VISCA requests as activity.
+  Keepalive cannot prevent that close, because to the firmware the session has
+  been silent. A regular, fixed idle interval before the drop (rather than a
+  drop correlated with network events) is the signature of this application-side
+  timeout.
+
+The library never sends VISCA on its own — there are no per-camera background
+workers (see [`architecture_2_0.md`](architecture_2_0.md)) — so if a camera
+enforces an application idle timeout there are two application-side levers:
+
+1. **Prevent it with an application heartbeat.** While the session would
+   otherwise be idle, periodically issue a cheap inquiry (for example a power
+   or version inquiry) at an interval comfortably below the camera's idle
+   timeout. The inquiry both resets the firmware's activity timer and gives the
+   application an early, explicit `requires_new_session()` signal if the link
+   has already died:
+
+   ```rust,ignore
+   // Application-owned idle heartbeat; the library starts no timer of its own.
+   match session.camera::<PtzOpticsG2>()?.power().state() {
+       Ok(_) => { /* session still live; keep waiting for real work */ }
+       Err(error) if error.requires_new_session() => rebuild(&config)?,
+       Err(error) => return Err(error),
+   }
+   ```
+
+2. **Recover from it with a supervisor loop.** Whether or not a heartbeat is
+   used, treat an idle close as a completed session and rebuild, following the
+   fresh-session steps below. A supervisor keeps the reusable `SessionConfig`
+   and a re-callable transport factory outside the session, classifies each
+   failure with `requires_new_session()`, and on `true` opens a fresh session,
+   re-queries state, and resumes — exactly the shape `examples/recovery.rs`
+   demonstrates.
+
+Which cameras enforce an application idle timeout, what that interval is, and
+whether a heartbeat prevents the close are firmware-specific and belong to
+hardware validation rather than a library guarantee; the idle-disconnect row in
+[`hardware_release_checklist.md`](hardware_release_checklist.md) captures that
+evidence (including the FIN/RST direction that distinguishes a camera-initiated
+close from an intervening network device).
+
 ## Fresh-session poison recovery
 
 Treat a closed or poisoned owner as a completed session, not as a queue to
