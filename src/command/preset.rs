@@ -186,6 +186,58 @@ mod tests {
         &[0x81, 0x01, 0x04, 0x3F, 0x02, 0x59, VISCA_TERMINATOR]
     );
 
+    // Regression for #683: preset number 255 (0xFF) is a data byte. The frame
+    // must still be terminated, encoding to `... 01 FF FF` (data FF then the
+    // terminator FF), not truncated to `... 01 FF`.
+    visca_test!(
+        PresetCommand,
+        test_preset_command_set_255_keeps_terminator,
+        PresetCommand {
+            action: PresetAction::Set,
+            preset_number: PresetNumber::new(255)
+                .unwrap_or_else(|e| panic!("Valid preset number: {e:?}")),
+        },
+        &[0x81, 0x01, 0x04, 0x3F, 0x01, 0xFF, VISCA_TERMINATOR]
+    );
+
+    /// Exhaustive value-domain sweep for #683: every preset number and action
+    /// must encode to a frame whose length matches, that ends in the terminator,
+    /// and whose byte *before* the terminator is the preset number itself (so a
+    /// trailing 0xFF data byte is never swallowed).
+    #[test]
+    fn every_preset_number_and_action_terminates() {
+        for action in [PresetAction::Reset, PresetAction::Set, PresetAction::Recall] {
+            for number in 0..=u8::MAX {
+                let command = PresetCommand {
+                    action,
+                    preset_number: PresetNumber::new(number)
+                        .unwrap_or_else(|e| panic!("preset {number} valid: {e:?}")),
+                };
+                let mut buffer = [0u8; 32];
+                let len = command
+                    .write_into(crate::camera_id::CameraId::CAMERA_1, &mut buffer)
+                    .unwrap_or_else(|e| panic!("preset {number} action {action:?}: {e:?}"));
+                assert_eq!(
+                    len, 7,
+                    "preset {number} action {action:?} must be a 7-byte frame"
+                );
+                assert_eq!(
+                    buffer[..len],
+                    [
+                        0x81,
+                        0x01,
+                        0x04,
+                        0x3F,
+                        action as u8,
+                        number,
+                        VISCA_TERMINATOR
+                    ],
+                    "preset {number} action {action:?} wire bytes"
+                );
+            }
+        }
+    }
+
     #[test]
     fn test_preset_recall_speed_valid_range() {
         assert!(PresetRecallSpeed::new(1).is_ok());
