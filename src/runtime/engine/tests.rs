@@ -87,6 +87,7 @@ fn context(target: u8, cancellation: CancellationPolicy) -> RequestContext {
         retry: retrying(),
         control: ControlPolicy::default(),
         cancellation,
+        reply_shape: ReplyShape::AckThenCompletion,
     }
 }
 
@@ -100,6 +101,44 @@ fn command(target: u8, cancellation: CancellationPolicy) -> RuntimeRequest {
         context: context(target, cancellation),
         applied_state: None,
     }
+}
+
+/// A raw command that declares a non-default reply shape (issue #700).
+fn command_with_reply_shape(
+    target: u8,
+    cancellation: CancellationPolicy,
+    reply_shape: ReplyShape,
+) -> RuntimeRequest {
+    let mut context = context(target, cancellation);
+    context.reply_shape = reply_shape;
+    RuntimeRequest::Command {
+        wire: wire(0x80 | target),
+        context,
+        applied_state: None,
+    }
+}
+
+/// Admits `request` and returns `(effects, id)` after admission.
+fn admit(
+    engine: &mut ProtocolEngine,
+    ticket: u64,
+    request: RuntimeRequest,
+    now: Instant,
+) -> (Vec<Effect>, RequestId) {
+    let effects = engine.handle(
+        Input::Admit {
+            ticket: AdmissionTicket(ticket),
+            request,
+        },
+        now,
+    );
+    let id = admitted(&effects);
+    (effects, id)
+}
+
+/// The authoritative phase of an admitted entry, for lifecycle assertions.
+fn phase_of(engine: &ProtocolEngine, id: RequestId) -> Option<Phase> {
+    engine.entries.get(&id).map(Entry::phase)
 }
 
 fn inquiry(target: u8, route: InquiryRoute) -> RuntimeRequest {
@@ -3626,6 +3665,7 @@ fn fuzz_directed_frame(engine: &ProtocolEngine, action: u64) -> Option<Input> {
                 }
             }
         }
+        Phase::AwaitingCompletion { .. } => DecodedResponse::Completion { socket: None },
         Phase::AwaitingReply { .. } => DecodedResponse::InquiryReply {
             route: entry.request.inquiry_route(),
             payload: smallvec![action as u8],
@@ -7105,6 +7145,311 @@ fn a_post_ack_completion_timeout_retries_the_command() {
     assert!(
         matches!(terminal_outcome(&done, id), Some(RuntimeOutcome::Applied)),
         "the second attempt completes"
+    );
+    engine.assert_invariants().unwrap();
+}
+
+// ---- Issue #700: raw reply-shape axis (completion-only / no-reply) ---------
+
+/// #700: a completion-only raw command skips AwaitingAck entirely — it earns no
+/// socket and awaits its completion under the completion deadline — then
+/// terminates on the completion frame. Reverting the shape to the default would
+/// send it to AwaitingAck, which the phase assertion here catches.
+#[test]
+fn completion_only_command_skips_ack_and_terminates_on_completion() {
+    let start = Instant::now();
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+    let (admitted_effects, id) = admit(
+        &mut engine,
+        1,
+        command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::CompletionOnly),
+        start,
+    );
+    let send = send_ok(&mut engine, &admitted_effects, None, start);
+    assert!(
+        matches!(
+            phase_of(&engine, id),
+            Some(Phase::AwaitingCompletion { .. })
+        ),
+        "a completion-only command awaits its completion, not an ACK: {:?}",
+        phase_of(&engine, id),
+    );
+    assert!(
+        !send.iter().any(|effect| matches!(
+            effect,
+            Effect::Transition {
+                to: Phase::AwaitingAck { .. },
+                ..
+            }
+        )),
+        "a completion-only command must never enter AwaitingAck",
+    );
+    // A completion-only vendor frame typically answers with no socket nibble.
+    let done = engine.handle(
+        frame(1, None, DecodedResponse::Completion { socket: None }),
+        start,
+    );
+    assert!(matches!(
+        terminal_outcome(&done, id),
+        Some(RuntimeOutcome::Applied)
+    ));
+    assert!(phase_of(&engine, id).is_none(), "the entry is finished");
+    engine.assert_invariants().unwrap();
+}
+
+/// #700: a completion-only command has no ACK-timeout path, so passing the ACK
+/// time neither fails nor — even in the strict opt-in mode — poisons it. Before
+/// the fix it sat in AwaitingAck, where the strict mode poisons the whole
+/// session at the ACK deadline; this pins that the ACK time is now inert and the
+/// completion deadline is the one that governs.
+#[test]
+fn completion_only_command_has_no_ack_timeout_and_does_not_poison_strict() {
+    let start = Instant::now();
+    let mut engine = strict_poison_engine();
+    let (admitted_effects, id) = admit(
+        &mut engine,
+        1,
+        command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::CompletionOnly),
+        start,
+    );
+    send_ok(&mut engine, &admitted_effects, None, start);
+    // Past the ACK time (20ms), before the completion deadline (40ms): still
+    // awaiting completion, session healthy — the ACK deadline never existed.
+    let past_ack = engine.advance(start + Duration::from_millis(25));
+    assert!(
+        past_ack
+            .iter()
+            .all(|effect| !matches!(effect, Effect::SessionChanged { .. })),
+        "no ACK-timeout event fires for a completion-only command",
+    );
+    assert_eq!(engine.state(), SessionState::Running);
+    assert!(matches!(
+        phase_of(&engine, id),
+        Some(Phase::AwaitingCompletion { .. })
+    ));
+    // The completion deadline (40ms) governs; strict mode poisons there — but
+    // only then, not at the ACK time.
+    let past_completion = engine.advance(start + Duration::from_millis(45));
+    assert!(
+        past_completion.iter().any(|effect| matches!(
+            effect,
+            Effect::SessionChanged {
+                to: SessionState::Poisoned,
+                ..
+            }
+        )),
+        "the completion deadline is what governs a completion-only command",
+    );
+    engine.assert_invariants().unwrap();
+}
+
+/// #700 (default mode): with no completion, a completion-only command fails only
+/// itself (UnsequencedCommandUnconfirmed) and the session keeps running — the
+/// #671 per-request model, never a session-wide poison by default.
+#[test]
+fn completion_only_command_without_completion_fails_per_request_not_the_session() {
+    let start = Instant::now();
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+    let (admitted_effects, id) = admit(
+        &mut engine,
+        1,
+        command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::CompletionOnly),
+        start,
+    );
+    send_ok(&mut engine, &admitted_effects, None, start);
+    // Completion deadline (40ms) → quarantine (AwaitingLateAck); session still up.
+    engine.advance(start + Duration::from_millis(45));
+    assert_eq!(engine.state(), SessionState::Running, "no session poison");
+    assert!(matches!(
+        phase_of(&engine, id),
+        Some(Phase::AwaitingLateAck { .. })
+    ));
+    // Ambiguity window closes → the one request fails unconfirmed; session runs.
+    let closed = engine.advance(start + Duration::from_millis(200));
+    assert!(matches!(
+        terminal_failure(&closed, id),
+        Some(Error::UnsequencedCommandUnconfirmed)
+    ));
+    assert_eq!(engine.state(), SessionState::Running);
+    engine.assert_invariants().unwrap();
+}
+
+/// #700: a no-reply command reaches its terminal on a successful transport
+/// write; the owner never holds it waiting for a frame, and any reply the camera
+/// nonetheless sends finds no entry and is ignored.
+#[test]
+fn no_reply_command_terminates_on_send() {
+    let start = Instant::now();
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+    let (admitted_effects, id) = admit(
+        &mut engine,
+        1,
+        command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::NoReply),
+        start,
+    );
+    let send = send_ok(&mut engine, &admitted_effects, None, start);
+    assert!(
+        matches!(terminal_outcome(&send, id), Some(RuntimeOutcome::Applied)),
+        "a no-reply command terminates Applied on send",
+    );
+    assert!(
+        phase_of(&engine, id).is_none(),
+        "the entry is finished on send",
+    );
+    let stray = engine.handle(
+        frame(1, None, DecodedResponse::Completion { socket: None }),
+        start,
+    );
+    assert!(terminal_outcome(&stray, id).is_none());
+    assert!(stray
+        .iter()
+        .any(|effect| matches!(effect, Effect::Ignored(_))));
+    engine.assert_invariants().unwrap();
+}
+
+/// #700: after a completion-only command completes, a duplicate completion or a
+/// stray ACK is ignored — there is no entry left to bind to, so nothing
+/// misbinds.
+#[test]
+fn late_reply_to_completed_completion_only_is_ignored() {
+    let start = Instant::now();
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+    let (admitted_effects, id) = admit(
+        &mut engine,
+        1,
+        command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::CompletionOnly),
+        start,
+    );
+    send_ok(&mut engine, &admitted_effects, None, start);
+    let done = engine.handle(
+        frame(1, None, DecodedResponse::Completion { socket: None }),
+        start,
+    );
+    assert!(matches!(
+        terminal_outcome(&done, id),
+        Some(RuntimeOutcome::Applied)
+    ));
+    for response in [
+        DecodedResponse::Completion { socket: None },
+        DecodedResponse::Completion {
+            socket: Some(ViscaSocket::S1),
+        },
+        DecodedResponse::Ack {
+            socket: Some(ViscaSocket::S1),
+        },
+    ] {
+        let late = engine.handle(frame(1, None, response), start);
+        assert!(terminal_outcome(&late, id).is_none());
+        assert!(late
+            .iter()
+            .any(|effect| matches!(effect, Effect::Ignored(_))));
+    }
+    engine.assert_invariants().unwrap();
+}
+
+/// #700: a completion-only command owns the target's command channel for its
+/// whole lifetime, because it can never be socket-correlated. Nothing else may
+/// dispatch while it is in flight, and it may not start while anything else is —
+/// even when a command socket is free.
+#[test]
+fn completion_only_command_holds_the_command_channel_exclusively() {
+    let start = Instant::now();
+
+    // Forward: a completion-only command in flight blocks a later ordinary one.
+    {
+        let mut runtime = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+        let (first, _c1) = admit(
+            &mut runtime,
+            1,
+            command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::CompletionOnly),
+            start,
+        );
+        send_ok(&mut runtime, &first, None, start);
+        let second = admit(
+            &mut runtime,
+            2,
+            command(1, CancellationPolicy::Supported),
+            start,
+        )
+        .0;
+        assert!(
+            request_transmit_optional(&second).is_none(),
+            "no command dispatches while a completion-only command awaits its completion",
+        );
+        runtime.assert_invariants().unwrap();
+    }
+
+    // Reverse: an ordinary Executing command leaves a free socket, yet a
+    // completion-only command still may not start — it needs exclusivity.
+    {
+        let mut runtime = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+        let (first, c1) = admit(
+            &mut runtime,
+            1,
+            command(1, CancellationPolicy::Supported),
+            start,
+        );
+        send_ok(&mut runtime, &first, None, start);
+        runtime.handle(
+            frame(
+                1,
+                None,
+                DecodedResponse::Ack {
+                    socket: Some(ViscaSocket::S1),
+                },
+            ),
+            start,
+        );
+        assert!(matches!(
+            phase_of(&runtime, c1),
+            Some(Phase::Executing { .. })
+        ));
+        let second = admit(
+            &mut runtime,
+            2,
+            command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::CompletionOnly),
+            start,
+        )
+        .0;
+        assert!(
+            request_transmit_optional(&second).is_none(),
+            "a completion-only command waits for exclusive access even when a socket is free",
+        );
+        runtime.assert_invariants().unwrap();
+    }
+}
+
+/// #700 / #297: a completion that races ahead of the write result for a
+/// completion-only command is latched while the write is Sending and applied the
+/// instant the send is confirmed, so a fast camera's completion is never dropped.
+#[test]
+fn completion_only_completion_racing_the_write_result_is_latched() {
+    let start = Instant::now();
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+    let (admitted_effects, id) = admit(
+        &mut engine,
+        1,
+        command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::CompletionOnly),
+        start,
+    );
+    assert!(
+        matches!(phase_of(&engine, id), Some(Phase::Sending { .. })),
+        "the command is Sending until its write result arrives",
+    );
+    // The completion arrives before the write result; it is latched, not applied.
+    let early = engine.handle(
+        frame(1, None, DecodedResponse::Completion { socket: None }),
+        start,
+    );
+    assert!(
+        terminal_outcome(&early, id).is_none(),
+        "the racing completion is latched, not applied yet",
+    );
+    // Confirming the send applies the latched completion immediately.
+    let send = send_ok(&mut engine, &admitted_effects, None, start);
+    assert!(
+        matches!(terminal_outcome(&send, id), Some(RuntimeOutcome::Applied)),
+        "the latched completion terminates the command on send confirmation",
     );
     engine.assert_invariants().unwrap();
 }

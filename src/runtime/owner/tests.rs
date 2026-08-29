@@ -186,7 +186,8 @@ mod blocking {
     use super::cached_projection;
     use crate::runtime::engine::{
         CancellationPolicy, ControlPolicy, DecodedResponse, EncodedMessage, EnvelopeKind,
-        EnvelopeSequence, RequestContext, RetryPolicy, SequenceWidth, TimeoutPolicy, TransportKind,
+        EnvelopeSequence, ReplyShape, RequestContext, RetryPolicy, SequenceWidth, TimeoutPolicy,
+        TransportKind,
     };
 
     fn policy(capacity: usize, transport: TransportKind) -> OwnerPolicy {
@@ -229,6 +230,7 @@ mod blocking {
             retry: RetryPolicy::NEVER,
             control: ControlPolicy::default(),
             cancellation,
+            reply_shape: ReplyShape::AckThenCompletion,
         }
     }
 
@@ -3667,8 +3669,9 @@ mod metrics {
     use crate::{
         runtime::engine::{
             CancellationPolicy, ControlPolicy, DeadlineKind, DecodedFrame, DecodedResponse,
-            EncodedMessage, EnvelopeKind, EnvelopeSequence, InquiryRoute, RequestContext,
-            RetryPolicy, SequenceWidth, TimeoutPolicy, TransmissionMeta, TransportKind,
+            EncodedMessage, EnvelopeKind, EnvelopeSequence, InquiryRoute, ReplyShape,
+            RequestContext, RetryPolicy, SequenceWidth, TimeoutPolicy, TransmissionMeta,
+            TransportKind,
         },
         CameraId, Error, ViscaSocket,
     };
@@ -3727,6 +3730,7 @@ mod metrics {
             retry,
             control: ControlPolicy::default(),
             cancellation: CancellationPolicy::Supported,
+            reply_shape: ReplyShape::AckThenCompletion,
         }
     }
 
@@ -4073,7 +4077,7 @@ mod lifecycle_trace {
         protocol::response::{decode_basic, BasicKind},
         runtime::engine::{
             CancellationPolicy, ControlPolicy, EncodedMessage, EnvelopeKind, InquiryRoute,
-            RequestContext, RetryPolicy, TimeoutPolicy, TransportKind,
+            ReplyShape, RequestContext, RetryPolicy, TimeoutPolicy, TransportKind,
         },
         CameraId, Error,
     };
@@ -4160,6 +4164,7 @@ mod lifecycle_trace {
             Phase::Ready { .. } => "ready".to_owned(),
             Phase::Sending { .. } => "sending".to_owned(),
             Phase::AwaitingAck { .. } => "awaiting-ack".to_owned(),
+            Phase::AwaitingCompletion { .. } => "awaiting-completion".to_owned(),
             Phase::Executing { socket, .. } => {
                 format!("executing(socket={})", socket.as_socket_number())
             }
@@ -4300,6 +4305,7 @@ mod lifecycle_trace {
                 retry: RetryPolicy::NEVER,
                 control: ControlPolicy::default(),
                 cancellation,
+                reply_shape: ReplyShape::AckThenCompletion,
             },
             // Applied-state delivery is one of the normative observations, and
             // an unsubscribed fixture simply produces no subscriber record.
@@ -4329,6 +4335,7 @@ mod lifecycle_trace {
                 retry: RetryPolicy::NEVER,
                 control: ControlPolicy::default(),
                 cancellation,
+                reply_shape: ReplyShape::AckThenCompletion,
             },
             route: InquiryRoute::UNKNOWN,
         }

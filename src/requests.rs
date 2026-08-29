@@ -606,6 +606,21 @@ pub trait Request: Send + Sync {
         Self::CONTROL_CLASS
     }
 
+    /// Returns the reply protocol the camera will use for this command.
+    ///
+    /// Built-in and ordinary downstream commands use the default,
+    /// [`crate::raw::RawReplyShape::AckThenCompletion`] — the camera
+    /// acknowledges, is assigned a socket, then completes. A custom command
+    /// whose vendor frame is answered by a completion with no acknowledgement,
+    /// or by nothing at all, overrides this so preparation can lower the fact
+    /// into the engine's lifecycle; the engine never infers it from the wire
+    /// bytes. It is meaningful only for commands: an inquiry always awaits its
+    /// reply and ignores this value.
+    #[must_use]
+    fn reply_shape(&self) -> crate::raw::RawReplyShape {
+        crate::raw::RawReplyShape::AckThenCompletion
+    }
+
     /// Returns the exact encoded byte length for this value.
     #[must_use]
     fn encoded_size(&self) -> usize {

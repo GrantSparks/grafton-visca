@@ -156,6 +156,28 @@ pub(crate) enum CancellationPolicy {
     Unsupported,
 }
 
+/// The reply protocol one admitted command declares it will receive.
+///
+/// This is the private lowering of the public [`crate::raw::RawReplyShape`]. The
+/// engine never infers it from wire bytes: preparation lowers the caller's
+/// explicit declaration into this fact, exactly as it does the envelope and
+/// control class. Built-in commands and inquiries always lower to
+/// [`Self::AckThenCompletion`]; only a custom (raw or downstream) command can
+/// declare another shape.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum ReplyShape {
+    /// The camera acknowledges, is assigned a socket, then completes. The
+    /// default and the shape of every built-in command.
+    #[default]
+    AckThenCompletion,
+    /// The camera replies with a completion/terminal but no acknowledgement, so
+    /// the command owns no socket and never enters the unacknowledged-ACK gate.
+    CompletionOnly,
+    /// The command expects nothing back and reaches its terminal on a successful
+    /// transport write.
+    NoReply,
+}
+
 /// All scheduler deadlines for one request class.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct TimeoutPolicy {
@@ -219,6 +241,9 @@ pub(crate) struct RequestContext {
     pub(crate) retry: RetryPolicy,
     pub(crate) control: ControlPolicy,
     pub(crate) cancellation: CancellationPolicy,
+    /// The reply protocol this command declared. Inquiries ignore it (they
+    /// always await a reply); commands honor it in the lifecycle state machine.
+    pub(crate) reply_shape: ReplyShape,
 }
 
 /// Maximum number of scalar values carried by one applied-state effect.
@@ -627,6 +652,13 @@ pub(crate) enum Phase {
         started_at: std::time::Instant,
     },
     AwaitingAck {
+        sent_at: std::time::Instant,
+        deadline: std::time::Instant,
+    },
+    /// A completion-only raw command that was sent but never acknowledged, so it
+    /// owns no socket. It awaits its completion frame under the completion
+    /// deadline and, unlike [`Self::AwaitingAck`], has no ACK-timeout path.
+    AwaitingCompletion {
         sent_at: std::time::Instant,
         deadline: std::time::Instant,
     },

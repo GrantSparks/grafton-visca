@@ -150,7 +150,13 @@ Correlation before ACK is envelope-specific. A raw-VISCA target has at most
 one unacknowledged command candidate across `Sending`, `AwaitingAck`, and
 `AwaitingLateAck`. Once its ACK assigns a socket, the next command may be
 written while the first executes, so a two-socket camera retains its useful
-concurrency without asking FIFO order to identify an ACK. Raw ACK and error
+concurrency without asking FIFO order to identify an ACK. A completion-only
+command (`RawReplyShape::CompletionOnly`, issue #700) never earns a socket, so
+it can never be socket-correlated; it therefore holds the target's command
+channel exclusively for its whole lifetime — `AwaitingCompletion` counts as an
+uncorrelated command that blocks any other dispatch, and it may not itself start
+until the target is idle — which keeps its completion attributable to it alone.
+A stray ACK to such a command is ignored; it never assigns a socket. Raw ACK and error
 routing never uses command FIFO or temporal recency. Sony-encapsulated requests
 may pipeline before ACK because their envelope sequence provides an exact
 correlation key. An unsequenced ACK is never attributed by a guess.
@@ -181,12 +187,16 @@ work. By default the owner therefore fails only that one command with
 `Error::UnsequencedCommandUnconfirmed` — a per-request outcome the session
 survives — and quarantines the correlation still at stake (its owned socket, or
 its place as the sole unacknowledged command) until the ambiguity deadline, so a
-late reply is ignored rather than bound to a later command (issue #671). The
-session and every unrelated request keep running; the caller reconciles that one
-command's camera effect rather than replacing the session. An active
-retry-budget expiry in `Sending`, `AwaitingAck`, or `Executing` follows the same
-per-request rule, while a retry still in a safe ready/backoff state finishes with
-its retained last error when the total budget expires. The whole-session poison
+late reply is ignored rather than bound to a later command (issue #671). A
+completion-only command (issue #700) that never receives its completion follows
+the same rule: at its completion deadline it fails `UnsequencedCommandUnconfirmed`
+and quarantines its (socketless) sole-command slot, never poisoning by default.
+The session and every unrelated request keep running; the caller reconciles that
+one command's camera effect rather than replacing the session. An active
+retry-budget expiry in `Sending`, `AwaitingAck`, `AwaitingCompletion`, or
+`Executing` follows the same per-request rule, while a retry still in a safe
+ready/backoff state finishes with its retained last error when the total budget
+expires. The whole-session poison
 is retained only behind the opt-in `strict_unconfirmed_poison` tuning (default
 off), which restores the pre-fix behavior and surfaces it as
 `Error::StreamPoisoned` so those callers still establish a fresh session. The
@@ -259,6 +269,7 @@ post-#671 behavior, not an aspirational one.
 | `Ready` | Admitted and queued; nothing written yet. Holds a lazy-deletion `QueueTicket`. |
 | `Sending` | The request's transport write is in flight; carries its `TransmissionId`. |
 | `AwaitingAck` | A command was written and awaits its ACK (deadline = sent + ack). |
+| `AwaitingCompletion` | A completion-only raw command (`RawReplyShape::CompletionOnly`, issue #700) was written and awaits its completion with no ACK and no socket (deadline = sent + completion). It holds its target's command channel exclusively and has no ACK-timeout path. |
 | `Executing` | The ACK assigned a socket; awaits completion (deadline = ack + completion). |
 | `AwaitingReply` | An inquiry was written and awaits its reply (deadline = sent + inquiry). |
 | `Backoff` | A retryable rejection or timeout scheduled a retry; re-enters `Ready` at `ready_at`. |
@@ -284,7 +295,9 @@ post-#671 behavior, not an aspirational one.
 | Admit with the id/generation space exhausted | Reject with `Error::RuntimeIdentityExhausted`. |
 | Admit to a non-`Running` session | Reject with the session's terminal error (or `Error::RuntimeShutdown`). |
 | Select a `Ready` request | Transition to `Sending`, allocate one `TransmissionId`, emit exactly one request `Transmit` (Sony carries its retained sequence; raw carries none). |
-| Successful command send | Record any Sony sequence and transition to `AwaitingAck`. |
+| Successful command send (`AckThenCompletion`, the default) | Record any Sony sequence and transition to `AwaitingAck`. |
+| Successful command send (`CompletionOnly`, issue #700) | Transition straight to `AwaitingCompletion` (no ACK phase, no socket); apply any completion that raced the write result and drop any spurious raced ACK. |
+| Successful command send (`NoReply`, issue #700) | `finish` with `RuntimeOutcome::Applied` — the write is the terminal; hold nothing waiting for a frame. |
 | Successful inquiry send | Record any Sony sequence, transition to `AwaitingReply`, and take a per-target FIFO position for a raw inquiry. |
 | Failed command send, datagram transport | Terminally fail that one request with the exact transport error; every other entry keeps running. |
 | Failed command send, stream transport | Poison the session (`Error::StreamPoisoned`) and resolve every active entry. |
@@ -292,12 +305,13 @@ post-#671 behavior, not an aspirational one.
 | ACK naming a busy socket | Fall back to the target's other free socket when it has more than one (issues #620/#682); when none is free the ACK stays inert as `Ignored(SocketConflict)`. |
 | ACK while still `Sending` | Latch it once as a deferred ACK, applied when the send result lands. |
 | Completion in `Executing` | `finish` with `RuntimeOutcome::Applied`; a retained cancellation observer maps this to `Completed`. |
+| Completion in `AwaitingCompletion` (issue #700) | `finish` with `RuntimeOutcome::Applied`, regardless of any socket nibble the vendor frame echoes; the resolver already established it as the sole completion-only candidate on the target. |
 | Inquiry reply in `AwaitingReply` | `finish` with the attributed payload. |
 | Retryable conclusive rejection (buffer-full `0x03`/`0x05`, movement `0x41`), no cancel intent | Increment the bounded attempt and enter `Backoff`. |
 | Retryable rejection with cancel intent | Suppress retry and `finish` with `Cancelled`, because no executing attempt exists. |
 | `0x04` command-cancelled terminal | `finish` with `Cancelled`. |
 | ACK timeout, Sony envelope, retryable | Retry within policy on ACK-capped backoff, replaying the exact sequence. |
-| ACK/completion loss, a receive fault while `AwaitingAck`, or retry-budget expiry in an active raw phase | Default: fail only that command with `Error::UnsequencedCommandUnconfirmed` (the session survives) and quarantine its still-owned correlation — `AwaitingLateAck` when only its unacknowledged slot is at stake, `AwaitingCancellationResolution` when it still owns a socket (issue #671). |
+| ACK/completion loss, a receive fault while `AwaitingAck`, a completion-only command's completion deadline in `AwaitingCompletion` (issue #700), or retry-budget expiry in an active raw phase | Default: fail only that command with `Error::UnsequencedCommandUnconfirmed` (the session survives) and quarantine its still-owned correlation — `AwaitingLateAck` when only its unacknowledged/uncorrelated slot is at stake (this includes a completion-only command, which owns no socket), `AwaitingCancellationResolution` when it still owns a socket (issue #671). |
 | Quarantine / ambiguity deadline expiry | `finish` with `Error::UnsequencedCommandUnconfirmed` (raw) or `Error::CancellationUnconfirmed` (Sony or an open cancellation), releasing the reserved socket or slot only then. |
 | Any of the two rows above under the `strict_unconfirmed_poison` opt-in | Poison the session and report `Error::StreamPoisoned`, restoring the pre-#671 behavior. |
 | Retry becomes eligible (`Backoff` → ready) | Return to `Ready` and dispatch through the ordinary capacity and pacing gates. |

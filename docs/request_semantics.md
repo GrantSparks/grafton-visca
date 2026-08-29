@@ -94,6 +94,41 @@ address-set form is refused by the target-address check during preparation — s
 no `execute`/`inquire`/`submit` path, typed or raw, can emit an owner-only
 primitive.
 
+### Raw reply shape
+
+A raw command declares the reply protocol the camera will use, so the owner does
+not assume every command follows the ACK-then-completion shape. The axis is
+`raw::RawReplyShape`, carried on `raw::Policy`/`raw::Spec` and set with
+`Policy::with_reply_shape`:
+
+- `AckThenCompletion` (the default) — the command is acknowledged, assigned a
+  socket, then completes. This is the shape of every built-in command, so
+  existing raw code is unchanged.
+- `CompletionOnly` — the camera answers with a completion (or terminal) frame
+  and no acknowledgement. The command earns no socket and never enters the
+  unacknowledged-ACK gate, so a missing ACK can neither fail nor poison it; it
+  terminates on the completion frame or a bounded completion deadline. Because it
+  can never be socket-correlated, a completion-only command holds the target's
+  command channel exclusively for its lifetime: nothing else dispatches to the
+  target while it is in flight, and it does not start until the target is idle.
+- `NoReply` — a fire-and-forget command that terminates successfully the instant
+  its transport write succeeds. Any reply the camera nonetheless sends finds no
+  in-flight request and is ignored.
+
+The shape is a command axis only. An inquiry always awaits its reply, so
+`raw::Inquiry` rejects any non-default shape at construction rather than silently
+ignore it. When a command's completion cannot be confirmed (no completion within
+the deadline), the default per-request recovery applies (issue #671): that one
+request fails `UnsequencedCommandUnconfirmed` while its slot is quarantined
+against a late reply, and the session keeps running; the strict
+`strict_unconfirmed_poison` opt-in poisons the session instead.
+
+Reply shape is for *legitimate* custom completion-only or fire-and-forget vendor
+frames. It never re-admits the owner-only wire primitives above: a socket cancel
+or interface clear stays rejected at construction whatever reply shape is
+declared, because those act on another operation's socket or the shared command
+buffer, not on the caller's own command.
+
 ### Domain rationale for settings and stored state
 
 The exposure row is deliberately broad. Exposure mode and compensation select

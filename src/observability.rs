@@ -145,6 +145,9 @@ pub enum DiagnosticPhase {
     Sending,
     /// Waiting for an acknowledgement.
     AwaitingAck,
+    /// Waiting for a completion-only command's completion, having received no
+    /// acknowledgement and owning no socket.
+    AwaitingCompletion,
     /// Waiting for command completion.
     Executing,
     /// Waiting for an inquiry reply.
@@ -418,6 +421,7 @@ impl DiagnosticEvent {
             Phase::Ready { .. } => DiagnosticPhase::Ready,
             Phase::Sending { .. } => DiagnosticPhase::Sending,
             Phase::AwaitingAck { .. } => DiagnosticPhase::AwaitingAck,
+            Phase::AwaitingCompletion { .. } => DiagnosticPhase::AwaitingCompletion,
             Phase::Executing { .. } => DiagnosticPhase::Executing,
             Phase::AwaitingReply { .. } => DiagnosticPhase::AwaitingReply,
             Phase::Backoff { .. } => DiagnosticPhase::Backoff,

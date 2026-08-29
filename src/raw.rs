@@ -31,6 +31,21 @@
 //! classes are required constructor arguments (or can be supplied as a
 //! [`crate::raw::Policy`] or [`crate::raw::Spec`]); no default, optional metadata, byte-based
 //! inference, or caller-selected operation class exists.
+//!
+//! A raw command also declares its [`crate::raw::RawReplyShape`]: the default
+//! [`AckThenCompletion`](crate::raw::RawReplyShape::AckThenCompletion) is the
+//! ordinary ACK-then-completion protocol, while
+//! [`CompletionOnly`](crate::raw::RawReplyShape::CompletionOnly) and
+//! [`NoReply`](crate::raw::RawReplyShape::NoReply) describe legitimate vendor
+//! frames that answer with a completion and no ACK, or with nothing at all. The
+//! shape is set on the [`crate::raw::Policy`] with
+//! [`Policy::with_reply_shape`](crate::raw::Policy::with_reply_shape) and lowered into the
+//! owner's correlation so a completion-only frame is not held waiting for an ACK
+//! it will never receive. It is a command axis only: [`Inquiry`] rejects any
+//! non-default shape. Reply shape never re-admits the owner-only wire primitives
+//! rejected above — a socket cancel or interface clear stays refused at
+//! construction whatever shape is declared, because those act on another
+//! operation's socket or the shared command buffer.
 
 use std::{borrow::Cow, fmt};
 
@@ -60,6 +75,44 @@ pub const MAX_BYTES: usize = 1_024;
 
 const VISCA_TERMINATOR: u8 = 0xff;
 
+/// The reply protocol a raw command declares the camera will use.
+///
+/// Every VISCA command is, by default, acknowledged, assigned a socket, then
+/// completed. Some legitimate vendor extensions instead answer with a
+/// completion and no acknowledgement, or expect no reply at all. A raw caller
+/// declares which shape applies so the owner's correlation and quarantine honor
+/// it; the engine never infers the shape from the wire bytes.
+///
+/// This axis is for *legitimate* custom completion-only or fire-and-forget
+/// commands. It does not, and must not, re-admit the owner-only wire primitives
+/// (a socket cancel or a per-camera interface clear) that [`crate::raw`]
+/// rejects at construction regardless of reply shape: those remain owner-only
+/// because they act on another operation's socket or the shared command buffer.
+///
+/// The shape is meaningful only for commands
+/// ([`Plain`], [`Targeted`], [`AppliedOnly`]). An [`Inquiry`] always awaits its
+/// reply, so its constructors reject any non-default reply shape rather than
+/// silently ignore it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum RawReplyShape {
+    /// The camera acknowledges the command, the owner assigns it a socket, and
+    /// the command completes on the completion frame. This is the default and
+    /// the behavior of every built-in command; existing raw callers are
+    /// unchanged.
+    #[default]
+    AckThenCompletion,
+    /// The camera replies with a completion (or terminal) frame but no
+    /// acknowledgement. The command is never assigned a socket and never enters
+    /// the unacknowledged-command gate expecting an ACK, so a missing ACK cannot
+    /// fail or poison it. It terminates on the completion frame or, failing
+    /// that, on a bounded completion deadline.
+    CompletionOnly,
+    /// The command expects nothing back. It terminates successfully the instant
+    /// its transport write succeeds; the owner never holds it waiting for a
+    /// frame, and any later reply the camera nonetheless sends is ignored.
+    NoReply,
+}
+
 /// Explicit timeout, retry, and scheduler-control classes for one raw value.
 ///
 /// The owner lowers these semantic classes to its private runtime policy. The
@@ -72,11 +125,17 @@ const VISCA_TERMINATOR: u8 = 0xff;
 /// lane is the owner's stop and protocol-cancel reserve. A camera handle's
 /// default class and a per-submission class replace ordinary classifications,
 /// but neither can replace or demote an urgent request.
+///
+/// The [`RawReplyShape`] here is the command's declared reply protocol. It
+/// defaults to [`RawReplyShape::AckThenCompletion`], so a policy built by
+/// [`Policy::new`] is unchanged for existing callers; a completion-only or
+/// no-reply command sets it with [`Policy::with_reply_shape`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Policy {
     timeout: TimeoutClass,
     retry: RetryClass,
     control: ControlClass,
+    reply_shape: RawReplyShape,
 }
 
 /// The caller-facing policy specification used to build a raw request.
@@ -120,8 +179,26 @@ impl Spec {
                 timeout,
                 retry,
                 control,
+                reply_shape: RawReplyShape::AckThenCompletion,
             },
         })
+    }
+
+    /// Returns this specification with the given reply shape.
+    ///
+    /// The default is [`RawReplyShape::AckThenCompletion`]; see
+    /// [`Policy::with_reply_shape`].
+    #[must_use]
+    pub const fn with_reply_shape(self, reply_shape: RawReplyShape) -> Self {
+        Self {
+            policy: self.policy.with_reply_shape(reply_shape),
+        }
+    }
+
+    /// Returns the declared reply shape.
+    #[must_use]
+    pub const fn reply_shape(self) -> RawReplyShape {
+        self.policy.reply_shape()
     }
 
     /// Returns the normalized policy represented by this specification.
@@ -165,13 +242,45 @@ impl Policy {
             timeout,
             retry,
             control,
+            reply_shape: RawReplyShape::AckThenCompletion,
         })
+    }
+
+    /// Returns this policy with the given reply shape.
+    ///
+    /// [`Policy::new`] defaults the reply shape to
+    /// [`RawReplyShape::AckThenCompletion`], keeping existing raw code
+    /// unchanged. A completion-only or no-reply command sets its shape here:
+    ///
+    /// ```
+    /// use grafton_visca::raw::{Policy, RawReplyShape};
+    /// use grafton_visca::{ControlClass, RetryClass, TimeoutClass};
+    ///
+    /// let policy = Policy::new(TimeoutClass::Quick, RetryClass::Never, ControlClass::Normal)?
+    ///     .with_reply_shape(RawReplyShape::CompletionOnly);
+    /// assert_eq!(policy.reply_shape(), RawReplyShape::CompletionOnly);
+    /// # Ok::<(), grafton_visca::Error>(())
+    /// ```
+    #[must_use]
+    pub const fn with_reply_shape(self, reply_shape: RawReplyShape) -> Self {
+        Self {
+            timeout: self.timeout,
+            retry: self.retry,
+            control: self.control,
+            reply_shape,
+        }
     }
 
     /// Returns the selected timeout class.
     #[must_use]
     pub const fn timeout_class(self) -> TimeoutClass {
         self.timeout
+    }
+
+    /// Returns the declared reply shape.
+    #[must_use]
+    pub const fn reply_shape(self) -> RawReplyShape {
+        self.reply_shape
     }
 
     /// Returns the selected retry class.
@@ -346,6 +455,12 @@ impl Plain {
     pub const fn control_class(&self) -> ControlClass {
         self.policy.control_class()
     }
+
+    /// Returns this value's declared reply shape.
+    #[must_use]
+    pub const fn reply_shape(&self) -> RawReplyShape {
+        self.policy.reply_shape()
+    }
 }
 
 impl Request for Plain {
@@ -369,6 +484,10 @@ impl Request for Plain {
 
     fn control_class(&self) -> ControlClass {
         self.policy.control_class()
+    }
+
+    fn reply_shape(&self) -> RawReplyShape {
+        self.policy.reply_shape()
     }
 
     fn encoded_size(&self) -> usize {
@@ -406,6 +525,11 @@ impl<R> Inquiry<R> {
     }
 
     /// Creates a raw inquiry from explicit route, decoder, and policy values.
+    ///
+    /// The policy's reply shape must be the default
+    /// [`RawReplyShape::AckThenCompletion`]: an inquiry always awaits its reply,
+    /// so a completion-only or no-reply shape is meaningless for it and is
+    /// rejected here rather than silently ignored.
     pub fn with_policy<P>(
         bytes: impl AsRef<[u8]>,
         route: InquiryRoute,
@@ -415,12 +539,14 @@ impl<R> Inquiry<R> {
     where
         P: Into<Policy>,
     {
+        let policy = policy.into();
+        validate_inquiry_reply_shape(policy.reply_shape())?;
         validate_route(route)?;
         Ok(Self {
             wire: Wire::new(bytes)?,
             route,
             decoder,
-            policy: policy.into(),
+            policy,
         })
     }
 
@@ -641,6 +767,12 @@ impl Targeted {
     pub const fn control_class(&self) -> ControlClass {
         self.policy.control_class()
     }
+
+    /// Returns this operation's declared reply shape.
+    #[must_use]
+    pub const fn reply_shape(&self) -> RawReplyShape {
+        self.policy.reply_shape()
+    }
 }
 
 impl Request for Targeted {
@@ -660,6 +792,10 @@ impl Request for Targeted {
 
     fn control_class(&self) -> ControlClass {
         self.policy.control_class()
+    }
+
+    fn reply_shape(&self) -> RawReplyShape {
+        self.policy.reply_shape()
     }
 
     fn encoded_size(&self) -> usize {
@@ -756,6 +892,12 @@ impl AppliedOnly {
     pub const fn control_class(&self) -> ControlClass {
         self.policy.control_class()
     }
+
+    /// Returns this operation's declared reply shape.
+    #[must_use]
+    pub const fn reply_shape(&self) -> RawReplyShape {
+        self.policy.reply_shape()
+    }
 }
 
 impl Request for AppliedOnly {
@@ -775,6 +917,10 @@ impl Request for AppliedOnly {
 
     fn control_class(&self) -> ControlClass {
         self.policy.control_class()
+    }
+
+    fn reply_shape(&self) -> RawReplyShape {
+        self.policy.reply_shape()
     }
 
     fn encoded_size(&self) -> usize {
@@ -799,6 +945,20 @@ impl Request for AppliedOnly {
 impl OperationCommand<completion::AppliedOnly> for AppliedOnly {
     fn affected_axes(&self) -> AffectedAxes {
         self.axes
+    }
+}
+
+fn validate_inquiry_reply_shape(reply_shape: RawReplyShape) -> Result<()> {
+    // An inquiry's lifecycle is fixed: it awaits its reply and never an ACK or a
+    // command completion, so the completion-only and no-reply shapes cannot
+    // describe it. Reject them at construction so a caller cannot set a shape the
+    // owner would silently ignore.
+    if matches!(reply_shape, RawReplyShape::AckThenCompletion) {
+        Ok(())
+    } else {
+        Err(Error::InvalidRequest(Cow::Borrowed(
+            "raw inquiry reply shape must be RawReplyShape::AckThenCompletion; an inquiry always awaits its reply",
+        )))
     }
 }
 
@@ -1251,6 +1411,118 @@ mod tests {
                 )
                 .is_ok(),
                 "legitimate custom frame {frame:x?} must stay admissible"
+            );
+        }
+    }
+
+    /// #700: the reply-shape axis defaults to `AckThenCompletion` and threads
+    /// through the policy, the spec, and every raw command's `Request` hook.
+    #[test]
+    fn reply_shape_defaults_and_threads_through_policy_and_commands() {
+        // The default keeps existing raw code unchanged.
+        let default_policy =
+            Policy::new(TimeoutClass::Quick, RetryClass::Never, ControlClass::Normal)
+                .expect("valid policy");
+        assert_eq!(
+            default_policy.reply_shape(),
+            RawReplyShape::AckThenCompletion
+        );
+        assert_eq!(RawReplyShape::default(), RawReplyShape::AckThenCompletion);
+        assert_eq!(
+            Plain::new(
+                [0x81, 0x01, 0x02, 0xff],
+                TimeoutClass::Quick,
+                RetryClass::Never,
+                ControlClass::Normal,
+            )
+            .expect("plain")
+            .reply_shape(),
+            RawReplyShape::AckThenCompletion,
+        );
+
+        for shape in [
+            RawReplyShape::AckThenCompletion,
+            RawReplyShape::CompletionOnly,
+            RawReplyShape::NoReply,
+        ] {
+            // The builder sets the shape without disturbing the other classes.
+            let policy = default_policy.with_reply_shape(shape);
+            assert_eq!(policy.reply_shape(), shape);
+            assert_eq!(policy.timeout_class(), TimeoutClass::Quick);
+            assert_eq!(policy.retry_class(), RetryClass::Never);
+            assert_eq!(policy.control_class(), ControlClass::Normal);
+
+            // The spec carries the same axis and lowers to the same policy.
+            let spec = Spec::new(TimeoutClass::Quick, RetryClass::Never, ControlClass::Normal)
+                .expect("valid spec")
+                .with_reply_shape(shape);
+            assert_eq!(spec.reply_shape(), shape);
+            assert_eq!(spec.policy().reply_shape(), shape);
+
+            // Each command reports the shape through its inherent accessor and
+            // the `Request::reply_shape` hook preparation reads.
+            let plain = Plain::with_policy([0x81, 0x01, 0x02, 0xff], policy).expect("plain");
+            assert_eq!(plain.reply_shape(), shape);
+            assert_eq!(Request::reply_shape(&plain), shape);
+
+            let targeted =
+                Targeted::with_policy([0x81, 0x01, 0x06, 0xff], AffectedAxes::PAN_TILT, policy)
+                    .expect("targeted");
+            assert_eq!(targeted.reply_shape(), shape);
+            assert_eq!(Request::reply_shape(&targeted), shape);
+
+            let applied =
+                AppliedOnly::with_policy([0x81, 0x01, 0x07, 0xff], AffectedAxes::ZOOM, policy)
+                    .expect("applied");
+            assert_eq!(applied.reply_shape(), shape);
+            assert_eq!(Request::reply_shape(&applied), shape);
+        }
+    }
+
+    /// #700: an inquiry always awaits its reply, so a raw inquiry rejects any
+    /// non-default reply shape at construction rather than silently ignore it.
+    #[test]
+    fn raw_inquiry_rejects_non_default_reply_shape() {
+        let ackthen = Policy::new(
+            TimeoutClass::Inquiry,
+            RetryClass::Never,
+            ControlClass::Normal,
+        )
+        .expect("valid policy");
+
+        // The default shape is accepted through every inquiry constructor.
+        assert!(Inquiry::<u8>::with_policy(
+            [0x81, 0x09, 0x04, 0xff],
+            InquiryRoute::RAW,
+            ResponseDecoder::from_fn(decode_first),
+            ackthen,
+        )
+        .is_ok());
+        assert!(Inquiry::from_fn(
+            [0x81, 0x09, 0x04, 0xff],
+            InquiryRoute::RAW,
+            decode_first,
+            TimeoutClass::Inquiry,
+            RetryClass::Never,
+            ControlClass::Normal,
+        )
+        .is_ok());
+
+        // Completion-only and no-reply are rejected — the guard is exactly the
+        // non-default shapes and nothing wider.
+        for shape in [RawReplyShape::CompletionOnly, RawReplyShape::NoReply] {
+            let policy = ackthen.with_reply_shape(shape);
+            assert!(
+                matches!(
+                    Inquiry::<u8>::with_policy(
+                        [0x81, 0x09, 0x04, 0xff],
+                        InquiryRoute::RAW,
+                        ResponseDecoder::from_fn(decode_first),
+                        policy,
+                    ),
+                    Err(Error::InvalidRequest(_))
+                ),
+                "raw inquiry must reject reply shape {shape:?}"
             );
         }
     }
