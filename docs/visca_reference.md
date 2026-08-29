@@ -338,9 +338,32 @@ OnePush / Snap Focus should be firmware-gated. See Appendix A.5.
 | Blue gain direct | `81 01 04 44 00 00 0p 0q FF` | `pq = B gain`. |
 | Color temperature reset/up/down | `81 01 04 20 00/02/03 FF` | Relative/default color-temperature controls. |
 | Color temperature direct | `81 01 04 20 0p 0q FF` | `0x00 = 2500K`, `0x37 = 8000K`. |
-| Red tuning direct | `81 0A 01 12 pq FF` | PTZOptics extension; `0x00 = -10`, `0x0A = 0`, `0x14 = +10`. |
-| Blue tuning direct | `81 0A 01 13 pq FF` | PTZOptics extension; `0x00 = -10`, `0x0A = 0`, `0x14 = +10`. |
+| Red tuning direct | `81 01 04 43 00 00 00 pq FF` | Shares opcode `04 43` with red gain direct (above); the tuning form forces the byte before the code to `00` and carries the whole code in `pq`. `0x00 = -10`, `0x0A = 0`, `0x14 = +10`. See the color-tuning erratum below. |
+| Blue tuning direct | `81 01 04 44 00 00 00 pq FF` | Shares opcode `04 44` with blue gain direct (above); the tuning form forces the byte before the code to `00` and carries the whole code in `pq`. `0x00 = -10`, `0x0A = 0`, `0x14 = +10`. See the color-tuning erratum below. |
 | WB mode inquiry | `81 09 04 35 FF` | See section 7.10 for reply values. |
+
+#### Red/blue color-tuning erratum
+
+Red and blue *tuning* do not use a separate `0A 01 12` / `0A 01 13` vendor
+extension. Earlier drafts of this reference documented one, but it does not match
+the shipped encoder and was never validated against a PTZOptics command sheet. The
+library encodes tuning on the same opcode as the corresponding *gain-direct*
+command:
+
+- Red tuning: `81 01 04 43 00 00 00 pq FF`
+- Blue tuning: `81 01 04 44 00 00 00 pq FF`
+
+where `pq` is the tuning code (`0x00 = -10`, `0x0A = 0`, `0x14 = +10`). The only
+nominal difference from gain direct (`81 01 04 43 00 00 0p 0q FF` /
+`81 01 04 44 00 00 0p 0q FF`) is that tuning forces the byte before the code to `00`
+and places the whole code in the final data byte. Because a gain value `<= 0x0F`
+also leaves that byte `00`, the two forms overlap on the wire and cannot be reliably
+told apart by a passive listener; only tuning codes above `0x0F` (i.e. `+6..+10`)
+land a value the gain-direct path never puts there. The matching inquiries are
+byte-identical as well: red tuning and red gain both query `81 09 04 43 FF`, and
+blue tuning and blue gain both query `81 09 04 44 FF`. Treat tuning and gain as one
+opcode family (`04 43` / `04 44`) when reasoning about profile capabilities and
+inquiry routing.
 
 ### 7.5 Exposure
 
@@ -453,7 +476,7 @@ Noise-reduction inquiries are included in section 7.10. The checked PTZOptics so
 | OSD enter | `81 01 06 06 05 FF` | Validated. |
 | OSD return/back | `81 01 06 06 04 FF` | Validated. |
 | Menu status inquiry | `81 09 06 06 FF` | Validated; category `06`, not `04`. |
-| NDI mode high/medium/low/off | `81 0B 01 01/02/03/04 FF` | Validated as PTZOptics vendor extension. |
+| NDI mode high/medium/low/off | `81 0B 01 01 01/02/03/04 FF` | Validated as PTZOptics vendor extension. Fixed opcode `0B 01 01`; the final data byte selects `01 = high`, `02 = medium`, `03 = low`, `04 = off`. |
 | Multicast mode | `81 0B 01 23 0p FF`, `1 = On`, `2 = Off` | Validated as PTZOptics vendor extension. |
 | USB audio / UAC | `81 2A 02 A0 04 0p FF`, `2 = On`, `3 = Off` | Validated as PTZOptics vendor extension. |
 | UAC inquiry | `81 2A 02 A0 04 FF` | Validated. |
@@ -524,7 +547,7 @@ Block inquiries return compact multi-field status packets. The following rows ar
 | Extension / command family | Final treatment |
 |---|---|
 | Dynamic Range Control `81 01 04 25 00 00 00 0p FF` | Included in exposure command table as a PTZOptics extension. |
-| Red/blue tuning `81 0A 01 12/13 pq FF` | Included in white-balance/color tuning table as PTZOptics extensions. |
+| Red/blue tuning `81 01 04 43 00 00 00 pq FF` / `81 01 04 44 00 00 00 pq FF` | Included in white-balance/color tuning table; shares the `04 43` / `04 44` opcode with red/blue gain direct (see the color-tuning erratum in 7.4). |
 | Picture effect `81 01 04 63 00/04 FF` | Included in image-processing table and inquiry table. |
 | Legacy `04 61` / `04 66` flip rows | Included for source completeness, but implementation should prefer combined `04 A4` on PTZOptics Gen‑2. |
 | PTZ Motion Sync `81 0A 11 13 ...`, `81 0A 11 14 ...` | Kept firmware-gated in Appendix A.4 rather than baseline. |
