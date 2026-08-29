@@ -37,10 +37,11 @@ use grafton_visca::transport::{
     BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig,
 };
 
-/// The Sony FR7 profile's own acknowledgement deadline.
-const PROFILE_ACK_TIMEOUT: Duration = Duration::from_millis(200);
-/// A deliberately wide acknowledgement deadline, five times the profile's.
-const WIDE_ACK_TIMEOUT: Duration = Duration::from_secs(1);
+/// The Sony FR7 profile's own acknowledgement deadline (the restored 1.x
+/// 500 ms default; see issue #689).
+const PROFILE_ACK_TIMEOUT: Duration = Duration::from_millis(500);
+/// A deliberately wide acknowledgement deadline, four times the profile's.
+const WIDE_ACK_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// A never-retried operation, so exactly one acknowledgement deadline decides
 /// when a silent camera fails the request.
@@ -421,8 +422,8 @@ fn an_update_while_a_receipt_is_outstanding_leaves_it_alone() {
          already stamped as an absolute instant"
     );
 
-    // The request is admitted under the profile's 200 ms deadline. Widening to
-    // a full second now must not extend it.
+    // The request is admitted under the profile's 500 ms deadline. Widening to
+    // two seconds now must not extend it.
     session
         .set_tuning(OperationalTuning::new().ack_timeout(WIDE_ACK_TIMEOUT))
         .expect("an update mid-flight is accepted");

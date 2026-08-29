@@ -365,8 +365,25 @@ fields map directly to the corresponding tuning methods:
 | `long_timeout` | `long_running_timeout` |
 | `network_timeout` | `network_timeout` |
 | `default_timeout` | No direct counterpart: every 2.0 request selects a `TimeoutClass`; set the corresponding category deadline. |
-| *(no 1.x field)* | `settlement_timeout` for the physical-settling budget; `inquiry_timeout` remains the profile inquiry-response deadline |
+| *(no 1.x field)* | `settlement_timeout` for the physical-settling budget; `inquiry_timeout` is the profile inquiry-response deadline (a new dedicated field whose default differs from 1.x — see the note below) |
 | `RetryConfig::max_retries`, `base_retry_delay`, `max_retry_duration` | `retry_limit` and `retry_timing` |
+
+Two profile deadlines changed value relative to 1.x, and both are interim
+figures pending a hardware-measurement pass:
+
+- **Acknowledgement (`ack_timeout`).** 1.x's `TimeoutConfig` default was 500 ms,
+  and that was the deadline every 1.x profile actually scheduled under. The
+  2.0-preview built-in profiles briefly tightened this to 100 ms (150 ms and
+  200 ms on two Sony profiles); every built-in profile is now restored to the
+  1.x **500 ms** default. An operational override may only widen a profile
+  deadline, so an `ack_timeout` below 500 ms is now rejected where the tighter
+  preview default would have accepted it.
+- **Inquiry response (`inquiry_timeout`).** 1.x inquiries had no dedicated
+  deadline and used the 5 s `Quick` category budget. 2.0 gives inquiries their
+  own deadline, defaulting to **1 s** on every built-in profile — the one
+  intentional divergence from 1.x among these defaults. If your cameras or
+  network make an inquiry legitimately take longer than 1 s to answer, widen it
+  with `OperationalTuning::inquiry_timeout`.
 
 `CommandTimeouts` is the profile's exact command policy. Its default table
 preserves the 1.x values (Quick 5 seconds, Movement 30 seconds, Preset 60
