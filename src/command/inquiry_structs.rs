@@ -246,6 +246,52 @@ fn validate_builtin_inquiry_surface(
     }
 }
 
+/// Runtime gate for a base-domain inquiry accessor.
+///
+/// A base-domain inquiry (`power().state()`, `zoom().position()`, ...) has no
+/// `where` clause of its own, so on the static facades it inherits its noun
+/// accessor's base-domain marker (`HasPower`, `HasZoom`, ...). Those markers are
+/// blanket-implemented from the domain data traits
+/// (`capabilities::profile_metadata`: `impl<T: Power> HasPower`, ...), which the
+/// `Capabilities::has_*` flags mirror at runtime. The erased dynamic surface
+/// carries no compile-time bound, so it reproduces that same gate here — keeping
+/// `dyn power().state()` refused on exactly the profiles where static `power()`
+/// cannot be named (#684).
+fn require_builtin_inquiry_domain(supported: bool, inquiry: &'static str) -> Result<(), Error> {
+    if supported {
+        Ok(())
+    } else {
+        Err(Error::FeatureNotSupported { feature: inquiry })
+    }
+}
+
+/// Maps a base-domain accessor marker to the runtime capability flag behind it.
+///
+/// This is the runtime half of the `noun_marker!` mapping in
+/// `crate::command::surface`: each base-domain noun's static accessor is gated on
+/// the marker named here, and the erased surface gates the same inquiries on the
+/// matching `Capabilities` flag so the two cannot drift.
+macro_rules! base_capability {
+    (HasPower, $profile:expr) => {
+        $profile.capabilities().has_power
+    };
+    (HasZoom, $profile:expr) => {
+        $profile.capabilities().has_zoom
+    };
+    (HasFocus, $profile:expr) => {
+        $profile.capabilities().has_focus
+    };
+    (HasExposure, $profile:expr) => {
+        $profile.capabilities().has_exposure
+    };
+    (HasWhiteBalance, $profile:expr) => {
+        $profile.capabilities().has_white_balance
+    };
+    (HasImageProcessing, $profile:expr) => {
+        $profile.capabilities().has_image_processing
+    };
+}
+
 /// Generate runtime validation for the profile-gated inquiry accessors.
 ///
 /// The accessor groups are the same closed metadata consumed by the static
@@ -292,6 +338,24 @@ macro_rules! define_builtin_inquiry_profile_validation {
                     $profile,
                     crate::command::surface::typed_surface_for_marker!($profile_gate),
                     concat!("typed inquiry ", stringify!($command)),
+                ),
+            )*
+        ] $profile; $($rest)*);
+    };
+    (@arms [$($arms:tt)*]
+        $profile:ident;
+        $trait_name:ident {
+            base_gate: crate :: capabilities :: $base_gate:ident;
+            $($command:ident => $method:ident : $response_ty:ty;)*
+        }
+        $($rest:tt)*
+    ) => {
+        define_builtin_inquiry_profile_validation!(@arms [
+            $($arms)*
+            $(
+                stringify!($command) => require_builtin_inquiry_domain(
+                    base_capability!($base_gate, $profile),
+                    concat!("inquiry ", stringify!($command)),
                 ),
             )*
         ] $profile; $($rest)*);
@@ -761,6 +825,28 @@ macro_rules! define_builtin_inquiries {
                     command: <$command as BuiltinInquiryCommandMarker>::METADATA,
                     response_type: stringify!($response_ty),
                     profile_gate: builtin_inquiry_profile_gate!($profile_gate),
+                },
+            )*
+        ] $($rest)*)
+    };
+    (@accessor_array_acc [$($items:tt)*]
+        $trait_name:ident {
+            base_gate: $base_gate:path;
+            $(
+                $command:ident => $method:ident : $response_ty:ty;
+            )*
+        }
+        $($rest:tt)*
+    ) => {
+        define_builtin_inquiries!(@accessor_array_acc [
+            $($items)*
+            $(
+                BuiltinInquiryAccessorMetadata {
+                    trait_name: stringify!($trait_name),
+                    method: stringify!($method),
+                    command: <$command as BuiltinInquiryCommandMarker>::METADATA,
+                    response_type: stringify!($response_ty),
+                    profile_gate: builtin_inquiry_profile_gate!($base_gate),
                 },
             )*
         ] $($rest)*)
@@ -2971,23 +3057,52 @@ macro_rules! builtin_inquiry_table {
     }
 
     accessors {
-        InquiryControl {
-            gate: none;
+        // Base-domain inquiries carry no `where` clause of their own, so on the
+        // static facades they inherit their noun accessor's base-domain marker
+        // (`noun_marker!` in `crate::command::surface`). `base_gate` reproduces
+        // that same gate for the erased surface at runtime (#684), so a runtime
+        // `ProfileSpec` missing the domain cannot reach `dyn <noun>().<inquiry>()`
+        // any more than the static `<noun>()` accessor can be named without the
+        // marker. Truly ungated inquiries — the `System` and `Advanced` nouns
+        // (`noun_marker!` = `None`) and the universally-reachable `Menu` noun —
+        // stay in `InquiryControl` with `gate: none`.
+        PowerInquiryControl {
+            base_gate: crate::capabilities::HasPower;
             PowerInquiry => power_state: bool;
+        }
+        ZoomInquiryControl {
+            base_gate: crate::capabilities::HasZoom;
             ZoomPositionInquiry => zoom_position: crate::types::ZoomPosition;
+        }
+        FocusInquiryControl {
+            base_gate: crate::capabilities::HasFocus;
             FocusPositionInquiry => focus_position: crate::types::FocusPosition;
+            FocusModeInquiry => focus_mode: FocusMode;
+            FocusRangeInquiry => focus_range: FocusRange;
+        }
+        ExposureInquiryControl {
+            base_gate: crate::capabilities::HasExposure;
             ExposureModeInquiry => exposure_mode: ExposureMode;
             ShutterInquiry => shutter: crate::types::ShutterSpeed;
             GainInquiry => gain: crate::types::GainLevel;
             GainLimitInquiry => gain_limit: crate::types::GainLimit;
+            FlickerModeInquiry => flicker_mode: crate::command::exposure::AntiFlickerMode;
+        }
+        WhiteBalanceInquiryControl {
+            base_gate: crate::capabilities::HasWhiteBalance;
             WhiteBalanceModeInquiry => white_balance_mode: WhiteBalanceMode;
+        }
+        ImageInquiryControl {
+            base_gate: crate::capabilities::HasImageProcessing;
             ResolutionInquiry => resolution: crate::command::ResolutionMode;
+            DefogLevelInquiry => defog_level: crate::types::DefogLevel;
+        }
+        InquiryControl {
+            gate: none;
             VersionInquiry => version: crate::command::VersionInfo;
-            FocusModeInquiry => focus_mode: FocusMode;
             MenuOpenCloseInquiry => menu_status: bool;
             NightDayModeInquiry => night_day_mode: bool;
             StandbyInquiry => standby_enabled: bool;
-            DefogLevelInquiry => defog_level: crate::types::DefogLevel;
             DigitalPtzInquiry => digital_ptz_enabled: bool;
             AutoTraceInquiry => auto_trace_enabled: bool;
             FocusUnlockInquiry => focus_unlock: bool;
@@ -2995,7 +3110,6 @@ macro_rules! builtin_inquiry_table {
             UsbAudioInquiry => usb_audio_enabled: bool;
             TwoToneModeInquiry => two_tone_mode_enabled: bool;
             DigitalInquiry => digital_mode_enabled: bool;
-            FlickerModeInquiry => flicker_mode: crate::command::exposure::AntiFlickerMode;
         }
         BrightnessInquiryControl {
             gate: crate::capabilities::HasBrightnessControl;
@@ -3098,10 +3212,6 @@ macro_rules! builtin_inquiry_table {
         FocusNearLimitInquiryControl {
             gate: crate::capabilities::HasFocusNearLimitInquiry;
             FocusNearLimitInquiry => focus_near_limit: crate::types::FocusPosition;
-        }
-        FocusRangeInquiryControl {
-            gate: none;
-            FocusRangeInquiry => focus_range: FocusRange;
         }
         FocusZoneInquiryControl {
             gate: crate::capabilities::HasFocusZone;

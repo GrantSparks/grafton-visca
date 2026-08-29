@@ -1395,6 +1395,14 @@ impl OwnerState {
         self.engine.reject_unwritten_without_due(id, error).into()
     }
 
+    /// Whether the raw single-candidate pre-ACK gate alone blocks a new command
+    /// on `target`, so pumping the pending ACK would free a socket for it
+    /// (issue #673). See [`super::engine::ProtocolEngine::raw_preack_gate_frees_socket_on_ack`].
+    #[cfg(feature = "blocking")]
+    pub(crate) fn raw_preack_gate_frees_socket_on_ack(&self, target: CameraId) -> bool {
+        self.engine.raw_preack_gate_frees_socket_on_ack(target)
+    }
+
     pub(crate) fn begin_input_turn(&self, now: Instant) -> OwnerInputTurn {
         OwnerInputTurn(self.engine.begin_input_turn(now))
     }
@@ -1998,6 +2006,23 @@ impl OwnerState {
                 AppliedEffect::None
             }
             Effect::SessionChanged { from, to } => {
+                // Issue #680: an engine-initiated terminal transition (deadline
+                // expiry, the strict `strict_unconfirmed_poison` opt-in, a
+                // stream/framing self-poison) reaches the owner only as this
+                // payload-free effect — it does not pass through `observe_input`
+                // with a `Close`/`Poison`/`Shutdown` input, so `session_error`
+                // would otherwise stay `None`. Learn the engine's actual
+                // terminal error on the first non-`Running` transition and latch
+                // it, so `boundary_error()` (hence `shutdown()`/`close()` and
+                // `set_tuning`) surfaces the true cause with the correct
+                // `requires_new_session()` verdict instead of masking it as
+                // `RuntimeShutdown`, and so the diagnostic `reason` below is the
+                // real `ErrorKind` rather than `Other`. An owner-supplied
+                // boundary input already set `session_error` first, so the
+                // `is_none()` guard leaves that verdict untouched.
+                if self.session_error.is_none() && !matches!(to, SessionState::Running) {
+                    self.session_error = self.engine.terminal_error();
+                }
                 let reason = self
                     .session_error
                     .as_ref()

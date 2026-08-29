@@ -22,7 +22,8 @@
   "approved_intentional_changes": [
     "deterministic-equal-jitter",
     "evidence-based-raw-correlation",
-    "evidence-bounded-retry"
+    "evidence-bounded-retry",
+    "inquiry-deadline-interim-default"
   ],
   "v2_tests": [
     {
@@ -37,6 +38,20 @@
         "test",
         "--lib",
         "prepared::tests"
+      ]
+    },
+    {
+      "id": "v2-profile-default-deadlines",
+      "file": "src/camera/profile_registry.rs",
+      "symbol": "registry_tests::builtin_profile_default_deadlines_match_the_1x_ack_and_interim_inquiry",
+      "envelope": "neutral",
+      "profile": "n/a",
+      "receipt_class": "timeout",
+      "command": [
+        "cargo",
+        "test",
+        "--lib",
+        "builtin_profile_default_deadlines_match_the_1x_ack_and_interim_inquiry"
       ]
     },
     {
@@ -437,7 +452,8 @@
     {
       "id": "timeout-category-defaults-selection",
       "state": "verified",
-      "classification": "preserved",
+      "classification": "intentional-change",
+      "approved_change": "inquiry-deadline-interim-default",
       "oracle_sources": [
         {
           "path": "src/timeout.rs",
@@ -449,10 +465,11 @@
         }
       ],
       "v2_tests": [
-        "v2-prepared-timeout-selection"
+        "v2-prepared-timeout-selection",
+        "v2-profile-default-deadlines"
       ],
       "clause": "#542 §3: preserve category-specific timeout policy and keep scheduler, observer, and transport deadlines independent.",
-      "rationale": "2.0 renames the public tuning type and lowers it through Prepared requests, but the category defaults and selection behavior remain an explicit preservation floor."
+      "rationale": "2.0 keeps the 1.x category-selection behavior and restores the acknowledgement default to the 1.x 500 ms value on every built-in profile (interim; final per-profile numbers come from the hardware pass). The one intentional divergence is the inquiry-response deadline: 1.x inquiries had no dedicated deadline and used the 5 s Quick budget, while v2 gives inquiries their own deadline held at an interim 1 s (waiver inquiry-deadline-interim-default). The mapped selection test installs explicit tuning, so v2-profile-default-deadlines additionally pins the per-profile ACK (500 ms) and inquiry (1 s) defaults against drift."
     },
     {
       "id": "retry-counts-exhaustion-and-ceiling",

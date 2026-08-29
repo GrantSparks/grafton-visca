@@ -29,7 +29,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::{
     capabilities::TypedSupportSurface,
     command::{
-        inquiry_structs::BUILTIN_INQUIRY_ACCESSORS,
+        inquiry_structs::{BuiltinInquiryProfileGate, BUILTIN_INQUIRY_ACCESSORS},
         semantics::BuiltinCommand,
         surface::{
             surface_entry, StaticMarkerRequirement, StaticNoun, StaticSurfaceDisposition,
@@ -332,6 +332,105 @@ fn table_row_counts(table: &BTreeMap<String, BTreeMap<String, TableRow>>) -> (us
         }
     }
     (commands, inquiries, helpers)
+}
+
+/// Reduces a marker path or bare marker to its bare trait name.
+///
+/// The noun-table `where` clauses and [`noun_marker`] name a bare marker
+/// (`HasPower`); the erased accessor metadata stringifies a full path
+/// (`crate :: capabilities :: HasPower`). Both collapse to `HasPower` here so the
+/// two gate sets can be compared directly.
+fn bare_marker(marker: &str) -> String {
+    let compact: String = marker.chars().filter(|c| !c.is_whitespace()).collect();
+    compact.rsplit("::").next().unwrap_or(&compact).to_owned()
+}
+
+/// Projects the static gate the noun surface puts on each built-in inquiry.
+///
+/// An inquiry row's static gate is its own `where` marker when it has one, and
+/// otherwise its noun's base-domain marker ([`noun_marker`]). This is exactly
+/// the compile-time bound a static `<noun>().<inquiry>()` call resolves, so
+/// comparing it against the erased accessor's runtime gate proves the two
+/// surfaces cannot drift (#684). Command and helper rows are skipped.
+#[must_use]
+fn inquiry_static_gates() -> BTreeMap<String, Option<String>> {
+    fn last_segment(path: &str) -> String {
+        let compact: String = path.chars().filter(|c| !c.is_whitespace()).collect();
+        compact.rsplit("::").next().unwrap_or(&compact).to_owned()
+    }
+
+    let mut map: BTreeMap<String, Option<String>> = BTreeMap::new();
+
+    macro_rules! collect {
+        (@noun $noun:ident; $($rows:tt)*) => {
+            collect!(@rows $noun; $($rows)*);
+        };
+        (@rows $noun:ident; @noun $next:ident; $($rest:tt)*) => {
+            collect!(@rows $next; $($rest)*);
+        };
+        (@rows $noun:ident; @exceptions; $($rest:tt)*) => {};
+        (@rows $noun:ident;) => {};
+
+        // Inquiry with a typed `where` marker: the marker is the static gate.
+        (@rows $noun:ident; $(#[$doc:meta])*
+            inquiry $($inquiry:ident)::+ $method:ident() -> $response:ty
+                where $gate:ident $(+ $extra:ident)* = $request:expr;
+            $($rest:tt)*) => {
+            map.insert(
+                last_segment(stringify!($($inquiry)::+)),
+                Some(bare_marker(stringify!($gate))),
+            );
+            collect!(@rows $noun; $($rest)*);
+        };
+        // Inquiry with no `where`: the static gate is the noun's base marker.
+        (@rows $noun:ident; $(#[$doc:meta])*
+            inquiry $($inquiry:ident)::+ $method:ident() -> $response:ty = $request:expr;
+            $($rest:tt)*) => {
+            map.insert(
+                last_segment(stringify!($($inquiry)::+)),
+                noun_marker(StaticNoun::$noun).map(bare_marker),
+            );
+            collect!(@rows $noun; $($rest)*);
+        };
+
+        // Command rows carry an explicit request form; none are inquiries, so
+        // each form simply recurses past the row.
+        (@rows $noun:ident; $(#[$doc:meta])*
+            $kind:ident [$($command:ident),*] $method:ident($($arg:ident: $ty:ty),*)
+                $(-> $request_ty:ty)? $(where $gate:ident $(+ $extra:ident)*)? = checked $request:expr;
+            $($rest:tt)*) => {
+            collect!(@rows $noun; $($rest)*);
+        };
+        (@rows $noun:ident; $(#[$doc:meta])*
+            $kind:ident [$($command:ident),*] $method:ident($($arg:ident: $ty:ty),*)
+                $(-> $request_ty:ty)? $(where $gate:ident $(+ $extra:ident)*)?
+                = with_profile |$profile:ident| $request:expr;
+            $($rest:tt)*) => {
+            collect!(@rows $noun; $($rest)*);
+        };
+        (@rows $noun:ident; $(#[$doc:meta])*
+            $kind:ident [$($command:ident),*] $method:ident($($arg:ident: $ty:ty),*)
+                $(-> $request_ty:ty)? $(where $gate:ident $(+ $extra:ident)*)?
+                = with_core |$core:ident| $request:expr;
+            $($rest:tt)*) => {
+            collect!(@rows $noun; $($rest)*);
+        };
+        (@rows $noun:ident; $(#[$doc:meta])*
+            $kind:ident [$($command:ident),*] $method:ident($($arg:ident: $ty:ty),*)
+                $(where $gate:ident $(+ $extra:ident)*)? = delegate $target:ident($($delegated:expr),*);
+            $($rest:tt)*) => {
+            collect!(@rows $noun; $($rest)*);
+        };
+        (@rows $noun:ident; $(#[$doc:meta])*
+            $kind:ident [$($command:ident),*] $method:ident($($arg:ident: $ty:ty),*)
+                $(-> $request_ty:ty)? $(where $gate:ident $(+ $extra:ident)*)? = $request:expr;
+            $($rest:tt)*) => {
+            collect!(@rows $noun; $($rest)*);
+        };
+    }
+
+    noun_table!(All => collect);
+    map
 }
 
 /// Maps a static noun to its registry arm name.
@@ -1123,6 +1222,69 @@ fn compiled_registry_inventory_counts_remain_readable() {
 #[test]
 fn only_motion_methods_remain_handwritten_and_capabilities_are_real() {
     assert_motion_and_no_residuals();
+}
+
+/// Issue #684: the erased inquiry surface gates each built-in inquiry on exactly
+/// the marker the static noun surface resolves, so the two gate sets cannot
+/// drift. The static gate is the inquiry's own `where` marker, or its noun's
+/// base-domain marker when the row carries none; the erased gate is the runtime
+/// accessor gate recorded in [`BUILTIN_INQUIRY_ACCESSORS`].
+#[test]
+fn erased_inquiry_gates_match_the_static_noun_surface() {
+    // Two inquiries carry a static base marker that the shared accessor gate
+    // deliberately leaves `Always`, for reasons unrelated to drift:
+    //   * `PanTiltPositionInquiry` enforces `has_pan_tilt` inside its own
+    //     coordinate-decoder `validate_for_profile`, so its behavioral gate
+    //     still matches `HasPanTilt` — it is just not expressed as the shared
+    //     accessor gate.
+    //   * `MenuOpenCloseInquiry` has no runtime menu capability to gate on: a
+    //     runtime `ProfileSpec` cannot express "no menu", so basic OSD menu
+    //     stays universally reachable, exactly like the menu commands.
+    const ACCESSOR_UNGATED_EXCEPTIONS: &[&str] =
+        &["PanTiltPositionInquiry", "MenuOpenCloseInquiry"];
+
+    let static_gates = inquiry_static_gates();
+
+    // The two projections describe the same closed set of inquiries.
+    let accessor_commands: BTreeSet<&str> = BUILTIN_INQUIRY_ACCESSORS
+        .iter()
+        .map(|accessor| accessor.command.name())
+        .collect();
+    let table_commands: BTreeSet<&str> = static_gates.keys().map(String::as_str).collect();
+    assert_eq!(
+        accessor_commands, table_commands,
+        "the erased accessor inventory and the noun-table inquiry rows must cover \
+         the same commands",
+    );
+
+    for accessor in BUILTIN_INQUIRY_ACCESSORS {
+        let command = accessor.command.name();
+        let erased = match accessor.profile_gate {
+            BuiltinInquiryProfileGate::Always => None,
+            BuiltinInquiryProfileGate::Capability { marker } => Some(bare_marker(marker)),
+        };
+        let expected = static_gates
+            .get(command)
+            .unwrap_or_else(|| panic!("accessor command {command} has no noun-table row"))
+            .clone();
+
+        if ACCESSOR_UNGATED_EXCEPTIONS.contains(&command) {
+            assert_eq!(
+                erased, None,
+                "{command} is a documented accessor-ungated exception",
+            );
+            assert!(
+                expected.is_some(),
+                "{command} exception must still name a static marker enforced elsewhere",
+            );
+            continue;
+        }
+
+        assert_eq!(
+            erased, expected,
+            "erased and static inquiry gates disagree for {command}",
+        );
+    }
 }
 
 #[cfg(test)]

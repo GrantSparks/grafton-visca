@@ -223,11 +223,22 @@ kept only when more than one target is registered.
 
 Blocking operation submission has one additional ownership boundary: a
 returned operation handle always names a request whose initial transport write
-already succeeded. If the target's command sockets (or the global dispatch
-race) prevent that first write, the newly admitted request is terminalized as
-`Error::TransportBusy` immediately and no handle escapes. Ordinary blocking
-commands, inquiries, and owner-internal requests retain bounded queueing, as
-does the async operation API.
+already succeeded. One obstacle is drained rather than rejected. On a raw
+profile the engine keeps at most one command in its unacknowledged window (the
+single-candidate gate), so a first write submitted while a caller still holds an
+un-awaited raw operation handle would otherwise lose the dispatch race even
+though a command socket is free the instant the prior command's ACK lands. When
+that pre-ACK gate is the *sole* obstacle and socket capacity would be available
+once it clears, the blocking owner pumps the peer's ACK — bounded by the
+submitting request's own ACK budget — so the first write wins and an emergency
+`stop_all_motion`/`Urgent` stop still reaches a moving camera (#673). Genuine
+socket-capacity contention (every command socket already occupied) and losing
+the global dispatch race are *not* drained: the newly admitted request is
+terminalized as `Error::TransportBusy` immediately and no handle escapes, since
+pumping an ACK there would not free a socket. Ordinary blocking commands,
+inquiries, and owner-internal requests retain bounded queueing, as does the
+async operation API — whose always-running actor already pumps the ACK, so it
+never exhibited the raw first-write stall.
 
 This ordering is what permits a detached observer or a dropped subscription to
 miss an event without losing an already-applied state update.

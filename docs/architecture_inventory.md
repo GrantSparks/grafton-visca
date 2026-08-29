@@ -66,7 +66,12 @@ and `DynMotion`. It also exposes `DynTargetedOperation`,
 146 target-facing command methods and 66 typed inquiry methods, with the same
 semantic classes as the static surface. Dynamic projection erases profile and
 request types only; it does not introduce another runtime, owner, cancellation,
-deadline, outcome, or settling policy.
+deadline, outcome, or settling policy. Because it carries no compile-time
+marker bounds, it reproduces the static surface's capability gates at runtime
+through `validate_for_profile`, admitting exactly the operations the static
+`<noun>()` accessor could name — including the base-domain inquiries, which are
+gated on the same base marker as their noun accessor. A `noun_parity` test pins
+the erased and static inquiry gate sets equal so the two cannot drift.
 
 ## Connection paths
 
@@ -105,8 +110,10 @@ runtime-neutral executor integration. The final 2.0 generic request surface is
 only `execute` for plain commands, `inquire` for inquiries, and `submit` for
 typed operations, each with a `_with_submission_class` twin that names its
 ordinary-work `SubmissionClass`; callers cannot manufacture or demote the
-intrinsic urgent safety class, or inject lifecycle IDs, target, completion
-class, retry class, or settlement metadata at submission time.
+intrinsic urgent safety class — `SubmissionClass` has no `Urgent` variant and
+the raw escape hatch rejects `ControlClass::Urgent` at construction — or inject
+lifecycle IDs, target, completion class, retry class, or settlement metadata at
+submission time.
 
 ## Allocation baselines
 

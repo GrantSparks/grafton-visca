@@ -16674,7 +16674,7 @@ impl core::panic::unwind_safe::UnwindSafe for grafton_visca::raw::Plain
 pub struct grafton_visca::raw::Policy
 impl grafton_visca::raw::Policy
 pub const fn grafton_visca::raw::Policy::control_class(self) -> grafton_visca::ControlClass
-pub const fn grafton_visca::raw::Policy::new(grafton_visca::TimeoutClass, grafton_visca::RetryClass, grafton_visca::ControlClass) -> Self
+pub const fn grafton_visca::raw::Policy::new(grafton_visca::TimeoutClass, grafton_visca::RetryClass, grafton_visca::ControlClass) -> grafton_visca::Result<Self>
 pub const fn grafton_visca::raw::Policy::retry_class(self) -> grafton_visca::RetryClass
 pub const fn grafton_visca::raw::Policy::timeout_class(self) -> grafton_visca::TimeoutClass
 impl core::clone::Clone for grafton_visca::raw::Policy
@@ -16717,7 +16717,7 @@ impl<R> !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::ResponseDeco
 impl<R> !core::panic::unwind_safe::UnwindSafe for grafton_visca::ResponseDecoder<R>
 pub struct grafton_visca::raw::Spec
 impl grafton_visca::raw::Spec
-pub const fn grafton_visca::raw::Spec::new(grafton_visca::TimeoutClass, grafton_visca::RetryClass, grafton_visca::ControlClass) -> Self
+pub const fn grafton_visca::raw::Spec::new(grafton_visca::TimeoutClass, grafton_visca::RetryClass, grafton_visca::ControlClass) -> grafton_visca::Result<Self>
 pub const fn grafton_visca::raw::Spec::policy(self) -> grafton_visca::raw::Policy
 impl core::clone::Clone for grafton_visca::raw::Spec
 pub fn grafton_visca::raw::Spec::clone(&self) -> grafton_visca::raw::Spec

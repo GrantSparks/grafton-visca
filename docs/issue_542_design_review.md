@@ -137,7 +137,11 @@ encoding.
 
 1. `ControlClass::Urgent` remains request-owned safety metadata. Public
    per-handle and per-call QoS uses `SubmissionClass::{Background, Normal,
-   User}`. Neither route can create or demote urgent work.
+   User}`, and the raw escape hatch's `raw::Policy` / `raw::Spec` reject
+   `ControlClass::Urgent` at construction (#679). No public route — QoS override
+   or raw policy — can create or demote urgent work. The raw hatch likewise
+   rejects the owner-only socket-cancel and interface-clear wire shapes (#678),
+   so no target-scoped `execute` can emit an owner-only primitive.
 2. Valid non-empty async receive batches retain strict priority over
    simultaneously ready control sources. Only a non-progressing receive yields
    to shutdown, cancellation, admission, control, and timer, in that fixed

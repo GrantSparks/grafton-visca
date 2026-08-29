@@ -80,8 +80,10 @@ destination.
   `submit_applied_with_submission_class`). Both override forms preserve a
   request the crate classifies `ControlClass::Urgent` — the typed stops and
   owner-issued protocol cancellation — so neither accidental handle configuration nor an explicit
-  per-call override can weaken STOP safety. Ordinary traffic likewise cannot
-  impersonate the safety lane. Unlike 1.x's priority, QoS also covers
+  per-call override can weaken STOP safety. `SubmissionClass` has no `Urgent`
+  variant, so a QoS override cannot manufacture the safety lane either (the raw
+  policy path into the urgent lane is closed separately; see the #678/#679
+  Changed entry). Unlike 1.x's priority, QoS also covers
   inquiries, since 2.0 queues them in the same lanes; owner-internal settlement
   polling and motion observation keep their built-in class.
   `docs/migration_2_0.md` maps `Priority` to `SubmissionClass` and explains why
@@ -209,6 +211,56 @@ destination.
   contracts.
 
 ### Changed
+
+- **The raw escape hatch now refuses owner-only wire primitives and the urgent
+  safety lane** (#678, #679), closing two ways ordinary `execute`/`inquire`/
+  `submit` traffic could reach owner-only behavior. `raw`'s wire validation
+  previously checked only length, the header address byte, and the trailing
+  `0xff`, so a caller could submit a socket cancel (`8x 2y ff`) or a per-camera
+  interface clear (`8x 01 00 01 ff`) through `camera.execute()`; the socket
+  cancel could cancel an *unrelated* operation's socket (a victim `FocusStop`
+  came back `CommandCanceled`), and the interface clear reset the shared command
+  buffer — the exact outcome `docs/request_semantics.md` said was impossible.
+  Both shapes are now rejected at construction (the broadcast address-set form
+  was already refused by the target-address check), so `raw::Plain::new`,
+  `raw::Inquiry::*`, `raw::Targeted::new`, and `raw::AppliedOnly::new` return
+  `Error::InvalidRequest` for them; a legitimate custom frame (including USB
+  audio, whose command byte `0x2a` sits in the cancel nibble range but is not
+  the 3-byte cancel frame) is unaffected. Separately, `raw::Policy::new` and
+  `raw::Spec::new` — public `const fn`s that previously accepted any
+  `ControlClass` — now **return `Result` and reject `ControlClass::Urgent`**
+  (the two constructors changed from `-> Self` to `-> Result<Self>`, and the
+  four `raw::*::new` constructors propagate that error). Urgent is FIFO within
+  its class and bypasses admission backlog, so a raw flood in that lane delayed a
+  genuine `PanTiltStop`; a raw caller who needs preemption issues the typed stop
+  (`pan_tilt().stop()`, and the like), which the crate classifies urgent on the
+  caller's behalf. This corrects the #630 entry above, `docs/migration_2_0.md`,
+  and `docs/architecture_inventory.md`, which stated unqualified that ordinary
+  work could not reach the safety lane while this raw path was open. The
+  `api/2.0.0-rc.1/*.txt` snapshots are regenerated for the two changed
+  signatures.
+- **Restored the 1.x acknowledgement default and documented the inquiry
+  deadline** (#689), superseding the 2.0-preview timeout defaults. Every
+  built-in profile shipped an `ack_timeout` of 100 ms (150 ms and 200 ms on two
+  Sony profiles) — as much as 5× tighter than 1.x, whose `TimeoutConfig` default
+  and actual scheduling deadline were both 500 ms — so ordinary network jitter
+  tripped a command far more readily than under 1.x. All nine built-in profiles
+  now use the 1.x 500 ms acknowledgement default again, as an interim value; the
+  final per-profile numbers are to come from the hardware pass. Because an
+  operational override may only widen a profile deadline and never undercut it,
+  raising this floor also means an `ack_timeout` override below 500 ms is now
+  rejected where the tighter preview default would have accepted it. The
+  inquiry-response deadline, by contrast, is a genuine documented 2.0 change and
+  not a restoration: 1.x inquiries had no dedicated deadline and used the 5 s
+  `Quick` category budget, while 2.0 gives inquiries their own deadline, held at
+  an interim 1 s pending the same hardware pass. That divergence is recorded in
+  the parity corpus (`tests/fixtures/1x_oracle/manifest.json`) as the
+  `timeout-category-defaults-selection` row, reclassified from `preserved` to
+  `intentional-change` under the new maintainer-ratified waiver
+  `inquiry-deadline-interim-default`; a new `v2-profile-default-deadlines` test
+  pins both defaults on every profile so neither can drift unnoticed. Since #671
+  a deadline trip fails only the one request, not the session. See
+  `docs/migration_2_0.md` for the row a 1.x user feels.
 
 - **A raw command that cannot be confirmed now fails per request instead of
   poisoning the whole session** (#671), superseding the earlier 2.0-preview
@@ -725,6 +777,79 @@ destination.
   IP session now accepts any `0x9y..=0xFy` reply source and attributes it to the
   sole target; the strict `0x90` check is kept when more than one target is
   registered, where the source cannot disambiguate.
+- **A blocking emergency stop reaches the wire on a raw profile even while an
+  operation handle is still un-awaited** (#673). A public blocking operation
+  handle must name a request whose first transport write already succeeded, and
+  on a raw profile the engine keeps at most one command in its unacknowledged
+  window (the single-candidate gate). Together these meant that while a caller
+  held one un-awaited raw operation handle, a second operation submit — including
+  `motion().stop_all_motion()` and typed `Urgent` stops (`PanTiltStop`,
+  `ZoomStop`, `FocusStop`) — lost the first-dispatch race and was rejected
+  `Error::TransportBusy` with **zero** bytes written while the camera kept
+  moving, an unbounded window not closed by any ACK deadline. The blocking owner
+  now drains that pre-ACK gate before the first write: when the gate is the sole
+  obstacle and a command socket would be free once the pending ACK lands, it
+  pumps the peer's ACK — bounded by the submitting request's own ACK budget — so
+  the stop's first write wins and the returned handle still names a written
+  request. Genuine socket-capacity contention (every command socket occupied by a
+  distinct in-flight command) still fails fast with `TransportBusy`, since
+  pumping an ACK there would not free a socket. The async facade already pumped
+  the ACK through its always-running actor and never exhibited the stall.
+- **An engine-initiated session poison is surfaced by `shutdown()`/`close()`
+  instead of masked as a deliberate `RuntimeShutdown`** (#680). The owner's
+  session error was set only for owner-supplied `Close`/`Poison`/`Shutdown`
+  inputs and a stream write failure. An engine-initiated terminal transition — a
+  deadline expiry, the strict `strict_unconfirmed_poison` opt-in, or a
+  stream/framing self-poison — reaches the owner only as a payload-free
+  `SessionChanged` effect, so the session error stayed unset: a subsequent
+  `shutdown()`/`close()` returned `Ok(())` and then re-latched `RuntimeShutdown`
+  (`requires_new_session() == false`), defeating a cleanup path or supervisor
+  that keys its rebuild on that result, and the `SessionChanged` diagnostic
+  `reason` collapsed to `Other`. The owner now learns the engine's actual
+  terminal error on the first non-`Running` transition and latches it, so
+  `shutdown()`/`close()` return the true cause (e.g. `StreamPoisoned`, which
+  `requires_new_session()`), the diagnostic reason is the real `ErrorKind`
+  (`IoClosed`), and the documented recovery loop rebuilds.
+- **`set_tuning` on a poisoned or closed blocking session returns the session's
+  terminal error instead of silently succeeding** (#690). The blocking
+  `reconfigure` path mutated owner state directly and never consulted the
+  boundary/terminal gate every other blocking entry point takes, so
+  `Session::set_tuning` returned `Ok(())` on a poisoned or shut-down session —
+  contradicting its documented contract that it "returns the session's terminal
+  error if the owner is gone." It now takes the same `enter` turn a submission
+  does: a live session still reconfigures, a re-entrant call is `TransportBusy`,
+  and a terminated session yields its terminal error. (Together with #680 the
+  poisoned-session case now surfaces the true poison rather than nothing.)
+- **The erased (dynamic) noun surface no longer exposes controls the static
+  surface forbids** (#684). Two gaps let a `DynSessionCamera` reach operations
+  that the compile-time `camera.<noun>()` accessor could not name:
+  - *Tally mode on PTZOptics.* `TallyOn`/`TallyOff`/`TallyFlash` validated for a
+    profile with typed tally support **or** for the three PTZOptics profile ids,
+    while the rest of the tally noun (`red_on()`, `bright_hi()`, ...) required
+    typed tally support. On `PtzOpticsG2/G3/30X` — which declare
+    `tally: { supported: false }` — the erased noun was therefore incoherent:
+    `tally().on()` succeeded while `tally().red_on()` was refused. PTZOptics
+    tally mode is an *unvalidated candidate* in the reference
+    (`docs/visca_reference.md` A.11: "Confirm support on target model/firmware"),
+    so admitting it exposed an unsupported typed operation, contradicting
+    `docs/architecture_2_0.md` ("metadata is discovery, not a fallback"). The
+    whole tally noun now shares one `HasTally` gate on every surface. This
+    supersedes the "**or** for the PTZOptics profiles the reference documents it
+    under" allowance introduced with #661: the erased/`execute` route no longer
+    admits tally mode on PTZOptics. A caller that has confirmed a specific
+    PTZOptics firmware supports the opcode can still send it through the raw
+    escape hatch (`raw::Plain::new(&[0x81, 0x0A, 0x02, 0x02, 0x02, 0xFF])`).
+  - *Base-domain inquiries.* Fifteen inquiries (`power().state()`,
+    `zoom().position()`, `focus().position()`/`mode()`/`range()`, the base
+    `exposure()` and `image()` and `white_balance()` inquiries) carried no
+    runtime capability gate, so a caller-built `ProfileSpec` with e.g.
+    `has_power = false` could reach `dyn power().state()` though static `power()`
+    cannot be named without `HasPower`. Each base-domain inquiry is now gated at
+    runtime on its noun's base-domain capability, derived from the same
+    `noun_marker!` the static accessors use. This is a no-op for the nine
+    built-in profiles (all declare every base domain) and only tightens
+    caller-built runtime profiles. A `noun_parity` test now asserts the erased
+    and static inquiry gate sets are identical so they cannot drift again.
 
 - **Preset number 255 and a `0xFF` direct-menu control parameter can be sent
   again** (#683). The stack builder that assembles every command terminated a
@@ -788,19 +913,21 @@ destination.
 
 - **The typed `tally()` noun is reachable again for the profiles that had tally
   in 1.x** (#661). `TallyOn`, `TallyOff` and `TallyFlash` validated against the
-  PTZOptics profile ids alone, while the `tally()` accessor on all three noun
-  surfaces is gated on `HasTally`, which only `SonyFR7` and `SonyBRCH900`
-  declare. The two conditions can never both hold for a built-in profile, so
-  `tally().on()`, `.off()` and `.flash()` — and with them
-  `StateCache::tally_mode()` — were dead methods on the only profiles that can
-  reach them, and the sole route to the opcode was `camera.execute(&TallyOn)`.
-  1.x published exactly those three methods from the same `HasTally`-gated
-  `TallyControl` impl as the rest of the tally surface, so the capability
-  declarations were the side that was already right and the command validation
-  is the side that moved: the vendor tally-mode opcode now validates for a
-  profile with typed tally support **or** for the PTZOptics profiles the
-  reference documents it under (`docs/visca_reference.md` appendix A.11), which
-  leaves the `execute` route working exactly where it already worked. No
+  PTZOptics profile ids alone, while the static `tally()` accessor is gated on
+  `HasTally`, which only `SonyFR7` and `SonyBRCH900` declare (the erased surface
+  enforces the same gate per operation at runtime). The two conditions can never
+  both hold for a built-in profile, so `tally().on()`, `.off()` and `.flash()` —
+  and with them `StateCache::tally_mode()` — were dead methods on the only
+  profiles that can reach them, and the sole route to the opcode was
+  `camera.execute(&TallyOn)`. 1.x published exactly those three methods from the
+  same `HasTally`-gated `TallyControl` impl as the rest of the tally surface, so
+  the capability declarations were the side that was already right and the
+  command validation is the side that moved: the vendor tally-mode opcode now
+  validates for a profile with typed tally support, exactly like the rest of the
+  tally noun. (The initial fix also admitted the PTZOptics profile ids, on the
+  strength of `docs/visca_reference.md` appendix A.11; #684 removed that
+  allowance because A.11 records those rows as *unvalidated candidates*, and
+  admitting them left the erased tally noun incoherent — see the #684 entry.) No
   capability marker moved — 1.x recorded `tally: { supported: false }` for all
   three PTZOptics profiles, and #524 deliberately removed `camera.tally()` from
   them — so the README and `docs/camera_profile_support.md` matrices are
