@@ -1660,8 +1660,17 @@ impl OwnerState {
 
     pub(crate) fn validate_frame_batch(&self, frames: &[DecodedFrame]) -> Result<(), Error> {
         if frames.len() > self.policy.limits.frames_per_receive {
-            return Err(Error::ResponseTooLarge {
-                max_size: self.policy.limits.frames_per_receive,
+            // A frame-count limit, not a byte-size limit: name frames rather than
+            // reusing the "N bytes" `ResponseTooLarge` message. Since the shared
+            // decode now stops draining at this same limit (#674), this is a
+            // defense-in-depth guard on the batch the owner receives.
+            return Err(Error::InvalidResponse {
+                expected: format!(
+                    "a receive within the per-receive limit of {} frames",
+                    self.policy.limits.frames_per_receive
+                )
+                .into(),
+                actual: Vec::new(),
             });
         }
         if frames.iter().any(|frame| {

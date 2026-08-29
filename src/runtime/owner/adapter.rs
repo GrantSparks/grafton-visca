@@ -415,8 +415,13 @@ pub(crate) fn decode_frames_with_routing(
                 break;
             };
             if datagram && frames.len() >= frame_limit {
-                return Err(Error::ResponseTooLarge {
-                    max_size: frame_limit,
+                // A frame-count limit, not a byte-size limit: name frames so the
+                // error is not the misleading "N bytes" `ResponseTooLarge` was.
+                return Err(Error::InvalidResponse {
+                    expected: Cow::Owned(format!(
+                        "a datagram within the per-receive limit of {frame_limit} frames"
+                    )),
+                    actual: Vec::new(),
                 });
             }
             let framed = framed?;
@@ -998,7 +1003,9 @@ mod tests {
                 1,
                 TransportKind::Datagram,
             ),
-            Err(Error::ResponseTooLarge { max_size: 1 })
+            // A frame-count limit is reported as an invalid (over-limit) batch,
+            // not the byte-labeled `ResponseTooLarge` (#674).
+            Err(Error::InvalidResponse { .. })
         ));
         assert!(!framer.has_buffered_data());
 
