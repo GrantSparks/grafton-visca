@@ -168,6 +168,23 @@ impl<R: Runtime> AsyncTransport for TransportHandle<R> {
             TransportHandle::Serial(transport) => transport.addressing_mode_hint(),
         }
     }
+
+    fn send_semantics(&self) -> crate::transport::SendSemantics {
+        // Forward to the wrapped transport rather than inheriting the trait
+        // default (`SendSemantics::Stream`). The inner transport is the sole
+        // authority on its send semantics: `Udp` reports `Datagram`, so a UDP
+        // session opened through this wrapper must be governed by datagram
+        // rules (a failed `send_to` or a malformed datagram fails one command,
+        // it does not poison the session). Omitting this forward silently
+        // demoted every UDP session built via `TransportHandle::Udp` to the
+        // stream-poison policy. This mirrors `BlockingTransportHandle`.
+        match self {
+            TransportHandle::Tcp(transport) => transport.send_semantics(),
+            TransportHandle::Udp(transport) => transport.send_semantics(),
+            #[cfg(feature = "transport-serial-tokio")]
+            TransportHandle::Serial(transport) => transport.send_semantics(),
+        }
+    }
 }
 
 #[cfg(feature = "async")]
