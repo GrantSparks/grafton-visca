@@ -632,15 +632,18 @@ fn typed_cache_getters_decode_the_vendor_tally_mode() {
     session.shutdown().expect("shutdown");
 }
 
-/// The same key is also reachable through `execute` over the PTZOptics profiles
-/// the vendor opcode is documented for, which have no typed `tally()` noun. The
-/// cache contract has to be identical on both paths.
+/// The same key is reachable through the untyped `execute` path, not only the
+/// typed `tally()` noun, and the cache contract has to be identical on both.
+/// Tally-mode is gated on `HasTally` on every entry path (issue #684: the vendor
+/// opcode no longer validates for PTZOptics, whose tally support is unconfirmed;
+/// those profiles reach the raw opcode through `raw::Plain`), so this contract is
+/// exercised on a tally-capable profile.
 #[test]
 fn executed_vendor_tally_mode_records_the_same_cache_key() {
     use grafton_visca::command::{TallyFlash, TallyOff, TallyOn};
 
-    let (session, _writes) = ptz_session();
-    let camera = session.camera::<PtzOpticsG2>().expect("camera");
+    let (session, _writes) = fr7_session();
+    let camera = session.camera::<SonyFR7>().expect("camera");
     let cache = camera.state_cache();
 
     assert_eq!(cache.tally_mode(), None);
