@@ -13752,7 +13752,6 @@ pub grafton_visca::prelude::async::Error::CameraMoving::pan: i16
 pub grafton_visca::prelude::async::Error::CameraMoving::tilt: i16
 pub grafton_visca::prelude::async::Error::CameraNotReady
 pub grafton_visca::prelude::async::Error::CancellationUnconfirmed
-pub grafton_visca::prelude::async::Error::ChannelClosed
 pub grafton_visca::prelude::async::Error::CommandBufferFull
 pub grafton_visca::prelude::async::Error::CommandCanceled
 pub grafton_visca::prelude::async::Error::CommandNotExecutable
@@ -13795,13 +13794,11 @@ pub grafton_visca::prelude::async::Error::InvalidResponseLength::expected: usize
 pub grafton_visca::prelude::async::Error::InvalidResponseLength::payload_hex: alloc::boxed::Box<str>
 pub grafton_visca::prelude::async::Error::InvalidState(alloc::borrow::Cow<'static, str>)
 pub grafton_visca::prelude::async::Error::Io(alloc::sync::Arc<core::io::error::Error>)
-pub grafton_visca::prelude::async::Error::LockPoisoned(&'static str)
 pub grafton_visca::prelude::async::Error::MaxRetriesExceeded
 pub grafton_visca::prelude::async::Error::MessageLengthError
 pub grafton_visca::prelude::async::Error::MissingRuntime
 pub grafton_visca::prelude::async::Error::NoResponse
 pub grafton_visca::prelude::async::Error::NoSocket
-pub grafton_visca::prelude::async::Error::NoTransport
 pub grafton_visca::prelude::async::Error::NotSupported
 pub grafton_visca::prelude::async::Error::ParameterOutOfRange
 pub grafton_visca::prelude::async::Error::ParameterOutOfRange::max: i32
@@ -13811,24 +13808,18 @@ pub grafton_visca::prelude::async::Error::ParameterOutOfRange::value: i32
 pub grafton_visca::prelude::async::Error::ParseError(alloc::borrow::Cow<'static, str>)
 pub grafton_visca::prelude::async::Error::PresetNotFound
 pub grafton_visca::prelude::async::Error::PresetNotFound::id: u8
-pub grafton_visca::prelude::async::Error::ResponseChannelClosed
 pub grafton_visca::prelude::async::Error::ResponseTooLarge
 pub grafton_visca::prelude::async::Error::ResponseTooLarge::max_size: usize
 pub grafton_visca::prelude::async::Error::RuntimeIdentityExhausted
 pub grafton_visca::prelude::async::Error::RuntimeQueueFull
 pub grafton_visca::prelude::async::Error::RuntimeQueueFull::capacity: usize
 pub grafton_visca::prelude::async::Error::RuntimeShutdown
-pub grafton_visca::prelude::async::Error::SocketManagerChannelClosed
-pub grafton_visca::prelude::async::Error::SocketManagerUnavailable
 pub grafton_visca::prelude::async::Error::StreamPoisoned
 pub grafton_visca::prelude::async::Error::StreamPoisoned::reason: alloc::borrow::Cow<'static, str>
 pub grafton_visca::prelude::async::Error::SyntaxError
 pub grafton_visca::prelude::async::Error::Timeout
 pub grafton_visca::prelude::async::Error::TransportBusy
-pub grafton_visca::prelude::async::Error::TransportChannelClosed
 pub grafton_visca::prelude::async::Error::TransportError(alloc::borrow::Cow<'static, str>)
-pub grafton_visca::prelude::async::Error::TransportMismatch
-pub grafton_visca::prelude::async::Error::TransportMismatch::reason: &'static str
 pub grafton_visca::prelude::async::Error::UnexpectedResponseType
 pub grafton_visca::prelude::async::Error::Unknown(u8)
 pub grafton_visca::prelude::async::Error::UnknownResponseKind
@@ -17985,7 +17976,6 @@ pub grafton_visca::prelude::blocking::Error::CameraMoving::pan: i16
 pub grafton_visca::prelude::blocking::Error::CameraMoving::tilt: i16
 pub grafton_visca::prelude::blocking::Error::CameraNotReady
 pub grafton_visca::prelude::blocking::Error::CancellationUnconfirmed
-pub grafton_visca::prelude::blocking::Error::ChannelClosed
 pub grafton_visca::prelude::blocking::Error::CommandBufferFull
 pub grafton_visca::prelude::blocking::Error::CommandCanceled
 pub grafton_visca::prelude::blocking::Error::CommandNotExecutable
@@ -18028,13 +18018,11 @@ pub grafton_visca::prelude::blocking::Error::InvalidResponseLength::expected: us
 pub grafton_visca::prelude::blocking::Error::InvalidResponseLength::payload_hex: alloc::boxed::Box<str>
 pub grafton_visca::prelude::blocking::Error::InvalidState(alloc::borrow::Cow<'static, str>)
 pub grafton_visca::prelude::blocking::Error::Io(alloc::sync::Arc<core::io::error::Error>)
-pub grafton_visca::prelude::blocking::Error::LockPoisoned(&'static str)
 pub grafton_visca::prelude::blocking::Error::MaxRetriesExceeded
 pub grafton_visca::prelude::blocking::Error::MessageLengthError
 pub grafton_visca::prelude::blocking::Error::MissingRuntime
 pub grafton_visca::prelude::blocking::Error::NoResponse
 pub grafton_visca::prelude::blocking::Error::NoSocket
-pub grafton_visca::prelude::blocking::Error::NoTransport
 pub grafton_visca::prelude::blocking::Error::NotSupported
 pub grafton_visca::prelude::blocking::Error::ParameterOutOfRange
 pub grafton_visca::prelude::blocking::Error::ParameterOutOfRange::max: i32
@@ -18044,24 +18032,18 @@ pub grafton_visca::prelude::blocking::Error::ParameterOutOfRange::value: i32
 pub grafton_visca::prelude::blocking::Error::ParseError(alloc::borrow::Cow<'static, str>)
 pub grafton_visca::prelude::blocking::Error::PresetNotFound
 pub grafton_visca::prelude::blocking::Error::PresetNotFound::id: u8
-pub grafton_visca::prelude::blocking::Error::ResponseChannelClosed
 pub grafton_visca::prelude::blocking::Error::ResponseTooLarge
 pub grafton_visca::prelude::blocking::Error::ResponseTooLarge::max_size: usize
 pub grafton_visca::prelude::blocking::Error::RuntimeIdentityExhausted
 pub grafton_visca::prelude::blocking::Error::RuntimeQueueFull
 pub grafton_visca::prelude::blocking::Error::RuntimeQueueFull::capacity: usize
 pub grafton_visca::prelude::blocking::Error::RuntimeShutdown
-pub grafton_visca::prelude::blocking::Error::SocketManagerChannelClosed
-pub grafton_visca::prelude::blocking::Error::SocketManagerUnavailable
 pub grafton_visca::prelude::blocking::Error::StreamPoisoned
 pub grafton_visca::prelude::blocking::Error::StreamPoisoned::reason: alloc::borrow::Cow<'static, str>
 pub grafton_visca::prelude::blocking::Error::SyntaxError
 pub grafton_visca::prelude::blocking::Error::Timeout
 pub grafton_visca::prelude::blocking::Error::TransportBusy
-pub grafton_visca::prelude::blocking::Error::TransportChannelClosed
 pub grafton_visca::prelude::blocking::Error::TransportError(alloc::borrow::Cow<'static, str>)
-pub grafton_visca::prelude::blocking::Error::TransportMismatch
-pub grafton_visca::prelude::blocking::Error::TransportMismatch::reason: &'static str
 pub grafton_visca::prelude::blocking::Error::UnexpectedResponseType
 pub grafton_visca::prelude::blocking::Error::Unknown(u8)
 pub grafton_visca::prelude::blocking::Error::UnknownResponseKind
@@ -30520,7 +30502,6 @@ pub grafton_visca::Error::CameraMoving::pan: i16
 pub grafton_visca::Error::CameraMoving::tilt: i16
 pub grafton_visca::Error::CameraNotReady
 pub grafton_visca::Error::CancellationUnconfirmed
-pub grafton_visca::Error::ChannelClosed
 pub grafton_visca::Error::CommandBufferFull
 pub grafton_visca::Error::CommandCanceled
 pub grafton_visca::Error::CommandNotExecutable
@@ -30563,13 +30544,11 @@ pub grafton_visca::Error::InvalidResponseLength::expected: usize
 pub grafton_visca::Error::InvalidResponseLength::payload_hex: alloc::boxed::Box<str>
 pub grafton_visca::Error::InvalidState(alloc::borrow::Cow<'static, str>)
 pub grafton_visca::Error::Io(alloc::sync::Arc<core::io::error::Error>)
-pub grafton_visca::Error::LockPoisoned(&'static str)
 pub grafton_visca::Error::MaxRetriesExceeded
 pub grafton_visca::Error::MessageLengthError
 pub grafton_visca::Error::MissingRuntime
 pub grafton_visca::Error::NoResponse
 pub grafton_visca::Error::NoSocket
-pub grafton_visca::Error::NoTransport
 pub grafton_visca::Error::NotSupported
 pub grafton_visca::Error::ParameterOutOfRange
 pub grafton_visca::Error::ParameterOutOfRange::max: i32
@@ -30579,24 +30558,18 @@ pub grafton_visca::Error::ParameterOutOfRange::value: i32
 pub grafton_visca::Error::ParseError(alloc::borrow::Cow<'static, str>)
 pub grafton_visca::Error::PresetNotFound
 pub grafton_visca::Error::PresetNotFound::id: u8
-pub grafton_visca::Error::ResponseChannelClosed
 pub grafton_visca::Error::ResponseTooLarge
 pub grafton_visca::Error::ResponseTooLarge::max_size: usize
 pub grafton_visca::Error::RuntimeIdentityExhausted
 pub grafton_visca::Error::RuntimeQueueFull
 pub grafton_visca::Error::RuntimeQueueFull::capacity: usize
 pub grafton_visca::Error::RuntimeShutdown
-pub grafton_visca::Error::SocketManagerChannelClosed
-pub grafton_visca::Error::SocketManagerUnavailable
 pub grafton_visca::Error::StreamPoisoned
 pub grafton_visca::Error::StreamPoisoned::reason: alloc::borrow::Cow<'static, str>
 pub grafton_visca::Error::SyntaxError
 pub grafton_visca::Error::Timeout
 pub grafton_visca::Error::TransportBusy
-pub grafton_visca::Error::TransportChannelClosed
 pub grafton_visca::Error::TransportError(alloc::borrow::Cow<'static, str>)
-pub grafton_visca::Error::TransportMismatch
-pub grafton_visca::Error::TransportMismatch::reason: &'static str
 pub grafton_visca::Error::UnexpectedResponseType
 pub grafton_visca::Error::Unknown(u8)
 pub grafton_visca::Error::UnknownResponseKind
