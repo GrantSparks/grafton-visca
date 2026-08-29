@@ -200,6 +200,34 @@ destination.
 
 ### Changed
 
+- **Ratified two of the three 1.x behavioral-parity waivers and hardened the
+  gate that records them** (#676, ratification per #692). The parity corpus
+  (`tests/fixtures/1x_oracle/manifest.json`) marks three behaviors as
+  intentional 2.0 changes rather than preserved 1.x contracts, and those
+  waivers were originally self-approved in the same commit that introduced the
+  behavior. Two are now maintainer-ratified as sound:
+  - `deterministic-equal-jitter` supersedes 1.x's exact, jitter-free
+    exponential backoff: 2.0 starts at a 50 ms delay and applies deterministic
+    equal jitter within a bounded ceiling, so retries stay reproducible but no
+    longer synchronize across cameras.
+  - `evidence-based-raw-correlation` supersedes 1.x's temporal
+    command-completion fallback on the raw envelope: raw VISCA carries no
+    request identity, so a raw command keeps one unacknowledged candidate per
+    target and never attributes an ACK or error by FIFO or recency.
+
+  The third, `evidence-bounded-retry`, is **not** ratified in this entry: it is
+  being rewritten under #671 to describe the new per-request (not whole-session)
+  failure model, and will be ratified once that wording lands. It is listed here
+  only so the gate's changelog-coupling can see it; treat its current rationale
+  as provisional. See `docs/behavioral_parity_1x.md`.
+
+  The gate itself was advisory and is now enforcing (#676): it runs each mapped
+  `cargo test` and asserts every mapped symbol actually executed (not filtered,
+  ignored, or emptied by a `mod tests` rename); it pins the required family set
+  and the per-row transport `envelope`/`profile`/`receipt_class` in the
+  validator and checks each against the test body, so a raw→Sony substitution
+  is a visible, checked diff; and it requires every approved waiver id to appear
+  in this changelog, which is what this entry provides. No library API changes.
 - **The three noun facades are generated from one typed registry** (#617).
   `command::surface` and the async, blocking, and object-safe `Dyn*` facades now
   consume the same `src/noun_table.rs` registry. Request expressions are

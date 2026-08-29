@@ -293,7 +293,7 @@ fn a_no_socket_answer_is_replayed_for_a_standard_command() {
 /// ACK. Raw VISCA has no request identity after a successful write, so replay
 /// there would be unsafe and is covered by the poison-path tests instead.
 #[test]
-fn a_movement_command_survives_a_lost_ack() {
+fn a_sony_movement_command_survives_a_lost_ack() {
     // The first write draws no answer at all; the ACK deadline lapses and the
     // frame is reissued.
     let transport = ScriptTransport::new(vec![Vec::new(), standard_reply()])
