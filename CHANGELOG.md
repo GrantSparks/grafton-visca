@@ -608,6 +608,25 @@ destination.
 
 ### Fixed
 
+- **Preset number 255 and a `0xFF` direct-menu control parameter can be sent
+  again** (#683). The stack builder that assembles every command terminated a
+  frame by inferring, from the trailing byte, whether a VISCA terminator was
+  already present — so whenever the last *data* byte was `0xFF` it mistook that
+  data for the terminator and appended nothing, leaving the frame one byte
+  short. `write_into` then reported fewer bytes than `encoded_size()` and the
+  encoder rejected the command with an internal contract-string error, making
+  `presets().set/reset/recall(255)` unsendable on `SonyFR7` (the one built-in
+  profile whose `max_presets` reaches 255) and `menu().direct(_, 0xFF)`
+  unsendable on every `HasDirectMenuControl` profile, across all three noun
+  surfaces. The builder now tracks termination explicitly instead of sniffing
+  the last byte: the flag is set only when an already-terminated
+  complete-command constant is loaded through `from_prefix`, and it is cleared
+  the moment any further data is appended, so an appended `0xFF` is always data
+  and is always followed by the terminator. No currently-correct frame changes —
+  the complete-command constants (`pan_tilt::HOME`, `zoom::STOP`, ...) that were
+  the reason the last-byte inference existed are still emitted exactly once. A
+  value-domain sweep over every preset number and direct-menu parameter, plus an
+  end-to-end preparation check on `SonyFR7`, is pinned permanently.
 - **`blocking` + `test-utils` no longer links an async executor** (#691),
   making the README's "native synchronous I/O with no async runtime/executor
   dependency" guarantee true for every blocking feature set rather than only the

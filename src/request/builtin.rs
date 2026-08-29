@@ -4429,6 +4429,137 @@ mod tests {
         buffer[..length].to_vec()
     }
 
+    /// Exhaustive value-domain sweep for #683.
+    ///
+    /// Every valid preset number (0..=255) and every direct-menu control
+    /// parameter (0..=255) must encode to a frame whose length equals the
+    /// request's own `encoded_size()` and that ends in the terminator. The old
+    /// const builder swallowed a trailing `0xFF` *data* byte as the terminator,
+    /// so `write_into` reported one byte short of `encoded_size()` and
+    /// `prepared::encode` rejected preset 255 and `direct(_, 0xFF)` outright.
+    /// This test would catch any reintroduction of that last-byte inference.
+    #[test]
+    fn preset_and_direct_menu_value_domains_stay_terminated() {
+        use crate::command::menu::DirectMenuControl;
+
+        let fr7 = ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7 profile");
+
+        for number in 0..=u8::MAX {
+            let preset = PresetNumber::new(number).expect("preset number in range");
+
+            // Plain requests: PresetSet / PresetReset.
+            for (label, request_bytes, action) in [
+                ("PresetSet", wire(&PresetSet::new(preset)), 0x01u8),
+                ("PresetReset", wire(&PresetReset::new(preset)), 0x00u8),
+            ] {
+                assert_eq!(request_bytes.len(), 7, "{label} {number} length");
+                assert_eq!(
+                    request_bytes,
+                    vec![0x81, 0x01, 0x04, 0x3F, action, number, 0xFF],
+                    "{label} {number} wire bytes"
+                );
+            }
+            assert_eq!(PresetSet::new(preset).encoded_size(), 7);
+            assert_eq!(PresetReset::new(preset).encoded_size(), 7);
+
+            // Targeted operation: PresetRecall (needs the profile for its axes).
+            let recall = PresetRecall::for_profile(preset, &fr7).expect("FR7 preset recall");
+            let recall_bytes = wire(&recall);
+            assert_eq!(
+                recall_bytes.len(),
+                recall.encoded_size(),
+                "PresetRecall {number} length must equal encoded_size"
+            );
+            assert_eq!(
+                recall_bytes,
+                vec![0x81, 0x01, 0x04, 0x3F, 0x02, number, 0xFF],
+                "PresetRecall {number} wire bytes"
+            );
+        }
+
+        // Direct menu control: sweep control2 over its whole domain, including
+        // 0xFF, across a spread of control1 values.
+        for control1 in [0x00u8, 0x7F, 0x80, 0xFF] {
+            for control2 in 0..=u8::MAX {
+                let command = DirectMenuControl::new(control1, control2);
+                let bytes = wire(&command);
+                assert_eq!(
+                    bytes.len(),
+                    command.encoded_size(),
+                    "direct menu {control1:#x},{control2:#x} length must equal encoded_size"
+                );
+                assert_eq!(
+                    bytes,
+                    vec![0x81, 0x01, 0x7E, 0x04, 0x72, control1, control2, 0xFF],
+                    "direct menu {control1:#x},{control2:#x} wire bytes"
+                );
+            }
+        }
+    }
+
+    /// End-to-end proof for #683 through the prepared (validate + encode) path
+    /// on Sony FR7, the profile that both allows preset 255 and supports direct
+    /// menu control. Before the fix these returned an `InvalidRequest`
+    /// contract-string error from `encode` because `write_into` fell one byte
+    /// short of `encoded_size()`.
+    #[test]
+    fn preset_255_and_direct_menu_ff_prepare_on_fr7() {
+        use crate::command::menu::DirectMenuControl;
+
+        let fr7 = ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7 profile");
+        let preset = PresetNumber::new(255).expect("255 is a valid preset number");
+
+        prepare_builtin_command(
+            &PresetSet::new(preset),
+            CameraId::CAMERA_1,
+            &fr7,
+            OperationalTuning::new(),
+        )
+        .expect("preset 255 set must prepare end-to-end on FR7");
+
+        prepare_builtin_command(
+            &PresetReset::new(preset),
+            CameraId::CAMERA_1,
+            &fr7,
+            OperationalTuning::new(),
+        )
+        .expect("preset 255 reset must prepare end-to-end on FR7");
+
+        prepare_builtin_operation::<completion::Targeted, _>(
+            &PresetRecall::for_profile(preset, &fr7).expect("FR7 preset recall"),
+            CameraId::CAMERA_1,
+            &fr7,
+            OperationalTuning::new(),
+        )
+        .expect("preset 255 recall must prepare end-to-end on FR7");
+
+        prepare_builtin_command(
+            &DirectMenuControl::new(0x00, 0xFF),
+            CameraId::CAMERA_1,
+            &fr7,
+            OperationalTuning::new(),
+        )
+        .expect("direct menu (_, 0xFF) must prepare end-to-end on FR7");
+    }
+
+    /// Guard for #683: the fix must not double-terminate the complete-command
+    /// constants that are loaded through `from_prefix` already carrying a
+    /// terminator. Their frames must be byte-identical to before the fix.
+    #[test]
+    fn pre_terminated_constants_are_not_double_terminated() {
+        assert_eq!(wire(&PanTiltHome), vec![0x81, 0x01, 0x06, 0x04, 0xFF]);
+        assert_eq!(wire(&PanTiltReset), vec![0x81, 0x01, 0x06, 0x05, 0xFF]);
+        assert_eq!(wire(&ZoomStop), vec![0x81, 0x01, 0x04, 0x07, 0x00, 0xFF]);
+        assert_eq!(
+            wire(&ZoomDrive::Tele),
+            vec![0x81, 0x01, 0x04, 0x07, 0x02, 0xFF]
+        );
+        assert_eq!(
+            wire(&ZoomDrive::Wide),
+            vec![0x81, 0x01, 0x04, 0x07, 0x03, 0xFF]
+        );
+    }
+
     fn prepared_state<C>(
         command: &C,
         profile: &ProfileSpec,

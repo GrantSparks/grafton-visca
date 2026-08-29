@@ -319,3 +319,29 @@ fn preset_and_power_commands_match_golden_frames() {
     assert_golden("power on", &PowerOn, patterns::power::ON);
     assert_golden("power standby", &PowerStandby, patterns::power::STANDBY);
 }
+
+/// Regression pin for #683: preset slot 255 has a trailing `0xFF` data byte and
+/// must still be terminated. The old const builder mistook that data byte for
+/// the terminator and wrote the frame one byte short, so these goldens (which
+/// are `MAX_SIZE` long) fail before the fix and pass after.
+#[test]
+fn preset_slot_255_stays_terminated() {
+    let profile = ptz_optics_profile();
+    let slot = PresetNumber::new(255).expect("255 is a valid preset slot");
+
+    assert_golden(
+        "preset recall 255",
+        &PresetRecall::for_profile(slot, &profile).expect("profile declares preset recall"),
+        patterns::preset::RECALL_255,
+    );
+    assert_golden(
+        "preset set 255",
+        &PresetSet::new(slot),
+        patterns::preset::SET_255,
+    );
+    assert_golden(
+        "preset reset 255",
+        &PresetReset::new(slot),
+        patterns::preset::RESET_255,
+    );
+}
