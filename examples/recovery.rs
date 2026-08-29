@@ -6,6 +6,16 @@
 //! state before doing anything else — the new session's state cache starts
 //! `Unknown`. `Error::requires_new_session()` is the reconnect decision.
 //!
+//! This is exactly the path a long-running supervisor takes when a TCP camera
+//! closes an idle control session (the peer close arrives as
+//! `Error::ConnectionClosed`). The one-shot `match` in `main` is the body of
+//! that supervisor loop: on `requires_new_session()` it rebuilds from the
+//! retained config and re-queries, then would resume waiting for work. To keep
+//! an idle session from being closed in the first place, send a periodic
+//! lightweight inquiry as an application heartbeat — the library runs no timer
+//! of its own. See `docs/observability_and_recovery.md` ("Idle disconnects and
+//! connection liveness") for both levers.
+//!
 //! This example uses an in-memory transport, so it runs with no hardware: the
 //! first transport reports a peer close (`requires_new_session()` is `true`) and
 //! the factory's next transport answers the re-query inquiries. Requires only the
