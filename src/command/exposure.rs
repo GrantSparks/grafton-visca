@@ -74,8 +74,6 @@ pub enum ExposureCompensation {
 }
 
 impl WireEncode for ExposureCompensation {
-    const MAX_SIZE: usize = 9;
-
     fn write_into(
         &self,
         camera_id: crate::camera_id::CameraId,
@@ -165,8 +163,6 @@ pub enum Iris {
 }
 
 impl WireEncode for Iris {
-    const MAX_SIZE: usize = 9;
-
     fn write_into(
         &self,
         camera_id: crate::camera_id::CameraId,
@@ -221,8 +217,6 @@ pub enum Shutter {
 }
 
 impl WireEncode for Shutter {
-    const MAX_SIZE: usize = 9;
-
     fn write_into(
         &self,
         camera_id: crate::camera_id::CameraId,
@@ -275,8 +269,6 @@ pub enum Brightness {
 }
 
 impl WireEncode for Brightness {
-    const MAX_SIZE: usize = 9;
-
     fn write_into(
         &self,
         camera_id: crate::camera_id::CameraId,

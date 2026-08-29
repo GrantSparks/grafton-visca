@@ -1,13 +1,13 @@
 //! Async production transport adapter for the Phase-6 owner.
 
-use std::future::Future;
+use std::{future::Future, num::NonZeroUsize};
 
 use crate::{
     command::CommandKind,
     profile::{OperationalTuning, ProfileSpec},
     protocol::framer::ProtocolFramer,
     runtime::engine::TransmissionMeta,
-    transport::{AsyncTransport, HasTransportConfig},
+    transport::{envelope::FrameSequence, AsyncTransport, HasTransportConfig},
     CameraId, Error,
 };
 
@@ -40,9 +40,8 @@ where
 {
     /// Build an owner adapter from validated profile facts and transport
     /// configuration.  Construction performs no transport I/O.
-    // Used only by tests here and in `async_actor`; production goes through
-    // `new_with_profile_registry` from `AsyncSession::from_transport` (#636).
-    #[allow(dead_code)]
+    // Test-only single-target convenience; production uses `new_with_targets`.
+    #[cfg(test)]
     pub(crate) fn new(
         transport: T,
         profile: &ProfileSpec,
@@ -52,15 +51,20 @@ where
     }
 
     /// Build an owner adapter using immutable session tuning.
-    // Used only by this module's tests; `AsyncSession` builds via the registry ctor (#636).
-    #[allow(dead_code)]
+    // Test-only single-target convenience; production uses `new_with_targets`.
+    #[cfg(test)]
     pub(crate) fn new_with_tuning(
         transport: T,
         profile: &ProfileSpec,
         target: CameraId,
         tuning: OperationalTuning,
     ) -> Result<Self, Error> {
-        Self::new_with_targets(transport, &[(target, profile)], tuning)
+        Self::new_with_targets(
+            transport,
+            &[(target, profile)],
+            tuning,
+            crate::DEFAULT_ADMISSION_CAPACITY,
+        )
     }
 
     /// Build an owner adapter for several immutable target/profile pairs.
@@ -70,6 +74,7 @@ where
         transport: T,
         profiles: &[(CameraId, &ProfileSpec)],
         tuning: OperationalTuning,
+        admission_capacity: NonZeroUsize,
     ) -> Result<Self, Error> {
         // This check is deliberately before reading any startup-side transport
         // state or constructing the owner policy. Known standard transports
@@ -99,6 +104,7 @@ where
             &config,
             transport.send_semantics(),
             tuning,
+            admission_capacity,
         )?;
         let targets: Vec<_> = profiles.iter().map(|(target, _)| *target).collect();
         let registry = TargetRegistry::from_targets(&targets)?;
@@ -122,8 +128,9 @@ where
         transport: T,
         profiles: &[(CameraId, &ProfileSpec)],
         tuning: OperationalTuning,
+        admission_capacity: NonZeroUsize,
     ) -> Result<Self, Error> {
-        Self::new_with_targets(transport, profiles, tuning)
+        Self::new_with_targets(transport, profiles, tuning, admission_capacity)
     }
 
     pub(crate) fn policy(&self) -> &OwnerPolicy {
@@ -172,7 +179,10 @@ where
                     }
                 })?;
             Ok(TransmissionMeta {
-                sequence: frame_meta.sequence,
+                // Keep receive provenance typed on FrameMeta. TransmissionMeta
+                // intentionally carries only the numeric value the engine
+                // records for an outgoing write.
+                sequence: frame_meta.sequence.map(FrameSequence::value),
             })
         }
     }

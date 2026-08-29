@@ -98,17 +98,12 @@ pub(crate) struct BlockingCancellationReceipt {
 /// the entire session. `RefCell` is intentional: blocking sessions are
 /// caller-driven and non-`Sync`; a re-entrant method call is rejected as
 /// [`Error::TransportBusy`] rather than recursively entering the owner.
-// Constructed only by `BlockingSessionCore::new`, whose callers are in
-// src/runtime/owner/tests.rs `mod blocking` (cfg blocking-without-async) — which is why
-// this reads as never-constructed under `--all-features` (#636).
-#[allow(dead_code)]
+#[cfg(all(test, not(feature = "async")))]
 pub(crate) struct BlockingSessionCore<'a> {
     parts: RefCell<BlockingSessionParts<'a>>,
 }
 
-// Built only inside `BlockingSessionCore::new`, so it reads as never-constructed on any
-// leg where src/runtime/owner/tests.rs `mod blocking` is compiled out (#636).
-#[allow(dead_code)]
+#[cfg(all(test, not(feature = "async")))]
 struct BlockingSessionParts<'a> {
     owner: &'a mut BlockingOwner,
     driver: &'a mut dyn BlockingWireDriver,
@@ -116,12 +111,7 @@ struct BlockingSessionParts<'a> {
     decoder: &'a mut dyn BlockingFrameDecoder,
 }
 
-// Whole borrowed-session seam: `new` is called only by
-// `shared_blocking_control_allows_two_public_handles` and
-// `shared_blocking_handles_retain_out_of_order_success_and_error` in
-// src/runtime/owner/tests.rs `mod blocking` (cfg blocking-without-async), and
-// `with_parts` only serves this type's `BlockingControlHost` impl (#636).
-#[allow(dead_code)]
+#[cfg(all(test, not(feature = "async")))]
 impl<'a> BlockingSessionCore<'a> {
     /// Borrows one blocking session's owner and adapter seams into a shared,
     /// caller-thread control core. No operation handle allocation is needed.
@@ -187,6 +177,7 @@ impl<'a> BlockingSessionCore<'a> {
     }
 }
 
+#[cfg(all(test, not(feature = "async")))]
 impl fmt::Debug for BlockingSessionCore<'_> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.debug_struct("BlockingSessionCore").finish()
@@ -228,6 +219,7 @@ pub(crate) trait BlockingControlHost {
     ) -> Result<BlockingCancellationReceipt, RejectedCancellation>;
 }
 
+#[cfg(all(test, not(feature = "async")))]
 impl BlockingControlHost for BlockingSessionCore<'_> {
     fn now(&self) -> Instant {
         Instant::now()
@@ -492,9 +484,7 @@ pub(crate) struct BlockingReceiptControl<'a> {
 
 enum BlockingControlKind<'a> {
     Shared(&'a dyn BlockingControlHost),
-    // Constructed only by `BlockingOwner::receipt_control`, whose sole callers live in
-    // src/runtime/owner/tests.rs `mod blocking` (cfg blocking-without-async) (#636).
-    #[allow(dead_code)]
+    #[cfg(all(test, not(feature = "async")))]
     Borrowed {
         owner: &'a mut BlockingOwner,
         driver: &'a mut dyn BlockingWireDriver,
@@ -516,6 +506,7 @@ impl<'a> BlockingReceiptControl<'a> {
         }
     }
 
+    #[cfg(all(test, not(feature = "async")))]
     fn with_parts<T>(
         &mut self,
         operation: impl FnOnce(
@@ -529,6 +520,7 @@ impl<'a> BlockingReceiptControl<'a> {
             BlockingControlKind::Shared(_) => Err(Error::InvalidState(
                 "shared blocking controls do not expose mutable owner parts".into(),
             )),
+            #[cfg(all(test, not(feature = "async")))]
             BlockingControlKind::Borrowed {
                 owner,
                 driver,
@@ -541,6 +533,7 @@ impl<'a> BlockingReceiptControl<'a> {
     pub(crate) fn now(&self) -> Instant {
         match &self.kind {
             BlockingControlKind::Shared(host) => host.now(),
+            #[cfg(all(test, not(feature = "async")))]
             BlockingControlKind::Borrowed { .. } => Instant::now(),
         }
     }
@@ -548,6 +541,7 @@ impl<'a> BlockingReceiptControl<'a> {
     pub(crate) fn sleep(&self, duration: Duration) {
         match &self.kind {
             BlockingControlKind::Shared(host) => host.sleep(duration),
+            #[cfg(all(test, not(feature = "async")))]
             BlockingControlKind::Borrowed { .. } => std::thread::sleep(duration),
         }
     }
@@ -555,6 +549,7 @@ impl<'a> BlockingReceiptControl<'a> {
     pub(crate) fn deadline_after(&self, timeout: Duration) -> Result<Instant, Error> {
         match &self.kind {
             BlockingControlKind::Shared(host) => host.deadline_after(timeout),
+            #[cfg(all(test, not(feature = "async")))]
             BlockingControlKind::Borrowed { .. } => observer_deadline(self.now(), timeout),
         }
     }
@@ -562,6 +557,7 @@ impl<'a> BlockingReceiptControl<'a> {
     fn owner_matches(&mut self, origin: &Arc<()>) -> Result<bool, Error> {
         match &self.kind {
             BlockingControlKind::Shared(host) => host.owner_matches(origin),
+            #[cfg(all(test, not(feature = "async")))]
             BlockingControlKind::Borrowed { .. } => {
                 self.with_parts(|owner, _, _, _| Ok(Arc::ptr_eq(origin, &owner.state.origin)))
             }
@@ -571,6 +567,7 @@ impl<'a> BlockingReceiptControl<'a> {
     fn pump_once_until(&mut self, deadline: Option<Instant>) -> Result<usize, Error> {
         match &self.kind {
             BlockingControlKind::Shared(host) => host.pump_once_until(deadline),
+            #[cfg(all(test, not(feature = "async")))]
             BlockingControlKind::Borrowed { .. } => {
                 self.with_parts(|owner, driver, reader, decoder| {
                     owner.pump_once_until(driver, reader, decoder, deadline)
@@ -590,6 +587,7 @@ impl<'a> BlockingReceiptControl<'a> {
                 host.submit_inquiry_until(request, timeout, deadline)
                     .map(|core| BlockingInquiryReceipt { core, decoder })
             }
+            #[cfg(all(test, not(feature = "async")))]
             BlockingControlKind::Borrowed { .. } => self.with_parts(|owner, driver, _, _| {
                 owner.submit_inquiry_until(driver, prepared, deadline)
             }),
@@ -625,6 +623,7 @@ impl<'a> BlockingReceiptControl<'a> {
         };
         let outcome = match &self.kind {
             BlockingControlKind::Shared(host) => host.cancel_operation(core),
+            #[cfg(all(test, not(feature = "async")))]
             BlockingControlKind::Borrowed { .. } => {
                 match self.with_parts(|owner, driver, _, _| Ok(owner.cancel_core(driver, core))) {
                     Ok(outcome) => outcome,
@@ -658,10 +657,6 @@ pub(crate) enum BlockingAfterApplied<'a> {
 /// Exact polling work delegated to Phase 6 without claiming settlement.
 #[derive(Debug)]
 pub(crate) struct BlockingPollingContinuation<'a> {
-    // Never read: `wait` identifies its work by `target`/`axes`/`plan`, and the only
-    // writer is the constructor in `wait_applied_until` (#636).
-    #[allow(dead_code)]
-    pub(crate) id: RequestId,
     pub(crate) target: crate::CameraId,
     pub(crate) axes: AffectedAxes,
     pub(crate) plan: crate::prepared::SettlementPlan,
@@ -675,9 +670,8 @@ impl BlockingCommandReceipt {
         wait_core_for(self.core, control, timeout).and_then(normalize_command_outcome)
     }
 
-    // Called by `observer_timeout_detaches_without_cancel_and_late_applied_still_caches`
-    // in src/runtime/owner/tests.rs `mod blocking` (blocking-without-async leg) (#636).
-    #[allow(dead_code)]
+    // Used only by owner unit tests.
+    #[cfg(all(test, not(feature = "async")))]
     pub(crate) fn wait_with_timeout(
         self,
         control: &mut BlockingReceiptControl<'_>,
@@ -685,11 +679,6 @@ impl BlockingCommandReceipt {
     ) -> Result<(), Error> {
         wait_core_for(self.core, control, timeout).and_then(normalize_command_outcome)
     }
-
-    // Detached by `policy_and_raw_write_use_profile_and_transport_facts` in
-    // blocking_transport.rs `mod tests` and by tests.rs `mod blocking` (#636).
-    #[allow(dead_code)]
-    pub(crate) fn detach(self) {}
 }
 
 impl<R> BlockingInquiryReceipt<R> {
@@ -698,23 +687,6 @@ impl<R> BlockingInquiryReceipt<R> {
         let outcome = wait_core_for(self.core, control, timeout)?;
         normalize_inquiry_outcome(outcome, &self.decoder)
     }
-
-    // No consumer in src/ or tests/: every inquiry observer goes through `wait` or
-    // `wait_until`, so nothing yet passes an explicit inquiry timeout here (#636).
-    #[allow(dead_code)]
-    pub(crate) fn wait_with_timeout(
-        self,
-        control: &mut BlockingReceiptControl<'_>,
-        timeout: Duration,
-    ) -> Result<R, Error> {
-        let outcome = wait_core_for(self.core, control, timeout)?;
-        normalize_inquiry_outcome(outcome, &self.decoder)
-    }
-
-    // No consumer in src/ or tests/: an inquiry receipt is always waited on, never
-    // relinquished (#636).
-    #[allow(dead_code)]
-    pub(crate) fn detach(self) {}
 
     fn wait_until(
         self,
@@ -750,8 +722,7 @@ where
     /// Owner-level cancellation used only by src/runtime/owner/tests.rs
     /// `mod blocking`, which compiles on the blocking-without-async leg (#636).
     /// The public path goes through `BlockingReceiptControl::cancel_operation`.
-    #[cfg(test)]
-    #[allow(dead_code)]
+    #[cfg(all(test, not(feature = "async")))]
     pub(crate) fn cancel_test<D: BlockingWireDriver + ?Sized>(
         self,
         owner: &mut BlockingOwner,
@@ -759,11 +730,6 @@ where
     ) -> Result<BlockingCancellationReceipt, RejectedCancellation> {
         owner.cancel_core(driver, self.core)
     }
-
-    // No consumer in src/ or tests/: the public `blocking::Operation::detach` has an
-    // empty body and relinquishes this receipt by dropping it (#636).
-    #[allow(dead_code)]
-    pub(crate) fn detach(self) {}
 }
 
 impl BlockingOperationReceipt<completion::Targeted> {
@@ -817,7 +783,6 @@ impl<'a> BlockingSettlementWait<'a> {
         mut self,
         deadline: Instant,
     ) -> Result<BlockingAfterApplied<'a>, Error> {
-        let id = self.receipt.core.id();
         let target = self.receipt.core.target();
         let outcome = wait_core_until(self.receipt.core, &mut self.control, deadline)?;
         normalize_command_outcome(outcome)?;
@@ -837,7 +802,6 @@ impl<'a> BlockingSettlementWait<'a> {
                 debug_assert_eq!(plan_target, target);
                 debug_assert_eq!(axes, self.receipt.affected_axes);
                 Ok(BlockingAfterApplied::Poll(BlockingPollingContinuation {
-                    id,
                     target,
                     axes: self.receipt.affected_axes,
                     plan,
@@ -848,9 +812,7 @@ impl<'a> BlockingSettlementWait<'a> {
         }
     }
 
-    // Asserted by `targeted_settlement_selection_retains_one_absolute_deadline` in
-    // src/runtime/owner/tests.rs `mod blocking` (cfg blocking-without-async) (#636).
-    #[allow(dead_code)]
+    #[cfg(all(test, not(feature = "async")))]
     pub(crate) const fn selection(&self) -> WaitSelection {
         self.selection
     }
@@ -972,7 +934,7 @@ fn ensure_before_deadline(
 }
 
 impl BlockingCancellationReceipt {
-    #[cfg(test)]
+    #[cfg(all(test, feature = "blocking"))]
     pub(crate) fn recv_test(
         self,
     ) -> Result<crate::runtime::engine::CancellationObservation, Error> {
@@ -1007,11 +969,6 @@ impl BlockingCancellationReceipt {
             }
         }
     }
-
-    // No consumer in src/ or tests/: the public `blocking::Cancellation::detach` has an
-    // empty body and relinquishes this receipt by dropping it (#636).
-    #[allow(dead_code)]
-    pub(crate) fn detach(self) {}
 }
 
 #[cfg(test)]
@@ -1144,25 +1101,13 @@ impl BlockingOwner {
         &self.state
     }
 
-    // No consumer in src/ or tests/: the blocking facade reads the cache through
-    // `BlockingSessionHost::state_cache` instead (#636).
-    #[allow(dead_code)]
-    pub(crate) fn state_cache(&self, target: crate::CameraId) -> crate::state_cache::StateCache {
-        self.state.state_cache(target)
-    }
-
-    // Owner-state escape hatch for src/runtime/owner/tests.rs `mod blocking`
-    // (subscribe_applied/subscribe_diagnostics/buffers), blocking-without-async leg
-    // (#636).
-    #[allow(dead_code)]
+    /// Mutably accesses the owner state for caller-thread control operations.
     pub(crate) fn state_mut(&mut self) -> &mut OwnerState {
         &mut self.state
     }
 
-    // Builds the `Borrowed` control that src/runtime/owner/tests.rs `mod blocking` uses
-    // to observe receipts; that module only compiles on the blocking-without-async leg
-    // (#636).
-    #[allow(dead_code)]
+    // Builds the borrowed control used only by owner unit tests.
+    #[cfg(all(test, not(feature = "async")))]
     pub(crate) fn receipt_control<'a, D, R, F>(
         &'a mut self,
         driver: &'a mut D,
@@ -1211,6 +1156,7 @@ impl BlockingOwner {
         })
     }
 
+    #[cfg(all(test, not(feature = "async")))]
     pub(crate) fn submit_inquiry_until<D: BlockingWireDriver + ?Sized, R>(
         &mut self,
         driver: &mut D,
@@ -1264,9 +1210,8 @@ impl BlockingOwner {
     /// queued in the engine and are written by a later owner turn. No receive
     /// method is called here, so ACK/completion can only be consumed by an
     /// explicit pump.
-    // Untyped admission seam used by blocking_transport.rs `mod tests` and by
-    // src/runtime/owner/tests.rs `mod blocking` (blocking-without-async leg) (#636).
-    #[allow(dead_code)]
+    // Untyped admission seam used only by owner unit tests.
+    #[cfg(test)]
     pub(crate) fn submit<D: BlockingWireDriver>(
         &mut self,
         driver: &mut D,
@@ -1378,8 +1323,8 @@ impl BlockingOwner {
         let mut report = self.drive_without_due(driver, effects);
         let id = admission.recv().map_err(|_| Error::RuntimeShutdown)??;
 
-        // Admission capacity (`max_pending_queue_depth`) bounds how much work
-        // may be outstanding. Ordinary receipts keep the historical queueing
+        // Session admission capacity bounds how much work may be outstanding.
+        // Ordinary receipts keep the historical queueing
         // behavior when they lose the global dispatch race; operation handles
         // use the stricter first-write contract below.
         let mut queued = false;
@@ -1466,9 +1411,8 @@ impl BlockingOwner {
         ))
     }
 
-    // Frame-replay seam used throughout src/runtime/owner/tests.rs `mod blocking`, which
-    // only compiles on the blocking-without-async feature leg (#636).
-    #[allow(dead_code)]
+    // Frame-replay seam used only by owner unit tests.
+    #[cfg(all(test, not(feature = "async")))]
     pub(crate) fn inject_frame<D: BlockingWireDriver>(
         &mut self,
         driver: &mut D,
@@ -1484,9 +1428,8 @@ impl BlockingOwner {
 
     /// Perform one raw receive, then frame/decode completely outside the engine
     /// mutation, and finally replay decoded frames in source order.
-    // Consumed by blocking_transport.rs `mod tests` and by src/runtime/owner/tests.rs
-    // `mod blocking`, which only compiles on the blocking-without-async leg (#636).
-    #[allow(dead_code)]
+    // Raw receive seam used only by owner unit tests.
+    #[cfg(test)]
     pub(crate) fn pump_once<D, R, F>(
         &mut self,
         driver: &mut D,
@@ -1701,9 +1644,8 @@ impl BlockingOwner {
 
     /// Run only due scheduler work. This is intentionally distinct from a
     /// receive pump and is used for scheduler deadlines and pacing wakes.
-    // Driven by the deadline/pacing tests in src/runtime/owner/tests.rs `mod blocking`,
-    // which only compiles on the blocking-without-async feature leg (#636).
-    #[allow(dead_code)]
+    // Driven only by owner unit tests.
+    #[cfg(test)]
     pub(crate) fn wake<D: BlockingWireDriver>(
         &mut self,
         driver: &mut D,
@@ -1841,10 +1783,9 @@ impl BlockingOwner {
         self.pumping = false;
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, not(feature = "async")))]
     // Called by `blocking_reentrancy_fails_before_admission_or_write` in
     // src/runtime/owner/tests.rs `mod blocking` (cfg blocking-without-async) (#636).
-    #[allow(dead_code)]
     pub(super) fn mark_pumping_for_test(&mut self) {
         self.pumping = true;
     }

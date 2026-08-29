@@ -93,8 +93,6 @@ pub enum Sharpness {
 }
 
 impl WireEncode for Sharpness {
-    const MAX_SIZE: usize = 9;
-
     fn write_into(
         &self,
         camera_id: crate::camera_id::CameraId,
@@ -340,8 +338,6 @@ impl PictureEffectCommand {
 }
 
 impl WireEncode for PictureEffectCommand {
-    const MAX_SIZE: usize = 6;
-
     fn write_into(
         &self,
         camera_id: crate::camera_id::CameraId,
@@ -638,7 +634,7 @@ mod tests {
             PictureEffectMode::Mosaic,
         ] {
             let cmd = PictureEffectCommand { mode };
-            let mut buffer = [0; PictureEffectCommand::MAX_SIZE];
+            let mut buffer = [0; 6];
             let error = match cmd.write_into(crate::camera_id::CameraId::default(), &mut buffer) {
                 Err(error) => error,
                 Ok(size) => panic!("unvalidated named picture effect encoded {size} bytes"),

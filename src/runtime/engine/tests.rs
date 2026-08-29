@@ -790,6 +790,399 @@ fn sony_retry_reuses_first_successful_sequence_and_ignores_stale_result() {
 }
 
 #[test]
+fn sony_stale_command_errors_do_not_spend_retry_during_backoff_or_ready() {
+    let start = Instant::now();
+    let mut engine = engine_with_target(
+        EnvelopeKind::Sony,
+        TransportKind::Datagram,
+        1,
+        CancellationPolicy::Supported,
+    );
+    let first = engine.handle(
+        Input::Admit {
+            ticket: AdmissionTicket(1),
+            request: command(1, CancellationPolicy::Supported),
+        },
+        start,
+    );
+    let (first_tx, id, _) = request_transmit(&first);
+    let first_sequence = 0x1020_3040;
+    engine.handle(
+        Input::TransmissionFinished {
+            transmission: first_tx,
+            result: Ok(TransmissionMeta {
+                sequence: Some(first_sequence),
+            }),
+        },
+        start,
+    );
+
+    // The first busy response is current and schedules exactly one retry.
+    let retry_error = engine.handle(
+        frame(
+            1,
+            Some((first_sequence, SequenceWidth::Full32)),
+            DecodedResponse::Error {
+                socket: None,
+                code: 0x03,
+            },
+        ),
+        start + Duration::from_millis(1),
+    );
+    let (retry_id, attempt, retry_ready) =
+        retry_scheduled(&retry_error).expect("the current busy response retries");
+    assert_eq!(retry_id, id);
+    assert_eq!(attempt, 1);
+    assert!(matches!(
+        engine.entry(id).map(Entry::phase),
+        Some(Phase::Backoff { ready_at, .. }) if ready_at == retry_ready
+    ));
+    assert_eq!(engine.entry(id).unwrap().attempt, 1);
+    assert_eq!(engine.next_wake(), Some(retry_ready));
+
+    // The old attempt's duplicate is still routable by sequence, but must be
+    // inert while the request is in backoff.
+    let stale_backoff = engine.handle(
+        frame(
+            1,
+            Some((first_sequence, SequenceWidth::Full32)),
+            DecodedResponse::Error {
+                socket: None,
+                code: 0x03,
+            },
+        ),
+        start + Duration::from_millis(2),
+    );
+    assert!(stale_backoff
+        .iter()
+        .any(|effect| matches!(effect, Effect::Ignored(IgnoreReason::UnmatchedFrame))));
+    assert!(!stale_backoff
+        .iter()
+        .any(|effect| matches!(effect, Effect::RetryScheduled { .. })));
+    assert!(!stale_backoff
+        .iter()
+        .any(|effect| matches!(effect, Effect::Terminal { .. })));
+    assert_eq!(engine.entry(id).unwrap().attempt, 1);
+    assert_eq!(engine.next_wake(), Some(retry_ready));
+
+    // Hold the sole command socket with another request so the retry reaches
+    // Ready at its original deadline. This makes the second stale phase
+    // observable instead of dispatching immediately.
+    let blocker = engine.handle(
+        Input::Admit {
+            ticket: AdmissionTicket(2),
+            request: command(1, CancellationPolicy::Supported),
+        },
+        start + Duration::from_millis(2),
+    );
+    let (_, blocker_id, _) = request_transmit(&blocker);
+    let blocker_sequence = 0x2030_4050;
+    send_ok(
+        &mut engine,
+        &blocker,
+        Some(blocker_sequence),
+        start + Duration::from_millis(2),
+    );
+    let blocker_ack = engine.handle(
+        frame(
+            1,
+            Some((blocker_sequence, SequenceWidth::Full32)),
+            DecodedResponse::Ack {
+                socket: Some(ViscaSocket::S1),
+            },
+        ),
+        start + Duration::from_millis(2),
+    );
+    assert!(!blocker_ack
+        .iter()
+        .any(|effect| matches!(effect, Effect::Terminal { .. })));
+
+    let promoted = engine.advance(retry_ready);
+    assert!(promoted.iter().any(|effect| matches!(
+        effect,
+        Effect::Transition {
+            id: seen,
+            from: Phase::Backoff { ready_at, .. },
+            to: Phase::Ready { .. },
+            ..
+        } if *seen == id && *ready_at == retry_ready
+    )));
+    assert!(matches!(
+        engine.entry(id).map(Entry::phase),
+        Some(Phase::Ready { .. })
+    ));
+    assert!(request_transmit_optional(&promoted).is_none());
+
+    // A duplicate retryable error and a stale permanent error are both inert
+    // while the retry is queued. In particular, neither changes its attempt
+    // budget nor terminalizes the request.
+    let ready_before = (engine.entry(id).unwrap().attempt, engine.next_wake());
+    let stale_ready = engine.handle(
+        frame(
+            1,
+            Some((first_sequence, SequenceWidth::Full32)),
+            DecodedResponse::Error {
+                socket: None,
+                code: 0x03,
+            },
+        ),
+        retry_ready + Duration::from_millis(1),
+    );
+    let stale_permanent = engine.handle(
+        frame(
+            1,
+            Some((first_sequence, SequenceWidth::Full32)),
+            DecodedResponse::Error {
+                socket: None,
+                code: 0x01,
+            },
+        ),
+        retry_ready + Duration::from_millis(1),
+    );
+    for effects in [&stale_ready, &stale_permanent] {
+        assert!(effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::Ignored(IgnoreReason::UnmatchedFrame))));
+        assert!(!effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::RetryScheduled { .. })));
+        assert!(!effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::Terminal { .. })));
+    }
+    assert_eq!(
+        (engine.entry(id).unwrap().attempt, engine.next_wake()),
+        ready_before
+    );
+
+    // Once the blocker completes, the request dispatches once and reuses the
+    // sequence from the original attempt; stale errors did not move its retry.
+    let released = engine.handle(
+        frame(
+            1,
+            Some((blocker_sequence, SequenceWidth::Full32)),
+            DecodedResponse::Completion {
+                socket: Some(ViscaSocket::S1),
+            },
+        ),
+        retry_ready + Duration::from_millis(2),
+    );
+    let (_, dispatched, _) = request_transmit(&released);
+    assert_eq!(dispatched, id);
+    let requested_sequence = released.iter().find_map(|effect| match effect {
+        Effect::Transmit {
+            request,
+            kind: Transmission::Request {
+                requested_sequence, ..
+            },
+            ..
+        } if *request == id => Some(*requested_sequence),
+        _ => None,
+    });
+    assert_eq!(requested_sequence, Some(Some(first_sequence)));
+    assert_eq!(
+        released
+            .iter()
+            .filter(|effect| matches!(
+                effect,
+                Effect::Transmit { request, kind: Transmission::Request { .. }, .. }
+                    if *request == id
+            ))
+            .count(),
+        1
+    );
+    send_ok(
+        &mut engine,
+        &released,
+        Some(first_sequence),
+        retry_ready + Duration::from_millis(2),
+    );
+    assert_eq!(engine.entry(id).unwrap().attempt, 1);
+    assert!(matches!(
+        engine.entry(id).map(Entry::phase),
+        Some(Phase::AwaitingAck { .. })
+    ));
+    assert!(engine.entry(blocker_id).is_none());
+    engine.assert_invariants().unwrap();
+}
+
+#[test]
+fn sony_stale_inquiry_errors_do_not_spend_retry_during_backoff_or_ready() {
+    let start = Instant::now();
+    let mut configured = policy(EnvelopeKind::Sony, TransportKind::Datagram);
+    configured.inquiry_capacity = 1;
+    configured.inquiry_cooldown = Duration::ZERO;
+    let mut engine = ProtocolEngine::new(configured).unwrap();
+    engine
+        .register_target(
+            camera(1),
+            TargetPolicy {
+                command_sockets: 2,
+                cancellation: CancellationPolicy::Supported,
+            },
+        )
+        .unwrap();
+
+    let first = engine.handle(
+        Input::Admit {
+            ticket: AdmissionTicket(1),
+            request: inquiry(1, POWER),
+        },
+        start,
+    );
+    let (_, id, _) = request_transmit(&first);
+    let first_sequence = 0x3040_5060;
+    send_ok(&mut engine, &first, Some(first_sequence), start);
+
+    // Queue another inquiry before the first one retries. It will be the
+    // capacity blocker that leaves the retried inquiry observable in Ready.
+    let queued = engine.handle(
+        Input::Admit {
+            ticket: AdmissionTicket(2),
+            request: inquiry(1, ZOOM),
+        },
+        start + Duration::from_millis(1),
+    );
+    assert!(request_transmit_optional(&queued).is_none());
+    let retry_error = engine.handle(
+        frame(
+            1,
+            Some((first_sequence, SequenceWidth::Full32)),
+            DecodedResponse::Error {
+                socket: None,
+                code: 0x02,
+            },
+        ),
+        start + Duration::from_millis(2),
+    );
+    let (retry_id, attempt, retry_ready) =
+        retry_scheduled(&retry_error).expect("the current syntax response retries");
+    assert_eq!(retry_id, id);
+    assert_eq!(attempt, 1);
+
+    let stale_backoff = engine.handle(
+        frame(
+            1,
+            Some((first_sequence, SequenceWidth::Full32)),
+            DecodedResponse::Error {
+                socket: None,
+                code: 0x02,
+            },
+        ),
+        start + Duration::from_millis(3),
+    );
+    assert!(stale_backoff
+        .iter()
+        .any(|effect| matches!(effect, Effect::Ignored(IgnoreReason::UnmatchedFrame))));
+    assert!(!stale_backoff
+        .iter()
+        .any(|effect| matches!(effect, Effect::RetryScheduled { .. })));
+    assert_eq!(engine.entry(id).unwrap().attempt, 1);
+
+    // The queued inquiry wins dispatch when the retry becomes ready, leaving
+    // the old inquiry in Ready and preserving the original retry deadline.
+    let promoted = engine.advance(retry_ready);
+    let (_, queued_id, _) = request_transmit(&promoted);
+    assert_eq!(queued_id, admitted(&queued));
+    send_ok(&mut engine, &promoted, Some(0x4050_6070), retry_ready);
+    assert!(matches!(
+        engine.entry(id).map(Entry::phase),
+        Some(Phase::Ready { .. })
+    ));
+
+    let ready_before = (engine.entry(id).unwrap().attempt, engine.next_wake());
+    let stale_ready = engine.handle(
+        frame(
+            1,
+            Some((first_sequence, SequenceWidth::Full32)),
+            DecodedResponse::Error {
+                socket: None,
+                code: 0x02,
+            },
+        ),
+        retry_ready + Duration::from_millis(1),
+    );
+    let stale_permanent = engine.handle(
+        frame(
+            1,
+            Some((first_sequence, SequenceWidth::Full32)),
+            DecodedResponse::Error {
+                socket: None,
+                code: 0x01,
+            },
+        ),
+        retry_ready + Duration::from_millis(1),
+    );
+    for effects in [&stale_ready, &stale_permanent] {
+        assert!(effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::Ignored(IgnoreReason::UnmatchedFrame))));
+        assert!(!effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::RetryScheduled { .. })));
+        assert!(!effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::Terminal { .. })));
+    }
+    assert_eq!(
+        (engine.entry(id).unwrap().attempt, engine.next_wake()),
+        ready_before
+    );
+
+    let released = engine.handle(
+        frame(
+            1,
+            Some((0x4050_6070, SequenceWidth::Full32)),
+            DecodedResponse::InquiryReply {
+                route: Some(ZOOM),
+                payload: smallvec![1],
+            },
+        ),
+        retry_ready + Duration::from_millis(2),
+    );
+    let (retry_tx, dispatched, _) = request_transmit(&released);
+    assert_eq!(dispatched, id);
+    let requested_sequence = released.iter().find_map(|effect| match effect {
+        Effect::Transmit {
+            request,
+            kind: Transmission::Request {
+                requested_sequence, ..
+            },
+            ..
+        } if *request == id => Some(*requested_sequence),
+        _ => None,
+    });
+    assert_eq!(requested_sequence, Some(Some(first_sequence)));
+    assert_eq!(
+        released
+            .iter()
+            .filter(|effect| matches!(
+                effect,
+                Effect::Transmit { request, kind: Transmission::Request { .. }, .. }
+                    if *request == id
+            ))
+            .count(),
+        1
+    );
+    engine.handle(
+        Input::TransmissionFinished {
+            transmission: retry_tx,
+            result: Ok(TransmissionMeta {
+                sequence: Some(first_sequence),
+            }),
+        },
+        retry_ready + Duration::from_millis(2),
+    );
+    assert_eq!(engine.entry(id).unwrap().attempt, 1);
+    assert!(matches!(
+        engine.entry(id).map(Entry::phase),
+        Some(Phase::AwaitingReply { .. })
+    ));
+    assert!(engine.entry(admitted(&queued)).is_none());
+    engine.assert_invariants().unwrap();
+}
+
+#[test]
 fn raw_inquiries_route_by_unique_content_then_per_target_fifo() {
     let start = Instant::now();
     let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
@@ -5499,11 +5892,6 @@ fn retry_backoff_follows_the_pinned_jitter_sequence() {
         start,
     );
     let id = admitted(&admission);
-    assert_eq!(
-        id.get(),
-        1,
-        "the pinned sequence is keyed on the request id"
-    );
     send_ok(&mut engine, &admission, None, start);
 
     // `retrying()` is initial 10ms, ceiling 100ms. The exponential ceilings are
@@ -5521,7 +5909,6 @@ fn retry_backoff_follows_the_pinned_jitter_sequence() {
         Duration::from_millis(40),
         Duration::from_millis(80),
     ];
-
     let mut now = start;
     for (index, (wait, ceiling)) in expected.iter().zip(ceilings).enumerate() {
         let attempt = u32::try_from(index).unwrap() + 1;

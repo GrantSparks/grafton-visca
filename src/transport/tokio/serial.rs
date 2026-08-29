@@ -105,13 +105,11 @@ impl Serial {
             connect_timeout: Duration::from_secs(5), // Not used for serial
             read_timeout: config.read_timeout,
             write_timeout: config.write_timeout,
-            retry_config: config.retry_config,
             buffer_config: config.buffer_config,
             addressing: crate::transport::builder::AddressingMode::Serial, // Serial uses Serial addressing
             tcp_nodelay: None,
             ttl: None,
             tcp_keepalive: None,
-            max_pending_queue_depth: TransportConfig::default().max_pending_queue_depth,
         };
 
         // Create executor for handshake operations

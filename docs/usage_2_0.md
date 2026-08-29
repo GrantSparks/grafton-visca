@@ -116,6 +116,31 @@ let config = config.with_tuning(
 # Ok::<(), grafton_visca::Error>(())
 ```
 
+When defining a custom runtime profile, construct its timing facts as one
+validated value. Every field is explicit; `CommandTimeouts::default()` opts
+into the standard 1.x command-category deadlines without making the rest of
+the profile implicit:
+
+```rust
+use std::time::Duration;
+use grafton_visca::{CommandTimeouts, ProfileTiming};
+
+let timing = ProfileTiming::builder()
+    .ack_timeout(Duration::from_millis(100))
+    .command_timeouts(CommandTimeouts::default())
+    .inquiry_timeout(Duration::from_secs(1))
+    .cancellation_timeout(Duration::from_secs(1))
+    .ambiguity_timeout(Duration::from_secs(1))
+    .busy_timeout(Duration::ZERO)
+    .minimum_inquiry_spacing(Duration::ZERO)
+    .minimum_command_spacing(Duration::ZERO)
+    .build()?;
+# Ok::<(), grafton_visca::Error>(())
+```
+
+Pass the resulting value to `ProfileSpecBuilder::timing`. The builder rejects
+missing or zero protocol deadlines before a profile can be admitted.
+
 The equivalent builder form is `SessionConfig::for_target(...).with_target(...)`.
 `SessionConfig::from_compile_time::<P>()` creates a reusable camera-1 config
 from a static profile. `register_target` and `with_target` accept only IDs 1
@@ -169,14 +194,17 @@ buffer, and bounded-owner validation.
 
 Use `OperationalTuning` with `SessionConfig::with_tuning` for a reusable
 session-wide policy. Available overrides cover command and inquiry spacing,
-command-socket capacity, acknowledgement/completion/settlement/inquiry
-deadlines, retry count, and retry backoff/budget.
+command-socket capacity, acknowledgement/settlement/inquiry deadlines, each
+command category (`quick_timeout`, `movement_timeout`,
+`preset_timeout`, `long_running_timeout`, and `network_timeout`), retry count,
+and retry backoff/budget.
 
 Tuning can make the owner more conservative but cannot weaken a profile's
-minimum pacing, raise its socket limit, or use zero timeouts. When targets have
-different profile minima, the strictest applicable pacing and capacity policy
-wins. A settlement timeout is separate from protocol completion: a targeted
-operation may be acknowledged before the camera physically settles.
+minimum pacing, raise its socket limit, undercut a profile command category,
+or use zero timeouts. When targets have different profile minima, the strictest
+applicable pacing and capacity policy wins. A settlement timeout is separate
+from protocol completion: a targeted operation may be acknowledged before the
+camera physically settles. Inquiries always use `inquiry_timeout`.
 
 ## Caller-owned transports and executors
 

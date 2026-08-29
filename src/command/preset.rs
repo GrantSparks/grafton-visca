@@ -69,8 +69,6 @@ impl PresetRecallSpeedCommand {
 }
 
 impl WireEncode for PresetRecallSpeedCommand {
-    const MAX_SIZE: usize = 6;
-
     fn write_into(
         &self,
         camera_id: crate::camera_id::CameraId,
@@ -98,8 +96,6 @@ pub(crate) struct PresetCommand {
 impl PresetCommand {}
 
 impl WireEncode for PresetCommand {
-    const MAX_SIZE: usize = 7;
-
     fn write_into(
         &self,
         camera_id: crate::camera_id::CameraId,

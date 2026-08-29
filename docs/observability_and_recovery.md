@@ -78,6 +78,27 @@ affects only that subscriber. Disconnected subscribers are reclaimed when the
 owner records or creates subscriptions. This design has no callbacks and no
 unbounded channel.
 
+## Shutdown and close
+
+An async session has one detached owner actor and one transport. All session
+clones share that owner; neither operation starts a second protocol authority.
+`shutdown()` is an idempotent, non-joining signal. It completes when the
+owner's bounded shutdown boundary accepts the signal (or when another clone
+has already accepted it), but it does not wait for the actor or transport to
+finish tearing down. New admissions are rejected with
+`Error::RuntimeShutdown` after shutdown has been requested.
+
+`close()` consumes the session, requests that same shutdown, and then waits
+for the sole actor to finish its boundary drain and drop its driver, including
+the owned transport. It is the deterministic transport-teardown barrier, not
+an executor-specific task join: reopening an endpoint after `close()` is safe
+because completion is ordered after transport release. If the shutdown signal is accepted, an explicit
+`RuntimeShutdown` terminal result is returned as success; a transport close,
+stream poison, or raw-command ambiguity poison that wins the source ordering
+is returned unchanged. An immediate error while sending `close()`'s signal is
+also preserved. Dropping a view or calling `shutdown()` alone is not a
+transport-release barrier.
+
 ## StateCache
 
 Each `Camera<P>` and `DynSessionCamera` returns a cheap read-only `StateCache`

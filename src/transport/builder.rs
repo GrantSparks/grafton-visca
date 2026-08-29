@@ -39,11 +39,9 @@
 //! # }
 //! ```
 
-use std::{num::NonZeroUsize, time::Duration};
+use std::time::Duration;
 
-#[cfg(feature = "blocking")]
-use crate::transport::BackoffStrategy;
-use crate::transport::{buffer::BufferConfig, RetryConfig};
+use crate::transport::buffer::BufferConfig;
 
 #[cfg(feature = "blocking")]
 use crate::Error;
@@ -61,24 +59,6 @@ pub enum AddressingMode {
     #[default]
     Ip,
 }
-
-/// Default maximum pending queue depth for runtime admission control.
-///
-/// This bounds the number of commands/inquiries that can be queued in the
-/// runtime scheduler before new submissions are rejected with a retryable
-/// `RuntimeQueueFull` error.
-///
-/// A depth of 64 provides reasonable headroom for bursty submission patterns
-/// (UI scrubbing, multi-camera fanout, polling loops) while preventing
-/// unbounded memory growth under sustained overload.
-pub const DEFAULT_MAX_PENDING_QUEUE_DEPTH: usize = 64;
-
-/// Default maximum pending queue depth as NonZeroUsize.
-///
-/// This is a compile-time constant for use in `TransportConfig::default()`.
-#[allow(clippy::unwrap_used)]
-pub const DEFAULT_MAX_PENDING_QUEUE_DEPTH_NONZERO: NonZeroUsize =
-    NonZeroUsize::new(DEFAULT_MAX_PENDING_QUEUE_DEPTH).unwrap();
 
 /// Default initial idle period before TCP keepalive probes begin.
 pub(crate) const DEFAULT_TCP_KEEPALIVE_IDLE: Duration = Duration::from_secs(10);
@@ -140,8 +120,6 @@ pub struct TransportConfig {
     pub read_timeout: Duration,
     /// Write timeout for send operations.
     pub write_timeout: Duration,
-    /// Retry configuration for operations.
-    pub retry_config: RetryConfig,
     /// Buffer configuration for managing buffers.
     pub buffer_config: BufferConfig,
     /// Addressing mode (Serial vs IP) for VISCA frames.
@@ -155,24 +133,6 @@ pub struct TransportConfig {
     /// not send VISCA traffic or guarantee that a camera application keeps its
     /// session open.
     pub tcp_keepalive: Option<TcpKeepaliveConfig>,
-    /// Maximum pending queue depth for runtime admission control and backpressure.
-    ///
-    /// This value provides a **hard memory/backpressure guarantee** by bounding:
-    ///
-    /// 1. **Submission channel capacity**: The owner submission channel is
-    ///    runtime loop is bounded to this depth. When full, `send_async` calls
-    ///    will await rather than buffer unboundedly, providing backpressure to
-    ///    bursty producers.
-    ///
-    /// 2. **Adapter admission control**: Commands/inquiries that exceed this depth
-    ///    after reaching the runtime loop are rejected with a retryable
-    ///    `RuntimeQueueFull` error.
-    ///
-    /// Together, these bounds ensure worst-case memory usage is O(max_pending_queue_depth)
-    /// rather than O(number of submitted commands), preventing OOM under sustained load.
-    ///
-    /// Defaults to [`DEFAULT_MAX_PENDING_QUEUE_DEPTH`] (64).
-    pub max_pending_queue_depth: NonZeroUsize,
 }
 
 impl Default for TransportConfig {
@@ -181,13 +141,11 @@ impl Default for TransportConfig {
             connect_timeout: Duration::from_secs(5),
             read_timeout: Duration::from_secs(5),
             write_timeout: Duration::from_secs(5),
-            retry_config: RetryConfig::default(),
             buffer_config: BufferConfig::default(),
             addressing: AddressingMode::default(),
             tcp_nodelay: Some(true),
             ttl: None,
             tcp_keepalive: Some(DEFAULT_TCP_KEEPALIVE),
-            max_pending_queue_depth: DEFAULT_MAX_PENDING_QUEUE_DEPTH_NONZERO,
         }
     }
 }
@@ -238,7 +196,6 @@ impl Transport {
     /// // Building blocking transports
     /// let transport = Transport::udp()
     ///     .address("192.168.0.110:5678")
-    ///     .max_retries(5)
     ///     .build_blocking()?;
     /// # Ok(())
     /// # }
@@ -343,40 +300,6 @@ impl NetTransportBuilder {
         self
     }
 
-    /// Set the retry configuration.
-    pub fn retry_config(mut self, config: RetryConfig) -> Self {
-        self.config.retry_config = config;
-        self
-    }
-
-    /// Set the maximum number of retries.
-    pub fn max_retries(mut self, max_retries: u32) -> Self {
-        self.config.retry_config.max_retries = max_retries;
-        self
-    }
-
-    /// Set the base retry delay.
-    pub fn retry_delay(mut self, delay: Duration) -> Self {
-        self.config.retry_config.base_retry_delay = delay;
-        self
-    }
-
-    /// Set the maximum retry duration.
-    pub fn max_retry_duration(mut self, duration: Duration) -> Self {
-        self.config.retry_config.max_retry_duration = duration;
-        self
-    }
-
-    /// Set the backoff strategy for retries.
-    ///
-    /// The backoff strategy determines how retry delays are calculated:
-    /// - [`BackoffStrategy::Constant`]: Same delay for all retries
-    /// - [`BackoffStrategy::Exponential`]: Delay doubles each attempt (default)
-    pub fn backoff_strategy(mut self, strategy: BackoffStrategy) -> Self {
-        self.config.retry_config.backoff_strategy = strategy;
-        self
-    }
-
     /// Set the receive buffer size.
     pub fn recv_buffer_size(mut self, size: usize) -> Self {
         self.config.buffer_config.recv_buffer_size = size;
@@ -440,25 +363,6 @@ impl NetTransportBuilder {
     /// This option only affects TCP transports.
     pub fn disable_tcp_keepalive(mut self) -> Self {
         self.config.tcp_keepalive = None;
-        self
-    }
-
-    /// Set the maximum pending queue depth for runtime admission control.
-    ///
-    /// This bounds the number of commands/inquiries that can be queued
-    /// in the runtime scheduler. When the queue is at capacity, new
-    /// submissions are rejected with a retryable `RuntimeQueueFull` error.
-    ///
-    /// # Arguments
-    ///
-    /// * `depth` - Maximum number of pending commands/inquiries
-    ///
-    /// # Returns
-    ///
-    /// Returns `self` for chaining. If `depth` is 0, the configuration is
-    /// unchanged (preserves current value).
-    pub fn max_pending_queue_depth(mut self, depth: NonZeroUsize) -> Self {
-        self.config.max_pending_queue_depth = depth;
         self
     }
 
@@ -529,7 +433,6 @@ mod tests {
         let builder = NetTransportBuilder::tcp();
         assert_eq!(builder.protocol, Protocol::Tcp);
         assert_eq!(builder.config.connect_timeout, Duration::from_secs(5));
-        assert_eq!(builder.config.retry_config.max_retries, 3);
         assert_eq!(builder.config.tcp_nodelay, Some(true));
         assert_eq!(builder.config.tcp_keepalive, Some(DEFAULT_TCP_KEEPALIVE));
     }
@@ -539,7 +442,6 @@ mod tests {
         let builder = NetTransportBuilder::udp()
             .address("192.168.0.110:5678")
             .connect_timeout(Duration::from_secs(10))
-            .max_retries(5)
             .tcp_nodelay(true)
             .tcp_keepalive(
                 TcpKeepaliveConfig::new(Duration::from_secs(45))
@@ -549,7 +451,6 @@ mod tests {
         assert_eq!(builder.protocol, Protocol::Udp);
         assert_eq!(builder.address, Some("192.168.0.110:5678".to_string()));
         assert_eq!(builder.config.connect_timeout, Duration::from_secs(10));
-        assert_eq!(builder.config.retry_config.max_retries, 5);
         assert_eq!(builder.config.tcp_nodelay, Some(true));
         assert_eq!(
             builder.config.tcp_keepalive,
@@ -593,31 +494,6 @@ mod tests {
         assert!(
             is_correct_error,
             "Expected InvalidParameter error with address parameter"
-        );
-    }
-
-    #[test]
-    fn test_net_builder_retry_config() {
-        use crate::transport::BackoffStrategy;
-
-        let builder = NetTransportBuilder::tcp()
-            .max_retries(10)
-            .retry_delay(Duration::from_millis(500))
-            .max_retry_duration(Duration::from_secs(30))
-            .backoff_strategy(BackoffStrategy::Constant);
-
-        assert_eq!(builder.config.retry_config.max_retries, 10);
-        assert_eq!(
-            builder.config.retry_config.base_retry_delay,
-            Duration::from_millis(500)
-        );
-        assert_eq!(
-            builder.config.retry_config.max_retry_duration,
-            Duration::from_secs(30)
-        );
-        assert_eq!(
-            builder.config.retry_config.backoff_strategy,
-            BackoffStrategy::Constant
         );
     }
 

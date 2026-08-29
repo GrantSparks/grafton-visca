@@ -41,8 +41,6 @@ impl SetVariableSpeedMode {
 }
 
 impl WireEncode for SetVariableSpeedMode {
-    const MAX_SIZE: usize = 7;
-
     fn write_into(
         &self,
         camera_id: crate::camera_id::CameraId,

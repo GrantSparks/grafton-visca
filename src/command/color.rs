@@ -151,8 +151,6 @@ pub enum ColorTemperature {
 }
 
 impl WireEncode for ColorTemperature {
-    const MAX_SIZE: usize = 8;
-
     fn write_into(
         &self,
         camera_id: crate::camera_id::CameraId,
@@ -218,8 +216,6 @@ pub enum RedGain {
 }
 
 impl WireEncode for RedGain {
-    const MAX_SIZE: usize = 9;
-
     fn write_into(
         &self,
         camera_id: crate::camera_id::CameraId,
@@ -283,8 +279,6 @@ pub enum BlueGain {
 }
 
 impl WireEncode for BlueGain {
-    const MAX_SIZE: usize = 9;
-
     fn write_into(
         &self,
         camera_id: crate::camera_id::CameraId,

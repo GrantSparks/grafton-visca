@@ -37,8 +37,6 @@ macro_rules! visca_command {
         pub struct $name;
 
         impl $crate::command::encode::WireEncode for $name {
-            const MAX_SIZE: usize = { [$($byte),*].len() + 2 }; // +2 for camera_id and terminator
-
             fn write_into(&self, camera_id: $crate::CameraId, buffer: &mut [u8]) -> Result<usize, $crate::Error> {
                 const BYTES: &[u8] = &[$($byte),*];
                 let len = BYTES.len() + 2;
@@ -75,8 +73,6 @@ macro_rules! visca_command {
         }
 
         impl $crate::command::encode::WireEncode for $name {
-            const MAX_SIZE: usize = 1 + [$($byte),*].len() + $max_param_size + 1;
-
             fn write_into(&self, camera_id: $crate::CameraId, buffer: &mut [u8]) -> Result<usize, $crate::Error> {
                 const PREFIX: &[u8] = &[$($byte),*];
 
@@ -157,7 +153,7 @@ mod tests {
 
         let cmd = EvalCounterCommand { value: 0x42 };
 
-        let mut buffer = [0u8; EvalCounterCommand::MAX_SIZE];
+        let mut buffer = [0u8; 6];
         cmd.write_into(CameraId::CAMERA_1, &mut buffer)
             .expect("should encode command");
 

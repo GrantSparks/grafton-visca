@@ -77,7 +77,7 @@ pub async fn connect_tcp(
 /// does not exceed `config.connect_timeout`.
 pub async fn connect_udp(address: &str, config: UdpSocketConfig) -> Result<UdpSocket, Error> {
     // Create a single deadline for the entire operation
-    let deadline = Deadline::from_timeout(config.connect_timeout);
+    let deadline = Deadline::from_timeout(config.connect_timeout)?;
 
     // Perform DNS resolution with remaining budget using unblock (smol doesn't have native async DNS)
     let remaining = deadline.remaining_at(Instant::now());
@@ -157,6 +157,7 @@ impl AsyncDatagram for UdpSocket {
 // `#[cfg_attr(miri, ignore = ...)]`. They still run in the normal CI matrix.
 // See https://github.com/GrantSparks/grafton-visca/issues/585.
 #[cfg(test)]
+#[allow(clippy::expect_used)]
 mod tests {
     use super::*;
     use std::time::Duration;
@@ -177,7 +178,7 @@ mod tests {
             let total_timeout = Duration::from_millis(200);
             let step_duration = Duration::from_millis(120); // 60% of total
 
-            let deadline = Deadline::from_timeout(total_timeout);
+            let deadline = Deadline::from_timeout(total_timeout).expect("finite test timeout");
 
             // Step A: Should succeed with ~60% of budget
             let remaining = deadline.remaining_at(Instant::now());
@@ -234,7 +235,7 @@ mod tests {
     fn test_deadline_expired_returns_zero() {
         smol::block_on(async {
             let timeout = Duration::from_millis(10);
-            let deadline = Deadline::from_timeout(timeout);
+            let deadline = Deadline::from_timeout(timeout).expect("finite test timeout");
 
             // Wait for deadline to expire
             Timer::after(Duration::from_millis(20)).await;
@@ -256,7 +257,7 @@ mod tests {
     fn test_deadline_remaining_decreases() {
         smol::block_on(async {
             let timeout = Duration::from_millis(100);
-            let deadline = Deadline::from_timeout(timeout);
+            let deadline = Deadline::from_timeout(timeout).expect("finite test timeout");
 
             let remaining_before = deadline.remaining_at(Instant::now());
 

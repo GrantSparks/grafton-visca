@@ -1,8 +1,8 @@
 //! Validated runtime camera-profile specifications.
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-use crate::{capabilities, AffectedAxes, Error, Result};
+use crate::{capabilities, timeout::CommandTimeouts, AffectedAxes, Error, Result};
 
 /// Largest retry backoff ceiling or total retry budget an override may set.
 ///
@@ -15,10 +15,31 @@ use crate::{capabilities, AffectedAxes, Error, Result};
 /// The same saturation turns an absurd backoff ceiling into no backoff at all.
 ///
 /// One hour is orders of magnitude beyond any real VISCA retry window (the
-/// widest shipped profile deadline is ten seconds) and cannot overflow an
-/// `Instant` on any supported platform, so the inversion is unreachable
+/// built-in LongRunning command deadline is 300 seconds) and cannot overflow
+/// an `Instant` on any supported platform, so the inversion is unreachable
 /// without silently rewriting a caller's value.
 const MAXIMUM_RETRY_TIMING: Duration = Duration::from_secs(60 * 60);
+
+/// Returns whether adding a duration to the monotonic clock can be represented.
+///
+/// Runtime deadline construction must not use the engine's saturating fallback
+/// for an unrepresentable duration: that fallback turns a future deadline into
+/// the current instant and can make a request expire immediately. Profile and
+/// operational-tuning validation therefore performs this check before any
+/// request can be admitted or any protocol I/O can occur.
+fn monotonic_duration_is_representable(now: Instant, duration: Duration) -> bool {
+    now.checked_add(duration).is_some()
+}
+
+/// The default retry budget is at least twice the governing command/inquiry
+/// deadline. Check that derived deadline too, rather than accepting an input
+/// that is individually representable but overflows when the retry budget is
+/// constructed.
+fn retry_budget_is_representable(now: Instant, deadline: Duration) -> bool {
+    deadline
+        .checked_mul(2)
+        .is_some_and(|budget| monotonic_duration_is_representable(now, budget))
+}
 
 /// Position inquiries available for profile-aware physical settlement.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -179,13 +200,33 @@ impl TransportCompatibility {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct ProfileTiming {
     ack_timeout: Duration,
-    completion_timeout: Duration,
+    command_timeouts: CommandTimeouts,
     inquiry_timeout: Duration,
     cancellation_timeout: Duration,
     ambiguity_timeout: Duration,
     busy_timeout: Duration,
     minimum_inquiry_spacing: Duration,
     minimum_command_spacing: Duration,
+}
+
+/// Builder for validated [`ProfileTiming`] facts.
+///
+/// Every timing fact is required.  The builder does not supply protocol
+/// defaults because timing is part of a profile's safety contract; callers
+/// should use [`CommandTimeouts::default`] explicitly when the standard
+/// command-category deadlines are appropriate.  [`ProfileTiming`] itself is
+/// accepted by [`ProfileSpecBuilder::timing`] as one cohesive value so a
+/// profile cannot accidentally mix fields from different timing policies.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ProfileTimingBuilder {
+    ack_timeout: Option<Duration>,
+    command_timeouts: Option<CommandTimeouts>,
+    inquiry_timeout: Option<Duration>,
+    cancellation_timeout: Option<Duration>,
+    ambiguity_timeout: Option<Duration>,
+    busy_timeout: Option<Duration>,
+    minimum_inquiry_spacing: Option<Duration>,
+    minimum_command_spacing: Option<Duration>,
 }
 
 /// Exact pan/tilt coordinate conversion owned by a validated profile.
@@ -230,16 +271,22 @@ impl PanTiltCoordinateConversion {
 }
 
 impl ProfileTiming {
+    /// Starts a builder for explicit, validated profile timing facts.
+    #[must_use]
+    pub const fn builder() -> ProfileTimingBuilder {
+        ProfileTimingBuilder::new()
+    }
+
     /// Returns the acknowledgement deadline.
     #[must_use]
     pub const fn ack_timeout(self) -> Duration {
         self.ack_timeout
     }
 
-    /// Returns the completion deadline.
+    /// Returns the validated per-category command deadlines.
     #[must_use]
-    pub const fn completion_timeout(self) -> Duration {
-        self.completion_timeout
+    pub const fn command_timeouts(self) -> CommandTimeouts {
+        self.command_timeouts
     }
 
     /// Returns the inquiry-response deadline.
@@ -277,6 +324,174 @@ impl ProfileTiming {
     pub const fn minimum_command_spacing(self) -> Duration {
         self.minimum_command_spacing
     }
+
+    fn validate(self) -> Result<Self> {
+        if self.ack_timeout.is_zero()
+            || self.inquiry_timeout.is_zero()
+            || self.cancellation_timeout.is_zero()
+            || self.ambiguity_timeout.is_zero()
+        {
+            return Err(Error::InvalidRequest(
+                "all profile protocol timeouts must be non-zero".into(),
+            ));
+        }
+        self.command_timeouts.validate()?;
+
+        let now = Instant::now();
+        let command_timeouts = self.command_timeouts;
+        let timing_values = [
+            self.ack_timeout,
+            command_timeouts.quick_timeout(),
+            command_timeouts.movement_timeout(),
+            command_timeouts.preset_timeout(),
+            command_timeouts.long_running_timeout(),
+            command_timeouts.network_timeout(),
+            self.inquiry_timeout,
+            self.cancellation_timeout,
+            self.ambiguity_timeout,
+            self.busy_timeout,
+            self.minimum_inquiry_spacing,
+            self.minimum_command_spacing,
+        ];
+        if timing_values
+            .into_iter()
+            .any(|duration| !monotonic_duration_is_representable(now, duration))
+        {
+            return Err(Error::InvalidRequest(
+                "profile timing values must be representable by the monotonic clock".into(),
+            ));
+        }
+
+        // `retry_policy` derives its default total budget as at least twice
+        // the governing command or inquiry deadline.  Validate those derived
+        // values here as well as the stored timing facts.
+        if [
+            command_timeouts.quick_timeout(),
+            command_timeouts.movement_timeout(),
+            command_timeouts.preset_timeout(),
+            command_timeouts.long_running_timeout(),
+            command_timeouts.network_timeout(),
+            self.inquiry_timeout,
+        ]
+        .into_iter()
+        .any(|deadline| !retry_budget_is_representable(now, deadline))
+        {
+            return Err(Error::InvalidRequest(
+                "profile retry deadlines must be representable by the monotonic clock".into(),
+            ));
+        }
+        Ok(self)
+    }
+}
+
+impl ProfileTimingBuilder {
+    /// Creates an empty builder.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            ack_timeout: None,
+            command_timeouts: None,
+            inquiry_timeout: None,
+            cancellation_timeout: None,
+            ambiguity_timeout: None,
+            busy_timeout: None,
+            minimum_inquiry_spacing: None,
+            minimum_command_spacing: None,
+        }
+    }
+
+    /// Sets the acknowledgement deadline.
+    #[must_use]
+    pub const fn ack_timeout(mut self, timeout: Duration) -> Self {
+        self.ack_timeout = Some(timeout);
+        self
+    }
+
+    /// Sets the complete per-category command deadline table.
+    #[must_use]
+    pub const fn command_timeouts(mut self, timeouts: CommandTimeouts) -> Self {
+        self.command_timeouts = Some(timeouts);
+        self
+    }
+
+    /// Sets the inquiry-response deadline.
+    #[must_use]
+    pub const fn inquiry_timeout(mut self, timeout: Duration) -> Self {
+        self.inquiry_timeout = Some(timeout);
+        self
+    }
+
+    /// Sets the socket-cancellation response deadline.
+    #[must_use]
+    pub const fn cancellation_timeout(mut self, timeout: Duration) -> Self {
+        self.cancellation_timeout = Some(timeout);
+        self
+    }
+
+    /// Sets the pre-ack cancellation ambiguity deadline.
+    #[must_use]
+    pub const fn ambiguity_timeout(mut self, timeout: Duration) -> Self {
+        self.ambiguity_timeout = Some(timeout);
+        self
+    }
+
+    /// Sets the camera-busy recovery deadline.
+    #[must_use]
+    pub const fn busy_timeout(mut self, timeout: Duration) -> Self {
+        self.busy_timeout = Some(timeout);
+        self
+    }
+
+    /// Sets the minimum interval between inquiry writes.
+    #[must_use]
+    pub const fn minimum_inquiry_spacing(mut self, spacing: Duration) -> Self {
+        self.minimum_inquiry_spacing = Some(spacing);
+        self
+    }
+
+    /// Sets the minimum interval between command writes.
+    #[must_use]
+    pub const fn minimum_command_spacing(mut self, spacing: Duration) -> Self {
+        self.minimum_command_spacing = Some(spacing);
+        self
+    }
+
+    /// Validates and returns immutable profile timing facts.
+    pub fn build(self) -> Result<ProfileTiming> {
+        fn required<T>(value: Option<T>, name: &'static str) -> Result<T> {
+            value.ok_or_else(|| Error::InvalidRequest(name.into()))
+        }
+
+        ProfileTiming {
+            ack_timeout: required(
+                self.ack_timeout,
+                "profile acknowledgement timeout is required",
+            )?,
+            command_timeouts: required(
+                self.command_timeouts,
+                "profile command timeout table is required",
+            )?,
+            inquiry_timeout: required(self.inquiry_timeout, "profile inquiry timeout is required")?,
+            cancellation_timeout: required(
+                self.cancellation_timeout,
+                "profile cancellation timeout is required",
+            )?,
+            ambiguity_timeout: required(
+                self.ambiguity_timeout,
+                "profile ambiguity timeout is required",
+            )?,
+            busy_timeout: required(self.busy_timeout, "profile busy timeout is required")?,
+            minimum_inquiry_spacing: required(
+                self.minimum_inquiry_spacing,
+                "profile minimum inquiry spacing is required",
+            )?,
+            minimum_command_spacing: required(
+                self.minimum_command_spacing,
+                "profile minimum command spacing is required",
+            )?,
+        }
+        .validate()
+    }
 }
 
 /// Operational overrides that cannot change request or profile semantics.
@@ -292,7 +507,11 @@ pub struct OperationalTuning {
     inquiry_spacing: Option<Duration>,
     maximum_command_sockets: Option<u8>,
     ack_timeout: Option<Duration>,
-    completion_timeout: Option<Duration>,
+    quick_timeout: Option<Duration>,
+    movement_timeout: Option<Duration>,
+    preset_timeout: Option<Duration>,
+    long_running_timeout: Option<Duration>,
+    network_timeout: Option<Duration>,
     settlement_timeout: Option<Duration>,
     inquiry_timeout: Option<Duration>,
     retry_limit: Option<u32>,
@@ -301,7 +520,6 @@ pub struct OperationalTuning {
     retry_budget: Option<Duration>,
 }
 
-#[allow(dead_code)] // Internal getters are consumed by crate-private preparation.
 impl OperationalTuning {
     /// Creates tuning with no overrides.
     #[must_use]
@@ -311,7 +529,11 @@ impl OperationalTuning {
             inquiry_spacing: None,
             maximum_command_sockets: None,
             ack_timeout: None,
-            completion_timeout: None,
+            quick_timeout: None,
+            movement_timeout: None,
+            preset_timeout: None,
+            long_running_timeout: None,
+            network_timeout: None,
             settlement_timeout: None,
             inquiry_timeout: None,
             retry_limit: None,
@@ -349,15 +571,50 @@ impl OperationalTuning {
         self
     }
 
-    /// Overrides the non-zero command-completion deadline.
+    /// Overrides the non-zero quick-command completion deadline.
+    ///
+    /// Category overrides are independent; set each category that needs a
+    /// different deadline.
     #[must_use]
-    pub const fn completion_timeout(mut self, timeout: Duration) -> Self {
-        self.completion_timeout = Some(timeout);
+    pub const fn quick_timeout(mut self, timeout: Duration) -> Self {
+        self.quick_timeout = Some(timeout);
+        self
+    }
+
+    /// Overrides the non-zero movement-command completion deadline.
+    ///
+    #[must_use]
+    pub const fn movement_timeout(mut self, timeout: Duration) -> Self {
+        self.movement_timeout = Some(timeout);
+        self
+    }
+
+    /// Overrides the non-zero preset-command completion deadline.
+    ///
+    #[must_use]
+    pub const fn preset_timeout(mut self, timeout: Duration) -> Self {
+        self.preset_timeout = Some(timeout);
+        self
+    }
+
+    /// Overrides the non-zero long-running-command completion deadline.
+    ///
+    #[must_use]
+    pub const fn long_running_timeout(mut self, timeout: Duration) -> Self {
+        self.long_running_timeout = Some(timeout);
+        self
+    }
+
+    /// Overrides the non-zero network-command completion deadline.
+    ///
+    #[must_use]
+    pub const fn network_timeout(mut self, timeout: Duration) -> Self {
+        self.network_timeout = Some(timeout);
         self
     }
 
     /// Overrides the complete physical-settlement budget for targeted
-    /// operations. This is independent of the protocol completion timeout.
+    /// operations. This is independent of the protocol response deadline.
     #[must_use]
     pub const fn settlement_timeout(mut self, timeout: Duration) -> Self {
         self.settlement_timeout = Some(timeout);
@@ -415,8 +672,24 @@ impl OperationalTuning {
         self.ack_timeout
     }
 
-    pub(crate) const fn completion_timeout_override(self) -> Option<Duration> {
-        self.completion_timeout
+    pub(crate) const fn quick_timeout_override(self) -> Option<Duration> {
+        self.quick_timeout
+    }
+
+    pub(crate) const fn movement_timeout_override(self) -> Option<Duration> {
+        self.movement_timeout
+    }
+
+    pub(crate) const fn preset_timeout_override(self) -> Option<Duration> {
+        self.preset_timeout
+    }
+
+    pub(crate) const fn long_running_timeout_override(self) -> Option<Duration> {
+        self.long_running_timeout
+    }
+
+    pub(crate) const fn network_timeout_override(self) -> Option<Duration> {
+        self.network_timeout
     }
 
     pub(crate) const fn settlement_timeout_override(self) -> Option<Duration> {
@@ -617,6 +890,12 @@ impl ProfileSpec {
         self.timing
     }
 
+    /// Returns the validated per-category command completion deadlines.
+    #[must_use]
+    pub const fn command_timeouts(&self) -> CommandTimeouts {
+        self.timing.command_timeouts()
+    }
+
     /// Returns the maximum number of camera command sockets.
     #[must_use]
     pub const fn maximum_command_sockets(&self) -> u8 {
@@ -663,6 +942,51 @@ impl ProfileSpec {
 
     /// Validates operational overrides without changing profile safety facts.
     pub fn validate_tuning(&self, tuning: OperationalTuning) -> Result<()> {
+        let now = Instant::now();
+        let tuning_values = [
+            tuning.command_spacing,
+            tuning.inquiry_spacing,
+            tuning.ack_timeout,
+            tuning.quick_timeout,
+            tuning.movement_timeout,
+            tuning.preset_timeout,
+            tuning.long_running_timeout,
+            tuning.network_timeout,
+            tuning.settlement_timeout,
+            tuning.inquiry_timeout,
+            tuning.initial_retry_backoff,
+            tuning.maximum_retry_backoff,
+            tuning.retry_budget,
+        ];
+        if tuning_values
+            .into_iter()
+            .flatten()
+            .any(|duration| !monotonic_duration_is_representable(now, duration))
+        {
+            return Err(Error::InvalidRequest(
+                "operational timing overrides must be representable by the monotonic clock".into(),
+            ));
+        }
+
+        // Command and inquiry overrides feed the same derived retry-budget
+        // calculation as their profile-owned counterparts.
+        if [
+            tuning.quick_timeout,
+            tuning.movement_timeout,
+            tuning.preset_timeout,
+            tuning.long_running_timeout,
+            tuning.network_timeout,
+            tuning.inquiry_timeout,
+        ]
+        .into_iter()
+        .flatten()
+        .any(|deadline| !retry_budget_is_representable(now, deadline))
+        {
+            return Err(Error::InvalidRequest(
+                "operational retry deadlines must be representable by the monotonic clock".into(),
+            ));
+        }
+
         if tuning
             .command_spacing
             .is_some_and(|value| value < self.timing.minimum_command_spacing)
@@ -684,7 +1008,11 @@ impl ProfileSpec {
         }
         if [
             tuning.ack_timeout,
-            tuning.completion_timeout,
+            tuning.quick_timeout,
+            tuning.movement_timeout,
+            tuning.preset_timeout,
+            tuning.long_running_timeout,
+            tuning.network_timeout,
             tuning.settlement_timeout,
             tuning.inquiry_timeout,
         ]
@@ -700,11 +1028,20 @@ impl ProfileSpec {
             .ack_timeout
             .is_some_and(|timeout| timeout < self.timing.ack_timeout)
             || tuning
-                .completion_timeout
-                .is_some_and(|timeout| timeout < self.timing.completion_timeout)
+                .quick_timeout
+                .is_some_and(|timeout| timeout < self.timing.command_timeouts.quick_timeout())
             || tuning
-                .settlement_timeout
-                .is_some_and(|timeout| timeout < self.timing.completion_timeout)
+                .movement_timeout
+                .is_some_and(|timeout| timeout < self.timing.command_timeouts.movement_timeout())
+            || tuning
+                .preset_timeout
+                .is_some_and(|timeout| timeout < self.timing.command_timeouts.preset_timeout())
+            || tuning.long_running_timeout.is_some_and(|timeout| {
+                timeout < self.timing.command_timeouts.long_running_timeout()
+            })
+            || tuning
+                .network_timeout
+                .is_some_and(|timeout| timeout < self.timing.command_timeouts.network_timeout())
             || tuning
                 .inquiry_timeout
                 .is_some_and(|timeout| timeout < self.timing.inquiry_timeout)
@@ -749,7 +1086,7 @@ impl ProfileSpec {
         Ok(())
     }
 
-    fn validate(self) -> Result<Self> {
+    fn validate(mut self) -> Result<Self> {
         fn range_ordered<T: PartialOrd>(range: &std::ops::RangeInclusive<T>) -> bool {
             range.start() <= range.end()
         }
@@ -780,16 +1117,7 @@ impl ProfileSpec {
                     .into(),
             ));
         }
-        if self.timing.ack_timeout.is_zero()
-            || self.timing.completion_timeout.is_zero()
-            || self.timing.inquiry_timeout.is_zero()
-            || self.timing.cancellation_timeout.is_zero()
-            || self.timing.ambiguity_timeout.is_zero()
-        {
-            return Err(Error::InvalidRequest(
-                "all profile protocol timeouts must be non-zero".into(),
-            ));
-        }
+        self.timing = self.timing.validate()?;
         if !(1..=2).contains(&self.maximum_command_sockets) {
             return Err(Error::InvalidRequest(
                 "profile command socket limit must be one or two".into(),
@@ -1408,7 +1736,7 @@ impl ProfileSpecBuilder {
             ),
             timing: Some(ProfileTiming {
                 ack_timeout: P::ACK_TIMEOUT,
-                completion_timeout: P::COMPLETION_TIMEOUT,
+                command_timeouts: P::COMMAND_TIMEOUTS,
                 inquiry_timeout: P::INQUIRY_TIMEOUT,
                 cancellation_timeout: P::CANCELLATION_TIMEOUT,
                 ambiguity_timeout: P::AMBIGUITY_TIMEOUT,
@@ -1580,28 +1908,8 @@ impl ProfileSpecBuilder {
 
     /// Sets immutable timing and pacing facts.
     #[must_use]
-    #[allow(clippy::too_many_arguments)]
-    pub fn timing(
-        mut self,
-        ack_timeout: Duration,
-        completion_timeout: Duration,
-        inquiry_timeout: Duration,
-        cancellation_timeout: Duration,
-        ambiguity_timeout: Duration,
-        busy_timeout: Duration,
-        minimum_inquiry_spacing: Duration,
-        minimum_command_spacing: Duration,
-    ) -> Self {
-        self.timing = Some(ProfileTiming {
-            ack_timeout,
-            completion_timeout,
-            inquiry_timeout,
-            cancellation_timeout,
-            ambiguity_timeout,
-            busy_timeout,
-            minimum_inquiry_spacing,
-            minimum_command_spacing,
-        });
+    pub fn timing(mut self, timing: ProfileTiming) -> Self {
+        self.timing = Some(timing);
         self
     }
 
@@ -1635,12 +1943,13 @@ impl ProfileSpecBuilder {
                 "capability default ports must exactly match profile transports".into(),
             ));
         }
+        let timing = required(self.timing, "profile timing facts are required")?;
         ProfileSpec {
             capabilities,
             pan_tilt_coordinates: self.pan_tilt_coordinates,
             transports,
             envelope: required(self.envelope, "profile envelope is required")?,
-            timing: required(self.timing, "profile timing facts are required")?,
+            timing,
             maximum_command_sockets: required(
                 self.maximum_command_sockets,
                 "profile command socket limit is required",
@@ -1706,14 +2015,17 @@ mod tests {
             .transports(TransportCompatibility::new(Some(5678), None, false))
             .envelope(ProfileEnvelope::RawVisca)
             .timing(
-                Duration::from_millis(100),
-                Duration::from_secs(5),
-                Duration::from_secs(1),
-                Duration::from_secs(1),
-                Duration::from_secs(1),
-                Duration::ZERO,
-                Duration::from_millis(25),
-                Duration::from_millis(25),
+                ProfileTiming::builder()
+                    .ack_timeout(Duration::from_millis(100))
+                    .command_timeouts(CommandTimeouts::default())
+                    .inquiry_timeout(Duration::from_secs(1))
+                    .cancellation_timeout(Duration::from_secs(1))
+                    .ambiguity_timeout(Duration::from_secs(1))
+                    .busy_timeout(Duration::ZERO)
+                    .minimum_inquiry_spacing(Duration::from_millis(25))
+                    .minimum_command_spacing(Duration::from_millis(25))
+                    .build()
+                    .expect("valid timing"),
             )
             .maximum_command_sockets(1)
             .supports_operation_complete(false)
@@ -1727,14 +2039,17 @@ mod tests {
             .transports(TransportCompatibility::new(Some(5678), None, false))
             .envelope(ProfileEnvelope::RawVisca)
             .timing(
-                Duration::from_millis(100),
-                Duration::from_secs(5),
-                Duration::from_secs(1),
-                Duration::from_secs(1),
-                Duration::from_secs(1),
-                Duration::ZERO,
-                Duration::ZERO,
-                Duration::ZERO,
+                ProfileTiming::builder()
+                    .ack_timeout(Duration::from_millis(100))
+                    .command_timeouts(CommandTimeouts::default())
+                    .inquiry_timeout(Duration::from_secs(1))
+                    .cancellation_timeout(Duration::from_secs(1))
+                    .ambiguity_timeout(Duration::from_secs(1))
+                    .busy_timeout(Duration::ZERO)
+                    .minimum_inquiry_spacing(Duration::ZERO)
+                    .minimum_command_spacing(Duration::ZERO)
+                    .build()
+                    .expect("valid timing"),
             )
             .maximum_command_sockets(1)
             .supports_operation_complete(false)
@@ -1796,6 +2111,206 @@ mod tests {
     }
 
     #[test]
+    fn command_timeout_values_match_defaults_and_registry_facts() {
+        let defaults = CommandTimeouts::default();
+        assert_eq!(defaults.quick_timeout(), Duration::from_secs(5));
+        assert_eq!(defaults.movement_timeout(), Duration::from_secs(30));
+        assert_eq!(defaults.preset_timeout(), Duration::from_secs(60));
+        assert_eq!(defaults.long_running_timeout(), Duration::from_secs(300));
+        assert_eq!(defaults.network_timeout(), Duration::from_secs(5));
+
+        let g2 = ProfileSpec::from_compile_time::<crate::profiles::PtzOpticsG2>()
+            .expect("built-in profile");
+        assert_eq!(g2.command_timeouts(), defaults);
+        let generic = ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()
+            .expect("generic profile");
+        assert_eq!(
+            generic.command_timeouts(),
+            CommandTimeouts::new(
+                Duration::from_secs(10),
+                Duration::from_secs(30),
+                Duration::from_secs(60),
+                Duration::from_secs(300),
+                Duration::from_secs(10),
+            )
+        );
+    }
+
+    #[test]
+    fn profile_timing_builder_requires_all_facts_and_preserves_values() {
+        assert!(ProfileTiming::builder().build().is_err());
+
+        let timing = ProfileTiming::builder()
+            .ack_timeout(Duration::from_millis(100))
+            .command_timeouts(CommandTimeouts::default())
+            .inquiry_timeout(Duration::from_secs(1))
+            .cancellation_timeout(Duration::from_secs(2))
+            .ambiguity_timeout(Duration::from_secs(3))
+            .busy_timeout(Duration::from_secs(4))
+            .minimum_inquiry_spacing(Duration::from_millis(25))
+            .minimum_command_spacing(Duration::from_millis(50))
+            .build()
+            .expect("complete timing facts");
+
+        assert_eq!(timing.ack_timeout(), Duration::from_millis(100));
+        assert_eq!(timing.command_timeouts(), CommandTimeouts::default());
+        assert_eq!(timing.inquiry_timeout(), Duration::from_secs(1));
+        assert_eq!(timing.cancellation_timeout(), Duration::from_secs(2));
+        assert_eq!(timing.ambiguity_timeout(), Duration::from_secs(3));
+        assert_eq!(timing.busy_timeout(), Duration::from_secs(4));
+        assert_eq!(timing.minimum_inquiry_spacing(), Duration::from_millis(25));
+        assert_eq!(timing.minimum_command_spacing(), Duration::from_millis(50));
+
+        assert!(ProfileTiming::builder()
+            .ack_timeout(Duration::ZERO)
+            .command_timeouts(CommandTimeouts::default())
+            .inquiry_timeout(Duration::from_secs(1))
+            .cancellation_timeout(Duration::from_secs(1))
+            .ambiguity_timeout(Duration::from_secs(1))
+            .busy_timeout(Duration::ZERO)
+            .minimum_inquiry_spacing(Duration::ZERO)
+            .minimum_command_spacing(Duration::ZERO)
+            .build()
+            .is_err());
+    }
+
+    #[test]
+    fn profile_timing_rejects_unrepresentable_deadlines_and_spacing() {
+        let complete = || {
+            ProfileTiming::builder()
+                .ack_timeout(Duration::from_millis(100))
+                .command_timeouts(CommandTimeouts::default())
+                .inquiry_timeout(Duration::from_secs(1))
+                .cancellation_timeout(Duration::from_secs(1))
+                .ambiguity_timeout(Duration::from_secs(1))
+                .busy_timeout(Duration::ZERO)
+                .minimum_inquiry_spacing(Duration::ZERO)
+                .minimum_command_spacing(Duration::ZERO)
+        };
+
+        for result in [
+            complete().ack_timeout(Duration::MAX).build(),
+            complete().inquiry_timeout(Duration::MAX).build(),
+            complete().cancellation_timeout(Duration::MAX).build(),
+            complete().ambiguity_timeout(Duration::MAX).build(),
+            complete().busy_timeout(Duration::MAX).build(),
+            complete().minimum_inquiry_spacing(Duration::MAX).build(),
+            complete().minimum_command_spacing(Duration::MAX).build(),
+        ] {
+            assert!(result.is_err());
+        }
+
+        let default = CommandTimeouts::default();
+        let command_timeout_cases = [
+            CommandTimeouts::new(
+                Duration::MAX,
+                default.movement_timeout(),
+                default.preset_timeout(),
+                default.long_running_timeout(),
+                default.network_timeout(),
+            ),
+            CommandTimeouts::new(
+                default.quick_timeout(),
+                Duration::MAX,
+                default.preset_timeout(),
+                default.long_running_timeout(),
+                default.network_timeout(),
+            ),
+            CommandTimeouts::new(
+                default.quick_timeout(),
+                default.movement_timeout(),
+                Duration::MAX,
+                default.long_running_timeout(),
+                default.network_timeout(),
+            ),
+            CommandTimeouts::new(
+                default.quick_timeout(),
+                default.movement_timeout(),
+                default.preset_timeout(),
+                Duration::MAX,
+                default.network_timeout(),
+            ),
+            CommandTimeouts::new(
+                default.quick_timeout(),
+                default.movement_timeout(),
+                default.preset_timeout(),
+                default.long_running_timeout(),
+                Duration::MAX,
+            ),
+        ];
+        for command_timeouts in command_timeout_cases {
+            assert!(complete()
+                .command_timeouts(command_timeouts)
+                .build()
+                .is_err());
+        }
+    }
+
+    #[test]
+    fn ordinary_five_minute_long_running_deadline_remains_valid() {
+        let timing = ProfileTiming::builder()
+            .ack_timeout(Duration::from_millis(100))
+            .command_timeouts(CommandTimeouts::new(
+                Duration::from_secs(5),
+                Duration::from_secs(30),
+                Duration::from_secs(60),
+                Duration::from_secs(300),
+                Duration::from_secs(5),
+            ))
+            .inquiry_timeout(Duration::from_secs(1))
+            .cancellation_timeout(Duration::from_secs(1))
+            .ambiguity_timeout(Duration::from_secs(1))
+            .busy_timeout(Duration::ZERO)
+            .minimum_inquiry_spacing(Duration::ZERO)
+            .minimum_command_spacing(Duration::ZERO)
+            .build()
+            .expect("ordinary five-minute LongRunning deadline is representable");
+
+        assert_eq!(
+            timing.command_timeouts().long_running_timeout(),
+            Duration::from_secs(300)
+        );
+    }
+
+    #[test]
+    fn runtime_command_timeout_values_are_explicit_and_nonzero_validated() {
+        let exact = CommandTimeouts::new(
+            Duration::from_secs(6),
+            Duration::from_secs(7),
+            Duration::from_secs(8),
+            Duration::from_secs(9),
+            Duration::from_secs(10),
+        );
+        let profile = runtime_builder(valid_runtime_capabilities())
+            .timing(
+                ProfileTiming::builder()
+                    .ack_timeout(Duration::from_millis(100))
+                    .command_timeouts(exact)
+                    .inquiry_timeout(Duration::from_secs(1))
+                    .cancellation_timeout(Duration::from_secs(1))
+                    .ambiguity_timeout(Duration::from_secs(1))
+                    .busy_timeout(Duration::ZERO)
+                    .minimum_inquiry_spacing(Duration::from_millis(25))
+                    .minimum_command_spacing(Duration::from_millis(25))
+                    .build()
+                    .expect("valid timing"),
+            )
+            .build()
+            .expect("exact runtime category values");
+        assert_eq!(profile.command_timeouts(), exact);
+
+        assert!(CommandTimeouts::new(
+            Duration::ZERO,
+            Duration::from_secs(1),
+            Duration::from_secs(1),
+            Duration::from_secs(1),
+            Duration::from_secs(1),
+        )
+        .validate()
+        .is_err());
+    }
+
+    #[test]
     fn tuning_cannot_weaken_pacing_or_raise_socket_capacity() {
         let profile = runtime_builder(valid_runtime_capabilities())
             .build()
@@ -1810,11 +2325,42 @@ mod tests {
             .validate_tuning(OperationalTuning::new().ack_timeout(Duration::from_nanos(1)))
             .is_err());
         assert!(profile
-            .validate_tuning(OperationalTuning::new().completion_timeout(Duration::from_nanos(1)))
-            .is_err());
-        assert!(profile
             .validate_tuning(OperationalTuning::new().inquiry_timeout(Duration::from_nanos(1)))
             .is_err());
+        for tuning in [
+            OperationalTuning::new().quick_timeout(Duration::from_nanos(1)),
+            OperationalTuning::new().movement_timeout(Duration::from_nanos(1)),
+            OperationalTuning::new().preset_timeout(Duration::from_nanos(1)),
+            OperationalTuning::new().long_running_timeout(Duration::from_nanos(1)),
+            OperationalTuning::new().network_timeout(Duration::from_nanos(1)),
+        ] {
+            assert!(profile.validate_tuning(tuning).is_err());
+        }
+        assert!(profile
+            .validate_tuning(OperationalTuning::new().quick_timeout(Duration::ZERO))
+            .is_err());
+    }
+
+    #[test]
+    fn tuning_rejects_unrepresentable_deadline_and_spacing_overrides() {
+        let profile = runtime_builder(valid_runtime_capabilities())
+            .build()
+            .expect("valid runtime profile");
+
+        for tuning in [
+            OperationalTuning::new().command_spacing(Duration::MAX),
+            OperationalTuning::new().inquiry_spacing(Duration::MAX),
+            OperationalTuning::new().ack_timeout(Duration::MAX),
+            OperationalTuning::new().quick_timeout(Duration::MAX),
+            OperationalTuning::new().movement_timeout(Duration::MAX),
+            OperationalTuning::new().preset_timeout(Duration::MAX),
+            OperationalTuning::new().long_running_timeout(Duration::MAX),
+            OperationalTuning::new().network_timeout(Duration::MAX),
+            OperationalTuning::new().settlement_timeout(Duration::MAX),
+            OperationalTuning::new().inquiry_timeout(Duration::MAX),
+        ] {
+            assert!(profile.validate_tuning(tuning).is_err());
+        }
     }
 
     /// Issue #636: an absurd retry budget used to invert into *fewer* retries
@@ -1897,14 +2443,19 @@ mod tests {
             .transports(base.transports())
             .envelope(base.envelope())
             .timing(
-                timing.ack_timeout(),
-                timing.completion_timeout(),
-                timing.inquiry_timeout(),
-                timing.cancellation_timeout(),
-                timing.ambiguity_timeout(),
-                timing.busy_timeout(),
-                timing.minimum_inquiry_spacing(),
-                timing.minimum_command_spacing() + Duration::from_millis(1),
+                ProfileTiming::builder()
+                    .ack_timeout(timing.ack_timeout())
+                    .command_timeouts(timing.command_timeouts())
+                    .inquiry_timeout(timing.inquiry_timeout())
+                    .cancellation_timeout(timing.cancellation_timeout())
+                    .ambiguity_timeout(timing.ambiguity_timeout())
+                    .busy_timeout(timing.busy_timeout())
+                    .minimum_inquiry_spacing(timing.minimum_inquiry_spacing())
+                    .minimum_command_spacing(
+                        timing.minimum_command_spacing() + Duration::from_millis(1),
+                    )
+                    .build()
+                    .expect("valid altered timing"),
             )
             .maximum_command_sockets(base.maximum_command_sockets())
             .supports_operation_complete(base.supports_operation_complete())
@@ -2155,14 +2706,17 @@ mod tests {
             .transports(TransportCompatibility::new(Some(5678), None, false))
             .envelope(ProfileEnvelope::RawVisca)
             .timing(
-                Duration::from_millis(100),
-                Duration::from_secs(5),
-                Duration::from_secs(1),
-                Duration::from_secs(1),
-                Duration::from_secs(1),
-                Duration::ZERO,
-                Duration::ZERO,
-                Duration::ZERO,
+                ProfileTiming::builder()
+                    .ack_timeout(Duration::from_millis(100))
+                    .command_timeouts(CommandTimeouts::default())
+                    .inquiry_timeout(Duration::from_secs(1))
+                    .cancellation_timeout(Duration::from_secs(1))
+                    .ambiguity_timeout(Duration::from_secs(1))
+                    .busy_timeout(Duration::ZERO)
+                    .minimum_inquiry_spacing(Duration::ZERO)
+                    .minimum_command_spacing(Duration::ZERO)
+                    .build()
+                    .expect("valid timing"),
             )
             .maximum_command_sockets(1)
             .supports_operation_complete(false)

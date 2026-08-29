@@ -309,7 +309,7 @@ async fn handle_default_and_per_submission_override<E: Executor>(executor: E) {
 }
 
 /// A typed stop retains its urgent safety class under both QoS override forms.
-async fn urgent_is_demoted_only_by_an_explicit_class<E: Executor>(executor: E) {
+async fn urgent_cannot_be_demoted_by_any_submission_override<E: Executor>(executor: E) {
     let (transport, probe) = LaneTransport::new();
     let session = Session::open(transport, g2_config(), executor.clone())
         .await
@@ -477,7 +477,7 @@ async fn tokio_submission_class_matrix() {
     let executor = grafton_visca::TokioRuntime::from_current().expect("Tokio runtime");
     background_yields_to_a_later_user_submission(executor.clone()).await;
     handle_default_and_per_submission_override(executor.clone()).await;
-    urgent_is_demoted_only_by_an_explicit_class(executor.clone()).await;
+    urgent_cannot_be_demoted_by_any_submission_override(executor.clone()).await;
     classified_execute_reaches_the_wire(executor.clone()).await;
     #[cfg(feature = "dyn-api")]
     dyn_projection_has_the_same_surface(executor).await;
@@ -490,7 +490,7 @@ fn smol_submission_class_matrix() {
         let executor = grafton_visca::SmolRuntime::new();
         background_yields_to_a_later_user_submission(executor).await;
         handle_default_and_per_submission_override(executor).await;
-        urgent_is_demoted_only_by_an_explicit_class(executor).await;
+        urgent_cannot_be_demoted_by_any_submission_override(executor).await;
         classified_execute_reaches_the_wire(executor).await;
         #[cfg(feature = "dyn-api")]
         dyn_projection_has_the_same_surface(executor).await;

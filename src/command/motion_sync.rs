@@ -28,8 +28,6 @@ impl SetMotionSyncMode {
 }
 
 impl WireEncode for SetMotionSyncMode {
-    const MAX_SIZE: usize = 6;
-
     fn write_into(
         &self,
         camera_id: crate::camera_id::CameraId,
@@ -94,8 +92,6 @@ impl SetMotionSyncPreset {
 }
 
 impl WireEncode for SetMotionSyncPreset {
-    const MAX_SIZE: usize = 6;
-
     fn write_into(
         &self,
         camera_id: crate::camera_id::CameraId,

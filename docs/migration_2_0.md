@@ -56,8 +56,8 @@ migrate from wherever you are now:
   `blocking::CameraSession::open(transport, &CameraConfig::<P>::new())` for the
   single-camera bind.
 * 1.x per-handle state on `BlockingClient` is not per-handle in 2.0. Camera ID
-  is a registered target on `SessionConfig`, and timeouts are
-  `CameraConfig::timeouts`.
+  is a registered target on `SessionConfig`, and timeout overrides are supplied
+  to `CameraConfig::with_tuning`.
 
 The 1.2.0 `CameraSession` **async** surface was never deprecated and maps to
 the async `Session` / `CameraSession<P>` rows above.
@@ -344,7 +344,7 @@ Both forms are demonstrated end to end in `examples/operation_handles.rs` and
 | Public `camera::*`, `command::*`, `protocol::*`, response, cache, runtime, or transport implementation modules | Supported root/module exports and owner methods. Implementation submodules are not extension points. |
 | `diagnostics::Diagnostics`/probe-style compatibility API | `Session::metrics`, async `subscribe_diagnostics`, and blocking `drain_diagnostics`. |
 | Legacy mutable `cache::StateCache` | Owner-backed read-only root `StateCache`; use `target()` and `value(StateKey)`. |
-| `Camera::set_timeout_config` / `timeout_config` | `Session::set_tuning` / `tuning` (and the same pair on `CameraSession`), taking an `OperationalTuning` instead of a `TimeoutConfig`. See [Reconfiguring timeouts at runtime](#reconfiguring-timeouts-at-runtime) — the scope is narrower than 1.2.0's. |
+| 1.x `Camera::set_timeout_config` / `timeout_config` | `Session::set_tuning` / `tuning` (and the same pair on `CameraSession`), taking an `OperationalTuning`. Standard `CameraConfig` construction uses `with_tuning`. See [Reconfiguring timeouts at runtime](#reconfiguring-timeouts-at-runtime). |
 
 Serialization features (`serde`, `schemars`, `ts-rs`) remain opt-in data-shape
 features. They do not reopen private modules or create a second semantic
@@ -353,15 +353,35 @@ registry. `test-utils` is for deterministic tests, not production construction.
 ### Reconfiguring timeouts at runtime
 
 1.2.0's `Camera::set_timeout_config` took a `TimeoutConfig`; 2.0's
-`Session::set_tuning` takes an `OperationalTuning`, which is the same knob
-lowered onto the owner's own vocabulary. The mapping is direct:
+`Session::set_tuning` takes an `OperationalTuning`. The historical category
+fields map directly to the corresponding tuning methods:
 
 | 1.2.0 `TimeoutConfig` field | 2.0 `OperationalTuning` builder |
 | --- | --- |
 | `ack_timeout` | `ack_timeout` |
-| `movement_timeout`, `preset_timeout`, `long_timeout`, `default_timeout` | `completion_timeout` (the owner has one completion budget; use the largest of the 1.x values) and `settlement_timeout` for the physical-settling budget |
-| `quick_timeout`, `network_timeout` | `inquiry_timeout` |
+| `quick_timeout` | `quick_timeout` (an individual command-category override) |
+| `movement_timeout` | `movement_timeout` |
+| `preset_timeout` | `preset_timeout` |
+| `long_timeout` | `long_running_timeout` |
+| `network_timeout` | `network_timeout` |
+| `default_timeout` | No direct counterpart: every 2.0 request selects a `TimeoutClass`; set the corresponding category deadline. |
+| *(no 1.x field)* | `settlement_timeout` for the physical-settling budget; `inquiry_timeout` remains the profile inquiry-response deadline |
 | `RetryConfig::max_retries`, `base_retry_delay`, `max_retry_duration` | `retry_limit` and `retry_timing` |
+
+`CommandTimeouts` is the profile's exact command policy. Its default table
+preserves the 1.x values (Quick 5 seconds, Movement 30 seconds, Preset 60
+seconds, LongRunning 300 seconds, and Network 5 seconds); each built-in
+profile records its exact category values explicitly. An operational category
+override must be non-zero and cannot undercut that category's profile value.
+Inquiries declare `TimeoutClass::Inquiry` and use `inquiry_timeout`; command
+Quick and Network values are never inquiry deadlines.
+Retry counts remain category-based, but v2 deliberately makes replay depend on
+correlation evidence. Backoff begins at 50 ms by default, uses deterministic
+equal jitter, and is capped at the larger of 500 ms and the profile busy
+timeout. One admission-to-terminal retry budget remains active through every
+later noncancelled phase and is the largest of ten seconds, twice the request's
+governing deadline, and the profile busy timeout. `retry_timing` may make those
+bounds more conservative; it cannot make an ambiguous raw replay safe.
 
 Two differences matter in practice.
 

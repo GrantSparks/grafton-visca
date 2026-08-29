@@ -9,8 +9,8 @@ use grafton_visca::{
     },
     command::ExposureMode,
     transport::RawVisca,
-    AffectedAxes, CompileTimeProfile, PositionInquirySupport, TransportCompatibility,
-    WhiteBalanceMode,
+    AffectedAxes, CommandTimeouts, CompileTimeProfile, PositionInquirySupport,
+    TransportCompatibility, WhiteBalanceMode,
 };
 
 const EXPOSURE_MODES: &[ExposureMode] = &[
@@ -47,7 +47,13 @@ macro_rules! synthetic_profile_impl {
             const DEFAULT_CAMERA_ID: u8 = 1;
             type Envelope = RawVisca;
             const ACK_TIMEOUT: Duration = Duration::from_millis(100);
-            const COMPLETION_TIMEOUT: Duration = Duration::from_millis(1_000);
+            const COMMAND_TIMEOUTS: CommandTimeouts = CommandTimeouts::new(
+                Duration::from_secs(5),
+                Duration::from_secs(30),
+                Duration::from_secs(60),
+                Duration::from_secs(300),
+                Duration::from_secs(5),
+            );
             const INQUIRY_SUPPORT: InquirySupport = InquirySupport::Full;
         }
 

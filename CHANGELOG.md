@@ -75,8 +75,8 @@ destination.
   inquiries, since 2.0 queues them in the same lanes; owner-internal settlement
   polling and motion observation keep their built-in class.
   `docs/migration_2_0.md` maps `Priority` to `SubmissionClass` and explains why
-  `Priority::Critical` becomes request-owned safety metadata. The notes on
-  `runtime::testing::Priority`, which has no 2.0 equivalent and needs none.
+  `Priority::Critical` becomes request-owned safety metadata, and notes that
+  `runtime::testing::Priority` has no 2.0 equivalent.
 
 - Restored `image().disable_noise_reduction_2d()` and
   `image().disable_noise_reduction_3d()` on all three noun surfaces (#651).
@@ -442,9 +442,10 @@ destination.
   down. The multi-camera `Session`/`camera_for` path is unchanged.
 - Sized the retry budget against the request's own deadline (#566). It was two
   seconds, shorter than every profile's completion deadline, so re-enabling
-  completion retries alone would have changed nothing. The budget is now
-  1.x's ten seconds or twice the request's governing deadline, whichever is
-  larger, which admits exactly one further full-length attempt.
+  completion retries alone would have changed nothing. The default budget is
+  now the largest of 1.x's ten seconds, twice the request's governing deadline,
+  and the profile's busy timeout. This leaves room for at least one further
+  full-length attempt whenever retry policy and correlation evidence permit it.
 - Restored the ACK backoff exponent cap and added deterministic backoff jitter
   (#566). 1.x capped the ACK backoff exponent at five — 32x the initial delay —
   and left completion, inquiry, protocol-error and transport-fault retries
@@ -523,12 +524,12 @@ destination.
 - **Removed the 1.2.0 command-priority *vocabulary*** (#630).
   `runtime::Priority`, `Camera::set_command_priority` / `command_priority` /
   `execute_with_priority`, their `BlockingClient` mirrors, and
-  `runtime::testing::Priority` are all gone. The capability is not: the four
-  dispatch lanes are now selected through `ControlClass` itself — see the
-  submission-priority entry under Added — and `docs/migration_2_0.md` carries
-  the `Priority` → `ControlClass` mapping. `runtime::testing::Priority` has no
-  replacement and needs none, because `ControlClass` is public in every build
-  configuration.
+  `runtime::testing::Priority` are all gone. Public submission QoS now uses
+  `SubmissionClass`, which exposes only the lower three dispatch lanes; the
+  owner's urgent safety lane remains intrinsic request metadata and cannot be
+  selected or demoted by callers. See the submission-priority entry under
+  Added and the `Priority` → `SubmissionClass` mapping in
+  `docs/migration_2_0.md`. `runtime::testing::Priority` has no replacement.
 - **Removed `BlockingClient`** (#542). The blocking facade is owner-backed:
   `blocking::Connect`, `blocking::CameraConfig`, and
   `blocking::Session::open` build a `blocking::Session`, and
@@ -779,10 +780,11 @@ destination.
   session die from its own operation and immediately asked a follow-up question
   — `metrics`, `snapshot`, `subscribe_applied`, `subscribe_diagnostics`,
   `cancel` or `submit`. Every boundary wait is now raced against a liveness lane
-  that disconnects when the actor task ends, and re-checks the reply once it
-  does, so a message the drain *did* answer still returns its real answer while
-  a stranded one returns the session's terminal error promptly. The drain itself
-  now loops until one whole pass finds every lane empty.
+  that disconnects after the actor finishes its boundary drain and drops its
+  driver, and re-checks the reply once it does, so a message the drain *did*
+  answer still returns its real answer while a stranded one returns the
+  session's terminal error promptly. The drain itself now loops until one whole
+  pass finds every lane empty.
 - **The async owner no longer kills the session over one malformed datagram**
   (#637). A single undecodable datagram — a stray `01 41 ff` carrying a
   controller source byte no camera ever sends — terminated the whole async
@@ -864,9 +866,8 @@ destination.
   newly admitted request is terminalized as `Error::TransportBusy` and no
   handle escapes. Ordinary blocking commands, inquiries, and owner-internal
   requests retain bounded queueing; async operation submissions remain
-  queue-allowed as before. Admission capacity (`max_pending_queue_depth`)
-  still bounds that queue and reports `Error::RuntimeQueueFull` when genuinely
-  exhausted.
+  queue-allowed as before. `SessionConfig::admission_capacity` still bounds
+  that queue and reports `Error::RuntimeQueueFull` when genuinely exhausted.
 - Fixed the async owner terminating a session when a byte-stream read carried
   bytes without finishing a VISCA frame (#560). The actor treated the resulting
   empty decoded batch as end of stream and failed every in-flight request, so a

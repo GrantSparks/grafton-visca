@@ -18,11 +18,11 @@
 //!   meaningful settled target; and
 //! * configuration, mode selection, and stored-state edits are plain.
 //!
-//! The first three movement axes mirror [`crate::AffectedAxes`].  Iris and ND
+//! The first three movement axes mirror [`crate::AffectedAxes`]. Iris and ND
 //! filter are included here because their commands physically reposition a
 //! lens/filter and both have exact position inquiries in the built-in inquiry
-//! inventory.  They are intentionally not silently mapped to an all-axis
-//! movement query.  The later preparation phase must add matching profile
+//! inventory. They are intentionally not silently mapped to an all-axis
+//! movement query. The later preparation phase must add matching profile
 //! inquiry facts before exposing targeted iris/ND requests.
 //!
 //! The production typed-request lowering consumes this ledger through the
@@ -49,7 +49,6 @@ pub type BuiltinAxes = crate::AffectedAxes;
 
 /// Exact axis selection for an operation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-// Ledger row awaiting the `prepared` lowering; see the module note (#636).
 #[allow(dead_code)]
 pub enum BuiltinAxisSelection {
     /// The command always affects this exact non-empty set.
@@ -61,7 +60,6 @@ pub enum BuiltinAxisSelection {
     ProfilePresetRecall,
 }
 
-// Ledger row awaiting the `prepared` lowering; see the module note (#636).
 #[allow(dead_code)]
 impl BuiltinAxisSelection {
     /// Returns whether this selection is known to be non-empty.
@@ -82,87 +80,6 @@ impl BuiltinAxisSelection {
     }
 }
 
-/// Built-in command families/domains audited by this ledger.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-// Ledger row awaiting the `prepared` lowering; see the module note (#636).
-#[allow(dead_code)]
-pub enum BuiltinCommandDomain {
-    /// Pan/tilt movement and limits.
-    PanTilt,
-    /// Zoom movement and digital-zoom mode.
-    Zoom,
-    /// Focus movement and focus configuration.
-    Focus,
-    /// Preset memory operations.
-    Presets,
-    /// Power state commands.
-    Power,
-    /// Exposure-mode and exposure-compensation settings.
-    Exposure,
-    /// Iris/aperture mechanism.
-    Iris,
-    /// Electronic shutter settings.
-    Shutter,
-    /// Brightness settings.
-    Brightness,
-    /// Gain settings.
-    Gain,
-    /// White-balance mode and sensitivity.
-    WhiteBalance,
-    /// Color-temperature and color-channel settings.
-    Color,
-    /// Image processing and orientation settings.
-    Image,
-    /// Neutral-density filter settings and mechanism.
-    NdFilter,
-    /// Tally-light settings.
-    Tally,
-    /// On-screen menu controls.
-    Menu,
-    /// Streaming and USB-audio controls.
-    Streaming,
-    /// Address, interface, cancellation, and settings persistence.
-    System,
-    /// Motion-sync configuration.
-    MotionSync,
-    /// Pan/tilt variable-speed mode configuration.
-    VariableSpeed,
-}
-
-// Ledger row awaiting the `prepared` lowering; see the module note (#636).
-#[allow(dead_code)]
-impl BuiltinCommandDomain {
-    /// Every audited built-in command domain.
-    pub const ALL: &[Self] = &[
-        Self::PanTilt,
-        Self::Zoom,
-        Self::Focus,
-        Self::Presets,
-        Self::Power,
-        Self::Exposure,
-        Self::Iris,
-        Self::Shutter,
-        Self::Brightness,
-        Self::Gain,
-        Self::WhiteBalance,
-        Self::Color,
-        Self::Image,
-        Self::NdFilter,
-        Self::Tally,
-        Self::Menu,
-        Self::Streaming,
-        Self::System,
-        Self::MotionSync,
-        Self::VariableSpeed,
-    ];
-
-    /// Returns every audited built-in command domain.
-    #[must_use]
-    pub const fn all() -> &'static [Self] {
-        Self::ALL
-    }
-}
-
 /// Private semantic spelling for the public [`crate::state_cache::StateKey`].
 ///
 /// Keeping this alias in the ledger preserves the existing internal naming
@@ -172,11 +89,10 @@ pub(crate) use crate::state_cache::StateKey as WriteOnlyState;
 
 /// Required cache projection for one write-only state command.
 ///
-/// The value itself is carried by the typed request in a later phase.  This
-/// closed requirement tells preparation whether that value can be written,
+/// The value itself is carried by the typed request. This closed requirement
+/// tells preparation whether that value can be written,
 /// removed, or must be forgotten after exact application.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-// Ledger row awaiting the `prepared` lowering; see the module note (#636).
 #[allow(dead_code)]
 pub enum AppliedStateEffectRequirement {
     /// The request supplies a deterministic replacement value.
@@ -189,7 +105,6 @@ pub enum AppliedStateEffectRequirement {
     Invalidate(WriteOnlyState),
 }
 
-// Ledger row awaiting the `prepared` lowering; see the module note (#636).
 #[allow(dead_code)]
 impl AppliedStateEffectRequirement {
     /// Returns the affected write-only state key.
@@ -213,7 +128,6 @@ impl AppliedStateEffectRequirement {
 
 /// The verb selected by [`AppliedStateEffectRequirement`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-// Ledger row awaiting the `prepared` lowering; see the module note (#636).
 #[allow(dead_code)]
 pub enum AppliedStateEffectKind {
     /// Replace a known cached value.
@@ -230,7 +144,6 @@ pub enum AppliedStateEffectKind {
 /// the enum.  It is therefore impossible for a ledger row to represent an
 /// operation without affected axes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-// Ledger row awaiting the `prepared` lowering; see the module note (#636).
 #[allow(dead_code)]
 pub enum BuiltinRequestClass {
     /// Configuration, mode, persistence, and stored-state edit.
@@ -251,7 +164,6 @@ pub enum BuiltinRequestClass {
     },
 }
 
-// Ledger row awaiting the `prepared` lowering; see the module note (#636).
 #[allow(dead_code)]
 impl BuiltinRequestClass {
     /// Returns whether this is either operation class.
@@ -291,7 +203,6 @@ impl BuiltinRequestClass {
 
 /// Completion class selected by a built-in operation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-// Ledger row awaiting the `prepared` lowering; see the module note (#636).
 #[allow(dead_code)]
 pub enum BuiltinCompletionClass {
     /// Physical motion has a meaningful terminal state.
@@ -548,7 +459,6 @@ where
 /// a semantic decision is a compile error.
 #[allow(missing_docs)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-// Ledger row awaiting the `prepared` lowering; see the module note (#636).
 #[allow(dead_code)]
 pub enum BuiltinCommand {
     // Pan/tilt.
@@ -718,7 +628,85 @@ pub enum BuiltinCommand {
     VariableSpeedMode,
 }
 
-// Ledger row awaiting the `prepared` lowering; see the module note (#636).
+/// Built-in command families/domains audited by this ledger.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[allow(dead_code)]
+pub enum BuiltinCommandDomain {
+    /// Pan/tilt movement and limits.
+    PanTilt,
+    /// Zoom movement and digital-zoom mode.
+    Zoom,
+    /// Focus movement and focus configuration.
+    Focus,
+    /// Preset memory operations.
+    Presets,
+    /// Power state commands.
+    Power,
+    /// Exposure-mode and exposure-compensation settings.
+    Exposure,
+    /// Iris/aperture mechanism.
+    Iris,
+    /// Electronic shutter settings.
+    Shutter,
+    /// Brightness settings.
+    Brightness,
+    /// Gain settings.
+    Gain,
+    /// White-balance mode and sensitivity.
+    WhiteBalance,
+    /// Color-temperature and color-channel settings.
+    Color,
+    /// Image processing and orientation settings.
+    Image,
+    /// Neutral-density filter settings and mechanism.
+    NdFilter,
+    /// Tally-light settings.
+    Tally,
+    /// On-screen menu controls.
+    Menu,
+    /// Streaming and USB-audio controls.
+    Streaming,
+    /// Address, interface, cancellation, and settings persistence.
+    System,
+    /// Motion-sync configuration.
+    MotionSync,
+    /// Pan/tilt variable-speed mode configuration.
+    VariableSpeed,
+}
+
+#[allow(dead_code)]
+impl BuiltinCommandDomain {
+    /// Every audited built-in command domain.
+    pub const ALL: &[Self] = &[
+        Self::PanTilt,
+        Self::Zoom,
+        Self::Focus,
+        Self::Presets,
+        Self::Power,
+        Self::Exposure,
+        Self::Iris,
+        Self::Shutter,
+        Self::Brightness,
+        Self::Gain,
+        Self::WhiteBalance,
+        Self::Color,
+        Self::Image,
+        Self::NdFilter,
+        Self::Tally,
+        Self::Menu,
+        Self::Streaming,
+        Self::System,
+        Self::MotionSync,
+        Self::VariableSpeed,
+    ];
+
+    /// Returns every audited built-in command domain.
+    #[must_use]
+    pub const fn all() -> &'static [Self] {
+        Self::ALL
+    }
+}
+
 #[allow(dead_code)]
 impl BuiltinCommand {
     /// The complete closed command inventory.

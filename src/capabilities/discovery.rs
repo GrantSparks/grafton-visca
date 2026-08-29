@@ -975,7 +975,13 @@ mod tests {
         const DEFAULT_CAMERA_ID: u8 = 1;
         type Envelope = RawVisca;
         const ACK_TIMEOUT: Duration = Duration::from_millis(100);
-        const COMPLETION_TIMEOUT: Duration = Duration::from_millis(1_000);
+        const COMMAND_TIMEOUTS: crate::CommandTimeouts = crate::CommandTimeouts::new(
+            Duration::from_secs(5),
+            Duration::from_secs(30),
+            Duration::from_secs(60),
+            Duration::from_secs(300),
+            Duration::from_secs(5),
+        );
     }
 
     impl PanTilt for MetadataEnabledNoTypedSupport {

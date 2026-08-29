@@ -71,7 +71,13 @@ impl ProfileMetadata for DownstreamProfile {
     const DEFAULT_CAMERA_ID: u8 = 3;
     type Envelope = visca_renamed::transport::RawVisca;
     const ACK_TIMEOUT: Duration = Duration::from_millis(120);
-    const COMPLETION_TIMEOUT: Duration = Duration::from_secs(6);
+    const COMMAND_TIMEOUTS: visca_renamed::CommandTimeouts = visca_renamed::CommandTimeouts::new(
+        Duration::from_secs(6),
+        Duration::from_secs(30),
+        Duration::from_secs(60),
+        Duration::from_secs(300),
+        Duration::from_secs(6),
+    );
 }
 
 impl PanTilt for DownstreamProfile {

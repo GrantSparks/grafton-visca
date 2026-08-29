@@ -8,6 +8,7 @@ use std::{
 
 use crate::{
     command::CommandKind,
+    timeout::Deadline,
     transport::{
         address::{canonicalize_endpoint, AddressResolver},
         builder::{AddressingMode, TransportConfig},
@@ -70,7 +71,7 @@ impl Tcp {
     /// The address must include an explicit port.
     pub fn connect_with_config(address: &str, config: TransportConfig) -> Result<Self, Error> {
         let canonical_addr = canonicalize_endpoint(address, None)?;
-        let deadline = Instant::now() + config.connect_timeout;
+        let deadline = Deadline::from_timeout(config.connect_timeout)?;
 
         // Use the common address resolver
         let resolver = AddressResolver::new();
@@ -80,7 +81,7 @@ impl Tcp {
 
         // Try each address with remaining time
         for addr in addrs {
-            let remaining = deadline.saturating_duration_since(Instant::now());
+            let remaining = deadline.remaining_at(Instant::now());
             if remaining.is_zero() {
                 break;
             }

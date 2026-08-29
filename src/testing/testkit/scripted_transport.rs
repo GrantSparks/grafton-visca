@@ -182,8 +182,9 @@ impl<E> ScriptedTransport<E> {
 
     /// Set a custom transport configuration.
     ///
-    /// This allows tests to configure transport parameters like `max_pending_queue_depth`
-    /// for testing bounded channel backpressure behavior.
+    /// This allows tests to configure transport parameters such as socket,
+    /// timeout, and buffer settings. Session admission capacity is configured
+    /// on [`SessionConfig`](crate::SessionConfig), not on the transport.
     pub fn with_config(mut self, config: TransportConfig) -> Self {
         self.config = Some(config);
         self

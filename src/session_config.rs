@@ -6,7 +6,7 @@
 //! while it is being built; once passed to a session, the resulting registry
 //! is immutable for the lifetime of that owner.
 
-use std::sync::Arc;
+use std::{num::NonZeroUsize, sync::Arc};
 
 use crate::{
     profile::{CompileTimeProfile, OperationalTuning, ProfileSpec},
@@ -19,6 +19,10 @@ use crate::camera::TransportKind;
 /// Maximum number of individually addressable cameras in one session.
 pub(crate) const MAX_REGISTERED_TARGETS: usize = 7;
 
+/// Default number of requests a session may admit before fail-fast rejection.
+#[allow(clippy::unwrap_used)]
+pub const DEFAULT_ADMISSION_CAPACITY: NonZeroUsize = NonZeroUsize::new(64).unwrap();
+
 /// Immutable target/profile registration and session-wide operational tuning.
 ///
 /// Targets are VISCA camera IDs 1 through 7.  Broadcast is deliberately not a
@@ -30,6 +34,7 @@ pub(crate) const MAX_REGISTERED_TARGETS: usize = 7;
 pub struct SessionConfig {
     targets: [Option<Arc<ProfileSpec>>; MAX_REGISTERED_TARGETS],
     tuning: OperationalTuning,
+    admission_capacity: NonZeroUsize,
 }
 
 impl SessionConfig {
@@ -141,6 +146,28 @@ impl SessionConfig {
         self.tuning
     }
 
+    /// Returns the immutable request-admission capacity for this session.
+    ///
+    /// Admission is fail-fast: once this many requests are pending or active,
+    /// a new submission returns [`Error::RuntimeQueueFull`](crate::Error::RuntimeQueueFull)
+    /// rather than waiting for another request to finish. The capacity is
+    /// fixed when the session opens and is independent of transport buffers
+    /// and per-camera VISCA socket capacity.
+    #[must_use]
+    pub const fn admission_capacity(&self) -> NonZeroUsize {
+        self.admission_capacity
+    }
+
+    /// Sets the immutable request-admission capacity for this session.
+    ///
+    /// The value is consumed when the session opens; changing a cloned
+    /// configuration does not affect an already-open session.
+    #[must_use]
+    pub const fn with_admission_capacity(mut self, capacity: NonZeroUsize) -> Self {
+        self.admission_capacity = capacity;
+        self
+    }
+
     /// Checks operational tuning against every registered profile.
     ///
     /// This is the same check [`Self::with_tuning`] performs, exposed for the
@@ -232,6 +259,7 @@ impl SessionConfig {
         Self {
             targets,
             tuning: OperationalTuning::new(),
+            admission_capacity: DEFAULT_ADMISSION_CAPACITY,
         }
     }
 
@@ -258,6 +286,7 @@ impl Default for SessionConfig {
         Self {
             targets: std::array::from_fn(|_| None),
             tuning: OperationalTuning::new(),
+            admission_capacity: DEFAULT_ADMISSION_CAPACITY,
         }
     }
 }

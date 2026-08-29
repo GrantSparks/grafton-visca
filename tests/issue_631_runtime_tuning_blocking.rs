@@ -329,7 +329,7 @@ fn the_installed_tuning_reads_back_through_the_session() {
 
     let tuning = OperationalTuning::new()
         .ack_timeout(WIDE_ACK_TIMEOUT)
-        .completion_timeout(Duration::from_secs(9))
+        .quick_timeout(Duration::from_secs(9))
         .retry_limit(5);
     session.set_tuning(tuning).expect("accepted");
     assert_eq!(session.tuning(), tuning, "the getter reports what was set");
@@ -363,7 +363,7 @@ fn an_invalid_update_is_rejected_and_changes_nothing() {
         // Undercuts the profile's own acknowledgement deadline.
         OperationalTuning::new().ack_timeout(Duration::from_millis(1)),
         // A zero deadline is never a deadline.
-        OperationalTuning::new().completion_timeout(Duration::ZERO),
+        OperationalTuning::new().quick_timeout(Duration::ZERO),
         // Raises the profile's socket limit.
         OperationalTuning::new().maximum_command_sockets(3),
         // Zero sockets is not a capacity.

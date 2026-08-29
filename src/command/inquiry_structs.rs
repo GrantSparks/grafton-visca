@@ -931,8 +931,6 @@ macro_rules! define_builtin_inquiries {
             pub struct $struct;
 
             impl WireEncode for $struct {
-                const MAX_SIZE: usize = bytes::$bytes_const.len();
-
                 fn write_into(
                     &self,
                     camera_id: CameraId,
@@ -1024,11 +1022,6 @@ macro_rules! define_builtin_inquiries {
                 expected_for_camera[..expected.len()].copy_from_slice(expected);
                 expected_for_camera[0] = camera_id.to_address_byte();
 
-                assert_eq!(
-                    C::MAX_SIZE,
-                    expected.len(),
-                    "{name} MAX_SIZE must be the exact canonical byte length",
-                );
                 assert_eq!(len, expected.len(), "{name} must report exact length");
                 assert_eq!(
                     &buffer[..len],

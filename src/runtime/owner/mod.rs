@@ -51,11 +51,14 @@ use crate::{raw::MAX_BYTES, CameraId, CancellationOutcome, Error, ErrorKind, Vis
 use super::engine::{
     AdmissionTicket, AppliedStateEffect, AppliedStateProjection, CancelState,
     CancellationObservation, CancellationPolicy, ControlClass, DeadlineKind, DecodedFrame,
-    DecodedResponse, Effect, EnvelopeKind, EnvelopeSequence, FirstDispatch, IgnoreReason, Input,
-    InputTurn, Phase, ProtocolEngine, ProtocolPolicy, RequestId, RetryPolicy, RuntimeOutcome,
-    RuntimeRequest, SessionState, ShutdownReason, TargetPolicy, TimeoutPolicy, Transmission,
-    TransmissionId, TransmissionMeta,
+    DecodedResponse, Effect, EnvelopeKind, EnvelopeSequence, IgnoreReason, Input, InputTurn, Phase,
+    ProtocolEngine, ProtocolPolicy, RequestId, RetryPolicy, RuntimeOutcome, RuntimeRequest,
+    SessionState, ShutdownReason, TargetPolicy, TimeoutPolicy, Transmission, TransmissionId,
+    TransmissionMeta,
 };
+
+#[cfg(any(feature = "blocking", test))]
+use super::engine::FirstDispatch;
 
 #[cfg(test)]
 mod tests;
@@ -63,9 +66,12 @@ mod tests;
 #[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 // Compared by `tests::blocking` (blocking without async) and by
-// `async_actor::tests` (async plus a runtime feature); neither compiles on the
-// plain `async` leg (#636).
-#[allow(dead_code)]
+// `async_actor::tests` (Tokio); neither compiles on the plain `async` or smol
+// legs (#636).
+#[cfg(any(
+    all(feature = "blocking", not(feature = "async")),
+    all(feature = "async", feature = "runtime-tokio")
+))]
 pub(crate) enum CanonicalOwnerStep {
     Admitted,
     Sending,
@@ -78,10 +84,15 @@ pub(crate) enum CanonicalOwnerStep {
 }
 
 // Consumed by `tests::blocking` (blocking without async) and by
-// `async_actor::tests` (async plus a runtime feature); neither compiles on the
-// plain `async` leg (#636).
-#[cfg(test)]
-#[allow(dead_code)]
+// `async_actor::tests` (Tokio); neither compiles on the plain `async` or smol
+// legs (#636).
+#[cfg(all(
+    test,
+    any(
+        all(feature = "blocking", not(feature = "async")),
+        all(feature = "async", feature = "runtime-tokio")
+    )
+))]
 pub(crate) const CANONICAL_OWNER_TRACE: &[CanonicalOwnerStep] = &[
     CanonicalOwnerStep::Admitted,
     CanonicalOwnerStep::Sending,
@@ -94,10 +105,15 @@ pub(crate) const CANONICAL_OWNER_TRACE: &[CanonicalOwnerStep] = &[
 ];
 
 // Consumed by `tests::blocking` (blocking without async) and by
-// `async_actor::tests` (async plus a runtime feature); neither compiles on the
-// plain `async` leg (#636).
-#[cfg(test)]
-#[allow(dead_code)]
+// `async_actor::tests` (Tokio); neither compiles on the plain `async` or smol
+// legs (#636).
+#[cfg(all(
+    test,
+    any(
+        all(feature = "blocking", not(feature = "async")),
+        all(feature = "async", feature = "runtime-tokio")
+    )
+))]
 pub(crate) fn canonical_owner_trace(
     diagnostics: impl IntoIterator<Item = DiagnosticEvent>,
 ) -> Vec<CanonicalOwnerStep> {
@@ -232,10 +248,9 @@ impl OwnerPolicy {
         })
     }
 
-    // Test-only today: `runtime::owner::tests` and `async_actor::tests` build
-    // single-target policies, while production goes through
-    // `adapter::owner_policy_for_targets_with_tuning` (#636).
-    #[allow(dead_code)]
+    // Test-only today: production goes through
+    // `adapter::owner_policy_for_targets_with_tuning`.
+    #[cfg(test)]
     pub(crate) fn single_target(
         protocol: ProtocolPolicy,
         target: CameraId,
@@ -624,10 +639,8 @@ impl CompletionObserver {
         self.receiver.try_recv().ok()
     }
 
-    // Reached only through `CancellationCore::recv`, whose sole caller is the
-    // `#[cfg(test)]` `blocking::BlockingCancellationReceipt::recv_test`
-    // (#636).
-    #[allow(dead_code)]
+    // Used by the blocking cancellation test helper.
+    #[cfg(all(test, feature = "blocking"))]
     fn recv(&self) -> Result<ReceiptObservation, Error> {
         self.receiver.recv().map_err(|_| Error::RuntimeShutdown)
     }
@@ -679,6 +692,7 @@ impl RejectedCancellation {
         }
     }
 
+    #[cfg(any(feature = "async", test))]
     pub(crate) const fn lost(error: Error) -> Self {
         Self {
             receipt: None,
@@ -738,15 +752,19 @@ impl ReceiptCore {
 
     // Consumed only by `async_actor::tests`, which additionally requires
     // `runtime-tokio` or `runtime-smol` (#636).
-    #[cfg(all(test, feature = "async"))]
-    #[allow(dead_code)]
+    #[cfg(all(
+        test,
+        feature = "async",
+        any(feature = "runtime-tokio", feature = "runtime-smol")
+    ))]
     pub(crate) async fn terminal(&self) -> Result<RuntimeOutcome, Error> {
         self.completion.recv_async().await.map(observation_outcome)
     }
 }
 
-/// Selection retained with a targeted settlement receipt until phase 6 creates
-/// its one absolute deadline. Selecting an override never mutates engine time.
+/// Selection retained with a targeted settlement receipt until the blocking
+/// observer creates its one absolute deadline. Selecting an override never
+/// mutates engine time.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum WaitSelection {
     Configured,
@@ -816,29 +834,18 @@ struct CancellationRegistration {
 /// exposed as a terminal token outcome.
 #[derive(Debug)]
 pub(crate) struct CancellationCore {
-    // Read only by `CancellationCore::id`, which itself has no caller (#636).
-    #[allow(dead_code)]
-    id: RequestId,
     origin: Arc<()>,
     completion: CompletionObserver,
     buffered: Option<ReceiptObservation>,
 }
 
 impl CancellationCore {
-    // No caller in `src/` or `tests/`: the cancellation receipts expose their
-    // request id through `ReceiptCore::id` before the cancel is issued (#636).
-    #[allow(dead_code)]
-    const fn id(&self) -> RequestId {
-        self.id
-    }
-
     fn try_observation(&mut self) -> Option<ReceiptObservation> {
         self.buffered.take().or_else(|| self.completion.try_recv())
     }
 
-    // Consumed only by `blocking::BlockingCancellationReceipt::recv_test`, a
-    // `#[cfg(test)]` helper on the `blocking` feature (#636).
-    #[allow(dead_code)]
+    // Used by the blocking cancellation test helper.
+    #[cfg(all(test, feature = "blocking"))]
     fn recv(mut self) -> Result<ReceiptObservation, Error> {
         match self.buffered.take() {
             Some(observation) => Ok(observation),
@@ -846,10 +853,8 @@ impl CancellationCore {
         }
     }
 
-    // Consumed only by `async_actor::AsyncCancellationReceipt::recv_test`, a
-    // `#[cfg(test)]` helper on the `async` feature (#636).
-    #[cfg(feature = "async")]
-    #[allow(dead_code)]
+    // Used by the Tokio async cancellation test helper.
+    #[cfg(all(test, feature = "runtime-tokio"))]
     async fn recv_async(mut self) -> Result<ReceiptObservation, Error> {
         match self.buffered.take() {
             Some(observation) => Ok(observation),
@@ -863,7 +868,6 @@ fn cancellation_receipt_for(
     buffered: Option<ReceiptObservation>,
 ) -> CancellationCore {
     CancellationCore {
-        id: receipt.id,
         origin: receipt.origin,
         completion: receipt.completion,
         buffered,
@@ -890,21 +894,14 @@ fn normalize_cancellation_observation(
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct AppliedStateEvent(pub(crate) AppliedStateEffect);
 
+#[cfg(test)]
 #[derive(Debug)]
-// Constructed only by `OwnerState::subscribe_applied`, whose consumers are
-// feature-gated; `id` is read only by the as-yet-uncalled
-// `unsubscribe_applied` (#636).
-#[allow(dead_code)]
 pub(crate) struct AppliedStateSubscription {
-    id: u64,
     receiver: flume::Receiver<AppliedStateEvent>,
 }
 
+#[cfg(test)]
 impl AppliedStateSubscription {
-    // Consumed only by the owner tests (`tests::blocking` and
-    // `tests::lifecycle_trace`); no facade exposes applied-state events yet
-    // (#636).
-    #[allow(dead_code)]
     pub(crate) fn try_recv(&self) -> Option<AppliedStateEvent> {
         self.receiver.try_recv().ok()
     }
@@ -918,10 +915,6 @@ struct AppliedSubscriber {
 
 #[derive(Debug)]
 pub(crate) struct DiagnosticSubscription {
-    // Read only by `OwnerState::unsubscribe_diagnostics`, which itself has no
-    // caller yet (#636).
-    #[allow(dead_code)]
-    id: u64,
     receiver: flume::Receiver<DiagnosticEvent>,
 }
 
@@ -984,7 +977,7 @@ impl OwnerBuffers {
                 self.send.extend_from_slice(wire.as_bytes());
             }
             Transmission::Cancel { target, socket, .. } => {
-                let max_size = CommandCancelCommand::MAX_SIZE;
+                let max_size = <CommandCancelCommand as crate::Request>::MAX_SIZE;
                 if max_size > self.send.capacity() {
                     return Err(Error::ResponseTooLarge {
                         max_size: self.send.capacity(),
@@ -1034,18 +1027,17 @@ impl OwnerBuffers {
 /// Borrowed exact write handed to a mode-native transport adapter.
 #[derive(Debug)]
 pub(crate) struct WireWrite<'a> {
-    // No reader in `src/` or `tests/`: adapters correlate a write through the
-    // `StagedWrite` the owner keeps, not through the borrowed write (#636).
-    #[allow(dead_code)]
-    pub(crate) transmission: TransmissionId,
     // Read only by the test wire drivers in `tests::blocking` and
     // `async_actor::tests` (#636).
-    #[allow(dead_code)]
+    #[cfg(any(
+        all(test, feature = "blocking", not(feature = "async")),
+        all(
+            test,
+            feature = "async",
+            any(feature = "runtime-tokio", feature = "runtime-smol")
+        )
+    ))]
     pub(crate) request: RequestId,
-    // No reader in `src/` or `tests/`: the production adapters frame from
-    // `bytes`/`envelope` and let the transport carry addressing (#636).
-    #[allow(dead_code)]
-    pub(crate) target: CameraId,
     pub(crate) bytes: &'a [u8],
     /// Sequence requested by the engine. `None` lets Sony framing allocate a
     /// fresh identity; an explicit value is a retry of the same logical wire
@@ -1056,7 +1048,14 @@ pub(crate) struct WireWrite<'a> {
     pub(crate) frame_buffer: &'a mut BytesMut,
     // Read only by the test wire drivers in `tests::blocking` and
     // `async_actor::tests` (#636).
-    #[allow(dead_code)]
+    #[cfg(any(
+        all(test, feature = "blocking", not(feature = "async")),
+        all(
+            test,
+            feature = "async",
+            any(feature = "runtime-tokio", feature = "runtime-smol")
+        )
+    ))]
     pub(crate) cancellation: bool,
     pub(crate) inquiry: bool,
     pub(crate) envelope: EnvelopeKind,
@@ -1089,19 +1088,11 @@ impl StagedWrite {
 #[derive(Debug)]
 pub(crate) enum AppliedEffect {
     None,
-    // Payload has no reader in `src/` or `tests/`: the admitted id is observed
-    // through the admission reply channel, never through this variant (#636).
-    #[allow(dead_code)]
-    Admitted(RequestId),
     // Payload read only by `tests::lifecycle_trace`'s rejection rendering
     // (#636).
-    #[allow(dead_code)]
+    #[cfg(test)]
     AdmissionRejected(Error),
     Transmit(StagedWrite),
-    // Payload has no reader in `src/` or `tests/`: terminal ids reach callers
-    // through the completion observer, never through this variant (#636).
-    #[allow(dead_code)]
-    Terminal(RequestId),
 }
 
 /// The owner's live operational tuning, shared with every handle that prepares
@@ -1145,11 +1136,11 @@ pub(crate) struct OwnerState {
     diagnostic_subscribers: BTreeMap<u64, DiagnosticSubscriber>,
     // Read only by `subscribe_applied`, whose consumers are feature-gated
     // (#636).
-    #[allow(dead_code)]
+    #[cfg(test)]
     next_subscription: u64,
     // Read only by `subscribe_diagnostics`, whose consumers are feature-gated
     // (#636).
-    #[allow(dead_code)]
+    #[cfg(any(feature = "async", test))]
     next_diagnostic_subscription: u64,
     next_ticket: u64,
     diagnostics: VecDeque<DiagnosticEvent>,
@@ -1204,7 +1195,9 @@ impl OwnerState {
             target_cache: Arc::new(array::from_fn(|_| Mutex::new(TargetStateCache::default()))),
             subscribers: BTreeMap::new(),
             diagnostic_subscribers: BTreeMap::new(),
+            #[cfg(test)]
             next_subscription: 1,
+            #[cfg(any(feature = "async", test))]
             next_diagnostic_subscription: 1,
             next_ticket: 1,
             diagnostics: VecDeque::new(),
@@ -1291,17 +1284,14 @@ impl OwnerState {
         self.session_error.clone()
     }
 
-    // Consumed by `async_actor`'s `snapshot_now` (the `async` feature) and by
-    // `tests::blocking` (#636).
-    #[allow(dead_code)]
+    // Used by owner tests and the test-only async snapshot helper (#636).
+    #[cfg(test)]
     pub(crate) fn active_len(&self) -> usize {
         self.active.len()
     }
 
-    // Consumed by `async_actor`'s `snapshot_now` (the `async` feature) and by
-    // `tests::metrics`; the public facades go through `metrics_snapshot`
-    // (#636).
-    #[allow(dead_code)]
+    // Used by owner tests and the test-only async snapshot helper (#636).
+    #[cfg(test)]
     pub(crate) fn metrics(&self) -> OwnerMetrics {
         self.metrics
     }
@@ -1319,50 +1309,20 @@ impl OwnerState {
         Arc::clone(&self.target_cache)
     }
 
-    // Consumed by `blocking::BlockingOwner::state_cache` (the `blocking`
-    // feature); the async handle builds its view from the registry instead
-    // (#636).
-    #[allow(dead_code)]
-    pub(crate) fn state_cache(&self, target: CameraId) -> crate::state_cache::StateCache {
-        crate::state_cache::StateCache::from_registry(self.state_cache_registry(), target)
-    }
-
-    // Consumed by `async_actor`'s `snapshot_now` (the `async` feature) and by
-    // the owner test modules (#636).
-    #[allow(dead_code)]
+    // Used by owner tests and the test-only async snapshot helper (#636).
+    #[cfg(test)]
     pub(crate) fn diagnostics(&self) -> impl Iterator<Item = &DiagnosticEvent> {
         self.diagnostics.iter()
     }
 
-    // Consumed by `blocking::BlockingOwner::drain_diagnostics` (the `blocking`
-    // feature) and by `tests::blocking` (#636).
-    #[allow(dead_code)]
+    // Consumed by the public blocking diagnostics facade and its owner tests.
+    #[cfg(feature = "blocking")]
     pub(crate) fn drain_diagnostics(&mut self) -> Vec<DiagnosticEvent> {
         self.diagnostics.drain(..).collect()
     }
 
-    // Consumed only by `tests::blocking`, which compiles with `blocking` and
-    // without `async`; facades read the cache through `state_cache` (#636).
-    #[allow(dead_code)]
-    pub(crate) fn cached(
-        &self,
-        target: CameraId,
-        state: WriteOnlyState,
-    ) -> Option<AppliedStateProjection> {
-        self.target_cache
-            .get(usize::from(target.id()))
-            .and_then(|slot| slot.lock().ok().and_then(|cache| cache.get(state)))
-    }
-
     pub(crate) fn next_wake(&self) -> Option<Instant> {
         self.engine.next_wake()
-    }
-
-    // No caller in `src/` or `tests/`: the blocking owner reads its queued
-    // dispatch time out of `FirstDispatch::WaitUntil` instead (#636).
-    #[allow(dead_code)]
-    pub(crate) fn dispatch_at(&self, id: RequestId) -> Option<Instant> {
-        self.engine.queued_dispatch_at(id)
     }
 
     pub(crate) fn input(&mut self, input: Input, now: Instant) -> VecDeque<Effect> {
@@ -1370,9 +1330,7 @@ impl OwnerState {
         self.engine.handle(input, now).into()
     }
 
-    // Consumed by `blocking::BlockingOwner` submission (the `blocking`
-    // feature) and by `tests::lifecycle_trace` (#636).
-    #[allow(dead_code)]
+    #[cfg(any(feature = "blocking", test))]
     pub(crate) fn admit_without_due(
         &mut self,
         ticket: AdmissionTicket,
@@ -1382,9 +1340,7 @@ impl OwnerState {
         self.engine.admit_without_due(ticket, request, now).into()
     }
 
-    // Consumed by `blocking::BlockingOwner`'s first-dispatch loop (the
-    // `blocking` feature) and by `tests::lifecycle_trace` (#636).
-    #[allow(dead_code)]
+    #[cfg(any(feature = "blocking", test))]
     pub(crate) fn first_dispatch_without_due(
         &mut self,
         id: RequestId,
@@ -1397,7 +1353,7 @@ impl OwnerState {
     /// normal lifecycle transition. Blocking operation submission uses this
     /// when socket capacity is unavailable, so the temporary observer receives
     /// the rejection and its shared admission permit is released immediately.
-    #[allow(dead_code)] // Consumed by the blocking owner (#542).
+    #[cfg(feature = "blocking")]
     pub(crate) fn reject_unwritten_without_due(
         &mut self,
         id: RequestId,
@@ -1471,9 +1427,7 @@ impl OwnerState {
             .into()
     }
 
-    // Consumed by `blocking::BlockingOwner`'s undue write drain (the
-    // `blocking` feature) and by `tests::lifecycle_trace` (#636).
-    #[allow(dead_code)]
+    #[cfg(any(feature = "blocking", test))]
     pub(crate) fn finish_write_without_due(
         &mut self,
         staged: &StagedWrite,
@@ -1536,9 +1490,7 @@ impl OwnerState {
         });
     }
 
-    // Consumed by `blocking::BlockingOwner` submission (the `blocking`
-    // feature) and by `tests::metrics` / `tests::lifecycle_trace` (#636).
-    #[allow(dead_code)]
+    #[cfg(any(feature = "blocking", test))]
     pub(crate) fn stage_admission(
         &mut self,
         request: RuntimeRequest,
@@ -1613,9 +1565,9 @@ impl OwnerState {
         }
     }
 
-    // Consumed by the async actor's `Subscribe` control arm in `async_actor`
-    // (the `async` feature) and by `tests::lifecycle_trace` (#636).
-    #[allow(dead_code)]
+    // Consumed by the async actor's `Subscribe` control arm and the owner
+    // lifecycle fixture (#636).
+    #[cfg(test)]
     pub(crate) fn subscribe_applied(
         &mut self,
         target: Option<CameraId>,
@@ -1639,20 +1591,12 @@ impl OwnerState {
         let (sender, receiver) = flume::bounded(event_capacity);
         self.subscribers
             .insert(id, AppliedSubscriber { target, sender });
-        Ok(AppliedStateSubscription { id, receiver })
+        Ok(AppliedStateSubscription { receiver })
     }
 
-    // No caller in `src/` or `tests/`: `subscribe_applied` reclaims slots whose
-    // `flume` receiver has already dropped, so nothing unsubscribes explicitly
-    // yet (#636).
-    #[allow(dead_code)]
-    pub(crate) fn unsubscribe_applied(&mut self, subscription: &AppliedStateSubscription) {
-        self.subscribers.remove(&subscription.id);
-    }
-
-    // Consumed by the async actor's `SubscribeDiagnostics` control arm in
-    // `async_actor` (the `async` feature) and by `tests::blocking` (#636).
-    #[allow(dead_code)]
+    // Consumed by the async actor's diagnostics control arm and the owner
+    // tests.
+    #[cfg(any(feature = "async", test))]
     pub(crate) fn subscribe_diagnostics(
         &mut self,
         event_capacity: usize,
@@ -1678,15 +1622,7 @@ impl OwnerState {
         let (sender, receiver) = flume::bounded(event_capacity);
         self.diagnostic_subscribers
             .insert(id, DiagnosticSubscriber { sender });
-        Ok(DiagnosticSubscription { id, receiver })
-    }
-
-    // No caller in `src/` or `tests/`: `subscribe_diagnostics` reclaims slots
-    // whose `flume` receiver has already dropped, so nothing unsubscribes
-    // explicitly yet (#636).
-    #[allow(dead_code)]
-    pub(crate) fn unsubscribe_diagnostics(&mut self, subscription: &DiagnosticSubscription) {
-        self.diagnostic_subscribers.remove(&subscription.id);
+        Ok(DiagnosticSubscription { receiver })
     }
 
     pub(crate) fn validate_frame_batch(&self, frames: &[DecodedFrame]) -> Result<(), Error> {
@@ -1720,7 +1656,14 @@ impl OwnerState {
         &'a mut self,
         staged: &StagedWrite,
     ) -> Result<WireWrite<'a>, Error> {
-        let target = staged.target();
+        #[cfg(any(
+            all(test, feature = "blocking", not(feature = "async")),
+            all(
+                test,
+                feature = "async",
+                any(feature = "runtime-tokio", feature = "runtime-smol")
+            )
+        ))]
         let cancellation = matches!(staged.kind, Transmission::Cancel { .. });
         let inquiry = self
             .active
@@ -1728,12 +1671,26 @@ impl OwnerState {
             .is_some_and(|active| active.summary.lane == RequestLane::Inquiry);
         let (bytes, frame_buffer) = self.buffers.prepare(&staged.kind)?;
         Ok(WireWrite {
-            transmission: staged.transmission,
+            #[cfg(any(
+                all(test, feature = "blocking", not(feature = "async")),
+                all(
+                    test,
+                    feature = "async",
+                    any(feature = "runtime-tokio", feature = "runtime-smol")
+                )
+            ))]
             request: staged.request,
-            target,
             bytes,
             requested_sequence: staged.requested_sequence,
             frame_buffer,
+            #[cfg(any(
+                all(test, feature = "blocking", not(feature = "async")),
+                all(
+                    test,
+                    feature = "async",
+                    any(feature = "runtime-tokio", feature = "runtime-smol")
+                )
+            ))]
             cancellation,
             inquiry,
             envelope: self.policy.protocol.envelope,
@@ -1780,7 +1737,7 @@ impl OwnerState {
                     cancellation: summary.cancellation,
                 });
                 let _ = reply.try_send(Ok(id));
-                AppliedEffect::Admitted(id)
+                AppliedEffect::None
             }
             Effect::AdmissionRejected { ticket, error } => {
                 if let Some(pending) = self.pending.remove(&ticket) {
@@ -1796,7 +1753,14 @@ impl OwnerState {
                     self.record(DiagnosticEvent::Ignored(IgnoreReason::UnknownRequest));
                 }
                 self.metrics.admission_rejected = self.metrics.admission_rejected.saturating_add(1);
-                AppliedEffect::AdmissionRejected(error)
+                #[cfg(test)]
+                {
+                    AppliedEffect::AdmissionRejected(error)
+                }
+                #[cfg(not(test))]
+                {
+                    AppliedEffect::None
+                }
             }
             Effect::Transition {
                 id,
@@ -1989,7 +1953,7 @@ impl OwnerState {
                     }
                 }
                 self.metrics.terminal = self.metrics.terminal.saturating_add(1);
-                AppliedEffect::Terminal(id)
+                AppliedEffect::None
             }
             Effect::SessionChanged { from, to } => {
                 let reason = self
@@ -2012,9 +1976,8 @@ impl OwnerState {
         }
     }
 
-    // Consumed only by the async actor's boundary drain in `async_actor`,
-    // which compiles only with the `async` feature (#636).
-    #[allow(dead_code)]
+    // Consumed only by the async actor's boundary drain (#636).
+    #[cfg(feature = "async")]
     pub(crate) fn fail_unstaged_boundary(&mut self, count: usize) {
         self.metrics.dropped_boundary_work = self
             .metrics
@@ -2040,17 +2003,16 @@ impl OwnerState {
         });
     }
 
-    // Consumed only by `runtime::owner::tests::metrics`; both owners build
-    // `Input::Frame` inline from their decoded batches (#636).
-    #[allow(dead_code)]
+    // Used only by owner unit tests; production owners construct `Input::Frame`
+    // inline from their decoded batches.
+    #[cfg(test)]
     pub(crate) fn frame_input(frame: DecodedFrame) -> Input {
         Input::Frame(frame)
     }
 }
 
-// Private helper for `OwnerState::subscribe_applied` and
-// `subscribe_diagnostics`, whose own consumers are feature-gated (#636).
-#[allow(dead_code)]
+// Private helper for the owner subscription paths.
+#[cfg(any(feature = "async", test))]
 fn allocate_subscription_id<T>(next: &mut u64, values: &BTreeMap<u64, T>) -> u64 {
     loop {
         let id = *next;
@@ -2093,20 +2055,6 @@ fn cancellation_diagnostic(observation: &CancellationObservation) -> Cancellatio
     }
 }
 
-// No caller in `src/` or `tests/`: each owner maps outcomes with its own
-// `#[cfg(test)]` `test_cancellation_observation` helper instead (#636).
-#[allow(dead_code)]
-fn cancellation_observation_for(outcome: &RuntimeOutcome) -> CancellationObservation {
-    match outcome {
-        RuntimeOutcome::Applied => CancellationObservation::Completed,
-        RuntimeOutcome::Cancelled => CancellationObservation::Cancelled,
-        RuntimeOutcome::Failed(error) => CancellationObservation::Failed(error.clone()),
-        RuntimeOutcome::Reply { .. } => CancellationObservation::Failed(Error::InvalidState(
-            "an inquiry outcome cannot resolve cancellation".into(),
-        )),
-    }
-}
-
 fn boundary_error_for_input(input: &Input) -> Option<Error> {
     match input {
         Input::Close { reason } => Some(Error::ConnectionClosed {
@@ -2130,8 +2078,8 @@ fn boundary_error_for_input(input: &Input) -> Option<Error> {
         | Input::TransmissionFinished { .. }
         | Input::Frame(_)
         | Input::Cancel { .. }
-        | Input::ReceiveFault { .. }
-        | Input::Wake => None,
+        | Input::ReceiveFault { .. } => None,
+        Input::Wake => None,
     }
 }
 

@@ -38,8 +38,6 @@ impl AddressSetCommand {
 }
 
 impl WireEncode for AddressSetCommand {
-    const MAX_SIZE: usize = 4;
-
     fn write_into(
         &self,
         _camera_id: crate::camera_id::CameraId,
@@ -79,8 +77,6 @@ impl InterfaceClearCommand {
 }
 
 impl WireEncode for InterfaceClearCommand {
-    const MAX_SIZE: usize = 5;
-
     fn write_into(
         &self,
         _camera_id: crate::camera_id::CameraId,
@@ -138,8 +134,6 @@ pub(crate) struct CommandCancelCommand {
 }
 
 impl WireEncode for CommandCancelCommand {
-    const MAX_SIZE: usize = 3;
-
     fn write_into(
         &self,
         camera_id: crate::camera_id::CameraId,
@@ -195,8 +189,6 @@ impl Default for SettingsSaveCommand {
 }
 
 impl WireEncode for SettingsSaveCommand {
-    const MAX_SIZE: usize = 6;
-
     fn write_into(
         &self,
         camera_id: crate::camera_id::CameraId,

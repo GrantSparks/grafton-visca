@@ -19,7 +19,7 @@ use grafton_visca::{
     capabilities::Capabilities,
     completion::{AppliedOnly, Targeted},
     profile::{
-        CompileTimeProfile, PositionInquirySupport, ProfileEnvelope, ProfileSpec,
+        CompileTimeProfile, PositionInquirySupport, ProfileEnvelope, ProfileSpec, ProfileTiming,
         TransportCompatibility,
     },
     profiles::{ProfileId, PtzOpticsG2, SonyFR7},
@@ -161,14 +161,17 @@ fn unsupported_focus_profile() -> ProfileSpec {
         .transports(TransportCompatibility::new(Some(5678), None, false))
         .envelope(ProfileEnvelope::RawVisca)
         .timing(
-            Duration::from_millis(100),
-            Duration::from_secs(5),
-            Duration::from_secs(1),
-            Duration::from_secs(1),
-            Duration::from_secs(1),
-            Duration::ZERO,
-            Duration::ZERO,
-            Duration::ZERO,
+            ProfileTiming::builder()
+                .ack_timeout(Duration::from_millis(100))
+                .command_timeouts(grafton_visca::CommandTimeouts::default())
+                .inquiry_timeout(Duration::from_secs(1))
+                .cancellation_timeout(Duration::from_secs(1))
+                .ambiguity_timeout(Duration::from_secs(1))
+                .busy_timeout(Duration::ZERO)
+                .minimum_inquiry_spacing(Duration::ZERO)
+                .minimum_command_spacing(Duration::ZERO)
+                .build()
+                .expect("valid timing"),
         )
         .maximum_command_sockets(1)
         .supports_operation_complete(false)

@@ -54,8 +54,6 @@ pub enum Zoom {
 }
 
 impl WireEncode for Zoom {
-    const MAX_SIZE: usize = 10;
-
     fn write_into(
         &self,
         camera_id: crate::camera_id::CameraId,
@@ -133,8 +131,6 @@ impl DigitalZoom {
 }
 
 impl WireEncode for DigitalZoom {
-    const MAX_SIZE: usize = 6;
-
     fn write_into(
         &self,
         camera_id: crate::camera_id::CameraId,

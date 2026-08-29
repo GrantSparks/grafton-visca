@@ -112,7 +112,7 @@ pub async fn connect_tcp(
 /// does not exceed `config.connect_timeout`.
 pub async fn connect_udp(address: &str, config: UdpSocketConfig) -> Result<UdpSocket, Error> {
     // Create a single deadline for the entire operation
-    let deadline = Deadline::from_timeout(config.connect_timeout);
+    let deadline = Deadline::from_timeout(config.connect_timeout)?;
 
     // Perform async DNS resolution with remaining budget
     let remaining = deadline.remaining_at(Instant::now());
@@ -166,6 +166,7 @@ impl AsyncDatagram for UdpSocket {
 // Serial port adapters are defined in the serial_async module where tokio_serial is available
 
 #[cfg(test)]
+#[allow(clippy::expect_used)]
 mod tests {
     use super::*;
     use std::time::Duration;
@@ -181,7 +182,7 @@ mod tests {
         let total_timeout = Duration::from_millis(200);
         let step_duration = Duration::from_millis(120); // 60% of total
 
-        let deadline = Deadline::from_timeout(total_timeout);
+        let deadline = Deadline::from_timeout(total_timeout).expect("finite test timeout");
 
         // Step A: Should succeed with ~60% of budget
         let remaining = deadline.remaining_at(Instant::now());
@@ -222,7 +223,7 @@ mod tests {
     #[tokio::test]
     async fn test_deadline_expired_returns_zero() {
         let timeout = Duration::from_millis(10);
-        let deadline = Deadline::from_timeout(timeout);
+        let deadline = Deadline::from_timeout(timeout).expect("finite test timeout");
 
         // Wait for deadline to expire
         tokio::time::sleep(Duration::from_millis(20)).await;
@@ -238,7 +239,7 @@ mod tests {
     #[tokio::test]
     async fn test_deadline_remaining_decreases() {
         let timeout = Duration::from_millis(100);
-        let deadline = Deadline::from_timeout(timeout);
+        let deadline = Deadline::from_timeout(timeout).expect("finite test timeout");
 
         let remaining_before = deadline.remaining_at(Instant::now());
 

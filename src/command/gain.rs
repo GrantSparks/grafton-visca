@@ -34,8 +34,6 @@ pub enum Gain {
 
 // Manual implementation to add model validation
 impl WireEncode for Gain {
-    const MAX_SIZE: usize = 9;
-
     fn write_into(
         &self,
         camera_id: crate::camera_id::CameraId,

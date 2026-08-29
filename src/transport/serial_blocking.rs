@@ -94,7 +94,6 @@ impl SerialTransport {
             read_timeout: config.read_timeout,
             write_timeout: config.write_timeout,
             buffer_config: config.buffer_config,
-            retry_config: config.retry_config,
             addressing: AddressingMode::Serial, // Serial transport uses Serial addressing
             ..Default::default()
         };
@@ -393,7 +392,6 @@ mod tests {
             read_timeout: config.read_timeout,
             write_timeout: config.write_timeout,
             buffer_config: config.buffer_config,
-            retry_config: config.retry_config,
             addressing: AddressingMode::Serial,
             ..Default::default()
         };

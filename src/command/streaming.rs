@@ -38,8 +38,6 @@ impl From<MulticastStreaming> for MulticastStreamingInternal {
 }
 
 impl crate::command::encode::WireEncode for MulticastStreaming {
-    const MAX_SIZE: usize = 8; // Conservative estimate
-
     fn write_into(
         &self,
         camera_id: crate::CameraId,
@@ -73,8 +71,6 @@ pub struct SetNdiQuality {
 }
 
 impl crate::command::encode::WireEncode for SetNdiQuality {
-    const MAX_SIZE: usize = 8; // Conservative estimate
-
     fn write_into(
         &self,
         camera_id: crate::CameraId,
@@ -111,8 +107,6 @@ pub enum UsbAudio {
 }
 
 impl crate::command::encode::WireEncode for UsbAudio {
-    const MAX_SIZE: usize = 7;
-
     fn write_into(
         &self,
         camera_id: crate::CameraId,

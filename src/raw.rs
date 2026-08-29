@@ -60,9 +60,9 @@ const VISCA_TERMINATOR: u8 = 0xff;
 /// public value never exposes a queue position or a lifecycle identifier.
 ///
 /// The [`ControlClass`] here is the raw request's *own* classification, exactly
-/// as a built-in's associated constant is: a camera handle's default class
-/// still replaces it (unless it is [`ControlClass::Urgent`]), and a
-/// per-submission class still replaces it outright.
+/// as a built-in's associated constant is. A camera handle's default class and
+/// a per-submission class replace ordinary classifications, but neither can
+/// replace or demote [`ControlClass::Urgent`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Policy {
     timeout: TimeoutClass,

@@ -5,10 +5,7 @@ use std::{
     future::Future,
     marker::PhantomData,
     pin::Pin,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc, Mutex,
-    },
+    sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
 
@@ -22,12 +19,13 @@ use super::ReceiptObservation;
 use super::{
     cancellation_receipt_for, completion_pair, normalize_cancellation_observation,
     normalize_command_outcome, normalize_inquiry_outcome, observation_outcome, prepend_effects,
-    AdmissionPermit, AppliedEffect, AppliedStateSubscription, CancellationCore, CompletionObserver,
-    DecodedFrame, DiagnosticEvent, DiagnosticSubscription, Input, OwnerInputTurn, OwnerMetrics,
-    OwnerPolicy, OwnerState, ReceiptCore, RejectedCancellation, RequestId, RuntimeOutcome,
-    RuntimeRequest, SessionState, ShutdownReason, TargetStateCache, TransmissionMeta,
-    WaitSelection, WireWrite,
+    AdmissionPermit, AppliedEffect, CancellationCore, CompletionObserver, DecodedFrame,
+    DiagnosticSubscription, Input, OwnerInputTurn, OwnerPolicy, OwnerState, ReceiptCore,
+    RejectedCancellation, RequestId, RuntimeOutcome, RuntimeRequest, SessionState, ShutdownReason,
+    TargetStateCache, TransmissionMeta, WaitSelection, WireWrite,
 };
+#[cfg(all(test, feature = "runtime-tokio"))]
+use super::{DiagnosticEvent, OwnerMetrics};
 use crate::runtime::engine::{Effect, IgnoreReason, TransportKind};
 
 /// Pause applied after the first transient receive fault so a transport that
@@ -267,16 +265,9 @@ struct CancellationBoundary {
 #[derive(Debug)]
 enum ControlBoundary {
     // Built only by `AsyncOwnerHandle::snapshot`, called only from this module's tests (#636).
-    #[allow(dead_code)]
+    #[cfg(all(test, any(feature = "runtime-tokio", feature = "runtime-smol")))]
     Snapshot(flume::Sender<OwnerSnapshot>),
     Metrics(flume::Sender<Result<crate::observability::MetricsSnapshot, Error>>),
-    // Built only by `AsyncOwnerHandle::subscribe_applied`, which has no caller yet (#636).
-    #[allow(dead_code)]
-    Subscribe {
-        target: Option<crate::CameraId>,
-        capacity: usize,
-        reply: flume::Sender<Result<AppliedStateSubscription, Error>>,
-    },
     SubscribeDiagnostics {
         capacity: usize,
         reply: flume::Sender<Result<DiagnosticSubscription, Error>>,
@@ -288,20 +279,21 @@ enum ControlBoundary {
     /// same time resolve last-writer-wins in the order the actor accepted them
     /// and no reader ever observes a mixture of the two.
     Reconfigure {
-        tuning: crate::OperationalTuning,
+        tuning: Box<crate::OperationalTuning>,
         reply: flume::Sender<Result<(), Error>>,
     },
 }
 
-/// Bounded diagnostic/metric copy safe to expose through a later public facade.
+/// Bounded diagnostic/metric copy returned by the actor task.
 #[derive(Debug, Clone)]
-// Every field is read only by this module's `#[cfg(test)] mod tests`; `AsyncSession`
-// drops the snapshot that `AsyncOwnerActor::run` returns (#636).
-#[allow(dead_code)]
 pub(crate) struct OwnerSnapshot {
+    #[cfg(all(test, feature = "runtime-tokio"))]
     pub(crate) metrics: OwnerMetrics,
+    #[cfg(all(test, feature = "runtime-tokio"))]
     pub(crate) diagnostics: Vec<DiagnosticEvent>,
+    #[cfg(all(test, any(feature = "runtime-tokio", feature = "runtime-smol")))]
     pub(crate) state: SessionState,
+    #[cfg(all(test, any(feature = "runtime-tokio", feature = "runtime-smol")))]
     pub(crate) active: usize,
 }
 
@@ -356,7 +348,7 @@ pub(crate) struct AsyncSettlementWait {
 /// settlement policy or polling logic.
 #[derive(Debug)]
 // Built only by `AsyncSettlementWait::erase`, which only this module's tests call (#636).
-#[allow(dead_code)]
+#[cfg(all(test, any(feature = "runtime-tokio", feature = "runtime-smol")))]
 pub(crate) struct ErasedAsyncSettlementWait(AsyncSettlementWait);
 
 /// Result of the applied portion of an async targeted settlement wait.
@@ -372,9 +364,6 @@ pub(crate) enum AsyncAfterApplied {
 /// Exact polling work delegated to Phase 6 without claiming settlement.
 #[derive(Debug)]
 pub(crate) struct AsyncPollingContinuation {
-    // Never read: `AsyncPollingContinuation::wait` destructures the rest and drops this (#636).
-    #[allow(dead_code)]
-    pub(crate) id: RequestId,
     pub(crate) target: crate::CameraId,
     pub(crate) axes: AffectedAxes,
     pub(crate) plan: crate::prepared::SettlementPlan,
@@ -391,8 +380,8 @@ impl AsyncCommandReceipt {
             .and_then(normalize_command_outcome)
     }
 
-    // Consumed only by this module's tests; `AsyncSession::execute` calls `wait` instead (#636).
-    #[allow(dead_code)]
+    // Used only by owner unit tests; the public session calls `wait`.
+    #[cfg(all(test, any(feature = "runtime-tokio", feature = "runtime-smol")))]
     pub(crate) async fn wait_with_timeout(
         self,
         control: AsyncReceiptControl,
@@ -403,8 +392,9 @@ impl AsyncCommandReceipt {
             .and_then(normalize_command_outcome)
     }
 
-    // Consumed only by this module's `#[cfg(test)] mod tests` (owner-binding test) (#636).
-    #[allow(dead_code)]
+    // Used only by the owner-origin test below to release an otherwise
+    // unobserved receipt while both actors are shut down.
+    #[cfg(all(test, feature = "runtime-tokio"))]
     pub(crate) fn detach(self) {}
 }
 
@@ -414,22 +404,6 @@ impl<T> AsyncInquiryReceipt<T> {
         let outcome = wait_core_for(self.core, control, timeout).await?;
         normalize_inquiry_outcome(outcome, &self.decoder)
     }
-
-    // No consumer: `AsyncSession::inquire` uses `wait`, and settlement uses `wait_until` (#636).
-    #[allow(dead_code)]
-    pub(crate) async fn wait_with_timeout(
-        self,
-        control: AsyncReceiptControl,
-        timeout: Duration,
-    ) -> Result<T, Error> {
-        let outcome = wait_core_for(self.core, control, timeout).await?;
-        normalize_inquiry_outcome(outcome, &self.decoder)
-    }
-
-    // No consumer: the inquiry paths all end in `wait` or `wait_until`, and nothing
-    // hands an inquiry receipt back to a caller who could detach it (#636).
-    #[allow(dead_code)]
-    pub(crate) fn detach(self) {}
 
     async fn wait_until(self, control: AsyncReceiptControl, deadline: Instant) -> Result<T, Error> {
         let outcome = wait_core_until(self.core, control, deadline).await?;
@@ -520,8 +494,8 @@ impl AsyncOperationReceipt<completion::Targeted> {
 }
 
 impl AsyncSettlementWait {
-    // Consumed only by this module's `#[cfg(test)] mod tests`; no dyn facade erases yet (#636).
-    #[allow(dead_code)]
+    // Used only by owner unit tests; dynamic facades settle through `Operation`.
+    #[cfg(all(test, any(feature = "runtime-tokio", feature = "runtime-smol")))]
     pub(crate) fn erase(self) -> ErasedAsyncSettlementWait {
         ErasedAsyncSettlementWait(self)
     }
@@ -550,7 +524,6 @@ impl AsyncSettlementWait {
         self,
         deadline: Instant,
     ) -> Result<AsyncAfterApplied, Error> {
-        let id = self.receipt.core.id();
         let target = self.receipt.core.target();
         let outcome = wait_core_until(self.receipt.core, self.control.clone(), deadline).await?;
         normalize_command_outcome(outcome)?;
@@ -570,7 +543,6 @@ impl AsyncSettlementWait {
                 debug_assert_eq!(plan_target, target);
                 debug_assert_eq!(axes, self.receipt.affected_axes);
                 Ok(AsyncAfterApplied::Poll(AsyncPollingContinuation {
-                    id,
                     target,
                     axes: self.receipt.affected_axes,
                     plan,
@@ -581,17 +553,11 @@ impl AsyncSettlementWait {
             }
         }
     }
-
-    // No consumer; only the blocking twin's `selection` is asserted on, in owner/tests.rs (#636).
-    #[allow(dead_code)]
-    pub(crate) const fn selection(&self) -> WaitSelection {
-        self.selection
-    }
 }
 
+#[cfg(all(test, any(feature = "runtime-tokio", feature = "runtime-smol")))]
 impl ErasedAsyncSettlementWait {
-    // Reached only by this module's tests; `dynapi` still settles via `Operation::settled` (#636).
-    #[allow(dead_code)]
+    // Used only by owner unit tests; dynamic facades settle through `Operation`.
     pub(crate) async fn wait(self) -> Result<(), Error> {
         self.0.wait().await.map(drop)
     }
@@ -724,9 +690,7 @@ pub(crate) fn ensure_async_before_deadline(
 }
 
 impl AsyncCancellationReceipt {
-    #[cfg(test)]
-    // Used only by the runtime-tokio cancellation tests; dead on the runtime-smol leg (#636).
-    #[allow(dead_code)]
+    #[cfg(all(test, feature = "runtime-tokio"))]
     async fn recv_test(self) -> Result<crate::runtime::engine::CancellationObservation, Error> {
         self.core
             .recv_async()
@@ -802,10 +766,7 @@ async fn wait_cancellation_until(
     future::or(completion, timer).await
 }
 
-#[cfg(test)]
-// Only `AsyncCancellationReceipt::recv_test` calls this, and its callers are all
-// runtime-tokio tests, so it is dead on the runtime-smol leg (#636).
-#[allow(dead_code)]
+#[cfg(all(test, feature = "runtime-tokio"))]
 fn test_cancellation_observation(
     observation: ReceiptObservation,
 ) -> crate::runtime::engine::CancellationObservation {
@@ -848,10 +809,10 @@ pub(crate) struct AsyncOwnerHandle {
     cancellations: flume::Sender<CancellationBoundary>,
     control: flume::Sender<ControlBoundary>,
     shutdown: flume::Sender<()>,
-    /// Disconnects when the actor task ends. Nothing is ever sent on it; see
-    /// [`AsyncOwnerHandle::await_boundary_reply`].
+    /// Disconnects after actor teardown, including driver/transport drop.
+    /// Nothing is ever sent on it; see [`AsyncOwnerHandle::await_boundary_reply`].
     actor_alive: flume::Receiver<()>,
-    shutdown_requested: Arc<AtomicBool>,
+    shutdown_signal: Arc<Mutex<ShutdownSignalState>>,
     terminal_error: Arc<Mutex<Option<Error>>>,
     origin: Arc<()>,
     clock: BoundClock,
@@ -862,6 +823,36 @@ pub(crate) struct AsyncOwnerHandle {
 }
 
 impl AsyncOwnerHandle {
+    /// Wait until the owner actor has finished its teardown.
+    ///
+    /// The liveness lane is disconnected only after [`AsyncOwnerActor::run`]
+    /// has drained its boundary queues and explicitly dropped its driver.  A
+    /// caller that needs a deterministic transport-release barrier (the async
+    /// session's consuming `close`) waits here instead of relying on a
+    /// detached executor task's completion semantics.
+    pub(crate) async fn wait_closed(&self) -> Result<(), Error> {
+        // Nothing is ever sent on this lane.  It resolves when the actor drops
+        // its sender, after the driver/transport has been dropped.
+        let _ = self.actor_alive.recv_async().await;
+
+        // `run` publishes this before dropping the driver and liveness sender,
+        // so this read is ordered after transport teardown.  An explicit
+        // shutdown is the only terminal result that consuming `close` turns
+        // into success; transport close/poison (and any other terminal owner
+        // error) must remain observable at that boundary (#542 §Terminology,
+        // §3 ordering and transport failure).
+        match self
+            .terminal_error
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
+        {
+            Some(Error::RuntimeShutdown) => Ok(()),
+            Some(error) => Err(error),
+            None => Err(Self::missing_terminal_error()),
+        }
+    }
+
     /// Await one boundary reply, or the actor's disappearance, whichever
     /// happens first.
     ///
@@ -870,8 +861,9 @@ impl AsyncOwnerHandle {
     /// that drain and that drop is stranded — this handle's own sender keeps
     /// flume's queue alive, and with it the reply sender embedded in the
     /// stranded message, so waiting on the reply alone never disconnects and
-    /// never returns. The actor's liveness sender drops as `run` returns, which
-    /// resolves that wait with the session's terminal error instead.
+    /// never returns. Teardown drops the actor's liveness sender after the
+    /// boundary drain and driver drop, which resolves that wait with the
+    /// session's terminal error instead.
     ///
     /// The reply is polled first, and re-checked once the actor is gone, so a
     /// message the drain *did* answer still returns its real answer.
@@ -887,7 +879,7 @@ impl AsyncOwnerHandle {
         };
         let actor_gone = async {
             // Nobody ever sends on this lane, so this resolves exactly once,
-            // when the actor task drops its end.
+            // when actor teardown drops its end after the driver.
             while self.actor_alive.recv_async().await.is_ok() {}
             reply.try_recv().map_err(|_| self.disconnected_error())
         };
@@ -982,9 +974,8 @@ impl AsyncOwnerHandle {
 
     /// Fails immediately when shared boundary/engine capacity is exhausted,
     /// then returns as soon as the actor applies the exact `Admitted` effect.
-    // Consumed only by this module's `#[cfg(test)] mod tests`; `AsyncSession` submits through
-    // `submit_command`/`submit_inquiry`/`submit_operation` instead (#636).
-    #[allow(dead_code)]
+    // Used only by owner unit tests; the public session uses the typed seams.
+    #[cfg(all(test, any(feature = "runtime-tokio", feature = "runtime-smol")))]
     pub(crate) async fn submit(&self, request: RuntimeRequest) -> Result<ReceiptCore, Error> {
         let timeout = if request.is_inquiry() {
             request.context().timeout.inquiry
@@ -1048,8 +1039,8 @@ impl AsyncOwnerHandle {
 
     /// Non-waiting admission used by capacity-sensitive facades. Failure occurs
     /// before an observer or engine ID is created.
-    // Consumed only by this module's runtime-tokio capacity tests; no facade calls it yet (#636).
-    #[allow(dead_code)]
+    // Used only by owner unit tests.
+    #[cfg(all(test, feature = "runtime-tokio"))]
     pub(crate) fn try_submit(
         &self,
         request: RuntimeRequest,
@@ -1113,9 +1104,7 @@ impl AsyncOwnerHandle {
         }
     }
 
-    #[cfg(test)]
-    // Used only by the runtime-tokio cancellation tests; dead on the runtime-smol leg (#636).
-    #[allow(dead_code)]
+    #[cfg(all(test, feature = "runtime-tokio"))]
     pub(crate) async fn cancel_test(
         &self,
         receipt: ReceiptCore,
@@ -1123,8 +1112,8 @@ impl AsyncOwnerHandle {
         self.cancel_core(receipt).await
     }
 
-    // Consumed only by this module's `#[cfg(test)] mod tests`; no async facade reads it (#636).
-    #[allow(dead_code)]
+    // Used only by owner unit tests.
+    #[cfg(all(test, any(feature = "runtime-tokio", feature = "runtime-smol")))]
     pub(crate) async fn snapshot(&self) -> Result<OwnerSnapshot, Error> {
         let (reply, receiver) = flume::bounded(1);
         self.control
@@ -1164,25 +1153,8 @@ impl AsyncOwnerHandle {
     pub(crate) async fn reconfigure(&self, tuning: crate::OperationalTuning) -> Result<(), Error> {
         let (reply, receiver) = flume::bounded(1);
         self.control
-            .send_async(ControlBoundary::Reconfigure { tuning, reply })
-            .await
-            .map_err(|_| self.disconnected_error())?;
-        self.await_boundary_reply(&receiver).await?
-    }
-
-    // No consumer yet: no async facade exposes applied-state subscriptions; only the
-    // blocking `OwnerState::subscribe_applied` is driven, from `owner/tests.rs` (#636).
-    #[allow(dead_code)]
-    pub(crate) async fn subscribe_applied(
-        &self,
-        target: Option<crate::CameraId>,
-        capacity: usize,
-    ) -> Result<AppliedStateSubscription, Error> {
-        let (reply, receiver) = flume::bounded(1);
-        self.control
-            .send_async(ControlBoundary::Subscribe {
-                target,
-                capacity,
+            .send_async(ControlBoundary::Reconfigure {
+                tuning: Box::new(tuning),
                 reply,
             })
             .await
@@ -1203,19 +1175,41 @@ impl AsyncOwnerHandle {
     }
 
     /// Coalesced idempotent shutdown. Only the winning caller occupies the
-    /// single shutdown slot.
+    /// single shutdown slot. The state lock covers the non-awaiting `try_send`,
+    /// so concurrent callers observe the exact same accepted or failed result;
+    /// no caller can return success merely because another caller has started a
+    /// send that later fails.
     pub(crate) async fn shutdown(&self) -> Result<(), Error> {
-        if self
-            .shutdown_requested
-            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-            .is_err()
-        {
-            return Ok(());
+        let mut signal = self
+            .shutdown_signal
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        match &*signal {
+            ShutdownSignalState::Accepted => Ok(()),
+            ShutdownSignalState::Failed(error) => Err(error.clone()),
+            ShutdownSignalState::Open => match self.shutdown.try_send(()) {
+                Ok(()) => {
+                    *signal = ShutdownSignalState::Accepted;
+                    Ok(())
+                }
+                Err(flume::TrySendError::Disconnected(_)) => {
+                    let error = self.disconnected_error();
+                    *signal = ShutdownSignalState::Failed(error.clone());
+                    Err(error)
+                }
+                Err(flume::TrySendError::Full(_)) => {
+                    // Only this method sends on the one-slot shutdown lane,
+                    // so a full queue while the state is Open is an internal
+                    // invariant failure. Remember it just like a disconnect,
+                    // keeping every concurrent/repeated caller consistent.
+                    let error = Error::InvalidState(
+                        "shutdown signal lane was full before acceptance".into(),
+                    );
+                    *signal = ShutdownSignalState::Failed(error.clone());
+                    Err(error)
+                }
+            },
         }
-        self.shutdown
-            .send_async(())
-            .await
-            .map_err(|_| self.disconnected_error())
     }
 
     fn enqueue_admission(
@@ -1228,14 +1222,14 @@ impl AsyncOwnerHandle {
         ),
         Error,
     > {
-        if self.shutdown_requested.load(Ordering::Acquire) {
-            return Err(self.disconnected_error());
+        if let Some(error) = self.admission_rejection() {
+            return Err(error);
         }
         let permit = self.permits.try_acquire().ok_or(Error::RuntimeQueueFull {
             capacity: self.permits.capacity(),
         })?;
-        if self.shutdown_requested.load(Ordering::Acquire) {
-            return Err(self.disconnected_error());
+        if let Some(error) = self.admission_rejection() {
+            return Err(error);
         }
         let (observer, completion) = completion_pair();
         let (reply, admission) = flume::bounded(1);
@@ -1254,13 +1248,43 @@ impl AsyncOwnerHandle {
         }
     }
 
+    fn admission_rejection(&self) -> Option<Error> {
+        let signal = self
+            .shutdown_signal
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        match &*signal {
+            ShutdownSignalState::Accepted => Some(Error::RuntimeShutdown),
+            ShutdownSignalState::Failed(error) => Some(error.clone()),
+            ShutdownSignalState::Open => self
+                .terminal_error
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .clone(),
+        }
+    }
+
+    fn missing_terminal_error() -> Error {
+        Error::InvalidState("owner actor disconnected without publishing a terminal result".into())
+    }
+
     fn disconnected_error(&self) -> Error {
         self.terminal_error
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .clone()
-            .unwrap_or(Error::RuntimeShutdown)
+            .unwrap_or_else(Self::missing_terminal_error)
     }
+}
+
+/// The result of the one coalesced shutdown signal attempt. This is separate
+/// from the actor's eventual terminal result: `shutdown` acknowledges only
+/// acceptance into the bounded lane, while `close` waits for that result.
+#[derive(Debug, Clone)]
+enum ShutdownSignalState {
+    Open,
+    Accepted,
+    Failed(Error),
 }
 
 #[derive(Debug)]
@@ -1273,8 +1297,9 @@ where
     cancellations: flume::Receiver<CancellationBoundary>,
     control: flume::Receiver<ControlBoundary>,
     shutdown: flume::Receiver<()>,
-    /// Dropped as `run` returns, disconnecting every handle's `actor_alive`
-    /// receiver. Nothing is ever sent on it (#626).
+    /// Dropped as `run` returns, after the driver/transport is explicitly
+    /// dropped, disconnecting every handle's `actor_alive` receiver. Nothing
+    /// is ever sent on it (#626).
     alive: flume::Sender<()>,
     terminal_error: Arc<Mutex<Option<Error>>>,
     faults: TransientFaultRun,
@@ -1304,7 +1329,7 @@ where
         let (control_tx, control) = flume::bounded(control_capacity);
         let (shutdown_tx, shutdown) = flume::bounded(1);
         let (alive, actor_alive) = flume::bounded(1);
-        let shutdown_requested = Arc::new(AtomicBool::new(false));
+        let shutdown_signal = Arc::new(Mutex::new(ShutdownSignalState::Open));
         let terminal_error = Arc::new(Mutex::new(None));
         Ok((
             AsyncOwnerHandle {
@@ -1314,7 +1339,7 @@ where
                 control: control_tx,
                 shutdown: shutdown_tx,
                 actor_alive,
-                shutdown_requested,
+                shutdown_signal,
                 terminal_error: Arc::clone(&terminal_error),
                 origin,
                 clock: clock.clone(),
@@ -1333,13 +1358,6 @@ where
                 runtime,
             },
         ))
-    }
-
-    // No consumer: `AsyncSession` never inspects actor state, and the blocking owner
-    // has its own `state()` twin used by `blocking.rs` (#636).
-    #[allow(dead_code)]
-    pub(crate) const fn state(&self) -> &OwnerState {
-        &self.state
     }
 
     pub(crate) async fn run<D>(mut self, mut driver: D) -> OwnerSnapshot
@@ -1427,11 +1445,17 @@ where
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(boundary_error.clone());
         self.drain_boundaries(boundary_error);
+        #[cfg(all(test, any(feature = "runtime-tokio", feature = "runtime-smol")))]
         let snapshot = self.snapshot_now();
+        #[cfg(not(all(test, any(feature = "runtime-tokio", feature = "runtime-smol"))))]
+        let snapshot = OwnerSnapshot {};
         // #626: every reply the drain could produce is queued by now, so
         // disconnecting the liveness lane is safe and is what releases a
-        // boundary request that raced this teardown. The boundary receivers
-        // themselves drop with `self` immediately afterwards.
+        // boundary request that raced this teardown. Drop the driver first so
+        // a waiter using this lane is also a deterministic transport-release
+        // barrier. The boundary receivers themselves drop with `self`
+        // immediately afterwards.
+        drop(driver);
         drop(self.alive);
         snapshot
     }
@@ -1682,26 +1706,19 @@ where
 
     fn handle_control(&mut self, control: ControlBoundary) {
         match control {
+            #[cfg(all(test, any(feature = "runtime-tokio", feature = "runtime-smol")))]
             ControlBoundary::Snapshot(reply) => {
                 let _ = reply.try_send(self.snapshot_now());
             }
             ControlBoundary::Metrics(reply) => {
                 let _ = reply.try_send(Ok(self.state.metrics_snapshot()));
             }
-            ControlBoundary::Subscribe {
-                target,
-                capacity,
-                reply,
-            } => {
-                let result = self.state.subscribe_applied(target, capacity);
-                let _ = reply.try_send(result);
-            }
             ControlBoundary::SubscribeDiagnostics { capacity, reply } => {
                 let result = self.state.subscribe_diagnostics(capacity);
                 let _ = reply.try_send(result);
             }
             ControlBoundary::Reconfigure { tuning, reply } => {
-                let result = self.state.retune(tuning);
+                let result = self.state.retune(*tuning);
                 let _ = reply.try_send(result);
             }
         }
@@ -1802,13 +1819,11 @@ where
             }
             while let Ok(control) = self.control.try_recv() {
                 match control {
+                    #[cfg(all(test, any(feature = "runtime-tokio", feature = "runtime-smol")))]
                     ControlBoundary::Snapshot(reply) => {
                         let _ = reply.try_send(self.snapshot_now());
                     }
                     ControlBoundary::Metrics(reply) => {
-                        let _ = reply.try_send(Err(error.clone()));
-                    }
-                    ControlBoundary::Subscribe { reply, .. } => {
                         let _ = reply.try_send(Err(error.clone()));
                     }
                     ControlBoundary::SubscribeDiagnostics { reply, .. } => {
@@ -1827,9 +1842,12 @@ where
         self.state.fail_unstaged_boundary(dropped);
     }
 
+    #[cfg(all(test, any(feature = "runtime-tokio", feature = "runtime-smol")))]
     fn snapshot_now(&self) -> OwnerSnapshot {
         OwnerSnapshot {
+            #[cfg(feature = "runtime-tokio")]
             metrics: self.state.metrics(),
+            #[cfg(feature = "runtime-tokio")]
             diagnostics: self.state.diagnostics().copied().collect(),
             state: self.state.state(),
             active: self.state.active_len(),
@@ -1860,7 +1878,7 @@ mod tests {
         unused_qualifications
     )]
 
-    use std::sync::Mutex;
+    use std::sync::{atomic::Ordering, Mutex};
 
     use crate::runtime::Runtime;
     use crate::{
@@ -2170,6 +2188,32 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "runtime-tokio")]
+    #[derive(Debug)]
+    struct PanickingReceiveDriver;
+
+    #[cfg(feature = "runtime-tokio")]
+    impl AsyncOwnerDriver for PanickingReceiveDriver {
+        #[allow(clippy::manual_async_fn)]
+        fn write(
+            &mut self,
+            _write: WireWrite<'_>,
+        ) -> impl Future<Output = Result<TransmissionMeta, Error>> + Send {
+            async { Ok(TransmissionMeta { sequence: None }) }
+        }
+
+        #[allow(clippy::manual_async_fn)]
+        fn receive(
+            &mut self,
+            _buffers: &mut super::super::OwnerBuffers,
+            _frame_limit: usize,
+        ) -> impl Future<Output = Result<AsyncReceive, Error>> + Send {
+            async {
+                panic!("test driver panic before terminal publication");
+            }
+        }
+    }
+
     struct Harness {
         driver: FakeAsyncDriver,
         started: flume::Receiver<RequestId>,
@@ -2211,13 +2255,14 @@ mod tests {
     fn prepared_zoom(
         profile: &crate::ProfileSpec,
     ) -> crate::prepared::PreparedOperation<completion::Targeted> {
-        crate::prepared::prepare_builtin_operation::<completion::Targeted, _>(
+        crate::prepared::prepare_operation::<completion::Targeted, _>(
             &crate::request::builtin::ZoomTarget::new(
                 crate::types::ZoomPosition::new(0x0100).unwrap(),
             ),
             CameraId::CAMERA_1,
             profile,
             crate::OperationalTuning::new(),
+            crate::prepared::ClassSelection::Request,
         )
         .unwrap()
     }
@@ -3060,8 +3105,7 @@ mod tests {
     }
 
     /// A command whose retry policy allows one more attempt.
-    // Used only by the runtime-tokio retry tests below; dead on the runtime-smol leg (#636).
-    #[allow(dead_code)]
+    #[cfg(feature = "runtime-tokio")]
     fn retrying_command() -> RuntimeRequest {
         let mut request = command();
         if let RuntimeRequest::Command { context, .. } = &mut request {
@@ -3303,6 +3347,35 @@ mod tests {
             reads.load(Ordering::Relaxed) < 500,
             "the escalating pause must stop the actor hot-looping on a failing read"
         );
+    }
+
+    /// A task that disappears before `run` can publish its terminal result is
+    /// not an orderly runtime shutdown. Every handle-facing wait must fail
+    /// closed instead of manufacturing `RuntimeShutdown` or success.
+    #[cfg(feature = "runtime-tokio")]
+    #[tokio::test]
+    async fn actor_disconnect_without_terminal_result_fails_closed() {
+        let runtime = TokioRuntime::from_current().unwrap();
+        let (handle, actor) = AsyncOwnerActor::new(policy(1), runtime).unwrap();
+        let actor_task = tokio::spawn(actor.run(PanickingReceiveDriver));
+
+        let error = tokio::time::timeout(Duration::from_secs(1), handle.wait_closed())
+            .await
+            .expect("liveness must observe the panicking actor")
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            Error::InvalidState(message)
+                if message.contains("without publishing a terminal result")
+        ));
+        assert!(actor_task.await.is_err(), "the test driver must panic");
+
+        let error = handle.shutdown().await.unwrap_err();
+        assert!(matches!(
+            error,
+            Error::InvalidState(message)
+                if message.contains("without publishing a terminal result")
+        ));
     }
 
     /// The same guarantee on the other executor: the actor is executor-generic

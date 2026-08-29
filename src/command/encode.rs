@@ -21,10 +21,6 @@ pub enum CommandKind {
 /// command registry and carries no request class, timeout, retry, routing, or
 /// completion metadata.
 pub(crate) trait WireEncode: Send + Sync {
-    /// Canonical maximum frame size used by the typed request layer.
-    #[allow(dead_code)]
-    const MAX_SIZE: usize;
-
     /// Write one complete VISCA frame into `buffer`.
     fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error>;
 }
@@ -38,8 +34,6 @@ mod tests {
     fn wire_encoder_owns_only_size_and_write_mechanics() {
         struct Dummy;
         impl WireEncode for Dummy {
-            const MAX_SIZE: usize = 5;
-
             fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
                 let bytes = [
                     camera_id.to_address_byte(),
@@ -59,8 +53,7 @@ mod tests {
             }
         }
 
-        assert_eq!(Dummy::MAX_SIZE, 5);
-        let mut buffer = [0u8; Dummy::MAX_SIZE];
+        let mut buffer = [0u8; 5];
         assert_eq!(
             Dummy.write_into(CameraId::CAMERA_1, &mut buffer).unwrap(),
             5

@@ -93,8 +93,8 @@ pub trait ProfileMetadata {
     /// Maximum time to wait for command acknowledgment.
     const ACK_TIMEOUT: Duration;
 
-    /// Maximum time to wait for command completion.
-    const COMPLETION_TIMEOUT: Duration;
+    /// Exact command completion deadlines for the five request categories.
+    const COMMAND_TIMEOUTS: crate::CommandTimeouts;
 
     /// Time camera is busy after certain operations.
     /// Some cameras need a delay after operations like preset recall.
@@ -685,7 +685,13 @@ mod tests {
         const DEFAULT_CAMERA_ID: u8 = 1;
         type Envelope = crate::transport::RawVisca;
         const ACK_TIMEOUT: Duration = Duration::from_millis(100);
-        const COMPLETION_TIMEOUT: Duration = Duration::from_millis(5000);
+        const COMMAND_TIMEOUTS: crate::CommandTimeouts = crate::CommandTimeouts::new(
+            Duration::from_secs(5),
+            Duration::from_secs(30),
+            Duration::from_secs(60),
+            Duration::from_secs(300),
+            Duration::from_secs(5),
+        );
     }
 
     #[test]

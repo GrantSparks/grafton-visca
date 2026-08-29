@@ -5,6 +5,9 @@ the 2.0 architecture must retain. The supported-surface inventory test checks
 the closed lists below against the current registry and source; an intentional
 change must update the implementation, this inventory, and that test together.
 
+The executable 1.x behavior provenance gate is documented in
+[`behavioral_parity_1x.md`](behavioral_parity_1x.md).
+
 ## Profiles, envelopes, and transports
 
 The built-in profiles are `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`,

@@ -242,7 +242,7 @@ impl ProtocolFramer {
     /// * `Ok(true)` - Push succeeded normally
     /// * `Ok(false)` - Push required resync (buffer was cleared and chunk re-pushed)
     /// * `Err(Error::ResponseTooLarge)` - Resync failed (chunk alone exceeds max_buffer_size)
-    #[allow(dead_code)]
+    #[cfg(any(feature = "transport-serial", feature = "transport-serial-tokio", test))]
     pub fn push_slice_with_resync(&mut self, chunk: &[u8]) -> Result<bool, Error> {
         match self.push_slice(chunk) {
             Ok(()) => Ok(true),

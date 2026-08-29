@@ -108,8 +108,6 @@ pub enum Focus {
 }
 
 impl WireEncode for Focus {
-    const MAX_SIZE: usize = 9;
-
     fn write_into(
         &self,
         camera_id: crate::camera_id::CameraId,
@@ -312,8 +310,6 @@ pub enum FocusLock {
 }
 
 impl WireEncode for FocusLock {
-    const MAX_SIZE: usize = 6;
-
     fn write_into(
         &self,
         camera_id: crate::camera_id::CameraId,
@@ -356,8 +352,6 @@ pub enum PushAF {
 }
 
 impl WireEncode for PushAF {
-    const MAX_SIZE: usize = 8;
-
     fn write_into(
         &self,
         camera_id: crate::camera_id::CameraId,

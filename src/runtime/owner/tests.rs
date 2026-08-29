@@ -27,6 +27,18 @@ fn target_policy_for_validation() -> TargetPolicy {
     }
 }
 
+#[cfg(all(feature = "blocking", not(feature = "async")))]
+fn cached_projection(
+    owner: &OwnerState,
+    target: CameraId,
+    state: WriteOnlyState,
+) -> Option<AppliedStateProjection> {
+    owner
+        .target_cache
+        .get(usize::from(target.id()))
+        .and_then(|slot| slot.lock().ok().and_then(|cache| cache.get(state)))
+}
+
 #[test]
 fn single_target_rejects_broadcast_without_panicking() {
     let result = OwnerPolicy::single_target(
@@ -165,11 +177,12 @@ mod blocking {
         command::CommandKind,
         completion,
         protocol::response::{decode_basic, BasicKind},
-        transport::{builder::AddressingMode, Envelope, RawVisca, SonyEncapsulated},
+        transport::{builder::AddressingMode, Envelope, FrameSequence, RawVisca, SonyEncapsulated},
         CameraId, Error, ViscaSocket,
     };
 
     use super::super::*;
+    use super::cached_projection;
     use crate::runtime::engine::{
         CancellationPolicy, ControlPolicy, DecodedResponse, EncodedMessage, EnvelopeKind,
         EnvelopeSequence, RequestContext, RetryPolicy, SequenceWidth, TimeoutPolicy, TransportKind,
@@ -207,7 +220,7 @@ mod blocking {
             timeout: TimeoutPolicy {
                 ack: Duration::from_millis(10),
                 completion: Duration::from_millis(20),
-                inquiry: Duration::from_millis(10),
+                inquiry: Duration::from_millis(20),
                 cancellation: Duration::from_millis(10),
                 ambiguity: Duration::from_millis(10),
             },
@@ -356,9 +369,9 @@ mod blocking {
                 .push(write.frame_buffer.as_ptr() as usize);
             self.frame_capacities.push(write.frame_buffer.capacity());
             self.frames.push(write.frame_buffer.to_vec());
-            self.sequences.push(meta.sequence);
+            self.sequences.push(meta.sequence.map(FrameSequence::value));
             Ok(TransmissionMeta {
-                sequence: meta.sequence,
+                sequence: meta.sequence.map(FrameSequence::value),
             })
         }
     }
@@ -1104,7 +1117,7 @@ mod blocking {
         let mut owner = BlockingOwner::new(policy(1, TransportKind::Datagram)).unwrap();
         let mut driver = FakeDriver::default();
         let operation = complete_operation(&mut owner, &mut driver, &profile);
-        let peer = owner
+        let _peer = owner
             .submit_command(&mut driver, prepared_focus(&profile, CameraId::CAMERA_1))
             .unwrap();
         let mut reader = DeadlineReader::default();
@@ -1120,7 +1133,6 @@ mod blocking {
         ));
         assert_eq!(driver.writes.len(), 2, "capacity failure writes no query");
         assert_eq!(owner.state().active_len(), 1, "peer remains untouched");
-        peer.detach();
 
         let mut owner = BlockingOwner::new(policy(1, TransportKind::Datagram)).unwrap();
         let mut driver = FakeDriver::default();
@@ -1461,10 +1473,12 @@ mod blocking {
                 now,
             )
             .unwrap();
-        assert!(owner
-            .state()
-            .cached(CameraId::CAMERA_1, WriteOnlyState::PanTiltLimits)
-            .is_some());
+        assert!(cached_projection(
+            owner.state(),
+            CameraId::CAMERA_1,
+            WriteOnlyState::PanTiltLimits,
+        )
+        .is_some());
     }
 
     #[test]
@@ -2522,9 +2536,11 @@ mod blocking {
             )
             .unwrap();
         assert_eq!(
-            owner
-                .state()
-                .cached(CameraId::CAMERA_1, WriteOnlyState::PanTiltLimits,),
+            cached_projection(
+                owner.state(),
+                CameraId::CAMERA_1,
+                WriteOnlyState::PanTiltLimits,
+            ),
             Some(projection)
         );
         assert_eq!(subscription.try_recv().unwrap().0.projection, projection);
@@ -2563,9 +2579,11 @@ mod blocking {
         let mut driver = FakeDriver::default();
         let receipt = owner.submit(&mut driver, request).unwrap();
         assert_eq!(
-            owner
-                .state()
-                .cached(CameraId::CAMERA_1, WriteOnlyState::PanTiltLimits),
+            cached_projection(
+                owner.state(),
+                CameraId::CAMERA_1,
+                WriteOnlyState::PanTiltLimits,
+            ),
             None
         );
         drop(receipt);
@@ -2584,9 +2602,11 @@ mod blocking {
             )
             .unwrap();
         assert_eq!(
-            owner
-                .state()
-                .cached(CameraId::CAMERA_1, WriteOnlyState::PanTiltLimits),
+            cached_projection(
+                owner.state(),
+                CameraId::CAMERA_1,
+                WriteOnlyState::PanTiltLimits,
+            ),
             None
         );
         owner
@@ -2601,10 +2621,12 @@ mod blocking {
                 now,
             )
             .unwrap();
-        let cached = owner
-            .state()
-            .cached(CameraId::CAMERA_1, WriteOnlyState::PanTiltLimits)
-            .expect("pan/tilt limit cached after exact application");
+        let cached = cached_projection(
+            owner.state(),
+            CameraId::CAMERA_1,
+            WriteOnlyState::PanTiltLimits,
+        )
+        .expect("pan/tilt limit cached after exact application");
         assert!(matches!(
             cached,
             AppliedStateProjection::Set { value, .. }
@@ -2622,9 +2644,11 @@ mod blocking {
         .admit_with(|request, _timeout| request);
         let clear_receipt = owner.submit(&mut driver, clear).unwrap();
         assert_eq!(
-            owner
-                .state()
-                .cached(CameraId::CAMERA_1, WriteOnlyState::PanTiltLimits),
+            cached_projection(
+                owner.state(),
+                CameraId::CAMERA_1,
+                WriteOnlyState::PanTiltLimits,
+            ),
             Some(cached)
         );
         drop(clear_receipt);
@@ -2641,9 +2665,11 @@ mod blocking {
             )
             .unwrap();
         assert_eq!(
-            owner
-                .state()
-                .cached(CameraId::CAMERA_1, WriteOnlyState::PanTiltLimits),
+            cached_projection(
+                owner.state(),
+                CameraId::CAMERA_1,
+                WriteOnlyState::PanTiltLimits,
+            ),
             Some(cached)
         );
         owner
@@ -2659,9 +2685,11 @@ mod blocking {
             )
             .unwrap();
         assert_eq!(
-            owner
-                .state()
-                .cached(CameraId::CAMERA_1, WriteOnlyState::PanTiltLimits),
+            cached_projection(
+                owner.state(),
+                CameraId::CAMERA_1,
+                WriteOnlyState::PanTiltLimits,
+            ),
             Some(
                 AppliedStateProjection::clear_with_values(
                     WriteOnlyState::PanTiltLimits,
@@ -3688,9 +3716,11 @@ mod metrics {
     }
 
     fn inquiry(retry: RetryPolicy) -> RuntimeRequest {
+        let mut context = request_context(retry);
+        context.timeout.inquiry = INQUIRY;
         RuntimeRequest::Inquiry {
             wire: wire(),
-            context: request_context(retry),
+            context,
             route: InquiryRoute(1),
         }
     }

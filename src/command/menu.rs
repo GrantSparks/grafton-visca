@@ -46,8 +46,6 @@ pub enum MenuDirection {
 
 // Manual implementation for MenuNavigate due to complex direction mapping
 impl crate::command::encode::WireEncode for MenuNavigate {
-    const MAX_SIZE: usize = 9;
-
     fn write_into(
         &self,
         camera_id: crate::camera_id::CameraId,
@@ -146,8 +144,6 @@ pub struct DirectMenuControl {
 }
 
 impl crate::command::encode::WireEncode for DirectMenuControl {
-    const MAX_SIZE: usize = 8;
-
     fn write_into(
         &self,
         camera_id: crate::camera_id::CameraId,

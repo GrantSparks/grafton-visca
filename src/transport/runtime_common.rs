@@ -193,7 +193,6 @@ macro_rules! declare_net_transport {
                     socket_options::UdpSocketConfig,
                     buffer::BufferConfig,
                     builder::TransportConfig,
-                    RetryConfig,
                 },
                 Error,
             };
@@ -212,19 +211,6 @@ macro_rules! declare_net_transport {
                 /// target address family.
                 pub async fn connect(address: &str) -> Result<Self, Error> {
                     let config = TransportConfig {
-                        buffer_config: BufferConfig::for_udp(),
-                        ..Default::default()
-                    };
-                    Self::connect_with_config(address, config).await
-                }
-
-                /// Create a new UDP transport with custom retry configuration.
-                pub async fn connect_with_retry(
-                    address: &str,
-                    retry_config: RetryConfig,
-                ) -> Result<Self, Error> {
-                    let config = TransportConfig {
-                        retry_config,
                         buffer_config: BufferConfig::for_udp(),
                         ..Default::default()
                     };
@@ -401,7 +387,6 @@ macro_rules! declare_net_transport {
                     socket_options::UdpSocketConfig,
                     buffer::BufferConfig,
                     builder::TransportConfig,
-                    RetryConfig,
                 },
                 Error,
             };
@@ -420,19 +405,6 @@ macro_rules! declare_net_transport {
                 /// target address family.
                 pub async fn connect(address: &str) -> Result<Self, Error> {
                     let config = TransportConfig {
-                        buffer_config: BufferConfig::for_udp(),
-                        ..Default::default()
-                    };
-                    Self::connect_with_config(address, config).await
-                }
-
-                /// Create a new UDP transport with custom retry configuration.
-                pub async fn connect_with_retry(
-                    address: &str,
-                    retry_config: RetryConfig,
-                ) -> Result<Self, Error> {
-                    let config = TransportConfig {
-                        retry_config,
                         buffer_config: BufferConfig::for_udp(),
                         ..Default::default()
                     };

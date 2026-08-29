@@ -40,14 +40,38 @@ delivery.
   target and validated profile facts.
 * Dynamic views erase profile/request types, not ownership, transport, runtime,
   timeout, or state-cache policy.
-* `shutdown` is an idempotent request to the one owner. `close` requests the
-  same shutdown while consuming the session; neither API is a second protocol
-  authority or an implicit command resubmission mechanism.
+* `shutdown` is an idempotent, non-joining signal accepted by the one owner.
+  It returns once the signal is accepted and does not claim that actor or
+  transport teardown has finished.
+* `close` consumes the session, requests the same shutdown, and waits for the
+  sole detached owner to finish its boundary drain and drop its
+  driver/transport. It is the deterministic transport-teardown barrier for
+  reopening the same endpoint, not an executor-specific task join. When
+  shutdown is accepted, `close` returns success only for the explicit
+  `RuntimeShutdown` terminal cause; a transport close or stream poison that
+  wins the normative source ordering is returned exactly. An immediate error
+  sending `close`'s shutdown signal is preserved. Neither API is a second
+  protocol authority or an implicit command resubmission mechanism.
 
 There are no public callbacks, user-supplied lifecycle IDs, unbounded queues,
-or per-camera background workers. Dropping a camera view does not stop a
-session or another view. An operation handle must be explicitly cancelled or
-detached according to its documented lifecycle.
+or per-camera background workers. Dropping a session or camera view does not
+implicitly stop the owner or another view; use `shutdown` for the signal or
+consuming `close` for the release barrier. An operation handle must be
+explicitly cancelled or detached according to its documented lifecycle.
+
+### Timeout and retry ownership
+
+Timeout policy has one ownership boundary. A validated profile owns its exact
+`CommandTimeouts` category table and its inquiry, acknowledgement,
+cancellation, ambiguity, busy, and pacing facts. `OperationalTuning` contains
+only validated per-category or per-fact overrides; it is not a second profile
+or transport policy. Pure request preparation selects one response deadline —
+the inquiry deadline for an inquiry, otherwise the request's exact command
+category — and lowers it with the acknowledgement, cancellation, ambiguity,
+and retry policy into an inert request context. The owner/engine consumes that
+context without reselecting or inventing a deadline. `TransportConfig` carries
+socket/serial behavior only and does not own protocol retry or completion
+policy.
 
 Private request, transmission, and correlation identifiers advance
 monotonically within a session and are never reused. If the 64-bit identity

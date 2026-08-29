@@ -505,6 +505,7 @@ impl Session {
             transport,
             &profiles,
             config.tuning(),
+            config.admission_capacity(),
         )?;
         Ok(Self {
             host: BlockingSessionHost::from_adapter(adapter)?,

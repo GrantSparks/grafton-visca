@@ -58,8 +58,8 @@
 //! ledger noun: its four methods — `stop_all_motion`, `is_moving`,
 //! `is_moving_axes` and `wait_until_idle` — reach the owner core directly and
 //! share no shape with a command row.  Those four stay hand-written on each
-//! facade and are named in [`crate::noun_parity`]'s exemption list, which still
-//! compares them across the three surfaces.
+//! facade and are named in the test-only [`crate::noun_parity`] checks, which
+//! compare them across the three surfaces.
 
 // With no facade feature selected there is no consumer for this table: the
 // blocking, async and dyn-api facades are the only three, and CI's

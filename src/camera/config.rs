@@ -4,14 +4,14 @@
 //! needed to establish a camera connection. The configuration is separate from the
 //! actual connection process, allowing for easy cloning, reuse, and modification.
 
-use std::marker::PhantomData;
+use std::{marker::PhantomData, num::NonZeroUsize};
 
 use crate::{
     camera_id::CameraId,
     capabilities::{Profile, SupportsSerial, SupportsTcp, SupportsUdp},
     error::Error,
-    timeout::TimeoutConfig,
     transport::builder::TransportConfig,
+    OperationalTuning,
 };
 
 #[cfg(any(feature = "async", feature = "blocking"))]
@@ -139,11 +139,11 @@ impl TransportOptions {
 ///
 /// ```ignore
 /// use grafton_visca::camera::{CameraConfig, profiles::PtzOpticsG2};
-/// use grafton_visca::timeout::TimeoutConfig;
+/// use grafton_visca::OperationalTuning;
 /// use grafton_visca::runtime::TokioRuntime;
 ///
 /// let config = CameraConfig::<PtzOpticsG2>::tcp("192.168.0.110")
-///     .timeouts(TimeoutConfig::balanced());
+///     .with_tuning(OperationalTuning::new());
 ///
 /// // Configuration is pure data and can be cloned
 /// let config2 = config.clone();
@@ -165,8 +165,10 @@ pub struct CameraConfig<P> {
     pub(crate) transport: TransportOptions,
     /// Default network port selected by the typed constructor or registry facts.
     pub(crate) network_default_port: Option<u16>,
-    /// Command timeout configuration.
-    pub(crate) timeouts: TimeoutConfig,
+    /// Validated operational overrides applied to prepared requests.
+    pub(crate) tuning: OperationalTuning,
+    /// Immutable request-admission capacity passed to the owner session.
+    pub(crate) admission_capacity: NonZeroUsize,
     /// Transport configuration for the underlying connection.
     pub(crate) transport_config: TransportConfig,
     /// Camera VISCA address (usually 1).
@@ -188,7 +190,8 @@ where
         Self {
             transport: TransportOptions::Custom,
             network_default_port: None,
-            timeouts: TimeoutConfig::default(),
+            tuning: OperationalTuning::new(),
+            admission_capacity: crate::SessionConfig::default().admission_capacity(),
             transport_config: TransportConfig::default(),
             camera_id: CameraId::new(P::DEFAULT_CAMERA_ID).unwrap_or_default(),
             _phantom: PhantomData,
@@ -289,21 +292,39 @@ where
         self
     }
 
-    /// Set timeout configuration.
-    pub fn timeouts(mut self, timeouts: TimeoutConfig) -> Self {
-        self.timeouts = timeouts;
+    /// Set operational overrides for prepared requests.
+    pub fn with_tuning(mut self, tuning: OperationalTuning) -> Self {
+        self.tuning = tuning;
         self
+    }
+
+    /// Returns the operational overrides stored in this configuration.
+    #[must_use]
+    pub const fn tuning(&self) -> OperationalTuning {
+        self.tuning
+    }
+
+    /// Sets the immutable request-admission capacity for sessions opened from
+    /// this configuration.
+    ///
+    /// Admission is fail-fast once this many requests are pending or active;
+    /// it is independent of transport buffers and per-camera VISCA socket
+    /// capacity.
+    #[must_use]
+    pub const fn with_admission_capacity(mut self, capacity: NonZeroUsize) -> Self {
+        self.admission_capacity = capacity;
+        self
+    }
+
+    /// Returns the request-admission capacity stored in this configuration.
+    #[must_use]
+    pub const fn admission_capacity(&self) -> NonZeroUsize {
+        self.admission_capacity
     }
 
     /// Set transport configuration.
     pub fn transport_config(mut self, transport_config: TransportConfig) -> Self {
         self.transport_config = transport_config;
-        self
-    }
-
-    /// Set retry configuration.
-    pub fn retry_config(mut self, retry_config: crate::transport::RetryConfig) -> Self {
-        self.transport_config.retry_config = retry_config;
         self
     }
 
@@ -348,14 +369,6 @@ where
         }
     }
 
-    /// Validate this configuration before any transport I/O.
-    pub fn validate(&self) -> Result<(), Error> {
-        if let Some(profile) = P::PROFILE_ID {
-            self.transport.validate_for_profile(profile)?;
-        }
-        Ok(())
-    }
-
     #[cfg(any(
         feature = "transport-serial-tokio",
         all(feature = "blocking", feature = "transport-serial")
@@ -387,7 +400,6 @@ where
             .camera_address(self.camera_id.id())
             .read_timeout(transport_config.read_timeout)
             .write_timeout(transport_config.write_timeout)
-            .retry_config(transport_config.retry_config)
             .buffer_config(transport_config.buffer_config)
     }
 }
@@ -399,52 +411,25 @@ impl<P> CameraConfig<P>
 where
     P: crate::profile::CompileTimeProfile,
 {
-    pub(crate) fn owner_tuning(&self) -> crate::OperationalTuning {
-        use crate::transport::BackoffStrategy;
+    /// Validate profile, tuning, and transport facts before any transport I/O.
+    pub fn validate(&self) -> crate::Result<()> {
+        let profile = crate::ProfileSpec::from_compile_time::<P>()?;
+        profile.validate_tuning(self.tuning)?;
+        if let Some(profile_id) = P::PROFILE_ID {
+            self.transport.validate_for_profile(profile_id)?;
+        }
+        Ok(())
+    }
 
-        let timeout = self.timeouts;
-        let retry = self.transport_config.retry_config;
-
-        // The owner has one immutable completion budget and one immutable
-        // settlement budget. Use the largest configured timeout so a long or
-        // preset operation cannot be shortened when lowered into the final
-        // request model.
-        let completion = timeout
-            .quick_timeout
-            .max(timeout.movement_timeout)
-            .max(timeout.preset_timeout)
-            .max(timeout.long_timeout)
-            .max(timeout.network_timeout)
-            .max(timeout.default_timeout);
-        let settlement = completion;
-
-        let maximum_backoff = match retry.backoff_strategy {
-            BackoffStrategy::Constant => retry.base_retry_delay,
-            BackoffStrategy::Exponential => {
-                let mut value = retry.base_retry_delay;
-                for _ in 0..retry.max_retries.min(31) {
-                    value = value.saturating_mul(2);
-                }
-                value.min(retry.max_retry_duration)
-            }
-        };
-
-        crate::OperationalTuning::new()
-            .ack_timeout(timeout.ack_timeout)
-            .completion_timeout(completion)
-            .settlement_timeout(settlement)
-            .inquiry_timeout(timeout.quick_timeout.max(timeout.network_timeout))
-            .retry_limit(retry.max_retries)
-            .retry_timing(
-                retry.base_retry_delay,
-                maximum_backoff,
-                retry.max_retry_duration,
-            )
+    pub(crate) fn owner_tuning(&self) -> OperationalTuning {
+        self.tuning
     }
 
     pub(crate) fn owner_profile_config(&self) -> crate::Result<crate::SessionConfig> {
         let profile = crate::ProfileSpec::from_compile_time::<P>()?;
-        crate::SessionConfig::for_target(self.camera_id, profile)?.with_tuning(self.owner_tuning())
+        let config = crate::SessionConfig::for_target(self.camera_id, profile)?
+            .with_tuning(self.owner_tuning())?;
+        Ok(config.with_admission_capacity(self.admission_capacity))
     }
 
     pub(crate) fn owner_default_port(&self, kind: TransportKind) -> Option<u16> {
@@ -737,7 +722,6 @@ mod tests {
             tcp_keepalive: Some(TcpKeepaliveConfig::new(Duration::from_secs(4))),
             ttl: Some(41),
             addressing: AddressingMode::Ip,
-            ..TransportConfig::default()
         };
 
         let tcp = CameraConfig::<PtzOpticsG2>::tcp("camera.local")
@@ -815,50 +799,24 @@ mod tests {
 
     #[cfg(any(feature = "async", feature = "blocking"))]
     #[test]
-    fn canonical_session_config_lowers_timeout_and_retry_policy() {
+    fn canonical_session_config_uses_stored_operational_tuning() {
         use std::time::Duration;
 
-        use crate::{
-            camera::CameraConfig,
-            profile::OperationalTuning,
-            profiles::PtzOpticsG2,
-            timeout::TimeoutConfig,
-            transport::{BackoffStrategy, RetryConfig},
-        };
+        use crate::{camera::CameraConfig, profile::OperationalTuning, profiles::PtzOpticsG2};
 
-        let timeouts = TimeoutConfig {
-            ack_timeout: Duration::from_secs(61),
-            quick_timeout: Duration::from_secs(67),
-            movement_timeout: Duration::from_secs(71),
-            preset_timeout: Duration::from_secs(73),
-            long_timeout: Duration::from_secs(79),
-            network_timeout: Duration::from_secs(83),
-            default_timeout: Duration::from_secs(89),
-        };
-        let retry = RetryConfig {
-            max_retries: 2,
-            base_retry_delay: Duration::from_secs(3),
-            max_retry_duration: Duration::from_secs(17),
-            backoff_strategy: BackoffStrategy::Exponential,
-        };
-        let config = CameraConfig::<PtzOpticsG2>::udp("camera.local")
-            .timeouts(timeouts)
-            .retry_config(retry);
-
-        let expected = OperationalTuning::new()
+        let tuning = OperationalTuning::new()
             .ack_timeout(Duration::from_secs(61))
-            .completion_timeout(Duration::from_secs(89))
-            .settlement_timeout(Duration::from_secs(89))
-            .inquiry_timeout(Duration::from_secs(83))
-            .retry_limit(2)
-            .retry_timing(
-                Duration::from_secs(3),
-                Duration::from_secs(12),
-                Duration::from_secs(17),
-            );
+            .quick_timeout(Duration::from_secs(67))
+            .movement_timeout(Duration::from_secs(71))
+            .preset_timeout(Duration::from_secs(73))
+            .long_running_timeout(Duration::from_secs(379))
+            .network_timeout(Duration::from_secs(83))
+            .settlement_timeout(Duration::from_secs(83));
+        let config = CameraConfig::<PtzOpticsG2>::udp("camera.local").with_tuning(tuning);
+
         assert_eq!(
             config.session_config().expect("session config").tuning(),
-            expected
+            tuning
         );
     }
 
@@ -873,21 +831,12 @@ mod tests {
         use crate::{
             camera::CameraConfig,
             profiles::PtzOpticsG2,
-            transport::{
-                AddressingMode, BackoffStrategy, BufferConfig, RetryConfig, TransportConfig,
-            },
+            transport::{AddressingMode, BufferConfig, TransportConfig},
         };
 
-        let retry = RetryConfig {
-            max_retries: 4,
-            base_retry_delay: Duration::from_millis(7),
-            max_retry_duration: Duration::from_millis(31),
-            backoff_strategy: BackoffStrategy::Constant,
-        };
         let transport_config = TransportConfig {
             read_timeout: Duration::from_millis(37),
             write_timeout: Duration::from_millis(41),
-            retry_config: retry,
             buffer_config: BufferConfig {
                 recv_buffer_size: 43,
                 send_buffer_size: 47,
@@ -903,11 +852,6 @@ mod tests {
         assert_eq!(serial.baud_rate, 38_400);
         assert_eq!(serial.read_timeout, Duration::from_millis(37));
         assert_eq!(serial.write_timeout, Duration::from_millis(41));
-        assert_eq!(serial.retry_config.max_retries, 4);
-        assert_eq!(
-            serial.retry_config.base_retry_delay,
-            Duration::from_millis(7)
-        );
         assert_eq!(serial.buffer_config, transport_config.buffer_config);
         assert_eq!(
             config.serial_transport_config().addressing,

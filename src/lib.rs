@@ -31,10 +31,10 @@
 // only things that ever call them are the blocking and async facades that the
 // leg switches off.
 //
-// This is the single remaining dead-code exemption in the crate. It is
-// conditional, so every configuration anyone actually ships reports dead code
-// normally and each surviving unused item has to carry its own targeted
-// `#[allow(dead_code)]` naming the consumer it is waiting for (#636).
+// This is the single crate-wide dead-code exemption in the crate. It is
+// conditional, so every configuration with a facade reports dead code
+// normally; the only narrower exemptions are the hidden completion-lowering
+// wrappers that are intentionally facade-less in this matrix.
 #![cfg_attr(not(any(feature = "blocking", feature = "async")), allow(dead_code))]
 
 //! ## What is VISCA?
@@ -645,28 +645,29 @@
 //!
 //! ## Timeout Configuration
 //!
-//! Configure timeouts per command category based on your network and camera:
+//! Configure validated timeout overrides per command category:
 //!
 //! ```rust
-//! use grafton_visca::timeout::TimeoutConfig;
+//! use grafton_visca::OperationalTuning;
 //! use std::time::Duration;
 //!
-//! let timeouts = TimeoutConfig::builder()
+//! let tuning = OperationalTuning::new()
 //!     .ack_timeout(Duration::from_millis(300))
-//!     .quick_timeout(Duration::from_secs(3))
-//!     .movement_timeout(Duration::from_secs(20))
-//!     .preset_timeout(Duration::from_secs(60))
-//!     .build();
+//!     .quick_timeout(Duration::from_secs(6))
+//!     .movement_timeout(Duration::from_secs(40))
+//!     .preset_timeout(Duration::from_secs(90))
+//!     .long_running_timeout(Duration::from_secs(360))
+//!     .network_timeout(Duration::from_secs(6));
 //!
 //! // For the async facade
 //! # #[cfg(feature = "runtime-tokio")]
-//! async fn configured_async(timeouts: TimeoutConfig) -> Result<(), grafton_visca::Error> {
+//! async fn configured_async(tuning: OperationalTuning) -> Result<(), grafton_visca::Error> {
 //!     use grafton_visca::camera::{profiles::PtzOpticsG2, CameraConfig};
 //!     use grafton_visca::runtime::TokioRuntime;
 //!
 //!     let runtime = TokioRuntime::from_current()?;
 //!     let session = CameraConfig::<PtzOpticsG2>::tcp("192.168.0.110")
-//!         .timeouts(timeouts)
+//!         .with_tuning(tuning)
 //!         .open_async(runtime)
 //!         .await?;
 //!     session.close().await
@@ -674,16 +675,16 @@
 //!
 //! // For the blocking facade
 //! # #[cfg(feature = "blocking")]
-//! fn configured_blocking(timeouts: TimeoutConfig) -> Result<(), grafton_visca::Error> {
+//! fn configured_blocking(tuning: OperationalTuning) -> Result<(), grafton_visca::Error> {
 //!     use grafton_visca::camera::profiles::PtzOpticsG2;
 //!     use grafton_visca::blocking::CameraConfig;
 //!
 //!     let session = CameraConfig::<PtzOpticsG2>::tcp("192.168.0.110")
-//!         .timeouts(timeouts)
+//!         .with_tuning(tuning)
 //!         .open()?;
 //!     session.close()
 //! }
-//! # let _ = timeouts;
+//! # let _ = tuning;
 //! ```
 //!
 //! ## Command Cancellation (Async)
@@ -899,7 +900,7 @@ pub use observability::{
 pub use state_cache::{PanTiltLimitUpdate, StateCache, StateEntry, StateKey, StateValue};
 
 mod session_config;
-pub use session_config::SessionConfig;
+pub use session_config::{SessionConfig, DEFAULT_ADMISSION_CAPACITY};
 
 mod outcome;
 pub use outcome::{CancelRejected, CancellationOutcome};
@@ -965,7 +966,8 @@ pub mod profile;
 
 pub use profile::{
     CompileTimeProfile, OperationalTuning, PanTiltCoordinateConversion, PositionInquirySupport,
-    ProfileEnvelope, ProfileSpec, ProfileSpecBuilder, ProfileTiming, TransportCompatibility,
+    ProfileEnvelope, ProfileSpec, ProfileSpecBuilder, ProfileTiming, ProfileTimingBuilder,
+    TransportCompatibility,
 };
 
 pub(crate) mod protocol;
@@ -981,7 +983,8 @@ pub mod runtime_adapters;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod testing;
 
-pub mod timeout;
+pub(crate) mod timeout;
+pub use timeout::CommandTimeouts;
 
 /// Transport layer for implementing custom transports
 pub mod transport;

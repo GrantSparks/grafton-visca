@@ -410,9 +410,6 @@ pub(crate) struct EnvelopeSequence {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SequenceWidth {
     Full32,
-    // Only the engine tests construct a truncated width today; the Sony envelope
-    // parser starts emitting it with the lower-16 correlation work (#636).
-    #[allow(dead_code)]
     Lower16,
 }
 
@@ -574,8 +571,10 @@ pub(crate) enum Input {
         id: RequestId,
     },
     /// One receive-side transport failure the owner has already classified as
-    /// transient: the session survives it and every command still waiting for
-    /// its ACK is retried under its own bounded retry policy.
+    /// transient at the transport layer. The engine still applies the
+    /// envelope-specific evidence rule: a Sony request may retry with its exact
+    /// sequence, while a successfully sent raw command awaiting ACK makes the
+    /// session unconfirmable and terminal.
     ///
     /// A receive that proves the session is finished never reaches the engine
     /// this way; it arrives as [`Input::Close`], [`Input::Poison`], or

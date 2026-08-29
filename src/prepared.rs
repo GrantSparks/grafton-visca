@@ -469,10 +469,7 @@ where
 }
 
 /// Prepares a crate built-in command with its closed applied-state selection.
-// Driven today by the built-in request inventory audits in
-// `request::builtin`'s test module and by `runtime::owner::tests`; the typed
-// facades still call `prepare_command` directly (#636).
-#[allow(dead_code)]
+#[cfg(test)]
 pub(crate) fn prepare_builtin_command<C>(
     command: &C,
     target: CameraId,
@@ -497,6 +494,7 @@ where
     C: PlainCommand + ?Sized,
 {
     profile.validate_tuning(tuning)?;
+    validate_timeout_class(command.timeout_class(), false)?;
     command.validate_for_profile(profile)?;
     let wire = encode(command, target)?;
     let context = request_context(command, target, profile, tuning, class, false, false);
@@ -559,6 +557,7 @@ where
             "inquiries require an individual camera target".into(),
         ));
     }
+    validate_timeout_class(inquiry.timeout_class(), true)?;
     profile.validate_tuning(tuning)?;
     if matches!(
         profile.capabilities().inquiry_support,
@@ -610,8 +609,7 @@ where
 }
 
 /// Prepares a crate built-in operation with its closed applied-state selection.
-// Same consumers as `prepare_builtin_command` (#636).
-#[allow(dead_code)]
+#[cfg(test)]
 pub(crate) fn prepare_builtin_operation<K, O>(
     operation: &O,
     target: CameraId,
@@ -642,6 +640,7 @@ where
             "observable operations require an individual camera target".into(),
         ));
     }
+    validate_timeout_class(operation.timeout_class(), false)?;
     profile.validate_tuning(tuning)?;
     // Domain/profile admission must complete before lowering settlement
     // inquiries or encoding the command.  In particular, an unsupported
@@ -695,6 +694,28 @@ where
     Ok(Arc::new(EncodedMessage::new(&bytes[..written])?))
 }
 
+fn validate_timeout_class(class: TimeoutClass, inquiry: bool) -> Result<()> {
+    let valid = if inquiry {
+        matches!(class, TimeoutClass::Inquiry)
+    } else {
+        matches!(
+            class,
+            TimeoutClass::Quick
+                | TimeoutClass::Movement
+                | TimeoutClass::Preset
+                | TimeoutClass::LongRunning
+                | TimeoutClass::Network
+        )
+    };
+    if valid {
+        Ok(())
+    } else {
+        Err(Error::InvalidRequest(
+            "request timeout class does not match its lifecycle kind".into(),
+        ))
+    }
+}
+
 fn request_context<R>(
     request: &R,
     target: CameraId,
@@ -708,16 +729,16 @@ where
     R: Request + ?Sized,
 {
     let timing = profile.timing();
+    let completion = completion_timeout(request.timeout_class(), profile, tuning);
+    let inquiry_timeout = tuning
+        .inquiry_timeout_override()
+        .unwrap_or(timing.inquiry_timeout());
     let timeout = TimeoutPolicy {
         ack: tuning
             .ack_timeout_override()
             .unwrap_or(timing.ack_timeout()),
-        completion: tuning
-            .completion_timeout_override()
-            .unwrap_or_else(|| completion_timeout(request.timeout_class(), profile)),
-        inquiry: tuning
-            .inquiry_timeout_override()
-            .unwrap_or(timing.inquiry_timeout()),
+        completion,
+        inquiry: inquiry_timeout,
         cancellation: timing.cancellation_timeout(),
         ambiguity: timing.ambiguity_timeout(),
     };
@@ -757,16 +778,31 @@ where
     }
 }
 
-fn completion_timeout(class: TimeoutClass, profile: &ProfileSpec) -> Duration {
+fn completion_timeout(
+    class: TimeoutClass,
+    profile: &ProfileSpec,
+    tuning: OperationalTuning,
+) -> Duration {
     let timing = profile.timing();
     match class {
-        TimeoutClass::Quick | TimeoutClass::Inquiry | TimeoutClass::Network => {
-            timing.completion_timeout()
-        }
-        TimeoutClass::Movement | TimeoutClass::LongRunning => timing.completion_timeout(),
-        TimeoutClass::Preset => timing
-            .completion_timeout()
-            .saturating_add(timing.busy_timeout()),
+        TimeoutClass::Quick => tuning
+            .quick_timeout_override()
+            .unwrap_or(timing.command_timeouts().quick_timeout()),
+        TimeoutClass::Movement => tuning
+            .movement_timeout_override()
+            .unwrap_or(timing.command_timeouts().movement_timeout()),
+        TimeoutClass::Preset => tuning
+            .preset_timeout_override()
+            .unwrap_or(timing.command_timeouts().preset_timeout()),
+        TimeoutClass::LongRunning => tuning
+            .long_running_timeout_override()
+            .unwrap_or(timing.command_timeouts().long_running_timeout()),
+        TimeoutClass::Network => tuning
+            .network_timeout_override()
+            .unwrap_or(timing.command_timeouts().network_timeout()),
+        // Inquiry requests use `TimeoutPolicy::inquiry`; keep the otherwise
+        // unused completion field aligned with 1.x's Quick category.
+        TimeoutClass::Inquiry => timing.command_timeouts().quick_timeout(),
     }
 }
 
@@ -777,7 +813,7 @@ fn settlement_budget(
 ) -> Duration {
     tuning
         .settlement_timeout_override()
-        .unwrap_or_else(|| completion_timeout(class, profile))
+        .unwrap_or_else(|| completion_timeout(class, profile, tuning))
 }
 
 /// Base retry count every per-category budget is derived from.
@@ -790,10 +826,9 @@ const DEFAULT_RETRY_BASE: u32 = 3;
 /// Floor for the total wall-clock a request may spend retrying, counted from
 /// admission.
 ///
-/// 1.x's `RetryConfig::default().max_retry_duration`. The rewrite had shrunk
-/// this to two seconds, which is shorter than every profile's completion
-/// deadline and therefore made post-ACK completion retries unreachable even
-/// once they were re-enabled.
+/// 1.x's `RetryConfig::default().max_retry_duration`. The governing request
+/// deadline and profile busy timeout can raise this floor for a request whose
+/// first attempt is longer than ten seconds.
 const MINIMUM_RETRY_BUDGET: Duration = Duration::from_secs(10);
 
 /// Bounded retry count for one timeout category.
@@ -803,9 +838,8 @@ const MINIMUM_RETRY_BUDGET: Duration = Duration::from_secs(10);
 /// to replay, network work gets one fewer because a failing link rarely
 /// recovers within a retry, and a long-running command gets exactly one
 /// attempt to spare the camera a second multi-minute operation. 1.x keyed this
-/// on `CommandCategory`, whose 2.0 spelling is [`TimeoutClass`]; its built-in
-/// inquiries were `CommandCategory::Quick`, so [`TimeoutClass::Inquiry`]
-/// inherits the quick budget.
+/// on the request's [`TimeoutClass`]. Inquiries retain their own retry class
+/// while their response deadline is selected from the inquiry timing fact.
 const fn retry_budget(base: u32, class: TimeoutClass) -> u32 {
     match class {
         TimeoutClass::Quick | TimeoutClass::Inquiry => base.saturating_add(2),
@@ -824,12 +858,11 @@ const fn retry_budget(base: u32, class: TimeoutClass) -> u32 {
 /// Lowers one request's retry policy.
 ///
 /// `deadline` is the request's own governing deadline — its completion
-/// deadline for a command, its reply deadline for an inquiry — and is what the
-/// total budget is sized against. A flat budget cannot work here: profiles in
-/// this crate carry completion deadlines from one to ten seconds, so any fixed
-/// number is either far longer than a quick profile needs or, for the ten
-/// second profiles, expires before the first completion timeout has even
-/// fired, which would leave the restored completion retry unreachable.
+/// deadline for a command, its reply deadline for an inquiry — and is what
+/// the total budget is sized against. A flat budget cannot work here: a
+/// request must be allowed to finish one governing attempt and still have
+/// room for a retry. The profile busy timeout is included for camera-side
+/// recovery windows.
 fn retry_policy(
     retry_class: RetryClass,
     timeout_class: TimeoutClass,
@@ -840,8 +873,6 @@ fn retry_policy(
 ) -> RetryPolicy {
     let default_initial = Duration::from_millis(50);
     let default_maximum = Duration::from_millis(500).max(busy_timeout);
-    // Doubling the deadline admits exactly one further full-length attempt,
-    // which is what 1.x's ten seconds bought its five-second quick commands.
     let default_budget = MINIMUM_RETRY_BUDGET
         .max(deadline.saturating_mul(2))
         .max(busy_timeout);
@@ -904,7 +935,7 @@ impl<R> PreparedInquiry<R> {
     }
 
     // Consumed by the blocking owner's inquiry submission seam
-    // (`runtime::owner::blocking`), which an async-only leg does not compile (#636).
+    // (`runtime::owner::blocking`), which an async-only leg does not compile.
     #[allow(dead_code)]
     pub(crate) fn into_parts(self) -> (RuntimeRequest, ResponseDecoder<R>, Duration) {
         let timeout = self.context.timeout.inquiry;
@@ -967,7 +998,8 @@ mod tests {
         },
         types::{IrisLevel, PanSpeed, TiltSpeed, ZoomPosition},
         units::Degrees,
-        PositionInquirySupport, PresetNumber, ProfileEnvelope, TransportCompatibility,
+        PositionInquirySupport, PresetNumber, ProfileEnvelope, ProfileTiming,
+        TransportCompatibility,
     };
 
     std::thread_local! {
@@ -1007,14 +1039,17 @@ mod tests {
             .transports(transports)
             .envelope(ProfileEnvelope::RawVisca)
             .timing(
-                Duration::from_millis(100),
-                Duration::from_secs(5),
-                Duration::from_secs(1),
-                Duration::from_secs(1),
-                Duration::from_secs(1),
-                Duration::ZERO,
-                Duration::ZERO,
-                Duration::ZERO,
+                ProfileTiming::builder()
+                    .ack_timeout(Duration::from_millis(100))
+                    .command_timeouts(crate::CommandTimeouts::default())
+                    .inquiry_timeout(Duration::from_secs(1))
+                    .cancellation_timeout(Duration::from_secs(1))
+                    .ambiguity_timeout(Duration::from_secs(1))
+                    .busy_timeout(Duration::ZERO)
+                    .minimum_inquiry_spacing(Duration::ZERO)
+                    .minimum_command_spacing(Duration::ZERO)
+                    .build()
+                    .expect("valid timing"),
             )
             .maximum_command_sockets(1)
             .supports_operation_complete(operation_complete)
@@ -1078,6 +1113,60 @@ mod tests {
     impl OperationCommand<completion::Targeted> for CountingTargeted {
         fn affected_axes(&self) -> AffectedAxes {
             AffectedAxes::ZOOM
+        }
+    }
+
+    macro_rules! plain_timeout_request {
+        ($name:ident, $timeout:expr) => {
+            struct $name;
+
+            impl Request for $name {
+                type Class = crate::request::Plain;
+
+                const MAX_SIZE: usize = 2;
+                const TIMEOUT_CLASS: TimeoutClass = $timeout;
+                const RETRY_CLASS: RetryClass = RetryClass::Never;
+                const CONTROL_CLASS: ControlClass = ControlClass::Normal;
+
+                fn write_into(&self, target: CameraId, buffer: &mut [u8]) -> Result<usize> {
+                    buffer[..2].copy_from_slice(&[target.to_address_byte(), VISCA_TERMINATOR]);
+                    Ok(2)
+                }
+            }
+        };
+    }
+
+    plain_timeout_request!(QuickTimeoutCommand, TimeoutClass::Quick);
+    plain_timeout_request!(MovementTimeoutCommand, TimeoutClass::Movement);
+    plain_timeout_request!(PresetTimeoutCommand, TimeoutClass::Preset);
+    plain_timeout_request!(LongRunningTimeoutCommand, TimeoutClass::LongRunning);
+    plain_timeout_request!(NetworkTimeoutCommand, TimeoutClass::Network);
+
+    struct ClassifiedInquiry;
+
+    impl Request for ClassifiedInquiry {
+        type Class = crate::request::Inquiry;
+
+        const MAX_SIZE: usize = 2;
+        const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Quick;
+        const RETRY_CLASS: RetryClass = RetryClass::Inquiry;
+        const CONTROL_CLASS: ControlClass = ControlClass::Normal;
+
+        fn write_into(&self, target: CameraId, buffer: &mut [u8]) -> Result<usize> {
+            buffer[..2].copy_from_slice(&[target.to_address_byte(), VISCA_TERMINATOR]);
+            Ok(2)
+        }
+    }
+
+    impl Inquiry for ClassifiedInquiry {
+        type Response = Vec<u8>;
+
+        fn route(&self) -> InquiryRoute {
+            InquiryRoute::RAW
+        }
+
+        fn decoder(&self) -> ResponseDecoder<Self::Response> {
+            ResponseDecoder::from_fn(|payload| Ok(payload.to_vec()))
         }
     }
 
@@ -1208,7 +1297,7 @@ mod tests {
         );
         let tuning = OperationalTuning::new()
             .inquiry_spacing(Duration::from_millis(40))
-            .completion_timeout(Duration::from_secs(6))
+            .movement_timeout(Duration::from_secs(31))
             .settlement_timeout(Duration::from_secs(9));
         let prepared = prepare_operation::<completion::Targeted, _>(
             &CountingTargeted,
@@ -1219,7 +1308,7 @@ mod tests {
         )
         .expect("targeted poll preparation");
 
-        assert_eq!(prepared.context.timeout.completion, Duration::from_secs(6));
+        assert_eq!(prepared.context.timeout.completion, Duration::from_secs(31));
         let SettlementPlan::Poll {
             target,
             queries,
@@ -1575,6 +1664,137 @@ mod tests {
     }
 
     #[test]
+    fn command_completion_uses_category_overrides_then_profile_values() {
+        let profile = ProfileSpec::from_compile_time::<crate::profiles::PtzOpticsG2>()
+            .expect("built-in profile");
+        let tuning = OperationalTuning::new()
+            .quick_timeout(Duration::from_secs(11))
+            .movement_timeout(Duration::from_secs(32))
+            .preset_timeout(Duration::from_secs(62))
+            .long_running_timeout(Duration::from_secs(302))
+            .network_timeout(Duration::from_secs(15));
+
+        let cases = [
+            (
+                prepare_command(
+                    &QuickTimeoutCommand,
+                    CameraId::CAMERA_1,
+                    &profile,
+                    tuning,
+                    ClassSelection::Request,
+                )
+                .expect("quick preparation")
+                .context
+                .timeout
+                .completion,
+                Duration::from_secs(11),
+            ),
+            (
+                prepare_command(
+                    &MovementTimeoutCommand,
+                    CameraId::CAMERA_1,
+                    &profile,
+                    tuning,
+                    ClassSelection::Request,
+                )
+                .expect("movement preparation")
+                .context
+                .timeout
+                .completion,
+                Duration::from_secs(32),
+            ),
+            (
+                prepare_command(
+                    &PresetTimeoutCommand,
+                    CameraId::CAMERA_1,
+                    &profile,
+                    tuning,
+                    ClassSelection::Request,
+                )
+                .expect("preset preparation")
+                .context
+                .timeout
+                .completion,
+                Duration::from_secs(62),
+            ),
+            (
+                prepare_command(
+                    &LongRunningTimeoutCommand,
+                    CameraId::CAMERA_1,
+                    &profile,
+                    tuning,
+                    ClassSelection::Request,
+                )
+                .expect("long-running preparation")
+                .context
+                .timeout
+                .completion,
+                Duration::from_secs(302),
+            ),
+            (
+                prepare_command(
+                    &NetworkTimeoutCommand,
+                    CameraId::CAMERA_1,
+                    &profile,
+                    tuning,
+                    ClassSelection::Request,
+                )
+                .expect("network preparation")
+                .context
+                .timeout
+                .completion,
+                Duration::from_secs(15),
+            ),
+        ];
+        for (actual, expected) in cases {
+            assert_eq!(actual, expected);
+        }
+
+        let profile_default = OperationalTuning::new();
+        let quick = prepare_command(
+            &QuickTimeoutCommand,
+            CameraId::CAMERA_1,
+            &profile,
+            profile_default,
+            ClassSelection::Request,
+        )
+        .expect("default quick preparation");
+        assert_eq!(quick.context.timeout.completion, Duration::from_secs(5));
+    }
+
+    #[test]
+    fn inquiries_use_the_inquiry_deadline_and_ignore_command_overrides() {
+        let profile = ProfileSpec::from_compile_time::<crate::profiles::PtzOpticsG2>()
+            .expect("built-in profile");
+        let tuning = OperationalTuning::new()
+            .quick_timeout(Duration::from_secs(11))
+            .inquiry_timeout(Duration::from_secs(17));
+        let prepared = prepare_inquiry(
+            &CountingInquiry,
+            CameraId::CAMERA_1,
+            &profile,
+            tuning,
+            ClassSelection::Request,
+        )
+        .expect("inquiry preparation");
+        assert_eq!(prepared.context.timeout.inquiry, Duration::from_secs(17));
+    }
+
+    #[test]
+    fn preparation_rejects_timeout_classes_that_do_not_match_request_kind() {
+        let profile = ProfileSpec::from_compile_time::<crate::profiles::PtzOpticsG2>()
+            .expect("built-in profile");
+        assert!(prepare_inquiry(
+            &ClassifiedInquiry,
+            CameraId::CAMERA_1,
+            &profile,
+            OperationalTuning::new(),
+            ClassSelection::Request,
+        )
+        .is_err());
+    }
+
+    #[test]
     fn never_retry_class_ignores_retry_limit_tuning() {
         let tuning = OperationalTuning::new().retry_limit(7);
         let never = retry_policy(
@@ -1623,6 +1843,53 @@ mod tests {
         assert_eq!(budget(TimeoutClass::Preset), 3);
         assert_eq!(budget(TimeoutClass::Network), 2);
         assert_eq!(budget(TimeoutClass::LongRunning), 1);
+    }
+
+    #[test]
+    fn retry_timing_defaults_follow_the_approved_v2_model() {
+        let expected = [
+            (TimeoutClass::Quick, 5, Duration::from_secs(1)),
+            (TimeoutClass::Inquiry, 5, Duration::from_secs(1)),
+            (TimeoutClass::Movement, 3, Duration::from_secs(30)),
+            (TimeoutClass::Preset, 3, Duration::from_secs(60)),
+            (TimeoutClass::Network, 2, Duration::from_secs(5)),
+            (TimeoutClass::LongRunning, 1, Duration::from_secs(300)),
+        ];
+        for (class, retries, deadline) in expected {
+            let policy = retry_policy(
+                RetryClass::Standard,
+                class,
+                OperationalTuning::new(),
+                Duration::ZERO,
+                deadline,
+                false,
+            );
+            assert_eq!(policy.initial_backoff, Duration::from_millis(50));
+            assert_eq!(
+                policy.maximum_backoff,
+                Duration::from_millis(500),
+                "{class:?}"
+            );
+            let expected_budget = Duration::from_secs(10).max(deadline.saturating_mul(2));
+            assert_eq!(policy.total_budget, expected_budget, "{class:?}");
+            assert_eq!(policy.max_retries, retries, "{class:?}");
+        }
+
+        let tuned = retry_policy(
+            RetryClass::Standard,
+            TimeoutClass::Quick,
+            OperationalTuning::new().retry_timing(
+                Duration::from_millis(25),
+                Duration::from_millis(75),
+                Duration::from_secs(2),
+            ),
+            Duration::ZERO,
+            Duration::from_secs(1),
+            false,
+        );
+        assert_eq!(tuned.initial_backoff, Duration::from_millis(25));
+        assert_eq!(tuned.maximum_backoff, Duration::from_millis(75));
+        assert_eq!(tuned.total_budget, Duration::from_secs(2));
     }
 
     /// A network budget never reaches zero, matching 1.x's clamp.
@@ -1710,10 +1977,10 @@ mod tests {
         assert!(!policy(RetryClass::Never));
     }
 
-    /// Issue #566: the retry budget must outlast a completion deadline, or
-    /// re-enabling completion retries changes nothing. 1.x allowed ten seconds.
+    /// Issue #566: the default retry budget is at least the 1.x ten-second
+    /// budget and grows with the selected command deadline.
     #[test]
-    fn the_retry_budget_outlasts_a_profile_completion_deadline() {
+    fn retry_budget_follows_the_governing_response_deadline() {
         let profile = ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()
             .expect("built-in profile");
         let prepared = prepare_builtin_operation::<completion::AppliedOnly, _>(
@@ -1724,30 +1991,41 @@ mod tests {
         )
         .expect("preparation");
 
-        // The generic profile's completion deadline is itself ten seconds, so
-        // 1.x's flat ten-second budget would expire before the first
-        // completion timeout could even fire.
-        assert_eq!(
-            prepared.context.timeout.completion,
-            Duration::from_secs(10),
-            "fixture assumption"
-        );
-        assert_eq!(prepared.context.retry.total_budget, Duration::from_secs(20));
-        assert!(
-            prepared.context.retry.total_budget > prepared.context.timeout.completion,
-            "a completion timeout must be able to fire and still leave budget to retry"
-        );
+        let completion_deadline = prepared.context.timeout.completion;
+        let expected_budget = Duration::from_secs(10).max(completion_deadline.saturating_mul(2));
+        assert_eq!(prepared.context.retry.total_budget, expected_budget);
 
-        // A quick profile keeps 1.x's ten-second floor rather than shrinking.
+        // A short deadline still gets the ten-second floor, while a longer
+        // deadline and a profile busy timeout can raise the total budget.
+        let quick_deadline = Duration::from_secs(1);
         let quick = retry_policy(
             RetryClass::Standard,
             TimeoutClass::Quick,
             OperationalTuning::new(),
             Duration::ZERO,
-            Duration::from_secs(1),
+            quick_deadline,
             false,
         );
-        assert_eq!(quick.total_budget, MINIMUM_RETRY_BUDGET);
+        assert_eq!(
+            quick.total_budget,
+            MINIMUM_RETRY_BUDGET.max(quick_deadline.saturating_mul(2))
+        );
+        let busy_timeout = Duration::from_secs(17);
+        let long_deadline = Duration::from_secs(6);
+        let long = retry_policy(
+            RetryClass::Standard,
+            TimeoutClass::Quick,
+            OperationalTuning::new(),
+            busy_timeout,
+            long_deadline,
+            false,
+        );
+        assert_eq!(
+            long.total_budget,
+            MINIMUM_RETRY_BUDGET
+                .max(long_deadline.saturating_mul(2))
+                .max(busy_timeout)
+        );
     }
 
     #[test]

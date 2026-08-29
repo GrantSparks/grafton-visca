@@ -70,8 +70,12 @@ impl Session {
         config.validate_for_transport(transport.standard_transport_kind())?;
         let tuning = config.tuning();
         let profiles = config.profile_registry();
-        let adapter =
-            AsyncTransportAdapter::new_with_profile_registry(transport, &profiles, tuning)?;
+        let adapter = AsyncTransportAdapter::new_with_profile_registry(
+            transport,
+            &profiles,
+            tuning,
+            config.admission_capacity(),
+        )?;
         let policy = adapter.policy().clone();
 
         let executor: Arc<E> = executor.into();
@@ -206,16 +210,32 @@ impl Session {
     /// is accepted by the owner's bounded shutdown boundary; it does not join
     /// the detached actor task or claim that transport teardown has finished.
     /// After this call, new request admission is rejected with
-    /// [`Error::RuntimeShutdown`].
+    /// [`Error::RuntimeShutdown`]. All [`Session`] clones share this one
+    /// shutdown boundary, so a consuming [`Self::close`] on any clone waits
+    /// for the same sole actor.
     pub async fn shutdown(&self) -> Result<()> {
         self.owner.shutdown().await
     }
 
-    /// Requests owner shutdown and consumes this session.
+    /// Requests owner shutdown and consumes this session, waiting for teardown.
     ///
-    /// Like [`Self::shutdown`], this is not a task-join operation.
+    /// Unlike [`Self::shutdown`], this is a deterministic driver/transport
+    /// teardown barrier. It does not resolve until the detached owner has
+    /// dropped its driver (including the owned transport), so reopening the
+    /// same endpoint after `close` is safe. The barrier does not promise an
+    /// executor-specific task join after that release point. If shutdown was
+    /// accepted, the terminal owner result is returned after teardown: an
+    /// explicit shutdown returns `Ok(())`, while a transport close or stream
+    /// poison that won the source ordering race is returned unchanged. If
+    /// sending this call's shutdown signal fails immediately, that send error
+    /// is preserved.
     pub async fn close(self) -> Result<()> {
-        self.shutdown().await
+        let shutdown_result = self.shutdown().await;
+        let teardown_result = self.owner.wait_closed().await;
+        match shutdown_result {
+            Err(error) => Err(error),
+            Ok(()) => teardown_result,
+        }
     }
 
     /// Returns a scalar snapshot of the owner without cloning diagnostics.
@@ -370,13 +390,19 @@ impl<P: CompileTimeProfile> CameraSession<P> {
     }
 
     /// Requests owner shutdown without consuming this value.
+    ///
+    /// This is the idempotent, non-joining signal; use [`Self::close`] when
+    /// the actor and owned transport must be fully released before continuing.
     pub async fn shutdown(&self) -> Result<()> {
         self.session.shutdown().await
     }
 
-    /// Requests owner shutdown and consumes this camera session.
+    /// Requests owner shutdown and consumes this camera session, waiting for
+    /// the actor and its owned transport to be fully dropped.
     ///
-    /// Like [`Session::close`], this is not a task-join operation.
+    /// This is the deterministic teardown barrier described by
+    /// [`Session::close`]; use [`Self::shutdown`] when only an idempotent,
+    /// non-joining signal is required.
     pub async fn close(self) -> Result<()> {
         self.session.close().await
     }

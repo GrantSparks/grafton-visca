@@ -27,7 +27,10 @@ mod async_standard {
     };
 
     #[cfg(feature = "runtime-tokio")]
-    use grafton_visca::transport::{BackoffStrategy, RetryConfig, TcpKeepaliveConfig};
+    use grafton_visca::OperationalTuning;
+
+    #[cfg(feature = "runtime-tokio")]
+    use grafton_visca::transport::TcpKeepaliveConfig;
     #[cfg(feature = "runtime-tokio")]
     use std::num::NonZeroUsize;
 
@@ -265,6 +268,14 @@ mod async_standard {
         assert!(matches!(error, Error::UnsupportedTransport { .. }));
         assert!(calls.lock().expect("calls lock").is_empty());
 
+        let error = CameraConfig::<PtzOpticsG2>::tcp("does-not-resolve.invalid")
+            .with_tuning(OperationalTuning::new().quick_timeout(Duration::from_secs(1)))
+            .open_async(runtime.clone())
+            .await
+            .expect_err("a category timeout below the profile floor must fail in preflight");
+        assert!(matches!(error, Error::InvalidRequest(_)));
+        assert!(calls.lock().expect("calls lock").is_empty());
+
         let error = Connect::open_udp::<PtzOpticsG2, _>("invalid:address:format", runtime.clone())
             .await
             .expect_err("invalid endpoint must be rejected before DNS");
@@ -296,23 +307,12 @@ mod async_standard {
         assert_eq!(call.config.buffer_config, transport_config.buffer_config);
         assert_eq!(call.config.tcp_nodelay, Some(false));
         assert_eq!(call.config.tcp_keepalive, transport_config.tcp_keepalive);
-        assert_eq!(
-            call.config.retry_config.max_retries,
-            transport_config.retry_config.max_retries
-        );
         session.shutdown().await.expect("shutdown");
 
-        let udp_retry = RetryConfig {
-            max_retries: 5,
-            base_retry_delay: Duration::from_millis(29),
-            max_retry_duration: Duration::from_millis(97),
-            backoff_strategy: BackoffStrategy::Constant,
-        };
         let udp_config = TransportConfig {
             connect_timeout: Duration::from_millis(31),
             read_timeout: Duration::from_millis(37),
             write_timeout: Duration::from_millis(41),
-            retry_config: udp_retry,
             buffer_config: BufferConfig {
                 recv_buffer_size: 43,
                 send_buffer_size: 47,
@@ -320,11 +320,19 @@ mod async_standard {
             },
             ttl: Some(59),
             addressing: AddressingMode::Ip,
-            max_pending_queue_depth: NonZeroUsize::new(61).expect("nonzero queue depth"),
             ..TransportConfig::default()
         };
-        let session = CameraConfig::<PtzOpticsG2>::udp("192.0.2.11:1259")
-            .transport_config(udp_config)
+        let udp_camera_config = CameraConfig::<PtzOpticsG2>::udp("192.0.2.11:1259")
+            .with_admission_capacity(NonZeroUsize::new(61).expect("nonzero queue depth"))
+            .transport_config(udp_config);
+        assert_eq!(
+            udp_camera_config
+                .session_config()
+                .expect("session config")
+                .admission_capacity(),
+            NonZeroUsize::new(61).expect("nonzero queue depth")
+        );
+        let session = udp_camera_config
             .open_async(runtime.clone())
             .await
             .expect("fake configured UDP owner session");
@@ -332,26 +340,9 @@ mod async_standard {
         assert_eq!(call.config.connect_timeout, Duration::from_millis(31));
         assert_eq!(call.config.read_timeout, Duration::from_millis(37));
         assert_eq!(call.config.write_timeout, Duration::from_millis(41));
-        assert_eq!(call.config.retry_config.max_retries, 5);
-        assert_eq!(
-            call.config.retry_config.base_retry_delay,
-            Duration::from_millis(29)
-        );
-        assert_eq!(
-            call.config.retry_config.max_retry_duration,
-            Duration::from_millis(97)
-        );
-        assert_eq!(
-            call.config.retry_config.backoff_strategy,
-            BackoffStrategy::Constant
-        );
         assert_eq!(call.config.buffer_config, udp_config.buffer_config);
         assert_eq!(call.config.ttl, Some(59));
         assert_eq!(call.config.addressing, AddressingMode::Ip);
-        assert_eq!(
-            call.config.max_pending_queue_depth,
-            NonZeroUsize::new(61).unwrap()
-        );
         session.shutdown().await.expect("shutdown");
     }
 }

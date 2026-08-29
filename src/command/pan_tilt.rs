@@ -607,14 +607,7 @@ pub enum PanTilt {
     },
 }
 
-impl PanTilt {
-    // NOTE: The absolute_position_degrees method was removed because it referenced
-    // an out-of-scope generic parameter. Use the camera facade methods instead.
-}
-
 impl WireEncode for PanTilt {
-    const MAX_SIZE: usize = 15;
-
     fn write_into(
         &self,
         camera_id: crate::camera_id::CameraId,

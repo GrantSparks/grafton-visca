@@ -85,18 +85,19 @@ impl<'session, P> !core::panic::unwind_safe::UnwindSafe for grafton_visca::block
 pub struct grafton_visca::blocking::CameraConfig<P>
 impl<P> grafton_visca::CameraConfig<P> where P: grafton_visca::capabilities::Profile
 pub fn grafton_visca::CameraConfig<P>::address(self, impl core::convert::Into<alloc::string::String>) -> Self
+pub const fn grafton_visca::CameraConfig<P>::admission_capacity(&self) -> core::num::nonzero::NonZeroUsize
 pub fn grafton_visca::CameraConfig<P>::camera_id(self, grafton_visca::CameraId) -> Self
 pub fn grafton_visca::CameraConfig<P>::for_camera() -> Self
 pub fn grafton_visca::CameraConfig<P>::new() -> Self
-pub fn grafton_visca::CameraConfig<P>::retry_config(self, grafton_visca::transport::RetryConfig) -> Self
 pub fn grafton_visca::CameraConfig<P>::serial(impl core::convert::Into<alloc::string::String>, u32) -> Self where P: grafton_visca::capabilities::SupportsSerial
 pub fn grafton_visca::CameraConfig<P>::tcp(impl core::convert::Into<alloc::string::String>) -> Self where P: grafton_visca::capabilities::SupportsTcp
-pub fn grafton_visca::CameraConfig<P>::timeouts(self, grafton_visca::timeout::TimeoutConfig) -> Self
 pub fn grafton_visca::CameraConfig<P>::transport(self, grafton_visca::camera::TransportOptions) -> Self
 pub fn grafton_visca::CameraConfig<P>::transport_config(self, grafton_visca::transport::TransportConfig) -> Self
 pub fn grafton_visca::CameraConfig<P>::try_camera_id(self, u8) -> core::result::Result<Self, grafton_visca::Error>
+pub const fn grafton_visca::CameraConfig<P>::tuning(&self) -> grafton_visca::profile::OperationalTuning
 pub fn grafton_visca::CameraConfig<P>::udp(impl core::convert::Into<alloc::string::String>) -> Self where P: grafton_visca::capabilities::SupportsUdp
-pub fn grafton_visca::CameraConfig<P>::validate(&self) -> core::result::Result<(), grafton_visca::Error>
+pub const fn grafton_visca::CameraConfig<P>::with_admission_capacity(self, core::num::nonzero::NonZeroUsize) -> Self
+pub fn grafton_visca::CameraConfig<P>::with_tuning(self, grafton_visca::profile::OperationalTuning) -> Self
 impl<P> grafton_visca::CameraConfig<P> where P: grafton_visca::profile::CompileTimeProfile
 pub fn grafton_visca::CameraConfig<P>::open(&self) -> grafton_visca::Result<grafton_visca::blocking::Session>
 pub fn grafton_visca::CameraConfig<P>::open_camera(&self) -> grafton_visca::Result<grafton_visca::blocking::CameraSession<P>>
@@ -109,6 +110,7 @@ pub async fn grafton_visca::CameraConfig<P>::open_serial_async<R>(&self, R) -> g
 pub async fn grafton_visca::CameraConfig<P>::open_serial_camera_async<R>(&self, R) -> grafton_visca::Result<grafton_visca::CameraSession<P>> where R: grafton_visca::Runtime + grafton_visca::runtime::RuntimeSerial<SerialTransport = grafton_visca::runtime_adapters::tokio::SerialTransport>
 impl<P> grafton_visca::CameraConfig<P> where P: grafton_visca::profile::CompileTimeProfile
 pub fn grafton_visca::CameraConfig<P>::session_config(&self) -> grafton_visca::Result<grafton_visca::SessionConfig>
+pub fn grafton_visca::CameraConfig<P>::validate(&self) -> grafton_visca::Result<()>
 impl<P: core::clone::Clone> core::clone::Clone for grafton_visca::CameraConfig<P>
 pub fn grafton_visca::CameraConfig<P>::clone(&self) -> grafton_visca::CameraConfig<P>
 impl<P: core::fmt::Debug> core::fmt::Debug for grafton_visca::CameraConfig<P>
@@ -546,6 +548,7 @@ impl !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::Sessi
 impl !core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::Session
 pub struct grafton_visca::blocking::SessionConfig
 impl grafton_visca::SessionConfig
+pub const fn grafton_visca::SessionConfig::admission_capacity(&self) -> core::num::nonzero::NonZeroUsize
 pub fn grafton_visca::SessionConfig::for_target(grafton_visca::CameraId, grafton_visca::profile::ProfileSpec) -> grafton_visca::Result<Self>
 pub fn grafton_visca::SessionConfig::from_compile_time<P>() -> grafton_visca::Result<Self> where P: grafton_visca::profile::CompileTimeProfile
 pub fn grafton_visca::SessionConfig::new(grafton_visca::profile::ProfileSpec) -> Self
@@ -555,6 +558,7 @@ pub fn grafton_visca::SessionConfig::sole_target(&self) -> core::option::Option<
 pub fn grafton_visca::SessionConfig::target_count(&self) -> usize
 pub fn grafton_visca::SessionConfig::targets(&self) -> [core::option::Option<grafton_visca::CameraId>; 7]
 pub const fn grafton_visca::SessionConfig::tuning(&self) -> grafton_visca::profile::OperationalTuning
+pub const fn grafton_visca::SessionConfig::with_admission_capacity(self, core::num::nonzero::NonZeroUsize) -> Self
 pub fn grafton_visca::SessionConfig::with_target(self, grafton_visca::CameraId, grafton_visca::profile::ProfileSpec) -> grafton_visca::Result<Self>
 pub fn grafton_visca::SessionConfig::with_tuning(self, grafton_visca::profile::OperationalTuning) -> grafton_visca::Result<Self>
 impl core::clone::Clone for grafton_visca::SessionConfig
@@ -923,7 +927,7 @@ impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::pro
 pub type grafton_visca::camera::profiles::GenericVisca::Envelope = grafton_visca::transport::RawVisca
 pub const grafton_visca::camera::profiles::GenericVisca::ACK_TIMEOUT: core::time::Duration
 pub const grafton_visca::camera::profiles::GenericVisca::BUSY_TIMEOUT: core::time::Duration
-pub const grafton_visca::camera::profiles::GenericVisca::COMPLETION_TIMEOUT: core::time::Duration
+pub const grafton_visca::camera::profiles::GenericVisca::COMMAND_TIMEOUTS: grafton_visca::CommandTimeouts
 pub const grafton_visca::camera::profiles::GenericVisca::DEFAULT_CAMERA_ID: u8
 pub const grafton_visca::camera::profiles::GenericVisca::INQUIRY_SUPPORT: grafton_visca::capabilities::InquirySupport
 pub const grafton_visca::camera::profiles::GenericVisca::MIN_COMMAND_SPACING: core::time::Duration
@@ -1062,7 +1066,7 @@ impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::pro
 pub type grafton_visca::camera::profiles::NearusBRC300::Envelope = grafton_visca::transport::RawVisca
 pub const grafton_visca::camera::profiles::NearusBRC300::ACK_TIMEOUT: core::time::Duration
 pub const grafton_visca::camera::profiles::NearusBRC300::BUSY_TIMEOUT: core::time::Duration
-pub const grafton_visca::camera::profiles::NearusBRC300::COMPLETION_TIMEOUT: core::time::Duration
+pub const grafton_visca::camera::profiles::NearusBRC300::COMMAND_TIMEOUTS: grafton_visca::CommandTimeouts
 pub const grafton_visca::camera::profiles::NearusBRC300::DEFAULT_CAMERA_ID: u8
 pub const grafton_visca::camera::profiles::NearusBRC300::INQUIRY_SUPPORT: grafton_visca::capabilities::InquirySupport
 pub const grafton_visca::camera::profiles::NearusBRC300::MIN_COMMAND_SPACING: core::time::Duration
@@ -1223,7 +1227,7 @@ impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::pro
 pub type grafton_visca::camera::profiles::PtzOptics30X::Envelope = grafton_visca::transport::RawVisca
 pub const grafton_visca::camera::profiles::PtzOptics30X::ACK_TIMEOUT: core::time::Duration
 pub const grafton_visca::camera::profiles::PtzOptics30X::BUSY_TIMEOUT: core::time::Duration
-pub const grafton_visca::camera::profiles::PtzOptics30X::COMPLETION_TIMEOUT: core::time::Duration
+pub const grafton_visca::camera::profiles::PtzOptics30X::COMMAND_TIMEOUTS: grafton_visca::CommandTimeouts
 pub const grafton_visca::camera::profiles::PtzOptics30X::DEFAULT_CAMERA_ID: u8
 pub const grafton_visca::camera::profiles::PtzOptics30X::INQUIRY_SUPPORT: grafton_visca::capabilities::InquirySupport
 pub const grafton_visca::camera::profiles::PtzOptics30X::MIN_COMMAND_SPACING: core::time::Duration
@@ -1384,7 +1388,7 @@ impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::pro
 pub type grafton_visca::camera::profiles::PtzOpticsG2::Envelope = grafton_visca::transport::RawVisca
 pub const grafton_visca::camera::profiles::PtzOpticsG2::ACK_TIMEOUT: core::time::Duration
 pub const grafton_visca::camera::profiles::PtzOpticsG2::BUSY_TIMEOUT: core::time::Duration
-pub const grafton_visca::camera::profiles::PtzOpticsG2::COMPLETION_TIMEOUT: core::time::Duration
+pub const grafton_visca::camera::profiles::PtzOpticsG2::COMMAND_TIMEOUTS: grafton_visca::CommandTimeouts
 pub const grafton_visca::camera::profiles::PtzOpticsG2::DEFAULT_CAMERA_ID: u8
 pub const grafton_visca::camera::profiles::PtzOpticsG2::INQUIRY_SUPPORT: grafton_visca::capabilities::InquirySupport
 pub const grafton_visca::camera::profiles::PtzOpticsG2::MIN_COMMAND_SPACING: core::time::Duration
@@ -1545,7 +1549,7 @@ impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::pro
 pub type grafton_visca::camera::profiles::PtzOpticsG3::Envelope = grafton_visca::transport::RawVisca
 pub const grafton_visca::camera::profiles::PtzOpticsG3::ACK_TIMEOUT: core::time::Duration
 pub const grafton_visca::camera::profiles::PtzOpticsG3::BUSY_TIMEOUT: core::time::Duration
-pub const grafton_visca::camera::profiles::PtzOpticsG3::COMPLETION_TIMEOUT: core::time::Duration
+pub const grafton_visca::camera::profiles::PtzOpticsG3::COMMAND_TIMEOUTS: grafton_visca::CommandTimeouts
 pub const grafton_visca::camera::profiles::PtzOpticsG3::DEFAULT_CAMERA_ID: u8
 pub const grafton_visca::camera::profiles::PtzOpticsG3::INQUIRY_SUPPORT: grafton_visca::capabilities::InquirySupport
 pub const grafton_visca::camera::profiles::PtzOpticsG3::MIN_COMMAND_SPACING: core::time::Duration
@@ -1683,7 +1687,7 @@ impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::pro
 pub type grafton_visca::camera::profiles::SonyBRC300::Envelope = grafton_visca::transport::RawVisca
 pub const grafton_visca::camera::profiles::SonyBRC300::ACK_TIMEOUT: core::time::Duration
 pub const grafton_visca::camera::profiles::SonyBRC300::BUSY_TIMEOUT: core::time::Duration
-pub const grafton_visca::camera::profiles::SonyBRC300::COMPLETION_TIMEOUT: core::time::Duration
+pub const grafton_visca::camera::profiles::SonyBRC300::COMMAND_TIMEOUTS: grafton_visca::CommandTimeouts
 pub const grafton_visca::camera::profiles::SonyBRC300::DEFAULT_CAMERA_ID: u8
 pub const grafton_visca::camera::profiles::SonyBRC300::INQUIRY_SUPPORT: grafton_visca::capabilities::InquirySupport
 pub const grafton_visca::camera::profiles::SonyBRC300::MIN_COMMAND_SPACING: core::time::Duration
@@ -1839,7 +1843,7 @@ impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::pro
 pub type grafton_visca::camera::profiles::SonyBRCH900::Envelope = grafton_visca::transport::SonyEncapsulated
 pub const grafton_visca::camera::profiles::SonyBRCH900::ACK_TIMEOUT: core::time::Duration
 pub const grafton_visca::camera::profiles::SonyBRCH900::BUSY_TIMEOUT: core::time::Duration
-pub const grafton_visca::camera::profiles::SonyBRCH900::COMPLETION_TIMEOUT: core::time::Duration
+pub const grafton_visca::camera::profiles::SonyBRCH900::COMMAND_TIMEOUTS: grafton_visca::CommandTimeouts
 pub const grafton_visca::camera::profiles::SonyBRCH900::DEFAULT_CAMERA_ID: u8
 pub const grafton_visca::camera::profiles::SonyBRCH900::INQUIRY_SUPPORT: grafton_visca::capabilities::InquirySupport
 pub const grafton_visca::camera::profiles::SonyBRCH900::MIN_COMMAND_SPACING: core::time::Duration
@@ -1981,7 +1985,7 @@ impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::pro
 pub type grafton_visca::camera::profiles::SonyEVIH100::Envelope = grafton_visca::transport::RawVisca
 pub const grafton_visca::camera::profiles::SonyEVIH100::ACK_TIMEOUT: core::time::Duration
 pub const grafton_visca::camera::profiles::SonyEVIH100::BUSY_TIMEOUT: core::time::Duration
-pub const grafton_visca::camera::profiles::SonyEVIH100::COMPLETION_TIMEOUT: core::time::Duration
+pub const grafton_visca::camera::profiles::SonyEVIH100::COMMAND_TIMEOUTS: grafton_visca::CommandTimeouts
 pub const grafton_visca::camera::profiles::SonyEVIH100::DEFAULT_CAMERA_ID: u8
 pub const grafton_visca::camera::profiles::SonyEVIH100::INQUIRY_SUPPORT: grafton_visca::capabilities::InquirySupport
 pub const grafton_visca::camera::profiles::SonyEVIH100::MIN_COMMAND_SPACING: core::time::Duration
@@ -2146,7 +2150,7 @@ impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::pro
 pub type grafton_visca::camera::profiles::SonyFR7::Envelope = grafton_visca::transport::SonyEncapsulated
 pub const grafton_visca::camera::profiles::SonyFR7::ACK_TIMEOUT: core::time::Duration
 pub const grafton_visca::camera::profiles::SonyFR7::BUSY_TIMEOUT: core::time::Duration
-pub const grafton_visca::camera::profiles::SonyFR7::COMPLETION_TIMEOUT: core::time::Duration
+pub const grafton_visca::camera::profiles::SonyFR7::COMMAND_TIMEOUTS: grafton_visca::CommandTimeouts
 pub const grafton_visca::camera::profiles::SonyFR7::DEFAULT_CAMERA_ID: u8
 pub const grafton_visca::camera::profiles::SonyFR7::INQUIRY_SUPPORT: grafton_visca::capabilities::InquirySupport
 pub const grafton_visca::camera::profiles::SonyFR7::MIN_COMMAND_SPACING: core::time::Duration
@@ -2365,18 +2369,19 @@ impl core::panic::unwind_safe::UnwindSafe for grafton_visca::camera::TransportOp
 pub struct grafton_visca::camera::CameraConfig<P>
 impl<P> grafton_visca::CameraConfig<P> where P: grafton_visca::capabilities::Profile
 pub fn grafton_visca::CameraConfig<P>::address(self, impl core::convert::Into<alloc::string::String>) -> Self
+pub const fn grafton_visca::CameraConfig<P>::admission_capacity(&self) -> core::num::nonzero::NonZeroUsize
 pub fn grafton_visca::CameraConfig<P>::camera_id(self, grafton_visca::CameraId) -> Self
 pub fn grafton_visca::CameraConfig<P>::for_camera() -> Self
 pub fn grafton_visca::CameraConfig<P>::new() -> Self
-pub fn grafton_visca::CameraConfig<P>::retry_config(self, grafton_visca::transport::RetryConfig) -> Self
 pub fn grafton_visca::CameraConfig<P>::serial(impl core::convert::Into<alloc::string::String>, u32) -> Self where P: grafton_visca::capabilities::SupportsSerial
 pub fn grafton_visca::CameraConfig<P>::tcp(impl core::convert::Into<alloc::string::String>) -> Self where P: grafton_visca::capabilities::SupportsTcp
-pub fn grafton_visca::CameraConfig<P>::timeouts(self, grafton_visca::timeout::TimeoutConfig) -> Self
 pub fn grafton_visca::CameraConfig<P>::transport(self, grafton_visca::camera::TransportOptions) -> Self
 pub fn grafton_visca::CameraConfig<P>::transport_config(self, grafton_visca::transport::TransportConfig) -> Self
 pub fn grafton_visca::CameraConfig<P>::try_camera_id(self, u8) -> core::result::Result<Self, grafton_visca::Error>
+pub const fn grafton_visca::CameraConfig<P>::tuning(&self) -> grafton_visca::profile::OperationalTuning
 pub fn grafton_visca::CameraConfig<P>::udp(impl core::convert::Into<alloc::string::String>) -> Self where P: grafton_visca::capabilities::SupportsUdp
-pub fn grafton_visca::CameraConfig<P>::validate(&self) -> core::result::Result<(), grafton_visca::Error>
+pub const fn grafton_visca::CameraConfig<P>::with_admission_capacity(self, core::num::nonzero::NonZeroUsize) -> Self
+pub fn grafton_visca::CameraConfig<P>::with_tuning(self, grafton_visca::profile::OperationalTuning) -> Self
 impl<P> grafton_visca::CameraConfig<P> where P: grafton_visca::profile::CompileTimeProfile
 pub fn grafton_visca::CameraConfig<P>::open(&self) -> grafton_visca::Result<grafton_visca::blocking::Session>
 pub fn grafton_visca::CameraConfig<P>::open_camera(&self) -> grafton_visca::Result<grafton_visca::blocking::CameraSession<P>>
@@ -2389,6 +2394,7 @@ pub async fn grafton_visca::CameraConfig<P>::open_serial_async<R>(&self, R) -> g
 pub async fn grafton_visca::CameraConfig<P>::open_serial_camera_async<R>(&self, R) -> grafton_visca::Result<grafton_visca::CameraSession<P>> where R: grafton_visca::Runtime + grafton_visca::runtime::RuntimeSerial<SerialTransport = grafton_visca::runtime_adapters::tokio::SerialTransport>
 impl<P> grafton_visca::CameraConfig<P> where P: grafton_visca::profile::CompileTimeProfile
 pub fn grafton_visca::CameraConfig<P>::session_config(&self) -> grafton_visca::Result<grafton_visca::SessionConfig>
+pub fn grafton_visca::CameraConfig<P>::validate(&self) -> grafton_visca::Result<()>
 impl<P: core::clone::Clone> core::clone::Clone for grafton_visca::CameraConfig<P>
 pub fn grafton_visca::CameraConfig<P>::clone(&self) -> grafton_visca::CameraConfig<P>
 impl<P: core::fmt::Debug> core::fmt::Debug for grafton_visca::CameraConfig<P>
@@ -5157,7 +5163,7 @@ pub trait grafton_visca::capabilities::ProfileMetadata
 pub type grafton_visca::capabilities::ProfileMetadata::Envelope: grafton_visca::transport::Envelope
 pub const grafton_visca::capabilities::ProfileMetadata::ACK_TIMEOUT: core::time::Duration
 pub const grafton_visca::capabilities::ProfileMetadata::BUSY_TIMEOUT: core::time::Duration
-pub const grafton_visca::capabilities::ProfileMetadata::COMPLETION_TIMEOUT: core::time::Duration
+pub const grafton_visca::capabilities::ProfileMetadata::COMMAND_TIMEOUTS: grafton_visca::CommandTimeouts
 pub const grafton_visca::capabilities::ProfileMetadata::DEFAULT_CAMERA_ID: u8
 pub const grafton_visca::capabilities::ProfileMetadata::INQUIRY_SUPPORT: grafton_visca::capabilities::InquirySupport
 pub const grafton_visca::capabilities::ProfileMetadata::MIN_COMMAND_SPACING: core::time::Duration
@@ -5171,7 +5177,7 @@ impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::pro
 pub type grafton_visca::camera::profiles::GenericVisca::Envelope = grafton_visca::transport::RawVisca
 pub const grafton_visca::camera::profiles::GenericVisca::ACK_TIMEOUT: core::time::Duration
 pub const grafton_visca::camera::profiles::GenericVisca::BUSY_TIMEOUT: core::time::Duration
-pub const grafton_visca::camera::profiles::GenericVisca::COMPLETION_TIMEOUT: core::time::Duration
+pub const grafton_visca::camera::profiles::GenericVisca::COMMAND_TIMEOUTS: grafton_visca::CommandTimeouts
 pub const grafton_visca::camera::profiles::GenericVisca::DEFAULT_CAMERA_ID: u8
 pub const grafton_visca::camera::profiles::GenericVisca::INQUIRY_SUPPORT: grafton_visca::capabilities::InquirySupport
 pub const grafton_visca::camera::profiles::GenericVisca::MIN_COMMAND_SPACING: core::time::Duration
@@ -5185,7 +5191,7 @@ impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::pro
 pub type grafton_visca::camera::profiles::NearusBRC300::Envelope = grafton_visca::transport::RawVisca
 pub const grafton_visca::camera::profiles::NearusBRC300::ACK_TIMEOUT: core::time::Duration
 pub const grafton_visca::camera::profiles::NearusBRC300::BUSY_TIMEOUT: core::time::Duration
-pub const grafton_visca::camera::profiles::NearusBRC300::COMPLETION_TIMEOUT: core::time::Duration
+pub const grafton_visca::camera::profiles::NearusBRC300::COMMAND_TIMEOUTS: grafton_visca::CommandTimeouts
 pub const grafton_visca::camera::profiles::NearusBRC300::DEFAULT_CAMERA_ID: u8
 pub const grafton_visca::camera::profiles::NearusBRC300::INQUIRY_SUPPORT: grafton_visca::capabilities::InquirySupport
 pub const grafton_visca::camera::profiles::NearusBRC300::MIN_COMMAND_SPACING: core::time::Duration
@@ -5199,7 +5205,7 @@ impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::pro
 pub type grafton_visca::camera::profiles::PtzOptics30X::Envelope = grafton_visca::transport::RawVisca
 pub const grafton_visca::camera::profiles::PtzOptics30X::ACK_TIMEOUT: core::time::Duration
 pub const grafton_visca::camera::profiles::PtzOptics30X::BUSY_TIMEOUT: core::time::Duration
-pub const grafton_visca::camera::profiles::PtzOptics30X::COMPLETION_TIMEOUT: core::time::Duration
+pub const grafton_visca::camera::profiles::PtzOptics30X::COMMAND_TIMEOUTS: grafton_visca::CommandTimeouts
 pub const grafton_visca::camera::profiles::PtzOptics30X::DEFAULT_CAMERA_ID: u8
 pub const grafton_visca::camera::profiles::PtzOptics30X::INQUIRY_SUPPORT: grafton_visca::capabilities::InquirySupport
 pub const grafton_visca::camera::profiles::PtzOptics30X::MIN_COMMAND_SPACING: core::time::Duration
@@ -5213,7 +5219,7 @@ impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::pro
 pub type grafton_visca::camera::profiles::PtzOpticsG2::Envelope = grafton_visca::transport::RawVisca
 pub const grafton_visca::camera::profiles::PtzOpticsG2::ACK_TIMEOUT: core::time::Duration
 pub const grafton_visca::camera::profiles::PtzOpticsG2::BUSY_TIMEOUT: core::time::Duration
-pub const grafton_visca::camera::profiles::PtzOpticsG2::COMPLETION_TIMEOUT: core::time::Duration
+pub const grafton_visca::camera::profiles::PtzOpticsG2::COMMAND_TIMEOUTS: grafton_visca::CommandTimeouts
 pub const grafton_visca::camera::profiles::PtzOpticsG2::DEFAULT_CAMERA_ID: u8
 pub const grafton_visca::camera::profiles::PtzOpticsG2::INQUIRY_SUPPORT: grafton_visca::capabilities::InquirySupport
 pub const grafton_visca::camera::profiles::PtzOpticsG2::MIN_COMMAND_SPACING: core::time::Duration
@@ -5227,7 +5233,7 @@ impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::pro
 pub type grafton_visca::camera::profiles::PtzOpticsG3::Envelope = grafton_visca::transport::RawVisca
 pub const grafton_visca::camera::profiles::PtzOpticsG3::ACK_TIMEOUT: core::time::Duration
 pub const grafton_visca::camera::profiles::PtzOpticsG3::BUSY_TIMEOUT: core::time::Duration
-pub const grafton_visca::camera::profiles::PtzOpticsG3::COMPLETION_TIMEOUT: core::time::Duration
+pub const grafton_visca::camera::profiles::PtzOpticsG3::COMMAND_TIMEOUTS: grafton_visca::CommandTimeouts
 pub const grafton_visca::camera::profiles::PtzOpticsG3::DEFAULT_CAMERA_ID: u8
 pub const grafton_visca::camera::profiles::PtzOpticsG3::INQUIRY_SUPPORT: grafton_visca::capabilities::InquirySupport
 pub const grafton_visca::camera::profiles::PtzOpticsG3::MIN_COMMAND_SPACING: core::time::Duration
@@ -5241,7 +5247,7 @@ impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::pro
 pub type grafton_visca::camera::profiles::SonyBRC300::Envelope = grafton_visca::transport::RawVisca
 pub const grafton_visca::camera::profiles::SonyBRC300::ACK_TIMEOUT: core::time::Duration
 pub const grafton_visca::camera::profiles::SonyBRC300::BUSY_TIMEOUT: core::time::Duration
-pub const grafton_visca::camera::profiles::SonyBRC300::COMPLETION_TIMEOUT: core::time::Duration
+pub const grafton_visca::camera::profiles::SonyBRC300::COMMAND_TIMEOUTS: grafton_visca::CommandTimeouts
 pub const grafton_visca::camera::profiles::SonyBRC300::DEFAULT_CAMERA_ID: u8
 pub const grafton_visca::camera::profiles::SonyBRC300::INQUIRY_SUPPORT: grafton_visca::capabilities::InquirySupport
 pub const grafton_visca::camera::profiles::SonyBRC300::MIN_COMMAND_SPACING: core::time::Duration
@@ -5255,7 +5261,7 @@ impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::pro
 pub type grafton_visca::camera::profiles::SonyBRCH900::Envelope = grafton_visca::transport::SonyEncapsulated
 pub const grafton_visca::camera::profiles::SonyBRCH900::ACK_TIMEOUT: core::time::Duration
 pub const grafton_visca::camera::profiles::SonyBRCH900::BUSY_TIMEOUT: core::time::Duration
-pub const grafton_visca::camera::profiles::SonyBRCH900::COMPLETION_TIMEOUT: core::time::Duration
+pub const grafton_visca::camera::profiles::SonyBRCH900::COMMAND_TIMEOUTS: grafton_visca::CommandTimeouts
 pub const grafton_visca::camera::profiles::SonyBRCH900::DEFAULT_CAMERA_ID: u8
 pub const grafton_visca::camera::profiles::SonyBRCH900::INQUIRY_SUPPORT: grafton_visca::capabilities::InquirySupport
 pub const grafton_visca::camera::profiles::SonyBRCH900::MIN_COMMAND_SPACING: core::time::Duration
@@ -5269,7 +5275,7 @@ impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::pro
 pub type grafton_visca::camera::profiles::SonyEVIH100::Envelope = grafton_visca::transport::RawVisca
 pub const grafton_visca::camera::profiles::SonyEVIH100::ACK_TIMEOUT: core::time::Duration
 pub const grafton_visca::camera::profiles::SonyEVIH100::BUSY_TIMEOUT: core::time::Duration
-pub const grafton_visca::camera::profiles::SonyEVIH100::COMPLETION_TIMEOUT: core::time::Duration
+pub const grafton_visca::camera::profiles::SonyEVIH100::COMMAND_TIMEOUTS: grafton_visca::CommandTimeouts
 pub const grafton_visca::camera::profiles::SonyEVIH100::DEFAULT_CAMERA_ID: u8
 pub const grafton_visca::camera::profiles::SonyEVIH100::INQUIRY_SUPPORT: grafton_visca::capabilities::InquirySupport
 pub const grafton_visca::camera::profiles::SonyEVIH100::MIN_COMMAND_SPACING: core::time::Duration
@@ -5283,7 +5289,7 @@ impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::pro
 pub type grafton_visca::camera::profiles::SonyFR7::Envelope = grafton_visca::transport::SonyEncapsulated
 pub const grafton_visca::camera::profiles::SonyFR7::ACK_TIMEOUT: core::time::Duration
 pub const grafton_visca::camera::profiles::SonyFR7::BUSY_TIMEOUT: core::time::Duration
-pub const grafton_visca::camera::profiles::SonyFR7::COMPLETION_TIMEOUT: core::time::Duration
+pub const grafton_visca::camera::profiles::SonyFR7::COMMAND_TIMEOUTS: grafton_visca::CommandTimeouts
 pub const grafton_visca::camera::profiles::SonyFR7::DEFAULT_CAMERA_ID: u8
 pub const grafton_visca::camera::profiles::SonyFR7::INQUIRY_SUPPORT: grafton_visca::capabilities::InquirySupport
 pub const grafton_visca::camera::profiles::SonyFR7::MIN_COMMAND_SPACING: core::time::Duration
@@ -14435,18 +14441,19 @@ impl<P> !core::panic::unwind_safe::UnwindSafe for grafton_visca::Camera<P>
 pub struct grafton_visca::prelude::async::CameraConfig<P>
 impl<P> grafton_visca::CameraConfig<P> where P: grafton_visca::capabilities::Profile
 pub fn grafton_visca::CameraConfig<P>::address(self, impl core::convert::Into<alloc::string::String>) -> Self
+pub const fn grafton_visca::CameraConfig<P>::admission_capacity(&self) -> core::num::nonzero::NonZeroUsize
 pub fn grafton_visca::CameraConfig<P>::camera_id(self, grafton_visca::CameraId) -> Self
 pub fn grafton_visca::CameraConfig<P>::for_camera() -> Self
 pub fn grafton_visca::CameraConfig<P>::new() -> Self
-pub fn grafton_visca::CameraConfig<P>::retry_config(self, grafton_visca::transport::RetryConfig) -> Self
 pub fn grafton_visca::CameraConfig<P>::serial(impl core::convert::Into<alloc::string::String>, u32) -> Self where P: grafton_visca::capabilities::SupportsSerial
 pub fn grafton_visca::CameraConfig<P>::tcp(impl core::convert::Into<alloc::string::String>) -> Self where P: grafton_visca::capabilities::SupportsTcp
-pub fn grafton_visca::CameraConfig<P>::timeouts(self, grafton_visca::timeout::TimeoutConfig) -> Self
 pub fn grafton_visca::CameraConfig<P>::transport(self, grafton_visca::camera::TransportOptions) -> Self
 pub fn grafton_visca::CameraConfig<P>::transport_config(self, grafton_visca::transport::TransportConfig) -> Self
 pub fn grafton_visca::CameraConfig<P>::try_camera_id(self, u8) -> core::result::Result<Self, grafton_visca::Error>
+pub const fn grafton_visca::CameraConfig<P>::tuning(&self) -> grafton_visca::profile::OperationalTuning
 pub fn grafton_visca::CameraConfig<P>::udp(impl core::convert::Into<alloc::string::String>) -> Self where P: grafton_visca::capabilities::SupportsUdp
-pub fn grafton_visca::CameraConfig<P>::validate(&self) -> core::result::Result<(), grafton_visca::Error>
+pub const fn grafton_visca::CameraConfig<P>::with_admission_capacity(self, core::num::nonzero::NonZeroUsize) -> Self
+pub fn grafton_visca::CameraConfig<P>::with_tuning(self, grafton_visca::profile::OperationalTuning) -> Self
 impl<P> grafton_visca::CameraConfig<P> where P: grafton_visca::profile::CompileTimeProfile
 pub fn grafton_visca::CameraConfig<P>::open(&self) -> grafton_visca::Result<grafton_visca::blocking::Session>
 pub fn grafton_visca::CameraConfig<P>::open_camera(&self) -> grafton_visca::Result<grafton_visca::blocking::CameraSession<P>>
@@ -14459,6 +14466,7 @@ pub async fn grafton_visca::CameraConfig<P>::open_serial_async<R>(&self, R) -> g
 pub async fn grafton_visca::CameraConfig<P>::open_serial_camera_async<R>(&self, R) -> grafton_visca::Result<grafton_visca::CameraSession<P>> where R: grafton_visca::Runtime + grafton_visca::runtime::RuntimeSerial<SerialTransport = grafton_visca::runtime_adapters::tokio::SerialTransport>
 impl<P> grafton_visca::CameraConfig<P> where P: grafton_visca::profile::CompileTimeProfile
 pub fn grafton_visca::CameraConfig<P>::session_config(&self) -> grafton_visca::Result<grafton_visca::SessionConfig>
+pub fn grafton_visca::CameraConfig<P>::validate(&self) -> grafton_visca::Result<()>
 impl<P: core::clone::Clone> core::clone::Clone for grafton_visca::CameraConfig<P>
 pub fn grafton_visca::CameraConfig<P>::clone(&self) -> grafton_visca::CameraConfig<P>
 impl<P: core::fmt::Debug> core::fmt::Debug for grafton_visca::CameraConfig<P>
@@ -15027,7 +15035,7 @@ impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::pro
 pub type grafton_visca::camera::profiles::GenericVisca::Envelope = grafton_visca::transport::RawVisca
 pub const grafton_visca::camera::profiles::GenericVisca::ACK_TIMEOUT: core::time::Duration
 pub const grafton_visca::camera::profiles::GenericVisca::BUSY_TIMEOUT: core::time::Duration
-pub const grafton_visca::camera::profiles::GenericVisca::COMPLETION_TIMEOUT: core::time::Duration
+pub const grafton_visca::camera::profiles::GenericVisca::COMMAND_TIMEOUTS: grafton_visca::CommandTimeouts
 pub const grafton_visca::camera::profiles::GenericVisca::DEFAULT_CAMERA_ID: u8
 pub const grafton_visca::camera::profiles::GenericVisca::INQUIRY_SUPPORT: grafton_visca::capabilities::InquirySupport
 pub const grafton_visca::camera::profiles::GenericVisca::MIN_COMMAND_SPACING: core::time::Duration
@@ -15408,7 +15416,7 @@ impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::pro
 pub type grafton_visca::camera::profiles::NearusBRC300::Envelope = grafton_visca::transport::RawVisca
 pub const grafton_visca::camera::profiles::NearusBRC300::ACK_TIMEOUT: core::time::Duration
 pub const grafton_visca::camera::profiles::NearusBRC300::BUSY_TIMEOUT: core::time::Duration
-pub const grafton_visca::camera::profiles::NearusBRC300::COMPLETION_TIMEOUT: core::time::Duration
+pub const grafton_visca::camera::profiles::NearusBRC300::COMMAND_TIMEOUTS: grafton_visca::CommandTimeouts
 pub const grafton_visca::camera::profiles::NearusBRC300::DEFAULT_CAMERA_ID: u8
 pub const grafton_visca::camera::profiles::NearusBRC300::INQUIRY_SUPPORT: grafton_visca::capabilities::InquirySupport
 pub const grafton_visca::camera::profiles::NearusBRC300::MIN_COMMAND_SPACING: core::time::Duration
@@ -15856,7 +15864,7 @@ impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::pro
 pub type grafton_visca::camera::profiles::PtzOptics30X::Envelope = grafton_visca::transport::RawVisca
 pub const grafton_visca::camera::profiles::PtzOptics30X::ACK_TIMEOUT: core::time::Duration
 pub const grafton_visca::camera::profiles::PtzOptics30X::BUSY_TIMEOUT: core::time::Duration
-pub const grafton_visca::camera::profiles::PtzOptics30X::COMPLETION_TIMEOUT: core::time::Duration
+pub const grafton_visca::camera::profiles::PtzOptics30X::COMMAND_TIMEOUTS: grafton_visca::CommandTimeouts
 pub const grafton_visca::camera::profiles::PtzOptics30X::DEFAULT_CAMERA_ID: u8
 pub const grafton_visca::camera::profiles::PtzOptics30X::INQUIRY_SUPPORT: grafton_visca::capabilities::InquirySupport
 pub const grafton_visca::camera::profiles::PtzOptics30X::MIN_COMMAND_SPACING: core::time::Duration
@@ -16017,7 +16025,7 @@ impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::pro
 pub type grafton_visca::camera::profiles::PtzOpticsG2::Envelope = grafton_visca::transport::RawVisca
 pub const grafton_visca::camera::profiles::PtzOpticsG2::ACK_TIMEOUT: core::time::Duration
 pub const grafton_visca::camera::profiles::PtzOpticsG2::BUSY_TIMEOUT: core::time::Duration
-pub const grafton_visca::camera::profiles::PtzOpticsG2::COMPLETION_TIMEOUT: core::time::Duration
+pub const grafton_visca::camera::profiles::PtzOpticsG2::COMMAND_TIMEOUTS: grafton_visca::CommandTimeouts
 pub const grafton_visca::camera::profiles::PtzOpticsG2::DEFAULT_CAMERA_ID: u8
 pub const grafton_visca::camera::profiles::PtzOpticsG2::INQUIRY_SUPPORT: grafton_visca::capabilities::InquirySupport
 pub const grafton_visca::camera::profiles::PtzOpticsG2::MIN_COMMAND_SPACING: core::time::Duration
@@ -16178,7 +16186,7 @@ impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::pro
 pub type grafton_visca::camera::profiles::PtzOpticsG3::Envelope = grafton_visca::transport::RawVisca
 pub const grafton_visca::camera::profiles::PtzOpticsG3::ACK_TIMEOUT: core::time::Duration
 pub const grafton_visca::camera::profiles::PtzOpticsG3::BUSY_TIMEOUT: core::time::Duration
-pub const grafton_visca::camera::profiles::PtzOpticsG3::COMPLETION_TIMEOUT: core::time::Duration
+pub const grafton_visca::camera::profiles::PtzOpticsG3::COMMAND_TIMEOUTS: grafton_visca::CommandTimeouts
 pub const grafton_visca::camera::profiles::PtzOpticsG3::DEFAULT_CAMERA_ID: u8
 pub const grafton_visca::camera::profiles::PtzOpticsG3::INQUIRY_SUPPORT: grafton_visca::capabilities::InquirySupport
 pub const grafton_visca::camera::profiles::PtzOpticsG3::MIN_COMMAND_SPACING: core::time::Duration
@@ -16367,6 +16375,7 @@ impl !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::Session
 impl !core::panic::unwind_safe::UnwindSafe for grafton_visca::Session
 pub struct grafton_visca::prelude::async::SessionConfig
 impl grafton_visca::SessionConfig
+pub const fn grafton_visca::SessionConfig::admission_capacity(&self) -> core::num::nonzero::NonZeroUsize
 pub fn grafton_visca::SessionConfig::for_target(grafton_visca::CameraId, grafton_visca::profile::ProfileSpec) -> grafton_visca::Result<Self>
 pub fn grafton_visca::SessionConfig::from_compile_time<P>() -> grafton_visca::Result<Self> where P: grafton_visca::profile::CompileTimeProfile
 pub fn grafton_visca::SessionConfig::new(grafton_visca::profile::ProfileSpec) -> Self
@@ -16376,6 +16385,7 @@ pub fn grafton_visca::SessionConfig::sole_target(&self) -> core::option::Option<
 pub fn grafton_visca::SessionConfig::target_count(&self) -> usize
 pub fn grafton_visca::SessionConfig::targets(&self) -> [core::option::Option<grafton_visca::CameraId>; 7]
 pub const fn grafton_visca::SessionConfig::tuning(&self) -> grafton_visca::profile::OperationalTuning
+pub const fn grafton_visca::SessionConfig::with_admission_capacity(self, core::num::nonzero::NonZeroUsize) -> Self
 pub fn grafton_visca::SessionConfig::with_target(self, grafton_visca::CameraId, grafton_visca::profile::ProfileSpec) -> grafton_visca::Result<Self>
 pub fn grafton_visca::SessionConfig::with_tuning(self, grafton_visca::profile::OperationalTuning) -> grafton_visca::Result<Self>
 impl core::clone::Clone for grafton_visca::SessionConfig
@@ -16493,7 +16503,7 @@ impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::pro
 pub type grafton_visca::camera::profiles::SonyBRC300::Envelope = grafton_visca::transport::RawVisca
 pub const grafton_visca::camera::profiles::SonyBRC300::ACK_TIMEOUT: core::time::Duration
 pub const grafton_visca::camera::profiles::SonyBRC300::BUSY_TIMEOUT: core::time::Duration
-pub const grafton_visca::camera::profiles::SonyBRC300::COMPLETION_TIMEOUT: core::time::Duration
+pub const grafton_visca::camera::profiles::SonyBRC300::COMMAND_TIMEOUTS: grafton_visca::CommandTimeouts
 pub const grafton_visca::camera::profiles::SonyBRC300::DEFAULT_CAMERA_ID: u8
 pub const grafton_visca::camera::profiles::SonyBRC300::INQUIRY_SUPPORT: grafton_visca::capabilities::InquirySupport
 pub const grafton_visca::camera::profiles::SonyBRC300::MIN_COMMAND_SPACING: core::time::Duration
@@ -16649,7 +16659,7 @@ impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::pro
 pub type grafton_visca::camera::profiles::SonyBRCH900::Envelope = grafton_visca::transport::SonyEncapsulated
 pub const grafton_visca::camera::profiles::SonyBRCH900::ACK_TIMEOUT: core::time::Duration
 pub const grafton_visca::camera::profiles::SonyBRCH900::BUSY_TIMEOUT: core::time::Duration
-pub const grafton_visca::camera::profiles::SonyBRCH900::COMPLETION_TIMEOUT: core::time::Duration
+pub const grafton_visca::camera::profiles::SonyBRCH900::COMMAND_TIMEOUTS: grafton_visca::CommandTimeouts
 pub const grafton_visca::camera::profiles::SonyBRCH900::DEFAULT_CAMERA_ID: u8
 pub const grafton_visca::camera::profiles::SonyBRCH900::INQUIRY_SUPPORT: grafton_visca::capabilities::InquirySupport
 pub const grafton_visca::camera::profiles::SonyBRCH900::MIN_COMMAND_SPACING: core::time::Duration
@@ -16791,7 +16801,7 @@ impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::pro
 pub type grafton_visca::camera::profiles::SonyEVIH100::Envelope = grafton_visca::transport::RawVisca
 pub const grafton_visca::camera::profiles::SonyEVIH100::ACK_TIMEOUT: core::time::Duration
 pub const grafton_visca::camera::profiles::SonyEVIH100::BUSY_TIMEOUT: core::time::Duration
-pub const grafton_visca::camera::profiles::SonyEVIH100::COMPLETION_TIMEOUT: core::time::Duration
+pub const grafton_visca::camera::profiles::SonyEVIH100::COMMAND_TIMEOUTS: grafton_visca::CommandTimeouts
 pub const grafton_visca::camera::profiles::SonyEVIH100::DEFAULT_CAMERA_ID: u8
 pub const grafton_visca::camera::profiles::SonyEVIH100::INQUIRY_SUPPORT: grafton_visca::capabilities::InquirySupport
 pub const grafton_visca::camera::profiles::SonyEVIH100::MIN_COMMAND_SPACING: core::time::Duration
@@ -16956,7 +16966,7 @@ impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::pro
 pub type grafton_visca::camera::profiles::SonyFR7::Envelope = grafton_visca::transport::SonyEncapsulated
 pub const grafton_visca::camera::profiles::SonyFR7::ACK_TIMEOUT: core::time::Duration
 pub const grafton_visca::camera::profiles::SonyFR7::BUSY_TIMEOUT: core::time::Duration
-pub const grafton_visca::camera::profiles::SonyFR7::COMPLETION_TIMEOUT: core::time::Duration
+pub const grafton_visca::camera::profiles::SonyFR7::COMMAND_TIMEOUTS: grafton_visca::CommandTimeouts
 pub const grafton_visca::camera::profiles::SonyFR7::DEFAULT_CAMERA_ID: u8
 pub const grafton_visca::camera::profiles::SonyFR7::INQUIRY_SUPPORT: grafton_visca::capabilities::InquirySupport
 pub const grafton_visca::camera::profiles::SonyFR7::MIN_COMMAND_SPACING: core::time::Duration
@@ -18735,18 +18745,19 @@ impl<'session, P> !core::panic::unwind_safe::UnwindSafe for grafton_visca::block
 pub struct grafton_visca::prelude::blocking::CameraConfig<P>
 impl<P> grafton_visca::CameraConfig<P> where P: grafton_visca::capabilities::Profile
 pub fn grafton_visca::CameraConfig<P>::address(self, impl core::convert::Into<alloc::string::String>) -> Self
+pub const fn grafton_visca::CameraConfig<P>::admission_capacity(&self) -> core::num::nonzero::NonZeroUsize
 pub fn grafton_visca::CameraConfig<P>::camera_id(self, grafton_visca::CameraId) -> Self
 pub fn grafton_visca::CameraConfig<P>::for_camera() -> Self
 pub fn grafton_visca::CameraConfig<P>::new() -> Self
-pub fn grafton_visca::CameraConfig<P>::retry_config(self, grafton_visca::transport::RetryConfig) -> Self
 pub fn grafton_visca::CameraConfig<P>::serial(impl core::convert::Into<alloc::string::String>, u32) -> Self where P: grafton_visca::capabilities::SupportsSerial
 pub fn grafton_visca::CameraConfig<P>::tcp(impl core::convert::Into<alloc::string::String>) -> Self where P: grafton_visca::capabilities::SupportsTcp
-pub fn grafton_visca::CameraConfig<P>::timeouts(self, grafton_visca::timeout::TimeoutConfig) -> Self
 pub fn grafton_visca::CameraConfig<P>::transport(self, grafton_visca::camera::TransportOptions) -> Self
 pub fn grafton_visca::CameraConfig<P>::transport_config(self, grafton_visca::transport::TransportConfig) -> Self
 pub fn grafton_visca::CameraConfig<P>::try_camera_id(self, u8) -> core::result::Result<Self, grafton_visca::Error>
+pub const fn grafton_visca::CameraConfig<P>::tuning(&self) -> grafton_visca::profile::OperationalTuning
 pub fn grafton_visca::CameraConfig<P>::udp(impl core::convert::Into<alloc::string::String>) -> Self where P: grafton_visca::capabilities::SupportsUdp
-pub fn grafton_visca::CameraConfig<P>::validate(&self) -> core::result::Result<(), grafton_visca::Error>
+pub const fn grafton_visca::CameraConfig<P>::with_admission_capacity(self, core::num::nonzero::NonZeroUsize) -> Self
+pub fn grafton_visca::CameraConfig<P>::with_tuning(self, grafton_visca::profile::OperationalTuning) -> Self
 impl<P> grafton_visca::CameraConfig<P> where P: grafton_visca::profile::CompileTimeProfile
 pub fn grafton_visca::CameraConfig<P>::open(&self) -> grafton_visca::Result<grafton_visca::blocking::Session>
 pub fn grafton_visca::CameraConfig<P>::open_camera(&self) -> grafton_visca::Result<grafton_visca::blocking::CameraSession<P>>
@@ -18759,6 +18770,7 @@ pub async fn grafton_visca::CameraConfig<P>::open_serial_async<R>(&self, R) -> g
 pub async fn grafton_visca::CameraConfig<P>::open_serial_camera_async<R>(&self, R) -> grafton_visca::Result<grafton_visca::CameraSession<P>> where R: grafton_visca::Runtime + grafton_visca::runtime::RuntimeSerial<SerialTransport = grafton_visca::runtime_adapters::tokio::SerialTransport>
 impl<P> grafton_visca::CameraConfig<P> where P: grafton_visca::profile::CompileTimeProfile
 pub fn grafton_visca::CameraConfig<P>::session_config(&self) -> grafton_visca::Result<grafton_visca::SessionConfig>
+pub fn grafton_visca::CameraConfig<P>::validate(&self) -> grafton_visca::Result<()>
 impl<P: core::clone::Clone> core::clone::Clone for grafton_visca::CameraConfig<P>
 pub fn grafton_visca::CameraConfig<P>::clone(&self) -> grafton_visca::CameraConfig<P>
 impl<P: core::fmt::Debug> core::fmt::Debug for grafton_visca::CameraConfig<P>
@@ -18985,7 +18997,7 @@ impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::pro
 pub type grafton_visca::camera::profiles::GenericVisca::Envelope = grafton_visca::transport::RawVisca
 pub const grafton_visca::camera::profiles::GenericVisca::ACK_TIMEOUT: core::time::Duration
 pub const grafton_visca::camera::profiles::GenericVisca::BUSY_TIMEOUT: core::time::Duration
-pub const grafton_visca::camera::profiles::GenericVisca::COMPLETION_TIMEOUT: core::time::Duration
+pub const grafton_visca::camera::profiles::GenericVisca::COMMAND_TIMEOUTS: grafton_visca::CommandTimeouts
 pub const grafton_visca::camera::profiles::GenericVisca::DEFAULT_CAMERA_ID: u8
 pub const grafton_visca::camera::profiles::GenericVisca::INQUIRY_SUPPORT: grafton_visca::capabilities::InquirySupport
 pub const grafton_visca::camera::profiles::GenericVisca::MIN_COMMAND_SPACING: core::time::Duration
@@ -19407,7 +19419,7 @@ impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::pro
 pub type grafton_visca::camera::profiles::NearusBRC300::Envelope = grafton_visca::transport::RawVisca
 pub const grafton_visca::camera::profiles::NearusBRC300::ACK_TIMEOUT: core::time::Duration
 pub const grafton_visca::camera::profiles::NearusBRC300::BUSY_TIMEOUT: core::time::Duration
-pub const grafton_visca::camera::profiles::NearusBRC300::COMPLETION_TIMEOUT: core::time::Duration
+pub const grafton_visca::camera::profiles::NearusBRC300::COMMAND_TIMEOUTS: grafton_visca::CommandTimeouts
 pub const grafton_visca::camera::profiles::NearusBRC300::DEFAULT_CAMERA_ID: u8
 pub const grafton_visca::camera::profiles::NearusBRC300::INQUIRY_SUPPORT: grafton_visca::capabilities::InquirySupport
 pub const grafton_visca::camera::profiles::NearusBRC300::MIN_COMMAND_SPACING: core::time::Duration
@@ -19855,7 +19867,7 @@ impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::pro
 pub type grafton_visca::camera::profiles::PtzOptics30X::Envelope = grafton_visca::transport::RawVisca
 pub const grafton_visca::camera::profiles::PtzOptics30X::ACK_TIMEOUT: core::time::Duration
 pub const grafton_visca::camera::profiles::PtzOptics30X::BUSY_TIMEOUT: core::time::Duration
-pub const grafton_visca::camera::profiles::PtzOptics30X::COMPLETION_TIMEOUT: core::time::Duration
+pub const grafton_visca::camera::profiles::PtzOptics30X::COMMAND_TIMEOUTS: grafton_visca::CommandTimeouts
 pub const grafton_visca::camera::profiles::PtzOptics30X::DEFAULT_CAMERA_ID: u8
 pub const grafton_visca::camera::profiles::PtzOptics30X::INQUIRY_SUPPORT: grafton_visca::capabilities::InquirySupport
 pub const grafton_visca::camera::profiles::PtzOptics30X::MIN_COMMAND_SPACING: core::time::Duration
@@ -20016,7 +20028,7 @@ impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::pro
 pub type grafton_visca::camera::profiles::PtzOpticsG2::Envelope = grafton_visca::transport::RawVisca
 pub const grafton_visca::camera::profiles::PtzOpticsG2::ACK_TIMEOUT: core::time::Duration
 pub const grafton_visca::camera::profiles::PtzOpticsG2::BUSY_TIMEOUT: core::time::Duration
-pub const grafton_visca::camera::profiles::PtzOpticsG2::COMPLETION_TIMEOUT: core::time::Duration
+pub const grafton_visca::camera::profiles::PtzOpticsG2::COMMAND_TIMEOUTS: grafton_visca::CommandTimeouts
 pub const grafton_visca::camera::profiles::PtzOpticsG2::DEFAULT_CAMERA_ID: u8
 pub const grafton_visca::camera::profiles::PtzOpticsG2::INQUIRY_SUPPORT: grafton_visca::capabilities::InquirySupport
 pub const grafton_visca::camera::profiles::PtzOpticsG2::MIN_COMMAND_SPACING: core::time::Duration
@@ -20177,7 +20189,7 @@ impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::pro
 pub type grafton_visca::camera::profiles::PtzOpticsG3::Envelope = grafton_visca::transport::RawVisca
 pub const grafton_visca::camera::profiles::PtzOpticsG3::ACK_TIMEOUT: core::time::Duration
 pub const grafton_visca::camera::profiles::PtzOpticsG3::BUSY_TIMEOUT: core::time::Duration
-pub const grafton_visca::camera::profiles::PtzOpticsG3::COMPLETION_TIMEOUT: core::time::Duration
+pub const grafton_visca::camera::profiles::PtzOpticsG3::COMMAND_TIMEOUTS: grafton_visca::CommandTimeouts
 pub const grafton_visca::camera::profiles::PtzOpticsG3::DEFAULT_CAMERA_ID: u8
 pub const grafton_visca::camera::profiles::PtzOpticsG3::INQUIRY_SUPPORT: grafton_visca::capabilities::InquirySupport
 pub const grafton_visca::camera::profiles::PtzOpticsG3::MIN_COMMAND_SPACING: core::time::Duration
@@ -20378,6 +20390,7 @@ impl !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::Sessi
 impl !core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::Session
 pub struct grafton_visca::prelude::blocking::SessionConfig
 impl grafton_visca::SessionConfig
+pub const fn grafton_visca::SessionConfig::admission_capacity(&self) -> core::num::nonzero::NonZeroUsize
 pub fn grafton_visca::SessionConfig::for_target(grafton_visca::CameraId, grafton_visca::profile::ProfileSpec) -> grafton_visca::Result<Self>
 pub fn grafton_visca::SessionConfig::from_compile_time<P>() -> grafton_visca::Result<Self> where P: grafton_visca::profile::CompileTimeProfile
 pub fn grafton_visca::SessionConfig::new(grafton_visca::profile::ProfileSpec) -> Self
@@ -20387,6 +20400,7 @@ pub fn grafton_visca::SessionConfig::sole_target(&self) -> core::option::Option<
 pub fn grafton_visca::SessionConfig::target_count(&self) -> usize
 pub fn grafton_visca::SessionConfig::targets(&self) -> [core::option::Option<grafton_visca::CameraId>; 7]
 pub const fn grafton_visca::SessionConfig::tuning(&self) -> grafton_visca::profile::OperationalTuning
+pub const fn grafton_visca::SessionConfig::with_admission_capacity(self, core::num::nonzero::NonZeroUsize) -> Self
 pub fn grafton_visca::SessionConfig::with_target(self, grafton_visca::CameraId, grafton_visca::profile::ProfileSpec) -> grafton_visca::Result<Self>
 pub fn grafton_visca::SessionConfig::with_tuning(self, grafton_visca::profile::OperationalTuning) -> grafton_visca::Result<Self>
 impl core::clone::Clone for grafton_visca::SessionConfig
@@ -20471,7 +20485,7 @@ impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::pro
 pub type grafton_visca::camera::profiles::SonyBRC300::Envelope = grafton_visca::transport::RawVisca
 pub const grafton_visca::camera::profiles::SonyBRC300::ACK_TIMEOUT: core::time::Duration
 pub const grafton_visca::camera::profiles::SonyBRC300::BUSY_TIMEOUT: core::time::Duration
-pub const grafton_visca::camera::profiles::SonyBRC300::COMPLETION_TIMEOUT: core::time::Duration
+pub const grafton_visca::camera::profiles::SonyBRC300::COMMAND_TIMEOUTS: grafton_visca::CommandTimeouts
 pub const grafton_visca::camera::profiles::SonyBRC300::DEFAULT_CAMERA_ID: u8
 pub const grafton_visca::camera::profiles::SonyBRC300::INQUIRY_SUPPORT: grafton_visca::capabilities::InquirySupport
 pub const grafton_visca::camera::profiles::SonyBRC300::MIN_COMMAND_SPACING: core::time::Duration
@@ -20627,7 +20641,7 @@ impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::pro
 pub type grafton_visca::camera::profiles::SonyBRCH900::Envelope = grafton_visca::transport::SonyEncapsulated
 pub const grafton_visca::camera::profiles::SonyBRCH900::ACK_TIMEOUT: core::time::Duration
 pub const grafton_visca::camera::profiles::SonyBRCH900::BUSY_TIMEOUT: core::time::Duration
-pub const grafton_visca::camera::profiles::SonyBRCH900::COMPLETION_TIMEOUT: core::time::Duration
+pub const grafton_visca::camera::profiles::SonyBRCH900::COMMAND_TIMEOUTS: grafton_visca::CommandTimeouts
 pub const grafton_visca::camera::profiles::SonyBRCH900::DEFAULT_CAMERA_ID: u8
 pub const grafton_visca::camera::profiles::SonyBRCH900::INQUIRY_SUPPORT: grafton_visca::capabilities::InquirySupport
 pub const grafton_visca::camera::profiles::SonyBRCH900::MIN_COMMAND_SPACING: core::time::Duration
@@ -20769,7 +20783,7 @@ impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::pro
 pub type grafton_visca::camera::profiles::SonyEVIH100::Envelope = grafton_visca::transport::RawVisca
 pub const grafton_visca::camera::profiles::SonyEVIH100::ACK_TIMEOUT: core::time::Duration
 pub const grafton_visca::camera::profiles::SonyEVIH100::BUSY_TIMEOUT: core::time::Duration
-pub const grafton_visca::camera::profiles::SonyEVIH100::COMPLETION_TIMEOUT: core::time::Duration
+pub const grafton_visca::camera::profiles::SonyEVIH100::COMMAND_TIMEOUTS: grafton_visca::CommandTimeouts
 pub const grafton_visca::camera::profiles::SonyEVIH100::DEFAULT_CAMERA_ID: u8
 pub const grafton_visca::camera::profiles::SonyEVIH100::INQUIRY_SUPPORT: grafton_visca::capabilities::InquirySupport
 pub const grafton_visca::camera::profiles::SonyEVIH100::MIN_COMMAND_SPACING: core::time::Duration
@@ -20934,7 +20948,7 @@ impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::pro
 pub type grafton_visca::camera::profiles::SonyFR7::Envelope = grafton_visca::transport::SonyEncapsulated
 pub const grafton_visca::camera::profiles::SonyFR7::ACK_TIMEOUT: core::time::Duration
 pub const grafton_visca::camera::profiles::SonyFR7::BUSY_TIMEOUT: core::time::Duration
-pub const grafton_visca::camera::profiles::SonyFR7::COMPLETION_TIMEOUT: core::time::Duration
+pub const grafton_visca::camera::profiles::SonyFR7::COMMAND_TIMEOUTS: grafton_visca::CommandTimeouts
 pub const grafton_visca::camera::profiles::SonyFR7::DEFAULT_CAMERA_ID: u8
 pub const grafton_visca::camera::profiles::SonyFR7::INQUIRY_SUPPORT: grafton_visca::capabilities::InquirySupport
 pub const grafton_visca::camera::profiles::SonyFR7::MIN_COMMAND_SPACING: core::time::Duration
@@ -22302,11 +22316,15 @@ pub struct grafton_visca::profile::OperationalTuning
 impl grafton_visca::profile::OperationalTuning
 pub const fn grafton_visca::profile::OperationalTuning::ack_timeout(self, core::time::Duration) -> Self
 pub const fn grafton_visca::profile::OperationalTuning::command_spacing(self, core::time::Duration) -> Self
-pub const fn grafton_visca::profile::OperationalTuning::completion_timeout(self, core::time::Duration) -> Self
 pub const fn grafton_visca::profile::OperationalTuning::inquiry_spacing(self, core::time::Duration) -> Self
 pub const fn grafton_visca::profile::OperationalTuning::inquiry_timeout(self, core::time::Duration) -> Self
+pub const fn grafton_visca::profile::OperationalTuning::long_running_timeout(self, core::time::Duration) -> Self
 pub const fn grafton_visca::profile::OperationalTuning::maximum_command_sockets(self, u8) -> Self
+pub const fn grafton_visca::profile::OperationalTuning::movement_timeout(self, core::time::Duration) -> Self
+pub const fn grafton_visca::profile::OperationalTuning::network_timeout(self, core::time::Duration) -> Self
 pub const fn grafton_visca::profile::OperationalTuning::new() -> Self
+pub const fn grafton_visca::profile::OperationalTuning::preset_timeout(self, core::time::Duration) -> Self
+pub const fn grafton_visca::profile::OperationalTuning::quick_timeout(self, core::time::Duration) -> Self
 pub const fn grafton_visca::profile::OperationalTuning::retry_limit(self, u32) -> Self
 pub const fn grafton_visca::profile::OperationalTuning::retry_timing(self, core::time::Duration, core::time::Duration, core::time::Duration) -> Self
 pub const fn grafton_visca::profile::OperationalTuning::settlement_timeout(self, core::time::Duration) -> Self
@@ -22422,6 +22440,7 @@ pub struct grafton_visca::profile::ProfileSpec
 impl grafton_visca::profile::ProfileSpec
 pub fn grafton_visca::profile::ProfileSpec::builder(grafton_visca::capabilities::Capabilities) -> grafton_visca::profile::ProfileSpecBuilder
 pub const fn grafton_visca::profile::ProfileSpec::capabilities(&self) -> &grafton_visca::capabilities::Capabilities
+pub const fn grafton_visca::profile::ProfileSpec::command_timeouts(&self) -> grafton_visca::CommandTimeouts
 pub const fn grafton_visca::profile::ProfileSpec::envelope(&self) -> grafton_visca::profile::ProfileEnvelope
 pub fn grafton_visca::profile::ProfileSpec::from_compile_time<P>() -> grafton_visca::Result<Self> where P: grafton_visca::profile::CompileTimeProfile
 pub const fn grafton_visca::profile::ProfileSpec::maximum_command_sockets(&self) -> u8
@@ -22471,7 +22490,7 @@ pub fn grafton_visca::profile::ProfileSpecBuilder::position_inquiries(self, graf
 pub fn grafton_visca::profile::ProfileSpecBuilder::preset_recall_axes(self, core::option::Option<grafton_visca::AffectedAxes>) -> Self
 pub fn grafton_visca::profile::ProfileSpecBuilder::supports_command_cancel(self, bool) -> Self
 pub fn grafton_visca::profile::ProfileSpecBuilder::supports_operation_complete(self, bool) -> Self
-pub fn grafton_visca::profile::ProfileSpecBuilder::timing(self, core::time::Duration, core::time::Duration, core::time::Duration, core::time::Duration, core::time::Duration, core::time::Duration, core::time::Duration, core::time::Duration) -> Self
+pub fn grafton_visca::profile::ProfileSpecBuilder::timing(self, grafton_visca::profile::ProfileTiming) -> Self
 pub fn grafton_visca::profile::ProfileSpecBuilder::transports(self, grafton_visca::profile::TransportCompatibility) -> Self
 pub fn grafton_visca::profile::ProfileSpecBuilder::typed_support(self, grafton_visca::capabilities::TypedSupportSet) -> Self
 pub fn grafton_visca::profile::ProfileSpecBuilder::zoom(self, u16, core::option::Option<u16>, core::ops::range::RangeInclusive<u8>, bool, bool, f32) -> Self
@@ -22490,9 +22509,10 @@ pub struct grafton_visca::profile::ProfileTiming
 impl grafton_visca::profile::ProfileTiming
 pub const fn grafton_visca::profile::ProfileTiming::ack_timeout(self) -> core::time::Duration
 pub const fn grafton_visca::profile::ProfileTiming::ambiguity_timeout(self) -> core::time::Duration
+pub const fn grafton_visca::profile::ProfileTiming::builder() -> grafton_visca::profile::ProfileTimingBuilder
 pub const fn grafton_visca::profile::ProfileTiming::busy_timeout(self) -> core::time::Duration
 pub const fn grafton_visca::profile::ProfileTiming::cancellation_timeout(self) -> core::time::Duration
-pub const fn grafton_visca::profile::ProfileTiming::completion_timeout(self) -> core::time::Duration
+pub const fn grafton_visca::profile::ProfileTiming::command_timeouts(self) -> grafton_visca::CommandTimeouts
 pub const fn grafton_visca::profile::ProfileTiming::inquiry_timeout(self) -> core::time::Duration
 pub const fn grafton_visca::profile::ProfileTiming::minimum_command_spacing(self) -> core::time::Duration
 pub const fn grafton_visca::profile::ProfileTiming::minimum_inquiry_spacing(self) -> core::time::Duration
@@ -22523,6 +22543,32 @@ impl core::marker::Unpin for grafton_visca::profile::ProfileTiming
 impl core::marker::UnsafeUnpin for grafton_visca::profile::ProfileTiming
 impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::profile::ProfileTiming
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::profile::ProfileTiming
+pub struct grafton_visca::profile::ProfileTimingBuilder
+impl grafton_visca::profile::ProfileTimingBuilder
+pub const fn grafton_visca::profile::ProfileTimingBuilder::ack_timeout(self, core::time::Duration) -> Self
+pub const fn grafton_visca::profile::ProfileTimingBuilder::ambiguity_timeout(self, core::time::Duration) -> Self
+pub fn grafton_visca::profile::ProfileTimingBuilder::build(self) -> grafton_visca::Result<grafton_visca::profile::ProfileTiming>
+pub const fn grafton_visca::profile::ProfileTimingBuilder::busy_timeout(self, core::time::Duration) -> Self
+pub const fn grafton_visca::profile::ProfileTimingBuilder::cancellation_timeout(self, core::time::Duration) -> Self
+pub const fn grafton_visca::profile::ProfileTimingBuilder::command_timeouts(self, grafton_visca::CommandTimeouts) -> Self
+pub const fn grafton_visca::profile::ProfileTimingBuilder::inquiry_timeout(self, core::time::Duration) -> Self
+pub const fn grafton_visca::profile::ProfileTimingBuilder::minimum_command_spacing(self, core::time::Duration) -> Self
+pub const fn grafton_visca::profile::ProfileTimingBuilder::minimum_inquiry_spacing(self, core::time::Duration) -> Self
+pub const fn grafton_visca::profile::ProfileTimingBuilder::new() -> Self
+impl core::clone::Clone for grafton_visca::profile::ProfileTimingBuilder
+pub fn grafton_visca::profile::ProfileTimingBuilder::clone(&self) -> grafton_visca::profile::ProfileTimingBuilder
+impl core::default::Default for grafton_visca::profile::ProfileTimingBuilder
+pub fn grafton_visca::profile::ProfileTimingBuilder::default() -> grafton_visca::profile::ProfileTimingBuilder
+impl core::fmt::Debug for grafton_visca::profile::ProfileTimingBuilder
+pub fn grafton_visca::profile::ProfileTimingBuilder::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for grafton_visca::profile::ProfileTimingBuilder
+impl core::marker::Freeze for grafton_visca::profile::ProfileTimingBuilder
+impl core::marker::Send for grafton_visca::profile::ProfileTimingBuilder
+impl core::marker::Sync for grafton_visca::profile::ProfileTimingBuilder
+impl core::marker::Unpin for grafton_visca::profile::ProfileTimingBuilder
+impl core::marker::UnsafeUnpin for grafton_visca::profile::ProfileTimingBuilder
+impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::profile::ProfileTimingBuilder
+impl core::panic::unwind_safe::UnwindSafe for grafton_visca::profile::ProfileTimingBuilder
 pub struct grafton_visca::profile::TransportCompatibility
 impl grafton_visca::profile::TransportCompatibility
 pub const fn grafton_visca::profile::TransportCompatibility::new(core::option::Option<u16>, core::option::Option<u16>, bool) -> Self
@@ -22831,7 +22877,7 @@ impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::pro
 pub type grafton_visca::camera::profiles::GenericVisca::Envelope = grafton_visca::transport::RawVisca
 pub const grafton_visca::camera::profiles::GenericVisca::ACK_TIMEOUT: core::time::Duration
 pub const grafton_visca::camera::profiles::GenericVisca::BUSY_TIMEOUT: core::time::Duration
-pub const grafton_visca::camera::profiles::GenericVisca::COMPLETION_TIMEOUT: core::time::Duration
+pub const grafton_visca::camera::profiles::GenericVisca::COMMAND_TIMEOUTS: grafton_visca::CommandTimeouts
 pub const grafton_visca::camera::profiles::GenericVisca::DEFAULT_CAMERA_ID: u8
 pub const grafton_visca::camera::profiles::GenericVisca::INQUIRY_SUPPORT: grafton_visca::capabilities::InquirySupport
 pub const grafton_visca::camera::profiles::GenericVisca::MIN_COMMAND_SPACING: core::time::Duration
@@ -22970,7 +23016,7 @@ impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::pro
 pub type grafton_visca::camera::profiles::NearusBRC300::Envelope = grafton_visca::transport::RawVisca
 pub const grafton_visca::camera::profiles::NearusBRC300::ACK_TIMEOUT: core::time::Duration
 pub const grafton_visca::camera::profiles::NearusBRC300::BUSY_TIMEOUT: core::time::Duration
-pub const grafton_visca::camera::profiles::NearusBRC300::COMPLETION_TIMEOUT: core::time::Duration
+pub const grafton_visca::camera::profiles::NearusBRC300::COMMAND_TIMEOUTS: grafton_visca::CommandTimeouts
 pub const grafton_visca::camera::profiles::NearusBRC300::DEFAULT_CAMERA_ID: u8
 pub const grafton_visca::camera::profiles::NearusBRC300::INQUIRY_SUPPORT: grafton_visca::capabilities::InquirySupport
 pub const grafton_visca::camera::profiles::NearusBRC300::MIN_COMMAND_SPACING: core::time::Duration
@@ -23131,7 +23177,7 @@ impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::pro
 pub type grafton_visca::camera::profiles::PtzOptics30X::Envelope = grafton_visca::transport::RawVisca
 pub const grafton_visca::camera::profiles::PtzOptics30X::ACK_TIMEOUT: core::time::Duration
 pub const grafton_visca::camera::profiles::PtzOptics30X::BUSY_TIMEOUT: core::time::Duration
-pub const grafton_visca::camera::profiles::PtzOptics30X::COMPLETION_TIMEOUT: core::time::Duration
+pub const grafton_visca::camera::profiles::PtzOptics30X::COMMAND_TIMEOUTS: grafton_visca::CommandTimeouts
 pub const grafton_visca::camera::profiles::PtzOptics30X::DEFAULT_CAMERA_ID: u8
 pub const grafton_visca::camera::profiles::PtzOptics30X::INQUIRY_SUPPORT: grafton_visca::capabilities::InquirySupport
 pub const grafton_visca::camera::profiles::PtzOptics30X::MIN_COMMAND_SPACING: core::time::Duration
@@ -23292,7 +23338,7 @@ impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::pro
 pub type grafton_visca::camera::profiles::PtzOpticsG2::Envelope = grafton_visca::transport::RawVisca
 pub const grafton_visca::camera::profiles::PtzOpticsG2::ACK_TIMEOUT: core::time::Duration
 pub const grafton_visca::camera::profiles::PtzOpticsG2::BUSY_TIMEOUT: core::time::Duration
-pub const grafton_visca::camera::profiles::PtzOpticsG2::COMPLETION_TIMEOUT: core::time::Duration
+pub const grafton_visca::camera::profiles::PtzOpticsG2::COMMAND_TIMEOUTS: grafton_visca::CommandTimeouts
 pub const grafton_visca::camera::profiles::PtzOpticsG2::DEFAULT_CAMERA_ID: u8
 pub const grafton_visca::camera::profiles::PtzOpticsG2::INQUIRY_SUPPORT: grafton_visca::capabilities::InquirySupport
 pub const grafton_visca::camera::profiles::PtzOpticsG2::MIN_COMMAND_SPACING: core::time::Duration
@@ -23453,7 +23499,7 @@ impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::pro
 pub type grafton_visca::camera::profiles::PtzOpticsG3::Envelope = grafton_visca::transport::RawVisca
 pub const grafton_visca::camera::profiles::PtzOpticsG3::ACK_TIMEOUT: core::time::Duration
 pub const grafton_visca::camera::profiles::PtzOpticsG3::BUSY_TIMEOUT: core::time::Duration
-pub const grafton_visca::camera::profiles::PtzOpticsG3::COMPLETION_TIMEOUT: core::time::Duration
+pub const grafton_visca::camera::profiles::PtzOpticsG3::COMMAND_TIMEOUTS: grafton_visca::CommandTimeouts
 pub const grafton_visca::camera::profiles::PtzOpticsG3::DEFAULT_CAMERA_ID: u8
 pub const grafton_visca::camera::profiles::PtzOpticsG3::INQUIRY_SUPPORT: grafton_visca::capabilities::InquirySupport
 pub const grafton_visca::camera::profiles::PtzOpticsG3::MIN_COMMAND_SPACING: core::time::Duration
@@ -23591,7 +23637,7 @@ impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::pro
 pub type grafton_visca::camera::profiles::SonyBRC300::Envelope = grafton_visca::transport::RawVisca
 pub const grafton_visca::camera::profiles::SonyBRC300::ACK_TIMEOUT: core::time::Duration
 pub const grafton_visca::camera::profiles::SonyBRC300::BUSY_TIMEOUT: core::time::Duration
-pub const grafton_visca::camera::profiles::SonyBRC300::COMPLETION_TIMEOUT: core::time::Duration
+pub const grafton_visca::camera::profiles::SonyBRC300::COMMAND_TIMEOUTS: grafton_visca::CommandTimeouts
 pub const grafton_visca::camera::profiles::SonyBRC300::DEFAULT_CAMERA_ID: u8
 pub const grafton_visca::camera::profiles::SonyBRC300::INQUIRY_SUPPORT: grafton_visca::capabilities::InquirySupport
 pub const grafton_visca::camera::profiles::SonyBRC300::MIN_COMMAND_SPACING: core::time::Duration
@@ -23747,7 +23793,7 @@ impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::pro
 pub type grafton_visca::camera::profiles::SonyBRCH900::Envelope = grafton_visca::transport::SonyEncapsulated
 pub const grafton_visca::camera::profiles::SonyBRCH900::ACK_TIMEOUT: core::time::Duration
 pub const grafton_visca::camera::profiles::SonyBRCH900::BUSY_TIMEOUT: core::time::Duration
-pub const grafton_visca::camera::profiles::SonyBRCH900::COMPLETION_TIMEOUT: core::time::Duration
+pub const grafton_visca::camera::profiles::SonyBRCH900::COMMAND_TIMEOUTS: grafton_visca::CommandTimeouts
 pub const grafton_visca::camera::profiles::SonyBRCH900::DEFAULT_CAMERA_ID: u8
 pub const grafton_visca::camera::profiles::SonyBRCH900::INQUIRY_SUPPORT: grafton_visca::capabilities::InquirySupport
 pub const grafton_visca::camera::profiles::SonyBRCH900::MIN_COMMAND_SPACING: core::time::Duration
@@ -23889,7 +23935,7 @@ impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::pro
 pub type grafton_visca::camera::profiles::SonyEVIH100::Envelope = grafton_visca::transport::RawVisca
 pub const grafton_visca::camera::profiles::SonyEVIH100::ACK_TIMEOUT: core::time::Duration
 pub const grafton_visca::camera::profiles::SonyEVIH100::BUSY_TIMEOUT: core::time::Duration
-pub const grafton_visca::camera::profiles::SonyEVIH100::COMPLETION_TIMEOUT: core::time::Duration
+pub const grafton_visca::camera::profiles::SonyEVIH100::COMMAND_TIMEOUTS: grafton_visca::CommandTimeouts
 pub const grafton_visca::camera::profiles::SonyEVIH100::DEFAULT_CAMERA_ID: u8
 pub const grafton_visca::camera::profiles::SonyEVIH100::INQUIRY_SUPPORT: grafton_visca::capabilities::InquirySupport
 pub const grafton_visca::camera::profiles::SonyEVIH100::MIN_COMMAND_SPACING: core::time::Duration
@@ -24054,7 +24100,7 @@ impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::pro
 pub type grafton_visca::camera::profiles::SonyFR7::Envelope = grafton_visca::transport::SonyEncapsulated
 pub const grafton_visca::camera::profiles::SonyFR7::ACK_TIMEOUT: core::time::Duration
 pub const grafton_visca::camera::profiles::SonyFR7::BUSY_TIMEOUT: core::time::Duration
-pub const grafton_visca::camera::profiles::SonyFR7::COMPLETION_TIMEOUT: core::time::Duration
+pub const grafton_visca::camera::profiles::SonyFR7::COMMAND_TIMEOUTS: grafton_visca::CommandTimeouts
 pub const grafton_visca::camera::profiles::SonyFR7::DEFAULT_CAMERA_ID: u8
 pub const grafton_visca::camera::profiles::SonyFR7::INQUIRY_SUPPORT: grafton_visca::capabilities::InquirySupport
 pub const grafton_visca::camera::profiles::SonyFR7::MIN_COMMAND_SPACING: core::time::Duration
@@ -25896,7 +25942,6 @@ pub grafton_visca::runtime_adapters::tokio::SerialConfig::camera_address: u8
 pub grafton_visca::runtime_adapters::tokio::SerialConfig::if_clear_on_connect: bool
 pub grafton_visca::runtime_adapters::tokio::SerialConfig::port: alloc::string::String
 pub grafton_visca::runtime_adapters::tokio::SerialConfig::read_timeout: core::time::Duration
-pub grafton_visca::runtime_adapters::tokio::SerialConfig::retry_config: grafton_visca::transport::RetryConfig
 pub grafton_visca::runtime_adapters::tokio::SerialConfig::write_timeout: core::time::Duration
 impl grafton_visca::runtime_adapters::tokio::SerialConfig
 pub fn grafton_visca::runtime_adapters::tokio::SerialConfig::address_set_on_connect(self, bool) -> Self
@@ -25906,7 +25951,6 @@ pub fn grafton_visca::runtime_adapters::tokio::SerialConfig::camera_address(self
 pub fn grafton_visca::runtime_adapters::tokio::SerialConfig::if_clear_on_connect(self, bool) -> Self
 pub fn grafton_visca::runtime_adapters::tokio::SerialConfig::new(impl core::convert::Into<alloc::string::String>) -> Self
 pub fn grafton_visca::runtime_adapters::tokio::SerialConfig::read_timeout(self, core::time::Duration) -> Self
-pub fn grafton_visca::runtime_adapters::tokio::SerialConfig::retry_config(self, grafton_visca::transport::RetryConfig) -> Self
 pub fn grafton_visca::runtime_adapters::tokio::SerialConfig::write_timeout(self, core::time::Duration) -> Self
 impl core::clone::Clone for grafton_visca::runtime_adapters::tokio::SerialConfig
 pub fn grafton_visca::runtime_adapters::tokio::SerialConfig::clone(&self) -> grafton_visca::runtime_adapters::tokio::SerialConfig
@@ -26009,18 +26053,19 @@ impl<P> !core::panic::unwind_safe::UnwindSafe for grafton_visca::Camera<P>
 pub struct grafton_visca::session::CameraConfig<P>
 impl<P> grafton_visca::CameraConfig<P> where P: grafton_visca::capabilities::Profile
 pub fn grafton_visca::CameraConfig<P>::address(self, impl core::convert::Into<alloc::string::String>) -> Self
+pub const fn grafton_visca::CameraConfig<P>::admission_capacity(&self) -> core::num::nonzero::NonZeroUsize
 pub fn grafton_visca::CameraConfig<P>::camera_id(self, grafton_visca::CameraId) -> Self
 pub fn grafton_visca::CameraConfig<P>::for_camera() -> Self
 pub fn grafton_visca::CameraConfig<P>::new() -> Self
-pub fn grafton_visca::CameraConfig<P>::retry_config(self, grafton_visca::transport::RetryConfig) -> Self
 pub fn grafton_visca::CameraConfig<P>::serial(impl core::convert::Into<alloc::string::String>, u32) -> Self where P: grafton_visca::capabilities::SupportsSerial
 pub fn grafton_visca::CameraConfig<P>::tcp(impl core::convert::Into<alloc::string::String>) -> Self where P: grafton_visca::capabilities::SupportsTcp
-pub fn grafton_visca::CameraConfig<P>::timeouts(self, grafton_visca::timeout::TimeoutConfig) -> Self
 pub fn grafton_visca::CameraConfig<P>::transport(self, grafton_visca::camera::TransportOptions) -> Self
 pub fn grafton_visca::CameraConfig<P>::transport_config(self, grafton_visca::transport::TransportConfig) -> Self
 pub fn grafton_visca::CameraConfig<P>::try_camera_id(self, u8) -> core::result::Result<Self, grafton_visca::Error>
+pub const fn grafton_visca::CameraConfig<P>::tuning(&self) -> grafton_visca::profile::OperationalTuning
 pub fn grafton_visca::CameraConfig<P>::udp(impl core::convert::Into<alloc::string::String>) -> Self where P: grafton_visca::capabilities::SupportsUdp
-pub fn grafton_visca::CameraConfig<P>::validate(&self) -> core::result::Result<(), grafton_visca::Error>
+pub const fn grafton_visca::CameraConfig<P>::with_admission_capacity(self, core::num::nonzero::NonZeroUsize) -> Self
+pub fn grafton_visca::CameraConfig<P>::with_tuning(self, grafton_visca::profile::OperationalTuning) -> Self
 impl<P> grafton_visca::CameraConfig<P> where P: grafton_visca::profile::CompileTimeProfile
 pub fn grafton_visca::CameraConfig<P>::open(&self) -> grafton_visca::Result<grafton_visca::blocking::Session>
 pub fn grafton_visca::CameraConfig<P>::open_camera(&self) -> grafton_visca::Result<grafton_visca::blocking::CameraSession<P>>
@@ -26033,6 +26078,7 @@ pub async fn grafton_visca::CameraConfig<P>::open_serial_async<R>(&self, R) -> g
 pub async fn grafton_visca::CameraConfig<P>::open_serial_camera_async<R>(&self, R) -> grafton_visca::Result<grafton_visca::CameraSession<P>> where R: grafton_visca::Runtime + grafton_visca::runtime::RuntimeSerial<SerialTransport = grafton_visca::runtime_adapters::tokio::SerialTransport>
 impl<P> grafton_visca::CameraConfig<P> where P: grafton_visca::profile::CompileTimeProfile
 pub fn grafton_visca::CameraConfig<P>::session_config(&self) -> grafton_visca::Result<grafton_visca::SessionConfig>
+pub fn grafton_visca::CameraConfig<P>::validate(&self) -> grafton_visca::Result<()>
 impl<P: core::clone::Clone> core::clone::Clone for grafton_visca::CameraConfig<P>
 pub fn grafton_visca::CameraConfig<P>::clone(&self) -> grafton_visca::CameraConfig<P>
 impl<P: core::fmt::Debug> core::fmt::Debug for grafton_visca::CameraConfig<P>
@@ -26409,6 +26455,7 @@ impl !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::Session
 impl !core::panic::unwind_safe::UnwindSafe for grafton_visca::Session
 pub struct grafton_visca::session::SessionConfig
 impl grafton_visca::SessionConfig
+pub const fn grafton_visca::SessionConfig::admission_capacity(&self) -> core::num::nonzero::NonZeroUsize
 pub fn grafton_visca::SessionConfig::for_target(grafton_visca::CameraId, grafton_visca::profile::ProfileSpec) -> grafton_visca::Result<Self>
 pub fn grafton_visca::SessionConfig::from_compile_time<P>() -> grafton_visca::Result<Self> where P: grafton_visca::profile::CompileTimeProfile
 pub fn grafton_visca::SessionConfig::new(grafton_visca::profile::ProfileSpec) -> Self
@@ -26418,6 +26465,7 @@ pub fn grafton_visca::SessionConfig::sole_target(&self) -> core::option::Option<
 pub fn grafton_visca::SessionConfig::target_count(&self) -> usize
 pub fn grafton_visca::SessionConfig::targets(&self) -> [core::option::Option<grafton_visca::CameraId>; 7]
 pub const fn grafton_visca::SessionConfig::tuning(&self) -> grafton_visca::profile::OperationalTuning
+pub const fn grafton_visca::SessionConfig::with_admission_capacity(self, core::num::nonzero::NonZeroUsize) -> Self
 pub fn grafton_visca::SessionConfig::with_target(self, grafton_visca::CameraId, grafton_visca::profile::ProfileSpec) -> grafton_visca::Result<Self>
 pub fn grafton_visca::SessionConfig::with_tuning(self, grafton_visca::profile::OperationalTuning) -> grafton_visca::Result<Self>
 impl core::clone::Clone for grafton_visca::SessionConfig
@@ -27287,179 +27335,6 @@ impl core::marker::Unpin for grafton_visca::testing::camera_simulator::ViscaCame
 impl core::marker::UnsafeUnpin for grafton_visca::testing::camera_simulator::ViscaCameraSimulator
 impl !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::testing::camera_simulator::ViscaCameraSimulator
 impl !core::panic::unwind_safe::UnwindSafe for grafton_visca::testing::camera_simulator::ViscaCameraSimulator
-pub mod grafton_visca::timeout
-#[non_exhaustive] pub enum grafton_visca::timeout::CommandCategory
-pub grafton_visca::timeout::CommandCategory::Custom
-pub grafton_visca::timeout::CommandCategory::LongRunning
-pub grafton_visca::timeout::CommandCategory::Movement
-pub grafton_visca::timeout::CommandCategory::Network
-pub grafton_visca::timeout::CommandCategory::Preset
-pub grafton_visca::timeout::CommandCategory::Quick
-impl grafton_visca::timeout::CommandCategory
-pub const fn grafton_visca::timeout::CommandCategory::default_timeout(&self) -> core::time::Duration
-impl core::clone::Clone for grafton_visca::timeout::CommandCategory
-pub fn grafton_visca::timeout::CommandCategory::clone(&self) -> grafton_visca::timeout::CommandCategory
-impl core::cmp::Eq for grafton_visca::timeout::CommandCategory
-impl core::cmp::PartialEq for grafton_visca::timeout::CommandCategory
-pub fn grafton_visca::timeout::CommandCategory::eq(&self, &grafton_visca::timeout::CommandCategory) -> bool
-impl core::fmt::Debug for grafton_visca::timeout::CommandCategory
-pub fn grafton_visca::timeout::CommandCategory::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::hash::Hash for grafton_visca::timeout::CommandCategory
-pub fn grafton_visca::timeout::CommandCategory::hash<__H: core::hash::Hasher>(&self, &mut __H)
-impl core::marker::Copy for grafton_visca::timeout::CommandCategory
-impl core::marker::StructuralPartialEq for grafton_visca::timeout::CommandCategory
-impl core::marker::Freeze for grafton_visca::timeout::CommandCategory
-impl core::marker::Send for grafton_visca::timeout::CommandCategory
-impl core::marker::Sync for grafton_visca::timeout::CommandCategory
-impl core::marker::Unpin for grafton_visca::timeout::CommandCategory
-impl core::marker::UnsafeUnpin for grafton_visca::timeout::CommandCategory
-impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::timeout::CommandCategory
-impl core::panic::unwind_safe::UnwindSafe for grafton_visca::timeout::CommandCategory
-pub struct grafton_visca::timeout::Deadline
-pub grafton_visca::timeout::Deadline::deadline: std::time::Instant
-pub grafton_visca::timeout::Deadline::timeout: core::time::Duration
-impl grafton_visca::timeout::Deadline
-pub fn grafton_visca::timeout::Deadline::elapsed(&self) -> core::time::Duration
-pub fn grafton_visca::timeout::Deadline::elapsed_at(&self, std::time::Instant) -> core::time::Duration
-pub const fn grafton_visca::timeout::Deadline::from_instant(std::time::Instant, core::time::Duration) -> Self
-pub fn grafton_visca::timeout::Deadline::from_timeout(core::time::Duration) -> Self
-pub fn grafton_visca::timeout::Deadline::from_timeout_at(std::time::Instant, core::time::Duration) -> Self
-pub fn grafton_visca::timeout::Deadline::is_expired(&self) -> bool
-pub fn grafton_visca::timeout::Deadline::is_expired_at(&self, std::time::Instant) -> bool
-pub fn grafton_visca::timeout::Deadline::remaining(&self) -> core::time::Duration
-pub fn grafton_visca::timeout::Deadline::remaining_at(&self, std::time::Instant) -> core::time::Duration
-impl core::clone::Clone for grafton_visca::timeout::Deadline
-pub fn grafton_visca::timeout::Deadline::clone(&self) -> grafton_visca::timeout::Deadline
-impl core::fmt::Debug for grafton_visca::timeout::Deadline
-pub fn grafton_visca::timeout::Deadline::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::Copy for grafton_visca::timeout::Deadline
-impl core::marker::Freeze for grafton_visca::timeout::Deadline
-impl core::marker::Send for grafton_visca::timeout::Deadline
-impl core::marker::Sync for grafton_visca::timeout::Deadline
-impl core::marker::Unpin for grafton_visca::timeout::Deadline
-impl core::marker::UnsafeUnpin for grafton_visca::timeout::Deadline
-impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::timeout::Deadline
-impl core::panic::unwind_safe::UnwindSafe for grafton_visca::timeout::Deadline
-pub struct grafton_visca::timeout::TimeoutConfig
-pub grafton_visca::timeout::TimeoutConfig::ack_timeout: core::time::Duration
-pub grafton_visca::timeout::TimeoutConfig::default_timeout: core::time::Duration
-pub grafton_visca::timeout::TimeoutConfig::long_timeout: core::time::Duration
-pub grafton_visca::timeout::TimeoutConfig::movement_timeout: core::time::Duration
-pub grafton_visca::timeout::TimeoutConfig::network_timeout: core::time::Duration
-pub grafton_visca::timeout::TimeoutConfig::preset_timeout: core::time::Duration
-pub grafton_visca::timeout::TimeoutConfig::quick_timeout: core::time::Duration
-impl grafton_visca::timeout::TimeoutConfig
-pub fn grafton_visca::timeout::TimeoutConfig::builder() -> grafton_visca::timeout::TimeoutConfigBuilder
-pub const fn grafton_visca::timeout::TimeoutConfig::get_timeout(&self, grafton_visca::timeout::CommandCategory) -> core::time::Duration
-pub const fn grafton_visca::timeout::TimeoutConfig::uniform(core::time::Duration) -> Self
-impl core::clone::Clone for grafton_visca::timeout::TimeoutConfig
-pub fn grafton_visca::timeout::TimeoutConfig::clone(&self) -> grafton_visca::timeout::TimeoutConfig
-impl core::default::Default for grafton_visca::timeout::TimeoutConfig
-pub fn grafton_visca::timeout::TimeoutConfig::default() -> Self
-impl core::fmt::Debug for grafton_visca::timeout::TimeoutConfig
-pub fn grafton_visca::timeout::TimeoutConfig::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::Copy for grafton_visca::timeout::TimeoutConfig
-impl schemars::JsonSchema for grafton_visca::timeout::TimeoutConfig
-pub fn grafton_visca::timeout::TimeoutConfig::inline_schema() -> bool
-pub fn grafton_visca::timeout::TimeoutConfig::json_schema(&mut schemars::generate::SchemaGenerator) -> schemars::schema::Schema
-pub fn grafton_visca::timeout::TimeoutConfig::schema_id() -> alloc::borrow::Cow<'static, str>
-pub fn grafton_visca::timeout::TimeoutConfig::schema_name() -> alloc::borrow::Cow<'static, str>
-impl serde_core::ser::Serialize for grafton_visca::timeout::TimeoutConfig
-pub fn grafton_visca::timeout::TimeoutConfig::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
-impl<'de> serde_core::de::Deserialize<'de> for grafton_visca::timeout::TimeoutConfig
-pub fn grafton_visca::timeout::TimeoutConfig::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
-impl core::marker::Freeze for grafton_visca::timeout::TimeoutConfig
-impl core::marker::Send for grafton_visca::timeout::TimeoutConfig
-impl core::marker::Sync for grafton_visca::timeout::TimeoutConfig
-impl core::marker::Unpin for grafton_visca::timeout::TimeoutConfig
-impl core::marker::UnsafeUnpin for grafton_visca::timeout::TimeoutConfig
-impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::timeout::TimeoutConfig
-impl core::panic::unwind_safe::UnwindSafe for grafton_visca::timeout::TimeoutConfig
-pub struct grafton_visca::timeout::TimeoutConfigBuilder
-impl grafton_visca::timeout::TimeoutConfigBuilder
-pub fn grafton_visca::timeout::TimeoutConfigBuilder::ack_timeout(self, core::time::Duration) -> Self
-pub const fn grafton_visca::timeout::TimeoutConfigBuilder::build(self) -> grafton_visca::timeout::TimeoutConfig
-pub fn grafton_visca::timeout::TimeoutConfigBuilder::default_timeout(self, core::time::Duration) -> Self
-pub fn grafton_visca::timeout::TimeoutConfigBuilder::long_timeout(self, core::time::Duration) -> Self
-pub fn grafton_visca::timeout::TimeoutConfigBuilder::movement_timeout(self, core::time::Duration) -> Self
-pub fn grafton_visca::timeout::TimeoutConfigBuilder::network_timeout(self, core::time::Duration) -> Self
-pub fn grafton_visca::timeout::TimeoutConfigBuilder::preset_timeout(self, core::time::Duration) -> Self
-pub fn grafton_visca::timeout::TimeoutConfigBuilder::quick_timeout(self, core::time::Duration) -> Self
-impl core::clone::Clone for grafton_visca::timeout::TimeoutConfigBuilder
-pub fn grafton_visca::timeout::TimeoutConfigBuilder::clone(&self) -> grafton_visca::timeout::TimeoutConfigBuilder
-impl core::default::Default for grafton_visca::timeout::TimeoutConfigBuilder
-pub fn grafton_visca::timeout::TimeoutConfigBuilder::default() -> grafton_visca::timeout::TimeoutConfigBuilder
-impl core::fmt::Debug for grafton_visca::timeout::TimeoutConfigBuilder
-pub fn grafton_visca::timeout::TimeoutConfigBuilder::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::Copy for grafton_visca::timeout::TimeoutConfigBuilder
-impl core::marker::Freeze for grafton_visca::timeout::TimeoutConfigBuilder
-impl core::marker::Send for grafton_visca::timeout::TimeoutConfigBuilder
-impl core::marker::Sync for grafton_visca::timeout::TimeoutConfigBuilder
-impl core::marker::Unpin for grafton_visca::timeout::TimeoutConfigBuilder
-impl core::marker::UnsafeUnpin for grafton_visca::timeout::TimeoutConfigBuilder
-impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::timeout::TimeoutConfigBuilder
-impl core::panic::unwind_safe::UnwindSafe for grafton_visca::timeout::TimeoutConfigBuilder
-pub struct grafton_visca::timeout::TimeoutGuard<'a, T: grafton_visca::timeout::TimeoutManager>
-impl<'a, T: grafton_visca::timeout::TimeoutManager> grafton_visca::timeout::TimeoutGuard<'a, T>
-pub fn grafton_visca::timeout::TimeoutGuard<'a, T>::new(&'a mut T, core::option::Option<core::time::Duration>, core::option::Option<core::time::Duration>) -> core::result::Result<Self, grafton_visca::Error>
-pub fn grafton_visca::timeout::TimeoutGuard<'a, T>::restore(&mut self) -> core::result::Result<(), grafton_visca::Error>
-impl<T: grafton_visca::timeout::TimeoutManager> core::fmt::Debug for grafton_visca::timeout::TimeoutGuard<'_, T>
-pub fn grafton_visca::timeout::TimeoutGuard<'_, T>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl<T: grafton_visca::timeout::TimeoutManager> core::ops::drop::Drop for grafton_visca::timeout::TimeoutGuard<'_, T>
-pub fn grafton_visca::timeout::TimeoutGuard<'_, T>::drop(&mut self)
-impl<'a, T> core::marker::Freeze for grafton_visca::timeout::TimeoutGuard<'a, T> where &'a mut T: core::marker::Freeze
-impl<'a, T> core::marker::Send for grafton_visca::timeout::TimeoutGuard<'a, T> where &'a mut T: core::marker::Send
-impl<'a, T> core::marker::Sync for grafton_visca::timeout::TimeoutGuard<'a, T> where &'a mut T: core::marker::Sync
-impl<'a, T> core::marker::Unpin for grafton_visca::timeout::TimeoutGuard<'a, T> where &'a mut T: core::marker::Unpin
-impl<'a, T> core::marker::UnsafeUnpin for grafton_visca::timeout::TimeoutGuard<'a, T> where &'a mut T: core::marker::UnsafeUnpin
-impl<'a, T> core::panic::unwind_safe::RefUnwindSafe for grafton_visca::timeout::TimeoutGuard<'a, T> where &'a mut T: core::panic::unwind_safe::RefUnwindSafe
-impl<'a, T> !core::panic::unwind_safe::UnwindSafe for grafton_visca::timeout::TimeoutGuard<'a, T>
-pub struct grafton_visca::timeout::TimeoutPolicy
-impl grafton_visca::timeout::TimeoutPolicy
-pub fn grafton_visca::timeout::TimeoutPolicy::deadline_for(&self, grafton_visca::timeout::CommandCategory) -> grafton_visca::timeout::Deadline
-pub fn grafton_visca::timeout::TimeoutPolicy::deadline_for_at(&self, std::time::Instant, grafton_visca::timeout::CommandCategory) -> grafton_visca::timeout::Deadline
-pub const fn grafton_visca::timeout::TimeoutPolicy::get_timeout(&self, grafton_visca::timeout::CommandCategory) -> core::time::Duration
-pub const fn grafton_visca::timeout::TimeoutPolicy::new(grafton_visca::timeout::TimeoutConfig) -> Self
-pub fn grafton_visca::timeout::TimeoutPolicy::update_config(&mut self, grafton_visca::timeout::TimeoutConfig)
-impl core::clone::Clone for grafton_visca::timeout::TimeoutPolicy
-pub fn grafton_visca::timeout::TimeoutPolicy::clone(&self) -> grafton_visca::timeout::TimeoutPolicy
-impl core::default::Default for grafton_visca::timeout::TimeoutPolicy
-pub fn grafton_visca::timeout::TimeoutPolicy::default() -> grafton_visca::timeout::TimeoutPolicy
-impl core::fmt::Debug for grafton_visca::timeout::TimeoutPolicy
-pub fn grafton_visca::timeout::TimeoutPolicy::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::Copy for grafton_visca::timeout::TimeoutPolicy
-impl core::marker::Freeze for grafton_visca::timeout::TimeoutPolicy
-impl core::marker::Send for grafton_visca::timeout::TimeoutPolicy
-impl core::marker::Sync for grafton_visca::timeout::TimeoutPolicy
-impl core::marker::Unpin for grafton_visca::timeout::TimeoutPolicy
-impl core::marker::UnsafeUnpin for grafton_visca::timeout::TimeoutPolicy
-impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::timeout::TimeoutPolicy
-impl core::panic::unwind_safe::UnwindSafe for grafton_visca::timeout::TimeoutPolicy
-pub trait grafton_visca::timeout::TimeoutManager
-pub fn grafton_visca::timeout::TimeoutManager::get_read_timeout(&self) -> core::io::error::Result<core::option::Option<core::time::Duration>>
-pub fn grafton_visca::timeout::TimeoutManager::get_write_timeout(&self) -> core::io::error::Result<core::option::Option<core::time::Duration>>
-pub fn grafton_visca::timeout::TimeoutManager::set_read_timeout(&mut self, core::option::Option<core::time::Duration>) -> core::io::error::Result<()>
-pub fn grafton_visca::timeout::TimeoutManager::set_write_timeout(&mut self, core::option::Option<core::time::Duration>) -> core::io::error::Result<()>
-pub fn grafton_visca::timeout::TimeoutManager::with_read_timeout<F, R>(&mut self, core::time::Duration, F) -> core::result::Result<R, grafton_visca::Error> where F: core::ops::function::FnOnce(&mut Self) -> core::result::Result<R, grafton_visca::Error>
-pub fn grafton_visca::timeout::TimeoutManager::with_timeout<F, R>(&mut self, core::time::Duration, F) -> core::result::Result<R, grafton_visca::Error> where F: core::ops::function::FnOnce(&mut Self) -> core::result::Result<R, grafton_visca::Error>
-pub fn grafton_visca::timeout::TimeoutManager::with_write_timeout<F, R>(&mut self, core::time::Duration, F) -> core::result::Result<R, grafton_visca::Error> where F: core::ops::function::FnOnce(&mut Self) -> core::result::Result<R, grafton_visca::Error>
-impl grafton_visca::timeout::TimeoutManager for std::net::tcp::TcpStream
-pub fn std::net::tcp::TcpStream::get_read_timeout(&self) -> core::io::error::Result<core::option::Option<core::time::Duration>>
-pub fn std::net::tcp::TcpStream::get_write_timeout(&self) -> core::io::error::Result<core::option::Option<core::time::Duration>>
-pub fn std::net::tcp::TcpStream::set_read_timeout(&mut self, core::option::Option<core::time::Duration>) -> core::io::error::Result<()>
-pub fn std::net::tcp::TcpStream::set_write_timeout(&mut self, core::option::Option<core::time::Duration>) -> core::io::error::Result<()>
-pub fn std::net::tcp::TcpStream::with_read_timeout<F, R>(&mut self, core::time::Duration, F) -> core::result::Result<R, grafton_visca::Error> where F: core::ops::function::FnOnce(&mut Self) -> core::result::Result<R, grafton_visca::Error>
-pub fn std::net::tcp::TcpStream::with_timeout<F, R>(&mut self, core::time::Duration, F) -> core::result::Result<R, grafton_visca::Error> where F: core::ops::function::FnOnce(&mut Self) -> core::result::Result<R, grafton_visca::Error>
-pub fn std::net::tcp::TcpStream::with_write_timeout<F, R>(&mut self, core::time::Duration, F) -> core::result::Result<R, grafton_visca::Error> where F: core::ops::function::FnOnce(&mut Self) -> core::result::Result<R, grafton_visca::Error>
-impl grafton_visca::timeout::TimeoutManager for std::net::udp::UdpSocket
-pub fn std::net::udp::UdpSocket::get_read_timeout(&self) -> core::io::error::Result<core::option::Option<core::time::Duration>>
-pub fn std::net::udp::UdpSocket::get_write_timeout(&self) -> core::io::error::Result<core::option::Option<core::time::Duration>>
-pub fn std::net::udp::UdpSocket::set_read_timeout(&mut self, core::option::Option<core::time::Duration>) -> core::io::error::Result<()>
-pub fn std::net::udp::UdpSocket::set_write_timeout(&mut self, core::option::Option<core::time::Duration>) -> core::io::error::Result<()>
-pub fn std::net::udp::UdpSocket::with_read_timeout<F, R>(&mut self, core::time::Duration, F) -> core::result::Result<R, grafton_visca::Error> where F: core::ops::function::FnOnce(&mut Self) -> core::result::Result<R, grafton_visca::Error>
-pub fn std::net::udp::UdpSocket::with_timeout<F, R>(&mut self, core::time::Duration, F) -> core::result::Result<R, grafton_visca::Error> where F: core::ops::function::FnOnce(&mut Self) -> core::result::Result<R, grafton_visca::Error>
-pub fn std::net::udp::UdpSocket::with_write_timeout<F, R>(&mut self, core::time::Duration, F) -> core::result::Result<R, grafton_visca::Error> where F: core::ops::function::FnOnce(&mut Self) -> core::result::Result<R, grafton_visca::Error>
-pub fn grafton_visca::timeout::with_timeout_on_guard<T, F, R>(&mut std::sync::poison::mutex::MutexGuard<'_, T>, core::time::Duration, F) -> core::result::Result<R, grafton_visca::Error> where T: grafton_visca::timeout::TimeoutManager, F: core::ops::function::FnOnce(&mut T) -> core::result::Result<R, grafton_visca::Error>
 pub mod grafton_visca::transport
 pub mod grafton_visca::transport::serial
 pub struct grafton_visca::transport::serial::Config
@@ -27470,7 +27345,6 @@ pub grafton_visca::transport::serial::Config::camera_address: u8
 pub grafton_visca::transport::serial::Config::if_clear_on_connect: bool
 pub grafton_visca::transport::serial::Config::port: alloc::string::String
 pub grafton_visca::transport::serial::Config::read_timeout: core::time::Duration
-pub grafton_visca::transport::serial::Config::retry_config: grafton_visca::transport::RetryConfig
 pub grafton_visca::transport::serial::Config::write_timeout: core::time::Duration
 impl grafton_visca::runtime_adapters::tokio::SerialConfig
 pub fn grafton_visca::runtime_adapters::tokio::SerialConfig::address_set_on_connect(self, bool) -> Self
@@ -27480,7 +27354,6 @@ pub fn grafton_visca::runtime_adapters::tokio::SerialConfig::camera_address(self
 pub fn grafton_visca::runtime_adapters::tokio::SerialConfig::if_clear_on_connect(self, bool) -> Self
 pub fn grafton_visca::runtime_adapters::tokio::SerialConfig::new(impl core::convert::Into<alloc::string::String>) -> Self
 pub fn grafton_visca::runtime_adapters::tokio::SerialConfig::read_timeout(self, core::time::Duration) -> Self
-pub fn grafton_visca::runtime_adapters::tokio::SerialConfig::retry_config(self, grafton_visca::transport::RetryConfig) -> Self
 pub fn grafton_visca::runtime_adapters::tokio::SerialConfig::write_timeout(self, core::time::Duration) -> Self
 impl core::clone::Clone for grafton_visca::runtime_adapters::tokio::SerialConfig
 pub fn grafton_visca::runtime_adapters::tokio::SerialConfig::clone(&self) -> grafton_visca::runtime_adapters::tokio::SerialConfig
@@ -27516,38 +27389,6 @@ impl core::marker::Unpin for grafton_visca::transport::AddressingMode
 impl core::marker::UnsafeUnpin for grafton_visca::transport::AddressingMode
 impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::transport::AddressingMode
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::transport::AddressingMode
-#[non_exhaustive] pub enum grafton_visca::transport::BackoffStrategy
-pub grafton_visca::transport::BackoffStrategy::Constant
-pub grafton_visca::transport::BackoffStrategy::Exponential
-impl core::clone::Clone for grafton_visca::transport::BackoffStrategy
-pub fn grafton_visca::transport::BackoffStrategy::clone(&self) -> grafton_visca::transport::BackoffStrategy
-impl core::cmp::Eq for grafton_visca::transport::BackoffStrategy
-impl core::cmp::PartialEq for grafton_visca::transport::BackoffStrategy
-pub fn grafton_visca::transport::BackoffStrategy::eq(&self, &grafton_visca::transport::BackoffStrategy) -> bool
-impl core::default::Default for grafton_visca::transport::BackoffStrategy
-pub fn grafton_visca::transport::BackoffStrategy::default() -> grafton_visca::transport::BackoffStrategy
-impl core::fmt::Debug for grafton_visca::transport::BackoffStrategy
-pub fn grafton_visca::transport::BackoffStrategy::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::hash::Hash for grafton_visca::transport::BackoffStrategy
-pub fn grafton_visca::transport::BackoffStrategy::hash<__H: core::hash::Hasher>(&self, &mut __H)
-impl core::marker::Copy for grafton_visca::transport::BackoffStrategy
-impl core::marker::StructuralPartialEq for grafton_visca::transport::BackoffStrategy
-impl schemars::JsonSchema for grafton_visca::transport::BackoffStrategy
-pub fn grafton_visca::transport::BackoffStrategy::inline_schema() -> bool
-pub fn grafton_visca::transport::BackoffStrategy::json_schema(&mut schemars::generate::SchemaGenerator) -> schemars::schema::Schema
-pub fn grafton_visca::transport::BackoffStrategy::schema_id() -> alloc::borrow::Cow<'static, str>
-pub fn grafton_visca::transport::BackoffStrategy::schema_name() -> alloc::borrow::Cow<'static, str>
-impl serde_core::ser::Serialize for grafton_visca::transport::BackoffStrategy
-pub fn grafton_visca::transport::BackoffStrategy::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
-impl<'de> serde_core::de::Deserialize<'de> for grafton_visca::transport::BackoffStrategy
-pub fn grafton_visca::transport::BackoffStrategy::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
-impl core::marker::Freeze for grafton_visca::transport::BackoffStrategy
-impl core::marker::Send for grafton_visca::transport::BackoffStrategy
-impl core::marker::Sync for grafton_visca::transport::BackoffStrategy
-impl core::marker::Unpin for grafton_visca::transport::BackoffStrategy
-impl core::marker::UnsafeUnpin for grafton_visca::transport::BackoffStrategy
-impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::transport::BackoffStrategy
-impl core::panic::unwind_safe::UnwindSafe for grafton_visca::transport::BackoffStrategy
 #[non_exhaustive] pub enum grafton_visca::transport::BlockingTransportHandle
 pub grafton_visca::transport::BlockingTransportHandle::Serial(grafton_visca::transport::serial_blocking::SerialTransport)
 pub grafton_visca::transport::BlockingTransportHandle::Tcp(grafton_visca::transport::blocking::tcp::Tcp)
@@ -27570,6 +27411,27 @@ impl core::marker::Unpin for grafton_visca::transport::BlockingTransportHandle
 impl core::marker::UnsafeUnpin for grafton_visca::transport::BlockingTransportHandle
 impl !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::transport::BlockingTransportHandle
 impl !core::panic::unwind_safe::UnwindSafe for grafton_visca::transport::BlockingTransportHandle
+pub enum grafton_visca::transport::FrameSequence
+pub grafton_visca::transport::FrameSequence::Full32(u32)
+pub grafton_visca::transport::FrameSequence::Lower16(u16)
+impl grafton_visca::transport::FrameSequence
+pub const fn grafton_visca::transport::FrameSequence::value(self) -> u32
+impl core::clone::Clone for grafton_visca::transport::FrameSequence
+pub fn grafton_visca::transport::FrameSequence::clone(&self) -> grafton_visca::transport::FrameSequence
+impl core::cmp::Eq for grafton_visca::transport::FrameSequence
+impl core::cmp::PartialEq for grafton_visca::transport::FrameSequence
+pub fn grafton_visca::transport::FrameSequence::eq(&self, &grafton_visca::transport::FrameSequence) -> bool
+impl core::fmt::Debug for grafton_visca::transport::FrameSequence
+pub fn grafton_visca::transport::FrameSequence::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for grafton_visca::transport::FrameSequence
+impl core::marker::StructuralPartialEq for grafton_visca::transport::FrameSequence
+impl core::marker::Freeze for grafton_visca::transport::FrameSequence
+impl core::marker::Send for grafton_visca::transport::FrameSequence
+impl core::marker::Sync for grafton_visca::transport::FrameSequence
+impl core::marker::Unpin for grafton_visca::transport::FrameSequence
+impl core::marker::UnsafeUnpin for grafton_visca::transport::FrameSequence
+impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::transport::FrameSequence
+impl core::panic::unwind_safe::UnwindSafe for grafton_visca::transport::FrameSequence
 #[non_exhaustive] pub enum grafton_visca::transport::SendSemantics
 pub grafton_visca::transport::SendSemantics::Datagram
 pub grafton_visca::transport::SendSemantics::Stream
@@ -27619,7 +27481,7 @@ impl core::marker::UnsafeUnpin for grafton_visca::transport::BufferConfig
 impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::transport::BufferConfig
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::transport::BufferConfig
 pub struct grafton_visca::transport::FrameMeta
-pub grafton_visca::transport::FrameMeta::sequence: core::option::Option<u32>
+pub grafton_visca::transport::FrameMeta::sequence: core::option::Option<grafton_visca::transport::FrameSequence>
 impl core::clone::Clone for grafton_visca::transport::FrameMeta
 pub fn grafton_visca::transport::FrameMeta::clone(&self) -> grafton_visca::transport::FrameMeta
 impl core::cmp::Eq for grafton_visca::transport::FrameMeta
@@ -27639,19 +27501,13 @@ impl core::panic::unwind_safe::UnwindSafe for grafton_visca::transport::FrameMet
 pub struct grafton_visca::transport::NetTransportBuilder
 impl grafton_visca::transport::NetTransportBuilder
 pub fn grafton_visca::transport::NetTransportBuilder::address(self, impl core::convert::Into<alloc::string::String>) -> Self
-pub fn grafton_visca::transport::NetTransportBuilder::backoff_strategy(self, grafton_visca::transport::BackoffStrategy) -> Self
 pub fn grafton_visca::transport::NetTransportBuilder::build_blocking(self) -> core::result::Result<grafton_visca::transport::BlockingTransportHandle, grafton_visca::Error>
 pub fn grafton_visca::transport::NetTransportBuilder::connect_timeout(self, core::time::Duration) -> Self
 pub fn grafton_visca::transport::NetTransportBuilder::disable_tcp_keepalive(self) -> Self
 pub fn grafton_visca::transport::NetTransportBuilder::max_buffer_size(self, usize) -> Self
-pub fn grafton_visca::transport::NetTransportBuilder::max_pending_queue_depth(self, core::num::nonzero::NonZeroUsize) -> Self
-pub fn grafton_visca::transport::NetTransportBuilder::max_retries(self, u32) -> Self
-pub fn grafton_visca::transport::NetTransportBuilder::max_retry_duration(self, core::time::Duration) -> Self
 pub fn grafton_visca::transport::NetTransportBuilder::raw_ip_buffers(self) -> Self
 pub fn grafton_visca::transport::NetTransportBuilder::read_timeout(self, core::time::Duration) -> Self
 pub fn grafton_visca::transport::NetTransportBuilder::recv_buffer_size(self, usize) -> Self
-pub fn grafton_visca::transport::NetTransportBuilder::retry_config(self, grafton_visca::transport::RetryConfig) -> Self
-pub fn grafton_visca::transport::NetTransportBuilder::retry_delay(self, core::time::Duration) -> Self
 pub fn grafton_visca::transport::NetTransportBuilder::send_buffer_size(self, usize) -> Self
 pub fn grafton_visca::transport::NetTransportBuilder::sony_ip_buffers(self) -> Self
 pub fn grafton_visca::transport::NetTransportBuilder::tcp() -> Self
@@ -27692,79 +27548,6 @@ impl core::marker::Unpin for grafton_visca::transport::RawVisca
 impl core::marker::UnsafeUnpin for grafton_visca::transport::RawVisca
 impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::transport::RawVisca
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::transport::RawVisca
-pub struct grafton_visca::transport::RetryAttempt(_)
-impl grafton_visca::transport::RetryAttempt
-pub const grafton_visca::transport::RetryAttempt::FIRST: Self
-pub const fn grafton_visca::transport::RetryAttempt::exceeds_max(self, u32) -> bool
-pub const fn grafton_visca::transport::RetryAttempt::from_retries_done(u32) -> core::option::Option<Self>
-pub const fn grafton_visca::transport::RetryAttempt::get(self) -> u32
-pub const fn grafton_visca::transport::RetryAttempt::new(u32) -> core::option::Option<Self>
-pub const fn grafton_visca::transport::RetryAttempt::retries_done(self) -> u32
-pub const fn grafton_visca::transport::RetryAttempt::saturating_next(self) -> Self
-impl core::clone::Clone for grafton_visca::transport::RetryAttempt
-pub fn grafton_visca::transport::RetryAttempt::clone(&self) -> grafton_visca::transport::RetryAttempt
-impl core::cmp::Eq for grafton_visca::transport::RetryAttempt
-impl core::cmp::Ord for grafton_visca::transport::RetryAttempt
-pub fn grafton_visca::transport::RetryAttempt::cmp(&self, &grafton_visca::transport::RetryAttempt) -> core::cmp::Ordering
-impl core::cmp::PartialEq for grafton_visca::transport::RetryAttempt
-pub fn grafton_visca::transport::RetryAttempt::eq(&self, &grafton_visca::transport::RetryAttempt) -> bool
-impl core::cmp::PartialOrd for grafton_visca::transport::RetryAttempt
-pub fn grafton_visca::transport::RetryAttempt::partial_cmp(&self, &grafton_visca::transport::RetryAttempt) -> core::option::Option<core::cmp::Ordering>
-impl core::fmt::Debug for grafton_visca::transport::RetryAttempt
-pub fn grafton_visca::transport::RetryAttempt::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::fmt::Display for grafton_visca::transport::RetryAttempt
-pub fn grafton_visca::transport::RetryAttempt::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::hash::Hash for grafton_visca::transport::RetryAttempt
-pub fn grafton_visca::transport::RetryAttempt::hash<__H: core::hash::Hasher>(&self, &mut __H)
-impl core::marker::Copy for grafton_visca::transport::RetryAttempt
-impl core::marker::StructuralPartialEq for grafton_visca::transport::RetryAttempt
-impl schemars::JsonSchema for grafton_visca::transport::RetryAttempt
-pub fn grafton_visca::transport::RetryAttempt::inline_schema() -> bool
-pub fn grafton_visca::transport::RetryAttempt::json_schema(&mut schemars::generate::SchemaGenerator) -> schemars::schema::Schema
-pub fn grafton_visca::transport::RetryAttempt::schema_id() -> alloc::borrow::Cow<'static, str>
-pub fn grafton_visca::transport::RetryAttempt::schema_name() -> alloc::borrow::Cow<'static, str>
-impl serde_core::ser::Serialize for grafton_visca::transport::RetryAttempt
-pub fn grafton_visca::transport::RetryAttempt::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
-impl<'de> serde_core::de::Deserialize<'de> for grafton_visca::transport::RetryAttempt
-pub fn grafton_visca::transport::RetryAttempt::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
-impl core::marker::Freeze for grafton_visca::transport::RetryAttempt
-impl core::marker::Send for grafton_visca::transport::RetryAttempt
-impl core::marker::Sync for grafton_visca::transport::RetryAttempt
-impl core::marker::Unpin for grafton_visca::transport::RetryAttempt
-impl core::marker::UnsafeUnpin for grafton_visca::transport::RetryAttempt
-impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::transport::RetryAttempt
-impl core::panic::unwind_safe::UnwindSafe for grafton_visca::transport::RetryAttempt
-pub struct grafton_visca::transport::RetryConfig
-pub grafton_visca::transport::RetryConfig::backoff_strategy: grafton_visca::transport::BackoffStrategy
-pub grafton_visca::transport::RetryConfig::base_retry_delay: core::time::Duration
-pub grafton_visca::transport::RetryConfig::max_retries: u32
-pub grafton_visca::transport::RetryConfig::max_retry_duration: core::time::Duration
-impl grafton_visca::transport::RetryConfig
-pub fn grafton_visca::transport::RetryConfig::calculate_delay(&self, grafton_visca::transport::RetryAttempt, core::option::Option<core::time::Duration>) -> core::time::Duration
-pub fn grafton_visca::transport::RetryConfig::should_retry(&self, u32, std::time::Instant) -> bool
-impl core::clone::Clone for grafton_visca::transport::RetryConfig
-pub fn grafton_visca::transport::RetryConfig::clone(&self) -> grafton_visca::transport::RetryConfig
-impl core::default::Default for grafton_visca::transport::RetryConfig
-pub fn grafton_visca::transport::RetryConfig::default() -> Self
-impl core::fmt::Debug for grafton_visca::transport::RetryConfig
-pub fn grafton_visca::transport::RetryConfig::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::Copy for grafton_visca::transport::RetryConfig
-impl schemars::JsonSchema for grafton_visca::transport::RetryConfig
-pub fn grafton_visca::transport::RetryConfig::inline_schema() -> bool
-pub fn grafton_visca::transport::RetryConfig::json_schema(&mut schemars::generate::SchemaGenerator) -> schemars::schema::Schema
-pub fn grafton_visca::transport::RetryConfig::schema_id() -> alloc::borrow::Cow<'static, str>
-pub fn grafton_visca::transport::RetryConfig::schema_name() -> alloc::borrow::Cow<'static, str>
-impl serde_core::ser::Serialize for grafton_visca::transport::RetryConfig
-pub fn grafton_visca::transport::RetryConfig::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
-impl<'de> serde_core::de::Deserialize<'de> for grafton_visca::transport::RetryConfig
-pub fn grafton_visca::transport::RetryConfig::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
-impl core::marker::Freeze for grafton_visca::transport::RetryConfig
-impl core::marker::Send for grafton_visca::transport::RetryConfig
-impl core::marker::Sync for grafton_visca::transport::RetryConfig
-impl core::marker::Unpin for grafton_visca::transport::RetryConfig
-impl core::marker::UnsafeUnpin for grafton_visca::transport::RetryConfig
-impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::transport::RetryConfig
-impl core::panic::unwind_safe::UnwindSafe for grafton_visca::transport::RetryConfig
 pub struct grafton_visca::transport::SonyEncapsulated
 impl core::clone::Clone for grafton_visca::transport::SonyEncapsulated
 pub fn grafton_visca::transport::SonyEncapsulated::clone(&self) -> grafton_visca::transport::SonyEncapsulated
@@ -27828,9 +27611,7 @@ pub struct grafton_visca::transport::TransportConfig
 pub grafton_visca::transport::TransportConfig::addressing: grafton_visca::transport::AddressingMode
 pub grafton_visca::transport::TransportConfig::buffer_config: grafton_visca::transport::BufferConfig
 pub grafton_visca::transport::TransportConfig::connect_timeout: core::time::Duration
-pub grafton_visca::transport::TransportConfig::max_pending_queue_depth: core::num::nonzero::NonZeroUsize
 pub grafton_visca::transport::TransportConfig::read_timeout: core::time::Duration
-pub grafton_visca::transport::TransportConfig::retry_config: grafton_visca::transport::RetryConfig
 pub grafton_visca::transport::TransportConfig::tcp_keepalive: core::option::Option<grafton_visca::transport::TcpKeepaliveConfig>
 pub grafton_visca::transport::TransportConfig::tcp_nodelay: core::option::Option<bool>
 pub grafton_visca::transport::TransportConfig::ttl: core::option::Option<u32>
@@ -27849,7 +27630,6 @@ impl core::marker::Unpin for grafton_visca::transport::TransportConfig
 impl core::marker::UnsafeUnpin for grafton_visca::transport::TransportConfig
 impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::transport::TransportConfig
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::transport::TransportConfig
-pub const grafton_visca::transport::DEFAULT_MAX_PENDING_QUEUE_DEPTH: usize
 pub trait grafton_visca::transport::AsyncTransport: core::marker::Send
 pub fn grafton_visca::transport::AsyncTransport::addressing_mode_hint(&self) -> core::option::Option<grafton_visca::transport::AddressingMode>
 pub fn grafton_visca::transport::AsyncTransport::recv_into<'a>(&'a mut self, &'a mut [u8]) -> impl core::future::future::Future<Output = core::result::Result<usize, grafton_visca::Error>> + core::marker::Send
@@ -32021,18 +31801,19 @@ impl<P> !core::panic::unwind_safe::UnwindSafe for grafton_visca::Camera<P>
 pub struct grafton_visca::CameraConfig<P>
 impl<P> grafton_visca::CameraConfig<P> where P: grafton_visca::capabilities::Profile
 pub fn grafton_visca::CameraConfig<P>::address(self, impl core::convert::Into<alloc::string::String>) -> Self
+pub const fn grafton_visca::CameraConfig<P>::admission_capacity(&self) -> core::num::nonzero::NonZeroUsize
 pub fn grafton_visca::CameraConfig<P>::camera_id(self, grafton_visca::CameraId) -> Self
 pub fn grafton_visca::CameraConfig<P>::for_camera() -> Self
 pub fn grafton_visca::CameraConfig<P>::new() -> Self
-pub fn grafton_visca::CameraConfig<P>::retry_config(self, grafton_visca::transport::RetryConfig) -> Self
 pub fn grafton_visca::CameraConfig<P>::serial(impl core::convert::Into<alloc::string::String>, u32) -> Self where P: grafton_visca::capabilities::SupportsSerial
 pub fn grafton_visca::CameraConfig<P>::tcp(impl core::convert::Into<alloc::string::String>) -> Self where P: grafton_visca::capabilities::SupportsTcp
-pub fn grafton_visca::CameraConfig<P>::timeouts(self, grafton_visca::timeout::TimeoutConfig) -> Self
 pub fn grafton_visca::CameraConfig<P>::transport(self, grafton_visca::camera::TransportOptions) -> Self
 pub fn grafton_visca::CameraConfig<P>::transport_config(self, grafton_visca::transport::TransportConfig) -> Self
 pub fn grafton_visca::CameraConfig<P>::try_camera_id(self, u8) -> core::result::Result<Self, grafton_visca::Error>
+pub const fn grafton_visca::CameraConfig<P>::tuning(&self) -> grafton_visca::profile::OperationalTuning
 pub fn grafton_visca::CameraConfig<P>::udp(impl core::convert::Into<alloc::string::String>) -> Self where P: grafton_visca::capabilities::SupportsUdp
-pub fn grafton_visca::CameraConfig<P>::validate(&self) -> core::result::Result<(), grafton_visca::Error>
+pub const fn grafton_visca::CameraConfig<P>::with_admission_capacity(self, core::num::nonzero::NonZeroUsize) -> Self
+pub fn grafton_visca::CameraConfig<P>::with_tuning(self, grafton_visca::profile::OperationalTuning) -> Self
 impl<P> grafton_visca::CameraConfig<P> where P: grafton_visca::profile::CompileTimeProfile
 pub fn grafton_visca::CameraConfig<P>::open(&self) -> grafton_visca::Result<grafton_visca::blocking::Session>
 pub fn grafton_visca::CameraConfig<P>::open_camera(&self) -> grafton_visca::Result<grafton_visca::blocking::CameraSession<P>>
@@ -32045,6 +31826,7 @@ pub async fn grafton_visca::CameraConfig<P>::open_serial_async<R>(&self, R) -> g
 pub async fn grafton_visca::CameraConfig<P>::open_serial_camera_async<R>(&self, R) -> grafton_visca::Result<grafton_visca::CameraSession<P>> where R: grafton_visca::Runtime + grafton_visca::runtime::RuntimeSerial<SerialTransport = grafton_visca::runtime_adapters::tokio::SerialTransport>
 impl<P> grafton_visca::CameraConfig<P> where P: grafton_visca::profile::CompileTimeProfile
 pub fn grafton_visca::CameraConfig<P>::session_config(&self) -> grafton_visca::Result<grafton_visca::SessionConfig>
+pub fn grafton_visca::CameraConfig<P>::validate(&self) -> grafton_visca::Result<()>
 impl<P: core::clone::Clone> core::clone::Clone for grafton_visca::CameraConfig<P>
 pub fn grafton_visca::CameraConfig<P>::clone(&self) -> grafton_visca::CameraConfig<P>
 impl<P: core::fmt::Debug> core::fmt::Debug for grafton_visca::CameraConfig<P>
@@ -32156,6 +31938,43 @@ impl core::marker::Unpin for grafton_visca::Cancellation
 impl core::marker::UnsafeUnpin for grafton_visca::Cancellation
 impl !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::Cancellation
 impl !core::panic::unwind_safe::UnwindSafe for grafton_visca::Cancellation
+pub struct grafton_visca::CommandTimeouts
+impl grafton_visca::CommandTimeouts
+pub const fn grafton_visca::CommandTimeouts::long_running_timeout(self) -> core::time::Duration
+pub const fn grafton_visca::CommandTimeouts::movement_timeout(self) -> core::time::Duration
+pub const fn grafton_visca::CommandTimeouts::network_timeout(self) -> core::time::Duration
+pub const fn grafton_visca::CommandTimeouts::new(core::time::Duration, core::time::Duration, core::time::Duration, core::time::Duration, core::time::Duration) -> Self
+pub const fn grafton_visca::CommandTimeouts::preset_timeout(self) -> core::time::Duration
+pub const fn grafton_visca::CommandTimeouts::quick_timeout(self) -> core::time::Duration
+impl core::clone::Clone for grafton_visca::CommandTimeouts
+pub fn grafton_visca::CommandTimeouts::clone(&self) -> grafton_visca::CommandTimeouts
+impl core::cmp::Eq for grafton_visca::CommandTimeouts
+impl core::cmp::PartialEq for grafton_visca::CommandTimeouts
+pub fn grafton_visca::CommandTimeouts::eq(&self, &grafton_visca::CommandTimeouts) -> bool
+impl core::default::Default for grafton_visca::CommandTimeouts
+pub fn grafton_visca::CommandTimeouts::default() -> Self
+impl core::fmt::Debug for grafton_visca::CommandTimeouts
+pub fn grafton_visca::CommandTimeouts::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for grafton_visca::CommandTimeouts
+pub fn grafton_visca::CommandTimeouts::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for grafton_visca::CommandTimeouts
+impl core::marker::StructuralPartialEq for grafton_visca::CommandTimeouts
+impl schemars::JsonSchema for grafton_visca::CommandTimeouts
+pub fn grafton_visca::CommandTimeouts::inline_schema() -> bool
+pub fn grafton_visca::CommandTimeouts::json_schema(&mut schemars::generate::SchemaGenerator) -> schemars::schema::Schema
+pub fn grafton_visca::CommandTimeouts::schema_id() -> alloc::borrow::Cow<'static, str>
+pub fn grafton_visca::CommandTimeouts::schema_name() -> alloc::borrow::Cow<'static, str>
+impl serde_core::ser::Serialize for grafton_visca::CommandTimeouts
+pub fn grafton_visca::CommandTimeouts::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for grafton_visca::CommandTimeouts
+pub fn grafton_visca::CommandTimeouts::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+impl core::marker::Freeze for grafton_visca::CommandTimeouts
+impl core::marker::Send for grafton_visca::CommandTimeouts
+impl core::marker::Sync for grafton_visca::CommandTimeouts
+impl core::marker::Unpin for grafton_visca::CommandTimeouts
+impl core::marker::UnsafeUnpin for grafton_visca::CommandTimeouts
+impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::CommandTimeouts
+impl core::panic::unwind_safe::UnwindSafe for grafton_visca::CommandTimeouts
 pub struct grafton_visca::Connect
 impl grafton_visca::Connect
 pub fn grafton_visca::Connect::builder() -> grafton_visca::ConnectBuilder
@@ -33035,11 +32854,15 @@ pub struct grafton_visca::OperationalTuning
 impl grafton_visca::profile::OperationalTuning
 pub const fn grafton_visca::profile::OperationalTuning::ack_timeout(self, core::time::Duration) -> Self
 pub const fn grafton_visca::profile::OperationalTuning::command_spacing(self, core::time::Duration) -> Self
-pub const fn grafton_visca::profile::OperationalTuning::completion_timeout(self, core::time::Duration) -> Self
 pub const fn grafton_visca::profile::OperationalTuning::inquiry_spacing(self, core::time::Duration) -> Self
 pub const fn grafton_visca::profile::OperationalTuning::inquiry_timeout(self, core::time::Duration) -> Self
+pub const fn grafton_visca::profile::OperationalTuning::long_running_timeout(self, core::time::Duration) -> Self
 pub const fn grafton_visca::profile::OperationalTuning::maximum_command_sockets(self, u8) -> Self
+pub const fn grafton_visca::profile::OperationalTuning::movement_timeout(self, core::time::Duration) -> Self
+pub const fn grafton_visca::profile::OperationalTuning::network_timeout(self, core::time::Duration) -> Self
 pub const fn grafton_visca::profile::OperationalTuning::new() -> Self
+pub const fn grafton_visca::profile::OperationalTuning::preset_timeout(self, core::time::Duration) -> Self
+pub const fn grafton_visca::profile::OperationalTuning::quick_timeout(self, core::time::Duration) -> Self
 pub const fn grafton_visca::profile::OperationalTuning::retry_limit(self, u32) -> Self
 pub const fn grafton_visca::profile::OperationalTuning::retry_timing(self, core::time::Duration, core::time::Duration, core::time::Duration) -> Self
 pub const fn grafton_visca::profile::OperationalTuning::settlement_timeout(self, core::time::Duration) -> Self
@@ -33346,6 +33169,7 @@ pub struct grafton_visca::ProfileSpec
 impl grafton_visca::profile::ProfileSpec
 pub fn grafton_visca::profile::ProfileSpec::builder(grafton_visca::capabilities::Capabilities) -> grafton_visca::profile::ProfileSpecBuilder
 pub const fn grafton_visca::profile::ProfileSpec::capabilities(&self) -> &grafton_visca::capabilities::Capabilities
+pub const fn grafton_visca::profile::ProfileSpec::command_timeouts(&self) -> grafton_visca::CommandTimeouts
 pub const fn grafton_visca::profile::ProfileSpec::envelope(&self) -> grafton_visca::profile::ProfileEnvelope
 pub fn grafton_visca::profile::ProfileSpec::from_compile_time<P>() -> grafton_visca::Result<Self> where P: grafton_visca::profile::CompileTimeProfile
 pub const fn grafton_visca::profile::ProfileSpec::maximum_command_sockets(&self) -> u8
@@ -33395,7 +33219,7 @@ pub fn grafton_visca::profile::ProfileSpecBuilder::position_inquiries(self, graf
 pub fn grafton_visca::profile::ProfileSpecBuilder::preset_recall_axes(self, core::option::Option<grafton_visca::AffectedAxes>) -> Self
 pub fn grafton_visca::profile::ProfileSpecBuilder::supports_command_cancel(self, bool) -> Self
 pub fn grafton_visca::profile::ProfileSpecBuilder::supports_operation_complete(self, bool) -> Self
-pub fn grafton_visca::profile::ProfileSpecBuilder::timing(self, core::time::Duration, core::time::Duration, core::time::Duration, core::time::Duration, core::time::Duration, core::time::Duration, core::time::Duration, core::time::Duration) -> Self
+pub fn grafton_visca::profile::ProfileSpecBuilder::timing(self, grafton_visca::profile::ProfileTiming) -> Self
 pub fn grafton_visca::profile::ProfileSpecBuilder::transports(self, grafton_visca::profile::TransportCompatibility) -> Self
 pub fn grafton_visca::profile::ProfileSpecBuilder::typed_support(self, grafton_visca::capabilities::TypedSupportSet) -> Self
 pub fn grafton_visca::profile::ProfileSpecBuilder::zoom(self, u16, core::option::Option<u16>, core::ops::range::RangeInclusive<u8>, bool, bool, f32) -> Self
@@ -33414,9 +33238,10 @@ pub struct grafton_visca::ProfileTiming
 impl grafton_visca::profile::ProfileTiming
 pub const fn grafton_visca::profile::ProfileTiming::ack_timeout(self) -> core::time::Duration
 pub const fn grafton_visca::profile::ProfileTiming::ambiguity_timeout(self) -> core::time::Duration
+pub const fn grafton_visca::profile::ProfileTiming::builder() -> grafton_visca::profile::ProfileTimingBuilder
 pub const fn grafton_visca::profile::ProfileTiming::busy_timeout(self) -> core::time::Duration
 pub const fn grafton_visca::profile::ProfileTiming::cancellation_timeout(self) -> core::time::Duration
-pub const fn grafton_visca::profile::ProfileTiming::completion_timeout(self) -> core::time::Duration
+pub const fn grafton_visca::profile::ProfileTiming::command_timeouts(self) -> grafton_visca::CommandTimeouts
 pub const fn grafton_visca::profile::ProfileTiming::inquiry_timeout(self) -> core::time::Duration
 pub const fn grafton_visca::profile::ProfileTiming::minimum_command_spacing(self) -> core::time::Duration
 pub const fn grafton_visca::profile::ProfileTiming::minimum_inquiry_spacing(self) -> core::time::Duration
@@ -33447,6 +33272,32 @@ impl core::marker::Unpin for grafton_visca::profile::ProfileTiming
 impl core::marker::UnsafeUnpin for grafton_visca::profile::ProfileTiming
 impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::profile::ProfileTiming
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::profile::ProfileTiming
+pub struct grafton_visca::ProfileTimingBuilder
+impl grafton_visca::profile::ProfileTimingBuilder
+pub const fn grafton_visca::profile::ProfileTimingBuilder::ack_timeout(self, core::time::Duration) -> Self
+pub const fn grafton_visca::profile::ProfileTimingBuilder::ambiguity_timeout(self, core::time::Duration) -> Self
+pub fn grafton_visca::profile::ProfileTimingBuilder::build(self) -> grafton_visca::Result<grafton_visca::profile::ProfileTiming>
+pub const fn grafton_visca::profile::ProfileTimingBuilder::busy_timeout(self, core::time::Duration) -> Self
+pub const fn grafton_visca::profile::ProfileTimingBuilder::cancellation_timeout(self, core::time::Duration) -> Self
+pub const fn grafton_visca::profile::ProfileTimingBuilder::command_timeouts(self, grafton_visca::CommandTimeouts) -> Self
+pub const fn grafton_visca::profile::ProfileTimingBuilder::inquiry_timeout(self, core::time::Duration) -> Self
+pub const fn grafton_visca::profile::ProfileTimingBuilder::minimum_command_spacing(self, core::time::Duration) -> Self
+pub const fn grafton_visca::profile::ProfileTimingBuilder::minimum_inquiry_spacing(self, core::time::Duration) -> Self
+pub const fn grafton_visca::profile::ProfileTimingBuilder::new() -> Self
+impl core::clone::Clone for grafton_visca::profile::ProfileTimingBuilder
+pub fn grafton_visca::profile::ProfileTimingBuilder::clone(&self) -> grafton_visca::profile::ProfileTimingBuilder
+impl core::default::Default for grafton_visca::profile::ProfileTimingBuilder
+pub fn grafton_visca::profile::ProfileTimingBuilder::default() -> grafton_visca::profile::ProfileTimingBuilder
+impl core::fmt::Debug for grafton_visca::profile::ProfileTimingBuilder
+pub fn grafton_visca::profile::ProfileTimingBuilder::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for grafton_visca::profile::ProfileTimingBuilder
+impl core::marker::Freeze for grafton_visca::profile::ProfileTimingBuilder
+impl core::marker::Send for grafton_visca::profile::ProfileTimingBuilder
+impl core::marker::Sync for grafton_visca::profile::ProfileTimingBuilder
+impl core::marker::Unpin for grafton_visca::profile::ProfileTimingBuilder
+impl core::marker::UnsafeUnpin for grafton_visca::profile::ProfileTimingBuilder
+impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::profile::ProfileTimingBuilder
+impl core::panic::unwind_safe::UnwindSafe for grafton_visca::profile::ProfileTimingBuilder
 pub struct grafton_visca::ResponseDecoder<R>
 impl<R> grafton_visca::ResponseDecoder<R>
 pub fn grafton_visca::ResponseDecoder<R>::decode(&self, &[u8]) -> grafton_visca::Result<R>
@@ -33501,6 +33352,7 @@ impl !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::Session
 impl !core::panic::unwind_safe::UnwindSafe for grafton_visca::Session
 pub struct grafton_visca::SessionConfig
 impl grafton_visca::SessionConfig
+pub const fn grafton_visca::SessionConfig::admission_capacity(&self) -> core::num::nonzero::NonZeroUsize
 pub fn grafton_visca::SessionConfig::for_target(grafton_visca::CameraId, grafton_visca::profile::ProfileSpec) -> grafton_visca::Result<Self>
 pub fn grafton_visca::SessionConfig::from_compile_time<P>() -> grafton_visca::Result<Self> where P: grafton_visca::profile::CompileTimeProfile
 pub fn grafton_visca::SessionConfig::new(grafton_visca::profile::ProfileSpec) -> Self
@@ -33510,6 +33362,7 @@ pub fn grafton_visca::SessionConfig::sole_target(&self) -> core::option::Option<
 pub fn grafton_visca::SessionConfig::target_count(&self) -> usize
 pub fn grafton_visca::SessionConfig::targets(&self) -> [core::option::Option<grafton_visca::CameraId>; 7]
 pub const fn grafton_visca::SessionConfig::tuning(&self) -> grafton_visca::profile::OperationalTuning
+pub const fn grafton_visca::SessionConfig::with_admission_capacity(self, core::num::nonzero::NonZeroUsize) -> Self
 pub fn grafton_visca::SessionConfig::with_target(self, grafton_visca::CameraId, grafton_visca::profile::ProfileSpec) -> grafton_visca::Result<Self>
 pub fn grafton_visca::SessionConfig::with_tuning(self, grafton_visca::profile::OperationalTuning) -> grafton_visca::Result<Self>
 impl core::clone::Clone for grafton_visca::SessionConfig
@@ -33990,6 +33843,7 @@ impl core::marker::Unpin for grafton_visca::types::ZoomSpeed
 impl core::marker::UnsafeUnpin for grafton_visca::types::ZoomSpeed
 impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::types::ZoomSpeed
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::types::ZoomSpeed
+pub const grafton_visca::DEFAULT_ADMISSION_CAPACITY: core::num::nonzero::NonZeroUsize
 pub const grafton_visca::DYN_NOUN_CONVENIENCE_METHODS: &[(&str, &str)]
 pub const grafton_visca::DYN_NOUN_CONVENIENCE_METHOD_COUNT: usize
 pub const grafton_visca::DYN_NOUN_COUNT: usize

@@ -32,18 +32,28 @@ release-candidate posture is therefore:
 
 The answer is yes: v2 is larger in source and in a small linked blocking
 consumer. Source and integration-test figures are physical `wc -l` totals over
-the stated Rust files. Both optimized library builds and both preserved
-consumer fixtures use Rust 1.98 (`cargo +1.98.0`), fresh separate target
-directories, and blocking-only features; the consumer manifests retain their
-existing release `strip = "symbols"` setting.
+the stated Rust files. Reproduce the line rows from the root of either
+checkout with `find src grafton-visca-macros/src -type f -name '*.rs'
+-print0 | xargs -0 wc -l`, `find src/runtime -type f -name '*.rs' -print0 |
+xargs -0 wc -l`, and `find tests -type f -name '*.rs' -print0 | xargs -0
+wc -l`, using each command's trailing `total` row. Both optimized library
+builds and both preserved consumer fixtures use Rust 1.98
+(`cargo +1.98.0`), fresh separate target directories, and blocking-only
+features; the consumer manifests retain their existing release
+`strip = "symbols"` setting. The library commands are `cargo +1.98.0 build
+--release --no-default-features --locked` for 1.2.0 and the same command with
+`--features blocking` for v2 RC; inspect `release/libgrafton_visca.rlib`.
+The consumer command is `cargo +1.98.0 build --manifest-path <fixture>/Cargo.toml
+--release --locked`; inspect the resulting `release/grafton-size-consumer-*`
+executable.
 
 | Measure | 1.2.0 | v2 RC | Change |
 | --- | ---: | ---: | ---: |
-| Rust lines under `src/` plus macro `src/` | 84,146 | 97,682 | +16.1% |
-| Rust lines under `src/runtime/` | 17,848 | 26,243 | +47.0% |
-| Integration-test Rust lines | 19,563 | 24,342 | +24.4% |
-| Optimized library `.rlib` (blocking-only) | 8,887,736 B | 11,319,258 B | +27.4% |
-| Stripped minimal TCP/power/zoom blocking consumer | 767,680 B | 1,018,696 B | +32.7% |
+| Rust lines under `src/` plus macro `src/` | 84,146 | 97,648 | +16.0% |
+| Rust lines under `src/runtime/` | 17,848 | 26,801 | +50.2% |
+| Rust lines under `tests/` (integration-test tree) | 19,563 | 24,579 | +25.6% |
+| Optimized library `.rlib` (blocking-only) | 8,887,736 B | 11,092,160 B | +24.8% |
+| Stripped minimal TCP/power/zoom blocking consumer | 767,680 B | 1,022,544 B | +33.2% |
 
 The final executable measurement is illustrative rather than a universal
 application-size promise: monomorphization, enabled features, linker settings,
@@ -52,8 +62,8 @@ that the increase is not merely comments or tests.
 
 Growth is concentrated in the new lifecycle/owner implementation, not in a
 second set of camera opcodes. The command, protocol, and transport trees grew
-only modestly; the runtime tree grew by roughly 8.4k lines. The main additions
-are the deterministic engine, separate mode-native owner drivers, typed
+only modestly; the runtime tree grew by 8,953 lines (roughly 9.0k). The main
+additions are the deterministic engine, separate mode-native owner drivers, typed
 preparation and operation state, bounded admission/cancellation boundaries,
 multi-target state, settlement polling, state cache, diagnostics/metrics, and
 the parity/release gates around them. The proc-macro crate also gained
@@ -187,6 +197,26 @@ encoding.
     with an incidental later phase timeout. Cancellation quarantine is separate
     and is never shortened by budget expiry. Empty UDP datagrams are discarded
     without resetting that receive deadline.
+14. Async `shutdown` is the idempotent, non-joining signal; consuming `close`
+    is the deterministic transport-teardown barrier. `close` waits until the
+    sole owner has finished its boundary drain and dropped its driver/transport,
+    without promising an executor-specific task join; it maps an explicit
+    `RuntimeShutdown` terminal result to success, and preserves a transport or
+    poison cause that won the documented source ordering.
+15. Timeout and admission ownership follow the lifecycle boundary rather than
+    the transport boundary. A validated profile owns exact per-category
+    `CommandTimeouts`; operational tuning may make those facts more
+    conservative; `SessionConfig` owns bounded admission capacity. Socket,
+    serial, connect, read, write, buffer, and keepalive settings remain transport
+    concerns, but command retry and scheduler queue policy do not.
+16. Sony receive metadata preserves whether a sequence is full-width or only a
+    potentially truncated lower 16 bits. Full-width identity is exact;
+    lower-16 identity is usable only when the target-compatible owner is unique,
+    and a collision is inert rather than guessed.
+17. The pinned 1.x behavioral oracle distinguishes preservation from approved
+    v2 safety changes. It must never force temporal raw command attribution,
+    ambiguous raw replay, fixed retry timing, or another superseded behavior
+    back into production merely because 1.x once implemented it.
 
 ## Release-candidate boundary
 

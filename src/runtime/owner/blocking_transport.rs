@@ -6,6 +6,7 @@
 //! physical transport reader/writer, one envelope, and one protocol framer.
 
 use std::{
+    num::NonZeroUsize,
     sync::{Arc, Mutex, MutexGuard},
     time::Instant,
 };
@@ -15,6 +16,7 @@ use crate::{
     profile::ProfileSpec,
     protocol::framer::ProtocolFramer,
     runtime::engine::TransmissionMeta,
+    transport::envelope::FrameSequence,
     transport::{builder::TransportConfig, BlockingTransport, HasTransportConfig},
     CameraId, Error,
 };
@@ -68,9 +70,8 @@ where
 {
     /// Build an owner adapter from validated profile facts and the transport's
     /// immutable configuration.  No transport operation occurs here.
-    // Single-target convenience used only by this file's `#[cfg(test)] mod tests`;
-    // production builds go through `new_with_profile_registry` (src/blocking.rs) (#636).
-    #[allow(dead_code)]
+    // Test-only single-target convenience; production uses `new_with_targets`.
+    #[cfg(test)]
     pub(crate) fn new(
         transport: T,
         profile: &ProfileSpec,
@@ -79,16 +80,20 @@ where
         Self::new_with_tuning(transport, profile, target, OperationalTuning::new())
     }
 
-    // Reached only through `BlockingTransportAdapter::new`, whose own callers are this
-    // file's `#[cfg(test)] mod tests` (#636).
-    #[allow(dead_code)]
+    // Test-only single-target convenience; production uses `new_with_targets`.
+    #[cfg(test)]
     pub(crate) fn new_with_tuning(
         transport: T,
         profile: &ProfileSpec,
         target: CameraId,
         tuning: OperationalTuning,
     ) -> Result<Self, Error> {
-        Self::new_with_targets(transport, &[(target, profile)], tuning)
+        Self::new_with_targets(
+            transport,
+            &[(target, profile)],
+            tuning,
+            crate::DEFAULT_ADMISSION_CAPACITY,
+        )
     }
 
     /// Build an adapter for several immutable target/profile pairs on one
@@ -97,6 +102,7 @@ where
         transport: T,
         profiles: &[(CameraId, &ProfileSpec)],
         tuning: OperationalTuning,
+        admission_capacity: NonZeroUsize,
     ) -> Result<Self, Error> {
         // Keep the blocking startup boundary identical to async: reject a
         // known standard transport before reading startup configuration or
@@ -126,6 +132,7 @@ where
             &config,
             transport.send_semantics(),
             tuning,
+            admission_capacity,
         )?;
         let targets: Vec<_> = profiles.iter().map(|(target, _)| *target).collect();
         let registry = TargetRegistry::from_targets(&targets)?;
@@ -150,8 +157,9 @@ where
         transport: T,
         profiles: &[(CameraId, &ProfileSpec)],
         tuning: OperationalTuning,
+        admission_capacity: NonZeroUsize,
     ) -> Result<Self, Error> {
-        Self::new_with_targets(transport, profiles, tuning)
+        Self::new_with_targets(transport, profiles, tuning, admission_capacity)
     }
 
     pub(crate) fn policy(&self) -> &OwnerPolicy {
@@ -313,7 +321,10 @@ where
             }
         })?;
     Ok(TransmissionMeta {
-        sequence: frame_meta.sequence,
+        // Outgoing framing always returns Full32 metadata. Convert only at
+        // this transport/engine boundary; receive-side provenance remains
+        // typed on FrameMeta until adapter decoding constructs EnvelopeSequence.
+        sequence: frame_meta.sequence.map(FrameSequence::value),
     })
 }
 
@@ -394,6 +405,7 @@ mod tests {
     use super::*;
     use crate::{
         command::CommandKind,
+        prepared::{prepare_command, ClassSelection},
         profile::ProfileSpec,
         profiles::{GenericVisca, SonyFR7},
         runtime::engine::{
@@ -552,6 +564,27 @@ mod tests {
         ProfileSpec::from_compile_time::<GenericVisca>().unwrap()
     }
 
+    fn sony_reply(sequence: u32) -> Vec<u8> {
+        let payload = [0x90, 0x50, 0x02, 0xff];
+        let mut framed = crate::protocol::sony::SonyHeader::new_reply(payload.len(), sequence)
+            .encode()
+            .to_vec();
+        framed.extend_from_slice(&payload);
+        framed
+    }
+
+    fn set_sony_sequence(
+        adapter: &BlockingTransportAdapter<ScriptedTransport>,
+        sequence: u32,
+    ) -> Result<(), &'static str> {
+        let state = adapter.state.lock().unwrap();
+        let OwnerEnvelope::Sony(envelope) = &state.envelope else {
+            return Err("Sony sequence seed requires a Sony owner envelope");
+        };
+        envelope.set_sequence_for_test(sequence);
+        Ok(())
+    }
+
     fn serial_owner_adapter(
         receives: impl IntoIterator<Item = Result<Vec<u8>, Error>>,
         semantics: SendSemantics,
@@ -569,6 +602,7 @@ mod tests {
             transport,
             &profiles,
             OperationalTuning::new(),
+            crate::DEFAULT_ADMISSION_CAPACITY,
         )
         .unwrap();
         (adapter, io)
@@ -646,17 +680,15 @@ mod tests {
         let (mut writer, _reader, _decoder) = adapter.parts();
         let mut owner = super::super::BlockingOwner::new(adapter.policy().clone()).unwrap();
         let profile = profile();
-        let prepared = crate::prepared::prepare_builtin_command(
+        let prepared = prepare_command(
             &crate::request::builtin::FocusModeCommand::Manual,
             CameraId::CAMERA_1,
             &profile,
             crate::OperationalTuning::new(),
+            ClassSelection::Request,
         )
         .unwrap();
-        owner
-            .submit_command(&mut writer, prepared)
-            .unwrap()
-            .detach();
+        owner.submit_command(&mut writer, prepared).unwrap();
     }
 
     #[test]
@@ -781,6 +813,105 @@ mod tests {
             })
         );
         assert!(matches!(frames[0].response, DecodedResponse::Ack { .. }));
+    }
+
+    #[test]
+    fn sony_decoder_preserves_potentially_truncated_lower16_metadata() {
+        let payload = [0x90, 0x41, 0xff];
+        // A zero upper half is deliberately classified as potentially
+        // truncated by the production envelope parser, even though 42 also
+        // fits in a genuine full-width Sony sequence.
+        let header = crate::protocol::sony::SonyHeader::new_reply(payload.len(), 42);
+        let mut framed = header.encode().to_vec();
+        framed.extend_from_slice(&payload);
+        let transport = ScriptedTransport::new(config(), [Ok(framed)]);
+        let adapter = BlockingTransportAdapter::new(
+            transport,
+            &ProfileSpec::from_compile_time::<SonyFR7>().unwrap(),
+            CameraId::CAMERA_1,
+        )
+        .unwrap();
+        let (_writer, mut reader, mut decoder) = adapter.parts();
+        let mut buffers = OwnerBuffers::new(adapter.policy().limits).unwrap();
+        let mut receive = [0; 128];
+        let received = match reader.receive(&mut receive, None).unwrap() {
+            BlockingReceive::Bytes(n) => {
+                buffers.receive_mut()[..n].copy_from_slice(&receive[..n]);
+                n
+            }
+            BlockingReceive::TimedOut => 0,
+        };
+        let frames = decoder.decode(&mut buffers, received, 4).unwrap();
+        assert_eq!(
+            frames[0].sequence,
+            Some(EnvelopeSequence {
+                value: 42,
+                width: SequenceWidth::Lower16,
+            })
+        );
+    }
+
+    #[test]
+    fn sony_owner_routes_unique_lower16_and_recovers_after_collision() {
+        let first_sequence = 0x1234_beef;
+        let second_sequence = 0x5678_beef;
+        let transport = ScriptedTransport::new(
+            config(),
+            [
+                Ok(sony_reply(0xbeef)),
+                Ok(sony_reply(first_sequence)),
+                Ok(sony_reply(0xbeef)),
+            ],
+        );
+        let adapter = BlockingTransportAdapter::new(
+            transport,
+            &ProfileSpec::from_compile_time::<SonyFR7>().unwrap(),
+            CameraId::CAMERA_1,
+        )
+        .unwrap();
+        let mut owner = super::super::BlockingOwner::new(adapter.policy().clone()).unwrap();
+        let (mut writer, mut reader, mut decoder) = adapter.parts();
+
+        // Use two distinct full-width identities with one lower half. This is
+        // only a sequence-allocator setup for the production owner path; all
+        // receive bytes still pass through the real Sony envelope/framer.
+        set_sony_sequence(&adapter, first_sequence).unwrap();
+        let first = owner
+            .submit(&mut writer, serial_inquiry(CameraId::CAMERA_1))
+            .unwrap();
+        set_sony_sequence(&adapter, second_sequence).unwrap();
+        let second = owner
+            .submit(&mut writer, serial_inquiry(CameraId::CAMERA_1))
+            .unwrap();
+
+        // Both lower-16 owners are target-compatible, so the truncated reply
+        // is deliberately inert rather than being guessed to one request.
+        assert_eq!(
+            owner
+                .pump_once(&mut writer, &mut reader, &mut decoder)
+                .unwrap(),
+            1
+        );
+        assert!(try_terminal(&first).is_none());
+        assert!(try_terminal(&second).is_none());
+
+        // A full-width exact response removes one owner. The same lower-16
+        // observation is then uniquely attributable to the remaining owner.
+        owner
+            .pump_once(&mut writer, &mut reader, &mut decoder)
+            .unwrap();
+        assert!(matches!(
+            try_terminal(&first),
+            Some(RuntimeOutcome::Reply { .. })
+        ));
+        assert!(try_terminal(&second).is_none());
+        owner
+            .pump_once(&mut writer, &mut reader, &mut decoder)
+            .unwrap();
+        assert!(matches!(
+            try_terminal(&second),
+            Some(RuntimeOutcome::Reply { .. })
+        ));
     }
 
     #[test]

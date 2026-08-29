@@ -43,11 +43,11 @@ fn declared_usize(source: &str, name: &str) -> usize {
 
 #[test]
 fn semantic_ledger_is_single_source_and_class_balanced() {
-    let semantics = declarations(&source("src/command/semantics.rs"));
+    let semantics_source = source("src/command/semantics.rs");
+    let semantics = declarations(&semantics_source);
     let surface = declarations(&source("src/command/surface.rs"));
 
     assert!(semantics.contains("pub enum BuiltinCommand"));
-    assert!(semantics.contains("pub const ALL: &[Self]"));
     assert!(surface.contains("BuiltinCommand::ALL"));
     assert!(surface.contains("pub(crate) const fn surface_entry"));
 
@@ -81,7 +81,11 @@ fn semantic_ledger_is_single_source_and_class_balanced() {
     // surface constants make the split readable without reproducing the noun
     // table here: every command is either target-facing or a protocol
     // exception.
-    let rows = builtin_command_rows(&semantics);
+    // `BuiltinCommand::ALL` is test-only audit data, so the declaration scan
+    // intentionally removes it. Read the raw source only for this
+    // source-level count; production declarations remain checked through the
+    // enum and exhaustive classification below.
+    let rows = builtin_command_rows(&semantics_source);
     let variants = ledger_variants(&semantics);
     assert_eq!(
         rows, variants,

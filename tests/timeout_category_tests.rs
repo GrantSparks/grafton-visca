@@ -1,20 +1,29 @@
-//! Comprehensive tests for timeout behavior across all command categories.
+//! Focused tests for timeout primitives and deterministic transport behavior.
 //!
-//! These tests verify that:
-//! 1. Each command category uses the correct timeout duration
-//! 2. Timeout configuration changes are applied correctly
-//! 3. Socket manager respects custom timeout configurations
-//! 4. Timeout errors are handled deterministically
+//! Category-to-deadline preparation is covered by the production-owned tests
+//! in `src/prepared.rs`; this integration test keeps the public category oracle
+//! and test transport behavior honest without pretending that a raw transport
+//! smoke test exercises owner deadline selection.
 
 #[cfg(all(test, feature = "runtime-tokio", feature = "test-utils"))]
 mod timeout_tests {
     use grafton_visca::{
         testing::testkit::{helpers, ScriptedTransport, Step},
         transport::AsyncTransport,
-        Executor, TokioExecutor,
+        CommandTimeouts, Executor, TokioExecutor,
     };
 
     use std::{sync::Arc, time::Duration};
+
+    #[test]
+    fn category_defaults_are_explicit_and_stable() {
+        let defaults = CommandTimeouts::default();
+        assert_eq!(defaults.quick_timeout(), Duration::from_secs(5));
+        assert_eq!(defaults.movement_timeout(), Duration::from_secs(30));
+        assert_eq!(defaults.preset_timeout(), Duration::from_secs(60));
+        assert_eq!(defaults.long_running_timeout(), Duration::from_secs(300));
+        assert_eq!(defaults.network_timeout(), Duration::from_secs(5));
+    }
 
     #[tokio::test(start_paused = true)]
     async fn test_deterministic_executor_timeout() {

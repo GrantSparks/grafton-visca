@@ -157,7 +157,7 @@ const NOUN_FACADES: &[NounFacade] = &[
     },
 ];
 
-/// A compatibility row used by older in-crate inventory tests.
+/// A row category used by the compiled-registry parity checks.
 ///
 /// It is populated by the registry macro below, never by source parsing. The
 /// variants keep the compiled inventory readable: command rows own one or
@@ -169,8 +169,8 @@ pub(crate) enum TableRow {
     Helper,
 }
 
-/// Materialize the registry's method names for compatibility with the narrow
-/// facade inventory tests that still ask whether a spelling belongs to a noun.
+/// Materialize the registry's method names for the facade parity checks that
+/// verify each spelling belongs to the expected noun.
 ///
 /// Request expressions and argument types are deliberately captured as token
 /// trees and discarded. This is a macro projection of the compiled registry,

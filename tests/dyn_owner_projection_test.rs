@@ -108,14 +108,17 @@ fn runtime_equivalent(static_profile: &ProfileSpec) -> ProfileSpec {
         .transports(static_profile.transports())
         .envelope(static_profile.envelope())
         .timing(
-            timing.ack_timeout(),
-            timing.completion_timeout(),
-            timing.inquiry_timeout(),
-            timing.cancellation_timeout(),
-            timing.ambiguity_timeout(),
-            timing.busy_timeout(),
-            timing.minimum_inquiry_spacing(),
-            timing.minimum_command_spacing(),
+            ProfileTiming::builder()
+                .ack_timeout(timing.ack_timeout())
+                .command_timeouts(timing.command_timeouts())
+                .inquiry_timeout(timing.inquiry_timeout())
+                .cancellation_timeout(timing.cancellation_timeout())
+                .ambiguity_timeout(timing.ambiguity_timeout())
+                .busy_timeout(timing.busy_timeout())
+                .minimum_inquiry_spacing(timing.minimum_inquiry_spacing())
+                .minimum_command_spacing(timing.minimum_command_spacing())
+                .build()
+                .expect("valid timing"),
         )
         .maximum_command_sockets(static_profile.maximum_command_sockets())
         .supports_operation_complete(static_profile.supports_operation_complete())

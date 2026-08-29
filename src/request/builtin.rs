@@ -1888,83 +1888,85 @@ state_effect_contract!(
 
 /// One semantic row tied to a concrete typed request implementation.
 ///
-/// The private marker is a monomorphized `Request<Class = request::Plain>`
-/// function pointer.  Keeping that pointer in the inventory means a row can
-/// only be added when its named type actually satisfies its closed request
-/// contract; the inventory cannot drift into a string-only list.
-#[allow(dead_code)]
+/// Each inventory entry is an inline const that evaluates a monomorphized
+/// request-contract assertion while the `#[used]` inventory is initialized.
+/// The test-only metadata then gives the runtime audit a readable row without
+/// retaining a marker function pointer in every entry.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct BuiltinTypedRequestCoverage {
     /// Authoritative semantic ledger row.
+    #[cfg(test)]
     pub row: crate::command::semantics::BuiltinCommand,
     /// Stable source type name used by diagnostics and audits.
+    #[cfg(test)]
     pub type_name: &'static str,
     /// Command branch/value family represented by the typed request.
+    #[cfg(test)]
     pub branch: &'static str,
-    marker: fn(),
-}
-
-#[allow(dead_code)]
-impl BuiltinTypedRequestCoverage {
-    /// Returns whether this row is anchored to a Plain request type.
-    #[must_use]
-    pub fn type_is_plain(self) -> bool {
-        let marker = self.marker;
-        marker();
-        true
-    }
-
-    /// Returns whether this row is anchored to a concrete request contract.
-    #[must_use]
-    pub fn type_is_bound(self) -> bool {
-        let marker = self.marker;
-        marker();
-        true
-    }
 }
 
 macro_rules! typed_plain_coverage {
     ($row:path, $ty:ty, $branch:literal) => {
-        BuiltinTypedRequestCoverage {
-            row: $row,
-            type_name: stringify!($ty),
-            branch: $branch,
-            marker: crate::command::semantics::plain_request_contract::<$ty>($row, None),
+        const {
+            let _ = crate::command::semantics::plain_request_contract::<$ty>($row, None);
+            BuiltinTypedRequestCoverage {
+                #[cfg(test)]
+                row: $row,
+                #[cfg(test)]
+                type_name: stringify!($ty),
+                #[cfg(test)]
+                branch: $branch,
+            }
         }
     };
     ($row:path, $ty:ty, $branch:literal, state) => {
-        BuiltinTypedRequestCoverage {
-            row: $row,
-            type_name: stringify!($ty),
-            branch: $branch,
-            marker: crate::command::semantics::state_request_contract::<$ty>($row),
+        const {
+            let _ = crate::command::semantics::state_request_contract::<$ty>($row);
+            BuiltinTypedRequestCoverage {
+                #[cfg(test)]
+                row: $row,
+                #[cfg(test)]
+                type_name: stringify!($ty),
+                #[cfg(test)]
+                branch: $branch,
+            }
         }
     };
 }
 
 macro_rules! typed_fixed_operation_coverage {
     ($row:path, $ty:ty, $branch:literal, $completion:ty) => {
-        BuiltinTypedRequestCoverage {
-            row: $row,
-            type_name: stringify!($ty),
-            branch: $branch,
-            marker: crate::command::semantics::assert_fixed_operation_contract::<$ty, $completion>(
+        const {
+            let _ = crate::command::semantics::assert_fixed_operation_contract::<$ty, $completion>(
                 $row,
-            ),
+            );
+            BuiltinTypedRequestCoverage {
+                #[cfg(test)]
+                row: $row,
+                #[cfg(test)]
+                type_name: stringify!($ty),
+                #[cfg(test)]
+                branch: $branch,
+            }
         }
     };
 }
 
 macro_rules! typed_profile_operation_coverage {
     ($row:path, $ty:ty, $branch:literal, $completion:ty) => {
-        BuiltinTypedRequestCoverage {
-            row: $row,
-            type_name: stringify!($ty),
-            branch: $branch,
-            marker: crate::command::semantics::assert_profile_operation_contract::<
+        const {
+            let _ = crate::command::semantics::assert_profile_operation_contract::<
                 $ty,
                 $completion,
-            >($row),
+            >($row);
+            BuiltinTypedRequestCoverage {
+                #[cfg(test)]
+                row: $row,
+                #[cfg(test)]
+                type_name: stringify!($ty),
+                #[cfg(test)]
+                branch: $branch,
+            }
         }
     };
 }
@@ -1976,8 +1978,8 @@ macro_rules! typed_profile_operation_coverage {
 /// instantiation of a concrete `Request` class contract. The independent
 /// semantic inventory tests below still check row uniqueness and exact
 /// coverage at runtime.
-#[allow(dead_code)]
-pub(crate) const BUILTIN_TYPED_REQUEST_INVENTORY: &[BuiltinTypedRequestCoverage] = &[
+#[used]
+pub(crate) static BUILTIN_TYPED_REQUEST_INVENTORY: &[BuiltinTypedRequestCoverage] = &[
     typed_plain_coverage!(
         crate::command::semantics::BuiltinCommand::PanTiltLimitSet,
         PanTiltLimitSet,
@@ -3827,7 +3829,7 @@ impl_request!(
     request::Plain,
     7,
     TimeoutClass::Preset,
-    RetryClass::Standard,
+    RetryClass::Preset,
     ControlClass::Normal,
     |value: &PresetSet| PresetCommand {
         action: PresetAction::Set,
@@ -3852,7 +3854,7 @@ impl_request!(
     request::Plain,
     7,
     TimeoutClass::Preset,
-    RetryClass::Standard,
+    RetryClass::Preset,
     ControlClass::Normal,
     |value: &PresetReset| PresetCommand {
         action: PresetAction::Reset,
@@ -5061,6 +5063,18 @@ mod tests {
             RetryClass::Standard,
             ControlClass::Normal,
         );
+        assert_policy::<PresetSet>(
+            7,
+            TimeoutClass::Preset,
+            RetryClass::Preset,
+            ControlClass::Normal,
+        );
+        assert_policy::<PresetReset>(
+            7,
+            TimeoutClass::Preset,
+            RetryClass::Preset,
+            ControlClass::Normal,
+        );
     }
 
     fn assert_targeted<R>()
@@ -5188,18 +5202,11 @@ mod tests {
             .iter()
             .map(|entry| {
                 assert!(
-                    entry.type_is_bound(),
-                    "{} has no typed request contract",
-                    entry.type_name
-                );
-                assert!(
                     !entry.branch.is_empty(),
                     "{} has no command branch",
                     entry.type_name
                 );
-                if entry.row.is_plain() {
-                    assert!(entry.type_is_plain(), "{} is not Plain", entry.type_name);
-                } else {
+                if !entry.row.is_plain() {
                     assert!(
                         entry.row.completion().is_some(),
                         "operation row has no completion class: {:?}",

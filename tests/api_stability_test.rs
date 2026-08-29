@@ -8,7 +8,7 @@
 #[path = "common/compile_fail.rs"]
 mod compile_fail;
 
-use std::{num::NonZeroUsize, time::Duration};
+use std::time::Duration;
 
 #[cfg(any(feature = "async", feature = "blocking"))]
 use std::marker::PhantomData;
@@ -16,13 +16,11 @@ use std::marker::PhantomData;
 #[test]
 fn root_value_and_transport_contract() {
     use grafton_visca::{
-        transport::{
-            AddressingMode, BackoffStrategy, BufferConfig, RetryAttempt, RetryConfig,
-            TcpKeepaliveConfig, TransportConfig, DEFAULT_MAX_PENDING_QUEUE_DEPTH,
-        },
+        transport::{AddressingMode, BufferConfig, TcpKeepaliveConfig, TransportConfig},
         types::{ColorTemp, FocusPosition, PanSpeed, TiltSpeed, ZoomPosition, ZoomSpeed},
         units::Raw,
-        CameraId, Error, PresetNumber, SpeedLevel, ViscaSocket,
+        CameraId, Error, PresetNumber, SessionConfig, SpeedLevel, ViscaSocket,
+        DEFAULT_ADMISSION_CAPACITY,
     };
 
     assert!(matches!(Error::from_code(0x02), Error::SyntaxError));
@@ -76,30 +74,6 @@ fn root_value_and_transport_contract() {
     assert!(ColorTemp::from_kelvin(2400).is_err());
     assert!(ColorTemp::from_kelvin(8100).is_err());
 
-    let retry = RetryConfig::default();
-    assert_eq!(retry.max_retries, 3);
-    assert_eq!(retry.base_retry_delay, Duration::from_millis(100));
-    assert_eq!(retry.max_retry_duration, Duration::from_secs(10));
-    assert_eq!(retry.backoff_strategy, BackoffStrategy::Exponential);
-    assert_eq!(
-        retry.calculate_delay(RetryAttempt::FIRST, None),
-        Duration::from_millis(100)
-    );
-    assert_eq!(
-        retry.calculate_delay(
-            RetryAttempt::new(3).expect("retry attempt 3 is valid"),
-            None
-        ),
-        Duration::from_millis(400)
-    );
-    assert_eq!(
-        RetryAttempt::from_retries_done(2)
-            .expect("third attempt should be representable")
-            .get(),
-        3
-    );
-    assert_eq!(RetryAttempt::new(0), None);
-
     let buffer = BufferConfig::default();
     assert_eq!(buffer.recv_buffer_size, 128);
     assert_eq!(buffer.send_buffer_size, 128);
@@ -119,8 +93,8 @@ fn root_value_and_transport_contract() {
     assert_eq!(config.tcp_nodelay, Some(true));
     assert_eq!(config.tcp_keepalive, Some(keepalive));
     assert_eq!(
-        config.max_pending_queue_depth,
-        NonZeroUsize::new(DEFAULT_MAX_PENDING_QUEUE_DEPTH).expect("nonzero queue depth")
+        SessionConfig::default().admission_capacity(),
+        DEFAULT_ADMISSION_CAPACITY
     );
 }
 

@@ -52,8 +52,6 @@ pub struct NdFilterModeCommand {
 }
 
 impl WireEncode for NdFilterModeCommand {
-    const MAX_SIZE: usize = 7;
-
     fn write_into(
         &self,
         camera_id: crate::camera_id::CameraId,
@@ -94,8 +92,6 @@ pub struct NdFilterValue {
 }
 
 impl WireEncode for NdFilterValue {
-    const MAX_SIZE: usize = 9;
-
     fn write_into(
         &self,
         camera_id: crate::camera_id::CameraId,
@@ -185,8 +181,6 @@ pub struct NdFilterStepCommand {
 }
 
 impl WireEncode for NdFilterStepCommand {
-    const MAX_SIZE: usize = 7;
-
     fn write_into(
         &self,
         camera_id: crate::camera_id::CameraId,
@@ -235,8 +229,6 @@ impl AutoNdCommand {
 }
 
 impl WireEncode for AutoNdCommand {
-    const MAX_SIZE: usize = 7;
-
     fn write_into(
         &self,
         camera_id: crate::camera_id::CameraId,

@@ -5,7 +5,7 @@
 //! amount of mode-independent work needed by the blocking and async adapters;
 //! it does not own scheduling, settlement, or observer deadlines.
 
-use std::borrow::Cow;
+use std::{borrow::Cow, num::NonZeroUsize};
 
 use bytes::Bytes;
 use smallvec::SmallVec;
@@ -25,7 +25,7 @@ use crate::{
     },
     transport::{
         builder::{AddressingMode, TransportConfig},
-        envelope::{Envelope, FrameMeta, RawVisca, SonyEncapsulated},
+        envelope::{Envelope, FrameMeta, FrameSequence, RawVisca, SonyEncapsulated},
         SendSemantics,
     },
     CameraId, Error,
@@ -91,7 +91,7 @@ impl TargetRegistry {
     // Single-target sessions are the common case, but only this module's own
     // routing tests build a registry that way today; production construction
     // goes through `from_targets` with the session's registered set (#636).
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub(crate) fn single(target: CameraId) -> Result<Self, Error> {
         Self::from_targets(&[target])
     }
@@ -159,19 +159,6 @@ impl OwnerEnvelope {
         }
     }
 
-    #[allow(dead_code)]
-    pub(crate) fn frame_into(
-        &self,
-        visca_bytes: &[u8],
-        kind: CommandKind,
-        out: &mut bytes::BytesMut,
-    ) -> FrameMeta {
-        match self {
-            Self::Raw(envelope) => envelope.frame_into(visca_bytes, kind, out),
-            Self::Sony(envelope) => envelope.frame_into(visca_bytes, kind, out),
-        }
-    }
-
     pub(crate) fn frame_into_with_sequence(
         &self,
         visca_bytes: &[u8],
@@ -204,13 +191,19 @@ impl OwnerEnvelope {
 /// compatible profile requirement.
 // Untuned convenience over `owner_policy_for_targets_with_tuning`, exercised by
 // this module's own tests; session construction always supplies tuning (#636).
-#[allow(dead_code)]
+#[cfg(test)]
 pub(crate) fn owner_policy_for_targets(
     profiles: &[(CameraId, &ProfileSpec)],
     config: &TransportConfig,
     semantics: SendSemantics,
 ) -> Result<OwnerPolicy, Error> {
-    owner_policy_for_targets_with_tuning(profiles, config, semantics, OperationalTuning::new())
+    owner_policy_for_targets_with_tuning(
+        profiles,
+        config,
+        semantics,
+        OperationalTuning::new(),
+        crate::DEFAULT_ADMISSION_CAPACITY,
+    )
 }
 
 /// Tuning-aware multi-target owner policy lowering. The target registry is
@@ -221,6 +214,7 @@ pub(crate) fn owner_policy_for_targets_with_tuning(
     config: &TransportConfig,
     semantics: SendSemantics,
     tuning: OperationalTuning,
+    admission_capacity: NonZeroUsize,
 ) -> Result<OwnerPolicy, Error> {
     if profiles.is_empty() {
         return Err(Error::InvalidRequest(
@@ -322,15 +316,14 @@ pub(crate) fn owner_policy_for_targets_with_tuning(
         SendSemantics::Stream => TransportKind::Stream,
     };
 
-    let capacity = config.max_pending_queue_depth.get();
     let inquiry_capacity = if envelope == EnvelopeKind::Sony {
-        capacity
+        admission_capacity.get()
     } else {
         1
     };
     let mut policy = OwnerPolicy::with_targets(
         ProtocolPolicy {
-            capacity,
+            capacity: admission_capacity.get(),
             envelope,
             transport,
             inquiry_capacity,
@@ -436,9 +429,15 @@ fn decode_frame(
         // drop it without falling back to any configured target.
         return Ok(None);
     };
-    let sequence = meta.sequence.map(|value| EnvelopeSequence {
-        value,
-        width: SequenceWidth::Full32,
+    let sequence = meta.sequence.map(|sequence| match sequence {
+        FrameSequence::Full32(value) => EnvelopeSequence {
+            value,
+            width: SequenceWidth::Full32,
+        },
+        FrameSequence::Lower16(value) => EnvelopeSequence {
+            value: u32::from(value),
+            width: SequenceWidth::Lower16,
+        },
     });
     if !routing.targets().contains(target) {
         // Preserve a source-valid but unregistered serial frame as an inert

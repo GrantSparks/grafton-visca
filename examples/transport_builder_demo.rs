@@ -9,7 +9,7 @@ use std::{env, time::Duration};
 use grafton_visca::{
     blocking::Session,
     camera::{profiles::PtzOpticsG2, CameraConfig},
-    transport::{BackoffStrategy, RetryConfig, TcpKeepaliveConfig, TransportConfig},
+    transport::{TcpKeepaliveConfig, TransportConfig},
 };
 
 #[derive(Clone, Copy)]
@@ -48,12 +48,6 @@ fn transport_config(kind: TransportKind) -> TransportConfig {
         connect_timeout: Duration::from_secs(3),
         read_timeout: Duration::from_secs(2),
         write_timeout: Duration::from_secs(2),
-        retry_config: RetryConfig {
-            max_retries: 4,
-            base_retry_delay: Duration::from_millis(100),
-            max_retry_duration: Duration::from_secs(5),
-            backoff_strategy: BackoffStrategy::Exponential,
-        },
         tcp_keepalive: matches!(kind, TransportKind::Tcp)
             .then(|| TcpKeepaliveConfig::new(Duration::from_secs(30))),
         ..TransportConfig::default()

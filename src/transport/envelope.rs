@@ -23,15 +23,46 @@ use crate::{
     Error,
 };
 
+/// The sequence provenance carried by a framed VISCA message.
+///
+/// Sony's header has space for a 32-bit sequence, but some cameras return only
+/// the low 16 bits in a reply while leaving the rest of the header in place.
+/// A zero upper half is therefore not proof that the camera sent a genuine
+/// small 32-bit sequence: it is represented as [`Self::Lower16`] so the engine
+/// can apply its collision-safe fallback. Outgoing Sony frames are always
+/// represented as [`Self::Full32`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FrameSequence {
+    /// A sequence value whose complete 32-bit identity is present.
+    Full32(u32),
+    /// A Sony response carrying only a potentially truncated low 16-bit value.
+    Lower16(u16),
+}
+
+impl FrameSequence {
+    /// Return the numeric sequence value represented by this metadata.
+    ///
+    /// This is used at the transport/engine boundary for outgoing metadata;
+    /// receive-side callers should preserve the variant so provenance is not
+    /// lost before correlation.
+    #[inline]
+    pub const fn value(self) -> u32 {
+        match self {
+            Self::Full32(value) => value,
+            Self::Lower16(value) => value as u32,
+        }
+    }
+}
+
 /// Metadata extracted from or used during VISCA framing operations.
 ///
 /// Raw VISCA frames do not carry request sequence numbers, so
 /// [`FrameMeta::sequence`] is `None` for [`RawVisca`]. Sony encapsulated frames
-/// carry a sequence number that the runtime uses to correlate replies.
+/// carry typed sequence provenance that the runtime uses to correlate replies.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FrameMeta {
-    /// Sequence number for Sony protocol, None for raw VISCA.
-    pub sequence: Option<u32>,
+    /// Sequence provenance for Sony protocol, `None` for raw VISCA.
+    pub sequence: Option<FrameSequence>,
 }
 
 /// Trait for protocol envelope implementations.
@@ -240,13 +271,26 @@ impl Envelope for SonyEncapsulated {
         Ok((
             framed.slice(SonyHeader::SIZE..),
             FrameMeta {
-                sequence: Some(header.sequence_number),
+                sequence: Some(if header.sequence_number >> 16 == 0 {
+                    // A zero upper half is ambiguous on the wire: it may be a
+                    // genuine small full-width sequence or a camera-truncated
+                    // reply. Preserve that uncertainty for engine correlation.
+                    FrameSequence::Lower16(header.sequence_number as u16)
+                } else {
+                    FrameSequence::Full32(header.sequence_number)
+                }),
             },
         ))
     }
 }
 
 impl SonyEncapsulated {
+    /// Seed the sequence allocator for production-path correlation tests.
+    #[cfg(all(test, feature = "blocking"))]
+    pub(crate) fn set_sequence_for_test(&self, sequence: u32) {
+        self.sequence_counter.store(sequence, Ordering::Relaxed);
+    }
+
     pub(crate) fn frame_into_with_sequence(
         &self,
         visca_bytes: &[u8],
@@ -285,8 +329,10 @@ impl SonyEncapsulated {
         out.extend_from_slice(&[normalized_addr]);
         out.extend_from_slice(&visca_bytes[1..]);
 
+        // Sony request framing always emits and reports the complete 32-bit
+        // sequence. Only response extraction may produce Lower16 metadata.
         Ok(FrameMeta {
-            sequence: Some(sequence),
+            sequence: Some(FrameSequence::Full32(sequence)),
         })
     }
 }
@@ -468,7 +514,7 @@ mod tests {
         assert_eq!(out.len(), SonyHeader::SIZE + visca_cmd.len());
 
         // Check sequence number was assigned
-        assert_eq!(meta.sequence, Some(0));
+        assert_eq!(meta.sequence, Some(FrameSequence::Full32(0)));
 
         // Decode header to verify
         let header = SonyHeader::decode(&out[..SonyHeader::SIZE]).expect("valid header");
@@ -489,7 +535,7 @@ mod tests {
         let meta = envelope.frame_into(&visca_cmd, CommandKind::Inquiry, &mut out);
 
         // Check sequence number
-        assert_eq!(meta.sequence, Some(0));
+        assert_eq!(meta.sequence, Some(FrameSequence::Full32(0)));
 
         // Decode header to verify inquiry type
         let header = SonyHeader::decode(&out[..SonyHeader::SIZE]).expect("valid header");
@@ -509,9 +555,9 @@ mod tests {
         let meta3 = envelope.frame_into(&visca_cmd, CommandKind::Command, &mut out);
 
         // Sequence numbers should increment
-        assert_eq!(meta1.sequence, Some(0));
-        assert_eq!(meta2.sequence, Some(1));
-        assert_eq!(meta3.sequence, Some(2));
+        assert_eq!(meta1.sequence, Some(FrameSequence::Full32(0)));
+        assert_eq!(meta2.sequence, Some(FrameSequence::Full32(1)));
+        assert_eq!(meta3.sequence, Some(FrameSequence::Full32(2)));
     }
 
     #[test]
@@ -522,16 +568,21 @@ mod tests {
 
         let first = envelope.frame_into(&visca_cmd, CommandKind::Command, &mut out);
         let first_wire = out.to_vec();
-        assert_eq!(first.sequence, Some(0));
+        assert_eq!(first.sequence, Some(FrameSequence::Full32(0)));
 
         let retry = envelope
-            .frame_into_with_sequence(&visca_cmd, CommandKind::Command, first.sequence, &mut out)
+            .frame_into_with_sequence(
+                &visca_cmd,
+                CommandKind::Command,
+                first.sequence.map(FrameSequence::value),
+                &mut out,
+            )
             .expect("explicit Sony retry sequence is valid");
-        assert_eq!(retry.sequence, Some(0));
+        assert_eq!(retry.sequence, Some(FrameSequence::Full32(0)));
         assert_eq!(out.as_ref(), first_wire.as_slice());
 
         let next = envelope.frame_into(&visca_cmd, CommandKind::Command, &mut out);
-        assert_eq!(next.sequence, Some(1));
+        assert_eq!(next.sequence, Some(FrameSequence::Full32(1)));
     }
 
     #[test]
@@ -603,12 +654,12 @@ mod tests {
 
         // Frame first command
         let meta1 = envelope.frame_into(&cmd1, CommandKind::Command, &mut out);
-        assert_eq!(meta1.sequence, Some(0));
+        assert_eq!(meta1.sequence, Some(FrameSequence::Full32(0)));
 
         // Reuse buffer for second command
         let meta2 = envelope.frame_into(&cmd2, CommandKind::Inquiry, &mut out);
         let len2 = out.len();
-        assert_eq!(meta2.sequence, Some(1));
+        assert_eq!(meta2.sequence, Some(FrameSequence::Full32(1)));
 
         // Buffer should be properly sized for second command
         assert_eq!(len2, SonyHeader::SIZE + cmd2.len());
@@ -703,7 +754,7 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_with_meta_sony_response() {
+    fn test_extract_with_meta_sony_zero_upper_sequence_is_lower16() {
         let envelope = SonyEncapsulated::new(AddressingMode::Ip);
 
         // Create a mock Sony response with sequence 42
@@ -720,6 +771,22 @@ mod tests {
             .expect("should extract Sony response");
 
         assert_eq!(&payload[..], &visca_ack[..]);
-        assert_eq!(meta.sequence, Some(42));
+        assert_eq!(meta.sequence, Some(FrameSequence::Lower16(42)));
+    }
+
+    #[test]
+    fn test_extract_with_meta_sony_nonzero_upper_sequence_is_full32() {
+        let envelope = SonyEncapsulated::new(AddressingMode::Ip);
+        let visca_ack = vec![0x90, 0x41, VISCA_TERMINATOR];
+        let header = SonyHeader::new_reply(visca_ack.len(), 0x1234_002a);
+        let mut sony_response = header.encode().to_vec();
+        sony_response.extend_from_slice(&visca_ack);
+
+        let (payload, meta) = envelope
+            .extract_with_meta(Bytes::from(sony_response))
+            .expect("should extract Sony response");
+
+        assert_eq!(&payload[..], &visca_ack[..]);
+        assert_eq!(meta.sequence, Some(FrameSequence::Full32(0x1234_002a)));
     }
 }

@@ -389,9 +389,9 @@ pub enum Error {
     /// its maximum configured depth and cannot accept new commands. This is a
     /// retryable error - callers should back off and retry after a delay.
     ///
-    /// The queue depth is configurable via [`TransportConfig::max_pending_queue_depth`].
+    /// The admission capacity is configurable via [`SessionConfig::admission_capacity`].
     ///
-    /// [`TransportConfig::max_pending_queue_depth`]: crate::transport::TransportConfig::max_pending_queue_depth
+    /// [`SessionConfig::admission_capacity`]: crate::SessionConfig::admission_capacity
     #[error("Runtime queue full: at capacity ({capacity} pending commands)")]
     RuntimeQueueFull {
         /// The maximum queue capacity that was reached.

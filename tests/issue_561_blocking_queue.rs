@@ -440,13 +440,10 @@ fn third_blocking_operation_rejects_until_a_socket_frees() {
 /// observable.
 #[test]
 fn first_write_rejection_releases_admission_capacity() {
-    let config = TransportConfig {
-        max_pending_queue_depth: NonZeroUsize::new(3).expect("non-zero queue depth"),
-        ..TransportConfig::default()
-    };
-    let (transport, writes) = TwoSocketTransport::new(config);
-    let session =
-        Session::open(transport.with_sony(), sony_session_config()).expect("owner session");
+    let config = sony_session_config()
+        .with_admission_capacity(NonZeroUsize::new(3).expect("non-zero queue depth"));
+    let (transport, writes) = TwoSocketTransport::new(TransportConfig::default());
+    let session = Session::open(transport.with_sony(), config).expect("owner session");
     let camera = session.camera::<SonyFR7>().expect("camera view");
 
     let first = camera
@@ -529,12 +526,10 @@ fn one_socket_operation_rejection_is_immediate_and_retryable() {
 /// admit and complete a later operation.
 #[test]
 fn typed_operation_first_write_failure_returns_exact_error_and_releases_permit() {
-    let config = TransportConfig {
-        max_pending_queue_depth: NonZeroUsize::new(1).expect("one permit"),
-        ..TransportConfig::default()
-    };
-    let (transport, probe) = FirstWriteFailureTransport::new(config);
-    let session = Session::open(transport, session_config()).expect("owner session");
+    let config =
+        session_config().with_admission_capacity(NonZeroUsize::new(1).expect("one permit"));
+    let (transport, probe) = FirstWriteFailureTransport::new(TransportConfig::default());
+    let session = Session::open(transport, config).expect("owner session");
     let camera = session
         .camera::<NonDefaultCompileTimeProfile>()
         .expect("camera view");

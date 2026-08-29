@@ -1863,6 +1863,18 @@ impl ProtocolEngine {
                 return;
             }
         }
+        // Sony deliberately keeps the request's prior sequence owners through
+        // Backoff, Ready, and Sending so late completions can still be routed
+        // without guessing.  A camera error is different: applying one is a
+        // state mutation (and a retryable error can spend the retry budget),
+        // so it must belong to a response-bearing phase for this correlation
+        // kind.  In particular, a delayed duplicate from the attempt that
+        // caused Backoff must not schedule another retry while the request is
+        // waiting or being written again.
+        if !camera_error_phase_compatible(entry, correlation_kind) {
+            effects.push(Effect::Ignored(IgnoreReason::UnmatchedFrame));
+            return;
+        }
         let cancellation_active = !matches!(entry.cancellation, CancelState::None);
         if code == 0x04
             && (cancellation_active || correlation_kind == CorrelationKind::Cancellation)
@@ -2756,8 +2768,7 @@ impl ProtocolEngine {
         Ok(())
     }
 
-    /// Moves the backoff jitter sequence, so a test can show that the spread
-    /// comes from the seed rather than from the clock.
+    /// Seeds the deterministic retry jitter for engine tests.
     #[cfg(test)]
     fn seed_jitter(&mut self, seed: u64) {
         self.jitter = Jitter { seed };
@@ -2872,10 +2883,10 @@ enum Backoff {
 /// **1.x had no jitter at all.** `RetryConfig::calculate_delay` was exactly
 /// `base * 2^(attempt - 1)` with no entropy anywhere on the path, so there is
 /// nothing here to restore — this is new. It exists because the rewrite's
-/// `maximum_backoff` ceiling makes retries *converge*: every command that
-/// times out together against one camera saturates the same ceiling and then
-/// retries on the same instant, forever, which is precisely the collision a
-/// backoff is supposed to break up.
+/// `maximum_backoff` ceiling makes retries *converge*: every command that times
+/// out together against one camera saturates the same ceiling and then retries
+/// on the same instant, forever, which is precisely the collision a backoff is
+/// supposed to break up.
 ///
 /// The spread is a pure function of the seed, the request identity and the
 /// attempt number, never of wall-clock time or process entropy. The engine
@@ -2983,6 +2994,35 @@ fn correlation_phase_compatible(entry: &Entry, kind: CorrelationKind) -> bool {
                 | Phase::Backoff { .. }
                 | Phase::Ready { .. }
                 | Phase::Sending { .. }
+        ),
+        CorrelationKind::Cancellation => matches!(
+            entry.cancellation,
+            CancelState::Sending { .. } | CancelState::AwaitingTerminal { .. }
+        ),
+    }
+}
+
+/// Whether an attributed camera error may mutate the request at its current
+/// phase.
+///
+/// Sequence correlation intentionally outlives one attempt so a late reply
+/// can be identified without falling back to an unrelated request. Errors
+/// cannot use that broad routing window: retryable errors mutate retry state,
+/// and all errors otherwise produce a terminal result. Keep those mutations
+/// limited to phases that are actually waiting for the correlated protocol
+/// response. Cancellation responses have their own owner and remain valid only
+/// while its transmission/terminal window is open.
+fn camera_error_phase_compatible(entry: &Entry, kind: CorrelationKind) -> bool {
+    match kind {
+        CorrelationKind::Request if entry.request.is_inquiry() => {
+            matches!(entry.phase, Phase::AwaitingReply { .. })
+        }
+        CorrelationKind::Request => matches!(
+            entry.phase,
+            Phase::AwaitingAck { .. }
+                | Phase::AwaitingLateAck { .. }
+                | Phase::Executing { .. }
+                | Phase::AwaitingCancellationResolution { .. }
         ),
         CorrelationKind::Cancellation => matches!(
             entry.cancellation,

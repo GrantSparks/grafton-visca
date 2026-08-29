@@ -6,4 +6,4 @@ fn main() {}
 
 //~ E0603
 //~ "struct `BuiltinTypedRequestCoverage` is private"
-//~ "constant `BUILTIN_TYPED_REQUEST_INVENTORY` is private"
+//~ "static `BUILTIN_TYPED_REQUEST_INVENTORY` is private"
