@@ -357,10 +357,6 @@ pub enum Error {
     #[error("No response received from camera")]
     NoResponse,
 
-    /// Channel has been closed.
-    #[error("Channel closed")]
-    ChannelClosed,
-
     /// Runtime has been shutdown.
     #[error("Runtime has been shutdown")]
     RuntimeShutdown,
@@ -457,10 +453,6 @@ pub enum Error {
         id: u8,
     },
 
-    /// Lock was poisoned by a panic in another thread.
-    #[error("Lock poisoned for {0}")]
-    LockPoisoned(&'static str),
-
     /// Response exceeds maximum allowed size.
     #[error("Response too large: exceeds maximum of {max_size} bytes")]
     ResponseTooLarge {
@@ -475,30 +467,11 @@ pub enum Error {
     #[error("Inquiries cannot be canceled: use send_inquiry instead of *_with_id APIs")]
     InquiryNotCancelable,
 
-    /// Socket manager is unavailable or has been shut down.
-    #[error("Socket manager unavailable")]
-    SocketManagerUnavailable,
-
-    /// Channel for socket manager communication has been closed.
-    #[error("Socket manager channel closed")]
-    SocketManagerChannelClosed,
-
-    /// Response channel has been closed unexpectedly.
-    #[error("Response channel closed")]
-    ResponseChannelClosed,
-
     /// Invalid network address format.
     #[error("Invalid address: {reason}")]
     InvalidAddress {
         /// Reason why the address is invalid.
         reason: Cow<'static, str>,
-    },
-
-    /// Transport configuration mismatch.
-    #[error("Transport configuration mismatch: {reason}")]
-    TransportMismatch {
-        /// Reason for the mismatch.
-        reason: &'static str,
     },
 
     /// Selected standard transport is unsupported for the selected built-in profile.
@@ -513,16 +486,6 @@ pub enum Error {
     /// Runtime is required for async operations but was not provided.
     #[error("No runtime configured for async operations")]
     MissingRuntime,
-
-    /// Transport is not available for operations.
-    /// This is a consolidated error that covers various transport unavailability scenarios.
-    #[error("No transport available for operations")]
-    NoTransport,
-
-    /// Transport channel has been closed.
-    /// This is a consolidated error that covers various channel closure scenarios.
-    #[error("Transport channel has been closed")]
-    TransportChannelClosed,
 
     /// Error with additional context information.
     /// Wraps another error while preserving its retry intelligence and adding human-readable context.
@@ -571,14 +534,8 @@ impl Error {
             Self::ConnectionClosed { .. }
             | Self::NoResponse
             | Self::TransportError(..)
-            | Self::ChannelClosed
             | Self::RuntimeShutdown
             | Self::StreamPoisoned { .. }
-            | Self::SocketManagerUnavailable
-            | Self::SocketManagerChannelClosed
-            | Self::ResponseChannelClosed
-            | Self::NoTransport
-            | Self::TransportChannelClosed
             | Self::UnsequencedCommandUnconfirmed => ErrorKind::IoClosed,
 
             // IoRefused: connection attempt rejected
@@ -612,8 +569,7 @@ impl Error {
             | Self::ValidationError(..)
             | Self::InvalidCameraId { .. }
             | Self::InquiryNotCancelable { .. }
-            | Self::InvalidAddress { .. }
-            | Self::TransportMismatch { .. } => ErrorKind::InvalidParameter,
+            | Self::InvalidAddress { .. } => ErrorKind::InvalidParameter,
             Self::UnsupportedTransport { .. } => ErrorKind::Unsupported,
 
             // Busy: transient contention
@@ -623,9 +579,7 @@ impl Error {
             | Self::CommandPending => ErrorKind::Busy,
 
             // Other: truly uncategorizable
-            Self::LockPoisoned(..)
-            | Self::CancellationUnconfirmed
-            | Self::RuntimeIdentityExhausted => ErrorKind::Other,
+            Self::CancellationUnconfirmed | Self::RuntimeIdentityExhausted => ErrorKind::Other,
 
             // Delegated: unwrap context wrapper
             Self::WithContext { source, .. } => source.kind(),
@@ -655,9 +609,9 @@ impl Error {
     ///
     /// - `true` — the transport died underneath the session: the peer closed
     ///   the connection ([`Error::ConnectionClosed`]), the byte stream position
-    ///   became unknowable ([`Error::StreamPoisoned`]), the owner's
-    ///   transport/channel is gone, or an unsequenced command's outcome became
-    ///   unknowable ([`Error::UnsequencedCommandUnconfirmed`]). A poisoned
+    ///   became unknowable ([`Error::StreamPoisoned`]), or an unsequenced
+    ///   command's outcome became unknowable
+    ///   ([`Error::UnsequencedCommandUnconfirmed`]). A poisoned
     ///   session is terminal and is never revived; every retained and
     ///   subsequently attempted operation keeps reporting its exact terminal
     ///   session error. For a raw/unsequenced command, an ACK or completion
@@ -711,12 +665,6 @@ impl Error {
             // session stops being usable because of the transport.
             Self::ConnectionClosed { .. }
             | Self::StreamPoisoned { .. }
-            | Self::ChannelClosed
-            | Self::TransportChannelClosed
-            | Self::ResponseChannelClosed
-            | Self::SocketManagerChannelClosed
-            | Self::SocketManagerUnavailable
-            | Self::NoTransport
             | Self::UnsequencedCommandUnconfirmed => true,
 
             // Deliberate shutdown. The session is over because the application
@@ -773,11 +721,9 @@ impl Error {
             | Self::UnknownResponseKind { .. }
             | Self::DecoderNotFound { .. }
             | Self::InvalidCameraId { .. }
-            | Self::LockPoisoned(..)
             | Self::ResponseTooLarge { .. }
             | Self::InquiryNotCancelable
             | Self::InvalidAddress { .. }
-            | Self::TransportMismatch { .. }
             | Self::UnsupportedTransport { .. }
             | Self::MissingRuntime => false,
         }
@@ -1311,16 +1257,7 @@ mod tests {
             Error::TransportError(Cow::Borrowed("test")).kind(),
             ErrorKind::IoClosed
         );
-        assert_eq!(Error::ChannelClosed.kind(), ErrorKind::IoClosed);
         assert_eq!(Error::RuntimeShutdown.kind(), ErrorKind::IoClosed);
-        assert_eq!(Error::SocketManagerUnavailable.kind(), ErrorKind::IoClosed);
-        assert_eq!(
-            Error::SocketManagerChannelClosed.kind(),
-            ErrorKind::IoClosed
-        );
-        assert_eq!(Error::ResponseChannelClosed.kind(), ErrorKind::IoClosed);
-        assert_eq!(Error::NoTransport.kind(), ErrorKind::IoClosed);
-        assert_eq!(Error::TransportChannelClosed.kind(), ErrorKind::IoClosed);
         assert_eq!(
             Error::UnsequencedCommandUnconfirmed.kind(),
             ErrorKind::IoClosed
@@ -1363,7 +1300,8 @@ mod tests {
         assert_eq!(Error::CommandPending.kind(), ErrorKind::Busy);
 
         // Other
-        assert_eq!(Error::LockPoisoned("test").kind(), ErrorKind::Other);
+        assert_eq!(Error::CancellationUnconfirmed.kind(), ErrorKind::Other);
+        assert_eq!(Error::RuntimeIdentityExhausted.kind(), ErrorKind::Other);
 
         // Io: inspect inner io::ErrorKind
         assert_eq!(
@@ -1425,12 +1363,6 @@ mod tests {
             Error::StreamPoisoned {
                 reason: Cow::Borrowed("framing failure"),
             },
-            Error::ChannelClosed,
-            Error::TransportChannelClosed,
-            Error::ResponseChannelClosed,
-            Error::SocketManagerChannelClosed,
-            Error::SocketManagerUnavailable,
-            Error::NoTransport,
             Error::UnsequencedCommandUnconfirmed,
         ] {
             assert!(
@@ -1472,8 +1404,9 @@ mod tests {
 
     /// Issue #614: the `0x05` camera answer must never be normalized into a
     /// session-death variant. It is a transient capacity answer from a live
-    /// session (issues #501/#566), so any helper that folded it into
-    /// `NoTransport` would turn a retry into a spurious reconnect.
+    /// session (issues #501/#566), so any helper that folded it into a
+    /// `requires_new_session()` variant would turn a retry into a spurious
+    /// reconnect.
     #[test]
     fn no_socket_is_never_a_session_death_condition() {
         let from_camera = Error::from_code(0x05);
@@ -1482,11 +1415,6 @@ mod tests {
         assert!(!from_camera.requires_new_session());
         let with_context = from_camera.with_context("cancel command");
         assert!(!with_context.requires_new_session());
-
-        // The variant it used to be mapped onto is classified the opposite way,
-        // which is exactly why the mapping could not stay.
-        assert!(Error::NoTransport.requires_new_session());
-        assert!(!Error::NoTransport.is_retryable());
     }
 
     #[test]

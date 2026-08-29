@@ -549,6 +549,29 @@ destination.
 
 ### Removed
 
+- **Removed eight never-constructed public `Error` variants** (#687):
+  `Error::LockPoisoned`, `Error::ChannelClosed`,
+  `Error::SocketManagerUnavailable`, `Error::SocketManagerChannelClosed`,
+  `Error::ResponseChannelClosed`, `Error::TransportMismatch`,
+  `Error::NoTransport`, and `Error::TransportChannelClosed`. None was ever
+  constructed, matched, or converted into anywhere in `src/`, `tests/`,
+  `examples/`, or `fuzz/` — the only uses were the enum declaration, `kind()`,
+  `requires_new_session()`, and unit tests that built them by hand. Six of them
+  (`ChannelClosed`, `SocketManagerUnavailable`, `SocketManagerChannelClosed`,
+  `ResponseChannelClosed`, `NoTransport`, `TransportChannelClosed`) were
+  classified `requires_new_session() == true`, so the terminal session-recovery
+  taxonomy advertised conditions the runtime cannot produce, and the
+  `docs/migration_2_0.md` recovery table told migrating callers to match
+  `NoTransport` and `TransportChannelClosed` — recovery arms that could never
+  fire. `SocketManager*` was 1.x vocabulary for a component 2.0 deleted, and
+  `LockPoisoned` cannot occur because every lock recovers its guard with
+  `into_inner()` instead of surfacing a poison error. The reachable terminal
+  variants are unchanged: `ConnectionClosed`, `StreamPoisoned`, and
+  `UnsequencedCommandUnconfirmed` still report `requires_new_session() == true`,
+  and an internally closed boundary channel still normalizes to
+  `Error::RuntimeShutdown` (never `ChannelClosed`) at the point of failure.
+  Because `Error` is `#[non_exhaustive]` a wildcard arm was already required;
+  only callers that named a removed variant explicitly need to drop that arm.
 - **Removed the 1.2.0 command-priority *vocabulary*** (#630).
   `runtime::Priority`, `Camera::set_command_priority` / `command_priority` /
   `execute_with_priority`, their `BlockingClient` mirrors, and
@@ -599,10 +622,11 @@ destination.
   with a reachable input was wrong for 2.0: it folded `Error::NoSocket` into
   `Error::NoTransport`. `NoSocket` is the camera's `0x05` answer — transient
   socket-table capacity on a healthy session, classified `ErrorKind::BufferFull`
-  and retryable (#501, #566) — while `NoTransport` is one of the variants
-  `Error::requires_new_session()` reports as session death, so anything that
-  had started calling the helper would have turned a retry into a spurious
-  reconnect. Its remaining arms mapped variants 2.0 never constructs.
+  and retryable (#501, #566) — while `NoTransport` was one of the variants
+  `Error::requires_new_session()` reported as session death (itself since
+  removed as never-constructed, #687), so anything that had started calling the
+  helper would have turned a retry into a spurious reconnect. Its remaining arms
+  mapped variants 2.0 never constructs.
   Nothing is lost: in 1.x the helper had a single call site,
   `RuntimeHandle::normalize_boundary_error`, whose preceding match arm already
   claimed the whole channel-closed family, and 2.0 normalizes a closed
@@ -611,6 +635,66 @@ destination.
   callers deciding whether to reconnect should use `requires_new_session()`.
 
 ### Fixed
+
+- **Preset number 255 and a `0xFF` direct-menu control parameter can be sent
+  again** (#683). The stack builder that assembles every command terminated a
+  frame by inferring, from the trailing byte, whether a VISCA terminator was
+  already present — so whenever the last *data* byte was `0xFF` it mistook that
+  data for the terminator and appended nothing, leaving the frame one byte
+  short. `write_into` then reported fewer bytes than `encoded_size()` and the
+  encoder rejected the command with an internal contract-string error, making
+  `presets().set/reset/recall(255)` unsendable on `SonyFR7` (the one built-in
+  profile whose `max_presets` reaches 255) and `menu().direct(_, 0xFF)`
+  unsendable on every `HasDirectMenuControl` profile, across all three noun
+  surfaces. The builder now tracks termination explicitly instead of sniffing
+  the last byte: the flag is set only when an already-terminated
+  complete-command constant is loaded through `from_prefix`, and it is cleared
+  the moment any further data is appended, so an appended `0xFF` is always data
+  and is always followed by the terminator. No currently-correct frame changes —
+  the complete-command constants (`pan_tilt::HOME`, `zoom::STOP`, ...) that were
+  the reason the last-byte inference existed are still emitted exactly once. A
+  value-domain sweep over every preset number and direct-menu parameter, plus an
+  end-to-end preparation check on `SonyFR7`, is pinned permanently.
+- **`blocking` + `test-utils` no longer links an async executor** (#691),
+  making the README's "native synchronous I/O with no async runtime/executor
+  dependency" guarantee true for every blocking feature set rather than only the
+  network and serial ones the gate already covered. `test-utils` unconditionally
+  enabled `async-executor` and `futures-lite`, so
+  `cargo tree --no-default-features --features blocking,test-utils --edges normal`
+  linked `async-executor`, `async-task`, and `futures-lite` into a blocking-only
+  graph — the exact dependency the blocking facade promises to avoid. Those two
+  crates back only the async testkit (`DeterministicExecutor` and the async
+  `ScriptedTransport`), which already compiles solely under `async`, so they now
+  ride on the `async` feature and `test-utils` links neither. A blocking consumer
+  that enables `test-utils` for `ScriptedBlockingTransport`, `Step`, and the
+  `helpers` gets the same native synchronous graph as plain `blocking`; the async
+  testkit is unchanged under `async`/`runtime-*`. The dependency-boundary gate
+  (`.github/scripts/check-blocking-dependency-boundary.sh`) now also checks
+  `blocking,test-utils` — the leg that fails before this change and passes after
+  — resolves the graph with `--target all` so a `cfg(windows)`-only async crate
+  cannot hide on the Linux CI host, asserts a known dependency is present so a
+  change in `cargo tree` output can no longer make every check match nothing and
+  pass green, and denies `futures-executor`, `async-std`, and
+  `async-global-executor` alongside the existing names.
+- **A UDP session opened through the async `TransportHandle` wrapper is governed
+  by datagram rules, not stream-poison rules** (#677). `impl AsyncTransport for
+  TransportHandle<R>` forwarded `send`, `recv_into`, and `addressing_mode_hint`
+  but omitted `send_semantics`, so `TransportHandle::Udp(_)` silently inherited
+  the trait default `SendSemantics::Stream` even though the wrapped `Udp`
+  transport reports `Datagram` and the blocking `BlockingTransportHandle` twin
+  forwards it correctly. A UDP session built the way `TransportHandle`'s own
+  rustdoc shows — `TransportHandle::Udp(rt.connect_udp(...).await?)` — was then
+  treated as a byte stream: one failed `send_to` or one malformed/truncated
+  datagram poisoned the whole session (failing every in-flight command with
+  `Error::StreamPoisoned`) instead of failing a single command, and partial
+  bytes from one datagram were retained as the prefix of the next. The wrapper
+  now forwards `send_semantics` to its inner transport, mirroring the blocking
+  twin, and the `AsyncTransport`/`BlockingTransport` `send_semantics` docs now
+  warn that a forwarding wrapper must forward this method or silently fall back
+  to the `Stream` default. The trait keeps its `Stream` default (the safe,
+  ergonomic choice for the common stream transport and for custom
+  implementations); only the wrapper's missing forward was the defect. This is a
+  2.0-only wrapper, so no 1.x program is affected. The public API is unchanged.
 
 - **The typed `tally()` noun is reachable again for the profiles that had tally
   in 1.x** (#661). `TallyOn`, `TallyOff` and `TallyFlash` validated against the

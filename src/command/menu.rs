@@ -286,4 +286,72 @@ mod tests {
         DirectMenuControl::open_close(),
         &[0x81, 0x01, 0x7E, 0x04, 0x72, 0x00, 0x01, VISCA_TERMINATOR]
     );
+
+    // Regression for #683: a 0xFF direct-menu control parameter is a data byte.
+    // The frame must still be terminated: `... 72 00 FF FF`, not `... 72 00 FF`.
+    visca_test!(
+        DirectMenuControl,
+        test_direct_menu_control_0xff_param_keeps_terminator,
+        DirectMenuControl::new(0x00, 0xFF),
+        &[0x81, 0x01, 0x7E, 0x04, 0x72, 0x00, 0xFF, VISCA_TERMINATOR]
+    );
+
+    /// Exhaustive value-domain sweep for #683: `DirectMenuControl` over every
+    /// control2 value (including 0xFF) and a spread of control1 values must
+    /// encode to a terminated 8-byte frame whose byte before the terminator is
+    /// control2.
+    #[test]
+    fn every_direct_menu_param_terminates() {
+        use crate::command::encode::WireEncode;
+
+        for control1 in [0x00u8, 0x7F, 0x80, 0xFF] {
+            for control2 in 0..=u8::MAX {
+                let command = DirectMenuControl::new(control1, control2);
+                let mut buffer = [0u8; 32];
+                let len = command
+                    .write_into(crate::camera_id::CameraId::CAMERA_1, &mut buffer)
+                    .expect("direct menu control encodes into a 32-byte buffer");
+                assert_eq!(
+                    buffer[..len],
+                    [
+                        0x81,
+                        0x01,
+                        0x7E,
+                        0x04,
+                        0x72,
+                        control1,
+                        control2,
+                        VISCA_TERMINATOR
+                    ],
+                    "direct menu control1={control1:#x} control2={control2:#x} wire bytes"
+                );
+            }
+        }
+    }
+
+    /// Every menu navigation direction encodes to a terminated 9-byte frame.
+    #[test]
+    fn every_menu_direction_terminates() {
+        use crate::command::encode::WireEncode;
+
+        for direction in [
+            MenuDirection::Up,
+            MenuDirection::Down,
+            MenuDirection::Left,
+            MenuDirection::Right,
+        ] {
+            let command = MenuNavigate::new(direction);
+            let mut buffer = [0u8; 32];
+            let len = command
+                .write_into(crate::camera_id::CameraId::CAMERA_1, &mut buffer)
+                .expect("menu navigation encodes into a 32-byte buffer");
+            assert_eq!(len, 9, "menu {direction:?} must be a 9-byte frame");
+            assert_eq!(buffer[0], 0x81);
+            assert_eq!(
+                buffer[len - 1],
+                VISCA_TERMINATOR,
+                "menu {direction:?} terminator"
+            );
+        }
+    }
 }
