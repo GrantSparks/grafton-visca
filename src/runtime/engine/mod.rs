@@ -1305,13 +1305,20 @@ impl ProtocolEngine {
     ///
     /// This restores the 1.x `SchedulerEvent::NetworkError` contract only for
     /// requests whose envelope supplies safe evidence. A sequenced Sony command
-    /// still waiting for its ACK is retried under its own bounded retry policy;
-    /// a raw command in that phase has no sequence key, so the same receive
-    /// fault poisons the session with [`Error::UnsequencedCommandUnconfirmed`]
-    /// rather than replaying a possibly executed action. A command whose retry
-    /// budget is already spent fails with this transport error rather than an
-    /// incidental later timeout. The classic case is a UDP `recv` returning
-    /// ECONNREFUSED because an earlier datagram drew an ICMP port-unreachable.
+    /// still waiting for its ACK is retried under its own bounded retry policy.
+    ///
+    /// A raw command awaiting its ACK has no sequence key to replay, but a
+    /// transient receive fault consumes nothing and cannot desynchronize raw
+    /// framing (the recovery doc downgrades a fatal read to a close on exactly
+    /// that fact). So by default (issue #671) the fault does **not** terminalize
+    /// the in-flight raw command: it is neither retried (replay is unsafe) nor
+    /// failed here, but left to ride to its own ACK deadline, where — if no ACK
+    /// arrives — it quarantines per-request rather than poisoning the session.
+    /// The read-side pause/escalation the owner already performs handles the
+    /// transport itself. The strict opt-in mode instead poisons the whole
+    /// session with [`Error::UnsequencedCommandUnconfirmed`]. The classic case
+    /// is a UDP `recv` returning ECONNREFUSED because an earlier datagram drew
+    /// an ICMP port-unreachable.
     ///
     /// Two deliberate narrowings of the 1.x scan, both conservative:
     /// inquiries are untouched (1.x scanned only its command table), and a
@@ -1333,12 +1340,13 @@ impl ProtocolEngine {
             .map(|(id, entry)| (entry.admission_order, *id))
             .collect();
         affected.sort_unstable_by_key(|(order, _)| *order);
-        if self.policy.envelope == EnvelopeKind::Raw && !affected.is_empty() {
-            self.terminate_session(
-                SessionState::Poisoned,
-                Error::UnsequencedCommandUnconfirmed,
-                effects,
-            );
+        if self.raw_unconfirmed_poison() && !affected.is_empty() {
+            self.poison_strict_unconfirmed(effects);
+            return;
+        }
+        if self.policy.envelope == EnvelopeKind::Raw {
+            // Default: leave any unacknowledged raw command to its own ACK
+            // deadline; never replay an unconfirmed raw command.
             return;
         }
         for (_, id) in affected {
@@ -1518,6 +1526,17 @@ impl ProtocolEngine {
             effects.push(Effect::Ignored(IgnoreReason::UnmatchedFrame));
             return;
         }
+        // Issue #671: a raw command that has already failed
+        // `UnsequencedCommandUnconfirmed` is only holding its correlation slot
+        // (its socket, or its place as the sole unacknowledged command) until
+        // the ambiguity deadline. Any late frame that resolves to it is ignored,
+        // never applied: applying it could re-open a request the caller was told
+        // is unconfirmed, and dropping it here keeps the slot reserved so the
+        // late reply cannot be misattributed to a later command.
+        if self.entries.get(&id).is_some_and(is_unconfirmed_quarantine) {
+            effects.push(Effect::Ignored(IgnoreReason::UnmatchedFrame));
+            return;
+        }
         match frame.response {
             DecodedResponse::Ack { socket } => self.ack(id, socket, now, effects),
             DecodedResponse::Completion { socket } => {
@@ -1690,11 +1709,17 @@ impl ProtocolEngine {
 
     /// Chooses the socket an ACK assigns using only the evidence in that ACK.
     ///
-    /// A camera that names a socket is authoritative about that exact socket:
-    /// if it is held by another request, the ACK cannot be safely remapped and
-    /// returns `None`. An ACK with no socket nibble is the sole compatibility
-    /// case that takes the first free socket the target is registered to have.
-    /// `None` means the ACK carries no assignable socket evidence.
+    /// A camera that names a free socket is authoritative about it. When the
+    /// named socket is instead held by another request — typically because a
+    /// completion frame was lost and the camera reused the socket — the ACK
+    /// falls back to the target's other socket if it is free (issue #620/#682).
+    /// The candidate request was already uniquely identified before this runs
+    /// (a raw ACK resolves to the sole unacknowledged command), so binding it to
+    /// the free socket cannot mis-attribute the ACK; it only avoids wedging the
+    /// command, which — before issue #671 — cascaded to a session poison at its
+    /// ACK deadline. An ACK with no socket nibble takes the first free socket the
+    /// target is registered to have. `None` means every socket the target owns is
+    /// already taken and the ACK stays inert.
     fn assign_socket(
         &self,
         target: CameraId,
@@ -1704,6 +1729,10 @@ impl ProtocolEngine {
         if let Some(socket) = requested {
             if self.socket_available(target, socket, id) {
                 return Some(socket);
+            }
+            let other = other_socket(socket);
+            if self.command_sockets(target) > 1 && self.socket_available(target, other, id) {
+                return Some(other);
             }
             return None;
         }
@@ -2185,7 +2214,8 @@ impl ProtocolEngine {
                 let retry_budget = entry.request.context().retry.total_budget;
                 let retry_budget_due = (entry.attempt > 0
                     && retry_budget != Duration::ZERO
-                    && matches!(entry.cancellation, CancelState::None))
+                    && matches!(entry.cancellation, CancelState::None)
+                    && !is_quarantine_phase(entry.phase))
                 .then(|| add_duration(entry.submitted_at, retry_budget));
                 let mut selected = phase_due;
                 if let Some(budget) = retry_budget_due {
@@ -2226,6 +2256,128 @@ impl ProtocolEngine {
             .min_by_key(|due| due.key())
     }
 
+    /// Whether an unconfirmable raw command must poison the whole session
+    /// rather than fail on its own.
+    ///
+    /// True only in the strict opt-in mode on the raw envelope (issue #671).
+    /// Sony correlation never needs the quarantine, so the flag is inert there
+    /// even if a caller set it.
+    const fn raw_unconfirmed_poison(&self) -> bool {
+        matches!(self.policy.envelope, EnvelopeKind::Raw) && self.policy.strict_unconfirmed_poison
+    }
+
+    /// Poisons the whole session for the strict opt-in mode (issue #671).
+    ///
+    /// A poisoned session is terminal, so the error it hands to every request —
+    /// and to any later operation through the owner's boundary verdict — must
+    /// answer [`Error::requires_new_session`](crate::Error::requires_new_session)
+    /// with `true` so a caller rebuilds it. [`Error::UnsequencedCommandUnconfirmed`]
+    /// is deliberately *not* used here: it is now the per-request survivable
+    /// outcome (its `requires_new_session()` is `false`), and a live-vs-dead
+    /// session must never be reported by the same verdict. [`Error::StreamPoisoned`]
+    /// is the crate's session-poison error, and its recovery guidance already
+    /// covers a raw command whose completion is uncertain.
+    fn poison_strict_unconfirmed(&mut self, effects: &mut Vec<Effect>) {
+        self.terminate_session(
+            SessionState::Poisoned,
+            Error::StreamPoisoned {
+                reason: Cow::Borrowed(
+                    "raw command outcome could not be confirmed (strict_unconfirmed_poison)",
+                ),
+            },
+            effects,
+        );
+    }
+
+    /// Terminates one raw command whose ACK or completion can no longer be
+    /// confirmed (issue #671).
+    ///
+    /// Strict opt-in mode poisons the whole session (the pre-fix behavior). The
+    /// default fails exactly this request with
+    /// [`Error::UnsequencedCommandUnconfirmed`] while holding whatever
+    /// correlation it still owns — its command socket, or its place as the sole
+    /// unacknowledged raw command on the target — quarantined until the
+    /// ambiguity deadline. A late ACK or completion then resolves to the
+    /// quarantine and is ignored ([`Self::frame`]) instead of binding to a later
+    /// command that reuses the socket or the unacknowledged slot. The session
+    /// and every unrelated request keep running.
+    ///
+    /// The caller must have already established that this is a raw command with
+    /// no cancellation in flight; the quarantine phases are distinguished from
+    /// their cancellation-driven uses by their [`CancelState::None`].
+    fn terminate_unconfirmed_raw(
+        &mut self,
+        id: RequestId,
+        now: Instant,
+        effects: &mut Vec<Effect>,
+    ) {
+        if self.raw_unconfirmed_poison() {
+            self.poison_strict_unconfirmed(effects);
+            return;
+        }
+        let Some(entry) = self.entries.get(&id) else {
+            effects.push(Effect::Ignored(IgnoreReason::UnknownRequest));
+            return;
+        };
+        let ambiguity_deadline = add_duration(now, entry.request.context().timeout.ambiguity);
+        let cancellation = entry.cancellation;
+        match entry.phase {
+            Phase::Executing { socket, .. } => {
+                // Correlation is exact — this request owns `socket`. Hold it so a
+                // late completion resolves here and is ignored, never bound to a
+                // later command that reuses the socket.
+                self.transition(
+                    id,
+                    Phase::AwaitingCancellationResolution {
+                        socket,
+                        deadline: ambiguity_deadline,
+                    },
+                    cancellation,
+                    effects,
+                );
+            }
+            Phase::AwaitingAck { .. } => {
+                // No socket is owned yet; hold the sole-unacknowledged-command
+                // slot so a late ACK resolves here and is ignored.
+                self.transition(
+                    id,
+                    Phase::AwaitingLateAck {
+                        deadline: ambiguity_deadline,
+                    },
+                    cancellation,
+                    effects,
+                );
+            }
+            Phase::Sending { transmission, .. } => {
+                // The write is still in flight. Drop its correlation so the
+                // returning transmission result is inert, abandon any ACK that
+                // raced the write (issue #297 latch — this attempt is over), and
+                // hold the unacknowledged slot the same way.
+                self.transmissions.remove(&transmission);
+                if let Some(entry) = self.entries.get_mut(&id) {
+                    entry.deferred_ack = None;
+                }
+                self.transition(
+                    id,
+                    Phase::AwaitingLateAck {
+                        deadline: ambiguity_deadline,
+                    },
+                    cancellation,
+                    effects,
+                );
+            }
+            _ => {
+                // Nothing correlated is at stake (Ready/Backoff/AwaitingReply/…):
+                // fail immediately.
+                self.finish(
+                    id,
+                    RuntimeOutcome::Failed(Error::UnsequencedCommandUnconfirmed),
+                    effects,
+                );
+            }
+        }
+    }
+
     fn apply_due(&mut self, due: DueWork, now: Instant, effects: &mut Vec<Effect>) {
         let Some(entry) = self.entries.get(&due.request) else {
             return;
@@ -2234,13 +2386,16 @@ impl ProtocolEngine {
         let ambiguity_due =
             cancellation_ambiguity(entry.cancellation).is_some_and(|deadline| deadline <= now);
         if due.kind_order == 0 && ambiguity_due {
+            // The ambiguity window has already closed, so nothing further needs
+            // quarantining here: fail this one request (default) or poison the
+            // session (strict opt-in). Issue #671.
             let error = if self.policy.envelope == EnvelopeKind::Raw {
                 Error::UnsequencedCommandUnconfirmed
             } else {
                 Error::CancellationUnconfirmed
             };
-            if self.policy.envelope == EnvelopeKind::Raw {
-                self.terminate_session(SessionState::Poisoned, error, effects);
+            if self.raw_unconfirmed_poison() {
+                self.poison_strict_unconfirmed(effects);
             } else {
                 self.finish(due.request, RuntimeOutcome::Failed(error), effects);
             }
@@ -2267,7 +2422,8 @@ impl ProtocolEngine {
         let retry = entry.request.context().retry;
         let retry_budget_at = (entry.attempt > 0
             && retry.total_budget != Duration::ZERO
-            && matches!(entry.cancellation, CancelState::None))
+            && matches!(entry.cancellation, CancelState::None)
+            && !is_quarantine_phase(entry.phase))
         .then(|| add_duration(entry.submitted_at, retry.total_budget));
         let retry_budget_due = retry_budget_at.is_some_and(|deadline| deadline <= now);
         if due.kind_order == 1
@@ -2282,11 +2438,10 @@ impl ProtocolEngine {
                     Phase::Sending { .. } | Phase::AwaitingAck { .. } | Phase::Executing { .. }
                 );
             if raw_active_command {
-                self.terminate_session(
-                    SessionState::Poisoned,
-                    Error::UnsequencedCommandUnconfirmed,
-                    effects,
-                );
+                // The active attempt still owns correlation (socket or the
+                // unacknowledged-command slot); quarantine it and fail this one
+                // request, or poison in strict mode. Issue #671.
+                self.terminate_unconfirmed_raw(due.request, now, effects);
             } else {
                 self.finish(due.request, RuntimeOutcome::Failed(error), effects);
             }
@@ -2305,11 +2460,10 @@ impl ProtocolEngine {
                         effects,
                     );
                 } else if self.policy.envelope == EnvelopeKind::Raw {
-                    self.terminate_session(
-                        SessionState::Poisoned,
-                        Error::UnsequencedCommandUnconfirmed,
-                        effects,
-                    );
+                    // Default: quarantine the sole unacknowledged raw command as
+                    // a late-ACK slot and fail it UnsequencedCommandUnconfirmed
+                    // at the ambiguity deadline; strict: poison. Issue #671.
+                    self.terminate_unconfirmed_raw(due.request, now, effects);
                 } else if entry.request.context().retry.ack_timeout {
                     self.schedule_retry(
                         due.request,
@@ -2346,18 +2500,18 @@ impl ProtocolEngine {
                         } else {
                             Error::CancellationUnconfirmed
                         };
-                        if self.policy.envelope == EnvelopeKind::Raw {
-                            self.terminate_session(SessionState::Poisoned, error, effects);
+                        if self.raw_unconfirmed_poison() {
+                            self.poison_strict_unconfirmed(effects);
                         } else {
                             self.finish(due.request, RuntimeOutcome::Failed(error), effects);
                         }
                     }
                 } else if self.policy.envelope == EnvelopeKind::Raw {
-                    self.terminate_session(
-                        SessionState::Poisoned,
-                        Error::UnsequencedCommandUnconfirmed,
-                        effects,
-                    );
+                    // Default: correlation is exact (this request owns the
+                    // socket); hold the socket quarantined and fail this one
+                    // request UnsequencedCommandUnconfirmed at the ambiguity
+                    // deadline; strict: poison. Issue #671.
+                    self.terminate_unconfirmed_raw(due.request, now, effects);
                 } else if entry.request.context().retry.completion_timeout {
                     self.schedule_retry(
                         due.request,
@@ -2396,13 +2550,18 @@ impl ProtocolEngine {
             | Phase::AwaitingLateAck { deadline }
                 if deadline <= now =>
             {
+                // The quarantine window (a cancellation ambiguity deadline, or
+                // the per-request late-ACK / socket quarantine opened by issue
+                // #671) has now closed: fail this one request, or poison in the
+                // strict opt-in mode. A late reply can no longer arrive, so the
+                // reserved correlation slot is released with it.
                 let error = if self.policy.envelope == EnvelopeKind::Raw {
                     Error::UnsequencedCommandUnconfirmed
                 } else {
                     Error::CancellationUnconfirmed
                 };
-                if self.policy.envelope == EnvelopeKind::Raw {
-                    self.terminate_session(SessionState::Poisoned, error, effects);
+                if self.raw_unconfirmed_poison() {
+                    self.poison_strict_unconfirmed(effects);
                 } else {
                     self.finish(due.request, RuntimeOutcome::Failed(error), effects);
                 }
@@ -2765,6 +2924,46 @@ impl ProtocolEngine {
                 }
             }
         }
+        // Issue #671 / D8: audit the raw single-candidate rule that correlation
+        // safety depends on. Raw dispatch keeps at most one command per target in
+        // the window where a reply is attributed positionally rather than by an
+        // owned socket — `Sending`, `AwaitingAck`, and the late-ACK quarantine
+        // `AwaitingLateAck`. A second such command would make an incoming raw ACK
+        // impossible to attribute without guessing, which is exactly what
+        // `unique_raw_command_candidate`, `raw_command_unacknowledged`, and the
+        // per-request unconfirmed quarantine rely on never happening. The socket
+        // quarantine (`AwaitingCancellationResolution` with `CancelState::None`)
+        // is deliberately excluded: it owns a socket, so its correlation stays
+        // exact and it does not consume the positional slot.
+        if self.policy.envelope == EnvelopeKind::Raw {
+            let mut unacknowledged = [0_u8; 9];
+            for entry in self.entries.values() {
+                if entry.request.is_inquiry()
+                    || !matches!(
+                        entry.phase,
+                        Phase::Sending { .. }
+                            | Phase::AwaitingAck { .. }
+                            | Phase::AwaitingLateAck { .. }
+                    )
+                {
+                    continue;
+                }
+                let target = usize::from(entry.request.context().target.id());
+                unacknowledged[target] = unacknowledged[target].saturating_add(1);
+                if unacknowledged[target] > 1 {
+                    return Err("more than one raw command is unacknowledged on a target".into());
+                }
+            }
+        } else {
+            // The per-request unconfirmed quarantine is a raw-only construct: a
+            // non-raw session must never hold a `CancelState::None` entry in a
+            // late-ACK or socket-quarantine phase.
+            for entry in self.entries.values() {
+                if is_unconfirmed_quarantine(entry) {
+                    return Err("unconfirmed quarantine on a non-raw session".into());
+                }
+            }
+        }
         Ok(())
     }
 
@@ -3031,11 +3230,46 @@ fn camera_error_phase_compatible(entry: &Entry, kind: CorrelationKind) -> bool {
     }
 }
 
+/// The other of a target's two command sockets.
+const fn other_socket(socket: ViscaSocket) -> ViscaSocket {
+    match socket {
+        ViscaSocket::S1 => ViscaSocket::S2,
+        ViscaSocket::S2 => ViscaSocket::S1,
+    }
+}
+
 fn phase_owns_socket(phase: Phase, socket: ViscaSocket) -> bool {
     matches!(
         phase,
         Phase::Executing { socket: owned, .. }
             | Phase::AwaitingCancellationResolution { socket: owned, .. }
             if owned == socket
+    )
+}
+
+/// Whether an entry is a per-request unconfirmed-command quarantine (issue #671).
+///
+/// A raw command that has failed (or will fail at its ambiguity deadline) with
+/// [`Error::UnsequencedCommandUnconfirmed`] holds its correlation slot until
+/// then in [`Phase::AwaitingLateAck`] (its unacknowledged-command slot) or
+/// [`Phase::AwaitingCancellationResolution`] (its owned socket). These two
+/// phases are otherwise driven by the cancellation path, which always carries a
+/// non-[`CancelState::None`] state, so [`CancelState::None`] uniquely marks the
+/// quarantine. Any late frame that resolves to such an entry must be ignored,
+/// never applied, so it cannot re-open the request or be misattributed.
+fn is_unconfirmed_quarantine(entry: &Entry) -> bool {
+    matches!(entry.cancellation, CancelState::None) && is_quarantine_phase(entry.phase)
+}
+
+/// Whether a phase is a quarantine hold — a late-ACK slot or an owned socket
+/// held until an ambiguity/quarantine deadline.
+///
+/// Both the cancellation path and the issue #671 per-request quarantine park an
+/// entry here. Such an entry is waiting for its own quarantine deadline, so the
+/// retry budget (which bounds an *active* attempt) must not re-drive it.
+const fn is_quarantine_phase(phase: Phase) -> bool {
+    matches!(
+        phase,
+        Phase::AwaitingLateAck { .. } | Phase::AwaitingCancellationResolution { .. }
     )
 }

@@ -3,8 +3,9 @@
 //!
 //! The scenarios are scripted end to end — a camera that accepts writes and
 //! never answers — and the assertions are about what the owner reported. The
-//! first test pins raw ACK ambiguity as a terminal, session-poisoning outcome;
-//! the second deliberately sets the retry budget through public
+//! first test pins raw ACK ambiguity as a per-request terminal that fails the
+//! one command and leaves the session running (issue #671); the second
+//! deliberately sets the retry budget through public
 //! [`OperationalTuning`] so that "this scenario retries" is the caller's own
 //! request rather than a profile constant, and the counter has something it
 //! must show.
@@ -109,9 +110,12 @@ fn an_unanswered_command_counts_ack_timeouts_and_reports_each_retry_decision() {
         .expect_err("a silent camera cannot acknowledge");
     assert!(
         matches!(error, Error::UnsequencedCommandUnconfirmed),
-        "a sent raw command with an ambiguous ACK must poison the session, got {error:?}"
+        "a sent raw command whose ACK is lost fails on its own, got {error:?}"
     );
-    assert!(error.requires_new_session());
+    assert!(
+        !error.requires_new_session(),
+        "issue #671: the unconfirmed command fails per request; the session survives"
+    );
 
     let metrics = session.metrics().expect("metrics");
     let events = session.drain_diagnostics().expect("diagnostics");
@@ -154,18 +158,14 @@ fn an_unanswered_command_counts_ack_timeouts_and_reports_each_retry_decision() {
     assert_eq!(metrics.protocol_errors, 0);
     assert_eq!(metrics.ignored_unmatched_sequenced_replies, 0);
     assert_eq!(metrics.writes, 1);
-    assert_eq!(metrics.session, grafton_visca::SessionStatus::Poisoned);
-    // Explicit shutdown is idempotent but must not launder a poison verdict
-    // into a healthy/ordinary shutdown state.
-    session
-        .shutdown()
-        .expect("shutdown leaves the poison state unchanged");
+    // Issue #671: the raw ACK ambiguity fails only this command; the session is
+    // still running afterwards rather than poisoned.
+    assert_eq!(metrics.session, grafton_visca::SessionStatus::Running);
+    // A later explicit shutdown ends the still-live session in the ordinary way.
+    session.shutdown().expect("the live session shuts down");
     assert_eq!(
-        session
-            .metrics()
-            .expect("poisoned metrics remain readable")
-            .session,
-        grafton_visca::SessionStatus::Poisoned
+        session.metrics().expect("metrics remain readable").session,
+        grafton_visca::SessionStatus::Shutdown
     );
 }
 

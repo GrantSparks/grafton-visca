@@ -160,18 +160,33 @@ encoding.
    no inquiry owner; with no unacknowledged command it may route the legitimate
    per-target inquiry FIFO, while a command-plus-inquiry collision is ignored.
    An explicit socket routes only its exact target/socket owner, and a
-   socketless error never targets `Executing`. A named ACK socket is equally
-   exact: if another request owns that socket, the ACK is inert with
-   `SocketConflict` rather than being remapped to a different free socket;
-   only a socketless ACK may select the first free registered socket. Sony
-   sequencing retains pre-ACK pipelining and exact sequence correlation.
+   socketless error never targets `Executing`. A named ACK socket is exact when
+   that socket is free; if another request owns it — typically because a lost
+   completion made the camera reuse the socket — the ACK falls back to the
+   target's other free socket rather than being dropped (issues #620/#682),
+   because its candidate request was already uniquely identified before the
+   assignment and so cannot be mis-attributed. Only when no socket is free is
+   the ACK inert with `SocketConflict`; a socketless ACK likewise selects the
+   first free registered socket. Sony sequencing retains pre-ACK pipelining and
+   exact sequence correlation.
 8. A successfully sent raw command is never automatically replayed after an
-   ACK, completion, or cancellation ambiguity timeout, or after a raw receive
-   fault while awaiting ACK. An active retry-budget expiry in `Sending`,
-   `AwaitingAck`, or `Executing` has the same poison result. The session becomes
-   unusable because both physical outcome and future reply correlation are
-   uncertain; callers must replace it and reconcile camera state. Same-sequence
-   Sony recovery and retries after conclusive camera rejection remain
+   ACK, completion, or cancellation ambiguity timeout, a raw receive fault while
+   awaiting ACK, or an active retry-budget expiry in `Sending`, `AwaitingAck`,
+   or `Executing` — a raw command may already have reached the camera.
+   **Ratified per-request default (issue #671, superseding the earlier
+   whole-session poison rule and the #565/#566 narrowing):** each such event
+   fails only that one command with `UnsequencedCommandUnconfirmed` — a
+   per-request outcome the session survives (its `requires_new_session()` is
+   `false`) — and quarantines the correlation still at stake (the owned socket,
+   or the command's place as the sole unacknowledged raw command) until the
+   ambiguity deadline, so a late ACK or completion cannot bind to a later
+   command; a late reply arriving during the quarantine is ignored, never
+   applied. The session and every unrelated request keep running. Whole-session
+   poison is retained only behind the opt-in `strict_unconfirmed_poison`
+   `OperationalTuning` mode (default off), which restores the pre-fix behavior
+   and surfaces it as `StreamPoisoned` so a poisoned session still requires a
+   replacement. Same-sequence Sony recovery and retries after conclusive camera
+   rejection (buffer-full `0x03` / no-socket `0x05` / movement `0x41`) remain
    supported.
 9. Broadcast setup commands (Address Set and I/F Clear) and socket
    cancellation are owner-coordinated lifecycle controls, not public generic
@@ -194,9 +209,11 @@ encoding.
 13. One admission-to-terminal retry budget remains active through every later
     noncancelled attempt phase, including backoff, ready, send, ACK, execution,
     and reply; expiry preserves the prior retry cause instead of replacing it
-    with an incidental later phase timeout. Cancellation quarantine is separate
-    and is never shortened by budget expiry. Empty UDP datagrams are discarded
-    without resetting that receive deadline.
+    with an incidental later phase timeout. A cancellation quarantine, and the
+    per-request unconfirmed quarantine of item 8, are separate holds governed by
+    their own ambiguity deadline and are never driven or shortened by budget
+    expiry. Empty UDP datagrams are discarded without resetting that receive
+    deadline.
 14. Async `shutdown` is the idempotent, non-joining signal; consuming `close`
     is the deterministic transport-teardown barrier. `close` waits until the
     sole owner has finished its boundary drain and dropped its driver/transport,

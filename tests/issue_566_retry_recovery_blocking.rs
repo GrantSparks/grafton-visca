@@ -5,8 +5,9 @@
 //! replayed and which are surfaced, that a sequence-correlated Sony movement
 //! command survives a lost ACK and a silent post-ACK camera, and that an
 //! unresolvable Sony cancellation reaches the caller as
-//! `Error::CancellationUnconfirmed`. Raw commands deliberately retain their
-//! stricter unsequenced ambiguity verdict.
+//! `Error::CancellationUnconfirmed`. A raw command with the same ambiguity fails
+//! only itself as `Error::UnsequencedCommandUnconfirmed` (issue #671) while the
+//! session keeps running.
 //!
 //! The async twin is `tests/issue_566_retry_recovery_async.rs`.
 
@@ -291,7 +292,8 @@ fn a_no_socket_answer_is_replayed_for_a_standard_command() {
 
 /// Issue #566: a sequence-correlated Sony movement request survives a lost
 /// ACK. Raw VISCA has no request identity after a successful write, so replay
-/// there would be unsafe and is covered by the poison-path tests instead.
+/// there would be unsafe; a raw command instead fails per-request and
+/// quarantines its slot (issue #671), covered by the engine and #565 tests.
 #[test]
 fn a_sony_movement_command_survives_a_lost_ack() {
     // The first write draws no answer at all; the ACK deadline lapses and the
@@ -351,8 +353,9 @@ fn a_silent_camera_after_its_ack_is_retried() {
 }
 
 /// Issue #566: `Error::CancellationUnconfirmed` reaches the caller through a
-/// sequence-correlated Sony owner. A raw command with the same ambiguity must
-/// poison its session as `UnsequencedCommandUnconfirmed` instead.
+/// sequence-correlated Sony owner. A raw command with the same ambiguity fails
+/// per-request as `UnsequencedCommandUnconfirmed` (issue #671) while its session
+/// keeps running.
 #[test]
 fn an_unresolvable_cancellation_reaches_the_caller() {
     // The camera never answers anything: neither the command nor the cancel.

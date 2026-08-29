@@ -13,6 +13,16 @@ destination.
 
 ### Added
 
+- **Added `OperationalTuning::strict_unconfirmed_poison`** (#671), an opt-in
+  (default off) that restores the pre-fix whole-session poison for an
+  unconfirmable raw command. The default per-request behavior (see the Changed
+  entry below) serves the common live-control case; a deployment that would
+  rather hard-fail an entire session than risk a subtle correlation error can set
+  this flag, and the session then poisons and reports `StreamPoisoned`. Like the
+  wire envelope, it is applied when the session is built and is not changed by a
+  later `set_tuning`. This adds one public builder method; the
+  `api/2.0.0-rc.1/*.txt` snapshots are regenerated accordingly.
+
 - **Added the serial single-camera constructors** (#650), so serial reaches a
   compile-time-bound camera the same way TCP and UDP do. #568 gave the network
   transports `Connect::open_tcp_camera` / `open_udp_camera` and
@@ -199,6 +209,42 @@ destination.
   contracts.
 
 ### Changed
+
+- **A raw command that cannot be confirmed now fails per request instead of
+  poisoning the whole session** (#671), superseding the earlier 2.0-preview
+  behavior in which a lost ACK/completion datagram, a transient receive fault
+  while a raw command awaited its ACK, an unresolved cancellation, or an active
+  retry-budget expiry ended the entire session with
+  `UnsequencedCommandUnconfirmed`. That preview rule reversed the review-1
+  mandates #565 (transient faults must not poison) and #566 (movement/preset
+  commands survive a lost ACK) on 7 of 9 shipped profiles; this restores them.
+  By default the engine now fails only the affected command with
+  `UnsequencedCommandUnconfirmed` — a per-request outcome the session survives —
+  and quarantines the correlation still at stake (its owned socket, or its place
+  as the sole unacknowledged raw command) until the ambiguity deadline, so a late
+  ACK or completion is ignored rather than misbound to a later command. The
+  session and every unrelated request keep running, and the "never blindly replay
+  an unconfirmed raw command" principle is kept in full. A transient receive
+  fault no longer terminalizes an in-flight raw command at all: it rides to its
+  own ACK deadline. Sony same-sequence retry and conclusive-rejection retry
+  (buffer-full `0x03` / no-socket `0x05` / movement `0x41`) are unchanged. The
+  whole-session poison is retained behind the new opt-in
+  `OperationalTuning::strict_unconfirmed_poison` (default off), which surfaces its
+  session kill as `StreamPoisoned`. Consequently `UnsequencedCommandUnconfirmed`
+  now reports `requires_new_session() == false` (a live session must never hand a
+  caller a replacement-session verdict); a raw integration that reconnected on
+  this error should now retry on the same session. Ratifies design-review
+  decision D8. See `docs/migration_2_0.md` for the row a raw user feels.
+
+- **Restored the #620 bounded other-socket ACK fallback** (#682). At the earlier
+  2.0-preview head an ACK naming a socket another request still owned returned
+  `SocketConflict` and left the command wedged on `AwaitingAck`, which — because
+  the ACK deadline is what #671 poisoned on — turned a single lost completion
+  frame (the camera then reuses the socket) into a session poison. The named-ACK
+  fallback to the target's other free socket is restored: the ACK's candidate is
+  uniquely identified before assignment, so the fallback cannot mis-attribute it;
+  it only keeps the next command from wedging. Composed with the #671 model, no
+  cascade to session death remains.
 
 - **Ratified two of the three 1.x behavioral-parity waivers and hardened the
   gate that records them** (#676, ratification per #692). The parity corpus

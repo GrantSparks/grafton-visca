@@ -223,10 +223,10 @@
     {
       "id": "v2-faults-blocking",
       "file": "tests/issue_565_transport_faults_blocking.rs",
-      "symbol": "raw_transient_receive_fault_poisons_without_retry",
+      "symbol": "raw_receive_fault_fails_one_command_and_keeps_the_session",
       "envelope": "raw",
       "profile": "NonDefaultCompileTimeProfile",
-      "receipt_class": "poison",
+      "receipt_class": "transport",
       "command": [
         "cargo",
         "test",
@@ -237,10 +237,10 @@
     {
       "id": "v2-faults-async",
       "file": "tests/issue_565_transport_faults_async.rs",
-      "symbol": "raw_transient_receive_fault_poisons_without_retry",
+      "symbol": "raw_receive_fault_fails_one_command_and_keeps_the_session",
       "envelope": "raw",
       "profile": "NonDefaultCompileTimeProfile",
-      "receipt_class": "poison",
+      "receipt_class": "transport",
       "command": [
         "cargo",
         "test",
@@ -436,7 +436,7 @@
       "v2_tests": [
         "v2-prepared-timeout-selection"
       ],
-      "clause": "#542 \u00a73: preserve category-specific timeout policy and keep scheduler, observer, and transport deadlines independent.",
+      "clause": "#542 §3: preserve category-specific timeout policy and keep scheduler, observer, and transport deadlines independent.",
       "rationale": "2.0 renames the public tuning type and lowers it through Prepared requests, but the category defaults and selection behavior remain an explicit preservation floor."
     },
     {
@@ -461,8 +461,8 @@
         "v2-retries-async",
         "v2-retries-scripted"
       ],
-      "clause": "#542 \u00a73: preserve category-specific retry counts and conclusive camera-error retry classification while making replay depend on correlation evidence.",
-      "rationale": "2.0 keeps the category retry-count table and bounded exponential scheduling, but sizes one admission-to-terminal budget from the governing deadline and profile busy timeout. Sony ambiguity may retry only with the same sequence; an ambiguous successfully sent raw command poisons the session instead of being replayed."
+      "clause": "#542 §3: preserve category-specific retry counts and conclusive camera-error retry classification while making replay depend on correlation evidence.",
+      "rationale": "2.0 keeps the category retry-count table and bounded exponential scheduling, but sizes one admission-to-terminal budget from the governing deadline and profile busy timeout. Sony ambiguity may retry only with the same sequence; an ambiguous successfully sent raw command is never replayed. By default (issue #671) it fails only that one command with UnsequencedCommandUnconfirmed and quarantines its correlation slot while the session survives; the strict strict_unconfirmed_poison opt-in instead poisons the whole session."
     },
     {
       "id": "deterministic-equal-jitter",

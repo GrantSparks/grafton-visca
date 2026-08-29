@@ -367,11 +367,21 @@ pub enum Error {
     #[error("Cancellation could not be confirmed")]
     CancellationUnconfirmed,
 
-    /// A raw/unsequenced command was successfully sent, but its ACK, completion,
-    /// or cancellation outcome became unknowable. A receive fault while its ACK
-    /// was outstanding, or an active retry-budget expiry while an attempt was in
-    /// `Sending`, `AwaitingAck`, or `Executing`, has the same consequence. The
-    /// session cannot safely correlate later replies to that command.
+    /// A raw/unsequenced command was successfully sent, but its ACK or
+    /// completion outcome became unknowable — a lost ACK/completion datagram, an
+    /// expired cancellation-ambiguity window, or a spent retry budget while an
+    /// attempt was in `Sending`, `AwaitingAck`, or `Executing`.
+    ///
+    /// By default this is a **per-request** outcome the session survives (issue
+    /// #671): the engine fails only this command and quarantines its correlation
+    /// slot — its owned socket, or its place as the sole unacknowledged raw
+    /// command — until the ambiguity deadline, so a late reply cannot bind to a
+    /// later command. It is never replayed automatically, because a raw command
+    /// may already have reached the camera, and it is therefore *not* proof of
+    /// session death: [`Self::requires_new_session`] is `false`. Reconcile the
+    /// affected camera state before deciding whether to resubmit. The strict
+    /// `strict_unconfirmed_poison` opt-in instead poisons the whole session,
+    /// which is surfaced as [`Self::StreamPoisoned`].
     #[error("Unsequenced command outcome could not be confirmed")]
     UnsequencedCommandUnconfirmed,
 
@@ -663,9 +673,7 @@ impl Error {
             // Terminal session death that the application did not ask for. The
             // engine and both owners report exactly these variants when a
             // session stops being usable because of the transport.
-            Self::ConnectionClosed { .. }
-            | Self::StreamPoisoned { .. }
-            | Self::UnsequencedCommandUnconfirmed => true,
+            Self::ConnectionClosed { .. } | Self::StreamPoisoned { .. } => true,
 
             // Deliberate shutdown. The session is over because the application
             // ended it, so reconnecting is a policy decision, not a repair.
@@ -679,7 +687,11 @@ impl Error {
             // purpose: a datagram request-write failure is isolated to its own
             // transmission, and a stream failure reaches the caller as
             // `StreamPoisoned` from the owner, so the raw transport error is
-            // never the proof of session death.
+            // never the proof of session death. `UnsequencedCommandUnconfirmed`
+            // is also here (issue #671): by default it fails one raw command
+            // while the session keeps running, and the strict opt-in reports
+            // session death separately as `StreamPoisoned`. A live session must
+            // never hand out a replacement-session verdict.
             Self::ConnectionFailed { .. }
             | Self::CommandTimeout { .. }
             | Self::CameraBusy
@@ -715,6 +727,7 @@ impl Error {
             | Self::TransportBusy
             | Self::NoResponse
             | Self::CancellationUnconfirmed
+            | Self::UnsequencedCommandUnconfirmed
             | Self::RuntimeIdentityExhausted
             | Self::RuntimeQueueFull { .. }
             | Self::ValidationError(..)
@@ -1353,7 +1366,15 @@ mod tests {
         assert!(dropped.requires_new_session());
         assert!(poisoned.requires_new_session());
         assert!(!shutdown.requires_new_session());
-        assert!(Error::UnsequencedCommandUnconfirmed.requires_new_session());
+        // Issue #671: `UnsequencedCommandUnconfirmed` shares the `IoClosed` kind
+        // yet is, by default, a per-request outcome the session survives, so it
+        // must not require a new session. It is the strongest case that the
+        // verdict cannot be derived from the kind.
+        assert_eq!(
+            Error::UnsequencedCommandUnconfirmed.kind(),
+            ErrorKind::IoClosed
+        );
+        assert!(!Error::UnsequencedCommandUnconfirmed.requires_new_session());
     }
 
     #[test]
@@ -1363,7 +1384,6 @@ mod tests {
             Error::StreamPoisoned {
                 reason: Cow::Borrowed("framing failure"),
             },
-            Error::UnsequencedCommandUnconfirmed,
         ] {
             assert!(
                 error.requires_new_session(),
@@ -1388,6 +1408,9 @@ mod tests {
             Error::TransportBusy,
             Error::MaxRetriesExceeded,
             Error::CancellationUnconfirmed,
+            // Issue #671: a raw command's default unconfirmed outcome fails the
+            // one request while the session keeps running.
+            Error::UnsequencedCommandUnconfirmed,
             Error::TransportError(Cow::Borrowed("serial encode failed")),
             Error::ConnectionFailed {
                 addr: Cow::Borrowed("192.168.1.100:5678"),

@@ -154,10 +154,14 @@ concurrency without asking FIFO order to identify an ACK. Raw ACK and error
 routing never uses command FIFO or temporal recency. Sony-encapsulated requests
 may pipeline before ACK because their envelope sequence provides an exact
 correlation key. An unsequenced ACK is never attributed by a guess.
-When a raw ACK names a socket, that socket is exact evidence: an occupied
-named socket produces `SocketConflict` and remains inert rather than being
-silently remapped to another free socket. Only a socketless ACK retains the
-compatibility rule of selecting the first free registered socket.
+When a raw ACK names a free socket, that socket is exact evidence. When the
+named socket is instead held by another request — the classic cause is a lost
+completion frame that made the camera reuse the socket — the ACK falls back to
+the target's other free socket (issues #620/#682). Its candidate request was
+already uniquely identified before the assignment, so the fallback cannot
+mis-attribute the ACK; it only keeps the command from wedging on `AwaitingAck`.
+Only when no socket is free does the ACK remain inert with `SocketConflict`. A
+socketless ACK likewise selects the first free registered socket.
 
 For a raw socketless error, the evidence rule is equally strict: route the
 unique unacknowledged command only when no inquiry owner is live; otherwise
@@ -172,15 +176,22 @@ such as buffer-full or no-socket proves that the command did not start and may
 be retried under policy. A raw command that was successfully written but then
 loses its ACK, completion, or cancellation resolution, or encounters a receive
 fault while awaiting ACK, is different: replay could perform a relative move
-or preset twice, while continuing could let a late reply bind to later work.
-The owner therefore ends that session with
-`Error::UnsequencedCommandUnconfirmed`; callers must establish a fresh session
-and reconcile camera state rather than blindly replaying the command. An active
+or preset twice, while a naive continuation could let a late reply bind to later
+work. By default the owner therefore fails only that one command with
+`Error::UnsequencedCommandUnconfirmed` — a per-request outcome the session
+survives — and quarantines the correlation still at stake (its owned socket, or
+its place as the sole unacknowledged command) until the ambiguity deadline, so a
+late reply is ignored rather than bound to a later command (issue #671). The
+session and every unrelated request keep running; the caller reconciles that one
+command's camera effect rather than replacing the session. An active
 retry-budget expiry in `Sending`, `AwaitingAck`, or `Executing` follows the same
-raw poison rule; a retry that is still in a safe ready/backoff state can instead
-finish with its retained last error when the total budget expires. The budget
-applies to every later noncancelled retry phase; cancellation quarantine is
-separate and is never shortened by budget expiry.
+per-request rule, while a retry still in a safe ready/backoff state finishes with
+its retained last error when the total budget expires. The whole-session poison
+is retained only behind the opt-in `strict_unconfirmed_poison` tuning (default
+off), which restores the pre-fix behavior and surfaces it as
+`Error::StreamPoisoned` so those callers still establish a fresh session. The
+budget applies to every later noncancelled retry phase; a cancellation or
+per-request quarantine is separate and is never shortened by budget expiry.
 
 Fixed-format ACK, completion, error, and network-change frames are classified
 only at their exact lengths. A known fixed prefix with trailing bytes is

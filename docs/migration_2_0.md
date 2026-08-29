@@ -429,15 +429,19 @@ application requested:
 | Terminal condition | Error | `requires_new_session()` |
 | --- | --- | --- |
 | The peer closed the connection | `ConnectionClosed` | `true` |
-| The stream position became unknowable | `StreamPoisoned` | `true` |
-| A sent raw command's outcome cannot be correlated (ACK/completion/cancellation ambiguity, receive fault while awaiting ACK, or active retry-budget expiry in `Sending`/`AwaitingAck`/`Executing`) | `UnsequencedCommandUnconfirmed` | `true` |
+| The stream position became unknowable, or the strict opt-in poisoned the session for an unconfirmable raw command | `StreamPoisoned` | `true` |
+| A sent raw command's outcome cannot be correlated, default per-request mode (ACK/completion/cancellation ambiguity, receive fault while awaiting ACK, or active retry-budget expiry in `Sending`/`AwaitingAck`/`Executing`) | `UnsequencedCommandUnconfirmed` | `false` |
 | The application shut the session down | `RuntimeShutdown` | `false` |
 
-`UnsequencedCommandUnconfirmed` is the raw-ambiguity mapping in that table:
-discard the old owner, open a replacement session from the retained
-`SessionConfig`, treat its cache as `Unknown`, and re-query/reconcile device
-state before any deliberate resubmission. Never blindly replay the uncertain
-command; it may already have acted on the camera.
+**Behavior change (issue #671).** In an earlier 2.0 preview an unconfirmable raw
+command poisoned the whole session and `UnsequencedCommandUnconfirmed` mapped to
+`true`. It now fails only that one command on a still-live session, so it maps to
+`false`: reconcile that command's camera effect (never blindly replay it — it may
+already have acted on the camera) and keep using the session for unrelated work.
+A raw caller who tore the session down on this error should now retry on the same
+session instead. If you preferred the old hard-fail behavior, opt into
+`OperationalTuning::strict_unconfirmed_poison(true)`, which poisons the session
+and reports `StreamPoisoned` (`true`) exactly as before.
 
 `true` is positive proof that the session is finished; `false` only means the
 error alone does not prove it. Ordinary per-request failures — timeouts, busy

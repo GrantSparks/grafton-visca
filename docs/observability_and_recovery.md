@@ -47,7 +47,8 @@ camera answering requests the engine can no longer correlate still shows up.
 `retries_scheduled` counts wherever the engine emits a permitted retry — a busy
 camera, an eligible expired deadline, or an eligible sequenced receive fault
 all count the same. A raw receive fault while an unsequenced command awaits ACK
-ends the session instead of incrementing this retry path.
+neither replays it nor (by default) ends the session — the command rides to its
+own ACK deadline — so it does not increment this retry path.
 
 ## Diagnostics
 
@@ -93,9 +94,9 @@ for the sole actor to finish its boundary drain and drop its driver, including
 the owned transport. It is the deterministic transport-teardown barrier, not
 an executor-specific task join: reopening an endpoint after `close()` is safe
 because completion is ordered after transport release. If the shutdown signal is accepted, an explicit
-`RuntimeShutdown` terminal result is returned as success; a transport close,
-stream poison, or raw-command ambiguity poison that wins the source ordering
-is returned unchanged. An immediate error while sending `close()`'s signal is
+`RuntimeShutdown` terminal result is returned as success; a transport close, or
+a stream / strict-opt-in session poison that wins the source ordering, is
+returned unchanged. An immediate error while sending `close()`'s signal is
 also preserved. Dropping a view or calling `shutdown()` alone is not a
 transport-release barrier.
 
@@ -144,11 +145,20 @@ identity. Raw VISCA has no such key. After a raw command was successfully sent,
 an ACK timeout, completion timeout, unresolved cancellation, receive fault
 while awaiting ACK, or active retry-budget expiry while an attempt is in
 `Sending`, `AwaitingAck`, or `Executing` leaves both its physical outcome and
-any later reply ownership uncertain. The engine does not replay it; it ends the
-session with `Error::UnsequencedCommandUnconfirmed`, and callers must establish
-a replacement session. This rule deliberately covers non-idempotent relative
-motion and presets rather than asking a retry class to guess whether a
-particular payload is harmless.
+any later reply ownership uncertain. The engine never replays it (that would
+risk a duplicate relative move or preset). By default (issue #671) it fails only
+that one command with `Error::UnsequencedCommandUnconfirmed` — a per-request
+outcome the session survives — and holds the correlation still at stake (its
+owned socket, or its place as the sole unacknowledged command) quarantined until
+the ambiguity deadline, so a late ACK or completion is ignored rather than bound
+to a later command. The session and every unrelated request keep running; the
+caller reconciles that one command's camera effect rather than replacing the
+session. Deployments that would rather hard-fail an entire session than risk a
+subtle correlation error can opt into `OperationalTuning::strict_unconfirmed_poison`,
+which restores the whole-session poison (surfaced as `Error::StreamPoisoned`,
+which requires a replacement session). This rule deliberately covers
+non-idempotent relative motion and presets rather than asking a retry class to
+guess whether a particular payload is harmless.
 
 `0x02` (`SyntaxError`) is retried on one narrow path: an inquiry issued through
 this crate's own built-in typed inquiry surface. Cameras answer a built-in
@@ -176,16 +186,20 @@ every timeout category.
 Two bounds stop a request retrying: the count above, and one wall-clock budget
 counted from admission. That same budget remains active through every later
 noncancelled attempt phase — backoff, ready, send, ACK, execution, and reply —
-so an active attempt cannot silently extend the total. Cancellation quarantine
-is separate and is never shortened by budget expiry. That wall-clock budget is
+so an active attempt cannot silently extend the total. A cancellation or
+per-request unconfirmed quarantine is separate, governed by its own ambiguity
+deadline, and is never shortened by budget expiry. That wall-clock budget is
 the largest of ten seconds, twice the request's own governing deadline
 (its completion deadline for a command, its reply deadline for an inquiry —
 doubling it always leaves room for one further full-length attempt), and the
 profile's busy timeout. Whichever bound is reached first produces the terminal
 error, and a request that runs out of wall-clock time reports the error that
 caused its last retry rather than an incidental later timeout. If that expiry
-catches a successfully sent raw command in an ambiguous phase, the
-unsequenced-session rule above is stricter and wins.
+catches a successfully sent raw command in an ambiguous phase, the per-request
+unsequenced rule above governs it: the one command fails
+`UnsequencedCommandUnconfirmed` and quarantines its correlation (or, under the
+strict opt-in, poisons the session) rather than finishing with the retained
+last error.
 
 Backoff doubles from the initial delay (50 ms by default) up to
 `maximum_backoff` (500 ms by default, raised to the profile's busy timeout
@@ -205,9 +219,14 @@ Not every transport failure ends a session. A receive that fails without
 proving the connection is gone — the classic case is a UDP `recv` reporting
 ECONNREFUSED after an ICMP port-unreachable for an earlier datagram — may retry
 a sequenced Sony command still waiting for its ACK under that command's bounded
-policy. If a raw command is waiting for its ACK, however, any receive fault
-leaves acceptance and reply ownership uncertain; the owner ends the session
-with `UnsequencedCommandUnconfirmed` instead of risking duplicate actuation.
+policy. A raw command waiting for its ACK has no sequence to replay, but a
+transient receive fault consumes nothing and cannot desynchronize raw framing,
+so by default (issue #671) the owner does not terminalize it on the fault at
+all: it is left to ride to its own ACK deadline, where — if no ACK arrives — it
+fails per-request and quarantines its slot rather than poisoning the session.
+The strict `strict_unconfirmed_poison` opt-in instead ends the whole session
+(surfaced as `StreamPoisoned`) on such a fault. Neither path ever replays the
+command.
 When no such raw command is awaiting ACK, a read that proves the connection is
 gone (`ConnectionClosed`, or an `Io` failure whose kind is `ConnectionReset`,
 `ConnectionAborted`, `BrokenPipe`, `UnexpectedEof`, or `NotConnected`) ends the
@@ -268,8 +287,12 @@ restart in place:
    for transport-level session death (`ConnectionClosed`, `StreamPoisoned`, and
    the transport/channel-unavailable errors) and `false` for the deliberate
    `RuntimeShutdown`, which all share `ErrorKind::IoClosed`. Do not match the
-   kind or individual variants to make this decision. This includes
-   `UnsequencedCommandUnconfirmed`, which always requires a replacement session.
+   kind or individual variants to make this decision. Note that
+   `UnsequencedCommandUnconfirmed` returns `false` (issue #671): by default it is
+   a per-request failure on a still-live session, so reconcile that one command's
+   camera effect rather than rebuilding the session. The strict
+   `strict_unconfirmed_poison` opt-in reports its session kill as `StreamPoisoned`
+   instead, which this step already classifies as requiring a replacement.
 1. Keep the validated, reusable `SessionConfig` outside the session.
 2. Request `shutdown`/`close` and stop using views from the old owner.
 3. Resolve or discard every old operation handle. Handles from the old owner
