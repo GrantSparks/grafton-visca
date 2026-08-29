@@ -243,6 +243,122 @@ never exhibited the raw first-write stall.
 This ordering is what permits a detached observer or a dropped subscription to
 miss an event without losing an already-applied state update.
 
+## Engine phases and the transition table
+
+The engine keeps exactly one authoritative entry per admitted request. Each
+entry carries a protocol `Phase` and a cancellation substate (`CancelState`);
+both are `pub(crate)` in `src/runtime/engine/types.rs`, so they never reach
+rustdoc and are documented here instead. The tables below are derived from the
+transition functions in `src/runtime/engine/mod.rs` and describe the settled
+post-#671 behavior, not an aspirational one.
+
+### Protocol phases
+
+| `Phase` | Meaning |
+| --- | --- |
+| `Ready` | Admitted and queued; nothing written yet. Holds a lazy-deletion `QueueTicket`. |
+| `Sending` | The request's transport write is in flight; carries its `TransmissionId`. |
+| `AwaitingAck` | A command was written and awaits its ACK (deadline = sent + ack). |
+| `Executing` | The ACK assigned a socket; awaits completion (deadline = ack + completion). |
+| `AwaitingReply` | An inquiry was written and awaits its reply (deadline = sent + inquiry). |
+| `Backoff` | A retryable rejection or timeout scheduled a retry; re-enters `Ready` at `ready_at`. |
+| `AwaitingCancellationResolution` | A socket cancellation was sent, or a lost completion is quarantined while the socket is still owned; awaits the original completion or the protocol-cancel terminal. |
+| `AwaitingLateAck` | A sent raw command lost its ACK correlation and is quarantined until the ambiguity deadline so a late reply cannot misbind (issue #671). |
+
+### Cancellation substates
+
+| `CancelState` | Meaning |
+| --- | --- |
+| `None` | No cancel intent. It is also the marker for a #671 unconfirmed-command quarantine. |
+| `Requested` | Cancel intent recorded before a socket was assigned; suppresses every later retry. |
+| `Sending` | A cancel frame's write is in flight. |
+| `AwaitingTerminal` | A cancel frame was written; awaits the original completion (`Completed`) or the protocol-cancel terminal (`Cancelled`). |
+| `ObservationFailed` | A datagram cancel write failed; the token was resolved with that error while the original request stays live. |
+
+### Transition table
+
+| Input / state | Transition or result |
+| --- | --- |
+| Admit while `Running`, within capacity, target registered, policy compatible | Allocate a non-colliding `RequestId`, create one `Ready` entry with `CancelState::None`, enqueue it, and emit `Admitted`. No write happens here. |
+| Admit over capacity | Reject with `Error::RuntimeQueueFull`; no id, entry, observer, or queue slot is created. |
+| Admit with the id/generation space exhausted | Reject with `Error::RuntimeIdentityExhausted`. |
+| Admit to a non-`Running` session | Reject with the session's terminal error (or `Error::RuntimeShutdown`). |
+| Select a `Ready` request | Transition to `Sending`, allocate one `TransmissionId`, emit exactly one request `Transmit` (Sony carries its retained sequence; raw carries none). |
+| Successful command send | Record any Sony sequence and transition to `AwaitingAck`. |
+| Successful inquiry send | Record any Sony sequence, transition to `AwaitingReply`, and take a per-target FIFO position for a raw inquiry. |
+| Failed command send, datagram transport | Terminally fail that one request with the exact transport error; every other entry keeps running. |
+| Failed command send, stream transport | Poison the session (`Error::StreamPoisoned`) and resolve every active entry. |
+| ACK in `AwaitingAck`/`AwaitingLateAck` with a free socket | Assign the socket and transition to `Executing`; if cancel intent is already recorded on a supported target, emit one socket cancellation. |
+| ACK naming a busy socket | Fall back to the target's other free socket when it has more than one (issues #620/#682); when none is free the ACK stays inert as `Ignored(SocketConflict)`. |
+| ACK while still `Sending` | Latch it once as a deferred ACK, applied when the send result lands. |
+| Completion in `Executing` | `finish` with `RuntimeOutcome::Applied`; a retained cancellation observer maps this to `Completed`. |
+| Inquiry reply in `AwaitingReply` | `finish` with the attributed payload. |
+| Retryable conclusive rejection (buffer-full `0x03`/`0x05`, movement `0x41`), no cancel intent | Increment the bounded attempt and enter `Backoff`. |
+| Retryable rejection with cancel intent | Suppress retry and `finish` with `Cancelled`, because no executing attempt exists. |
+| `0x04` command-cancelled terminal | `finish` with `Cancelled`. |
+| ACK timeout, Sony envelope, retryable | Retry within policy on ACK-capped backoff, replaying the exact sequence. |
+| ACK/completion loss, a receive fault while `AwaitingAck`, or retry-budget expiry in an active raw phase | Default: fail only that command with `Error::UnsequencedCommandUnconfirmed` (the session survives) and quarantine its still-owned correlation — `AwaitingLateAck` when only its unacknowledged slot is at stake, `AwaitingCancellationResolution` when it still owns a socket (issue #671). |
+| Quarantine / ambiguity deadline expiry | `finish` with `Error::UnsequencedCommandUnconfirmed` (raw) or `Error::CancellationUnconfirmed` (Sony or an open cancellation), releasing the reserved socket or slot only then. |
+| Any of the two rows above under the `strict_unconfirmed_poison` opt-in | Poison the session and report `Error::StreamPoisoned`, restoring the pre-#671 behavior. |
+| Retry becomes eligible (`Backoff` → ready) | Return to `Ready` and dispatch through the ordinary capacity and pacing gates. |
+| Cancel in `Ready` or `Backoff` | Remove without I/O; emit `CancellationRecorded`, then `finish` with `Cancelled`. |
+| Cancel in `Sending` (supported target) | Record `Requested` intent; the send result drives the next state. |
+| Cancel in `AwaitingAck` (supported target) | Record `Requested` intent, suppress retries, and wait for socket assignment or the ambiguity deadline. |
+| Cancel in `Executing` (supported target) | Record intent, emit one socket cancellation, and retain the original completion correlation. |
+| Cancel after transmission on a target without socket cancellation | The cancellation observation fails with `Error::NotSupported`; record no intent, send no frame, and leave the original request active. |
+| Cancel of an inquiry | The cancellation observation fails with `Error::InquiryNotCancelable`. |
+| Duplicate cancel of the same request | `Ignored(DuplicateCancellation)`. |
+| Successful cancel send | Transition to `AwaitingCancellationResolution` with `AwaitingTerminal`; wait for the original completion (`Completed`) or the protocol-cancel terminal (`Cancelled`). |
+| Failed datagram cancel send | Resolve the token with the error (`ObservationFailed`), retain the original request and routing, and never retry that cancel for the same socket assignment. |
+| Failed stream cancel send | Poison the session and resolve every entry and observer. |
+| Observer detach or timeout | No engine input and no protocol transition. |
+| Close / shutdown / poison | Resolve every active entry once, in admission order, with the distinct terminal error; clear every index and transmission; reject or drain boundary admissions deliberately. |
+
+Non-retryable camera and transport errors stay exact even when cancel intent
+exists. `Cancelled` is never used merely because a caller stopped waiting or the
+engine lost certainty. When one input emits both a cancellation acknowledgement
+and an immediate terminal result, `CancellationRecorded` precedes `Terminal`.
+
+The four terminal conditions are distinct errors, and `Error::requires_new_session()`
+separates a dead session from a recoverable one:
+
+| Terminal condition | Error | `requires_new_session()` |
+| --- | --- | --- |
+| The peer closed the connection | `ConnectionClosed` | `true` |
+| The stream position became unknowable, or the strict opt-in poisoned an unconfirmable raw command | `StreamPoisoned` | `true` |
+| A sent raw command's outcome cannot be correlated (default per-request mode) | `UnsequencedCommandUnconfirmed` | `false` |
+| The application shut the session down | `RuntimeShutdown` | `false` |
+
+## Operational invariants
+
+The engine and its serialized owner uphold the following invariants in every
+supported configuration. They are the properties the deterministic engine, the
+bounded owner boundaries, and the `#![forbid(unsafe_code)]` crate attribute
+exist to guarantee.
+
+- Runtime mutation is serialized per transport.
+- Every admitted request has exactly one authoritative entry until safe terminal removal.
+- Every request and cancellation transmission has one active identity and one result.
+- Every request reaches at most one terminal engine transition.
+- Every retained operation or cancellation observer resolves at most once.
+- Every target/socket pair has at most one active owner.
+- Every sequence owner is an active, target-compatible, and phase-compatible entry.
+- Stale queue, retry, deadline, correlation, admission, or transmission tickets cannot send or resolve work.
+- A cancel transmission is emitted at most once for one socket assignment.
+- Observer removal never mutates protocol state or releases protocol capacity early.
+- Malformed, duplicate, stale, reordered, and unsolicited frames cannot panic or mutate unrelated state.
+- No user decoder, callback, subscriber, transport I/O, or sleep runs while mutable engine state is borrowed.
+- The owner copies or moves each effect out of the engine and ends the mutable engine/observer borrow before transport I/O, borrowing the engine again only to apply the identified result.
+- No slow observer or subscriber can block protocol progress.
+- Request-identity wraparound cannot alias active or quarantined work.
+- All boundary, engine, observer, diagnostics, framing, and subscription memory has a documented bound.
+- Stream poison, close, and shutdown cannot leave a retained waiter blocked indefinitely.
+- A fresh session contains no state from a poisoned session.
+- The runtime code implementing this architecture contains no `unsafe`.
+- A returned blocking operation handle names a request whose initial transport write succeeded.
+- Target-local state changes occur only from exact `AppliedStateEffect` delivery and never depend on an observer.
+- Built-in encoding and per-transmission framing allocate nothing; lifecycle allocations remain fixed and admission-bounded.
+
 ## Scheduling and async source arbitration
 
 Each request owns an intrinsic `ControlClass`. Typed stops and protocol

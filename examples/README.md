@@ -54,6 +54,7 @@ If you're new to the library, start with these examples in order:
 - **[preset_demo.rs](preset_demo.rs)** - Single preset set, recall, or clear operation
 - **[operation_handles.rs](operation_handles.rs)** - Blocking applied/settled waits, explicit detach, and a session closed on every path
 - **[operation_handles_async.rs](operation_handles_async.rs)** - Tokio applied/settled waits, explicit detach, and a session closed on every path
+- **[motion_safety.rs](motion_safety.rs)** - Blocking `motion()` view: `is_moving`, `is_moving_axes`, `wait_until_idle`, and the `stop_all_motion` composite
 - **[type_safe_commands.rs](type_safe_commands.rs)** - Compile-time profile and capability safety (no camera required)
 
 ### Connection, Transport, and Configuration
@@ -68,6 +69,11 @@ If you're new to the library, start with these examples in order:
 - **[runtime_demo.rs](runtime_demo.rs)** - Tokio runtime setup with concurrent read-only inquiries
 - **[concurrent_control.rs](concurrent_control.rs)** - Concurrent async inquiries, safely ordered movement, and producer-consumer commands
 - **[error_handling.rs](error_handling.rs)** - Error classification with propagated connection and inquiry failures
+- **[cancellation.rs](cancellation.rs)** - Tokio `.cancel()`: the supported `Cancellation`/`outcome` path and the G2 unsupported-post-send `NotSupported`/`CancelRejected` recovery
+- **[custom_request.rs](custom_request.rs)** - A downstream custom `PlainCommand` and `OperationCommand` submitted via `execute`/`submit`, plus a runtime `ProfileSpec`
+- **[dyn_quickstart.rs](dyn_quickstart.rs)** - Profile-erased `DynSessionCamera` with a `DynTargetedOperation` and a `DynAppliedOperation` (requires `dyn-api`)
+- **[multi_camera.rs](multi_camera.rs)** - One session with two registered targets selected by `camera_for`, using explicit-timeout waits
+- **[recovery.rs](recovery.rs)** - Fresh-session recovery after `requires_new_session()`: re-callable transport factory, reused config, and re-query
 
 ### Validation and Reference
 - **[typed_inquiry_demo.rs](typed_inquiry_demo.rs)** - Typed inquiry API walkthrough
@@ -95,10 +101,15 @@ cargo run --example quickstart -- 192.168.0.110
 cargo run --example quickstart -- 192.168.0.110 --move
 cargo run --example inquiry_quickstart -- 192.168.0.110
 cargo run --example operation_handles -- 192.168.0.110
+cargo run --example motion_safety -- 192.168.0.110
+cargo run --example custom_request                 # encoding + ProfileSpec only; no camera needed
+cargo run --example custom_request -- 192.168.0.110 # also submits the custom requests
 cargo run --example preset_demo -- 192.168.0.110 recall 1
 cargo run --example transports -- 192.168.0.110
 cargo run --example builder_api -- 192.168.0.110:1259
 cargo run --example type_safe_commands
+cargo run --example multi_camera                   # in-memory serial bus; no camera needed
+cargo run --example recovery                       # in-memory transport; no camera needed
 cargo run --example transport_builder_demo -- 192.168.0.110
 cargo run --example transport_builder_demo -- 192.168.0.110 --udp
 ```
@@ -109,6 +120,8 @@ cargo run --example quickstart_async --features runtime-tokio -- 192.168.0.110
 cargo run --example operation_handles_async --features runtime-tokio -- 192.168.0.110
 cargo run --example concurrent_control --features runtime-tokio -- 192.168.0.110
 cargo run --example error_handling --features runtime-tokio -- 192.168.0.110
+cargo run --example cancellation --features runtime-tokio -- 192.168.0.110
+cargo run --example dyn_quickstart --features runtime-tokio,dyn-api -- 192.168.0.110
 cargo run --example runtime_demo --features runtime-tokio -- 192.168.0.110
 cargo run --example sony_encapsulation --features runtime-tokio -- 192.168.0.110
 cargo run --example serial_async_demo --features runtime-tokio,transport-serial-tokio -- /dev/ttyUSB0 1
