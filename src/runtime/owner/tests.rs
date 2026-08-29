@@ -469,8 +469,13 @@ mod blocking {
         .unwrap()
     }
 
+    /// Out-of-order peer-receipt retention on the Sony sequence-bearing
+    /// envelope: multiple in-flight blocking waits each keep their own exact
+    /// terminal outcome. The 1.x oracle recorded this on raw `PtzOpticsG2`; the
+    /// v2 replay uses a Sony policy, so the name says so rather than implying
+    /// the raw pairing still holds.
     #[test]
-    fn typed_blocking_wait_pumps_and_retains_out_of_order_peer_results() {
+    fn sony_typed_blocking_wait_pumps_and_retains_out_of_order_peer_results() {
         let profile =
             crate::ProfileSpec::from_compile_time::<crate::profiles::SonyBRC300>().unwrap();
         let mut owner = BlockingOwner::new(sony_policy(8, TransportKind::Datagram)).unwrap();
@@ -1503,10 +1508,13 @@ mod blocking {
         ));
     }
 
-    /// Issue #565: a transient read failure retries the in-flight command and
-    /// leaves the session running; the pump reports "no frames", not an error.
+    /// Issue #565: on the Sony sequence-bearing envelope a transient read
+    /// failure retries the in-flight command and leaves the session running;
+    /// the pump reports "no frames", not an error. The raw envelope has no
+    /// request identity after a successful write, so the same fault poisons
+    /// there (see the raw fault targets); this case is Sony-only by name.
     #[test]
-    fn transient_blocking_read_fault_retries_and_keeps_the_session() {
+    fn sony_transient_blocking_read_fault_retries_and_keeps_the_session() {
         let profile =
             crate::ProfileSpec::from_compile_time::<crate::profiles::SonyBRC300>().unwrap();
         let mut owner = BlockingOwner::new(sony_policy(1, TransportKind::Datagram)).unwrap();
