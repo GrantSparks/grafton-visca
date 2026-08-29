@@ -304,6 +304,33 @@ mod tests {
         ));
     }
 
+    /// #675: the transport's advertised read/write timeouts must reach the owner
+    /// policy so the async owner can enforce them. They were previously dropped
+    /// here, leaving both builder knobs inert on every async transport.
+    #[test]
+    fn read_and_write_timeouts_are_lowered_from_transport_config() {
+        let transport = ScriptedTransport {
+            config: TransportConfig {
+                read_timeout: std::time::Duration::from_millis(111),
+                write_timeout: std::time::Duration::from_millis(222),
+                ..TransportConfig::default()
+            },
+            sent: Vec::new(),
+            receives: std::collections::VecDeque::new(),
+            semantics: SendSemantics::Datagram,
+        };
+        let adapter =
+            AsyncTransportAdapter::new(transport, &profile(), CameraId::CAMERA_1).unwrap();
+        assert_eq!(
+            adapter.policy().read_timeout,
+            std::time::Duration::from_millis(111)
+        );
+        assert_eq!(
+            adapter.policy().write_timeout,
+            std::time::Duration::from_millis(222)
+        );
+    }
+
     #[test]
     fn partial_stream_frame_is_reported_as_an_empty_batch_not_a_close() {
         let transport = ScriptedTransport {

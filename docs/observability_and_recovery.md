@@ -248,6 +248,22 @@ datagram cannot reset or extend that deadline. The async UDP adapter yields
 cooperatively after an empty datagram before polling again, so a stream of empty
 packets cannot starve owner controls.
 
+The async owner does not rely on the transport to have its own timer (#675). It
+bounds every read with the session's `read_timeout` and every write with
+`write_timeout`: a read that outlasts its budget is treated as the same idle
+no-data receive described above (nothing consumed, no request penalized), and a
+write that outlasts its budget is abandoned as a send failure under the
+transport's semantics — a stream write poisons, a datagram write fails only its
+own request — so a stalled peer can never park the actor and block `close()`.
+A run of immediately-returning no-data reads is paced by the same escalating,
+next-wake-clamped pause the transient-fault path uses (recording no fault and
+spending no retry budget), so a transport that reports "no data" without blocking
+cannot hot-spin the actor. Symmetrically, a *babbling* peer — one that returns a
+valid frame on every poll — cannot starve owner controls either: a fairness
+ceiling forces the boundary sources (shutdown, cancellation, admission, control,
+timer) to be polled after a bounded run of consecutive receive-first wins, so
+valid input is never processed at the cost of an unkillable, unusable session.
+
 A fault that never stops repeating stops being called transient. Consecutive
 transient faults, with no successful read between them, escalate their pause
 from 10 ms to a 250 ms ceiling, and a read that has failed twelve times in a row

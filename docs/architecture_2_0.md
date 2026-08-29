@@ -242,12 +242,39 @@ threshold:
    again.
 3. A boundary win, or a later valid frame batch when no boundary was ready,
    returns the actor to receive-first.
+4. A **fairness ceiling** bounds the *succeeding* arm as well. After a run of
+   consecutive receive-first wins (tied to the receive batch limit,
+   `frames_per_receive`), one boundary-first turn is forced regardless of
+   progress, then the run restarts. This is the case #625's acceptance criterion
+   names directly — the boundary channels are always eventually polled — and it
+   is what keeps a *babbling* peer (one that returns a valid frame on every
+   poll) from winning the left-biased selection forever and starving shutdown,
+   cancellation, admission, control, and the timer. When no boundary is queued
+   the receive still wins the forced turn, so a genuinely busy transport is
+   never stalled; only guaranteed to yield the front periodically. A burst large
+   enough to reach the ceiling is adversarial rather than a real camera's reply
+   stream, so the settle-first ordering of (1) still holds for real traffic.
 
 This retains the protocol's strict source order for meaningful input while
-preventing an always-idle or always-failing transport from starving shutdown
-and control. The rule depends on the result of the current receive, never an
-arbitrary count of earlier wins. Transmission effects produced by either phase
-are driven immediately before the next selection.
+preventing both an always-idle/always-failing transport **and** an
+always-succeeding (babbling) one from starving shutdown and control. Phase
+choice depends on the result of the current receive; the only count involved is
+the bounded fairness ceiling of (4), never an open-ended receive history.
+Transmission effects produced by either phase are driven immediately before the
+next selection.
+
+The actor also bounds each transport operation itself, because the
+runtime-agnostic async transports hold no timer of their own. Every read is
+raced against the session's `read_timeout`; if it elapses the read is treated as
+an idle no-data receive (it consumed nothing), which makes the advertised knob
+live on the async surface rather than inert. Every write is raced against
+`write_timeout`; if it elapses the write is abandoned as a failure — a stream
+write that can no longer be confirmed poisons the session, a datagram write
+fails only its own request — so a stalled peer can never park the actor and
+block `close()`. Finally, a run of immediately-returning no-data reads is paced
+by the same escalating, next-wake-clamped pause the transient-fault path uses
+(recording no fault and spending no retry budget), so a transport that reports
+"no data" without blocking cannot hot-spin the actor.
 
 ## Request and motion semantics
 

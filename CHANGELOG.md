@@ -210,6 +210,22 @@ destination.
 
 ### Changed
 
+- **`read_timeout` and `write_timeout` now take effect on async sessions**
+  (#675), superseding the earlier 2.0-preview behavior in which both knobs were
+  silently ignored on every async transport (only the blocking sockets applied
+  them). The runtime-agnostic async transports carry no timer of their own, so
+  the async owner now enforces both around the transport itself: each read is
+  bounded by `read_timeout` and, if it elapses, is treated as an idle no-data
+  receive (nothing was consumed); each write is bounded by `write_timeout` and,
+  if it elapses, is abandoned as a failure under the transport's send semantics
+  (stream poison, or datagram per-request failure). The defaults are unchanged
+  (5 s each). An async application that set a long or short timeout expecting it
+  to matter now gets that behavior; an application that relied — knowingly or
+  not — on async reads/writes never timing out should set the values it wants
+  explicitly. A custom `AsyncTransport` should be cancellation-safe, since a
+  timed-out read/write future is dropped; futures built from the standard async
+  socket readers/writers already are. This is a behavioral fix to a documented
+  knob, not a new API; the `AsyncTransport` trait docs now state the contract.
 - **A raw command that cannot be confirmed now fails per request instead of
   poisoning the whole session** (#671), superseding the earlier 2.0-preview
   behavior in which a lost ACK/completion datagram, a transient receive fault
@@ -682,6 +698,47 @@ destination.
 
 ### Fixed
 
+- **A babbling peer can no longer starve async shutdown, `close()`, admission,
+  or an emergency stop** (#675). Decision D2 (#625) bounded only the *failing*
+  arm of the receive/boundary livelock. The *succeeding* arm was unbounded: a
+  peer that returned a valid frame on every poll won the left-biased
+  `future::or(receive, boundaries)` selection forever, so the boundary sources —
+  shutdown, cancellation, admission, control, timer — were never polled.
+  `shutdown()` returned `Ok` (the signal entered its one-slot lane) yet the
+  session was simultaneously unusable and unkillable: `close()` never returned,
+  an emergency stop could not be admitted, and reads continued after shutdown.
+  This was fatal on smol and on a custom `AsyncTransport`; tokio survived only by
+  an accident of its cooperative budget. The async actor now keeps D2's
+  progress-sensitivity but adds a **fairness ceiling**: after a run of
+  consecutive receive-first wins (tied to `frames_per_receive`) it forces one
+  boundary-first turn regardless of progress, restoring #625's own acceptance
+  criterion that the boundary channels are always eventually polled. When no
+  boundary is queued the receive still wins the forced turn, so a busy transport
+  is never stalled — only guaranteed to yield the front periodically. Liveness
+  tests on both tokio and smol pin that a babbling transport cannot prevent
+  admission or shutdown/close, and the D2 ordering property (a buffered valid
+  frame settles engine state before a simultaneously-ready control observer sees
+  it) is retained.
+- **A stalled async write can no longer park the actor and hang `close()`**
+  (#675). `driver.write(...).await` had no timeout: a peer that accepted the
+  connection but never drained (a zero receive window, serial flow control)
+  parked the actor inside the write, where no boundary can preempt, so `close()`
+  blocked forever. Each write is now bounded by the session's `write_timeout`; if
+  it elapses the write is abandoned as a failure — a byte-stream write that can
+  no longer be confirmed poisons the session, a datagram write fails only its own
+  request — and the actor returns to servicing boundaries.
+- **The async `read_timeout` and `write_timeout` builder knobs are now live**
+  (#675); see the Changed entry below. They were inert on every async transport
+  (`async_tcp`, `async_serial`, `async_udp`, `tokio/serial`) even though the
+  public builder sells them as 5 s defaults — only the blocking sockets applied
+  them.
+- **An immediately-returning no-data async read no longer hot-spins the actor**
+  (#675). A transport that reported "no data" without blocking drove the receive
+  loop at hundreds of thousands of reads a second. A run of consecutive no-data
+  receives is now paced by the same escalating, next-wake-clamped pause the
+  transient-fault path uses, recording no fault and spending no retry budget, so
+  an indefinitely idle transport is throttled without ever being mistaken for a
+  broken one.
 - **Preset number 255 and a `0xFF` direct-menu control parameter can be sent
   again** (#683). The stack builder that assembles every command terminated a
   frame by inferring, from the trailing byte, whether a VISCA terminator was
