@@ -287,6 +287,10 @@ pub(crate) struct OwnerMetrics {
     pub(crate) protocol_errors: u64,
     pub(crate) retries_scheduled: u64,
     pub(crate) ignored_unmatched_sequenced_replies: u64,
+    /// Delimited frames a byte stream discarded as malformed while staying
+    /// Running (#672). 1.x logged and continued on the same frames; this counter
+    /// makes the otherwise lossy-diagnostics-only signal a durable metric.
+    pub(crate) ignored_malformed_frames: u64,
     pub(crate) dropped_diagnostics: u64,
     pub(crate) dropped_diagnostic_events: u64,
     pub(crate) dropped_observer_events: u64,
@@ -946,6 +950,15 @@ pub(crate) struct OwnerBuffers {
     receive: Box<[u8]>,
     framing: Vec<u8>,
     framing_limit: usize,
+    /// Count of delimited-but-unclassifiable frames the last stream decode
+    /// discarded as malformed (#672). It is a side channel from the shared
+    /// decode, which owns the framer but not the owner's diagnostics, back to
+    /// the owner: the owner takes it after each decode and records one
+    /// `Ignored(MalformedFrame)` per discarded frame. A genuine framing-position
+    /// loss stays a decode `Err` and still poisons; this counts only the frames
+    /// a byte stream tolerated and kept running past, exactly as a datagram
+    /// already discards a malformed frame.
+    discarded_malformed: usize,
 }
 
 impl OwnerBuffers {
@@ -961,7 +974,27 @@ impl OwnerBuffers {
             receive: vec![0; limits.receive_bytes].into_boxed_slice(),
             framing: Vec::with_capacity(limits.framing_bytes),
             framing_limit: limits.framing_bytes,
+            discarded_malformed: 0,
         })
+    }
+
+    /// Records how many malformed frames the current decode discarded. Called by
+    /// the shared decode; overwrites (never accumulates) so a value only ever
+    /// reflects the most recent decode.
+    pub(crate) fn set_discarded_malformed(&mut self, count: usize) {
+        self.discarded_malformed = count;
+    }
+
+    /// Takes and clears the malformed-frame discard count from the last decode.
+    pub(crate) fn take_discarded_malformed(&mut self) -> usize {
+        std::mem::take(&mut self.discarded_malformed)
+    }
+
+    /// Peeks the malformed-frame discard count without clearing it, so a drain
+    /// pass can decide it made progress and hand the count on to the owner.
+    #[cfg(feature = "async")]
+    pub(crate) fn discarded_malformed(&self) -> usize {
+        self.discarded_malformed
     }
 
     fn prepare(&mut self, transmission: &Transmission) -> Result<(&[u8], &mut BytesMut), Error> {
@@ -1635,8 +1668,17 @@ impl OwnerState {
 
     pub(crate) fn validate_frame_batch(&self, frames: &[DecodedFrame]) -> Result<(), Error> {
         if frames.len() > self.policy.limits.frames_per_receive {
-            return Err(Error::ResponseTooLarge {
-                max_size: self.policy.limits.frames_per_receive,
+            // A frame-count limit, not a byte-size limit: name frames rather than
+            // reusing the "N bytes" `ResponseTooLarge` message. Since the shared
+            // decode now stops draining at this same limit (#674), this is a
+            // defense-in-depth guard on the batch the owner receives.
+            return Err(Error::InvalidResponse {
+                expected: format!(
+                    "a receive within the per-receive limit of {} frames",
+                    self.policy.limits.frames_per_receive
+                )
+                .into(),
+                actual: Vec::new(),
             });
         }
         if frames.iter().any(|frame| {
@@ -1994,6 +2036,10 @@ impl OwnerState {
                         .metrics
                         .ignored_unmatched_sequenced_replies
                         .saturating_add(1);
+                }
+                if reason == IgnoreReason::MalformedFrame {
+                    self.metrics.ignored_malformed_frames =
+                        self.metrics.ignored_malformed_frames.saturating_add(1);
                 }
                 self.record(DiagnosticEvent::Ignored(reason));
                 AppliedEffect::None

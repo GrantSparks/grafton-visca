@@ -206,7 +206,22 @@ encoding.
     sockets, and `3..=15` are malformed rather than another socketless
     response. This distinction must remain explicit because
     `ViscaSocket::from_protocol_byte` alone returns `None` for both wire
-    forms.
+    forms. **The classifier verdict is decoupled from the session consequence
+    (revised for #672/#674/#681):** a frame the framer already delimited at an
+    `FF` boundary but that this strict classifier rejects is a *malformed frame
+    to discard* (`Ignored(MalformedFrame)`, counted in
+    `OwnerMetrics::ignored_malformed_frames`) on a byte stream, exactly as a
+    datagram already discards it and as 1.x logged-and-continued — it is never a
+    framing poison. Only the framer losing its position (cumulative buffer
+    overflow, or a boundary-free read past `max_buffer_size`) still poisons a
+    stream. By the same rule, a stream read that decodes more than
+    `frames_per_receive` frames stops at the limit and leaves the remainder
+    buffered for the next receive (the framer retains bytes across reads) rather
+    than failing `ResponseTooLarge`, and a single-target IP session accepts any
+    `0x9y..=0xFy` reply source and attributes it to the sole target, restoring
+    the misaddressed-camera compatibility (#590/#598) 1.x had. The strict
+    per-frame classification itself is unchanged; only the consequence of a
+    rejected delimited frame is corrected.
 12. Private runtime identifiers do not wrap into reuse. The practically
     unreachable 64-bit exhaustion boundary fails closed so stale cancellation
     or transmission inputs cannot alias a later request.

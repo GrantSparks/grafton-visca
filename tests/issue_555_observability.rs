@@ -33,6 +33,7 @@ fn assert_metrics_shape(snapshot: MetricsSnapshot) {
     assert_eq!(snapshot.protocol_errors, 0);
     assert_eq!(snapshot.retries_scheduled, 0);
     assert_eq!(snapshot.ignored_unmatched_sequenced_replies, 0);
+    assert_eq!(snapshot.ignored_malformed_frames, 0);
     assert!(matches!(
         snapshot.session,
         grafton_visca::SessionStatus::Running

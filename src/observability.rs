@@ -76,6 +76,17 @@ pub struct MetricsSnapshot {
     /// Expected for stale or duplicated datagrams; a rising count means the
     /// sequence-correlation safety net is doing its job.
     pub ignored_unmatched_sequenced_replies: u64,
+    /// Delimited frames discarded because they did not classify as a valid VISCA
+    /// response (#672).
+    ///
+    /// A frame the framer delimited at an `FF` boundary but that the strict
+    /// decoder rejected — a padded ACK, a vendor socket nibble, an RS-485 echo, a
+    /// truncated frame, line noise — is discarded and counted here while the
+    /// session keeps running, exactly as a datagram already discards one. Only a
+    /// genuine loss of the framing position poisons a stream, which this never
+    /// counts. A steady trickle is normal on noisy serial/RS-485 links; a rising
+    /// count points at a mis-wired or misconfigured device.
+    pub ignored_malformed_frames: u64,
     /// Events evicted from the bounded diagnostic ring.
     pub dropped_diagnostics: u64,
     /// Diagnostic events dropped because a subscriber queue was full.
@@ -612,6 +623,7 @@ pub(crate) fn metrics_snapshot(
         protocol_errors: metrics.protocol_errors,
         retries_scheduled: metrics.retries_scheduled,
         ignored_unmatched_sequenced_replies: metrics.ignored_unmatched_sequenced_replies,
+        ignored_malformed_frames: metrics.ignored_malformed_frames,
         dropped_diagnostics: metrics.dropped_diagnostics,
         dropped_diagnostic_events: metrics.dropped_diagnostic_events,
         dropped_observer_events: metrics.dropped_observer_events,

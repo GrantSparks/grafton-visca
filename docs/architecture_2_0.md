@@ -201,6 +201,26 @@ compatibility form, `1` and `2` decode as S1/S2, and `3..=15` is malformed.
 The variable data-reply form is reserved for socket 0 with more than three
 bytes; the canonical three-byte `z0 50 FF` socket-0 completion remains valid.
 
+That strict classifier verdict is not a session verdict. A frame the framer
+already delimited at an `FF` boundary but that the classifier rejects is a
+*malformed frame to discard* on a byte stream — recorded as
+`Ignored(MalformedFrame)` and counted in
+`OwnerMetrics::ignored_malformed_frames` — exactly as a datagram already
+discards it and as 1.x logged-and-continued over the same padded ACKs, vendor
+socket nibbles, RS-485 echoes, address-set replies, and truncated frames. The
+session stays `Running` and the frame's real reply still settles the outstanding
+command. Only the framer *losing its position* — cumulative buffer overflow, or
+a boundary-free read growing past `max_buffer_size` — is a genuine framing
+failure that still poisons a stream. By the same decoupling, a single stream
+read that decodes more than `frames_per_receive` frames stops at the limit and
+leaves the remaining complete frames buffered for the next receive (the framer
+retains bytes across reads, bounded by `max_buffer_size`), rather than failing
+`ResponseTooLarge` over a large-but-valid burst. A single-target IP session,
+which carries no routable source, accepts any `0x9y..=0xFy` reply source and
+attributes it to its sole target, so a camera configured with a non-default
+chain address still settles its command (#590/#598); the strict `0x90` check is
+kept only when more than one target is registered.
+
 Blocking operation submission has one additional ownership boundary: a
 returned operation handle always names a request whose initial transport write
 already succeeded. One obstacle is drained rather than rejected. On a raw
@@ -246,11 +266,12 @@ threshold:
    simultaneously ready control observer sees that state.
 2. A receive that makes no protocol progress — idle/no-data, a partial frame,
    a transient fault, an empty UDP datagram discarded under the current overall
-   deadline, or a discarded malformed datagram — makes the next selection poll
-   boundary sources first in the fixed order shutdown, cancellation, admission,
-   control, then timer. Discarding an empty datagram never starts a fresh
-   deadline; the async UDP adapter also yields cooperatively before polling
-   again.
+   deadline, or a receive whose only frames were discarded as malformed (a whole
+   bad datagram, or delimited-but-unclassifiable frames on a stream) — makes the
+   next selection poll boundary sources first in the fixed order shutdown,
+   cancellation, admission, control, then timer. Discarding an empty datagram
+   never starts a fresh deadline; the async UDP adapter also yields cooperatively
+   before polling again.
 3. A boundary win, or a later valid frame batch when no boundary was ready,
    returns the actor to receive-first.
 
