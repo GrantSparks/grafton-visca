@@ -750,6 +750,20 @@ destination.
 
 ### Fixed
 
+- **Corrected the red/blue tuning and NDI-mode wire bytes in
+  `docs/visca_reference.md`, and added a test that pins the reference to the
+  encoders** (#688). The reference — cited in `README.md` as the evidence base
+  for built-in profile decisions — documented red/blue tuning as a fabricated
+  6-byte `0A 01 12`/`0A 01 13` vendor extension and NDI mode as a 5-byte
+  `0B 01 01/02/03/04` frame. Both contradicted the shipped (1.x-identical)
+  encoders, which emit `81 01 04 43/44 00 00 00 pq FF` for tuning and
+  `81 0B 01 01 01/02/03/04 FF` for NDI mode. The rows now match the encoders, a
+  new erratum records that red/blue *tuning* and *gain* share the `04 43`/`04 44`
+  opcode and byte-identical inquiries (`81 09 04 43`/`44`), and
+  `command::tests::visca_reference_wire_rows_match_encoders` now cross-checks a
+  set of the reference's wire rows against the live encoder output so the two
+  cannot silently drift apart again. Documentation only; no encoder behavior
+  changed.
 - **A babbling peer can no longer starve async shutdown, `close()`, admission,
   or an emergency stop** (#675). Decision D2 (#625) bounded only the *failing*
   arm of the receive/boundary livelock. The *succeeding* arm was unbounded: a
