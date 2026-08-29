@@ -281,6 +281,17 @@ pub trait BlockingTransport: Send {
     /// Returns [`SendSemantics::Stream`] by default, which is the safer choice
     /// for unknown transport types. Datagram transports (UDP) should override
     /// this to return [`SendSemantics::Datagram`].
+    ///
+    /// # Forwarding wrappers
+    ///
+    /// A transport that wraps another (such as [`BlockingTransportHandle`], which
+    /// dispatches to a TCP, UDP, or serial inner transport) **must** forward this
+    /// method to the inner transport, exactly as it forwards
+    /// [`BlockingTransport::send_with_kind`] and [`BlockingTransport::recv_into`].
+    /// Unlike a missing `match` arm, an unforwarded `send_semantics` does not fail
+    /// to compile — it silently falls back to this `Stream` default, which is
+    /// wrong for any datagram inner transport. The inner transport is the
+    /// authority on its own semantics.
     fn send_semantics(&self) -> SendSemantics {
         SendSemantics::Stream
     }

@@ -584,6 +584,26 @@ destination.
 
 ### Fixed
 
+- **A UDP session opened through the async `TransportHandle` wrapper is governed
+  by datagram rules, not stream-poison rules** (#677). `impl AsyncTransport for
+  TransportHandle<R>` forwarded `send`, `recv_into`, and `addressing_mode_hint`
+  but omitted `send_semantics`, so `TransportHandle::Udp(_)` silently inherited
+  the trait default `SendSemantics::Stream` even though the wrapped `Udp`
+  transport reports `Datagram` and the blocking `BlockingTransportHandle` twin
+  forwards it correctly. A UDP session built the way `TransportHandle`'s own
+  rustdoc shows — `TransportHandle::Udp(rt.connect_udp(...).await?)` — was then
+  treated as a byte stream: one failed `send_to` or one malformed/truncated
+  datagram poisoned the whole session (failing every in-flight command with
+  `Error::StreamPoisoned`) instead of failing a single command, and partial
+  bytes from one datagram were retained as the prefix of the next. The wrapper
+  now forwards `send_semantics` to its inner transport, mirroring the blocking
+  twin, and the `AsyncTransport`/`BlockingTransport` `send_semantics` docs now
+  warn that a forwarding wrapper must forward this method or silently fall back
+  to the `Stream` default. The trait keeps its `Stream` default (the safe,
+  ergonomic choice for the common stream transport and for custom
+  implementations); only the wrapper's missing forward was the defect. This is a
+  2.0-only wrapper, so no 1.x program is affected. The public API is unchanged.
+
 - **The typed `tally()` noun is reachable again for the profiles that had tally
   in 1.x** (#661). `TallyOn`, `TallyOff` and `TallyFlash` validated against the
   PTZOptics profile ids alone, while the `tally()` accessor on all three noun
