@@ -2090,3 +2090,119 @@ fn min_deadline(left: Option<Instant>, right: Option<Instant>) -> Option<Instant
         (None, None) => None,
     }
 }
+
+#[cfg(all(test, not(feature = "async")))]
+#[allow(clippy::expect_used)]
+mod tests {
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+
+    use super::*;
+    use crate::{
+        command::CommandKind,
+        completion::AppliedOnly,
+        prepared::prepare_builtin_operation,
+        profile::ProfileSpec,
+        profiles::GenericVisca,
+        request::builtin::ZoomDrive,
+        transport::{BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig},
+        CameraId, OperationalTuning,
+    };
+
+    #[derive(Debug, Default)]
+    struct InteractionCounts {
+        writes: AtomicUsize,
+        receives: AtomicUsize,
+    }
+
+    #[derive(Debug)]
+    struct CountingTransport {
+        config: TransportConfig,
+        counts: Arc<InteractionCounts>,
+    }
+
+    impl HasTransportConfig for CountingTransport {
+        fn transport_config(&self) -> &TransportConfig {
+            &self.config
+        }
+    }
+
+    impl BlockingTransport for CountingTransport {
+        fn send_with_kind(&mut self, _bytes: &[u8], _kind: CommandKind) -> Result<(), Error> {
+            self.counts.writes.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+
+        fn recv_into(&mut self, _dst: &mut [u8]) -> Result<usize, Error> {
+            self.counts.receives.fetch_add(1, Ordering::SeqCst);
+            Err(Error::InvalidState(
+                "unexpected receive in capacity test".into(),
+            ))
+        }
+
+        fn recv_into_with_timeout(
+            &mut self,
+            _dst: &mut [u8],
+            _timeout: Duration,
+        ) -> Result<usize, Error> {
+            self.counts.receives.fetch_add(1, Ordering::SeqCst);
+            Err(Error::InvalidState(
+                "unexpected receive in capacity test".into(),
+            ))
+        }
+
+        fn send_semantics(&self) -> SendSemantics {
+            SendSemantics::Datagram
+        }
+    }
+
+    #[test]
+    fn full_admission_rejects_before_raw_preack_drain() {
+        let counts = Arc::new(InteractionCounts::default());
+        let transport = CountingTransport {
+            config: TransportConfig::default(),
+            counts: Arc::clone(&counts),
+        };
+        let profile = ProfileSpec::from_compile_time::<GenericVisca>().expect("built-in profile");
+        let adapter = BlockingTransportAdapter::new_with_targets(
+            transport,
+            &[(CameraId::CAMERA_1, &profile)],
+            OperationalTuning::new(),
+            std::num::NonZeroUsize::new(1).expect("non-zero capacity"),
+        )
+        .expect("blocking adapter");
+        let host = BlockingSessionHost::from_adapter(adapter).expect("blocking host");
+
+        let first = prepare_builtin_operation::<AppliedOnly, _>(
+            &ZoomDrive::Tele,
+            CameraId::CAMERA_1,
+            &profile,
+            OperationalTuning::new(),
+        )
+        .expect("first operation");
+        let _first = host.submit_operation(first).expect("first write");
+        assert_eq!(counts.writes.load(Ordering::SeqCst), 1);
+        assert_eq!(counts.receives.load(Ordering::SeqCst), 0);
+        assert!(host
+            .with_parts(|owner, _, _, _| Ok(owner
+                .state()
+                .raw_preack_gate_frees_socket_on_ack(CameraId::CAMERA_1)))
+            .expect("inspect pre-ACK gate"));
+
+        let second = prepare_builtin_operation::<AppliedOnly, _>(
+            &ZoomDrive::Tele,
+            CameraId::CAMERA_1,
+            &profile,
+            OperationalTuning::new(),
+        )
+        .expect("second operation");
+        let error = host
+            .submit_operation(second)
+            .expect_err("full global admission must reject before draining the ACK");
+        assert!(matches!(error, Error::RuntimeQueueFull { capacity: 1 }));
+        assert_eq!(counts.writes.load(Ordering::SeqCst), 1);
+        assert_eq!(counts.receives.load(Ordering::SeqCst), 0);
+    }
+}

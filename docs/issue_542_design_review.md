@@ -49,8 +49,8 @@ executable.
 
 | Measure | 1.2.0 | v2 RC | Change |
 | --- | ---: | ---: | ---: |
-| Rust lines under `src/` plus macro `src/` | 84,146 | 103,317 | +22.8% |
-| Rust lines under `src/runtime/` | 17,848 | 30,461 | +70.7% |
+| Rust lines under `src/` plus macro `src/` | 84,146 | 103,926 | +23.5% |
+| Rust lines under `src/runtime/` | 17,848 | 30,949 | +73.4% |
 | Rust lines under `tests/` (integration-test tree) | 19,563 | 25,865 | +32.2% |
 | Optimized library `.rlib` (blocking-only) | 8,887,736 B | 11,092,160 B | +24.8% |
 | Stripped minimal TCP/power/zoom blocking consumer | 767,680 B | 1,022,544 B | +33.2% |
@@ -62,7 +62,7 @@ that the increase is not merely comments or tests.
 
 Growth is concentrated in the new lifecycle/owner implementation, not in a
 second set of camera opcodes. The command, protocol, and transport trees grew
-only modestly; the runtime tree grew by 8,953 lines (roughly 9.0k). The main
+only modestly; the runtime tree grew by 13,101 lines (roughly 13.1k). The main
 additions are the deterministic engine, separate mode-native owner drivers, typed
 preparation and operation state, bounded admission/cancellation boundaries,
 multi-target state, settlement polling, state cache, diagnostics/metrics, and
@@ -102,7 +102,7 @@ terminal-state rules belong in shared pure code.
 
 The concern about rewriting battle-tested functionality is justified. Across
 the production source comparison against main at `6c7a9d37`, including the
-current working-tree corrections, 54,039 lines were added and 40,503 deleted
+current working-tree corrections, 62,223 lines were added and 42,443 deleted
 (`git diff --numstat` over the package and macro `src/` trees). Git cannot
 recognize most of the new facade/runtime files as renames.
 Several capabilities then had to be restored after parity review, including

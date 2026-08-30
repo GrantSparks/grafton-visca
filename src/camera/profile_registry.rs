@@ -749,25 +749,20 @@ macro_rules! __define_builtin_profiles {
         ];
 
         impl ProfileId {
-            /// Returns whether the runtime capability inventory is exactly
-            /// the one emitted for this built-in profile.
+            /// Returns whether the runtime profile is exactly the one emitted
+            /// for this built-in profile.
             ///
             /// `profile_id` is public so downstream callers can mutate a
             /// discovered inventory.  It is therefore an identity claim,
             /// not an authority token; vendor-specific request validation
-            /// must only rely on it after all capability facts have been
-            /// checked against the generated profile row.
-            pub(crate) fn matches_capabilities(
+            /// must only rely on it after every profile fact has been checked
+            /// against the generated profile row.
+            pub(crate) fn matches_profile_spec(
                 &self,
-                capabilities: &$crate::capabilities::Capabilities,
+                profile: &$crate::ProfileSpec,
             ) -> bool {
                 match self {
-                    $(
-                        ProfileId::$id => {
-                            capabilities
-                                == &$crate::capabilities::Capabilities::from_profile::<$profile>()
-                        },
-                    )*
+                    $(ProfileId::$id => profile.matches_compile_time_profile::<$profile>(),)*
                 }
             }
 

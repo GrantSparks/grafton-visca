@@ -113,37 +113,35 @@ impl ProtocolFramer {
             return None;
         }
 
-        // Check if this looks like a Sony header (0x01 followed by valid payload type)
-        if self.buf[0] == 0x01 {
-            // Try to decode as Sony header
-            if let Some(_payload_type) = PayloadType::from_bytes([self.buf[0], self.buf[1]]) {
-                // This looks like a Sony frame - wait for full header
-                if self.buf.len() < SonyHeader::SIZE {
-                    return None; // Need more data for full header
+        // Check if this looks like a Sony header with a known payload type.
+        // Sony uses both 0x01 and 0x02 payload-type families.
+        if PayloadType::from_bytes([self.buf[0], self.buf[1]]).is_some() {
+            // This looks like a Sony frame - wait for full header
+            if self.buf.len() < SonyHeader::SIZE {
+                return None; // Need more data for full header
+            }
+
+            // Try to decode the Sony header
+            if let Some(header) = SonyHeader::decode(&self.buf[..SonyHeader::SIZE]) {
+                // Valid Sony header - check size limits
+                let total_frame_size = SonyHeader::SIZE + header.payload_length as usize;
+
+                if total_frame_size > self.max_frame_size {
+                    // Frame exceeds maximum allowed size
+                    // Clear the invalid header to recover
+                    let _ = self.buf.split_to(SonyHeader::SIZE);
+                    return Some(Err(Error::ResponseTooLarge {
+                        max_size: self.max_frame_size,
+                    }));
                 }
 
-                // Try to decode the Sony header
-                if let Some(header) = SonyHeader::decode(&self.buf[..SonyHeader::SIZE]) {
-                    // Valid Sony header - check size limits
-                    let total_frame_size = SonyHeader::SIZE + header.payload_length as usize;
-
-                    if total_frame_size > self.max_frame_size {
-                        // Frame exceeds maximum allowed size
-                        // Clear the invalid header to recover
-                        let _ = self.buf.split_to(SonyHeader::SIZE);
-                        return Some(Err(Error::ResponseTooLarge {
-                            max_size: self.max_frame_size,
-                        }));
-                    }
-
-                    if self.buf.len() >= total_frame_size {
-                        // We have the complete Sony frame
-                        return Some(Ok(self.buf.split_to(total_frame_size).freeze()));
-                    }
-
-                    // Need more data for complete payload
-                    return None;
+                if self.buf.len() >= total_frame_size {
+                    // We have the complete Sony frame
+                    return Some(Ok(self.buf.split_to(total_frame_size).freeze()));
                 }
+
+                // Need more data for complete payload
+                return None;
             }
         }
 
@@ -609,6 +607,38 @@ mod tests {
         assert_eq!(frames.len(), 2);
         assert_eq!(frames[0].len(), SonyHeader::SIZE + 3);
         assert_eq!(frames[1].len(), SonyHeader::SIZE + 2);
+        assert!(framer.is_empty());
+    }
+
+    #[test]
+    fn test_sony_control_frames_are_length_delimited() {
+        let mut framer = ProtocolFramer::new(256);
+
+        let command_header = SonyHeader {
+            payload_type: PayloadType::ControlCommand,
+            payload_length: 3,
+            sequence_number: 0x11223344,
+        };
+        let reply_header = SonyHeader {
+            payload_type: PayloadType::ControlReply,
+            payload_length: 3,
+            sequence_number: 0x55667788,
+        };
+
+        let mut command = Vec::from(command_header.encode());
+        command.extend_from_slice(&[0x90, 0x50, VISCA_TERMINATOR]);
+        let mut reply = Vec::from(reply_header.encode());
+        reply.extend_from_slice(&[0x90, 0x51, VISCA_TERMINATOR]);
+
+        let mut data = command.clone();
+        data.extend_from_slice(&reply);
+        framer.push(Bytes::from(data)).unwrap();
+
+        let frames: Vec<_> = framer
+            .drain_frames()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(frames, vec![Bytes::from(command), Bytes::from(reply)]);
         assert!(framer.is_empty());
     }
 

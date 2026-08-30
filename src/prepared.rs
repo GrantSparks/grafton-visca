@@ -1317,6 +1317,7 @@ mod tests {
     fn inquiry_support_and_settlement_fail_before_encoding() {
         reset_write_count();
         let mut no_inquiry = Capabilities::from_profile::<crate::profiles::GenericVisca>();
+        no_inquiry.profile_id = None;
         no_inquiry.inquiry_support = InquirySupport::None;
         let no_inquiry = runtime_profile(
             no_inquiry,
@@ -1335,6 +1336,7 @@ mod tests {
         assert_eq!(write_count(), 0);
 
         let mut missing_custom_zoom = Capabilities::from_profile::<crate::profiles::GenericVisca>();
+        missing_custom_zoom.profile_id = None;
         missing_custom_zoom.supports_direct_zoom = false;
         missing_custom_zoom.typed_support = TypedSupportSet::empty();
         let missing_custom_zoom = runtime_profile(
@@ -1467,7 +1469,8 @@ mod tests {
 
     #[test]
     fn targeted_poll_plan_preserves_exact_prepared_queries_target_and_budget() {
-        let capabilities = Capabilities::from_profile::<crate::profiles::GenericVisca>();
+        let mut capabilities = Capabilities::from_profile::<crate::profiles::GenericVisca>();
+        capabilities.profile_id = None;
         let profile = runtime_profile(
             capabilities,
             false,
@@ -2407,6 +2410,7 @@ mod tests {
         assert_eq!(request_write_count(), 0);
 
         let mut no_direct_caps = Capabilities::from_profile::<crate::profiles::GenericVisca>();
+        no_direct_caps.profile_id = None;
         no_direct_caps.supports_direct_zoom = false;
         no_direct_caps.typed_support = TypedSupportSet::empty();
         let no_direct = runtime_profile(
@@ -2428,6 +2432,7 @@ mod tests {
         assert_eq!(request_write_count(), 0);
 
         let mut bounded_zoom_caps = Capabilities::from_profile::<crate::profiles::GenericVisca>();
+        bounded_zoom_caps.profile_id = None;
         bounded_zoom_caps.zoom_range_optical = 0..=0x4000;
         bounded_zoom_caps.has_digital_zoom = true;
         bounded_zoom_caps.zoom_range_digital = Some(0x4000..=0x5000);

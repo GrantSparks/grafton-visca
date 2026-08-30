@@ -3702,6 +3702,42 @@ mod tests {
         ));
     }
 
+    /// A boundary admission queued before an actor panic is answered by the
+    /// same fail-closed terminal result observed by later handle calls, and
+    /// its permit is returned. This is the bounded ownership guarantee
+    /// (#542 §4; architecture §Operational invariants) without relying on a
+    /// scheduler sleep to arrange the panic/admission order.
+    #[cfg(feature = "runtime-tokio")]
+    #[tokio::test]
+    async fn queued_admission_actor_disconnect_fails_closed_and_releases_capacity() {
+        let runtime = TokioRuntime::from_current().unwrap();
+        let (handle, actor) = AsyncOwnerActor::new(policy(1), runtime).unwrap();
+
+        let queued = handle.try_submit(inquiry()).unwrap();
+        assert_eq!(handle.permits.available(), 0);
+
+        // The receive-first actor turn panics before it can consume the
+        // already-buffered admission. Awaiting the task makes Drop's final
+        // boundary drain a deterministic happens-before edge for the checks
+        // below; no timing or polling sleep is involved.
+        let actor_task = tokio::spawn(actor.run(PanickingReceiveDriver));
+        assert!(actor_task.await.is_err(), "the test driver must panic");
+
+        let queued_error = queued.await.unwrap_err();
+        assert!(matches!(
+            &queued_error,
+            Error::InvalidState(message)
+                if message.contains("without publishing a terminal result")
+        ));
+        let published = handle.shutdown().await.unwrap_err();
+        assert_eq!(queued_error.to_string(), published.to_string());
+        assert_eq!(
+            handle.permits.available(),
+            handle.permits.capacity(),
+            "the drained admission must return its permit"
+        );
+    }
+
     /// An admitted request whose actor disappeared must fail closed promptly,
     /// rather than wait for its long protocol deadline or report an orderly
     /// `RuntimeShutdown`.

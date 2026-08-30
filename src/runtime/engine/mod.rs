@@ -2226,6 +2226,21 @@ impl ProtocolEngine {
             self.confirm_cancelled(id, effects);
             return;
         }
+        // On the raw envelope a named-socket 0x05 means that the camera did
+        // not accept the cancellation packet for that socket.  Raw frames do
+        // not carry an independent cancellation correlation, so this path is
+        // otherwise classified as a retryable request error and would turn
+        // the failed cancel into a false `Cancelled` terminal.  Preserve the
+        // camera's NoSocket error and let `finish` close the observation as a
+        // failed cancellation instead.
+        if self.policy.envelope == EnvelopeKind::Raw
+            && correlation_kind == CorrelationKind::Request
+            && cancellation_active
+            && code == 0x05
+        {
+            self.finish(id, RuntimeOutcome::Failed(Error::NoSocket), effects);
+            return;
+        }
         let retryable = correlation_kind == CorrelationKind::Request
             && self.camera_error_retryable(entry, code);
         let error = Error::from_code(code);
@@ -2279,6 +2294,15 @@ impl ProtocolEngine {
             return;
         }
         let phase = entry.phase;
+        if matches!(
+            phase,
+            Phase::AwaitingCancellationResolution { deadline, .. }
+                | Phase::AwaitingLateAck { deadline }
+                if deadline < now
+        ) {
+            self.expire_quarantine(id, effects);
+            return;
+        }
         match phase {
             Phase::Ready { .. } | Phase::Backoff { .. } => {
                 if let Some(entry) = self.entries.get_mut(&id) {
@@ -2378,7 +2402,22 @@ impl ProtocolEngine {
         let target = entry.request.context().target;
         let generation = entry.generation;
         let attempt = entry.attempt;
-        let phase = entry.phase;
+        // A cancellation can wait behind the shared command-spacing floor
+        // after a completion-timeout quarantine has already begun.  The
+        // cancellation ambiguity window starts when the cancel write is
+        // actually emitted, so keep the socket quarantine through that later
+        // deadline rather than allowing the older phase deadline to release
+        // it while the write is still unresolved.
+        let phase = match entry.phase {
+            Phase::AwaitingCancellationResolution {
+                socket: phase_socket,
+                deadline,
+            } => Phase::AwaitingCancellationResolution {
+                socket: phase_socket,
+                deadline: deadline.max(ambiguity_deadline),
+            },
+            phase => phase,
+        };
         let Some(transmission) = self.allocate_transmission_id() else {
             self.finish(
                 id,
@@ -2944,23 +2983,24 @@ impl ProtocolEngine {
             | Phase::AwaitingLateAck { deadline }
                 if deadline <= now =>
             {
-                // The quarantine window (a cancellation ambiguity deadline, or
-                // the per-request late-ACK / socket quarantine opened by issue
-                // #671) has now closed: fail this one request, or poison in the
-                // strict opt-in mode. A late reply can no longer arrive, so the
-                // reserved correlation slot is released with it.
-                let error = if self.policy.envelope == EnvelopeKind::Raw {
-                    Error::UnsequencedCommandUnconfirmed
-                } else {
-                    Error::CancellationUnconfirmed
-                };
-                if self.raw_unconfirmed_poison() {
-                    self.poison_strict_unconfirmed(effects);
-                } else {
-                    self.finish(due.request, RuntimeOutcome::Failed(error), effects);
-                }
+                self.expire_quarantine(due.request, effects);
             }
             _ => effects.push(Effect::Ignored(IgnoreReason::StaleQueueTicket)),
+        }
+    }
+
+    /// Closes an ambiguity/quarantine hold without allowing a later cancel
+    /// request to extend an already-expired correlation window.
+    fn expire_quarantine(&mut self, id: RequestId, effects: &mut Vec<Effect>) {
+        let error = if self.policy.envelope == EnvelopeKind::Raw {
+            Error::UnsequencedCommandUnconfirmed
+        } else {
+            Error::CancellationUnconfirmed
+        };
+        if self.raw_unconfirmed_poison() {
+            self.poison_strict_unconfirmed(effects);
+        } else {
+            self.finish(id, RuntimeOutcome::Failed(error), effects);
         }
     }
 
@@ -3696,4 +3736,300 @@ const fn is_quarantine_phase(phase: Phase) -> bool {
         phase,
         Phase::AwaitingLateAck { .. } | Phase::AwaitingCancellationResolution { .. }
     )
+}
+
+#[cfg(test)]
+#[allow(clippy::expect_used, clippy::panic)]
+mod cancellation_regression_tests {
+    use std::{sync::Arc, time::Duration};
+
+    use super::*;
+
+    fn camera() -> CameraId {
+        CameraId::new(1).expect("test camera")
+    }
+
+    fn policy(envelope: EnvelopeKind, command_spacing: Duration) -> ProtocolPolicy {
+        ProtocolPolicy {
+            capacity: 16,
+            envelope,
+            transport: TransportKind::Datagram,
+            inquiry_capacity: 8,
+            command_spacing,
+            inquiry_spacing: Duration::ZERO,
+            inquiry_cooldown: Duration::ZERO,
+            strict_unconfirmed_poison: false,
+        }
+    }
+
+    fn context() -> RequestContext {
+        RequestContext {
+            target: camera(),
+            timeout: TimeoutPolicy {
+                ack: Duration::from_secs(1),
+                completion: Duration::from_millis(5),
+                inquiry: Duration::from_secs(1),
+                cancellation: Duration::from_secs(1),
+                ambiguity: Duration::from_millis(50),
+            },
+            retry: RetryPolicy::NEVER,
+            control: ControlPolicy::default(),
+            cancellation: CancellationPolicy::Supported,
+            reply_shape: ReplyShape::AckThenCompletion,
+        }
+    }
+
+    fn command() -> RuntimeRequest {
+        RuntimeRequest::Command {
+            wire: Arc::new(EncodedMessage::new(&[0x81, 0x01, 0xff]).expect("test wire")),
+            context: context(),
+            applied_state: None,
+        }
+    }
+
+    fn engine(envelope: EnvelopeKind, command_spacing: Duration) -> ProtocolEngine {
+        let mut engine = ProtocolEngine::new(policy(envelope, command_spacing)).expect("engine");
+        engine
+            .register_target(
+                camera(),
+                TargetPolicy {
+                    command_sockets: 2,
+                    cancellation: CancellationPolicy::Supported,
+                },
+            )
+            .expect("target");
+        engine
+    }
+
+    fn admitted(effects: &[Effect]) -> RequestId {
+        effects
+            .iter()
+            .find_map(|effect| match effect {
+                Effect::Admitted { id, .. } => Some(*id),
+                _ => None,
+            })
+            .expect("admission effect")
+    }
+
+    fn request_transmission(effects: &[Effect]) -> TransmissionId {
+        effects
+            .iter()
+            .find_map(|effect| match effect {
+                Effect::Transmit {
+                    transmission,
+                    kind: Transmission::Request { .. },
+                    ..
+                } => Some(*transmission),
+                _ => None,
+            })
+            .expect("request transmission")
+    }
+
+    fn cancel_transmission(effects: &[Effect]) -> TransmissionId {
+        effects
+            .iter()
+            .find_map(|effect| match effect {
+                Effect::Transmit {
+                    transmission,
+                    kind: Transmission::Cancel { .. },
+                    ..
+                } => Some(*transmission),
+                _ => None,
+            })
+            .expect("cancel transmission")
+    }
+
+    fn terminal_unconfirmed(effects: &[Effect], id: RequestId) -> bool {
+        effects.iter().any(|effect| {
+            matches!(
+                effect,
+                Effect::Terminal {
+                    id: terminal,
+                    outcome: RuntimeOutcome::Failed(Error::UnsequencedCommandUnconfirmed),
+                } if *terminal == id
+            )
+        })
+    }
+
+    fn start_executing(
+        envelope: EnvelopeKind,
+        command_spacing: Duration,
+        now: Instant,
+    ) -> (ProtocolEngine, RequestId) {
+        let mut engine = engine(envelope, command_spacing);
+        let admitted_effects = engine.handle(
+            Input::Admit {
+                ticket: AdmissionTicket(1),
+                request: command(),
+            },
+            now,
+        );
+        let id = admitted(&admitted_effects);
+        let request_transmission = request_transmission(&admitted_effects);
+        let sequence = (envelope == EnvelopeKind::Sony).then_some(0x1001);
+        engine.handle(
+            Input::TransmissionFinished {
+                transmission: request_transmission,
+                result: Ok(TransmissionMeta { sequence }),
+            },
+            now,
+        );
+        let ack = DecodedFrame {
+            target: camera(),
+            sequence: (envelope == EnvelopeKind::Sony).then_some(EnvelopeSequence {
+                value: 0x1001,
+                width: SequenceWidth::Full32,
+            }),
+            response: DecodedResponse::Ack {
+                socket: Some(ViscaSocket::S1),
+            },
+        };
+        engine.handle(Input::Frame(ack), now);
+        (engine, id)
+    }
+
+    fn quarantine() -> (ProtocolEngine, RequestId, Instant) {
+        let now = Instant::now();
+        let (mut engine, id) = start_executing(EnvelopeKind::Raw, Duration::ZERO, now);
+        let completion_deadline = now + Duration::from_millis(5);
+        engine.advance(completion_deadline);
+        let deadline = match engine.entry(id).expect("quarantine entry").phase() {
+            Phase::AwaitingCancellationResolution { deadline, .. } => deadline,
+            phase => panic!("expected quarantine, got {phase:?}"),
+        };
+        (engine, id, deadline)
+    }
+
+    #[test]
+    fn pacing_delayed_cancel_extends_raw_and_sony_quarantine() {
+        let start = Instant::now();
+        for envelope in [EnvelopeKind::Raw, EnvelopeKind::Sony] {
+            let (mut engine, id) = start_executing(envelope, Duration::from_millis(40), start);
+            // Record cancellation while the command is still executing. The
+            // completion deadline then opens the quarantine before pacing
+            // permits the cancellation write for both envelope kinds.
+            let cancel_at = start + Duration::from_millis(1);
+            let recorded = engine.handle(Input::Cancel { id }, cancel_at);
+            assert!(recorded.iter().any(
+                |effect| matches!(effect, Effect::CancellationRecorded { id: recorded_id } if *recorded_id == id)
+            ));
+            assert!(!recorded.iter().any(|effect| {
+                matches!(
+                    effect,
+                    Effect::Transmit {
+                        kind: Transmission::Cancel { .. },
+                        ..
+                    }
+                )
+            }));
+
+            let send_at = start + Duration::from_millis(40);
+            let sent = engine.advance(send_at);
+            let cancel_transmission = cancel_transmission(&sent);
+            let expected_deadline = send_at + Duration::from_millis(50);
+            assert!(matches!(
+                engine.entry(id).map(Entry::phase),
+                Some(Phase::AwaitingCancellationResolution { deadline, .. })
+                    if deadline == expected_deadline
+            ));
+            assert_eq!(engine.next_wake(), Some(expected_deadline));
+
+            let old_deadline = cancel_at + Duration::from_millis(50);
+            let before_expiry = engine.advance(old_deadline);
+            assert!(!terminal_unconfirmed(&before_expiry, id));
+            assert!(engine.entry(id).is_some());
+            assert!(matches!(
+                engine.entry(id).map(Entry::cancellation),
+                Some(CancelState::Sending { transmission, .. })
+                    if transmission == cancel_transmission
+            ));
+            engine.assert_invariants().expect("engine invariants");
+        }
+    }
+
+    #[test]
+    fn overdue_quarantine_expires_before_cancel_but_equal_deadline_wins() {
+        let (mut equal_engine, equal_id, equal_deadline) = quarantine();
+        let equal = equal_engine.handle(Input::Cancel { id: equal_id }, equal_deadline);
+        assert!(equal.iter().any(
+            |effect| matches!(effect, Effect::CancellationRecorded { id } if *id == equal_id)
+        ));
+        assert!(!terminal_unconfirmed(&equal, equal_id));
+        assert!(equal_engine.entry(equal_id).is_some());
+
+        let (mut overdue_engine, overdue_id, overdue_deadline) = quarantine();
+        let overdue = overdue_engine.handle(
+            Input::Cancel { id: overdue_id },
+            overdue_deadline + Duration::from_nanos(1),
+        );
+        assert!(terminal_unconfirmed(&overdue, overdue_id));
+        assert!(!overdue.iter().any(|effect| {
+            matches!(
+                effect,
+                Effect::CancellationRecorded { id } | Effect::Transmit {
+                    request: id,
+                    kind: Transmission::Cancel { .. },
+                    ..
+                } if *id == overdue_id
+            )
+        }));
+        assert!(overdue_engine.entry(overdue_id).is_none());
+        overdue_engine
+            .assert_invariants()
+            .expect("engine invariants");
+    }
+
+    #[test]
+    fn raw_cancel_no_socket_is_a_failed_observation() {
+        let now = Instant::now();
+        let (mut engine, id) = start_executing(EnvelopeKind::Raw, Duration::ZERO, now);
+        let cancel = engine.handle(Input::Cancel { id }, now);
+        let cancel_transmission = cancel_transmission(&cancel);
+        engine.handle(
+            Input::TransmissionFinished {
+                transmission: cancel_transmission,
+                result: Ok(TransmissionMeta { sequence: None }),
+            },
+            now,
+        );
+        let effects = engine.handle(
+            Input::Frame(DecodedFrame {
+                target: camera(),
+                sequence: None,
+                response: DecodedResponse::Error {
+                    socket: Some(ViscaSocket::S1),
+                    code: 0x05,
+                },
+            }),
+            now,
+        );
+        assert!(effects.iter().any(|effect| {
+            matches!(
+                effect,
+                Effect::CancellationObservation {
+                    id: observed,
+                    observation: CancellationObservation::Failed(Error::NoSocket),
+                } if *observed == id
+            )
+        }));
+        assert!(effects.iter().any(|effect| {
+            matches!(
+                effect,
+                Effect::Terminal {
+                    id: terminal,
+                    outcome: RuntimeOutcome::Failed(Error::NoSocket),
+                } if *terminal == id
+            )
+        }));
+        assert!(!effects.iter().any(|effect| {
+            matches!(
+                effect,
+                Effect::Terminal {
+                    id: terminal,
+                    outcome: RuntimeOutcome::Cancelled,
+                } if *terminal == id
+            )
+        }));
+        engine.assert_invariants().expect("engine invariants");
+    }
 }

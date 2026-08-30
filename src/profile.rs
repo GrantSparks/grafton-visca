@@ -859,6 +859,29 @@ impl ProfileSpec {
         }
     }
 
+    /// Returns whether every profile fact matches the generated compile-time
+    /// projection for `P`.
+    ///
+    /// This deliberately compares the unvalidated builder projection. It is
+    /// used while validating a `ProfileSpec`, so constructing the validated
+    /// projection here would recurse back into this check.
+    pub(crate) fn matches_compile_time_profile<P>(&self) -> bool
+    where
+        P: CompileTimeProfile,
+    {
+        let expected = ProfileSpecBuilder::from_compile_time::<P>();
+        self.capabilities == expected.capabilities
+            && self.pan_tilt_coordinates == expected.pan_tilt_coordinates
+            && Some(self.transports) == expected.transports
+            && Some(self.envelope) == expected.envelope
+            && Some(self.timing) == expected.timing
+            && Some(self.maximum_command_sockets) == expected.maximum_command_sockets
+            && Some(self.supports_operation_complete) == expected.supports_operation_complete
+            && Some(self.supports_command_cancel) == expected.supports_command_cancel
+            && Some(self.preset_recall_axes) == expected.preset_recall_axes
+            && Some(self.position_inquiries) == expected.position_inquiries
+    }
+
     /// Returns runtime feature and conversion facts.
     #[must_use]
     pub const fn capabilities(&self) -> &capabilities::Capabilities {
@@ -1157,9 +1180,9 @@ impl ProfileSpec {
             ));
         }
         if let Some(profile_id) = self.capabilities.profile_id {
-            if !profile_id.matches_capabilities(&self.capabilities) {
+            if !profile_id.matches_profile_spec(&self) {
                 return Err(Error::InvalidRequest(
-                    "built-in profile identity does not match runtime capability facts".into(),
+                    "built-in profile identity does not match runtime profile facts".into(),
                 ));
             }
         }
@@ -2468,7 +2491,9 @@ mod tests {
             .expect("built-in profile");
         let coordinates = base.pan_tilt_coordinates().expect("coordinates");
         let timing = base.timing();
-        let altered = ProfileSpec::builder(base.capabilities().clone())
+        let mut altered_capabilities = base.capabilities().clone();
+        altered_capabilities.profile_id = None;
+        let altered = ProfileSpec::builder(altered_capabilities)
             .pan_tilt_coordinates(
                 coordinates.coordinate_system(),
                 coordinates.pan_degrees_to_units(),
@@ -2503,6 +2528,63 @@ mod tests {
         assert!(altered
             .ensure_compile_time::<crate::profiles::PtzOpticsG2>()
             .is_err());
+    }
+
+    #[test]
+    fn built_in_identity_covers_non_capability_profile_facts() {
+        let base =
+            ProfileSpec::from_compile_time::<crate::profiles::SonyFR7>().expect("built-in profile");
+        let coordinates = base.pan_tilt_coordinates().expect("coordinates");
+
+        let rebuild = |envelope, coordinate_system, supports_command_cancel| {
+            ProfileSpec::builder(base.capabilities().clone())
+                .pan_tilt_coordinates(
+                    coordinate_system,
+                    coordinates.pan_degrees_to_units(),
+                    coordinates.tilt_degrees_to_units(),
+                )
+                .transports(base.transports())
+                .envelope(envelope)
+                .timing(base.timing())
+                .maximum_command_sockets(base.maximum_command_sockets())
+                .supports_operation_complete(base.supports_operation_complete())
+                .supports_command_cancel(supports_command_cancel)
+                .preset_recall_axes(base.preset_recall_axes())
+                .position_inquiries(base.position_inquiries())
+                .build()
+        };
+
+        assert!(rebuild(
+            base.envelope(),
+            coordinates.coordinate_system(),
+            base.supports_command_cancel(),
+        )
+        .is_ok());
+        assert!(rebuild(
+            ProfileEnvelope::RawVisca,
+            coordinates.coordinate_system(),
+            base.supports_command_cancel(),
+        )
+        .is_err());
+        assert!(rebuild(
+            base.envelope(),
+            match coordinates.coordinate_system() {
+                capabilities::CoordinateSystem::SignedCentered => {
+                    capabilities::CoordinateSystem::UnsignedCentered
+                }
+                capabilities::CoordinateSystem::UnsignedCentered => {
+                    capabilities::CoordinateSystem::SignedCentered
+                }
+            },
+            base.supports_command_cancel(),
+        )
+        .is_err());
+        assert!(rebuild(
+            base.envelope(),
+            coordinates.coordinate_system(),
+            !base.supports_command_cancel(),
+        )
+        .is_err());
     }
 
     #[test]
