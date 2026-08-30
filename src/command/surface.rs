@@ -277,6 +277,11 @@ macro_rules! surface_marker {
             $crate::capabilities::TypedSupportSurface::FocusZone,
         )
     };
+    (HasFocusZoneInquiry) => {
+        $crate::command::surface::StaticMarkerRequirement::Typed(
+            $crate::capabilities::TypedSupportSurface::FocusZoneInquiry,
+        )
+    };
     (HasAutoFocusSensitivity) => {
         $crate::command::surface::StaticMarkerRequirement::Typed(
             $crate::capabilities::TypedSupportSurface::AutoFocusSensitivity,
@@ -425,6 +430,11 @@ macro_rules! surface_marker {
     (HasMotionSync) => {
         $crate::command::surface::StaticMarkerRequirement::Typed(
             $crate::capabilities::TypedSupportSurface::MotionSync,
+        )
+    };
+    (HasUsbAudio) => {
+        $crate::command::surface::StaticMarkerRequirement::Typed(
+            $crate::capabilities::TypedSupportSurface::UsbAudio,
         )
     };
 }

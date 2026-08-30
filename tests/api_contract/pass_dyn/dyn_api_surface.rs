@@ -6,11 +6,10 @@ use grafton_visca::{
     camera::{IdleWait, MotionQuery},
     capabilities::Capabilities,
     command::{
-        AntiFlickerMode, AutoFocusSensitivity, AutoWhiteBalanceSensitivity, BlackWhiteMode,
-        FocusLock, FocusMode, FocusRange, FocusZone, ImageFlipMode, MenuDirection, MotionSyncMode,
-        MotionSyncPreset, NdFilterMode, PanTiltDirection, PanTiltLimitCorner, PictureEffectMode,
-        PresetNumber, ResolutionMode, SharpnessMode, TallyStatusState, VariableSpeedMode,
-        WhiteBalanceMode,
+        AntiFlickerMode, AutoFocusSensitivity, AutoWhiteBalanceSensitivity, FocusLock, FocusMode,
+        FocusRange, FocusZone, ImageFlipMode, MenuDirection, MotionSyncMode, MotionSyncPreset,
+        NdFilterMode, PanTiltDirection, PanTiltLimitCorner, PictureEffectMode, PresetNumber,
+        SharpnessMode, TallyStatusState, VariableSpeedMode, WhiteBalanceMode,
     },
     dynapi::{
         DynAppliedOperation, DynAppliedRequest, DynFuture, DynMotion, DynPower, DynSessionCamera,
@@ -224,7 +223,6 @@ fn noun_surfaces(camera: &dyn DynSessionCameraNouns) {
     let _: DynFuture<'_, Result<BlueTuning, Error>> = white_balance.blue_tuning();
 
     let image = camera.image();
-    let _: DynFuture<'_, Result<ResolutionMode, Error>> = image.resolution();
     let _: DynFuture<'_, Result<SaturationLevel, Error>> = image.saturation();
     let _: DynFuture<'_, Result<(), Error>> = image.set_saturation(SaturationLevel::MIN);
     let _: DynFuture<'_, Result<grafton_visca::types::HueLevel, Error>> = image.hue();
@@ -266,8 +264,6 @@ fn noun_surfaces(camera: &dyn DynSessionCameraNouns) {
     let _: DynFuture<'_, Result<(), Error>> = image.freeze_off();
     let _: DynFuture<'_, Result<grafton_visca::command::FlipState, Error>> = image.flip();
     let _: DynFuture<'_, Result<grafton_visca::command::FlipState, Error>> = image.flip_mode();
-    let _: DynFuture<'_, Result<bool, Error>> = image.black_white();
-    let _: DynFuture<'_, Result<BlackWhiteMode, Error>> = image.black_white_mode();
     let _: DynFuture<'_, Result<PictureEffectMode, Error>> = image.picture_effect();
     let _: DynFuture<'_, Result<(), Error>> = image.set_picture_effect(PictureEffectMode::Off);
     let _: DynFuture<'_, Result<DefogLevel, Error>> = image.defog_level();

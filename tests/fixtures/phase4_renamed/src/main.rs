@@ -4,9 +4,9 @@ use std::time::Duration;
 
 use visca_renamed::{
     capabilities::{
-        self, Exposure, Focus, ImageProcessing, MenuCapability, MotionSyncMetadata,
-        NdFilterMetadata, PanTilt, Power, Presets, ProfileMetadata, ProfileTypedSupport, Tally,
-        VariableSpeedMetadata, WhiteBalance, Zoom,
+        self, Exposure, Focus, HasImageProcessing, ImageProcessing, MenuCapability,
+        MotionSyncMetadata, NdFilterMetadata, PanTilt, Power, Presets, ProfileMetadata,
+        ProfileTypedSupport, Tally, VariableSpeedMetadata, WhiteBalance, Zoom,
     },
     command::{RawInquiryPayload, Response, ResponseParser},
     request, AffectedAxes, CameraId, CompileTimeProfile, Inquiry, PositionInquirySupport,
@@ -137,7 +137,16 @@ impl ImageProcessing for DownstreamProfile {
     const SUPPORTS_HUE: bool = true;
     const HUE_RANGE: Option<capabilities::CapabilityRange<u8>> =
         <Base as ImageProcessing>::HUE_RANGE;
+    const SUPPORTS_IMAGE_PROCESSING: bool = true;
 }
+
+// The downstream profile documents a real image surface above, so it opts in
+// to the matching static noun marker and runtime base permission explicitly.
+// Metadata alone is not typed permission: Generic VISCA intentionally has the
+// same metadata trait but no `HasImageProcessing` implementation.
+impl HasImageProcessing for DownstreamProfile {}
+
+fn assert_image_marker<P: HasImageProcessing>() {}
 
 impl Presets for DownstreamProfile {
     const MAX_PRESETS: u8 = 8;
@@ -173,6 +182,7 @@ impl CompileTimeProfile for DownstreamProfile {
 
 fn main() -> visca_renamed::Result<()> {
     assert_inquiry_contracts();
+    assert_image_marker::<DownstreamProfile>();
 
     let _ = RenamedValue::new(2)?;
     let _ = RenamedEnum::try_from(1)?;
@@ -190,6 +200,7 @@ fn main() -> visca_renamed::Result<()> {
         profile.capabilities().model_name,
         "Downstream renamed profile"
     );
+    assert!(profile.capabilities().has_image_processing);
     assert_eq!(profile.transports().tcp_port(), Some(9876));
     Ok(())
 }

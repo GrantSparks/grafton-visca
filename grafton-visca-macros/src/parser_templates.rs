@@ -106,14 +106,6 @@ pub fn generate_direct_byte_parser(
                 }
             }
         }
-        "Resolution" => {
-            quote! {
-                {
-                    let mode = #crate_path::command::ResolutionMode::from_byte(data[0]);
-                    Ok(#crate_path::command::InquiryData::#response_variant(mode))
-                }
-            }
-        }
         _ => {
             // Default to tuple variant
             quote! {

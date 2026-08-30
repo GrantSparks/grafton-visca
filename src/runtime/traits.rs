@@ -245,6 +245,10 @@ mod tokio_impl {
     use crate::{
         executor::TokioExecutor,
         runtime_adapters::tokio::{TcpTransport, UdpTransport},
+        transport::{
+            address::canonicalize_endpoint,
+            socket_options::{TcpConnectionConfig, UdpSocketConfig},
+        },
     };
 
     use std::future::Future;
@@ -331,8 +335,17 @@ mod tokio_impl {
             addr: &str,
             cfg: TransportConfig,
         ) -> Result<Self::TcpTransport, Error> {
-            // Timeout is enforced at the connector layer (single source of truth)
-            TcpTransport::connect_with_config(addr, cfg).await
+            // Run the connector on this runtime's handle rather than the
+            // ambient task's Tokio context. The resulting stream is then
+            // owned by the actor this same runtime spawns.
+            let address = canonicalize_endpoint(addr, None)?;
+            let stream = crate::transport::tokio::connectors::connect_tcp_on(
+                self.executor.handle(),
+                address,
+                TcpConnectionConfig::from(cfg),
+            )
+            .await?;
+            Ok(TcpTransport::new(stream, cfg))
         }
 
         async fn connect_udp(
@@ -340,8 +353,16 @@ mod tokio_impl {
             addr: &str,
             cfg: TransportConfig,
         ) -> Result<Self::UdpTransport, Error> {
-            // Timeout is enforced at the connector layer (single source of truth)
-            UdpTransport::connect_with_config(addr, cfg).await
+            // As with TCP, DNS, timer and socket work belongs to the selected
+            // runtime even when this future is polled by another Tokio runtime.
+            let address = canonicalize_endpoint(addr, None)?;
+            let socket = crate::transport::tokio::connectors::connect_udp_on(
+                self.executor.handle(),
+                address,
+                UdpSocketConfig::from(cfg),
+            )
+            .await?;
+            Ok(UdpTransport::new(socket, cfg))
         }
     }
 
@@ -352,8 +373,90 @@ mod tokio_impl {
             &self,
             cfg: crate::transport::serial::Config,
         ) -> Result<Self::SerialTransport, Error> {
-            // Use the unified Config directly (it's now the same type)
-            crate::transport::tokio::serial::Serial::connect(cfg).await
+            crate::transport::tokio::serial::Serial::connect_on(self.executor.handle(), cfg).await
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use std::{future, time::Duration};
+
+        /// `from_handle` is allowed to be constructed and awaited while a
+        /// different Tokio runtime is current. The ambient runtime below has a
+        /// timer but deliberately no I/O driver: successful TCP/UDP setup
+        /// therefore proves connector work used `selected`; advancing only
+        /// the ambient clock must not fire a timer bound to `selected`.
+        #[test]
+        fn from_handle_binds_connectors_timers_and_spawn_to_selected_runtime(
+        ) -> Result<(), Box<dyn std::error::Error>> {
+            let selected = tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(2)
+                .enable_all()
+                .build()?;
+            let listener =
+                selected.block_on(async { tokio::net::TcpListener::bind("127.0.0.1:0").await })?;
+            let address = listener.local_addr()?.to_string();
+            let selected_handle = selected.handle().clone();
+
+            let ambient = tokio::runtime::Builder::new_current_thread()
+                .enable_time()
+                .build()?;
+            ambient.block_on(async move {
+                tokio::time::pause();
+                let runtime = TokioRuntime::from_handle(selected_handle.clone());
+                let selected_for_accept = selected_handle.clone();
+                let accepted = selected_handle.spawn(async move {
+                    let _ = listener.accept().await?;
+                    Ok::<_, std::io::Error>(tokio::runtime::Handle::current().id())
+                });
+
+                let tcp = runtime
+                    .connect_tcp(&address, TransportConfig::default())
+                    .await
+                    ?;
+                assert_eq!(accepted.await??, selected_for_accept.id());
+                let udp = runtime
+                    .connect_udp("127.0.0.1:9", TransportConfig::default())
+                    .await
+                    ?;
+                drop((tcp, udp));
+
+                let actor_task = runtime.spawn(async {
+                    tokio::runtime::Handle::current().id()
+                });
+                assert_eq!(actor_task.await?, selected_handle.id());
+
+                let before = Executor::now(&runtime);
+                let sleep = runtime.sleep(Duration::from_secs(1));
+                tokio::pin!(sleep);
+                tokio::select! {
+                    _ = &mut sleep => panic!("the selected runtime timer fired before its real deadline"),
+                    _ = tokio::task::yield_now() => {}
+                }
+                tokio::time::advance(Duration::from_secs(3_600)).await;
+                tokio::select! {
+                    _ = &mut sleep => panic!("ambient time advanced a timer bound to the selected runtime"),
+                    _ = tokio::task::yield_now() => {}
+                }
+                assert!(
+                    Executor::now(&runtime).duration_since(before) < Duration::from_secs(30)
+                );
+
+                let timeout = runtime.timeout(Duration::from_secs(1), future::pending::<()>());
+                tokio::pin!(timeout);
+                tokio::select! {
+                    result = &mut timeout => panic!("selected timer fired before advance: {result:?}"),
+                    _ = tokio::task::yield_now() => {}
+                }
+                tokio::time::advance(Duration::from_secs(3_600)).await;
+                tokio::select! {
+                    result = &mut timeout => panic!("ambient time advanced a selected-runtime timeout: {result:?}"),
+                    _ = tokio::task::yield_now() => {}
+                }
+                Ok::<(), Box<dyn std::error::Error>>(())
+            })?;
+            Ok(())
         }
     }
 }

@@ -351,6 +351,20 @@ fn validate_ptzoptics_vendor_state(
     require(is_ptzoptics_profile(profile), feature)
 }
 
+/// USB audio is a model capability, not a family-wide PTZOptics assumption.
+///
+/// Keep runtime validation on the same registry facts that emit the static
+/// `HasUsbAudio` marker. In particular, a G3 profile remains denied until its
+/// UAC command and response support are independently evidenced.
+fn validate_usb_audio_state(profile: &crate::ProfileSpec) -> Result<(), Error> {
+    let capabilities = profile.capabilities();
+    require(capabilities.has_usb_audio, "USB audio control")?;
+    require(
+        capabilities.supports_typed(TypedSupportSurface::UsbAudio),
+        "typed USB audio control",
+    )
+}
+
 fn validate_power_state(profile: &crate::ProfileSpec, standby: bool) -> Result<(), Error> {
     let capabilities = profile.capabilities();
     require(capabilities.has_power, "power control")?;
@@ -951,15 +965,7 @@ impl BuiltinValidation for crate::command::image::PictureEffectCommand {
             profile,
             TypedSupportSurface::PictureEffect,
             "picture effect",
-        )?;
-        match self.mode {
-            crate::command::PictureEffectMode::Off
-            | crate::command::PictureEffectMode::BlackAndWhite
-            | crate::command::PictureEffectMode::Unknown(_) => Ok(()),
-            _ => Err(Error::FeatureNotSupported {
-                feature: "selected picture effect mode",
-            }),
-        }
+        )
     }
 }
 
@@ -1048,7 +1054,7 @@ impl BuiltinValidation for crate::command::menu::DirectMenuControl {
 
 impl BuiltinValidation for crate::command::streaming::UsbAudio {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_ptzoptics_vendor_state(profile, "USB audio control")
+        validate_usb_audio_state(profile)
     }
 }
 
@@ -4457,7 +4463,7 @@ mod tests {
         prepared::{
             prepare_builtin_command, prepare_builtin_operation, prepare_command, ClassSelection,
         },
-        profiles::{GenericVisca, PtzOpticsG2, SonyFR7},
+        profiles::{GenericVisca, PtzOptics30X, PtzOpticsG2, PtzOpticsG3, SonyFR7},
         types::NdiQuality,
         OperationalTuning, PlainCommand, ProfileSpec,
     };
@@ -4477,6 +4483,35 @@ mod tests {
             .write_into(CameraId::CAMERA_1, &mut buffer)
             .expect("command must encode");
         buffer[..length].to_vec()
+    }
+
+    #[test]
+    fn usb_audio_direct_validation_follows_the_registry_capability_fact() {
+        let g2 = ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2 profile");
+        let g3 = ProfileSpec::from_compile_time::<PtzOpticsG3>().expect("G3 profile");
+        let thirty_x = ProfileSpec::from_compile_time::<PtzOptics30X>().expect("30X profile");
+        let fr7 = ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7 profile");
+        let generic = ProfileSpec::from_compile_time::<GenericVisca>().expect("generic profile");
+
+        for profile in [&g2, &thirty_x] {
+            assert!(prepare_builtin_command(
+                &crate::command::UsbAudio::On,
+                CameraId::CAMERA_1,
+                profile,
+                OperationalTuning::new(),
+            )
+            .is_ok());
+        }
+
+        for profile in [&g3, &fr7, &generic] {
+            assert!(prepare_builtin_command(
+                &crate::command::UsbAudio::On,
+                CameraId::CAMERA_1,
+                profile,
+                OperationalTuning::new(),
+            )
+            .is_err());
+        }
     }
 
     /// Exhaustive value-domain sweep for #683.

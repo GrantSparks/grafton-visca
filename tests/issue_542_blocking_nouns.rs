@@ -10,16 +10,16 @@ use grafton_visca::{
     capabilities::{
         HasAutoFocusSensitivity, HasAutoWhiteBalanceSensitivity, HasBacklightCompensation,
         HasBrightnessControl, HasColorTemperature, HasContrastControl, HasExposure,
-        HasExposureCompensation, HasFocus, HasFocusNearLimitInquiry, HasFocusZone, HasGammaControl,
-        HasHueControl, HasImageFlip, HasImageProcessing, HasIrisControl, HasLuminanceControl,
-        HasMenuControl, HasMotionSync, HasNdFilter, HasNoiseReduction, HasNoiseReduction2D,
-        HasNoiseReduction3D, HasPanTilt, HasPictureEffect, HasPower, HasPresets, HasRgbGain,
-        HasRgbTuning, HasSaturationControl, HasSharpnessControl, HasTally, HasWhiteBalance,
-        HasWideDynamicRange, HasZoom,
+        HasExposureCompensation, HasFocus, HasFocusNearLimitInquiry, HasFocusZone,
+        HasFocusZoneInquiry, HasGammaControl, HasHueControl, HasImageFlip, HasImageProcessing,
+        HasIrisControl, HasLuminanceControl, HasMenuControl, HasMotionSync, HasNdFilter,
+        HasNoiseReduction, HasNoiseReduction2D, HasNoiseReduction3D, HasPanTilt, HasPictureEffect,
+        HasPower, HasPresets, HasRgbGain, HasRgbTuning, HasSaturationControl, HasSharpnessControl,
+        HasTally, HasUsbAudio, HasWhiteBalance, HasWideDynamicRange, HasZoom,
     },
     command::MotionSyncMode,
     completion::{AppliedOnly, Targeted},
-    profiles::{PtzOpticsG2, SonyFR7},
+    profiles::{PtzOptics30X, PtzOpticsG2, PtzOpticsG3, SonyFR7},
     CompileTimeProfile, Result,
 };
 
@@ -38,7 +38,6 @@ where
         + HasFocus
         + HasExposure
         + HasWhiteBalance
-        + HasImageProcessing
         + HasPresets
         + HasMenuControl,
 {
@@ -51,7 +50,6 @@ where
             .set_mode(grafton_visca::ExposureMode::Auto),
     );
     plain(camera.white_balance().auto());
-    plain(camera.image().freeze_on());
     plain(camera.menu().display(true));
     plain(camera.advanced().multicast_on());
 
@@ -64,7 +62,19 @@ where
     let _ = camera.motion();
 }
 
-fn all_unconditional_inquiries<'session, P: CompileTimeProfile>(camera: &Camera<'session, P>) {
+/// These rows used to be included in `baseline` because
+/// `HasImageProcessing` was blanket-implemented from image metadata. Generic
+/// VISCA's all-empty metadata deliberately does not imply the typed image
+/// noun, so the explicit base marker now owns this surface.
+fn base_image_surface<'session, P: CompileTimeProfile + HasImageProcessing>(
+    camera: &Camera<'session, P>,
+) {
+    plain(camera.image().freeze_on());
+    plain(camera.image().freeze_off());
+    let _ = camera.image().defog_level();
+}
+
+fn all_base_inquiries<'session, P: CompileTimeProfile>(camera: &Camera<'session, P>) {
     let _ = camera.power().state();
     let _ = camera.zoom().position();
     let _ = camera.system().version();
@@ -78,8 +88,6 @@ fn all_unconditional_inquiries<'session, P: CompileTimeProfile>(camera: &Camera<
     let _ = camera.exposure().gain_limit();
     let _ = camera.exposure().flicker_mode();
     let _ = camera.white_balance().mode();
-    let _ = camera.image().resolution();
-    let _ = camera.image().defog_level();
     let _ = camera.menu().status();
     let _ = camera.advanced().night_day_mode();
     let _ = camera.advanced().standby_enabled();
@@ -87,13 +95,14 @@ fn all_unconditional_inquiries<'session, P: CompileTimeProfile>(camera: &Camera<
     let _ = camera.advanced().auto_trace_enabled();
     let _ = camera.advanced().focus_unlock();
     let _ = camera.advanced().broadcast_domain();
-    let _ = camera.advanced().usb_audio_enabled();
     let _ = camera.advanced().two_tone_mode_enabled();
     let _ = camera.advanced().digital_mode_enabled();
 }
 
 #[allow(dead_code)]
-fn noise_gate<'session, P: CompileTimeProfile + HasNoiseReduction>(camera: &Camera<'session, P>) {
+fn noise_gate<'session, P: CompileTimeProfile + HasImageProcessing + HasNoiseReduction>(
+    camera: &Camera<'session, P>,
+) {
     let _ = camera.image().noise_reduction_level();
     let _ = camera.image().noise_reduction_mode();
 }
@@ -110,10 +119,11 @@ where
         + HasContrastControl
         + HasExposureCompensation
         + HasFocusNearLimitInquiry
-        + HasFocusZone
+        + HasFocusZoneInquiry
         + HasGammaControl
         + HasHueControl
         + HasImageFlip
+        + HasImageProcessing
         + HasIrisControl
         + HasLuminanceControl
         + HasMotionSync
@@ -150,8 +160,6 @@ where
     let _ = camera.image().noise_reduction_2d();
     let _ = camera.image().noise_reduction_3d();
     let _ = camera.image().flip();
-    let _ = camera.image().black_white();
-    let _ = camera.image().black_white_mode();
     let _ = camera.image().picture_effect();
     let _ = camera.image().flip_mode();
     let _ = camera.white_balance().sensitivity();
@@ -192,6 +200,31 @@ fn motion_gate<'session, P: CompileTimeProfile + HasMotionSync>(camera: &Camera<
     plain(camera.motion_sync().set_preset(1));
 }
 
+#[allow(dead_code)]
+fn focus_zone_command_gate<'session, P: CompileTimeProfile + HasFocusZone>(
+    camera: &Camera<'session, P>,
+) {
+    plain(
+        camera
+            .focus()
+            .set_zone(grafton_visca::command::FocusZone::Center),
+    );
+}
+
+#[allow(dead_code)]
+fn focus_zone_inquiry_gate<'session, P: CompileTimeProfile + HasFocusZoneInquiry>(
+    camera: &Camera<'session, P>,
+) {
+    let _ = camera.focus().zone();
+}
+
+#[allow(dead_code)]
+fn usb_audio_gate<'session, P: CompileTimeProfile + HasUsbAudio>(camera: &Camera<'session, P>) {
+    let _ = camera.advanced().usb_audio_enabled();
+    plain(camera.advanced().usb_audio_on());
+    plain(camera.advanced().usb_audio_off());
+}
+
 fn non_default<'session>(
     camera: &Camera<'session, profile_fixtures::NonDefaultCompileTimeProfile>,
 ) {
@@ -202,7 +235,19 @@ fn non_default<'session>(
 fn static_camera_surface_is_profile_typed_and_non_default() {
     let _: for<'session> fn(&'session Camera<'session, PtzOpticsG2>) = baseline::<PtzOpticsG2>;
     let _: for<'session> fn(&'session Camera<'session, PtzOpticsG2>) =
-        all_unconditional_inquiries::<PtzOpticsG2>;
+        base_image_surface::<PtzOpticsG2>;
+    let _: for<'session> fn(&'session Camera<'session, PtzOpticsG2>) =
+        all_base_inquiries::<PtzOpticsG2>;
+    let _: for<'session> fn(&'session Camera<'session, PtzOpticsG2>) =
+        usb_audio_gate::<PtzOpticsG2>;
+    let _: for<'session> fn(&'session Camera<'session, PtzOptics30X>) =
+        usb_audio_gate::<PtzOptics30X>;
+    let _: for<'session> fn(&'session Camera<'session, PtzOpticsG2>) =
+        focus_zone_inquiry_gate::<PtzOpticsG2>;
+    let _: for<'session> fn(&'session Camera<'session, PtzOptics30X>) =
+        focus_zone_inquiry_gate::<PtzOptics30X>;
+    let _: for<'session> fn(&'session Camera<'session, PtzOpticsG3>) =
+        focus_zone_command_gate::<PtzOpticsG3>;
     let _: for<'session> fn(&'session Camera<'session, SonyFR7>) = sony_optional;
     let _: for<'session> fn(
         &'session Camera<'session, profile_fixtures::NonDefaultCompileTimeProfile>,

@@ -10,11 +10,12 @@ use std::time::Duration;
 ///
 /// # Hardware Evidence
 ///
-/// PTZOptics G2/G3/30X cameras have been confirmed via hardware testing to support
-/// the complete VISCA inquiry command set, including all exposure, focus, image
-/// processing, and color inquiries documented in the PTZOptics VISCA command list.
-/// See [issue #498](https://github.com/GrantSparks/grafton-visca/issues/498) for
-/// the full test results against a PTZOptics PT20X-NDI (G2 profile).
+/// PTZOptics G2/G3/30X cameras have baseline VISCA inquiry support confirmed by
+/// hardware testing. Model-specific optional inquiries still require their own
+/// source-backed typed-support gate; a profile-wide `Full` value is never a
+/// fallback permission for an optional accessor. See
+/// [issue #498](https://github.com/GrantSparks/grafton-visca/issues/498) for
+/// the tested G2 baseline.
 ///
 /// # Usage
 ///
@@ -25,7 +26,8 @@ use std::time::Duration;
 /// let profile = ProfileId::PtzOpticsG2;
 /// match profile.inquiry_support() {
 ///     InquirySupport::Full => {
-///         // Safe to use all inquiry commands
+///         // Baseline inquiries are available; optional accessors still
+///         // require their profile-specific typed gates.
 ///     }
 ///     InquirySupport::Partial => {
 ///         // Basic inquiries work; advanced ones may not
@@ -44,11 +46,11 @@ use std::time::Duration;
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[non_exhaustive]
 pub enum InquirySupport {
-    /// Full inquiry support — all documented VISCA inquiry commands work correctly.
+    /// Full baseline inquiry support for the documented profile family.
     ///
-    /// Cameras with full support respond to every inquiry command in their VISCA
-    /// documentation, including exposure mode, shutter, iris, focus mode,
-    /// backlight, image processing settings, and block inquiries.
+    /// Cameras in this category support the baseline VISCA inquiry set used by
+    /// their profile. Optional model-specific inquiries remain independently
+    /// gated by typed support markers and runtime capability facts.
     ///
     /// Confirmed profiles: PTZOptics G2, PTZOptics G3, PTZOptics 30X,
     /// Sony FR7, Sony BRC-H900.
@@ -172,6 +174,15 @@ pub trait ProfileMetadata {
     ///
     /// Default: Duration::ZERO (no artificial spacing)
     const MIN_COMMAND_SPACING: Duration = Duration::from_millis(0);
+
+    /// Whether this profile has source-backed USB audio support.
+    ///
+    /// The typed [`crate::capabilities::TypedSupportSurface::UsbAudio`]
+    /// permission remains the authority for exposing a static operation; this
+    /// fact lets dynamic validation reject a profile that claims the typed
+    /// surface without the required model capability. Downstream profiles
+    /// remain conservative unless they opt in explicitly.
+    const SUPPORTS_USB_AUDIO: bool = false;
 }
 
 /// Marker trait indicating that a profile supports standard TCP construction.
@@ -270,7 +281,7 @@ pub trait HasWhiteBalance {}
 #[diagnostic::on_unimplemented(
     message = "profile `{Self}` does not declare image-processing support",
     label = "profile `{Self}` does not implement `HasImageProcessing`",
-    note = "built-in marker support is documented in docs/camera_profile_support.md; add the marker bound only when every selected profile supports this typed surface"
+    note = "built-in marker support is registry-backed; downstream profiles must implement this marker explicitly only for a source-backed typed image noun"
 )]
 pub trait HasImageProcessing {}
 
@@ -313,6 +324,15 @@ profile_capability_marker! {
         message: "profile `{Self}` does not declare typed variable-speed support",
         label: "profile `{Self}` does not implement `HasVariableSpeed`",
         note: "see the built-in marker matrix in docs/camera_profile_support.md; use optional accessors, runtime feature detection, or a split trait instead of requiring this marker in a heterogeneous dyn-erased camera aggregate",
+    }
+}
+
+profile_capability_marker! {
+    /// Marker trait indicating support for USB audio control and inquiry.
+    pub trait HasUsbAudio {
+        message: "profile `{Self}` does not declare USB audio support",
+        label: "profile `{Self}` does not implement `HasUsbAudio`",
+        note: "see the built-in marker matrix in docs/camera_profile_support.md; add this bound only for profiles with source-backed typed support",
     }
 }
 
@@ -449,6 +469,19 @@ profile_capability_marker! {
     pub trait HasFocusZone {
         message: "profile `{Self}` does not declare focus-zone support",
         label: "profile `{Self}` does not implement `HasFocusZone`",
+        note: "see the built-in marker matrix in docs/camera_profile_support.md; add this bound only for profiles with source-backed typed support",
+    }
+}
+
+profile_capability_marker! {
+    /// Marker trait indicating support for the focus-zone inquiry.
+    ///
+    /// This is intentionally independent of [`HasFocusZone`]: a model may
+    /// document the focus-zone selection command without documenting a safe
+    /// status response for it.
+    pub trait HasFocusZoneInquiry {
+        message: "profile `{Self}` does not declare focus-zone inquiry support",
+        label: "profile `{Self}` does not implement `HasFocusZoneInquiry`",
         note: "see the built-in marker matrix in docs/camera_profile_support.md; add this bound only for profiles with source-backed typed support",
     }
 }
@@ -660,16 +693,18 @@ profile_capability_marker! {
     }
 }
 
-// Specialized blanket implementations for baseline marker traits.
-// These automatically implement the marker trait for any type that implements
-// both ProfileMetadata and the corresponding capability trait.
+// Specialized blanket implementations for baseline marker traits whose
+// metadata traits intrinsically establish the baseline surface. Image metadata
+// is intentionally different: every `Profile` supplies `ImageProcessing`
+// metadata, including profiles with no image noun at all. Its marker is emitted
+// by the built-in registry from a source-backed base-support fact, and custom
+// profiles opt in explicitly.
 
 impl<T: ProfileMetadata + crate::capabilities::PanTilt> HasPanTilt for T {}
 impl<T: ProfileMetadata + crate::capabilities::Zoom> HasZoom for T {}
 impl<T: ProfileMetadata + crate::capabilities::Focus> HasFocus for T {}
 impl<T: ProfileMetadata + crate::capabilities::Exposure> HasExposure for T {}
 impl<T: ProfileMetadata + crate::capabilities::WhiteBalance> HasWhiteBalance for T {}
-impl<T: ProfileMetadata + crate::capabilities::ImageProcessing> HasImageProcessing for T {}
 impl<T: ProfileMetadata + crate::capabilities::Presets> HasPresets for T {}
 impl<T: ProfileMetadata + crate::capabilities::Power> HasPower for T {}
 impl<T: ProfileMetadata + crate::capabilities::MenuCapability> HasMenuControl for T {}

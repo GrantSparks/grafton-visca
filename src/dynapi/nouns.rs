@@ -30,7 +30,7 @@ use super::{DynAppliedOperation, DynFuture, DynSessionCamera, DynTargetedOperati
 pub const DYN_NOUN_TARGET_METHOD_COUNT: usize = 146;
 
 /// Number of typed inquiry methods in this projection.
-pub const DYN_NOUN_INQUIRY_METHOD_COUNT: usize = 66;
+pub const DYN_NOUN_INQUIRY_METHOD_COUNT: usize = 63;
 
 /// Number of domain nouns (motion is a separate safety/observation view).
 pub const DYN_NOUN_COUNT: usize = 14;

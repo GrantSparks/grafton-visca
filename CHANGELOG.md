@@ -2890,7 +2890,7 @@ camera.set_luminance(LuminanceLevel::new(10)?).await?;
 camera.set_saturation(SaturationLevel::new(8)?).await?;
 camera.set_noise_reduction_2d(NoiseReduction2DLevel::new(3)?).await?;
 camera.set_noise_reduction_3d(NoiseReduction3DLevel::new(2)?).await?;
-camera.set_picture_effect(PictureEffectMode::Negative).await?;
+camera.set_picture_effect(PictureEffectMode::BlackAndWhite).await?;
 
 // Color control operations
 camera.set_color_temperature(5600).await?;

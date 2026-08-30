@@ -51,7 +51,8 @@ pub struct MetricsSnapshot {
     pub cache_updates: u64,
     /// Acknowledgement deadlines that expired on a sent command.
     pub ack_timeouts: u64,
-    /// Completion deadlines that expired on an acknowledged command.
+    /// Completion deadlines that expired while an acknowledged command or
+    /// completion-only raw command awaited completion.
     pub completion_timeouts: u64,
     /// Reply deadlines that expired on a sent inquiry.
     pub inquiry_timeouts: u64,

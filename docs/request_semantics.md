@@ -32,7 +32,7 @@ not choose a completion class; owner submission uses the typed
 Raw frames are bounded by the single public `raw::MAX_BYTES` constant; the
 inline storage capacity is an implementation detail. Custom inquiry routes
 use `InquiryRoute::try_custom`, and affected-axis cardinality is reported by
-`AffectedAxes::len`.
+`AffectedAxes::axis_count`.
 
 Every operation row contains a non-empty `BuiltinAxisSelection`.  Preset
 recall is the one profile-dependent case: preparation must validate and carry
@@ -199,7 +199,7 @@ independent of observer attachment:
 Current write-only state keys are `PanTiltLimits`, `PresetRecallSpeed`,
 `FocusLockMode`, `Spotlight`, `AutoSlowShutter`, `NdFilterMode`,
 `AutoNdFilter`, `ImageFreeze`, `DigitalZoomMode`, `MulticastStreaming`,
-`NdiQuality`, `TallyBrightness`, `VariableSpeedMode`, and `TallyMode`.
+`NdiQuality`, `TallyBrightness`, `VariableSpeedMode`, `TallyMode`, and `Flip`.
 USB-audio is intentionally not in this list because the built-in inquiry
 inventory has a typed USB-audio status response. A future write-only property
 must add a key and explicit ledger rows before it can be exposed by a typed

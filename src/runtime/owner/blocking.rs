@@ -1124,6 +1124,10 @@ impl DriveReport {
 pub(crate) struct BlockingOwner {
     state: OwnerState,
     pumping: bool,
+    /// One consecutive run of transient receive faults. A persistent run is
+    /// eventually a dead transport, not a condition a caller-thread pump can
+    /// recover by retrying forever.
+    faults: TransientFaultRun,
 }
 
 impl BlockingOwner {
@@ -1131,6 +1135,7 @@ impl BlockingOwner {
         Ok(Self {
             state: OwnerState::new(policy)?,
             pumping: false,
+            faults: TransientFaultRun::default(),
         })
     }
 
@@ -1547,14 +1552,25 @@ impl BlockingOwner {
             }
         }
 
-        if let Some(error) = buffered_submission_error(&completion) {
-            return Err(error);
-        }
         if !queued {
             let first_write = report.first_write_for(id).ok_or_else(|| {
                 Error::InvalidState("blocking request lost its first-write result".into())
             })?;
-            first_write?;
+            if let Err(error) = first_write {
+                // A failed write can have terminalized the session (for
+                // example a stream poison). Preserve that engine verdict over
+                // the raw driver error, exactly as the prior submission path
+                // did; only a successful write may retain an immediate
+                // `NoReply` `Applied` observation for the returned receipt.
+                return Err(buffered_submission_error(&completion).unwrap_or(error));
+            }
+        } else if let Some(error) = buffered_submission_error(&completion) {
+            // A queued receipt has not reached the wire, so any terminal
+            // observation remains a failed submission. Once a first write has
+            // succeeded, however, a `NoReply` command legitimately resolves
+            // `Applied` in that same owner turn; leave that observation for the
+            // returned receipt to consume.
+            return Err(error);
         }
         Ok(ReceiptCore::new(
             id,
@@ -1658,6 +1674,9 @@ impl BlockingOwner {
         };
         let (received, received_at) = match read {
             Ok(BlockingReceive::TimedOut) => {
+                // A clean idle read proves the adapter is responding again,
+                // so it breaks any prior run of transient failures.
+                self.faults.reset();
                 let now = Instant::now();
                 if self
                     .next_wake_for_mode(mode)
@@ -1677,18 +1696,43 @@ impl BlockingOwner {
                 let _ = self.drive_for_mode(driver, effects, mode);
                 return Err(Error::ConnectionClosed { reason: None });
             }
-            Ok(BlockingReceive::Bytes(received)) => (received, Instant::now()),
+            Ok(BlockingReceive::Bytes(received)) => {
+                // Any successful read breaks a transient-fault run, even when
+                // the bytes only complete a later frame.
+                self.faults.reset();
+                (received, Instant::now())
+            }
             Err(error) if super::receive_fault_is_transient(&error) => {
+                let received_at = Instant::now();
+                let (length, span) = self.faults.record(received_at);
+                if TransientFaultRun::is_permanent(length, span) {
+                    // Twelve consecutive faults spanning at least one second
+                    // are a broken adapter rather than a transient condition.
+                    // Close through the owner so every outstanding observer
+                    // receives the session boundary error, retaining both the
+                    // run count and the underlying transport cause.
+                    let effects = self.input_for_mode(
+                        Input::Close {
+                            reason: Some(
+                                format!("{length} consecutive receive faults: {error}")
+                                    .into_boxed_str(),
+                            ),
+                        },
+                        received_at,
+                        mode,
+                    );
+                    let _ = self.drive_for_mode(driver, effects, mode);
+                    return Err(self.boundary_error_or(error));
+                }
                 // The engine safely retries sequenced Sony work with its same
                 // sequence; a raw command awaiting ACK is left to its own ACK
                 // deadline (issue #671; the strict opt-in poisons instead)
                 // rather than being replayed. The read consumed nothing, so
                 // framing state is intact and this pump simply produced no
                 // frames.
-                let effects =
-                    self.input_for_mode(Input::ReceiveFault { error }, Instant::now(), mode);
+                let effects = self.input_for_mode(Input::ReceiveFault { error }, received_at, mode);
                 let _ = self.drive_for_mode(driver, effects, mode);
-                pause_after_transient_receive_fault(owner_deadline);
+                pause_after_transient_receive_fault(length, owner_deadline);
                 return Ok(0);
             }
             Err(error) => {
@@ -2069,18 +2113,91 @@ impl BlockingOwner {
     }
 }
 
-/// Pause applied after a transient receive fault so a transport that fails
-/// immediately cannot spin a caller's pump loop. 1.x used the same bound.
+/// Pause applied after the first transient receive fault so a transport that
+/// fails immediately cannot spin a caller's pump loop. 1.x used the same
+/// bound.
 const TRANSIENT_RECEIVE_PAUSE: Duration = Duration::from_millis(10);
 
-fn pause_after_transient_receive_fault(owner_deadline: Option<Instant>) {
-    let now = Instant::now();
-    let pause = match owner_deadline {
-        Some(deadline) if deadline <= now => return,
-        Some(deadline) => TRANSIENT_RECEIVE_PAUSE.min(deadline.duration_since(now)),
-        None => TRANSIENT_RECEIVE_PAUSE,
-    };
-    std::thread::sleep(pause);
+/// Ceiling on the escalating transient-fault pause.
+const MAXIMUM_TRANSIENT_RECEIVE_PAUSE: Duration = Duration::from_millis(250);
+
+/// Consecutive transient receive faults, with no successful read between them,
+/// after which the session ends with the underlying transport error.
+const TRANSIENT_RECEIVE_FAULT_LIMIT: u32 = 12;
+
+/// Minimum wall-clock length of a fault run before it can end the session.
+const TRANSIENT_RECEIVE_FAULT_SPAN: Duration = Duration::from_secs(1);
+
+/// A gap this long between two transient faults proves the transport recovered
+/// in between, so the run starts over rather than accumulating over hours.
+const TRANSIENT_RECEIVE_FAULT_RESET: Duration = Duration::from_secs(5);
+
+/// Escalating pause for the `run`-th consecutive transient receive fault.
+fn transient_receive_pause(run: u32) -> Duration {
+    let doublings = run.saturating_sub(1).min(6);
+    TRANSIENT_RECEIVE_PAUSE
+        .saturating_mul(1u32 << doublings)
+        .min(MAXIMUM_TRANSIENT_RECEIVE_PAUSE)
+}
+
+/// Clamp a transient pause so it cannot delay an owner wake or caller deadline.
+fn clamp_transient_pause(
+    pause: Duration,
+    owner_deadline: Option<Instant>,
+    now: Instant,
+) -> Duration {
+    owner_deadline.map_or(pause, |deadline| {
+        pause.min(deadline.saturating_duration_since(now))
+    })
+}
+
+fn pause_after_transient_receive_fault(run: u32, owner_deadline: Option<Instant>) {
+    let pause = clamp_transient_pause(transient_receive_pause(run), owner_deadline, Instant::now());
+    if !pause.is_zero() {
+        std::thread::sleep(pause);
+    }
+}
+
+/// One run of consecutive transient receive faults.
+#[derive(Debug, Default)]
+struct TransientFaultRun {
+    length: u32,
+    first_at: Option<Instant>,
+    last_at: Option<Instant>,
+}
+
+impl TransientFaultRun {
+    /// Record one transient fault and report the run it belongs to.
+    fn record(&mut self, at: Instant) -> (u32, Duration) {
+        let continues = self
+            .last_at
+            .is_some_and(|last| at.saturating_duration_since(last) < TRANSIENT_RECEIVE_FAULT_RESET);
+        if continues {
+            self.length = self.length.saturating_add(1);
+        } else {
+            self.length = 1;
+            self.first_at = Some(at);
+        }
+        self.last_at = Some(at);
+        let span = self
+            .first_at
+            .map_or(Duration::ZERO, |first| at.saturating_duration_since(first));
+        (self.length, span)
+    }
+
+    /// A successful or cleanly idle read proves the transport is answering
+    /// again, so the next fault starts a fresh run.
+    fn reset(&mut self) {
+        self.length = 0;
+        self.first_at = None;
+        self.last_at = None;
+    }
+
+    /// Whether this run is long enough, and old enough, to be called permanent.
+    const fn is_permanent(length: u32, span: Duration) -> bool {
+        length >= TRANSIENT_RECEIVE_FAULT_LIMIT
+            && span.as_nanos() >= TRANSIENT_RECEIVE_FAULT_SPAN.as_nanos()
+    }
 }
 
 fn min_deadline(left: Option<Instant>, right: Option<Instant>) -> Option<Instant> {
@@ -2094,12 +2211,18 @@ fn min_deadline(left: Option<Instant>, right: Option<Instant>) -> Option<Instant
 #[cfg(all(test, not(feature = "async")))]
 #[allow(clippy::expect_used)]
 mod tests {
-    use std::sync::{
-        atomic::{AtomicUsize, Ordering},
-        Arc,
+    use std::{
+        collections::VecDeque,
+        sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc,
+        },
     };
 
     use super::*;
+    use crate::runtime::engine::{
+        CancellationPolicy, EnvelopeKind, ProtocolPolicy, SessionState, TargetPolicy,
+    };
     use crate::{
         command::CommandKind,
         completion::AppliedOnly,
@@ -2158,6 +2281,69 @@ mod tests {
         }
     }
 
+    fn raw_owner_policy() -> OwnerPolicy {
+        OwnerPolicy::single_target(
+            ProtocolPolicy {
+                capacity: 1,
+                envelope: EnvelopeKind::Raw,
+                transport: TransportKind::Datagram,
+                inquiry_capacity: 1,
+                command_spacing: Duration::ZERO,
+                inquiry_spacing: Duration::ZERO,
+                inquiry_cooldown: Duration::ZERO,
+                strict_unconfirmed_poison: false,
+            },
+            CameraId::CAMERA_1,
+            TargetPolicy {
+                command_sockets: 1,
+                cancellation: CancellationPolicy::Supported,
+            },
+        )
+        .expect("valid raw owner policy")
+    }
+
+    #[derive(Debug, Default)]
+    struct FaultDriver;
+
+    impl BlockingWireDriver for FaultDriver {
+        fn write(&mut self, _write: WireWrite<'_>) -> Result<TransmissionMeta, Error> {
+            Ok(TransmissionMeta { sequence: None })
+        }
+    }
+
+    #[derive(Debug)]
+    struct FaultReader {
+        reads: VecDeque<Result<BlockingReceive, Error>>,
+    }
+
+    impl BlockingReadDriver for FaultReader {
+        fn receive(
+            &mut self,
+            receive_buffer: &mut [u8],
+            _owner_deadline: Option<Instant>,
+        ) -> Result<BlockingReceive, Error> {
+            let read = self.reads.pop_front().expect("scripted read");
+            if matches!(read, Ok(BlockingReceive::Bytes(received)) if received > 0) {
+                receive_buffer[0] = 0;
+            }
+            read
+        }
+    }
+
+    #[derive(Debug, Default)]
+    struct EmptyDecoder;
+
+    impl BlockingFrameDecoder for EmptyDecoder {
+        fn decode(
+            &mut self,
+            _buffers: &mut super::super::OwnerBuffers,
+            _received: usize,
+            _frame_limit: usize,
+        ) -> Result<Vec<DecodedFrame>, Error> {
+            Ok(Vec::new())
+        }
+    }
+
     #[test]
     fn full_admission_rejects_before_raw_preack_drain() {
         let counts = Arc::new(InteractionCounts::default());
@@ -2204,5 +2390,111 @@ mod tests {
         assert!(matches!(error, Error::RuntimeQueueFull { capacity: 1 }));
         assert_eq!(counts.writes.load(Ordering::SeqCst), 1);
         assert_eq!(counts.receives.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn persistent_transient_faults_close_the_blocking_session_with_their_cause() {
+        assert!(!TransientFaultRun::is_permanent(
+            TRANSIENT_RECEIVE_FAULT_LIMIT,
+            Duration::ZERO
+        ));
+        assert!(!TransientFaultRun::is_permanent(
+            TRANSIENT_RECEIVE_FAULT_LIMIT - 1,
+            TRANSIENT_RECEIVE_FAULT_SPAN
+        ));
+        assert!(TransientFaultRun::is_permanent(
+            TRANSIENT_RECEIVE_FAULT_LIMIT,
+            TRANSIENT_RECEIVE_FAULT_SPAN
+        ));
+
+        let now = Instant::now();
+        let mut owner = BlockingOwner::new(raw_owner_policy()).expect("blocking owner");
+        // Seed eleven consecutive faults spanning the documented minimum so
+        // this pump proves the twelfth transitions the real owner boundary,
+        // without turning the regression test into a multi-second sleep.
+        owner.faults = TransientFaultRun {
+            length: TRANSIENT_RECEIVE_FAULT_LIMIT - 1,
+            first_at: Some(now - TRANSIENT_RECEIVE_FAULT_SPAN),
+            last_at: Some(now),
+        };
+        let mut driver = FaultDriver;
+        let mut reader = FaultReader {
+            reads: VecDeque::from([Err(Error::TransportError("simulated ICMP fault".into()))]),
+        };
+        let mut decoder = EmptyDecoder;
+
+        let error = owner
+            .pump_once(&mut driver, &mut reader, &mut decoder)
+            .expect_err("the twelfth sustained fault must close the session");
+        assert!(
+            matches!(&error, Error::ConnectionClosed { reason: Some(_) }),
+            "persistent transient faults must report ConnectionClosed"
+        );
+        if let Error::ConnectionClosed {
+            reason: Some(reason),
+        } = error
+        {
+            assert!(reason.contains("12 consecutive receive faults"));
+            assert!(reason.contains("simulated ICMP fault"));
+        }
+        assert_eq!(owner.state().state(), SessionState::Closed);
+    }
+
+    #[test]
+    fn transient_fault_run_resets_after_a_successful_read_or_a_five_second_gap() {
+        let start = Instant::now();
+        let mut owner = BlockingOwner::new(raw_owner_policy()).expect("blocking owner");
+        owner.faults.record(start);
+        owner.faults.record(start + Duration::from_millis(10));
+
+        // A real successful read reaches the owner reset path, even when it
+        // contains only an incomplete frame.
+        let mut driver = FaultDriver;
+        let mut reader = FaultReader {
+            reads: VecDeque::from([Ok(BlockingReceive::Bytes(1))]),
+        };
+        let mut decoder = EmptyDecoder;
+        owner
+            .pump_once(&mut driver, &mut reader, &mut decoder)
+            .expect("successful read");
+        assert_eq!(owner.faults.length, 0);
+        assert!(owner.faults.first_at.is_none());
+        assert!(owner.faults.last_at.is_none());
+
+        // A five-second gap does the same without relying on a wall-clock
+        // sleep in the test.
+        let mut faults = TransientFaultRun::default();
+        assert_eq!(faults.record(start).0, 1);
+        assert_eq!(faults.record(start + Duration::from_millis(10)).0, 2);
+        assert_eq!(
+            faults
+                .record(start + Duration::from_millis(10) + TRANSIENT_RECEIVE_FAULT_RESET)
+                .0,
+            1,
+            "a five-second gap starts a fresh fault run"
+        );
+    }
+
+    #[test]
+    fn transient_fault_pause_escalates_and_stays_deadline_clamped() {
+        assert_eq!(transient_receive_pause(1), Duration::from_millis(10));
+        assert_eq!(transient_receive_pause(2), Duration::from_millis(20));
+        assert_eq!(transient_receive_pause(3), Duration::from_millis(40));
+        assert_eq!(
+            transient_receive_pause(100),
+            MAXIMUM_TRANSIENT_RECEIVE_PAUSE,
+            "the escalating pause has the documented 250 ms ceiling"
+        );
+
+        let now = Instant::now();
+        assert_eq!(
+            clamp_transient_pause(
+                MAXIMUM_TRANSIENT_RECEIVE_PAUSE,
+                Some(now + Duration::from_millis(3)),
+                now,
+            ),
+            Duration::from_millis(3),
+            "a transient pause cannot delay an earlier owner deadline"
+        );
     }
 }

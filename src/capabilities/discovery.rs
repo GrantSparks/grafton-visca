@@ -165,12 +165,21 @@ pub struct Capabilities {
     /// Valid focus speed range.
     pub focus_speed: RangeInclusive<u8>,
 
-    /// Whether profile metadata reports focus zone selection.
+    /// Whether profile metadata reports focus-zone selection.
     ///
     /// This is not permission to call typed focus zone APIs; use
     /// [`supports_typed`](Self::supports_typed) with
-    /// [`TypedSupportSurface::FocusZone`] for that.
+    /// [`TypedSupportSurface::FocusZone`] for that. The separately gated
+    /// [`TypedSupportSurface::FocusZoneInquiry`] controls the matching status
+    /// response.
     pub has_focus_zone: bool,
+
+    /// Whether profile metadata reports the focus-zone inquiry response.
+    ///
+    /// This is not permission to call the typed inquiry accessor; use
+    /// [`supports_typed`](Self::supports_typed) with
+    /// [`TypedSupportSurface::FocusZoneInquiry`] as well.
+    pub has_focus_zone_inquiry: bool,
 
     /// Whether profile metadata reports auto focus sensitivity adjustment.
     ///
@@ -303,7 +312,8 @@ pub struct Capabilities {
     /// Whether camera supports 3D noise reduction.
     pub has_3d_nr: bool,
 
-    /// Whether camera supports picture effect modes (negative, B&W, sepia, etc.).
+    /// Whether camera supports source-backed picture effects (Off and Black & White).
+    /// Model-specific values remain available through `PictureEffectMode::Unknown`.
     pub has_picture_effect: bool,
 
     /// Whether camera supports gamma curve control.
@@ -387,6 +397,13 @@ pub struct Capabilities {
     /// Whether camera supports variable speed control.
     pub has_variable_speed: bool,
 
+    /// Whether camera has source-backed USB audio support.
+    ///
+    /// This is not itself permission to use the typed USB-audio API; check
+    /// [`supports_typed`](Self::supports_typed) with
+    /// [`TypedSupportSurface::UsbAudio`] as well.
+    pub has_usb_audio: bool,
+
     // Protocol features
     /// Level of VISCA inquiry command support for this camera.
     ///
@@ -458,6 +475,7 @@ impl Capabilities {
             focus_range: 0..=0,
             focus_speed: 0..=0,
             has_focus_zone: false,
+            has_focus_zone_inquiry: false,
             has_af_sensitivity: false,
             has_focus_near_limit_inquiry: false,
             has_exposure: false,
@@ -524,6 +542,7 @@ impl Capabilities {
             max_motion_sync_speed_profile: 24,
             has_direct_menu_control: false,
             has_variable_speed: false,
+            has_usb_audio: false,
             inquiry_support: InquirySupport::None,
             supports_operation_complete: false,
             typed_support: TypedSupportSet::empty(),
@@ -591,20 +610,10 @@ impl Capabilities {
         let hue_range = P::HUE_RANGE.map(|range| range.as_inclusive());
         let luminance_range = P::LUMINANCE_RANGE.map(|range| range.as_inclusive());
         let gamma_range = P::GAMMA_RANGE.map(|range| range.as_inclusive());
-        let has_image_processing = contrast_range.is_some()
-            || sharpness_range.is_some()
-            || saturation_range.is_some()
-            || hue_range.is_some()
-            || luminance_range.is_some()
-            || gamma_range.is_some()
-            || P::SUPPORTS_FLIP
-            || P::SUPPORTS_MIRROR
-            || P::SUPPORTS_NOISE_REDUCTION
-            || P::SUPPORTS_2D_NR
-            || P::SUPPORTS_3D_NR
-            || P::SUPPORTS_PICTURE_EFFECT
-            || P::SUPPORTS_GAMMA
-            || P::SUPPORTS_LUMINANCE;
+        // Built-ins override this metadata constant from the same registry
+        // fact that emits `HasImageProcessing`; downstream profiles default to
+        // deny and opt into the matching runtime and static contracts together.
+        let has_image_processing = P::SUPPORTS_IMAGE_PROCESSING;
 
         // Extract preset capabilities
         let preset_speed_range = P::PRESET_SPEED_RANGE.as_inclusive();
@@ -658,6 +667,7 @@ impl Capabilities {
             focus_range,
             focus_speed,
             has_focus_zone: P::SUPPORTS_FOCUS_ZONE,
+            has_focus_zone_inquiry: P::SUPPORTS_FOCUS_ZONE_INQUIRY,
             has_af_sensitivity: P::SUPPORTS_AF_SENSITIVITY,
             has_focus_near_limit_inquiry: P::SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY,
 
@@ -736,6 +746,7 @@ impl Capabilities {
             max_motion_sync_speed_profile: P::MAX_MOTION_SYNC_SPEED,
             has_direct_menu_control: P::SUPPORTS_DIRECT_CONTROL,
             has_variable_speed: P::SUPPORTS_VARIABLE_SPEED,
+            has_usb_audio: P::SUPPORTS_USB_AUDIO,
 
             // Protocol features
             inquiry_support: P::INQUIRY_SUPPORT,
@@ -1079,6 +1090,7 @@ mod tests {
         assert!(caps.has_auto_focus);
         assert!(!caps.has_one_push_focus);
         assert!(caps.has_focus_zone);
+        assert!(caps.has_focus_zone_inquiry);
         assert!(!caps.has_af_sensitivity);
         assert!(!caps.has_focus_near_limit_inquiry);
         assert!(caps.has_iris_control);
@@ -1097,6 +1109,7 @@ mod tests {
         assert_eq!(caps.max_motion_sync_speed, None);
         assert_eq!(caps.max_motion_sync_speed_profile, 24);
         assert!(!caps.has_variable_speed);
+        assert!(caps.has_usb_audio);
         assert_eq!(caps.exposure_brightness_range, Some(0..=17));
         assert!(caps.has_image_processing);
         assert_eq!(caps.contrast_range, Some(0..=14));
@@ -1119,7 +1132,8 @@ mod tests {
         assert_eq!(caps.max_presets, 255);
         assert!(caps.supports_preset_tour);
         assert!(!caps.has_one_push_focus);
-        assert!(caps.has_focus_zone);
+        assert!(!caps.has_focus_zone);
+        assert!(!caps.has_focus_zone_inquiry);
         assert!(caps.has_af_sensitivity);
         assert!(caps.has_focus_near_limit_inquiry);
         assert!(caps.has_rgb_gain);
@@ -1136,11 +1150,13 @@ mod tests {
         assert!(!caps.has_motion_sync);
         assert_eq!(caps.max_motion_sync_speed, None);
         assert!(caps.has_variable_speed);
-        assert_eq!(caps.exposure_brightness_range, Some(0..=17));
+        assert!(!caps.has_usb_audio);
+        assert_eq!(caps.exposure_brightness_range, None);
         assert!(caps.has_image_processing);
         assert_eq!(caps.contrast_range, Some(0..=14));
         assert_eq!(caps.sharpness_range, Some(0..=14));
         assert_eq!(caps.gamma_range, Some(0..=4));
+        assert!(!caps.has_picture_effect);
 
         assert!(caps.has_advanced_features());
     }
@@ -1154,6 +1170,8 @@ mod tests {
         );
         assert!(g2.supports_typed(TypedSupportSurface::DirectZoom));
         assert!(g2.supports_typed(TypedSupportSurface::FocusZone));
+        assert!(g2.supports_typed(TypedSupportSurface::FocusZoneInquiry));
+        assert!(g2.supports_typed(TypedSupportSurface::UsbAudio));
         assert!(!g2.supports_typed(TypedSupportSurface::DigitalZoomToggle));
         assert!(!g2.supports_typed(TypedSupportSurface::DigitalZoomRange));
 
@@ -1165,7 +1183,11 @@ mod tests {
         assert!(fr7.supports_typed(TypedSupportSurface::DirectZoom));
         assert!(fr7.supports_typed(TypedSupportSurface::DigitalZoomToggle));
         assert!(fr7.supports_typed(TypedSupportSurface::DigitalZoomRange));
-        assert!(fr7.supports_typed(TypedSupportSurface::FocusZone));
+        assert!(!fr7.supports_typed(TypedSupportSurface::FocusZone));
+        assert!(!fr7.supports_typed(TypedSupportSurface::FocusZoneInquiry));
+        assert!(!fr7.supports_typed(TypedSupportSurface::UsbAudio));
+        assert!(!fr7.supports_typed(TypedSupportSurface::BrightnessControl));
+        assert!(!fr7.supports_typed(TypedSupportSurface::PictureEffect));
         assert!(fr7.supports_typed(TypedSupportSurface::AutoFocusSensitivity));
     }
 
@@ -1177,7 +1199,9 @@ mod tests {
         assert!(caps.has_digital_zoom);
         assert!(caps.has_one_push_focus);
         assert!(caps.has_focus_zone);
+        assert!(!caps.has_focus_zone_inquiry);
         assert!(caps.has_af_sensitivity);
+        assert!(!caps.has_usb_audio);
 
         assert!(caps.typed_support.is_empty());
         assert!(!caps.supports_typed(TypedSupportSurface::DirectZoom));
@@ -1185,7 +1209,35 @@ mod tests {
         assert!(!caps.supports_typed(TypedSupportSurface::DigitalZoomRange));
         assert!(!caps.supports_typed(TypedSupportSurface::OnePushFocus));
         assert!(!caps.supports_typed(TypedSupportSurface::FocusZone));
+        assert!(!caps.supports_typed(TypedSupportSurface::FocusZoneInquiry));
+        assert!(!caps.supports_typed(TypedSupportSurface::UsbAudio));
         assert!(!caps.supports_typed(TypedSupportSurface::AutoFocusSensitivity));
+    }
+
+    #[test]
+    fn source_backed_focus_zone_inquiry_and_usb_audio_boundaries_match_profiles() {
+        let g2 = Capabilities::from_profile::<PtzOpticsG2>();
+        let g3 = Capabilities::from_profile::<PtzOpticsG3>();
+        let thirty_x = Capabilities::from_profile::<PtzOptics30X>();
+
+        for caps in [&g2, &g3, &thirty_x] {
+            assert!(caps.has_focus_zone);
+            assert!(caps.supports_typed(TypedSupportSurface::FocusZone));
+            assert!(caps.has_picture_effect);
+            assert!(caps.supports_typed(TypedSupportSurface::PictureEffect));
+        }
+
+        for caps in [&g2, &thirty_x] {
+            assert!(caps.has_focus_zone_inquiry);
+            assert!(caps.supports_typed(TypedSupportSurface::FocusZoneInquiry));
+            assert!(caps.has_usb_audio);
+            assert!(caps.supports_typed(TypedSupportSurface::UsbAudio));
+        }
+
+        assert!(!g3.has_focus_zone_inquiry);
+        assert!(!g3.supports_typed(TypedSupportSurface::FocusZoneInquiry));
+        assert!(!g3.has_usb_audio);
+        assert!(!g3.supports_typed(TypedSupportSurface::UsbAudio));
     }
 
     #[test]

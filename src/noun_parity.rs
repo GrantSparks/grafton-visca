@@ -894,6 +894,7 @@ const fn typed_marker(surface: TypedSupportSurface) -> &'static str {
         TypedSupportSurface::FocusLock => "HasFocusLock",
         TypedSupportSurface::PushAutoFocus => "HasPushAutoFocus",
         TypedSupportSurface::FocusZone => "HasFocusZone",
+        TypedSupportSurface::FocusZoneInquiry => "HasFocusZoneInquiry",
         TypedSupportSurface::AutoFocusSensitivity => "HasAutoFocusSensitivity",
         TypedSupportSurface::FocusNearLimitInquiry => "HasFocusNearLimitInquiry",
         TypedSupportSurface::BacklightCompensation => "HasBacklightCompensation",
@@ -924,6 +925,7 @@ const fn typed_marker(surface: TypedSupportSurface) -> &'static str {
         TypedSupportSurface::NdFilter => "HasNdFilter",
         TypedSupportSurface::VariableSpeed => "HasVariableSpeed",
         TypedSupportSurface::MotionSync => "HasMotionSync",
+        TypedSupportSurface::UsbAudio => "HasUsbAudio",
     }
 }
 
@@ -1179,7 +1181,7 @@ fn compiled_registry_inventory_counts_remain_readable() {
     assert_eq!(target, TARGET_FACING_COMMAND_COUNT); // 146 target-facing
     assert_eq!(exceptions, NON_NOUN_COMMAND_COUNT); // 3 protocol exceptions
     assert_eq!(nouns.len(), 14); // 14 nouns
-    assert_eq!(BUILTIN_INQUIRY_ACCESSORS.len(), 66); // 66 typed inquiries
+    assert_eq!(BUILTIN_INQUIRY_ACCESSORS.len(), 63); // 63 typed inquiries
 
     // The compiled noun-table projection has one row for each target-facing
     // command ID, one for each typed inquiry, and one for each empty-ID
@@ -1188,9 +1190,9 @@ fn compiled_registry_inventory_counts_remain_readable() {
     let table = table_surface();
     let (command_rows, inquiry_rows, helper_rows) = table_row_counts(&table);
     assert_eq!(command_rows, 146); // 146 command-method rows
-    assert_eq!(inquiry_rows, 66); // 66 inquiry rows
+    assert_eq!(inquiry_rows, 63); // 63 inquiry rows
     assert_eq!(helper_rows, 9); // 9 empty-ID helper rows
-    assert_eq!(command_rows + inquiry_rows + helper_rows, 221); // 221 total rows
+    assert_eq!(command_rows + inquiry_rows + helper_rows, 218); // 218 total rows
 
     #[cfg(feature = "dyn-api")]
     {

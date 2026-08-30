@@ -88,8 +88,8 @@ expect_unknown_feature "mode-async"
 expect_unknown_feature "async-core"
 expect_unknown_feature "mode-blocking"
 
-run_test "no-default pure engine/domain" \
-    cargo_stable test --no-default-features --lib
+run_test "no-default pure engine/domain + smoke" \
+    cargo_stable test --no-default-features --lib --test no_default_smoke
 run_test "default blocking" \
     cargo_stable test --workspace --all-targets
 run_test "blocking-only" \

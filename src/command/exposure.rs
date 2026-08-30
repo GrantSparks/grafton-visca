@@ -264,7 +264,9 @@ pub enum Brightness {
     /// Set brightness to specific level.
     SetLevel(BrightnessLevel),
     /// Set brightness directly (Bright Direct mode).
-    /// This is supported on Sony models but not on FR7.
+    ///
+    /// This profile-gated operation is exposed only where the built-in
+    /// registry has source-backed brightness support.
     Direct(BrightnessLevel),
 }
 
@@ -302,7 +304,7 @@ impl WireEncode for Brightness {
             }
             Self::Direct(level) => {
                 let mut builder = ConstCommandBuilder::<9>::new();
-                builder.append_mut(constants::exposure::BRIGHTNESS_VALUE_PREFIX);
+                builder.append_mut(constants::exposure::BRIGHTNESS_DIRECT_PREFIX);
                 builder.push_nibble_pair_mut(level.value());
                 builder
                     .with_camera_id(camera_id)
@@ -979,7 +981,7 @@ mod tests {
             0x81,
             0x01,
             0x04,
-            0x0D,
+            0x4D,
             0x00,
             0x00,
             0x00,
@@ -996,7 +998,7 @@ mod tests {
             0x81,
             0x01,
             0x04,
-            0x0D,
+            0x4D,
             0x00,
             0x00,
             0x00,
@@ -1013,7 +1015,7 @@ mod tests {
             0x81,
             0x01,
             0x04,
-            0x0D,
+            0x4D,
             0x00,
             0x00,
             0x01,
@@ -1030,7 +1032,7 @@ mod tests {
             0x81,
             0x01,
             0x04,
-            0x0D,
+            0x4D,
             0x00,
             0x00,
             0x01,

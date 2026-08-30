@@ -74,7 +74,7 @@ pub use self::{
     pan_tilt::*,
     power::*,
     preset::*,
-    resolution::{NdFilterPosition, PictureEffectMode, ResolutionMode},
+    resolution::{NdFilterPosition, PictureEffectMode},
     response::{
         parse_inquiry_payload, BoolConvention, Nibbles, Nibbles4Or8, Payload, RawInquiryPayload,
         Response,

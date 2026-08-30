@@ -29,7 +29,7 @@ pub enum TypedSupportSurface {
     FocusLock,
     /// Sony push auto focus command.
     PushAutoFocus,
-    /// Focus zone selection and inquiry.
+    /// Focus-zone selection command.
     FocusZone,
     /// Auto-focus sensitivity control and inquiry.
     AutoFocusSensitivity,
@@ -91,11 +91,19 @@ pub enum TypedSupportSurface {
     VariableSpeed,
     /// Motion Sync controls and inquiries.
     MotionSync,
+    /// Focus-zone inquiry.
+    ///
+    /// This is distinct from [`Self::FocusZone`], whose support covers the
+    /// selection command. Some profiles document the command but not the
+    /// matching status response.
+    FocusZoneInquiry,
+    /// USB audio control and inquiry.
+    UsbAudio,
 }
 
 impl TypedSupportSurface {
     /// All known typed support surfaces.
-    pub const ALL: [Self; 39] = [
+    pub const ALL: [Self; 41] = [
         Self::DirectZoom,
         Self::DigitalZoomToggle,
         Self::DigitalZoomRange,
@@ -135,6 +143,8 @@ impl TypedSupportSurface {
         Self::NdFilter,
         Self::VariableSpeed,
         Self::MotionSync,
+        Self::FocusZoneInquiry,
+        Self::UsbAudio,
     ];
 
     const fn bit(self) -> u64 {
@@ -178,6 +188,8 @@ impl TypedSupportSurface {
             Self::NdFilter => 36,
             Self::VariableSpeed => 37,
             Self::MotionSync => 38,
+            Self::FocusZoneInquiry => 39,
+            Self::UsbAudio => 40,
         }
     }
 }
@@ -348,5 +360,23 @@ mod tests {
             TypedSupportSurface::DirectZoom,
             TypedSupportSurface::DigitalZoomToggle,
         ])));
+    }
+
+    #[test]
+    fn appended_focus_zone_inquiry_and_usb_audio_bits_round_trip() {
+        let set = TypedSupportSet::from_surfaces(&[
+            TypedSupportSurface::FocusZoneInquiry,
+            TypedSupportSurface::UsbAudio,
+        ]);
+
+        assert!(set.contains(TypedSupportSurface::FocusZoneInquiry));
+        assert!(set.contains(TypedSupportSurface::UsbAudio));
+        assert_eq!(
+            set.iter().collect::<Vec<_>>(),
+            vec![
+                TypedSupportSurface::FocusZoneInquiry,
+                TypedSupportSurface::UsbAudio,
+            ]
+        );
     }
 }

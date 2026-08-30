@@ -327,7 +327,7 @@ macro_rules! noun_table {
                 where HasFocusNearLimitInquiry
                 = command::FocusNearLimitInquiry;
             /// Returns the configured focus zone.
-            inquiry command::FocusZoneInquiry zone() -> command::FocusZone where HasFocusZone
+            inquiry command::FocusZoneInquiry zone() -> command::FocusZone where HasFocusZoneInquiry
                 = command::FocusZoneInquiry;
             /// Returns the autofocus sensitivity.
             inquiry command::AutoFocusSensitivityInquiry sensitivity()
@@ -642,10 +642,9 @@ macro_rules! noun_table {
     (@collect $consumer:ident; [$($acc:tt)*]; Image $($rest:tt)*) => {
         noun_table! { @collect $consumer; [
             $($acc)*
+            // The base image noun is gated by `HasImageProcessing` on the
+            // accessor; narrower rows add their own markers below.
             @noun Image;
-            /// Returns the camera resolution mode.
-            inquiry command::ResolutionInquiry resolution() -> command::ResolutionMode
-                = command::ResolutionInquiry;
             /// Returns image saturation.
             inquiry command::SaturationInquiry saturation() -> types::SaturationLevel
                 where HasSaturationControl
@@ -786,13 +785,6 @@ macro_rules! noun_table {
             /// Returns the combined image-flip mode.
             inquiry command::FlipStateInquiry flip_mode() -> command::FlipState where HasImageFlip
                 = command::FlipStateInquiry;
-            /// Returns whether black-and-white mode is active.
-            inquiry command::BlackWhiteInquiry black_white() -> bool where HasPictureEffect
-                = command::BlackWhiteInquiry;
-            /// Returns black-and-white mode.
-            inquiry command::BlackWhiteModeInquiry black_white_mode()
-                -> command::BlackWhiteMode where HasPictureEffect
-                = command::BlackWhiteModeInquiry;
             /// Returns picture-effect mode.
             inquiry command::PictureEffectInquiry picture_effect()
                 -> command::PictureEffectMode where HasPictureEffect
@@ -985,7 +977,7 @@ macro_rules! noun_table {
             inquiry command::BroadcastDomainInquiry broadcast_domain() -> types::BroadcastDomain
                 = command::BroadcastDomainInquiry;
             /// Returns USB-audio state.
-            inquiry command::UsbAudioInquiry usb_audio_enabled() -> bool
+            inquiry command::UsbAudioInquiry usb_audio_enabled() -> bool where HasUsbAudio
                 = command::UsbAudioInquiry;
             /// Returns two-tone mode.
             inquiry command::TwoToneModeInquiry two_tone_mode_enabled() -> bool
@@ -1004,10 +996,10 @@ macro_rules! noun_table {
                 -> command::SetNdiQuality
                 = command::SetNdiQuality::new(quality);
             /// Enables USB audio.
-            plain [UsbAudioOn] usb_audio_on() -> command::UsbAudio
+            plain [UsbAudioOn] usb_audio_on() -> command::UsbAudio where HasUsbAudio
                 = command::UsbAudio::On;
             /// Disables USB audio.
-            plain [UsbAudioOff] usb_audio_off() -> command::UsbAudio
+            plain [UsbAudioOff] usb_audio_off() -> command::UsbAudio where HasUsbAudio
                 = command::UsbAudio::Off;
             /// Sets pan/tilt variable-speed mode.
             plain [VariableSpeedMode] set_variable_speed_mode(mode: command::VariableSpeedMode)

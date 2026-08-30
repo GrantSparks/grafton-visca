@@ -6,7 +6,7 @@ use std::{sync::Arc, time::Duration};
 
 use crate::{
     error::{Error, Result},
-    executor::TokioExecutor,
+    executor::{TokioBoundFuture, TokioExecutor},
     transport::{
         async_io::{AsyncReadExt as AsyncReadExtTrait, AsyncWriteExt as AsyncWriteExtTrait},
         builder::TransportConfig,
@@ -124,6 +124,22 @@ impl Serial {
         }
 
         Ok(Self::new(adapter, transport_config))
+    }
+
+    /// Connect on an explicitly selected Tokio runtime.
+    ///
+    /// `TokioRuntime::from_handle` uses this path so opening the async serial
+    /// descriptor and its optional timer-driven handshake both bind to the
+    /// same runtime that will own the session actor.
+    pub(crate) async fn connect_on(
+        handle: &tokio::runtime::Handle,
+        config: SerialConfig,
+    ) -> Result<Self> {
+        // `Serial::connect` has borrowed RPITIT handshake futures, so it
+        // cannot be moved into `Handle::spawn` on every supported compiler.
+        // Polling it through this wrapper still installs the selected handle
+        // before opening the async descriptor and at every handshake poll.
+        TokioBoundFuture::new(handle.clone(), Self::connect(config)).await
     }
 
     /// Connect to a serial port with default configuration.

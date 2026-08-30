@@ -58,19 +58,6 @@ pub enum NoiseReductionSpeed {
     Fast = 0x02,
 }
 
-/// Black and white mode settings.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaEnum)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
-pub enum BlackWhiteMode {
-    /// Color mode (normal operation).
-    Color = 0x02,
-    /// Black and white mode.
-    BlackWhite = 0x03,
-}
-
 /// Sharpness control commands.
 ///
 /// Controls edge enhancement to make images appear more or less sharp.
@@ -345,24 +332,7 @@ impl WireEncode for PictureEffectCommand {
     ) -> Result<usize, Error> {
         use crate::command::bytes::ConstCommandBuilder;
 
-        let effect = match self.mode {
-            PictureEffectMode::Off => 0x00,
-            PictureEffectMode::BlackAndWhite => 0x04,
-            PictureEffectMode::Unknown(value) => value,
-            PictureEffectMode::Negative
-            | PictureEffectMode::Sepia
-            | PictureEffectMode::Sketch
-            | PictureEffectMode::Emboss
-            | PictureEffectMode::Mosaic => {
-                return Err(Error::InvalidParameter {
-                    parameter: "mode",
-                    value: Cow::Owned(format!("{:?}", self.mode)),
-                    reason: Cow::Borrowed(
-                        "picture effect mode is not validated for built-in VISCA profiles; use Unknown(value) for model-specific raw values",
-                    ),
-                });
-            }
-        };
+        let effect = self.mode.as_byte();
 
         let mut builder = ConstCommandBuilder::<6>::new();
         builder.push_mut(camera_id.to_address_byte());
@@ -381,10 +351,7 @@ impl WireEncode for PictureEffectCommand {
 )]
 mod tests {
     use super::*;
-    use crate::{
-        command::{bytes::VISCA_TERMINATOR, encode::WireEncode},
-        macros::test_utils::visca_test,
-    };
+    use crate::{command::bytes::VISCA_TERMINATOR, macros::test_utils::visca_test};
 
     visca_test!(
         BacklightCommand,
@@ -623,31 +590,6 @@ mod tests {
         },
         &[0x81, 0x01, 0x04, 0x63, 0x05, VISCA_TERMINATOR]
     );
-
-    #[test]
-    fn test_picture_effect_rejects_unvalidated_named_modes() {
-        for mode in [
-            PictureEffectMode::Negative,
-            PictureEffectMode::Sepia,
-            PictureEffectMode::Sketch,
-            PictureEffectMode::Emboss,
-            PictureEffectMode::Mosaic,
-        ] {
-            let cmd = PictureEffectCommand { mode };
-            let mut buffer = [0; 6];
-            let error = match cmd.write_into(crate::camera_id::CameraId::default(), &mut buffer) {
-                Err(error) => error,
-                Ok(size) => panic!("unvalidated named picture effect encoded {size} bytes"),
-            };
-            assert!(matches!(
-                error,
-                Error::InvalidParameter {
-                    parameter: "mode",
-                    ..
-                }
-            ));
-        }
-    }
 
     visca_test!(
         Sharpness,

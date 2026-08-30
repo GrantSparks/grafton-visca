@@ -43,7 +43,7 @@ pub enum BoolConvention {
     /// Used by the majority of VISCA commands including:
     /// - AutoFocus, Standby, IrisControl, DefogMode, DigitalPtz
     /// - NightDayMode, NightDaySwitch, AutoTrace, FocusUnlock
-    /// - UsbAudio, Rtmp, Digital, TallyAutoAdjust
+    /// - Rtmp, Digital, TallyAutoAdjust
     /// - IrisUp, IrisDown, FocusNearFar
     /// - ZoomOut, ZoomIn, ZoomTeleWide
     OnIs03,
@@ -53,6 +53,7 @@ pub enum BoolConvention {
     /// - MenuOpenClose (0x02 = open)
     /// - TallyGreen (0x02 = on)
     /// - Power (0x02 = on)
+    /// - UsbAudio (0x02 = on)
     OnIs02,
 }
 

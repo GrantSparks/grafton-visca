@@ -1703,7 +1703,7 @@ fn response_at_exact_deadline_wins_and_equal_deadlines_use_admission_order() {
 }
 
 #[test]
-fn exact_first_dispatch_preserves_global_inquiry_preference_and_queues_the_loser() {
+fn exact_first_dispatch_preserves_admission_order_and_queues_the_loser() {
     let start = Instant::now();
     let mut inquiry_engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
     let command_effects = inquiry_engine.admit_without_due(
@@ -1715,33 +1715,27 @@ fn exact_first_dispatch_preserves_global_inquiry_preference_and_queues_the_loser
     let inquiry_effects =
         inquiry_engine.admit_without_due(AdmissionTicket(2), inquiry(2, POWER), start);
     let inquiry_id = admitted(&inquiry_effects);
-    let command_before = (
-        inquiry_engine.entry(command_id).unwrap().phase(),
-        inquiry_engine.entry(command_id).unwrap().cancellation(),
-    );
     let inquiry_before = (
         inquiry_engine.entry(inquiry_id).unwrap().phase(),
         inquiry_engine.entry(inquiry_id).unwrap().cancellation(),
     );
 
-    assert!(matches!(
-        inquiry_engine.first_dispatch_without_due(command_id, start),
-        FirstDispatch::Blocked
-    ));
-    assert_eq!(
-        inquiry_engine
-            .entry(command_id)
-            .map(|entry| (entry.phase(), entry.cancellation())),
-        Some(command_before)
-    );
+    assert!(inquiry_engine.transmissions.is_empty());
+    assert!(inquiry_engine.last_request_sent.is_none());
+    let command_dispatch = match inquiry_engine.first_dispatch_without_due(command_id, start) {
+        FirstDispatch::Effects(effects) => effects,
+        other => panic!("expected command dispatch effects, got {other:?}"),
+    };
+    assert_eq!(request_transmit(&command_dispatch).1, command_id);
+
+    // Issue #561: losing the same-class race leaves the inquiry queued, never
+    // terminal, even when the caller asks for its exact first dispatch.
     assert_eq!(
         inquiry_engine
             .entry(inquiry_id)
             .map(|entry| (entry.phase(), entry.cancellation())),
         Some(inquiry_before)
     );
-    assert!(inquiry_engine.transmissions.is_empty());
-    assert!(inquiry_engine.last_request_sent.is_none());
 
     let inquiry_dispatch = match inquiry_engine.first_dispatch_without_due(inquiry_id, start) {
         FirstDispatch::Effects(effects) => effects,
@@ -1750,18 +1744,6 @@ fn exact_first_dispatch_preserves_global_inquiry_preference_and_queues_the_loser
     let (_, dispatched_id, _) = request_transmit(&inquiry_dispatch);
     assert_eq!(dispatched_id, inquiry_id);
 
-    // Issue #561: losing the race leaves the command queued, never terminal.
-    assert_eq!(
-        inquiry_engine
-            .entry(command_id)
-            .map(|entry| (entry.phase(), entry.cancellation())),
-        Some(command_before)
-    );
-    let command_dispatch = match inquiry_engine.first_dispatch_without_due(command_id, start) {
-        FirstDispatch::Effects(effects) => effects,
-        other => panic!("expected the queued command to dispatch next, got {other:?}"),
-    };
-    assert_eq!(request_transmit(&command_dispatch).1, command_id);
     assert!(inquiry_engine.entry(inquiry_id).is_some());
     inquiry_engine.assert_invariants().unwrap();
 
@@ -2519,6 +2501,82 @@ fn cancellation_ambiguity_deadline_wins_over_later_pacing_eligibility() {
 }
 
 #[test]
+fn cancel_in_late_ack_quarantine_extends_eligibility_to_its_ambiguity_deadline() {
+    let start = Instant::now();
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+    let request = engine.handle(
+        Input::Admit {
+            ticket: AdmissionTicket(1),
+            request: command(1, CancellationPolicy::Supported),
+        },
+        start,
+    );
+    let id = admitted(&request);
+    send_ok(&mut engine, &request, None, start);
+
+    // The ordinary raw ACK timeout starts an inert #671 quarantine. It is
+    // still marked `None`, so a late ACK cannot re-open it before cancellation.
+    let original_deadline = start + Duration::from_millis(70);
+    let timed_out = engine.advance(start + Duration::from_millis(20));
+    assert!(!timed_out
+        .iter()
+        .any(|effect| matches!(effect, Effect::Terminal { id: seen, .. } if *seen == id)));
+    assert!(matches!(
+        phase_of(&engine, id),
+        Some(Phase::AwaitingLateAck { deadline }) if deadline == original_deadline
+    ));
+    assert_eq!(
+        engine.entry(id).map(Entry::cancellation),
+        Some(CancelState::None)
+    );
+
+    // A later cancellation creates a live late-ACK path through its own 50ms
+    // ambiguity window, not the earlier quarantine deadline.
+    let extended_deadline = start + Duration::from_millis(80);
+    let cancelled = engine.handle(Input::Cancel { id }, start + Duration::from_millis(30));
+    assert!(cancelled
+        .iter()
+        .any(|effect| matches!(effect, Effect::CancellationRecorded { id: seen } if *seen == id)));
+    assert!(matches!(
+        phase_of(&engine, id),
+        Some(Phase::AwaitingLateAck { deadline }) if deadline == extended_deadline
+    ));
+    assert_eq!(
+        engine.entry(id).map(Entry::cancellation),
+        Some(CancelState::Requested {
+            ambiguity_deadline: extended_deadline,
+        })
+    );
+    assert_eq!(engine.next_wake(), Some(extended_deadline));
+
+    // The original deadline is now inert; the later ACK is still accepted and
+    // immediately produces the socket cancellation it made possible.
+    let old_deadline = engine.advance(original_deadline);
+    assert!(!old_deadline
+        .iter()
+        .any(|effect| matches!(effect, Effect::Terminal { id: seen, .. } if *seen == id)));
+    let late_ack = engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::Ack {
+                socket: Some(ViscaSocket::S1),
+            },
+        ),
+        start + Duration::from_millis(75),
+    );
+    assert!(matches!(
+        phase_of(&engine, id),
+        Some(Phase::Executing {
+            socket: ViscaSocket::S1,
+            ..
+        })
+    ));
+    assert_eq!(cancel_transmit(&late_ack).1, id);
+    engine.assert_invariants().unwrap();
+}
+
+#[test]
 fn completion_before_cancellation_pacing_due_wins_and_removes_intent() {
     let start = Instant::now();
     let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
@@ -3049,7 +3107,7 @@ fn applied_state_actions_are_closed_and_failure_does_not_emit_one() {
 }
 
 #[test]
-fn dispatch_is_priority_fifo_with_equal_priority_inquiry_preference() {
+fn dispatch_is_priority_fifo_in_admission_order_across_lanes() {
     let start = Instant::now();
     let mut configured = policy(EnvelopeKind::Raw, TransportKind::Datagram);
     configured.command_spacing = Duration::from_millis(10);
@@ -3092,8 +3150,8 @@ fn dispatch_is_priority_fifo_with_equal_priority_inquiry_preference() {
     assert!(request_transmit_optional(&queued_command).is_none());
     assert!(request_transmit_optional(&inquiry).is_none());
     let selected = engine.advance(start + Duration::from_millis(10));
-    assert_eq!(request_transmit(&selected).1, inquiry_id);
-    assert_ne!(request_transmit(&selected).1, command_id);
+    assert_eq!(request_transmit(&selected).1, command_id);
+    assert_ne!(request_transmit(&selected).1, inquiry_id);
 
     // FIFO among commands of the same private priority.
     let mut fifo = engine_with_target(
@@ -3149,6 +3207,195 @@ fn dispatch_is_priority_fifo_with_equal_priority_inquiry_preference() {
     assert_eq!(request_transmit(&released).1, first_id);
     assert_ne!(request_transmit(&released).1, second_id);
     fifo.assert_invariants().unwrap();
+}
+
+#[test]
+fn newer_same_class_inquiries_cannot_starve_an_older_command() {
+    let start = Instant::now();
+    let mut configured = policy(EnvelopeKind::Raw, TransportKind::Datagram);
+    configured.command_spacing = Duration::from_millis(10);
+    let mut engine = ProtocolEngine::new(configured).unwrap();
+    for target in [camera(1), camera(2)] {
+        engine
+            .register_target(
+                target,
+                TargetPolicy {
+                    command_sockets: 2,
+                    cancellation: CancellationPolicy::Supported,
+                },
+            )
+            .unwrap();
+    }
+
+    let seed = engine.handle(
+        Input::Admit {
+            ticket: AdmissionTicket(1),
+            request: command(1, CancellationPolicy::Supported),
+        },
+        start,
+    );
+    send_ok(&mut engine, &seed, None, start);
+    let queued_command = engine.handle(
+        Input::Admit {
+            ticket: AdmissionTicket(2),
+            request: command(2, CancellationPolicy::Supported),
+        },
+        start,
+    );
+    let command_id = admitted(&queued_command);
+
+    // A burst of later inquiries accumulates behind the shared pacing floor.
+    // It must not form a preferred lane that can perpetually leap over the
+    // already-eligible command once that floor opens.
+    let mut inquiry_ids = Vec::new();
+    for ticket in 3..=8 {
+        let inquiry = engine.handle(
+            Input::Admit {
+                ticket: AdmissionTicket(ticket),
+                request: inquiry(2, POWER),
+            },
+            start,
+        );
+        inquiry_ids.push(admitted(&inquiry));
+        assert!(request_transmit_optional(&inquiry).is_none());
+    }
+
+    let selected = engine.advance(start + Duration::from_millis(10));
+    assert_eq!(request_transmit(&selected).1, command_id);
+    for inquiry_id in inquiry_ids {
+        assert!(matches!(
+            engine.entry(inquiry_id).map(Entry::phase),
+            Some(Phase::Ready { .. })
+        ));
+    }
+    engine.assert_invariants().unwrap();
+}
+
+#[test]
+fn retune_to_one_socket_allows_preexisting_second_command_to_drain_via_fallback() {
+    let start = Instant::now();
+    let mut engine = engine_with_target(
+        EnvelopeKind::Raw,
+        TransportKind::Datagram,
+        2,
+        CancellationPolicy::Supported,
+    );
+    let first = engine.handle(
+        Input::Admit {
+            ticket: AdmissionTicket(1),
+            request: command(1, CancellationPolicy::Supported),
+        },
+        start,
+    );
+    let first_id = admitted(&first);
+    send_ok(&mut engine, &first, None, start);
+    engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::Ack {
+                socket: Some(ViscaSocket::S1),
+            },
+        ),
+        start,
+    );
+
+    // This request was dispatched under the two-socket policy and is still
+    // awaiting its ACK when the live capacity is lowered.
+    let second = engine.handle(
+        Input::Admit {
+            ticket: AdmissionTicket(2),
+            request: command(1, CancellationPolicy::Supported),
+        },
+        start,
+    );
+    let second_id = admitted(&second);
+    send_ok(&mut engine, &second, None, start);
+    assert_eq!(
+        engine.entry(second_id).unwrap().dispatched_socket_capacity,
+        Some(2)
+    );
+
+    let mut retuned_sockets = [None; 9];
+    retuned_sockets[1] = Some(1);
+    engine
+        .retune(Duration::ZERO, Duration::ZERO, retuned_sockets)
+        .unwrap();
+    assert_eq!(engine.command_sockets(camera(1)), 1);
+
+    // New work observes the reduced concurrency limit immediately.
+    let third = engine.handle(
+        Input::Admit {
+            ticket: AdmissionTicket(3),
+            request: command(1, CancellationPolicy::Supported),
+        },
+        start + Duration::from_millis(1),
+    );
+    let third_id = admitted(&third);
+    assert!(request_transmit_optional(&third).is_none());
+
+    // The camera reuses the busy first socket in its ACK, so the second
+    // pre-retune request must fall back to the still-physical S2.
+    let fallback = engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::Ack {
+                socket: Some(ViscaSocket::S1),
+            },
+        ),
+        start + Duration::from_millis(2),
+    );
+    assert!(!fallback
+        .iter()
+        .any(|effect| matches!(effect, Effect::Ignored(IgnoreReason::SocketConflict))));
+    assert!(matches!(
+        phase_of(&engine, second_id),
+        Some(Phase::Executing {
+            socket: ViscaSocket::S2,
+            ..
+        })
+    ));
+    assert_eq!(
+        engine.socket_owner(camera(1), ViscaSocket::S2),
+        Some(second_id)
+    );
+
+    // The lower limit continues to gate future work until both legacy
+    // in-flight commands have drained.
+    let first_complete = engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::Completion {
+                socket: Some(ViscaSocket::S1),
+            },
+        ),
+        start + Duration::from_millis(3),
+    );
+    assert!(request_transmit_optional(&first_complete).is_none());
+    assert!(matches!(
+        phase_of(&engine, third_id),
+        Some(Phase::Ready { .. })
+    ));
+    assert!(engine.entry(first_id).is_none());
+
+    let second_complete = engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::Completion {
+                socket: Some(ViscaSocket::S2),
+            },
+        ),
+        start + Duration::from_millis(4),
+    );
+    assert_eq!(request_transmit(&second_complete).1, third_id);
+    assert_eq!(
+        engine.entry(third_id).unwrap().dispatched_socket_capacity,
+        Some(1)
+    );
+    engine.assert_invariants().unwrap();
 }
 
 #[test]

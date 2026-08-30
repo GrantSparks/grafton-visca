@@ -86,6 +86,8 @@ const EXPECTED_TYPED_GATES: &[&str] = &[
     "NdFilter",
     "VariableSpeed",
     "MotionSync",
+    "FocusZoneInquiry",
+    "UsbAudio",
 ];
 
 const EXPECTED_ACCESSORS: &[&str] = &[
@@ -242,7 +244,7 @@ fn dynamic_control_inventory_is_closed() {
     // command/inquiry registries.
     for (name, value) in [
         ("DYN_NOUN_TARGET_METHOD_COUNT", "146"),
-        ("DYN_NOUN_INQUIRY_METHOD_COUNT", "66"),
+        ("DYN_NOUN_INQUIRY_METHOD_COUNT", "63"),
         ("DYN_NOUN_CONVENIENCE_METHOD_COUNT", "9"),
         ("DYN_NOUN_COUNT", "14"),
     ] {

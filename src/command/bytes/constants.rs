@@ -165,9 +165,6 @@ pub mod exposure {
     /// Brightness direct value prefix.
     pub const BRIGHTNESS_DIRECT_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x4D, 0x00, 0x00];
 
-    /// Brightness value prefix (alternative).
-    pub const BRIGHTNESS_VALUE_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x0D, 0x00, 0x00];
-
     /// Spot AE (auto exposure) control prefix.
     #[cfg(test)]
     pub const SPOT_AE_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x5A];
@@ -484,14 +481,16 @@ mod validation_tests {
         assert_eq!(tally::TALLY_PTZO_PREFIX[1], 0x0A); // Different command type
     }
 
-    /// Test that inquiry constants follow the proper VISCA inquiry format
+    /// Test that inquiry constants follow their standard or validated vendor format.
     #[test]
     fn test_inquiry_format_validation() {
         // All inquiry commands should:
         // 1. Start with 0x81 (camera ID)
-        // 2. Have 0x09 as second byte (inquiry command type)
+        // 2. Use standard 0x09 inquiry framing, except the validated UAC extension
         // 3. End with 0xFF (terminator)
         // 4. Duplicate bytes must be explicitly classified in metadata.
+
+        const UAC_INQUIRY: &[u8] = &[0x81, 0x2A, 0x02, 0xA0, 0x04, 0xFF];
 
         let mut seen = Vec::new();
 
@@ -501,10 +500,10 @@ mod validation_tests {
             };
             // Check format
             assert_eq!(inq[0], 0x81, "Inquiry {} should start with 0x81", meta.name);
-            assert_eq!(
-                inq[1], 0x09,
-                "Inquiry {} should have 0x09 as second byte",
-                meta.name
+            assert!(
+                inq[1] == 0x09 || (meta.vendor_specific && inq == UAC_INQUIRY),
+                "Inquiry {} should use standard 0x09 framing or the validated UAC extension",
+                meta.name,
             );
             assert_eq!(
                 inq[inq.len() - 1],
@@ -563,7 +562,6 @@ mod validation_tests {
             exposure::SHUTTER_DIRECT_PREFIX,
             exposure::BRIGHTNESS_CONTROL_PREFIX,
             exposure::BRIGHTNESS_DIRECT_PREFIX,
-            exposure::BRIGHTNESS_VALUE_PREFIX,
             exposure::SPOT_AE_PREFIX,
             // Flip and image-processing prefixes
             flip::PREFIX,

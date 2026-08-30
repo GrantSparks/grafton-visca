@@ -3,10 +3,7 @@
 //! This module tests the parsing of VISCA inquiry responses using
 //! real-world response patterns from PTZ cameras.
 
-use grafton_visca::{
-    command::{InquiryData, InquiryKind, Response},
-    ResolutionMode,
-};
+use grafton_visca::command::{InquiryData, InquiryKind, Response};
 
 #[test]
 fn test_parse_power_inquiry_responses() {
@@ -262,24 +259,6 @@ fn test_parse_luminance_inquiry() {
     match result.unwrap() {
         Response::Inquiry(InquiryData::Luminance { level }) => {
             assert_eq!(level, 0x07, "Luminance value mismatch");
-        }
-        _ => panic!("Unexpected response type"),
-    }
-}
-
-#[test]
-fn test_parse_resolution_inquiry() {
-    let data = vec![0x90, 0x50, 0x00, 0xFF]; // 0x00 = FullHD60
-    let result = Response::parse_with_type(&data, &InquiryKind::Resolution);
-    assert!(
-        result.is_ok(),
-        "Failed to parse resolution response: {:?}",
-        result
-    );
-
-    match result.unwrap() {
-        Response::Inquiry(InquiryData::Resolution(code)) => {
-            assert_eq!(code, ResolutionMode::FullHD60, "Resolution code mismatch");
         }
         _ => panic!("Unexpected response type"),
     }

@@ -103,6 +103,10 @@ pub(crate) struct Entry {
     /// this value.
     current_sequence: Option<u32>,
     sequence_history: SmallVec<[SequenceRecord; MAX_SEQUENCE_HISTORY]>,
+    /// Command-socket capacity in force when the current command attempt was
+    /// dispatched. It lets that already-dispatched attempt finish after a live
+    /// capacity reduction without relaxing the new limit for later work.
+    dispatched_socket_capacity: Option<u8>,
     cancel_attempted_socket: Option<ViscaSocket>,
     cancellation_observation_open: bool,
     deferred_ack: Option<DeferredAck>,
@@ -749,6 +753,7 @@ impl ProtocolEngine {
                 transmission_order: None,
                 current_sequence: None,
                 sequence_history: SmallVec::new(),
+                dispatched_socket_capacity: None,
                 cancel_attempted_socket: None,
                 cancellation_observation_open: false,
                 deferred_ack: None,
@@ -844,7 +849,7 @@ impl ProtocolEngine {
             let inquiry = self.eligible_ticket_readonly(Lane::Inquiry, priority, now);
             let command = self.eligible_ticket_readonly(Lane::Command, priority, now);
             let selected = match (inquiry, command) {
-                (Some((index, ticket)), _) => Some(DispatchSelection {
+                (Some((index, ticket)), None) => Some(DispatchSelection {
                     lane: Lane::Inquiry,
                     priority,
                     index,
@@ -856,6 +861,26 @@ impl ProtocolEngine {
                     index,
                     ticket,
                 }),
+                (Some((inquiry_index, inquiry_ticket)), Some((command_index, command_ticket))) => {
+                    let inquiry_first = self
+                        .entries
+                        .get(&inquiry_ticket.request)
+                        .zip(self.entries.get(&command_ticket.request))
+                        .is_some_and(|(inquiry, command)| {
+                            inquiry.admission_order <= command.admission_order
+                        });
+                    let (lane, index, ticket) = if inquiry_first {
+                        (Lane::Inquiry, inquiry_index, inquiry_ticket)
+                    } else {
+                        (Lane::Command, command_index, command_ticket)
+                    };
+                    Some(DispatchSelection {
+                        lane,
+                        priority,
+                        index,
+                        ticket,
+                    })
+                }
                 (None, None) => None,
             };
             if selected.is_some() {
@@ -968,6 +993,9 @@ impl ProtocolEngine {
         let generation = entry.generation;
         let attempt = entry.attempt;
         let target = entry.request.context().target;
+        let cancellation = entry.cancellation;
+        let dispatched_socket_capacity = (!entry.request.is_inquiry())
+            .then(|| self.targets[target.id() as usize].map_or(1, |policy| policy.command_sockets));
         let wire = Arc::clone(entry.request.wire());
         let requested_sequence = if self.policy.envelope == EnvelopeKind::Sony {
             entry.current_sequence
@@ -978,7 +1006,10 @@ impl ProtocolEngine {
             transmission,
             started_at: now,
         };
-        self.transition(ticket.request, phase, entry.cancellation, effects);
+        if let Some(entry) = self.entries.get_mut(&ticket.request) {
+            entry.dispatched_socket_capacity = dispatched_socket_capacity;
+        }
+        self.transition(ticket.request, phase, cancellation, effects);
         self.transmissions.insert(
             transmission,
             TransmissionOwner {
@@ -2022,6 +2053,18 @@ impl ProtocolEngine {
         self.targets[target.id() as usize].map_or(1, |policy| usize::from(policy.command_sockets))
     }
 
+    /// Socket assignment may need the capacity that was in force when this
+    /// exact command attempt was dispatched. A live retune lowers admission
+    /// capacity immediately, but it does not revoke the second physical socket
+    /// from a pre-retune attempt already draining under the old capacity.
+    fn assignment_socket_count(&self, target: CameraId, id: RequestId) -> usize {
+        let current = self.command_sockets(target);
+        self.entries
+            .get(&id)
+            .and_then(|entry| entry.dispatched_socket_capacity)
+            .map_or(current, |dispatched| current.max(usize::from(dispatched)))
+    }
+
     fn socket_available(&self, target: CameraId, socket: ViscaSocket, id: RequestId) -> bool {
         self.socket_owner(target, socket)
             .is_none_or(|owner| owner == id)
@@ -2037,28 +2080,29 @@ impl ProtocolEngine {
     /// (a raw ACK resolves to the sole unacknowledged command), so binding it to
     /// the free socket cannot mis-attribute the ACK; it only avoids wedging the
     /// command, which — before issue #671 — cascaded to a session poison at its
-    /// ACK deadline. An ACK with no socket nibble takes the first free socket the
-    /// target is registered to have. `None` means every socket the target owns is
-    /// already taken and the ACK stays inert.
+    /// ACK deadline. An ACK with no socket nibble takes the first free physical
+    /// socket available to that dispatched attempt. `None` means every socket it
+    /// may still use is already taken and the ACK stays inert.
     fn assign_socket(
         &self,
         target: CameraId,
         requested: Option<ViscaSocket>,
         id: RequestId,
     ) -> Option<ViscaSocket> {
+        let assignment_socket_count = self.assignment_socket_count(target, id);
         if let Some(socket) = requested {
             if self.socket_available(target, socket, id) {
                 return Some(socket);
             }
             let other = other_socket(socket);
-            if self.command_sockets(target) > 1 && self.socket_available(target, other, id) {
+            if assignment_socket_count > 1 && self.socket_available(target, other, id) {
                 return Some(other);
             }
             return None;
         }
         [ViscaSocket::S1, ViscaSocket::S2]
             .into_iter()
-            .take(self.command_sockets(target))
+            .take(assignment_socket_count)
             .find(|socket| self.socket_available(target, *socket, id))
     }
 
@@ -2364,11 +2408,11 @@ impl ProtocolEngine {
                 }
                 let ambiguity_deadline =
                     add_duration(now, entry.request.context().timeout.ambiguity);
-                // A raw completion-timeout quarantine already owns a socket and
-                // has a release deadline. If cancellation is requested while
-                // that hold is active, keep the later of the two deadlines so
-                // recording the cancellation cannot shorten the correlation
-                // quarantine underneath the newly pending cancel transmission.
+                // A raw ambiguity quarantine already owns either a socket or
+                // the sole unacknowledged-command slot. If cancellation is
+                // requested while that hold is active, keep the later of the
+                // two deadlines so the cancellation-driven path stays eligible
+                // until its own ambiguity window closes.
                 let phase = match phase {
                     Phase::AwaitingCancellationResolution { socket, deadline } => {
                         Phase::AwaitingCancellationResolution {
@@ -2376,10 +2420,14 @@ impl ProtocolEngine {
                             deadline: deadline.max(ambiguity_deadline),
                         }
                     }
+                    Phase::AwaitingLateAck { deadline } => Phase::AwaitingLateAck {
+                        deadline: deadline.max(ambiguity_deadline),
+                    },
                     phase => phase,
                 };
                 let ambiguity_deadline = match phase {
-                    Phase::AwaitingCancellationResolution { deadline, .. } => deadline,
+                    Phase::AwaitingCancellationResolution { deadline, .. }
+                    | Phase::AwaitingLateAck { deadline } => deadline,
                     _ => ambiguity_deadline,
                 };
                 if let Some(entry) = self.entries.get_mut(&id) {

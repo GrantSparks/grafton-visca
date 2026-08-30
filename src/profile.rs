@@ -1416,6 +1416,7 @@ impl ProfileSpec {
             && (capabilities.has_auto_focus
                 || capabilities.has_one_push_focus
                 || capabilities.has_focus_zone
+                || capabilities.has_focus_zone_inquiry
                 || capabilities.has_af_sensitivity
                 || capabilities.has_focus_near_limit_inquiry
                 || capabilities.focus_range != (0..=0)
@@ -1518,6 +1519,9 @@ impl ProfileSpec {
                 capabilities::TypedSupportSurface::FocusZone => {
                     capabilities.has_focus && capabilities.has_focus_zone
                 }
+                capabilities::TypedSupportSurface::FocusZoneInquiry => {
+                    capabilities.has_focus && capabilities.has_focus_zone_inquiry
+                }
                 capabilities::TypedSupportSurface::AutoFocusSensitivity => {
                     capabilities.has_focus
                         && capabilities.has_auto_focus
@@ -1614,6 +1618,7 @@ impl ProfileSpec {
                 capabilities::TypedSupportSurface::MotionSync => {
                     capabilities.has_pan_tilt && capabilities.has_motion_sync
                 }
+                capabilities::TypedSupportSurface::UsbAudio => capabilities.has_usb_audio,
             };
             if !physically_supported {
                 return Err(Error::InvalidRequest(
@@ -2602,6 +2607,15 @@ mod tests {
         typed.typed_support = TypedSupportSet::from_surface(TypedSupportSurface::DirectZoom);
         typed.supports_direct_zoom = false;
         assert!(runtime_builder(typed).build().is_err());
+
+        let mut focus_zone_inquiry = valid_runtime_capabilities();
+        focus_zone_inquiry.typed_support =
+            TypedSupportSet::from_surface(TypedSupportSurface::FocusZoneInquiry);
+        assert!(runtime_builder(focus_zone_inquiry).build().is_err());
+
+        let mut usb_audio = valid_runtime_capabilities();
+        usb_audio.typed_support = TypedSupportSet::from_surface(TypedSupportSurface::UsbAudio);
+        assert!(runtime_builder(usb_audio).build().is_err());
     }
 
     #[test]

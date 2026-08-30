@@ -343,7 +343,7 @@ mod async_surface {
     #[cfg(feature = "dyn-api")]
     use grafton_visca::dynapi::DynSessionCamera;
     #[cfg(feature = "dyn-api")]
-    use grafton_visca::profiles::PtzOpticsG2;
+    use grafton_visca::profiles::{GenericVisca, PtzOpticsG2, SonyBRC300};
 
     use super::{
         envelope, visca_payload, FOCUS_FAR, FOCUS_NEAR, MENU_CANCEL, MENU_SELECT,
@@ -639,6 +639,56 @@ mod async_surface {
         ));
         assert!(writes.lock().expect("writes lock").is_empty());
         session.shutdown().await.expect("shutdown");
+    }
+
+    /// `image()` is absent from the static facade for these profiles, and the
+    /// erased facade must refuse every base image row before it reaches the
+    /// transport. The registry's `image.base_support` fact drives both sides.
+    #[cfg(feature = "dyn-api")]
+    #[tokio::test]
+    async fn dynamic_image_noun_matches_the_static_base_gate() {
+        for (label, profile) in [
+            (
+                "Generic VISCA",
+                ProfileSpec::from_compile_time::<GenericVisca>().expect("Generic VISCA profile"),
+            ),
+            (
+                "Sony BRC-300",
+                ProfileSpec::from_compile_time::<SonyBRC300>().expect("BRC-300 profile"),
+            ),
+        ] {
+            let (transport, writes) = ProbeTransport::new();
+            let session = open_session(transport, profile).await;
+            let camera = DynSessionCamera::from_session(&session).expect("dynamic camera");
+
+            for error in [
+                camera
+                    .image()
+                    .freeze_on()
+                    .await
+                    .expect_err("image freeze must be refused"),
+                camera
+                    .image()
+                    .freeze_off()
+                    .await
+                    .expect_err("image freeze-off must be refused"),
+                camera
+                    .image()
+                    .defog_level()
+                    .await
+                    .expect_err("image defog must be refused"),
+            ] {
+                assert!(
+                    matches!(error, Error::FeatureNotSupported { .. }),
+                    "{label} image row must fail through capability validation: {error:?}",
+                );
+            }
+            assert!(
+                writes.lock().expect("writes lock").is_empty(),
+                "refused {label} image rows must not reach the wire",
+            );
+            session.shutdown().await.expect("shutdown");
+        }
     }
 
     /// Issue #684: the erased tally noun is coherent on PtzOpticsG2 — which has

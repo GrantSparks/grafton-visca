@@ -290,8 +290,12 @@ pub trait BlockingTransport: Send {
     ///
     /// # Forwarding wrappers
     ///
-    /// A transport that wraps another (such as [`BlockingTransportHandle`], which
-    /// dispatches to a TCP, UDP, or serial inner transport) **must** forward this
+    /// A transport that wraps another
+    #[cfg_attr(
+        feature = "blocking",
+        doc = " (such as [`BlockingTransportHandle`], which dispatches to a TCP, UDP, or serial inner transport)"
+    )]
+    /// **must** forward this
     /// method to the inner transport, exactly as it forwards
     /// [`BlockingTransport::send_with_kind`] and [`BlockingTransport::recv_into`].
     /// Unlike a missing `match` arm, an unforwarded `send_semantics` does not fail

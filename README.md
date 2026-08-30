@@ -94,13 +94,14 @@ operations.
 | PTZOptics snap focus | No built-in profile currently marks this typed capability |
 | Focus lock | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
 | Push auto focus | `SonyFR7` |
-| Focus zone | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7` |
+| Focus zone control | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
+| Focus zone inquiry | `PtzOpticsG2`, `PtzOptics30X` |
 | Auto focus sensitivity | `SonyFR7` |
 | Focus near-limit inquiry | `SonyFR7`, `SonyBRCH900`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300`, `GenericVisca` |
 | Backlight compensation | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300` |
 | Wide dynamic range | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900` |
 | Exposure compensation | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7` |
-| Exposure brightness control and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900` |
+| Exposure brightness control and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
 | One-push white balance | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900`, `SonyEVIH100`, `GenericVisca` |
 | Auto-tracking white balance | `SonyFR7` |
 | Auto white-balance sensitivity | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
@@ -117,7 +118,8 @@ operations.
 | Gamma control and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900`, `SonyEVIH100` |
 | Aggregate noise-reduction inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900`, `SonyEVIH100` |
 | 2D/3D noise reduction | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900` |
-| Picture effects | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900` |
+| Picture effects | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
+| USB audio control and inquiry | `PtzOpticsG2`, `PtzOptics30X` |
 
 The registry keeps model-specific iris ranges in runtime metadata where they
 are useful for discovery, but that metadata alone does not grant the typed

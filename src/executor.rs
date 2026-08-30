@@ -180,6 +180,47 @@ mod tokio_impl {
 
     use super::*;
 
+    /// A future polled with one explicit Tokio runtime installed as the
+    /// current context.
+    ///
+    /// Tokio binds timers and I/O resources through thread-local runtime
+    /// context. `TokioExecutor::from_handle` must therefore not let an
+    /// unrelated runtime that happens to poll a returned future become that
+    /// context.
+    #[derive(Debug)]
+    pub(crate) struct TokioBoundFuture<F> {
+        handle: tokio::runtime::Handle,
+        inner: Pin<Box<F>>,
+    }
+
+    impl<F> TokioBoundFuture<F> {
+        pub(crate) fn new(handle: tokio::runtime::Handle, inner: F) -> Self {
+            Self {
+                handle,
+                inner: Box::pin(inner),
+            }
+        }
+    }
+
+    // Moving the wrapper never moves its heap-pinned inner future.
+    impl<F> Unpin for TokioBoundFuture<F> {}
+
+    impl<F> Future for TokioBoundFuture<F>
+    where
+        F: Future,
+    {
+        type Output = F::Output;
+
+        fn poll(
+            self: Pin<&mut Self>,
+            context: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<Self::Output> {
+            let this = self.get_mut();
+            let _entered = this.handle.enter();
+            this.inner.as_mut().poll(context)
+        }
+    }
+
     /// Tokio-based executor implementation.
     #[derive(Debug, Clone)]
     pub struct TokioExecutor {
@@ -197,6 +238,16 @@ mod tokio_impl {
         /// Create an executor from a specific runtime handle.
         pub fn from_handle(handle: tokio::runtime::Handle) -> Self {
             Self { handle }
+        }
+
+        /// The Tokio runtime selected for this executor.
+        pub(crate) fn handle(&self) -> &tokio::runtime::Handle {
+            &self.handle
+        }
+
+        fn in_selected_context<T>(&self, operation: impl FnOnce() -> T) -> T {
+            let _entered = self.handle.enter();
+            operation()
         }
     }
 
@@ -247,7 +298,8 @@ mod tokio_impl {
 
         #[allow(clippy::manual_async_fn)]
         fn sleep(&self, duration: Duration) -> impl Future<Output = ()> + Send + '_ {
-            async move { tokio::time::sleep(duration).await }
+            let sleep = self.in_selected_context(|| tokio::time::sleep(duration));
+            TokioBoundFuture::new(self.handle.clone(), sleep)
         }
 
         #[allow(clippy::manual_async_fn)]
@@ -260,8 +312,10 @@ mod tokio_impl {
             F: Future<Output = T> + Send + 'a,
             T: Send + 'a,
         {
+            let timeout = self.in_selected_context(|| tokio::time::timeout(duration, fut));
+            let timeout = TokioBoundFuture::new(self.handle.clone(), timeout);
             async move {
-                match tokio::time::timeout(duration, fut).await {
+                match timeout.await {
                     Ok(value) => Ok(value),
                     Err(_) => Err(Error::Timeout),
                 }
@@ -274,11 +328,13 @@ mod tokio_impl {
         /// `#[tokio::test(start_paused = true)]` advance logically
         /// when virtual time advances, preventing stalls.
         fn now(&self) -> Instant {
-            tokio::time::Instant::now().into_std()
+            self.in_selected_context(|| tokio::time::Instant::now().into_std())
         }
     }
 }
 
+#[cfg(all(feature = "runtime-tokio", feature = "transport-serial-tokio"))]
+pub(crate) use tokio_impl::TokioBoundFuture;
 #[cfg(feature = "runtime-tokio")]
 pub use tokio_impl::TokioExecutor;
 

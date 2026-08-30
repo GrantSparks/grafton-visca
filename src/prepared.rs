@@ -1018,9 +1018,9 @@ mod tests {
     use crate::{
         capabilities::{Capabilities, InquirySupport, TypedSupportSet},
         command::{
-            FocusNearLimitInquiry, NdFilterPosition, PanTilt, PanTiltLimitCorner,
-            PanTiltPositionInquiry, PowerInquiry, VersionInquiry, ZoomPositionInquiry,
-            VISCA_TERMINATOR,
+            BrightnessInquiry, FocusNearLimitInquiry, FocusZoneInquiry, NdFilterPosition, PanTilt,
+            PanTiltLimitCorner, PanTiltPositionInquiry, PictureEffectInquiry, PowerInquiry,
+            UsbAudioInquiry, VersionInquiry, ZoomPositionInquiry, VISCA_TERMINATOR,
         },
         request::builtin::{
             request_write_count, reset_request_write_count, FocusTrigger, IrisReset,
@@ -1390,6 +1390,43 @@ mod tests {
         )
         .expect_err("unsupported gated inquiry must not be prepared");
         assert!(matches!(error, Error::FeatureNotSupported { .. }));
+    }
+
+    #[test]
+    fn profile_rejected_generated_inquiries_fail_before_encoding() {
+        fn assert_rejected_before_encoding<Q>(inquiry: &Q, profile: &ProfileSpec, name: &str)
+        where
+            Q: Inquiry + BuiltinInquiryRequest,
+        {
+            crate::command::inquiry_structs::reset_generated_inquiry_write_count();
+            match prepare_builtin_inquiry(
+                inquiry,
+                CameraId::CAMERA_1,
+                profile,
+                OperationalTuning::new(),
+            ) {
+                Err(error) => assert!(
+                    matches!(error, Error::FeatureNotSupported { .. }),
+                    "{name} must be rejected by its profile gate: {error:?}"
+                ),
+                Ok(_) => panic!("{name} must not be prepared for this profile"),
+            }
+            assert_eq!(
+                crate::command::inquiry_structs::generated_inquiry_write_count(),
+                0,
+                "{name} must be rejected before generated inquiry encoding"
+            );
+        }
+
+        let ptzoptics_g3 = ProfileSpec::from_compile_time::<crate::profiles::PtzOpticsG3>()
+            .expect("PTZOptics G3 profile");
+        assert_rejected_before_encoding(&FocusZoneInquiry, &ptzoptics_g3, "FocusZoneInquiry");
+        assert_rejected_before_encoding(&UsbAudioInquiry, &ptzoptics_g3, "UsbAudioInquiry");
+
+        let sony_fr7 =
+            ProfileSpec::from_compile_time::<crate::profiles::SonyFR7>().expect("Sony FR7 profile");
+        assert_rejected_before_encoding(&BrightnessInquiry, &sony_fr7, "BrightnessInquiry");
+        assert_rejected_before_encoding(&PictureEffectInquiry, &sony_fr7, "PictureEffectInquiry");
     }
 
     /// Issue #684: a base-domain inquiry (`power().state()`, `zoom().position()`,

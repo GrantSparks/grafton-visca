@@ -70,7 +70,7 @@ failure mode: its byte position cannot be established, so it reports
 
 The request-policy audit reads the built-in command ledger and the concrete
 request declarations; it does not maintain a second semantic registry. The
-current ledger has 149 command rows, 68 queryable inquiry rows, and 11
+current ledger has 149 command rows, 65 queryable inquiry rows, and 11
 decode-only response rows. Every queryable row uses the generated inquiry
 policy, with an inquiry-specific deadline and the interim 1 s response default.
 The historical comparison is the 1.x timeout category in the original command
@@ -88,7 +88,7 @@ The rows with an intentional timeout-category decision are:
 | `IrisReset`, `IrisUp`, `IrisDown`, `IrisDirect` | Quick | Movement / Movement | Targeted physical aperture operations have exact iris settlement inquiries. |
 | `NdFilterDirect`, `NdFilterStepUp`, `NdFilterStepDown` | Quick | Movement / Movement | Targeted physical filter operations have exact ND settlement inquiries. |
 | `Sharpness*`, `Gamma`, `NoiseReduction2d*`, `NoiseReduction3d*`, `ImageFlipBoth`, `ImageFlipCombined` | Custom | Quick / Standard | The old `Custom` value was the uncategorized 60 s fallback; these are explicit quick configuration writes in v2. |
-| 68 queryable built-in inquiries | Quick | Inquiry / Inquiry | Inquiry response timing is a separate profile fact: v2 uses an interim 1 s deadline while retaining the old quick retry budget. |
+| 65 queryable built-in inquiries | Quick | Inquiry / Inquiry | Inquiry response timing is a separate profile fact: v2 uses an interim 1 s deadline while retaining the old quick retry budget. |
 
 The remaining 120 command rows retain their 1.x timeout category, and every
 command row has an explicit retry class. The semantic unit test

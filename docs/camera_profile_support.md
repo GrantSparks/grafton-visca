@@ -73,7 +73,8 @@ Current built-in sub-capability markers include:
 | Color | `HasRgbTuning` | red/blue tuning controls and inquiries |
 | Focus | `HasOnePushFocus` | `OnePushFocusControl` |
 | Focus | `HasPtzOpticsSnapFocus` | `SnapFocusControl` |
-| Focus | `HasFocusZone` | focus zone controls and inquiry |
+| Focus | `HasFocusZone` | focus-zone selection control |
+| Focus | `HasFocusZoneInquiry` | focus-zone inquiry |
 | Focus | `HasAutoFocusSensitivity` | AF sensitivity controls and inquiry |
 | Focus | `HasFocusNearLimitInquiry` | focus near-limit inquiry |
 | Image | `HasImageFlip` | vertical image flip control and inquiry |
@@ -93,6 +94,7 @@ Current built-in sub-capability markers include:
 | Menu | `HasDirectMenuControl` | direct menu controls |
 | ND filter | `HasNdFilter` | ND filter controls and inquiries |
 | Variable speed | `HasVariableSpeed` | variable speed mode controls |
+| Streaming | `HasUsbAudio` | USB audio control and inquiry |
 | Motion Sync | `HasMotionSync` | Motion Sync controls and inquiries |
 
 ## Built-In Transport Matrix
@@ -136,15 +138,23 @@ optional typed operations when a capability is not universal.
 
 | Profile | Typed support markers |
 | ------- | --------------------- |
-| `PtzOpticsG2` | `HasExposureCompensation`<br>`HasBrightnessControl`<br>`HasFocusLock`<br>`HasDirectZoom`<br>`HasIrisControl`<br>`HasFocusZone`<br>`HasBacklightCompensation`<br>`HasWideDynamicRange`<br>`HasColorTemperature`<br>`HasRgbGain`<br>`HasRgbTuning`<br>`HasOnePushWhiteBalance`<br>`HasAutoWhiteBalanceSensitivity`<br>`HasImageFlip`<br>`HasImageMirror`<br>`HasCombinedImageFlip`<br>`HasContrastControl`<br>`HasSharpnessControl`<br>`HasSaturationControl`<br>`HasHueControl`<br>`HasLuminanceControl`<br>`HasGammaControl`<br>`HasNoiseReduction`<br>`HasNoiseReduction2D`<br>`HasNoiseReduction3D`<br>`HasPictureEffect` |
+| `PtzOpticsG2` | `HasExposureCompensation`<br>`HasBrightnessControl`<br>`HasFocusLock`<br>`HasDirectZoom`<br>`HasIrisControl`<br>`HasFocusZone`<br>`HasFocusZoneInquiry`<br>`HasUsbAudio`<br>`HasBacklightCompensation`<br>`HasWideDynamicRange`<br>`HasColorTemperature`<br>`HasRgbGain`<br>`HasRgbTuning`<br>`HasOnePushWhiteBalance`<br>`HasAutoWhiteBalanceSensitivity`<br>`HasImageFlip`<br>`HasImageMirror`<br>`HasCombinedImageFlip`<br>`HasContrastControl`<br>`HasSharpnessControl`<br>`HasSaturationControl`<br>`HasHueControl`<br>`HasLuminanceControl`<br>`HasGammaControl`<br>`HasNoiseReduction`<br>`HasNoiseReduction2D`<br>`HasNoiseReduction3D`<br>`HasPictureEffect` |
 | `PtzOpticsG3` | `HasExposureCompensation`<br>`HasBrightnessControl`<br>`HasFocusLock`<br>`HasDirectZoom`<br>`HasIrisControl`<br>`HasFocusZone`<br>`HasBacklightCompensation`<br>`HasWideDynamicRange`<br>`HasColorTemperature`<br>`HasRgbGain`<br>`HasRgbTuning`<br>`HasOnePushWhiteBalance`<br>`HasAutoWhiteBalanceSensitivity`<br>`HasImageFlip`<br>`HasImageMirror`<br>`HasCombinedImageFlip`<br>`HasContrastControl`<br>`HasSharpnessControl`<br>`HasSaturationControl`<br>`HasHueControl`<br>`HasLuminanceControl`<br>`HasGammaControl`<br>`HasNoiseReduction`<br>`HasNoiseReduction2D`<br>`HasNoiseReduction3D`<br>`HasPictureEffect` |
-| `PtzOptics30X` | `HasExposureCompensation`<br>`HasBrightnessControl`<br>`HasFocusLock`<br>`HasDirectZoom`<br>`HasIrisControl`<br>`HasFocusZone`<br>`HasBacklightCompensation`<br>`HasWideDynamicRange`<br>`HasColorTemperature`<br>`HasRgbGain`<br>`HasRgbTuning`<br>`HasOnePushWhiteBalance`<br>`HasAutoWhiteBalanceSensitivity`<br>`HasImageFlip`<br>`HasImageMirror`<br>`HasCombinedImageFlip`<br>`HasContrastControl`<br>`HasSharpnessControl`<br>`HasSaturationControl`<br>`HasHueControl`<br>`HasLuminanceControl`<br>`HasGammaControl`<br>`HasNoiseReduction`<br>`HasNoiseReduction2D`<br>`HasNoiseReduction3D`<br>`HasPictureEffect` |
-| `SonyFR7` | `HasExposureCompensation`<br>`HasBrightnessControl`<br>`HasPushAutoFocus`<br>`HasDirectZoom`<br>`HasDigitalZoomToggle`<br>`HasDigitalZoomRange`<br>`HasIrisControl`<br>`HasFocusZone`<br>`HasAutoFocusSensitivity`<br>`HasFocusNearLimitInquiry`<br>`HasBacklightCompensation`<br>`HasWideDynamicRange`<br>`HasRgbGain`<br>`HasRgbTuning`<br>`HasOnePushWhiteBalance`<br>`HasAutoTrackingWhiteBalance`<br>`HasImageFlip`<br>`HasImageMirror`<br>`HasContrastControl`<br>`HasSharpnessControl`<br>`HasSaturationControl`<br>`HasHueControl`<br>`HasGammaControl`<br>`HasNoiseReduction`<br>`HasNoiseReduction2D`<br>`HasNoiseReduction3D`<br>`HasPictureEffect`<br>`HasTally`<br>`HasDirectMenuControl`<br>`HasNdFilter`<br>`HasVariableSpeed` |
-| `SonyBRCH900` | `HasBrightnessControl`<br>`HasDirectZoom`<br>`HasDigitalZoomToggle`<br>`HasDigitalZoomRange`<br>`HasFocusNearLimitInquiry`<br>`HasBacklightCompensation`<br>`HasWideDynamicRange`<br>`HasColorTemperature`<br>`HasRgbTuning`<br>`HasOnePushWhiteBalance`<br>`HasImageFlip`<br>`HasImageMirror`<br>`HasContrastControl`<br>`HasSharpnessControl`<br>`HasSaturationControl`<br>`HasGammaControl`<br>`HasNoiseReduction`<br>`HasNoiseReduction2D`<br>`HasNoiseReduction3D`<br>`HasPictureEffect`<br>`HasTally` |
+| `PtzOptics30X` | `HasExposureCompensation`<br>`HasBrightnessControl`<br>`HasFocusLock`<br>`HasDirectZoom`<br>`HasIrisControl`<br>`HasFocusZone`<br>`HasFocusZoneInquiry`<br>`HasUsbAudio`<br>`HasBacklightCompensation`<br>`HasWideDynamicRange`<br>`HasColorTemperature`<br>`HasRgbGain`<br>`HasRgbTuning`<br>`HasOnePushWhiteBalance`<br>`HasAutoWhiteBalanceSensitivity`<br>`HasImageFlip`<br>`HasImageMirror`<br>`HasCombinedImageFlip`<br>`HasContrastControl`<br>`HasSharpnessControl`<br>`HasSaturationControl`<br>`HasHueControl`<br>`HasLuminanceControl`<br>`HasGammaControl`<br>`HasNoiseReduction`<br>`HasNoiseReduction2D`<br>`HasNoiseReduction3D`<br>`HasPictureEffect` |
+| `SonyFR7` | `HasExposureCompensation`<br>`HasPushAutoFocus`<br>`HasDirectZoom`<br>`HasDigitalZoomToggle`<br>`HasDigitalZoomRange`<br>`HasIrisControl`<br>`HasAutoFocusSensitivity`<br>`HasFocusNearLimitInquiry`<br>`HasBacklightCompensation`<br>`HasWideDynamicRange`<br>`HasRgbGain`<br>`HasRgbTuning`<br>`HasOnePushWhiteBalance`<br>`HasAutoTrackingWhiteBalance`<br>`HasImageFlip`<br>`HasImageMirror`<br>`HasContrastControl`<br>`HasSharpnessControl`<br>`HasSaturationControl`<br>`HasHueControl`<br>`HasGammaControl`<br>`HasNoiseReduction`<br>`HasNoiseReduction2D`<br>`HasNoiseReduction3D`<br>`HasTally`<br>`HasDirectMenuControl`<br>`HasNdFilter`<br>`HasVariableSpeed` |
+| `SonyBRCH900` | `HasDirectZoom`<br>`HasDigitalZoomToggle`<br>`HasDigitalZoomRange`<br>`HasFocusNearLimitInquiry`<br>`HasBacklightCompensation`<br>`HasWideDynamicRange`<br>`HasColorTemperature`<br>`HasRgbTuning`<br>`HasOnePushWhiteBalance`<br>`HasImageFlip`<br>`HasImageMirror`<br>`HasContrastControl`<br>`HasSharpnessControl`<br>`HasSaturationControl`<br>`HasGammaControl`<br>`HasNoiseReduction`<br>`HasNoiseReduction2D`<br>`HasNoiseReduction3D`<br>`HasTally` |
 | `SonyEVIH100` | `HasDirectZoom`<br>`HasFocusNearLimitInquiry`<br>`HasBacklightCompensation`<br>`HasColorTemperature`<br>`HasRgbTuning`<br>`HasOnePushWhiteBalance`<br>`HasImageFlip`<br>`HasImageMirror`<br>`HasGammaControl`<br>`HasNoiseReduction` |
 | `SonyBRC300` | `HasDirectZoom`<br>`HasFocusNearLimitInquiry`<br>`HasBacklightCompensation` |
 | `NearusBRC300` | `HasDirectZoom`<br>`HasFocusNearLimitInquiry`<br>`HasBacklightCompensation`<br>`HasSaturationControl` |
 | `GenericVisca` | `HasFocusNearLimitInquiry`<br>`HasOnePushWhiteBalance` |
+
+Focus-zone selection is source-backed for PtzOptics G2, G3, and 30X, while the
+matching inquiry is enabled only for G2 and 30X because the G3 query response
+is not established by its model-specific table. USB audio control and inquiry
+likewise remain limited to the G2 and raw 30X UAC table entries. Picture effect
+is retained for all three PTZOptics profiles from the official G2/G3 portal and
+the raw 30X Gen-2 table; it is not inferred for Sony FR7 or BRC-H900. The Sony
+model lists also do not establish the removed brightness controls.
 
 An iris range in runtime metadata is a discovery fact, not a typed-support
 grant. The registry currently enables typed iris control and targeted iris

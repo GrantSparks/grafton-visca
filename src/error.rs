@@ -815,6 +815,8 @@ impl Error {
     ///
     /// Returns `Some(Duration)` with a recommended delay before retrying
     /// the operation, or `None` if the error is not retryable.
+    /// Every error for which [`Self::is_retryable()`] returns `true` has a
+    /// suggested delay.
     ///
     /// The suggested delays are based on typical camera response times:
     /// - `CameraBusy`: 200ms (camera is processing)
@@ -851,7 +853,14 @@ impl Error {
             Self::Timeout => Some(Duration::from_secs(2)),
             Self::MaxRetriesExceeded => None,
             Self::WithContext { source, .. } => source.suggested_retry_delay(),
-            _ => None,
+            // Keep the fallback aligned with `is_retryable()`'s `ErrorKind`
+            // classification. This includes I/O timeout spellings and gives
+            // newly classified retryable errors a safe default delay.
+            _ => match self.kind() {
+                ErrorKind::Timeout => Some(Duration::from_secs(2)),
+                ErrorKind::BufferFull | ErrorKind::Busy => Some(Duration::from_millis(200)),
+                _ => None,
+            },
         }
     }
 
@@ -1189,52 +1198,188 @@ mod tests {
     }
 
     #[test]
-    fn test_error_classification_completeness() {
-        let retryable_errors = vec![
-            Error::CameraBusy,
-            Error::CameraMoving { pan: 0, tilt: 0 },
-            Error::CommandTimeout {
-                duration: Duration::from_secs(1),
-                command: Cow::Borrowed("test"),
-            },
-            Error::CommandBufferFull,
-            Error::RuntimeQueueFull { capacity: 64 },
-            Error::Timeout,
-            Error::TransportBusy,
-            Error::CommandPending,
-            Error::NoSocket,
+    fn retry_helpers_agree_for_public_error_classifications() {
+        let cases = [
+            (
+                "explicit timeout",
+                Error::Timeout,
+                ErrorKind::Timeout,
+                Some(Duration::from_secs(2)),
+            ),
+            (
+                "command timeout",
+                Error::CommandTimeout {
+                    duration: Duration::from_secs(1),
+                    command: Cow::Borrowed("test"),
+                },
+                ErrorKind::Timeout,
+                Some(Duration::from_secs(1)),
+            ),
+            (
+                "camera busy",
+                Error::CameraBusy,
+                ErrorKind::Busy,
+                Some(Duration::from_millis(200)),
+            ),
+            (
+                "pending command",
+                Error::CommandPending,
+                ErrorKind::Busy,
+                Some(Duration::from_millis(50)),
+            ),
+            (
+                "camera moving",
+                Error::CameraMoving { pan: 0, tilt: 0 },
+                ErrorKind::Busy,
+                Some(Duration::from_millis(500)),
+            ),
+            (
+                "transport busy",
+                Error::TransportBusy,
+                ErrorKind::Busy,
+                Some(Duration::from_millis(50)),
+            ),
+            (
+                "camera command buffer full",
+                Error::CommandBufferFull,
+                ErrorKind::BufferFull,
+                Some(Duration::from_millis(200)),
+            ),
+            (
+                "runtime queue full",
+                Error::RuntimeQueueFull { capacity: 64 },
+                ErrorKind::BufferFull,
+                Some(Duration::from_millis(200)),
+            ),
+            (
+                "camera has no free socket",
+                Error::NoSocket,
+                ErrorKind::BufferFull,
+                Some(Duration::from_millis(200)),
+            ),
+            (
+                "I/O timed out",
+                Error::from(io::Error::from(io::ErrorKind::TimedOut)),
+                ErrorKind::Timeout,
+                Some(Duration::from_secs(2)),
+            ),
+            (
+                "I/O would block",
+                Error::from(io::Error::from(io::ErrorKind::WouldBlock)),
+                ErrorKind::Timeout,
+                Some(Duration::from_secs(2)),
+            ),
+            (
+                "contextual I/O timeout",
+                Error::from(io::Error::from(io::ErrorKind::TimedOut))
+                    .with_context("read camera reply"),
+                ErrorKind::Timeout,
+                Some(Duration::from_secs(2)),
+            ),
+            (
+                "retry budget exhausted",
+                Error::MaxRetriesExceeded,
+                ErrorKind::Timeout,
+                None,
+            ),
+            (
+                "I/O connection reset",
+                Error::from(io::Error::from(io::ErrorKind::ConnectionReset)),
+                ErrorKind::IoClosed,
+                None,
+            ),
+            (
+                "I/O connection refused",
+                Error::from(io::Error::from(io::ErrorKind::ConnectionRefused)),
+                ErrorKind::IoRefused,
+                None,
+            ),
+            (
+                "I/O broken pipe",
+                Error::from(io::Error::from(io::ErrorKind::BrokenPipe)),
+                ErrorKind::IoClosed,
+                None,
+            ),
+            (
+                "I/O interrupted",
+                Error::from(io::Error::from(io::ErrorKind::Interrupted)),
+                ErrorKind::Other,
+                None,
+            ),
+            (
+                "terminal closed connection",
+                Error::ConnectionClosed { reason: None },
+                ErrorKind::IoClosed,
+                None,
+            ),
+            (
+                "terminal stream poison",
+                Error::StreamPoisoned {
+                    reason: Cow::Borrowed("partial write"),
+                },
+                ErrorKind::IoClosed,
+                None,
+            ),
+            (
+                "deliberate runtime shutdown",
+                Error::RuntimeShutdown,
+                ErrorKind::IoClosed,
+                None,
+            ),
+            (
+                "unconfirmed raw command",
+                Error::UnsequencedCommandUnconfirmed,
+                ErrorKind::IoClosed,
+                None,
+            ),
+            (
+                "syntax error",
+                Error::SyntaxError,
+                ErrorKind::InvalidParameter,
+                None,
+            ),
+            (
+                "command not executable",
+                Error::CommandNotExecutable,
+                ErrorKind::NotExecutable,
+                None,
+            ),
+            (
+                "missing preset",
+                Error::PresetNotFound { id: 1 },
+                ErrorKind::InvalidParameter,
+                None,
+            ),
+            (
+                "unsupported feature",
+                Error::FeatureNotSupported { feature: "test" },
+                ErrorKind::Unsupported,
+                None,
+            ),
+            (
+                "invalid parameter",
+                Error::InvalidParameter {
+                    parameter: "test",
+                    value: Cow::Borrowed("invalid"),
+                    reason: Cow::Borrowed("test reason"),
+                },
+                ErrorKind::InvalidParameter,
+                None,
+            ),
         ];
 
-        for error in retryable_errors {
-            assert!(error.is_retryable(), "Error should be retryable: {error}");
-            assert!(
-                error.suggested_retry_delay().is_some(),
-                "Retryable error should have suggested delay: {error}"
-            );
-        }
+        for (name, error, expected_kind, expected_delay) in cases {
+            assert_eq!(error.kind(), expected_kind, "{name} has the wrong kind");
 
-        let non_retryable_errors = vec![
-            Error::SyntaxError,
-            Error::CommandNotExecutable,
-            Error::PresetNotFound { id: 1 },
-            Error::FeatureNotSupported { feature: "test" },
-            Error::InvalidParameter {
-                parameter: "test",
-                value: Cow::Borrowed("invalid"),
-                reason: Cow::Borrowed("test reason"),
-            },
-            Error::MaxRetriesExceeded,
-            Error::UnsequencedCommandUnconfirmed,
-        ];
-
-        for error in non_retryable_errors {
-            assert!(
-                !error.is_retryable(),
-                "Error should not be retryable: {error}"
+            let suggested_delay = error.suggested_retry_delay();
+            assert_eq!(
+                error.is_retryable(),
+                suggested_delay.is_some(),
+                "{name}: is_retryable() and suggested_retry_delay() disagree"
             );
-            assert!(
-                error.suggested_retry_delay().is_none(),
-                "Non-retryable error should not have suggested delay: {error}"
+            assert_eq!(
+                suggested_delay, expected_delay,
+                "{name} has the wrong suggested retry delay"
             );
         }
     }

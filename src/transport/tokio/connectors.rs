@@ -105,6 +105,27 @@ pub async fn connect_tcp(
     })
 }
 
+/// Connect TCP on an explicitly selected Tokio runtime.
+///
+/// The standalone connector above intentionally remains ambient-context based
+/// for `TcpTransport::connect*`. `TokioRuntime::from_handle`, however, has
+/// already selected a runtime, so its DNS, timer and socket work must execute
+/// on that handle even if its future is awaited elsewhere.
+pub(crate) async fn connect_tcp_on(
+    handle: &tokio::runtime::Handle,
+    address: String,
+    config: TcpConnectionConfig,
+) -> Result<TokioTcpStream, Error> {
+    handle
+        .spawn(async move { connect_tcp(&address, config).await })
+        .await
+        .map_err(|error| {
+            Error::InvalidState(
+                format!("selected Tokio runtime stopped while connecting TCP: {error}").into(),
+            )
+        })?
+}
+
 /// Create a configured UDP socket using unified helpers.
 ///
 /// Uses a single end-to-end deadline for the entire connect operation,
@@ -150,6 +171,25 @@ pub async fn connect_udp(address: &str, config: UdpSocketConfig) -> Result<UdpSo
     }
 
     Ok(socket)
+}
+
+/// Connect UDP on an explicitly selected Tokio runtime.
+///
+/// See [`connect_tcp_on`] for why runtime-bound callers use this rather than
+/// the ambient connector directly.
+pub(crate) async fn connect_udp_on(
+    handle: &tokio::runtime::Handle,
+    address: String,
+    config: UdpSocketConfig,
+) -> Result<UdpSocket, Error> {
+    handle
+        .spawn(async move { connect_udp(&address, config).await })
+        .await
+        .map_err(|error| {
+            Error::InvalidState(
+                format!("selected Tokio runtime stopped while connecting UDP: {error}").into(),
+            )
+        })?
 }
 
 /// Implement AsyncDatagram for tokio's UdpSocket

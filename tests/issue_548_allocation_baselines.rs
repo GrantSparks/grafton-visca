@@ -80,7 +80,7 @@ macro_rules! assert_generated_inquiry_inventory {
         #[test]
         fn all_queryable_generated_inquiries_encode_without_heap_allocation() {
             const QUERYABLE_GENERATED_INQUIRY_COUNT: usize = [$(stringify!($inquiry)),+].len();
-            assert_eq!(QUERYABLE_GENERATED_INQUIRY_COUNT, 68);
+            assert_eq!(QUERYABLE_GENERATED_INQUIRY_COUNT, 65);
             $(
                 let inquiry = <$inquiry>::default();
                 assert_request_encoding_does_not_allocate($label, &inquiry);
@@ -148,10 +148,6 @@ assert_generated_inquiry_inventory!(
     ("BacklightInquiry", grafton_visca::command::BacklightInquiry),
     ("ImageFlipInquiry", grafton_visca::command::ImageFlipInquiry),
     (
-        "BlackWhiteInquiry",
-        grafton_visca::command::BlackWhiteInquiry
-    ),
-    (
         "NoiseReduction2DInquiry",
         grafton_visca::command::NoiseReduction2DInquiry
     ),
@@ -180,10 +176,6 @@ assert_generated_inquiry_inventory!(
     (
         "TallyStatusInquiry",
         grafton_visca::command::TallyStatusInquiry
-    ),
-    (
-        "ResolutionInquiry",
-        grafton_visca::command::ResolutionInquiry
     ),
     (
         "NightDayModeInquiry",
@@ -251,10 +243,6 @@ assert_generated_inquiry_inventory!(
     ),
     ("NrModeInquiry", grafton_visca::command::NrModeInquiry),
     ("NrSpeedInquiry", grafton_visca::command::NrSpeedInquiry),
-    (
-        "BlackWhiteModeInquiry",
-        grafton_visca::command::BlackWhiteModeInquiry
-    ),
     ("UsbAudioInquiry", grafton_visca::command::UsbAudioInquiry),
     (
         "TwoToneModeInquiry",

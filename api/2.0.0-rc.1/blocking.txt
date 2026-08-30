@@ -17,9 +17,9 @@ pub fn grafton_visca::blocking::AdvancedAccessor<'view, 'session, P>::set_ndi_qu
 pub fn grafton_visca::blocking::AdvancedAccessor<'view, 'session, P>::set_variable_speed_mode(&self, grafton_visca::command::VariableSpeedMode) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasVariableSpeed
 pub fn grafton_visca::blocking::AdvancedAccessor<'view, 'session, P>::standby_enabled(&self) -> grafton_visca::Result<bool>
 pub fn grafton_visca::blocking::AdvancedAccessor<'view, 'session, P>::two_tone_mode_enabled(&self) -> grafton_visca::Result<bool>
-pub fn grafton_visca::blocking::AdvancedAccessor<'view, 'session, P>::usb_audio_enabled(&self) -> grafton_visca::Result<bool>
-pub fn grafton_visca::blocking::AdvancedAccessor<'view, 'session, P>::usb_audio_off(&self) -> grafton_visca::Result<()>
-pub fn grafton_visca::blocking::AdvancedAccessor<'view, 'session, P>::usb_audio_on(&self) -> grafton_visca::Result<()>
+pub fn grafton_visca::blocking::AdvancedAccessor<'view, 'session, P>::usb_audio_enabled(&self) -> grafton_visca::Result<bool> where P: grafton_visca::capabilities::HasUsbAudio
+pub fn grafton_visca::blocking::AdvancedAccessor<'view, 'session, P>::usb_audio_off(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasUsbAudio
+pub fn grafton_visca::blocking::AdvancedAccessor<'view, 'session, P>::usb_audio_on(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasUsbAudio
 impl<P: grafton_visca::profile::CompileTimeProfile> core::fmt::Debug for grafton_visca::blocking::AdvancedAccessor<'_, '_, P>
 pub fn grafton_visca::blocking::AdvancedAccessor<'_, '_, P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'view, 'session, P> core::marker::Freeze for grafton_visca::blocking::AdvancedAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Freeze
@@ -267,7 +267,7 @@ pub fn grafton_visca::blocking::FocusAccessor<'view, 'session, P>::set_zone(&sel
 pub fn grafton_visca::blocking::FocusAccessor<'view, 'session, P>::snap(&self) -> grafton_visca::Result<grafton_visca::blocking::Operation<'session, grafton_visca::completion::AppliedOnly>> where P: grafton_visca::capabilities::HasPtzOpticsSnapFocus
 pub fn grafton_visca::blocking::FocusAccessor<'view, 'session, P>::stop(&self) -> grafton_visca::Result<grafton_visca::blocking::Operation<'session, grafton_visca::completion::AppliedOnly>>
 pub fn grafton_visca::blocking::FocusAccessor<'view, 'session, P>::toggle(&self) -> grafton_visca::Result<()>
-pub fn grafton_visca::blocking::FocusAccessor<'view, 'session, P>::zone(&self) -> grafton_visca::Result<grafton_visca::command::FocusZone> where P: grafton_visca::capabilities::HasFocusZone
+pub fn grafton_visca::blocking::FocusAccessor<'view, 'session, P>::zone(&self) -> grafton_visca::Result<grafton_visca::command::FocusZone> where P: grafton_visca::capabilities::HasFocusZoneInquiry
 impl<P: grafton_visca::profile::CompileTimeProfile> core::fmt::Debug for grafton_visca::blocking::FocusAccessor<'_, '_, P>
 pub fn grafton_visca::blocking::FocusAccessor<'_, '_, P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'view, 'session, P> core::marker::Freeze for grafton_visca::blocking::FocusAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Freeze
@@ -280,8 +280,6 @@ impl<'view, 'session, P> !core::panic::unwind_safe::UnwindSafe for grafton_visca
 pub struct grafton_visca::blocking::ImageAccessor<'view, 'session, P: grafton_visca::profile::CompileTimeProfile>
 impl<'view, 'session, P: grafton_visca::profile::CompileTimeProfile> grafton_visca::blocking::ImageAccessor<'view, 'session, P>
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::backlight(&self) -> grafton_visca::Result<bool> where P: grafton_visca::capabilities::HasBacklightCompensation
-pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::black_white(&self) -> grafton_visca::Result<bool> where P: grafton_visca::capabilities::HasPictureEffect
-pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::black_white_mode(&self) -> grafton_visca::Result<grafton_visca::command::BlackWhiteMode> where P: grafton_visca::capabilities::HasPictureEffect
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::contrast(&self) -> grafton_visca::Result<grafton_visca::types::ContrastLevel> where P: grafton_visca::capabilities::HasContrastControl
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::decrease_sharpness(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasSharpnessControl
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::defog_level(&self) -> grafton_visca::Result<grafton_visca::types::DefogLevel>
@@ -305,7 +303,6 @@ pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::noise_reducti
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::noise_reduction_mode(&self) -> grafton_visca::Result<grafton_visca::command::NoiseReductionMode> where P: grafton_visca::capabilities::HasNoiseReduction
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::picture_effect(&self) -> grafton_visca::Result<grafton_visca::PictureEffectMode> where P: grafton_visca::capabilities::HasPictureEffect
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::reset_sharpness(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasSharpnessControl
-pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::resolution(&self) -> grafton_visca::Result<grafton_visca::ResolutionMode>
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::saturation(&self) -> grafton_visca::Result<grafton_visca::types::SaturationLevel> where P: grafton_visca::capabilities::HasSaturationControl
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::set_backlight(&self, bool) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasBacklightCompensation
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::set_contrast(&self, grafton_visca::types::ContrastLevel) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasContrastControl
@@ -847,6 +844,7 @@ pub const grafton_visca::camera::profiles::GenericVisca::POSITION_INQUIRY_SUPPOR
 pub const grafton_visca::camera::profiles::GenericVisca::PROFILE_ID: core::option::Option<grafton_visca::camera::profiles::ProfileId>
 pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_COMMAND_CANCEL: bool
 pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_OPERATION_COMPLETE: bool
+pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_USB_AUDIO: bool
 impl grafton_visca::capabilities::ProfileTypedSupport for grafton_visca::camera::profiles::GenericVisca
 pub const grafton_visca::camera::profiles::GenericVisca::TYPED_SUPPORT: grafton_visca::capabilities::TypedSupportSet
 impl grafton_visca::capabilities::SupportsSerial for grafton_visca::camera::profiles::GenericVisca
@@ -872,6 +870,7 @@ pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_AF_SENSITIVITY
 pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_AUTO_FOCUS: bool
 pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY: bool
 pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_FOCUS_ZONE: bool
+pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_FOCUS_ZONE_INQUIRY: bool
 pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_ONE_PUSH_FOCUS: bool
 impl grafton_visca::capabilities::image_processing::ImageProcessing for grafton_visca::camera::profiles::GenericVisca
 pub const grafton_visca::camera::profiles::GenericVisca::CONTRAST_RANGE: core::option::Option<grafton_visca::capabilities::CapabilityRange<u8>>
@@ -886,6 +885,7 @@ pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_3D_NR: bool
 pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_FLIP: bool
 pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_GAMMA: bool
 pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_HUE: bool
+pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_IMAGE_PROCESSING: bool
 pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_LUMINANCE: bool
 pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_MIRROR: bool
 pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_NOISE_REDUCTION: bool
@@ -971,6 +971,7 @@ impl core::marker::Copy for grafton_visca::camera::profiles::NearusBRC300
 impl grafton_visca::capabilities::HasBacklightCompensation for grafton_visca::camera::profiles::NearusBRC300
 impl grafton_visca::capabilities::HasDirectZoom for grafton_visca::camera::profiles::NearusBRC300
 impl grafton_visca::capabilities::HasFocusNearLimitInquiry for grafton_visca::camera::profiles::NearusBRC300
+impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::NearusBRC300
 impl grafton_visca::capabilities::HasSaturationControl for grafton_visca::camera::profiles::NearusBRC300
 impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::profiles::NearusBRC300
 pub type grafton_visca::camera::profiles::NearusBRC300::Envelope = grafton_visca::transport::RawVisca
@@ -986,6 +987,7 @@ pub const grafton_visca::camera::profiles::NearusBRC300::POSITION_INQUIRY_SUPPOR
 pub const grafton_visca::camera::profiles::NearusBRC300::PROFILE_ID: core::option::Option<grafton_visca::camera::profiles::ProfileId>
 pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_COMMAND_CANCEL: bool
 pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_OPERATION_COMPLETE: bool
+pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_USB_AUDIO: bool
 impl grafton_visca::capabilities::ProfileTypedSupport for grafton_visca::camera::profiles::NearusBRC300
 pub const grafton_visca::camera::profiles::NearusBRC300::TYPED_SUPPORT: grafton_visca::capabilities::TypedSupportSet
 impl grafton_visca::capabilities::SupportsSerial for grafton_visca::camera::profiles::NearusBRC300
@@ -1011,6 +1013,7 @@ pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_AF_SENSITIVITY
 pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_AUTO_FOCUS: bool
 pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY: bool
 pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_FOCUS_ZONE: bool
+pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_FOCUS_ZONE_INQUIRY: bool
 pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_ONE_PUSH_FOCUS: bool
 impl grafton_visca::capabilities::image_processing::ImageProcessing for grafton_visca::camera::profiles::NearusBRC300
 pub const grafton_visca::camera::profiles::NearusBRC300::CONTRAST_RANGE: core::option::Option<grafton_visca::capabilities::CapabilityRange<u8>>
@@ -1025,6 +1028,7 @@ pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_3D_NR: bool
 pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_FLIP: bool
 pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_GAMMA: bool
 pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_HUE: bool
+pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_IMAGE_PROCESSING: bool
 pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_LUMINANCE: bool
 pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_MIRROR: bool
 pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_NOISE_REDUCTION: bool
@@ -1117,10 +1121,12 @@ impl grafton_visca::capabilities::HasDirectZoom for grafton_visca::camera::profi
 impl grafton_visca::capabilities::HasExposureCompensation for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasFocusLock for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasFocusZone for grafton_visca::camera::profiles::PtzOptics30X
+impl grafton_visca::capabilities::HasFocusZoneInquiry for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasGammaControl for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasHueControl for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasImageFlip for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasImageMirror for grafton_visca::camera::profiles::PtzOptics30X
+impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasIrisControl for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasLuminanceControl for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasNoiseReduction for grafton_visca::camera::profiles::PtzOptics30X
@@ -1132,6 +1138,7 @@ impl grafton_visca::capabilities::HasRgbGain for grafton_visca::camera::profiles
 impl grafton_visca::capabilities::HasRgbTuning for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasSaturationControl for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasSharpnessControl for grafton_visca::camera::profiles::PtzOptics30X
+impl grafton_visca::capabilities::HasUsbAudio for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasWideDynamicRange for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::profiles::PtzOptics30X
 pub type grafton_visca::camera::profiles::PtzOptics30X::Envelope = grafton_visca::transport::RawVisca
@@ -1147,6 +1154,7 @@ pub const grafton_visca::camera::profiles::PtzOptics30X::POSITION_INQUIRY_SUPPOR
 pub const grafton_visca::camera::profiles::PtzOptics30X::PROFILE_ID: core::option::Option<grafton_visca::camera::profiles::ProfileId>
 pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_COMMAND_CANCEL: bool
 pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_OPERATION_COMPLETE: bool
+pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_USB_AUDIO: bool
 impl grafton_visca::capabilities::ProfileTypedSupport for grafton_visca::camera::profiles::PtzOptics30X
 pub const grafton_visca::camera::profiles::PtzOptics30X::TYPED_SUPPORT: grafton_visca::capabilities::TypedSupportSet
 impl grafton_visca::capabilities::SupportsSerial for grafton_visca::camera::profiles::PtzOptics30X
@@ -1172,6 +1180,7 @@ pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_AF_SENSITIVITY
 pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_AUTO_FOCUS: bool
 pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY: bool
 pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_FOCUS_ZONE: bool
+pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_FOCUS_ZONE_INQUIRY: bool
 pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_ONE_PUSH_FOCUS: bool
 impl grafton_visca::capabilities::image_processing::ImageProcessing for grafton_visca::camera::profiles::PtzOptics30X
 pub const grafton_visca::camera::profiles::PtzOptics30X::CONTRAST_RANGE: core::option::Option<grafton_visca::capabilities::CapabilityRange<u8>>
@@ -1186,6 +1195,7 @@ pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_3D_NR: bool
 pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_FLIP: bool
 pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_GAMMA: bool
 pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_HUE: bool
+pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_IMAGE_PROCESSING: bool
 pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_LUMINANCE: bool
 pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_MIRROR: bool
 pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_NOISE_REDUCTION: bool
@@ -1278,10 +1288,12 @@ impl grafton_visca::capabilities::HasDirectZoom for grafton_visca::camera::profi
 impl grafton_visca::capabilities::HasExposureCompensation for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasFocusLock for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasFocusZone for grafton_visca::camera::profiles::PtzOpticsG2
+impl grafton_visca::capabilities::HasFocusZoneInquiry for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasGammaControl for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasHueControl for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasImageFlip for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasImageMirror for grafton_visca::camera::profiles::PtzOpticsG2
+impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasIrisControl for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasLuminanceControl for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasNoiseReduction for grafton_visca::camera::profiles::PtzOpticsG2
@@ -1293,6 +1305,7 @@ impl grafton_visca::capabilities::HasRgbGain for grafton_visca::camera::profiles
 impl grafton_visca::capabilities::HasRgbTuning for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasSaturationControl for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasSharpnessControl for grafton_visca::camera::profiles::PtzOpticsG2
+impl grafton_visca::capabilities::HasUsbAudio for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasWideDynamicRange for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::profiles::PtzOpticsG2
 pub type grafton_visca::camera::profiles::PtzOpticsG2::Envelope = grafton_visca::transport::RawVisca
@@ -1308,6 +1321,7 @@ pub const grafton_visca::camera::profiles::PtzOpticsG2::POSITION_INQUIRY_SUPPORT
 pub const grafton_visca::camera::profiles::PtzOpticsG2::PROFILE_ID: core::option::Option<grafton_visca::camera::profiles::ProfileId>
 pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_COMMAND_CANCEL: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_OPERATION_COMPLETE: bool
+pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_USB_AUDIO: bool
 impl grafton_visca::capabilities::ProfileTypedSupport for grafton_visca::camera::profiles::PtzOpticsG2
 pub const grafton_visca::camera::profiles::PtzOpticsG2::TYPED_SUPPORT: grafton_visca::capabilities::TypedSupportSet
 impl grafton_visca::capabilities::SupportsSerial for grafton_visca::camera::profiles::PtzOpticsG2
@@ -1333,6 +1347,7 @@ pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_AF_SENSITIVITY:
 pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_AUTO_FOCUS: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_FOCUS_ZONE: bool
+pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_FOCUS_ZONE_INQUIRY: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_ONE_PUSH_FOCUS: bool
 impl grafton_visca::capabilities::image_processing::ImageProcessing for grafton_visca::camera::profiles::PtzOpticsG2
 pub const grafton_visca::camera::profiles::PtzOpticsG2::CONTRAST_RANGE: core::option::Option<grafton_visca::capabilities::CapabilityRange<u8>>
@@ -1347,6 +1362,7 @@ pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_3D_NR: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_FLIP: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_GAMMA: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_HUE: bool
+pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_IMAGE_PROCESSING: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_LUMINANCE: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_MIRROR: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_NOISE_REDUCTION: bool
@@ -1443,6 +1459,7 @@ impl grafton_visca::capabilities::HasGammaControl for grafton_visca::camera::pro
 impl grafton_visca::capabilities::HasHueControl for grafton_visca::camera::profiles::PtzOpticsG3
 impl grafton_visca::capabilities::HasImageFlip for grafton_visca::camera::profiles::PtzOpticsG3
 impl grafton_visca::capabilities::HasImageMirror for grafton_visca::camera::profiles::PtzOpticsG3
+impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::PtzOpticsG3
 impl grafton_visca::capabilities::HasIrisControl for grafton_visca::camera::profiles::PtzOpticsG3
 impl grafton_visca::capabilities::HasLuminanceControl for grafton_visca::camera::profiles::PtzOpticsG3
 impl grafton_visca::capabilities::HasNoiseReduction for grafton_visca::camera::profiles::PtzOpticsG3
@@ -1469,6 +1486,7 @@ pub const grafton_visca::camera::profiles::PtzOpticsG3::POSITION_INQUIRY_SUPPORT
 pub const grafton_visca::camera::profiles::PtzOpticsG3::PROFILE_ID: core::option::Option<grafton_visca::camera::profiles::ProfileId>
 pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_COMMAND_CANCEL: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_OPERATION_COMPLETE: bool
+pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_USB_AUDIO: bool
 impl grafton_visca::capabilities::ProfileTypedSupport for grafton_visca::camera::profiles::PtzOpticsG3
 pub const grafton_visca::camera::profiles::PtzOpticsG3::TYPED_SUPPORT: grafton_visca::capabilities::TypedSupportSet
 impl grafton_visca::capabilities::SupportsSerial for grafton_visca::camera::profiles::PtzOpticsG3
@@ -1494,6 +1512,7 @@ pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_AF_SENSITIVITY:
 pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_AUTO_FOCUS: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_FOCUS_ZONE: bool
+pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_FOCUS_ZONE_INQUIRY: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_ONE_PUSH_FOCUS: bool
 impl grafton_visca::capabilities::image_processing::ImageProcessing for grafton_visca::camera::profiles::PtzOpticsG3
 pub const grafton_visca::camera::profiles::PtzOpticsG3::CONTRAST_RANGE: core::option::Option<grafton_visca::capabilities::CapabilityRange<u8>>
@@ -1508,6 +1527,7 @@ pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_3D_NR: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_FLIP: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_GAMMA: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_HUE: bool
+pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_IMAGE_PROCESSING: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_LUMINANCE: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_MIRROR: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_NOISE_REDUCTION: bool
@@ -1607,6 +1627,7 @@ pub const grafton_visca::camera::profiles::SonyBRC300::POSITION_INQUIRY_SUPPORT:
 pub const grafton_visca::camera::profiles::SonyBRC300::PROFILE_ID: core::option::Option<grafton_visca::camera::profiles::ProfileId>
 pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_COMMAND_CANCEL: bool
 pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_OPERATION_COMPLETE: bool
+pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_USB_AUDIO: bool
 impl grafton_visca::capabilities::ProfileTypedSupport for grafton_visca::camera::profiles::SonyBRC300
 pub const grafton_visca::camera::profiles::SonyBRC300::TYPED_SUPPORT: grafton_visca::capabilities::TypedSupportSet
 impl grafton_visca::capabilities::SupportsSerial for grafton_visca::camera::profiles::SonyBRC300
@@ -1632,6 +1653,7 @@ pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_AF_SENSITIVITY: 
 pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_AUTO_FOCUS: bool
 pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY: bool
 pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_FOCUS_ZONE: bool
+pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_FOCUS_ZONE_INQUIRY: bool
 pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_ONE_PUSH_FOCUS: bool
 impl grafton_visca::capabilities::image_processing::ImageProcessing for grafton_visca::camera::profiles::SonyBRC300
 pub const grafton_visca::camera::profiles::SonyBRC300::CONTRAST_RANGE: core::option::Option<grafton_visca::capabilities::CapabilityRange<u8>>
@@ -1646,6 +1668,7 @@ pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_3D_NR: bool
 pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_FLIP: bool
 pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_GAMMA: bool
 pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_HUE: bool
+pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_IMAGE_PROCESSING: bool
 pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_LUMINANCE: bool
 pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_MIRROR: bool
 pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_NOISE_REDUCTION: bool
@@ -1729,7 +1752,6 @@ impl core::fmt::Debug for grafton_visca::camera::profiles::SonyBRCH900
 pub fn grafton_visca::camera::profiles::SonyBRCH900::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasBacklightCompensation for grafton_visca::camera::profiles::SonyBRCH900
-impl grafton_visca::capabilities::HasBrightnessControl for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasColorTemperature for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasContrastControl for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasDigitalZoomRange for grafton_visca::camera::profiles::SonyBRCH900
@@ -1739,11 +1761,11 @@ impl grafton_visca::capabilities::HasFocusNearLimitInquiry for grafton_visca::ca
 impl grafton_visca::capabilities::HasGammaControl for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasImageFlip for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasImageMirror for grafton_visca::camera::profiles::SonyBRCH900
+impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasNoiseReduction for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasNoiseReduction2D for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasNoiseReduction3D for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasOnePushWhiteBalance for grafton_visca::camera::profiles::SonyBRCH900
-impl grafton_visca::capabilities::HasPictureEffect for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasRgbTuning for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasSaturationControl for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasSharpnessControl for grafton_visca::camera::profiles::SonyBRCH900
@@ -1763,6 +1785,7 @@ pub const grafton_visca::camera::profiles::SonyBRCH900::POSITION_INQUIRY_SUPPORT
 pub const grafton_visca::camera::profiles::SonyBRCH900::PROFILE_ID: core::option::Option<grafton_visca::camera::profiles::ProfileId>
 pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_COMMAND_CANCEL: bool
 pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_OPERATION_COMPLETE: bool
+pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_USB_AUDIO: bool
 impl grafton_visca::capabilities::ProfileTypedSupport for grafton_visca::camera::profiles::SonyBRCH900
 pub const grafton_visca::camera::profiles::SonyBRCH900::TYPED_SUPPORT: grafton_visca::capabilities::TypedSupportSet
 impl grafton_visca::capabilities::SupportsUdp for grafton_visca::camera::profiles::SonyBRCH900
@@ -1785,6 +1808,7 @@ pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_AF_SENSITIVITY:
 pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_AUTO_FOCUS: bool
 pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY: bool
 pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_FOCUS_ZONE: bool
+pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_FOCUS_ZONE_INQUIRY: bool
 pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_ONE_PUSH_FOCUS: bool
 impl grafton_visca::capabilities::image_processing::ImageProcessing for grafton_visca::camera::profiles::SonyBRCH900
 pub const grafton_visca::camera::profiles::SonyBRCH900::CONTRAST_RANGE: core::option::Option<grafton_visca::capabilities::CapabilityRange<u8>>
@@ -1799,6 +1823,7 @@ pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_3D_NR: bool
 pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_FLIP: bool
 pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_GAMMA: bool
 pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_HUE: bool
+pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_IMAGE_PROCESSING: bool
 pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_LUMINANCE: bool
 pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_MIRROR: bool
 pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_NOISE_REDUCTION: bool
@@ -1888,6 +1913,7 @@ impl grafton_visca::capabilities::HasFocusNearLimitInquiry for grafton_visca::ca
 impl grafton_visca::capabilities::HasGammaControl for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasImageFlip for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasImageMirror for grafton_visca::camera::profiles::SonyEVIH100
+impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasNoiseReduction for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasOnePushWhiteBalance for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasRgbTuning for grafton_visca::camera::profiles::SonyEVIH100
@@ -1905,6 +1931,7 @@ pub const grafton_visca::camera::profiles::SonyEVIH100::POSITION_INQUIRY_SUPPORT
 pub const grafton_visca::camera::profiles::SonyEVIH100::PROFILE_ID: core::option::Option<grafton_visca::camera::profiles::ProfileId>
 pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_COMMAND_CANCEL: bool
 pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_OPERATION_COMPLETE: bool
+pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_USB_AUDIO: bool
 impl grafton_visca::capabilities::ProfileTypedSupport for grafton_visca::camera::profiles::SonyEVIH100
 pub const grafton_visca::camera::profiles::SonyEVIH100::TYPED_SUPPORT: grafton_visca::capabilities::TypedSupportSet
 impl grafton_visca::capabilities::SupportsSerial for grafton_visca::camera::profiles::SonyEVIH100
@@ -1930,6 +1957,7 @@ pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_AF_SENSITIVITY:
 pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_AUTO_FOCUS: bool
 pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY: bool
 pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_FOCUS_ZONE: bool
+pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_FOCUS_ZONE_INQUIRY: bool
 pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_ONE_PUSH_FOCUS: bool
 impl grafton_visca::capabilities::image_processing::ImageProcessing for grafton_visca::camera::profiles::SonyEVIH100
 pub const grafton_visca::camera::profiles::SonyEVIH100::CONTRAST_RANGE: core::option::Option<grafton_visca::capabilities::CapabilityRange<u8>>
@@ -1944,6 +1972,7 @@ pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_3D_NR: bool
 pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_FLIP: bool
 pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_GAMMA: bool
 pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_HUE: bool
+pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_IMAGE_PROCESSING: bool
 pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_LUMINANCE: bool
 pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_MIRROR: bool
 pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_NOISE_REDUCTION: bool
@@ -2029,25 +2058,23 @@ impl core::marker::Copy for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasAutoFocusSensitivity for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasAutoTrackingWhiteBalance for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasBacklightCompensation for grafton_visca::camera::profiles::SonyFR7
-impl grafton_visca::capabilities::HasBrightnessControl for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasContrastControl for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasDigitalZoomRange for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasDigitalZoomToggle for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasDirectZoom for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasExposureCompensation for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasFocusNearLimitInquiry for grafton_visca::camera::profiles::SonyFR7
-impl grafton_visca::capabilities::HasFocusZone for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasGammaControl for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasHueControl for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasImageFlip for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasImageMirror for grafton_visca::camera::profiles::SonyFR7
+impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasIrisControl for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasNdFilter for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasNoiseReduction for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasNoiseReduction2D for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasNoiseReduction3D for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasOnePushWhiteBalance for grafton_visca::camera::profiles::SonyFR7
-impl grafton_visca::capabilities::HasPictureEffect for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasPushAutoFocus for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasRgbGain for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasRgbTuning for grafton_visca::camera::profiles::SonyFR7
@@ -2070,6 +2097,7 @@ pub const grafton_visca::camera::profiles::SonyFR7::POSITION_INQUIRY_SUPPORT: gr
 pub const grafton_visca::camera::profiles::SonyFR7::PROFILE_ID: core::option::Option<grafton_visca::camera::profiles::ProfileId>
 pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_COMMAND_CANCEL: bool
 pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_OPERATION_COMPLETE: bool
+pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_USB_AUDIO: bool
 impl grafton_visca::capabilities::ProfileTypedSupport for grafton_visca::camera::profiles::SonyFR7
 pub const grafton_visca::camera::profiles::SonyFR7::TYPED_SUPPORT: grafton_visca::capabilities::TypedSupportSet
 impl grafton_visca::capabilities::SupportsUdp for grafton_visca::camera::profiles::SonyFR7
@@ -2092,6 +2120,7 @@ pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_AF_SENSITIVITY: boo
 pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_AUTO_FOCUS: bool
 pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY: bool
 pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_FOCUS_ZONE: bool
+pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_FOCUS_ZONE_INQUIRY: bool
 pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_ONE_PUSH_FOCUS: bool
 impl grafton_visca::capabilities::image_processing::ImageProcessing for grafton_visca::camera::profiles::SonyFR7
 pub const grafton_visca::camera::profiles::SonyFR7::CONTRAST_RANGE: core::option::Option<grafton_visca::capabilities::CapabilityRange<u8>>
@@ -2106,6 +2135,7 @@ pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_3D_NR: bool
 pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_FLIP: bool
 pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_GAMMA: bool
 pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_HUE: bool
+pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_IMAGE_PROCESSING: bool
 pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_LUMINANCE: bool
 pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_MIRROR: bool
 pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_NOISE_REDUCTION: bool
@@ -2529,6 +2559,7 @@ pub const grafton_visca::capabilities::focus::Focus::SUPPORTS_AF_SENSITIVITY: bo
 pub const grafton_visca::capabilities::focus::Focus::SUPPORTS_AUTO_FOCUS: bool
 pub const grafton_visca::capabilities::focus::Focus::SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY: bool
 pub const grafton_visca::capabilities::focus::Focus::SUPPORTS_FOCUS_ZONE: bool
+pub const grafton_visca::capabilities::focus::Focus::SUPPORTS_FOCUS_ZONE_INQUIRY: bool
 pub const grafton_visca::capabilities::focus::Focus::SUPPORTS_ONE_PUSH_FOCUS: bool
 impl grafton_visca::capabilities::focus::Focus for grafton_visca::camera::profiles::GenericVisca
 pub const grafton_visca::camera::profiles::GenericVisca::FOCUS_FAR_LIMIT: u16
@@ -2538,6 +2569,7 @@ pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_AF_SENSITIVITY
 pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_AUTO_FOCUS: bool
 pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY: bool
 pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_FOCUS_ZONE: bool
+pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_FOCUS_ZONE_INQUIRY: bool
 pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_ONE_PUSH_FOCUS: bool
 impl grafton_visca::capabilities::focus::Focus for grafton_visca::camera::profiles::NearusBRC300
 pub const grafton_visca::camera::profiles::NearusBRC300::FOCUS_FAR_LIMIT: u16
@@ -2547,6 +2579,7 @@ pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_AF_SENSITIVITY
 pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_AUTO_FOCUS: bool
 pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY: bool
 pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_FOCUS_ZONE: bool
+pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_FOCUS_ZONE_INQUIRY: bool
 pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_ONE_PUSH_FOCUS: bool
 impl grafton_visca::capabilities::focus::Focus for grafton_visca::camera::profiles::PtzOptics30X
 pub const grafton_visca::camera::profiles::PtzOptics30X::FOCUS_FAR_LIMIT: u16
@@ -2556,6 +2589,7 @@ pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_AF_SENSITIVITY
 pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_AUTO_FOCUS: bool
 pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY: bool
 pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_FOCUS_ZONE: bool
+pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_FOCUS_ZONE_INQUIRY: bool
 pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_ONE_PUSH_FOCUS: bool
 impl grafton_visca::capabilities::focus::Focus for grafton_visca::camera::profiles::PtzOpticsG2
 pub const grafton_visca::camera::profiles::PtzOpticsG2::FOCUS_FAR_LIMIT: u16
@@ -2565,6 +2599,7 @@ pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_AF_SENSITIVITY:
 pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_AUTO_FOCUS: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_FOCUS_ZONE: bool
+pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_FOCUS_ZONE_INQUIRY: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_ONE_PUSH_FOCUS: bool
 impl grafton_visca::capabilities::focus::Focus for grafton_visca::camera::profiles::PtzOpticsG3
 pub const grafton_visca::camera::profiles::PtzOpticsG3::FOCUS_FAR_LIMIT: u16
@@ -2574,6 +2609,7 @@ pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_AF_SENSITIVITY:
 pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_AUTO_FOCUS: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_FOCUS_ZONE: bool
+pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_FOCUS_ZONE_INQUIRY: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_ONE_PUSH_FOCUS: bool
 impl grafton_visca::capabilities::focus::Focus for grafton_visca::camera::profiles::SonyBRC300
 pub const grafton_visca::camera::profiles::SonyBRC300::FOCUS_FAR_LIMIT: u16
@@ -2583,6 +2619,7 @@ pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_AF_SENSITIVITY: 
 pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_AUTO_FOCUS: bool
 pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY: bool
 pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_FOCUS_ZONE: bool
+pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_FOCUS_ZONE_INQUIRY: bool
 pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_ONE_PUSH_FOCUS: bool
 impl grafton_visca::capabilities::focus::Focus for grafton_visca::camera::profiles::SonyBRCH900
 pub const grafton_visca::camera::profiles::SonyBRCH900::FOCUS_FAR_LIMIT: u16
@@ -2592,6 +2629,7 @@ pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_AF_SENSITIVITY:
 pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_AUTO_FOCUS: bool
 pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY: bool
 pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_FOCUS_ZONE: bool
+pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_FOCUS_ZONE_INQUIRY: bool
 pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_ONE_PUSH_FOCUS: bool
 impl grafton_visca::capabilities::focus::Focus for grafton_visca::camera::profiles::SonyEVIH100
 pub const grafton_visca::camera::profiles::SonyEVIH100::FOCUS_FAR_LIMIT: u16
@@ -2601,6 +2639,7 @@ pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_AF_SENSITIVITY:
 pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_AUTO_FOCUS: bool
 pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY: bool
 pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_FOCUS_ZONE: bool
+pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_FOCUS_ZONE_INQUIRY: bool
 pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_ONE_PUSH_FOCUS: bool
 impl grafton_visca::capabilities::focus::Focus for grafton_visca::camera::profiles::SonyFR7
 pub const grafton_visca::camera::profiles::SonyFR7::FOCUS_FAR_LIMIT: u16
@@ -2610,6 +2649,7 @@ pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_AF_SENSITIVITY: boo
 pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_AUTO_FOCUS: bool
 pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY: bool
 pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_FOCUS_ZONE: bool
+pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_FOCUS_ZONE_INQUIRY: bool
 pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_ONE_PUSH_FOCUS: bool
 pub trait grafton_visca::capabilities::focus::FocusExt: grafton_visca::capabilities::focus::Focus
 pub fn grafton_visca::capabilities::focus::FocusExt::can_auto_focus(&self) -> bool
@@ -2639,6 +2679,7 @@ pub const grafton_visca::capabilities::image_processing::ImageProcessing::SUPPOR
 pub const grafton_visca::capabilities::image_processing::ImageProcessing::SUPPORTS_FLIP: bool
 pub const grafton_visca::capabilities::image_processing::ImageProcessing::SUPPORTS_GAMMA: bool
 pub const grafton_visca::capabilities::image_processing::ImageProcessing::SUPPORTS_HUE: bool
+pub const grafton_visca::capabilities::image_processing::ImageProcessing::SUPPORTS_IMAGE_PROCESSING: bool
 pub const grafton_visca::capabilities::image_processing::ImageProcessing::SUPPORTS_LUMINANCE: bool
 pub const grafton_visca::capabilities::image_processing::ImageProcessing::SUPPORTS_MIRROR: bool
 pub const grafton_visca::capabilities::image_processing::ImageProcessing::SUPPORTS_NOISE_REDUCTION: bool
@@ -2657,6 +2698,7 @@ pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_3D_NR: bool
 pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_FLIP: bool
 pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_GAMMA: bool
 pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_HUE: bool
+pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_IMAGE_PROCESSING: bool
 pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_LUMINANCE: bool
 pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_MIRROR: bool
 pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_NOISE_REDUCTION: bool
@@ -2675,6 +2717,7 @@ pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_3D_NR: bool
 pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_FLIP: bool
 pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_GAMMA: bool
 pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_HUE: bool
+pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_IMAGE_PROCESSING: bool
 pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_LUMINANCE: bool
 pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_MIRROR: bool
 pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_NOISE_REDUCTION: bool
@@ -2693,6 +2736,7 @@ pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_3D_NR: bool
 pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_FLIP: bool
 pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_GAMMA: bool
 pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_HUE: bool
+pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_IMAGE_PROCESSING: bool
 pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_LUMINANCE: bool
 pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_MIRROR: bool
 pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_NOISE_REDUCTION: bool
@@ -2711,6 +2755,7 @@ pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_3D_NR: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_FLIP: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_GAMMA: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_HUE: bool
+pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_IMAGE_PROCESSING: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_LUMINANCE: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_MIRROR: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_NOISE_REDUCTION: bool
@@ -2729,6 +2774,7 @@ pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_3D_NR: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_FLIP: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_GAMMA: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_HUE: bool
+pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_IMAGE_PROCESSING: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_LUMINANCE: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_MIRROR: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_NOISE_REDUCTION: bool
@@ -2747,6 +2793,7 @@ pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_3D_NR: bool
 pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_FLIP: bool
 pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_GAMMA: bool
 pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_HUE: bool
+pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_IMAGE_PROCESSING: bool
 pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_LUMINANCE: bool
 pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_MIRROR: bool
 pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_NOISE_REDUCTION: bool
@@ -2765,6 +2812,7 @@ pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_3D_NR: bool
 pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_FLIP: bool
 pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_GAMMA: bool
 pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_HUE: bool
+pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_IMAGE_PROCESSING: bool
 pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_LUMINANCE: bool
 pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_MIRROR: bool
 pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_NOISE_REDUCTION: bool
@@ -2783,6 +2831,7 @@ pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_3D_NR: bool
 pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_FLIP: bool
 pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_GAMMA: bool
 pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_HUE: bool
+pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_IMAGE_PROCESSING: bool
 pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_LUMINANCE: bool
 pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_MIRROR: bool
 pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_NOISE_REDUCTION: bool
@@ -2801,6 +2850,7 @@ pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_3D_NR: bool
 pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_FLIP: bool
 pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_GAMMA: bool
 pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_HUE: bool
+pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_IMAGE_PROCESSING: bool
 pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_LUMINANCE: bool
 pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_MIRROR: bool
 pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_NOISE_REDUCTION: bool
@@ -3614,6 +3664,7 @@ pub grafton_visca::capabilities::TypedSupportSurface::ExposureCompensation
 pub grafton_visca::capabilities::TypedSupportSurface::FocusLock
 pub grafton_visca::capabilities::TypedSupportSurface::FocusNearLimitInquiry
 pub grafton_visca::capabilities::TypedSupportSurface::FocusZone
+pub grafton_visca::capabilities::TypedSupportSurface::FocusZoneInquiry
 pub grafton_visca::capabilities::TypedSupportSurface::GammaControl
 pub grafton_visca::capabilities::TypedSupportSurface::HueControl
 pub grafton_visca::capabilities::TypedSupportSurface::ImageFlip
@@ -3635,10 +3686,11 @@ pub grafton_visca::capabilities::TypedSupportSurface::RgbTuning
 pub grafton_visca::capabilities::TypedSupportSurface::SaturationControl
 pub grafton_visca::capabilities::TypedSupportSurface::SharpnessControl
 pub grafton_visca::capabilities::TypedSupportSurface::Tally
+pub grafton_visca::capabilities::TypedSupportSurface::UsbAudio
 pub grafton_visca::capabilities::TypedSupportSurface::VariableSpeed
 pub grafton_visca::capabilities::TypedSupportSurface::WideDynamicRange
 impl grafton_visca::capabilities::TypedSupportSurface
-pub const grafton_visca::capabilities::TypedSupportSurface::ALL: [Self; 39]
+pub const grafton_visca::capabilities::TypedSupportSurface::ALL: [Self; 41]
 impl core::clone::Clone for grafton_visca::capabilities::TypedSupportSurface
 pub fn grafton_visca::capabilities::TypedSupportSurface::clone(&self) -> grafton_visca::capabilities::TypedSupportSurface
 impl core::cmp::Eq for grafton_visca::capabilities::TypedSupportSurface
@@ -3715,6 +3767,7 @@ pub grafton_visca::capabilities::Capabilities::has_exposure_comp: bool
 pub grafton_visca::capabilities::Capabilities::has_focus: bool
 pub grafton_visca::capabilities::Capabilities::has_focus_near_limit_inquiry: bool
 pub grafton_visca::capabilities::Capabilities::has_focus_zone: bool
+pub grafton_visca::capabilities::Capabilities::has_focus_zone_inquiry: bool
 pub grafton_visca::capabilities::Capabilities::has_gamma: bool
 pub grafton_visca::capabilities::Capabilities::has_image_processing: bool
 pub grafton_visca::capabilities::Capabilities::has_iris_control: bool
@@ -3730,6 +3783,7 @@ pub grafton_visca::capabilities::Capabilities::has_power: bool
 pub grafton_visca::capabilities::Capabilities::has_presets: bool
 pub grafton_visca::capabilities::Capabilities::has_rgb_gain: bool
 pub grafton_visca::capabilities::Capabilities::has_tally: bool
+pub grafton_visca::capabilities::Capabilities::has_usb_audio: bool
 pub grafton_visca::capabilities::Capabilities::has_variable_speed: bool
 pub grafton_visca::capabilities::Capabilities::has_wdr: bool
 pub grafton_visca::capabilities::Capabilities::has_white_balance: bool
@@ -4037,6 +4091,7 @@ pub const grafton_visca::capabilities::Focus::SUPPORTS_AF_SENSITIVITY: bool
 pub const grafton_visca::capabilities::Focus::SUPPORTS_AUTO_FOCUS: bool
 pub const grafton_visca::capabilities::Focus::SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY: bool
 pub const grafton_visca::capabilities::Focus::SUPPORTS_FOCUS_ZONE: bool
+pub const grafton_visca::capabilities::Focus::SUPPORTS_FOCUS_ZONE_INQUIRY: bool
 pub const grafton_visca::capabilities::Focus::SUPPORTS_ONE_PUSH_FOCUS: bool
 impl grafton_visca::capabilities::focus::Focus for grafton_visca::camera::profiles::GenericVisca
 pub const grafton_visca::camera::profiles::GenericVisca::FOCUS_FAR_LIMIT: u16
@@ -4046,6 +4101,7 @@ pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_AF_SENSITIVITY
 pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_AUTO_FOCUS: bool
 pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY: bool
 pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_FOCUS_ZONE: bool
+pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_FOCUS_ZONE_INQUIRY: bool
 pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_ONE_PUSH_FOCUS: bool
 impl grafton_visca::capabilities::focus::Focus for grafton_visca::camera::profiles::NearusBRC300
 pub const grafton_visca::camera::profiles::NearusBRC300::FOCUS_FAR_LIMIT: u16
@@ -4055,6 +4111,7 @@ pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_AF_SENSITIVITY
 pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_AUTO_FOCUS: bool
 pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY: bool
 pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_FOCUS_ZONE: bool
+pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_FOCUS_ZONE_INQUIRY: bool
 pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_ONE_PUSH_FOCUS: bool
 impl grafton_visca::capabilities::focus::Focus for grafton_visca::camera::profiles::PtzOptics30X
 pub const grafton_visca::camera::profiles::PtzOptics30X::FOCUS_FAR_LIMIT: u16
@@ -4064,6 +4121,7 @@ pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_AF_SENSITIVITY
 pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_AUTO_FOCUS: bool
 pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY: bool
 pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_FOCUS_ZONE: bool
+pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_FOCUS_ZONE_INQUIRY: bool
 pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_ONE_PUSH_FOCUS: bool
 impl grafton_visca::capabilities::focus::Focus for grafton_visca::camera::profiles::PtzOpticsG2
 pub const grafton_visca::camera::profiles::PtzOpticsG2::FOCUS_FAR_LIMIT: u16
@@ -4073,6 +4131,7 @@ pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_AF_SENSITIVITY:
 pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_AUTO_FOCUS: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_FOCUS_ZONE: bool
+pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_FOCUS_ZONE_INQUIRY: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_ONE_PUSH_FOCUS: bool
 impl grafton_visca::capabilities::focus::Focus for grafton_visca::camera::profiles::PtzOpticsG3
 pub const grafton_visca::camera::profiles::PtzOpticsG3::FOCUS_FAR_LIMIT: u16
@@ -4082,6 +4141,7 @@ pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_AF_SENSITIVITY:
 pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_AUTO_FOCUS: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_FOCUS_ZONE: bool
+pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_FOCUS_ZONE_INQUIRY: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_ONE_PUSH_FOCUS: bool
 impl grafton_visca::capabilities::focus::Focus for grafton_visca::camera::profiles::SonyBRC300
 pub const grafton_visca::camera::profiles::SonyBRC300::FOCUS_FAR_LIMIT: u16
@@ -4091,6 +4151,7 @@ pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_AF_SENSITIVITY: 
 pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_AUTO_FOCUS: bool
 pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY: bool
 pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_FOCUS_ZONE: bool
+pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_FOCUS_ZONE_INQUIRY: bool
 pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_ONE_PUSH_FOCUS: bool
 impl grafton_visca::capabilities::focus::Focus for grafton_visca::camera::profiles::SonyBRCH900
 pub const grafton_visca::camera::profiles::SonyBRCH900::FOCUS_FAR_LIMIT: u16
@@ -4100,6 +4161,7 @@ pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_AF_SENSITIVITY:
 pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_AUTO_FOCUS: bool
 pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY: bool
 pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_FOCUS_ZONE: bool
+pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_FOCUS_ZONE_INQUIRY: bool
 pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_ONE_PUSH_FOCUS: bool
 impl grafton_visca::capabilities::focus::Focus for grafton_visca::camera::profiles::SonyEVIH100
 pub const grafton_visca::camera::profiles::SonyEVIH100::FOCUS_FAR_LIMIT: u16
@@ -4109,6 +4171,7 @@ pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_AF_SENSITIVITY:
 pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_AUTO_FOCUS: bool
 pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY: bool
 pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_FOCUS_ZONE: bool
+pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_FOCUS_ZONE_INQUIRY: bool
 pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_ONE_PUSH_FOCUS: bool
 impl grafton_visca::capabilities::focus::Focus for grafton_visca::camera::profiles::SonyFR7
 pub const grafton_visca::camera::profiles::SonyFR7::FOCUS_FAR_LIMIT: u16
@@ -4118,6 +4181,7 @@ pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_AF_SENSITIVITY: boo
 pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_AUTO_FOCUS: bool
 pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY: bool
 pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_FOCUS_ZONE: bool
+pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_FOCUS_ZONE_INQUIRY: bool
 pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_ONE_PUSH_FOCUS: bool
 pub trait grafton_visca::capabilities::HasAutoFocusSensitivity
 impl grafton_visca::capabilities::HasAutoFocusSensitivity for grafton_visca::camera::profiles::SonyFR7
@@ -4140,8 +4204,6 @@ pub trait grafton_visca::capabilities::HasBrightnessControl
 impl grafton_visca::capabilities::HasBrightnessControl for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasBrightnessControl for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasBrightnessControl for grafton_visca::camera::profiles::PtzOpticsG3
-impl grafton_visca::capabilities::HasBrightnessControl for grafton_visca::camera::profiles::SonyBRCH900
-impl grafton_visca::capabilities::HasBrightnessControl for grafton_visca::camera::profiles::SonyFR7
 pub trait grafton_visca::capabilities::HasColorTemperature
 impl grafton_visca::capabilities::HasColorTemperature for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasColorTemperature for grafton_visca::camera::profiles::PtzOpticsG2
@@ -4199,7 +4261,9 @@ pub trait grafton_visca::capabilities::HasFocusZone
 impl grafton_visca::capabilities::HasFocusZone for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasFocusZone for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasFocusZone for grafton_visca::camera::profiles::PtzOpticsG3
-impl grafton_visca::capabilities::HasFocusZone for grafton_visca::camera::profiles::SonyFR7
+pub trait grafton_visca::capabilities::HasFocusZoneInquiry
+impl grafton_visca::capabilities::HasFocusZoneInquiry for grafton_visca::camera::profiles::PtzOptics30X
+impl grafton_visca::capabilities::HasFocusZoneInquiry for grafton_visca::camera::profiles::PtzOpticsG2
 pub trait grafton_visca::capabilities::HasGammaControl
 impl grafton_visca::capabilities::HasGammaControl for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasGammaControl for grafton_visca::camera::profiles::PtzOpticsG2
@@ -4227,7 +4291,13 @@ impl grafton_visca::capabilities::HasImageMirror for grafton_visca::camera::prof
 impl grafton_visca::capabilities::HasImageMirror for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasImageMirror for grafton_visca::camera::profiles::SonyFR7
 pub trait grafton_visca::capabilities::HasImageProcessing
-impl<T: grafton_visca::capabilities::ProfileMetadata + grafton_visca::capabilities::image_processing::ImageProcessing> grafton_visca::capabilities::HasImageProcessing for T
+impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::NearusBRC300
+impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::PtzOptics30X
+impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::PtzOpticsG2
+impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::PtzOpticsG3
+impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::SonyBRCH900
+impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::SonyEVIH100
+impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::SonyFR7
 pub trait grafton_visca::capabilities::HasIrisControl
 impl grafton_visca::capabilities::HasIrisControl for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasIrisControl for grafton_visca::camera::profiles::PtzOpticsG2
@@ -4276,8 +4346,6 @@ pub trait grafton_visca::capabilities::HasPictureEffect
 impl grafton_visca::capabilities::HasPictureEffect for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasPictureEffect for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasPictureEffect for grafton_visca::camera::profiles::PtzOpticsG3
-impl grafton_visca::capabilities::HasPictureEffect for grafton_visca::camera::profiles::SonyBRCH900
-impl grafton_visca::capabilities::HasPictureEffect for grafton_visca::camera::profiles::SonyFR7
 pub trait grafton_visca::capabilities::HasPower
 impl<T: grafton_visca::capabilities::ProfileMetadata + grafton_visca::capabilities::power::Power> grafton_visca::capabilities::HasPower for T
 pub trait grafton_visca::capabilities::HasPresets
@@ -4313,6 +4381,9 @@ impl grafton_visca::capabilities::HasSharpnessControl for grafton_visca::camera:
 pub trait grafton_visca::capabilities::HasTally
 impl grafton_visca::capabilities::HasTally for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasTally for grafton_visca::camera::profiles::SonyFR7
+pub trait grafton_visca::capabilities::HasUsbAudio
+impl grafton_visca::capabilities::HasUsbAudio for grafton_visca::camera::profiles::PtzOptics30X
+impl grafton_visca::capabilities::HasUsbAudio for grafton_visca::camera::profiles::PtzOpticsG2
 pub trait grafton_visca::capabilities::HasVariableSpeed
 impl grafton_visca::capabilities::HasVariableSpeed for grafton_visca::camera::profiles::SonyFR7
 pub trait grafton_visca::capabilities::HasWhiteBalance
@@ -4338,6 +4409,7 @@ pub const grafton_visca::capabilities::ImageProcessing::SUPPORTS_3D_NR: bool
 pub const grafton_visca::capabilities::ImageProcessing::SUPPORTS_FLIP: bool
 pub const grafton_visca::capabilities::ImageProcessing::SUPPORTS_GAMMA: bool
 pub const grafton_visca::capabilities::ImageProcessing::SUPPORTS_HUE: bool
+pub const grafton_visca::capabilities::ImageProcessing::SUPPORTS_IMAGE_PROCESSING: bool
 pub const grafton_visca::capabilities::ImageProcessing::SUPPORTS_LUMINANCE: bool
 pub const grafton_visca::capabilities::ImageProcessing::SUPPORTS_MIRROR: bool
 pub const grafton_visca::capabilities::ImageProcessing::SUPPORTS_NOISE_REDUCTION: bool
@@ -4356,6 +4428,7 @@ pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_3D_NR: bool
 pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_FLIP: bool
 pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_GAMMA: bool
 pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_HUE: bool
+pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_IMAGE_PROCESSING: bool
 pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_LUMINANCE: bool
 pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_MIRROR: bool
 pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_NOISE_REDUCTION: bool
@@ -4374,6 +4447,7 @@ pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_3D_NR: bool
 pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_FLIP: bool
 pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_GAMMA: bool
 pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_HUE: bool
+pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_IMAGE_PROCESSING: bool
 pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_LUMINANCE: bool
 pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_MIRROR: bool
 pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_NOISE_REDUCTION: bool
@@ -4392,6 +4466,7 @@ pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_3D_NR: bool
 pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_FLIP: bool
 pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_GAMMA: bool
 pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_HUE: bool
+pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_IMAGE_PROCESSING: bool
 pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_LUMINANCE: bool
 pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_MIRROR: bool
 pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_NOISE_REDUCTION: bool
@@ -4410,6 +4485,7 @@ pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_3D_NR: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_FLIP: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_GAMMA: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_HUE: bool
+pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_IMAGE_PROCESSING: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_LUMINANCE: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_MIRROR: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_NOISE_REDUCTION: bool
@@ -4428,6 +4504,7 @@ pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_3D_NR: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_FLIP: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_GAMMA: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_HUE: bool
+pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_IMAGE_PROCESSING: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_LUMINANCE: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_MIRROR: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_NOISE_REDUCTION: bool
@@ -4446,6 +4523,7 @@ pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_3D_NR: bool
 pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_FLIP: bool
 pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_GAMMA: bool
 pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_HUE: bool
+pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_IMAGE_PROCESSING: bool
 pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_LUMINANCE: bool
 pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_MIRROR: bool
 pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_NOISE_REDUCTION: bool
@@ -4464,6 +4542,7 @@ pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_3D_NR: bool
 pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_FLIP: bool
 pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_GAMMA: bool
 pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_HUE: bool
+pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_IMAGE_PROCESSING: bool
 pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_LUMINANCE: bool
 pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_MIRROR: bool
 pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_NOISE_REDUCTION: bool
@@ -4482,6 +4561,7 @@ pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_3D_NR: bool
 pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_FLIP: bool
 pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_GAMMA: bool
 pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_HUE: bool
+pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_IMAGE_PROCESSING: bool
 pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_LUMINANCE: bool
 pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_MIRROR: bool
 pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_NOISE_REDUCTION: bool
@@ -4500,6 +4580,7 @@ pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_3D_NR: bool
 pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_FLIP: bool
 pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_GAMMA: bool
 pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_HUE: bool
+pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_IMAGE_PROCESSING: bool
 pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_LUMINANCE: bool
 pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_MIRROR: bool
 pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_NOISE_REDUCTION: bool
@@ -4861,6 +4942,7 @@ pub const grafton_visca::capabilities::ProfileMetadata::POSITION_INQUIRY_SUPPORT
 pub const grafton_visca::capabilities::ProfileMetadata::PROFILE_ID: core::option::Option<grafton_visca::camera::profiles::ProfileId>
 pub const grafton_visca::capabilities::ProfileMetadata::SUPPORTS_COMMAND_CANCEL: bool
 pub const grafton_visca::capabilities::ProfileMetadata::SUPPORTS_OPERATION_COMPLETE: bool
+pub const grafton_visca::capabilities::ProfileMetadata::SUPPORTS_USB_AUDIO: bool
 impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::profiles::GenericVisca
 pub type grafton_visca::camera::profiles::GenericVisca::Envelope = grafton_visca::transport::RawVisca
 pub const grafton_visca::camera::profiles::GenericVisca::ACK_TIMEOUT: core::time::Duration
@@ -4875,6 +4957,7 @@ pub const grafton_visca::camera::profiles::GenericVisca::POSITION_INQUIRY_SUPPOR
 pub const grafton_visca::camera::profiles::GenericVisca::PROFILE_ID: core::option::Option<grafton_visca::camera::profiles::ProfileId>
 pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_COMMAND_CANCEL: bool
 pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_OPERATION_COMPLETE: bool
+pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_USB_AUDIO: bool
 impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::profiles::NearusBRC300
 pub type grafton_visca::camera::profiles::NearusBRC300::Envelope = grafton_visca::transport::RawVisca
 pub const grafton_visca::camera::profiles::NearusBRC300::ACK_TIMEOUT: core::time::Duration
@@ -4889,6 +4972,7 @@ pub const grafton_visca::camera::profiles::NearusBRC300::POSITION_INQUIRY_SUPPOR
 pub const grafton_visca::camera::profiles::NearusBRC300::PROFILE_ID: core::option::Option<grafton_visca::camera::profiles::ProfileId>
 pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_COMMAND_CANCEL: bool
 pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_OPERATION_COMPLETE: bool
+pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_USB_AUDIO: bool
 impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::profiles::PtzOptics30X
 pub type grafton_visca::camera::profiles::PtzOptics30X::Envelope = grafton_visca::transport::RawVisca
 pub const grafton_visca::camera::profiles::PtzOptics30X::ACK_TIMEOUT: core::time::Duration
@@ -4903,6 +4987,7 @@ pub const grafton_visca::camera::profiles::PtzOptics30X::POSITION_INQUIRY_SUPPOR
 pub const grafton_visca::camera::profiles::PtzOptics30X::PROFILE_ID: core::option::Option<grafton_visca::camera::profiles::ProfileId>
 pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_COMMAND_CANCEL: bool
 pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_OPERATION_COMPLETE: bool
+pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_USB_AUDIO: bool
 impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::profiles::PtzOpticsG2
 pub type grafton_visca::camera::profiles::PtzOpticsG2::Envelope = grafton_visca::transport::RawVisca
 pub const grafton_visca::camera::profiles::PtzOpticsG2::ACK_TIMEOUT: core::time::Duration
@@ -4917,6 +5002,7 @@ pub const grafton_visca::camera::profiles::PtzOpticsG2::POSITION_INQUIRY_SUPPORT
 pub const grafton_visca::camera::profiles::PtzOpticsG2::PROFILE_ID: core::option::Option<grafton_visca::camera::profiles::ProfileId>
 pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_COMMAND_CANCEL: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_OPERATION_COMPLETE: bool
+pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_USB_AUDIO: bool
 impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::profiles::PtzOpticsG3
 pub type grafton_visca::camera::profiles::PtzOpticsG3::Envelope = grafton_visca::transport::RawVisca
 pub const grafton_visca::camera::profiles::PtzOpticsG3::ACK_TIMEOUT: core::time::Duration
@@ -4931,6 +5017,7 @@ pub const grafton_visca::camera::profiles::PtzOpticsG3::POSITION_INQUIRY_SUPPORT
 pub const grafton_visca::camera::profiles::PtzOpticsG3::PROFILE_ID: core::option::Option<grafton_visca::camera::profiles::ProfileId>
 pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_COMMAND_CANCEL: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_OPERATION_COMPLETE: bool
+pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_USB_AUDIO: bool
 impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::profiles::SonyBRC300
 pub type grafton_visca::camera::profiles::SonyBRC300::Envelope = grafton_visca::transport::RawVisca
 pub const grafton_visca::camera::profiles::SonyBRC300::ACK_TIMEOUT: core::time::Duration
@@ -4945,6 +5032,7 @@ pub const grafton_visca::camera::profiles::SonyBRC300::POSITION_INQUIRY_SUPPORT:
 pub const grafton_visca::camera::profiles::SonyBRC300::PROFILE_ID: core::option::Option<grafton_visca::camera::profiles::ProfileId>
 pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_COMMAND_CANCEL: bool
 pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_OPERATION_COMPLETE: bool
+pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_USB_AUDIO: bool
 impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::profiles::SonyBRCH900
 pub type grafton_visca::camera::profiles::SonyBRCH900::Envelope = grafton_visca::transport::SonyEncapsulated
 pub const grafton_visca::camera::profiles::SonyBRCH900::ACK_TIMEOUT: core::time::Duration
@@ -4959,6 +5047,7 @@ pub const grafton_visca::camera::profiles::SonyBRCH900::POSITION_INQUIRY_SUPPORT
 pub const grafton_visca::camera::profiles::SonyBRCH900::PROFILE_ID: core::option::Option<grafton_visca::camera::profiles::ProfileId>
 pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_COMMAND_CANCEL: bool
 pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_OPERATION_COMPLETE: bool
+pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_USB_AUDIO: bool
 impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::profiles::SonyEVIH100
 pub type grafton_visca::camera::profiles::SonyEVIH100::Envelope = grafton_visca::transport::RawVisca
 pub const grafton_visca::camera::profiles::SonyEVIH100::ACK_TIMEOUT: core::time::Duration
@@ -4973,6 +5062,7 @@ pub const grafton_visca::camera::profiles::SonyEVIH100::POSITION_INQUIRY_SUPPORT
 pub const grafton_visca::camera::profiles::SonyEVIH100::PROFILE_ID: core::option::Option<grafton_visca::camera::profiles::ProfileId>
 pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_COMMAND_CANCEL: bool
 pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_OPERATION_COMPLETE: bool
+pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_USB_AUDIO: bool
 impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::profiles::SonyFR7
 pub type grafton_visca::camera::profiles::SonyFR7::Envelope = grafton_visca::transport::SonyEncapsulated
 pub const grafton_visca::camera::profiles::SonyFR7::ACK_TIMEOUT: core::time::Duration
@@ -4987,6 +5077,7 @@ pub const grafton_visca::camera::profiles::SonyFR7::POSITION_INQUIRY_SUPPORT: gr
 pub const grafton_visca::camera::profiles::SonyFR7::PROFILE_ID: core::option::Option<grafton_visca::camera::profiles::ProfileId>
 pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_COMMAND_CANCEL: bool
 pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_OPERATION_COMPLETE: bool
+pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_USB_AUDIO: bool
 pub trait grafton_visca::capabilities::ProfileTypedSupport
 pub const grafton_visca::capabilities::ProfileTypedSupport::TYPED_SUPPORT: grafton_visca::capabilities::TypedSupportSet
 impl grafton_visca::capabilities::ProfileTypedSupport for grafton_visca::camera::profiles::GenericVisca
@@ -5338,32 +5429,6 @@ impl core::marker::Unpin for grafton_visca::command::AutoWhiteBalanceSensitivity
 impl core::marker::UnsafeUnpin for grafton_visca::command::AutoWhiteBalanceSensitivity
 impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::command::AutoWhiteBalanceSensitivity
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::command::AutoWhiteBalanceSensitivity
-pub enum grafton_visca::command::BlackWhiteMode
-pub grafton_visca::command::BlackWhiteMode::BlackWhite = 3
-pub grafton_visca::command::BlackWhiteMode::Color = 2
-impl grafton_visca::command::BlackWhiteMode
-pub const fn grafton_visca::command::BlackWhiteMode::is_valid_discriminant(u8) -> bool
-impl core::clone::Clone for grafton_visca::command::BlackWhiteMode
-pub fn grafton_visca::command::BlackWhiteMode::clone(&self) -> grafton_visca::command::BlackWhiteMode
-impl core::cmp::Eq for grafton_visca::command::BlackWhiteMode
-impl core::cmp::PartialEq for grafton_visca::command::BlackWhiteMode
-pub fn grafton_visca::command::BlackWhiteMode::eq(&self, &grafton_visca::command::BlackWhiteMode) -> bool
-impl core::convert::From<grafton_visca::command::BlackWhiteMode> for u8
-pub fn u8::from(grafton_visca::command::BlackWhiteMode) -> Self
-impl core::convert::TryFrom<u8> for grafton_visca::command::BlackWhiteMode
-pub type grafton_visca::command::BlackWhiteMode::Error = grafton_visca::Error
-pub fn grafton_visca::command::BlackWhiteMode::try_from(u8) -> core::result::Result<Self, Self::Error>
-impl core::fmt::Debug for grafton_visca::command::BlackWhiteMode
-pub fn grafton_visca::command::BlackWhiteMode::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::Copy for grafton_visca::command::BlackWhiteMode
-impl core::marker::StructuralPartialEq for grafton_visca::command::BlackWhiteMode
-impl core::marker::Freeze for grafton_visca::command::BlackWhiteMode
-impl core::marker::Send for grafton_visca::command::BlackWhiteMode
-impl core::marker::Sync for grafton_visca::command::BlackWhiteMode
-impl core::marker::Unpin for grafton_visca::command::BlackWhiteMode
-impl core::marker::UnsafeUnpin for grafton_visca::command::BlackWhiteMode
-impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::command::BlackWhiteMode
-impl core::panic::unwind_safe::UnwindSafe for grafton_visca::command::BlackWhiteMode
 pub enum grafton_visca::command::BlueGain
 pub grafton_visca::command::BlueGain::Down
 pub grafton_visca::command::BlueGain::Reset
@@ -5767,10 +5832,6 @@ pub grafton_visca::command::InquiryData::AutoWhiteBalanceSensitivity
 pub grafton_visca::command::InquiryData::AutoWhiteBalanceSensitivity::sensitivity: grafton_visca::command::AutoWhiteBalanceSensitivity
 pub grafton_visca::command::InquiryData::Backlight
 pub grafton_visca::command::InquiryData::Backlight::status: bool
-pub grafton_visca::command::InquiryData::BlackWhite
-pub grafton_visca::command::InquiryData::BlackWhite::on: bool
-pub grafton_visca::command::InquiryData::BlackWhiteMode
-pub grafton_visca::command::InquiryData::BlackWhiteMode::mode: grafton_visca::command::BlackWhiteMode
 pub grafton_visca::command::InquiryData::BlueChannel
 pub grafton_visca::command::InquiryData::BlueChannel::gain: u8
 pub grafton_visca::command::InquiryData::BlueTuning
@@ -5873,7 +5934,6 @@ pub grafton_visca::command::InquiryData::RedChannel
 pub grafton_visca::command::InquiryData::RedChannel::gain: u8
 pub grafton_visca::command::InquiryData::RedTuning
 pub grafton_visca::command::InquiryData::RedTuning::level: i8
-pub grafton_visca::command::InquiryData::Resolution(grafton_visca::ResolutionMode)
 pub grafton_visca::command::InquiryData::Rtmp
 pub grafton_visca::command::InquiryData::Rtmp::on: bool
 pub grafton_visca::command::InquiryData::Saturation
@@ -5934,8 +5994,6 @@ pub grafton_visca::command::InquiryKind::AutoFocusSensitivity
 pub grafton_visca::command::InquiryKind::AutoTrace
 pub grafton_visca::command::InquiryKind::AutoWhiteBalanceSensitivity
 pub grafton_visca::command::InquiryKind::Backlight
-pub grafton_visca::command::InquiryKind::BlackWhite
-pub grafton_visca::command::InquiryKind::BlackWhiteMode
 pub grafton_visca::command::InquiryKind::BlueChannel
 pub grafton_visca::command::InquiryKind::BlueTuning
 pub grafton_visca::command::InquiryKind::Brightness
@@ -5987,7 +6045,6 @@ pub grafton_visca::command::InquiryKind::PictureEffect
 pub grafton_visca::command::InquiryKind::Power
 pub grafton_visca::command::InquiryKind::RedChannel
 pub grafton_visca::command::InquiryKind::RedTuning
-pub grafton_visca::command::InquiryKind::Resolution
 pub grafton_visca::command::InquiryKind::Rtmp
 pub grafton_visca::command::InquiryKind::Saturation
 pub grafton_visca::command::InquiryKind::Sharpness
@@ -6457,12 +6514,7 @@ impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::command::PanTilt
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::command::PanTiltLimitCorner
 pub enum grafton_visca::command::PictureEffectMode
 pub grafton_visca::command::PictureEffectMode::BlackAndWhite
-pub grafton_visca::command::PictureEffectMode::Emboss
-pub grafton_visca::command::PictureEffectMode::Mosaic
-pub grafton_visca::command::PictureEffectMode::Negative
 pub grafton_visca::command::PictureEffectMode::Off
-pub grafton_visca::command::PictureEffectMode::Sepia
-pub grafton_visca::command::PictureEffectMode::Sketch
 pub grafton_visca::command::PictureEffectMode::Unknown(u8)
 impl grafton_visca::PictureEffectMode
 pub fn grafton_visca::PictureEffectMode::as_byte(&self) -> u8
@@ -6549,36 +6601,6 @@ impl core::marker::Unpin for grafton_visca::command::RedGain
 impl core::marker::UnsafeUnpin for grafton_visca::command::RedGain
 impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::command::RedGain
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::command::RedGain
-pub enum grafton_visca::command::ResolutionMode
-pub grafton_visca::command::ResolutionMode::FullHD25
-pub grafton_visca::command::ResolutionMode::FullHD30
-pub grafton_visca::command::ResolutionMode::FullHD60
-pub grafton_visca::command::ResolutionMode::HD25
-pub grafton_visca::command::ResolutionMode::HD30
-pub grafton_visca::command::ResolutionMode::HD60
-pub grafton_visca::command::ResolutionMode::Unknown(u8)
-impl grafton_visca::ResolutionMode
-pub fn grafton_visca::ResolutionMode::description(&self) -> &'static str
-pub fn grafton_visca::ResolutionMode::frame_rate(&self) -> core::option::Option<f32>
-pub fn grafton_visca::ResolutionMode::from_byte(u8) -> Self
-pub fn grafton_visca::ResolutionMode::height(&self) -> core::option::Option<u32>
-pub fn grafton_visca::ResolutionMode::width(&self) -> core::option::Option<u32>
-impl core::clone::Clone for grafton_visca::ResolutionMode
-pub fn grafton_visca::ResolutionMode::clone(&self) -> grafton_visca::ResolutionMode
-impl core::cmp::Eq for grafton_visca::ResolutionMode
-impl core::cmp::PartialEq for grafton_visca::ResolutionMode
-pub fn grafton_visca::ResolutionMode::eq(&self, &grafton_visca::ResolutionMode) -> bool
-impl core::fmt::Debug for grafton_visca::ResolutionMode
-pub fn grafton_visca::ResolutionMode::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::Copy for grafton_visca::ResolutionMode
-impl core::marker::StructuralPartialEq for grafton_visca::ResolutionMode
-impl core::marker::Freeze for grafton_visca::ResolutionMode
-impl core::marker::Send for grafton_visca::ResolutionMode
-impl core::marker::Sync for grafton_visca::ResolutionMode
-impl core::marker::Unpin for grafton_visca::ResolutionMode
-impl core::marker::UnsafeUnpin for grafton_visca::ResolutionMode
-impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::ResolutionMode
-impl core::panic::unwind_safe::UnwindSafe for grafton_visca::ResolutionMode
 #[non_exhaustive] pub enum grafton_visca::command::Response
 pub grafton_visca::command::Response::CmdAck
 pub grafton_visca::command::Response::CmdAck::socket: core::option::Option<grafton_visca::ViscaSocket>
@@ -7139,76 +7161,6 @@ impl core::marker::Unpin for grafton_visca::command::BacklightInquiry
 impl core::marker::UnsafeUnpin for grafton_visca::command::BacklightInquiry
 impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::command::BacklightInquiry
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::command::BacklightInquiry
-pub struct grafton_visca::command::BlackWhiteInquiry
-impl core::clone::Clone for grafton_visca::command::BlackWhiteInquiry
-pub fn grafton_visca::command::BlackWhiteInquiry::clone(&self) -> grafton_visca::command::BlackWhiteInquiry
-impl core::default::Default for grafton_visca::command::BlackWhiteInquiry
-pub fn grafton_visca::command::BlackWhiteInquiry::default() -> grafton_visca::command::BlackWhiteInquiry
-impl core::fmt::Debug for grafton_visca::command::BlackWhiteInquiry
-pub fn grafton_visca::command::BlackWhiteInquiry::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::Copy for grafton_visca::command::BlackWhiteInquiry
-impl grafton_visca::Inquiry for grafton_visca::command::BlackWhiteInquiry
-pub type grafton_visca::command::BlackWhiteInquiry::Response = bool
-pub fn grafton_visca::command::BlackWhiteInquiry::decoder(&self) -> grafton_visca::ResponseDecoder<Self::Response>
-pub fn grafton_visca::command::BlackWhiteInquiry::route(&self) -> grafton_visca::InquiryRoute
-impl grafton_visca::Request for grafton_visca::command::BlackWhiteInquiry
-pub type grafton_visca::command::BlackWhiteInquiry::Class = grafton_visca::request::Inquiry
-pub const grafton_visca::command::BlackWhiteInquiry::CONTROL_CLASS: grafton_visca::ControlClass
-pub const grafton_visca::command::BlackWhiteInquiry::MAX_SIZE: usize
-pub const grafton_visca::command::BlackWhiteInquiry::RETRY_CLASS: grafton_visca::RetryClass
-pub const grafton_visca::command::BlackWhiteInquiry::TIMEOUT_CLASS: grafton_visca::TimeoutClass
-pub fn grafton_visca::command::BlackWhiteInquiry::control_class(&self) -> grafton_visca::ControlClass
-pub fn grafton_visca::command::BlackWhiteInquiry::encoded_size(&self) -> usize
-pub fn grafton_visca::command::BlackWhiteInquiry::reply_shape(&self) -> grafton_visca::raw::RawReplyShape
-pub fn grafton_visca::command::BlackWhiteInquiry::retry_class(&self) -> grafton_visca::RetryClass
-pub fn grafton_visca::command::BlackWhiteInquiry::timeout_class(&self) -> grafton_visca::TimeoutClass
-pub fn grafton_visca::command::BlackWhiteInquiry::validate_for_profile(&self, &grafton_visca::profile::ProfileSpec) -> grafton_visca::Result<()>
-pub fn grafton_visca::command::BlackWhiteInquiry::write_into(&self, grafton_visca::CameraId, &mut [u8]) -> core::result::Result<usize, grafton_visca::Error>
-impl grafton_visca::command::ResponseParser for grafton_visca::command::BlackWhiteInquiry
-pub type grafton_visca::command::BlackWhiteInquiry::Response = bool
-pub fn grafton_visca::command::BlackWhiteInquiry::from_response(grafton_visca::command::Response) -> core::result::Result<Self::Response, grafton_visca::Error>
-impl core::marker::Freeze for grafton_visca::command::BlackWhiteInquiry
-impl core::marker::Send for grafton_visca::command::BlackWhiteInquiry
-impl core::marker::Sync for grafton_visca::command::BlackWhiteInquiry
-impl core::marker::Unpin for grafton_visca::command::BlackWhiteInquiry
-impl core::marker::UnsafeUnpin for grafton_visca::command::BlackWhiteInquiry
-impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::command::BlackWhiteInquiry
-impl core::panic::unwind_safe::UnwindSafe for grafton_visca::command::BlackWhiteInquiry
-pub struct grafton_visca::command::BlackWhiteModeInquiry
-impl core::clone::Clone for grafton_visca::command::BlackWhiteModeInquiry
-pub fn grafton_visca::command::BlackWhiteModeInquiry::clone(&self) -> grafton_visca::command::BlackWhiteModeInquiry
-impl core::default::Default for grafton_visca::command::BlackWhiteModeInquiry
-pub fn grafton_visca::command::BlackWhiteModeInquiry::default() -> grafton_visca::command::BlackWhiteModeInquiry
-impl core::fmt::Debug for grafton_visca::command::BlackWhiteModeInquiry
-pub fn grafton_visca::command::BlackWhiteModeInquiry::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::Copy for grafton_visca::command::BlackWhiteModeInquiry
-impl grafton_visca::Inquiry for grafton_visca::command::BlackWhiteModeInquiry
-pub type grafton_visca::command::BlackWhiteModeInquiry::Response = grafton_visca::command::BlackWhiteMode
-pub fn grafton_visca::command::BlackWhiteModeInquiry::decoder(&self) -> grafton_visca::ResponseDecoder<Self::Response>
-pub fn grafton_visca::command::BlackWhiteModeInquiry::route(&self) -> grafton_visca::InquiryRoute
-impl grafton_visca::Request for grafton_visca::command::BlackWhiteModeInquiry
-pub type grafton_visca::command::BlackWhiteModeInquiry::Class = grafton_visca::request::Inquiry
-pub const grafton_visca::command::BlackWhiteModeInquiry::CONTROL_CLASS: grafton_visca::ControlClass
-pub const grafton_visca::command::BlackWhiteModeInquiry::MAX_SIZE: usize
-pub const grafton_visca::command::BlackWhiteModeInquiry::RETRY_CLASS: grafton_visca::RetryClass
-pub const grafton_visca::command::BlackWhiteModeInquiry::TIMEOUT_CLASS: grafton_visca::TimeoutClass
-pub fn grafton_visca::command::BlackWhiteModeInquiry::control_class(&self) -> grafton_visca::ControlClass
-pub fn grafton_visca::command::BlackWhiteModeInquiry::encoded_size(&self) -> usize
-pub fn grafton_visca::command::BlackWhiteModeInquiry::reply_shape(&self) -> grafton_visca::raw::RawReplyShape
-pub fn grafton_visca::command::BlackWhiteModeInquiry::retry_class(&self) -> grafton_visca::RetryClass
-pub fn grafton_visca::command::BlackWhiteModeInquiry::timeout_class(&self) -> grafton_visca::TimeoutClass
-pub fn grafton_visca::command::BlackWhiteModeInquiry::validate_for_profile(&self, &grafton_visca::profile::ProfileSpec) -> grafton_visca::Result<()>
-pub fn grafton_visca::command::BlackWhiteModeInquiry::write_into(&self, grafton_visca::CameraId, &mut [u8]) -> core::result::Result<usize, grafton_visca::Error>
-impl grafton_visca::command::ResponseParser for grafton_visca::command::BlackWhiteModeInquiry
-pub type grafton_visca::command::BlackWhiteModeInquiry::Response = grafton_visca::command::BlackWhiteMode
-pub fn grafton_visca::command::BlackWhiteModeInquiry::from_response(grafton_visca::command::Response) -> core::result::Result<Self::Response, grafton_visca::Error>
-impl core::marker::Freeze for grafton_visca::command::BlackWhiteModeInquiry
-impl core::marker::Send for grafton_visca::command::BlackWhiteModeInquiry
-impl core::marker::Sync for grafton_visca::command::BlackWhiteModeInquiry
-impl core::marker::Unpin for grafton_visca::command::BlackWhiteModeInquiry
-impl core::marker::UnsafeUnpin for grafton_visca::command::BlackWhiteModeInquiry
-impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::command::BlackWhiteModeInquiry
-impl core::panic::unwind_safe::UnwindSafe for grafton_visca::command::BlackWhiteModeInquiry
 pub struct grafton_visca::command::BlueGainInquiry
 impl core::clone::Clone for grafton_visca::command::BlueGainInquiry
 pub fn grafton_visca::command::BlueGainInquiry::clone(&self) -> grafton_visca::command::BlueGainInquiry
@@ -9809,41 +9761,6 @@ impl core::marker::Unpin for grafton_visca::command::RedTuningInquiry
 impl core::marker::UnsafeUnpin for grafton_visca::command::RedTuningInquiry
 impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::command::RedTuningInquiry
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::command::RedTuningInquiry
-pub struct grafton_visca::command::ResolutionInquiry
-impl core::clone::Clone for grafton_visca::command::ResolutionInquiry
-pub fn grafton_visca::command::ResolutionInquiry::clone(&self) -> grafton_visca::command::ResolutionInquiry
-impl core::default::Default for grafton_visca::command::ResolutionInquiry
-pub fn grafton_visca::command::ResolutionInquiry::default() -> grafton_visca::command::ResolutionInquiry
-impl core::fmt::Debug for grafton_visca::command::ResolutionInquiry
-pub fn grafton_visca::command::ResolutionInquiry::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::Copy for grafton_visca::command::ResolutionInquiry
-impl grafton_visca::Inquiry for grafton_visca::command::ResolutionInquiry
-pub type grafton_visca::command::ResolutionInquiry::Response = grafton_visca::ResolutionMode
-pub fn grafton_visca::command::ResolutionInquiry::decoder(&self) -> grafton_visca::ResponseDecoder<Self::Response>
-pub fn grafton_visca::command::ResolutionInquiry::route(&self) -> grafton_visca::InquiryRoute
-impl grafton_visca::Request for grafton_visca::command::ResolutionInquiry
-pub type grafton_visca::command::ResolutionInquiry::Class = grafton_visca::request::Inquiry
-pub const grafton_visca::command::ResolutionInquiry::CONTROL_CLASS: grafton_visca::ControlClass
-pub const grafton_visca::command::ResolutionInquiry::MAX_SIZE: usize
-pub const grafton_visca::command::ResolutionInquiry::RETRY_CLASS: grafton_visca::RetryClass
-pub const grafton_visca::command::ResolutionInquiry::TIMEOUT_CLASS: grafton_visca::TimeoutClass
-pub fn grafton_visca::command::ResolutionInquiry::control_class(&self) -> grafton_visca::ControlClass
-pub fn grafton_visca::command::ResolutionInquiry::encoded_size(&self) -> usize
-pub fn grafton_visca::command::ResolutionInquiry::reply_shape(&self) -> grafton_visca::raw::RawReplyShape
-pub fn grafton_visca::command::ResolutionInquiry::retry_class(&self) -> grafton_visca::RetryClass
-pub fn grafton_visca::command::ResolutionInquiry::timeout_class(&self) -> grafton_visca::TimeoutClass
-pub fn grafton_visca::command::ResolutionInquiry::validate_for_profile(&self, &grafton_visca::profile::ProfileSpec) -> grafton_visca::Result<()>
-pub fn grafton_visca::command::ResolutionInquiry::write_into(&self, grafton_visca::CameraId, &mut [u8]) -> core::result::Result<usize, grafton_visca::Error>
-impl grafton_visca::command::ResponseParser for grafton_visca::command::ResolutionInquiry
-pub type grafton_visca::command::ResolutionInquiry::Response = grafton_visca::ResolutionMode
-pub fn grafton_visca::command::ResolutionInquiry::from_response(grafton_visca::command::Response) -> core::result::Result<Self::Response, grafton_visca::Error>
-impl core::marker::Freeze for grafton_visca::command::ResolutionInquiry
-impl core::marker::Send for grafton_visca::command::ResolutionInquiry
-impl core::marker::Sync for grafton_visca::command::ResolutionInquiry
-impl core::marker::Unpin for grafton_visca::command::ResolutionInquiry
-impl core::marker::UnsafeUnpin for grafton_visca::command::ResolutionInquiry
-impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::command::ResolutionInquiry
-impl core::panic::unwind_safe::UnwindSafe for grafton_visca::command::ResolutionInquiry
 pub struct grafton_visca::command::SaturationCommand
 pub grafton_visca::command::SaturationCommand::level: grafton_visca::types::SaturationLevel
 impl grafton_visca::command::SaturationCommand
@@ -11006,12 +10923,6 @@ pub fn grafton_visca::command::AutoWhiteBalanceSensitivityInquiry::from_response
 impl grafton_visca::command::ResponseParser for grafton_visca::command::BacklightInquiry
 pub type grafton_visca::command::BacklightInquiry::Response = bool
 pub fn grafton_visca::command::BacklightInquiry::from_response(grafton_visca::command::Response) -> core::result::Result<Self::Response, grafton_visca::Error>
-impl grafton_visca::command::ResponseParser for grafton_visca::command::BlackWhiteInquiry
-pub type grafton_visca::command::BlackWhiteInquiry::Response = bool
-pub fn grafton_visca::command::BlackWhiteInquiry::from_response(grafton_visca::command::Response) -> core::result::Result<Self::Response, grafton_visca::Error>
-impl grafton_visca::command::ResponseParser for grafton_visca::command::BlackWhiteModeInquiry
-pub type grafton_visca::command::BlackWhiteModeInquiry::Response = grafton_visca::command::BlackWhiteMode
-pub fn grafton_visca::command::BlackWhiteModeInquiry::from_response(grafton_visca::command::Response) -> core::result::Result<Self::Response, grafton_visca::Error>
 impl grafton_visca::command::ResponseParser for grafton_visca::command::BlueGainInquiry
 pub type grafton_visca::command::BlueGainInquiry::Response = grafton_visca::types::BlueChannel
 pub fn grafton_visca::command::BlueGainInquiry::from_response(grafton_visca::command::Response) -> core::result::Result<Self::Response, grafton_visca::Error>
@@ -11147,9 +11058,6 @@ pub fn grafton_visca::command::RedGainInquiry::from_response(grafton_visca::comm
 impl grafton_visca::command::ResponseParser for grafton_visca::command::RedTuningInquiry
 pub type grafton_visca::command::RedTuningInquiry::Response = grafton_visca::types::RedTuning
 pub fn grafton_visca::command::RedTuningInquiry::from_response(grafton_visca::command::Response) -> core::result::Result<Self::Response, grafton_visca::Error>
-impl grafton_visca::command::ResponseParser for grafton_visca::command::ResolutionInquiry
-pub type grafton_visca::command::ResolutionInquiry::Response = grafton_visca::ResolutionMode
-pub fn grafton_visca::command::ResolutionInquiry::from_response(grafton_visca::command::Response) -> core::result::Result<Self::Response, grafton_visca::Error>
 impl grafton_visca::command::ResponseParser for grafton_visca::command::SaturationInquiry
 pub type grafton_visca::command::SaturationInquiry::Response = grafton_visca::types::SaturationLevel
 pub fn grafton_visca::command::SaturationInquiry::from_response(grafton_visca::command::Response) -> core::result::Result<Self::Response, grafton_visca::Error>
@@ -12019,36 +11927,6 @@ impl core::marker::Unpin for grafton_visca::command::PanTiltLimitCorner
 impl core::marker::UnsafeUnpin for grafton_visca::command::PanTiltLimitCorner
 impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::command::PanTiltLimitCorner
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::command::PanTiltLimitCorner
-pub enum grafton_visca::prelude::blocking::ResolutionMode
-pub grafton_visca::prelude::blocking::ResolutionMode::FullHD25
-pub grafton_visca::prelude::blocking::ResolutionMode::FullHD30
-pub grafton_visca::prelude::blocking::ResolutionMode::FullHD60
-pub grafton_visca::prelude::blocking::ResolutionMode::HD25
-pub grafton_visca::prelude::blocking::ResolutionMode::HD30
-pub grafton_visca::prelude::blocking::ResolutionMode::HD60
-pub grafton_visca::prelude::blocking::ResolutionMode::Unknown(u8)
-impl grafton_visca::ResolutionMode
-pub fn grafton_visca::ResolutionMode::description(&self) -> &'static str
-pub fn grafton_visca::ResolutionMode::frame_rate(&self) -> core::option::Option<f32>
-pub fn grafton_visca::ResolutionMode::from_byte(u8) -> Self
-pub fn grafton_visca::ResolutionMode::height(&self) -> core::option::Option<u32>
-pub fn grafton_visca::ResolutionMode::width(&self) -> core::option::Option<u32>
-impl core::clone::Clone for grafton_visca::ResolutionMode
-pub fn grafton_visca::ResolutionMode::clone(&self) -> grafton_visca::ResolutionMode
-impl core::cmp::Eq for grafton_visca::ResolutionMode
-impl core::cmp::PartialEq for grafton_visca::ResolutionMode
-pub fn grafton_visca::ResolutionMode::eq(&self, &grafton_visca::ResolutionMode) -> bool
-impl core::fmt::Debug for grafton_visca::ResolutionMode
-pub fn grafton_visca::ResolutionMode::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::Copy for grafton_visca::ResolutionMode
-impl core::marker::StructuralPartialEq for grafton_visca::ResolutionMode
-impl core::marker::Freeze for grafton_visca::ResolutionMode
-impl core::marker::Send for grafton_visca::ResolutionMode
-impl core::marker::Sync for grafton_visca::ResolutionMode
-impl core::marker::Unpin for grafton_visca::ResolutionMode
-impl core::marker::UnsafeUnpin for grafton_visca::ResolutionMode
-impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::ResolutionMode
-impl core::panic::unwind_safe::UnwindSafe for grafton_visca::ResolutionMode
 #[non_exhaustive] pub enum grafton_visca::prelude::blocking::SessionStatus
 pub grafton_visca::prelude::blocking::SessionStatus::Closed
 pub grafton_visca::prelude::blocking::SessionStatus::Poisoned
@@ -12223,9 +12101,9 @@ pub fn grafton_visca::blocking::AdvancedAccessor<'view, 'session, P>::set_ndi_qu
 pub fn grafton_visca::blocking::AdvancedAccessor<'view, 'session, P>::set_variable_speed_mode(&self, grafton_visca::command::VariableSpeedMode) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasVariableSpeed
 pub fn grafton_visca::blocking::AdvancedAccessor<'view, 'session, P>::standby_enabled(&self) -> grafton_visca::Result<bool>
 pub fn grafton_visca::blocking::AdvancedAccessor<'view, 'session, P>::two_tone_mode_enabled(&self) -> grafton_visca::Result<bool>
-pub fn grafton_visca::blocking::AdvancedAccessor<'view, 'session, P>::usb_audio_enabled(&self) -> grafton_visca::Result<bool>
-pub fn grafton_visca::blocking::AdvancedAccessor<'view, 'session, P>::usb_audio_off(&self) -> grafton_visca::Result<()>
-pub fn grafton_visca::blocking::AdvancedAccessor<'view, 'session, P>::usb_audio_on(&self) -> grafton_visca::Result<()>
+pub fn grafton_visca::blocking::AdvancedAccessor<'view, 'session, P>::usb_audio_enabled(&self) -> grafton_visca::Result<bool> where P: grafton_visca::capabilities::HasUsbAudio
+pub fn grafton_visca::blocking::AdvancedAccessor<'view, 'session, P>::usb_audio_off(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasUsbAudio
+pub fn grafton_visca::blocking::AdvancedAccessor<'view, 'session, P>::usb_audio_on(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasUsbAudio
 impl<P: grafton_visca::profile::CompileTimeProfile> core::fmt::Debug for grafton_visca::blocking::AdvancedAccessor<'_, '_, P>
 pub fn grafton_visca::blocking::AdvancedAccessor<'_, '_, P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'view, 'session, P> core::marker::Freeze for grafton_visca::blocking::AdvancedAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Freeze
@@ -12500,7 +12378,7 @@ pub fn grafton_visca::blocking::FocusAccessor<'view, 'session, P>::set_zone(&sel
 pub fn grafton_visca::blocking::FocusAccessor<'view, 'session, P>::snap(&self) -> grafton_visca::Result<grafton_visca::blocking::Operation<'session, grafton_visca::completion::AppliedOnly>> where P: grafton_visca::capabilities::HasPtzOpticsSnapFocus
 pub fn grafton_visca::blocking::FocusAccessor<'view, 'session, P>::stop(&self) -> grafton_visca::Result<grafton_visca::blocking::Operation<'session, grafton_visca::completion::AppliedOnly>>
 pub fn grafton_visca::blocking::FocusAccessor<'view, 'session, P>::toggle(&self) -> grafton_visca::Result<()>
-pub fn grafton_visca::blocking::FocusAccessor<'view, 'session, P>::zone(&self) -> grafton_visca::Result<grafton_visca::command::FocusZone> where P: grafton_visca::capabilities::HasFocusZone
+pub fn grafton_visca::blocking::FocusAccessor<'view, 'session, P>::zone(&self) -> grafton_visca::Result<grafton_visca::command::FocusZone> where P: grafton_visca::capabilities::HasFocusZoneInquiry
 impl<P: grafton_visca::profile::CompileTimeProfile> core::fmt::Debug for grafton_visca::blocking::FocusAccessor<'_, '_, P>
 pub fn grafton_visca::blocking::FocusAccessor<'_, '_, P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'view, 'session, P> core::marker::Freeze for grafton_visca::blocking::FocusAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Freeze
@@ -12534,6 +12412,7 @@ pub const grafton_visca::camera::profiles::GenericVisca::POSITION_INQUIRY_SUPPOR
 pub const grafton_visca::camera::profiles::GenericVisca::PROFILE_ID: core::option::Option<grafton_visca::camera::profiles::ProfileId>
 pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_COMMAND_CANCEL: bool
 pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_OPERATION_COMPLETE: bool
+pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_USB_AUDIO: bool
 impl grafton_visca::capabilities::ProfileTypedSupport for grafton_visca::camera::profiles::GenericVisca
 pub const grafton_visca::camera::profiles::GenericVisca::TYPED_SUPPORT: grafton_visca::capabilities::TypedSupportSet
 impl grafton_visca::capabilities::SupportsSerial for grafton_visca::camera::profiles::GenericVisca
@@ -12559,6 +12438,7 @@ pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_AF_SENSITIVITY
 pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_AUTO_FOCUS: bool
 pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY: bool
 pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_FOCUS_ZONE: bool
+pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_FOCUS_ZONE_INQUIRY: bool
 pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_ONE_PUSH_FOCUS: bool
 impl grafton_visca::capabilities::image_processing::ImageProcessing for grafton_visca::camera::profiles::GenericVisca
 pub const grafton_visca::camera::profiles::GenericVisca::CONTRAST_RANGE: core::option::Option<grafton_visca::capabilities::CapabilityRange<u8>>
@@ -12573,6 +12453,7 @@ pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_3D_NR: bool
 pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_FLIP: bool
 pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_GAMMA: bool
 pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_HUE: bool
+pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_IMAGE_PROCESSING: bool
 pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_LUMINANCE: bool
 pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_MIRROR: bool
 pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_NOISE_REDUCTION: bool
@@ -12685,8 +12566,6 @@ impl core::panic::unwind_safe::UnwindSafe for grafton_visca::camera::IdleWait
 pub struct grafton_visca::prelude::blocking::ImageAccessor<'view, 'session, P: grafton_visca::profile::CompileTimeProfile>
 impl<'view, 'session, P: grafton_visca::profile::CompileTimeProfile> grafton_visca::blocking::ImageAccessor<'view, 'session, P>
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::backlight(&self) -> grafton_visca::Result<bool> where P: grafton_visca::capabilities::HasBacklightCompensation
-pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::black_white(&self) -> grafton_visca::Result<bool> where P: grafton_visca::capabilities::HasPictureEffect
-pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::black_white_mode(&self) -> grafton_visca::Result<grafton_visca::command::BlackWhiteMode> where P: grafton_visca::capabilities::HasPictureEffect
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::contrast(&self) -> grafton_visca::Result<grafton_visca::types::ContrastLevel> where P: grafton_visca::capabilities::HasContrastControl
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::decrease_sharpness(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasSharpnessControl
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::defog_level(&self) -> grafton_visca::Result<grafton_visca::types::DefogLevel>
@@ -12710,7 +12589,6 @@ pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::noise_reducti
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::noise_reduction_mode(&self) -> grafton_visca::Result<grafton_visca::command::NoiseReductionMode> where P: grafton_visca::capabilities::HasNoiseReduction
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::picture_effect(&self) -> grafton_visca::Result<grafton_visca::PictureEffectMode> where P: grafton_visca::capabilities::HasPictureEffect
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::reset_sharpness(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasSharpnessControl
-pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::resolution(&self) -> grafton_visca::Result<grafton_visca::ResolutionMode>
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::saturation(&self) -> grafton_visca::Result<grafton_visca::types::SaturationLevel> where P: grafton_visca::capabilities::HasSaturationControl
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::set_backlight(&self, bool) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasBacklightCompensation
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::set_contrast(&self, grafton_visca::types::ContrastLevel) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasContrastControl
@@ -12920,6 +12798,7 @@ impl core::marker::Copy for grafton_visca::camera::profiles::NearusBRC300
 impl grafton_visca::capabilities::HasBacklightCompensation for grafton_visca::camera::profiles::NearusBRC300
 impl grafton_visca::capabilities::HasDirectZoom for grafton_visca::camera::profiles::NearusBRC300
 impl grafton_visca::capabilities::HasFocusNearLimitInquiry for grafton_visca::camera::profiles::NearusBRC300
+impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::NearusBRC300
 impl grafton_visca::capabilities::HasSaturationControl for grafton_visca::camera::profiles::NearusBRC300
 impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::profiles::NearusBRC300
 pub type grafton_visca::camera::profiles::NearusBRC300::Envelope = grafton_visca::transport::RawVisca
@@ -12935,6 +12814,7 @@ pub const grafton_visca::camera::profiles::NearusBRC300::POSITION_INQUIRY_SUPPOR
 pub const grafton_visca::camera::profiles::NearusBRC300::PROFILE_ID: core::option::Option<grafton_visca::camera::profiles::ProfileId>
 pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_COMMAND_CANCEL: bool
 pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_OPERATION_COMPLETE: bool
+pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_USB_AUDIO: bool
 impl grafton_visca::capabilities::ProfileTypedSupport for grafton_visca::camera::profiles::NearusBRC300
 pub const grafton_visca::camera::profiles::NearusBRC300::TYPED_SUPPORT: grafton_visca::capabilities::TypedSupportSet
 impl grafton_visca::capabilities::SupportsSerial for grafton_visca::camera::profiles::NearusBRC300
@@ -12960,6 +12840,7 @@ pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_AF_SENSITIVITY
 pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_AUTO_FOCUS: bool
 pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY: bool
 pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_FOCUS_ZONE: bool
+pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_FOCUS_ZONE_INQUIRY: bool
 pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_ONE_PUSH_FOCUS: bool
 impl grafton_visca::capabilities::image_processing::ImageProcessing for grafton_visca::camera::profiles::NearusBRC300
 pub const grafton_visca::camera::profiles::NearusBRC300::CONTRAST_RANGE: core::option::Option<grafton_visca::capabilities::CapabilityRange<u8>>
@@ -12974,6 +12855,7 @@ pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_3D_NR: bool
 pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_FLIP: bool
 pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_GAMMA: bool
 pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_HUE: bool
+pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_IMAGE_PROCESSING: bool
 pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_LUMINANCE: bool
 pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_MIRROR: bool
 pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_NOISE_REDUCTION: bool
@@ -13309,10 +13191,12 @@ impl grafton_visca::capabilities::HasDirectZoom for grafton_visca::camera::profi
 impl grafton_visca::capabilities::HasExposureCompensation for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasFocusLock for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasFocusZone for grafton_visca::camera::profiles::PtzOptics30X
+impl grafton_visca::capabilities::HasFocusZoneInquiry for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasGammaControl for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasHueControl for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasImageFlip for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasImageMirror for grafton_visca::camera::profiles::PtzOptics30X
+impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasIrisControl for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasLuminanceControl for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasNoiseReduction for grafton_visca::camera::profiles::PtzOptics30X
@@ -13324,6 +13208,7 @@ impl grafton_visca::capabilities::HasRgbGain for grafton_visca::camera::profiles
 impl grafton_visca::capabilities::HasRgbTuning for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasSaturationControl for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasSharpnessControl for grafton_visca::camera::profiles::PtzOptics30X
+impl grafton_visca::capabilities::HasUsbAudio for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasWideDynamicRange for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::profiles::PtzOptics30X
 pub type grafton_visca::camera::profiles::PtzOptics30X::Envelope = grafton_visca::transport::RawVisca
@@ -13339,6 +13224,7 @@ pub const grafton_visca::camera::profiles::PtzOptics30X::POSITION_INQUIRY_SUPPOR
 pub const grafton_visca::camera::profiles::PtzOptics30X::PROFILE_ID: core::option::Option<grafton_visca::camera::profiles::ProfileId>
 pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_COMMAND_CANCEL: bool
 pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_OPERATION_COMPLETE: bool
+pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_USB_AUDIO: bool
 impl grafton_visca::capabilities::ProfileTypedSupport for grafton_visca::camera::profiles::PtzOptics30X
 pub const grafton_visca::camera::profiles::PtzOptics30X::TYPED_SUPPORT: grafton_visca::capabilities::TypedSupportSet
 impl grafton_visca::capabilities::SupportsSerial for grafton_visca::camera::profiles::PtzOptics30X
@@ -13364,6 +13250,7 @@ pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_AF_SENSITIVITY
 pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_AUTO_FOCUS: bool
 pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY: bool
 pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_FOCUS_ZONE: bool
+pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_FOCUS_ZONE_INQUIRY: bool
 pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_ONE_PUSH_FOCUS: bool
 impl grafton_visca::capabilities::image_processing::ImageProcessing for grafton_visca::camera::profiles::PtzOptics30X
 pub const grafton_visca::camera::profiles::PtzOptics30X::CONTRAST_RANGE: core::option::Option<grafton_visca::capabilities::CapabilityRange<u8>>
@@ -13378,6 +13265,7 @@ pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_3D_NR: bool
 pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_FLIP: bool
 pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_GAMMA: bool
 pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_HUE: bool
+pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_IMAGE_PROCESSING: bool
 pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_LUMINANCE: bool
 pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_MIRROR: bool
 pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_NOISE_REDUCTION: bool
@@ -13470,10 +13358,12 @@ impl grafton_visca::capabilities::HasDirectZoom for grafton_visca::camera::profi
 impl grafton_visca::capabilities::HasExposureCompensation for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasFocusLock for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasFocusZone for grafton_visca::camera::profiles::PtzOpticsG2
+impl grafton_visca::capabilities::HasFocusZoneInquiry for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasGammaControl for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasHueControl for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasImageFlip for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasImageMirror for grafton_visca::camera::profiles::PtzOpticsG2
+impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasIrisControl for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasLuminanceControl for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasNoiseReduction for grafton_visca::camera::profiles::PtzOpticsG2
@@ -13485,6 +13375,7 @@ impl grafton_visca::capabilities::HasRgbGain for grafton_visca::camera::profiles
 impl grafton_visca::capabilities::HasRgbTuning for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasSaturationControl for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasSharpnessControl for grafton_visca::camera::profiles::PtzOpticsG2
+impl grafton_visca::capabilities::HasUsbAudio for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasWideDynamicRange for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::profiles::PtzOpticsG2
 pub type grafton_visca::camera::profiles::PtzOpticsG2::Envelope = grafton_visca::transport::RawVisca
@@ -13500,6 +13391,7 @@ pub const grafton_visca::camera::profiles::PtzOpticsG2::POSITION_INQUIRY_SUPPORT
 pub const grafton_visca::camera::profiles::PtzOpticsG2::PROFILE_ID: core::option::Option<grafton_visca::camera::profiles::ProfileId>
 pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_COMMAND_CANCEL: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_OPERATION_COMPLETE: bool
+pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_USB_AUDIO: bool
 impl grafton_visca::capabilities::ProfileTypedSupport for grafton_visca::camera::profiles::PtzOpticsG2
 pub const grafton_visca::camera::profiles::PtzOpticsG2::TYPED_SUPPORT: grafton_visca::capabilities::TypedSupportSet
 impl grafton_visca::capabilities::SupportsSerial for grafton_visca::camera::profiles::PtzOpticsG2
@@ -13525,6 +13417,7 @@ pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_AF_SENSITIVITY:
 pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_AUTO_FOCUS: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_FOCUS_ZONE: bool
+pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_FOCUS_ZONE_INQUIRY: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_ONE_PUSH_FOCUS: bool
 impl grafton_visca::capabilities::image_processing::ImageProcessing for grafton_visca::camera::profiles::PtzOpticsG2
 pub const grafton_visca::camera::profiles::PtzOpticsG2::CONTRAST_RANGE: core::option::Option<grafton_visca::capabilities::CapabilityRange<u8>>
@@ -13539,6 +13432,7 @@ pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_3D_NR: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_FLIP: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_GAMMA: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_HUE: bool
+pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_IMAGE_PROCESSING: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_LUMINANCE: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_MIRROR: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_NOISE_REDUCTION: bool
@@ -13635,6 +13529,7 @@ impl grafton_visca::capabilities::HasGammaControl for grafton_visca::camera::pro
 impl grafton_visca::capabilities::HasHueControl for grafton_visca::camera::profiles::PtzOpticsG3
 impl grafton_visca::capabilities::HasImageFlip for grafton_visca::camera::profiles::PtzOpticsG3
 impl grafton_visca::capabilities::HasImageMirror for grafton_visca::camera::profiles::PtzOpticsG3
+impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::PtzOpticsG3
 impl grafton_visca::capabilities::HasIrisControl for grafton_visca::camera::profiles::PtzOpticsG3
 impl grafton_visca::capabilities::HasLuminanceControl for grafton_visca::camera::profiles::PtzOpticsG3
 impl grafton_visca::capabilities::HasNoiseReduction for grafton_visca::camera::profiles::PtzOpticsG3
@@ -13661,6 +13556,7 @@ pub const grafton_visca::camera::profiles::PtzOpticsG3::POSITION_INQUIRY_SUPPORT
 pub const grafton_visca::camera::profiles::PtzOpticsG3::PROFILE_ID: core::option::Option<grafton_visca::camera::profiles::ProfileId>
 pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_COMMAND_CANCEL: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_OPERATION_COMPLETE: bool
+pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_USB_AUDIO: bool
 impl grafton_visca::capabilities::ProfileTypedSupport for grafton_visca::camera::profiles::PtzOpticsG3
 pub const grafton_visca::camera::profiles::PtzOpticsG3::TYPED_SUPPORT: grafton_visca::capabilities::TypedSupportSet
 impl grafton_visca::capabilities::SupportsSerial for grafton_visca::camera::profiles::PtzOpticsG3
@@ -13686,6 +13582,7 @@ pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_AF_SENSITIVITY:
 pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_AUTO_FOCUS: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_FOCUS_ZONE: bool
+pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_FOCUS_ZONE_INQUIRY: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_ONE_PUSH_FOCUS: bool
 impl grafton_visca::capabilities::image_processing::ImageProcessing for grafton_visca::camera::profiles::PtzOpticsG3
 pub const grafton_visca::camera::profiles::PtzOpticsG3::CONTRAST_RANGE: core::option::Option<grafton_visca::capabilities::CapabilityRange<u8>>
@@ -13700,6 +13597,7 @@ pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_3D_NR: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_FLIP: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_GAMMA: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_HUE: bool
+pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_IMAGE_PROCESSING: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_LUMINANCE: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_MIRROR: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_NOISE_REDUCTION: bool
@@ -13921,6 +13819,7 @@ pub const grafton_visca::camera::profiles::SonyBRC300::POSITION_INQUIRY_SUPPORT:
 pub const grafton_visca::camera::profiles::SonyBRC300::PROFILE_ID: core::option::Option<grafton_visca::camera::profiles::ProfileId>
 pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_COMMAND_CANCEL: bool
 pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_OPERATION_COMPLETE: bool
+pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_USB_AUDIO: bool
 impl grafton_visca::capabilities::ProfileTypedSupport for grafton_visca::camera::profiles::SonyBRC300
 pub const grafton_visca::camera::profiles::SonyBRC300::TYPED_SUPPORT: grafton_visca::capabilities::TypedSupportSet
 impl grafton_visca::capabilities::SupportsSerial for grafton_visca::camera::profiles::SonyBRC300
@@ -13946,6 +13845,7 @@ pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_AF_SENSITIVITY: 
 pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_AUTO_FOCUS: bool
 pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY: bool
 pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_FOCUS_ZONE: bool
+pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_FOCUS_ZONE_INQUIRY: bool
 pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_ONE_PUSH_FOCUS: bool
 impl grafton_visca::capabilities::image_processing::ImageProcessing for grafton_visca::camera::profiles::SonyBRC300
 pub const grafton_visca::camera::profiles::SonyBRC300::CONTRAST_RANGE: core::option::Option<grafton_visca::capabilities::CapabilityRange<u8>>
@@ -13960,6 +13860,7 @@ pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_3D_NR: bool
 pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_FLIP: bool
 pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_GAMMA: bool
 pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_HUE: bool
+pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_IMAGE_PROCESSING: bool
 pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_LUMINANCE: bool
 pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_MIRROR: bool
 pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_NOISE_REDUCTION: bool
@@ -14043,7 +13944,6 @@ impl core::fmt::Debug for grafton_visca::camera::profiles::SonyBRCH900
 pub fn grafton_visca::camera::profiles::SonyBRCH900::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasBacklightCompensation for grafton_visca::camera::profiles::SonyBRCH900
-impl grafton_visca::capabilities::HasBrightnessControl for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasColorTemperature for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasContrastControl for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasDigitalZoomRange for grafton_visca::camera::profiles::SonyBRCH900
@@ -14053,11 +13953,11 @@ impl grafton_visca::capabilities::HasFocusNearLimitInquiry for grafton_visca::ca
 impl grafton_visca::capabilities::HasGammaControl for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasImageFlip for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasImageMirror for grafton_visca::camera::profiles::SonyBRCH900
+impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasNoiseReduction for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasNoiseReduction2D for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasNoiseReduction3D for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasOnePushWhiteBalance for grafton_visca::camera::profiles::SonyBRCH900
-impl grafton_visca::capabilities::HasPictureEffect for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasRgbTuning for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasSaturationControl for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasSharpnessControl for grafton_visca::camera::profiles::SonyBRCH900
@@ -14077,6 +13977,7 @@ pub const grafton_visca::camera::profiles::SonyBRCH900::POSITION_INQUIRY_SUPPORT
 pub const grafton_visca::camera::profiles::SonyBRCH900::PROFILE_ID: core::option::Option<grafton_visca::camera::profiles::ProfileId>
 pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_COMMAND_CANCEL: bool
 pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_OPERATION_COMPLETE: bool
+pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_USB_AUDIO: bool
 impl grafton_visca::capabilities::ProfileTypedSupport for grafton_visca::camera::profiles::SonyBRCH900
 pub const grafton_visca::camera::profiles::SonyBRCH900::TYPED_SUPPORT: grafton_visca::capabilities::TypedSupportSet
 impl grafton_visca::capabilities::SupportsUdp for grafton_visca::camera::profiles::SonyBRCH900
@@ -14099,6 +14000,7 @@ pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_AF_SENSITIVITY:
 pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_AUTO_FOCUS: bool
 pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY: bool
 pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_FOCUS_ZONE: bool
+pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_FOCUS_ZONE_INQUIRY: bool
 pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_ONE_PUSH_FOCUS: bool
 impl grafton_visca::capabilities::image_processing::ImageProcessing for grafton_visca::camera::profiles::SonyBRCH900
 pub const grafton_visca::camera::profiles::SonyBRCH900::CONTRAST_RANGE: core::option::Option<grafton_visca::capabilities::CapabilityRange<u8>>
@@ -14113,6 +14015,7 @@ pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_3D_NR: bool
 pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_FLIP: bool
 pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_GAMMA: bool
 pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_HUE: bool
+pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_IMAGE_PROCESSING: bool
 pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_LUMINANCE: bool
 pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_MIRROR: bool
 pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_NOISE_REDUCTION: bool
@@ -14202,6 +14105,7 @@ impl grafton_visca::capabilities::HasFocusNearLimitInquiry for grafton_visca::ca
 impl grafton_visca::capabilities::HasGammaControl for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasImageFlip for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasImageMirror for grafton_visca::camera::profiles::SonyEVIH100
+impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasNoiseReduction for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasOnePushWhiteBalance for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasRgbTuning for grafton_visca::camera::profiles::SonyEVIH100
@@ -14219,6 +14123,7 @@ pub const grafton_visca::camera::profiles::SonyEVIH100::POSITION_INQUIRY_SUPPORT
 pub const grafton_visca::camera::profiles::SonyEVIH100::PROFILE_ID: core::option::Option<grafton_visca::camera::profiles::ProfileId>
 pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_COMMAND_CANCEL: bool
 pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_OPERATION_COMPLETE: bool
+pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_USB_AUDIO: bool
 impl grafton_visca::capabilities::ProfileTypedSupport for grafton_visca::camera::profiles::SonyEVIH100
 pub const grafton_visca::camera::profiles::SonyEVIH100::TYPED_SUPPORT: grafton_visca::capabilities::TypedSupportSet
 impl grafton_visca::capabilities::SupportsSerial for grafton_visca::camera::profiles::SonyEVIH100
@@ -14244,6 +14149,7 @@ pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_AF_SENSITIVITY:
 pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_AUTO_FOCUS: bool
 pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY: bool
 pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_FOCUS_ZONE: bool
+pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_FOCUS_ZONE_INQUIRY: bool
 pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_ONE_PUSH_FOCUS: bool
 impl grafton_visca::capabilities::image_processing::ImageProcessing for grafton_visca::camera::profiles::SonyEVIH100
 pub const grafton_visca::camera::profiles::SonyEVIH100::CONTRAST_RANGE: core::option::Option<grafton_visca::capabilities::CapabilityRange<u8>>
@@ -14258,6 +14164,7 @@ pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_3D_NR: bool
 pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_FLIP: bool
 pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_GAMMA: bool
 pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_HUE: bool
+pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_IMAGE_PROCESSING: bool
 pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_LUMINANCE: bool
 pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_MIRROR: bool
 pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_NOISE_REDUCTION: bool
@@ -14343,25 +14250,23 @@ impl core::marker::Copy for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasAutoFocusSensitivity for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasAutoTrackingWhiteBalance for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasBacklightCompensation for grafton_visca::camera::profiles::SonyFR7
-impl grafton_visca::capabilities::HasBrightnessControl for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasContrastControl for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasDigitalZoomRange for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasDigitalZoomToggle for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasDirectZoom for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasExposureCompensation for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasFocusNearLimitInquiry for grafton_visca::camera::profiles::SonyFR7
-impl grafton_visca::capabilities::HasFocusZone for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasGammaControl for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasHueControl for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasImageFlip for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasImageMirror for grafton_visca::camera::profiles::SonyFR7
+impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasIrisControl for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasNdFilter for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasNoiseReduction for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasNoiseReduction2D for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasNoiseReduction3D for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasOnePushWhiteBalance for grafton_visca::camera::profiles::SonyFR7
-impl grafton_visca::capabilities::HasPictureEffect for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasPushAutoFocus for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasRgbGain for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasRgbTuning for grafton_visca::camera::profiles::SonyFR7
@@ -14384,6 +14289,7 @@ pub const grafton_visca::camera::profiles::SonyFR7::POSITION_INQUIRY_SUPPORT: gr
 pub const grafton_visca::camera::profiles::SonyFR7::PROFILE_ID: core::option::Option<grafton_visca::camera::profiles::ProfileId>
 pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_COMMAND_CANCEL: bool
 pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_OPERATION_COMPLETE: bool
+pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_USB_AUDIO: bool
 impl grafton_visca::capabilities::ProfileTypedSupport for grafton_visca::camera::profiles::SonyFR7
 pub const grafton_visca::camera::profiles::SonyFR7::TYPED_SUPPORT: grafton_visca::capabilities::TypedSupportSet
 impl grafton_visca::capabilities::SupportsUdp for grafton_visca::camera::profiles::SonyFR7
@@ -14406,6 +14312,7 @@ pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_AF_SENSITIVITY: boo
 pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_AUTO_FOCUS: bool
 pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY: bool
 pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_FOCUS_ZONE: bool
+pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_FOCUS_ZONE_INQUIRY: bool
 pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_ONE_PUSH_FOCUS: bool
 impl grafton_visca::capabilities::image_processing::ImageProcessing for grafton_visca::camera::profiles::SonyFR7
 pub const grafton_visca::camera::profiles::SonyFR7::CONTRAST_RANGE: core::option::Option<grafton_visca::capabilities::CapabilityRange<u8>>
@@ -14420,6 +14327,7 @@ pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_3D_NR: bool
 pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_FLIP: bool
 pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_GAMMA: bool
 pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_HUE: bool
+pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_IMAGE_PROCESSING: bool
 pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_LUMINANCE: bool
 pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_MIRROR: bool
 pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_NOISE_REDUCTION: bool
@@ -15200,6 +15108,7 @@ pub const grafton_visca::camera::profiles::GenericVisca::POSITION_INQUIRY_SUPPOR
 pub const grafton_visca::camera::profiles::GenericVisca::PROFILE_ID: core::option::Option<grafton_visca::camera::profiles::ProfileId>
 pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_COMMAND_CANCEL: bool
 pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_OPERATION_COMPLETE: bool
+pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_USB_AUDIO: bool
 impl grafton_visca::capabilities::ProfileTypedSupport for grafton_visca::camera::profiles::GenericVisca
 pub const grafton_visca::camera::profiles::GenericVisca::TYPED_SUPPORT: grafton_visca::capabilities::TypedSupportSet
 impl grafton_visca::capabilities::SupportsSerial for grafton_visca::camera::profiles::GenericVisca
@@ -15225,6 +15134,7 @@ pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_AF_SENSITIVITY
 pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_AUTO_FOCUS: bool
 pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY: bool
 pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_FOCUS_ZONE: bool
+pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_FOCUS_ZONE_INQUIRY: bool
 pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_ONE_PUSH_FOCUS: bool
 impl grafton_visca::capabilities::image_processing::ImageProcessing for grafton_visca::camera::profiles::GenericVisca
 pub const grafton_visca::camera::profiles::GenericVisca::CONTRAST_RANGE: core::option::Option<grafton_visca::capabilities::CapabilityRange<u8>>
@@ -15239,6 +15149,7 @@ pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_3D_NR: bool
 pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_FLIP: bool
 pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_GAMMA: bool
 pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_HUE: bool
+pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_IMAGE_PROCESSING: bool
 pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_LUMINANCE: bool
 pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_MIRROR: bool
 pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_NOISE_REDUCTION: bool
@@ -15324,6 +15235,7 @@ impl core::marker::Copy for grafton_visca::camera::profiles::NearusBRC300
 impl grafton_visca::capabilities::HasBacklightCompensation for grafton_visca::camera::profiles::NearusBRC300
 impl grafton_visca::capabilities::HasDirectZoom for grafton_visca::camera::profiles::NearusBRC300
 impl grafton_visca::capabilities::HasFocusNearLimitInquiry for grafton_visca::camera::profiles::NearusBRC300
+impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::NearusBRC300
 impl grafton_visca::capabilities::HasSaturationControl for grafton_visca::camera::profiles::NearusBRC300
 impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::profiles::NearusBRC300
 pub type grafton_visca::camera::profiles::NearusBRC300::Envelope = grafton_visca::transport::RawVisca
@@ -15339,6 +15251,7 @@ pub const grafton_visca::camera::profiles::NearusBRC300::POSITION_INQUIRY_SUPPOR
 pub const grafton_visca::camera::profiles::NearusBRC300::PROFILE_ID: core::option::Option<grafton_visca::camera::profiles::ProfileId>
 pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_COMMAND_CANCEL: bool
 pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_OPERATION_COMPLETE: bool
+pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_USB_AUDIO: bool
 impl grafton_visca::capabilities::ProfileTypedSupport for grafton_visca::camera::profiles::NearusBRC300
 pub const grafton_visca::camera::profiles::NearusBRC300::TYPED_SUPPORT: grafton_visca::capabilities::TypedSupportSet
 impl grafton_visca::capabilities::SupportsSerial for grafton_visca::camera::profiles::NearusBRC300
@@ -15364,6 +15277,7 @@ pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_AF_SENSITIVITY
 pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_AUTO_FOCUS: bool
 pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY: bool
 pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_FOCUS_ZONE: bool
+pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_FOCUS_ZONE_INQUIRY: bool
 pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_ONE_PUSH_FOCUS: bool
 impl grafton_visca::capabilities::image_processing::ImageProcessing for grafton_visca::camera::profiles::NearusBRC300
 pub const grafton_visca::camera::profiles::NearusBRC300::CONTRAST_RANGE: core::option::Option<grafton_visca::capabilities::CapabilityRange<u8>>
@@ -15378,6 +15292,7 @@ pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_3D_NR: bool
 pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_FLIP: bool
 pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_GAMMA: bool
 pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_HUE: bool
+pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_IMAGE_PROCESSING: bool
 pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_LUMINANCE: bool
 pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_MIRROR: bool
 pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_NOISE_REDUCTION: bool
@@ -15470,10 +15385,12 @@ impl grafton_visca::capabilities::HasDirectZoom for grafton_visca::camera::profi
 impl grafton_visca::capabilities::HasExposureCompensation for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasFocusLock for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasFocusZone for grafton_visca::camera::profiles::PtzOptics30X
+impl grafton_visca::capabilities::HasFocusZoneInquiry for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasGammaControl for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasHueControl for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasImageFlip for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasImageMirror for grafton_visca::camera::profiles::PtzOptics30X
+impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasIrisControl for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasLuminanceControl for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasNoiseReduction for grafton_visca::camera::profiles::PtzOptics30X
@@ -15485,6 +15402,7 @@ impl grafton_visca::capabilities::HasRgbGain for grafton_visca::camera::profiles
 impl grafton_visca::capabilities::HasRgbTuning for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasSaturationControl for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasSharpnessControl for grafton_visca::camera::profiles::PtzOptics30X
+impl grafton_visca::capabilities::HasUsbAudio for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasWideDynamicRange for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::profiles::PtzOptics30X
 pub type grafton_visca::camera::profiles::PtzOptics30X::Envelope = grafton_visca::transport::RawVisca
@@ -15500,6 +15418,7 @@ pub const grafton_visca::camera::profiles::PtzOptics30X::POSITION_INQUIRY_SUPPOR
 pub const grafton_visca::camera::profiles::PtzOptics30X::PROFILE_ID: core::option::Option<grafton_visca::camera::profiles::ProfileId>
 pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_COMMAND_CANCEL: bool
 pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_OPERATION_COMPLETE: bool
+pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_USB_AUDIO: bool
 impl grafton_visca::capabilities::ProfileTypedSupport for grafton_visca::camera::profiles::PtzOptics30X
 pub const grafton_visca::camera::profiles::PtzOptics30X::TYPED_SUPPORT: grafton_visca::capabilities::TypedSupportSet
 impl grafton_visca::capabilities::SupportsSerial for grafton_visca::camera::profiles::PtzOptics30X
@@ -15525,6 +15444,7 @@ pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_AF_SENSITIVITY
 pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_AUTO_FOCUS: bool
 pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY: bool
 pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_FOCUS_ZONE: bool
+pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_FOCUS_ZONE_INQUIRY: bool
 pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_ONE_PUSH_FOCUS: bool
 impl grafton_visca::capabilities::image_processing::ImageProcessing for grafton_visca::camera::profiles::PtzOptics30X
 pub const grafton_visca::camera::profiles::PtzOptics30X::CONTRAST_RANGE: core::option::Option<grafton_visca::capabilities::CapabilityRange<u8>>
@@ -15539,6 +15459,7 @@ pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_3D_NR: bool
 pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_FLIP: bool
 pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_GAMMA: bool
 pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_HUE: bool
+pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_IMAGE_PROCESSING: bool
 pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_LUMINANCE: bool
 pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_MIRROR: bool
 pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_NOISE_REDUCTION: bool
@@ -15631,10 +15552,12 @@ impl grafton_visca::capabilities::HasDirectZoom for grafton_visca::camera::profi
 impl grafton_visca::capabilities::HasExposureCompensation for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasFocusLock for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasFocusZone for grafton_visca::camera::profiles::PtzOpticsG2
+impl grafton_visca::capabilities::HasFocusZoneInquiry for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasGammaControl for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasHueControl for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasImageFlip for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasImageMirror for grafton_visca::camera::profiles::PtzOpticsG2
+impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasIrisControl for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasLuminanceControl for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasNoiseReduction for grafton_visca::camera::profiles::PtzOpticsG2
@@ -15646,6 +15569,7 @@ impl grafton_visca::capabilities::HasRgbGain for grafton_visca::camera::profiles
 impl grafton_visca::capabilities::HasRgbTuning for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasSaturationControl for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasSharpnessControl for grafton_visca::camera::profiles::PtzOpticsG2
+impl grafton_visca::capabilities::HasUsbAudio for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasWideDynamicRange for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::profiles::PtzOpticsG2
 pub type grafton_visca::camera::profiles::PtzOpticsG2::Envelope = grafton_visca::transport::RawVisca
@@ -15661,6 +15585,7 @@ pub const grafton_visca::camera::profiles::PtzOpticsG2::POSITION_INQUIRY_SUPPORT
 pub const grafton_visca::camera::profiles::PtzOpticsG2::PROFILE_ID: core::option::Option<grafton_visca::camera::profiles::ProfileId>
 pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_COMMAND_CANCEL: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_OPERATION_COMPLETE: bool
+pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_USB_AUDIO: bool
 impl grafton_visca::capabilities::ProfileTypedSupport for grafton_visca::camera::profiles::PtzOpticsG2
 pub const grafton_visca::camera::profiles::PtzOpticsG2::TYPED_SUPPORT: grafton_visca::capabilities::TypedSupportSet
 impl grafton_visca::capabilities::SupportsSerial for grafton_visca::camera::profiles::PtzOpticsG2
@@ -15686,6 +15611,7 @@ pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_AF_SENSITIVITY:
 pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_AUTO_FOCUS: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_FOCUS_ZONE: bool
+pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_FOCUS_ZONE_INQUIRY: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_ONE_PUSH_FOCUS: bool
 impl grafton_visca::capabilities::image_processing::ImageProcessing for grafton_visca::camera::profiles::PtzOpticsG2
 pub const grafton_visca::camera::profiles::PtzOpticsG2::CONTRAST_RANGE: core::option::Option<grafton_visca::capabilities::CapabilityRange<u8>>
@@ -15700,6 +15626,7 @@ pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_3D_NR: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_FLIP: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_GAMMA: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_HUE: bool
+pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_IMAGE_PROCESSING: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_LUMINANCE: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_MIRROR: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_NOISE_REDUCTION: bool
@@ -15796,6 +15723,7 @@ impl grafton_visca::capabilities::HasGammaControl for grafton_visca::camera::pro
 impl grafton_visca::capabilities::HasHueControl for grafton_visca::camera::profiles::PtzOpticsG3
 impl grafton_visca::capabilities::HasImageFlip for grafton_visca::camera::profiles::PtzOpticsG3
 impl grafton_visca::capabilities::HasImageMirror for grafton_visca::camera::profiles::PtzOpticsG3
+impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::PtzOpticsG3
 impl grafton_visca::capabilities::HasIrisControl for grafton_visca::camera::profiles::PtzOpticsG3
 impl grafton_visca::capabilities::HasLuminanceControl for grafton_visca::camera::profiles::PtzOpticsG3
 impl grafton_visca::capabilities::HasNoiseReduction for grafton_visca::camera::profiles::PtzOpticsG3
@@ -15822,6 +15750,7 @@ pub const grafton_visca::camera::profiles::PtzOpticsG3::POSITION_INQUIRY_SUPPORT
 pub const grafton_visca::camera::profiles::PtzOpticsG3::PROFILE_ID: core::option::Option<grafton_visca::camera::profiles::ProfileId>
 pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_COMMAND_CANCEL: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_OPERATION_COMPLETE: bool
+pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_USB_AUDIO: bool
 impl grafton_visca::capabilities::ProfileTypedSupport for grafton_visca::camera::profiles::PtzOpticsG3
 pub const grafton_visca::camera::profiles::PtzOpticsG3::TYPED_SUPPORT: grafton_visca::capabilities::TypedSupportSet
 impl grafton_visca::capabilities::SupportsSerial for grafton_visca::camera::profiles::PtzOpticsG3
@@ -15847,6 +15776,7 @@ pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_AF_SENSITIVITY:
 pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_AUTO_FOCUS: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_FOCUS_ZONE: bool
+pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_FOCUS_ZONE_INQUIRY: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_ONE_PUSH_FOCUS: bool
 impl grafton_visca::capabilities::image_processing::ImageProcessing for grafton_visca::camera::profiles::PtzOpticsG3
 pub const grafton_visca::camera::profiles::PtzOpticsG3::CONTRAST_RANGE: core::option::Option<grafton_visca::capabilities::CapabilityRange<u8>>
@@ -15861,6 +15791,7 @@ pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_3D_NR: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_FLIP: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_GAMMA: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_HUE: bool
+pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_IMAGE_PROCESSING: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_LUMINANCE: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_MIRROR: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_NOISE_REDUCTION: bool
@@ -15960,6 +15891,7 @@ pub const grafton_visca::camera::profiles::SonyBRC300::POSITION_INQUIRY_SUPPORT:
 pub const grafton_visca::camera::profiles::SonyBRC300::PROFILE_ID: core::option::Option<grafton_visca::camera::profiles::ProfileId>
 pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_COMMAND_CANCEL: bool
 pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_OPERATION_COMPLETE: bool
+pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_USB_AUDIO: bool
 impl grafton_visca::capabilities::ProfileTypedSupport for grafton_visca::camera::profiles::SonyBRC300
 pub const grafton_visca::camera::profiles::SonyBRC300::TYPED_SUPPORT: grafton_visca::capabilities::TypedSupportSet
 impl grafton_visca::capabilities::SupportsSerial for grafton_visca::camera::profiles::SonyBRC300
@@ -15985,6 +15917,7 @@ pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_AF_SENSITIVITY: 
 pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_AUTO_FOCUS: bool
 pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY: bool
 pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_FOCUS_ZONE: bool
+pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_FOCUS_ZONE_INQUIRY: bool
 pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_ONE_PUSH_FOCUS: bool
 impl grafton_visca::capabilities::image_processing::ImageProcessing for grafton_visca::camera::profiles::SonyBRC300
 pub const grafton_visca::camera::profiles::SonyBRC300::CONTRAST_RANGE: core::option::Option<grafton_visca::capabilities::CapabilityRange<u8>>
@@ -15999,6 +15932,7 @@ pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_3D_NR: bool
 pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_FLIP: bool
 pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_GAMMA: bool
 pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_HUE: bool
+pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_IMAGE_PROCESSING: bool
 pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_LUMINANCE: bool
 pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_MIRROR: bool
 pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_NOISE_REDUCTION: bool
@@ -16082,7 +16016,6 @@ impl core::fmt::Debug for grafton_visca::camera::profiles::SonyBRCH900
 pub fn grafton_visca::camera::profiles::SonyBRCH900::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasBacklightCompensation for grafton_visca::camera::profiles::SonyBRCH900
-impl grafton_visca::capabilities::HasBrightnessControl for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasColorTemperature for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasContrastControl for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasDigitalZoomRange for grafton_visca::camera::profiles::SonyBRCH900
@@ -16092,11 +16025,11 @@ impl grafton_visca::capabilities::HasFocusNearLimitInquiry for grafton_visca::ca
 impl grafton_visca::capabilities::HasGammaControl for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasImageFlip for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasImageMirror for grafton_visca::camera::profiles::SonyBRCH900
+impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasNoiseReduction for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasNoiseReduction2D for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasNoiseReduction3D for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasOnePushWhiteBalance for grafton_visca::camera::profiles::SonyBRCH900
-impl grafton_visca::capabilities::HasPictureEffect for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasRgbTuning for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasSaturationControl for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasSharpnessControl for grafton_visca::camera::profiles::SonyBRCH900
@@ -16116,6 +16049,7 @@ pub const grafton_visca::camera::profiles::SonyBRCH900::POSITION_INQUIRY_SUPPORT
 pub const grafton_visca::camera::profiles::SonyBRCH900::PROFILE_ID: core::option::Option<grafton_visca::camera::profiles::ProfileId>
 pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_COMMAND_CANCEL: bool
 pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_OPERATION_COMPLETE: bool
+pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_USB_AUDIO: bool
 impl grafton_visca::capabilities::ProfileTypedSupport for grafton_visca::camera::profiles::SonyBRCH900
 pub const grafton_visca::camera::profiles::SonyBRCH900::TYPED_SUPPORT: grafton_visca::capabilities::TypedSupportSet
 impl grafton_visca::capabilities::SupportsUdp for grafton_visca::camera::profiles::SonyBRCH900
@@ -16138,6 +16072,7 @@ pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_AF_SENSITIVITY:
 pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_AUTO_FOCUS: bool
 pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY: bool
 pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_FOCUS_ZONE: bool
+pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_FOCUS_ZONE_INQUIRY: bool
 pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_ONE_PUSH_FOCUS: bool
 impl grafton_visca::capabilities::image_processing::ImageProcessing for grafton_visca::camera::profiles::SonyBRCH900
 pub const grafton_visca::camera::profiles::SonyBRCH900::CONTRAST_RANGE: core::option::Option<grafton_visca::capabilities::CapabilityRange<u8>>
@@ -16152,6 +16087,7 @@ pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_3D_NR: bool
 pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_FLIP: bool
 pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_GAMMA: bool
 pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_HUE: bool
+pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_IMAGE_PROCESSING: bool
 pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_LUMINANCE: bool
 pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_MIRROR: bool
 pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_NOISE_REDUCTION: bool
@@ -16241,6 +16177,7 @@ impl grafton_visca::capabilities::HasFocusNearLimitInquiry for grafton_visca::ca
 impl grafton_visca::capabilities::HasGammaControl for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasImageFlip for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasImageMirror for grafton_visca::camera::profiles::SonyEVIH100
+impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasNoiseReduction for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasOnePushWhiteBalance for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasRgbTuning for grafton_visca::camera::profiles::SonyEVIH100
@@ -16258,6 +16195,7 @@ pub const grafton_visca::camera::profiles::SonyEVIH100::POSITION_INQUIRY_SUPPORT
 pub const grafton_visca::camera::profiles::SonyEVIH100::PROFILE_ID: core::option::Option<grafton_visca::camera::profiles::ProfileId>
 pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_COMMAND_CANCEL: bool
 pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_OPERATION_COMPLETE: bool
+pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_USB_AUDIO: bool
 impl grafton_visca::capabilities::ProfileTypedSupport for grafton_visca::camera::profiles::SonyEVIH100
 pub const grafton_visca::camera::profiles::SonyEVIH100::TYPED_SUPPORT: grafton_visca::capabilities::TypedSupportSet
 impl grafton_visca::capabilities::SupportsSerial for grafton_visca::camera::profiles::SonyEVIH100
@@ -16283,6 +16221,7 @@ pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_AF_SENSITIVITY:
 pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_AUTO_FOCUS: bool
 pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY: bool
 pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_FOCUS_ZONE: bool
+pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_FOCUS_ZONE_INQUIRY: bool
 pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_ONE_PUSH_FOCUS: bool
 impl grafton_visca::capabilities::image_processing::ImageProcessing for grafton_visca::camera::profiles::SonyEVIH100
 pub const grafton_visca::camera::profiles::SonyEVIH100::CONTRAST_RANGE: core::option::Option<grafton_visca::capabilities::CapabilityRange<u8>>
@@ -16297,6 +16236,7 @@ pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_3D_NR: bool
 pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_FLIP: bool
 pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_GAMMA: bool
 pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_HUE: bool
+pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_IMAGE_PROCESSING: bool
 pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_LUMINANCE: bool
 pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_MIRROR: bool
 pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_NOISE_REDUCTION: bool
@@ -16382,25 +16322,23 @@ impl core::marker::Copy for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasAutoFocusSensitivity for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasAutoTrackingWhiteBalance for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasBacklightCompensation for grafton_visca::camera::profiles::SonyFR7
-impl grafton_visca::capabilities::HasBrightnessControl for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasContrastControl for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasDigitalZoomRange for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasDigitalZoomToggle for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasDirectZoom for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasExposureCompensation for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasFocusNearLimitInquiry for grafton_visca::camera::profiles::SonyFR7
-impl grafton_visca::capabilities::HasFocusZone for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasGammaControl for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasHueControl for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasImageFlip for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasImageMirror for grafton_visca::camera::profiles::SonyFR7
+impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasIrisControl for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasNdFilter for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasNoiseReduction for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasNoiseReduction2D for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasNoiseReduction3D for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasOnePushWhiteBalance for grafton_visca::camera::profiles::SonyFR7
-impl grafton_visca::capabilities::HasPictureEffect for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasPushAutoFocus for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasRgbGain for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasRgbTuning for grafton_visca::camera::profiles::SonyFR7
@@ -16423,6 +16361,7 @@ pub const grafton_visca::camera::profiles::SonyFR7::POSITION_INQUIRY_SUPPORT: gr
 pub const grafton_visca::camera::profiles::SonyFR7::PROFILE_ID: core::option::Option<grafton_visca::camera::profiles::ProfileId>
 pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_COMMAND_CANCEL: bool
 pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_OPERATION_COMPLETE: bool
+pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_USB_AUDIO: bool
 impl grafton_visca::capabilities::ProfileTypedSupport for grafton_visca::camera::profiles::SonyFR7
 pub const grafton_visca::camera::profiles::SonyFR7::TYPED_SUPPORT: grafton_visca::capabilities::TypedSupportSet
 impl grafton_visca::capabilities::SupportsUdp for grafton_visca::camera::profiles::SonyFR7
@@ -16445,6 +16384,7 @@ pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_AF_SENSITIVITY: boo
 pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_AUTO_FOCUS: bool
 pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY: bool
 pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_FOCUS_ZONE: bool
+pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_FOCUS_ZONE_INQUIRY: bool
 pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_ONE_PUSH_FOCUS: bool
 impl grafton_visca::capabilities::image_processing::ImageProcessing for grafton_visca::camera::profiles::SonyFR7
 pub const grafton_visca::camera::profiles::SonyFR7::CONTRAST_RANGE: core::option::Option<grafton_visca::capabilities::CapabilityRange<u8>>
@@ -16459,6 +16399,7 @@ pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_3D_NR: bool
 pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_FLIP: bool
 pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_GAMMA: bool
 pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_HUE: bool
+pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_IMAGE_PROCESSING: bool
 pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_LUMINANCE: bool
 pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_MIRROR: bool
 pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_NOISE_REDUCTION: bool
@@ -20761,12 +20702,7 @@ impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::command::PanTilt
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::command::PanTiltLimitCorner
 pub enum grafton_visca::PictureEffectMode
 pub grafton_visca::PictureEffectMode::BlackAndWhite
-pub grafton_visca::PictureEffectMode::Emboss
-pub grafton_visca::PictureEffectMode::Mosaic
-pub grafton_visca::PictureEffectMode::Negative
 pub grafton_visca::PictureEffectMode::Off
-pub grafton_visca::PictureEffectMode::Sepia
-pub grafton_visca::PictureEffectMode::Sketch
 pub grafton_visca::PictureEffectMode::Unknown(u8)
 impl grafton_visca::PictureEffectMode
 pub fn grafton_visca::PictureEffectMode::as_byte(&self) -> u8
@@ -20809,36 +20745,6 @@ impl core::marker::Unpin for grafton_visca::profile::ProfileEnvelope
 impl core::marker::UnsafeUnpin for grafton_visca::profile::ProfileEnvelope
 impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::profile::ProfileEnvelope
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::profile::ProfileEnvelope
-pub enum grafton_visca::ResolutionMode
-pub grafton_visca::ResolutionMode::FullHD25
-pub grafton_visca::ResolutionMode::FullHD30
-pub grafton_visca::ResolutionMode::FullHD60
-pub grafton_visca::ResolutionMode::HD25
-pub grafton_visca::ResolutionMode::HD30
-pub grafton_visca::ResolutionMode::HD60
-pub grafton_visca::ResolutionMode::Unknown(u8)
-impl grafton_visca::ResolutionMode
-pub fn grafton_visca::ResolutionMode::description(&self) -> &'static str
-pub fn grafton_visca::ResolutionMode::frame_rate(&self) -> core::option::Option<f32>
-pub fn grafton_visca::ResolutionMode::from_byte(u8) -> Self
-pub fn grafton_visca::ResolutionMode::height(&self) -> core::option::Option<u32>
-pub fn grafton_visca::ResolutionMode::width(&self) -> core::option::Option<u32>
-impl core::clone::Clone for grafton_visca::ResolutionMode
-pub fn grafton_visca::ResolutionMode::clone(&self) -> grafton_visca::ResolutionMode
-impl core::cmp::Eq for grafton_visca::ResolutionMode
-impl core::cmp::PartialEq for grafton_visca::ResolutionMode
-pub fn grafton_visca::ResolutionMode::eq(&self, &grafton_visca::ResolutionMode) -> bool
-impl core::fmt::Debug for grafton_visca::ResolutionMode
-pub fn grafton_visca::ResolutionMode::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::Copy for grafton_visca::ResolutionMode
-impl core::marker::StructuralPartialEq for grafton_visca::ResolutionMode
-impl core::marker::Freeze for grafton_visca::ResolutionMode
-impl core::marker::Send for grafton_visca::ResolutionMode
-impl core::marker::Sync for grafton_visca::ResolutionMode
-impl core::marker::Unpin for grafton_visca::ResolutionMode
-impl core::marker::UnsafeUnpin for grafton_visca::ResolutionMode
-impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::ResolutionMode
-impl core::panic::unwind_safe::UnwindSafe for grafton_visca::ResolutionMode
 #[non_exhaustive] pub enum grafton_visca::RetryClass
 pub grafton_visca::RetryClass::Inquiry
 pub grafton_visca::RetryClass::Movement
@@ -22071,14 +21977,6 @@ impl grafton_visca::Inquiry for grafton_visca::command::BacklightInquiry
 pub type grafton_visca::command::BacklightInquiry::Response = bool
 pub fn grafton_visca::command::BacklightInquiry::decoder(&self) -> grafton_visca::ResponseDecoder<Self::Response>
 pub fn grafton_visca::command::BacklightInquiry::route(&self) -> grafton_visca::InquiryRoute
-impl grafton_visca::Inquiry for grafton_visca::command::BlackWhiteInquiry
-pub type grafton_visca::command::BlackWhiteInquiry::Response = bool
-pub fn grafton_visca::command::BlackWhiteInquiry::decoder(&self) -> grafton_visca::ResponseDecoder<Self::Response>
-pub fn grafton_visca::command::BlackWhiteInquiry::route(&self) -> grafton_visca::InquiryRoute
-impl grafton_visca::Inquiry for grafton_visca::command::BlackWhiteModeInquiry
-pub type grafton_visca::command::BlackWhiteModeInquiry::Response = grafton_visca::command::BlackWhiteMode
-pub fn grafton_visca::command::BlackWhiteModeInquiry::decoder(&self) -> grafton_visca::ResponseDecoder<Self::Response>
-pub fn grafton_visca::command::BlackWhiteModeInquiry::route(&self) -> grafton_visca::InquiryRoute
 impl grafton_visca::Inquiry for grafton_visca::command::BlueGainInquiry
 pub type grafton_visca::command::BlueGainInquiry::Response = grafton_visca::types::BlueChannel
 pub fn grafton_visca::command::BlueGainInquiry::decoder(&self) -> grafton_visca::ResponseDecoder<Self::Response>
@@ -22267,10 +22165,6 @@ impl grafton_visca::Inquiry for grafton_visca::command::RedTuningInquiry
 pub type grafton_visca::command::RedTuningInquiry::Response = grafton_visca::types::RedTuning
 pub fn grafton_visca::command::RedTuningInquiry::decoder(&self) -> grafton_visca::ResponseDecoder<Self::Response>
 pub fn grafton_visca::command::RedTuningInquiry::route(&self) -> grafton_visca::InquiryRoute
-impl grafton_visca::Inquiry for grafton_visca::command::ResolutionInquiry
-pub type grafton_visca::command::ResolutionInquiry::Response = grafton_visca::ResolutionMode
-pub fn grafton_visca::command::ResolutionInquiry::decoder(&self) -> grafton_visca::ResponseDecoder<Self::Response>
-pub fn grafton_visca::command::ResolutionInquiry::route(&self) -> grafton_visca::InquiryRoute
 impl grafton_visca::Inquiry for grafton_visca::command::SaturationInquiry
 pub type grafton_visca::command::SaturationInquiry::Response = grafton_visca::types::SaturationLevel
 pub fn grafton_visca::command::SaturationInquiry::decoder(&self) -> grafton_visca::ResponseDecoder<Self::Response>
@@ -22543,32 +22437,6 @@ pub fn grafton_visca::command::BacklightInquiry::retry_class(&self) -> grafton_v
 pub fn grafton_visca::command::BacklightInquiry::timeout_class(&self) -> grafton_visca::TimeoutClass
 pub fn grafton_visca::command::BacklightInquiry::validate_for_profile(&self, &grafton_visca::profile::ProfileSpec) -> grafton_visca::Result<()>
 pub fn grafton_visca::command::BacklightInquiry::write_into(&self, grafton_visca::CameraId, &mut [u8]) -> core::result::Result<usize, grafton_visca::Error>
-impl grafton_visca::Request for grafton_visca::command::BlackWhiteInquiry
-pub type grafton_visca::command::BlackWhiteInquiry::Class = grafton_visca::request::Inquiry
-pub const grafton_visca::command::BlackWhiteInquiry::CONTROL_CLASS: grafton_visca::ControlClass
-pub const grafton_visca::command::BlackWhiteInquiry::MAX_SIZE: usize
-pub const grafton_visca::command::BlackWhiteInquiry::RETRY_CLASS: grafton_visca::RetryClass
-pub const grafton_visca::command::BlackWhiteInquiry::TIMEOUT_CLASS: grafton_visca::TimeoutClass
-pub fn grafton_visca::command::BlackWhiteInquiry::control_class(&self) -> grafton_visca::ControlClass
-pub fn grafton_visca::command::BlackWhiteInquiry::encoded_size(&self) -> usize
-pub fn grafton_visca::command::BlackWhiteInquiry::reply_shape(&self) -> grafton_visca::raw::RawReplyShape
-pub fn grafton_visca::command::BlackWhiteInquiry::retry_class(&self) -> grafton_visca::RetryClass
-pub fn grafton_visca::command::BlackWhiteInquiry::timeout_class(&self) -> grafton_visca::TimeoutClass
-pub fn grafton_visca::command::BlackWhiteInquiry::validate_for_profile(&self, &grafton_visca::profile::ProfileSpec) -> grafton_visca::Result<()>
-pub fn grafton_visca::command::BlackWhiteInquiry::write_into(&self, grafton_visca::CameraId, &mut [u8]) -> core::result::Result<usize, grafton_visca::Error>
-impl grafton_visca::Request for grafton_visca::command::BlackWhiteModeInquiry
-pub type grafton_visca::command::BlackWhiteModeInquiry::Class = grafton_visca::request::Inquiry
-pub const grafton_visca::command::BlackWhiteModeInquiry::CONTROL_CLASS: grafton_visca::ControlClass
-pub const grafton_visca::command::BlackWhiteModeInquiry::MAX_SIZE: usize
-pub const grafton_visca::command::BlackWhiteModeInquiry::RETRY_CLASS: grafton_visca::RetryClass
-pub const grafton_visca::command::BlackWhiteModeInquiry::TIMEOUT_CLASS: grafton_visca::TimeoutClass
-pub fn grafton_visca::command::BlackWhiteModeInquiry::control_class(&self) -> grafton_visca::ControlClass
-pub fn grafton_visca::command::BlackWhiteModeInquiry::encoded_size(&self) -> usize
-pub fn grafton_visca::command::BlackWhiteModeInquiry::reply_shape(&self) -> grafton_visca::raw::RawReplyShape
-pub fn grafton_visca::command::BlackWhiteModeInquiry::retry_class(&self) -> grafton_visca::RetryClass
-pub fn grafton_visca::command::BlackWhiteModeInquiry::timeout_class(&self) -> grafton_visca::TimeoutClass
-pub fn grafton_visca::command::BlackWhiteModeInquiry::validate_for_profile(&self, &grafton_visca::profile::ProfileSpec) -> grafton_visca::Result<()>
-pub fn grafton_visca::command::BlackWhiteModeInquiry::write_into(&self, grafton_visca::CameraId, &mut [u8]) -> core::result::Result<usize, grafton_visca::Error>
 impl grafton_visca::Request for grafton_visca::command::BlueGain
 pub type grafton_visca::command::BlueGain::Class = grafton_visca::request::Plain
 pub const grafton_visca::command::BlueGain::CONTROL_CLASS: grafton_visca::ControlClass
@@ -23609,19 +23477,6 @@ pub fn grafton_visca::command::RedTuningInquiry::retry_class(&self) -> grafton_v
 pub fn grafton_visca::command::RedTuningInquiry::timeout_class(&self) -> grafton_visca::TimeoutClass
 pub fn grafton_visca::command::RedTuningInquiry::validate_for_profile(&self, &grafton_visca::profile::ProfileSpec) -> grafton_visca::Result<()>
 pub fn grafton_visca::command::RedTuningInquiry::write_into(&self, grafton_visca::CameraId, &mut [u8]) -> core::result::Result<usize, grafton_visca::Error>
-impl grafton_visca::Request for grafton_visca::command::ResolutionInquiry
-pub type grafton_visca::command::ResolutionInquiry::Class = grafton_visca::request::Inquiry
-pub const grafton_visca::command::ResolutionInquiry::CONTROL_CLASS: grafton_visca::ControlClass
-pub const grafton_visca::command::ResolutionInquiry::MAX_SIZE: usize
-pub const grafton_visca::command::ResolutionInquiry::RETRY_CLASS: grafton_visca::RetryClass
-pub const grafton_visca::command::ResolutionInquiry::TIMEOUT_CLASS: grafton_visca::TimeoutClass
-pub fn grafton_visca::command::ResolutionInquiry::control_class(&self) -> grafton_visca::ControlClass
-pub fn grafton_visca::command::ResolutionInquiry::encoded_size(&self) -> usize
-pub fn grafton_visca::command::ResolutionInquiry::reply_shape(&self) -> grafton_visca::raw::RawReplyShape
-pub fn grafton_visca::command::ResolutionInquiry::retry_class(&self) -> grafton_visca::RetryClass
-pub fn grafton_visca::command::ResolutionInquiry::timeout_class(&self) -> grafton_visca::TimeoutClass
-pub fn grafton_visca::command::ResolutionInquiry::validate_for_profile(&self, &grafton_visca::profile::ProfileSpec) -> grafton_visca::Result<()>
-pub fn grafton_visca::command::ResolutionInquiry::write_into(&self, grafton_visca::CameraId, &mut [u8]) -> core::result::Result<usize, grafton_visca::Error>
 impl grafton_visca::Request for grafton_visca::command::SaturationCommand
 pub type grafton_visca::command::SaturationCommand::Class = grafton_visca::request::Plain
 pub const grafton_visca::command::SaturationCommand::CONTROL_CLASS: grafton_visca::ControlClass

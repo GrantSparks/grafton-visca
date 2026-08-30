@@ -93,9 +93,10 @@ pub enum RetryClass {
 ///
 /// The owner keeps one ready queue per class per lane (commands and inquiries
 /// are separate lanes). Dispatch scans the classes from [`Urgent`](Self::Urgent)
-/// down to [`Background`](Self::Background) and takes the first request that is
-/// eligible, preferring an inquiry over a command *within* the same class.
-/// Within one class the order is the order of admission.
+/// down to [`Background`](Self::Background) and chooses the oldest eligible
+/// request across both lanes in the first class with eligible work. Within one
+/// class, eligibility may bypass a blocked older request, but eligible work
+/// retains admission order.
 ///
 /// Three consequences follow, and they are the whole contract:
 ///
@@ -107,7 +108,7 @@ pub enum RetryClass {
 ///   ready and eligible, nothing below it is dispatched.
 ///
 /// The owner retains sole authority over the queues themselves: a class selects
-/// a lane, never a position, a deadline, a retry budget, or a socket.
+/// an eligible queued request, never a deadline, a retry budget, or a socket.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]

@@ -9,8 +9,8 @@ use std::borrow::Cow;
 
 use super::exposure::{AntiFlickerMode, ExposureMode};
 use super::focus::{AutoFocusSensitivity, FocusMode, FocusRange, FocusZone};
-use super::image::{BlackWhiteMode, NoiseReductionMode, NoiseReductionSpeed, SharpnessMode};
-use super::resolution::{NdFilterPosition, PictureEffectMode, ResolutionMode};
+use super::image::{NoiseReductionMode, NoiseReductionSpeed, SharpnessMode};
+use super::resolution::{NdFilterPosition, PictureEffectMode};
 use super::response::{BoolConvention, Nibbles, Nibbles4Or8, Payload, Response};
 use super::system::{MotionSyncMode, MotionSyncPreset};
 use super::white_balance::{AutoWhiteBalanceSensitivity, WhiteBalanceMode};
@@ -19,6 +19,28 @@ use crate::command::{encode::WireEncode, ResponseParser};
 use crate::error::format_payload_hex;
 use crate::types::{BroadcastDomain, DefogLevel, ExposureCompensationPosition, NdFilterPreset};
 use crate::{CameraId, Error};
+
+// This is deliberately thread-local so unit tests can prove the profile gate
+// runs before generated inquiry serialization without racing parallel tests.
+#[cfg(test)]
+std::thread_local! {
+    static GENERATED_INQUIRY_WRITE_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+pub(crate) fn reset_generated_inquiry_write_count() {
+    GENERATED_INQUIRY_WRITE_COUNT.with(|count| count.set(0));
+}
+
+#[cfg(test)]
+pub(crate) fn generated_inquiry_write_count() -> usize {
+    GENERATED_INQUIRY_WRITE_COUNT.with(std::cell::Cell::get)
+}
+
+#[cfg(test)]
+fn increment_generated_inquiry_write_count() {
+    GENERATED_INQUIRY_WRITE_COUNT.with(|count| count.set(count.get().saturating_add(1)));
+}
 
 /// Type-checked command reference used by test-only invariant metadata.
 #[cfg(test)]
@@ -239,7 +261,19 @@ fn validate_builtin_inquiry_surface(
     surface: crate::capabilities::TypedSupportSurface,
     inquiry: &'static str,
 ) -> Result<(), Error> {
-    if profile.capabilities().supports_typed(surface) {
+    let capabilities = profile.capabilities();
+    // These vendor/status surfaces require both the typed admission bit and
+    // the underlying source-backed protocol fact. Keeping this narrow match
+    // here lets the generated accessor groups remain the single inquiry list.
+    let source_backed = match surface {
+        crate::capabilities::TypedSupportSurface::FocusZoneInquiry => {
+            capabilities.has_focus_zone_inquiry
+        }
+        crate::capabilities::TypedSupportSurface::UsbAudio => capabilities.has_usb_audio,
+        _ => true,
+    };
+
+    if source_backed && capabilities.supports_typed(surface) {
         Ok(())
     } else {
         Err(Error::FeatureNotSupported { feature: inquiry })
@@ -377,6 +411,8 @@ macro_rules! impl_builtin_typed_request {
                 camera_id: crate::CameraId,
                 buffer: &mut [u8],
             ) -> Result<usize, crate::Error> {
+                #[cfg(test)]
+                increment_generated_inquiry_write_count();
                 WireEncode::write_into(self, camera_id, buffer)
             }
 
@@ -414,6 +450,8 @@ macro_rules! impl_builtin_typed_request {
                 camera_id: crate::CameraId,
                 buffer: &mut [u8],
             ) -> Result<usize, crate::Error> {
+                #[cfg(test)]
+                increment_generated_inquiry_write_count();
                 WireEncode::write_into(self, camera_id, buffer)
             }
 
@@ -1916,24 +1954,6 @@ macro_rules! builtin_inquiry_table {
             );
         }
 
-        /// Inquiry command to get black and white on/off status.
-        BlackWhiteInquiry => {
-            const BLACK_WHITE = [0x81, 0x09, 0x04, 0x01];
-            kind: BlackWhite {
-                /// Whether black and white mode is enabled.
-                on: bool,
-            };
-            decode: |payload| {
-                require_len(&payload, 1)?;
-                Ok(Response::Inquiry(InquiryData::BlackWhite { on: payload.as_slice()[0] == 0x04 }))
-            };
-            response: true;
-            query: BuiltinInquiryQuery::Queryable;
-            vendor_specific: false;
-            rationale: None;
-            typed: (bool, { on } => Ok(on));
-        }
-
         /// Inquiry command to get the 2D noise reduction level.
         NoiseReduction2DInquiry => {
             const NOISE_REDUCTION_2D = [0x81, 0x09, 0x04, 0x53];
@@ -2002,7 +2022,7 @@ macro_rules! builtin_inquiry_table {
 
         /// Inquiry command to get the current focus zone selection.
         FocusZoneInquiry => {
-            const FOCUS_ZONE = [0x81, 0x09, 0x04, 0x3C];
+            const FOCUS_ZONE = [0x81, 0x09, 0x04, 0xAA];
             kind: FocusZone {
                 /// Current focus zone setting.
                 zone: FocusZone,
@@ -2164,22 +2184,6 @@ macro_rules! builtin_inquiry_table {
             );
         }
 
-        /// Inquiry command to get the current video resolution mode.
-        ResolutionInquiry => {
-            const RESOLUTION = [0x81, 0x09, 0x04, 0x63];
-            kind: Resolution (ResolutionMode);
-            decode: |payload| {
-                require_len(&payload, 1)?;
-                let resolution_mode = ResolutionMode::from_byte(payload.as_slice()[0]);
-                Ok(Response::Inquiry(InquiryData::Resolution(resolution_mode)))
-            };
-            response: true;
-            query: BuiltinInquiryQuery::Queryable;
-            vendor_specific: false;
-            rationale: None;
-            typed: (ResolutionMode, (val) => Ok(val));
-        }
-
         /// Inquiry command to get the night/day mode status.
         NightDayModeInquiry => {
             const NIGHT_DAY_MODE = [0x81, 0x09, 0x04, 0x60];
@@ -2220,13 +2224,13 @@ macro_rules! builtin_inquiry_table {
 
         /// Inquiry command to get the current picture effect mode.
         PictureEffectInquiry => {
-            const PICTURE_EFFECT = [0x81, 0x09, 0x04, 0x32];
+            const PICTURE_EFFECT = [0x81, 0x09, 0x04, 0x63];
             kind: PictureEffect {
-                /// Current picture effect (Off, Negative, Black & White, Sepia, etc.).
+                /// Current picture effect (Off or Black & White for built-in profiles).
                 effect: PictureEffectMode,
             };
             decode: |payload| {
-                require_nonempty(&payload)?;
+                require_len(&payload, 1)?;
                 Ok(Response::Inquiry(InquiryData::PictureEffect {
                     effect: PictureEffectMode::from_byte(payload.as_slice()[0]),
                 }))
@@ -2693,34 +2697,16 @@ macro_rules! builtin_inquiry_table {
             typed: none;
         }
 
-        /// Inquiry command to get the black and white mode setting.
-        BlackWhiteModeInquiry => {
-            const BLACK_WHITE_MODE = [0x81, 0x09, 0x04, 0x73];
-            kind: BlackWhiteMode {
-                /// Current black and white mode setting.
-                mode: BlackWhiteMode,
-            };
-            decode: |payload| {
-                require_len(&payload, 1)?;
-                let mode = BlackWhiteMode::try_from(payload.as_slice()[0])?;
-                Ok(Response::Inquiry(InquiryData::BlackWhiteMode { mode }))
-            };
-            response: true;
-            query: BuiltinInquiryQuery::Queryable;
-            vendor_specific: false;
-            rationale: None;
-            typed: (BlackWhiteMode, { mode } => Ok(mode));
-        }
-
         /// Inquiry command to get the USB audio state.
         UsbAudioInquiry => {
-            const USB_AUDIO = [0x81, 0x09, 0x04, 0x7A];
+            const USB_AUDIO = [0x81, 0x2A, 0x02, 0xA0, 0x04];
             kind: UsbAudio {
                 /// Whether USB audio is enabled.
                 on: bool,
             };
             decode: |payload| {
-                let on = payload.parse_bool("usb_audio_status", BoolConvention::OnIs03)?;
+                require_len(&payload, 1)?;
+                let on = payload.parse_bool("usb_audio_status", BoolConvention::OnIs02)?;
                 Ok(Response::Inquiry(InquiryData::UsbAudio { on }))
             };
             response: true;
@@ -3094,7 +3080,6 @@ macro_rules! builtin_inquiry_table {
         }
         ImageInquiryControl {
             base_gate: crate::capabilities::HasImageProcessing;
-            ResolutionInquiry => resolution: crate::command::ResolutionMode;
             DefogLevelInquiry => defog_level: crate::types::DefogLevel;
         }
         InquiryControl {
@@ -3107,9 +3092,12 @@ macro_rules! builtin_inquiry_table {
             AutoTraceInquiry => auto_trace_enabled: bool;
             FocusUnlockInquiry => focus_unlock: bool;
             BroadcastDomainInquiry => broadcast_domain: crate::types::BroadcastDomain;
-            UsbAudioInquiry => usb_audio_enabled: bool;
             TwoToneModeInquiry => two_tone_mode_enabled: bool;
             DigitalInquiry => digital_mode_enabled: bool;
+        }
+        UsbAudioInquiryControl {
+            gate: crate::capabilities::HasUsbAudio;
+            UsbAudioInquiry => usb_audio_enabled: bool;
         }
         BrightnessInquiryControl {
             gate: crate::capabilities::HasBrightnessControl;
@@ -3195,8 +3183,6 @@ macro_rules! builtin_inquiry_table {
         }
         PictureEffectInquiryControl {
             gate: crate::capabilities::HasPictureEffect;
-            BlackWhiteInquiry => black_white: bool;
-            BlackWhiteModeInquiry => black_white_mode: crate::command::BlackWhiteMode;
             PictureEffectInquiry => picture_effect: crate::command::PictureEffectMode;
         }
         NdFilterInquiryControl {
@@ -3214,7 +3200,7 @@ macro_rules! builtin_inquiry_table {
             FocusNearLimitInquiry => focus_near_limit: crate::types::FocusPosition;
         }
         FocusZoneInquiryControl {
-            gate: crate::capabilities::HasFocusZone;
+            gate: crate::capabilities::HasFocusZoneInquiry;
             FocusZoneInquiry => focus_zone: FocusZone;
         }
         AutoFocusSensitivityInquiryControl {

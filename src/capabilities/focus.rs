@@ -24,6 +24,12 @@ pub trait Focus {
     /// Allows selecting which part of image to focus on.
     const SUPPORTS_FOCUS_ZONE: bool = false;
 
+    /// Whether camera supports the focus-zone inquiry command.
+    ///
+    /// This is distinct from [`Self::SUPPORTS_FOCUS_ZONE`]: some model
+    /// references document selection but not a reliable status response.
+    const SUPPORTS_FOCUS_ZONE_INQUIRY: bool = false;
+
     /// Maximum focus speed for manual focus operations.
     /// Usually 0-7 where 0 is slowest, 7 is fastest.
     const MAX_FOCUS_SPEED: u8 = 7;

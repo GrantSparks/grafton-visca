@@ -66,8 +66,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: no-default pure engine/domain
-            command: --no-default-features --lib
+          - name: no-default pure engine/domain + smoke
+            command: --no-default-features --lib --test no_default_smoke
           - name: default blocking
             command: --workspace --all-targets
           - name: blocking-only
@@ -192,6 +192,9 @@ jobs:
         run: |
           set -euo pipefail
           cargo doc --workspace --all-features --no-deps
+          # Keep this blocking-free surface strict: all-features makes
+          # blocking-only intra-doc links resolve and would mask their cfg.
+          cargo doc --no-default-features --features runtime-tokio,dyn-api --no-deps
           cargo test --doc --no-default-features
           cargo test --doc --no-default-features --features async
           # Default features compile the README quick start through the

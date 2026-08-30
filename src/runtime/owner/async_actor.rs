@@ -5,7 +5,10 @@ use std::{
     future::Future,
     marker::PhantomData,
     pin::Pin,
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicU8, Ordering},
+        Arc, Mutex,
+    },
     time::{Duration, Instant},
 };
 
@@ -265,12 +268,97 @@ pub(crate) trait AsyncOwnerDriver: Send {
     ) -> impl Future<Output = Result<AsyncReceive, Error>> + Send;
 }
 
+/// The one-way decision for an admission constrained by an outer deadline.
+///
+/// The caller and actor race only to decide whether this boundary crosses the
+/// admission boundary. Once the actor claims it, a caller at its deadline must
+/// wait for that already-admitted reply and may later detach its observer by
+/// the ordinary receipt path. Once the caller expires it, the actor must drop
+/// the queued boundary without touching engine state.
+#[derive(Debug, Clone)]
+struct AdmissionValidity {
+    deadline: Instant,
+    state: Arc<AtomicU8>,
+}
+
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AdmissionValidityState {
+    Pending,
+    Claimed,
+    Expired,
+}
+
+impl AdmissionValidity {
+    const PENDING: u8 = AdmissionValidityState::Pending as u8;
+    const CLAIMED: u8 = AdmissionValidityState::Claimed as u8;
+    const EXPIRED: u8 = AdmissionValidityState::Expired as u8;
+
+    fn until(deadline: Instant) -> Self {
+        Self {
+            deadline,
+            state: Arc::new(AtomicU8::new(Self::PENDING)),
+        }
+    }
+
+    /// Claim the boundary immediately before engine admission.
+    ///
+    /// A caller that has already won expiry leaves this false. Conversely,
+    /// claiming before expiry means the admission is authoritative, so the
+    /// caller must observe its reply rather than turn that admitted work into
+    /// a pre-admission timeout.
+    fn claim_for_admission(&self, now: Instant) -> bool {
+        if now >= self.deadline {
+            let _ = self.state.compare_exchange(
+                Self::PENDING,
+                Self::EXPIRED,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            );
+            return false;
+        }
+
+        self.state
+            .compare_exchange(
+                Self::PENDING,
+                Self::CLAIMED,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            )
+            .is_ok()
+    }
+
+    /// Mark the boundary expired if no actor has already claimed admission.
+    ///
+    /// The boolean is the linearized answer to the caller's timeout race:
+    /// `true` means it may return `Error::Timeout`; `false` means an admitted
+    /// reply is authoritative and still has to be observed.
+    fn expire_before_admission(&self) -> bool {
+        self.state
+            .compare_exchange(
+                Self::PENDING,
+                Self::EXPIRED,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            )
+            .is_ok()
+    }
+}
+
 #[derive(Debug)]
 struct AdmissionBoundary {
     request: RuntimeRequest,
     permit: AdmissionPermit,
     observer: Arc<super::ObserverCell>,
     reply: flume::Sender<Result<RequestId, Error>>,
+    /// Present only for a caller deadline that applies before admission.
+    validity: Option<AdmissionValidity>,
+}
+
+#[derive(Debug)]
+enum AdmissionWait {
+    Reply(Result<Result<RequestId, Error>, Error>),
+    Deadline { expired_before_admission: bool },
 }
 
 #[derive(Debug)]
@@ -1040,7 +1128,7 @@ impl AsyncOwnerHandle {
         configured_timeout: Duration,
     ) -> Result<ReceiptCore, Error> {
         let target = request.context().target;
-        let (completion, admission) = self.enqueue_admission(request)?;
+        let (completion, admission) = self.enqueue_admission(request, None)?;
         match self.await_boundary_reply(&admission).await {
             Ok(Ok(id)) => Ok(ReceiptCore::new(
                 id,
@@ -1063,27 +1151,40 @@ impl AsyncOwnerHandle {
         if self.now() >= deadline {
             return Err(Error::Timeout);
         }
-        let (completion, admission) = self.enqueue_admission(request)?;
+        let validity = AdmissionValidity::until(deadline);
+        let (completion, admission) = self.enqueue_admission(request, Some(validity.clone()))?;
         let remaining = deadline.saturating_duration_since(self.clock.now());
-        let admitted = async {
-            match self.await_boundary_reply(&admission).await {
-                Ok(result) => result,
-                Err(error) => Err(error),
-            }
-        };
+        let admitted = async { AdmissionWait::Reply(self.await_boundary_reply(&admission).await) };
         let timed_out = async {
             self.clock.sleep(remaining).await;
-            Err(Error::Timeout)
+            AdmissionWait::Deadline {
+                expired_before_admission: validity.expire_before_admission(),
+            }
         };
-        future::or(admitted, timed_out).await.map(|id| {
-            ReceiptCore::new(
-                id,
-                target,
-                completion,
-                configured_timeout,
-                Arc::clone(&self.origin),
-            )
-        })
+        let id = match future::or(admitted, timed_out).await {
+            AdmissionWait::Reply(Ok(Ok(id))) => id,
+            AdmissionWait::Reply(Ok(Err(error)) | Err(error)) => return Err(error),
+            AdmissionWait::Deadline {
+                expired_before_admission: true,
+            } => return Err(Error::Timeout),
+            // The actor claimed this boundary before the caller could expire
+            // it. Its reply is now authoritative; waiting for it preserves
+            // normal post-admission observer-detach semantics instead of
+            // leaving an admitted request behind a returned timeout.
+            AdmissionWait::Deadline {
+                expired_before_admission: false,
+            } => match self.await_boundary_reply(&admission).await {
+                Ok(Ok(id)) => id,
+                Ok(Err(error)) | Err(error) => return Err(error),
+            },
+        };
+        Ok(ReceiptCore::new(
+            id,
+            target,
+            completion,
+            configured_timeout,
+            Arc::clone(&self.origin),
+        ))
     }
 
     /// Non-waiting admission used by capacity-sensitive facades. Failure occurs
@@ -1100,7 +1201,7 @@ impl AsyncOwnerHandle {
         } else {
             request.context().timeout.completion
         };
-        let (completion, admission) = self.enqueue_admission(request)?;
+        let (completion, admission) = self.enqueue_admission(request, None)?;
         Ok(async move {
             match self.await_boundary_reply(&admission).await {
                 Ok(Ok(id)) => Ok(ReceiptCore::new(
@@ -1263,6 +1364,7 @@ impl AsyncOwnerHandle {
     fn enqueue_admission(
         &self,
         request: RuntimeRequest,
+        validity: Option<AdmissionValidity>,
     ) -> Result<
         (
             CompletionObserver,
@@ -1286,6 +1388,7 @@ impl AsyncOwnerHandle {
             permit,
             observer,
             reply,
+            validity,
         };
 
         // Keep the terminal check and enqueue in one lifecycle critical
@@ -1851,6 +1954,18 @@ where
     ) where
         D: AsyncOwnerDriver,
     {
+        // A deadline that wins before this exact boundary is admitted is not
+        // observer detachment: no engine entry exists yet. Drop the boundary
+        // (and therefore its permit and observer) before staging any engine
+        // input, so a stale admission can never become a later write.
+        if admission
+            .validity
+            .as_ref()
+            .is_some_and(|validity| !validity.claim_for_admission(Executor::now(runtime)))
+        {
+            let _ = admission.reply.try_send(Err(Error::Timeout));
+            return;
+        }
         let input = self.state.stage_admission_with(
             admission.request,
             admission.permit,
@@ -2514,6 +2629,37 @@ mod tests {
     #[derive(Debug)]
     struct PanickingReceiveDriver;
 
+    /// A driver that reports the Tokio runtime executing the real owner task
+    /// before ending the session.
+    #[cfg(feature = "runtime-tokio")]
+    #[derive(Debug)]
+    struct RuntimeAffinityDriver {
+        observed: flume::Sender<tokio::runtime::Id>,
+    }
+
+    #[cfg(feature = "runtime-tokio")]
+    impl AsyncOwnerDriver for RuntimeAffinityDriver {
+        #[allow(clippy::manual_async_fn)]
+        fn write(
+            &mut self,
+            _write: WireWrite<'_>,
+        ) -> impl Future<Output = Result<TransmissionMeta, Error>> + Send {
+            async { Ok(TransmissionMeta { sequence: None }) }
+        }
+
+        fn receive(
+            &mut self,
+            _buffers: &mut super::super::OwnerBuffers,
+            _frame_limit: usize,
+        ) -> impl Future<Output = Result<AsyncReceive, Error>> + Send {
+            let observed = self.observed.clone();
+            async move {
+                let _ = observed.try_send(tokio::runtime::Handle::current().id());
+                Ok(AsyncReceive::Closed)
+            }
+        }
+    }
+
     #[cfg(feature = "runtime-tokio")]
     impl AsyncOwnerDriver for PanickingReceiveDriver {
         #[allow(clippy::manual_async_fn)]
@@ -2890,6 +3036,100 @@ mod tests {
         let snapshot = actor_task.await.unwrap();
         assert_eq!(snapshot.metrics.admitted, 1);
         assert_eq!(snapshot.active, 0);
+    }
+
+    /// A caller deadline before actor admission is a rejected boundary, not an
+    /// observer timeout. In particular, starting the actor after the caller
+    /// timed out must neither create engine state nor transmit the stale work,
+    /// and dropping that boundary must return its shared capacity permit.
+    #[cfg(feature = "runtime-tokio")]
+    #[tokio::test(start_paused = true)]
+    async fn expired_pre_admission_boundary_never_writes_and_releases_capacity() {
+        let runtime = TokioRuntime::from_current().unwrap();
+        let (handle, actor) = AsyncOwnerActor::new(policy(1), runtime).unwrap();
+        let deadline = handle.deadline_after(Duration::from_millis(1)).unwrap();
+        let expiring_handle = handle.clone();
+        let expiring = tokio::spawn(async move {
+            expiring_handle
+                .submit_with_timeout_until(inquiry(), Duration::from_secs(5), deadline)
+                .await
+        });
+
+        tokio::task::yield_now().await;
+        assert_eq!(
+            handle.permits.available(),
+            0,
+            "the queued boundary owns capacity until the actor observes its expiry"
+        );
+        tokio::time::advance(Duration::from_millis(1)).await;
+        assert!(matches!(expiring.await.unwrap(), Err(Error::Timeout)));
+
+        // Only now let the actor consume the expired boundary. A pre-fix actor
+        // staged it and wrote it after this point because the caller had merely
+        // dropped its reply receiver.
+        let harness = harness();
+        let started = harness.started.clone();
+        let gates = harness.gates.clone();
+        let writes = Arc::clone(&harness.writes);
+        let actor_task = tokio::spawn(actor.run(harness.driver));
+        let snapshot = handle.snapshot().await.unwrap();
+        assert_eq!(snapshot.metrics.admitted, 0);
+        assert_eq!(snapshot.active, 0);
+        assert!(
+            writes.lock().unwrap().is_empty(),
+            "expired work was not written"
+        );
+        assert_eq!(
+            handle.permits.available(),
+            handle.permits.capacity(),
+            "dropping the stale boundary returns its capacity permit"
+        );
+
+        // Reusing the only slot proves that no invisible pending admission is
+        // retaining capacity after the caller saw `Timeout`.
+        let receipt = handle.try_submit(inquiry()).unwrap().await.unwrap();
+        assert_eq!(started.recv_async().await.unwrap(), receipt.id);
+        assert_eq!(writes.lock().unwrap().len(), 1);
+        drop(receipt);
+        gates
+            .send_async(Ok(TransmissionMeta { sequence: None }))
+            .await
+            .unwrap();
+        handle.shutdown().await.unwrap();
+        let terminal = actor_task.await.unwrap();
+        assert_eq!(terminal.state, SessionState::Shutdown);
+    }
+
+    /// The owner task follows `TokioRuntime::from_handle`, even when both the
+    /// runtime value and actor future are constructed and awaited on a distinct
+    /// Tokio runtime. This is the affinity that keeps a selected transport,
+    /// actor timers and I/O together.
+    #[cfg(feature = "runtime-tokio")]
+    #[test]
+    fn tokio_from_handle_runs_the_owner_on_the_selected_runtime() {
+        let selected = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .unwrap();
+        let selected_handle = selected.handle().clone();
+        let ambient = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+
+        ambient.block_on(async move {
+            let runtime = TokioRuntime::from_handle(selected_handle.clone());
+            let (observed, receiver) = flume::bounded(1);
+            let (_owner, actor) = AsyncOwnerActor::new(policy(1), runtime.clone()).unwrap();
+            let actor_task = crate::executor::Executor::spawn(
+                &runtime,
+                actor.run(RuntimeAffinityDriver { observed }),
+            );
+
+            assert_eq!(receiver.recv_async().await.unwrap(), selected_handle.id());
+            assert_eq!(actor_task.await.unwrap().state, SessionState::Closed);
+        });
     }
 
     #[cfg(feature = "runtime-smol")]

@@ -26,13 +26,14 @@ pub use profile_metadata::{
     HasBacklightCompensation, HasBrightnessControl, HasColorTemperature, HasCombinedImageFlip,
     HasContrastControl, HasDigitalZoomRange, HasDigitalZoomToggle, HasDirectZoom, HasExposure,
     HasExposureCompensation, HasFocus, HasFocusLock, HasFocusNearLimitInquiry, HasFocusZone,
-    HasGammaControl, HasHueControl, HasImageFlip, HasImageMirror, HasImageProcessing,
-    HasIrisControl, HasLuminanceControl, HasMenuControl, HasMotionSync, HasNdFilter,
-    HasNoiseReduction, HasNoiseReduction2D, HasNoiseReduction3D, HasOnePushFocus,
+    HasFocusZoneInquiry, HasGammaControl, HasHueControl, HasImageFlip, HasImageMirror,
+    HasImageProcessing, HasIrisControl, HasLuminanceControl, HasMenuControl, HasMotionSync,
+    HasNdFilter, HasNoiseReduction, HasNoiseReduction2D, HasNoiseReduction3D, HasOnePushFocus,
     HasOnePushWhiteBalance, HasPanTilt, HasPictureEffect, HasPower, HasPresets,
     HasPtzOpticsSnapFocus, HasPushAutoFocus, HasRgbGain, HasRgbTuning, HasSaturationControl,
-    HasSharpnessControl, HasTally, HasVariableSpeed, HasWhiteBalance, HasWideDynamicRange, HasZoom,
-    InquirySupport, ProfileMetadata, SupportsSerial, SupportsTcp, SupportsUdp,
+    HasSharpnessControl, HasTally, HasUsbAudio, HasVariableSpeed, HasWhiteBalance,
+    HasWideDynamicRange, HasZoom, InquirySupport, ProfileMetadata, SupportsSerial, SupportsTcp,
+    SupportsUdp,
 };
 pub use typed_support::{ProfileTypedSupport, TypedSupportSet, TypedSupportSurface};
 

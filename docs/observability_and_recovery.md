@@ -18,12 +18,13 @@ without granting control over the protocol engine.
 | `cancellations` | Cancellation requests observed by the owner. |
 | `cache_updates` | Exact applied-state effects committed to a target cache. |
 | `ack_timeouts` | Acknowledgement deadlines that expired on a sent command. |
-| `completion_timeouts` | Completion deadlines that expired on an acknowledged command. |
+| `completion_timeouts` | Completion deadlines that expired while an acknowledged command or completion-only raw command awaited completion. |
 | `inquiry_timeouts` | Reply deadlines that expired on a sent inquiry. |
 | `busy_errors` | Error frames saying the camera cannot accept the request now. |
 | `protocol_errors` | Every other error frame, excluding the cancellation reply. |
 | `retries_scheduled` | Requests re-queued for another attempt, for any reason. |
 | `ignored_unmatched_sequenced_replies` | Sequenced replies matching no request. |
+| `ignored_malformed_frames` | Delimited frames discarded because they did not classify as a valid VISCA response. |
 | `dropped_diagnostics` | Events evicted from the owner diagnostic ring. |
 | `dropped_diagnostic_events` | Events dropped because a subscriber queue was full. |
 | `dropped_observer_events` | Completion-observer events dropped after receiver loss. |

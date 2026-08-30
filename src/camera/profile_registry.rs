@@ -49,6 +49,9 @@ pub(crate) struct BuiltinProfileFacts {
     pub(crate) default_camera_id: u8,
     pub(crate) inquiry_support: crate::capabilities::InquirySupport,
     pub(crate) position_inquiries: crate::profile::PositionInquirySupport,
+    pub(crate) image_base_support: bool,
+    pub(crate) focus_zone_inquiry: bool,
+    pub(crate) usb_audio: bool,
     pub(crate) typed_support: crate::capabilities::TypedSupportSet,
     pub(crate) evidence: &'static [ProfileEvidence],
 }
@@ -69,6 +72,20 @@ macro_rules! __transport_is_supported {
     };
     ({ $($fields:tt)* }) => {
         true
+    };
+}
+
+/// Expands an omitted optional registry fact to the conservative `false`.
+///
+/// The registry grammar makes new source-backed facts opt-in so downstream
+/// rows cannot accidentally gain a capability while the per-profile evidence
+/// is being collected.
+macro_rules! __optional_support_bool {
+    () => {
+        false
+    };
+    ($supported:expr) => {
+        $supported
     };
 }
 
@@ -183,6 +200,28 @@ macro_rules! __impl_supports_serial {
     };
 }
 
+/// Emits the base image-noun marker from the same registry fact that supplies
+/// `ImageProcessing::SUPPORTS_IMAGE_PROCESSING` for a built-in profile.
+///
+/// `ImageProcessing` itself is metadata required by every `Profile`, so a
+/// blanket marker would turn an all-`None` metadata implementation into typed
+/// permission. Keep the positive and negative cases declarative in each
+/// profile row instead.
+macro_rules! __impl_image_processing_marker {
+    (true for $profile:ty) => {
+        impl $crate::capabilities::HasImageProcessing for $profile {}
+    };
+    (false for $profile:ty) => {};
+}
+
+#[cfg(test)]
+macro_rules! __assert_image_processing_marker {
+    (true for $profile:ty, $assert_marker:ident) => {
+        $assert_marker::<$profile>();
+    };
+    (false for $profile:ty, $assert_marker:ident) => {};
+}
+
 macro_rules! __impl_typed_support_marker {
     (DirectZoom for $profile:ty) => {
         impl $crate::capabilities::HasDirectZoom for $profile {}
@@ -210,6 +249,9 @@ macro_rules! __impl_typed_support_marker {
     };
     (FocusZone for $profile:ty) => {
         impl $crate::capabilities::HasFocusZone for $profile {}
+    };
+    (FocusZoneInquiry for $profile:ty) => {
+        impl $crate::capabilities::HasFocusZoneInquiry for $profile {}
     };
     (AutoFocusSensitivity for $profile:ty) => {
         impl $crate::capabilities::HasAutoFocusSensitivity for $profile {}
@@ -300,6 +342,9 @@ macro_rules! __impl_typed_support_marker {
     };
     (MotionSync for $profile:ty) => {
         impl $crate::capabilities::HasMotionSync for $profile {}
+    };
+    (UsbAudio for $profile:ty) => {
+        impl $crate::capabilities::HasUsbAudio for $profile {}
     };
 }
 
@@ -405,6 +450,7 @@ macro_rules! __define_builtin_profiles {
                         auto_focus: $supports_auto_focus:expr,
                         one_push: $supports_one_push_focus:expr,
                         focus_zone: $supports_focus_zone:expr,
+                        focus_zone_inquiry: $supports_focus_zone_inquiry:expr,
                         max_speed: $max_focus_speed:expr,
                         af_sensitivity: $supports_af_sensitivity:expr,
                         near_limit_inquiry: $supports_focus_near_limit_inquiry:expr,
@@ -432,6 +478,10 @@ macro_rules! __define_builtin_profiles {
                         blue_gain_range: $blue_gain_range:expr,
                     },
                     image: {
+                        // Source-backed permission for the base `image()` noun.
+                        // This is distinct from the metadata facts below: every
+                        // profile implements `ImageProcessing` for discovery.
+                        base_support: $supports_image_processing:tt,
                         contrast_range: $contrast_range:expr,
                         sharpness_range: $sharpness_range:expr,
                         saturation_range: $saturation_range:expr,
@@ -484,6 +534,9 @@ macro_rules! __define_builtin_profiles {
                     variable_speed: {
                         supported: $supports_variable_speed:expr $(,)?
                     },
+                    $(usb_audio: {
+                        supported: $supports_usb_audio:expr $(,)?
+                    },)?
                     typed_support: [$( $support:ident ),* $(,)?],
                     evidence: [$(($evidence_key:literal, $evidence_text:literal)),* $(,)?],
                 }
@@ -527,6 +580,8 @@ macro_rules! __define_builtin_profiles {
                     std::time::Duration::from_millis($min_inquiry_spacing_ms);
                 const MIN_COMMAND_SPACING: std::time::Duration =
                     std::time::Duration::from_millis($min_command_spacing_ms);
+                const SUPPORTS_USB_AUDIO: bool =
+                    __optional_support_bool!($($supports_usb_audio)?);
             }
 
             impl $crate::capabilities::PanTilt for $profile {
@@ -557,6 +612,7 @@ macro_rules! __define_builtin_profiles {
                 const SUPPORTS_AUTO_FOCUS: bool = $supports_auto_focus;
                 const SUPPORTS_ONE_PUSH_FOCUS: bool = $supports_one_push_focus;
                 const SUPPORTS_FOCUS_ZONE: bool = $supports_focus_zone;
+                const SUPPORTS_FOCUS_ZONE_INQUIRY: bool = $supports_focus_zone_inquiry;
                 const MAX_FOCUS_SPEED: u8 = $max_focus_speed;
                 const SUPPORTS_AF_SENSITIVITY: bool = $supports_af_sensitivity;
                 const SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY: bool =
@@ -607,6 +663,7 @@ macro_rules! __define_builtin_profiles {
                 const REQUIRES_SETTINGS_SAVE_FOR_FLIP: bool = $requires_settings_save_for_flip;
                 const SUPPORTS_GAMMA: bool = $supports_gamma;
                 const GAMMA_RANGE: Option<$crate::capabilities::CapabilityRange<u8>> = $gamma_range;
+                const SUPPORTS_IMAGE_PROCESSING: bool = $supports_image_processing;
             }
 
             impl $crate::capabilities::Presets for $profile {
@@ -688,6 +745,7 @@ macro_rules! __define_builtin_profiles {
             __impl_supports_tcp!($profile, $tcp);
             __impl_supports_udp!($profile, $udp);
             __impl_supports_serial!($profile, $serial);
+            __impl_image_processing_marker!($supports_image_processing for $profile);
             $(__impl_typed_support_marker!($support for $profile);)*
         )*
 
@@ -737,6 +795,9 @@ macro_rules! __define_builtin_profiles {
                     default_camera_id: $default_camera_id,
                     inquiry_support: $inquiry_support,
                     position_inquiries: <$profile as $crate::capabilities::ProfileMetadata>::POSITION_INQUIRY_SUPPORT,
+                    image_base_support: $supports_image_processing,
+                    focus_zone_inquiry: $supports_focus_zone_inquiry,
+                    usb_audio: __optional_support_bool!($($supports_usb_audio)?),
                     typed_support: <$profile as $crate::capabilities::ProfileTypedSupport>::TYPED_SUPPORT,
                     evidence: &[
                         $(profile_registry::ProfileEvidence {
@@ -973,6 +1034,9 @@ macro_rules! __define_builtin_profiles {
                 $crate::capabilities::TypedSupportSurface::FocusLock => "HasFocusLock",
                 $crate::capabilities::TypedSupportSurface::PushAutoFocus => "HasPushAutoFocus",
                 $crate::capabilities::TypedSupportSurface::FocusZone => "HasFocusZone",
+                $crate::capabilities::TypedSupportSurface::FocusZoneInquiry => {
+                    "HasFocusZoneInquiry"
+                }
                 $crate::capabilities::TypedSupportSurface::AutoFocusSensitivity => {
                     "HasAutoFocusSensitivity"
                 }
@@ -1017,6 +1081,7 @@ macro_rules! __define_builtin_profiles {
                 $crate::capabilities::TypedSupportSurface::NdFilter => "HasNdFilter",
                 $crate::capabilities::TypedSupportSurface::VariableSpeed => "HasVariableSpeed",
                 $crate::capabilities::TypedSupportSurface::MotionSync => "HasMotionSync",
+                $crate::capabilities::TypedSupportSurface::UsbAudio => "HasUsbAudio",
             }
         }
 
@@ -1073,6 +1138,48 @@ macro_rules! __define_builtin_profiles {
                 assert_eq!(facts.inquiry_support, id.inquiry_support());
                 assert_eq!(facts.position_inquiries, P::POSITION_INQUIRY_SUPPORT);
                 assert_eq!(spec.position_inquiries(), P::POSITION_INQUIRY_SUPPORT);
+                assert_eq!(
+                    facts.image_base_support,
+                    P::SUPPORTS_IMAGE_PROCESSING,
+                    "{id:?} image base-support registry fact and metadata must match"
+                );
+                assert_eq!(
+                    caps.has_image_processing,
+                    facts.image_base_support,
+                    "{id:?} runtime image permission must come from the registry fact"
+                );
+                assert_eq!(
+                    facts.focus_zone_inquiry,
+                    P::SUPPORTS_FOCUS_ZONE_INQUIRY,
+                    "{id:?} focus-zone inquiry registry fact and metadata must match"
+                );
+                assert_eq!(
+                    caps.has_focus_zone_inquiry,
+                    facts.focus_zone_inquiry,
+                    "{id:?} runtime focus-zone inquiry fact must come from the registry"
+                );
+                assert_eq!(
+                    facts.has_typed_support(
+                        $crate::capabilities::TypedSupportSurface::FocusZoneInquiry
+                    ),
+                    facts.focus_zone_inquiry,
+                    "{id:?} focus-zone inquiry marker must follow its registry fact"
+                );
+                assert_eq!(
+                    facts.usb_audio,
+                    P::SUPPORTS_USB_AUDIO,
+                    "{id:?} USB-audio registry fact and metadata must match"
+                );
+                assert_eq!(
+                    caps.has_usb_audio,
+                    facts.usb_audio,
+                    "{id:?} runtime USB-audio fact must come from the registry"
+                );
+                assert_eq!(
+                    facts.has_typed_support($crate::capabilities::TypedSupportSurface::UsbAudio),
+                    facts.usb_audio,
+                    "{id:?} USB-audio marker must follow its registry fact"
+                );
                 assert!(
                     !facts.position_inquiries.iris()
                         || facts.has_typed_support(
@@ -1233,6 +1340,10 @@ macro_rules! __define_builtin_profiles {
                 assert_eq!(caps.focus_range, P::FOCUS_NEAR_LIMIT..=P::FOCUS_FAR_LIMIT);
                 assert_eq!(caps.focus_speed, 0..=P::MAX_FOCUS_SPEED);
                 assert_eq!(caps.has_focus_zone, P::SUPPORTS_FOCUS_ZONE);
+                assert_eq!(
+                    caps.has_focus_zone_inquiry,
+                    P::SUPPORTS_FOCUS_ZONE_INQUIRY
+                );
                 assert_eq!(caps.has_af_sensitivity, P::SUPPORTS_AF_SENSITIVITY);
                 assert_eq!(
                     caps.has_focus_near_limit_inquiry,
@@ -1352,6 +1463,7 @@ macro_rules! __define_builtin_profiles {
                 assert_eq!(caps.max_motion_sync_speed, P::SUPPORTS_MOTION_SYNC.then_some(P::MAX_MOTION_SYNC_SPEED));
                 assert_eq!(caps.has_direct_menu_control, P::SUPPORTS_DIRECT_CONTROL);
                 assert_eq!(caps.has_variable_speed, P::SUPPORTS_VARIABLE_SPEED);
+                assert_eq!(caps.has_usb_audio, P::SUPPORTS_USB_AUDIO);
                 assert_eq!(caps.inquiry_support, P::INQUIRY_SUPPORT);
                 assert_eq!(caps.supports_operation_complete, P::SUPPORTS_OPERATION_COMPLETE);
                 assert_eq!(
@@ -1380,6 +1492,22 @@ macro_rules! __define_builtin_profiles {
                     assert_profile_registry::<$profile>(
                         ProfileId::$id.registry_facts(),
                         ProfileId::$id,
+                    );
+                )*
+            }
+
+            /// The built-in registry's `image.base_support` fact emits both the
+            /// runtime permission and the static `HasImageProcessing` marker.
+            /// Negative marker assertions live in public compile-contract
+            /// fixtures, because Rust has no stable negative-trait assertion.
+            #[test]
+            fn image_processing_markers_follow_base_support() {
+                fn assert_image_processing_marker<P: $crate::capabilities::HasImageProcessing>() {}
+
+                $(
+                    __assert_image_processing_marker!(
+                        $supports_image_processing for $profile,
+                        assert_image_processing_marker
                     );
                 )*
             }
@@ -1563,6 +1691,28 @@ macro_rules! __define_builtin_profiles {
                         $crate::capabilities::TypedSupportSurface::FocusNearLimitInquiry
                     ));
                 }
+
+                for (id, focus_zone_inquiry, usb_audio) in [
+                    (ProfileId::PtzOpticsG2, true, true),
+                    (ProfileId::PtzOpticsG3, false, false),
+                    (ProfileId::PtzOptics30X, true, true),
+                ] {
+                    let facts = id.registry_facts();
+                    assert_eq!(facts.focus_zone_inquiry, focus_zone_inquiry, "{id:?}");
+                    assert_eq!(
+                        facts.has_typed_support(
+                            $crate::capabilities::TypedSupportSurface::FocusZoneInquiry
+                        ),
+                        focus_zone_inquiry,
+                        "{id:?} focus-zone inquiry marker"
+                    );
+                    assert_eq!(facts.usb_audio, usb_audio, "{id:?}");
+                    assert_eq!(
+                        facts.has_typed_support($crate::capabilities::TypedSupportSurface::UsbAudio),
+                        usb_audio,
+                        "{id:?} USB-audio marker"
+                    );
+                }
             }
 
             #[test]
@@ -1687,8 +1837,13 @@ macro_rules! __define_builtin_profiles {
                 );
                 assert_row(
                     readme,
-                    "Focus zone",
+                    "Focus zone control",
                     $crate::capabilities::TypedSupportSurface::FocusZone,
+                );
+                assert_row(
+                    readme,
+                    "Focus zone inquiry",
+                    $crate::capabilities::TypedSupportSurface::FocusZoneInquiry,
                 );
                 assert_row(
                     readme,
@@ -1820,6 +1975,11 @@ macro_rules! __define_builtin_profiles {
                     readme,
                     "Picture effects",
                     $crate::capabilities::TypedSupportSurface::PictureEffect,
+                );
+                assert_row(
+                    readme,
+                    "USB audio control and inquiry",
+                    $crate::capabilities::TypedSupportSurface::UsbAudio,
                 );
             }
 
@@ -1976,6 +2136,7 @@ macro_rules! define_builtin_profiles {
                         auto_focus: true,
                         one_push: false,
                         focus_zone: true,
+                        focus_zone_inquiry: true,
                         max_speed: 7,
                         af_sensitivity: false,
                         near_limit_inquiry: false,
@@ -2003,6 +2164,7 @@ macro_rules! define_builtin_profiles {
                         blue_gain_range: Some(range!(u8, 0x00, 0xFF)),
                     },
                     image: {
+                        base_support: true,
                         contrast_range: Some(range!(u8, 0, 14)),
                         sharpness_range: Some(range!(u8, 0, 15)),
                         saturation_range: Some(range!(u8, 0, 14)),
@@ -2043,6 +2205,7 @@ macro_rules! define_builtin_profiles {
                     motion_sync: { supported: false, max_speed: 24 },
                     nd_filter: { mode: $crate::capabilities::NdFilterMode::None, steps: None },
                     variable_speed: { supported: false },
+                    usb_audio: { supported: true },
                     typed_support: [
                         ExposureCompensation,
                         BrightnessControl,
@@ -2050,6 +2213,8 @@ macro_rules! define_builtin_profiles {
                         DirectZoom,
                         IrisControl,
                         FocusZone,
+                        FocusZoneInquiry,
+                        UsbAudio,
                         BacklightCompensation,
                         WideDynamicRange,
                         ColorTemperature,
@@ -2075,6 +2240,8 @@ macro_rules! define_builtin_profiles {
                         ("command_cancel", "Tested G2 hardware rejects the standard VISCA socket-cancel command; use an explicit STOP command for bounded motion control."),
                         ("digital_zoom", "Hardware rejects VISCA digital zoom control on tested G2 firmware."),
                         ("iris", "The shared PTZOptics Gen-2 inquiry table documents iris priority, relative controls, direct 0x4B, and the matching 0x4B position inquiry."),
+                        ("focus_zone_inquiry", "The PTZOptics Gen-2 table documents the 81 09 04 AA focus-zone inquiry and its status response for the G2 family."),
+                        ("usb_audio", "The PTZOptics Gen-2 UAC table documents the 81 2A 02 A0 04 USB-audio command and matching inquiry for G2 models."),
                     ],
                 }
 
@@ -2150,6 +2317,7 @@ macro_rules! define_builtin_profiles {
                         auto_focus: true,
                         one_push: false,
                         focus_zone: true,
+                        focus_zone_inquiry: false,
                         max_speed: 7,
                         af_sensitivity: false,
                         near_limit_inquiry: false,
@@ -2177,6 +2345,7 @@ macro_rules! define_builtin_profiles {
                         blue_gain_range: Some(range!(u8, 0x00, 0xFF)),
                     },
                     image: {
+                        base_support: true,
                         contrast_range: Some(range!(u8, 0, 14)),
                         sharpness_range: Some(range!(u8, 0, 15)),
                         saturation_range: Some(range!(u8, 0, 14)),
@@ -2217,6 +2386,7 @@ macro_rules! define_builtin_profiles {
                     motion_sync: { supported: false, max_speed: 24 },
                     nd_filter: { mode: $crate::capabilities::NdFilterMode::None, steps: None },
                     variable_speed: { supported: false },
+                    usb_audio: { supported: false },
                     typed_support: [
                         ExposureCompensation,
                         BrightnessControl,
@@ -2249,6 +2419,9 @@ macro_rules! define_builtin_profiles {
                         ("digital_zoom", "PTZOptics built-ins keep VISCA digital zoom unavailable until model-specific evidence exists."),
                         ("preset_limit", "Raw PTZOptics VISCA preset commands are limited to the documented 0-127 range until values above 0x7F are target-tested."),
                         ("iris", "The shared PTZOptics Gen-2 inquiry table documents iris priority, relative controls, direct 0x4B, and the matching 0x4B position inquiry."),
+                        ("focus_zone_inquiry", "The G3 command list establishes focus-zone selection, but its query table does not establish the matching 81 09 04 AA response; keep the inquiry untyped."),
+                        ("usb_audio", "The UAC command/query table is source-backed for the Gen-2 entries, not G3; keep USB audio conservative pending a G3-specific source."),
+                        ("picture_effect", "PTZOptics' official Developer Portal identifies its current VISCA list for G2 and G3 and documents the 04 63 picture-effect command and inquiry there."),
                     ],
                 }
 
@@ -2324,6 +2497,7 @@ macro_rules! define_builtin_profiles {
                         auto_focus: true,
                         one_push: false,
                         focus_zone: true,
+                        focus_zone_inquiry: true,
                         max_speed: 7,
                         af_sensitivity: false,
                         near_limit_inquiry: false,
@@ -2351,6 +2525,7 @@ macro_rules! define_builtin_profiles {
                         blue_gain_range: Some(range!(u8, 0x00, 0xFF)),
                     },
                     image: {
+                        base_support: true,
                         contrast_range: Some(range!(u8, 0, 14)),
                         sharpness_range: Some(range!(u8, 0, 15)),
                         saturation_range: Some(range!(u8, 0, 14)),
@@ -2391,6 +2566,7 @@ macro_rules! define_builtin_profiles {
                     motion_sync: { supported: false, max_speed: 24 },
                     nd_filter: { mode: $crate::capabilities::NdFilterMode::None, steps: None },
                     variable_speed: { supported: false },
+                    usb_audio: { supported: true },
                     typed_support: [
                         ExposureCompensation,
                         BrightnessControl,
@@ -2398,6 +2574,8 @@ macro_rules! define_builtin_profiles {
                         DirectZoom,
                         IrisControl,
                         FocusZone,
+                        FocusZoneInquiry,
+                        UsbAudio,
                         BacklightCompensation,
                         WideDynamicRange,
                         ColorTemperature,
@@ -2423,6 +2601,8 @@ macro_rules! define_builtin_profiles {
                         ("digital_zoom", "The Axis 0x7AC0 digital endpoint is not applied to PTZOptics; the 30X raw VISCA profile keeps the standard 0x4000 optical endpoint and no typed digital zoom."),
                         ("preset_limit", "Raw PTZOptics VISCA preset commands are limited to the documented 0-127 range until values above 0x7F are target-tested."),
                         ("iris", "The shared PTZOptics Gen-2 inquiry table documents iris priority, relative controls, direct 0x4B, and the matching 0x4B position inquiry."),
+                        ("focus_zone_inquiry", "The PTZOptics Gen-2 table documents the 81 09 04 AA focus-zone inquiry and its status response for the raw 30X model."),
+                        ("usb_audio", "The PTZOptics Gen-2 UAC table documents the USB-audio command and matching inquiry for the raw 30X model."),
                     ],
                 }
 
@@ -2501,7 +2681,8 @@ macro_rules! define_builtin_profiles {
                         far_limit: 0xF000,
                         auto_focus: true,
                         one_push: false,
-                        focus_zone: true,
+                        focus_zone: false,
+                        focus_zone_inquiry: false,
                         max_speed: 7,
                         af_sensitivity: true,
                         near_limit_inquiry: true,
@@ -2511,7 +2692,7 @@ macro_rules! define_builtin_profiles {
                         iris_range: Some(range!(u16, 0x00, 0x1E)),
                         shutter_speeds: profile_constants::PTZ_OPTICS_G2_SHUTTER_SPEEDS,
                         gain_range: range!(u8, 0, 15),
-                        brightness_range: Some(range!(u16, 0, 17)),
+                        brightness_range: None,
                         backlight_comp: true,
                         exposure_comp: true,
                         exposure_comp_range: range!(i8, -7, 7),
@@ -2529,6 +2710,7 @@ macro_rules! define_builtin_profiles {
                         blue_gain_range: Some(range!(u8, 0x00, 0xFF)),
                     },
                     image: {
+                        base_support: true,
                         contrast_range: Some(range!(u8, 0, 14)),
                         sharpness_range: Some(range!(u8, 0, 14)),
                         saturation_range: Some(range!(u8, 0, 14)),
@@ -2540,7 +2722,7 @@ macro_rules! define_builtin_profiles {
                         nr_2d: true,
                         nr_3d: true,
                         luminance: false,
-                        picture_effect: true,
+                        picture_effect: false,
                         luminance_range: None,
                         combined_flip: false,
                         save_after_flip: false,
@@ -2571,13 +2753,11 @@ macro_rules! define_builtin_profiles {
                     variable_speed: { supported: true },
                     typed_support: [
                         ExposureCompensation,
-                        BrightnessControl,
                         PushAutoFocus,
                         DirectZoom,
                         DigitalZoomToggle,
                         DigitalZoomRange,
                         IrisControl,
-                        FocusZone,
                         AutoFocusSensitivity,
                         FocusNearLimitInquiry,
                         BacklightCompensation,
@@ -2596,7 +2776,6 @@ macro_rules! define_builtin_profiles {
                         NoiseReduction,
                         NoiseReduction2D,
                         NoiseReduction3D,
-                        PictureEffect,
                         Tally,
                         DirectMenu,
                         NdFilter,
@@ -2607,6 +2786,9 @@ macro_rules! define_builtin_profiles {
                         ("color_temperature", "FR7 uses ATW/manual WB surfaces; built-in typed color-temperature control remains unavailable."),
                         ("iris", "The FR7 registry retains the standard iris control and exact 0x4B position inquiry documented in the Sony command table; this evidence is not generalized to the other Sony/EVI/Nearus profiles."),
                         ("nd_filter", "The FR7 registry is the only built-in entry with variable-ND metadata, typed ND controls, and the exact 0x64 position inquiry documented in the Sony command table."),
+                        ("brightness", "The FR7 model command list does not establish the exposure-brightness control or inquiry; retain no brightness range or typed marker."),
+                        ("focus_zone", "The FR7 model command list does not establish focus-zone selection or its inquiry; keep both typed surfaces absent."),
+                        ("picture_effect", "The FR7 model command list does not establish picture-effect control or inquiry; leave the typed surface unavailable."),
                     ],
                 }
 
@@ -2686,6 +2868,7 @@ macro_rules! define_builtin_profiles {
                         auto_focus: true,
                         one_push: false,
                         focus_zone: false,
+                        focus_zone_inquiry: false,
                         max_speed: 7,
                         af_sensitivity: false,
                         near_limit_inquiry: true,
@@ -2695,7 +2878,7 @@ macro_rules! define_builtin_profiles {
                         iris_range: Some(range!(u16, 0x00, 0x1E)),
                         shutter_speeds: profile_constants::GENERIC_VISCA_SHUTTER_SPEEDS,
                         gain_range: range!(u8, 0, 15),
-                        brightness_range: Some(range!(u16, 0, 17)),
+                        brightness_range: None,
                         backlight_comp: true,
                         exposure_comp: false,
                         exposure_comp_range: range!(i8, -7, 7),
@@ -2713,6 +2896,7 @@ macro_rules! define_builtin_profiles {
                         blue_gain_range: None,
                     },
                     image: {
+                        base_support: true,
                         contrast_range: Some(range!(u8, 0, 14)),
                         sharpness_range: Some(range!(u8, 0, 14)),
                         saturation_range: Some(range!(u8, 0, 14)),
@@ -2724,7 +2908,7 @@ macro_rules! define_builtin_profiles {
                         nr_2d: true,
                         nr_3d: true,
                         luminance: false,
-                        picture_effect: true,
+                        picture_effect: false,
                         luminance_range: None,
                         combined_flip: false,
                         save_after_flip: false,
@@ -2754,7 +2938,6 @@ macro_rules! define_builtin_profiles {
                     nd_filter: { mode: $crate::capabilities::NdFilterMode::None, steps: None },
                     variable_speed: { supported: false },
                     typed_support: [
-                        BrightnessControl,
                         DirectZoom,
                         DigitalZoomToggle,
                         DigitalZoomRange,
@@ -2773,12 +2956,13 @@ macro_rules! define_builtin_profiles {
                         NoiseReduction,
                         NoiseReduction2D,
                         NoiseReduction3D,
-                        PictureEffect,
                         Tally,
                     ],
                     evidence: [
                         ("tally", "Sony professional profile metadata and typed controls expose tally for BRC-H900."),
                         ("iris", "BRC-H900 retains general iris metadata for discovery, but the registry has no model-specific evidence for enabling the typed iris control or targeted inquiry."),
+                        ("brightness", "The BRC-H900 model command list does not establish the exposure-brightness control or inquiry; retain no brightness range or typed marker."),
+                        ("picture_effect", "The BRC-H900 model command list does not establish picture-effect control or inquiry; leave the typed surface unavailable."),
                     ],
                 }
 
@@ -2854,6 +3038,7 @@ macro_rules! define_builtin_profiles {
                         auto_focus: true,
                         one_push: false,
                         focus_zone: false,
+                        focus_zone_inquiry: false,
                         max_speed: 7,
                         af_sensitivity: false,
                         near_limit_inquiry: true,
@@ -2881,6 +3066,7 @@ macro_rules! define_builtin_profiles {
                         blue_gain_range: None,
                     },
                     image: {
+                        base_support: true,
                         contrast_range: None,
                         sharpness_range: None,
                         saturation_range: None,
@@ -3010,6 +3196,7 @@ macro_rules! define_builtin_profiles {
                         auto_focus: true,
                         one_push: false,
                         focus_zone: false,
+                        focus_zone_inquiry: false,
                         max_speed: 7,
                         af_sensitivity: false,
                         near_limit_inquiry: true,
@@ -3037,6 +3224,7 @@ macro_rules! define_builtin_profiles {
                         blue_gain_range: None,
                     },
                     image: {
+                        base_support: false,
                         contrast_range: None,
                         sharpness_range: None,
                         saturation_range: None,
@@ -3159,6 +3347,7 @@ macro_rules! define_builtin_profiles {
                         auto_focus: true,
                         one_push: false,
                         focus_zone: false,
+                        focus_zone_inquiry: false,
                         max_speed: 7,
                         af_sensitivity: false,
                         near_limit_inquiry: true,
@@ -3186,6 +3375,7 @@ macro_rules! define_builtin_profiles {
                         blue_gain_range: None,
                     },
                     image: {
+                        base_support: true,
                         contrast_range: None,
                         sharpness_range: None,
                         saturation_range: Some(range!(u8, 0, 15)),
@@ -3309,6 +3499,7 @@ macro_rules! define_builtin_profiles {
                         auto_focus: true,
                         one_push: false,
                         focus_zone: false,
+                        focus_zone_inquiry: false,
                         max_speed: 7,
                         af_sensitivity: false,
                         near_limit_inquiry: true,
@@ -3336,6 +3527,7 @@ macro_rules! define_builtin_profiles {
                         blue_gain_range: None,
                     },
                     image: {
+                        base_support: false,
                         contrast_range: None,
                         sharpness_range: None,
                         saturation_range: None,

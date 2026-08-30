@@ -935,7 +935,7 @@ pub use crate::{
     command::{
         AutoFocusSensitivity, AutoWhiteBalanceSensitivity, ExposureMode, FocusMode, MotionSyncMode,
         MotionSyncPreset, NdFilterMode, NdFilterPosition, PanTiltDirection, PanTiltLimitCorner,
-        PictureEffectMode, PresetNumber, ResolutionMode, WhiteBalanceMode,
+        PictureEffectMode, PresetNumber, WhiteBalanceMode,
     },
     error::{Error, ErrorKind, Result},
     inquiry_conversions::{
