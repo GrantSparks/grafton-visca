@@ -190,7 +190,9 @@ fn transport_envelopes_preserve_the_encoded_terminator() {
 
     let raw_envelope = RawVisca::new(AddressingMode::Ip);
     let mut framed = BytesMut::new();
-    let meta = raw_envelope.frame_into(&frame, CommandKind::Command, &mut framed);
+    let meta = raw_envelope
+        .frame_into(&frame, CommandKind::Command, &mut framed)
+        .expect("the encoded raw VISCA frame is valid");
     assert_eq!(meta.sequence, None, "raw VISCA carries no sequence number");
     assert_terminated("RawVisca frame", &framed);
     assert_eq!(
@@ -201,7 +203,9 @@ fn transport_envelopes_preserve_the_encoded_terminator() {
 
     let sony_envelope = SonyEncapsulated::new(AddressingMode::Ip);
     let mut framed = BytesMut::new();
-    let meta = sony_envelope.frame_into(&frame, CommandKind::Command, &mut framed);
+    let meta = sony_envelope
+        .frame_into(&frame, CommandKind::Command, &mut framed)
+        .expect("the encoded Sony VISCA frame is within the envelope limit");
     assert!(
         meta.sequence.is_some(),
         "Sony encapsulation must allocate a sequence number"

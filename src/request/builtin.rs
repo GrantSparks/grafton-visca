@@ -54,6 +54,15 @@ macro_rules! impl_request {
                 <Self as BuiltinValidation>::validate(self, profile)
             }
 
+            #[doc(hidden)]
+            #[allow(private_interfaces)]
+            fn admission_control_class(
+                &self,
+                _authority: crate::requests::RequestContractAuthority,
+            ) -> Result<ControlClass, Error> {
+                Ok(Self::CONTROL_CLASS)
+            }
+
             #[allow(private_interfaces)]
             fn applied_state_projection(
                 &self,
@@ -101,6 +110,15 @@ macro_rules! impl_plain_request {
                 <Self as BuiltinValidation>::validate(self, profile)
             }
 
+            #[doc(hidden)]
+            #[allow(private_interfaces)]
+            fn admission_control_class(
+                &self,
+                _authority: crate::requests::RequestContractAuthority,
+            ) -> Result<ControlClass, Error> {
+                Ok(Self::CONTROL_CLASS)
+            }
+
             #[allow(private_interfaces)]
             fn applied_state_projection(
                 &self,
@@ -127,6 +145,15 @@ macro_rules! impl_plain_request {
 
             fn validate_for_profile(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
                 <Self as BuiltinValidation>::validate(self, profile)
+            }
+
+            #[doc(hidden)]
+            #[allow(private_interfaces)]
+            fn admission_control_class(
+                &self,
+                _authority: crate::requests::RequestContractAuthority,
+            ) -> Result<ControlClass, Error> {
+                Ok(Self::CONTROL_CLASS)
             }
 
             #[allow(private_interfaces)]
@@ -3252,14 +3279,19 @@ impl_request!(
 );
 
 /// Direct zoom target.
+///
+/// A target built from normalized input retains that input's domain until
+/// profile validation. This prevents a combined optical-plus-digital request
+/// whose mapped raw value happens to overlap the optical range from bypassing
+/// the combined-domain typed-support gate on the erased API.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ZoomTarget(ZoomPosition);
+pub struct ZoomTarget(ZoomPosition, Option<crate::ZoomDomain>);
 
 impl ZoomTarget {
     /// Creates a direct zoom target.
     #[must_use]
     pub const fn new(position: ZoomPosition) -> Self {
-        Self(position)
+        Self(position, None)
     }
 
     /// Creates a direct zoom target from a normalized position.
@@ -3293,7 +3325,7 @@ impl ZoomTarget {
             optical_max,
             digital_max,
         )?;
-        Ok(Self::new(target))
+        Ok(Self(target, Some(domain)))
     }
 }
 
@@ -3948,6 +3980,12 @@ impl BuiltinValidation for ZoomTarget {
                 && capabilities.supports_typed(TypedSupportSurface::DirectZoom),
             "direct zoom positioning",
         )?;
+        if matches!(self.1, Some(crate::ZoomDomain::OpticalPlusDigital)) {
+            require(
+                capabilities.supports_typed(TypedSupportSurface::DigitalZoomRange),
+                "optical-plus-digital zoom positioning",
+            )?;
+        }
         let position = self.0.value();
         if capabilities.zoom_range_optical.contains(&position) {
             return Ok(());
@@ -5481,6 +5519,75 @@ mod tests {
         );
         assert_eq!(wire(&PushAfPress), command_wire(&PushAF::Press));
         assert_eq!(wire(&PushAfRelease), command_wire(&PushAF::Release));
+    }
+
+    /// A normalized combined-domain target and an explicit target can encode
+    /// to the same raw position, but they do not have the same permission
+    /// contract. The explicit target is governed by its numeric range;
+    /// normalized combined-domain input also requires the typed digital-range
+    /// surface that the static noun row carries.
+    #[test]
+    fn normalized_combined_zoom_retains_its_permission_beyond_raw_overlap() {
+        let source = ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7 profile");
+        let conversion = source
+            .pan_tilt_coordinates()
+            .expect("FR7 pan/tilt conversion");
+        let mut capabilities = source.capabilities().clone();
+        capabilities.profile_id = None;
+        capabilities.model_name = "Documented Digital Range Without Permission".into();
+        capabilities.typed_support =
+            crate::capabilities::TypedSupportSet::from_surface(TypedSupportSurface::DirectZoom);
+        let profile = ProfileSpec::builder(capabilities)
+            .pan_tilt_coordinates(
+                conversion.coordinate_system(),
+                conversion.pan_degrees_to_units(),
+                conversion.tilt_degrees_to_units(),
+            )
+            .transports(source.transports())
+            .envelope(source.envelope())
+            .timing(source.timing())
+            .maximum_command_sockets(source.maximum_command_sockets())
+            .supports_operation_complete(source.supports_operation_complete())
+            .supports_command_cancel(source.supports_command_cancel())
+            .preset_recall_axes(source.preset_recall_axes())
+            .position_inquiries(source.position_inquiries())
+            .build()
+            .expect("runtime partial profile");
+
+        let midpoint = crate::units::UnitInterval::new(0.5).expect("unit interval midpoint");
+        let normalized =
+            ZoomTarget::from_normalized(midpoint, crate::ZoomDomain::OpticalPlusDigital, &profile)
+                .expect("documented digital maximum maps the midpoint");
+        // The FR7 combined midpoint is 0x3800, which is still in its optical
+        // range. Use that exact raw value as the direct-position control.
+        let explicit = ZoomTarget::new(ZoomPosition::new(0x3800).expect("optical position"));
+        assert_eq!(wire(&normalized), wire(&explicit));
+        assert_ne!(
+            normalized, explicit,
+            "normalization provenance changes profile admissibility"
+        );
+
+        prepare_builtin_operation::<completion::Targeted, _>(
+            &explicit,
+            CameraId::CAMERA_1,
+            &profile,
+            OperationalTuning::new(),
+        )
+        .expect("explicit optical position remains governed by its numeric range");
+
+        let error = prepare_builtin_operation::<completion::Targeted, _>(
+            &normalized,
+            CameraId::CAMERA_1,
+            &profile,
+            OperationalTuning::new(),
+        )
+        .expect_err("combined normalization requires typed digital-range permission");
+        assert!(matches!(
+            error,
+            Error::FeatureNotSupported {
+                feature: "optical-plus-digital zoom positioning"
+            }
+        ));
     }
 
     #[test]

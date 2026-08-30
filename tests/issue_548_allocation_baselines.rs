@@ -318,13 +318,17 @@ fn representative_typed_requests_encode_without_heap_allocation() {
 fn assert_warmed_framing_reuses_buffer<E: Envelope>(label: &str, envelope: E) {
     const WIRE: &[u8] = &[0x81, 0x01, 0x04, 0x00, 0x02, 0xFF];
     let mut output = BytesMut::with_capacity(32);
-    envelope.frame_into(WIRE, CommandKind::Command, &mut output);
+    envelope
+        .frame_into(WIRE, CommandKind::Command, &mut output)
+        .expect("the warmed allocation test frame is valid");
     let pointer = output.as_ptr();
     let capacity = output.capacity();
 
     let allocations = allocations_during(|| {
         for _ in 0..128 {
-            let metadata = envelope.frame_into(WIRE, CommandKind::Command, &mut output);
+            let metadata = envelope
+                .frame_into(WIRE, CommandKind::Command, &mut output)
+                .expect("the warmed allocation test frame is valid");
             std::hint::black_box(metadata);
         }
     });

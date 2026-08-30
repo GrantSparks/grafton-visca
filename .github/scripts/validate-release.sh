@@ -126,7 +126,7 @@ if requires_hardware_evidence:
                         break
         return value
 
-    separator = re.compile(r"^:?-{2,}:?$")
+    separator = re.compile(r"^:?-+:?$")
     unevidenced = re.compile(
         r"^(pending|blocked|fail(ed)?|tbd|todo)\b", re.IGNORECASE
     )
@@ -232,7 +232,7 @@ if requires_hardware_evidence:
     required_ids = (
         [f"PT-{number:02d}" for number in range(1, 24)]
         + [f"FW-{number:02d}" for number in range(1, 10)]
-        + [f"CR-{number:02d}" for number in range(1, 7)]
+        + [f"CR-{number:02d}" for number in range(1, 8)]
         + [f"RT-{number:02d}" for number in range(1, 5)]
         + [f"MC-{number:02d}" for number in range(1, 6)]
     )
@@ -242,19 +242,18 @@ if requires_hardware_evidence:
     incomplete = []
     nonpassing = []
     ambiguous_headers = []
+    required_table_structure_errors = []
     table_evidence_errors = []
     required_status_errors = []
-    required_evidence_errors = []
-    status_column = None
-    id_column = None
-    evidence_column = None
-    table_started = False
+    required_field_errors = []
+    checked_required_table_headers = set()
     status_rows = 0
     def without_html_comments(document):
-        """Remove HTML comments while retaining every source line boundary."""
+        """Remove comments and report every source line they occupied."""
         visible = []
         in_comment = False
-        for source_line in document.splitlines(keepends=True):
+        comment_lines = set()
+        for line_number, source_line in enumerate(document.splitlines(keepends=True), 1):
             if source_line.endswith("\r\n"):
                 body, line_ending = source_line[:-2], "\r\n"
             elif source_line.endswith(("\n", "\r")):
@@ -264,8 +263,10 @@ if requires_hardware_evidence:
 
             pieces = []
             cursor = 0
+            line_has_comment = False
             while cursor < len(body):
                 if in_comment:
+                    line_has_comment = True
                     end = body.find("-->", cursor)
                     if end < 0:
                         cursor = len(body)
@@ -280,34 +281,82 @@ if requires_hardware_evidence:
                     cursor = len(body)
                     break
                 pieces.append(body[cursor:start])
+                line_has_comment = True
                 cursor = start + len("<!--")
                 in_comment = True
 
             visible.append("".join(pieces) + line_ending)
-        return "".join(visible)
+            if line_has_comment:
+                comment_lines.add(line_number)
+        return "".join(visible), comment_lines
 
     def visible_document(document):
         """Project the checklist to visible lines before parsing tables/records.
 
         This is intentionally a bounded document-context pass, not a Markdown
         parser. HTML comments are removed first so fence markers inside a
-        comment cannot affect the state machine. Fenced blocks use the common
-        0--3-space, three-or-more backtick/tilde form and retain only line
-        boundaries while hidden.
+        comment cannot affect the state machine. Fenced blocks, four-space
+        indented code blocks, CommonMark/Pandoc raw blocks, and recognized
+        line-starting block/raw HTML elements retain only line boundaries
+        while hidden. Inline/custom elements and unpaired ordinary or void
+        HTML elements remain visible so they cannot hide the rest of the
+        checklist.
         """
-        document = without_html_comments(document)
+        document, html_comment_lines = without_html_comments(document)
         visible = []
         fence_character = None
         fence_length = 0
+        html_block_tag = None
+        raw_block_terminator = None
+        type_6_html_block = False
+        indented_code = False
         opening = re.compile(r"^ {0,3}(?P<run>`{3,}|~{3,})(?P<suffix>.*)$")
+        html_block_opening = re.compile(
+            r"^ {0,3}<(?P<tag>[A-Za-z][A-Za-z0-9:-]*)\b", re.IGNORECASE
+        )
+        type_1_html_block_tags = {"pre", "script", "style", "textarea"}
+        commonmark_type_6_html_tags = frozenset(
+            (
+                "address article aside base basefont blockquote body caption "
+                "center col colgroup dd details dialog dir div dl dt fieldset "
+                "figcaption figure footer form frame frameset h1 h2 h3 h4 h5 "
+                "h6 head header hr html iframe legend li link main menu "
+                "menuitem nav noframes ol optgroup option p param search "
+                "section summary table tbody td tfoot th thead title tr track ul"
+            ).split()
+        )
+        # The existing visibility contract also treats the two historical
+        # raw/code containers below as paired raw contexts.
+        paired_raw_html_tags = {"code", "xmp"}
 
-        for source_line in document.splitlines(keepends=True):
+        source_lines = document.splitlines(keepends=True)
+        for source_index, source_line in enumerate(source_lines):
             if source_line.endswith("\r\n"):
                 body, line_ending = source_line[:-2], "\r\n"
             elif source_line.endswith(("\n", "\r")):
                 body, line_ending = source_line[:-1], source_line[-1:]
             else:
                 body, line_ending = source_line, ""
+
+            if raw_block_terminator is not None:
+                if raw_block_terminator in body:
+                    raw_block_terminator = None
+                visible.append(line_ending)
+                continue
+
+            if html_block_tag is not None:
+                if re.search(
+                    rf"</{re.escape(html_block_tag)}\s*>", body, re.IGNORECASE
+                ):
+                    html_block_tag = None
+                visible.append(line_ending)
+                continue
+
+            if type_6_html_block:
+                if not body.strip():
+                    type_6_html_block = False
+                visible.append(line_ending)
+                continue
 
             if fence_character is not None:
                 prefix = re.match(
@@ -321,6 +370,19 @@ if requires_hardware_evidence:
                 ):
                     fence_character = None
                     fence_length = 0
+                visible.append(line_ending)
+                continue
+
+            # Indented code blocks continue through blank lines. A subsequent
+            # nonblank line with fewer than four spaces starts fresh parsing.
+            if indented_code:
+                if not body.strip() or re.match(r"^(?: {4}|\t)", body):
+                    visible.append(line_ending)
+                    continue
+                indented_code = False
+
+            if re.match(r"^(?: {4}|\t)", body):
+                indented_code = True
                 visible.append(line_ending)
                 continue
 
@@ -338,124 +400,307 @@ if requires_hardware_evidence:
                 visible.append(line_ending)
                 continue
 
+            if re.match(r"^ {0,3}<\?", body):
+                raw_block_terminator = "?>"
+            elif re.match(r"^ {0,3}<!\[CDATA\[", body):
+                raw_block_terminator = "]]>"
+            elif re.match(r"^ {0,3}<![A-Z]", body):
+                raw_block_terminator = ">"
+
+            if raw_block_terminator is not None:
+                if raw_block_terminator in body:
+                    raw_block_terminator = None
+                visible.append(line_ending)
+                continue
+
+            html_match = html_block_opening.match(body)
+            if html_match is not None:
+                tag = html_match.group("tag").casefold()
+                closing = re.compile(rf"</{re.escape(tag)}\s*>", re.IGNORECASE)
+                remaining = body[html_match.end() :]
+                # CommonMark type-1 raw HTML blocks run through their
+                # matching closing tag or EOF. Restrict this exception to
+                # syntactically valid type-1 openers so `<textarea/>` and
+                # ordinary unpaired elements do not hide the document.
+                is_type_1_html_block = (
+                    tag in type_1_html_block_tags
+                    and (not remaining or remaining[0].isspace() or remaining[0] == ">")
+                )
+                if is_type_1_html_block:
+                    if closing.search(remaining) is None:
+                        html_block_tag = tag
+                    visible.append(line_ending)
+                    continue
+
+                is_complete_block_html_opener = (
+                    not remaining
+                    or remaining[0].isspace()
+                    or remaining.startswith(">")
+                    or remaining.startswith("/>")
+                )
+                # CommonMark type-6 blocks end at the first blank line,
+                # rather than at a matching end tag.
+                if (
+                    tag in commonmark_type_6_html_tags
+                    and is_complete_block_html_opener
+                ):
+                    type_6_html_block = True
+                    visible.append(line_ending)
+                    continue
+
+                # Only the recognized paired raw/code elements use this
+                # closer-based projection. In particular, a paired `<span>`
+                # or custom element remains visible so its Markdown content
+                # is still parsed.
+                is_paired_raw_html_element = (
+                    tag in paired_raw_html_tags and is_complete_block_html_opener
+                )
+                if not is_paired_raw_html_element:
+                    visible.append(source_line)
+                    continue
+
+                # A recognized paired raw/code opener is a hiding block only
+                # when its matching closer exists on this line or later in
+                # the document. This keeps the bounded projection from
+                # treating an unclosed `<code>` or `<xmp>` as EOF-wide.
+                remainder = "".join(source_lines[source_index:])
+                if closing.search(remainder) is None:
+                    visible.append(source_line)
+                    continue
+                if closing.search(remaining) is None:
+                    html_block_tag = tag
+                visible.append(line_ending)
+                continue
+
             visible.append(source_line)
-        return "".join(visible)
+        return "".join(visible), html_comment_lines
 
     # Both table rows and top-level release records must come from the same
     # visible-document projection. Keeping line boundaries makes diagnostics
     # continue to point at the original checklist lines.
-    checklist_text = visible_document(checklist.read_text())
-    for line_number, line in enumerate(checklist_text.splitlines(), 1):
-        if "|" not in line:
-            status_column = None
-            id_column = None
-            evidence_column = None
-            table_started = False
+    checklist_text, html_comment_lines = visible_document(checklist.read_text())
+
+    def markdown_table_cells(line):
+        """Return normalized and raw cells for a nonempty pipe-table row."""
+        stripped = line.strip()
+        if "|" not in stripped:
+            return None
+        raw_cells = stripped.split("|")
+        if stripped.startswith("|"):
+            raw_cells = raw_cells[1:]
+        if stripped.endswith("|"):
+            raw_cells = raw_cells[:-1]
+        if not raw_cells or not any(cell.strip() for cell in raw_cells):
+            return None
+        return [normalise(cell) for cell in raw_cells], raw_cells
+
+    def is_table_delimiter(raw_cells, header_width, has_html_comment):
+        return (
+            not has_html_comment
+            and len(raw_cells) == header_width
+            and all(separator.fullmatch(cell.strip()) for cell in raw_cells)
+        )
+
+    checklist_lines = checklist_text.splitlines()
+    atx_heading = re.compile(r"^ {0,3}#{1,6}(?:[ \t]|$)")
+    line_index = 0
+    while line_index < len(checklist_lines):
+        header_source = checklist_lines[line_index]
+        if (
+            header_source != header_source.lstrip(" \t")
+            or (
+                line_index > 0
+                and checklist_lines[line_index - 1].strip()
+                and atx_heading.match(checklist_lines[line_index - 1]) is None
+            )
+        ):
+            line_index += 1
+            continue
+        header_row = markdown_table_cells(checklist_lines[line_index])
+        delimiter_row = (
+            markdown_table_cells(checklist_lines[line_index + 1])
+            if line_index + 1 < len(checklist_lines)
+            else None
+        )
+        if (
+            header_row is None
+            or delimiter_row is None
+            or not is_table_delimiter(
+                delimiter_row[1],
+                len(header_row[0]),
+                line_index + 2 in html_comment_lines,
+            )
+        ):
+            line_index += 1
             continue
 
-        first_row = not table_started
-        table_started = True
-        cells = [normalise(cell) for cell in line.split("|")]
-        folded = [cell.casefold() for cell in cells]
+        header_line = line_index + 1
+        header_cells = header_row[0]
+        folded = [cell.casefold() for cell in header_cells]
 
-        # The checked-in matrix tables use `ID`, `Status`, and an
-        # `Evidence...`/`...notes` column. Remember their positions per table;
-        # a future table may add columns without changing the validator.
+        # The checked-in matrix tables use `ID`, `Owner`, `Status`,
+        # `Firmware / bench`, and `Evidence artifact / notes`. Remember their
+        # positions per table; a future table may add other columns without
+        # changing this contract.
         status_columns = [index for index, cell in enumerate(folded) if cell == "status"]
         id_columns = [index for index, cell in enumerate(folded) if cell == "id"]
+        owner_columns = [index for index, cell in enumerate(folded) if cell == "owner"]
+        firmware_bench_columns = [
+            index
+            for index, cell in enumerate(folded)
+            if re.fullmatch(r"firmware\s*/\s*bench", cell)
+        ]
         evidence_columns = [
             index
             for index, cell in enumerate(folded)
             if "evidence" in cell or "notes" in cell
         ]
+        required_evidence_columns = [
+            index
+            for index, cell in enumerate(folded)
+            if re.fullmatch(r"evidence\s+artifact\s*/\s*notes", cell)
+        ]
         # `Evidence` can legitimately occur in a data value (for example,
         # "packet evidence"), so an evidence-like cell alone is not enough to
-        # identify a header. A recognized table header has at least `ID` or
-        # `Status`; those markers also let us reject duplicate evidence labels.
-        if first_row and (status_columns or id_columns):
+        # identify a header. A recognized matrix/release header has at least
+        # `ID` or `Status`; those markers also let us reject duplicate labels.
+        if status_columns or id_columns:
             if len(status_columns) > 1:
                 ambiguous_headers.append(
-                    f"line {line_number}: {len(status_columns)} Status columns"
+                    f"line {header_line}: {len(status_columns)} Status columns"
                 )
             if len(evidence_columns) > 1:
                 ambiguous_headers.append(
-                    f"line {line_number}: {len(evidence_columns)} Evidence-like columns"
+                    f"line {header_line}: {len(evidence_columns)} Evidence-like columns"
                 )
             if len(id_columns) > 1:
                 ambiguous_headers.append(
-                    f"line {line_number}: {len(id_columns)} ID columns"
+                    f"line {header_line}: {len(id_columns)} ID columns"
                 )
-            status_column = status_columns[0] if len(status_columns) == 1 else None
-            id_column = id_columns[0] if len(id_columns) == 1 else None
-            evidence_column = (
-                evidence_columns[0] if len(evidence_columns) == 1 else None
-            )
-            continue
-
-        separator_row = (
-            any(separator.match(cell) for cell in cells)
-            and all(not cell or separator.match(cell) for cell in cells)
-        )
-        if separator_row:
-            continue
-
-        for cell in cells:
-            projected = visible_markdown_text(cell)
-            # The table-wide rule is intentionally narrower than the
-            # evidence/sign-off predicates: arbitrary checklist cells may use
-            # punctuation such as an em dash for a serial `Default` value.
-            # Only visible pending/non-passing markers are release blockers.
-            # Boundary cells from Markdown's leading/trailing pipes are empty
-            # structural cells, so do not report those as placeholders.
-            if projected and unevidenced.match(projected):
-                incomplete.append(f"line {line_number}: {cell}")
-
-        if status_column is not None and status_column < len(cells):
-            status = cells[status_column]
-            status_rows += 1
-            if status != "Pass":
-                nonpassing.append(f"line {line_number}: {status or '<empty>'}")
-
-        if status_column is not None and evidence_column is not None:
-            evidence = (
-                cells[evidence_column] if evidence_column < len(cells) else None
-            )
-            if not recorded_evidence(evidence):
-                table_evidence_errors.append(
-                    f"line {line_number}: {evidence or '<empty>'}"
+            if len(owner_columns) > 1:
+                ambiguous_headers.append(
+                    f"line {header_line}: {len(owner_columns)} Owner columns"
+                )
+            if len(firmware_bench_columns) > 1:
+                ambiguous_headers.append(
+                    f"line {header_line}: {len(firmware_bench_columns)} Firmware / bench columns"
                 )
 
-        if id_column is None or id_column >= len(cells):
-            continue
-        identifier = cells[id_column]
-        if identifier not in required_id_set:
-            # Future rows are allowed, but only the current required IDs are
-            # subject to exact-cardinality and per-row evidence checks below.
-            continue
+        status_column = status_columns[0] if len(status_columns) == 1 else None
+        id_column = id_columns[0] if len(id_columns) == 1 else None
+        owner_column = owner_columns[0] if len(owner_columns) == 1 else None
+        firmware_bench_column = (
+            firmware_bench_columns[0] if len(firmware_bench_columns) == 1 else None
+        )
+        evidence_column = (
+            evidence_columns[0] if len(evidence_columns) == 1 else None
+        )
+        required_evidence_column = (
+            required_evidence_columns[0]
+            if len(required_evidence_columns) == 1
+            else None
+        )
 
-        status = (
-            cells[status_column]
-            if status_column is not None and status_column < len(cells)
-            else None
-        )
-        evidence = (
-            cells[evidence_column]
-            if evidence_column is not None and evidence_column < len(cells)
-            else None
-        )
-        required_rows[identifier].append(
-            {
-                "line": line_number,
-                "status": status,
-                "evidence": evidence,
-            }
-        )
+        data_index = line_index + 2
+        while data_index < len(checklist_lines):
+            table_row = markdown_table_cells(checklist_lines[data_index])
+            if table_row is None or len(table_row[0]) != len(header_cells):
+                break
+            cells = table_row[0]
+            line_number = data_index + 1
+
+            for cell in cells:
+                projected = visible_markdown_text(cell)
+                # The table-wide rule is intentionally narrower than the
+                # evidence/sign-off predicates: arbitrary checklist cells may
+                # use punctuation such as an em dash for a serial `Default`
+                # value. Only visible pending/non-passing markers are release
+                # blockers.
+                if projected and unevidenced.match(projected):
+                    incomplete.append(f"line {line_number}: {cell}")
+
+            if status_column is not None:
+                status = cells[status_column]
+                status_rows += 1
+                if status != "Pass":
+                    nonpassing.append(f"line {line_number}: {status or '<empty>'}")
+
+            if status_column is not None and evidence_column is not None:
+                status = cells[status_column]
+                evidence = cells[evidence_column]
+                if status == "Pass" and not recorded_evidence(evidence):
+                    table_evidence_errors.append(
+                        f"line {line_number}: {evidence or '<empty>'}"
+                    )
+
+            if id_column is not None:
+                identifier = cells[id_column]
+                row = {
+                    "line": line_number,
+                    "identifier": identifier,
+                    "status": cells[status_column] if status_column is not None else None,
+                    "owner": cells[owner_column] if owner_column is not None else None,
+                    "firmware_bench": (
+                        cells[firmware_bench_column]
+                        if firmware_bench_column is not None
+                        else None
+                    ),
+                    "evidence": (
+                        cells[required_evidence_column]
+                        if required_evidence_column is not None
+                        else None
+                    ),
+                }
+                if identifier in required_id_set:
+                    if header_line not in checked_required_table_headers:
+                        checked_required_table_headers.add(header_line)
+                        missing_columns = [
+                            label
+                            for label, column in (
+                                ("ID", id_column),
+                                ("Owner", owner_column),
+                                ("Status", status_column),
+                                ("Firmware / bench", firmware_bench_column),
+                                (
+                                    "Evidence artifact / notes",
+                                    required_evidence_column,
+                                ),
+                            )
+                            if column is None
+                        ]
+                        if missing_columns:
+                            required_table_structure_errors.append(
+                                f"line {header_line}: missing {', '.join(missing_columns)}"
+                            )
+                    required_rows[identifier].append(row)
+
+            data_index += 1
+
+        line_index = data_index
 
     if ambiguous_headers:
         sample = "; ".join(ambiguous_headers[:5])
         suffix = "" if len(ambiguous_headers) <= 5 else f"; ... ({len(ambiguous_headers)} total)"
         raise SystemExit(
             "stable 2.0+ publication rejects ambiguous checklist table headers: "
+            f"{sample}{suffix}"
+        )
+
+    # Required hardware rows belong to the five checked-in matrix tables. A
+    # smaller ID/Status/Evidence table can list every ID while omitting the
+    # owner and exact firmware/bench provenance that the checklist requires,
+    # so its header is not sufficient stable-release evidence.
+    if required_table_structure_errors:
+        sample = "; ".join(required_table_structure_errors[:5])
+        suffix = (
+            ""
+            if len(required_table_structure_errors) <= 5
+            else f"; ... ({len(required_table_structure_errors)} total)"
+        )
+        raise SystemExit(
+            "stable 2.0+ publication requires every table containing a current "
+            "hardware checklist ID to include ID, Owner, Status, Firmware / bench, "
+            "and Evidence artifact / notes columns; incomplete required-row tables: "
             f"{sample}{suffix}"
         )
 
@@ -527,12 +772,6 @@ if requires_hardware_evidence:
             required_status_errors.append(
                 f"{identifier} (line {row['line']}: {status or '<empty>'})"
             )
-        if not recorded_evidence(row["evidence"]):
-            evidence = row["evidence"] or "<empty>"
-            required_evidence_errors.append(
-                f"{identifier} (line {row['line']}: {evidence})"
-            )
-
     if required_status_errors:
         sample = "; ".join(required_status_errors[:5])
         suffix = (
@@ -544,16 +783,36 @@ if requires_hardware_evidence:
             "stable 2.0+ publication requires every required hardware checklist "
             f"row to have Status exactly Pass; invalid required rows: {sample}{suffix}"
         )
-    if required_evidence_errors:
-        sample = "; ".join(required_evidence_errors[:5])
+
+    # A `Pass` claim needs the same operator, firmware/bench, and evidence
+    # provenance as the checked-in matrix. This verifies that the values are
+    # recorded, without claiming to authenticate the physical-camera
+    # observation itself.
+    for identifier in required_ids:
+        row = required_rows[identifier][0]
+        if row["status"] != "Pass":
+            continue
+        for label, field in (
+            ("Owner", "owner"),
+            ("Firmware / bench", "firmware_bench"),
+            ("Evidence artifact / notes", "evidence"),
+        ):
+            if not recorded_evidence(row[field]):
+                value = row[field] or "<empty>"
+                required_field_errors.append(
+                    f"{identifier} (line {row['line']}: {label} is {value})"
+                )
+    if required_field_errors:
+        sample = "; ".join(required_field_errors[:5])
         suffix = (
             ""
-            if len(required_evidence_errors) <= 5
-            else f"; ... ({len(required_evidence_errors)} total)"
+            if len(required_field_errors) <= 5
+            else f"; ... ({len(required_field_errors)} total)"
         )
         raise SystemExit(
-            "stable 2.0+ publication requires every required hardware checklist "
-            f"row to have recorded non-placeholder evidence/notes: {sample}{suffix}"
+            "stable 2.0+ publication requires every Pass row in a required-ID "
+            "table to record non-placeholder Owner, Firmware / bench, and "
+            f"Evidence artifact / notes values: {sample}{suffix}"
         )
 
     # The five release-signoff gates are deliberately covered by the existing

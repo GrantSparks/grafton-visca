@@ -23,6 +23,11 @@ use crate::{
     Error,
 };
 
+/// Sony VISCA-over-IP carries a complete VISCA payload in one 8-byte-header
+/// envelope. The protocol permits one through sixteen payload bytes.
+const MIN_SONY_VISCA_PAYLOAD_LENGTH: usize = 1;
+const MAX_SONY_VISCA_PAYLOAD_LENGTH: usize = 16;
+
 /// The sequence provenance carried by a framed VISCA message.
 ///
 /// Sony's header has space for a 32-bit sequence, but some cameras return only
@@ -101,23 +106,25 @@ pub trait Envelope: private::Sealed + Send + Sync + 'static {
     /// Frame VISCA bytes into a reusable buffer with zero allocations.
     ///
     /// This method writes the framed bytes directly into the provided buffer,
-    /// avoiding per-send allocations. The buffer is cleared before use.
+    /// avoiding per-send allocations. On success, the buffer is cleared before
+    /// the new frame is written. On failure, it is left unchanged.
     ///
     /// # Arguments
     ///
     /// * `visca_bytes` - The VISCA command bytes to frame
     /// * `kind` - The command kind (Command or Inquiry)
-    /// * `out` - The output buffer to write into (will be cleared first)
+    /// * `out` - The output buffer to write into
     ///
     /// # Returns
     ///
-    /// Metadata about the framing operation (sequence number for Sony, None for Raw)
+    /// Metadata about the framing operation (sequence number for Sony, None for Raw),
+    /// or a protocol validation error.
     fn frame_into(
         &self,
         visca_bytes: &[u8],
         kind: CommandKind,
         out: &mut bytes::BytesMut,
-    ) -> FrameMeta;
+    ) -> Result<FrameMeta, Error>;
 
     /// Extract VISCA payload from protocol-specific framing.
     fn extract_response(&self, framed_bytes: &[u8]) -> Result<Bytes, Error>;
@@ -160,11 +167,11 @@ impl Envelope for RawVisca {
         visca_bytes: &[u8],
         kind: CommandKind,
         out: &mut bytes::BytesMut,
-    ) -> FrameMeta {
+    ) -> Result<FrameMeta, Error> {
         out.clear();
 
         if visca_bytes.is_empty() {
-            return FrameMeta { sequence: None };
+            return Ok(FrameMeta { sequence: None });
         }
 
         // Normalize the address byte if needed
@@ -180,7 +187,7 @@ impl Envelope for RawVisca {
             out.extend_from_slice(&visca_bytes[1..]);
         }
 
-        FrameMeta { sequence: None }
+        Ok(FrameMeta { sequence: None })
     }
 
     fn extract_response(&self, framed_bytes: &[u8]) -> Result<Bytes, Error> {
@@ -205,7 +212,7 @@ impl RawVisca {
                 "raw VISCA framing cannot accept an explicit Sony sequence".into(),
             ));
         }
-        Ok(self.frame_into(visca_bytes, kind, out))
+        self.frame_into(visca_bytes, kind, out)
     }
 }
 
@@ -226,11 +233,8 @@ impl Envelope for SonyEncapsulated {
         visca_bytes: &[u8],
         kind: CommandKind,
         out: &mut bytes::BytesMut,
-    ) -> FrameMeta {
-        // Keep the existing infallible convenience API. Owner retries use the
-        // fallible explicit-sequence path below.
+    ) -> Result<FrameMeta, Error> {
         self.frame_into_with_sequence(visca_bytes, kind, None, out)
-            .unwrap_or(FrameMeta { sequence: None })
     }
 
     fn extract_response(&self, framed_bytes: &[u8]) -> Result<Bytes, Error> {
@@ -290,16 +294,22 @@ impl SonyEncapsulated {
         requested_sequence: Option<u32>,
         out: &mut bytes::BytesMut,
     ) -> Result<FrameMeta, Error> {
-        out.clear();
-
         if visca_bytes.is_empty() {
             if requested_sequence.is_some() {
                 return Err(Error::InvalidRequest(
                     "an explicit Sony sequence requires a non-empty VISCA message".into(),
                 ));
             }
+            // Empty input is the legacy no-op sentinel, not a Sony wire
+            // payload. Preserve its existing buffer-clearing behavior.
+            out.clear();
             return Ok(FrameMeta { sequence: None });
         }
+
+        // Validate before either advancing the allocator or touching `out` so
+        // a rejected raw request cannot consume a sequence or leave a partial
+        // Sony frame behind.
+        validate_sony_request_payload_length(visca_bytes.len())?;
 
         // Allocate only for a new logical message. Retries provide their
         // engine-owned sequence explicitly and must not advance this counter.
@@ -316,6 +326,7 @@ impl SonyEncapsulated {
         };
 
         // Write header + normalized address + remaining bytes directly into out
+        out.clear();
         out.reserve(SonyHeader::SIZE + visca_bytes.len());
         out.extend_from_slice(&header.encode());
         out.extend_from_slice(&[normalized_addr]);
@@ -394,12 +405,21 @@ fn validate_sony_response_header(header: SonyHeader) -> Result<(), Error> {
         ))));
     }
 
-    const MIN_PAYLOAD_LENGTH: usize = 1;
-    const MAX_PAYLOAD_LENGTH: usize = 16;
     let payload_length = usize::from(header.payload_length);
-    if !(MIN_PAYLOAD_LENGTH..=MAX_PAYLOAD_LENGTH).contains(&payload_length) {
+    if !(MIN_SONY_VISCA_PAYLOAD_LENGTH..=MAX_SONY_VISCA_PAYLOAD_LENGTH).contains(&payload_length) {
         return Err(Error::ParseError(Cow::Owned(format!(
-            "Sony payload length must be between {MIN_PAYLOAD_LENGTH} and {MAX_PAYLOAD_LENGTH} bytes, got {payload_length}"
+            "Sony payload length must be between {MIN_SONY_VISCA_PAYLOAD_LENGTH} and {MAX_SONY_VISCA_PAYLOAD_LENGTH} bytes, got {payload_length}"
+        ))));
+    }
+
+    Ok(())
+}
+
+/// Validate an outgoing non-empty Sony VISCA payload before framing it.
+fn validate_sony_request_payload_length(payload_length: usize) -> Result<(), Error> {
+    if !(MIN_SONY_VISCA_PAYLOAD_LENGTH..=MAX_SONY_VISCA_PAYLOAD_LENGTH).contains(&payload_length) {
+        return Err(Error::InvalidRequest(Cow::Owned(format!(
+            "Sony VISCA-over-IP payload length must be between {MIN_SONY_VISCA_PAYLOAD_LENGTH} and {MAX_SONY_VISCA_PAYLOAD_LENGTH} bytes, got {payload_length}"
         ))));
     }
 
@@ -436,7 +456,9 @@ mod tests {
         let visca_cmd = vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR];
         let mut out = bytes::BytesMut::new();
 
-        let meta = envelope.frame_into(&visca_cmd, CommandKind::Command, &mut out);
+        let meta = envelope
+            .frame_into(&visca_cmd, CommandKind::Command, &mut out)
+            .expect("raw framing is infallible for valid test input");
 
         // Serial mode: should preserve address byte (no normalization)
         assert_eq!(&out[..], &visca_cmd[..]);
@@ -449,7 +471,9 @@ mod tests {
         let visca_cmd = vec![0x82, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR];
         let mut out = bytes::BytesMut::new();
 
-        let meta = envelope.frame_into(&visca_cmd, CommandKind::Command, &mut out);
+        let meta = envelope
+            .frame_into(&visca_cmd, CommandKind::Command, &mut out)
+            .expect("raw framing is infallible for valid test input");
 
         // IP mode: should normalize 0x82 to 0x81
         assert_eq!(out[0], 0x81);
@@ -463,7 +487,9 @@ mod tests {
         let visca_cmd = vec![0x88, 0x09, 0x00, 0x02, VISCA_TERMINATOR];
         let mut out = bytes::BytesMut::new();
 
-        let meta = envelope.frame_into(&visca_cmd, CommandKind::Inquiry, &mut out);
+        let meta = envelope
+            .frame_into(&visca_cmd, CommandKind::Inquiry, &mut out)
+            .expect("raw framing is infallible for valid test input");
 
         // Broadcast inquiry (0x88) should be preserved even in IP mode
         assert_eq!(out[0], 0x88);
@@ -477,7 +503,9 @@ mod tests {
         let visca_cmd = vec![0x88, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR];
         let mut out = bytes::BytesMut::new();
 
-        let meta = envelope.frame_into(&visca_cmd, CommandKind::Command, &mut out);
+        let meta = envelope
+            .frame_into(&visca_cmd, CommandKind::Command, &mut out)
+            .expect("raw framing is infallible for valid test input");
 
         // Broadcast address on Command (not Inquiry) should be normalized to 0x81
         assert_eq!(out[0], 0x81);
@@ -490,7 +518,9 @@ mod tests {
         let envelope = RawVisca::new(AddressingMode::Ip);
         let mut out = bytes::BytesMut::new();
 
-        let meta = envelope.frame_into(&[], CommandKind::Command, &mut out);
+        let meta = envelope
+            .frame_into(&[], CommandKind::Command, &mut out)
+            .expect("raw framing is infallible for empty test input");
 
         assert_eq!(out.len(), 0);
         assert_eq!(meta.sequence, None);
@@ -502,7 +532,9 @@ mod tests {
         let visca_cmd = vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR];
         let mut out = bytes::BytesMut::from(&b"old data"[..]);
 
-        envelope.frame_into(&visca_cmd, CommandKind::Command, &mut out);
+        envelope
+            .frame_into(&visca_cmd, CommandKind::Command, &mut out)
+            .expect("raw framing is infallible for valid test input");
 
         // Should clear old data and contain only new framed command
         assert_eq!(&out[..], &visca_cmd[..]);
@@ -516,7 +548,9 @@ mod tests {
         let visca_cmd = vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR];
         let mut out = bytes::BytesMut::new();
 
-        let meta = envelope.frame_into(&visca_cmd, CommandKind::Command, &mut out);
+        let meta = envelope
+            .frame_into(&visca_cmd, CommandKind::Command, &mut out)
+            .expect("Sony framing accepts this payload");
 
         // Should have Sony header (8 bytes) + VISCA payload
         assert_eq!(out.len(), SonyHeader::SIZE + visca_cmd.len());
@@ -540,7 +574,9 @@ mod tests {
         let visca_cmd = vec![0x81, 0x09, 0x04, 0x47, VISCA_TERMINATOR];
         let mut out = bytes::BytesMut::new();
 
-        let meta = envelope.frame_into(&visca_cmd, CommandKind::Inquiry, &mut out);
+        let meta = envelope
+            .frame_into(&visca_cmd, CommandKind::Inquiry, &mut out)
+            .expect("Sony framing accepts this payload");
 
         // Check sequence number
         assert_eq!(meta.sequence, Some(FrameSequence::Full32(0)));
@@ -558,9 +594,15 @@ mod tests {
         let mut out = bytes::BytesMut::new();
 
         // Frame multiple commands
-        let meta1 = envelope.frame_into(&visca_cmd, CommandKind::Command, &mut out);
-        let meta2 = envelope.frame_into(&visca_cmd, CommandKind::Command, &mut out);
-        let meta3 = envelope.frame_into(&visca_cmd, CommandKind::Command, &mut out);
+        let meta1 = envelope
+            .frame_into(&visca_cmd, CommandKind::Command, &mut out)
+            .expect("Sony framing accepts this payload");
+        let meta2 = envelope
+            .frame_into(&visca_cmd, CommandKind::Command, &mut out)
+            .expect("Sony framing accepts this payload");
+        let meta3 = envelope
+            .frame_into(&visca_cmd, CommandKind::Command, &mut out)
+            .expect("Sony framing accepts this payload");
 
         // Sequence numbers should increment
         assert_eq!(meta1.sequence, Some(FrameSequence::Full32(0)));
@@ -574,7 +616,9 @@ mod tests {
         let visca_cmd = vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR];
         let mut out = bytes::BytesMut::new();
 
-        let first = envelope.frame_into(&visca_cmd, CommandKind::Command, &mut out);
+        let first = envelope
+            .frame_into(&visca_cmd, CommandKind::Command, &mut out)
+            .expect("Sony framing accepts this payload");
         let first_wire = out.to_vec();
         assert_eq!(first.sequence, Some(FrameSequence::Full32(0)));
 
@@ -589,8 +633,87 @@ mod tests {
         assert_eq!(retry.sequence, Some(FrameSequence::Full32(0)));
         assert_eq!(out.as_ref(), first_wire.as_slice());
 
-        let next = envelope.frame_into(&visca_cmd, CommandKind::Command, &mut out);
+        let next = envelope
+            .frame_into(&visca_cmd, CommandKind::Command, &mut out)
+            .expect("Sony framing accepts this payload");
         assert_eq!(next.sequence, Some(FrameSequence::Full32(1)));
+    }
+
+    #[test]
+    fn sony_outbound_frames_one_byte_payload() {
+        let envelope = SonyEncapsulated::new(AddressingMode::Ip);
+        let visca_payload = [0x85];
+        let mut out = bytes::BytesMut::new();
+
+        let meta = envelope
+            .frame_into_with_sequence(&visca_payload, CommandKind::Command, None, &mut out)
+            .expect("one-byte Sony payload is within the wire limit");
+
+        assert_eq!(meta.sequence, Some(FrameSequence::Full32(0)));
+        let header = SonyHeader::decode(&out[..SonyHeader::SIZE]).expect("valid header");
+        assert_eq!(header.payload_length, 1);
+        assert_eq!(&out[SonyHeader::SIZE..], &[0x81]);
+    }
+
+    #[test]
+    fn sony_outbound_frames_sixteen_byte_payload() {
+        let envelope = SonyEncapsulated::new(AddressingMode::Ip);
+        let mut visca_payload = [0xa5; MAX_SONY_VISCA_PAYLOAD_LENGTH];
+        visca_payload[0] = 0x85;
+        let mut out = bytes::BytesMut::new();
+
+        let meta = envelope
+            .frame_into_with_sequence(&visca_payload, CommandKind::Command, None, &mut out)
+            .expect("sixteen-byte Sony payload is within the wire limit");
+
+        assert_eq!(meta.sequence, Some(FrameSequence::Full32(0)));
+        let header = SonyHeader::decode(&out[..SonyHeader::SIZE]).expect("valid header");
+        assert_eq!(
+            header.payload_length as usize,
+            MAX_SONY_VISCA_PAYLOAD_LENGTH
+        );
+        assert_eq!(out[SonyHeader::SIZE], 0x81);
+        assert_eq!(&out[SonyHeader::SIZE + 1..], &visca_payload[1..]);
+    }
+
+    #[test]
+    fn sony_outbound_rejects_seventeen_byte_payload_before_mutation_or_sequence_allocation() {
+        let envelope = SonyEncapsulated::new(AddressingMode::Ip);
+        let invalid_payload = [0x81; MAX_SONY_VISCA_PAYLOAD_LENGTH + 1];
+        let mut out = bytes::BytesMut::from(&b"prior framed bytes"[..]);
+        let original_out = out.clone();
+
+        for requested_sequence in [None, Some(0x1234_5678)] {
+            assert!(matches!(
+                envelope.frame_into_with_sequence(
+                    &invalid_payload,
+                    CommandKind::Command,
+                    requested_sequence,
+                    &mut out,
+                ),
+                Err(Error::InvalidRequest(_))
+            ));
+            assert_eq!(out.as_ref(), original_out.as_ref());
+        }
+
+        let valid_payload = [0x81];
+        let meta = envelope
+            .frame_into_with_sequence(&valid_payload, CommandKind::Command, None, &mut out)
+            .expect("a rejected payload must not consume the first sequence");
+        assert_eq!(meta.sequence, Some(FrameSequence::Full32(0)));
+    }
+
+    #[test]
+    fn sony_frame_into_reports_invalid_nonempty_payload_without_mutation() {
+        let envelope = SonyEncapsulated::new(AddressingMode::Ip);
+        let invalid_payload = [0x81; MAX_SONY_VISCA_PAYLOAD_LENGTH + 1];
+        let mut out = bytes::BytesMut::from(&b"prior framed bytes"[..]);
+        let original_out = out.clone();
+
+        let result = envelope.frame_into(&invalid_payload, CommandKind::Command, &mut out);
+
+        assert!(matches!(result, Err(Error::InvalidRequest(_))));
+        assert_eq!(out.as_ref(), original_out.as_ref());
     }
 
     #[test]
@@ -611,7 +734,9 @@ mod tests {
         let visca_cmd = vec![0x85, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR];
         let mut out = bytes::BytesMut::new();
 
-        envelope.frame_into(&visca_cmd, CommandKind::Command, &mut out);
+        envelope
+            .frame_into(&visca_cmd, CommandKind::Command, &mut out)
+            .expect("Sony framing accepts this payload");
 
         // Address byte should be normalized to 0x81
         assert_eq!(out[SonyHeader::SIZE], 0x81);
@@ -624,21 +749,38 @@ mod tests {
         let visca_cmd = vec![0x88, 0x09, 0x00, 0x02, VISCA_TERMINATOR];
         let mut out = bytes::BytesMut::new();
 
-        envelope.frame_into(&visca_cmd, CommandKind::Inquiry, &mut out);
+        envelope
+            .frame_into(&visca_cmd, CommandKind::Inquiry, &mut out)
+            .expect("Sony framing accepts this payload");
 
         // Broadcast inquiry (0x88) should be preserved
         assert_eq!(out[SonyHeader::SIZE], 0x88);
     }
 
     #[test]
-    fn test_sony_frame_into_empty_input() {
+    fn sony_outbound_empty_input_is_legacy_noop_without_sequence_allocation() {
         let envelope = SonyEncapsulated::new(AddressingMode::Ip);
-        let mut out = bytes::BytesMut::new();
+        let mut out = bytes::BytesMut::from(&b"old frame"[..]);
 
-        let meta = envelope.frame_into(&[], CommandKind::Command, &mut out);
+        let meta = envelope
+            .frame_into(&[], CommandKind::Command, &mut out)
+            .expect("empty input remains an explicit no-op");
 
         assert_eq!(out.len(), 0);
         assert_eq!(meta.sequence, None);
+
+        let valid_payload = [0x81];
+        let next = envelope
+            .frame_into_with_sequence(&valid_payload, CommandKind::Command, None, &mut out)
+            .expect("empty no-op must not consume a sequence");
+        assert_eq!(next.sequence, Some(FrameSequence::Full32(0)));
+
+        let original_out = out.clone();
+        assert!(matches!(
+            envelope.frame_into_with_sequence(&[], CommandKind::Command, Some(7), &mut out),
+            Err(Error::InvalidRequest(_))
+        ));
+        assert_eq!(out.as_ref(), original_out.as_ref());
     }
 
     #[test]
@@ -647,7 +789,9 @@ mod tests {
         let visca_cmd = vec![0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR];
         let mut out = bytes::BytesMut::from(&b"old data that should be cleared"[..]);
 
-        envelope.frame_into(&visca_cmd, CommandKind::Command, &mut out);
+        envelope
+            .frame_into(&visca_cmd, CommandKind::Command, &mut out)
+            .expect("Sony framing accepts this payload");
 
         // Should clear old data and contain only Sony header + VISCA payload
         assert_eq!(out.len(), SonyHeader::SIZE + visca_cmd.len());
@@ -661,11 +805,15 @@ mod tests {
         let mut out = bytes::BytesMut::new();
 
         // Frame first command
-        let meta1 = envelope.frame_into(&cmd1, CommandKind::Command, &mut out);
+        let meta1 = envelope
+            .frame_into(&cmd1, CommandKind::Command, &mut out)
+            .expect("Sony framing accepts this payload");
         assert_eq!(meta1.sequence, Some(FrameSequence::Full32(0)));
 
         // Reuse buffer for second command
-        let meta2 = envelope.frame_into(&cmd2, CommandKind::Inquiry, &mut out);
+        let meta2 = envelope
+            .frame_into(&cmd2, CommandKind::Inquiry, &mut out)
+            .expect("Sony framing accepts this payload");
         let len2 = out.len();
         assert_eq!(meta2.sequence, Some(FrameSequence::Full32(1)));
 

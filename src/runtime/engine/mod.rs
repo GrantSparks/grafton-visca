@@ -380,7 +380,10 @@ impl ProtocolEngine {
             return None;
         }
         if entry.request.is_inquiry() {
-            if self.inquiries_inflight() >= self.policy.inquiry_capacity {
+            let target = entry.request.context().target;
+            if self.inquiries_inflight() >= self.policy.inquiry_capacity
+                || self.completion_only_blocked(entry, target)
+            {
                 return None;
             }
         } else {
@@ -388,6 +391,7 @@ impl ProtocolEngine {
             let policy = self.targets[target.id() as usize]?;
             if self.raw_command_unacknowledged(target)
                 || self.commands_inflight(target) >= usize::from(policy.command_sockets)
+                || self.completion_only_blocked(entry, target)
             {
                 return None;
             }
@@ -1005,7 +1009,10 @@ impl ProtocolEngine {
             return false;
         };
         if entry.request.is_inquiry() {
-            if self.inquiries_inflight() >= self.policy.inquiry_capacity {
+            let target = entry.request.context().target;
+            if self.inquiries_inflight() >= self.policy.inquiry_capacity
+                || self.completion_only_blocked(entry, target)
+            {
                 return false;
             }
             if self.inquiry_cooldown_until.is_some_and(|until| until > now) {
@@ -1110,20 +1117,47 @@ impl ProtocolEngine {
             })
     }
 
-    /// Whether a completion-only raw command (issue #700) is barred from
-    /// dispatch because it needs the target's command channel to itself.
+    /// Whether a raw completion-only command is still occupying `target`.
+    ///
+    /// Its normal live phases have no socket, and an ambiguity quarantine keeps
+    /// the same uncorrelated target slot until its deadline. Both must keep a
+    /// same-target inquiry from starting: a socketless error received during
+    /// either phase otherwise has two possible owners.
+    fn raw_completion_only_inflight(&self, target: CameraId) -> bool {
+        self.policy.envelope == EnvelopeKind::Raw
+            && self.entries.values().any(|entry| {
+                !entry.request.is_inquiry()
+                    && entry.request.context().target == target
+                    && entry.request.context().reply_shape == ReplyShape::CompletionOnly
+                    && matches!(
+                        entry.phase,
+                        Phase::Sending { .. }
+                            | Phase::AwaitingCompletion { .. }
+                            | Phase::AwaitingLateAck { .. }
+                    )
+            })
+    }
+
+    /// Whether `entry` is barred by raw completion-only exclusivity (issue
+    /// #700).
     ///
     /// A completion-only command earns no socket, so its completion (or a
     /// socketless error) can be attributed to it only while it is the sole
-    /// in-flight command on the target. It may therefore start only when nothing
-    /// else is in flight; the reverse — nothing else starting while it runs — is
-    /// already enforced by [`Self::raw_command_unacknowledged`] counting its
-    /// phase. The rule is raw-only: Sony correlates by sequence, so a
-    /// completion-only command there needs no exclusivity.
+    /// in-flight request on the target. It may therefore start only when no
+    /// command or inquiry is live, and a same-target inquiry may not start while
+    /// it occupies the target. Other commands are already stopped by
+    /// [`Self::raw_command_unacknowledged`]. The rule is raw-only: Sony
+    /// correlates by sequence, so a completion-only command there needs no
+    /// exclusivity.
     fn completion_only_blocked(&self, entry: &Entry, target: CameraId) -> bool {
-        self.policy.envelope == EnvelopeKind::Raw
-            && entry.request.context().reply_shape == ReplyShape::CompletionOnly
-            && self.commands_inflight(target) > 0
+        if self.policy.envelope != EnvelopeKind::Raw {
+            return false;
+        }
+        if entry.request.is_inquiry() {
+            return self.raw_completion_only_inflight(target);
+        }
+        entry.request.context().reply_shape == ReplyShape::CompletionOnly
+            && (self.commands_inflight(target) > 0 || self.raw_inquiry_inflight(target))
     }
 
     /// Whether the raw single-candidate pre-ACK gate — and not genuine
@@ -3072,6 +3106,7 @@ impl ProtocolEngine {
     fn capacity_available_for(&self, entry: &Entry) -> bool {
         if entry.request.is_inquiry() {
             self.inquiries_inflight() < self.policy.inquiry_capacity
+                && !self.completion_only_blocked(entry, entry.request.context().target)
         } else {
             let target = entry.request.context().target;
             self.targets[target.id() as usize].is_some_and(|policy| {
@@ -3647,6 +3682,7 @@ fn correlation_phase_compatible(entry: &Entry, kind: CorrelationKind) -> bool {
         CorrelationKind::Request => matches!(
             entry.phase,
             Phase::AwaitingAck { .. }
+                | Phase::AwaitingCompletion { .. }
                 | Phase::Executing { .. }
                 | Phase::AwaitingReply { .. }
                 | Phase::AwaitingCancellationResolution { .. }

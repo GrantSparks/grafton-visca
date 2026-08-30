@@ -8,12 +8,17 @@
 use std::{future::Future, sync::Arc};
 
 use grafton_visca::{
+    capabilities::{Capabilities, InquirySupport, TypedSupportSet, TypedSupportSurface},
     dynapi::{DynSessionCamera, DynSessionCameraNouns},
     profile::{PositionInquirySupport, ProfileSpec},
     profiles::SonyBRC300,
     transport::{AsyncTransport, HasTransportConfig, SendSemantics, TransportConfig},
-    CameraId, Error, ProfileTiming, Session, SessionConfig,
+    types::ZoomPosition,
+    units::UnitInterval,
+    CameraId, CommandTimeouts, Error, ProfileEnvelope, ProfileTiming, Session, SessionConfig,
+    TransportCompatibility, ZoomDomain,
 };
+use std::time::Duration;
 
 #[derive(Debug)]
 struct ScriptedTransport {
@@ -129,6 +134,54 @@ fn runtime_equivalent(static_profile: &ProfileSpec) -> ProfileSpec {
         .expect("runtime profile equivalent")
 }
 
+/// A runtime profile may document the physical digital range while declining
+/// to expose its typed control surface. This is the partial-profile shape the
+/// dynamic API must reject for the combined normalized noun.
+fn documented_digital_zoom_profile(digital_range_permission: bool) -> ProfileSpec {
+    let mut capabilities =
+        Capabilities::runtime_baseline("Documented Digital Zoom", 1).expect("baseline profile");
+    capabilities.has_zoom = true;
+    capabilities.has_digital_zoom = true;
+    capabilities.zoom_range_optical = 0..=0x4000;
+    capabilities.zoom_range_digital = Some(0x4000..=0x7000);
+    capabilities.zoom_speed = 0..=7;
+    capabilities.supports_direct_zoom = true;
+    capabilities.zoom_magnification_to_units = 1.0;
+    capabilities.inquiry_support = InquirySupport::None;
+    capabilities.typed_support = if digital_range_permission {
+        TypedSupportSet::from_surfaces(&[
+            TypedSupportSurface::DirectZoom,
+            TypedSupportSurface::DigitalZoomRange,
+        ])
+    } else {
+        TypedSupportSet::from_surface(TypedSupportSurface::DirectZoom)
+    };
+
+    ProfileSpec::builder(capabilities)
+        .transports(TransportCompatibility::new(Some(5678), None, false))
+        .envelope(ProfileEnvelope::RawVisca)
+        .timing(
+            ProfileTiming::builder()
+                .ack_timeout(Duration::from_millis(100))
+                .command_timeouts(CommandTimeouts::default())
+                .inquiry_timeout(Duration::from_secs(1))
+                .cancellation_timeout(Duration::from_secs(1))
+                .ambiguity_timeout(Duration::from_secs(1))
+                .busy_timeout(Duration::ZERO)
+                .minimum_inquiry_spacing(Duration::ZERO)
+                .minimum_command_spacing(Duration::ZERO)
+                .build()
+                .expect("valid timing"),
+        )
+        .maximum_command_sockets(1)
+        .supports_operation_complete(true)
+        .supports_command_cancel(false)
+        .preset_recall_axes(None)
+        .position_inquiries(PositionInquirySupport::new(false, false, false))
+        .build()
+        .expect("documented digital zoom profile")
+}
+
 async fn dynamic_targeted_polling<E>(runtime: E)
 where
     E: grafton_visca::Executor,
@@ -179,14 +232,138 @@ where
     session.shutdown().await.expect("session shutdown");
 }
 
+async fn dynamic_combined_normalized_zoom_respects_typed_permission<E>(runtime: E)
+where
+    E: grafton_visca::Executor,
+{
+    let midpoint = UnitInterval::new(0.5).expect("unit interval midpoint");
+    let partial_profile = documented_digital_zoom_profile(false);
+    let (partial_transport, partial_writes) = transport();
+    let partial_session = Session::open(
+        partial_transport,
+        SessionConfig::new(partial_profile),
+        runtime.clone(),
+    )
+    .await
+    .expect("partial-profile session");
+    let partial_camera =
+        DynSessionCamera::from_session(&partial_session).expect("partial dynamic camera");
+
+    // Both values map within the documented numeric range; the midpoint also
+    // falls inside the optical range. Neither may infer permission from that
+    // overlap when the noun selected the combined domain.
+    for position in [midpoint, UnitInterval::ONE] {
+        let error = partial_camera
+            .zoom()
+            .set_normalized_in_domain(position, ZoomDomain::OpticalPlusDigital)
+            .await
+            .expect_err("combined normalized zoom requires typed digital-range permission");
+        assert!(matches!(
+            error,
+            Error::FeatureNotSupported {
+                feature: "optical-plus-digital zoom positioning"
+            }
+        ));
+    }
+    assert!(
+        partial_writes
+            .lock()
+            .expect("partial writes lock")
+            .is_empty(),
+        "rejected dynamic nouns must not reach the transport"
+    );
+
+    // Explicit raw positions and ordinary optical normalization remain direct
+    // zoom controls, so the partial profile still admits both of them.
+    partial_camera
+        .zoom()
+        .set_position(ZoomPosition::new(0x3800).expect("optical raw target"))
+        .await
+        .expect("explicit optical target")
+        .applied()
+        .await
+        .expect("explicit optical target applied");
+    partial_camera
+        .zoom()
+        .set_normalized(midpoint)
+        .await
+        .expect("ordinary optical normalization")
+        .applied()
+        .await
+        .expect("ordinary optical target applied");
+    assert_eq!(
+        partial_writes.lock().expect("partial writes lock").len(),
+        2,
+        "only the two direct/optical positive controls reach the transport"
+    );
+    partial_session
+        .shutdown()
+        .await
+        .expect("partial session shutdown");
+
+    // A profile that grants the same typed digital-range permission admits
+    // both the overlap midpoint and the combined endpoint through the exact
+    // same erased noun path.
+    let supported_profile = documented_digital_zoom_profile(true);
+    let (supported_transport, supported_writes) = transport();
+    let supported_session = Session::open(
+        supported_transport,
+        SessionConfig::new(supported_profile),
+        runtime,
+    )
+    .await
+    .expect("supported-profile session");
+    let supported_camera =
+        DynSessionCamera::from_session(&supported_session).expect("supported dynamic camera");
+    for position in [midpoint, UnitInterval::ONE] {
+        supported_camera
+            .zoom()
+            .set_normalized_in_domain(position, ZoomDomain::OpticalPlusDigital)
+            .await
+            .expect("combined normalized zoom with typed permission")
+            .applied()
+            .await
+            .expect("combined normalized target applied");
+    }
+    assert_eq!(
+        supported_writes
+            .lock()
+            .expect("supported writes lock")
+            .len(),
+        2,
+        "both supported combined-domain controls reach the transport"
+    );
+    supported_session
+        .shutdown()
+        .await
+        .expect("supported session shutdown");
+}
+
 #[cfg(feature = "runtime-tokio")]
 #[tokio::test]
 async fn tokio_dynamic_targeted_projection_uses_owner_settlement_wait() {
     dynamic_targeted_polling(grafton_visca::TokioRuntime::from_current().expect("runtime")).await;
 }
 
+#[cfg(feature = "runtime-tokio")]
+#[tokio::test]
+async fn tokio_dynamic_combined_normalized_zoom_requires_typed_digital_range() {
+    dynamic_combined_normalized_zoom_respects_typed_permission(
+        grafton_visca::TokioRuntime::from_current().expect("runtime"),
+    )
+    .await;
+}
+
 #[cfg(feature = "runtime-smol")]
 #[test]
 fn smol_dynamic_targeted_projection_uses_owner_settlement_wait() {
     smol::block_on(dynamic_targeted_polling(grafton_visca::SmolRuntime::new()));
+}
+
+#[cfg(feature = "runtime-smol")]
+#[test]
+fn smol_dynamic_combined_normalized_zoom_requires_typed_digital_range() {
+    smol::block_on(dynamic_combined_normalized_zoom_respects_typed_permission(
+        grafton_visca::SmolRuntime::new(),
+    ));
 }

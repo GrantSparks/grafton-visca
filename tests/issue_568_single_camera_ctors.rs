@@ -435,6 +435,8 @@ mod async_single_camera {
     impl<E: Executor> Runtime for EchoRuntime<E> {
         type TcpTransport = EchoTransport;
         type UdpTransport = EchoTransport;
+        #[cfg(feature = "transport-serial-tokio")]
+        type SerialTransport = std::convert::Infallible;
 
         async fn connect_tcp(
             &self,

@@ -43,6 +43,15 @@ pub trait Runtime: Executor + Clone + Send + Sync + 'static {
     /// UDP transport type for this runtime.
     type UdpTransport: AsyncTransport + HasTransportConfig + Send + Sync + 'static;
 
+    /// Serial transport type for this runtime.
+    ///
+    /// This is present only with Tokio serial support. Runtimes that do not
+    /// support Tokio serial must use an uninhabited type, so a
+    /// [`TransportHandle`] cannot be constructed with Tokio reactor I/O for
+    /// the wrong runtime.
+    #[cfg(feature = "transport-serial-tokio")]
+    type SerialTransport: AsyncTransport + HasTransportConfig + Send + Sync + 'static;
+
     /// Connect to a TCP endpoint.
     ///
     /// This method creates a TCP transport using the runtime's specific
@@ -79,15 +88,13 @@ pub trait Runtime: Executor + Clone + Send + Sync + 'static {
 /// Runtime trait extension for serial transport support.
 ///
 /// This sub-trait extends the base Runtime trait with serial-specific connectivity.
-/// It's kept separate to avoid forcing all runtimes to implement serial support
-/// when the serialport feature is enabled.
+/// [`Runtime::SerialTransport`] stays on the base trait so [`TransportHandle`]
+/// remains runtime-paired, while runtimes without serial support use an
+/// uninhabited associated type and do not implement this connector trait.
 ///
 /// Currently only implemented for Tokio runtime as it has tokio-serial integration.
 #[cfg(all(feature = "async", feature = "transport-serial-tokio"))]
 pub trait RuntimeSerial: Runtime {
-    /// Serial transport type for this runtime.
-    type SerialTransport: AsyncTransport + HasTransportConfig + Send + Sync + 'static;
-
     /// Connect to a serial port.
     ///
     /// This method creates a serial transport using the runtime's specific
@@ -96,6 +103,28 @@ pub trait RuntimeSerial: Runtime {
         &self,
         cfg: crate::transport::serial::Config,
     ) -> Result<Self::SerialTransport, Error>;
+}
+
+// A runtime that has no Tokio serial integration still needs an associated
+// serial type while the `transport-serial-tokio` feature is enabled. Using an
+// uninhabited type keeps `TransportHandle<R>` uniformly shaped without giving
+// a non-Tokio runtime a safe way to construct its `Serial` variant.
+#[cfg(all(feature = "async", feature = "transport-serial-tokio"))]
+impl AsyncTransport for std::convert::Infallible {
+    async fn send(&mut self, _bytes: &[u8]) -> Result<(), Error> {
+        match *self {}
+    }
+
+    async fn recv_into(&mut self, _dst: &mut [u8]) -> Result<usize, Error> {
+        match *self {}
+    }
+}
+
+#[cfg(all(feature = "async", feature = "transport-serial-tokio"))]
+impl HasTransportConfig for std::convert::Infallible {
+    fn transport_config(&self) -> &TransportConfig {
+        match *self {}
+    }
 }
 
 /// Transport handle that wraps TCP, UDP, or Serial transport for a specific runtime.
@@ -132,12 +161,13 @@ pub enum TransportHandle<R: Runtime> {
     Tcp(R::TcpTransport),
     /// UDP transport for this runtime.
     Udp(R::UdpTransport),
-    /// Serial transport (only available for Tokio runtime with transport-serial-tokio feature).
+    /// Serial transport paired with this runtime.
     ///
-    /// Note: This uses the concrete Tokio serial type directly to avoid requiring
-    /// RuntimeSerial bound on all uses of TransportHandle.
+    /// Tokio uses its Tokio-serial transport here. Runtimes without Tokio
+    /// serial support use an uninhabited associated type, making this variant
+    /// impossible to construct safely for them.
     #[cfg(feature = "transport-serial-tokio")]
-    Serial(Box<crate::transport::tokio::serial::Serial>),
+    Serial(Box<R::SerialTransport>),
 }
 
 #[cfg(feature = "async")]
@@ -293,6 +323,8 @@ mod tokio_impl {
     impl Runtime for TokioRuntime {
         type TcpTransport = TcpTransport;
         type UdpTransport = UdpTransport;
+        #[cfg(feature = "transport-serial-tokio")]
+        type SerialTransport = crate::transport::tokio::serial::Serial;
 
         async fn connect_tcp(
             &self,
@@ -316,8 +348,6 @@ mod tokio_impl {
     // Implement RuntimeSerial for TokioRuntime when tokio-serial feature is enabled
     #[cfg(feature = "transport-serial-tokio")]
     impl RuntimeSerial for TokioRuntime {
-        type SerialTransport = crate::transport::tokio::serial::Serial;
-
         async fn connect_serial(
             &self,
             cfg: crate::transport::serial::Config,
@@ -411,6 +441,8 @@ mod smol_impl {
     impl Runtime for SmolRuntime {
         type TcpTransport = TcpTransport;
         type UdpTransport = UdpTransport;
+        #[cfg(feature = "transport-serial-tokio")]
+        type SerialTransport = std::convert::Infallible;
 
         async fn connect_tcp(
             &self,

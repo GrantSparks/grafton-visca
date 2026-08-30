@@ -16599,6 +16599,7 @@ pub fn grafton_visca::SmolRuntime::spawn_bg<F>(&self, F) where F: core::future::
 pub fn grafton_visca::SmolRuntime::spawn_with_detach<F>(&self, F) -> (Self::Join, Self::Detach) where F: core::future::future::Future + core::marker::Send + 'static, <F as core::future::future::Future>::Output: core::marker::Send + 'static
 pub fn grafton_visca::SmolRuntime::timeout<'a, F, T>(&'a self, core::time::Duration, F) -> impl core::future::future::Future<Output = core::result::Result<T, grafton_visca::Error>> + core::marker::Send + 'a where F: core::future::future::Future<Output = T> + core::marker::Send + 'a, T: core::marker::Send + 'a
 impl grafton_visca::Runtime for grafton_visca::SmolRuntime
+pub type grafton_visca::SmolRuntime::SerialTransport = never
 pub type grafton_visca::SmolRuntime::TcpTransport = grafton_visca::transport::async_tcp::Tcp<grafton_visca::transport::smol::connectors::SmolTcpStream>
 pub type grafton_visca::SmolRuntime::UdpTransport = grafton_visca::transport::async_udp::Udp<async_net::udp::UdpSocket>
 pub async fn grafton_visca::SmolRuntime::connect_tcp(&self, &str, grafton_visca::transport::TransportConfig) -> core::result::Result<Self::TcpTransport, grafton_visca::Error>
@@ -17382,13 +17383,13 @@ pub fn grafton_visca::TokioRuntime::spawn_bg<F>(&self, F) where F: core::future:
 pub fn grafton_visca::TokioRuntime::spawn_with_detach<F>(&self, F) -> (Self::Join, Self::Detach) where F: core::future::future::Future + core::marker::Send + 'static, <F as core::future::future::Future>::Output: core::marker::Send + 'static
 pub fn grafton_visca::TokioRuntime::timeout<'a, F, T>(&'a self, core::time::Duration, F) -> impl core::future::future::Future<Output = core::result::Result<T, grafton_visca::Error>> + core::marker::Send + 'a where F: core::future::future::Future<Output = T> + core::marker::Send + 'a, T: core::marker::Send + 'a
 impl grafton_visca::Runtime for grafton_visca::TokioRuntime
+pub type grafton_visca::TokioRuntime::SerialTransport = grafton_visca::transport::async_serial::Serial<grafton_visca::transport::tokio::serial::TokioSerialAdapter>
 pub type grafton_visca::TokioRuntime::TcpTransport = grafton_visca::transport::async_tcp::Tcp<grafton_visca::transport::tokio::connectors::TokioTcpStream>
 pub type grafton_visca::TokioRuntime::UdpTransport = grafton_visca::transport::async_udp::Udp<tokio::net::udp::UdpSocket>
 pub async fn grafton_visca::TokioRuntime::connect_tcp(&self, &str, grafton_visca::transport::TransportConfig) -> core::result::Result<Self::TcpTransport, grafton_visca::Error>
 pub async fn grafton_visca::TokioRuntime::connect_udp(&self, &str, grafton_visca::transport::TransportConfig) -> core::result::Result<Self::UdpTransport, grafton_visca::Error>
 pub fn grafton_visca::TokioRuntime::now(&self) -> std::time::Instant
 impl grafton_visca::runtime::RuntimeSerial for grafton_visca::TokioRuntime
-pub type grafton_visca::TokioRuntime::SerialTransport = grafton_visca::transport::async_serial::Serial<grafton_visca::transport::tokio::serial::TokioSerialAdapter>
 pub async fn grafton_visca::TokioRuntime::connect_serial(&self, grafton_visca::runtime_adapters::tokio::SerialConfig) -> core::result::Result<Self::SerialTransport, grafton_visca::Error>
 impl core::marker::Freeze for grafton_visca::TokioRuntime
 impl core::marker::Send for grafton_visca::TokioRuntime
@@ -25893,7 +25894,7 @@ impl core::marker::Unpin for grafton_visca::request::builtin::ZoomStop
 impl core::marker::UnsafeUnpin for grafton_visca::request::builtin::ZoomStop
 impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::request::builtin::ZoomStop
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::request::builtin::ZoomStop
-pub struct grafton_visca::request::builtin::ZoomTarget(_)
+pub struct grafton_visca::request::builtin::ZoomTarget(_, _)
 impl grafton_visca::request::builtin::ZoomTarget
 pub fn grafton_visca::request::builtin::ZoomTarget::from_normalized(grafton_visca::units::UnitInterval, grafton_visca::inquiry_conversions::ZoomDomain, &grafton_visca::profile::ProfileSpec) -> core::result::Result<Self, grafton_visca::Error>
 pub const fn grafton_visca::request::builtin::ZoomTarget::new(grafton_visca::types::ZoomPosition) -> Self
@@ -26000,10 +26001,10 @@ impl grafton_visca::request::Class for grafton_visca::request::Plain
 impl<K> grafton_visca::request::Class for grafton_visca::request::Operation<K> where K: grafton_visca::completion::Kind
 pub mod grafton_visca::runtime
 #[non_exhaustive] pub enum grafton_visca::runtime::TransportHandle<R: grafton_visca::Runtime>
-pub grafton_visca::runtime::TransportHandle::Serial(alloc::boxed::Box<grafton_visca::runtime_adapters::tokio::SerialTransport>)
+pub grafton_visca::runtime::TransportHandle::Serial(alloc::boxed::Box<<R as grafton_visca::Runtime>::SerialTransport>)
 pub grafton_visca::runtime::TransportHandle::Tcp(<R as grafton_visca::Runtime>::TcpTransport)
 pub grafton_visca::runtime::TransportHandle::Udp(<R as grafton_visca::Runtime>::UdpTransport)
-impl<R: core::fmt::Debug + grafton_visca::Runtime> core::fmt::Debug for grafton_visca::TransportHandle<R> where <R as grafton_visca::Runtime>::TcpTransport: core::fmt::Debug, <R as grafton_visca::Runtime>::UdpTransport: core::fmt::Debug
+impl<R: core::fmt::Debug + grafton_visca::Runtime> core::fmt::Debug for grafton_visca::TransportHandle<R> where <R as grafton_visca::Runtime>::TcpTransport: core::fmt::Debug, <R as grafton_visca::Runtime>::UdpTransport: core::fmt::Debug, <R as grafton_visca::Runtime>::SerialTransport: core::fmt::Debug
 pub fn grafton_visca::TransportHandle<R>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<R: grafton_visca::Runtime> grafton_visca::transport::AsyncTransport for grafton_visca::TransportHandle<R>
 pub fn grafton_visca::TransportHandle<R>::addressing_mode_hint(&self) -> core::option::Option<grafton_visca::transport::AddressingMode>
@@ -26013,13 +26014,13 @@ pub fn grafton_visca::TransportHandle<R>::send_semantics(&self) -> grafton_visca
 impl<R: grafton_visca::Runtime> grafton_visca::transport::HasTransportConfig for grafton_visca::TransportHandle<R>
 pub fn grafton_visca::TransportHandle<R>::standard_transport_kind(&self) -> core::option::Option<grafton_visca::camera::TransportKind>
 pub fn grafton_visca::TransportHandle<R>::transport_config(&self) -> &grafton_visca::transport::TransportConfig
-impl<R> core::marker::Freeze for grafton_visca::TransportHandle<R> where <R as grafton_visca::Runtime>::TcpTransport: core::marker::Freeze, <R as grafton_visca::Runtime>::UdpTransport: core::marker::Freeze
-impl<R> core::marker::Send for grafton_visca::TransportHandle<R> where <R as grafton_visca::Runtime>::TcpTransport: core::marker::Send, <R as grafton_visca::Runtime>::UdpTransport: core::marker::Send
-impl<R> core::marker::Sync for grafton_visca::TransportHandle<R> where <R as grafton_visca::Runtime>::TcpTransport: core::marker::Sync, <R as grafton_visca::Runtime>::UdpTransport: core::marker::Sync
-impl<R> core::marker::Unpin for grafton_visca::TransportHandle<R> where <R as grafton_visca::Runtime>::TcpTransport: core::marker::Unpin, <R as grafton_visca::Runtime>::UdpTransport: core::marker::Unpin
-impl<R> core::marker::UnsafeUnpin for grafton_visca::TransportHandle<R> where <R as grafton_visca::Runtime>::TcpTransport: core::marker::UnsafeUnpin, <R as grafton_visca::Runtime>::UdpTransport: core::marker::UnsafeUnpin
-impl<R> !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::TransportHandle<R>
-impl<R> !core::panic::unwind_safe::UnwindSafe for grafton_visca::TransportHandle<R>
+impl<R> core::marker::Freeze for grafton_visca::TransportHandle<R> where <R as grafton_visca::Runtime>::TcpTransport: core::marker::Freeze, <R as grafton_visca::Runtime>::UdpTransport: core::marker::Freeze, alloc::boxed::Box<<R as grafton_visca::Runtime>::SerialTransport>: core::marker::Freeze
+impl<R> core::marker::Send for grafton_visca::TransportHandle<R> where <R as grafton_visca::Runtime>::TcpTransport: core::marker::Send, <R as grafton_visca::Runtime>::UdpTransport: core::marker::Send, alloc::boxed::Box<<R as grafton_visca::Runtime>::SerialTransport>: core::marker::Send
+impl<R> core::marker::Sync for grafton_visca::TransportHandle<R> where <R as grafton_visca::Runtime>::TcpTransport: core::marker::Sync, <R as grafton_visca::Runtime>::UdpTransport: core::marker::Sync, alloc::boxed::Box<<R as grafton_visca::Runtime>::SerialTransport>: core::marker::Sync
+impl<R> core::marker::Unpin for grafton_visca::TransportHandle<R> where <R as grafton_visca::Runtime>::TcpTransport: core::marker::Unpin, <R as grafton_visca::Runtime>::UdpTransport: core::marker::Unpin, alloc::boxed::Box<<R as grafton_visca::Runtime>::SerialTransport>: core::marker::Unpin
+impl<R> core::marker::UnsafeUnpin for grafton_visca::TransportHandle<R> where <R as grafton_visca::Runtime>::TcpTransport: core::marker::UnsafeUnpin, <R as grafton_visca::Runtime>::UdpTransport: core::marker::UnsafeUnpin, alloc::boxed::Box<<R as grafton_visca::Runtime>::SerialTransport>: core::marker::UnsafeUnpin
+impl<R> core::panic::unwind_safe::RefUnwindSafe for grafton_visca::TransportHandle<R> where <R as grafton_visca::Runtime>::TcpTransport: core::panic::unwind_safe::RefUnwindSafe, <R as grafton_visca::Runtime>::UdpTransport: core::panic::unwind_safe::RefUnwindSafe, alloc::boxed::Box<<R as grafton_visca::Runtime>::SerialTransport>: core::panic::unwind_safe::RefUnwindSafe
+impl<R> core::panic::unwind_safe::UnwindSafe for grafton_visca::TransportHandle<R> where <R as grafton_visca::Runtime>::TcpTransport: core::panic::unwind_safe::UnwindSafe, <R as grafton_visca::Runtime>::UdpTransport: core::panic::unwind_safe::UnwindSafe, alloc::boxed::Box<<R as grafton_visca::Runtime>::SerialTransport>: core::panic::unwind_safe::UnwindSafe
 pub struct grafton_visca::runtime::SmolRuntime
 impl grafton_visca::SmolRuntime
 pub fn grafton_visca::SmolRuntime::new() -> Self
@@ -26041,6 +26042,7 @@ pub fn grafton_visca::SmolRuntime::spawn_bg<F>(&self, F) where F: core::future::
 pub fn grafton_visca::SmolRuntime::spawn_with_detach<F>(&self, F) -> (Self::Join, Self::Detach) where F: core::future::future::Future + core::marker::Send + 'static, <F as core::future::future::Future>::Output: core::marker::Send + 'static
 pub fn grafton_visca::SmolRuntime::timeout<'a, F, T>(&'a self, core::time::Duration, F) -> impl core::future::future::Future<Output = core::result::Result<T, grafton_visca::Error>> + core::marker::Send + 'a where F: core::future::future::Future<Output = T> + core::marker::Send + 'a, T: core::marker::Send + 'a
 impl grafton_visca::Runtime for grafton_visca::SmolRuntime
+pub type grafton_visca::SmolRuntime::SerialTransport = never
 pub type grafton_visca::SmolRuntime::TcpTransport = grafton_visca::transport::async_tcp::Tcp<grafton_visca::transport::smol::connectors::SmolTcpStream>
 pub type grafton_visca::SmolRuntime::UdpTransport = grafton_visca::transport::async_udp::Udp<async_net::udp::UdpSocket>
 pub async fn grafton_visca::SmolRuntime::connect_tcp(&self, &str, grafton_visca::transport::TransportConfig) -> core::result::Result<Self::TcpTransport, grafton_visca::Error>
@@ -26072,13 +26074,13 @@ pub fn grafton_visca::TokioRuntime::spawn_bg<F>(&self, F) where F: core::future:
 pub fn grafton_visca::TokioRuntime::spawn_with_detach<F>(&self, F) -> (Self::Join, Self::Detach) where F: core::future::future::Future + core::marker::Send + 'static, <F as core::future::future::Future>::Output: core::marker::Send + 'static
 pub fn grafton_visca::TokioRuntime::timeout<'a, F, T>(&'a self, core::time::Duration, F) -> impl core::future::future::Future<Output = core::result::Result<T, grafton_visca::Error>> + core::marker::Send + 'a where F: core::future::future::Future<Output = T> + core::marker::Send + 'a, T: core::marker::Send + 'a
 impl grafton_visca::Runtime for grafton_visca::TokioRuntime
+pub type grafton_visca::TokioRuntime::SerialTransport = grafton_visca::transport::async_serial::Serial<grafton_visca::transport::tokio::serial::TokioSerialAdapter>
 pub type grafton_visca::TokioRuntime::TcpTransport = grafton_visca::transport::async_tcp::Tcp<grafton_visca::transport::tokio::connectors::TokioTcpStream>
 pub type grafton_visca::TokioRuntime::UdpTransport = grafton_visca::transport::async_udp::Udp<tokio::net::udp::UdpSocket>
 pub async fn grafton_visca::TokioRuntime::connect_tcp(&self, &str, grafton_visca::transport::TransportConfig) -> core::result::Result<Self::TcpTransport, grafton_visca::Error>
 pub async fn grafton_visca::TokioRuntime::connect_udp(&self, &str, grafton_visca::transport::TransportConfig) -> core::result::Result<Self::UdpTransport, grafton_visca::Error>
 pub fn grafton_visca::TokioRuntime::now(&self) -> std::time::Instant
 impl grafton_visca::runtime::RuntimeSerial for grafton_visca::TokioRuntime
-pub type grafton_visca::TokioRuntime::SerialTransport = grafton_visca::transport::async_serial::Serial<grafton_visca::transport::tokio::serial::TokioSerialAdapter>
 pub async fn grafton_visca::TokioRuntime::connect_serial(&self, grafton_visca::runtime_adapters::tokio::SerialConfig) -> core::result::Result<Self::SerialTransport, grafton_visca::Error>
 impl core::marker::Freeze for grafton_visca::TokioRuntime
 impl core::marker::Send for grafton_visca::TokioRuntime
@@ -26088,28 +26090,29 @@ impl core::marker::UnsafeUnpin for grafton_visca::TokioRuntime
 impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::TokioRuntime
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::TokioRuntime
 pub trait grafton_visca::runtime::Runtime: grafton_visca::Executor + core::clone::Clone + core::marker::Send + core::marker::Sync + 'static
+pub type grafton_visca::runtime::Runtime::SerialTransport: grafton_visca::transport::AsyncTransport + grafton_visca::transport::HasTransportConfig + core::marker::Send + core::marker::Sync + 'static
 pub type grafton_visca::runtime::Runtime::TcpTransport: grafton_visca::transport::AsyncTransport + grafton_visca::transport::HasTransportConfig + core::marker::Send + core::marker::Sync + 'static
 pub type grafton_visca::runtime::Runtime::UdpTransport: grafton_visca::transport::AsyncTransport + grafton_visca::transport::HasTransportConfig + core::marker::Send + core::marker::Sync + 'static
 pub async fn grafton_visca::runtime::Runtime::connect_tcp(&self, &str, grafton_visca::transport::TransportConfig) -> core::result::Result<Self::TcpTransport, grafton_visca::Error>
 pub async fn grafton_visca::runtime::Runtime::connect_udp(&self, &str, grafton_visca::transport::TransportConfig) -> core::result::Result<Self::UdpTransport, grafton_visca::Error>
 pub fn grafton_visca::runtime::Runtime::now(&self) -> std::time::Instant
 impl grafton_visca::Runtime for grafton_visca::SmolRuntime
+pub type grafton_visca::SmolRuntime::SerialTransport = never
 pub type grafton_visca::SmolRuntime::TcpTransport = grafton_visca::transport::async_tcp::Tcp<grafton_visca::transport::smol::connectors::SmolTcpStream>
 pub type grafton_visca::SmolRuntime::UdpTransport = grafton_visca::transport::async_udp::Udp<async_net::udp::UdpSocket>
 pub async fn grafton_visca::SmolRuntime::connect_tcp(&self, &str, grafton_visca::transport::TransportConfig) -> core::result::Result<Self::TcpTransport, grafton_visca::Error>
 pub async fn grafton_visca::SmolRuntime::connect_udp(&self, &str, grafton_visca::transport::TransportConfig) -> core::result::Result<Self::UdpTransport, grafton_visca::Error>
 pub fn grafton_visca::SmolRuntime::now(&self) -> std::time::Instant
 impl grafton_visca::Runtime for grafton_visca::TokioRuntime
+pub type grafton_visca::TokioRuntime::SerialTransport = grafton_visca::transport::async_serial::Serial<grafton_visca::transport::tokio::serial::TokioSerialAdapter>
 pub type grafton_visca::TokioRuntime::TcpTransport = grafton_visca::transport::async_tcp::Tcp<grafton_visca::transport::tokio::connectors::TokioTcpStream>
 pub type grafton_visca::TokioRuntime::UdpTransport = grafton_visca::transport::async_udp::Udp<tokio::net::udp::UdpSocket>
 pub async fn grafton_visca::TokioRuntime::connect_tcp(&self, &str, grafton_visca::transport::TransportConfig) -> core::result::Result<Self::TcpTransport, grafton_visca::Error>
 pub async fn grafton_visca::TokioRuntime::connect_udp(&self, &str, grafton_visca::transport::TransportConfig) -> core::result::Result<Self::UdpTransport, grafton_visca::Error>
 pub fn grafton_visca::TokioRuntime::now(&self) -> std::time::Instant
 pub trait grafton_visca::runtime::RuntimeSerial: grafton_visca::Runtime
-pub type grafton_visca::runtime::RuntimeSerial::SerialTransport: grafton_visca::transport::AsyncTransport + grafton_visca::transport::HasTransportConfig + core::marker::Send + core::marker::Sync + 'static
 pub async fn grafton_visca::runtime::RuntimeSerial::connect_serial(&self, grafton_visca::runtime_adapters::tokio::SerialConfig) -> core::result::Result<Self::SerialTransport, grafton_visca::Error>
 impl grafton_visca::runtime::RuntimeSerial for grafton_visca::TokioRuntime
-pub type grafton_visca::TokioRuntime::SerialTransport = grafton_visca::transport::async_serial::Serial<grafton_visca::transport::tokio::serial::TokioSerialAdapter>
 pub async fn grafton_visca::TokioRuntime::connect_serial(&self, grafton_visca::runtime_adapters::tokio::SerialConfig) -> core::result::Result<Self::SerialTransport, grafton_visca::Error>
 pub mod grafton_visca::runtime_adapters
 pub mod grafton_visca::runtime_adapters::smol
@@ -27721,7 +27724,7 @@ impl grafton_visca::transport::Envelope for grafton_visca::transport::RawVisca
 pub const grafton_visca::transport::RawVisca::SUPPORTS_SEQUENCE_CORRELATION: bool
 pub fn grafton_visca::transport::RawVisca::extract_response(&self, &[u8]) -> core::result::Result<bytes::bytes::Bytes, grafton_visca::Error>
 pub fn grafton_visca::transport::RawVisca::extract_with_meta(&self, bytes::bytes::Bytes) -> core::result::Result<(bytes::bytes::Bytes, grafton_visca::transport::FrameMeta), grafton_visca::Error>
-pub fn grafton_visca::transport::RawVisca::frame_into(&self, &[u8], grafton_visca::command::CommandKind, &mut bytes::bytes_mut::BytesMut) -> grafton_visca::transport::FrameMeta
+pub fn grafton_visca::transport::RawVisca::frame_into(&self, &[u8], grafton_visca::command::CommandKind, &mut bytes::bytes_mut::BytesMut) -> core::result::Result<grafton_visca::transport::FrameMeta, grafton_visca::Error>
 pub fn grafton_visca::transport::RawVisca::new(grafton_visca::transport::AddressingMode) -> Self
 impl core::marker::Freeze for grafton_visca::transport::RawVisca
 impl core::marker::Send for grafton_visca::transport::RawVisca
@@ -27739,7 +27742,7 @@ impl grafton_visca::transport::Envelope for grafton_visca::transport::SonyEncaps
 pub const grafton_visca::transport::SonyEncapsulated::SUPPORTS_SEQUENCE_CORRELATION: bool
 pub fn grafton_visca::transport::SonyEncapsulated::extract_response(&self, &[u8]) -> core::result::Result<bytes::bytes::Bytes, grafton_visca::Error>
 pub fn grafton_visca::transport::SonyEncapsulated::extract_with_meta(&self, bytes::bytes::Bytes) -> core::result::Result<(bytes::bytes::Bytes, grafton_visca::transport::FrameMeta), grafton_visca::Error>
-pub fn grafton_visca::transport::SonyEncapsulated::frame_into(&self, &[u8], grafton_visca::command::CommandKind, &mut bytes::bytes_mut::BytesMut) -> grafton_visca::transport::FrameMeta
+pub fn grafton_visca::transport::SonyEncapsulated::frame_into(&self, &[u8], grafton_visca::command::CommandKind, &mut bytes::bytes_mut::BytesMut) -> core::result::Result<grafton_visca::transport::FrameMeta, grafton_visca::Error>
 pub fn grafton_visca::transport::SonyEncapsulated::new(grafton_visca::transport::AddressingMode) -> Self
 impl core::marker::Freeze for grafton_visca::transport::SonyEncapsulated
 impl core::marker::Send for grafton_visca::transport::SonyEncapsulated
@@ -27817,6 +27820,11 @@ pub fn grafton_visca::transport::AsyncTransport::addressing_mode_hint(&self) -> 
 pub fn grafton_visca::transport::AsyncTransport::recv_into<'a>(&'a mut self, &'a mut [u8]) -> impl core::future::future::Future<Output = core::result::Result<usize, grafton_visca::Error>> + core::marker::Send
 pub fn grafton_visca::transport::AsyncTransport::send(&mut self, &[u8]) -> impl core::future::future::Future<Output = core::result::Result<(), grafton_visca::Error>> + core::marker::Send
 pub fn grafton_visca::transport::AsyncTransport::send_semantics(&self) -> grafton_visca::transport::SendSemantics
+impl grafton_visca::transport::AsyncTransport for core::convert::Infallible
+pub fn core::convert::Infallible::addressing_mode_hint(&self) -> core::option::Option<grafton_visca::transport::AddressingMode>
+pub async fn core::convert::Infallible::recv_into(&mut self, &mut [u8]) -> core::result::Result<usize, grafton_visca::Error>
+pub async fn core::convert::Infallible::send(&mut self, &[u8]) -> core::result::Result<(), grafton_visca::Error>
+pub fn core::convert::Infallible::send_semantics(&self) -> grafton_visca::transport::SendSemantics
 impl grafton_visca::transport::AsyncTransport for grafton_visca::testing::camera_simulator::ViscaCameraSimulator
 pub fn grafton_visca::testing::camera_simulator::ViscaCameraSimulator::addressing_mode_hint(&self) -> core::option::Option<grafton_visca::transport::AddressingMode>
 pub async fn grafton_visca::testing::camera_simulator::ViscaCameraSimulator::recv_into(&mut self, &mut [u8]) -> core::result::Result<usize, grafton_visca::Error>
@@ -27854,23 +27862,26 @@ pub trait grafton_visca::transport::Envelope: grafton_visca::transport::envelope
 pub const grafton_visca::transport::Envelope::SUPPORTS_SEQUENCE_CORRELATION: bool
 pub fn grafton_visca::transport::Envelope::extract_response(&self, &[u8]) -> core::result::Result<bytes::bytes::Bytes, grafton_visca::Error>
 pub fn grafton_visca::transport::Envelope::extract_with_meta(&self, bytes::bytes::Bytes) -> core::result::Result<(bytes::bytes::Bytes, grafton_visca::transport::FrameMeta), grafton_visca::Error>
-pub fn grafton_visca::transport::Envelope::frame_into(&self, &[u8], grafton_visca::command::CommandKind, &mut bytes::bytes_mut::BytesMut) -> grafton_visca::transport::FrameMeta
+pub fn grafton_visca::transport::Envelope::frame_into(&self, &[u8], grafton_visca::command::CommandKind, &mut bytes::bytes_mut::BytesMut) -> core::result::Result<grafton_visca::transport::FrameMeta, grafton_visca::Error>
 pub fn grafton_visca::transport::Envelope::new(grafton_visca::transport::AddressingMode) -> Self
 impl grafton_visca::transport::Envelope for grafton_visca::transport::RawVisca
 pub const grafton_visca::transport::RawVisca::SUPPORTS_SEQUENCE_CORRELATION: bool
 pub fn grafton_visca::transport::RawVisca::extract_response(&self, &[u8]) -> core::result::Result<bytes::bytes::Bytes, grafton_visca::Error>
 pub fn grafton_visca::transport::RawVisca::extract_with_meta(&self, bytes::bytes::Bytes) -> core::result::Result<(bytes::bytes::Bytes, grafton_visca::transport::FrameMeta), grafton_visca::Error>
-pub fn grafton_visca::transport::RawVisca::frame_into(&self, &[u8], grafton_visca::command::CommandKind, &mut bytes::bytes_mut::BytesMut) -> grafton_visca::transport::FrameMeta
+pub fn grafton_visca::transport::RawVisca::frame_into(&self, &[u8], grafton_visca::command::CommandKind, &mut bytes::bytes_mut::BytesMut) -> core::result::Result<grafton_visca::transport::FrameMeta, grafton_visca::Error>
 pub fn grafton_visca::transport::RawVisca::new(grafton_visca::transport::AddressingMode) -> Self
 impl grafton_visca::transport::Envelope for grafton_visca::transport::SonyEncapsulated
 pub const grafton_visca::transport::SonyEncapsulated::SUPPORTS_SEQUENCE_CORRELATION: bool
 pub fn grafton_visca::transport::SonyEncapsulated::extract_response(&self, &[u8]) -> core::result::Result<bytes::bytes::Bytes, grafton_visca::Error>
 pub fn grafton_visca::transport::SonyEncapsulated::extract_with_meta(&self, bytes::bytes::Bytes) -> core::result::Result<(bytes::bytes::Bytes, grafton_visca::transport::FrameMeta), grafton_visca::Error>
-pub fn grafton_visca::transport::SonyEncapsulated::frame_into(&self, &[u8], grafton_visca::command::CommandKind, &mut bytes::bytes_mut::BytesMut) -> grafton_visca::transport::FrameMeta
+pub fn grafton_visca::transport::SonyEncapsulated::frame_into(&self, &[u8], grafton_visca::command::CommandKind, &mut bytes::bytes_mut::BytesMut) -> core::result::Result<grafton_visca::transport::FrameMeta, grafton_visca::Error>
 pub fn grafton_visca::transport::SonyEncapsulated::new(grafton_visca::transport::AddressingMode) -> Self
 pub trait grafton_visca::transport::HasTransportConfig
 pub fn grafton_visca::transport::HasTransportConfig::standard_transport_kind(&self) -> core::option::Option<grafton_visca::camera::TransportKind>
 pub fn grafton_visca::transport::HasTransportConfig::transport_config(&self) -> &grafton_visca::transport::TransportConfig
+impl grafton_visca::transport::HasTransportConfig for core::convert::Infallible
+pub fn core::convert::Infallible::standard_transport_kind(&self) -> core::option::Option<grafton_visca::camera::TransportKind>
+pub fn core::convert::Infallible::transport_config(&self) -> &grafton_visca::transport::TransportConfig
 impl grafton_visca::transport::HasTransportConfig for grafton_visca::testing::camera_simulator::ViscaCameraSimulator
 pub fn grafton_visca::testing::camera_simulator::ViscaCameraSimulator::standard_transport_kind(&self) -> core::option::Option<grafton_visca::camera::TransportKind>
 pub fn grafton_visca::testing::camera_simulator::ViscaCameraSimulator::transport_config(&self) -> &grafton_visca::transport::TransportConfig
@@ -31668,10 +31679,10 @@ impl core::marker::UnsafeUnpin for grafton_visca::TimeoutClass
 impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::TimeoutClass
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::TimeoutClass
 #[non_exhaustive] pub enum grafton_visca::TransportHandle<R: grafton_visca::Runtime>
-pub grafton_visca::TransportHandle::Serial(alloc::boxed::Box<grafton_visca::runtime_adapters::tokio::SerialTransport>)
+pub grafton_visca::TransportHandle::Serial(alloc::boxed::Box<<R as grafton_visca::Runtime>::SerialTransport>)
 pub grafton_visca::TransportHandle::Tcp(<R as grafton_visca::Runtime>::TcpTransport)
 pub grafton_visca::TransportHandle::Udp(<R as grafton_visca::Runtime>::UdpTransport)
-impl<R: core::fmt::Debug + grafton_visca::Runtime> core::fmt::Debug for grafton_visca::TransportHandle<R> where <R as grafton_visca::Runtime>::TcpTransport: core::fmt::Debug, <R as grafton_visca::Runtime>::UdpTransport: core::fmt::Debug
+impl<R: core::fmt::Debug + grafton_visca::Runtime> core::fmt::Debug for grafton_visca::TransportHandle<R> where <R as grafton_visca::Runtime>::TcpTransport: core::fmt::Debug, <R as grafton_visca::Runtime>::UdpTransport: core::fmt::Debug, <R as grafton_visca::Runtime>::SerialTransport: core::fmt::Debug
 pub fn grafton_visca::TransportHandle<R>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<R: grafton_visca::Runtime> grafton_visca::transport::AsyncTransport for grafton_visca::TransportHandle<R>
 pub fn grafton_visca::TransportHandle<R>::addressing_mode_hint(&self) -> core::option::Option<grafton_visca::transport::AddressingMode>
@@ -31681,13 +31692,13 @@ pub fn grafton_visca::TransportHandle<R>::send_semantics(&self) -> grafton_visca
 impl<R: grafton_visca::Runtime> grafton_visca::transport::HasTransportConfig for grafton_visca::TransportHandle<R>
 pub fn grafton_visca::TransportHandle<R>::standard_transport_kind(&self) -> core::option::Option<grafton_visca::camera::TransportKind>
 pub fn grafton_visca::TransportHandle<R>::transport_config(&self) -> &grafton_visca::transport::TransportConfig
-impl<R> core::marker::Freeze for grafton_visca::TransportHandle<R> where <R as grafton_visca::Runtime>::TcpTransport: core::marker::Freeze, <R as grafton_visca::Runtime>::UdpTransport: core::marker::Freeze
-impl<R> core::marker::Send for grafton_visca::TransportHandle<R> where <R as grafton_visca::Runtime>::TcpTransport: core::marker::Send, <R as grafton_visca::Runtime>::UdpTransport: core::marker::Send
-impl<R> core::marker::Sync for grafton_visca::TransportHandle<R> where <R as grafton_visca::Runtime>::TcpTransport: core::marker::Sync, <R as grafton_visca::Runtime>::UdpTransport: core::marker::Sync
-impl<R> core::marker::Unpin for grafton_visca::TransportHandle<R> where <R as grafton_visca::Runtime>::TcpTransport: core::marker::Unpin, <R as grafton_visca::Runtime>::UdpTransport: core::marker::Unpin
-impl<R> core::marker::UnsafeUnpin for grafton_visca::TransportHandle<R> where <R as grafton_visca::Runtime>::TcpTransport: core::marker::UnsafeUnpin, <R as grafton_visca::Runtime>::UdpTransport: core::marker::UnsafeUnpin
-impl<R> !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::TransportHandle<R>
-impl<R> !core::panic::unwind_safe::UnwindSafe for grafton_visca::TransportHandle<R>
+impl<R> core::marker::Freeze for grafton_visca::TransportHandle<R> where <R as grafton_visca::Runtime>::TcpTransport: core::marker::Freeze, <R as grafton_visca::Runtime>::UdpTransport: core::marker::Freeze, alloc::boxed::Box<<R as grafton_visca::Runtime>::SerialTransport>: core::marker::Freeze
+impl<R> core::marker::Send for grafton_visca::TransportHandle<R> where <R as grafton_visca::Runtime>::TcpTransport: core::marker::Send, <R as grafton_visca::Runtime>::UdpTransport: core::marker::Send, alloc::boxed::Box<<R as grafton_visca::Runtime>::SerialTransport>: core::marker::Send
+impl<R> core::marker::Sync for grafton_visca::TransportHandle<R> where <R as grafton_visca::Runtime>::TcpTransport: core::marker::Sync, <R as grafton_visca::Runtime>::UdpTransport: core::marker::Sync, alloc::boxed::Box<<R as grafton_visca::Runtime>::SerialTransport>: core::marker::Sync
+impl<R> core::marker::Unpin for grafton_visca::TransportHandle<R> where <R as grafton_visca::Runtime>::TcpTransport: core::marker::Unpin, <R as grafton_visca::Runtime>::UdpTransport: core::marker::Unpin, alloc::boxed::Box<<R as grafton_visca::Runtime>::SerialTransport>: core::marker::Unpin
+impl<R> core::marker::UnsafeUnpin for grafton_visca::TransportHandle<R> where <R as grafton_visca::Runtime>::TcpTransport: core::marker::UnsafeUnpin, <R as grafton_visca::Runtime>::UdpTransport: core::marker::UnsafeUnpin, alloc::boxed::Box<<R as grafton_visca::Runtime>::SerialTransport>: core::marker::UnsafeUnpin
+impl<R> core::panic::unwind_safe::RefUnwindSafe for grafton_visca::TransportHandle<R> where <R as grafton_visca::Runtime>::TcpTransport: core::panic::unwind_safe::RefUnwindSafe, <R as grafton_visca::Runtime>::UdpTransport: core::panic::unwind_safe::RefUnwindSafe, alloc::boxed::Box<<R as grafton_visca::Runtime>::SerialTransport>: core::panic::unwind_safe::RefUnwindSafe
+impl<R> core::panic::unwind_safe::UnwindSafe for grafton_visca::TransportHandle<R> where <R as grafton_visca::Runtime>::TcpTransport: core::panic::unwind_safe::UnwindSafe, <R as grafton_visca::Runtime>::UdpTransport: core::panic::unwind_safe::UnwindSafe, alloc::boxed::Box<<R as grafton_visca::Runtime>::SerialTransport>: core::panic::unwind_safe::UnwindSafe
 pub enum grafton_visca::ViscaSocket
 pub grafton_visca::ViscaSocket::S1
 pub grafton_visca::ViscaSocket::S2
@@ -33606,6 +33617,7 @@ pub fn grafton_visca::SmolRuntime::spawn_bg<F>(&self, F) where F: core::future::
 pub fn grafton_visca::SmolRuntime::spawn_with_detach<F>(&self, F) -> (Self::Join, Self::Detach) where F: core::future::future::Future + core::marker::Send + 'static, <F as core::future::future::Future>::Output: core::marker::Send + 'static
 pub fn grafton_visca::SmolRuntime::timeout<'a, F, T>(&'a self, core::time::Duration, F) -> impl core::future::future::Future<Output = core::result::Result<T, grafton_visca::Error>> + core::marker::Send + 'a where F: core::future::future::Future<Output = T> + core::marker::Send + 'a, T: core::marker::Send + 'a
 impl grafton_visca::Runtime for grafton_visca::SmolRuntime
+pub type grafton_visca::SmolRuntime::SerialTransport = never
 pub type grafton_visca::SmolRuntime::TcpTransport = grafton_visca::transport::async_tcp::Tcp<grafton_visca::transport::smol::connectors::SmolTcpStream>
 pub type grafton_visca::SmolRuntime::UdpTransport = grafton_visca::transport::async_udp::Udp<async_net::udp::UdpSocket>
 pub async fn grafton_visca::SmolRuntime::connect_tcp(&self, &str, grafton_visca::transport::TransportConfig) -> core::result::Result<Self::TcpTransport, grafton_visca::Error>
@@ -33772,13 +33784,13 @@ pub fn grafton_visca::TokioRuntime::spawn_bg<F>(&self, F) where F: core::future:
 pub fn grafton_visca::TokioRuntime::spawn_with_detach<F>(&self, F) -> (Self::Join, Self::Detach) where F: core::future::future::Future + core::marker::Send + 'static, <F as core::future::future::Future>::Output: core::marker::Send + 'static
 pub fn grafton_visca::TokioRuntime::timeout<'a, F, T>(&'a self, core::time::Duration, F) -> impl core::future::future::Future<Output = core::result::Result<T, grafton_visca::Error>> + core::marker::Send + 'a where F: core::future::future::Future<Output = T> + core::marker::Send + 'a, T: core::marker::Send + 'a
 impl grafton_visca::Runtime for grafton_visca::TokioRuntime
+pub type grafton_visca::TokioRuntime::SerialTransport = grafton_visca::transport::async_serial::Serial<grafton_visca::transport::tokio::serial::TokioSerialAdapter>
 pub type grafton_visca::TokioRuntime::TcpTransport = grafton_visca::transport::async_tcp::Tcp<grafton_visca::transport::tokio::connectors::TokioTcpStream>
 pub type grafton_visca::TokioRuntime::UdpTransport = grafton_visca::transport::async_udp::Udp<tokio::net::udp::UdpSocket>
 pub async fn grafton_visca::TokioRuntime::connect_tcp(&self, &str, grafton_visca::transport::TransportConfig) -> core::result::Result<Self::TcpTransport, grafton_visca::Error>
 pub async fn grafton_visca::TokioRuntime::connect_udp(&self, &str, grafton_visca::transport::TransportConfig) -> core::result::Result<Self::UdpTransport, grafton_visca::Error>
 pub fn grafton_visca::TokioRuntime::now(&self) -> std::time::Instant
 impl grafton_visca::runtime::RuntimeSerial for grafton_visca::TokioRuntime
-pub type grafton_visca::TokioRuntime::SerialTransport = grafton_visca::transport::async_serial::Serial<grafton_visca::transport::tokio::serial::TokioSerialAdapter>
 pub async fn grafton_visca::TokioRuntime::connect_serial(&self, grafton_visca::runtime_adapters::tokio::SerialConfig) -> core::result::Result<Self::SerialTransport, grafton_visca::Error>
 impl core::marker::Freeze for grafton_visca::TokioRuntime
 impl core::marker::Send for grafton_visca::TokioRuntime
@@ -37204,18 +37216,21 @@ pub fn grafton_visca::raw::Inquiry<R>::timeout_class(&self) -> grafton_visca::Ti
 pub fn grafton_visca::raw::Inquiry<R>::validate_for_profile(&self, &grafton_visca::profile::ProfileSpec) -> grafton_visca::Result<()>
 pub fn grafton_visca::raw::Inquiry<R>::write_into(&self, grafton_visca::CameraId, &mut [u8]) -> grafton_visca::Result<usize>
 pub trait grafton_visca::Runtime: grafton_visca::Executor + core::clone::Clone + core::marker::Send + core::marker::Sync + 'static
+pub type grafton_visca::Runtime::SerialTransport: grafton_visca::transport::AsyncTransport + grafton_visca::transport::HasTransportConfig + core::marker::Send + core::marker::Sync + 'static
 pub type grafton_visca::Runtime::TcpTransport: grafton_visca::transport::AsyncTransport + grafton_visca::transport::HasTransportConfig + core::marker::Send + core::marker::Sync + 'static
 pub type grafton_visca::Runtime::UdpTransport: grafton_visca::transport::AsyncTransport + grafton_visca::transport::HasTransportConfig + core::marker::Send + core::marker::Sync + 'static
 pub async fn grafton_visca::Runtime::connect_tcp(&self, &str, grafton_visca::transport::TransportConfig) -> core::result::Result<Self::TcpTransport, grafton_visca::Error>
 pub async fn grafton_visca::Runtime::connect_udp(&self, &str, grafton_visca::transport::TransportConfig) -> core::result::Result<Self::UdpTransport, grafton_visca::Error>
 pub fn grafton_visca::Runtime::now(&self) -> std::time::Instant
 impl grafton_visca::Runtime for grafton_visca::SmolRuntime
+pub type grafton_visca::SmolRuntime::SerialTransport = never
 pub type grafton_visca::SmolRuntime::TcpTransport = grafton_visca::transport::async_tcp::Tcp<grafton_visca::transport::smol::connectors::SmolTcpStream>
 pub type grafton_visca::SmolRuntime::UdpTransport = grafton_visca::transport::async_udp::Udp<async_net::udp::UdpSocket>
 pub async fn grafton_visca::SmolRuntime::connect_tcp(&self, &str, grafton_visca::transport::TransportConfig) -> core::result::Result<Self::TcpTransport, grafton_visca::Error>
 pub async fn grafton_visca::SmolRuntime::connect_udp(&self, &str, grafton_visca::transport::TransportConfig) -> core::result::Result<Self::UdpTransport, grafton_visca::Error>
 pub fn grafton_visca::SmolRuntime::now(&self) -> std::time::Instant
 impl grafton_visca::Runtime for grafton_visca::TokioRuntime
+pub type grafton_visca::TokioRuntime::SerialTransport = grafton_visca::transport::async_serial::Serial<grafton_visca::transport::tokio::serial::TokioSerialAdapter>
 pub type grafton_visca::TokioRuntime::TcpTransport = grafton_visca::transport::async_tcp::Tcp<grafton_visca::transport::tokio::connectors::TokioTcpStream>
 pub type grafton_visca::TokioRuntime::UdpTransport = grafton_visca::transport::async_udp::Udp<tokio::net::udp::UdpSocket>
 pub async fn grafton_visca::TokioRuntime::connect_tcp(&self, &str, grafton_visca::transport::TransportConfig) -> core::result::Result<Self::TcpTransport, grafton_visca::Error>

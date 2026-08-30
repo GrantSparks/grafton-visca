@@ -19996,7 +19996,7 @@ impl core::marker::Unpin for grafton_visca::request::builtin::ZoomStop
 impl core::marker::UnsafeUnpin for grafton_visca::request::builtin::ZoomStop
 impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::request::builtin::ZoomStop
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::request::builtin::ZoomStop
-pub struct grafton_visca::request::builtin::ZoomTarget(_)
+pub struct grafton_visca::request::builtin::ZoomTarget(_, _)
 impl grafton_visca::request::builtin::ZoomTarget
 pub fn grafton_visca::request::builtin::ZoomTarget::from_normalized(grafton_visca::units::UnitInterval, grafton_visca::inquiry_conversions::ZoomDomain, &grafton_visca::profile::ProfileSpec) -> core::result::Result<Self, grafton_visca::Error>
 pub const fn grafton_visca::request::builtin::ZoomTarget::new(grafton_visca::types::ZoomPosition) -> Self
@@ -21045,7 +21045,7 @@ impl grafton_visca::transport::Envelope for grafton_visca::transport::RawVisca
 pub const grafton_visca::transport::RawVisca::SUPPORTS_SEQUENCE_CORRELATION: bool
 pub fn grafton_visca::transport::RawVisca::extract_response(&self, &[u8]) -> core::result::Result<bytes::bytes::Bytes, grafton_visca::Error>
 pub fn grafton_visca::transport::RawVisca::extract_with_meta(&self, bytes::bytes::Bytes) -> core::result::Result<(bytes::bytes::Bytes, grafton_visca::transport::FrameMeta), grafton_visca::Error>
-pub fn grafton_visca::transport::RawVisca::frame_into(&self, &[u8], grafton_visca::command::CommandKind, &mut bytes::bytes_mut::BytesMut) -> grafton_visca::transport::FrameMeta
+pub fn grafton_visca::transport::RawVisca::frame_into(&self, &[u8], grafton_visca::command::CommandKind, &mut bytes::bytes_mut::BytesMut) -> core::result::Result<grafton_visca::transport::FrameMeta, grafton_visca::Error>
 pub fn grafton_visca::transport::RawVisca::new(grafton_visca::transport::AddressingMode) -> Self
 impl core::marker::Freeze for grafton_visca::transport::RawVisca
 impl core::marker::Send for grafton_visca::transport::RawVisca
@@ -21063,7 +21063,7 @@ impl grafton_visca::transport::Envelope for grafton_visca::transport::SonyEncaps
 pub const grafton_visca::transport::SonyEncapsulated::SUPPORTS_SEQUENCE_CORRELATION: bool
 pub fn grafton_visca::transport::SonyEncapsulated::extract_response(&self, &[u8]) -> core::result::Result<bytes::bytes::Bytes, grafton_visca::Error>
 pub fn grafton_visca::transport::SonyEncapsulated::extract_with_meta(&self, bytes::bytes::Bytes) -> core::result::Result<(bytes::bytes::Bytes, grafton_visca::transport::FrameMeta), grafton_visca::Error>
-pub fn grafton_visca::transport::SonyEncapsulated::frame_into(&self, &[u8], grafton_visca::command::CommandKind, &mut bytes::bytes_mut::BytesMut) -> grafton_visca::transport::FrameMeta
+pub fn grafton_visca::transport::SonyEncapsulated::frame_into(&self, &[u8], grafton_visca::command::CommandKind, &mut bytes::bytes_mut::BytesMut) -> core::result::Result<grafton_visca::transport::FrameMeta, grafton_visca::Error>
 pub fn grafton_visca::transport::SonyEncapsulated::new(grafton_visca::transport::AddressingMode) -> Self
 impl core::marker::Freeze for grafton_visca::transport::SonyEncapsulated
 impl core::marker::Send for grafton_visca::transport::SonyEncapsulated
@@ -21140,19 +21140,19 @@ pub trait grafton_visca::transport::Envelope: grafton_visca::transport::envelope
 pub const grafton_visca::transport::Envelope::SUPPORTS_SEQUENCE_CORRELATION: bool
 pub fn grafton_visca::transport::Envelope::extract_response(&self, &[u8]) -> core::result::Result<bytes::bytes::Bytes, grafton_visca::Error>
 pub fn grafton_visca::transport::Envelope::extract_with_meta(&self, bytes::bytes::Bytes) -> core::result::Result<(bytes::bytes::Bytes, grafton_visca::transport::FrameMeta), grafton_visca::Error>
-pub fn grafton_visca::transport::Envelope::frame_into(&self, &[u8], grafton_visca::command::CommandKind, &mut bytes::bytes_mut::BytesMut) -> grafton_visca::transport::FrameMeta
+pub fn grafton_visca::transport::Envelope::frame_into(&self, &[u8], grafton_visca::command::CommandKind, &mut bytes::bytes_mut::BytesMut) -> core::result::Result<grafton_visca::transport::FrameMeta, grafton_visca::Error>
 pub fn grafton_visca::transport::Envelope::new(grafton_visca::transport::AddressingMode) -> Self
 impl grafton_visca::transport::Envelope for grafton_visca::transport::RawVisca
 pub const grafton_visca::transport::RawVisca::SUPPORTS_SEQUENCE_CORRELATION: bool
 pub fn grafton_visca::transport::RawVisca::extract_response(&self, &[u8]) -> core::result::Result<bytes::bytes::Bytes, grafton_visca::Error>
 pub fn grafton_visca::transport::RawVisca::extract_with_meta(&self, bytes::bytes::Bytes) -> core::result::Result<(bytes::bytes::Bytes, grafton_visca::transport::FrameMeta), grafton_visca::Error>
-pub fn grafton_visca::transport::RawVisca::frame_into(&self, &[u8], grafton_visca::command::CommandKind, &mut bytes::bytes_mut::BytesMut) -> grafton_visca::transport::FrameMeta
+pub fn grafton_visca::transport::RawVisca::frame_into(&self, &[u8], grafton_visca::command::CommandKind, &mut bytes::bytes_mut::BytesMut) -> core::result::Result<grafton_visca::transport::FrameMeta, grafton_visca::Error>
 pub fn grafton_visca::transport::RawVisca::new(grafton_visca::transport::AddressingMode) -> Self
 impl grafton_visca::transport::Envelope for grafton_visca::transport::SonyEncapsulated
 pub const grafton_visca::transport::SonyEncapsulated::SUPPORTS_SEQUENCE_CORRELATION: bool
 pub fn grafton_visca::transport::SonyEncapsulated::extract_response(&self, &[u8]) -> core::result::Result<bytes::bytes::Bytes, grafton_visca::Error>
 pub fn grafton_visca::transport::SonyEncapsulated::extract_with_meta(&self, bytes::bytes::Bytes) -> core::result::Result<(bytes::bytes::Bytes, grafton_visca::transport::FrameMeta), grafton_visca::Error>
-pub fn grafton_visca::transport::SonyEncapsulated::frame_into(&self, &[u8], grafton_visca::command::CommandKind, &mut bytes::bytes_mut::BytesMut) -> grafton_visca::transport::FrameMeta
+pub fn grafton_visca::transport::SonyEncapsulated::frame_into(&self, &[u8], grafton_visca::command::CommandKind, &mut bytes::bytes_mut::BytesMut) -> core::result::Result<grafton_visca::transport::FrameMeta, grafton_visca::Error>
 pub fn grafton_visca::transport::SonyEncapsulated::new(grafton_visca::transport::AddressingMode) -> Self
 pub trait grafton_visca::transport::HasTransportConfig
 pub fn grafton_visca::transport::HasTransportConfig::standard_transport_kind(&self) -> core::option::Option<grafton_visca::camera::TransportKind>

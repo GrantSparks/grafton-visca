@@ -144,6 +144,8 @@ mod async_standard {
     impl<E: Executor> Runtime for ProbeRuntime<E> {
         type TcpTransport = ProbeTransport;
         type UdpTransport = ProbeTransport;
+        #[cfg(feature = "transport-serial-tokio")]
+        type SerialTransport = std::convert::Infallible;
 
         async fn connect_tcp(
             &self,

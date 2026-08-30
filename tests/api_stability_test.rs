@@ -281,6 +281,8 @@ fn canonical_compile_contracts() {
         fail_dirs.push("tests/api_contract/fail_dyn_async");
         fail_dirs.push("tests/api_contract/fail_must_use_dyn");
     }
+    #[cfg(all(feature = "runtime-smol", feature = "transport-serial-tokio"))]
+    fail_dirs.push("tests/api_contract/fail_serial_runtime_pairing");
     #[cfg(not(any(feature = "blocking", feature = "async")))]
     fail_dirs.push("tests/api_contract/fail_no_canonical");
     #[cfg(not(feature = "test-utils"))]

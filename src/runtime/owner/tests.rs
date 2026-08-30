@@ -166,6 +166,28 @@ fn a_rejected_retune_changes_neither_the_live_tuning_nor_the_policy() {
     assert_eq!(command_sockets(&state), 2);
 }
 
+#[test]
+fn observer_resolution_distinguishes_receiver_loss_from_duplicate_delivery() {
+    let (cell, observer) = completion_pair();
+    assert_eq!(
+        cell.resolve(ReceiptObservation::Terminal(RuntimeOutcome::Applied)),
+        ObserverResolution::Delivered
+    );
+    drop(observer);
+    assert_eq!(
+        cell.resolve(ReceiptObservation::Terminal(RuntimeOutcome::Applied)),
+        ObserverResolution::AlreadyResolved,
+        "dropping a receiver after delivery cannot turn a duplicate into loss"
+    );
+
+    let (cell, observer) = completion_pair();
+    drop(observer);
+    assert_eq!(
+        cell.resolve(ReceiptObservation::Terminal(RuntimeOutcome::Applied)),
+        ObserverResolution::ReceiverLost
+    );
+}
+
 #[cfg(all(feature = "blocking", not(feature = "async")))]
 mod blocking {
     use std::{
@@ -2921,6 +2943,11 @@ mod blocking {
                 now,
             )
             .unwrap();
+        assert_eq!(
+            owner.state().metrics_snapshot().dropped_observer_events,
+            1,
+            "the detached receipt loses exactly its terminal observation"
+        );
         assert_eq!(
             cached_projection(
                 owner.state(),

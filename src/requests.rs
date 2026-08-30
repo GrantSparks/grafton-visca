@@ -12,12 +12,27 @@ use crate::{completion, request, CameraId, Error, Result};
 #[doc(hidden)]
 pub(crate) struct AppliedStateAuthority(private::SealedToken);
 
+/// Crate-only authority passed to hidden owner-admission request hooks.
+///
+/// This type is deliberately not nameable by downstream `Request`
+/// implementations.  The default hooks therefore preserve the public custom
+/// request contract while reserving the urgent lane and dynamic size projection
+/// for crate-controlled lowering.
+#[doc(hidden)]
+pub(crate) struct RequestContractAuthority(private::SealedToken);
+
 mod private {
     #[derive(Debug, Clone, Copy)]
     pub(crate) struct SealedToken;
 }
 
 impl AppliedStateAuthority {
+    pub(crate) const fn new() -> Self {
+        Self(private::SealedToken)
+    }
+}
+
+impl RequestContractAuthority {
     pub(crate) const fn new() -> Self {
         Self(private::SealedToken)
     }
@@ -572,6 +587,11 @@ pub trait Request: Send + Sync {
     /// Retry family for this request.
     const RETRY_CLASS: RetryClass;
     /// Scheduling class for this request.
+    ///
+    /// [`ControlClass::Urgent`] is reserved for crate-owned typed stops and
+    /// owner-issued protocol cancellation. A downstream request may continue
+    /// to use any ordinary class, but an attempt to submit `Urgent` is rejected
+    /// at owner admission.
     const CONTROL_CLASS: ControlClass;
 
     /// Returns this value's timeout class.
@@ -606,6 +626,27 @@ pub trait Request: Send + Sync {
         Self::CONTROL_CLASS
     }
 
+    /// Resolves the request's class for owner admission.
+    ///
+    /// The private authority makes this an unforgeable crate-only hook. The
+    /// default accepts every ordinary class and refuses `Urgent`; the built-in
+    /// request implementations use the hook to carry their reviewed stop and
+    /// protocol-cancellation authority through generic preparation.
+    #[doc(hidden)]
+    #[allow(private_interfaces)]
+    fn admission_control_class(
+        &self,
+        _authority: RequestContractAuthority,
+    ) -> Result<ControlClass> {
+        match self.control_class() {
+            ControlClass::Urgent => Err(Error::InvalidRequest(
+                "ControlClass::Urgent is reserved for crate-owned stops and protocol cancellation"
+                    .into(),
+            )),
+            class => Ok(class),
+        }
+    }
+
     /// Returns the reply protocol the camera will use for this command.
     ///
     /// Built-in and ordinary downstream commands use the default,
@@ -624,6 +665,18 @@ pub trait Request: Send + Sync {
     /// Returns the exact encoded byte length for this value.
     #[must_use]
     fn encoded_size(&self) -> usize {
+        Self::MAX_SIZE
+    }
+
+    /// Returns the fixed encoded-size declaration used for owner admission.
+    ///
+    /// The default is exactly [`Self::MAX_SIZE`]. The hidden authority lets an
+    /// internal erased adapter project the original concrete request's bound
+    /// without allowing a downstream implementation to relax its static
+    /// declaration.
+    #[doc(hidden)]
+    #[allow(private_interfaces)]
+    fn declared_max_size(&self, _authority: RequestContractAuthority) -> usize {
         Self::MAX_SIZE
     }
 
@@ -652,6 +705,16 @@ pub trait Request: Send + Sync {
     ) -> Option<crate::runtime::engine::AppliedStateProjection> {
         None
     }
+}
+
+/// Reads a request's authorized scheduling class at the owner boundary.
+pub(crate) fn admission_control_class<R: Request + ?Sized>(request: &R) -> Result<ControlClass> {
+    request.admission_control_class(RequestContractAuthority::new())
+}
+
+/// Reads a request's fixed size declaration at the owner boundary.
+pub(crate) fn declared_max_size<R: Request + ?Sized>(request: &R) -> usize {
+    request.declared_max_size(RequestContractAuthority::new())
 }
 
 /// Reads the hidden request effect hook at the preparation boundary.

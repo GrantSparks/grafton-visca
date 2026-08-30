@@ -497,7 +497,7 @@ where
     validate_timeout_class(command.timeout_class(), false)?;
     command.validate_for_profile(profile)?;
     let wire = encode(command, target)?;
-    let context = request_context(command, target, profile, tuning, class, false, false);
+    let context = request_context(command, target, profile, tuning, class, false, false)?;
     Ok(PreparedCommand {
         wire,
         context,
@@ -577,7 +577,7 @@ where
         class,
         true,
         builtin_inquiry_syntax,
-    );
+    )?;
     Ok(PreparedInquiry {
         wire,
         context,
@@ -648,7 +648,7 @@ where
     // effect of discovering that its operation class is unavailable.
     operation.validate_for_profile(profile)?;
     let affected_axes = operation.affected_axes();
-    let context = request_context(operation, target, profile, tuning, class, false, false);
+    let context = request_context(operation, target, profile, tuning, class, false, false)?;
     let settlement = K::lower_settlement(
         target,
         profile,
@@ -672,7 +672,7 @@ where
     R: Request + ?Sized,
 {
     let size = request.encoded_size();
-    if size == 0 || size > R::MAX_SIZE || size > MAX_BYTES {
+    if size == 0 || size > crate::requests::declared_max_size(request) || size > MAX_BYTES {
         return Err(Error::InvalidRequest(
             "encoded_size must be non-zero and no larger than MAX_SIZE or the protocol bound"
                 .into(),
@@ -731,7 +731,7 @@ fn request_context<R>(
     class: ClassSelection,
     inquiry: bool,
     builtin_inquiry_syntax: bool,
-) -> RequestContext
+) -> Result<RequestContext>
 where
     R: Request + ?Sized,
 {
@@ -758,7 +758,7 @@ where
             .command_spacing_override()
             .unwrap_or(timing.minimum_command_spacing())
     };
-    RequestContext {
+    Ok(RequestContext {
         target,
         timeout,
         retry: retry_policy(
@@ -774,7 +774,7 @@ where
             builtin_inquiry_syntax,
         ),
         control: ControlPolicy {
-            class: lower_control(class.resolve(request.control_class())),
+            class: lower_control(class.resolve(crate::requests::admission_control_class(request)?)),
             minimum_spacing: spacing,
         },
         cancellation: if profile.supports_command_cancel() {
@@ -787,7 +787,7 @@ where
         // await a reply, so their (validated) default lowers to
         // `AckThenCompletion` and the engine's inquiry path ignores it.
         reply_shape: lower_reply_shape(request.reply_shape()),
-    }
+    })
 }
 
 fn completion_timeout(
@@ -1025,7 +1025,7 @@ mod tests {
         request::builtin::{
             request_write_count, reset_request_write_count, FocusTrigger, IrisReset,
             NdFilterStepUp, PanTiltAbsolute, PanTiltLimitClear, PanTiltLimitSet, PanTiltRelative,
-            PresetSet, ZoomTarget,
+            PresetSet, ZoomStop, ZoomTarget,
         },
         types::{IrisLevel, PanSpeed, TiltSpeed, ZoomPosition},
         units::Degrees,
@@ -2507,11 +2507,12 @@ mod tests {
             }
         }
 
-        /// An applied-only operation classified urgent exactly as the crate's
-        /// typed stops are.
-        struct UrgentStop;
+        /// A downstream applied-only operation attempting to claim the safety
+        /// lane. Public `Request` remains extensible, but owner admission must
+        /// refuse this unapproved `Urgent` declaration.
+        struct DownstreamUrgentStop;
 
-        impl Request for UrgentStop {
+        impl Request for DownstreamUrgentStop {
             type Class = crate::request::Operation<completion::AppliedOnly>;
 
             const MAX_SIZE: usize = 2;
@@ -2525,7 +2526,7 @@ mod tests {
             }
         }
 
-        impl OperationCommand<completion::AppliedOnly> for UrgentStop {
+        impl OperationCommand<completion::AppliedOnly> for DownstreamUrgentStop {
             fn affected_axes(&self) -> AffectedAxes {
                 AffectedAxes::ZOOM
             }
@@ -2564,15 +2565,27 @@ mod tests {
             .class
         }
 
-        fn operation_class(class: ClassSelection) -> EngineControlClass {
+        fn downstream_urgent_result(
+            class: ClassSelection,
+        ) -> Result<PreparedOperation<completion::AppliedOnly>> {
             prepare_operation::<completion::AppliedOnly, _>(
-                &UrgentStop,
+                &DownstreamUrgentStop,
                 CameraId::CAMERA_1,
                 &profile(),
                 OperationalTuning::new(),
                 class,
             )
-            .expect("applied-only operation prepares")
+        }
+
+        fn builtin_stop_class(class: ClassSelection) -> EngineControlClass {
+            prepare_operation::<completion::AppliedOnly, _>(
+                &ZoomStop,
+                CameraId::CAMERA_1,
+                &profile(),
+                OperationalTuning::new(),
+                class,
+            )
+            .expect("crate-owned stop prepares")
             .context
             .control
             .class
@@ -2647,21 +2660,38 @@ mod tests {
             );
         }
 
-        /// The safety rule, on the lowered value rather than on `resolve`
-        /// alone: neither public QoS route can demote an urgent stop.
+        /// A public downstream implementation cannot manufacture the urgent
+        /// safety lane simply by setting its associated constant.
         #[test]
-        fn an_urgent_operation_is_preserved_by_every_submission_class() {
+        fn downstream_urgent_operation_is_rejected_before_lowering() {
+            for class in [
+                ClassSelection::Request,
+                ClassSelection::Handle(SubmissionClass::Background),
+                ClassSelection::Explicit(SubmissionClass::Background),
+            ] {
+                assert!(matches!(
+                    downstream_urgent_result(class),
+                    Err(Error::InvalidRequest(_))
+                ));
+            }
+        }
+
+        /// The safety rule, on the lowered value rather than on `resolve`
+        /// alone: neither public QoS route can demote a crate-owned urgent
+        /// stop.
+        #[test]
+        fn crate_owned_urgent_stop_is_preserved_by_every_submission_class() {
             assert_eq!(
-                operation_class(ClassSelection::Request),
+                builtin_stop_class(ClassSelection::Request),
                 EngineControlClass::Urgent
             );
             assert_eq!(
-                operation_class(ClassSelection::Handle(SubmissionClass::Background)),
+                builtin_stop_class(ClassSelection::Handle(SubmissionClass::Background)),
                 EngineControlClass::Urgent,
                 "issue #630: a handle default must never demote an urgent stop",
             );
             assert_eq!(
-                operation_class(ClassSelection::Explicit(SubmissionClass::Background)),
+                builtin_stop_class(ClassSelection::Explicit(SubmissionClass::Background)),
                 EngineControlClass::Urgent,
                 "issue #542: per-submission QoS must never demote an urgent stop",
             );

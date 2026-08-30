@@ -620,6 +620,17 @@ struct ObserverCell {
     sender: flume::Sender<ReceiptObservation>,
 }
 
+/// The result of attempting to settle one receipt observer.
+///
+/// `ReceiverLost` is deliberately distinct from `AlreadyResolved`: only the
+/// former means an observation was discarded because its receiver went away.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ObserverResolution {
+    Delivered,
+    ReceiverLost,
+    AlreadyResolved,
+}
+
 impl ObserverCell {
     fn is_attached(&self) -> bool {
         !self.detached.load(Ordering::Acquire)
@@ -627,18 +638,31 @@ impl ObserverCell {
             && !self.sender.is_disconnected()
     }
 
-    fn resolve(&self, observation: ReceiptObservation) -> Result<(), ()> {
+    fn resolve(&self, observation: ReceiptObservation) -> ObserverResolution {
+        // A previous successful resolution wins even if the receiver was
+        // subsequently dropped. That is a duplicate delivery attempt, not a
+        // newly lost observer event.
+        if self.resolved.load(Ordering::Acquire) {
+            return ObserverResolution::AlreadyResolved;
+        }
         if !self.is_attached() {
-            return Ok(());
+            return ObserverResolution::ReceiverLost;
         }
         if self
             .resolved
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
             .is_err()
         {
-            return Ok(());
+            return ObserverResolution::AlreadyResolved;
         }
-        self.sender.try_send(observation).map_err(|_| ())
+        match self.sender.try_send(observation) {
+            Ok(()) => ObserverResolution::Delivered,
+            Err(flume::TrySendError::Disconnected(_)) => ObserverResolution::ReceiverLost,
+            // A cell has one sender and is marked resolved before sending, so
+            // this cannot arise from a second observer event. Do not misreport
+            // it as receiver loss if that invariant is ever violated.
+            Err(flume::TrySendError::Full(_)) => ObserverResolution::AlreadyResolved,
+        }
     }
 }
 
@@ -1943,10 +1967,12 @@ impl OwnerState {
                         if let Some(waiter) = self.cancellation_waiters.remove(&id) {
                             if waiter.recorded {
                                 if self.active.get(&id).is_some_and(|active| {
-                                    active
-                                        .observer
-                                        .resolve(ReceiptObservation::CancellationFailed(error))
-                                        .is_err()
+                                    matches!(
+                                        active
+                                            .observer
+                                            .resolve(ReceiptObservation::CancellationFailed(error)),
+                                        ObserverResolution::ReceiverLost
+                                    )
                                 }) {
                                     self.metrics.dropped_observer_events =
                                         self.metrics.dropped_observer_events.saturating_add(1);
@@ -2014,11 +2040,12 @@ impl OwnerState {
                 let diagnostic = outcome_diagnostic(&outcome);
                 if let Some(active) = self.active.remove(&id) {
                     let target = active.summary.target;
-                    if active
-                        .observer
-                        .resolve(ReceiptObservation::Terminal(outcome.clone()))
-                        .is_err()
-                    {
+                    if matches!(
+                        active
+                            .observer
+                            .resolve(ReceiptObservation::Terminal(outcome.clone())),
+                        ObserverResolution::ReceiverLost
+                    ) {
                         self.metrics.dropped_observer_events =
                             self.metrics.dropped_observer_events.saturating_add(1);
                     }

@@ -87,7 +87,7 @@ run_validator() {
 
 # Generate matrix fixtures from the same compact ID ranges as the checked-in
 # contract. Variants mutate one row so structural and evidence regressions do
-# not require hand-copying all 47 required rows into every fixture.
+# not require hand-copying all 48 required rows into every fixture.
 make_checklist() {
     local variant="$1"
     python3 - "${variant}" <<'PY'
@@ -97,53 +97,107 @@ variant = sys.argv[1]
 required_ids = (
     [f"PT-{number:02d}" for number in range(1, 24)]
     + [f"FW-{number:02d}" for number in range(1, 10)]
-    + [f"CR-{number:02d}" for number in range(1, 7)]
+    + [f"CR-{number:02d}" for number in range(1, 8)]
     + [f"RT-{number:02d}" for number in range(1, 5)]
     + [f"MC-{number:02d}" for number in range(1, 6)]
 )
 
-def row(identifier, status="Pass", evidence=None):
+def owner_for(identifier):
+    if identifier.startswith("PT-"):
+        return "Transport QA"
+    if identifier.startswith("FW-"):
+        return "Profile QA"
+    if identifier.startswith("CR-"):
+        return "Lifecycle QA"
+    if identifier.startswith("RT-"):
+        return "Runtime QA"
+    return "Multi-camera QA"
+
+def row(identifier, status="Pass", owner=None, firmware_bench=None, evidence=None):
+    if owner is None:
+        owner = owner_for(identifier)
+    if firmware_bench is None:
+        firmware_bench = "Camera firmware 1.2.3 / bench rack A"
     if evidence is None:
-        evidence = f"bench-{identifier.lower()}"
+        evidence = f"docs/evidence/2.0.0/{identifier.lower()}.md#capture"
     if variant == "reordered-emphasis":
-        return f"| **{evidence}** | **{status}** | **{identifier}** |"
+        return (
+            f"| **{evidence}** | **{firmware_bench}** | **{status}** | "
+            f"**{owner}** | **{identifier}** |"
+        )
     if variant == "complete-em-dash":
         serial_ids = {"PT-03", "PT-06", "PT-09", "PT-12", "PT-15", "PT-18", "PT-21"}
         transport = "Blocking serial / Raw" if identifier in serial_ids else "TCP / Raw"
         default = "—" if identifier in serial_ids else "5678"
-        return f"| {identifier} | {transport} | {default} | {status} | {evidence} |"
-    return f"| {identifier} | {status} | {evidence} |"
+        return (
+            f"| {identifier} | Fixture profile | {transport} | {default} | {owner} | "
+            f"{status} | {firmware_bench} | {evidence} |"
+        )
+    if variant == "missing-owner-column":
+        return f"| {identifier} | {status} | {firmware_bench} | {evidence} |"
+    if variant == "missing-firmware-bench-column":
+        return f"| {identifier} | {owner} | {status} | {evidence} |"
+    if variant == "missing-evidence-column":
+        return f"| {identifier} | {owner} | {status} | {firmware_bench} |"
+    return f"| {identifier} | {owner} | {status} | {firmware_bench} | {evidence} |"
 
 lines = [
     "# Hardware evidence",
     "",
-    "| ID | Status | Evidence artifact / notes |",
-    "| --- | --- | --- |",
+    "| ID | Owner | Status | Firmware / bench | Evidence artifact / notes |",
+    "| --- | --- | --- | --- | --- |",
 ]
 if variant == "emphasised":
-    lines[2] = "| ID | **Status** | Evidence artifact / notes |"
+    lines[2] = "| ID | Owner | **Status** | Firmware / bench | Evidence artifact / notes |"
 elif variant == "duplicate-status":
-    lines[2] = "| ID | Status | Status | Evidence artifact / notes |"
+    lines[2] = "| ID | Owner | Status | Status | Firmware / bench | Evidence artifact / notes |"
+    lines[3] = "| --- | --- | --- | --- | --- | --- |"
 elif variant == "duplicate-evidence":
-    lines[2] = "| ID | Status | Evidence | Evidence artifact / notes |"
+    lines[2] = "| ID | Owner | Status | Firmware / bench | Evidence | Evidence artifact / notes |"
+    lines[3] = "| --- | --- | --- | --- | --- | --- |"
 elif variant == "reordered-emphasis":
-    lines[2] = "| Evidence artifact / notes | **Status** | **ID** |"
+    lines[2] = "| Evidence artifact / notes | Firmware / bench | **Status** | Owner | **ID** |"
 elif variant == "complete-em-dash":
-    lines[2] = "| ID | Transport | Default | Status | Evidence artifact / notes |"
-    lines[3] = "| --- | --- | --- | --- | --- |"
+    lines[2] = "| ID | Profile | Transport | Default | Owner | Status | Firmware / bench | Evidence artifact / notes |"
+    lines[3] = "| --- | --- | --- | --- | --- | --- | --- | --- |"
+elif variant == "missing-owner-column":
+    lines[2] = "| ID | Status | Firmware / bench | Evidence artifact / notes |"
+    lines[3] = "| --- | --- | --- | --- |"
+elif variant == "missing-firmware-bench-column":
+    lines[2] = "| ID | Owner | Status | Evidence artifact / notes |"
+    lines[3] = "| --- | --- | --- | --- |"
+elif variant == "missing-evidence-column":
+    lines[2] = "| ID | Owner | Status | Firmware / bench |"
+    lines[3] = "| --- | --- | --- | --- |"
 
 for identifier in required_ids:
     if variant == "missing" and identifier == "PT-01":
         continue
+    if variant == "missing-cr-07" and identifier == "CR-07":
+        continue
 
     row_identifier = identifier
     status = "Pass"
+    owner = None
+    firmware_bench = None
     evidence = None
+    if variant == "pending":
+        status = "Pending (Not run)"
+        firmware_bench = "Pending"
+        evidence = "Pending — transcript and packet capture"
     if identifier == "PT-01":
         if variant == "renamed":
             row_identifier = "ARBITRARY-01"
         elif variant == "internal-id":
             row_identifier = "P_T-01"
+        elif variant == "blank-owner":
+            owner = ""
+        elif variant == "placeholder-owner":
+            owner = "N/A"
+        elif variant == "blank-firmware-bench":
+            firmware_bench = ""
+        elif variant == "placeholder-firmware-bench":
+            firmware_bench = "N/A"
         elif variant == "blank-evidence":
             evidence = ""
         elif variant == "placeholder-evidence":
@@ -162,13 +216,14 @@ for identifier in required_ids:
             evidence = "bench--capture"
         elif variant == "autolink-evidence":
             evidence = "<https://example.test/PT-01>"
-        elif variant == "pending":
-            status, evidence = "Pending (Not run)", "Pending"
         elif variant == "blocked":
             status, evidence = "Blocked", "bench issue"
         elif variant in {"nonpassing", "emphasised"}:
-            status, evidence = ("Review" if variant == "nonpassing" else "reviewed"), "bench-pt-01"
-    lines.append(row(row_identifier, status, evidence))
+            status, evidence = (
+                ("Review" if variant == "nonpassing" else "reviewed"),
+                "docs/evidence/2.0.0/pt-01.md#capture",
+            )
+    lines.append(row(row_identifier, status, owner, firmware_bench, evidence))
 
 if variant == "duplicate":
     lines.append(row("PT-01"))
@@ -247,15 +302,15 @@ elif field == "evidence":
     )
 elif field == "row":
     checklist = checklist.replace(
-        "| PT-01 | Pass | bench-pt-01 |",
-        f"| PT-01 | Pass | {disguise} |",
+        "| PT-01 | Transport QA | Pass | Camera firmware 1.2.3 / bench rack A | docs/evidence/2.0.0/pt-01.md#capture |",
+        f"| PT-01 | Transport QA | Pass | Camera firmware 1.2.3 / bench rack A | {disguise} |",
         1,
     )
 elif field == "table":
     # This value is intentionally outside the recognized ID/Status/Evidence
     # columns. The table-wide pending scan must still inspect it.
     checklist += (
-        "\n| Gate | Owner | Result |\n"
+        "\n\n| Gate | Owner | Result |\n"
         "| --- | --- | --- |\n"
         f"| Hardware note | Release QA | {disguise} |\n"
     )
@@ -290,8 +345,8 @@ elif field == "evidence":
     )
 elif field == "row":
     checklist = checklist.replace(
-        "| PT-01 | Pass | bench-pt-01 |",
-        f"| PT-01 | Pass | {control} |",
+        "| PT-01 | Transport QA | Pass | Camera firmware 1.2.3 / bench rack A | docs/evidence/2.0.0/pt-01.md#capture |",
+        f"| PT-01 | Transport QA | Pass | Camera firmware 1.2.3 / bench rack A | {control} |",
         1,
     )
 elif field == "table":
@@ -299,7 +354,7 @@ elif field == "table":
     # columns. It exercises the table-wide visible-text scan without making
     # punctuation in an unrelated checklist column a fake evidence failure.
     checklist += (
-        "\n| Gate | Owner | Result |\n"
+        "\n\n| Gate | Owner | Result |\n"
         "| --- | --- | --- |\n"
         f"| Hardware note | Release QA | {control} |\n"
     )
@@ -380,10 +435,98 @@ print(return_text)
 PY
 }
 
+# Keep the table-recognition checks separate from the visibility corpus above:
+# the invalid variants contain a complete-looking matrix, but only `split` is
+# rendered as visible Markdown tables.
+make_table_context_checklist() {
+    local scenario="$1"
+    python3 - "${scenario}" "$(make_checklist complete)" <<'PY'
+import sys
+
+scenario = sys.argv[1]
+checklist = sys.argv[2]
+matrix, record_tail = checklist.split("\n\nFinal sign-off:", 1)
+records = "Final sign-off:" + record_tail
+lines = matrix.splitlines()
+
+if scenario == "no-delimiter":
+    # The complete fixture has its header and delimiter at fixed positions.
+    del lines[3]
+elif scenario == "mismatched-delimiter":
+    lines[3] = "| --- | --- | --- | --- |"
+elif scenario == "bold-delimiter":
+    lines[3] = "| **---** | **---** | **---** | **---** | **---** |"
+elif scenario == "code-delimiter":
+    lines[3] = "| `---` | `---` | `---` | `---` | `---` |"
+elif scenario == "comment-delimiter":
+    lines[3] = "| <!--x-->--- | <!--x-->--- | <!--x-->--- | <!--x-->--- | <!--x-->--- |"
+elif scenario == "indented":
+    lines = ["    " + line if line else line for line in lines]
+elif scenario == "pre":
+    lines = ["<pre>", *lines, "</pre>"]
+elif scenario == "code":
+    lines = ["<code>", *lines, "</code>"]
+elif scenario == "script":
+    lines = ["<script>", *lines, "</script>"]
+elif scenario == "style":
+    lines = ["<style>", *lines, "</style>"]
+elif scenario in {"textarea", "xmp"}:
+    lines = [f"<{scenario}>", *lines, f"</{scenario}>"]
+elif scenario == "div":
+    # A type-6 block remains raw only until its first blank line.
+    lines = ["<div>", *lines[2:], "</div>"]
+elif scenario in {"unclosed-script", "unclosed-textarea"}:
+    tag = scenario.removeprefix("unclosed-")
+    lines = [f"<{tag}>", *lines]
+elif scenario == "processing-instruction":
+    lines = ["<?fixture", *lines, "?>"]
+elif scenario == "cdata":
+    lines = ["<![CDATA[", *lines, "]]>"]
+elif scenario in {"unclosed-processing-instruction", "unclosed-cdata"}:
+    opener = "<?fixture" if scenario.endswith("processing-instruction") else "<![CDATA["
+    lines = [opener, *lines]
+elif scenario == "multiline-pre":
+    lines = ["<pre", 'class="fixture">', *lines, "</pre>"]
+elif scenario == "paragraph-no-blank":
+    lines = lines[:2] + ["Matrix narrative immediately before the header."] + lines[2:]
+elif scenario == "list-continuation":
+    lines = lines[:2] + ["- Matrix continuation:"] + [
+        "  " + line if line else line for line in lines[2:]
+    ]
+elif scenario == "closed-html-boundary":
+    lines = lines[:2] + ["<div>Closed ordinary HTML context.</div>", ""] + lines[2:]
+elif scenario == "heading-boundary":
+    del lines[1]
+elif scenario in {"span-boundary", "custom-element-boundary"}:
+    tag = "span" if scenario == "span-boundary" else "custom-element"
+    lines = [f"<{tag}>", "", *lines, "", f"</{tag}>"]
+elif scenario in {"div-boundary", "details-boundary"}:
+    tag = "div" if scenario == "div-boundary" else "details"
+    lines = [f"<{tag}>", "", *lines, "", f"</{tag}>"]
+elif scenario == "split":
+    header, delimiter = lines[2:4]
+    rows = lines[4:]
+    split_at = len(rows) // 2
+    lines = (
+        lines[:4]
+        + rows[:split_at]
+        + ["", "Matrix continuation.", "", header, delimiter]
+        + rows[split_at:]
+    )
+else:
+    raise SystemExit(f"unknown table-context scenario: {scenario}")
+
+print("\n".join(lines) + "\n\n" + records)
+PY
+}
+
 root_temp="$(mktemp -d)"
 trap 'rm -rf "${root_temp}"' EXIT
 
-pending_checklist=$'# Hardware evidence\n\n| ID | Status | Evidence |\n| --- | --- | --- |\n| PT-01 | Pending (Not run) | Pending |\n'
+# Candidate tags retain their hardware-evidence exemption, but use the same
+# checked-in matrix shape so a Pending row is an honest, structurally complete
+# candidate record rather than a smaller stand-in table.
+pending_checklist="$(make_checklist pending)"
 blocked_checklist="$(make_checklist blocked)"
 unsigned_checklist="$(make_checklist unsigned)"
 nonpassing_checklist="$(make_checklist nonpassing)"
@@ -514,6 +657,79 @@ make_fixture "${hidden_matrix_rc_root}" "2.0.0-rc.1" \
     "$(make_visibility_checklist matrix-comment)"
 run_validator "${hidden_matrix_rc_root}" v2.0.0-rc.1
 
+# Pipe-delimited text is hardware evidence only when it is a visible Markdown
+# table with an undecorated, matching header delimiter. Indented/list
+# continuation text, paragraph-adjacent rows, and paired block/raw HTML
+# elements must not become a table merely because they contain a
+# complete-looking matrix.
+for invalid_table_context in \
+    no-delimiter \
+    mismatched-delimiter \
+    bold-delimiter \
+    code-delimiter \
+    comment-delimiter \
+    indented \
+    pre \
+    code \
+    script \
+    style \
+    textarea \
+    xmp \
+    div \
+    unclosed-script \
+    unclosed-textarea \
+    processing-instruction \
+    cdata \
+    unclosed-processing-instruction \
+    unclosed-cdata \
+    paragraph-no-blank \
+    list-continuation \
+    multiline-pre; do
+    invalid_table_root="${root_temp}/invalid-table-${invalid_table_context}"
+    make_fixture "${invalid_table_root}" "2.0.0" \
+        "$(make_table_context_checklist "${invalid_table_context}")"
+    expect_failure "no table row under a 'Status' column" \
+        run_validator "${invalid_table_root}" v2.0.0
+done
+
+# A paired ordinary HTML element may precede a genuine top-level table. The
+# blank visible boundary keeps the table distinct from that raw HTML block.
+closed_html_boundary_root="${root_temp}/closed-html-boundary"
+make_fixture "${closed_html_boundary_root}" "2.0.0" \
+    "$(make_table_context_checklist closed-html-boundary)"
+run_validator "${closed_html_boundary_root}" v2.0.0
+
+# GFM permits a table immediately after an ATX heading without a blank line.
+heading_boundary_root="${root_temp}/heading-boundary"
+make_fixture "${heading_boundary_root}" "2.0.0" \
+    "$(make_table_context_checklist heading-boundary)"
+run_validator "${heading_boundary_root}" v2.0.0
+
+# Inline and custom HTML elements do not make their blank-line-separated
+# Markdown table contents raw.
+for visible_inline_context in span-boundary custom-element-boundary; do
+    visible_inline_root="${root_temp}/visible-inline-${visible_inline_context}"
+    make_fixture "${visible_inline_root}" "2.0.0" \
+        "$(make_table_context_checklist "${visible_inline_context}")"
+    run_validator "${visible_inline_root}" v2.0.0
+done
+
+# CommonMark type-6 HTML blocks end at their first blank line, so the
+# blank-line-separated matrix below is visible after both block-level tags.
+for visible_type_6_context in div-boundary details-boundary; do
+    visible_type_6_root="${root_temp}/visible-type-6-${visible_type_6_context}"
+    make_fixture "${visible_type_6_root}" "2.0.0" \
+        "$(make_table_context_checklist "${visible_type_6_context}")"
+    run_validator "${visible_type_6_root}" v2.0.0
+done
+
+# Required rows may be distributed across separate, individually valid tables
+# just as they are in the checked-in hardware checklist.
+split_table_root="${root_temp}/split-table"
+make_fixture "${split_table_root}" "2.0.0" \
+    "$(make_table_context_checklist split)"
+run_validator "${split_table_root}" v2.0.0
+
 lowercase_status_root="${root_temp}/lowercase-status"
 make_fixture "${lowercase_status_root}" "2.0.0" "$(make_checklist lowercase)"
 expect_failure "non-Pass status cells" run_validator "${lowercase_status_root}" v2.0.0
@@ -542,6 +758,14 @@ missing_id_root="${root_temp}/missing-id"
 make_fixture "${missing_id_root}" "2.0.0" "$(make_checklist missing)"
 expect_failure "missing required IDs" run_validator "${missing_id_root}" v2.0.0
 
+# CR-07 is a current cancellation/recovery requirement. A completed-looking
+# fixture without it must fail rather than silently treating CR-06 as the end
+# of that range.
+missing_cr_07_root="${root_temp}/missing-cr-07"
+make_fixture "${missing_cr_07_root}" "2.0.0" "$(make_checklist missing-cr-07)"
+expect_failure "missing required IDs: CR-07" \
+    run_validator "${missing_cr_07_root}" v2.0.0
+
 duplicate_id_root="${root_temp}/duplicate-id"
 make_fixture "${duplicate_id_root}" "2.0.0" "$(make_checklist duplicate)"
 expect_failure "duplicate required IDs" run_validator "${duplicate_id_root}" v2.0.0
@@ -549,6 +773,53 @@ expect_failure "duplicate required IDs" run_validator "${duplicate_id_root}" v2.
 renamed_id_root="${root_temp}/renamed-id"
 make_fixture "${renamed_id_root}" "2.0.0" "$(make_checklist renamed)"
 expect_failure "missing required IDs" run_validator "${renamed_id_root}" v2.0.0
+
+# The hardware matrices need the checked-in provenance columns, not merely an
+# ID/Status/Evidence subset. Each omission must be diagnosed as structural.
+for missing_column_variant in \
+    missing-owner-column \
+    missing-firmware-bench-column \
+    missing-evidence-column; do
+    case "${missing_column_variant}" in
+        missing-owner-column)
+            expected_missing_column="missing Owner"
+            ;;
+        missing-firmware-bench-column)
+            expected_missing_column="missing Firmware / bench"
+            ;;
+        missing-evidence-column)
+            expected_missing_column="missing Evidence artifact / notes"
+            ;;
+    esac
+    missing_column_root="${root_temp}/${missing_column_variant}"
+    make_fixture "${missing_column_root}" "2.0.0" \
+        "$(make_checklist "${missing_column_variant}")"
+    expect_failure "${expected_missing_column}" \
+        run_validator "${missing_column_root}" v2.0.0
+done
+
+# A Pass row has to identify its operator, exact firmware/bench provenance,
+# and evidence artifact. Empty and placeholder values are not recorded facts.
+blank_owner_root="${root_temp}/blank-owner"
+make_fixture "${blank_owner_root}" "2.0.0" "$(make_checklist blank-owner)"
+expect_failure "Owner is <empty>" run_validator "${blank_owner_root}" v2.0.0
+
+placeholder_owner_root="${root_temp}/placeholder-owner"
+make_fixture "${placeholder_owner_root}" "2.0.0" \
+    "$(make_checklist placeholder-owner)"
+expect_failure "Owner is N/A" run_validator "${placeholder_owner_root}" v2.0.0
+
+blank_firmware_bench_root="${root_temp}/blank-firmware-bench"
+make_fixture "${blank_firmware_bench_root}" "2.0.0" \
+    "$(make_checklist blank-firmware-bench)"
+expect_failure "Firmware / bench is <empty>" \
+    run_validator "${blank_firmware_bench_root}" v2.0.0
+
+placeholder_firmware_bench_root="${root_temp}/placeholder-firmware-bench"
+make_fixture "${placeholder_firmware_bench_root}" "2.0.0" \
+    "$(make_checklist placeholder-firmware-bench)"
+expect_failure "Firmware / bench is N/A" \
+    run_validator "${placeholder_firmware_bench_root}" v2.0.0
 
 blank_evidence_root="${root_temp}/blank-evidence"
 make_fixture "${blank_evidence_root}" "2.0.0" "$(make_checklist blank-evidence)"

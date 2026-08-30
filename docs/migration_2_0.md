@@ -262,16 +262,25 @@ every profile.
 Because the original is still live, `cancel` consumes the handle only when it
 succeeds. A refusal returns `CancelRejected<H>`, which carries the handle back:
 
-```rust,ignore
-let operation = match operation.cancel().await {
-    Ok(cancellation) => return Ok(cancellation),
-    Err(rejected) => rejected
-        .into_operation()
-        .ok_or(Error::RuntimeShutdown)?,
-};
-// Still observable, still retryable — and the axis is stopped the usual way.
-camera.zoom().stop().await?.applied().await?;
-operation.detach();
+```rust
+#[cfg(feature = "async")]
+async fn recover_refused_cancel(
+    camera: &grafton_visca::Camera<grafton_visca::camera::profiles::PtzOpticsG2>,
+    operation: grafton_visca::Operation<grafton_visca::completion::AppliedOnly>,
+) -> Result<grafton_visca::Cancellation, grafton_visca::Error> {
+    use grafton_visca::Error;
+
+    let operation = match operation.cancel().await {
+        Ok(cancellation) => return Ok(cancellation),
+        Err(rejected) => rejected
+            .into_operation()
+            .ok_or(Error::RuntimeShutdown)?,
+    };
+    // Still observable, still retryable — and the axis is stopped the usual way.
+    camera.zoom().stop().await?.applied().await?;
+    operation.detach();
+    # Err(Error::NotSupported)
+}
 ```
 
 `?` still works in a function returning `Error`: the `From<CancelRejected<H>>`
@@ -481,11 +490,31 @@ so work still queued behind pacing is released under the new values.
 If a command that is already running must move onto a widened deadline, cancel
 it and resubmit:
 
-```rust,ignore
-session.set_tuning(OperationalTuning::new().ack_timeout(Duration::from_secs(2)))?;
-// `operation` was admitted before the update and keeps its old deadline.
-let _ = operation.cancel()?.outcome(Duration::from_secs(1));
-let operation = camera.submit::<AppliedOnly, _>(&command)?;
+```rust
+use std::time::Duration;
+
+use grafton_visca::{
+    blocking::{Camera, Operation, Session},
+    camera::profiles::PtzOpticsG2,
+    completion::AppliedOnly,
+    Error, OperationCommand, OperationalTuning,
+};
+
+fn resubmit_after_widening<'session, O>(
+    session: &Session,
+    camera: &Camera<'session, PtzOpticsG2>,
+    operation: Operation<'session, AppliedOnly>,
+    command: O,
+) -> Result<Operation<'session, AppliedOnly>, Error>
+where
+    O: OperationCommand<AppliedOnly>,
+{
+    session.set_tuning(OperationalTuning::new().ack_timeout(Duration::from_secs(2)))?;
+    // `operation` was admitted before the update and keeps its old deadline.
+    let _ = operation.cancel()?.outcome(Duration::from_secs(1));
+    let operation = camera.submit::<AppliedOnly, _>(&command)?;
+    Ok(operation)
+}
 ```
 
 Runtime updates are validated on exactly the grounds `SessionConfig::with_tuning`

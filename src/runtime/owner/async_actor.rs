@@ -161,6 +161,26 @@ where
     }
 }
 
+/// Yield one poll to the current executor without depending on a runtime.
+///
+/// A ready transport can otherwise keep this actor inside one executor poll:
+/// merely placing the pending boundary futures first still falls through to the
+/// ready receive.  Returning `Pending` once lets callers and timers enqueue
+/// before the forced boundary-first turn is selected.
+async fn cooperative_yield() {
+    let mut yielded = false;
+    std::future::poll_fn(move |context| {
+        if yielded {
+            std::task::Poll::Ready(())
+        } else {
+            yielded = true;
+            context.waker().wake_by_ref();
+            std::task::Poll::Pending
+        }
+    })
+    .await;
+}
+
 trait OwnerClock: Send + Sync + 'static {
     fn now(&self) -> Instant;
     fn sleep(&self, duration: Duration) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>;
@@ -1456,25 +1476,34 @@ where
             if self.state.state() != SessionState::Running {
                 break;
             }
-            let wake_duration = self
-                .state
-                .next_wake()
-                .map(|wake| wake.saturating_duration_since(Executor::now(runtime.as_ref())))
-                .unwrap_or(Duration::from_secs(86_400));
-
             // Even while the peer keeps making receive-first progress, force the
             // ordered boundary sources to the front once the streak reaches the
             // ceiling, then restart the count. When nothing is queued on a
             // boundary the receive still wins this turn, so a busy transport is
             // never stalled — only guaranteed to yield the front periodically.
-            let effective_phase = if source_phase == SourcePhase::ReceiveFirst
-                && receive_first_streak >= fairness_ceiling
-            {
+            let forced_boundary_turn = source_phase == SourcePhase::ReceiveFirst
+                && receive_first_streak >= fairness_ceiling;
+            if forced_boundary_turn {
                 receive_first_streak = 0;
+                // Polling boundaries first alone is not a cooperative handoff:
+                // if they are all pending, the ready receive wins immediately
+                // and this task can monopolize a single-thread executor. Yield
+                // before the forced turn so caller work and timers can become
+                // ready without changing the boundary source order.
+                cooperative_yield().await;
+            }
+            let effective_phase = if forced_boundary_turn {
                 SourcePhase::BoundariesFirst
             } else {
                 source_phase
             };
+            // Compute this after the cooperative yield: a timer that became due
+            // while another task ran must not inherit a stale positive delay.
+            let wake_duration = self
+                .state
+                .next_wake()
+                .map(|wake| wake.saturating_duration_since(Executor::now(runtime.as_ref())))
+                .unwrap_or(Duration::from_secs(86_400));
 
             let event = {
                 let frame_limit = self.state.policy().limits.frames_per_receive;
@@ -2237,6 +2266,8 @@ mod tests {
     impl Runtime for ManualRuntime {
         type TcpTransport = <TokioRuntime as Runtime>::TcpTransport;
         type UdpTransport = <TokioRuntime as Runtime>::UdpTransport;
+        #[cfg(feature = "transport-serial-tokio")]
+        type SerialTransport = std::convert::Infallible;
 
         async fn connect_tcp(
             &self,
@@ -4618,6 +4649,49 @@ mod tests {
         }
     }
 
+    /// A babbling peer with an external test-only escape hatch. The watchdog
+    /// uses `stop` only after declaring the single-thread liveness check
+    /// failed, so a regressed actor can be released rather than wedging the
+    /// whole test process.
+    #[cfg(feature = "runtime-tokio")]
+    #[derive(Debug)]
+    struct CountingBabblingDriver {
+        reads: Arc<std::sync::atomic::AtomicU64>,
+        stop: Arc<std::sync::atomic::AtomicBool>,
+    }
+
+    #[cfg(feature = "runtime-tokio")]
+    impl AsyncOwnerDriver for CountingBabblingDriver {
+        #[allow(clippy::manual_async_fn)]
+        fn write(
+            &mut self,
+            _write: WireWrite<'_>,
+        ) -> impl Future<Output = Result<TransmissionMeta, Error>> + Send {
+            async { Ok(TransmissionMeta { sequence: None }) }
+        }
+
+        fn receive(
+            &mut self,
+            _buffers: &mut super::super::OwnerBuffers,
+            _frame_limit: usize,
+        ) -> impl Future<Output = Result<AsyncReceive, Error>> + Send {
+            let reads = Arc::clone(&self.reads);
+            let stop = Arc::clone(&self.stop);
+            async move {
+                reads.fetch_add(1, Ordering::Relaxed);
+                if stop.load(Ordering::Acquire) {
+                    Ok(AsyncReceive::Closed)
+                } else {
+                    Ok(AsyncReceive::Frames(vec![DecodedFrame {
+                        target: CameraId::CAMERA_1,
+                        sequence: None,
+                        response: DecodedResponse::Unknown,
+                    }]))
+                }
+            }
+        }
+    }
+
     /// A peer that accepts the write but never completes it, and never delivers a
     /// read. Without a write timeout the actor parks in the write and `close()`
     /// never returns.
@@ -4817,6 +4891,120 @@ mod tests {
         )
         .await;
         join.join().unwrap();
+    }
+
+    /// The fairness ceiling must surrender the executor, not merely reverse
+    /// polling order. This puts the actor, a caller admission, a control
+    /// request, and a timer on one Tokio current-thread runtime. The outer
+    /// watchdog lives on a separate OS thread so the pre-fix hot loop cannot
+    /// hang the test binary; it asks the test driver to close only after the
+    /// liveness deadline has already failed.
+    #[cfg(feature = "runtime-tokio")]
+    #[test]
+    fn tokio_current_thread_babbling_peer_yields_to_caller_control_and_timer() {
+        const WATCHDOG: Duration = Duration::from_secs(2);
+
+        let reads = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (finished, result) = flume::bounded(1);
+        let worker_reads = Arc::clone(&reads);
+        let worker_stop = Arc::clone(&stop);
+        let worker = std::thread::spawn(move || {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            let outcome: Result<(), String> = runtime.block_on(async move {
+                let actor_runtime =
+                    TokioRuntime::from_current().map_err(|error| error.to_string())?;
+                let owner_policy = policy(1);
+                let fairness_ceiling = owner_policy.limits.frames_per_receive.max(1) as u64;
+                let (handle, actor) = AsyncOwnerActor::new(owner_policy, actor_runtime)
+                    .map_err(|error| error.to_string())?;
+                let actor_task = tokio::spawn(actor.run(CountingBabblingDriver {
+                    reads: Arc::clone(&worker_reads),
+                    stop: Arc::clone(&worker_stop),
+                }));
+
+                // Do not enqueue any boundary work until the actor has reached
+                // its first forced turn. Before the cooperative yield this loop
+                // is never polled again; after it, the test queues all work on
+                // the same one-thread executor.
+                while worker_reads.load(Ordering::Acquire) < fairness_ceiling {
+                    tokio::task::yield_now().await;
+                }
+
+                let caller_handle = handle.clone();
+                let caller = tokio::spawn(async move {
+                    caller_handle
+                        .submit(command())
+                        .await
+                        .map(drop)
+                        .map_err(|error| error.to_string())
+                });
+                let control_handle = handle.clone();
+                let control = tokio::spawn(async move {
+                    control_handle
+                        .snapshot()
+                        .await
+                        .map_err(|error| error.to_string())
+                });
+                let timer = tokio::spawn(async {
+                    tokio::time::sleep(Duration::from_millis(1)).await;
+                });
+
+                let (caller, control, timer) = tokio::join!(caller, control, timer);
+                caller.map_err(|error| format!("caller task failed: {error}"))??;
+                let snapshot =
+                    control.map_err(|error| format!("control task failed: {error}"))??;
+                timer.map_err(|error| format!("timer task failed: {error}"))?;
+                if snapshot.state != SessionState::Running {
+                    return Err(format!(
+                        "control observed an unexpected owner state: {:?}",
+                        snapshot.state
+                    ));
+                }
+
+                handle.shutdown().await.map_err(|error| error.to_string())?;
+                let terminal = actor_task
+                    .await
+                    .map_err(|error| format!("actor task failed: {error}"))?;
+                if terminal.state != SessionState::Shutdown {
+                    return Err(format!(
+                        "actor ended in an unexpected state: {:?}",
+                        terminal.state
+                    ));
+                }
+                Ok(())
+            });
+            let _ = finished.send(outcome);
+        });
+
+        match result.recv_timeout(WATCHDOG) {
+            Ok(Ok(())) => worker.join().unwrap(),
+            Ok(Err(error)) => {
+                worker.join().unwrap();
+                panic!("single-thread liveness scenario failed: {error}");
+            }
+            Err(flume::RecvTimeoutError::Timeout) => {
+                // The old implementation remains inside the ready receive loop.
+                // Let this test-only driver turn that loop into a terminal read,
+                // then join if it unwinds as expected; never wait indefinitely.
+                stop.store(true, Ordering::Release);
+                if result.recv_timeout(WATCHDOG).is_ok() {
+                    worker.join().unwrap();
+                } else {
+                    drop(worker);
+                }
+                panic!(
+                    "a babbling peer monopolized Tokio's current-thread runtime before caller, control, or timer work could run"
+                );
+            }
+            Err(flume::RecvTimeoutError::Disconnected) => {
+                worker.join().unwrap();
+                panic!("single-thread liveness worker exited without a result");
+            }
+        }
     }
 
     #[cfg(feature = "runtime-tokio")]

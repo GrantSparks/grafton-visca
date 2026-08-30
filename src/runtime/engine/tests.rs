@@ -7519,6 +7519,176 @@ fn completion_only_command_holds_the_command_channel_exclusively() {
     }
 }
 
+/// #700: completion-only ownership covers the target's inquiry channel too.
+/// A same-target inquiry stays queued, so a socketless error remains
+/// attributable to the uncorrelated command; requests for other targets still
+/// dispatch normally.
+#[test]
+fn raw_completion_only_blocks_same_target_inquiry_and_routes_socketless_error() {
+    let start = Instant::now();
+    let mut runtime = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+    let (completion_only, completion_id) = admit(
+        &mut runtime,
+        1,
+        command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::CompletionOnly),
+        start,
+    );
+    send_ok(&mut runtime, &completion_only, None, start);
+    assert!(matches!(
+        phase_of(&runtime, completion_id),
+        Some(Phase::AwaitingCompletion { .. })
+    ));
+
+    let (same_target_inquiry, inquiry_id) = admit(&mut runtime, 2, inquiry(1, POWER), start);
+    assert!(
+        request_transmit_optional(&same_target_inquiry).is_none(),
+        "a same-target inquiry must wait for the completion-only command",
+    );
+    assert!(matches!(
+        phase_of(&runtime, inquiry_id),
+        Some(Phase::Ready { .. })
+    ));
+
+    let (other_target_inquiry, other_target_id) = admit(&mut runtime, 3, inquiry(2, ZOOM), start);
+    assert_eq!(
+        request_transmit(&other_target_inquiry).1,
+        other_target_id,
+        "completion-only ownership is local to its target",
+    );
+
+    let error = runtime.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::Error {
+                socket: None,
+                code: 0x01,
+            },
+        ),
+        start,
+    );
+    assert!(matches!(
+        terminal_failure(&error, completion_id),
+        Some(Error::MessageLengthError)
+    ));
+    assert_eq!(
+        request_transmit(&error).1,
+        inquiry_id,
+        "releasing completion-only ownership dispatches the queued same-target inquiry",
+    );
+    runtime.assert_invariants().unwrap();
+}
+
+/// #700: an already-live raw inquiry prevents a completion-only command from
+/// starting until the inquiry's reply releases the target.
+#[test]
+fn raw_inquiry_blocks_same_target_completion_only_until_reply() {
+    let start = Instant::now();
+    let mut runtime = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+    let (inquiry_effects, inquiry_id) = admit(&mut runtime, 1, inquiry(1, POWER), start);
+    send_ok(&mut runtime, &inquiry_effects, None, start);
+    assert!(matches!(
+        phase_of(&runtime, inquiry_id),
+        Some(Phase::AwaitingReply { .. })
+    ));
+
+    let (completion_only, completion_id) = admit(
+        &mut runtime,
+        2,
+        command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::CompletionOnly),
+        start,
+    );
+    assert!(
+        request_transmit_optional(&completion_only).is_none(),
+        "a completion-only command must wait for a same-target inquiry reply",
+    );
+    assert!(matches!(
+        phase_of(&runtime, completion_id),
+        Some(Phase::Ready { .. })
+    ));
+
+    let reply = runtime.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::InquiryReply {
+                route: Some(POWER),
+                payload: smallvec![1],
+            },
+        ),
+        start,
+    );
+    assert_eq!(terminal_id(&reply), Some(inquiry_id));
+    assert_eq!(
+        request_transmit(&reply).1,
+        completion_id,
+        "the completion-only command dispatches once the inquiry is terminal",
+    );
+    send_ok(&mut runtime, &reply, None, start);
+    let completed = runtime.handle(
+        frame(1, None, DecodedResponse::Completion { socket: None }),
+        start,
+    );
+    assert!(matches!(
+        terminal_outcome(&completed, completion_id),
+        Some(RuntimeOutcome::Applied)
+    ));
+    runtime.assert_invariants().unwrap();
+}
+
+/// Completion-only exclusivity is a raw-VISCA rule. Sony's envelope sequence
+/// still lets a same-target inquiry pipeline behind such a command.
+#[test]
+fn sony_completion_only_does_not_block_same_target_inquiry() {
+    let start = Instant::now();
+    let mut runtime = engine(EnvelopeKind::Sony, TransportKind::Datagram);
+    let (completion_only, completion_id) = admit(
+        &mut runtime,
+        1,
+        command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::CompletionOnly),
+        start,
+    );
+    send_ok(&mut runtime, &completion_only, Some(0x1001), start);
+    assert!(matches!(
+        phase_of(&runtime, completion_id),
+        Some(Phase::AwaitingCompletion { .. })
+    ));
+
+    let (inquiry_effects, inquiry_id) = admit(&mut runtime, 2, inquiry(1, POWER), start);
+    assert_eq!(
+        request_transmit(&inquiry_effects).1,
+        inquiry_id,
+        "Sony sequence correlation must retain same-target concurrency",
+    );
+    send_ok(&mut runtime, &inquiry_effects, Some(0x1002), start);
+
+    let completed = runtime.handle(
+        frame(
+            1,
+            Some((0x1001, SequenceWidth::Full32)),
+            DecodedResponse::Completion { socket: None },
+        ),
+        start,
+    );
+    assert!(matches!(
+        terminal_outcome(&completed, completion_id),
+        Some(RuntimeOutcome::Applied)
+    ));
+    let replied = runtime.handle(
+        frame(
+            1,
+            Some((0x1002, SequenceWidth::Full32)),
+            DecodedResponse::InquiryReply {
+                route: Some(POWER),
+                payload: smallvec![1],
+            },
+        ),
+        start,
+    );
+    assert_eq!(terminal_id(&replied), Some(inquiry_id));
+    runtime.assert_invariants().unwrap();
+}
+
 /// #700 / #297: a completion that races ahead of the write result for a
 /// completion-only command is latched while the write is Sending and applied the
 /// instant the send is confirmed, so a fast camera's completion is never dropped.
