@@ -101,10 +101,14 @@ pub enum ErrorKind {
 ///
 /// ## Terminal Session Failures
 /// A third category ends the session outright: the peer closed the connection,
-/// the byte stream position became unknowable, or the application shut the
-/// runtime down. Use [`Error::requires_new_session()`] to tell the first two
-/// apart from the last; retrying the operation on the same session cannot
-/// succeed in any of them.
+/// the byte-stream position became unknowable, or the application shut the
+/// runtime down. A fatal receive closure is normalized to
+/// [`Error::ConnectionClosed`] (with the transport cause retained in its
+/// reason); [`Error::StreamPoisoned`] is reserved for an unknowable stream
+/// framing or write position. Use [`Error::requires_new_session()`] to tell
+/// transport death from deliberate shutdown. A per-request raw correlation
+/// failure is different: [`Error::UnsequencedCommandUnconfirmed`] is false by
+/// default, so it does not by itself make the session unusable.
 ///
 /// # VISCA Error Codes
 ///
@@ -151,6 +155,11 @@ pub enum Error {
     },
 
     /// Connection to the camera was closed.
+    ///
+    /// Owners normalize a fatal receive-side closure to this variant and keep
+    /// the underlying transport cause in `reason`. A stream framing or write
+    /// failure whose byte position is unknowable is reported as
+    /// [`Self::StreamPoisoned`] instead.
     #[error("Connection closed{}", reason.as_ref().map(|r| format!(": {r}")).unwrap_or_default())]
     ConnectionClosed {
         /// Optional reason for the connection closure.
@@ -370,7 +379,7 @@ pub enum Error {
     /// A raw/unsequenced command was successfully sent, but its ACK or
     /// completion outcome became unknowable — a lost ACK/completion datagram, an
     /// expired cancellation-ambiguity window, or a spent retry budget while an
-    /// attempt was in `Sending`, `AwaitingAck`, or `Executing`.
+    /// attempt was in `Sending`, `AwaitingAck`, `AwaitingCompletion`, or `Executing`.
     ///
     /// By default this is a **per-request** outcome the session survives (issue
     /// #671): the engine fails only this command and quarantines its correlation
@@ -404,13 +413,15 @@ pub enum Error {
         capacity: usize,
     },
 
-    /// Stream transport was poisoned after a send failure.
+    /// A stream transport's framing or write position became unknowable.
     ///
-    /// This error indicates that a stream-based transport (TCP, Serial) experienced
-    /// a send failure or timeout that left the byte stream in an unknown state.
-    /// A partial write may have occurred, making it unsafe to continue using the
-    /// transport since subsequent commands could be concatenated onto an incomplete
-    /// prior frame.
+    /// This error indicates that a stream-based transport (TCP, Serial) lost
+    /// framing certainty, for example after a failed or timed-out write that
+    /// may have partially reached the wire, or after an unrecoverable framer
+    /// overflow. A fatal receive closure is not poison: owners normalize that
+    /// case to [`Self::ConnectionClosed`] and retain the receive cause there.
+    /// Subsequent commands could otherwise be concatenated onto an incomplete
+    /// prior frame, so the stream cannot safely be reused.
     ///
     /// This is a **non-retryable** error that requires establishing a new connection.
     /// All pending commands will receive this error when the transport is poisoned.
@@ -618,17 +629,15 @@ impl Error {
     /// exactly that line without exposing implementation details:
     ///
     /// - `true` — the transport died underneath the session: the peer closed
-    ///   the connection ([`Error::ConnectionClosed`]), the byte stream position
-    ///   became unknowable ([`Error::StreamPoisoned`]), or an unsequenced
-    ///   command's outcome became unknowable
-    ///   ([`Error::UnsequencedCommandUnconfirmed`]). A poisoned
+    ///   the connection ([`Error::ConnectionClosed`]) or the byte-stream
+    ///   position became unknowable ([`Error::StreamPoisoned`]). A poisoned
     ///   session is terminal and is never revived; every retained and
     ///   subsequently attempted operation keeps reporting its exact terminal
-    ///   session error. For a raw/unsequenced command, an ACK or completion
-    ///   timeout, a receive fault while awaiting the ACK, an active retry-budget
-    ///   expiry while an attempt is in `Sending`, `AwaitingAck`, or `Executing`,
-    ///   or expiry of a cancellation ambiguity quarantine is enough to poison
-    ///   the session, because a later datagram cannot be safely correlated.
+    ///   session error. Fatal receive closure is always normalized to
+    ///   `ConnectionClosed`, with the underlying cause in its reason. An
+    ///   unconfirmed raw command is not in this set by default: its
+    ///   [`Error::UnsequencedCommandUnconfirmed`] result is per-request and
+    ///   leaves the session running.
     /// - `false` — the condition does not prove the session is unusable. A
     ///   deliberate [`Error::RuntimeShutdown`] is the important case: the
     ///   application ended that session on purpose and must not treat it as a

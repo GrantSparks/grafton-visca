@@ -186,8 +186,11 @@ encoding.
    calling the software work release-candidate complete.
 7. Raw VISCA does not use universal FIFO pre-ACK attribution. It keeps one
    unacknowledged command candidate per target across `Sending`, `AwaitingAck`,
-   and `AwaitingLateAck`, then reopens socket-level concurrency as soon as ACK
-   establishes ownership. Raw ACK and error routing never uses command FIFO or
+   `AwaitingCompletion`, and `AwaitingLateAck`. `AwaitingCompletion` is the
+   completion-only shape: it holds the target channel exclusively and never
+   earns a socket. For an ACK-bearing command, socket-level concurrency reopens
+   as soon as ACK establishes ownership. Raw ACK and error routing never uses
+   command FIFO or
    temporal recency. A socketless error routes that unique candidate only with
    no inquiry owner; with no unacknowledged command it may route the legitimate
    per-target inquiry FIFO, while a command-plus-inquiry collision is ignored.
@@ -204,7 +207,8 @@ encoding.
 8. A successfully sent raw command is never automatically replayed after an
    ACK, completion, or cancellation ambiguity timeout, a raw receive fault while
    awaiting ACK, or an active retry-budget expiry in `Sending`, `AwaitingAck`,
-   or `Executing` — a raw command may already have reached the camera.
+   `AwaitingCompletion`, or `Executing` — a raw command may already have
+   reached the camera.
    **Ratified per-request default (issue #671, superseding the earlier
    whole-session poison rule and the #565/#566 narrowing):** each such event
    fails only that one command with `UnsequencedCommandUnconfirmed` — a
@@ -226,6 +230,14 @@ encoding.
    operation handle.
 10. Intrinsically urgent cancellation bypasses queued ordinary work but never
     bypasses physical command pacing.
+   **Ratified clarification for #673:** issue #542 §4's older blanket sentence
+   that blocking submission “never waits for ACK” is superseded in this local
+   review by one bounded exception: a blocking operation submission may drain
+   the sole raw ACK-capable predecessor so an urgent stop can perform its first
+   write. `CompletionOnly`, `NoReply`, and an #671 `AwaitingLateAck` quarantine
+   with `CancelState::None` are not ACK-capable; a cancellation-driven late-ACK
+   state remains eligible only when its ACK is still accepted. This documents a
+   local ratification, not a change to the GitHub issue body.
 11. Fixed-format ACK, completion, error, and network-change frames require
     their exact protocol lengths; a known prefix with trailing bytes is
     malformed, not a valid response or an unknown extension. Fixed ACK,
@@ -277,10 +289,11 @@ encoding.
     potentially truncated lower 16 bits. Full-width identity is exact;
     lower-16 identity is usable only when the target-compatible owner is unique,
     and a collision is inert rather than guessed.
-17. The pinned 1.x behavioral oracle distinguishes preservation from approved
-    v2 safety changes. It must never force temporal raw command attribution,
-    ambiguous raw replay, fixed retry timing, or another superseded behavior
-    back into production merely because 1.x once implemented it.
+17. The historical 1.x behavior guide and its retained direct v2 tests
+    distinguish preservation from reviewed v2 safety changes. They must never
+    force temporal raw command attribution, ambiguous raw replay, fixed retry
+    timing, or another superseded behavior back into production merely because
+    1.x once implemented it.
 
 ## Release-candidate boundary
 

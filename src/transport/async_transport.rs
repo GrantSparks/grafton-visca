@@ -101,16 +101,22 @@ pub trait AsyncTransport: Send {
     /// - A session-fatal error — any error for which
     ///   [`Error::requires_new_session`] is true, plus [`Error::Io`] carrying
     ///   `ConnectionReset`, `ConnectionAborted`, `BrokenPipe`, `UnexpectedEof`
-    ///   or `NotConnected`. The runtime ends the session and reports that cause.
+    ///   or `NotConnected`. The runtime ends the session as
+    ///   [`Error::ConnectionClosed`] and retains the transport cause's text in
+    ///   its reason. A failed read consumed nothing, so it is not a stream
+    ///   framing poison; [`Error::StreamPoisoned`] is reserved for an
+    ///   unknowable stream position caused by framing loss or a failed write.
     /// - Any other error is a *transient* fault: the read failed but the
     ///   connection may still be usable — a UDP `recv` reporting ECONNREFUSED
-    ///   after an ICMP port-unreachable is the canonical case. The runtime keeps
-    ///   the session and retransmits every command still waiting for its ACK,
-    ///   under each command's own retry policy. Faults that repeat with no
-    ///   successful read in between escalate: the pause between reads grows, and
-    ///   after roughly two seconds of uninterrupted failure the runtime stops
-    ///   believing the "transient" label and ends the session with the
-    ///   underlying error. Do not use this class for idle timeouts.
+    ///   after an ICMP port-unreachable is the canonical case. The engine may
+    ///   retransmit sequence-correlated Sony commands still waiting for their
+    ///   ACK under each command's retry policy. A raw command awaiting ACK has
+    ///   no sequence key, so it is left to its own ACK deadline and is never
+    ///   replayed merely because of this fault. Faults that repeat with no
+    ///   successful read in between escalate: the pause between reads grows,
+    ///   and after roughly two seconds of uninterrupted failure the runtime
+    ///   ends the session with a normalized `ConnectionClosed` cause. Do not
+    ///   use this class for idle timeouts.
     ///
     /// # Timeout and cancellation
     ///

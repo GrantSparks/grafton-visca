@@ -717,6 +717,18 @@ mod blocking {
         .unwrap()
     }
 
+    fn prepared_zoom_stop(
+        profile: &crate::ProfileSpec,
+    ) -> crate::prepared::PreparedOperation<completion::AppliedOnly> {
+        crate::prepared::prepare_builtin_operation::<completion::AppliedOnly, _>(
+            &crate::request::builtin::ZoomStop,
+            CameraId::CAMERA_1,
+            profile,
+            crate::OperationalTuning::new(),
+        )
+        .unwrap()
+    }
+
     #[test]
     fn typed_operation_cancel_preserves_buffered_completion_and_exact_origin() {
         let profile =
@@ -2489,6 +2501,362 @@ mod blocking {
         ));
         assert_eq!(owner.state().state(), SessionState::Running);
         drop(b);
+    }
+
+    /// Issue #673: the blocking pre-ACK drain must not wait on a predecessor
+    /// that cannot accept an ACK. Completion-only commands and the default
+    /// #671 late-ACK quarantine retain raw exclusivity, but a receive pump in
+    /// either state would be useless (and could block a safety submission).
+    #[test]
+    fn blocking_preack_drain_skips_completion_only_and_late_ack_quarantine() {
+        let mut owner = BlockingOwner::new(policy(2, TransportKind::Datagram)).unwrap();
+        let mut driver = FakeDriver::default();
+
+        let mut completion_only = command(CameraId::CAMERA_1, CancellationPolicy::Supported, None);
+        if let RuntimeRequest::Command { context, .. } = &mut completion_only {
+            context.reply_shape = ReplyShape::CompletionOnly;
+        }
+        let completion = owner.submit(&mut driver, completion_only).unwrap();
+        assert!(matches!(
+            owner.state().request_state(completion.id()),
+            Some((Phase::AwaitingCompletion { .. }, CancelState::None))
+        ));
+        assert!(!owner
+            .state()
+            .raw_preack_gate_frees_socket_on_ack(CameraId::CAMERA_1));
+
+        // A fatal reader proves the drain was not entered: if this path called
+        // pump_once, it would return the reader's boundary error.
+        let mut reader = DeadlineReader {
+            deadline: None,
+            result: Some(Err(Error::ConnectionClosed {
+                reason: Some("unexpected completion-only ACK pump".into()),
+            })),
+        };
+        let mut decoder = EmptyDecoder;
+        owner
+            .drain_raw_preack_gate_for_test(
+                &mut driver,
+                &mut reader,
+                &mut decoder,
+                CameraId::CAMERA_1,
+                Duration::from_millis(1),
+            )
+            .expect("completion-only submission must not pump for an ACK");
+        drop(completion);
+
+        let mut owner = BlockingOwner::new(policy(2, TransportKind::Datagram)).unwrap();
+        let mut driver = FakeDriver::default();
+        let quarantine = owner
+            .submit(
+                &mut driver,
+                command(CameraId::CAMERA_1, CancellationPolicy::Supported, None),
+            )
+            .unwrap();
+        let ack_deadline = match owner.state().request_state(quarantine.id()) {
+            Some((Phase::AwaitingAck { deadline, .. }, CancelState::None)) => deadline,
+            state => panic!("request did not await its ACK: {state:?}"),
+        };
+        owner
+            .wake(&mut driver, ack_deadline + Duration::from_millis(1))
+            .unwrap();
+        assert!(matches!(
+            owner.state().request_state(quarantine.id()),
+            Some((Phase::AwaitingLateAck { .. }, CancelState::None))
+        ));
+        assert!(!owner
+            .state()
+            .raw_preack_gate_frees_socket_on_ack(CameraId::CAMERA_1));
+
+        let mut reader = DeadlineReader {
+            deadline: None,
+            result: Some(Err(Error::ConnectionClosed {
+                reason: Some("unexpected quarantine ACK pump".into()),
+            })),
+        };
+        let mut decoder = EmptyDecoder;
+        owner
+            .drain_raw_preack_gate_for_test(
+                &mut driver,
+                &mut reader,
+                &mut decoder,
+                CameraId::CAMERA_1,
+                Duration::from_millis(1),
+            )
+            .expect("#671 quarantine must not pump for a late ACK");
+        drop(quarantine);
+    }
+
+    /// Issue #673's pre-ACK drain must leave ordinary queued work untouched
+    /// until the submitting operation has joined the scheduler. Otherwise the
+    /// ACK below frees a raw command socket and `finish_input_turn` can send
+    /// `ordinary` before the urgent stop is even admitted, causing that stop's
+    /// `RequireFirstWrite` boundary to reject it as `TransportBusy`.
+    #[test]
+    fn blocking_preack_drain_defers_ordinary_dispatch_until_urgent_admission() {
+        let profile =
+            crate::ProfileSpec::from_compile_time::<crate::profiles::SonyBRC300>().unwrap();
+        let mut owner = BlockingOwner::new(policy(3, TransportKind::Datagram)).unwrap();
+        let mut driver = FakeDriver::default();
+
+        let predecessor = owner
+            .submit(
+                &mut driver,
+                command(CameraId::CAMERA_1, CancellationPolicy::Supported, None),
+            )
+            .unwrap();
+        let ordinary = owner
+            .submit(
+                &mut driver,
+                command(CameraId::CAMERA_1, CancellationPolicy::Supported, None),
+            )
+            .unwrap();
+        assert_eq!(
+            driver.writes.len(),
+            1,
+            "ordinary work is queued behind raw ACK"
+        );
+
+        let mut reader = DeadlineReader {
+            deadline: None,
+            result: Some(Ok(BlockingReceive::Bytes(1))),
+        };
+        let mut decoder = ScriptedDecoder {
+            batches: VecDeque::from([vec![frame(
+                CameraId::CAMERA_1,
+                DecodedResponse::Ack {
+                    socket: Some(ViscaSocket::S1),
+                },
+            )]]),
+        };
+        owner
+            .drain_raw_preack_gate_for_test(
+                &mut driver,
+                &mut reader,
+                &mut decoder,
+                CameraId::CAMERA_1,
+                Duration::from_millis(100),
+            )
+            .unwrap();
+
+        assert_eq!(
+            driver.writes.len(),
+            1,
+            "the ACK drain does not dispatch ordinary work"
+        );
+        assert!(matches!(
+            owner.state().request_state(ordinary.id()),
+            Some((Phase::Ready { .. }, CancelState::None))
+        ));
+        assert!(matches!(
+            owner.state().request_state(predecessor.id()),
+            Some((
+                Phase::Executing {
+                    socket: ViscaSocket::S1,
+                    ..
+                },
+                CancelState::None
+            ))
+        ));
+
+        let urgent = owner
+            .submit_operation(&mut driver, prepared_zoom_stop(&profile))
+            .expect("urgent first write must win after the ACK drain");
+        assert_eq!(driver.writes.len(), 2);
+        assert_eq!(
+            driver.writes[1].0.get(),
+            urgent.id(),
+            "the urgent operation, not the queued ordinary command, consumes the freed socket"
+        );
+        assert_ne!(driver.writes[1].0, ordinary.id());
+        assert!(matches!(
+            owner.state().request_state(ordinary.id()),
+            Some((Phase::Ready { .. }, CancelState::None))
+        ));
+
+        drop(urgent);
+        drop(ordinary);
+        drop(predecessor);
+    }
+
+    /// Issue #673: a dispatch-suppressed drain must not turn an unrelated
+    /// ready request into an immediate receive wake.  The target-2 request is
+    /// made ready by acknowledging its predecessor in a suppressed turn; the
+    /// target-1 predecessor then remains in `AwaitingAck` while target 2 is
+    /// genuinely dispatch-eligible.  The target-1 ACK still has to arrive and
+    /// make room for the urgent operation.
+    #[test]
+    fn blocking_preack_drain_ignores_unrelated_ready_wake() {
+        #[derive(Debug)]
+        struct CountingReader {
+            events: VecDeque<BlockingReceive>,
+            calls: usize,
+            deadlines: Vec<Instant>,
+            first_call_at: Option<Instant>,
+        }
+
+        impl BlockingReadDriver for CountingReader {
+            fn receive(
+                &mut self,
+                receive_buffer: &mut [u8],
+                owner_deadline: Option<Instant>,
+            ) -> Result<BlockingReceive, Error> {
+                let call_at = Instant::now();
+                let deadline = owner_deadline.expect("pre-ACK drain must carry a budget");
+                assert!(
+                    deadline > call_at + Duration::from_millis(1),
+                    "an unrelated ready request made the receive deadline immediate: {deadline:?} at {call_at:?}"
+                );
+                self.calls = self.calls.saturating_add(1);
+                self.first_call_at.get_or_insert(call_at);
+                self.deadlines.push(deadline);
+                let event = self
+                    .events
+                    .pop_front()
+                    .ok_or_else(|| Error::InvalidState("counting reader exhausted".into()))?;
+                if self.calls == 1 {
+                    // A real blocking transport sleeps in receive until its
+                    // deadline.  Keep the fixture honest enough to catch a
+                    // hot loop while leaving time for the predecessor ACK.
+                    std::thread::sleep(Duration::from_millis(2));
+                }
+                if matches!(event, BlockingReceive::Bytes(_)) {
+                    receive_buffer[0] = 1;
+                }
+                Ok(event)
+            }
+        }
+
+        let profile =
+            crate::ProfileSpec::from_compile_time::<crate::profiles::SonyBRC300>().unwrap();
+        let mut owner_policy = policy(4, TransportKind::Datagram);
+        owner_policy.targets[usize::from(CameraId::CAMERA_2.id())]
+            .as_mut()
+            .expect("camera two is registered")
+            .command_sockets = 2;
+        let mut owner = BlockingOwner::new(owner_policy).unwrap();
+        let mut driver = FakeDriver::default();
+
+        let mut target1_request = command(CameraId::CAMERA_1, CancellationPolicy::Supported, None);
+        if let RuntimeRequest::Command { context, .. } = &mut target1_request {
+            context.timeout.ack = Duration::from_secs(1);
+        }
+        let target1 = owner.submit(&mut driver, target1_request).unwrap();
+        assert!(matches!(
+            owner.state().request_state(target1.id()),
+            Some((Phase::AwaitingAck { .. }, CancelState::None))
+        ));
+
+        // Queue a target-2 command behind its raw predecessor.  The
+        // predecessor's ACK is drained in suppressed mode, leaving this
+        // second command ready but now capacity-eligible.
+        let target2_first = owner
+            .submit(
+                &mut driver,
+                command(CameraId::CAMERA_2, CancellationPolicy::Supported, None),
+            )
+            .unwrap();
+        let target2_ready = owner
+            .submit(
+                &mut driver,
+                command(CameraId::CAMERA_2, CancellationPolicy::Supported, None),
+            )
+            .unwrap();
+        assert!(matches!(
+            owner.state().request_state(target2_ready.id()),
+            Some((Phase::Ready { .. }, CancelState::None))
+        ));
+
+        let mut target2_reader = DeadlineReader {
+            result: Some(Ok(BlockingReceive::Bytes(1))),
+            ..DeadlineReader::default()
+        };
+        let mut target2_decoder = ScriptedDecoder {
+            batches: VecDeque::from([vec![frame(
+                CameraId::CAMERA_2,
+                DecodedResponse::Ack {
+                    socket: Some(ViscaSocket::S1),
+                },
+            )]]),
+        };
+        owner
+            .drain_raw_preack_gate_for_test(
+                &mut driver,
+                &mut target2_reader,
+                &mut target2_decoder,
+                CameraId::CAMERA_2,
+                Duration::from_millis(100),
+            )
+            .unwrap();
+        assert!(matches!(
+            owner.state().request_state(target2_first.id()),
+            Some((Phase::Executing { .. }, CancelState::None))
+        ));
+        assert!(matches!(
+            owner.state().request_state(target2_ready.id()),
+            Some((Phase::Ready { .. }, CancelState::None))
+        ));
+
+        let ack_budget = Duration::from_millis(100);
+        let drain_started = Instant::now();
+        let mut reader = CountingReader {
+            events: VecDeque::from([BlockingReceive::TimedOut, BlockingReceive::Bytes(1)]),
+            calls: 0,
+            deadlines: Vec::new(),
+            first_call_at: None,
+        };
+        let mut decoder = ScriptedDecoder {
+            batches: VecDeque::from([vec![frame(
+                CameraId::CAMERA_1,
+                DecodedResponse::Ack {
+                    socket: Some(ViscaSocket::S1),
+                },
+            )]]),
+        };
+        owner
+            .drain_raw_preack_gate_for_test(
+                &mut driver,
+                &mut reader,
+                &mut decoder,
+                CameraId::CAMERA_1,
+                ack_budget,
+            )
+            .unwrap();
+
+        assert_eq!(
+            reader.calls, 2,
+            "the drain should block once, then read the ACK"
+        );
+        assert!(reader
+            .first_call_at
+            .is_some_and(|first_call| first_call >= drain_started));
+        assert!(reader
+            .deadlines
+            .first()
+            .is_some_and(|deadline| *deadline > drain_started));
+        assert!(reader
+            .deadlines
+            .first()
+            .is_some_and(|deadline| *deadline <= drain_started + ack_budget));
+        assert!(matches!(
+            owner.state().request_state(target1.id()),
+            Some((Phase::Executing { .. }, CancelState::None))
+        ));
+        assert!(matches!(
+            owner.state().request_state(target2_ready.id()),
+            Some((Phase::Ready { .. }, CancelState::None))
+        ));
+
+        let urgent = owner
+            .submit_operation(&mut driver, prepared_zoom_stop(&profile))
+            .expect("the predecessor ACK must free a target-1 socket");
+        assert_eq!(driver.writes.len(), 3);
+        assert_eq!(driver.writes[2].0.get(), urgent.id());
+
+        drop(urgent);
+        drop(target2_ready);
+        drop(target2_first);
+        drop(target1);
     }
 
     #[test]

@@ -422,13 +422,28 @@ impl ProtocolEngine {
         effects
     }
 
+    /// Applies one ordered external input and its due/cancellation consequences
+    /// without ordinary dispatch.  The blocking owner uses this only while it
+    /// drains the raw pre-ACK gate for a submitting operation: the ACK must be
+    /// applied, but a queued ordinary request must not consume the newly free
+    /// socket before the submitting operation is admitted and can win the
+    /// scheduler race (issue #673).
+    #[cfg(feature = "blocking")]
+    pub(crate) fn handle_without_dispatch(&mut self, input: Input, now: Instant) -> Vec<Effect> {
+        let turn = self.begin_input_turn(now);
+        let mut effects = self.handle_in_turn(&turn, input);
+        effects.extend(self.finish_input_turn_without_dispatch(turn));
+        effects
+    }
+
     /// Starts an ordered external-input turn at one owner-sampled instant.
     ///
     /// The owner must fully drain the effects returned for one input before it
     /// applies the next input in the turn. Any identified transmission result
     /// produced by that draining is applied with [`Self::handle_in_turn`] and
     /// the same token. Once every frame in wire order is applied, the owner
-    /// calls [`Self::finish_input_turn`] exactly once.
+    /// calls [`Self::finish_input_turn`] (or its dispatch-suppressed variant)
+    /// exactly once.
     pub(crate) const fn begin_input_turn(&self, now: Instant) -> InputTurn {
         InputTurn { now }
     }
@@ -456,6 +471,19 @@ impl ProtocolEngine {
         self.run_due(turn.now, &mut effects);
         self.drain_pending_cancellations(turn.now, &mut effects);
         self.dispatch_one(turn.now, &mut effects);
+        self.debug_assert_invariants();
+        effects
+    }
+
+    /// Ends an ordered input turn after running due work and pending
+    /// cancellations, but leaves ordinary ready work queued.  This is the
+    /// pre-ACK submission seam for issue #673; the submitting operation must be
+    /// admitted before a freed socket is offered to the ordinary scheduler.
+    #[cfg(feature = "blocking")]
+    pub(crate) fn finish_input_turn_without_dispatch(&mut self, turn: InputTurn) -> Vec<Effect> {
+        let mut effects = Vec::new();
+        self.run_due(turn.now, &mut effects);
+        self.drain_pending_cancellations(turn.now, &mut effects);
         self.debug_assert_invariants();
         effects
     }
@@ -513,6 +541,18 @@ impl ProtocolEngine {
         self.run_due(now, &mut effects);
         self.drain_pending_cancellations(now, &mut effects);
         self.dispatch_one(now, &mut effects);
+        self.debug_assert_invariants();
+        effects
+    }
+
+    /// Runs due work and pending cancellations without ordinary dispatch.
+    /// Used by the blocking pre-ACK drain when an idle read reaches a scheduler
+    /// deadline before the predecessor ACK arrives.
+    #[cfg(feature = "blocking")]
+    pub(crate) fn advance_without_dispatch(&mut self, now: Instant) -> Vec<Effect> {
+        let mut effects = Vec::new();
+        self.run_due(now, &mut effects);
+        self.drain_pending_cancellations(now, &mut effects);
         self.debug_assert_invariants();
         effects
     }
@@ -1091,21 +1131,66 @@ impl ProtocolEngine {
     /// `target`, such that pumping the pending peer ACK would free a socket for
     /// it.
     ///
-    /// True iff a prior raw command is still in its unacknowledged window
-    /// (`raw_command_unacknowledged`) while a command socket remains free
-    /// (`commands_inflight < command_sockets`). The instant that ACK lands the
-    /// prior command becomes `Executing`, the gate clears, and the free socket
-    /// admits the next command. When every socket is already occupied this is
-    /// `false`, because the pending ACK only moves a command from
-    /// awaiting-ACK to executing without releasing a socket — that is real
+    /// This deliberately uses the sole *ACK-capable* predecessor rather than
+    /// [`Self::raw_command_unacknowledged`]. The latter is the broader
+    /// correlation/exclusivity predicate and must continue to count
+    /// completion-only commands and #671 late-ACK quarantines. Neither can
+    /// release a socket by accepting an ACK: `AwaitingCompletion` has no ACK
+    /// phase, while an `AwaitingLateAck` entry with `CancelState::None` is a
+    /// quarantine whose late frames are ignored. A cancellation-driven late-ACK
+    /// entry remains eligible because its ACK is still accepted and may assign
+    /// the socket needed to issue cancellation.
+    ///
+    /// When the sole ACK-capable predecessor is still in its unacknowledged
+    /// window while a command socket remains free, its ACK clears the gate and
+    /// the next command can use that socket. When every socket is already
+    /// occupied this is `false`, because the pending ACK only moves a command
+    /// from awaiting-ACK to executing without releasing a socket — that is real
     /// contention, and the caller's fail-fast rejection must stand. Consumed by
     /// the blocking operation-submit path (issue #673).
     #[cfg(feature = "blocking")]
     pub(crate) fn raw_preack_gate_frees_socket_on_ack(&self, target: CameraId) -> bool {
-        self.raw_command_unacknowledged(target)
+        self.raw_ack_capable_candidate(target).is_some()
             && self.targets[target.id() as usize].is_some_and(|policy| {
                 self.commands_inflight(target) < usize::from(policy.command_sockets)
             })
+    }
+
+    /// Returns the sole raw command on `target` whose next accepted frame may
+    /// be an ACK, or `None` when there is no such command or the state is
+    /// ambiguous.
+    ///
+    /// The `Sending` phase is included for the deferred-ACK race. A late-ACK
+    /// quarantine is included only when cancellation intent is present: the
+    /// default #671 quarantine (`CancelState::None`) deliberately ignores late
+    /// frames and must never cause a blocking submission to wait for one.
+    #[cfg(feature = "blocking")]
+    fn raw_ack_capable_candidate(&self, target: CameraId) -> Option<RequestId> {
+        if self.policy.envelope != EnvelopeKind::Raw {
+            return None;
+        }
+        let mut sole = None;
+        for (id, entry) in &self.entries {
+            if entry.request.is_inquiry()
+                || entry.request.context().target != target
+                || entry.request.context().reply_shape != ReplyShape::AckThenCompletion
+                || !matches!(
+                    entry.phase,
+                    Phase::Sending { .. } | Phase::AwaitingAck { .. }
+                ) && !matches!(
+                    entry.phase,
+                    Phase::AwaitingLateAck { .. }
+                        if !matches!(entry.cancellation, CancelState::None)
+                )
+            {
+                continue;
+            }
+            if sole.is_some() {
+                return None;
+            }
+            sole = Some(*id);
+        }
+        sole
     }
 
     fn transition(
@@ -1434,7 +1519,7 @@ impl ProtocolEngine {
     /// arrives — it quarantines per-request rather than poisoning the session.
     /// The read-side pause/escalation the owner already performs handles the
     /// transport itself. The strict opt-in mode instead poisons the whole
-    /// session with [`Error::UnsequencedCommandUnconfirmed`]. The classic case
+    /// session with [`Error::StreamPoisoned`]. The classic case
     /// is a UDP `recv` returning ECONNREFUSED because an earlier datagram drew
     /// an ICMP port-unreachable.
     ///
@@ -1733,7 +1818,7 @@ impl ProtocolEngine {
                     // competing for the same frame.  In particular, never
                     // temporally attribute it to an Executing command.
                     if !inquiry_live {
-                        return self.unique_raw_command_candidate(target);
+                        return self.unique_raw_error_candidate(target);
                     }
                     return None;
                 }
@@ -1852,6 +1937,43 @@ impl ProtocolEngine {
                     Phase::Sending { .. } | Phase::AwaitingCompletion { .. }
                 )
             {
+                continue;
+            }
+            if sole.is_some() {
+                return None;
+            }
+            sole = Some(*id);
+        }
+        sole
+    }
+
+    /// The unique raw command that may own a socketless camera error on
+    /// `target`, if exactly one exists.
+    ///
+    /// ACK routing deliberately uses [`Self::unique_raw_command_candidate`],
+    /// which must never include a completion-only command: that shape ignores
+    /// ACKs and never earns a socket.  Error routing has one additional valid
+    /// candidate, though — a completion-only command in
+    /// [`Phase::AwaitingCompletion`].  Keep this extension local to errors so
+    /// the ordinary ACK candidate and its exclusivity rules remain unchanged.
+    /// As with the ACK candidate, a second possible owner fails closed rather
+    /// than allowing temporal recency to choose one.
+    fn unique_raw_error_candidate(&self, target: CameraId) -> Option<RequestId> {
+        let mut sole = None;
+        for (id, entry) in &self.entries {
+            if self.policy.envelope != EnvelopeKind::Raw
+                || entry.request.is_inquiry()
+                || entry.request.context().target != target
+            {
+                continue;
+            }
+            let is_candidate = matches!(
+                entry.phase,
+                Phase::Sending { .. } | Phase::AwaitingAck { .. } | Phase::AwaitingLateAck { .. }
+            ) || (entry.request.context().reply_shape
+                == ReplyShape::CompletionOnly
+                && matches!(entry.phase, Phase::AwaitingCompletion { .. }));
+            if !is_candidate {
                 continue;
             }
             if sole.is_some() {
@@ -2847,12 +2969,31 @@ impl ProtocolEngine {
 
     /// Earliest scheduler deadline, retry eligibility, pacing release, or cooldown.
     pub(crate) fn next_wake(&self) -> Option<Instant> {
+        self.next_wake_inner(true)
+    }
+
+    /// Earliest wake that must be serviced while ordinary dispatch is
+    /// suppressed.  The blocking pre-ACK drain still needs protocol deadlines
+    /// (including retry/backoff promotion and cancellation/quarantine
+    /// deadlines) and pending cancellation pacing, but a ready request on any
+    /// target is deliberately not a wake: dispatching it is forbidden for the
+    /// duration of that turn.  Keeping ready-queue eligibility out of this
+    /// projection prevents an unrelated ready request from turning the read
+    /// into a zero-timeout loop while the submitting request's ACK is pending
+    /// (issue #673).
+    #[cfg(feature = "blocking")]
+    pub(crate) fn next_wake_without_dispatch(&self) -> Option<Instant> {
+        self.next_wake_inner(false)
+    }
+
+    fn next_wake_inner(&self, include_ready: bool) -> Option<Instant> {
         if self.state != SessionState::Running {
             return None;
         }
         let mut wake = self.next_due().map(|due| due.at);
         for entry in self.entries.values() {
-            let candidate = if matches!(entry.phase, Phase::Ready { .. })
+            let candidate = if include_ready
+                && matches!(entry.phase, Phase::Ready { .. })
                 && self.capacity_available_for(entry)
             {
                 Some(self.candidate_send_at(entry))
@@ -3473,13 +3614,16 @@ fn camera_error_phase_compatible(entry: &Entry, kind: CorrelationKind) -> bool {
         CorrelationKind::Request if entry.request.is_inquiry() => {
             matches!(entry.phase, Phase::AwaitingReply { .. })
         }
-        CorrelationKind::Request => matches!(
-            entry.phase,
-            Phase::AwaitingAck { .. }
-                | Phase::AwaitingLateAck { .. }
-                | Phase::Executing { .. }
-                | Phase::AwaitingCancellationResolution { .. }
-        ),
+        CorrelationKind::Request => {
+            matches!(
+                entry.phase,
+                Phase::AwaitingAck { .. }
+                    | Phase::AwaitingLateAck { .. }
+                    | Phase::Executing { .. }
+                    | Phase::AwaitingCancellationResolution { .. }
+            ) || (entry.request.context().reply_shape == ReplyShape::CompletionOnly
+                && matches!(entry.phase, Phase::AwaitingCompletion { .. }))
+        }
         CorrelationKind::Cancellation => matches!(
             entry.cancellation,
             CancelState::Sending { .. } | CancelState::AwaitingTerminal { .. }

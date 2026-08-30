@@ -237,12 +237,18 @@ pub trait BlockingTransport: Send {
     /// - A session-fatal error — any error for which
     ///   [`Error::requires_new_session`] is true, plus [`Error::Io`] carrying
     ///   `ConnectionReset`, `ConnectionAborted`, `BrokenPipe`, `UnexpectedEof`
-    ///   or `NotConnected`. The runtime ends the session and reports that cause.
+    ///   or `NotConnected`. The runtime ends the session as
+    ///   [`Error::ConnectionClosed`] and retains the transport cause's text in
+    ///   its reason. A failed read consumed nothing, so it is not a stream
+    ///   framing poison; [`Error::StreamPoisoned`] is reserved for an
+    ///   unknowable stream position caused by framing loss or a failed write.
     /// - Any other error is a *transient* fault: the read failed but the
     ///   connection may still be usable — a UDP `recv` reporting ECONNREFUSED
-    ///   after an ICMP port-unreachable is the canonical case. The runtime keeps
-    ///   the session and retransmits every command still waiting for its ACK,
-    ///   under each command's own retry policy. Do not use this class for idle
+    ///   after an ICMP port-unreachable is the canonical case. The engine may
+    ///   retransmit sequence-correlated Sony commands still waiting for their
+    ///   ACK under each command's retry policy. A raw command awaiting ACK has
+    ///   no sequence key, so it is left to its own ACK deadline and is never
+    ///   replayed merely because of this fault. Do not use this class for idle
     ///   timeouts.
     ///
     /// # Returns

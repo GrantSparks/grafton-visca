@@ -229,19 +229,23 @@ Camera → Controller: 90 5y FF   # Completion, command finished
 
 For raw VISCA, do not send a second command for the same target while its
 first command is still unacknowledged. The one raw candidate spans `Sending`,
-`AwaitingAck`, and `AwaitingLateAck`; once the ACK establishes the first
-command's socket, the scheduler may use the camera's remaining socket
-capacity while that command executes. Raw ACK and error routing never uses a
+`AwaitingAck`, `AwaitingCompletion`, and `AwaitingLateAck`. The
+`AwaitingCompletion` phase is the completion-only shape: it holds the target
+channel exclusively and never earns a socket. For an ACK-bearing command,
+once the ACK establishes the first command's socket, the scheduler may use the
+camera's remaining socket capacity while that command executes. Raw ACK and
+error routing never uses a
 command FIFO or temporal recency. A socketless error routes the unique
 unacknowledged command only when no inquiry owner is live; with no unacknowledged
 command it may route the legitimate per-target inquiry FIFO, while a
 command-plus-inquiry collision is ignored. An explicit socket routes only its
 exact target/socket owner, and a socketless error never targets `Executing`.
 A named ACK socket is exact evidence as well: if another request owns that
-socket, the ACK is inert with `SocketConflict` and is never remapped to the
-other free socket. Only a socketless ACK may select the first free registered
-socket. Sony-encapsulated commands may pipeline before ACK because their
-envelope sequence number provides exact correlation.
+socket, the uniquely identified candidate falls back to the target's other
+free socket (issues #620/#682). Only when every socket is occupied does the
+ACK remain inert with `SocketConflict`. A socketless ACK may select the first
+free registered socket. Sony-encapsulated commands may pipeline before ACK
+because their envelope sequence number provides exact correlation.
 
 The fixed response forms are length-exact: `z0 4y FF` ACK, `z0 5y FF`
 nonzero-socket completion, `z0 6y zz FF` error, and `z0 38 FF` network-change
@@ -782,9 +786,11 @@ and reply.
 When that budget expires, the terminal result preserves the cause that
 authorized the prior retry rather than replacing it with an incidental timeout
 from a later phase. If an active raw retry reaches budget expiry while in
-`Sending`, `AwaitingAck`, or `Executing`, it instead poisons the session as an
-unconfirmed unsequenced command; a ready/backoff raw retry may finish with its
-retained last error. Cancellation quarantine is separate and is never shortened
+`Sending`, `AwaitingAck`, `AwaitingCompletion`, or `Executing`, the default is a per-request
+`UnsequencedCommandUnconfirmed` result with its correlation quarantined; a
+ready/backoff raw retry may finish with its retained last error. The session is
+poisoned only when `strict_unconfirmed_poison` is enabled, which reports
+`StreamPoisoned`. Cancellation quarantine is separate and is never shortened
 by budget expiry.
 Empty UDP datagrams are discarded while receiving and do not reset or extend
 the one overall receive deadline; the async adapter yields cooperatively before
@@ -792,10 +798,16 @@ polling again.
 
 | Transport | Recommended retry behavior |
 |---|---|
-| Raw UDP PTZOptics | Do not automatically replay a successfully sent command after an ACK/completion/cancellation ambiguity, a receive fault while awaiting ACK, or active retry-budget expiry in `Sending`, `AwaitingAck`, or `Executing`: without a sequence, retry is indistinguishable from a new physical action. Fail that one command with `UnsequencedCommandUnconfirmed` (per-request since #671; the session keeps running) and reconcile its camera effect; the `strict_unconfirmed_poison` opt-in poisons the whole session instead. A conclusive camera rejection may be retried under policy. Prefer TCP `5678` for high-reliability control. |
-| Raw TCP PTZOptics | TCP handles byte delivery/order but does not prove camera execution. Serialize the one-command pre-ACK window per target, retain socket concurrency after ACK, and treat an ACK/completion/cancellation ambiguity, a receive fault while awaiting ACK, or active retry-budget expiry in `Sending`, `AwaitingAck`, or `Executing` as `UnsequencedCommandUnconfirmed`, never a blind replay. A conclusive camera rejection may be retried under policy. |
+| Raw UDP PTZOptics | Do not automatically replay a successfully sent command after an ACK/completion/cancellation ambiguity, a receive fault while awaiting ACK, or active retry-budget expiry in `Sending`, `AwaitingAck`, `AwaitingCompletion`, or `Executing`: without a sequence, retry is indistinguishable from a new physical action. Fail that one command with `UnsequencedCommandUnconfirmed` (per-request since #671; the session keeps running) and reconcile its camera effect; the `strict_unconfirmed_poison` opt-in poisons the whole session instead. A conclusive camera rejection may be retried under policy. Prefer TCP `5678` for high-reliability control. |
+| Raw TCP PTZOptics | TCP handles byte delivery/order but does not prove camera execution. Serialize the one-command pre-ACK window per target, retain socket concurrency after ACK, and treat an ACK/completion/cancellation ambiguity, a receive fault while awaiting ACK, or active retry-budget expiry in `Sending`, `AwaitingAck`, `AwaitingCompletion`, or `Executing` as the default per-request `UnsequencedCommandUnconfirmed` outcome (the session survives), never a blind replay. `strict_unconfirmed_poison` opts into whole-session `StreamPoisoned`; a conclusive camera rejection may be retried under policy. |
 | Sony encapsulated UDP | Use the Sony sequence field to correlate replies. This document adopts the Sony-manual correction in §5.3: timeout recovery should retransmit the timed-out message with the same sequence number, rather than blindly issuing a new logical command. |
 | Axis | Respect Axis profile ranges and handle fixed replies, especially for inquiries documented as fixed on/off. |
+
+A receive that proves the connection is gone is reported as
+`ConnectionClosed`, with the underlying transport error's text retained in the
+closure reason. `StreamPoisoned` is reserved for a stream whose framing or
+write position is unknowable; a failed read consumes no bytes and is not, by
+itself, evidence of stream poison.
 
 ### 11.6 Version inquiry and capability mapping
 

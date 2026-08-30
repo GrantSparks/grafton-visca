@@ -1435,15 +1435,15 @@ mod tests {
         }));
     }
 
-    /// Machine-checks the parity count `docs/behavioral_parity_1x.md` publishes:
-    /// of the 149 `BuiltinCommand` rows, exactly 29 carry an intentional
-    /// timeout-category change and the remaining 120 preserve their 1.x
-    /// category. Pinning the universe size and the changed set here means adding
-    /// a command or editing the changed list fails this test until that doc's
-    /// table and count are updated to match (issue #689). It does not re-derive
-    /// the 1.x categories — that is the parity oracle's job — but it stops the
-    /// count itself from silently rotting the way it did when `ImageFlipBoth`
-    /// was omitted (miscounting 120 as 121).
+    /// Machine-checks the timeout-policy count documented in
+    /// `docs/behavioral_parity_1x.md`: of the 149 `BuiltinCommand` rows,
+    /// exactly 29 carry an intentional timeout-category change and the
+    /// remaining 120 preserve their 1.x category. Pinning the universe size and
+    /// the changed set here means adding a command or editing the changed list
+    /// fails this test until that guide's table and count are updated to match
+    /// (issue #689). It does not re-derive the 1.x categories; it keeps the
+    /// documented decision count from silently rotting the way it did when
+    /// `ImageFlipBoth` was omitted (miscounting 120 as 121).
     #[test]
     fn intentional_timeout_category_changes_account_for_the_preserved_remainder() {
         // The rows whose v2 `TimeoutClass` intentionally differs from their 1.x

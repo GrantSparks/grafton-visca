@@ -118,11 +118,12 @@ destination.
   `requires_new_session() == false`. They are new relative to 1.x; the audit
   found them present in the public surface but unlisted, and records them here
   for completeness.
-- **Added the `behavioral-parity-1x` CI gate and its 1.x behavioral oracle**
-  (#676). A required CI job runs `tests/fixtures/1x_oracle/validate.py` against
-  the pinned 1.x oracle commit, proving each mapped v2 test still exists and
-  executes and that every approved parity waiver is named in this changelog. See
-  the waiver-ratification entry under Changed and `docs/behavioral_parity_1x.md`.
+- **Recorded the historical 1.x behavior decisions and retained direct v2
+  regressions and goldens** (#676). `docs/behavioral_parity_1x.md` is the
+  maintainer decision record; the direct owner, engine, framer, encoder, and
+  facade tests it names are the authoritative evidence for retained behavior.
+  New behavior is reviewed directly against its implementation, tests, and
+  migration/changelog impact.
 - **Added `OperationalTuning::strict_unconfirmed_poison`** (#671), an opt-in
   (default off) that restores the pre-fix whole-session poison for an
   unconfirmable raw command. The default per-request behavior (see the Changed
@@ -290,33 +291,35 @@ destination.
   completion classes, profile capability gates, and shared operation
   lifecycle semantics.
 - Added `Error::requires_new_session()`, the spec-normative classifier that
-  separates transport-level session death (`ConnectionClosed`, `StreamPoisoned`,
-  and the transport/channel-unavailable errors) from the deliberate
-  `RuntimeShutdown` (#564). All of these share `ErrorKind::IoClosed`, so
-  applications could not tell a field disconnect apart from a shutdown they
-  requested without matching implementation details. `true` is positive proof
-  that the session is finished and must be rebuilt from the retained
-  `SessionConfig`; `false` only means the error alone does not prove it.
+  separates transport-level session death (`ConnectionClosed` and
+  `StreamPoisoned`) from the deliberate `RuntimeShutdown` (#564). All of these
+  share `ErrorKind::IoClosed`, so applications could not tell a field disconnect
+  apart from a shutdown they requested without matching implementation details.
+  `true` is positive proof that the session is finished and must be rebuilt from
+  the retained `SessionConfig`; `false` only means the error alone does not
+  prove it.
 - Added a hardware release evidence checklist. Hardware, registry, and
   Synemantic validation remain `Pending (Not run)` until release owners record
   bench evidence.
 - Added the CI leg that runs the shipped test toolkit, and made a filtered test
   run fail when its filter matches nothing (#628). `test-utils` was never
   unioned with a facade in any job — the one `test-utils` leg selects neither
-  `blocking` nor a runtime, and the all-features job is a `cargo check` — so 37
-  tests existed in the tree and executed nowhere: all eight of
-  `tests/issue_566_scripted_error_recovery.rs` (whose header claimed the
-  opposite), five in `tests/inquiry_simulator_test.rs`, three in
-  `tests/timeout_category_tests.rs`, the twenty `testkit`
-  `deterministic_executor` and `scripted_transport` library tests that
-  `CONTRIBUTING.md` tells contributors to build on, and one in
-  `src/blocking.rs`. A `test-utils,blocking,runtime-tokio` leg in
-  `.github/workflows/ci.yml` and `.github/scripts/test-all-features.sh` takes
-  the count of never-executed tests from 37 to 0. Separately, every
-  name-filtered run in `.github/scripts/miri-tests.sh` and the property-test
-  entry in `.github/scripts/test-all-features.sh` now assert that the filter
-  selected at least one test: libtest exits 0 on a filter that matches nothing,
-  so a renamed module would have turned the whole Miri job green and vacuous.
+  `blocking` nor a runtime, and the all-features job is a `cargo check` — so 40
+  tests existed in the tree and executed nowhere: 10 in
+  `tests/issue_566_scripted_error_recovery.rs`, 5 in
+  `tests/inquiry_simulator_test.rs`, 4 in `tests/timeout_category_tests.rs`,
+  15 in the `testkit` `deterministic_executor` library tests, 5 in its
+  `scripted_transport` library tests, and 1 in `src/blocking.rs`. A
+  `test-utils,blocking,runtime-tokio` leg in `.github/workflows/ci.yml` and
+  `.github/scripts/test-all-features.sh` takes the count of never-executed
+  tests from 40 to 0. Separately, every
+  name-filtered pure-library runs in `.github/scripts/miri-tests.sh` and the
+  property-test entry in `.github/scripts/test-all-features.sh` now assert that
+  each filter selected at least one test: libtest exits 0 on a filter that
+  matches nothing, so a renamed module would have turned the check green and
+  vacuous. The Miri script also performs representative feature-library compile
+  checks; it does not run the owner, transport, or async-runtime suites under
+  Miri and does not claim exhaustive feature-union coverage.
 - Documented the 2.0 request, construction, dynamic API, and release
   contracts.
 
@@ -422,13 +425,12 @@ destination.
   inquiry-response deadline, by contrast, is a genuine documented 2.0 change and
   not a restoration: 1.x inquiries had no dedicated deadline and used the 5 s
   `Quick` category budget, while 2.0 gives inquiries their own deadline, held at
-  an interim 1 s pending the same hardware pass. That divergence is recorded in
-  the parity corpus (`tests/fixtures/1x_oracle/manifest.json`) as the
-  `timeout-category-defaults-selection` row, reclassified from `preserved` to
-  `intentional-change` under the new maintainer-ratified waiver
-  `inquiry-deadline-interim-default`; a new `v2-profile-default-deadlines` test
-  pins both defaults on every profile so neither can drift unnoticed. Since #671
-  a deadline trip fails only the one request, not the session. See
+  an interim 1 s pending the same hardware pass. That intentional difference is
+  recorded in the historical behavior guide as
+  `inquiry-deadline-interim-default`; the
+  `builtin_profile_default_deadlines_match_the_1x_ack_and_interim_inquiry`
+  test pins both defaults on every profile so neither can drift unnoticed.
+  Since #671 a deadline trip fails only the one request, not the session. See
   `docs/migration_2_0.md` for the row a 1.x user feels.
 
 - **A raw command that cannot be confirmed now fails per request instead of
@@ -467,36 +469,29 @@ destination.
   it only keeps the next command from wedging. Composed with the #671 model, no
   cascade to session death remains.
 
-- **Ratified all three 1.x behavioral-parity waivers and hardened the gate that
-  records them** (#676, ratification per #692). The parity corpus
-  (`tests/fixtures/1x_oracle/manifest.json`) marks three behaviors as
-  intentional 2.0 changes rather than preserved 1.x contracts, and those
-  waivers were originally self-approved in the same commit that introduced the
-  behavior. All three are now maintainer-ratified. Two were sound as written:
-  - `deterministic-equal-jitter` supersedes 1.x's exact, jitter-free
-    exponential backoff: 2.0 starts at a 50 ms delay and applies deterministic
-    equal jitter within a bounded ceiling, so retries stay reproducible but no
-    longer synchronize across cameras.
+- **Recorded the reviewed 1.x behavior decisions and their direct v2 evidence**
+  (#676, review ratification per #692). The historical guide records three
+  deliberate 2.0 differences rather than treating every old implementation
+  detail as a compatibility requirement:
+  - `deterministic-equal-jitter` supersedes 1.x's exact, jitter-free exponential
+    backoff: 2.0 starts at a 50 ms delay and applies deterministic equal jitter
+    within a bounded ceiling, so retries stay reproducible but no longer
+    synchronize across cameras.
   - `evidence-based-raw-correlation` supersedes 1.x's temporal
     command-completion fallback on the raw envelope: raw VISCA carries no
     request identity, so a raw command keeps one unacknowledged candidate per
     target and never attributes an ACK or error by FIFO or recency.
+  - `evidence-bounded-retry` records the shipped #671 model: an ambiguous raw
+    send is never replayed and, by default, fails only that one command with
+    `UnsequencedCommandUnconfirmed` while the session survives; the
+    `strict_unconfirmed_poison` opt-in instead poisons the whole session.
+    Retry counts stay category-based and the single admission-to-terminal
+    budget is unchanged.
 
-  The third waiver, `evidence-bounded-retry`, is **now ratified as well** (per
-  #692), rewritten under #671 to describe the shipped per-request failure model:
-  an ambiguous successfully sent raw command is never replayed and, by default,
-  fails only that one command with `UnsequencedCommandUnconfirmed` while the
-  session survives (the `strict_unconfirmed_poison` opt-in instead poisons the
-  whole session). Retry counts stay category-based and the single
-  admission-to-terminal budget is unchanged. See `docs/behavioral_parity_1x.md`.
-
-  The gate itself was advisory and is now enforcing (#676): it runs each mapped
-  `cargo test` and asserts every mapped symbol actually executed (not filtered,
-  ignored, or emptied by a `mod tests` rename); it pins the required family set
-  and the per-row transport `envelope`/`profile`/`receipt_class` in the
-  validator and checks each against the test body, so a raw→Sony substitution
-  is a visible, checked diff; and it requires every approved waiver id to appear
-  in this changelog, which is what this entry provides. No library API changes.
+  The direct owner, engine, parser, and wire/decode tests named by
+  `docs/behavioral_parity_1x.md` are authoritative for these decisions. New
+  behavior is reviewed directly in the implementation and its tests. No library
+  API changes.
 - **The three noun facades are generated from one typed registry** (#617).
   `command::surface` and the async, blocking, and object-safe `Dyn*` facades now
   consume the same `src/noun_table.rs` registry. Request expressions are
@@ -874,9 +869,9 @@ destination.
   `LockPoisoned` cannot occur because every lock recovers its guard with
   `into_inner()` instead of surfacing a poison error. The reachable
   session-death variants are unchanged: `ConnectionClosed` and `StreamPoisoned`
-  still report `requires_new_session() == true` (`UnsequencedCommandUnconfirmed`
-  is no longer one of them — since #671 it is a per-request failure a live
-  session survives and reports `false`), and an internally closed boundary
+  still report `requires_new_session() == true`. `UnsequencedCommandUnconfirmed`
+  is no longer in that set — since #671 it is a per-request failure a live
+  session survives and reports `false` — and an internally closed boundary
   channel still normalizes to
   `Error::RuntimeShutdown` (never `ChannelClosed`) at the point of failure.
   Because `Error` is `#[non_exhaustive]` a wildcard arm was already required;
@@ -1017,8 +1012,8 @@ destination.
   stays running and the command is settled by the next well-formed reply. Only a
   genuine loss of the framing position (cumulative buffer overflow, or a
   boundary-free read past `max_buffer_size`) still poisons a stream. A
-  `malformed-frame-tolerance` family and a production stream replay are pinned in
-  the 1.x behavioral-parity oracle.
+  `tests/issue_672_674_681_decode_consequence.rs` retains the production-path
+  stream replay for this behavior.
 
 - **More than 64 decodable frames in one stream read no longer poisons the
   session** (#674). A single read that decoded past `frames_per_receive`
@@ -1060,7 +1055,13 @@ destination.
   request. Genuine socket-capacity contention (every command socket occupied by a
   distinct in-flight command) still fails fast with `TransportBusy`, since
   pumping an ACK there would not free a socket. The async facade already pumped
-  the ACK through its always-running actor and never exhibited the stall.
+  the ACK through its always-running actor and never exhibited the stall. The
+  ratified local clarification supersedes issue #542 §4's older blanket
+  “never waits for ACK” sentence: only a sole raw ACK-capable predecessor is
+  drained, bounded by the submitting request's ACK budget; `CompletionOnly`,
+  `NoReply`, and an #671 `AwaitingLateAck` quarantine with `CancelState::None`
+  never arm the drain. This records the repository decision without claiming
+  that the GitHub issue body changed.
 - **An engine-initiated session poison is surfaced by `shutdown()`/`close()`
   instead of masked as a deliberate `RuntimeShutdown`** (#680). The owner's
   session error was set only for owner-supplied `Close`/`Poison`/`Shutdown`
@@ -1225,8 +1226,9 @@ destination.
   after ACK, while Sony sequence-based pipelines remain intact. A raw command
   whose successful send leaves its outcome ambiguous is never replayed: this
   includes ACK/completion/cancellation ambiguity, a receive fault while
-  awaiting ACK, and active retry-budget expiry in `Sending`, `AwaitingAck`, or
-  `Executing`. By default (since #671) it fails only that one command with
+  awaiting ACK, and active retry-budget expiry in `Sending`, `AwaitingAck`,
+  `AwaitingCompletion`, or `Executing`. By default (since #671) it fails only
+  that one command with
   `Error::UnsequencedCommandUnconfirmed` while the session survives — the
   whole-session poison is the `strict_unconfirmed_poison` opt-in; fixed ACK,
   completion, and error frames now require their exact lengths and reject
@@ -1410,12 +1412,15 @@ destination.
   transient one — the classic case is a UDP `recv` reporting ECONNREFUSED after
   an ICMP port-unreachable — retries Sony commands still awaiting their ACK
   under their bounded policy and keeps the session running. A raw command
-  awaiting ACK has no sequence evidence, so the same fault poisons the session
-  with `Error::UnsequencedCommandUnconfirmed` rather than replaying a possibly
-  executed action. Inquiries are not retried on this path. Only a read that
-  proves the connection is gone still ends the session, and it now ends it as a
-  close rather than a byte-stream poison, because a failed read consumes
-  nothing and cannot desynchronize framing.
+  awaiting ACK has no sequence evidence, so the same fault is left to its own
+  ACK deadline under the #671 per-request model rather than replaying a
+  possibly executed action; it fails only that command with
+  `UnsequencedCommandUnconfirmed` if the deadline expires. Inquiries are not
+  retried on this path. Only a read that proves the connection is gone ends the
+  session, and it is normalized to `ConnectionClosed` with the receive cause
+  retained, because a failed read consumes nothing and cannot desynchronize
+  framing. The `strict_unconfirmed_poison` opt-in restores whole-session
+  `StreamPoisoned` for deployments that require that policy.
 - Socketless VISCA ACKs and completions work again (#565). A camera answering
   `90 40 FF` / `90 50 FF` carries no socket nibble; the transport adapter turned
   that into a hard `Error::InvalidResponse` that killed the whole session. The
@@ -1423,10 +1428,12 @@ destination.
   free command socket to a socketless ACK — 1.x behavior — and attributes a
   socketless completion by envelope sequence, or by sole socket ownership on
   raw VISCA. Genuinely malformed frames are still rejected.
-- Named ACK sockets are exact (#565). If a camera names a command socket
-  another request already holds, the ACK stays inert with `SocketConflict`
-  rather than being remapped to the target's other free socket. Only a
-  socketless ACK may select the first free registered socket.
+- Named ACK sockets are evidence-based (#565, clarified by #682). A free named
+  socket is assigned exactly. If another request still owns the named socket,
+  the uniquely identified candidate falls back to the target's other free
+  socket; only when no socket is free does the ACK stay inert with
+  `SocketConflict`. A socketless ACK may select the first free registered
+  socket.
 - Closed the #297 ACK race at the engine level (#565). An ACK that reaches the
   engine before the write result for the frame it answers is now latched on
   that request and applied the instant the write is confirmed, instead of being

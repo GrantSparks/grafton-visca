@@ -155,8 +155,8 @@ retried with the same sequence number, preserving the logical request's
 identity. Raw VISCA has no such key. After a raw command was successfully sent,
 an ACK timeout, completion timeout, unresolved cancellation, receive fault
 while awaiting ACK, or active retry-budget expiry while an attempt is in
-`Sending`, `AwaitingAck`, or `Executing` leaves both its physical outcome and
-any later reply ownership uncertain. The engine never replays it (that would
+`Sending`, `AwaitingAck`, `AwaitingCompletion`, or `Executing` leaves both its
+physical outcome and any later reply ownership uncertain. The engine never replays it (that would
 risk a duplicate relative move or preset). By default (issue #671) it fails only
 that one command with `Error::UnsequencedCommandUnconfirmed` — a per-request
 outcome the session survives — and holds the correlation still at stake (its
@@ -241,8 +241,11 @@ command.
 When no such raw command is awaiting ACK, a read that proves the connection is
 gone (`ConnectionClosed`, or an `Io` failure whose kind is `ConnectionReset`,
 `ConnectionAborted`, `BrokenPipe`, `UnexpectedEof`, or `NotConnected`) ends the
-session, and it ends it as a close: a failed read consumes nothing and so
-cannot desynchronize framing.
+session. The owner normalizes that fatal receive closure to
+`Error::ConnectionClosed` and retains the original transport error's text in
+the closure reason; it does not expose the raw `Io` value as the session-death
+verdict or call it stream poison. A failed read consumes nothing and so cannot
+desynchronize framing.
 
 A read that reports *no data* is a third case and not a fault at all.
 `Error::Timeout`, and the raw `Io` spellings `TimedOut`, `WouldBlock` and
@@ -278,9 +281,10 @@ valid input is never processed at the cost of an unkillable, unusable session.
 A fault that never stops repeating stops being called transient. Consecutive
 transient faults, with no successful read between them, escalate their pause
 from 10 ms to a 250 ms ceiling, and a read that has failed twelve times in a row
-over at least a second ends the session with the underlying transport error
-rather than retrying against a dead adapter forever. One successful read, or a
-five-second gap between faults, clears the run.
+over at least a second ends the session as `ConnectionClosed` with the count and
+underlying transport error retained in its reason, rather than retrying against
+a dead adapter forever. One successful read, or a five-second gap between
+faults, clears the run.
 
 Fixed-format ACK, completion, error, and network-change frames are accepted
 only at their exact lengths: three bytes for ACK, completion, or network change,
@@ -289,11 +293,14 @@ malformed, never `Unknown`. Variable data replies are reserved for socket 0
 with more than three bytes; the canonical three-byte `z0 50 FF` completion
 remains valid.
 
-Decoding is classified by transport. On a byte stream a decode failure means the
-stream position is unknowable, so the session is poisoned. On a datagram
-transport one undecodable datagram is one bad datagram: nothing else was
-consumed and the next datagram frames independently, so it is discarded and
-recorded as `Ignored(MalformedFrame)` while the session keeps running.
+Decoding is classified by transport. On a byte stream, a frame that the framer
+has already delimited at its `FF` boundary but the strict decoder cannot
+classify is discarded and recorded as `Ignored(MalformedFrame)`; it does not
+poison the session. Only a genuine loss of the framing position — for example
+an unrecoverable buffer overflow or a boundary-free read beyond the configured
+limit — becomes `Error::StreamPoisoned`. On a datagram transport one undecodable
+datagram is one bad datagram: nothing else was consumed and the next datagram
+frames independently, so it is discarded while the session keeps running.
 
 Writes are classified by transport too. A failed datagram write fails exactly
 one request, with its own transport error, and the session continues; because
@@ -377,10 +384,13 @@ Treat a closed or poisoned owner as a completed session, not as a queue to
 restart in place:
 
 0. Classify the failure with `Error::requires_new_session()`. It returns `true`
-   for transport-level session death (`ConnectionClosed`, `StreamPoisoned`, and
-   the transport/channel-unavailable errors) and `false` for the deliberate
-   `RuntimeShutdown`, which all share `ErrorKind::IoClosed`. Do not match the
-   kind or individual variants to make this decision. Note that
+   for transport-level session death (`ConnectionClosed` or `StreamPoisoned`)
+   and `false` for the deliberate `RuntimeShutdown` and the default
+   per-request `UnsequencedCommandUnconfirmed` result, which all share
+   `ErrorKind::IoClosed`. Do not match the kind or individual variants to make
+   this decision. Fatal receive closure is normalized to `ConnectionClosed`
+   with the original cause text; `StreamPoisoned` is reserved for an
+   unknowable stream framing or write position. Note that
    `UnsequencedCommandUnconfirmed` returns `false` (issue #671): by default it is
    a per-request failure on a still-live session, so reconcile that one command's
    camera effect rather than rebuilding the session. The strict

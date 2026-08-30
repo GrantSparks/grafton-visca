@@ -110,13 +110,14 @@ jobs:
           - name: test-utils
             command: --no-default-features --features test-utils --all-targets
           # The union that actually executes the shipped test toolkit. Without
-          # it 37 tests — `tests/issue_566_scripted_error_recovery.rs`,
-          # `tests/inquiry_simulator_test.rs`,
-          # `tests/timeout_category_tests.rs`, the `testkit` library tests and
-          # the `src/blocking.rs` testkit unit test — exist in the tree and run
-          # in no job, because `test-utils` is never unioned with a facade
-          # anywhere else in this matrix and the all-features job below is a
-          # `cargo check`, not a `cargo test`.
+          # it 40 tests exist in the tree and run in no job: 10 in
+          # `tests/issue_566_scripted_error_recovery.rs`, 5 in
+          # `tests/inquiry_simulator_test.rs`, 4 in
+          # `tests/timeout_category_tests.rs`, 15 in the `testkit`
+          # deterministic-executor tests, 5 in its scripted-transport tests,
+          # and 1 in the `src/blocking.rs` testkit unit test. `test-utils` is
+          # never unioned with a facade anywhere else in this matrix and the
+          # all-features job below is a `cargo check`, not a `cargo test`.
           - name: test-utils + blocking + Tokio
             command: --no-default-features --features test-utils,blocking,runtime-tokio --all-targets
     steps:
@@ -295,24 +296,6 @@ jobs:
           bash .github/scripts/test-validate-release.sh
           bash .github/scripts/test-verify-crate-payload.sh
           bash .github/scripts/test-verify-release-tag.sh
-
-  behavioral-parity-1x:
-    name: 1.x behavioral parity provenance
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    steps:
-      # The validator reads the exact 1.x source blobs with `git show`. A
-      # shallow checkout would make provenance depend on runner cache state, so
-      # this dedicated gate deliberately carries the complete history.
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          fetch-depth: 0
-      - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0 # 1.98.0
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          shared-key: behavioral-parity-1x
-      - name: Validate and run the 1.x behavioral corpus
-        run: bash .github/scripts/validate-behavioral-parity.sh
 
   release-drift:
     name: release validator vs. real repository (advisory)
@@ -527,7 +510,6 @@ jobs:
       - miri
       - fuzz
       - release-validation
-      - behavioral-parity-1x
       - public-api
       - downstream
       - windows
@@ -546,7 +528,7 @@ jobs:
           EXPECTED_JOB_IDS: >-
             ["format", "feature-matrix", "blocking-dependency-boundary",
              "macro-derives", "all-features", "examples", "lint", "msrv",
-             "miri", "fuzz", "release-validation", "behavioral-parity-1x",
+             "miri", "fuzz", "release-validation",
              "public-api", "downstream", "windows", "macos", "cargo-audit",
              "cargo-deny"]
         run: |

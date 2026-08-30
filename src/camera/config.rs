@@ -135,29 +135,41 @@ impl TransportOptions {
 /// This struct holds all configuration needed to establish a camera connection
 /// but performs no I/O itself. Configuration can be built, cloned, and reused.
 ///
-/// # Example
+/// # Examples
 ///
-/// ```ignore
-/// use grafton_visca::camera::{CameraConfig, profiles::PtzOpticsG2};
+/// A configuration is pure data and can be reused for either owner-backed
+/// facade. The single-camera constructors return a `CameraSession<P>`; obtain
+/// its profile-bound `Camera` with `CameraSession<P>::camera()` before using
+/// noun accessors.
+///
+/// ```rust,no_run
+/// # #[cfg(feature = "blocking")]
+/// # fn blocking_example() -> grafton_visca::Result<()> {
+/// use grafton_visca::camera::{profiles::PtzOpticsG2, CameraConfig};
 /// use grafton_visca::OperationalTuning;
-/// use grafton_visca::runtime::TokioRuntime;
 ///
 /// let config = CameraConfig::<PtzOpticsG2>::tcp("192.168.0.110")
 ///     .with_tuning(OperationalTuning::new());
+/// let session = config.open_camera()?;
+/// session.camera().power().on()?;
+/// session.close()?;
+/// # Ok(())
+/// # }
+/// ```
 ///
-/// // Configuration is pure data and can be cloned
-/// let config2 = config.clone();
+/// ```rust,no_run
+/// # #[cfg(feature = "runtime-tokio")]
+/// # async fn async_example() -> grafton_visca::Result<()> {
+/// use grafton_visca::camera::{profiles::PtzOpticsG2, CameraConfig};
+/// use grafton_visca::runtime::TokioRuntime;
 ///
-/// // Open async connection using the configuration
+/// let config = CameraConfig::<PtzOpticsG2>::tcp("192.168.0.110");
 /// let runtime = TokioRuntime::from_current()?;
-/// let camera1 = config.open_async(runtime).await?;
-///
-/// // Open blocking connection using the configuration
-/// let camera2 = config2.open()?;
-///
-/// // Use accessor-style API
-/// camera1.power().on().await?;
-/// camera2.power().on()?;
+/// let session = config.open_camera_async(runtime).await?;
+/// session.camera().power().on().await?;
+/// session.close().await?;
+/// # Ok(())
+/// # }
 /// ```
 #[derive(Debug, Clone)]
 pub struct CameraConfig<P> {

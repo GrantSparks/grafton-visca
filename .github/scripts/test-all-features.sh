@@ -128,7 +128,9 @@ run_test "serde + schemars + ts-rs" \
 # cannot run it, because `ScriptedBlockingTransport` needs `blocking` and
 # `ScriptedTransport`/`DeterministicExecutor` need `async`. The union below is
 # the entry that actually executes the shipped toolkit and the tests built on
-# it; without it those tests run in no CI job at all.
+# it; without it the 40 test-utils tests (10 issue-566 scripted, 5 inquiry
+# simulator, 4 timeout, 15 deterministic-executor, 5 scripted-transport, and
+# 1 blocking test) run in no CI job at all.
 run_test "test-utils" \
     cargo_stable test --no-default-features --features test-utils --all-targets
 run_test "test-utils + blocking + Tokio" \

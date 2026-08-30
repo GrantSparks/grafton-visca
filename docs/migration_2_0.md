@@ -201,7 +201,7 @@ with `TransportBusy`.
 | `camera.execute_with_priority(cmd, Priority::High)` | `camera.execute_with_submission_class(&cmd, SubmissionClass::User)` |
 | `camera.execute_with_priority(stop, Priority::Critical)` | Submit the typed stop normally; it is intrinsically `ControlClass::Urgent`. |
 | — (no 1.x equivalent) | `camera.inquire_with_submission_class(&inquiry, class)` and `camera.submit_with_submission_class::<K, _>(&operation, class)` |
-| `BlockingClient` priority methods | The same names on `blocking::Camera` and `blocking::CameraSession` |
+| `BlockingClient` priority methods | The same names on `blocking::Camera`; `blocking::CameraSession` exposes forwarding default helpers and returns that `Camera` from `camera()` |
 | — (no 1.x equivalent) | `DynSessionCamera::execute_with_submission_class`, `inquire_with_submission_class`, `submit_targeted_with_submission_class`, `submit_applied_with_submission_class`, and `set_submission_class` |
 
 Three behavioural differences are worth reading before porting:
@@ -510,16 +510,22 @@ application requested:
 | --- | --- | --- |
 | The peer closed the connection | `ConnectionClosed` | `true` |
 | The stream position became unknowable, or the strict opt-in poisoned the session for an unconfirmable raw command | `StreamPoisoned` | `true` |
-| A sent raw command's outcome cannot be correlated, default per-request mode (ACK/completion/cancellation ambiguity, receive fault while awaiting ACK, or active retry-budget expiry in `Sending`/`AwaitingAck`/`Executing`) | `UnsequencedCommandUnconfirmed` | `false` |
+| A sent raw command's outcome cannot be correlated, default per-request mode (ACK/completion/cancellation ambiguity, receive fault while awaiting ACK, or active retry-budget expiry in `Sending`/`AwaitingAck`/`AwaitingCompletion`/`Executing`) | `UnsequencedCommandUnconfirmed` | `false` |
 | The application shut the session down | `RuntimeShutdown` | `false` |
+
+A fatal receive closure is normalized to `ConnectionClosed`, with the
+underlying transport error's text retained in its reason. `StreamPoisoned` is
+reserved for a stream whose framing or write position became unknowable (for
+example, a failed stream write or unrecoverable framer loss); a failed read
+does not by itself establish stream poison because it consumed no bytes.
 
 **Behavior change (issue #671).** In an earlier 2.0 preview an unconfirmable raw
 command poisoned the whole session and `UnsequencedCommandUnconfirmed` mapped to
 `true`. It now fails only that one command on a still-live session, so it maps to
 `false`: reconcile that command's camera effect (never blindly replay it — it may
 already have acted on the camera) and keep using the session for unrelated work.
-A raw caller who tore the session down on this error should now retry on the same
-session instead. If you preferred the old hard-fail behavior, opt into
+A raw caller should therefore keep the session alive and reconcile before any
+deliberate resubmission. If you preferred the old hard-fail behavior, opt into
 `OperationalTuning::strict_unconfirmed_poison(true)`, which poisons the session
 and reports `StreamPoisoned` (`true`) exactly as before.
 

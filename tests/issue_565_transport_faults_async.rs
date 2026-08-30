@@ -36,15 +36,14 @@ use grafton_visca::{
     transport::{
         AddressingMode, AsyncTransport, HasTransportConfig, SendSemantics, TransportConfig,
     },
-    CameraId, Error, Executor, Session, SessionConfig,
+    CameraId, CancellationOutcome, Error, Executor, Session, SessionConfig,
 };
 
 use profile_fixtures::NonDefaultCompileTimeProfile;
 
 const ACK_SOCKET_ONE: &[u8] = &[0x90, 0x41, 0xff];
-const ACK_SOCKET_TWO: &[u8] = &[0x90, 0x42, 0xff];
 const COMPLETE_SOCKET_ONE: &[u8] = &[0x90, 0x51, 0xff];
-const COMPLETE_SOCKET_TWO: &[u8] = &[0x90, 0x52, 0xff];
+const CANCELLED_SOCKET_TWO: &[u8] = &[0x90, 0x62, 0x04, 0xff];
 const ACK_NO_SOCKET: &[u8] = &[0x90, 0x40, 0xff];
 const COMPLETE_NO_SOCKET: &[u8] = &[0x90, 0x50, 0xff];
 
@@ -612,29 +611,30 @@ async fn malformed_datagram_is_ignored_and_later_valid_reply_succeeds<E: Executo
     session.shutdown().await.expect("owner shutdown");
 }
 
-/// A sequence-correlated Sony camera repeating a socket nibble it already
-/// handed out must not cause the second command to be silently remapped:
-/// sequence correlation preserves request identity while the occupied socket
-/// ACK is ignored. Once the first command completes and frees S1, the second
-/// command can advance on an exact ACK naming the available S2.
-async fn ack_naming_an_occupied_socket_is_ignored_until_available<E: Executor>(executor: E) {
+/// A sequence-correlated Sony camera may name a socket another request still
+/// owns. Because the second command is already uniquely identified by its
+/// sequence, the owner falls back to the target's other free socket instead of
+/// dropping the ACK. The cancellation wire below proves that the fallback
+/// assigned S2 while the first command still owns S1.
+async fn ack_naming_an_occupied_socket_falls_back_to_the_other_free_socket<E: Executor>(
+    executor: E,
+) {
     let transport = FaultTransport::new(
         SendSemantics::Datagram,
         vec![
             OnSend::Reply(vec![ACK_SOCKET_ONE.to_vec()]),
+            // The camera answers the second command with occupied S1. The
+            // uniquely identified request must fall back to free S2. The
+            // previous-sequence completion then settles only the first command;
+            // leave the second live so its cancel wire exposes the assignment.
             OnSend::ReplyWithSequences(vec![
-                // The first ACK for the second command names occupied S1.
-                // It is ignored, never remapped to S2. Completion of the
-                // first command frees S1; the later exact S2 ACK can then
-                // advance the second command before its exact completion.
                 (ReplySequence::Current, ACK_SOCKET_ONE.to_vec()),
                 (ReplySequence::Previous, COMPLETE_SOCKET_ONE.to_vec()),
-                (ReplySequence::Current, ACK_SOCKET_TWO.to_vec()),
-                (ReplySequence::Current, COMPLETE_SOCKET_TWO.to_vec()),
             ]),
         ],
     )
     .with_sony();
+    let transport = transport.with_trailing_reply(vec![CANCELLED_SOCKET_TWO.to_vec()]);
     let probe = transport.probe();
     let session = Session::open(transport, sony_session_config(), executor)
         .await
@@ -651,14 +651,24 @@ async fn ack_naming_an_occupied_socket_is_ignored_until_available<E: Executor>(e
         .expect("second submission");
 
     first.applied().await.expect("first operation applied");
-    second
-        .applied()
+    let cancellation = second
+        .cancel()
         .await
-        .expect("the later exact ACK must complete the second operation");
+        .expect("the fallback-assigned second operation supports cancellation");
     assert_eq!(
-        probe.writes().len(),
-        2,
-        "neither command needed a retransmit after the occupied ACK was ignored"
+        cancellation
+            .outcome(std::time::Duration::from_secs(1))
+            .await
+            .expect("the fallback-assigned socket must accept cancellation"),
+        CancellationOutcome::Cancelled
+    );
+
+    let writes = probe.writes();
+    assert_eq!(writes.len(), 3, "two commands and one socket cancellation");
+    assert_eq!(
+        &writes[2][8..],
+        &[0x81, 0x22, 0xff],
+        "an occupied S1 ACK must assign the second command to free S2"
     );
 
     session.shutdown().await.expect("owner shutdown");
@@ -744,6 +754,6 @@ runtime_matrix!(
     stream_write_failure_poisons_and_names_the_transport_cause,
     socketless_ack_and_completion_still_complete_a_command,
     malformed_datagram_is_ignored_and_later_valid_reply_succeeds,
-    ack_naming_an_occupied_socket_is_ignored_until_available,
+    ack_naming_an_occupied_socket_falls_back_to_the_other_free_socket,
     ack_answered_from_inside_the_write_is_matched_on_the_first_pump,
 );

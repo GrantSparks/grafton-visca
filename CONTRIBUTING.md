@@ -54,7 +54,8 @@ the public API snapshots is documented in `api/2.0.0-rc.1/README.md`.
 git clone https://github.com/YOUR_USERNAME/grafton-visca.git
 cd grafton-visca
 
-# Run the declared 2.0 release-candidate support matrix
+# Run the canonical local/release validation matrix. CI runs equivalent
+# feature-matrix entries as separate jobs; it does not invoke this script.
 bash .github/scripts/test-all-features.sh
 
 # Or run individual matrix entries while iterating
@@ -80,9 +81,8 @@ cargo test --no-default-features --features runtime-smol,dyn-api
 # Run clippy checks
 cargo clippy --all-targets --all-features -- -D warnings
 
-# Optional safety checks
-cargo +nightly miri setup
-cargo +nightly miri test --lib --no-default-features
+# Bounded named pure-library Miri suite plus feature compile checks
+bash .github/scripts/miri-tests.sh
 
 # Format code
 cargo fmt
@@ -268,7 +268,8 @@ tests for maintained patterns.
 # Default test suite
 cargo test
 
-# Declared 2.0 runtime and transport feature combinations
+# Canonical local/release validation commands. CI runs the feature matrix as
+# separate jobs rather than this command block verbatim.
 bash .github/scripts/test-all-features.sh
 cargo test
 cargo test --no-default-features --features runtime-tokio
@@ -283,8 +284,8 @@ cargo test --no-default-features --features runtime-smol,dyn-api,test-utils --te
 cargo test --no-default-features --features runtime-tokio,transport-serial
 cargo test --no-default-features --features runtime-smol,dyn-api
 
-# Optional interpreter-based UB checks for library tests
-cargo +nightly miri test --lib --no-default-features
+# Bounded named pure-library Miri suite plus feature compile checks
+bash .github/scripts/miri-tests.sh
 
 # With output for debugging
 cargo test -- --nocapture
@@ -338,12 +339,12 @@ issue number, plus a migration-guide row wherever a 1.x or prior user would feel
 it. Rewriting the original entry in place, or filing the reversal under the same
 issue number, hides the reversal from the record and is not allowed.
 
-This is the same discipline the 1.x behavioral-parity gate already enforces for
-waivers: every id in `approved_intentional_changes`
-(`tests/fixtures/1x_oracle/manifest.json`) must appear verbatim in `CHANGELOG.md`,
-and the `behavioral-parity-1x` CI job fails if it does not — so an intentional
-2.0 change cannot bless itself in the manifest without a reviewed, user-visible
-changelog entry naming what it supersedes. See `docs/behavioral_parity_1x.md`.
+For historical 1.x behavior decisions, add or update a direct v2 regression or
+wire/decode golden in the production owner, engine, or parser path and update
+`docs/behavioral_parity_1x.md` when the decision is useful to future
+maintainers. Those direct v2 tests and goldens are authoritative. A new
+behavior needs direct review in the implementation, tests, and changelog; the
+historical guide is not an executable manifest, validator, or CI gate.
 
 ### Code Documentation
 

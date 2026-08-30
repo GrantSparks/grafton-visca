@@ -147,9 +147,9 @@ The construction and request path has a fixed order:
    bounded diagnostic/history state promised by the public API.
 
 Correlation before ACK is envelope-specific. A raw-VISCA target has at most
-one unacknowledged command candidate across `Sending`, `AwaitingAck`, and
-`AwaitingLateAck`. Once its ACK assigns a socket, the next command may be
-written while the first executes, so a two-socket camera retains its useful
+one unacknowledged command candidate across `Sending`, `AwaitingAck`,
+`AwaitingCompletion`, and `AwaitingLateAck`. Once its ACK assigns a socket, the
+next command may be written while the first executes, so a two-socket camera retains its useful
 concurrency without asking FIFO order to identify an ACK. A completion-only
 command (`RawReplyShape::CompletionOnly`, issue #700) never earns a socket, so
 it can never be socket-correlated; it therefore holds the target's command
@@ -249,6 +249,15 @@ pumping an ACK there would not free a socket. Ordinary blocking commands,
 inquiries, and owner-internal requests retain bounded queueing, as does the
 async operation API — whose always-running actor already pumps the ACK, so it
 never exhibited the raw first-write stall.
+
+This is the ratified #673 exception to issue #542 §4's older blanket sentence
+that blocking submission “never waits for ACK.” The local post-review rule is
+narrow: only a sole raw ACK-capable predecessor may be drained, and the drain
+is bounded by the submitting request's ACK budget. `CompletionOnly`, `NoReply`,
+and the #671 `AwaitingLateAck` quarantine with `CancelState::None` never arm it;
+a cancellation-driven late-ACK state remains eligible when its ACK is still
+accepted. This repository records the superseding design decision; the GitHub
+issue body remains historical and is not claimed to have changed.
 
 This ordering is what permits a detached observer or a dropped subscription to
 miss an event without losing an already-applied state update.

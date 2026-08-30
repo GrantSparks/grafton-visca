@@ -5,7 +5,8 @@ the 2.0 architecture must retain. The supported-surface inventory test checks
 the closed lists below against the current registry and source; an intentional
 change must update the implementation, this inventory, and that test together.
 
-The executable 1.x behavior provenance gate is documented in
+Historical 1.x behavior decisions and the retained direct v2 regressions and
+goldens are documented in
 [`behavioral_parity_1x.md`](behavioral_parity_1x.md).
 
 ## Profiles, envelopes, and transports
@@ -107,13 +108,17 @@ The preserved extension semantics are custom command encoding, typed and raw
 inquiry decoding, caller-owned blocking/async transports, raw/protocol command
 and inquiry escape hatches, custom profiles with typed capability gates, and
 runtime-neutral executor integration. The final 2.0 generic request surface is
-only `execute` for plain commands, `inquire` for inquiries, and `submit` for
-typed operations, each with a `_with_submission_class` twin that names its
-ordinary-work `SubmissionClass`; callers cannot manufacture or demote the
-intrinsic urgent safety class — `SubmissionClass` has no `Urgent` variant and
-the raw escape hatch rejects `ControlClass::Urgent` at construction — or inject
-lifecycle IDs, target, completion class, retry class, or settlement metadata at
-submission time.
+on the profile-bound `Camera` view (async `Camera<P>` or blocking
+`Camera<'_, P>`): `execute` for plain commands, `inquire` for inquiries, and
+`submit` for typed operations, each with a `_with_submission_class` twin that
+names its ordinary-work `SubmissionClass`. A `CameraSession<P>` is the
+single-camera owner wrapper; its `camera()` method hands out that actual
+profile-bound `Camera` surface, while its submission-class helpers forward the
+default to that camera rather than defining a separate request API. Callers
+cannot manufacture or demote the intrinsic urgent safety class —
+`SubmissionClass` has no `Urgent` variant and the raw escape hatch rejects
+`ControlClass::Urgent` at construction — or inject lifecycle IDs, target,
+completion class, retry class, or settlement metadata at submission time.
 
 ## Allocation baselines
 

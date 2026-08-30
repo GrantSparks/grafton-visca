@@ -382,7 +382,7 @@ fn validate_wire(bytes: &[u8]) -> Result<()> {
 /// cancel frame: a longer frame whose command byte falls in `0x20..=0x2f` (for
 /// example USB audio, `81 2a 02 a0 04 02 ff`) is an ordinary command and stays
 /// admissible.
-fn reject_owner_only_primitive(bytes: &[u8]) -> Result<()> {
+pub(crate) fn reject_owner_only_primitive(bytes: &[u8]) -> Result<()> {
     // Caller guarantees `bytes.len() >= 2` and `bytes.last() == Some(0xff)`.
     if bytes.len() == 3 && (bytes[1] & 0xf0) == 0x20 {
         return Err(Error::InvalidRequest(

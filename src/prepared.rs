@@ -691,7 +691,14 @@ where
                 .into(),
         ));
     }
-    Ok(Arc::new(EncodedMessage::new(&bytes[..written])?))
+    // The raw namespace and downstream `Request` implementations share this
+    // final owner-only primitive guard.  Constructing the inert message first
+    // preserves the existing terminator/size validation order; a rejection
+    // here returns before the prepared request can be admitted or written to a
+    // transport.
+    let message = EncodedMessage::new(&bytes[..written])?;
+    crate::raw::reject_owner_only_primitive(message.as_bytes())?;
+    Ok(Arc::new(message))
 }
 
 fn validate_timeout_class(class: TimeoutClass, inquiry: bool) -> Result<()> {
@@ -1231,6 +1238,79 @@ mod tests {
             buffer[..2].copy_from_slice(&[CameraId::CAMERA_1.to_address_byte(), VISCA_TERMINATOR]);
             Ok(2)
         }
+    }
+
+    /// A downstream-style plain request whose frame is supplied by the caller.
+    /// The owner must validate the resulting bytes even though this type is not
+    /// one of the crate's raw wrappers.
+    struct DownstreamPlain {
+        frame: &'static [u8],
+    }
+
+    impl Request for DownstreamPlain {
+        type Class = crate::request::Plain;
+
+        const MAX_SIZE: usize = 7;
+        const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Quick;
+        const RETRY_CLASS: RetryClass = RetryClass::Never;
+        const CONTROL_CLASS: ControlClass = ControlClass::Normal;
+
+        fn encoded_size(&self) -> usize {
+            self.frame.len()
+        }
+
+        fn write_into(&self, target: CameraId, buffer: &mut [u8]) -> Result<usize> {
+            buffer[..self.frame.len()].copy_from_slice(self.frame);
+            buffer[0] = target.to_address_byte();
+            Ok(self.frame.len())
+        }
+    }
+
+    /// Owner-only byte patterns must be rejected for every typed request
+    /// implementation, not only for values from `crate::raw`.
+    #[test]
+    fn generic_plain_request_rejects_owner_only_primitives_before_admission() {
+        let profile = ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()
+            .expect("generic profile");
+        let target = CameraId::CAMERA_1;
+
+        for (name, frame) in [
+            ("socket cancel", &[0x81, 0x20, VISCA_TERMINATOR][..]),
+            (
+                "interface clear",
+                &[0x81, 0x01, 0x00, 0x01, VISCA_TERMINATOR][..],
+            ),
+        ] {
+            let error = prepare_command(
+                &DownstreamPlain { frame },
+                target,
+                &profile,
+                OperationalTuning::new(),
+                ClassSelection::Request,
+            )
+            .expect_err("owner-only primitive must not be prepared");
+            assert!(matches!(error, Error::InvalidRequest(_)), "{name}");
+            // Encoding a custom request into preparation scratch is necessary
+            // to inspect its bytes; no PreparedCommand is returned, so no
+            // owner admission or transport write can follow this rejection.
+        }
+
+        // A nearby custom command with the same address/terminator contract is
+        // still accepted; the guard is limited to the exact owner-only shapes.
+        let prepared = prepare_command(
+            &DownstreamPlain {
+                frame: &[0x81, 0x2a, 0x02, 0xa0, 0x04, 0x02, VISCA_TERMINATOR],
+            },
+            target,
+            &profile,
+            OperationalTuning::new(),
+            ClassSelection::Request,
+        )
+        .expect("ordinary downstream command must remain admissible");
+        assert_eq!(
+            prepared.wire.as_bytes(),
+            &[0x81, 0x2a, 0x02, 0xa0, 0x04, 0x02, VISCA_TERMINATOR]
+        );
     }
 
     #[test]

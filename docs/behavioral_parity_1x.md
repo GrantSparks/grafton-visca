@@ -1,88 +1,81 @@
-# 1.x behavioral parity gate
+# Historical 1.x behavior decisions and retained direct tests
 
-2.0 is a clean API and architecture break. That means callers do not receive
-1.x compatibility shims, deprecated aliases, or the old scheduler surface. It
-does not mean that a battle-tested protocol behavior can be silently
-re-authored. The parity gate separates those two ideas:
+2.0 is a clean API and architecture break. Callers do not receive 1.x
+compatibility shims, deprecated aliases, or the old scheduler surface. A
+protocol behavior can still be retained when it is observable, useful, and
+safe to carry forward. This page records those historical decisions and points
+maintainers to the direct v2 regressions and wire/decode goldens that preserve
+them.
 
-- *Source-code reuse* means retaining an implementation or helper from 1.x.
-  The 2.0 design deliberately does not require this; the owner and engine have
-  new boundaries.
-- *Behavior reuse* means retaining an observable contract such as retry budget,
-  response attribution, wire bytes, or drop/detach semantics. This is what the
-  gate records and exercises.
+## How to use this guide
 
-## The pinned oracle
+The decisions below are historical evidence, not a promise that every 1.x
+implementation detail remains part of the public API. The direct v2 regression
+tests and goldens named here are the authoritative evidence for behavior that
+the current implementation retains. When new behavior is introduced, review
+the implementation and its direct tests together, decide explicitly whether it
+supersedes one of these decisions, and record the user-visible consequence in
+the migration guide and changelog.
 
-The versioned corpus is [`tests/fixtures/1x_oracle/manifest.json`](../tests/fixtures/1x_oracle/manifest.json).
-Every row pins the complete 1.x commit
-`6c7a9d3783861189745536372c4d21de24d4252d`, names the old source file and test
-symbol, cites the applicable [issue #542](https://github.com/GrantSparks/grafton-visca/issues/542)
-contract, and points to the v2 production-path test(s) or fixture(s) that
-exercise the behavior. Each v2 row also records the transport `envelope`
-(`sony`, `raw`, or `neutral`), the camera `profile` it drives (a concrete type
-such as `SonyFR7`, or `n/a` for engine-level and pure encode/decode tests), and
-the terminal `receipt_class` it asserts.
+The guide points to production paths and their focused test boundaries: owner,
+engine, framer, encoder, and public facade. It does not introduce a second
+scheduler or compatibility shim whose behavior could drift from what users
+receive.
 
-The validator is enforcing, not advisory. It checks that every referenced
-symbol still exists; that the recorded envelope/profile match the mapped test's
-own body (a `Sony*` profile must appear in the body and pair with envelope
-`sony`; a row declared `raw` must not run a Sony-only test), so an
-evidence-laundering raw→Sony swap under an unchanged name is a visible, checked
-diff instead of a silent re-baseline; and — when it runs the mapped `cargo test`
-commands — that each mapped symbol *actually executed*. A libtest filter that
-matches nothing exits `0` after printing `running 0 tests`, and an `#[ignore]`d
-test prints `... ignored` while the binary still exits `0`, so the gate parses
-the libtest output and fails unless every mapped symbol appears as an executed
-(`ok`) test. Renaming an enclosing `mod tests`, filtering to zero of the mapped
-symbols, or ignoring one all fail loudly instead of reducing coverage silently.
+## Retained behavior families
 
-Run it with:
+| Family | Decision carried into v2 | Direct v2 evidence |
+| --- | --- | --- |
+| Wire bytes and reply decoding | Built-in commands retain their documented VISCA bytes; fixed replies are length- and socket-strict, while a delimited malformed frame is discarded and a genuine framing-position loss poisons a stream. | `tests/issue_633_golden_wire_bytes.rs`; `tests/issue_672_674_681_decode_consequence.rs` |
+| Retry budgets | Retry counts remain category-based and one admission-to-terminal wall-clock budget covers every later noncancelled phase. Sony retries reuse the same sequence; an ambiguous raw send is never replayed. | `src/runtime/engine/tests.rs`: `retry_budget_expires_while_awaiting_sony_ack`, `retry_budget_expires_while_executing_sony_command`, `retry_budget_expires_while_awaiting_inquiry_reply`, and the raw expiry tests |
+| Raw correlation | Raw VISCA admits one unacknowledged command per target before ACK, never guesses by FIFO or recency, and reopens socket concurrency only after ownership is established. | `src/runtime/engine/tests.rs`: `raw_gate_serializes_pre_ack_while_sony_allows_pipeline`, `raw_error_policy_requires_unique_socketless_evidence`, `raw_ack_in_awaiting_ack_uses_the_unique_command_candidate` |
+| ACK socket assignment | A named ACK is exact when its socket is free. If that socket is occupied but another target socket is free, the uniquely identified candidate falls back to that socket; the ACK is inert only when no socket is free. Socketless ACKs retain first-free compatibility. | `src/runtime/engine/tests.rs`: `socket_assignment_falls_back_from_an_occupied_named_socket_and_never_invents_one`, `ack_naming_an_occupied_socket_falls_back_to_the_free_socket` |
+| Raw uncertainty | By default, an unconfirmable raw command fails only that request with `UnsequencedCommandUnconfirmed`, quarantines its correlation, and leaves the session live. `strict_unconfirmed_poison` opts into whole-session `StreamPoisoned`. | `src/runtime/engine/tests.rs`: `raw_active_retry_budget_expiry_quarantines_and_fails_per_request`, `raw_active_retry_budget_expiry_poisons_under_strict_opt_in`, `raw_receive_fault_leaves_unacked_command_and_keeps_the_session`, `raw_receive_fault_poisons_under_strict_opt_in`; `tests/issue_565_transport_faults_blocking.rs` and `tests/issue_565_transport_faults_async.rs` |
+| Receive and write failures | A fatal receive closure is normalized to `ConnectionClosed` with the cause text retained. `StreamPoisoned` is reserved for an unknowable stream framing or write position; datagram write failure remains per-request. | `src/runtime/owner/tests.rs`: `fatal_blocking_read_fault_closes_the_stream_session`; `src/runtime/engine/tests.rs`: `stream_write_failure_poisons_with_the_transport_cause_in_the_reason`; `tests/issue_565_transport_faults_blocking.rs` |
+| Cancellation and lifecycle | Cancellation is an intent and an observable outcome, not an implicit timeout or detach. Close, shutdown, poison, and old operation handles retain their distinct terminal behavior. | `src/runtime/owner/tests.rs` cancellation/close tests; `tests/issue_680_engine_poison_session_error.rs`; `tests/issue_554_owner_cancellation_blocking.rs` |
 
-```text
-bash .github/scripts/validate-behavioral-parity.sh
-```
+## Decisions that need particular care
 
-The dedicated CI job checks out full Git history because `git show` must be able
-to read the pinned oracle object. A shallow checkout produces a deterministic
-failure explaining the required `fetch-depth: 0`. The gate is repository/CI
-machinery and is not required by a crates.io consumer.
+### Delimited malformed frames
 
-The current corpus covers timeout category defaults and selection; retry counts,
-bounded exhaustion, and evidence-aware recovery; exact/unique/colliding
-lower-16 sequence handling; stale sequenced completion, error, and inquiry
-inertness; raw exact-socket and unique-candidate routing; compatible inquiry
-FIFO; datagram isolation; stream poison; byte-stream malformed-frame tolerance;
-envelope-specific receive faults; command wire bytes; inquiry decoding and
-golden replies; blocking out-of-order receipt retention; and cancellation,
-detach, and late observer delivery.
+The framer owns the byte boundary. If it has already found an `FF` terminator,
+the strict response classifier may reject the resulting frame without making
+the stream unusable: the owner records `Ignored(MalformedFrame)` and continues.
+Only losing the framing position — for example an unrecoverable buffer
+overflow or a boundary-free read beyond `max_buffer_size` — is a stream poison.
+Datagrams have the same discard-and-continue consequence because each datagram
+is an independent framing unit.
 
-The `malformed-frame-tolerance` family (#672) pins that a delimited-but-
-unclassifiable VISCA response is discarded and logged rather than fatal. 1.x
-reported such a frame as `ReceiveDisposition::Malformed` and logged-and-continued
-in both runners without disturbing any pending command; the 2.0 rewrite briefly
-regressed this on byte streams, where the strict decoder's rejection became a
-framing poison that killed the whole session. The v2 production replay drives the
-real owner over a stream and asserts every quirky-but-delimited shape (padded
-ACKs, vendor socket nibbles, RS-485 echoes, controller/broadcast lead bytes,
-address-set replies, truncated frames, stray terminator bytes) is discarded as
-`Ignored(MalformedFrame)` while the session stays `Running` and the command is
-still settled by the next well-formed reply. A genuine loss of the framing
-position (buffer overflow, or a boundary-free read past `max_buffer_size`) still
-poisons, and that terminal case is preserved.
+### Raw uncertainty and issue #671
+
+An ACK/completion/cancellation ambiguity, a transient receive fault while raw
+work awaits ACK, or active retry-budget expiry after a raw send does not justify
+replaying a possibly executed physical action. The default result is
+`UnsequencedCommandUnconfirmed` for that request only. Its socket or sole raw
+candidate slot remains quarantined until the ambiguity deadline so a late reply
+cannot bind to later work. Reconcile the camera effect before deliberately
+resubmitting. The strict opt-in restores a whole-session poison and reports
+`StreamPoisoned`.
+
+### Receive taxonomy
+
+A read that proves the connection is gone consumes no bytes, so it does not
+make the stream's framing position unknowable. Owners report it as
+`ConnectionClosed` and retain the underlying receive error's text in the
+reason. A failed stream write or unrecoverable framer loss has a different
+failure mode: its byte position cannot be established, so it reports
+`StreamPoisoned` and requires a fresh session.
 
 ## Built-in request policy audit
 
-The request-policy audit is exhaustive but does not maintain a second semantic
-registry. It reads the 149 rows from `BuiltinCommand::ALL`, resolves each row
-through the mechanically checked `BUILTIN_TYPED_REQUEST_INVENTORY`, and reads
-the `TimeoutClass`/`RetryClass` constants from the concrete `Request` macro
-invocations. The generated inquiry table contains 68 queryable request rows
-and 11 decode-only response rows; every queryable row uses the generated
-`Inquiry`/`Inquiry` policy. The pinned 1.x command declarations are the
-comparison source (`src/command/*.rs` `TIMEOUT_CATEGORY`/`category` entries),
-and the pinned inquiry table has no per-row timeout override, so every old
-built-in inquiry used the 1.x quick-category default.
+The request-policy audit reads the built-in command ledger and the concrete
+request declarations; it does not maintain a second semantic registry. The
+current ledger has 149 command rows, 68 queryable inquiry rows, and 11
+decode-only response rows. Every queryable row uses the generated inquiry
+policy, with an inquiry-specific deadline and the interim 1 s response default.
+The historical comparison is the 1.x timeout category in the original command
+declarations; the v2 retry class controls which evidence-backed error paths may
+replay, while the timeout category controls the retry count.
 
 The rows with an intentional timeout-category decision are:
 
@@ -92,90 +85,36 @@ The rows with an intentional timeout-category decision are:
 | `PanTiltLimitSet`, `PanTiltLimitClear` | Movement | Quick / Standard | Plain limit-state edits are not actuation. |
 | `FocusAuto`, `FocusManual`, `FocusToggle` | Movement | Quick / Standard | Focus-mode settings are plain configuration. |
 | `FocusOnePush`, `FocusSnap` | Movement | Quick / Movement | Applied-only focus triggers retain movement retry/error semantics with an urgent deadline. |
-| `IrisReset`, `IrisUp`, `IrisDown`, `IrisDirect` | Quick | Movement / Movement | Targeted physical aperture operations now have exact iris settlement inquiries. |
-| `NdFilterDirect`, `NdFilterStepUp`, `NdFilterStepDown` | Quick | Movement / Movement | Targeted physical filter operations now have exact ND settlement inquiries. |
-| `Sharpness*`, `Gamma`, `NoiseReduction2d*`, `NoiseReduction3d*`, `ImageFlipBoth`, `ImageFlipCombined` | Custom | Quick / Standard | `Custom` was only the uncategorized 60-second fallback; these are explicit quick configuration writes in v2. `ImageFlipBoth` carries both axes in one opcode and shares the combined-flip treatment with `ImageFlipCombined`. |
-| 68 queryable built-in inquiries | Quick | Inquiry / Inquiry | Inquiry response timing is a separate profile fact: v2 gives inquiries their own deadline, an interim 1 s on every built-in profile, down from the 5 s `Quick` budget 1.x inquiries used (parity waiver `inquiry-deadline-interim-default`). The inquiry retry *budget* still uses the old quick budget. |
+| `IrisReset`, `IrisUp`, `IrisDown`, `IrisDirect` | Quick | Movement / Movement | Targeted physical aperture operations have exact iris settlement inquiries. |
+| `NdFilterDirect`, `NdFilterStepUp`, `NdFilterStepDown` | Quick | Movement / Movement | Targeted physical filter operations have exact ND settlement inquiries. |
+| `Sharpness*`, `Gamma`, `NoiseReduction2d*`, `NoiseReduction3d*`, `ImageFlipBoth`, `ImageFlipCombined` | Custom | Quick / Standard | The old `Custom` value was the uncategorized 60 s fallback; these are explicit quick configuration writes in v2. |
+| 68 queryable built-in inquiries | Quick | Inquiry / Inquiry | Inquiry response timing is a separate profile fact: v2 uses an interim 1 s deadline while retaining the old quick retry budget. |
 
 The remaining 120 command rows retain their 1.x timeout category, and every
-command row has an explicit retry class. The `BuiltinCommand` universe size
-(149) and this 29-changed / 120-preserved split are pinned by
-`intentional_timeout_category_changes_account_for_the_preserved_remainder` in
-`src/command/semantics.rs`, so adding or reclassifying a command fails that test
-until this table and the count above are updated to match. `CommandCancel` is
-deliberately
-`Quick`/`Never` because replaying a cancellation is not a safe generic retry;
-`PushAfPress` and `PushAfRelease` are `Quick`/`Movement` because they are
-focus actuation and may receive the movement-specific transient `0x41` retry.
-`PresetSet` and `PresetReset` are `Preset`/`Preset`: their timeout category
-and movement/preset-specific `0x41` retry behavior are both preserved even
-though the v2 semantic class is plain. Retry counts are derived from the
-timeout category, while the retry class selects replay and contextual error
-arms; consequently a `Quick`/`Movement` stop intentionally receives the
-quick retry count while retaining movement error handling.
+command row has an explicit retry class. The semantic unit test
+`intentional_timeout_category_changes_account_for_the_preserved_remainder`
+checks the 149-row universe and the 29 changed / 120 preserved split. Update
+this table and its explanation whenever that direct test's changed set moves.
+`CommandCancel` remains `Quick`/`Never`; `PushAfPress` and `PushAfRelease`
+retain movement error handling; and `PresetSet`/`PresetReset` retain their
+preset timeout and retry behavior even though their v2 semantic class is plain.
 
-No v2 request resurrects `Custom`. The old fallback is compared as behavior,
-not as a public API compatibility requirement.
+## Adding or changing behavior
 
-## Adding or waiving a row
+When a behavior changes or a regression is found:
 
-Add a stable lowercase behavior ID to `required_families` **and to
-`EXPECTED_REQUIRED_FAMILIES` in `validate.py`** — the required set is pinned in
-the validator, so a family cannot be dropped from coverage in a lone manifest
-edit. Then add one verified row with:
+1. Add or update a direct v2 regression test at the production owner, engine,
+   framer, encoder, or public facade boundary. Add a wire/decode golden when
+   exact bytes or classification are the contract.
+2. Describe the decision here when it is useful historical context, including
+   the issue or review that motivated it and the direct test that demonstrates
+   the current result.
+3. Update `docs/migration_2_0.md` and `CHANGELOG.md` when a caller can observe
+   the change.
+4. Review the new behavior directly against the implementation and tests. Do
+   not preserve an old behavior merely because it once existed if it would
+   make correlation, framing, cancellation, or physical safety less certain.
 
-1. the 1.x path and one or more concrete function symbols;
-2. one or more v2 test definitions, each with a current source symbol, its
-   `envelope`/`profile`/`receipt_class`, and a direct `cargo test` command; and
-3. a `#542` clause plus a short rationale.
-
-The validator rejects missing, duplicate, placeholder, unverified, or
-unreferenced IDs, and a family set that does not match the pinned constant. It
-runs each unique command once after grouping rows by command, and asserts every
-mapped symbol executed (not filtered, not ignored). Keep mappings pointed at
-existing production replay tests and fixtures. A new integration test should
-drive the public owner/facade/testkit; do not add a second scheduler or a
-hand-written simulator just to satisfy this corpus.
-
-An intentional 2.0 behavior change is not a waiver by omission, and it is not a
-self-approval either. Mark the row `intentional-change` only with an explicit
-`approved_change` listed in `approved_intentional_changes`, document the
-rationale in the row, **and add the same id verbatim to `CHANGELOG.md`** — the
-gate requires every approved waiver to appear in the changelog, so a waiver
-forces a reviewed, user-visible entry naming what it supersedes rather than a
-manifest line that blesses itself. An unapproved classification, or an approved
-id with no changelog entry, fails the gate. If the behavior is still required by
-#542, keep it `preserved` and repair the production path or its test.
-
-The three current waivers — `deterministic-equal-jitter`,
-`evidence-based-raw-correlation`, and `evidence-bounded-retry` — are all
-maintainer-ratified per #692. `evidence-bounded-retry` was ratified once #671
-landed and its rationale below was rewritten to describe the shipped per-request
-(not whole-session) failure model; its CHANGELOG entry records the same, so the
-gate's changelog-coupling stays satisfied against the settled wording.
-
-Retry-count categories and bounded exponential scheduling retain their 1.x
-provenance, but replay is no longer inferred merely from elapsed time. Sony
-ambiguity can retry only with the same sequence; an ambiguous successfully sent
-raw command is never replayed. By default (issue #671) it fails only that one
-command with `UnsequencedCommandUnconfirmed` and quarantines its correlation
-while the session survives; the opt-in `strict_unconfirmed_poison` mode restores
-the whole-session poison. The default backoff starts at 50 ms and uses
-deterministic equal jitter within a bounded ceiling. One admission-to-terminal budget stays active through every later
-noncancelled phase and is the largest of ten seconds, twice the request's
-governing deadline, and the profile busy timeout.
-
-The raw-correlation row is likewise an explicit v2 safety change, not a waiver
-by omission. Raw commands keep one unacknowledged candidate per target and
-never use FIFO or temporal recency for ACK/error attribution. A named socket
-that is free is exact evidence; an occupied named socket falls back to the
-target's other free socket (issues #620/#682) because the ACK's candidate is
-already uniquely identified, and is inert only when no socket is free. The only
-remaining FIFO rule belongs to route/content-compatible raw inquiries when no
-command candidate creates ambiguous ownership.
-
-Hardware evidence remains separate. This gate proves deterministic software
-behavior against scripted transports, production owner/engine replays, and
-absolute wire/decode goldens. It does not claim that a particular camera,
-network, serial adapter, or firmware behaves correctly; those observations stay
-in the hardware release checklist.
+Hardware evidence remains separate. Scripted transports and direct owner/engine
+tests establish deterministic software behavior; the hardware release checklist
+establishes what a particular camera, network, serial adapter, or firmware does.

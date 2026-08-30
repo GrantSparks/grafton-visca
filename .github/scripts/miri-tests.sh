@@ -86,8 +86,9 @@ run_miri "Sony envelope parsing" \
 
 # Runtime adapters, transports, serialization, and test utilities are not
 # meaningful Miri executions here (they either require OS I/O or third-party
-# runtime internals), but every supported feature combination still receives a
-# library compile check in this job.
+# runtime internals). The checks below compile a bounded, representative set of
+# feature combinations; they are not an exhaustive check of every supported
+# feature union.
 run_check "no-default pure library" --no-default-features
 run_check "blocking library" --no-default-features --features blocking
 run_check "runtime-neutral async library" --no-default-features --features async

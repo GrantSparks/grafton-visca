@@ -7149,6 +7149,106 @@ fn a_post_ack_completion_timeout_retries_the_command() {
     engine.assert_invariants().unwrap();
 }
 
+/// Issue #673's blocking drain is limited to a predecessor whose next accepted
+/// frame can actually be an ACK. The broader raw unacknowledged predicate still
+/// reserves the target for completion-only commands and #671 quarantines, but
+/// neither of those states should make a blocking submit wait on a useless
+/// receive. A cancellation-driven late-ACK state remains eligible because its
+/// late ACK is still accepted and can establish the socket needed for cancel.
+#[cfg(feature = "blocking")]
+#[test]
+fn blocking_preack_gate_requires_an_ack_capable_predecessor() {
+    let start = Instant::now();
+
+    // A normal raw command is ACK-capable before and after its write result.
+    {
+        let mut runtime = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+        let (admitted_effects, id) = admit(
+            &mut runtime,
+            1,
+            command(1, CancellationPolicy::Supported),
+            start,
+        );
+        assert!(matches!(
+            phase_of(&runtime, id),
+            Some(Phase::Sending { .. })
+        ));
+        assert!(runtime.raw_preack_gate_frees_socket_on_ack(camera(1)));
+        send_ok(&mut runtime, &admitted_effects, None, start);
+        assert!(matches!(
+            phase_of(&runtime, id),
+            Some(Phase::AwaitingAck { .. })
+        ));
+        assert!(runtime.raw_preack_gate_frees_socket_on_ack(camera(1)));
+    }
+
+    // Completion-only has no ACK phase. It still holds the broad raw
+    // unacknowledged/exclusivity slot, but the blocking owner must not pump.
+    {
+        let mut runtime = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+        let (admitted_effects, id) = admit(
+            &mut runtime,
+            2,
+            command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::CompletionOnly),
+            start,
+        );
+        send_ok(&mut runtime, &admitted_effects, None, start);
+        assert!(matches!(
+            phase_of(&runtime, id),
+            Some(Phase::AwaitingCompletion { .. })
+        ));
+        assert!(!runtime.raw_preack_gate_frees_socket_on_ack(camera(1)));
+    }
+
+    // The default #671 late-ACK quarantine has no accepted ACK path. It must
+    // retain the raw exclusivity slot without arming the blocking drain.
+    {
+        let mut runtime = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+        let (admitted_effects, id) = admit(
+            &mut runtime,
+            3,
+            command(1, CancellationPolicy::Supported),
+            start,
+        );
+        send_ok(&mut runtime, &admitted_effects, None, start);
+        runtime.advance(start + Duration::from_millis(25));
+        assert!(matches!(
+            phase_of(&runtime, id),
+            Some(Phase::AwaitingLateAck { .. })
+        ));
+        assert_eq!(
+            runtime.entry(id).map(Entry::cancellation),
+            Some(CancelState::None)
+        );
+        assert!(!runtime.raw_preack_gate_frees_socket_on_ack(camera(1)));
+    }
+
+    // Cancellation requested before the ACK deadline deliberately keeps the
+    // late-ACK path alive. The blocking drain remains reachable for this state
+    // so it can receive the ACK and let the engine emit the socket cancel.
+    {
+        let mut runtime = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+        let (admitted_effects, id) = admit(
+            &mut runtime,
+            4,
+            command(1, CancellationPolicy::Supported),
+            start,
+        );
+        send_ok(&mut runtime, &admitted_effects, None, start);
+        runtime.handle(Input::Cancel { id }, start);
+        runtime.advance(start + Duration::from_millis(25));
+        assert!(matches!(
+            phase_of(&runtime, id),
+            Some(Phase::AwaitingLateAck { .. })
+        ));
+        assert!(!matches!(
+            runtime.entry(id).map(Entry::cancellation),
+            Some(CancelState::None) | None
+        ));
+        assert!(runtime.raw_preack_gate_frees_socket_on_ack(camera(1)));
+    }
+}
+
 // ---- Issue #700: raw reply-shape axis (completion-only / no-reply) ---------
 
 /// #700: a completion-only raw command skips AwaitingAck entirely — it earns no
@@ -7451,5 +7551,126 @@ fn completion_only_completion_racing_the_write_result_is_latched() {
         matches!(terminal_outcome(&send, id), Some(RuntimeOutcome::Applied)),
         "the latched completion terminates the command on send confirmation",
     );
+    engine.assert_invariants().unwrap();
+}
+
+/// #700: socketless capacity errors are terminal frames for a completion-only
+/// command and reuse the ordinary camera-error retry policy. Both VISCA
+/// capacity codes must schedule a retry instead of leaving the command to time
+/// out in `AwaitingCompletion`.
+#[test]
+fn completion_only_socketless_capacity_errors_retry() {
+    let start = Instant::now();
+    for code in [0x03, 0x05] {
+        let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+        let (admitted_effects, id) = admit(
+            &mut engine,
+            u64::from(code),
+            command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::CompletionOnly),
+            start,
+        );
+        send_ok(&mut engine, &admitted_effects, None, start);
+
+        let refused = engine.handle(
+            frame(1, None, DecodedResponse::Error { socket: None, code }),
+            start,
+        );
+        assert!(
+            ignored_reasons(&refused).is_empty(),
+            "capacity error 0x{code:02X} must route to the completion-only command",
+        );
+        assert_eq!(
+            retry_scheduled(&refused).map(|scheduled| scheduled.0),
+            Some(id)
+        );
+        assert!(terminal_outcome(&refused, id).is_none());
+        assert!(matches!(phase_of(&engine, id), Some(Phase::Backoff { .. })));
+        engine.assert_invariants().unwrap();
+    }
+}
+
+/// #700: a socketless nonretryable camera error terminates a completion-only
+/// command with the camera's exact error, rather than falling through to the
+/// completion deadline.
+#[test]
+fn completion_only_socketless_nonretryable_error_is_terminal() {
+    let start = Instant::now();
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+    let (admitted_effects, id) = admit(
+        &mut engine,
+        1,
+        command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::CompletionOnly),
+        start,
+    );
+    send_ok(&mut engine, &admitted_effects, None, start);
+
+    let refused = engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::Error {
+                socket: None,
+                code: 0x01,
+            },
+        ),
+        start,
+    );
+    assert!(ignored_reasons(&refused).is_empty());
+    assert!(matches!(
+        terminal_failure(&refused, id),
+        Some(Error::MessageLengthError)
+    ));
+    assert!(engine.entry(id).is_none());
+    engine.assert_invariants().unwrap();
+}
+
+/// #700: named raw error sockets remain authoritative. A completion-only
+/// command owns no socket, so an error naming an unowned socket is ignored;
+/// the socketless form is the compatible terminal frame for this shape.
+#[test]
+fn completion_only_named_unowned_error_does_not_fallback() {
+    let start = Instant::now();
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+    let (admitted_effects, id) = admit(
+        &mut engine,
+        1,
+        command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::CompletionOnly),
+        start,
+    );
+    send_ok(&mut engine, &admitted_effects, None, start);
+
+    let named = engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::Error {
+                socket: Some(ViscaSocket::S1),
+                code: 0x01,
+            },
+        ),
+        start,
+    );
+    assert_eq!(ignored_reasons(&named), vec![IgnoreReason::UnmatchedFrame]);
+    assert!(terminal_outcome(&named, id).is_none());
+    assert!(matches!(
+        phase_of(&engine, id),
+        Some(Phase::AwaitingCompletion { .. })
+    ));
+
+    let socketless = engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::Error {
+                socket: None,
+                code: 0x01,
+            },
+        ),
+        start,
+    );
+    assert!(matches!(
+        terminal_failure(&socketless, id),
+        Some(Error::MessageLengthError)
+    ));
     engine.assert_invariants().unwrap();
 }

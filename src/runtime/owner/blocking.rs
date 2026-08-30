@@ -1039,6 +1039,21 @@ enum SubmitPolicy {
     RequireFirstWrite,
 }
 
+/// Controls whether a receive turn may hand a newly available socket to
+/// ordinary queued work. The pre-ACK drain suppresses that final scheduler
+/// step until its submitting operation has been admitted (issue #673).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PumpMode {
+    Normal,
+    PreAckDrain,
+}
+
+impl PumpMode {
+    const fn allows_ordinary_dispatch(self) -> bool {
+        matches!(self, Self::Normal)
+    }
+}
+
 fn wait_core_for(
     core: ReceiptCore,
     control: &mut BlockingReceiptControl<'_>,
@@ -1245,6 +1260,26 @@ impl BlockingOwner {
         result.map_err(|error| self.boundary_error_or(error))
     }
 
+    /// Test-only seam for asserting that a submission path does (or does not)
+    /// enter the bounded pre-ACK drain. Production submissions reach the
+    /// private method through [`BlockingSessionHost::submit_operation`].
+    #[cfg(all(test, not(feature = "async")))]
+    pub(crate) fn drain_raw_preack_gate_for_test<D, R, F>(
+        &mut self,
+        driver: &mut D,
+        reader: &mut R,
+        decoder: &mut F,
+        target: crate::CameraId,
+        ack_budget: Duration,
+    ) -> Result<(), Error>
+    where
+        D: BlockingWireDriver + ?Sized,
+        R: BlockingReadDriver + ?Sized,
+        F: BlockingFrameDecoder + ?Sized,
+    {
+        self.drain_raw_preack_gate(driver, reader, decoder, target, ack_budget)
+    }
+
     fn drain_raw_preack_gate_inner<D, R, F>(
         &mut self,
         driver: &mut D,
@@ -1263,7 +1298,13 @@ impl BlockingOwner {
         // budget elapses (the first write then fails fast), or when the pump
         // itself ends the session.
         while self.state.raw_preack_gate_frees_socket_on_ack(target) && Instant::now() < deadline {
-            self.pump_once_inner(driver, reader, decoder, Some(deadline))?;
+            self.pump_once_inner(
+                driver,
+                reader,
+                decoder,
+                Some(deadline),
+                PumpMode::PreAckDrain,
+            )?;
         }
         Ok(())
     }
@@ -1548,7 +1589,8 @@ impl BlockingOwner {
         F: BlockingFrameDecoder + ?Sized,
     {
         self.enter()?;
-        let result = self.pump_once_inner(driver, reader, decoder, observer_deadline);
+        let result =
+            self.pump_once_inner(driver, reader, decoder, observer_deadline, PumpMode::Normal);
         self.leave();
         // Issue #629: whatever ended the session inside this one pump turn, the
         // caller must be told the session's own boundary verdict and never the
@@ -1573,13 +1615,14 @@ impl BlockingOwner {
         reader: &mut R,
         decoder: &mut F,
         observer_deadline: Option<Instant>,
+        mode: PumpMode,
     ) -> Result<usize, Error>
     where
         D: BlockingWireDriver + ?Sized,
         R: BlockingReadDriver + ?Sized,
         F: BlockingFrameDecoder + ?Sized,
     {
-        let owner_deadline = min_deadline(self.state.next_wake(), observer_deadline);
+        let owner_deadline = min_deadline(self.next_wake_for_mode(mode), observer_deadline);
         let read = reader.receive(self.state.buffers().receive_mut(), owner_deadline);
         // An error that only reports "no bytes arrived" is an idle read, not a
         // fault: it consumed nothing and must not burn any request's retry
@@ -1592,18 +1635,22 @@ impl BlockingOwner {
         let (received, received_at) = match read {
             Ok(BlockingReceive::TimedOut) => {
                 let now = Instant::now();
-                if self.state.next_wake().is_some_and(|wake| wake <= now) {
-                    let effects = self.state.advance(now);
-                    self.drive(driver, effects);
+                if self
+                    .next_wake_for_mode(mode)
+                    .is_some_and(|wake| wake <= now)
+                {
+                    let effects = self.advance_for_mode(now, mode);
+                    let _ = self.drive_for_mode(driver, effects, mode);
                 }
                 return Ok(0);
             }
             Ok(BlockingReceive::Bytes(0)) => {
-                let effects = self.state.input(
+                let effects = self.input_for_mode(
                     Input::Shutdown(ShutdownReason::TransportClosed { reason: None }),
                     Instant::now(),
+                    mode,
                 );
-                let _ = self.drive(driver, effects);
+                let _ = self.drive_for_mode(driver, effects, mode);
                 return Err(Error::ConnectionClosed { reason: None });
             }
             Ok(BlockingReceive::Bytes(received)) => (received, Instant::now()),
@@ -1614,10 +1661,9 @@ impl BlockingOwner {
                 // rather than being replayed. The read consumed nothing, so
                 // framing state is intact and this pump simply produced no
                 // frames.
-                let effects = self
-                    .state
-                    .input(Input::ReceiveFault { error }, Instant::now());
-                let _ = self.drive(driver, effects);
+                let effects =
+                    self.input_for_mode(Input::ReceiveFault { error }, Instant::now(), mode);
+                let _ = self.drive_for_mode(driver, effects, mode);
                 pause_after_transient_receive_fault(owner_deadline);
                 return Ok(0);
             }
@@ -1626,13 +1672,14 @@ impl BlockingOwner {
                 // nothing about the byte-stream *position*, which is what
                 // poison means. Framing failures below still poison a
                 // stream, exactly as the async owner does.
-                let effects = self.state.input(
+                let effects = self.input_for_mode(
                     Input::Close {
                         reason: Some(error.to_string().into_boxed_str()),
                     },
                     Instant::now(),
+                    mode,
                 );
-                let _ = self.drive(driver, effects);
+                let _ = self.drive_for_mode(driver, effects, mode);
                 // Report the close, not the raw read fault that caused it —
                 // the same verdict the zero-byte arm above returns. The
                 // cause survives in the close reason.
@@ -1654,13 +1701,14 @@ impl BlockingOwner {
                 Ok(frames) => frames,
                 Err(error) => {
                     if is_stream {
-                        let effects = self.state.input(
+                        let effects = self.input_for_mode(
                             Input::Poison {
                                 reason: error.to_string().into_boxed_str(),
                             },
                             Instant::now(),
+                            mode,
                         );
-                        let _ = self.drive(driver, effects);
+                        let _ = self.drive_for_mode(driver, effects, mode);
                         return Err(error);
                     }
                     // A datagram is an atomic receive boundary. Malformed
@@ -1683,13 +1731,14 @@ impl BlockingOwner {
             }
             if let Err(error) = self.state.validate_frame_batch(&frames) {
                 if is_stream {
-                    let effects = self.state.input(
+                    let effects = self.input_for_mode(
                         Input::Poison {
                             reason: error.to_string().into_boxed_str(),
                         },
                         Instant::now(),
+                        mode,
                     );
-                    let _ = self.drive(driver, effects);
+                    let _ = self.drive_for_mode(driver, effects, mode);
                     return Err(error);
                 }
                 let _ = self
@@ -1698,7 +1747,7 @@ impl BlockingOwner {
                 return Ok(driven);
             }
             let count = frames.len();
-            self.drive_decoded_batch(driver, frames, received_at);
+            self.drive_decoded_batch_with_mode(driver, frames, received_at, mode);
             driven = driven.saturating_add(count);
             // Only a stream buffers a remainder, and only a batch that filled the
             // limit can have left one; drain and drive it without reading again.
@@ -1709,6 +1758,14 @@ impl BlockingOwner {
             break;
         }
         Ok(driven)
+    }
+
+    fn next_wake_for_mode(&self, mode: PumpMode) -> Option<Instant> {
+        if mode.allows_ordinary_dispatch() {
+            self.state.next_wake()
+        } else {
+            self.state.next_wake_without_dispatch()
+        }
     }
 
     fn cancel_core<D: BlockingWireDriver + ?Sized>(
@@ -1864,23 +1921,86 @@ impl BlockingOwner {
         report
     }
 
+    /// Applies one non-frame pump input using the selected scheduler boundary.
+    /// The pre-ACK mode goes directly through the engine's input-turn seam so
+    /// owner-side effects are still replayed, but ordinary dispatch remains
+    /// withheld until the submitting operation has been admitted.
+    fn input_for_mode(&mut self, input: Input, now: Instant, mode: PumpMode) -> VecDeque<Effect> {
+        if mode.allows_ordinary_dispatch() {
+            self.state.input(input, now)
+        } else {
+            self.state.engine.handle_without_dispatch(input, now).into()
+        }
+    }
+
+    fn advance_for_mode(&mut self, now: Instant, mode: PumpMode) -> VecDeque<Effect> {
+        if mode.allows_ordinary_dispatch() {
+            self.state.advance(now)
+        } else {
+            self.state.engine.advance_without_dispatch(now).into()
+        }
+    }
+
+    fn finish_input_turn_for_mode(
+        &mut self,
+        turn: OwnerInputTurn,
+        mode: PumpMode,
+    ) -> VecDeque<Effect> {
+        if mode.allows_ordinary_dispatch() {
+            self.state.finish_input_turn(turn)
+        } else {
+            self.state
+                .engine
+                .finish_input_turn_without_dispatch(turn.0)
+                .into()
+        }
+    }
+
+    fn drive_for_mode<D: BlockingWireDriver + ?Sized>(
+        &mut self,
+        driver: &mut D,
+        effects: VecDeque<Effect>,
+        mode: PumpMode,
+    ) -> DriveReport {
+        if mode.allows_ordinary_dispatch() {
+            self.drive(driver, effects)
+        } else {
+            self.drive_without_due(driver, effects)
+        }
+    }
+
     /// Applies one validated decoded batch at a single owner-sampled instant.
     /// Every frame's effects, including identified write completions, are
     /// drained recursively before the next frame is applied. Due work runs
     /// exactly once after the complete source-ordered batch.
+    #[cfg(all(test, feature = "blocking", not(feature = "async")))]
     pub(crate) fn drive_decoded_batch<D: BlockingWireDriver + ?Sized>(
         &mut self,
         driver: &mut D,
         frames: Vec<DecodedFrame>,
         received_at: Instant,
     ) {
+        self.drive_decoded_batch_with_mode(driver, frames, received_at, PumpMode::Normal);
+    }
+
+    /// Replays a decoded batch while retaining all due/cancellation effects but
+    /// optionally withholding ordinary dispatch. The pre-ACK drain uses the
+    /// latter mode so a queued request cannot take the freed socket before the
+    /// submitting operation is admitted.
+    fn drive_decoded_batch_with_mode<D: BlockingWireDriver + ?Sized>(
+        &mut self,
+        driver: &mut D,
+        frames: Vec<DecodedFrame>,
+        received_at: Instant,
+        mode: PumpMode,
+    ) {
         let turn = self.state.begin_input_turn(received_at);
         for frame in frames {
             let effects = self.state.input_in_turn(&turn, Input::Frame(frame));
             self.drive_in_turn(driver, &turn, effects);
         }
-        let due = self.state.finish_input_turn(turn);
-        let _ = self.drive(driver, due);
+        let due = self.finish_input_turn_for_mode(turn, mode);
+        let _ = self.drive_for_mode(driver, due, mode);
     }
 
     fn drive_in_turn<D: BlockingWireDriver + ?Sized>(

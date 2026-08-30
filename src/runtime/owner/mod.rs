@@ -1376,6 +1376,15 @@ impl OwnerState {
         self.engine.next_wake()
     }
 
+    /// The next engine wake that remains relevant while the blocking owner
+    /// suppresses ordinary ready dispatch (issue #673).  Protocol deadlines
+    /// and pending cancellation pacing still wake the owner; unrelated ready
+    /// work does not.
+    #[cfg(feature = "blocking")]
+    pub(crate) fn next_wake_without_dispatch(&self) -> Option<Instant> {
+        self.engine.next_wake_without_dispatch()
+    }
+
     pub(crate) fn input(&mut self, input: Input, now: Instant) -> VecDeque<Effect> {
         self.observe_input(&input);
         self.engine.handle(input, now).into()
@@ -2234,7 +2243,7 @@ pub(crate) fn normalize_datagram_send_error(error: Error) -> Error {
 pub(crate) fn receive_fault_is_transient(error: &Error) -> bool {
     match error {
         // Proof the session is finished: the peer closed, the byte stream
-        // position is unknowable, or the owner's transport/channel is gone.
+        // position is unknowable, or the owner's transport is gone.
         error if error.requires_new_session() => false,
         Error::RuntimeShutdown => false,
         // A raw I/O failure is fatal only when the operating system reported

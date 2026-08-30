@@ -20,8 +20,8 @@ The following boundaries are release gates:
   total budget. A successfully sent raw command is never replayed after ACK,
   completion, or cancellation ambiguity, after a raw receive fault while
   awaiting ACK, or after active retry-budget expiry in `Sending`, `AwaitingAck`,
-  or `Executing`; ambiguity is never converted into a replay merely to preserve
-  this allocation property.
+  `AwaitingCompletion`, or `Executing`; ambiguity is never converted into a
+  replay merely to preserve this allocation property.
 * Lifecycle storage is bounded by owner admission, completion observers,
   cancellation waiters, and the diagnostic/applied-state queue limits.
 * Private request, transmission, and correlation-generation identifiers are
@@ -49,9 +49,13 @@ The stable test boundaries are:
 | Dynamic/static future construction | `tests/dyn_api_integration_test.rs`, `tokio_dynamic_future_construction_matches_one_explicit_static_box` |
 | Downstream derive encoding | `tests/issue_517_inquiry_encoding` coverage |
 
-The release workflow should invoke these named tests explicitly in addition to
-the broad feature matrix so a cfg change cannot turn a release gate into zero
-executed tests.
+The commands in this section are the canonical local/release validation
+surface. GitHub Actions currently runs the corresponding feature combinations
+as broad `--all-targets` entries in its `feature-matrix` job, including the
+`test-utils,blocking,runtime-tokio` union; it does not invoke this document's
+commands as separate allocation-only CI legs. Run the script and keep these
+named boundaries in the release review so a cfg change cannot turn a local
+release check into zero executed tests.
 
 ## Runtime validation and retry matrix
 
@@ -61,17 +65,20 @@ inventories remain in their dedicated gates.
 
 | Contract | Source authority | Characterization tests |
 | --- | --- | --- |
-| Raw one-candidate gate and evidence-only ACK/error routing (`Sending`/`AwaitingAck`/`AwaitingLateAck`; no command FIFO or temporal recency; inquiry FIFO only when eligible; named ACK sockets are exact and an occupied one yields `SocketConflict` rather than remapping, while socketless ACKs retain first-free compatibility) | `src/runtime/engine/mod.rs`: `raw_command_unacknowledged`, `unique_raw_command_candidate`, `resolve_raw`, `assign_socket` | `src/runtime/engine/tests.rs`: `raw_gate_serializes_pre_ack_while_sony_allows_pipeline`, `raw_error_policy_requires_unique_socketless_evidence`, `raw_ack_in_awaiting_ack_uses_the_unique_command_candidate`, `socket_assignment_requires_exact_named_socket_and_keeps_socketless_fallback`, `ack_naming_an_occupied_socket_is_inert_until_correct_ack`, `late_ack_ambiguity_keeps_capacity_and_correlation_until_quarantine` |
+| Raw one-candidate gate and evidence-only ACK/error routing (`Sending`/`AwaitingAck`/`AwaitingCompletion`/`AwaitingLateAck`; `AwaitingCompletion` is the completion-only, socketless shape that holds the target channel exclusively; no command FIFO or temporal recency; inquiry FIFO only when eligible; a named ACK socket uses the target's other free socket when the named one is occupied, while remaining inert only when no socket is free; socketless ACKs retain first-free compatibility) | `src/runtime/engine/mod.rs`: `raw_command_unacknowledged`, `unique_raw_command_candidate`, `resolve_raw`, `assign_socket` | `src/runtime/engine/tests.rs`: `raw_gate_serializes_pre_ack_while_sony_allows_pipeline`, `raw_error_policy_requires_unique_socketless_evidence`, `raw_ack_in_awaiting_ack_uses_the_unique_command_candidate`, `socket_assignment_falls_back_from_an_occupied_named_socket_and_never_invents_one`, `ack_naming_an_occupied_socket_falls_back_to_the_free_socket`, `late_ack_ambiguity_keeps_capacity_and_correlation_until_quarantine` |
 | Exact fixed-frame lengths and socket nibbles (ACK/completion/network change 3 bytes; error 4 bytes; fixed ACK/completion/error nibble `0` socketless, `1..=2` S1/S2, `3..=15` rejected; variable data reply only for socket 0) | `src/protocol/response.rs`: `decode_basic`, `decode_fixed_socket` | `src/protocol/response.rs`: `test_decode_rejects_trailing_bytes_on_fixed_replies`, `test_decode_fixed_socket_nibbles_are_strict`, `test_decode_socket_zero_data_reply_remains_variable` |
 | Empty UDP discard, one overall deadline, and async cooperative yield | `src/transport/blocking/udp.rs`, `src/transport/async_udp.rs`, `src/runtime/owner/async_actor.rs` | `recv_into_with_timeout_does_not_restart_after_empty_datagram`, `recv_yields_before_polling_after_empty_datagram`, `recv_yields_after_each_empty_datagram` |
-| Admission-to-terminal retry budget through every later noncancelled backoff/ready/send/ACK/execution/reply phase; raw active expiry poisons, safe ready expiry retains its last cause, and cancellation quarantine is never shortened | `src/runtime/engine/mod.rs`: `schedule_retry`, `next_due`, `apply_due`, `receive_fault` | `retry_budget_expires_while_awaiting_sony_ack`, `retry_budget_expires_while_executing_sony_command`, `retry_budget_expires_while_awaiting_inquiry_reply`, `raw_ready_retry_budget_expiry_reports_last_error_without_poisoning`, `raw_active_retry_budget_expiry_poisons_the_session` |
+| Admission-to-terminal retry budget through every later noncancelled backoff/ready/send/ACK/execution/reply phase; default raw active expiry fails only that request and quarantines its correlation, strict opt-in poisons, safe ready expiry retains its last cause, and cancellation quarantine is never shortened | `src/runtime/engine/mod.rs`: `schedule_retry`, `next_due`, `apply_due`, `receive_fault` | `retry_budget_expires_while_awaiting_sony_ack`, `retry_budget_expires_while_executing_sony_command`, `retry_budget_expires_while_awaiting_inquiry_reply`, `raw_ready_retry_budget_expiry_reports_last_error_without_poisoning`, `raw_active_retry_budget_expiry_quarantines_and_fails_per_request`, `raw_active_retry_budget_expiry_poisons_under_strict_opt_in` |
 | Monotonic IDs and closed exhaustion boundary | `src/runtime/engine/mod.rs`: `IdAllocator`, `allocate_request_id`, `allocate_transmission_id`, `allocate_generation` | `src/runtime/engine/tests.rs`: `request_transmission_and_generation_allocators_stop_at_exhaustion` |
 | Owner-only controls and urgent cancellation obeying/advancing shared spacing | `src/runtime/engine/mod.rs`: `drain_pending_cancellations`, `emit_cancel`; `src/noun_table.rs`: owner-control dispositions | `requested_cancellation_waits_for_shared_command_spacing`, `pending_cancellation_transmits_before_ordinary_work_and_advances_spacing`, `tests/api_contract/fail/system_protocol_controls_are_internal.rs` |
 | Profile inquiry gates and applied-axis support before encoding/admission | `src/prepared.rs`: `prepare_inquiry`, `lower_targeted_settlement`, `lower_applied_only_settlement` | `src/prepared.rs`: `gated_builtin_inquiry_rejects_unsupported_runtime_surface`, `unsupported_applied_only_axes_fail_before_encoding`; `tests/issue_551_request_contract.rs` |
 
 ## Feature and API validation
 
-The canonical matrix must cover, at minimum:
+The canonical local/release validation matrix must cover, at minimum. This is
+the maintainer command surface; the GitHub Actions feature matrix runs its
+feature combinations as separate jobs rather than claiming to execute every
+line below verbatim:
 
 ```text
 cargo test --no-default-features --features blocking
@@ -114,8 +121,11 @@ cargo audit
 ```
 
 Run compile-fail/API-contract tests under blocking, canonical async, dyn, and
-coexistence feature sets. Run the fuzz/property suite and Miri library suite
-with failures treated as failures, not advisory output. Run Synemantic's
+coexistence feature sets. Run the fuzz/property suite and the bounded named
+pure-library Miri suite with failures treated as failures, not advisory output.
+The contributor command is `bash .github/scripts/miri-tests.sh`; it runs the
+named Miri filters and feature compile checks, rather than an unbounded Miri
+library sweep. Run Synemantic's
 external compatibility check once the service/project credentials are
 available. Hardware tests are separate and are tracked in
 [`hardware_release_checklist.md`](hardware_release_checklist.md).

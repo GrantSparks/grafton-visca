@@ -709,7 +709,7 @@ impl AsyncCancellationReceipt {
             ));
         }
         let deadline = control.owner.deadline_after(timeout)?;
-        wait_cancellation_until(self.core, &control.owner.clock, deadline)
+        wait_cancellation_until(self.core, &control.owner, deadline)
             .await
             .and_then(normalize_cancellation_observation)
     }
@@ -740,30 +740,59 @@ async fn wait_core_until(
         return Ok(outcome);
     }
     let remaining = deadline.saturating_duration_since(control.owner.now());
-    let completion = async { core.completion.recv_async().await.map(observation_outcome) };
+    let completion = async {
+        core.completion
+            .recv_async()
+            .await
+            .map(observation_outcome)
+            .map_err(|_| control.owner.disconnected_error())
+    };
+    let actor_gone = async {
+        // Nothing is ever sent on this lane. It resolves when the actor has
+        // dropped its sender, including an unwind before `run` can latch a
+        // terminal owner error. Re-check the observer after the liveness edge
+        // so a terminal publication racing teardown still wins.
+        while control.owner.actor_alive.recv_async().await.is_ok() {}
+        core.try_outcome()
+            .ok_or_else(|| control.owner.disconnected_error())
+    };
     let timer = async {
         control.owner.clock.sleep(remaining).await;
         core.try_outcome().ok_or(Error::Timeout)
     };
-    future::or(completion, timer).await
+    future::or(completion, future::or(actor_gone, timer)).await
 }
 
 async fn wait_cancellation_until(
     mut core: CancellationCore,
-    clock: &BoundClock,
+    owner: &AsyncOwnerHandle,
     deadline: Instant,
 ) -> Result<ReceiptObservation, Error> {
     if let Some(observation) = core.try_observation() {
         return Ok(observation);
     }
-    let remaining = deadline.saturating_duration_since(clock.now());
+    let remaining = deadline.saturating_duration_since(owner.now());
     let completion_observer = core.completion;
-    let completion = async { completion_observer.recv_async().await };
+    let completion = async {
+        completion_observer
+            .recv_async()
+            .await
+            .map_err(|_| owner.disconnected_error())
+    };
+    let actor_gone = async {
+        // Cancellation keeps the same actor-liveness guarantee as ordinary
+        // receipt waits. A cancellation acknowledgement may have raced the
+        // actor edge, so retain the observer's final buffered observation.
+        while owner.actor_alive.recv_async().await.is_ok() {}
+        completion_observer
+            .try_recv()
+            .ok_or_else(|| owner.disconnected_error())
+    };
     let timer = async {
-        clock.sleep(remaining).await;
+        owner.clock.sleep(remaining).await;
         completion_observer.try_recv().ok_or(Error::Timeout)
     };
-    future::or(completion, timer).await
+    future::or(completion, future::or(actor_gone, timer)).await
 }
 
 #[cfg(all(test, feature = "runtime-tokio"))]
@@ -2392,6 +2421,39 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "runtime-tokio")]
+    #[derive(Debug)]
+    struct PanickingAfterAdmissionDriver {
+        panic_signal: flume::Receiver<()>,
+    }
+
+    #[cfg(feature = "runtime-tokio")]
+    impl AsyncOwnerDriver for PanickingAfterAdmissionDriver {
+        #[allow(clippy::manual_async_fn)]
+        fn write(
+            &mut self,
+            _write: WireWrite<'_>,
+        ) -> impl Future<Output = Result<TransmissionMeta, Error>> + Send {
+            async { Ok(TransmissionMeta { sequence: None }) }
+        }
+
+        #[allow(clippy::manual_async_fn)]
+        fn receive(
+            &mut self,
+            _buffers: &mut super::super::OwnerBuffers,
+            _frame_limit: usize,
+        ) -> impl Future<Output = Result<AsyncReceive, Error>> + Send {
+            let panic_signal = self.panic_signal.clone();
+            async move {
+                panic_signal
+                    .recv_async()
+                    .await
+                    .expect("the panic signal must remain connected");
+                panic!("test driver panic after admission");
+            }
+        }
+    }
+
     struct Harness {
         driver: FakeAsyncDriver,
         started: flume::Receiver<RequestId>,
@@ -3554,6 +3616,74 @@ mod tests {
             Error::InvalidState(message)
                 if message.contains("without publishing a terminal result")
         ));
+    }
+
+    /// An admitted request whose actor disappeared must fail closed promptly,
+    /// rather than wait for its long protocol deadline or report an orderly
+    /// `RuntimeShutdown`.
+    #[cfg(feature = "runtime-tokio")]
+    #[tokio::test]
+    async fn active_receipt_actor_disconnect_fails_closed() {
+        let runtime = TokioRuntime::from_current().unwrap();
+        let (handle, actor) = AsyncOwnerActor::new(policy(1), runtime).unwrap();
+        let (panic_signal, panic_signal_rx) = flume::bounded(1);
+        let actor_task = tokio::spawn(actor.run(PanickingAfterAdmissionDriver {
+            panic_signal: panic_signal_rx,
+        }));
+
+        let receipt = tokio::time::timeout(Duration::from_secs(1), handle.submit(inquiry()))
+            .await
+            .expect("admission must complete before the actor panic")
+            .unwrap();
+        assert_eq!(handle.snapshot().await.unwrap().active, 1);
+        panic_signal.send_async(()).await.unwrap();
+
+        let error = tokio::time::timeout(
+            Duration::from_secs(1),
+            wait_core_for(receipt, handle.receipt_control(), Duration::from_secs(5)),
+        )
+        .await
+        .expect("receipt wait must observe the actor disappearance")
+        .unwrap_err();
+        assert!(matches!(
+            error,
+            Error::InvalidState(message)
+                if message.contains("without publishing a terminal result")
+        ));
+        assert!(actor_task.await.is_err(), "the test driver must panic");
+    }
+
+    #[cfg(feature = "runtime-tokio")]
+    #[tokio::test]
+    async fn active_cancellation_actor_disconnect_fails_closed() {
+        let runtime = TokioRuntime::from_current().unwrap();
+        let (handle, actor) = AsyncOwnerActor::new(policy(1), runtime).unwrap();
+        let (panic_signal, panic_signal_rx) = flume::bounded(1);
+        let actor_task = tokio::spawn(actor.run(PanickingAfterAdmissionDriver {
+            panic_signal: panic_signal_rx,
+        }));
+
+        let receipt = tokio::time::timeout(Duration::from_secs(1), handle.submit(command()))
+            .await
+            .expect("admission must complete before the actor panic")
+            .unwrap();
+        assert_eq!(handle.snapshot().await.unwrap().active, 1);
+        let cancellation = handle.cancel_test(receipt).await.unwrap();
+        panic_signal.send_async(()).await.unwrap();
+
+        let error = tokio::time::timeout(
+            Duration::from_secs(1),
+            cancellation.outcome(handle.receipt_control(), Duration::from_secs(5)),
+        )
+        .await
+        .expect("cancellation wait must observe the actor disappearance")
+        .unwrap_err();
+        assert!(matches!(
+            error,
+            Error::InvalidState(message)
+                if message.contains("without publishing a terminal result")
+        ));
+        assert!(actor_task.await.is_err(), "the test driver must panic");
     }
 
     /// The same guarantee on the other executor: the actor is executor-generic

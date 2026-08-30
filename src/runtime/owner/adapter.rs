@@ -310,6 +310,11 @@ pub(crate) fn owner_policy_for_targets_with_tuning(
             "transport maximum buffer must be non-zero".into(),
         ));
     }
+    if config.buffer_config.recv_buffer_size > config.buffer_config.max_buffer_size {
+        return Err(Error::InvalidRequest(
+            "transport receive buffer cannot exceed maximum buffer".into(),
+        ));
+    }
 
     let transport = match semantics {
         SendSemantics::Datagram => TransportKind::Datagram,
@@ -1262,5 +1267,50 @@ mod tests {
             policy.protocol.inquiry_spacing,
             strict.timing().minimum_inquiry_spacing()
         );
+    }
+
+    #[test]
+    fn buffer_policy_accepts_equal_receive_and_maximum_sizes() {
+        let profile = ProfileSpec::from_compile_time::<GenericVisca>().unwrap();
+        let profiles = [(CameraId::CAMERA_1, &profile)];
+        let config = TransportConfig {
+            buffer_config: crate::transport::BufferConfig {
+                recv_buffer_size: 64,
+                send_buffer_size: 64,
+                max_buffer_size: 64,
+            },
+            ..TransportConfig::default()
+        };
+
+        for semantics in [SendSemantics::Datagram, SendSemantics::Stream] {
+            let policy = owner_policy_for_targets(&profiles, &config, semantics)
+                .expect("equal receive and maximum sizes are valid");
+            assert_eq!(policy.limits.receive_bytes, 64);
+            assert_eq!(policy.limits.framing_bytes, 64);
+        }
+    }
+
+    #[test]
+    fn buffer_policy_rejects_receive_size_larger_than_maximum() {
+        let profile = ProfileSpec::from_compile_time::<GenericVisca>().unwrap();
+        let profiles = [(CameraId::CAMERA_1, &profile)];
+        let config = TransportConfig {
+            buffer_config: crate::transport::BufferConfig {
+                recv_buffer_size: 65,
+                send_buffer_size: 64,
+                max_buffer_size: 64,
+            },
+            ..TransportConfig::default()
+        };
+
+        for semantics in [SendSemantics::Datagram, SendSemantics::Stream] {
+            let error = owner_policy_for_targets(&profiles, &config, semantics)
+                .expect_err("receive size larger than maximum must be rejected");
+            assert!(matches!(
+                error,
+                Error::InvalidRequest(message)
+                    if message.as_ref() == "transport receive buffer cannot exceed maximum buffer"
+            ));
+        }
     }
 }
