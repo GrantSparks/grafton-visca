@@ -376,6 +376,13 @@ impl BlockingSessionHost {
         K: completion::Kind,
     {
         self.with_parts(|owner, driver, reader, decoder| {
+            // Global admission capacity is independent of the raw target
+            // socket gate below. Probe it before entering the bounded #673
+            // drain so a full session returns its dedicated capacity error
+            // without waiting for an ACK that cannot make room for this
+            // request. The owner turn is serialized by `parts`, so the probe
+            // and the subsequent admission cannot race another submission.
+            owner.ensure_admission_capacity()?;
             // Issue #673: before the first-write submit, drain the raw
             // single-candidate pre-ACK gate if that alone is what blocks this
             // target. Without it, an emergency `stop_all_motion`/`Urgent` stop —
@@ -1129,6 +1136,23 @@ impl BlockingOwner {
 
     pub(crate) const fn state(&self) -> &OwnerState {
         &self.state
+    }
+
+    /// Checks the session-wide admission bound without retaining a permit.
+    ///
+    /// Operation submission performs this non-waiting probe before the narrow
+    /// raw pre-ACK drain. The owner is caller-thread serialized, so the actual
+    /// admission immediately afterward cannot lose the permit to another
+    /// blocking submission.
+    fn ensure_admission_capacity(&self) -> Result<(), Error> {
+        let permits = self.state.permits();
+        let Some(probe) = permits.try_acquire() else {
+            return Err(Error::RuntimeQueueFull {
+                capacity: permits.capacity(),
+            });
+        };
+        drop(probe);
+        Ok(())
     }
 
     /// Mutably accesses the owner state for caller-thread control operations.

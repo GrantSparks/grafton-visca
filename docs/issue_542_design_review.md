@@ -49,9 +49,9 @@ executable.
 
 | Measure | 1.2.0 | v2 RC | Change |
 | --- | ---: | ---: | ---: |
-| Rust lines under `src/` plus macro `src/` | 84,146 | 97,648 | +16.0% |
-| Rust lines under `src/runtime/` | 17,848 | 26,801 | +50.2% |
-| Rust lines under `tests/` (integration-test tree) | 19,563 | 24,579 | +25.6% |
+| Rust lines under `src/` plus macro `src/` | 84,146 | 103,317 | +22.8% |
+| Rust lines under `src/runtime/` | 17,848 | 30,461 | +70.7% |
+| Rust lines under `tests/` (integration-test tree) | 19,563 | 25,865 | +32.2% |
 | Optimized library `.rlib` (blocking-only) | 8,887,736 B | 11,092,160 B | +24.8% |
 | Stripped minimal TCP/power/zoom blocking consumer | 767,680 B | 1,022,544 B | +33.2% |
 

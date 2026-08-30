@@ -262,14 +262,15 @@ where
     /// For TCP/UDP, this may be a host:port string like `"192.168.0.110:5678"`
     /// or a host-only address when a profile/default port is available.
     ///
-    /// Bare IPv6 may be used only when the port comes from the profile/default
-    /// port. Explicit IPv6 ports require brackets, so `2001:db8::1:5678` is a
-    /// bare IPv6 literal and `[2001:db8::1]:5678` is an IPv6 address with port
-    /// `5678`.
+    /// IPv6 literals must be bracketed, whether the port is supplied explicitly
+    /// or comes from the profile/default port. Bare IPv6 is rejected because its
+    /// colons are ambiguous with an explicit port: `2001:db8::1` and
+    /// `2001:db8::1:5678` are invalid, while `[2001:db8::1]` uses the default
+    /// port and `[2001:db8::1]:5678` is an IPv6 address with port `5678`.
     ///
     /// Examples:
     /// - IPv4: `"192.168.1.1"`, `"192.168.1.1:5678"`
-    /// - IPv6: `"::1"`, `"2001:db8::1"`, `"[::1]:5678"`
+    /// - IPv6: `"[::1]"`, `"[2001:db8::1]"`, `"[::1]:5678"`
     /// - Hostnames: `"localhost"`, `"camera.local:5678"`
     pub fn address(mut self, address: impl Into<String>) -> Self {
         let addr = address.into();

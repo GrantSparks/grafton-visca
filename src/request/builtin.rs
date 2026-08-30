@@ -236,6 +236,20 @@ fn validate_nd_filter_step(profile: &crate::ProfileSpec) -> Result<(), Error> {
     }
 }
 
+fn validate_variable_nd_filter_control(profile: &crate::ProfileSpec) -> Result<(), Error> {
+    validate_nd_filter_control(profile)?;
+    if matches!(
+        profile.capabilities().nd_filter_mode,
+        crate::capabilities::NdFilterMode::Variable
+    ) {
+        Ok(())
+    } else {
+        Err(Error::FeatureNotSupported {
+            feature: "variable ND filter control",
+        })
+    }
+}
+
 fn validate_exposure_state(
     profile: &crate::ProfileSpec,
     feature: &'static str,
@@ -4248,7 +4262,7 @@ impl BuiltinValidation for crate::command::exposure::AutoSlowShutterOff {
 
 impl BuiltinValidation for crate::command::nd_filter::NdFilterModeCommand {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_nd_filter_control(profile)
+        validate_variable_nd_filter_control(profile)
     }
 
     fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
@@ -4261,7 +4275,7 @@ impl BuiltinValidation for crate::command::nd_filter::NdFilterModeCommand {
 
 impl BuiltinValidation for crate::command::nd_filter::AutoNdCommand {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_nd_filter_control(profile)
+        validate_variable_nd_filter_control(profile)
     }
 
     fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {

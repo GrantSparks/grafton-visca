@@ -749,6 +749,28 @@ macro_rules! __define_builtin_profiles {
         ];
 
         impl ProfileId {
+            /// Returns whether the runtime capability inventory is exactly
+            /// the one emitted for this built-in profile.
+            ///
+            /// `profile_id` is public so downstream callers can mutate a
+            /// discovered inventory.  It is therefore an identity claim,
+            /// not an authority token; vendor-specific request validation
+            /// must only rely on it after all capability facts have been
+            /// checked against the generated profile row.
+            pub(crate) fn matches_capabilities(
+                &self,
+                capabilities: &$crate::capabilities::Capabilities,
+            ) -> bool {
+                match self {
+                    $(
+                        ProfileId::$id => {
+                            capabilities
+                                == &$crate::capabilities::Capabilities::from_profile::<$profile>()
+                        },
+                    )*
+                }
+            }
+
             /// Returns the human-readable display name for this profile.
             pub const fn display_name(&self) -> &'static str {
                 match self {

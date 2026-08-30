@@ -1996,10 +1996,15 @@ impl OwnerState {
                     if subscriber
                         .target
                         .is_none_or(|target| target == effect.target)
-                        && subscriber.sender.try_send(event).is_err()
                     {
-                        self.metrics.dropped_applied_events =
-                            self.metrics.dropped_applied_events.saturating_add(1);
+                        match subscriber.sender.try_send(event) {
+                            Ok(()) => {}
+                            Err(flume::TrySendError::Full(_)) => {
+                                self.metrics.dropped_applied_events =
+                                    self.metrics.dropped_applied_events.saturating_add(1);
+                            }
+                            Err(flume::TrySendError::Disconnected(_)) => return false,
+                        }
                     }
                     true
                 });
@@ -2093,9 +2098,13 @@ impl OwnerState {
             if subscriber.sender.is_disconnected() {
                 return false;
             }
-            if subscriber.sender.try_send(event).is_err() {
-                self.metrics.dropped_diagnostic_events =
-                    self.metrics.dropped_diagnostic_events.saturating_add(1);
+            match subscriber.sender.try_send(event) {
+                Ok(()) => {}
+                Err(flume::TrySendError::Full(_)) => {
+                    self.metrics.dropped_diagnostic_events =
+                        self.metrics.dropped_diagnostic_events.saturating_add(1);
+                }
+                Err(flume::TrySendError::Disconnected(_)) => return false,
             }
             true
         });

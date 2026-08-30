@@ -2306,6 +2306,24 @@ impl ProtocolEngine {
                 }
                 let ambiguity_deadline =
                     add_duration(now, entry.request.context().timeout.ambiguity);
+                // A raw completion-timeout quarantine already owns a socket and
+                // has a release deadline. If cancellation is requested while
+                // that hold is active, keep the later of the two deadlines so
+                // recording the cancellation cannot shorten the correlation
+                // quarantine underneath the newly pending cancel transmission.
+                let phase = match phase {
+                    Phase::AwaitingCancellationResolution { socket, deadline } => {
+                        Phase::AwaitingCancellationResolution {
+                            socket,
+                            deadline: deadline.max(ambiguity_deadline),
+                        }
+                    }
+                    phase => phase,
+                };
+                let ambiguity_deadline = match phase {
+                    Phase::AwaitingCancellationResolution { deadline, .. } => deadline,
+                    _ => ambiguity_deadline,
+                };
                 if let Some(entry) = self.entries.get_mut(&id) {
                     entry.cancellation_observation_open = true;
                 }
@@ -2320,7 +2338,9 @@ impl ProtocolEngine {
                     id,
                     observation: CancellationObservation::Recorded,
                 });
-                if let Phase::Executing { socket, .. } = phase {
+                if let Phase::Executing { socket, .. }
+                | Phase::AwaitingCancellationResolution { socket, .. } = phase
+                {
                     self.emit_cancel(id, socket, now, effects);
                 }
             }
@@ -3405,8 +3425,11 @@ fn cancellation_ambiguity(cancellation: CancelState) -> Option<Instant> {
 }
 
 fn pending_cancellation_socket(entry: &Entry) -> Option<ViscaSocket> {
-    let Phase::Executing { socket, .. } = entry.phase else {
-        return None;
+    let socket = match entry.phase {
+        Phase::Executing { socket, .. } | Phase::AwaitingCancellationResolution { socket, .. } => {
+            socket
+        }
+        _ => return None,
     };
     matches!(entry.cancellation, CancelState::Requested { .. }).then_some(socket)
 }

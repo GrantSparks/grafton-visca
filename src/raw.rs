@@ -18,7 +18,8 @@
 //! (`8x 2y ff`) or a per-camera interface clear (`8x 01 00 01 ff`) would let a
 //! target-scoped `execute` cancel another operation's socket or reset the
 //! shared command buffer, so both are rejected. The broadcast address-set form
-//! is refused by the target check during preparation.
+//! is likewise owner-only and is rejected by raw validation; preparation still
+//! checks the first address against its target as a separate defense.
 //! The camera view supplies the authoritative target during preparation, so a
 //! frame addressed to another target is rejected rather than being silently
 //! rewritten or inspected to infer target identity. Frames up to
@@ -375,26 +376,118 @@ fn validate_wire(bytes: &[u8]) -> Result<()> {
 /// and a per-camera interface clear (`8x 01 00 01 ff`) resets the shared
 /// command buffer; both are legitimate only from the owner, which correlates
 /// the exact camera-assigned socket first. Address assignment (`88 30 0y ff`)
-/// is a broadcast primitive whose `0x88` address is refused by the target
-/// check during preparation, so it is not re-checked here.
+/// is a broadcast primitive and is owner-only as well; raw validation checks it
+/// at every subframe boundary, while preparation still checks the first
+/// address against its target.
 ///
 /// The socket-cancel guard is deliberately length-bounded to the exact 3-byte
-/// cancel frame: a longer frame whose command byte falls in `0x20..=0x2f` (for
-/// example USB audio, `81 2a 02 a0 04 02 ff`) is an ordinary command and stays
-/// admissible.
+/// cancel subframe: a longer frame whose command byte falls in `0x20..=0x2f`
+/// (for example USB audio, `81 2a 02 a0 04 02 ff`) is an ordinary command and
+/// stays admissible.  A raw value can still contain a vendor payload byte equal
+/// to `0xff`; only a valid VISCA address immediately following a terminator is
+/// treated as the start of another subframe.  Such a subframe must retain the
+/// first frame's address, because preparation can validate the first address
+/// against its target but has no separate target fact for later subframes.
 pub(crate) fn reject_owner_only_primitive(bytes: &[u8]) -> Result<()> {
-    // Caller guarantees `bytes.len() >= 2` and `bytes.last() == Some(0xff)`.
-    if bytes.len() == 3 && (bytes[1] & 0xf0) == 0x20 {
+    // Caller guarantees `bytes.len() >= 2`, `bytes[0]` is a VISCA address, and
+    // `bytes.last() == Some(0xff)`.
+    let first_address = bytes[0];
+    reject_owner_only_at_boundary(bytes, 0)?;
+
+    // VISCA's stream boundary is the terminator.  Do not reject every second
+    // `0xff`: values such as a preset number of 0xff are legal payload data.
+    // When the byte after a terminator is another VISCA address, however, it is
+    // an apparent subframe boundary.  Check that subframe independently so an
+    // owner-only primitive cannot be hidden after an otherwise valid command.
+    let mut search_from = 0;
+    while let Some(relative_terminator) = bytes[search_from..]
+        .iter()
+        .position(|&byte| byte == VISCA_TERMINATOR)
+    {
+        let terminator = search_from + relative_terminator;
+        let subframe_start = terminator + 1;
+        if subframe_start == bytes.len() {
+            break;
+        }
+
+        if is_visca_address(bytes[subframe_start]) {
+            if bytes[subframe_start] != first_address {
+                return Err(Error::InvalidRequest(
+                    "raw VISCA frame contains a subframe addressed to a different camera; every subframe must retain the first target address".into(),
+                ));
+            }
+            reject_owner_only_at_boundary(bytes, subframe_start)?;
+        }
+
+        search_from = subframe_start;
+    }
+    Ok(())
+}
+
+/// Reject an owner-only primitive whose first byte is at `start`.
+///
+/// The bounds checks intentionally inspect only the primitive prefix.  A
+/// compound payload is still rejected when an owner-only subframe is followed
+/// by another subframe; conversely, a longer ordinary command beginning with a
+/// `0x2y` command byte is not mistaken for a socket cancel.
+fn reject_owner_only_at_boundary(bytes: &[u8], start: usize) -> Result<()> {
+    let remaining = &bytes[start..];
+    if remaining.len() >= 3
+        && (remaining[0] & 0xf0) == 0x80
+        && (remaining[1] & 0xf0) == 0x20
+        && remaining[2] == VISCA_TERMINATOR
+        && primitive_terminator_is_boundary(bytes, start + 2)
+    {
         return Err(Error::InvalidRequest(
             "raw VISCA frame must not be a socket cancel (8x 2y ff); the owner cancels a correlated operation through its handle, not through execute()".into(),
         ));
     }
-    if bytes.len() == 5 && bytes[1] == 0x01 && bytes[2] == 0x00 && bytes[3] == 0x01 {
+    if remaining.len() >= 5
+        && (remaining[0] & 0xf0) == 0x80
+        && remaining[1] == 0x01
+        && remaining[2] == 0x00
+        && remaining[3] == 0x01
+        && remaining[4] == VISCA_TERMINATOR
+        && primitive_terminator_is_boundary(bytes, start + 4)
+    {
         return Err(Error::InvalidRequest(
             "raw VISCA frame must not be an interface clear (8x 01 00 01 ff); it resets the shared command buffer and is owner-only".into(),
         ));
     }
+    // Address assignment is also owner-only.  The first address is still
+    // checked against the prepared target, but a later `88 30 0y ff` must not
+    // bypass that check by being hidden behind an earlier ordinary subframe.
+    if remaining.len() >= 4
+        && remaining[0] == 0x88
+        && remaining[1] == 0x30
+        && (remaining[2] & 0xf0) == 0x00
+        && remaining[3] == VISCA_TERMINATOR
+        && primitive_terminator_is_boundary(bytes, start + 3)
+    {
+        return Err(Error::InvalidRequest(
+            "raw VISCA frame must not contain an address-set subframe (88 30 0y ff); serial setup is owner-only".into(),
+        ));
+    }
     Ok(())
+}
+
+/// A primitive prefix is a subframe only when its terminator closes the input
+/// or is immediately followed by another VISCA address.  In particular, do
+/// not classify `8x 2y ff` at the front of a longer custom command when the
+/// following byte is ordinary payload data; `0xff` is legal data in raw vendor
+/// messages and the old exact-length rule deliberately admitted those longer
+/// messages.
+fn primitive_terminator_is_boundary(bytes: &[u8], terminator: usize) -> bool {
+    terminator + 1 == bytes.len()
+        || bytes
+            .get(terminator + 1)
+            .copied()
+            .is_some_and(is_visca_address)
+}
+
+#[inline]
+fn is_visca_address(byte: u8) -> bool {
+    (0x81..=0x88).contains(&byte)
 }
 
 /// A raw plain command with no operation lifecycle handle.

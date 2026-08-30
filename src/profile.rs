@@ -1156,6 +1156,13 @@ impl ProfileSpec {
                 "profile model name must not be empty".into(),
             ));
         }
+        if let Some(profile_id) = self.capabilities.profile_id {
+            if !profile_id.matches_capabilities(&self.capabilities) {
+                return Err(Error::InvalidRequest(
+                    "built-in profile identity does not match runtime capability facts".into(),
+                ));
+            }
+        }
         let ordered = |start: f64, end: f64| start.is_finite() && end.is_finite() && start <= end;
         if self.capabilities.has_pan_tilt
             && (!ordered(

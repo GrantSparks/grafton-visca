@@ -1206,8 +1206,7 @@ impl AsyncOwnerHandle {
     /// Coalesced idempotent shutdown. Only the winning caller occupies the
     /// single shutdown slot. The state lock covers the non-awaiting `try_send`,
     /// so concurrent callers observe the exact same accepted or failed result;
-    /// no caller can return success merely because another caller has started a
-    /// send that later fails.
+    /// the consuming `close` call waits separately on the liveness barrier.
     pub(crate) async fn shutdown(&self) -> Result<(), Error> {
         let mut signal = self
             .shutdown_signal
@@ -1268,6 +1267,26 @@ impl AsyncOwnerHandle {
             observer,
             reply,
         };
+
+        // Keep the terminal check and enqueue in one lifecycle critical
+        // section. Otherwise a caller can pass the second check, the actor can
+        // publish/drop and drain all boundaries, and this send can strand the
+        // permit in a queue whose receiver will never poll it (#542 §4).
+        let signal = self
+            .shutdown_signal
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some(error) = match &*signal {
+            ShutdownSignalState::Accepted => Some(Error::RuntimeShutdown),
+            ShutdownSignalState::Failed(error) => Some(error.clone()),
+            ShutdownSignalState::Open => self
+                .terminal_error
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .clone(),
+        } {
+            return Err(error);
+        }
         match self.admissions.try_send(boundary) {
             Ok(()) => Ok((completion, admission)),
             Err(flume::TrySendError::Disconnected(_)) => Err(self.disconnected_error()),
@@ -1330,6 +1349,12 @@ where
     /// dropped, disconnecting every handle's `actor_alive` receiver. Nothing
     /// is ever sent on it (#626).
     alive: flume::Sender<()>,
+    /// Shared with the handle so terminal publication and a concurrent
+    /// shutdown acceptance have one lifecycle linearization point. Without
+    /// taking this lock while publishing the terminal error, a shutdown caller
+    /// could observe `Open`, enqueue after the actor had already terminated,
+    /// and return `Ok(())` even though no actor turn could ever consume it.
+    shutdown_signal: Arc<Mutex<ShutdownSignalState>>,
     terminal_error: Arc<Mutex<Option<Error>>>,
     faults: TransientFaultRun,
     /// Consecutive receives that carried no data (an idle read timeout, or a
@@ -1373,7 +1398,7 @@ where
                 control: control_tx,
                 shutdown: shutdown_tx,
                 actor_alive,
-                shutdown_signal,
+                shutdown_signal: Arc::clone(&shutdown_signal),
                 terminal_error: Arc::clone(&terminal_error),
                 origin,
                 clock: clock.clone(),
@@ -1387,6 +1412,7 @@ where
                 control,
                 shutdown,
                 alive,
+                shutdown_signal: Arc::clone(&shutdown_signal),
                 terminal_error,
                 faults: TransientFaultRun::default(),
                 idle_receive_run: 0,
@@ -1524,23 +1550,38 @@ where
             .state
             .boundary_error()
             .unwrap_or(Error::RuntimeShutdown);
-        *self
-            .terminal_error
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(boundary_error.clone());
+        // Publish the terminal result under the same lifecycle lock used by
+        // `AsyncOwnerHandle::shutdown`. This makes the result and shutdown
+        // acceptance linearisable: once terminal publication wins, shutdown
+        // cannot enqueue a signal into a receiver the actor will never poll.
+        // Keep the accepted state only for an orderly explicit shutdown. A
+        // transport close/poison supersedes an earlier accepted signal so a
+        // later shutdown/close call cannot mask the real terminal cause.
+        {
+            let mut signal = self
+                .shutdown_signal
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            *self
+                .terminal_error
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(boundary_error.clone());
+            if !matches!(&boundary_error, Error::RuntimeShutdown)
+                || !matches!(*signal, ShutdownSignalState::Accepted)
+            {
+                *signal = ShutdownSignalState::Failed(boundary_error.clone());
+            }
+        }
         self.drain_boundaries(boundary_error);
         #[cfg(all(test, any(feature = "runtime-tokio", feature = "runtime-smol")))]
         let snapshot = self.snapshot_now();
         #[cfg(not(all(test, any(feature = "runtime-tokio", feature = "runtime-smol"))))]
         let snapshot = OwnerSnapshot {};
-        // #626: every reply the drain could produce is queued by now, so
-        // disconnecting the liveness lane is safe and is what releases a
-        // boundary request that raced this teardown. Drop the driver first so
-        // a waiter using this lane is also a deterministic transport-release
-        // barrier. The boundary receivers themselves drop with `self`
-        // immediately afterwards.
+        // #626: drop the driver first so a waiter using the liveness lane gets
+        // a deterministic transport-release barrier. The actor's `Drop`
+        // implementation performs one final boundary drain before its alive
+        // sender is dropped, covering messages that race the explicit drain.
         drop(driver);
-        drop(self.alive);
         snapshot
     }
 
@@ -2033,6 +2074,49 @@ where
             state: self.state.state(),
             active: self.state.active_len(),
         }
+    }
+}
+
+impl<R> Drop for AsyncOwnerActor<R>
+where
+    R: Executor,
+{
+    fn drop(&mut self) {
+        // `run` can unwind before it reaches its normal terminal publication
+        // and drain. Publish a fail-closed terminal result before draining so
+        // boundary callers cannot retain an admission permit after an actor
+        // panic, and so a concurrent shutdown observes rejection rather than
+        // accepting a signal that no receiver can poll.
+        let error = {
+            let mut signal = self
+                .shutdown_signal
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let mut terminal = self
+                .terminal_error
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let error = terminal
+                .clone()
+                .unwrap_or_else(AsyncOwnerHandle::missing_terminal_error);
+            if terminal.is_none() {
+                *terminal = Some(error.clone());
+            }
+            if !matches!(&error, Error::RuntimeShutdown)
+                || !matches!(*signal, ShutdownSignalState::Accepted)
+            {
+                *signal = ShutdownSignalState::Failed(error.clone());
+            }
+            error
+        };
+
+        // The explicit normal-path drain may race with a sender that was
+        // already admitted. A final drain closes that residual window before
+        // the sender fields are released. Keep the liveness sender borrowed
+        // through this drain so its disconnect remains the final teardown
+        // barrier for waiters.
+        let _alive_during_drain = &self.alive;
+        self.drain_boundaries(error);
     }
 }
 

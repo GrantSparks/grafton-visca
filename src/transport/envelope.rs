@@ -249,15 +249,7 @@ impl Envelope for SonyEncapsulated {
             "Invalid Sony header format",
         )))?;
 
-        // Validate payload type
-        match header.payload_type {
-            PayloadType::ViscaReply => {
-                // Expected for camera responses
-            }
-            other => {
-                tracing::warn!("Unexpected Sony payload type in response: {other:?}");
-            }
-        }
+        validate_sony_response_header(header)?;
 
         let expected_payload_len = framed.len() - SonyHeader::SIZE;
         if header.payload_length as usize != expected_payload_len {
@@ -375,15 +367,7 @@ impl SonyEncapsulated {
             "Invalid Sony header format",
         )))?;
 
-        // Validate payload type
-        match header.payload_type {
-            PayloadType::ViscaReply => {
-                // Expected for camera responses
-            }
-            other => {
-                tracing::warn!("Unexpected Sony payload type in response: {other:?}");
-            }
-        }
+        validate_sony_response_header(header)?;
 
         let expected_payload_len = framed_bytes.len() - SonyHeader::SIZE;
         if header.payload_length as usize != expected_payload_len {
@@ -396,6 +380,30 @@ impl SonyEncapsulated {
         // Extract VISCA payload - use slice to avoid allocation
         Ok(Bytes::copy_from_slice(&framed_bytes[SonyHeader::SIZE..]))
     }
+}
+
+/// Validate the Sony header fields that are meaningful at the response
+/// envelope boundary.  Commands, inquiries, and control messages are valid
+/// Sony *wire* payload types, but they are not replies and must never enter the
+/// response correlation path as if they were one.
+fn validate_sony_response_header(header: SonyHeader) -> Result<(), Error> {
+    if header.payload_type != PayloadType::ViscaReply {
+        return Err(Error::ParseError(Cow::Owned(format!(
+            "Unexpected Sony payload type in response: {:?}",
+            header.payload_type
+        ))));
+    }
+
+    const MIN_PAYLOAD_LENGTH: usize = 1;
+    const MAX_PAYLOAD_LENGTH: usize = 16;
+    let payload_length = usize::from(header.payload_length);
+    if !(MIN_PAYLOAD_LENGTH..=MAX_PAYLOAD_LENGTH).contains(&payload_length) {
+        return Err(Error::ParseError(Cow::Owned(format!(
+            "Sony payload length must be between {MIN_PAYLOAD_LENGTH} and {MAX_PAYLOAD_LENGTH} bytes, got {payload_length}"
+        ))));
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
