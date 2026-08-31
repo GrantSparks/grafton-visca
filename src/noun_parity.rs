@@ -32,8 +32,9 @@ use crate::{
         inquiry_structs::{BuiltinInquiryProfileGate, BUILTIN_INQUIRY_ACCESSORS},
         semantics::BuiltinCommand,
         surface::{
-            surface_entry, StaticMarkerRequirement, StaticNoun, StaticSurfaceDisposition,
-            BUILTIN_COMMAND_COUNT, NON_NOUN_COMMAND_COUNT, TARGET_FACING_COMMAND_COUNT,
+            surface_entry, typed_surface_for_command, StaticMarkerRequirement, StaticNoun,
+            StaticSurfaceDisposition, BUILTIN_COMMAND_COUNT, NON_NOUN_COMMAND_COUNT,
+            TARGET_FACING_COMMAND_COUNT,
         },
     },
     noun_table::noun_table,
@@ -891,6 +892,13 @@ const fn typed_marker(surface: TypedSupportSurface) -> &'static str {
         TypedSupportSurface::IrisControl => "HasIrisControl",
         TypedSupportSurface::OnePushFocus => "HasOnePushFocus",
         TypedSupportSurface::PtzOpticsSnapFocus => "HasPtzOpticsSnapFocus",
+        TypedSupportSurface::PtzOpticsAntiFlicker => "HasPtzOpticsAntiFlicker",
+        TypedSupportSurface::PtzOpticsSettingsSave => "HasPtzOpticsSettingsSave",
+        TypedSupportSurface::PtzOpticsPresetRecallSpeed => "HasPtzOpticsPresetRecallSpeed",
+        TypedSupportSurface::SonySpotlight => "HasSonySpotlight",
+        TypedSupportSurface::SonyAutoSlowShutter => "HasSonyAutoSlowShutter",
+        TypedSupportSurface::PtzOpticsMulticastStreaming => "HasPtzOpticsMulticastStreaming",
+        TypedSupportSurface::PtzOpticsNdiQuality => "HasPtzOpticsNdiQuality",
         TypedSupportSurface::FocusLock => "HasFocusLock",
         TypedSupportSurface::PushAutoFocus => "HasPushAutoFocus",
         TypedSupportSurface::FocusZone => "HasFocusZone",
@@ -1286,6 +1294,65 @@ fn erased_inquiry_gates_match_the_static_noun_surface() {
             erased, expected,
             "erased and static inquiry gates disagree for {command}",
         );
+    }
+}
+
+/// The vendor command validators consult `typed_surface_for_command`, which is
+/// projected from the static noun table. Keep the closed command set explicit
+/// here so adding a runtime family check cannot silently bypass its static
+/// `where Has*` gate.
+#[test]
+fn dynamic_vendor_command_gates_match_the_static_noun_surface() {
+    const GATES: &[(BuiltinCommand, TypedSupportSurface)] = &[
+        (
+            BuiltinCommand::AntiFlicker,
+            TypedSupportSurface::PtzOpticsAntiFlicker,
+        ),
+        (
+            BuiltinCommand::SettingsSave,
+            TypedSupportSurface::PtzOpticsSettingsSave,
+        ),
+        (
+            BuiltinCommand::PresetRecallSpeed,
+            TypedSupportSurface::PtzOpticsPresetRecallSpeed,
+        ),
+        (
+            BuiltinCommand::SpotlightOn,
+            TypedSupportSurface::SonySpotlight,
+        ),
+        (
+            BuiltinCommand::SpotlightOff,
+            TypedSupportSurface::SonySpotlight,
+        ),
+        (
+            BuiltinCommand::AutoSlowShutterOn,
+            TypedSupportSurface::SonyAutoSlowShutter,
+        ),
+        (
+            BuiltinCommand::AutoSlowShutterOff,
+            TypedSupportSurface::SonyAutoSlowShutter,
+        ),
+        (
+            BuiltinCommand::MulticastStreamingOn,
+            TypedSupportSurface::PtzOpticsMulticastStreaming,
+        ),
+        (
+            BuiltinCommand::MulticastStreamingOff,
+            TypedSupportSurface::PtzOpticsMulticastStreaming,
+        ),
+        (
+            BuiltinCommand::NdiQuality,
+            TypedSupportSurface::PtzOpticsNdiQuality,
+        ),
+    ];
+
+    for &(command, surface) in GATES {
+        let StaticSurfaceDisposition::Noun { marker, .. } = surface_entry(command).disposition
+        else {
+            panic!("{command:?} must remain a static noun command");
+        };
+        assert_eq!(marker, StaticMarkerRequirement::Typed(surface));
+        assert_eq!(typed_surface_for_command(command), Some(surface));
     }
 }
 

@@ -215,11 +215,38 @@ where
             if !buffered.is_empty() || buffers.discarded_malformed() > 0 {
                 return Ok(AsyncReceive::Frames(buffered));
             }
-            // A failed read consumed nothing, so the framer is untouched and
-            // the owner still gets to decide whether the session survives.
-            // Framing/decode failures below stay on the `Err` path.
-            let received = match self.transport.recv_into(buffers.receive_mut()).await {
-                Ok(received) => received,
+            // An ordinary failed read consumed nothing, so the framer is
+            // untouched and the owner still gets to decide whether the session
+            // survives. A non-complete datagram outcome below is the deliberate
+            // exception: it consumed one rejected datagram and therefore takes
+            // the decode-error path.
+            let received = match self
+                .transport
+                .recv_into_with_outcome(buffers.receive_mut())
+                .await
+            {
+                // A UDP receive that reached this point consumed one whole
+                // datagram, even though only a prefix fit in the owner buffer.
+                // Return a decode error rather than a transport fault: the
+                // actor will discard this one malformed datagram and continue,
+                // while a Fault would classify it as a failed read and could
+                // retry work against an already-consumed response.
+                Ok(outcome) if !outcome.is_complete() => {
+                    return Err(Error::ResponseTooLarge {
+                        max_size: self.policy.limits.receive_bytes,
+                    });
+                }
+                Ok(outcome) => outcome.copied_len(),
+                // A legacy wrapper may forward only `recv_into`; built-in UDP
+                // then maps its consumed truncated datagram to this legacy
+                // error spelling. Preserve the datagram-discard semantics even
+                // when that wrapper has not yet forwarded the richer outcome.
+                Err(error @ Error::ResponseTooLarge { .. })
+                    if self.policy.protocol.transport
+                        == crate::runtime::engine::TransportKind::Datagram =>
+                {
+                    return Err(error);
+                }
                 // An expired idle read timeout means no bytes arrived, not that
                 // the read failed. The blocking adapter has always normalized
                 // this; doing it here too keeps a transport with an internal
@@ -257,7 +284,9 @@ mod tests {
     use crate::{
         profile::{OperationalTuning, ProfileSpec},
         profiles::GenericVisca,
-        transport::{builder::TransportConfig, SendSemantics},
+        transport::{
+            buffer::BufferConfig, builder::TransportConfig, ReceiveOutcome, SendSemantics,
+        },
     };
 
     #[derive(Debug)]
@@ -266,6 +295,43 @@ mod tests {
         sent: Vec<Vec<u8>>,
         receives: std::collections::VecDeque<Result<Vec<u8>, Error>>,
         semantics: SendSemantics,
+    }
+
+    #[derive(Debug)]
+    struct TruncatedDatagramTransport {
+        config: TransportConfig,
+        prefix: Vec<u8>,
+    }
+
+    impl HasTransportConfig for TruncatedDatagramTransport {
+        fn transport_config(&self) -> &TransportConfig {
+            &self.config
+        }
+    }
+
+    impl AsyncTransport for TruncatedDatagramTransport {
+        async fn send(&mut self, _bytes: &[u8]) -> Result<(), Error> {
+            Ok(())
+        }
+
+        async fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
+            let copied = self.prefix.len().min(dst.len());
+            dst[..copied].copy_from_slice(&self.prefix[..copied]);
+            Ok(copied)
+        }
+
+        async fn recv_into_with_outcome(
+            &mut self,
+            dst: &mut [u8],
+        ) -> Result<ReceiveOutcome, Error> {
+            let copied = self.prefix.len().min(dst.len());
+            dst[..copied].copy_from_slice(&self.prefix[..copied]);
+            Ok(ReceiveOutcome::Truncated { copied })
+        }
+
+        fn send_semantics(&self) -> SendSemantics {
+            SendSemantics::Datagram
+        }
     }
 
     impl HasTransportConfig for ScriptedTransport {
@@ -320,6 +386,60 @@ mod tests {
         assert!(matches!(
             frames[0].response,
             crate::runtime::engine::DecodedResponse::Ack { .. }
+        ));
+    }
+
+    #[test]
+    fn truncated_datagram_prefix_is_rejected_before_visca_decode() {
+        let transport = TruncatedDatagramTransport {
+            config: TransportConfig {
+                buffer_config: BufferConfig {
+                    recv_buffer_size: 3,
+                    ..BufferConfig::default()
+                },
+                ..TransportConfig::default()
+            },
+            // This is a valid three-byte ACK only if the trailing byte is
+            // ignored, which must never happen for a UDP datagram.
+            prefix: vec![0x90, 0x41, 0xff],
+        };
+        let mut adapter =
+            AsyncTransportAdapter::new(transport, &profile(), CameraId::CAMERA_1).unwrap();
+        let mut buffers = OwnerBuffers::new(adapter.policy().limits).unwrap();
+
+        let received = futures_lite::future::block_on(adapter.receive(&mut buffers, 4));
+
+        assert!(matches!(
+            received,
+            Err(Error::ResponseTooLarge { max_size: 3 })
+        ));
+    }
+
+    #[test]
+    fn legacy_datagram_response_too_large_is_still_a_decode_error() {
+        let transport = ScriptedTransport {
+            config: TransportConfig {
+                buffer_config: BufferConfig {
+                    recv_buffer_size: 3,
+                    ..BufferConfig::default()
+                },
+                ..TransportConfig::default()
+            },
+            sent: Vec::new(),
+            receives: [Err(Error::ResponseTooLarge { max_size: 3 })]
+                .into_iter()
+                .collect(),
+            semantics: SendSemantics::Datagram,
+        };
+        let mut adapter =
+            AsyncTransportAdapter::new(transport, &profile(), CameraId::CAMERA_1).unwrap();
+        let mut buffers = OwnerBuffers::new(adapter.policy().limits).unwrap();
+
+        let received = futures_lite::future::block_on(adapter.receive(&mut buffers, 4));
+
+        assert!(matches!(
+            received,
+            Err(Error::ResponseTooLarge { max_size: 3 })
         ));
     }
 

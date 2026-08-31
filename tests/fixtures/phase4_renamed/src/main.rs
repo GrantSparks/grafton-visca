@@ -136,7 +136,7 @@ impl ImageProcessing for DownstreamProfile {
     const SUPPORTS_MIRROR: bool = true;
     const SUPPORTS_HUE: bool = true;
     const HUE_RANGE: Option<capabilities::CapabilityRange<u8>> =
-        <Base as ImageProcessing>::HUE_RANGE;
+        Some(capabilities::CapabilityRange::<u8>::new(0, 14));
     const SUPPORTS_IMAGE_PROCESSING: bool = true;
 }
 
@@ -180,12 +180,14 @@ impl CompileTimeProfile for DownstreamProfile {
         PositionInquirySupport::new(true, true, true);
 }
 
-fn main() -> visca_renamed::Result<()> {
+fn renamed_dependency_derive_and_profile_contract() -> visca_renamed::Result<()> {
     assert_inquiry_contracts();
     assert_image_marker::<DownstreamProfile>();
 
-    let _ = RenamedValue::new(2)?;
-    let _ = RenamedEnum::try_from(1)?;
+    assert_eq!(RenamedValue::new(2)?, RenamedValue(2));
+    assert!(RenamedValue::new(0).is_err());
+    assert_eq!(RenamedEnum::try_from(1)?, RenamedEnum::First);
+    assert!(RenamedEnum::try_from(3).is_err());
 
     let inquiry = RenamedRawInquiry;
     let mut buffer = [0; <RenamedRawInquiry as Request>::MAX_SIZE];
@@ -201,6 +203,16 @@ fn main() -> visca_renamed::Result<()> {
         "Downstream renamed profile"
     );
     assert!(profile.capabilities().has_image_processing);
+    assert_eq!(profile.capabilities().hue_range, Some(0..=14));
     assert_eq!(profile.transports().tcp_port(), Some(9876));
     Ok(())
+}
+
+#[test]
+fn renamed_dependency_derive_and_profile_contract_runs() -> visca_renamed::Result<()> {
+    renamed_dependency_derive_and_profile_contract()
+}
+
+fn main() -> visca_renamed::Result<()> {
+    renamed_dependency_derive_and_profile_contract()
 }

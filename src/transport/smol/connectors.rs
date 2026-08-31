@@ -9,6 +9,9 @@ use smol::{
     net::{TcpStream, UdpSocket},
 };
 
+#[cfg(any(unix, windows))]
+use crate::transport::async_io::recv_datagram_with_outcome;
+
 use crate::{
     timeout::Deadline,
     transport::{
@@ -17,6 +20,7 @@ use crate::{
             AsyncDatagram, AsyncReadExt as AsyncReadExtTrait, AsyncWriteExt as AsyncWriteExtTrait,
         },
         socket_options::{apply_tcp_socket_options, TcpConnectionConfig, UdpSocketConfig},
+        ReceiveOutcome,
     },
     Error,
 };
@@ -148,6 +152,26 @@ impl AsyncDatagram for UdpSocket {
     async fn recv(&self, buf: &mut [u8]) -> Result<usize, Error> {
         Ok(UdpSocket::recv(self, buf).await?)
     }
+
+    async fn recv_with_outcome(&self, buf: &mut [u8]) -> Result<ReceiveOutcome, Error> {
+        #[cfg(any(unix, windows))]
+        {
+            let socket: std::sync::Arc<async_io::Async<std::net::UdpSocket>> = self.clone().into();
+            Ok(socket
+                .read_with(|socket| recv_datagram_with_outcome(socket, buf))
+                .await?)
+        }
+
+        #[cfg(not(any(unix, windows)))]
+        {
+            let bytes = UdpSocket::recv(self, buf).await?;
+            Ok(if bytes == buf.len() {
+                ReceiveOutcome::PossiblyTruncated { copied: bytes }
+            } else {
+                ReceiveOutcome::Complete { bytes }
+            })
+        }
+    }
 }
 
 // Miri skip: every test in this module drives `smol::Timer`, whose reactor calls
@@ -161,6 +185,74 @@ impl AsyncDatagram for UdpSocket {
 mod tests {
     use super::*;
     use std::time::Duration;
+
+    #[test]
+    #[cfg_attr(
+        miri,
+        ignore = "smol::Timer needs timerfd_create, unsupported by Miri (issue #585)"
+    )]
+    fn udp_receive_reports_truncation_without_accepting_the_prefix() {
+        smol::block_on(async {
+            let receiver = UdpSocket::bind("127.0.0.1:0").await.expect("bind receiver");
+            let sender = UdpSocket::bind("127.0.0.1:0").await.expect("bind sender");
+            receiver
+                .connect(sender.local_addr().expect("sender address"))
+                .await
+                .expect("connect receiver");
+
+            sender
+                .send_to(
+                    &[0x90, 0x41, 0xff, 0x00],
+                    receiver.local_addr().expect("receiver address"),
+                )
+                .await
+                .expect("send datagram");
+
+            let mut destination = [0; 3];
+            let received = AsyncDatagram::recv_with_outcome(&receiver, &mut destination)
+                .await
+                .expect("receive datagram");
+
+            assert_eq!(
+                received,
+                ReceiveOutcome::Truncated { copied: 3 },
+                "a valid ACK prefix must not certify a larger UDP datagram"
+            );
+            assert_eq!(destination, [0x90, 0x41, 0xff]);
+        });
+    }
+
+    #[test]
+    #[cfg_attr(
+        miri,
+        ignore = "smol::Timer needs timerfd_create, unsupported by Miri (issue #585)"
+    )]
+    fn udp_receive_accepts_an_exact_buffer_sized_datagram() {
+        smol::block_on(async {
+            let receiver = UdpSocket::bind("127.0.0.1:0").await.expect("bind receiver");
+            let sender = UdpSocket::bind("127.0.0.1:0").await.expect("bind sender");
+            receiver
+                .connect(sender.local_addr().expect("sender address"))
+                .await
+                .expect("connect receiver");
+
+            sender
+                .send_to(
+                    &[0x90, 0x41, 0xff],
+                    receiver.local_addr().expect("receiver address"),
+                )
+                .await
+                .expect("send datagram");
+
+            let mut destination = [0; 3];
+            let received = AsyncDatagram::recv_with_outcome(&receiver, &mut destination)
+                .await
+                .expect("receive datagram");
+
+            assert_eq!(received, ReceiveOutcome::Complete { bytes: 3 });
+            assert_eq!(destination, [0x90, 0x41, 0xff]);
+        });
+    }
 
     /// Test that verifies deadline budget consumption across sequential steps.
     ///

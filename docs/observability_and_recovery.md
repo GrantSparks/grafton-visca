@@ -294,6 +294,11 @@ malformed, never `Unknown`. Variable data replies are reserved for socket 0
 with more than three bytes; the canonical three-byte `z0 50 FF` completion
 remains valid.
 
+UDP has an additional boundary check before this decode: a datagram that does
+not fit `recv_buffer_size` is discarded as `Error::ResponseTooLarge`. Its copied
+prefix is never treated as a complete frame, even when that prefix would itself
+be a valid ACK or completion.
+
 Decoding is classified by transport. On a byte stream, a frame that the framer
 has already delimited at its `FF` boundary but the strict decoder cannot
 classify is discarded and recorded as `Ignored(MalformedFrame)`; it does not
@@ -455,7 +460,9 @@ owner's per-session receive allocation by exactly that amount; raising
 `max_buffer_size` raises the ceiling on retained incomplete framing bytes.
 `recv_buffer_size` is also the framer's maximum accepted frame size, so
 lowering it below a profile's largest reply turns that reply into
-`Error::ResponseTooLarge`.
+`Error::ResponseTooLarge`. For UDP it is also the maximum accepted datagram
+size: an over-size datagram is rejected before framing rather than silently
+truncated to this limit.
 
 These are implementation policy limits surfaced here so integrations can
 budget memory. They are not permission to add per-frame, per-retry,

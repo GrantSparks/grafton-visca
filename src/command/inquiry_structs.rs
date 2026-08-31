@@ -1894,8 +1894,10 @@ macro_rules! builtin_inquiry_table {
                 limit: u8,
             };
             decode: |payload| {
-                require_len(&payload, 1)?;
-                Ok(Response::Inquiry(InquiryData::GainLimit { limit: payload.as_slice()[0] }))
+                let nibbles = Nibbles::<1>::try_from(payload)?;
+                Ok(Response::Inquiry(InquiryData::GainLimit {
+                    limit: nibbles.byte(0),
+                }))
             };
             response: true;
             query: BuiltinInquiryQuery::Queryable;
@@ -1935,11 +1937,7 @@ macro_rules! builtin_inquiry_table {
                 vertical: bool,
             };
             decode: |payload| {
-                require_nonempty(&payload)?;
-                let mode = payload.as_slice()[0];
-                let horizontal = (mode & 0x01) != 0;
-                let vertical = (mode & 0x02) != 0;
-                Ok(Response::Inquiry(InquiryData::FlipState { horizontal, vertical }))
+                decode_flip_state(payload)
             };
             response: true;
             query: BuiltinInquiryQuery::Queryable;
@@ -2060,9 +2058,9 @@ macro_rules! builtin_inquiry_table {
             decode: |payload| {
                 require_len(&payload, 1)?;
                 let sensitivity = match payload.as_slice()[0] {
-                    0x00 => AutoFocusSensitivity::Low,
-                    0x01 => AutoFocusSensitivity::Normal,
-                    0x02 => AutoFocusSensitivity::High,
+                    0x01 => AutoFocusSensitivity::High,
+                    0x02 => AutoFocusSensitivity::Normal,
+                    0x03 => AutoFocusSensitivity::Low,
                     v => {
                         return Err(Error::InvalidParameter {
                             parameter: "auto_focus_sensitivity",
@@ -2162,9 +2160,7 @@ macro_rules! builtin_inquiry_table {
                 green_on: bool,
             };
             decode: |payload| {
-                if payload.len() < 2 {
-                    return Err(Error::invalid_response_length(2, payload.as_slice()));
-                }
+                require_len(&payload, 2)?;
                 let red_payload = Payload::new(&payload.as_slice()[0..1]);
                 let green_payload = Payload::new(&payload.as_slice()[1..2]);
                 let red_on = red_payload.parse_bool("tally_red_status", BoolConvention::OnIs03)?;
@@ -2252,11 +2248,7 @@ macro_rules! builtin_inquiry_table {
                 vertical: bool,
             };
             decode: |payload| {
-                require_nonempty(&payload)?;
-                let mode = payload.as_slice()[0];
-                let horizontal = (mode & 0x01) != 0;
-                let vertical = (mode & 0x02) != 0;
-                Ok(Response::Inquiry(InquiryData::FlipState { horizontal, vertical }))
+                decode_flip_state(payload)
             };
             response: false;
             query: BuiltinInquiryQuery::Alias {
@@ -3251,6 +3243,31 @@ fn require_nonempty(payload: &Payload<'_>) -> Result<(), Error> {
     Ok(())
 }
 
+/// Decode the combined horizontal/vertical flip-state response shared by the
+/// two public inquiry names for `CAM_FlipInq`.
+fn decode_flip_state(payload: Payload<'_>) -> Result<Response, Error> {
+    require_len(&payload, 1)?;
+
+    let (horizontal, vertical) = match payload.as_slice()[0] {
+        0x00 => (false, false),
+        0x01 => (true, false),
+        0x02 => (false, true),
+        0x03 => (true, true),
+        value => {
+            return Err(Error::InvalidParameter {
+                parameter: "image_flip_mode",
+                value: Cow::Owned(format!("{value:02X}")),
+                reason: Cow::Borrowed("Expected a combined flip mode from 0x00 through 0x03"),
+            })
+        }
+    };
+
+    Ok(Response::Inquiry(InquiryData::FlipState {
+        horizontal,
+        vertical,
+    }))
+}
+
 /// Decode PanTiltPosition without profile awareness.
 ///
 /// This decoder interprets pan/tilt positions as signed 16-bit values.
@@ -3349,5 +3366,124 @@ fn decode_pan_tilt_position_with_coordinate(
             inquiry_kind: InquiryKind::PanTiltPosition,
             payload_hex: format_payload_hex(payload.as_slice()),
         })
+    }
+}
+
+#[cfg(test)]
+mod wire_decoder_regression_tests {
+    use super::*;
+    use crate::command::parse_inquiry_payload;
+
+    #[test]
+    fn autofocus_sensitivity_uses_documented_wire_values() {
+        for (wire, expected) in [
+            (0x01, AutoFocusSensitivity::High),
+            (0x02, AutoFocusSensitivity::Normal),
+            (0x03, AutoFocusSensitivity::Low),
+        ] {
+            let response = parse_inquiry_payload(&[wire], &InquiryKind::AutoFocusSensitivity);
+            assert!(
+                matches!(
+                    &response,
+                    Ok(Response::Inquiry(InquiryData::AutoFocusSensitivity { sensitivity }))
+                        if *sensitivity == expected
+                ),
+                "documented AF sensitivity value {wire:#04X} must decode as {expected:?}, got {response:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn autofocus_sensitivity_rejects_unknown_or_trailing_values() {
+        for wire in [0x00, 0x04, 0xff] {
+            assert!(matches!(
+                parse_inquiry_payload(&[wire], &InquiryKind::AutoFocusSensitivity),
+                Err(Error::InvalidParameter {
+                    parameter: "auto_focus_sensitivity",
+                    ..
+                })
+            ));
+        }
+
+        assert!(matches!(
+            parse_inquiry_payload(&[0x01, 0x00], &InquiryKind::AutoFocusSensitivity),
+            Err(Error::InvalidResponseLength {
+                expected: 1,
+                actual: 2,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn gain_limit_requires_a_single_nibble() {
+        assert!(matches!(
+            parse_inquiry_payload(&[0x0f], &InquiryKind::GainLimit),
+            Ok(Response::Inquiry(InquiryData::GainLimit { limit: 0x0f }))
+        ));
+
+        for wire in [0x10, 0x80, 0xff] {
+            assert!(matches!(
+                parse_inquiry_payload(&[wire], &InquiryKind::GainLimit),
+                Err(Error::InvalidResponseFormat)
+            ));
+        }
+    }
+
+    #[test]
+    fn image_flip_requires_one_known_combined_mode() {
+        for (wire, horizontal, vertical) in [
+            (0x00, false, false),
+            (0x01, true, false),
+            (0x02, false, true),
+            (0x03, true, true),
+        ] {
+            let response = parse_inquiry_payload(&[wire], &InquiryKind::FlipState);
+            assert!(
+                matches!(
+                    &response,
+                    Ok(Response::Inquiry(InquiryData::FlipState {
+                        horizontal: decoded_horizontal,
+                        vertical: decoded_vertical,
+                    })) if *decoded_horizontal == horizontal && *decoded_vertical == vertical
+                ),
+                "documented flip mode {wire:#04X} must decode as ({horizontal}, {vertical}), got {response:?}"
+            );
+        }
+
+        assert!(matches!(
+            parse_inquiry_payload(&[0x04], &InquiryKind::FlipState),
+            Err(Error::InvalidParameter {
+                parameter: "image_flip_mode",
+                ..
+            })
+        ));
+        assert!(matches!(
+            parse_inquiry_payload(&[0x02, 0x00], &InquiryKind::FlipState),
+            Err(Error::InvalidResponseLength {
+                expected: 1,
+                actual: 2,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn packed_tally_status_remains_an_explicit_two_byte_response() {
+        assert!(matches!(
+            parse_inquiry_payload(&[0x03, 0x02], &InquiryKind::TallyStatus),
+            Ok(Response::Inquiry(InquiryData::TallyStatus {
+                red_on: true,
+                green_on: false,
+            }))
+        ));
+        assert!(matches!(
+            parse_inquiry_payload(&[0x03, 0x02, 0x00], &InquiryKind::TallyStatus),
+            Err(Error::InvalidResponseLength {
+                expected: 2,
+                actual: 3,
+                ..
+            })
+        ));
     }
 }

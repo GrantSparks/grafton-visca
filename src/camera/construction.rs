@@ -177,6 +177,19 @@ impl ConnectBuilder {
 }
 
 impl TcpConnectBuilder {
+    fn into_config<P>(self) -> CameraConfig<P>
+    where
+        P: CompileTimeProfile + crate::capabilities::SupportsTcp,
+    {
+        if self.use_default_port {
+            CameraConfig::<P>::tcp(self.address)
+        } else {
+            CameraConfig::<P>::new()
+                .transport(crate::camera::TransportOptions::tcp(self.address))
+                .without_network_default_port()
+        }
+    }
+
     /// Apply the selected profile's compile-time TCP default port.
     pub fn with_default_port(mut self) -> Self {
         self.use_default_port = true;
@@ -189,18 +202,24 @@ impl TcpConnectBuilder {
         P: CompileTimeProfile + crate::capabilities::SupportsTcp,
         R: crate::runtime::Runtime,
     {
-        let config = if self.use_default_port {
-            CameraConfig::<P>::tcp(self.address)
-        } else {
-            CameraConfig::<P>::new()
-                .transport(crate::camera::TransportOptions::tcp(self.address))
-                .without_network_default_port()
-        };
-        config.open_async(runtime).await
+        self.into_config::<P>().open_async(runtime).await
     }
 }
 
 impl UdpConnectBuilder {
+    fn into_config<P>(self) -> CameraConfig<P>
+    where
+        P: CompileTimeProfile + crate::capabilities::SupportsUdp,
+    {
+        if self.use_default_port {
+            CameraConfig::<P>::udp(self.address)
+        } else {
+            CameraConfig::<P>::new()
+                .transport(crate::camera::TransportOptions::udp(self.address))
+                .without_network_default_port()
+        }
+    }
+
     /// Apply the selected profile's compile-time UDP default port.
     pub fn with_default_port(mut self) -> Self {
         self.use_default_port = true;
@@ -213,14 +232,7 @@ impl UdpConnectBuilder {
         P: CompileTimeProfile + crate::capabilities::SupportsUdp,
         R: crate::runtime::Runtime,
     {
-        let config = if self.use_default_port {
-            CameraConfig::<P>::udp(self.address)
-        } else {
-            CameraConfig::<P>::new()
-                .transport(crate::camera::TransportOptions::udp(self.address))
-                .without_network_default_port()
-        };
-        config.open_async(runtime).await
+        self.into_config::<P>().open_async(runtime).await
     }
 }
 
@@ -236,5 +248,47 @@ impl SerialConnectBuilder {
         CameraConfig::<P>::serial(self.port, self.baud_rate)
             .open_serial_async(runtime)
             .await
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::expect_used)]
+mod tests {
+    use crate::{camera::profiles::PtzOpticsG2, Error};
+
+    use super::Connect;
+
+    #[test]
+    fn tcp_builder_requires_an_explicit_port_without_opt_in() {
+        let without_default = Connect::builder()
+            .tcp("camera.local")
+            .into_config::<PtzOpticsG2>()
+            .standard_connection_plan();
+        assert!(matches!(without_default, Err(Error::InvalidAddress { .. })));
+
+        let with_default = Connect::builder()
+            .tcp("camera.local")
+            .with_default_port()
+            .into_config::<PtzOpticsG2>()
+            .standard_connection_plan()
+            .expect("profile TCP default port");
+        assert_eq!(with_default.endpoint, "camera.local:5678");
+    }
+
+    #[test]
+    fn udp_builder_requires_an_explicit_port_without_opt_in() {
+        let without_default = Connect::builder()
+            .udp("camera.local")
+            .into_config::<PtzOpticsG2>()
+            .standard_connection_plan();
+        assert!(matches!(without_default, Err(Error::InvalidAddress { .. })));
+
+        let with_default = Connect::builder()
+            .udp("camera.local")
+            .with_default_port()
+            .into_config::<PtzOpticsG2>()
+            .standard_connection_plan()
+            .expect("profile UDP default port");
+        assert_eq!(with_default.endpoint, "camera.local:1259");
     }
 }

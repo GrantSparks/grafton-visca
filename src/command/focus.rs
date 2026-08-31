@@ -236,11 +236,11 @@ impl FocusZoneCommand {
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 pub enum AutoFocusSensitivity {
     /// Low sensitivity - slower focus response, more stable in changing scenes.
-    Low = 0x00,
+    Low = 0x03,
     /// Normal sensitivity - balanced focus response (default).
-    Normal = 0x01,
+    Normal = 0x02,
     /// High sensitivity - quick focus response to scene changes.
-    High = 0x02,
+    High = 0x01,
 }
 
 visca_command! {
@@ -250,9 +250,9 @@ visca_command! {
     };
     prefix = [0x01, 0x04, 0x58];
     param = match *sensitivity {
-        AutoFocusSensitivity::High => 0x02u8,
-        AutoFocusSensitivity::Normal => 0x01u8,
-        AutoFocusSensitivity::Low => 0x00u8,
+        AutoFocusSensitivity::High => 0x01u8,
+        AutoFocusSensitivity::Normal => 0x02u8,
+        AutoFocusSensitivity::Low => 0x03u8,
     };
     max_param_size = 1;
 }
@@ -554,29 +554,32 @@ mod tests {
 
     #[test]
     fn test_auto_focus_sensitivity_command() {
-        let cmd = AutoFocusSensitivityCommand {
-            sensitivity: AutoFocusSensitivity::High,
-        };
-        assert_eq!(
-            crate::command::test_wire_bytes(&cmd, crate::camera_id::CameraId::CAMERA_1).unwrap(),
-            vec![0x81, 0x01, 0x04, 0x58, 0x02, VISCA_TERMINATOR]
-        );
+        for (sensitivity, wire_value) in [
+            (AutoFocusSensitivity::High, 0x01),
+            (AutoFocusSensitivity::Normal, 0x02),
+            (AutoFocusSensitivity::Low, 0x03),
+        ] {
+            let cmd = AutoFocusSensitivityCommand::new(sensitivity);
+            assert_eq!(
+                crate::command::test_wire_bytes(&cmd, crate::camera_id::CameraId::CAMERA_1)
+                    .unwrap(),
+                vec![0x81, 0x01, 0x04, 0x58, wire_value, VISCA_TERMINATOR]
+            );
 
-        let cmd = AutoFocusSensitivityCommand {
-            sensitivity: AutoFocusSensitivity::Normal,
-        };
-        assert_eq!(
-            crate::command::test_wire_bytes(&cmd, crate::camera_id::CameraId::CAMERA_1).unwrap(),
-            vec![0x81, 0x01, 0x04, 0x58, 0x01, VISCA_TERMINATOR]
-        );
-
-        let cmd = AutoFocusSensitivityCommand {
-            sensitivity: AutoFocusSensitivity::Low,
-        };
-        assert_eq!(
-            crate::command::test_wire_bytes(&cmd, crate::camera_id::CameraId::CAMERA_1).unwrap(),
-            vec![0x81, 0x01, 0x04, 0x58, 0x00, VISCA_TERMINATOR]
-        );
+            let decoded = crate::command::parse_inquiry_payload(
+                &[wire_value],
+                &crate::command::InquiryKind::AutoFocusSensitivity,
+            )
+            .expect("AF sensitivity command value must decode as the same setting");
+            assert!(matches!(
+                decoded,
+                crate::command::Response::Inquiry(
+                    crate::command::InquiryData::AutoFocusSensitivity {
+                        sensitivity: decoded_sensitivity,
+                    }
+                ) if decoded_sensitivity == sensitivity
+            ));
+        }
     }
 
     #[test]

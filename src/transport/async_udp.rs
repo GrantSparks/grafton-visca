@@ -6,7 +6,7 @@
 use crate::{
     transport::{
         async_io::AsyncDatagram, builder::TransportConfig, AddressingMode, AsyncTransport,
-        HasTransportConfig, SendSemantics,
+        HasTransportConfig, ReceiveOutcome, SendSemantics,
     },
     Error,
 };
@@ -59,13 +59,35 @@ impl<S: AsyncDatagram> AsyncTransport for Udp<S> {
     }
 
     async fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
+        match self.recv_into_with_outcome(dst).await? {
+            ReceiveOutcome::Complete { bytes } => Ok(bytes),
+            ReceiveOutcome::Truncated { .. } | ReceiveOutcome::PossiblyTruncated { .. } => {
+                Err(Error::ResponseTooLarge {
+                    max_size: dst.len(),
+                })
+            }
+        }
+    }
+
+    async fn recv_into_with_outcome(&mut self, dst: &mut [u8]) -> Result<ReceiveOutcome, Error> {
         // An empty UDP datagram is a valid packet, but `Ok(0)` is reserved for
         // stream EOF by the transport contract. Keep receiving until a packet
         // with payload arrives or the socket reports an error.
         loop {
-            let n = self.socket.recv(dst).await?;
-            if n > 0 {
-                return Ok(n);
+            let outcome = self.socket.recv_with_outcome(dst).await?;
+            let copied = outcome.copied_len();
+            if copied > dst.len() {
+                return Err(Error::InvalidResponse {
+                    expected: "datagram receive fitting the supplied buffer".into(),
+                    actual: copied.to_le_bytes().to_vec(),
+                });
+            }
+            // A non-complete result describes a datagram that the socket
+            // already consumed. Return it immediately so the owner rejects
+            // the whole datagram rather than treating its copied prefix as
+            // a valid VISCA frame.
+            if !outcome.is_complete() || copied > 0 {
+                return Ok(outcome);
             }
             cooperative_yield().await;
         }
@@ -113,11 +135,33 @@ mod tests {
         receives: ReceiveQueue,
     }
 
+    #[derive(Debug)]
+    struct LegacyDatagram {
+        payload: Vec<u8>,
+    }
+
     impl ScriptedDatagram {
         fn new(receives: impl IntoIterator<Item = Result<Vec<u8>, Error>>) -> Self {
             Self {
                 receives: Arc::new(Mutex::new(receives.into_iter().collect())),
             }
+        }
+
+        fn receive(&self, buf: &mut [u8]) -> Result<ReceiveOutcome, Error> {
+            let datagram = self
+                .receives
+                .lock()
+                .expect("scripted datagram queue is not poisoned")
+                .pop_front()
+                .expect("scripted datagram queue should contain a receive result");
+            let datagram = datagram?;
+            let copied = datagram.len().min(buf.len());
+            buf[..copied].copy_from_slice(&datagram[..copied]);
+            Ok(if datagram.len() > buf.len() {
+                ReceiveOutcome::Truncated { copied }
+            } else {
+                ReceiveOutcome::Complete { bytes: copied }
+            })
         }
     }
 
@@ -127,16 +171,26 @@ mod tests {
         }
 
         async fn recv(&self, buf: &mut [u8]) -> Result<usize, Error> {
-            let datagram = self
-                .receives
-                .lock()
-                .expect("scripted datagram queue is not poisoned")
-                .pop_front()
-                .expect("scripted datagram queue should contain a receive result");
-            let datagram = datagram?;
-            let len = datagram.len().min(buf.len());
-            buf[..len].copy_from_slice(&datagram[..len]);
-            Ok(len)
+            Ok(self.receive(buf)?.copied_len())
+        }
+
+        async fn recv_with_outcome(&self, buf: &mut [u8]) -> Result<ReceiveOutcome, Error> {
+            self.receive(buf)
+        }
+    }
+
+    // Deliberately implements only the original `recv` requirement. This is
+    // the source-compatible custom-socket shape; its exact-fill result must be
+    // treated conservatively until it adopts `recv_with_outcome`.
+    impl AsyncDatagram for LegacyDatagram {
+        fn send(&self, buf: &[u8]) -> impl Future<Output = Result<usize, Error>> + Send {
+            ready(Ok(buf.len()))
+        }
+
+        async fn recv(&self, buf: &mut [u8]) -> Result<usize, Error> {
+            let copied = self.payload.len().min(buf.len());
+            buf[..copied].copy_from_slice(&self.payload[..copied]);
+            Ok(copied)
         }
     }
 
@@ -220,5 +274,43 @@ mod tests {
         };
         assert_eq!(received, 5);
         assert_eq!(&dst[..received], b"valid");
+    }
+
+    #[test]
+    fn recv_rejects_a_truncated_valid_frame_prefix() {
+        let socket = ScriptedDatagram::new([Ok(vec![0x90, 0x41, 0xff, 0x00])]);
+        let mut transport = Udp::new(socket, TransportConfig::default());
+        let mut dst = [0; 3];
+
+        let error = block_on(transport.recv_into(&mut dst)).expect_err("truncated datagram");
+
+        assert!(matches!(error, Error::ResponseTooLarge { max_size: 3 }));
+        assert_eq!(dst, [0x90, 0x41, 0xff]);
+    }
+
+    #[test]
+    fn recv_accepts_a_valid_datagram_at_the_buffer_limit() {
+        let socket = ScriptedDatagram::new([Ok(vec![0x90, 0x41, 0xff])]);
+        let mut transport = Udp::new(socket, TransportConfig::default());
+        let mut dst = [0; 3];
+
+        let received = block_on(transport.recv_into(&mut dst)).expect("exact-fit datagram");
+
+        assert_eq!(received, 3);
+        assert_eq!(dst, [0x90, 0x41, 0xff]);
+    }
+
+    #[test]
+    fn legacy_datagram_implementation_fails_closed_on_an_exact_fill() {
+        let socket = LegacyDatagram {
+            payload: vec![0x90, 0x41, 0xff],
+        };
+        let mut transport = Udp::new(socket, TransportConfig::default());
+        let mut dst = [0; 3];
+
+        let error = block_on(transport.recv_into(&mut dst))
+            .expect_err("legacy datagram cannot certify an exact fit");
+
+        assert!(matches!(error, Error::ResponseTooLarge { max_size: 3 }));
     }
 }

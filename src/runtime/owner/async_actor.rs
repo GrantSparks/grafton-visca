@@ -96,8 +96,7 @@ impl TransientFaultRun {
         (self.length, span)
     }
 
-    /// A read that produced data, or that timed out cleanly, proves the
-    /// transport is answering again.
+    /// A successful read proves the transport is answering again.
     fn reset(&mut self) {
         self.length = 0;
         self.first_at = None;
@@ -117,7 +116,8 @@ enum TurnOutcome {
     /// Keep running with protocol input first.
     Continue,
     /// This receive turn made no protocol progress, so poll the ordered
-    /// boundary sources first on the next selection.
+    /// boundary sources first on the next selection after one cooperative
+    /// executor handoff.
     YieldBoundaries,
     /// The session is over.
     Stop,
@@ -1333,6 +1333,25 @@ impl AsyncOwnerHandle {
             .shutdown_signal
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
+        // Terminal publication and shutdown acceptance share this lifecycle
+        // lock. Check the published engine verdict before occupying the
+        // shutdown lane: a session that already terminalized itself must hand
+        // that cause back to a cleanup caller rather than acknowledge a signal
+        // no actor turn can consume.
+        if let Some(error) = self
+            .terminal_error
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
+        {
+            if matches!(&error, Error::RuntimeShutdown)
+                && matches!(&*signal, ShutdownSignalState::Accepted)
+            {
+                return Ok(());
+            }
+            *signal = ShutdownSignalState::Failed(error.clone());
+            return Err(error);
+        }
         match &*signal {
             ShutdownSignalState::Accepted => Ok(()),
             ShutdownSignalState::Failed(error) => Err(error.clone()),
@@ -1544,6 +1563,32 @@ where
         ))
     }
 
+    /// Publish a terminal engine verdict at the lifecycle linearization point.
+    ///
+    /// This is intentionally called while the terminal `SessionChanged` effect
+    /// is being driven, rather than only from `run`'s epilogue. A shutdown
+    /// caller can otherwise enter the still-live one-slot lane after
+    /// `handle_event` has made the engine terminal but before the epilogue has
+    /// run, and incorrectly receive `Ok(())`.
+    fn publish_terminal_error(&self, error: Error) {
+        let mut signal = self
+            .shutdown_signal
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        *self
+            .terminal_error
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(error.clone());
+        // Only the caller whose signal produced an explicit shutdown retains
+        // success. An engine close or poison supersedes even a signal accepted
+        // earlier in the same ready-source race.
+        if !matches!(&error, Error::RuntimeShutdown)
+            || !matches!(&*signal, ShutdownSignalState::Accepted)
+        {
+            *signal = ShutdownSignalState::Failed(error);
+        }
+    }
+
     pub(crate) async fn run<D>(mut self, mut driver: D) -> OwnerSnapshot
     where
         D: AsyncOwnerDriver,
@@ -1584,15 +1629,20 @@ where
             // ceiling, then restart the count. When nothing is queued on a
             // boundary the receive still wins this turn, so a busy transport is
             // never stalled — only guaranteed to yield the front periodically.
+            let yielded_boundary_turn = source_phase == SourcePhase::BoundariesFirst;
             let forced_boundary_turn = source_phase == SourcePhase::ReceiveFirst
                 && receive_first_streak >= fairness_ceiling;
             if forced_boundary_turn {
                 receive_first_streak = 0;
+            }
+            if forced_boundary_turn || yielded_boundary_turn {
                 // Polling boundaries first alone is not a cooperative handoff:
                 // if they are all pending, the ready receive wins immediately
-                // and this task can monopolize a single-thread executor. Yield
-                // before the forced turn so caller work and timers can become
-                // ready without changing the boundary source order.
+                // and this task can monopolize a single-thread executor. This
+                // covers both a forced fairness turn and every no-progress
+                // receive's boundary-first retry, so shutdown, cancellation,
+                // admission, control, and a due timer get one real executor
+                // handoff without changing their fixed source order.
                 cooperative_yield().await;
             }
             let effective_phase = if forced_boundary_turn {
@@ -1682,28 +1732,7 @@ where
             .state
             .boundary_error()
             .unwrap_or(Error::RuntimeShutdown);
-        // Publish the terminal result under the same lifecycle lock used by
-        // `AsyncOwnerHandle::shutdown`. This makes the result and shutdown
-        // acceptance linearisable: once terminal publication wins, shutdown
-        // cannot enqueue a signal into a receiver the actor will never poll.
-        // Keep the accepted state only for an orderly explicit shutdown. A
-        // transport close/poison supersedes an earlier accepted signal so a
-        // later shutdown/close call cannot mask the real terminal cause.
-        {
-            let mut signal = self
-                .shutdown_signal
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            *self
-                .terminal_error
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(boundary_error.clone());
-            if !matches!(&boundary_error, Error::RuntimeShutdown)
-                || !matches!(*signal, ShutdownSignalState::Accepted)
-            {
-                *signal = ShutdownSignalState::Failed(boundary_error.clone());
-            }
-        }
+        self.publish_terminal_error(boundary_error.clone());
         self.drain_boundaries(boundary_error);
         #[cfg(all(test, any(feature = "runtime-tokio", feature = "runtime-smol")))]
         let snapshot = self.snapshot_now();
@@ -1930,10 +1959,10 @@ where
     /// than after its read timeout) would otherwise spin the actor at hundreds
     /// of thousands of reads a second (#675). The pause escalates with the run
     /// and is clamped to the next scheduler deadline, exactly like the transient
-    /// receive-fault pause — but it records no fault and spends no retry budget,
-    /// so an indefinitely idle transport is never mistaken for a broken one.
+    /// receive-fault pause — but it records no fault, does not clear an existing
+    /// fault run, and spends no retry budget. Only a successful read or the
+    /// five-second fault gap proves transient failures stopped accumulating.
     async fn absorb_idle_receive(&mut self, runtime: &R) -> TurnOutcome {
-        self.faults.reset();
         self.idle_receive_run = self.idle_receive_run.saturating_add(1);
         let pause = clamp_transient_pause(
             transient_receive_pause(self.idle_receive_run),
@@ -2093,7 +2122,19 @@ where
     {
         let write_timeout = self.state.policy().write_timeout;
         while let Some(effect) = effects.pop_front() {
-            if let AppliedEffect::Transmit(staged) = self.state.apply_effect(effect) {
+            let terminal_transition = matches!(
+                &effect,
+                Effect::SessionChanged { to, .. } if *to != SessionState::Running
+            );
+            let applied = self.state.apply_effect(effect);
+            if terminal_transition {
+                let error = self
+                    .state
+                    .boundary_error()
+                    .unwrap_or_else(AsyncOwnerHandle::missing_terminal_error);
+                self.publish_terminal_error(error);
+            }
+            if let AppliedEffect::Transmit(staged) = applied {
                 let write_result = match self.state.prepare_write(&staged) {
                     Ok(write) => Self::write_frame(driver, write, runtime, write_timeout).await,
                     Err(error) => Err(error),
@@ -2119,7 +2160,19 @@ where
     {
         let write_timeout = self.state.policy().write_timeout;
         while let Some(effect) = effects.pop_front() {
-            if let AppliedEffect::Transmit(staged) = self.state.apply_effect(effect) {
+            let terminal_transition = matches!(
+                &effect,
+                Effect::SessionChanged { to, .. } if *to != SessionState::Running
+            );
+            let applied = self.state.apply_effect(effect);
+            if terminal_transition {
+                let error = self
+                    .state
+                    .boundary_error()
+                    .unwrap_or_else(AsyncOwnerHandle::missing_terminal_error);
+                self.publish_terminal_error(error);
+            }
+            if let AppliedEffect::Transmit(staged) = applied {
                 let write_result = match self.state.prepare_write(&staged) {
                     Ok(write) => Self::write_frame(driver, write, runtime, write_timeout).await,
                     Err(error) => Err(error),
@@ -3346,6 +3399,38 @@ mod tests {
         assert_eq!(frame_or_close, 0, "close is the first applied ready source");
     }
 
+    /// The engine's terminal verdict is published while `handle_event` drives
+    /// its `SessionChanged` effect, not only in `run`'s epilogue. Keeping this
+    /// seam direct makes the race deterministic: the actor has returned `Stop`
+    /// but still owns a live shutdown receiver, exactly where a pre-fix caller
+    /// could enqueue and incorrectly receive `Ok(())`.
+    #[cfg(feature = "runtime-tokio")]
+    #[tokio::test]
+    async fn terminal_stop_is_published_before_shutdown_can_enter_the_live_lane() {
+        let runtime = TokioRuntime::from_current().unwrap();
+        let (handle, mut actor) = AsyncOwnerActor::new(policy(1), runtime.clone()).unwrap();
+        let mut driver = harness().driver;
+
+        let outcome = actor
+            .handle_event(
+                ActorEvent::Receive {
+                    result: Ok(AsyncReceive::Closed),
+                    received_at: Executor::now(&runtime),
+                },
+                &mut driver,
+                &runtime,
+            )
+            .await;
+        assert_eq!(outcome, TurnOutcome::Stop);
+
+        let error = handle.shutdown().await.unwrap_err();
+        assert!(matches!(error, Error::ConnectionClosed { .. }));
+        assert!(
+            actor.shutdown.is_empty(),
+            "a terminal session must not retain a shutdown signal it can never poll"
+        );
+    }
+
     #[cfg(feature = "runtime-tokio")]
     #[tokio::test]
     async fn ready_frame_is_observed_before_explicit_shutdown() {
@@ -3893,6 +3978,47 @@ mod tests {
         }
     }
 
+    /// Alternates a transient transport fault with a clean no-data receive.
+    /// A no-data read paces the actor but is not a successful read, so it must
+    /// not break the fault run that this driver deliberately keeps within the
+    /// five-second recovery window.
+    #[cfg(feature = "runtime-tokio")]
+    #[derive(Debug)]
+    struct AlternatingFaultNoData {
+        reads: Arc<std::sync::atomic::AtomicUsize>,
+        faults: Arc<std::sync::atomic::AtomicUsize>,
+    }
+
+    #[cfg(feature = "runtime-tokio")]
+    impl AsyncOwnerDriver for AlternatingFaultNoData {
+        #[allow(clippy::manual_async_fn)]
+        fn write(
+            &mut self,
+            _write: WireWrite<'_>,
+        ) -> impl Future<Output = Result<TransmissionMeta, Error>> + Send {
+            async { Ok(TransmissionMeta { sequence: None }) }
+        }
+
+        fn receive(
+            &mut self,
+            _buffers: &mut super::super::OwnerBuffers,
+            _frame_limit: usize,
+        ) -> impl Future<Output = Result<AsyncReceive, Error>> + Send {
+            let reads = Arc::clone(&self.reads);
+            let faults = Arc::clone(&self.faults);
+            async move {
+                if reads.fetch_add(1, Ordering::Relaxed).is_multiple_of(2) {
+                    faults.fetch_add(1, Ordering::Relaxed);
+                    Ok(AsyncReceive::Fault(Error::TransportError(
+                        "simulated intermittent adapter fault".into(),
+                    )))
+                } else {
+                    Ok(AsyncReceive::NoData)
+                }
+            }
+        }
+    }
+
     /// Issue #625. A transport that fails every read keeps the receive branch
     /// of the left-biased race permanently ready. Before the fix that starved
     /// shutdown, admissions, cancellations and control forever: `submit` never
@@ -4139,6 +4265,42 @@ mod tests {
             reason.contains("consecutive receive faults"),
             "the reason must say why the fault run stopped counting as transient: {reason}"
         );
+    }
+
+    /// A clean no-data receive is neither a transport fault nor proof that an
+    /// earlier transient fault recovered. Alternating the two inside the reset
+    /// window must therefore still reach the permanent-fault threshold.
+    #[cfg(feature = "runtime-tokio")]
+    #[tokio::test(start_paused = true)]
+    async fn alternating_fault_and_no_data_receives_still_end_the_session() {
+        let runtime = TokioRuntime::from_current().unwrap();
+        let (handle, actor) = AsyncOwnerActor::new(policy(1), runtime).unwrap();
+        let reads = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let faults = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+
+        let snapshot = tokio::time::timeout(
+            Duration::from_secs(10),
+            actor.run(AlternatingFaultNoData {
+                reads: Arc::clone(&reads),
+                faults: Arc::clone(&faults),
+            }),
+        )
+        .await
+        .expect("alternating no-data must not reset a transient fault run");
+
+        assert_eq!(snapshot.state, SessionState::Closed);
+        assert!(
+            faults.load(Ordering::Relaxed)
+                >= usize::try_from(TRANSIENT_RECEIVE_FAULT_LIMIT).unwrap(),
+            "the full fault threshold must survive intervening no-data receives"
+        );
+        assert!(
+            reads.load(Ordering::Relaxed)
+                >= usize::try_from(TRANSIENT_RECEIVE_FAULT_LIMIT.saturating_mul(2) - 1).unwrap(),
+            "the scripted driver must actually alternate faults with no-data reads"
+        );
+        let error = handle.shutdown().await.unwrap_err();
+        assert!(matches!(error, Error::ConnectionClosed { .. }));
     }
 
     /// Issue #625. Genuinely transient faults still behave exactly as #620
@@ -4893,14 +5055,15 @@ mod tests {
     /// uses `stop` only after declaring the single-thread liveness check
     /// failed, so a regressed actor can be released rather than wedging the
     /// whole test process.
-    #[cfg(feature = "runtime-tokio")]
     #[derive(Debug)]
     struct CountingBabblingDriver {
         reads: Arc<std::sync::atomic::AtomicU64>,
         stop: Arc<std::sync::atomic::AtomicBool>,
+        /// `true` models the empty batch the stream adapter returns after it
+        /// discards one or more delimited malformed frames.
+        empty_batches: bool,
     }
 
-    #[cfg(feature = "runtime-tokio")]
     impl AsyncOwnerDriver for CountingBabblingDriver {
         #[allow(clippy::manual_async_fn)]
         fn write(
@@ -4917,10 +5080,13 @@ mod tests {
         ) -> impl Future<Output = Result<AsyncReceive, Error>> + Send {
             let reads = Arc::clone(&self.reads);
             let stop = Arc::clone(&self.stop);
+            let empty_batches = self.empty_batches;
             async move {
                 reads.fetch_add(1, Ordering::Relaxed);
                 if stop.load(Ordering::Acquire) {
                     Ok(AsyncReceive::Closed)
+                } else if empty_batches {
+                    Ok(AsyncReceive::Frames(Vec::new()))
                 } else {
                     Ok(AsyncReceive::Frames(vec![DecodedFrame {
                         target: CameraId::CAMERA_1,
@@ -5140,8 +5306,11 @@ mod tests {
     /// hang the test binary; it asks the test driver to close only after the
     /// liveness deadline has already failed.
     #[cfg(feature = "runtime-tokio")]
-    #[test]
-    fn tokio_current_thread_babbling_peer_yields_to_caller_control_and_timer() {
+    fn tokio_current_thread_ready_receive_yields_to_boundaries(
+        empty_batches: bool,
+        include_cancellation: bool,
+        scenario: &'static str,
+    ) {
         const WATCHDOG: Duration = Duration::from_secs(2);
 
         let reads = Arc::new(std::sync::atomic::AtomicU64::new(0));
@@ -5159,18 +5328,20 @@ mod tests {
                     TokioRuntime::from_current().map_err(|error| error.to_string())?;
                 let owner_policy = policy(1);
                 let fairness_ceiling = owner_policy.limits.frames_per_receive.max(1) as u64;
+                let ready_reads = if empty_batches { 1 } else { fairness_ceiling };
                 let (handle, actor) = AsyncOwnerActor::new(owner_policy, actor_runtime)
                     .map_err(|error| error.to_string())?;
                 let actor_task = tokio::spawn(actor.run(CountingBabblingDriver {
                     reads: Arc::clone(&worker_reads),
                     stop: Arc::clone(&worker_stop),
+                    empty_batches,
                 }));
 
-                // Do not enqueue any boundary work until the actor has reached
-                // its first forced turn. Before the cooperative yield this loop
-                // is never polled again; after it, the test queues all work on
-                // the same one-thread executor.
-                while worker_reads.load(Ordering::Acquire) < fairness_ceiling {
+                // Do not enqueue boundary work until the actor has reached its
+                // first forced (valid batch) or boundary-first (empty batch)
+                // turn. Before the cooperative yield this loop is never polled
+                // again; after it, all work queues on the same executor.
+                while worker_reads.load(Ordering::Acquire) < ready_reads {
                     tokio::task::yield_now().await;
                 }
 
@@ -5179,7 +5350,6 @@ mod tests {
                     caller_handle
                         .submit(command())
                         .await
-                        .map(drop)
                         .map_err(|error| error.to_string())
                 });
                 let control_handle = handle.clone();
@@ -5194,7 +5364,7 @@ mod tests {
                 });
 
                 let (caller, control, timer) = tokio::join!(caller, control, timer);
-                caller.map_err(|error| format!("caller task failed: {error}"))??;
+                let receipt = caller.map_err(|error| format!("caller task failed: {error}"))??;
                 let snapshot =
                     control.map_err(|error| format!("control task failed: {error}"))??;
                 timer.map_err(|error| format!("timer task failed: {error}"))?;
@@ -5203,6 +5373,16 @@ mod tests {
                         "control observed an unexpected owner state: {:?}",
                         snapshot.state
                     ));
+                }
+
+                if include_cancellation {
+                    let cancellation = handle
+                        .cancel_test(receipt)
+                        .await
+                        .map_err(|error| format!("{error:?}"))?;
+                    drop(cancellation);
+                } else {
+                    drop(receipt);
                 }
 
                 handle.shutdown().await.map_err(|error| error.to_string())?;
@@ -5224,7 +5404,7 @@ mod tests {
             Ok(Ok(())) => worker.join().unwrap(),
             Ok(Err(error)) => {
                 worker.join().unwrap();
-                panic!("single-thread liveness scenario failed: {error}");
+                panic!("{scenario} single-thread liveness scenario failed: {error}");
             }
             Err(flume::RecvTimeoutError::Timeout) => {
                 // The old implementation remains inside the ready receive loop.
@@ -5237,12 +5417,128 @@ mod tests {
                     drop(worker);
                 }
                 panic!(
-                    "a babbling peer monopolized Tokio's current-thread runtime before caller, control, or timer work could run"
+                    "{scenario} monopolized Tokio's current-thread runtime before caller, control, cancellation, or timer work could run"
                 );
             }
             Err(flume::RecvTimeoutError::Disconnected) => {
                 worker.join().unwrap();
-                panic!("single-thread liveness worker exited without a result");
+                panic!("{scenario} single-thread liveness worker exited without a result");
+            }
+        }
+    }
+
+    #[cfg(feature = "runtime-tokio")]
+    #[test]
+    fn tokio_current_thread_babbling_peer_yields_to_caller_control_and_timer() {
+        tokio_current_thread_ready_receive_yields_to_boundaries(false, false, "a babbling peer");
+    }
+
+    /// Delimited malformed stream frames reach the actor as an empty frame
+    /// batch after the adapter records and discards them. Unlike `NoData`, that
+    /// path has no pacing sleep, so this current-thread probe requires its own
+    /// cooperative handoff. It queues every boundary class plus a timer after
+    /// the first malformed batch; a pre-fix actor never gives those tasks a
+    /// chance to enqueue on the same executor.
+    #[cfg(feature = "runtime-tokio")]
+    #[test]
+    fn tokio_current_thread_malformed_stream_batches_yield_to_all_boundaries() {
+        tokio_current_thread_ready_receive_yields_to_boundaries(
+            true,
+            true,
+            "discarded malformed stream frames",
+        );
+    }
+
+    /// The same no-progress handoff on a single-thread, runtime-neutral
+    /// executor. `AsyncOwnerActor` uses no Tokio scheduling primitive here:
+    /// a discarded malformed batch must let independently spawned admission,
+    /// control, timer, and shutdown work run under smol as well.
+    #[cfg(feature = "runtime-smol")]
+    #[test]
+    fn smol_current_thread_malformed_stream_batches_yield_to_boundaries() {
+        const WATCHDOG: Duration = Duration::from_secs(2);
+
+        let reads = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (finished, result) = flume::bounded(1);
+        let worker_reads = Arc::clone(&reads);
+        let worker_stop = Arc::clone(&stop);
+        let worker = std::thread::spawn(move || {
+            let local = async_executor::LocalExecutor::new();
+            let outcome: Result<(), String> = future::block_on(local.run(async {
+                let (handle, actor) = AsyncOwnerActor::new(policy(1), SmolRuntime::new())
+                    .map_err(|error| error.to_string())?;
+                let actor_task = local.spawn(actor.run(CountingBabblingDriver {
+                    reads: Arc::clone(&worker_reads),
+                    stop: Arc::clone(&worker_stop),
+                    empty_batches: true,
+                }));
+
+                while worker_reads.load(Ordering::Acquire) == 0 {
+                    future::yield_now().await;
+                }
+
+                let caller_handle = handle.clone();
+                let caller = local.spawn(async move {
+                    caller_handle
+                        .submit(command())
+                        .await
+                        .map_err(|error| error.to_string())
+                });
+                let control_handle = handle.clone();
+                let control = local.spawn(async move {
+                    control_handle
+                        .snapshot()
+                        .await
+                        .map_err(|error| error.to_string())
+                });
+                let timer = local.spawn(async {
+                    smol::Timer::after(Duration::from_millis(1)).await;
+                });
+
+                drop(caller.await?);
+                let snapshot = control.await?;
+                timer.await;
+                if snapshot.state != SessionState::Running {
+                    return Err(format!(
+                        "control observed an unexpected owner state: {:?}",
+                        snapshot.state
+                    ));
+                }
+
+                handle.shutdown().await.map_err(|error| error.to_string())?;
+                let terminal = actor_task.await;
+                if terminal.state != SessionState::Shutdown {
+                    return Err(format!(
+                        "actor ended in an unexpected state: {:?}",
+                        terminal.state
+                    ));
+                }
+                Ok(())
+            }));
+            let _ = finished.send(outcome);
+        });
+
+        match result.recv_timeout(WATCHDOG) {
+            Ok(Ok(())) => worker.join().unwrap(),
+            Ok(Err(error)) => {
+                worker.join().unwrap();
+                panic!("malformed-frame smol liveness scenario failed: {error}");
+            }
+            Err(flume::RecvTimeoutError::Timeout) => {
+                stop.store(true, Ordering::Release);
+                if result.recv_timeout(WATCHDOG).is_ok() {
+                    worker.join().unwrap();
+                } else {
+                    drop(worker);
+                }
+                panic!(
+                    "discarded malformed stream frames monopolized smol's current-thread executor before boundary or timer work could run"
+                );
+            }
+            Err(flume::RecvTimeoutError::Disconnected) => {
+                worker.join().unwrap();
+                panic!("malformed-frame smol liveness worker exited without a result");
             }
         }
     }

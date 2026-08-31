@@ -4,7 +4,7 @@
 //! allowing remote navigation and configuration. These commands are particularly useful
 //! for Sony FR7 and other cameras with comprehensive on-screen menus.
 
-use crate::{command::bytes::ConstCommandBuilder, visca_command};
+use crate::{command::bytes::ConstCommandBuilder, visca_command, Error};
 
 visca_command! {
     /// Menu display control command.
@@ -50,7 +50,7 @@ impl crate::command::encode::WireEncode for MenuNavigate {
         &self,
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
-    ) -> Result<usize, crate::Error> {
+    ) -> Result<usize, Error> {
         let mut builder = ConstCommandBuilder::<9>::new();
         builder.push_mut(camera_id.to_address_byte());
         builder.append_mut(&[0x01, 0x06, 0x01, 0x0E, 0x0E]);
@@ -133,14 +133,12 @@ impl PerformMenuAction {
 /// manufacturer-specific codes for button presses and dial turns.
 ///
 /// VISCA format: `81 01 7E 04 72 pp qq FF`
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct DirectMenuControl {
-    /// The control1 parameter.
-    /// First control byte (pp)
-    pub control1: u8,
-    /// The control2 parameter.
-    /// Second control byte (qq)
-    pub control2: u8,
+    /// First control byte (pp).
+    control1: u8,
+    /// Second control byte (qq).
+    control2: u8,
 }
 
 impl crate::command::encode::WireEncode for DirectMenuControl {
@@ -148,7 +146,7 @@ impl crate::command::encode::WireEncode for DirectMenuControl {
         &self,
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
-    ) -> Result<usize, crate::Error> {
+    ) -> Result<usize, Error> {
         let mut builder = ConstCommandBuilder::<8>::new();
         builder.push_mut(camera_id.to_address_byte());
         builder.append_mut(&[0x01, 0x7E, 0x04, 0x72]);
@@ -160,13 +158,39 @@ impl crate::command::encode::WireEncode for DirectMenuControl {
 
 impl DirectMenuControl {
     /// Create a new direct menu control command.
-    pub fn new(control1: u8, control2: u8) -> Self {
-        Self { control1, control2 }
+    ///
+    /// `0xFF` immediately followed by a VISCA address (`0x81..=0x88`) would
+    /// encode as an apparent second VISCA frame. Such a pair is rejected here
+    /// to match raw-frame admission before a command can be submitted.
+    pub fn new(control1: u8, control2: u8) -> Result<Self, Error> {
+        if control1 == crate::command::bytes::VISCA_TERMINATOR && (0x81..=0x88).contains(&control2)
+        {
+            return Err(Error::InvalidRequest(
+                "direct menu control cannot contain 0xFF followed by a VISCA address; it would encode as a second frame".into(),
+            ));
+        }
+
+        Ok(Self { control1, control2 })
+    }
+
+    /// Return the first direct-menu control byte.
+    #[must_use]
+    pub const fn control1(self) -> u8 {
+        self.control1
+    }
+
+    /// Return the second direct-menu control byte.
+    #[must_use]
+    pub const fn control2(self) -> u8 {
+        self.control2
     }
 
     /// Menu open/close toggle (FR7).
     pub fn open_close() -> Self {
-        Self::new(0x00, 0x01)
+        Self {
+            control1: 0x00,
+            control2: 0x01,
+        }
     }
 }
 
@@ -276,7 +300,7 @@ mod tests {
     visca_test!(
         DirectMenuControl,
         test_direct_menu_control,
-        DirectMenuControl::new(0x00, 0x01),
+        DirectMenuControl::new(0x00, 0x01).expect("valid direct menu control"),
         &[0x81, 0x01, 0x7E, 0x04, 0x72, 0x00, 0x01, VISCA_TERMINATOR]
     );
 
@@ -292,21 +316,35 @@ mod tests {
     visca_test!(
         DirectMenuControl,
         test_direct_menu_control_0xff_param_keeps_terminator,
-        DirectMenuControl::new(0x00, 0xFF),
+        DirectMenuControl::new(0x00, 0xFF).expect("0xFF data byte is valid"),
         &[0x81, 0x01, 0x7E, 0x04, 0x72, 0x00, 0xFF, VISCA_TERMINATOR]
     );
 
-    /// Exhaustive value-domain sweep for #683: `DirectMenuControl` over every
-    /// control2 value (including 0xFF) and a spread of control1 values must
-    /// encode to a terminated 8-byte frame whose byte before the terminator is
-    /// control2.
     #[test]
-    fn every_direct_menu_param_terminates() {
+    fn direct_menu_rejects_an_apparent_second_visca_frame() {
+        for control2 in 0x81..=0x88 {
+            assert!(matches!(
+                DirectMenuControl::new(0xFF, control2),
+                Err(Error::InvalidRequest(_))
+            ));
+        }
+    }
+
+    /// Every accepted control pair, including a trailing `0xFF` data byte,
+    /// encodes to one terminated frame. The rejected `0xFF 0x81..=0x88`
+    /// sequences are the raw admission guard's apparent second frame.
+    #[test]
+    fn every_accepted_direct_menu_param_terminates() {
         use crate::command::encode::WireEncode;
 
         for control1 in [0x00u8, 0x7F, 0x80, 0xFF] {
             for control2 in 0..=u8::MAX {
                 let command = DirectMenuControl::new(control1, control2);
+                if control1 == 0xFF && (0x81..=0x88).contains(&control2) {
+                    assert!(matches!(command, Err(Error::InvalidRequest(_))));
+                    continue;
+                }
+                let command = command.expect("all remaining control pairs are valid");
                 let mut buffer = [0u8; 32];
                 let len = command
                     .write_into(crate::camera_id::CameraId::CAMERA_1, &mut buffer)

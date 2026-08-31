@@ -44,8 +44,12 @@ The optional typed gates are exactly: `DirectZoom`, `DigitalZoomToggle`,
 `ContrastControl`, `SharpnessControl`, `SaturationControl`, `HueControl`,
 `LuminanceControl`, `GammaControl`, `NoiseReduction`, `NoiseReduction2D`,
 `NoiseReduction3D`, `PictureEffect`, `Tally`, `DirectMenu`, `NdFilter`,
-`VariableSpeed`, `MotionSync`, `FocusZoneInquiry`, and `UsbAudio`. The generated profile registry remains the
-single source for marker implementations and runtime discovery facts.
+`VariableSpeed`, `MotionSync`, `FocusZoneInquiry`, `UsbAudio`,
+`PtzOpticsAntiFlicker`, `PtzOpticsSettingsSave`,
+`PtzOpticsPresetRecallSpeed`, `SonySpotlight`, `SonyAutoSlowShutter`,
+`PtzOpticsMulticastStreaming`, and `PtzOpticsNdiQuality`. The generated
+profile registry remains the single source for marker implementations and
+runtime discovery facts.
 
 ## Static nouns and controls
 
@@ -72,7 +76,7 @@ marker bounds, it reproduces the static surface's capability gates at runtime
 through `validate_for_profile`, admitting exactly the operations the static
 `<noun>()` accessor could name — including the base-domain inquiries, which are
 gated on the same base marker as their noun accessor. A `noun_parity` test pins
-the erased and static inquiry gate sets equal so the two cannot drift.
+the erased and static command/inquiry gate sets equal so the two cannot drift.
 
 ## Connection paths
 

@@ -306,6 +306,18 @@ elif field == "row":
         f"| PT-01 | Transport QA | Pass | Camera firmware 1.2.3 / bench rack A | {disguise} |",
         1,
     )
+elif field == "owner":
+    checklist = checklist.replace(
+        "| PT-01 | Transport QA | Pass | Camera firmware 1.2.3 / bench rack A | docs/evidence/2.0.0/pt-01.md#capture |",
+        f"| PT-01 | {disguise} | Pass | Camera firmware 1.2.3 / bench rack A | docs/evidence/2.0.0/pt-01.md#capture |",
+        1,
+    )
+elif field == "firmware":
+    checklist = checklist.replace(
+        "| PT-01 | Transport QA | Pass | Camera firmware 1.2.3 / bench rack A | docs/evidence/2.0.0/pt-01.md#capture |",
+        f"| PT-01 | Transport QA | Pass | {disguise} | docs/evidence/2.0.0/pt-01.md#capture |",
+        1,
+    )
 elif field == "table":
     # This value is intentionally outside the recognized ID/Status/Evidence
     # columns. The table-wide pending scan must still inspect it.
@@ -347,6 +359,18 @@ elif field == "row":
     checklist = checklist.replace(
         "| PT-01 | Transport QA | Pass | Camera firmware 1.2.3 / bench rack A | docs/evidence/2.0.0/pt-01.md#capture |",
         f"| PT-01 | Transport QA | Pass | Camera firmware 1.2.3 / bench rack A | {control} |",
+        1,
+    )
+elif field == "owner":
+    checklist = checklist.replace(
+        "| PT-01 | Transport QA | Pass | Camera firmware 1.2.3 / bench rack A | docs/evidence/2.0.0/pt-01.md#capture |",
+        f"| PT-01 | {control} | Pass | Camera firmware 1.2.3 / bench rack A | docs/evidence/2.0.0/pt-01.md#capture |",
+        1,
+    )
+elif field == "firmware":
+    checklist = checklist.replace(
+        "| PT-01 | Transport QA | Pass | Camera firmware 1.2.3 / bench rack A | docs/evidence/2.0.0/pt-01.md#capture |",
+        f"| PT-01 | Transport QA | Pass | {control} | docs/evidence/2.0.0/pt-01.md#capture |",
         1,
     )
 elif field == "table":
@@ -828,6 +852,67 @@ expect_failure "recorded non-placeholder evidence/notes" run_validator "${blank_
 placeholder_evidence_root="${root_temp}/placeholder-evidence"
 make_fixture "${placeholder_evidence_root}" "2.0.0" "$(make_checklist placeholder-evidence)"
 expect_failure "recorded non-placeholder evidence/notes" run_validator "${placeholder_evidence_root}" v2.0.0
+
+# A Pass claim cannot pair any provenance field or release record with an
+# explicit denial of observation. These spellings exercise ordinary Markdown,
+# emphasis, and inline code; the candidate fixture above still proves that RC
+# hardware rows remain allowed to be pending.
+explicit_denial_forms=(
+    'Not run'
+    '**No evidence**'
+    '`not tested`'
+    'Not executed'
+    'unverified'
+)
+for denial_index in "${!explicit_denial_forms[@]}"; do
+    denial="${explicit_denial_forms[denial_index]}"
+    for field in owner firmware row signoff evidence; do
+        denial_root="${root_temp}/explicit-denial-${denial_index}-${field}"
+        make_fixture "${denial_root}" "2.0.0" \
+            "$(make_corpus_checklist "${field}" "${denial}")"
+        case "${field}" in
+            owner|firmware)
+                expected_failure="non-placeholder Owner, Firmware / bench"
+                ;;
+            row)
+                expected_failure="Status+Evidence table"
+                ;;
+            signoff)
+                expected_failure="Final sign-off"
+                ;;
+            evidence)
+                expected_failure="Evidence index"
+                ;;
+        esac
+        expect_failure "${expected_failure}" run_validator "${denial_root}" v2.0.0
+    done
+done
+
+# Rejecting denial phrases must not reject actual prose or artifact references
+# in the same fields.
+for field in owner firmware row signoff evidence; do
+    case "${field}" in
+        owner)
+            control="Camera QA: L. Nguyen"
+            ;;
+        firmware)
+            control="Firmware 1.2.3 / bench rack A; capture docs/evidence/2.0.0/PT-01.md"
+            ;;
+        row)
+            control="Bench transcript: docs/evidence/2.0.0/PT-01.md#capture"
+            ;;
+        signoff)
+            control="Release owner reviewed bench transcript"
+            ;;
+        evidence)
+            control="Artifact index: docs/evidence/2.0.0.md"
+            ;;
+    esac
+    provenance_root="${root_temp}/real-provenance-${field}"
+    make_fixture "${provenance_root}" "2.0.0" \
+        "$(make_valid_control_checklist "${field}" "${control}")"
+    run_validator "${provenance_root}" v2.0.0
+done
 
 # Additional rows are permitted as the matrix grows, provided their status
 # remains covered by the existing table-wide checks.

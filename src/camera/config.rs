@@ -83,6 +83,21 @@ pub enum TransportOptions {
     Custom,
 }
 
+/// How a standard network constructor obtains a port for a host-only address.
+///
+/// An `Option<u16>` cannot distinguish the typed builders' explicit
+/// no-default-port request from the normal profile-default behavior, so keep
+/// those policies separate until endpoint canonicalization.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NetworkDefaultPort {
+    /// Use the selected profile's TCP or UDP default port.
+    Profile,
+    /// Use this constructor-selected default instead of looking up profile facts.
+    Explicit(u16),
+    /// Require an explicit port in the supplied endpoint.
+    Disabled,
+}
+
 impl TransportOptions {
     /// Returns the selected transport kind.
     pub const fn kind(&self) -> TransportKind {
@@ -175,8 +190,8 @@ impl TransportOptions {
 pub struct CameraConfig<P> {
     /// Transport configuration.
     pub(crate) transport: TransportOptions,
-    /// Default network port selected by the typed constructor or registry facts.
-    pub(crate) network_default_port: Option<u16>,
+    /// Policy for resolving a missing TCP or UDP port.
+    network_default_port: NetworkDefaultPort,
     /// Validated operational overrides applied to prepared requests.
     pub(crate) tuning: OperationalTuning,
     /// Immutable request-admission capacity passed to the owner session.
@@ -201,7 +216,7 @@ where
     pub fn new() -> Self {
         Self {
             transport: TransportOptions::Custom,
-            network_default_port: None,
+            network_default_port: NetworkDefaultPort::Profile,
             tuning: OperationalTuning::new(),
             admission_capacity: crate::SessionConfig::default().admission_capacity(),
             transport_config: TransportConfig::default(),
@@ -228,7 +243,7 @@ where
     {
         Self::new().with_transport(
             TransportOptions::tcp(address),
-            Some(<P as SupportsTcp>::DEFAULT_TCP_PORT),
+            NetworkDefaultPort::Explicit(<P as SupportsTcp>::DEFAULT_TCP_PORT),
         )
     }
 
@@ -239,7 +254,7 @@ where
     {
         Self::new().with_transport(
             TransportOptions::udp(address),
-            Some(<P as SupportsUdp>::DEFAULT_UDP_PORT),
+            NetworkDefaultPort::Explicit(<P as SupportsUdp>::DEFAULT_UDP_PORT),
         )
     }
 
@@ -248,10 +263,17 @@ where
     where
         P: SupportsSerial,
     {
-        Self::new().with_transport(TransportOptions::serial(port, baud_rate), None)
+        Self::new().with_transport(
+            TransportOptions::serial(port, baud_rate),
+            NetworkDefaultPort::Disabled,
+        )
     }
 
-    fn with_transport(mut self, transport: TransportOptions, default_port: Option<u16>) -> Self {
+    fn with_transport(
+        mut self,
+        transport: TransportOptions,
+        default_port: NetworkDefaultPort,
+    ) -> Self {
         self.transport = transport;
         self.network_default_port = default_port;
         self
@@ -287,21 +309,21 @@ where
     /// Set custom transport options.
     pub fn transport(mut self, transport: TransportOptions) -> Self {
         self.network_default_port = match transport.kind() {
-            TransportKind::Tcp => P::PROFILE_ID.and_then(|profile| profile.default_tcp_port()),
-            TransportKind::Udp => P::PROFILE_ID.and_then(|profile| profile.default_udp_port()),
-            TransportKind::Serial | TransportKind::Custom => None,
+            TransportKind::Tcp | TransportKind::Udp => NetworkDefaultPort::Profile,
+            TransportKind::Serial | TransportKind::Custom => NetworkDefaultPort::Disabled,
         };
         self.transport = transport;
         self
     }
 
-    /// Clears the profile-derived network port.  This is crate-private because
-    /// it is only needed by the typed connection builder's explicit
-    /// `with_default_port` opt-in; [`Self::tcp`] and [`Self::udp`] retain their
+    /// Require an explicit TCP or UDP port for this configuration.
+    ///
+    /// This is crate-private because only the typed connection builders need
+    /// no-default-port behavior; [`Self::tcp`] and [`Self::udp`] retain their
     /// documented profile defaults.
     #[cfg(any(feature = "async", feature = "blocking"))]
     pub(crate) fn without_network_default_port(mut self) -> Self {
-        self.network_default_port = None;
+        self.network_default_port = NetworkDefaultPort::Disabled;
         self
     }
 
@@ -405,15 +427,16 @@ where
         &self,
         port: &str,
         baud_rate: u32,
-    ) -> crate::transport::serial::Config {
+    ) -> crate::Result<crate::transport::serial::Config> {
         let transport_config = self.serial_transport_config();
+        transport_config.validate_buffer_bounds()?;
 
-        crate::transport::serial::Config::new(port.to_string())
+        Ok(crate::transport::serial::Config::new(port.to_string())
             .baud_rate(baud_rate)
             .camera_address(self.camera_id.id())
             .read_timeout(transport_config.read_timeout)
             .write_timeout(transport_config.write_timeout)
-            .buffer_config(transport_config.buffer_config)
+            .buffer_config(transport_config.buffer_config))
     }
 }
 
@@ -446,11 +469,15 @@ where
     }
 
     pub(crate) fn owner_default_port(&self, kind: TransportKind) -> Option<u16> {
-        self.network_default_port.or_else(|| match kind {
-            TransportKind::Tcp => P::TRANSPORTS.tcp_port(),
-            TransportKind::Udp => P::TRANSPORTS.udp_port(),
-            TransportKind::Serial | TransportKind::Custom => None,
-        })
+        match self.network_default_port {
+            NetworkDefaultPort::Profile => match kind {
+                TransportKind::Tcp => P::TRANSPORTS.tcp_port(),
+                TransportKind::Udp => P::TRANSPORTS.udp_port(),
+                TransportKind::Serial | TransportKind::Custom => None,
+            },
+            NetworkDefaultPort::Explicit(port) => Some(port),
+            NetworkDefaultPort::Disabled => None,
+        }
     }
 
     /// Returns the validated, pure [`crate::SessionConfig`] that standard
@@ -513,6 +540,7 @@ where
         };
 
         session_config.validate_for_transport(Some(kind))?;
+        transport_config.validate_buffer_bounds()?;
         let endpoint = crate::transport::address::canonicalize_endpoint(address, default_port)?;
         Ok(StandardConnectionPlan {
             kind,
@@ -601,7 +629,7 @@ where
             }
         };
         let serial = runtime
-            .connect_serial(self.serial_config(port, baud_rate))
+            .connect_serial(self.serial_config(port, baud_rate)?)
             .await?;
         crate::Session::open::<R, _>(
             TransportHandle::<R>::Serial(Box::new(serial)),
@@ -687,7 +715,7 @@ where
             }
         };
         let serial = crate::transport::serial_blocking::SerialTransport::new(
-            self.serial_config(port, baud_rate),
+            self.serial_config(port, baud_rate)?,
         )?;
         let transport = crate::transport::BlockingTransportHandle::Serial(serial);
         crate::blocking::Session::open(transport, session_config)
@@ -833,6 +861,61 @@ mod tests {
         );
     }
 
+    #[cfg(any(feature = "async", feature = "blocking"))]
+    #[test]
+    fn invalid_buffer_bounds_fail_during_network_preflight() {
+        use crate::{
+            camera::CameraConfig,
+            profiles::PtzOpticsG2,
+            transport::{BufferConfig, TransportConfig},
+            Error,
+        };
+
+        for (buffer_config, message) in [
+            (
+                BufferConfig {
+                    recv_buffer_size: 0,
+                    send_buffer_size: 64,
+                    max_buffer_size: 64,
+                },
+                "transport receive buffer must be non-zero",
+            ),
+            (
+                BufferConfig {
+                    recv_buffer_size: 64,
+                    send_buffer_size: 64,
+                    max_buffer_size: 0,
+                },
+                "transport maximum buffer must be non-zero",
+            ),
+            (
+                BufferConfig {
+                    recv_buffer_size: 65,
+                    send_buffer_size: 64,
+                    max_buffer_size: 64,
+                },
+                "transport receive buffer cannot exceed maximum buffer",
+            ),
+        ] {
+            for config in [
+                CameraConfig::<PtzOpticsG2>::tcp("camera.local:5678"),
+                CameraConfig::<PtzOpticsG2>::udp("camera.local:1259"),
+            ] {
+                let error = config
+                    .transport_config(TransportConfig {
+                        buffer_config,
+                        ..TransportConfig::default()
+                    })
+                    .standard_connection_plan()
+                    .expect_err("invalid buffer bounds must fail in preflight");
+                assert!(matches!(
+                    error,
+                    Error::InvalidRequest(actual) if actual.as_ref() == message
+                ));
+            }
+        }
+    }
+
     #[cfg(any(
         feature = "transport-serial-tokio",
         all(feature = "blocking", feature = "transport-serial")
@@ -860,7 +943,9 @@ mod tests {
         };
         let config = CameraConfig::<PtzOpticsG2>::serial("/dev/fake-visca", 38_400)
             .transport_config(transport_config);
-        let serial = config.serial_config("/dev/fake-visca", 38_400);
+        let serial = config
+            .serial_config("/dev/fake-visca", 38_400)
+            .expect("valid serial config");
         assert_eq!(serial.port, "/dev/fake-visca");
         assert_eq!(serial.baud_rate, 38_400);
         assert_eq!(serial.read_timeout, Duration::from_millis(37));
@@ -870,6 +955,59 @@ mod tests {
             config.serial_transport_config().addressing,
             AddressingMode::Serial
         );
+    }
+
+    #[cfg(any(
+        feature = "transport-serial-tokio",
+        all(feature = "blocking", feature = "transport-serial")
+    ))]
+    #[test]
+    fn invalid_buffer_bounds_fail_during_serial_preflight() {
+        use crate::{
+            camera::CameraConfig,
+            profiles::PtzOpticsG2,
+            transport::{BufferConfig, TransportConfig},
+            Error,
+        };
+
+        for (buffer_config, message) in [
+            (
+                BufferConfig {
+                    recv_buffer_size: 0,
+                    send_buffer_size: 64,
+                    max_buffer_size: 64,
+                },
+                "transport receive buffer must be non-zero",
+            ),
+            (
+                BufferConfig {
+                    recv_buffer_size: 64,
+                    send_buffer_size: 64,
+                    max_buffer_size: 0,
+                },
+                "transport maximum buffer must be non-zero",
+            ),
+            (
+                BufferConfig {
+                    recv_buffer_size: 65,
+                    send_buffer_size: 64,
+                    max_buffer_size: 64,
+                },
+                "transport receive buffer cannot exceed maximum buffer",
+            ),
+        ] {
+            let error = CameraConfig::<PtzOpticsG2>::serial("/dev/not-opened", 9_600)
+                .transport_config(TransportConfig {
+                    buffer_config,
+                    ..TransportConfig::default()
+                })
+                .serial_config("/dev/not-opened", 9_600)
+                .expect_err("invalid buffer bounds must fail before serial-device open");
+            assert!(matches!(
+                error,
+                Error::InvalidRequest(actual) if actual.as_ref() == message
+            ));
+        }
     }
 
     #[test]

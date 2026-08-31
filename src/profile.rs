@@ -1514,6 +1514,20 @@ impl ProfileSpec {
                     capabilities.has_focus && capabilities.has_one_push_focus
                 }
                 capabilities::TypedSupportSurface::PtzOpticsSnapFocus => capabilities.has_focus,
+                capabilities::TypedSupportSurface::PtzOpticsAntiFlicker
+                | capabilities::TypedSupportSurface::SonySpotlight
+                | capabilities::TypedSupportSurface::SonyAutoSlowShutter => {
+                    capabilities.has_exposure
+                }
+                capabilities::TypedSupportSurface::PtzOpticsPresetRecallSpeed => {
+                    capabilities.has_presets
+                }
+                // The vendor settings-save and streaming controls have no
+                // separate discovery metadata. Their typed-support fact is
+                // the complete source-backed permission.
+                capabilities::TypedSupportSurface::PtzOpticsSettingsSave
+                | capabilities::TypedSupportSurface::PtzOpticsMulticastStreaming
+                | capabilities::TypedSupportSurface::PtzOpticsNdiQuality => true,
                 capabilities::TypedSupportSurface::FocusLock
                 | capabilities::TypedSupportSurface::PushAutoFocus => capabilities.has_focus,
                 capabilities::TypedSupportSurface::FocusZone => {

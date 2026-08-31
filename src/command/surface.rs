@@ -262,6 +262,41 @@ macro_rules! surface_marker {
             $crate::capabilities::TypedSupportSurface::PtzOpticsSnapFocus,
         )
     };
+    (HasPtzOpticsAntiFlicker) => {
+        $crate::command::surface::StaticMarkerRequirement::Typed(
+            $crate::capabilities::TypedSupportSurface::PtzOpticsAntiFlicker,
+        )
+    };
+    (HasPtzOpticsSettingsSave) => {
+        $crate::command::surface::StaticMarkerRequirement::Typed(
+            $crate::capabilities::TypedSupportSurface::PtzOpticsSettingsSave,
+        )
+    };
+    (HasPtzOpticsPresetRecallSpeed) => {
+        $crate::command::surface::StaticMarkerRequirement::Typed(
+            $crate::capabilities::TypedSupportSurface::PtzOpticsPresetRecallSpeed,
+        )
+    };
+    (HasSonySpotlight) => {
+        $crate::command::surface::StaticMarkerRequirement::Typed(
+            $crate::capabilities::TypedSupportSurface::SonySpotlight,
+        )
+    };
+    (HasSonyAutoSlowShutter) => {
+        $crate::command::surface::StaticMarkerRequirement::Typed(
+            $crate::capabilities::TypedSupportSurface::SonyAutoSlowShutter,
+        )
+    };
+    (HasPtzOpticsMulticastStreaming) => {
+        $crate::command::surface::StaticMarkerRequirement::Typed(
+            $crate::capabilities::TypedSupportSurface::PtzOpticsMulticastStreaming,
+        )
+    };
+    (HasPtzOpticsNdiQuality) => {
+        $crate::command::surface::StaticMarkerRequirement::Typed(
+            $crate::capabilities::TypedSupportSurface::PtzOpticsNdiQuality,
+        )
+    };
     (HasFocusLock) => {
         $crate::command::surface::StaticMarkerRequirement::Typed(
             $crate::capabilities::TypedSupportSurface::FocusLock,
@@ -698,6 +733,27 @@ pub(crate) const fn surface_entry(command: BuiltinCommand) -> StaticSurfaceEntry
     }
 
     noun_table!(All => surface_rows_for_entry)
+}
+
+/// Returns the runtime typed-support surface carried by one static command row.
+///
+/// Request validation uses this projection for vendor commands whose typed
+/// permission is entirely represented by an optional marker. That makes the
+/// dynamic admission gate follow the same noun-table `where` bound that
+/// governs static method resolution.
+#[must_use]
+pub(crate) const fn typed_surface_for_command(
+    command: BuiltinCommand,
+) -> Option<TypedSupportSurface> {
+    match surface_entry(command).disposition {
+        StaticSurfaceDisposition::Noun {
+            marker: StaticMarkerRequirement::Typed(surface),
+            ..
+        } => Some(surface),
+        StaticSurfaceDisposition::Noun { .. }
+        | StaticSurfaceDisposition::BroadcastHandshake { .. }
+        | StaticSurfaceDisposition::InternalCancellation { .. } => None,
+    }
 }
 
 /// Force every registry arm through const evaluation.

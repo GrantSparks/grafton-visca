@@ -130,8 +130,21 @@ if requires_hardware_evidence:
     unevidenced = re.compile(
         r"^(pending|blocked|fail(ed)?|tbd|todo)\b", re.IGNORECASE
     )
+    # A stable release cannot turn an explicit statement that the observation
+    # did not happen into provenance merely by marking the row Pass.  Keep
+    # these denial phrases distinct from the narrower table-wide `unevidenced`
+    # scan above: this predicate is used for the required provenance fields
+    # and the two top-level release records, where a value has to be evidence
+    # rather than merely non-pending text.
     placeholder = re.compile(
-        r"^(pending|blocked|fail(ed)?|tbd|todo|n/?a|none|unknown|xxx)\b",
+        r"^(?:"
+        r"pending|blocked|fail(?:ed)?|tbd|todo|n/?a|none|unknown|xxx"
+        r"|not[ \t/_\-\u2013\u2014]+(?:run|tested|performed|executed|verified|recorded|available|provided|applicable)"
+        r"|no[ \t/_\-\u2013\u2014]+(?:evidence|test(?:ing)?|run|record(?:s)?|artifact(?:s)?|proof|verification|data|logs?|result(?:s)?)"
+        r"|un(?:tested|verified|recorded|available)"
+        r"|missing(?:[ \t/_\-\u2013\u2014]+(?:evidence|record(?:s)?|artifact(?:s)?|proof))?"
+        r"|absent|unavailable"
+        r")\b",
         re.IGNORECASE,
     )
 

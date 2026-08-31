@@ -70,6 +70,13 @@ custom integrations.
 | Variable speed mode controls | `SonyFR7` |
 | Tally controls and inquiries | `SonyFR7`, `SonyBRCH900` |
 | Direct menu controls | `SonyFR7` |
+| PTZOptics anti-flicker control | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
+| PTZOptics settings-save command | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
+| PTZOptics preset-recall speed control | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
+| Sony spotlight controls | `SonyFR7`, `SonyBRCH900`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300` |
+| Sony automatic slow-shutter controls | `SonyFR7`, `SonyBRCH900`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300` |
+| PTZOptics multicast-streaming controls | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
+| PTZOptics NDI-quality control | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
 | Motion Sync controls and inquiries | Custom/evidenced profiles that explicitly implement `HasMotionSync`; no built-in profile is marked from the current specs |
 
 ### Profile-Gated Sub-Capabilities

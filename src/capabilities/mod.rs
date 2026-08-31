@@ -30,10 +30,12 @@ pub use profile_metadata::{
     HasImageProcessing, HasIrisControl, HasLuminanceControl, HasMenuControl, HasMotionSync,
     HasNdFilter, HasNoiseReduction, HasNoiseReduction2D, HasNoiseReduction3D, HasOnePushFocus,
     HasOnePushWhiteBalance, HasPanTilt, HasPictureEffect, HasPower, HasPresets,
-    HasPtzOpticsSnapFocus, HasPushAutoFocus, HasRgbGain, HasRgbTuning, HasSaturationControl,
-    HasSharpnessControl, HasTally, HasUsbAudio, HasVariableSpeed, HasWhiteBalance,
-    HasWideDynamicRange, HasZoom, InquirySupport, ProfileMetadata, SupportsSerial, SupportsTcp,
-    SupportsUdp,
+    HasPtzOpticsAntiFlicker, HasPtzOpticsMulticastStreaming, HasPtzOpticsNdiQuality,
+    HasPtzOpticsPresetRecallSpeed, HasPtzOpticsSettingsSave, HasPtzOpticsSnapFocus,
+    HasPushAutoFocus, HasRgbGain, HasRgbTuning, HasSaturationControl, HasSharpnessControl,
+    HasSonyAutoSlowShutter, HasSonySpotlight, HasTally, HasUsbAudio, HasVariableSpeed,
+    HasWhiteBalance, HasWideDynamicRange, HasZoom, InquirySupport, ProfileMetadata, SupportsSerial,
+    SupportsTcp, SupportsUdp,
 };
 pub use typed_support::{ProfileTypedSupport, TypedSupportSet, TypedSupportSurface};
 

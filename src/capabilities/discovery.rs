@@ -1172,6 +1172,11 @@ mod tests {
         assert!(g2.supports_typed(TypedSupportSurface::FocusZone));
         assert!(g2.supports_typed(TypedSupportSurface::FocusZoneInquiry));
         assert!(g2.supports_typed(TypedSupportSurface::UsbAudio));
+        assert!(g2.supports_typed(TypedSupportSurface::PtzOpticsAntiFlicker));
+        assert!(g2.supports_typed(TypedSupportSurface::PtzOpticsSettingsSave));
+        assert!(g2.supports_typed(TypedSupportSurface::PtzOpticsPresetRecallSpeed));
+        assert!(g2.supports_typed(TypedSupportSurface::PtzOpticsMulticastStreaming));
+        assert!(g2.supports_typed(TypedSupportSurface::PtzOpticsNdiQuality));
         assert!(!g2.supports_typed(TypedSupportSurface::DigitalZoomToggle));
         assert!(!g2.supports_typed(TypedSupportSurface::DigitalZoomRange));
 
@@ -1189,6 +1194,8 @@ mod tests {
         assert!(!fr7.supports_typed(TypedSupportSurface::BrightnessControl));
         assert!(!fr7.supports_typed(TypedSupportSurface::PictureEffect));
         assert!(fr7.supports_typed(TypedSupportSurface::AutoFocusSensitivity));
+        assert!(fr7.supports_typed(TypedSupportSurface::SonySpotlight));
+        assert!(fr7.supports_typed(TypedSupportSurface::SonyAutoSlowShutter));
     }
 
     #[test]
@@ -1212,6 +1219,13 @@ mod tests {
         assert!(!caps.supports_typed(TypedSupportSurface::FocusZoneInquiry));
         assert!(!caps.supports_typed(TypedSupportSurface::UsbAudio));
         assert!(!caps.supports_typed(TypedSupportSurface::AutoFocusSensitivity));
+        assert!(!caps.supports_typed(TypedSupportSurface::PtzOpticsAntiFlicker));
+        assert!(!caps.supports_typed(TypedSupportSurface::PtzOpticsSettingsSave));
+        assert!(!caps.supports_typed(TypedSupportSurface::PtzOpticsPresetRecallSpeed));
+        assert!(!caps.supports_typed(TypedSupportSurface::SonySpotlight));
+        assert!(!caps.supports_typed(TypedSupportSurface::SonyAutoSlowShutter));
+        assert!(!caps.supports_typed(TypedSupportSurface::PtzOpticsMulticastStreaming));
+        assert!(!caps.supports_typed(TypedSupportSurface::PtzOpticsNdiQuality));
     }
 
     #[test]

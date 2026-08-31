@@ -7,9 +7,10 @@
 use crate::{
     capabilities::TypedSupportSurface,
     command::{
-        encode::WireEncode, Flip, Focus, Iris, NdFilterMode, NdFilterStep, NdFilterStepCommand,
-        NdFilterValue, PanTilt, PanTiltDirection, PanTiltLimitCorner, PresetAction, PresetCommand,
-        PresetNumber, PushAF, Zoom,
+        encode::WireEncode, semantics::BuiltinCommand as StaticBuiltinCommand,
+        surface::typed_surface_for_command, Flip, Focus, Iris, NdFilterMode, NdFilterStep,
+        NdFilterStepCommand, NdFilterValue, PanTilt, PanTiltDirection, PanTiltLimitCorner,
+        PresetAction, PresetCommand, PresetNumber, PushAF, Zoom,
     },
     completion, request, AffectedAxes, CameraId, ControlClass, Error, OperationCommand, Request,
     RetryClass, TimeoutClass,
@@ -277,30 +278,6 @@ fn validate_variable_nd_filter_control(profile: &crate::ProfileSpec) -> Result<(
     }
 }
 
-fn validate_exposure_state(
-    profile: &crate::ProfileSpec,
-    feature: &'static str,
-) -> Result<(), Error> {
-    require(profile.capabilities().has_exposure, feature)
-}
-
-fn validate_sony_exposure_state(
-    profile: &crate::ProfileSpec,
-    feature: &'static str,
-) -> Result<(), Error> {
-    let profile_id = profile.capabilities().profile_id;
-    let supported = matches!(
-        profile_id,
-        Some(crate::camera::profiles::ProfileId::SonyFr7)
-            | Some(crate::camera::profiles::ProfileId::SonyBrcH900)
-            | Some(crate::camera::profiles::ProfileId::SonyEviH100)
-            | Some(crate::camera::profiles::ProfileId::SonyBrc300)
-            | Some(crate::camera::profiles::ProfileId::NearusBrc300)
-    );
-    require(supported, feature)?;
-    validate_exposure_state(profile, feature)
-}
-
 fn validate_image_state(profile: &crate::ProfileSpec, feature: &'static str) -> Result<(), Error> {
     require(profile.capabilities().has_image_processing, feature)
 }
@@ -335,20 +312,22 @@ fn validate_tally_state(profile: &crate::ProfileSpec) -> Result<(), Error> {
     )
 }
 
-fn is_ptzoptics_profile(profile: &crate::ProfileSpec) -> bool {
-    matches!(
-        profile.capabilities().profile_id,
-        Some(crate::camera::profiles::ProfileId::PtzOpticsG2)
-            | Some(crate::camera::profiles::ProfileId::PtzOpticsG3)
-            | Some(crate::camera::profiles::ProfileId::PtzOptics30X)
-    )
-}
-
-fn validate_ptzoptics_vendor_state(
+/// Validates a command gate derived from the static noun-table row.
+///
+/// The dynamic facade has no marker bounds, so it must consult the same typed
+/// support surface that its static method's `where Has*` clause projects to.
+/// Only rows with a typed surface may call this helper.
+fn validate_static_typed_command(
     profile: &crate::ProfileSpec,
+    command: StaticBuiltinCommand,
     feature: &'static str,
 ) -> Result<(), Error> {
-    require(is_ptzoptics_profile(profile), feature)
+    let Some(surface) = typed_surface_for_command(command) else {
+        return Err(Error::InvalidRequest(
+            "static typed-command gate is missing from the noun surface".into(),
+        ));
+    };
+    require(profile.capabilities().supports_typed(surface), feature)
 }
 
 /// USB audio is a model capability, not a family-wide PTZOptics assumption.
@@ -742,7 +721,11 @@ impl BuiltinValidation for crate::command::exposure::Brightness {
 
 impl BuiltinValidation for crate::command::exposure::AntiFlickerCommand {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_ptzoptics_vendor_state(profile, "anti-flicker control")
+        validate_static_typed_command(
+            profile,
+            StaticBuiltinCommand::AntiFlicker,
+            "anti-flicker control",
+        )
     }
 }
 
@@ -1060,7 +1043,7 @@ impl BuiltinValidation for crate::command::streaming::UsbAudio {
 
 impl BuiltinValidation for crate::command::system::SettingsSaveCommand {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_ptzoptics_vendor_state(profile, "settings save")
+        validate_static_typed_command(profile, StaticBuiltinCommand::SettingsSave, "settings save")
     }
 }
 
@@ -4233,7 +4216,11 @@ impl BuiltinValidation for PresetReset {
 
 impl BuiltinValidation for crate::command::preset::PresetRecallSpeedCommand {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_ptzoptics_vendor_state(profile, "preset recall speed")?;
+        validate_static_typed_command(
+            profile,
+            StaticBuiltinCommand::PresetRecallSpeed,
+            "preset recall speed",
+        )?;
         let capabilities = profile.capabilities();
         require(capabilities.has_presets, "preset control")?;
         let speed = self.speed.value();
@@ -4266,7 +4253,11 @@ impl BuiltinValidation for crate::command::focus::FocusLock {
 
 impl BuiltinValidation for crate::command::exposure::SpotlightOn {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_sony_exposure_state(profile, "spotlight control")
+        validate_static_typed_command(
+            profile,
+            StaticBuiltinCommand::SpotlightOn,
+            "spotlight control",
+        )
     }
 
     fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
@@ -4276,7 +4267,11 @@ impl BuiltinValidation for crate::command::exposure::SpotlightOn {
 
 impl BuiltinValidation for crate::command::exposure::SpotlightOff {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_sony_exposure_state(profile, "spotlight control")
+        validate_static_typed_command(
+            profile,
+            StaticBuiltinCommand::SpotlightOff,
+            "spotlight control",
+        )
     }
 
     fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
@@ -4286,7 +4281,11 @@ impl BuiltinValidation for crate::command::exposure::SpotlightOff {
 
 impl BuiltinValidation for crate::command::exposure::AutoSlowShutterOn {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_sony_exposure_state(profile, "auto slow shutter control")
+        validate_static_typed_command(
+            profile,
+            StaticBuiltinCommand::AutoSlowShutterOn,
+            "auto slow shutter control",
+        )
     }
 
     fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
@@ -4296,7 +4295,11 @@ impl BuiltinValidation for crate::command::exposure::AutoSlowShutterOn {
 
 impl BuiltinValidation for crate::command::exposure::AutoSlowShutterOff {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_sony_exposure_state(profile, "auto slow shutter control")
+        validate_static_typed_command(
+            profile,
+            StaticBuiltinCommand::AutoSlowShutterOff,
+            "auto slow shutter control",
+        )
     }
 
     fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
@@ -4355,7 +4358,11 @@ impl BuiltinValidation for crate::command::zoom::DigitalZoom {
 
 impl BuiltinValidation for crate::command::streaming::MulticastStreaming {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_ptzoptics_vendor_state(profile, "multicast streaming")
+        let command = match self {
+            Self::On => StaticBuiltinCommand::MulticastStreamingOn,
+            Self::Off => StaticBuiltinCommand::MulticastStreamingOff,
+        };
+        validate_static_typed_command(profile, command, "multicast streaming")
     }
 
     fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
@@ -4365,7 +4372,11 @@ impl BuiltinValidation for crate::command::streaming::MulticastStreaming {
 
 impl BuiltinValidation for crate::command::streaming::SetNdiQuality {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_ptzoptics_vendor_state(profile, "NDI quality control")
+        validate_static_typed_command(
+            profile,
+            StaticBuiltinCommand::NdiQuality,
+            "NDI quality control",
+        )
     }
 
     fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
@@ -4455,15 +4466,19 @@ mod tests {
     use super::*;
     use crate::{
         command::{
-            AutoNdCommand, AutoSlowShutterOff, AutoSlowShutterOn, DigitalZoom, FocusLock,
-            ImageFreeze, MulticastStreaming, NdFilterMode, NdFilterModeCommand, PanTiltLimitCorner,
-            PresetRecallSpeed, SetNdiQuality, SpotlightOff, SpotlightOn, TallyBrightHi,
-            TallyBrightLo, TallyFlash, TallyOff, TallyOn, TallyRedOn, VariableSpeedMode,
+            AntiFlickerCommand, AutoNdCommand, AutoSlowShutterOff, AutoSlowShutterOn, DigitalZoom,
+            FocusLock, ImageFreeze, MulticastStreaming, NdFilterMode, NdFilterModeCommand,
+            PanTiltLimitCorner, PresetRecallSpeed, SetNdiQuality, SettingsSaveCommand,
+            SpotlightOff, SpotlightOn, TallyBrightHi, TallyBrightLo, TallyFlash, TallyOff, TallyOn,
+            TallyRedOn, VariableSpeedMode,
         },
         prepared::{
             prepare_builtin_command, prepare_builtin_operation, prepare_command, ClassSelection,
         },
-        profiles::{GenericVisca, PtzOptics30X, PtzOpticsG2, PtzOpticsG3, SonyFR7},
+        profiles::{
+            GenericVisca, NearusBRC300, PtzOptics30X, PtzOpticsG2, PtzOpticsG3, SonyBRC300,
+            SonyBRCH900, SonyEVIH100, SonyFR7,
+        },
         types::NdiQuality,
         OperationalTuning, PlainCommand, ProfileSpec,
     };
@@ -4512,6 +4527,80 @@ mod tests {
             )
             .is_err());
         }
+    }
+
+    #[test]
+    fn vendor_command_validation_follows_the_static_typed_surface() {
+        let g2 = ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2 profile");
+        let g3 = ProfileSpec::from_compile_time::<PtzOpticsG3>().expect("G3 profile");
+        let thirty_x = ProfileSpec::from_compile_time::<PtzOptics30X>().expect("30X profile");
+        let fr7 = ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7 profile");
+        let h900 = ProfileSpec::from_compile_time::<SonyBRCH900>().expect("H900 profile");
+        let evi = ProfileSpec::from_compile_time::<SonyEVIH100>().expect("EVI profile");
+        let brc300 = ProfileSpec::from_compile_time::<SonyBRC300>().expect("BRC300 profile");
+        let nearus = ProfileSpec::from_compile_time::<NearusBRC300>().expect("Nearus profile");
+        let generic = ProfileSpec::from_compile_time::<GenericVisca>().expect("generic profile");
+        let profiles = [
+            &g2, &g3, &thirty_x, &fr7, &h900, &evi, &brc300, &nearus, &generic,
+        ];
+
+        macro_rules! follows_static_surface {
+            ($surface:expr, $request:expr) => {
+                for profile in profiles {
+                    let request = $request;
+                    assert_eq!(
+                        prepare_builtin_command(
+                            &request,
+                            CameraId::CAMERA_1,
+                            profile,
+                            OperationalTuning::new(),
+                        )
+                        .is_ok(),
+                        profile.capabilities().supports_typed($surface),
+                        "{request:?} runtime validation must match {:?} for {}",
+                        $surface,
+                        profile.capabilities().model_name,
+                    );
+                }
+            };
+        }
+
+        follows_static_surface!(
+            TypedSupportSurface::PtzOpticsAntiFlicker,
+            AntiFlickerCommand::new(crate::command::AntiFlickerMode::Hz50)
+        );
+        follows_static_surface!(
+            TypedSupportSurface::PtzOpticsSettingsSave,
+            SettingsSaveCommand::new()
+        );
+        follows_static_surface!(
+            TypedSupportSurface::PtzOpticsPresetRecallSpeed,
+            crate::command::PresetRecallSpeedCommand::new(
+                PresetRecallSpeed::new(12).expect("valid recall speed")
+            )
+        );
+        follows_static_surface!(TypedSupportSurface::SonySpotlight, SpotlightOn::new());
+        follows_static_surface!(TypedSupportSurface::SonySpotlight, SpotlightOff::new());
+        follows_static_surface!(
+            TypedSupportSurface::SonyAutoSlowShutter,
+            AutoSlowShutterOn::new()
+        );
+        follows_static_surface!(
+            TypedSupportSurface::SonyAutoSlowShutter,
+            AutoSlowShutterOff::new()
+        );
+        follows_static_surface!(
+            TypedSupportSurface::PtzOpticsMulticastStreaming,
+            MulticastStreaming::On
+        );
+        follows_static_surface!(
+            TypedSupportSurface::PtzOpticsMulticastStreaming,
+            MulticastStreaming::Off
+        );
+        follows_static_surface!(
+            TypedSupportSurface::PtzOpticsNdiQuality,
+            SetNdiQuality::new(NdiQuality::High)
+        );
     }
 
     /// Exhaustive value-domain sweep for #683.
@@ -4567,6 +4656,11 @@ mod tests {
         for control1 in [0x00u8, 0x7F, 0x80, 0xFF] {
             for control2 in 0..=u8::MAX {
                 let command = DirectMenuControl::new(control1, control2);
+                if control1 == 0xFF && (0x81..=0x88).contains(&control2) {
+                    assert!(matches!(command, Err(Error::InvalidRequest(_))));
+                    continue;
+                }
+                let command = command.expect("all remaining direct-menu controls are valid");
                 let bytes = wire(&command);
                 assert_eq!(
                     bytes.len(),
@@ -4619,7 +4713,7 @@ mod tests {
         .expect("preset 255 recall must prepare end-to-end on FR7");
 
         prepare_builtin_command(
-            &DirectMenuControl::new(0x00, 0xFF),
+            &DirectMenuControl::new(0x00, 0xFF).expect("0xFF data byte is valid"),
             CameraId::CAMERA_1,
             &fr7,
             OperationalTuning::new(),

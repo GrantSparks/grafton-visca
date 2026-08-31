@@ -347,6 +347,128 @@ mod async_standard {
         assert_eq!(call.config.addressing, AddressingMode::Ip);
         session.shutdown().await.expect("shutdown");
     }
+
+    #[cfg(feature = "runtime-tokio")]
+    #[tokio::test]
+    async fn invalid_buffer_bounds_fail_before_network_connectors() {
+        let runtime = ProbeRuntime::new(
+            grafton_visca::runtime::TokioRuntime::from_current().expect("runtime"),
+        );
+        let calls = runtime.calls();
+
+        for (buffer_config, message) in [
+            (
+                BufferConfig {
+                    recv_buffer_size: 0,
+                    send_buffer_size: 64,
+                    max_buffer_size: 64,
+                },
+                "transport receive buffer must be non-zero",
+            ),
+            (
+                BufferConfig {
+                    recv_buffer_size: 64,
+                    send_buffer_size: 64,
+                    max_buffer_size: 0,
+                },
+                "transport maximum buffer must be non-zero",
+            ),
+            (
+                BufferConfig {
+                    recv_buffer_size: 65,
+                    send_buffer_size: 64,
+                    max_buffer_size: 64,
+                },
+                "transport receive buffer cannot exceed maximum buffer",
+            ),
+        ] {
+            for config in [
+                CameraConfig::<PtzOpticsG2>::tcp("camera.local:5678"),
+                CameraConfig::<PtzOpticsG2>::udp("camera.local:1259"),
+            ] {
+                let error = config
+                    .transport_config(TransportConfig {
+                        buffer_config,
+                        ..TransportConfig::default()
+                    })
+                    .open_async(runtime.clone())
+                    .await
+                    .expect_err("invalid buffer bounds must fail in preflight");
+                assert!(matches!(
+                    error,
+                    Error::InvalidRequest(actual) if actual.as_ref() == message
+                ));
+                assert!(calls.lock().expect("calls lock").is_empty());
+            }
+        }
+    }
+
+    #[cfg(feature = "runtime-tokio")]
+    #[tokio::test]
+    async fn typed_builder_requires_a_port_unless_default_is_requested() {
+        let runtime = ProbeRuntime::new(
+            grafton_visca::runtime::TokioRuntime::from_current().expect("runtime"),
+        );
+        let calls = runtime.calls();
+
+        let error = Connect::builder()
+            .tcp("camera.local")
+            .open::<PtzOpticsG2, _>(runtime.clone())
+            .await
+            .expect_err("bare TCP host without opt-in must be rejected");
+        assert!(matches!(error, Error::InvalidAddress { .. }));
+        assert!(calls.lock().expect("calls lock").is_empty());
+
+        let session = Connect::builder()
+            .tcp("camera.local")
+            .with_default_port()
+            .open::<PtzOpticsG2, _>(runtime.clone())
+            .await
+            .expect("TCP default port opt-in");
+        assert_one_call(&calls, Kind::Tcp, "camera.local:5678");
+        session.shutdown().await.expect("shutdown");
+
+        let error = Connect::builder()
+            .udp("camera.local")
+            .open::<PtzOpticsG2, _>(runtime.clone())
+            .await
+            .expect_err("bare UDP host without opt-in must be rejected");
+        assert!(matches!(error, Error::InvalidAddress { .. }));
+        assert!(calls.lock().expect("calls lock").is_empty());
+
+        let session = Connect::builder()
+            .udp("camera.local")
+            .with_default_port()
+            .open::<PtzOpticsG2, _>(runtime)
+            .await
+            .expect("UDP default port opt-in");
+        assert_one_call(&calls, Kind::Udp, "camera.local:1259");
+        session.shutdown().await.expect("shutdown");
+    }
+
+    #[cfg(feature = "transport-serial-tokio")]
+    #[tokio::test]
+    async fn invalid_serial_buffer_bounds_fail_before_device_open() {
+        let runtime = grafton_visca::runtime::TokioRuntime::from_current().expect("runtime");
+        let error =
+            CameraConfig::<PtzOpticsG2>::serial("grafton-visca-test-unopened-serial-device", 9_600)
+                .transport_config(TransportConfig {
+                    buffer_config: BufferConfig {
+                        recv_buffer_size: 65,
+                        send_buffer_size: 64,
+                        max_buffer_size: 64,
+                    },
+                    ..TransportConfig::default()
+                })
+                .open_serial_async(runtime)
+                .await
+                .expect_err("invalid buffer bounds must fail before serial-device open");
+        assert!(matches!(
+            error,
+            Error::InvalidRequest(actual)
+                if actual.as_ref() == "transport receive buffer cannot exceed maximum buffer"
+        ));
+    }
 }
 
 #[cfg(feature = "blocking")]
@@ -358,7 +480,8 @@ mod blocking_standard {
         command::CommandKind,
         profiles::PtzOpticsG2,
         transport::{
-            AddressingMode, BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig,
+            AddressingMode, BlockingTransport, BufferConfig, HasTransportConfig, SendSemantics,
+            TransportConfig,
         },
         CameraId, Error, SessionConfig,
     };
@@ -429,6 +552,48 @@ mod blocking_standard {
             .open()
             .expect_err("invalid endpoint must fail before socket I/O");
         assert!(matches!(error, Error::InvalidAddress { .. }));
+    }
+
+    #[test]
+    fn invalid_blocking_buffer_bounds_fail_before_socket_open() {
+        let error = CameraConfig::<PtzOpticsG2>::tcp("127.0.0.1:1")
+            .transport_config(TransportConfig {
+                buffer_config: BufferConfig {
+                    recv_buffer_size: 65,
+                    send_buffer_size: 64,
+                    max_buffer_size: 64,
+                },
+                ..TransportConfig::default()
+            })
+            .open()
+            .expect_err("invalid buffer bounds must fail before socket I/O");
+        assert!(matches!(
+            error,
+            Error::InvalidRequest(actual)
+                if actual.as_ref() == "transport receive buffer cannot exceed maximum buffer"
+        ));
+    }
+
+    #[cfg(feature = "transport-serial")]
+    #[test]
+    fn invalid_blocking_serial_buffer_bounds_fail_before_device_open() {
+        let error =
+            CameraConfig::<PtzOpticsG2>::serial("grafton-visca-test-unopened-serial-device", 9_600)
+                .transport_config(TransportConfig {
+                    buffer_config: BufferConfig {
+                        recv_buffer_size: 65,
+                        send_buffer_size: 64,
+                        max_buffer_size: 64,
+                    },
+                    ..TransportConfig::default()
+                })
+                .open_serial()
+                .expect_err("invalid buffer bounds must fail before serial-device open");
+        assert!(matches!(
+            error,
+            Error::InvalidRequest(actual)
+                if actual.as_ref() == "transport receive buffer cannot exceed maximum buffer"
+        ));
     }
 }
 

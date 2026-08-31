@@ -148,7 +148,7 @@ pub(crate) mod socket_options;
 pub(crate) mod tokio;
 
 #[cfg(feature = "async")]
-pub use async_transport::AsyncTransport;
+pub use async_transport::{AsyncTransport, ReceiveOutcome};
 #[cfg(feature = "blocking")]
 pub use blocking_transport::BlockingTransportHandle;
 pub use blocking_transport::{BlockingTransport, HasTransportConfig};

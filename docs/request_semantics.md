@@ -64,7 +64,9 @@ the profile's exact preset axes.  It must not substitute all axes.
 | Gain | `GainReset`, `GainUp`, `GainDown`, `GainDirect`, `GainLimit` | Plain | — |
 | White balance | all `WhiteBalance*`, `AutoWhiteBalanceSensitivity`, `OnePushWhiteBalanceTrigger` | Plain | — |
 | Color | `RedTuning`, `BlueTuning`, `Saturation`, `Hue`, all `ColorTemperature*`, `RedGain*`, `BlueGain*` | Plain | — |
-| Image | all `Sharpness*`, `Luminance`, `Contrast`, `Gamma`, `Backlight`, `NoiseReduction2d`, `NoiseReduction3d`, all `ImageFlip*`, `PictureEffect` | Plain | — |
+| Image | all `Sharpness*`, `Luminance`, `Contrast`, `Gamma`, `Backlight`, `NoiseReduction2d`, `NoiseReduction3d`, `PictureEffect` | Plain | — |
+| Image state | `ImageFlipBoth`, `ImageFlipCombined` | Plain | Set `Flip` |
+| Image state | `ImageFlipOff`, `ImageFlipHorizontal`, `ImageFlipHorizontalOff`, `ImageFlipVertical` | Plain | Invalidate `Flip` |
 | Image state | `ImageFreezeOn`, `ImageFreezeOff` | Plain | Set `ImageFreeze` |
 | ND filter | `NdFilterDirect`, `NdFilterStepUp`, `NdFilterStepDown` | Targeted — `NdFilter` | — |
 | ND filter | `NdFilterMode` | Plain | Set `NdFilterMode` |

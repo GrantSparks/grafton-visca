@@ -1380,6 +1380,21 @@ impl OwnerState {
         )
     }
 
+    /// Records one request rejection before authoritative engine admission.
+    pub(crate) fn record_admission_rejection(
+        &mut self,
+        target: CameraId,
+        lane: RequestLane,
+        error: &Error,
+    ) {
+        self.metrics.admission_rejected = self.metrics.admission_rejected.saturating_add(1);
+        self.record(DiagnosticEvent::AdmissionRejected {
+            target,
+            lane,
+            error: error.kind(),
+        });
+    }
+
     pub(crate) fn state_cache_registry(&self) -> Arc<[Mutex<TargetStateCache>; 9]> {
         Arc::clone(&self.target_cache)
     }
@@ -1842,18 +1857,19 @@ impl OwnerState {
             }
             Effect::AdmissionRejected { ticket, error } => {
                 if let Some(pending) = self.pending.remove(&ticket) {
-                    self.record(DiagnosticEvent::AdmissionRejected {
-                        target: pending.summary.target,
-                        lane: pending.summary.lane,
-                        error: error.kind(),
-                    });
+                    self.record_admission_rejection(
+                        pending.summary.target,
+                        pending.summary.lane,
+                        &error,
+                    );
                     let _ = pending.reply.try_send(Err(error.clone()));
                     // Dropping pending releases the boundary/engine permit and
                     // disconnects its terminal observer without allocating an ID.
                 } else {
                     self.record(DiagnosticEvent::Ignored(IgnoreReason::UnknownRequest));
+                    self.metrics.admission_rejected =
+                        self.metrics.admission_rejected.saturating_add(1);
                 }
-                self.metrics.admission_rejected = self.metrics.admission_rejected.saturating_add(1);
                 #[cfg(test)]
                 {
                     AppliedEffect::AdmissionRejected(error)

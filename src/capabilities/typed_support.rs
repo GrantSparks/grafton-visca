@@ -99,11 +99,25 @@ pub enum TypedSupportSurface {
     FocusZoneInquiry,
     /// USB audio control and inquiry.
     UsbAudio,
+    /// PTZOptics anti-flicker control.
+    PtzOpticsAntiFlicker,
+    /// PTZOptics persistent-settings save command.
+    PtzOpticsSettingsSave,
+    /// PTZOptics preset-recall speed control.
+    PtzOpticsPresetRecallSpeed,
+    /// Sony VISCA spotlight controls.
+    SonySpotlight,
+    /// Sony VISCA automatic slow-shutter controls.
+    SonyAutoSlowShutter,
+    /// PTZOptics multicast-streaming controls.
+    PtzOpticsMulticastStreaming,
+    /// PTZOptics NDI-quality control.
+    PtzOpticsNdiQuality,
 }
 
 impl TypedSupportSurface {
     /// All known typed support surfaces.
-    pub const ALL: [Self; 41] = [
+    pub const ALL: [Self; 48] = [
         Self::DirectZoom,
         Self::DigitalZoomToggle,
         Self::DigitalZoomRange,
@@ -145,6 +159,13 @@ impl TypedSupportSurface {
         Self::MotionSync,
         Self::FocusZoneInquiry,
         Self::UsbAudio,
+        Self::PtzOpticsAntiFlicker,
+        Self::PtzOpticsSettingsSave,
+        Self::PtzOpticsPresetRecallSpeed,
+        Self::SonySpotlight,
+        Self::SonyAutoSlowShutter,
+        Self::PtzOpticsMulticastStreaming,
+        Self::PtzOpticsNdiQuality,
     ];
 
     const fn bit(self) -> u64 {
@@ -190,6 +211,13 @@ impl TypedSupportSurface {
             Self::MotionSync => 38,
             Self::FocusZoneInquiry => 39,
             Self::UsbAudio => 40,
+            Self::PtzOpticsAntiFlicker => 41,
+            Self::PtzOpticsSettingsSave => 42,
+            Self::PtzOpticsPresetRecallSpeed => 43,
+            Self::SonySpotlight => 44,
+            Self::SonyAutoSlowShutter => 45,
+            Self::PtzOpticsMulticastStreaming => 46,
+            Self::PtzOpticsNdiQuality => 47,
         }
     }
 }

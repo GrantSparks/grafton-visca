@@ -14,12 +14,18 @@ use grafton_visca::{
         HasFocusZoneInquiry, HasGammaControl, HasHueControl, HasImageFlip, HasImageProcessing,
         HasIrisControl, HasLuminanceControl, HasMenuControl, HasMotionSync, HasNdFilter,
         HasNoiseReduction, HasNoiseReduction2D, HasNoiseReduction3D, HasPanTilt, HasPictureEffect,
-        HasPower, HasPresets, HasRgbGain, HasRgbTuning, HasSaturationControl, HasSharpnessControl,
-        HasTally, HasUsbAudio, HasWhiteBalance, HasWideDynamicRange, HasZoom,
+        HasPower, HasPresets, HasPtzOpticsAntiFlicker, HasPtzOpticsMulticastStreaming,
+        HasPtzOpticsNdiQuality, HasPtzOpticsPresetRecallSpeed, HasPtzOpticsSettingsSave,
+        HasRgbGain, HasRgbTuning, HasSaturationControl, HasSharpnessControl,
+        HasSonyAutoSlowShutter, HasSonySpotlight, HasTally, HasUsbAudio, HasWhiteBalance,
+        HasWideDynamicRange, HasZoom,
     },
     command::MotionSyncMode,
     completion::{AppliedOnly, Targeted},
-    profiles::{PtzOptics30X, PtzOpticsG2, PtzOpticsG3, SonyFR7},
+    profiles::{
+        NearusBRC300, PtzOptics30X, PtzOpticsG2, PtzOpticsG3, SonyBRC300, SonyBRCH900, SonyEVIH100,
+        SonyFR7,
+    },
     CompileTimeProfile, Result,
 };
 
@@ -43,7 +49,6 @@ where
 {
     plain(camera.power().on());
     plain(camera.power().off());
-    plain(camera.system().save_settings());
     plain(
         camera
             .exposure()
@@ -51,7 +56,6 @@ where
     );
     plain(camera.white_balance().auto());
     plain(camera.menu().display(true));
-    plain(camera.advanced().multicast_on());
 
     targeted(camera.pan_tilt().home());
     applied(camera.pan_tilt().stop());
@@ -225,6 +229,45 @@ fn usb_audio_gate<'session, P: CompileTimeProfile + HasUsbAudio>(camera: &Camera
     plain(camera.advanced().usb_audio_off());
 }
 
+#[allow(dead_code)]
+fn ptzoptics_vendor_command_gates<'session, P>(camera: &Camera<'session, P>)
+where
+    P: CompileTimeProfile
+        + HasPtzOpticsAntiFlicker
+        + HasPtzOpticsSettingsSave
+        + HasPtzOpticsPresetRecallSpeed
+        + HasPtzOpticsMulticastStreaming
+        + HasPtzOpticsNdiQuality,
+{
+    plain(
+        camera
+            .exposure()
+            .set_anti_flicker(grafton_visca::command::AntiFlickerMode::Hz50),
+    );
+    plain(camera.system().save_settings());
+    plain(camera.presets().set_recall_speed(
+        grafton_visca::command::PresetRecallSpeed::new(12).expect("valid recall speed"),
+    ));
+    plain(camera.advanced().multicast_on());
+    plain(camera.advanced().multicast_off());
+    plain(
+        camera
+            .advanced()
+            .set_ndi_quality(grafton_visca::types::NdiQuality::High),
+    );
+}
+
+#[allow(dead_code)]
+fn sony_vendor_command_gates<'session, P>(camera: &Camera<'session, P>)
+where
+    P: CompileTimeProfile + HasSonySpotlight + HasSonyAutoSlowShutter,
+{
+    plain(camera.exposure().spotlight_on());
+    plain(camera.exposure().spotlight_off());
+    plain(camera.exposure().auto_slow_shutter_on());
+    plain(camera.exposure().auto_slow_shutter_off());
+}
+
 fn non_default<'session>(
     camera: &Camera<'session, profile_fixtures::NonDefaultCompileTimeProfile>,
 ) {
@@ -242,6 +285,22 @@ fn static_camera_surface_is_profile_typed_and_non_default() {
         usb_audio_gate::<PtzOpticsG2>;
     let _: for<'session> fn(&'session Camera<'session, PtzOptics30X>) =
         usb_audio_gate::<PtzOptics30X>;
+    let _: for<'session> fn(&'session Camera<'session, PtzOpticsG2>) =
+        ptzoptics_vendor_command_gates::<PtzOpticsG2>;
+    let _: for<'session> fn(&'session Camera<'session, PtzOpticsG3>) =
+        ptzoptics_vendor_command_gates::<PtzOpticsG3>;
+    let _: for<'session> fn(&'session Camera<'session, PtzOptics30X>) =
+        ptzoptics_vendor_command_gates::<PtzOptics30X>;
+    let _: for<'session> fn(&'session Camera<'session, SonyFR7>) =
+        sony_vendor_command_gates::<SonyFR7>;
+    let _: for<'session> fn(&'session Camera<'session, SonyBRCH900>) =
+        sony_vendor_command_gates::<SonyBRCH900>;
+    let _: for<'session> fn(&'session Camera<'session, SonyEVIH100>) =
+        sony_vendor_command_gates::<SonyEVIH100>;
+    let _: for<'session> fn(&'session Camera<'session, SonyBRC300>) =
+        sony_vendor_command_gates::<SonyBRC300>;
+    let _: for<'session> fn(&'session Camera<'session, NearusBRC300>) =
+        sony_vendor_command_gates::<NearusBRC300>;
     let _: for<'session> fn(&'session Camera<'session, PtzOpticsG2>) =
         focus_zone_inquiry_gate::<PtzOpticsG2>;
     let _: for<'session> fn(&'session Camera<'session, PtzOptics30X>) =

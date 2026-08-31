@@ -173,6 +173,7 @@ macro_rules! noun_table {
                 = command::VersionInquiry;
             /// Saves the camera's current settings to non-volatile storage.
             plain [SettingsSave] save_settings() -> command::SettingsSaveCommand
+                where HasPtzOpticsSettingsSave
                 = command::SettingsSaveCommand::new();
         ]; $($rest)* }
     };
@@ -354,6 +355,7 @@ macro_rules! noun_table {
             /// Sets the preset-recall speed.
             plain [PresetRecallSpeed] set_recall_speed(speed: command::PresetRecallSpeed)
                 -> command::PresetRecallSpeedCommand
+                where HasPtzOpticsPresetRecallSpeed
                 = command::PresetRecallSpeedCommand::new(speed);
             /// Stores the current camera state in a preset.
             plain [PresetSet] set(preset: command::PresetNumber) -> builtin::PresetSet
@@ -498,21 +500,26 @@ macro_rules! noun_table {
             /// Sets anti-flicker mode.
             plain [AntiFlicker] set_anti_flicker(mode: command::AntiFlickerMode)
                 -> command::AntiFlickerCommand
+                where HasPtzOpticsAntiFlicker
                 = command::AntiFlickerCommand::new(mode);
             /// Returns the configured anti-flicker mode.
             inquiry command::FlickerModeInquiry flicker_mode() -> command::AntiFlickerMode
                 = command::FlickerModeInquiry;
             /// Enables spotlight mode.
             plain [SpotlightOn] spotlight_on() -> command::SpotlightOn
+                where HasSonySpotlight
                 = command::SpotlightOn::new();
             /// Disables spotlight mode.
             plain [SpotlightOff] spotlight_off() -> command::SpotlightOff
+                where HasSonySpotlight
                 = command::SpotlightOff::new();
             /// Enables automatic slow shutter.
             plain [AutoSlowShutterOn] auto_slow_shutter_on() -> command::AutoSlowShutterOn
+                where HasSonyAutoSlowShutter
                 = command::AutoSlowShutterOn::new();
             /// Disables automatic slow shutter.
             plain [AutoSlowShutterOff] auto_slow_shutter_off() -> command::AutoSlowShutterOff
+                where HasSonyAutoSlowShutter
                 = command::AutoSlowShutterOff::new();
         ]; $($rest)* }
     };
@@ -941,7 +948,7 @@ macro_rules! noun_table {
             /// Sends a vendor-specific direct menu control.
             plain [DirectMenu] direct(control1: u8, control2: u8)
                 -> command::DirectMenuControl where HasDirectMenuControl
-                = command::DirectMenuControl::new(control1, control2);
+                = checked command::DirectMenuControl::new(control1, control2);
             /// Toggles the on-screen menu open or closed.
             ///
             /// This is the vendor open/close direct control, so it needs no prior
@@ -987,13 +994,16 @@ macro_rules! noun_table {
                 = command::DigitalInquiry;
             /// Enables multicast streaming.
             plain [MulticastStreamingOn] multicast_on() -> command::MulticastStreaming
+                where HasPtzOpticsMulticastStreaming
                 = command::MulticastStreaming::On;
             /// Disables multicast streaming.
             plain [MulticastStreamingOff] multicast_off() -> command::MulticastStreaming
+                where HasPtzOpticsMulticastStreaming
                 = command::MulticastStreaming::Off;
             /// Sets NDI streaming quality.
             plain [NdiQuality] set_ndi_quality(quality: types::NdiQuality)
                 -> command::SetNdiQuality
+                where HasPtzOpticsNdiQuality
                 = command::SetNdiQuality::new(quality);
             /// Enables USB audio.
             plain [UsbAudioOn] usb_audio_on() -> command::UsbAudio where HasUsbAudio

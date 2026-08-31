@@ -10,7 +10,10 @@ use std::time::Instant;
 #[cfg(feature = "async")]
 use crate::{
     executor::Executor,
-    transport::{builder::TransportConfig, AddressingMode, AsyncTransport, HasTransportConfig},
+    transport::{
+        builder::TransportConfig, AddressingMode, AsyncTransport, HasTransportConfig,
+        ReceiveOutcome,
+    },
     Error,
 };
 
@@ -187,6 +190,15 @@ impl<R: Runtime> AsyncTransport for TransportHandle<R> {
             TransportHandle::Udp(transport) => transport.recv_into(dst).await,
             #[cfg(feature = "transport-serial-tokio")]
             TransportHandle::Serial(transport) => transport.recv_into(dst).await,
+        }
+    }
+
+    async fn recv_into_with_outcome(&mut self, dst: &mut [u8]) -> Result<ReceiveOutcome, Error> {
+        match self {
+            TransportHandle::Tcp(transport) => transport.recv_into_with_outcome(dst).await,
+            TransportHandle::Udp(transport) => transport.recv_into_with_outcome(dst).await,
+            #[cfg(feature = "transport-serial-tokio")]
+            TransportHandle::Serial(transport) => transport.recv_into_with_outcome(dst).await,
         }
     }
 

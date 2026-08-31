@@ -354,6 +354,69 @@ profile_capability_marker! {
     }
 }
 
+profile_capability_marker! {
+    /// Marker trait indicating support for PTZOptics anti-flicker control.
+    pub trait HasPtzOpticsAntiFlicker {
+        message: "profile `{Self}` does not declare PTZOptics anti-flicker support",
+        label: "profile `{Self}` does not implement `HasPtzOpticsAntiFlicker`",
+        note: "see the built-in marker matrix in docs/camera_profile_support.md; add this bound only for profiles with source-backed PTZOptics anti-flicker support",
+    }
+}
+
+profile_capability_marker! {
+    /// Marker trait indicating support for the PTZOptics settings-save command.
+    pub trait HasPtzOpticsSettingsSave {
+        message: "profile `{Self}` does not declare PTZOptics settings-save support",
+        label: "profile `{Self}` does not implement `HasPtzOpticsSettingsSave`",
+        note: "see the built-in marker matrix in docs/camera_profile_support.md; add this bound only for profiles with source-backed PTZOptics settings-save support",
+    }
+}
+
+profile_capability_marker! {
+    /// Marker trait indicating support for PTZOptics preset-recall speed control.
+    pub trait HasPtzOpticsPresetRecallSpeed {
+        message: "profile `{Self}` does not declare PTZOptics preset-recall speed support",
+        label: "profile `{Self}` does not implement `HasPtzOpticsPresetRecallSpeed`",
+        note: "see the built-in marker matrix in docs/camera_profile_support.md; add this bound only for profiles with source-backed PTZOptics preset-recall speed support",
+    }
+}
+
+profile_capability_marker! {
+    /// Marker trait indicating support for Sony VISCA spotlight controls.
+    pub trait HasSonySpotlight {
+        message: "profile `{Self}` does not declare Sony spotlight support",
+        label: "profile `{Self}` does not implement `HasSonySpotlight`",
+        note: "see the built-in marker matrix in docs/camera_profile_support.md; add this bound only for profiles with source-backed Sony VISCA spotlight support",
+    }
+}
+
+profile_capability_marker! {
+    /// Marker trait indicating support for Sony VISCA automatic slow-shutter controls.
+    pub trait HasSonyAutoSlowShutter {
+        message: "profile `{Self}` does not declare Sony auto slow-shutter support",
+        label: "profile `{Self}` does not implement `HasSonyAutoSlowShutter`",
+        note: "see the built-in marker matrix in docs/camera_profile_support.md; add this bound only for profiles with source-backed Sony VISCA auto slow-shutter support",
+    }
+}
+
+profile_capability_marker! {
+    /// Marker trait indicating support for PTZOptics multicast-streaming controls.
+    pub trait HasPtzOpticsMulticastStreaming {
+        message: "profile `{Self}` does not declare PTZOptics multicast-streaming support",
+        label: "profile `{Self}` does not implement `HasPtzOpticsMulticastStreaming`",
+        note: "see the built-in marker matrix in docs/camera_profile_support.md; add this bound only for profiles with source-backed PTZOptics multicast-streaming support",
+    }
+}
+
+profile_capability_marker! {
+    /// Marker trait indicating support for PTZOptics NDI-quality control.
+    pub trait HasPtzOpticsNdiQuality {
+        message: "profile `{Self}` does not declare PTZOptics NDI-quality support",
+        label: "profile `{Self}` does not implement `HasPtzOpticsNdiQuality`",
+        note: "see the built-in marker matrix in docs/camera_profile_support.md; add this bound only for profiles with source-backed PTZOptics NDI-quality support",
+    }
+}
+
 // Specific feature marker traits
 profile_capability_marker! {
     /// Marker trait indicating support for exposure compensation.

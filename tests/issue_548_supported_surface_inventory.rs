@@ -88,6 +88,13 @@ const EXPECTED_TYPED_GATES: &[&str] = &[
     "MotionSync",
     "FocusZoneInquiry",
     "UsbAudio",
+    "PtzOpticsAntiFlicker",
+    "PtzOpticsSettingsSave",
+    "PtzOpticsPresetRecallSpeed",
+    "SonySpotlight",
+    "SonyAutoSlowShutter",
+    "PtzOpticsMulticastStreaming",
+    "PtzOpticsNdiQuality",
 ];
 
 const EXPECTED_ACCESSORS: &[&str] = &[

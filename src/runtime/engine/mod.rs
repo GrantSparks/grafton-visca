@@ -2304,17 +2304,18 @@ impl ProtocolEngine {
             self.confirm_cancelled(id, effects);
             return;
         }
-        // On the raw envelope a named-socket 0x05 means that the camera did
-        // not accept the cancellation packet for that socket.  Raw frames do
-        // not carry an independent cancellation correlation, so this path is
-        // otherwise classified as a retryable request error and would turn
-        // the failed cancel into a false `Cancelled` terminal.  Preserve the
-        // camera's NoSocket error and let `finish` close the observation as a
-        // failed cancellation instead.
+        // On the raw envelope a named-socket 0x05 can mean that the camera did
+        // not accept a cancellation packet for that socket. Raw frames do not
+        // carry an independent cancellation correlation, so preserve that
+        // failed-cancellation result only while an emitted cancellation is
+        // awaiting its terminal response on the request's owned socket. A
+        // merely recorded, socketless cancel intent instead leaves this as the
+        // original request's retryable rejection; the cancellation intent then
+        // suppresses the retry below and finishes `Cancelled`.
         if self.policy.envelope == EnvelopeKind::Raw
             && correlation_kind == CorrelationKind::Request
-            && cancellation_active
             && code == 0x05
+            && raw_cancellation_no_socket_response(entry)
         {
             self.finish(id, RuntimeOutcome::Failed(Error::NoSocket), effects);
             return;
@@ -3778,6 +3779,41 @@ fn camera_error_phase_compatible(entry: &Entry, kind: CorrelationKind) -> bool {
     }
 }
 
+/// Whether a raw request-correlated `0x05` is the failed terminal response to
+/// an emitted cancellation packet rather than a rejection of the original
+/// command.
+///
+/// Raw VISCA does not distinguish those messages in its response correlation.
+/// A cancellation is only actually in that response window after its write was
+/// emitted (`Sending`) or accepted for terminal observation
+/// (`AwaitingTerminal`), and both states must retain the socket the packet
+/// targeted. `Requested` has only intent, while `ObservationFailed` has already
+/// resolved the cancellation write failure, so neither may steal the original
+/// command's retryable `0x05` classification.
+fn raw_cancellation_no_socket_response(entry: &Entry) -> bool {
+    let phase_socket = match entry.phase {
+        Phase::Executing { socket, .. } | Phase::AwaitingCancellationResolution { socket, .. } => {
+            socket
+        }
+        Phase::Ready { .. }
+        | Phase::Sending { .. }
+        | Phase::AwaitingAck { .. }
+        | Phase::AwaitingCompletion { .. }
+        | Phase::AwaitingReply { .. }
+        | Phase::Backoff { .. }
+        | Phase::AwaitingLateAck { .. } => return false,
+    };
+    match entry.cancellation {
+        CancelState::Sending { socket, .. } => socket == phase_socket,
+        CancelState::AwaitingTerminal { .. } => {
+            matches!(entry.phase, Phase::AwaitingCancellationResolution { .. })
+        }
+        CancelState::None
+        | CancelState::Requested { .. }
+        | CancelState::ObservationFailed { .. } => false,
+    }
+}
+
 /// The other of a target's two command sockets.
 const fn other_socket(socket: ViscaSocket) -> ViscaSocket {
     match socket {
@@ -3863,12 +3899,30 @@ mod cancellation_regression_tests {
         }
     }
 
-    fn command() -> RuntimeRequest {
+    fn retrying_buffer_full() -> RetryPolicy {
+        RetryPolicy {
+            max_retries: 1,
+            initial_backoff: Duration::from_millis(1),
+            maximum_backoff: Duration::from_millis(1),
+            total_budget: Duration::from_secs(1),
+            buffer_full: true,
+            ..RetryPolicy::NEVER
+        }
+    }
+
+    fn command_with(reply_shape: ReplyShape, retry: RetryPolicy) -> RuntimeRequest {
+        let mut request_context = context();
+        request_context.reply_shape = reply_shape;
+        request_context.retry = retry;
         RuntimeRequest::Command {
             wire: Arc::new(EncodedMessage::new(&[0x81, 0x01, 0xff]).expect("test wire")),
-            context: context(),
+            context: request_context,
             applied_state: None,
         }
+    }
+
+    fn command() -> RuntimeRequest {
+        command_with(ReplyShape::AckThenCompletion, RetryPolicy::NEVER)
     }
 
     fn engine(envelope: EnvelopeKind, command_spacing: Duration) -> ProtocolEngine {
@@ -4064,7 +4118,196 @@ mod cancellation_regression_tests {
     }
 
     #[test]
-    fn raw_cancel_no_socket_is_a_failed_observation() {
+    fn raw_requested_socketless_no_socket_is_cancelled() {
+        let now = Instant::now();
+        let mut engine = engine(EnvelopeKind::Raw, Duration::ZERO);
+        let admitted_effects = engine.handle(
+            Input::Admit {
+                ticket: AdmissionTicket(1),
+                request: command_with(ReplyShape::AckThenCompletion, retrying_buffer_full()),
+            },
+            now,
+        );
+        let id = admitted(&admitted_effects);
+        engine.handle(
+            Input::TransmissionFinished {
+                transmission: request_transmission(&admitted_effects),
+                result: Ok(TransmissionMeta { sequence: None }),
+            },
+            now,
+        );
+        assert!(matches!(
+            engine.entry(id).map(Entry::phase),
+            Some(Phase::AwaitingAck { .. })
+        ));
+
+        let cancel = engine.handle(Input::Cancel { id }, now);
+        assert!(cancel.iter().any(
+            |effect| matches!(effect, Effect::CancellationRecorded { id: recorded } if *recorded == id)
+        ));
+        assert!(!cancel.iter().any(|effect| {
+            matches!(
+                effect,
+                Effect::Transmit {
+                    kind: Transmission::Cancel { .. },
+                    ..
+                }
+            )
+        }));
+        assert!(matches!(
+            engine.entry(id).map(Entry::cancellation),
+            Some(CancelState::Requested { .. })
+        ));
+
+        let effects = engine.handle(
+            Input::Frame(DecodedFrame {
+                target: camera(),
+                sequence: None,
+                response: DecodedResponse::Error {
+                    socket: None,
+                    code: 0x05,
+                },
+            }),
+            now,
+        );
+        assert!(effects.iter().any(|effect| {
+            matches!(
+                effect,
+                Effect::Terminal {
+                    id: terminal,
+                    outcome: RuntimeOutcome::Cancelled,
+                } if *terminal == id
+            )
+        }));
+        assert!(!effects.iter().any(|effect| {
+            matches!(
+                effect,
+                Effect::Terminal {
+                    id: terminal,
+                    outcome: RuntimeOutcome::Failed(Error::NoSocket),
+                } if *terminal == id
+            ) || matches!(effect, Effect::RetryScheduled { id: scheduled, .. } if *scheduled == id)
+        }));
+        engine.assert_invariants().expect("engine invariants");
+    }
+
+    #[test]
+    fn raw_completion_only_requested_cancel_no_socket_is_cancelled() {
+        let now = Instant::now();
+        let mut engine = engine(EnvelopeKind::Raw, Duration::ZERO);
+        let admitted_effects = engine.handle(
+            Input::Admit {
+                ticket: AdmissionTicket(1),
+                request: command_with(ReplyShape::CompletionOnly, retrying_buffer_full()),
+            },
+            now,
+        );
+        let id = admitted(&admitted_effects);
+        engine.handle(
+            Input::TransmissionFinished {
+                transmission: request_transmission(&admitted_effects),
+                result: Ok(TransmissionMeta { sequence: None }),
+            },
+            now,
+        );
+        assert!(matches!(
+            engine.entry(id).map(Entry::phase),
+            Some(Phase::AwaitingCompletion { .. })
+        ));
+
+        let cancel = engine.handle(Input::Cancel { id }, now);
+        assert!(!cancel.iter().any(|effect| {
+            matches!(
+                effect,
+                Effect::Transmit {
+                    kind: Transmission::Cancel { .. },
+                    ..
+                }
+            )
+        }));
+        assert!(matches!(
+            engine.entry(id).map(Entry::cancellation),
+            Some(CancelState::Requested { .. })
+        ));
+
+        let effects = engine.handle(
+            Input::Frame(DecodedFrame {
+                target: camera(),
+                sequence: None,
+                response: DecodedResponse::Error {
+                    socket: None,
+                    code: 0x05,
+                },
+            }),
+            now,
+        );
+        assert!(effects.iter().any(|effect| {
+            matches!(
+                effect,
+                Effect::Terminal {
+                    id: terminal,
+                    outcome: RuntimeOutcome::Cancelled,
+                } if *terminal == id
+            )
+        }));
+        assert!(!effects.iter().any(|effect| {
+            matches!(
+                effect,
+                Effect::Terminal {
+                    id: terminal,
+                    outcome: RuntimeOutcome::Failed(Error::NoSocket),
+                } if *terminal == id
+            ) || matches!(effect, Effect::RetryScheduled { id: scheduled, .. } if *scheduled == id)
+        }));
+        engine.assert_invariants().expect("engine invariants");
+    }
+
+    #[test]
+    fn raw_uncancelled_no_socket_still_retries() {
+        let now = Instant::now();
+        let mut engine = engine(EnvelopeKind::Raw, Duration::ZERO);
+        let admitted_effects = engine.handle(
+            Input::Admit {
+                ticket: AdmissionTicket(1),
+                request: command_with(ReplyShape::AckThenCompletion, retrying_buffer_full()),
+            },
+            now,
+        );
+        let id = admitted(&admitted_effects);
+        engine.handle(
+            Input::TransmissionFinished {
+                transmission: request_transmission(&admitted_effects),
+                result: Ok(TransmissionMeta { sequence: None }),
+            },
+            now,
+        );
+
+        let effects = engine.handle(
+            Input::Frame(DecodedFrame {
+                target: camera(),
+                sequence: None,
+                response: DecodedResponse::Error {
+                    socket: None,
+                    code: 0x05,
+                },
+            }),
+            now,
+        );
+        assert!(effects.iter().any(
+            |effect| matches!(effect, Effect::RetryScheduled { id: scheduled, .. } if *scheduled == id)
+        ));
+        assert!(!effects.iter().any(
+            |effect| matches!(effect, Effect::Terminal { id: terminal, .. } if *terminal == id)
+        ));
+        assert!(matches!(
+            engine.entry(id).map(Entry::phase),
+            Some(Phase::Backoff { .. })
+        ));
+        engine.assert_invariants().expect("engine invariants");
+    }
+
+    #[test]
+    fn raw_awaiting_terminal_cancel_no_socket_is_a_failed_observation() {
         let now = Instant::now();
         let (mut engine, id) = start_executing(EnvelopeKind::Raw, Duration::ZERO, now);
         let cancel = engine.handle(Input::Cancel { id }, now);
@@ -4076,6 +4319,19 @@ mod cancellation_regression_tests {
             },
             now,
         );
+        assert!(matches!(
+            (
+                engine.entry(id).map(Entry::phase),
+                engine.entry(id).map(Entry::cancellation),
+            ),
+            (
+                Some(Phase::AwaitingCancellationResolution {
+                    socket: ViscaSocket::S1,
+                    ..
+                }),
+                Some(CancelState::AwaitingTerminal { .. }),
+            )
+        ));
         let effects = engine.handle(
             Input::Frame(DecodedFrame {
                 target: camera(),

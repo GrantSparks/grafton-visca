@@ -15,7 +15,7 @@ use super::{
     cancellation_receipt_for, normalize_cancellation_observation, normalize_command_outcome,
     normalize_inquiry_outcome, prepend_effects, AppliedEffect, BlockingTransportAdapter,
     CancellationCore, CompletionObserver, DiagnosticEvent, OwnerInputTurn, OwnerPolicy, OwnerState,
-    ReceiptCore, ReceiptObservation, RejectedCancellation, RequestId, RuntimeOutcome,
+    ReceiptCore, ReceiptObservation, RejectedCancellation, RequestId, RequestLane, RuntimeOutcome,
     RuntimeRequest, ShutdownReason, TransmissionMeta, WaitSelection, WireWrite,
 };
 use crate::runtime::engine::{
@@ -382,7 +382,8 @@ impl BlockingSessionHost {
             // without waiting for an ACK that cannot make room for this
             // request. The owner turn is serialized by `parts`, so the probe
             // and the subsequent admission cannot race another submission.
-            owner.ensure_admission_capacity()?;
+            let (target, ack_budget) = prepared.preack_drain_hint();
+            owner.ensure_admission_capacity(target)?;
             // Issue #673: before the first-write submit, drain the raw
             // single-candidate pre-ACK gate if that alone is what blocks this
             // target. Without it, an emergency `stop_all_motion`/`Urgent` stop —
@@ -392,7 +393,6 @@ impl BlockingSessionHost {
             // the camera keeps moving. The drain pumps the peer's ACK (bounded
             // by this request's own ACK budget) so a command socket frees and
             // the subsequent first write wins.
-            let (target, ack_budget) = prepared.preack_drain_hint();
             owner.drain_raw_preack_gate(driver, reader, decoder, target, ack_budget)?;
             owner.submit_operation(driver, prepared)
         })
@@ -1149,12 +1149,15 @@ impl BlockingOwner {
     /// raw pre-ACK drain. The owner is caller-thread serialized, so the actual
     /// admission immediately afterward cannot lose the permit to another
     /// blocking submission.
-    fn ensure_admission_capacity(&self) -> Result<(), Error> {
+    fn ensure_admission_capacity(&mut self, target: crate::CameraId) -> Result<(), Error> {
         let permits = self.state.permits();
         let Some(probe) = permits.try_acquire() else {
-            return Err(Error::RuntimeQueueFull {
+            let error = Error::RuntimeQueueFull {
                 capacity: permits.capacity(),
-            });
+            };
+            self.state
+                .record_admission_rejection(target, RequestLane::Command, &error);
+            return Err(error);
         };
         drop(probe);
         Ok(())
@@ -1462,14 +1465,20 @@ impl BlockingOwner {
         submit_policy: SubmitPolicy,
     ) -> Result<ReceiptCore, Error> {
         let target = request.context().target;
+        let lane = if request.is_inquiry() {
+            RequestLane::Inquiry
+        } else {
+            RequestLane::Command
+        };
+        let permits = self.state.permits();
+        let Some(permit) = permits.try_acquire() else {
+            let error = Error::RuntimeQueueFull {
+                capacity: permits.capacity(),
+            };
+            self.state.record_admission_rejection(target, lane, &error);
+            return Err(error);
+        };
         let origin = self.state.origin();
-        let permit = self
-            .state
-            .permits()
-            .try_acquire()
-            .ok_or(Error::RuntimeQueueFull {
-                capacity: self.state.permits().capacity(),
-            })?;
         let (input, completion, admission) = self.state.stage_admission(request, permit);
         let Input::Admit { ticket, request } = input else {
             return Err(Error::InvalidState(
@@ -2226,12 +2235,12 @@ mod tests {
     use crate::{
         command::CommandKind,
         completion::AppliedOnly,
-        prepared::prepare_builtin_operation,
+        prepared::{prepare_builtin_command, prepare_builtin_operation},
         profile::ProfileSpec,
         profiles::GenericVisca,
-        request::builtin::ZoomDrive,
+        request::builtin::{FocusModeCommand, ZoomDrive},
         transport::{BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig},
-        CameraId, OperationalTuning,
+        CameraId, ErrorKind, OperationalTuning,
     };
 
     #[derive(Debug, Default)]
@@ -2345,7 +2354,56 @@ mod tests {
     }
 
     #[test]
-    fn full_admission_rejects_before_raw_preack_drain() {
+    fn ordinary_capacity_rejection_is_observable_without_admission() {
+        let profile = ProfileSpec::from_compile_time::<GenericVisca>().expect("built-in profile");
+        let mut owner = BlockingOwner::new(raw_owner_policy()).expect("blocking owner");
+        let mut driver = FaultDriver;
+
+        let first = prepare_builtin_operation::<AppliedOnly, _>(
+            &ZoomDrive::Tele,
+            CameraId::CAMERA_1,
+            &profile,
+            OperationalTuning::new(),
+        )
+        .expect("first operation");
+        let _first = owner
+            .submit_operation(&mut driver, first)
+            .expect("first operation is active");
+        let before = owner.state().metrics_snapshot();
+        assert_eq!(before.active, 1);
+        assert_eq!(before.pending, 0);
+        let _ = owner.drain_diagnostics();
+
+        let second = prepare_builtin_command(
+            &FocusModeCommand::Manual,
+            CameraId::CAMERA_1,
+            &profile,
+            OperationalTuning::new(),
+        )
+        .expect("second ordinary command");
+        let error = owner
+            .submit_command(&mut driver, second)
+            .expect_err("full admission capacity rejects an ordinary submission");
+        assert!(matches!(error, Error::RuntimeQueueFull { capacity: 1 }));
+
+        let after = owner.state().metrics_snapshot();
+        assert_eq!(after.admission_rejected, before.admission_rejected + 1);
+        assert_eq!(after.admitted, before.admitted);
+        assert_eq!(after.terminal, before.terminal);
+        assert_eq!(after.active, before.active);
+        assert_eq!(after.pending, before.pending);
+        assert_eq!(
+            owner.drain_diagnostics(),
+            vec![DiagnosticEvent::AdmissionRejected {
+                target: CameraId::CAMERA_1,
+                lane: RequestLane::Command,
+                error: ErrorKind::BufferFull,
+            }]
+        );
+    }
+
+    #[test]
+    fn operation_preprobe_capacity_rejection_is_observable_before_raw_preack_drain() {
         let counts = Arc::new(InteractionCounts::default());
         let transport = CountingTransport {
             config: TransportConfig::default(),
@@ -2376,6 +2434,10 @@ mod tests {
                 .state()
                 .raw_preack_gate_frees_socket_on_ack(CameraId::CAMERA_1)))
             .expect("inspect pre-ACK gate"));
+        let before = host.metrics().expect("metrics before rejection");
+        assert_eq!(before.active, 1);
+        assert_eq!(before.pending, 0);
+        let _ = host.drain_diagnostics().expect("initial diagnostics");
 
         let second = prepare_builtin_operation::<AppliedOnly, _>(
             &ZoomDrive::Tele,
@@ -2388,6 +2450,20 @@ mod tests {
             .submit_operation(second)
             .expect_err("full global admission must reject before draining the ACK");
         assert!(matches!(error, Error::RuntimeQueueFull { capacity: 1 }));
+        let after = host.metrics().expect("metrics after rejection");
+        assert_eq!(after.admission_rejected, before.admission_rejected + 1);
+        assert_eq!(after.admitted, before.admitted);
+        assert_eq!(after.terminal, before.terminal);
+        assert_eq!(after.active, before.active);
+        assert_eq!(after.pending, before.pending);
+        assert_eq!(
+            host.drain_diagnostics().expect("rejection diagnostics"),
+            vec![DiagnosticEvent::AdmissionRejected {
+                target: CameraId::CAMERA_1,
+                lane: RequestLane::Command,
+                error: ErrorKind::BufferFull,
+            }]
+        );
         assert_eq!(counts.writes.load(Ordering::SeqCst), 1);
         assert_eq!(counts.receives.load(Ordering::SeqCst), 0);
     }

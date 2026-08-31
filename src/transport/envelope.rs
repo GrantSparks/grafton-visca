@@ -17,14 +17,15 @@ use std::{
 };
 
 use crate::{
-    command::CommandKind,
+    command::{bytes::VISCA_TERMINATOR, CommandKind},
     protocol::sony::{PayloadType, SonyHeader},
     transport::builder::AddressingMode,
     Error,
 };
 
 /// Sony VISCA-over-IP carries a complete VISCA payload in one 8-byte-header
-/// envelope. The protocol permits one through sixteen payload bytes.
+/// envelope. The protocol permits one through sixteen payload bytes. Non-empty
+/// VISCA command, inquiry, and reply payloads end in [`VISCA_TERMINATOR`].
 const MIN_SONY_VISCA_PAYLOAD_LENGTH: usize = 1;
 const MAX_SONY_VISCA_PAYLOAD_LENGTH: usize = 16;
 
@@ -118,7 +119,9 @@ pub trait Envelope: private::Sealed + Send + Sync + 'static {
     /// # Returns
     ///
     /// Metadata about the framing operation (sequence number for Sony, None for Raw),
-    /// or a protocol validation error.
+    /// or a protocol validation error. A non-empty [`SonyEncapsulated`] VISCA
+    /// command or inquiry must be a complete frame ending in `0xFF`; its empty
+    /// input remains the legacy no-op sentinel.
     fn frame_into(
         &self,
         visca_bytes: &[u8],
@@ -263,6 +266,10 @@ impl Envelope for SonyEncapsulated {
             ))));
         }
 
+        // The header check has already excluded control/reset envelopes. Only
+        // a VISCA reply payload is required to end in `0xFF`.
+        validate_sony_response_payload_terminator(&framed[SonyHeader::SIZE..])?;
+
         // Extract VISCA payload using slice - zero-copy operation
         Ok((
             framed.slice(SonyHeader::SIZE..),
@@ -310,6 +317,7 @@ impl SonyEncapsulated {
         // a rejected raw request cannot consume a sequence or leave a partial
         // Sony frame behind.
         validate_sony_request_payload_length(visca_bytes.len())?;
+        validate_sony_request_payload_terminator(visca_bytes)?;
 
         // Allocate only for a new logical message. Retries provide their
         // engine-owned sequence explicitly and must not advance this counter.
@@ -388,6 +396,10 @@ impl SonyEncapsulated {
             ))));
         }
 
+        // Control/reset envelopes are rejected by the header check above
+        // rather than being treated as malformed VISCA messages.
+        validate_sony_response_payload_terminator(&framed_bytes[SonyHeader::SIZE..])?;
+
         // Extract VISCA payload - use slice to avoid allocation
         Ok(Bytes::copy_from_slice(&framed_bytes[SonyHeader::SIZE..]))
     }
@@ -421,6 +433,31 @@ fn validate_sony_request_payload_length(payload_length: usize) -> Result<(), Err
         return Err(Error::InvalidRequest(Cow::Owned(format!(
             "Sony VISCA-over-IP payload length must be between {MIN_SONY_VISCA_PAYLOAD_LENGTH} and {MAX_SONY_VISCA_PAYLOAD_LENGTH} bytes, got {payload_length}"
         ))));
+    }
+
+    Ok(())
+}
+
+/// Validate that an outgoing command or inquiry is a complete VISCA frame.
+/// Empty input is handled by the caller as a legacy envelope no-op before this
+/// helper is reached.
+fn validate_sony_request_payload_terminator(payload: &[u8]) -> Result<(), Error> {
+    if payload.last().copied() != Some(VISCA_TERMINATOR) {
+        return Err(Error::InvalidRequest(Cow::Borrowed(
+            "Sony VISCA-over-IP payload must end with the 0xFF VISCA terminator",
+        )));
+    }
+
+    Ok(())
+}
+
+/// Validate the VISCA terminator after the header has established that the
+/// packet is a reply rather than a control/reset envelope.
+fn validate_sony_response_payload_terminator(payload: &[u8]) -> Result<(), Error> {
+    if payload.last().copied() != Some(VISCA_TERMINATOR) {
+        return Err(Error::ParseError(Cow::Borrowed(
+            "Sony VISCA reply payload must end with the 0xFF VISCA terminator",
+        )));
     }
 
     Ok(())
@@ -640,19 +677,26 @@ mod tests {
     }
 
     #[test]
-    fn sony_outbound_frames_one_byte_payload() {
+    fn sony_outbound_requires_a_terminated_visca_payload() {
         let envelope = SonyEncapsulated::new(AddressingMode::Ip);
-        let visca_payload = [0x85];
-        let mut out = bytes::BytesMut::new();
+        let invalid_payload = [0x85];
+        let mut out = bytes::BytesMut::from(&b"prior framed bytes"[..]);
+        let original_out = out.clone();
 
+        assert!(matches!(
+            envelope.frame_into(&invalid_payload, CommandKind::Command, &mut out),
+            Err(Error::InvalidRequest(_))
+        ));
+        assert_eq!(out.as_ref(), original_out.as_ref());
+
+        let visca_payload = [0x85, VISCA_TERMINATOR];
         let meta = envelope
             .frame_into_with_sequence(&visca_payload, CommandKind::Command, None, &mut out)
-            .expect("one-byte Sony payload is within the wire limit");
-
+            .expect("terminated Sony VISCA payload is valid");
         assert_eq!(meta.sequence, Some(FrameSequence::Full32(0)));
         let header = SonyHeader::decode(&out[..SonyHeader::SIZE]).expect("valid header");
-        assert_eq!(header.payload_length, 1);
-        assert_eq!(&out[SonyHeader::SIZE..], &[0x81]);
+        assert_eq!(header.payload_length, 2);
+        assert_eq!(&out[SonyHeader::SIZE..], &[0x81, VISCA_TERMINATOR]);
     }
 
     #[test]
@@ -660,6 +704,7 @@ mod tests {
         let envelope = SonyEncapsulated::new(AddressingMode::Ip);
         let mut visca_payload = [0xa5; MAX_SONY_VISCA_PAYLOAD_LENGTH];
         visca_payload[0] = 0x85;
+        visca_payload[MAX_SONY_VISCA_PAYLOAD_LENGTH - 1] = VISCA_TERMINATOR;
         let mut out = bytes::BytesMut::new();
 
         let meta = envelope
@@ -696,7 +741,7 @@ mod tests {
             assert_eq!(out.as_ref(), original_out.as_ref());
         }
 
-        let valid_payload = [0x81];
+        let valid_payload = [0x81, VISCA_TERMINATOR];
         let meta = envelope
             .frame_into_with_sequence(&valid_payload, CommandKind::Command, None, &mut out)
             .expect("a rejected payload must not consume the first sequence");
@@ -769,7 +814,7 @@ mod tests {
         assert_eq!(out.len(), 0);
         assert_eq!(meta.sequence, None);
 
-        let valid_payload = [0x81];
+        let valid_payload = [0x81, VISCA_TERMINATOR];
         let next = envelope
             .frame_into_with_sequence(&valid_payload, CommandKind::Command, None, &mut out)
             .expect("empty no-op must not consume a sequence");
@@ -944,5 +989,44 @@ mod tests {
 
         assert_eq!(&payload[..], &visca_ack[..]);
         assert_eq!(meta.sequence, Some(FrameSequence::Full32(0x1234_002a)));
+    }
+
+    #[test]
+    fn sony_extract_paths_reject_unterminated_visca_replies() {
+        let envelope = SonyEncapsulated::new(AddressingMode::Ip);
+        let unterminated_reply = [0x90, 0x41, 0x00];
+        let header = SonyHeader::new_reply(unterminated_reply.len(), 42);
+        let mut framed = header.encode().to_vec();
+        framed.extend_from_slice(&unterminated_reply);
+
+        assert!(matches!(
+            envelope.extract_response(&framed),
+            Err(Error::ParseError(_))
+        ));
+        assert!(matches!(
+            envelope.extract_with_meta(Bytes::from(framed)),
+            Err(Error::ParseError(_))
+        ));
+    }
+
+    #[test]
+    fn sony_control_reply_is_not_reclassified_as_an_unterminated_visca_reply() {
+        let envelope = SonyEncapsulated::new(AddressingMode::Ip);
+        let header = SonyHeader {
+            payload_type: PayloadType::ControlReply,
+            payload_length: 1,
+            sequence_number: 42,
+        };
+        let mut framed = header.encode().to_vec();
+        framed.push(0x00);
+
+        let result = envelope.extract_response(&framed);
+        assert!(
+            matches!(
+                &result,
+                Err(Error::ParseError(message)) if message.contains("Unexpected Sony payload type")
+            ),
+            "control packets must be rejected by payload type before terminator validation, got {result:?}"
+        );
     }
 }

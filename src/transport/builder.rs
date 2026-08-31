@@ -41,10 +41,7 @@
 
 use std::time::Duration;
 
-use crate::transport::buffer::BufferConfig;
-
-#[cfg(feature = "blocking")]
-use crate::Error;
+use crate::{transport::buffer::BufferConfig, Error};
 
 /// Addressing mode for VISCA communication.
 ///
@@ -147,6 +144,32 @@ impl Default for TransportConfig {
             ttl: None,
             tcp_keepalive: Some(DEFAULT_TCP_KEEPALIVE),
         }
+    }
+}
+
+impl TransportConfig {
+    /// Validate buffer bounds that must hold before a transport is opened.
+    ///
+    /// The owner validates the same invariant when admitting a caller-owned
+    /// transport. Standard construction also needs it here, before a network
+    /// connector or serial-device initializer can perform I/O.
+    pub(crate) fn validate_buffer_bounds(&self) -> crate::Result<()> {
+        if self.buffer_config.recv_buffer_size == 0 {
+            return Err(Error::InvalidRequest(
+                "transport receive buffer must be non-zero".into(),
+            ));
+        }
+        if self.buffer_config.max_buffer_size == 0 {
+            return Err(Error::InvalidRequest(
+                "transport maximum buffer must be non-zero".into(),
+            ));
+        }
+        if self.buffer_config.recv_buffer_size > self.buffer_config.max_buffer_size {
+            return Err(Error::InvalidRequest(
+                "transport receive buffer cannot exceed maximum buffer".into(),
+            ));
+        }
+        Ok(())
     }
 }
 

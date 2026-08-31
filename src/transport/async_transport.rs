@@ -10,6 +10,53 @@ use crate::{
     Error,
 };
 
+/// Result of one transport receive with datagram-boundary information.
+///
+/// A byte stream always reports [`ReceiveOutcome::Complete`]. Datagram
+/// transports must not hand bytes to the protocol decoder unless the outcome
+/// is complete: a valid-looking prefix is not a complete datagram.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[must_use = "a receive outcome must be classified before its bytes are decoded"]
+pub enum ReceiveOutcome {
+    /// The complete payload was copied into the caller's buffer.
+    Complete {
+        /// Number of payload bytes copied.
+        bytes: usize,
+    },
+    /// The runtime/OS positively reported that the datagram was truncated.
+    Truncated {
+        /// Number of payload bytes copied before the tail was discarded.
+        copied: usize,
+    },
+    /// A legacy datagram receiver filled the supplied buffer but cannot report
+    /// whether a tail was discarded.
+    ///
+    /// This is deliberately rejected just like [`Self::Truncated`]. It keeps
+    /// existing custom transports source-compatible while making the fallback
+    /// safe: implementations that can distinguish an exact fit from
+    /// truncation should override [`AsyncTransport::recv_into_with_outcome`].
+    PossiblyTruncated {
+        /// Number of payload bytes copied.
+        copied: usize,
+    },
+}
+
+impl ReceiveOutcome {
+    /// Number of payload bytes copied into the supplied buffer.
+    pub const fn copied_len(self) -> usize {
+        match self {
+            Self::Complete { bytes }
+            | Self::Truncated { copied: bytes }
+            | Self::PossiblyTruncated { copied: bytes } => bytes,
+        }
+    }
+
+    /// Whether all payload bytes are known to have been copied.
+    pub const fn is_complete(self) -> bool {
+        matches!(self, Self::Complete { .. })
+    }
+}
+
 /// Async transport for VISCA communication.
 ///
 /// This trait uses return-position impl trait in traits (RPITIT) with explicit
@@ -79,8 +126,11 @@ pub trait AsyncTransport: Send {
     ///
     /// The runtime never guesses: the value this method returns decides whether
     /// the session lives, and whether every command still waiting for its ACK
-    /// is retransmitted. A failed read must consume nothing, so that the
-    /// runtime's framing state stays intact.
+    /// is retransmitted. An ordinary failed read must consume nothing, so that
+    /// the runtime's framing state stays intact. The one exception is a UDP
+    /// `Error::ResponseTooLarge`: that legacy spelling means the transport
+    /// deliberately discarded one consumed over-size datagram. Owners use
+    /// [`AsyncTransport::recv_into_with_outcome`] to preserve that distinction.
     ///
     /// - `Ok(n)` with `n > 0` — bytes were read. Returning fewer bytes than a
     ///   whole frame is normal and is not an error; the runtime buffers the
@@ -133,6 +183,35 @@ pub trait AsyncTransport: Send {
         &'a mut self,
         dst: &'a mut [u8],
     ) -> impl Future<Output = Result<usize, Error>> + Send;
+
+    /// Receive raw bytes together with whether a datagram fitted in `dst`.
+    ///
+    /// This supplements [`AsyncTransport::recv_into`] without changing its
+    /// signature. Existing implementations remain source-compatible: the
+    /// default calls `recv_into`, and a full destination buffer from a
+    /// datagram transport is conservatively returned as
+    /// [`ReceiveOutcome::PossiblyTruncated`]. A custom datagram transport that
+    /// can observe its runtime's truncation indication should override this
+    /// method, returning [`ReceiveOutcome::Complete`] for a known exact fit
+    /// and [`ReceiveOutcome::Truncated`] when a tail was discarded.
+    ///
+    /// Wrappers must forward this method to their inner transport, just as
+    /// they forward [`AsyncTransport::recv_into`] and
+    /// [`AsyncTransport::send_semantics`].
+    fn recv_into_with_outcome<'a>(
+        &'a mut self,
+        dst: &'a mut [u8],
+    ) -> impl Future<Output = Result<ReceiveOutcome, Error>> + Send {
+        async move {
+            let capacity = dst.len();
+            let bytes = self.recv_into(dst).await?;
+            if self.send_semantics() == SendSemantics::Datagram && bytes == capacity {
+                Ok(ReceiveOutcome::PossiblyTruncated { copied: bytes })
+            } else {
+                Ok(ReceiveOutcome::Complete { bytes })
+            }
+        }
+    }
 
     /// Return a side-effect-free hint for the transport's VISCA addressing mode.
     ///

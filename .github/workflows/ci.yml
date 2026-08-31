@@ -96,6 +96,8 @@ jobs:
             command: --no-default-features --features transport-serial --all-targets
           - name: Tokio serial
             command: --no-default-features --features runtime-tokio,transport-serial-tokio --all-targets
+          - name: smol + Tokio serial API contract
+            command: --no-default-features --features runtime-smol,transport-serial-tokio --test api_stability_test
           # Compatibility-only union: the async runtime alongside the *blocking*
           # serial dependency. This is the leg the README feature-union table
           # promises; `transport-serial-tokio` above is a different tree.
@@ -231,6 +233,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@2eae45db285e407f22119950686d47e1101e071b # 1.88.0
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - run: cargo check --workspace --all-targets
+      - run: cargo +1.88.0 check --workspace --all-targets --no-default-features
       - run: cargo check --lib --no-default-features --features async
       - run: cargo check --lib --no-default-features --features runtime-tokio,dyn-api
 

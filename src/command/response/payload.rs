@@ -119,8 +119,8 @@ impl<'a> Payload<'a> {
     /// # Errors
     ///
     /// Returns an error if:
-    /// - The payload is empty (`InvalidResponseLength`)
-    /// - The first byte is not `0x02` or `0x03` (`InvalidParameter`)
+    /// - The payload is not exactly one byte (`InvalidResponseLength`)
+    /// - The byte is not `0x02` or `0x03` (`InvalidParameter`)
     ///
     /// # Examples
     ///
@@ -136,7 +136,7 @@ impl<'a> Payload<'a> {
         param_name: &'static str,
         convention: BoolConvention,
     ) -> Result<bool, Error> {
-        if self.0.is_empty() {
+        if self.0.len() != 1 {
             return Err(Error::invalid_response_length(1, self.0));
         }
         let byte = self.0[0];
@@ -549,6 +549,23 @@ mod tests {
             Err(Error::InvalidResponseLength {
                 expected: 1,
                 actual: 0,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn test_parse_bool_rejects_trailing_payload_bytes() {
+        let data = [0x02, 0x00];
+        let payload = Payload::new(&data);
+
+        let result = payload.parse_bool("test_param", BoolConvention::OnIs03);
+
+        assert!(matches!(
+            result,
+            Err(Error::InvalidResponseLength {
+                expected: 1,
+                actual: 2,
                 ..
             })
         ));

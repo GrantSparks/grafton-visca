@@ -241,6 +241,27 @@ macro_rules! __impl_typed_support_marker {
     (PtzOpticsSnapFocus for $profile:ty) => {
         impl $crate::capabilities::HasPtzOpticsSnapFocus for $profile {}
     };
+    (PtzOpticsAntiFlicker for $profile:ty) => {
+        impl $crate::capabilities::HasPtzOpticsAntiFlicker for $profile {}
+    };
+    (PtzOpticsSettingsSave for $profile:ty) => {
+        impl $crate::capabilities::HasPtzOpticsSettingsSave for $profile {}
+    };
+    (PtzOpticsPresetRecallSpeed for $profile:ty) => {
+        impl $crate::capabilities::HasPtzOpticsPresetRecallSpeed for $profile {}
+    };
+    (SonySpotlight for $profile:ty) => {
+        impl $crate::capabilities::HasSonySpotlight for $profile {}
+    };
+    (SonyAutoSlowShutter for $profile:ty) => {
+        impl $crate::capabilities::HasSonyAutoSlowShutter for $profile {}
+    };
+    (PtzOpticsMulticastStreaming for $profile:ty) => {
+        impl $crate::capabilities::HasPtzOpticsMulticastStreaming for $profile {}
+    };
+    (PtzOpticsNdiQuality for $profile:ty) => {
+        impl $crate::capabilities::HasPtzOpticsNdiQuality for $profile {}
+    };
     (FocusLock for $profile:ty) => {
         impl $crate::capabilities::HasFocusLock for $profile {}
     };
@@ -1031,6 +1052,25 @@ macro_rules! __define_builtin_profiles {
                 $crate::capabilities::TypedSupportSurface::PtzOpticsSnapFocus => {
                     "HasPtzOpticsSnapFocus"
                 }
+                $crate::capabilities::TypedSupportSurface::PtzOpticsAntiFlicker => {
+                    "HasPtzOpticsAntiFlicker"
+                }
+                $crate::capabilities::TypedSupportSurface::PtzOpticsSettingsSave => {
+                    "HasPtzOpticsSettingsSave"
+                }
+                $crate::capabilities::TypedSupportSurface::PtzOpticsPresetRecallSpeed => {
+                    "HasPtzOpticsPresetRecallSpeed"
+                }
+                $crate::capabilities::TypedSupportSurface::SonySpotlight => "HasSonySpotlight",
+                $crate::capabilities::TypedSupportSurface::SonyAutoSlowShutter => {
+                    "HasSonyAutoSlowShutter"
+                }
+                $crate::capabilities::TypedSupportSurface::PtzOpticsMulticastStreaming => {
+                    "HasPtzOpticsMulticastStreaming"
+                }
+                $crate::capabilities::TypedSupportSurface::PtzOpticsNdiQuality => {
+                    "HasPtzOpticsNdiQuality"
+                }
                 $crate::capabilities::TypedSupportSurface::FocusLock => "HasFocusLock",
                 $crate::capabilities::TypedSupportSurface::PushAutoFocus => "HasPushAutoFocus",
                 $crate::capabilities::TypedSupportSurface::FocusZone => "HasFocusZone",
@@ -1786,6 +1826,41 @@ macro_rules! __define_builtin_profiles {
                     "Direct menu controls",
                     $crate::capabilities::TypedSupportSurface::DirectMenu,
                 );
+                assert_row(
+                    readme,
+                    "PTZOptics anti-flicker control",
+                    $crate::capabilities::TypedSupportSurface::PtzOpticsAntiFlicker,
+                );
+                assert_row(
+                    readme,
+                    "PTZOptics settings-save command",
+                    $crate::capabilities::TypedSupportSurface::PtzOpticsSettingsSave,
+                );
+                assert_row(
+                    readme,
+                    "PTZOptics preset-recall speed control",
+                    $crate::capabilities::TypedSupportSurface::PtzOpticsPresetRecallSpeed,
+                );
+                assert_row(
+                    readme,
+                    "Sony spotlight controls",
+                    $crate::capabilities::TypedSupportSurface::SonySpotlight,
+                );
+                assert_row(
+                    readme,
+                    "Sony automatic slow-shutter controls",
+                    $crate::capabilities::TypedSupportSurface::SonyAutoSlowShutter,
+                );
+                assert_row(
+                    readme,
+                    "PTZOptics multicast-streaming controls",
+                    $crate::capabilities::TypedSupportSurface::PtzOpticsMulticastStreaming,
+                );
+                assert_row(
+                    readme,
+                    "PTZOptics NDI-quality control",
+                    $crate::capabilities::TypedSupportSurface::PtzOpticsNdiQuality,
+                );
                 assert_literal_row(
                     readme,
                     "Motion Sync controls and inquiries",
@@ -2207,6 +2282,11 @@ macro_rules! define_builtin_profiles {
                     variable_speed: { supported: false },
                     usb_audio: { supported: true },
                     typed_support: [
+                        PtzOpticsAntiFlicker,
+                        PtzOpticsSettingsSave,
+                        PtzOpticsPresetRecallSpeed,
+                        PtzOpticsMulticastStreaming,
+                        PtzOpticsNdiQuality,
                         ExposureCompensation,
                         BrightnessControl,
                         FocusLock,
@@ -2388,6 +2468,11 @@ macro_rules! define_builtin_profiles {
                     variable_speed: { supported: false },
                     usb_audio: { supported: false },
                     typed_support: [
+                        PtzOpticsAntiFlicker,
+                        PtzOpticsSettingsSave,
+                        PtzOpticsPresetRecallSpeed,
+                        PtzOpticsMulticastStreaming,
+                        PtzOpticsNdiQuality,
                         ExposureCompensation,
                         BrightnessControl,
                         FocusLock,
@@ -2568,6 +2653,11 @@ macro_rules! define_builtin_profiles {
                     variable_speed: { supported: false },
                     usb_audio: { supported: true },
                     typed_support: [
+                        PtzOpticsAntiFlicker,
+                        PtzOpticsSettingsSave,
+                        PtzOpticsPresetRecallSpeed,
+                        PtzOpticsMulticastStreaming,
+                        PtzOpticsNdiQuality,
                         ExposureCompensation,
                         BrightnessControl,
                         FocusLock,
@@ -2752,6 +2842,8 @@ macro_rules! define_builtin_profiles {
                     nd_filter: { mode: $crate::capabilities::NdFilterMode::Variable, steps: None },
                     variable_speed: { supported: true },
                     typed_support: [
+                        SonySpotlight,
+                        SonyAutoSlowShutter,
                         ExposureCompensation,
                         PushAutoFocus,
                         DirectZoom,
@@ -2938,6 +3030,8 @@ macro_rules! define_builtin_profiles {
                     nd_filter: { mode: $crate::capabilities::NdFilterMode::None, steps: None },
                     variable_speed: { supported: false },
                     typed_support: [
+                        SonySpotlight,
+                        SonyAutoSlowShutter,
                         DirectZoom,
                         DigitalZoomToggle,
                         DigitalZoomRange,
@@ -3108,6 +3202,8 @@ macro_rules! define_builtin_profiles {
                     nd_filter: { mode: $crate::capabilities::NdFilterMode::None, steps: None },
                     variable_speed: { supported: false },
                     typed_support: [
+                        SonySpotlight,
+                        SonyAutoSlowShutter,
                         DirectZoom,
                         FocusNearLimitInquiry,
                         BacklightCompensation,
@@ -3266,6 +3362,8 @@ macro_rules! define_builtin_profiles {
                     nd_filter: { mode: $crate::capabilities::NdFilterMode::None, steps: None },
                     variable_speed: { supported: false },
                     typed_support: [
+                        SonySpotlight,
+                        SonyAutoSlowShutter,
                         DirectZoom,
                         FocusNearLimitInquiry,
                         BacklightCompensation,
@@ -3417,6 +3515,8 @@ macro_rules! define_builtin_profiles {
                     nd_filter: { mode: $crate::capabilities::NdFilterMode::None, steps: None },
                     variable_speed: { supported: false },
                     typed_support: [
+                        SonySpotlight,
+                        SonyAutoSlowShutter,
                         DirectZoom,
                         FocusNearLimitInquiry,
                         BacklightCompensation,

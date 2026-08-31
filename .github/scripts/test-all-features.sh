@@ -120,6 +120,8 @@ run_test "blocking serial transport" \
     cargo_stable test --no-default-features --features transport-serial --all-targets
 run_test "Tokio serial transport" \
     cargo_stable test --no-default-features --features runtime-tokio,transport-serial-tokio --all-targets
+run_test "smol + Tokio serial API contract" \
+    cargo_stable test --no-default-features --features runtime-smol,transport-serial-tokio --test api_stability_test
 run_test "Tokio + blocking serial transport" \
     cargo_stable test --no-default-features --features runtime-tokio,transport-serial --all-targets
 run_test "serde + schemars + ts-rs" \
